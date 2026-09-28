@@ -36,7 +36,7 @@ async function fixture() {
     users[accountId] = user.id;
   }
   const owner = users.owner!;
-  const vault = store.vaults.createVault({ userId: owner, name: "DDRPHY", ownerCanExport: true });
+  const vault = store.vaults.createVault({ userId: owner, name: "DDRPHY" });
   return {
     store,
     vaults: store.vaults,
@@ -57,7 +57,6 @@ describe("Shared Knowledge Vault boundary", () => {
       vaultId: vault.id,
       memberUserId: reader,
       role: "reader",
-      canExport: false,
     });
     const save = (logicalPath: string, content = "Fact") =>
       vaults.saveDocument({
@@ -73,7 +72,6 @@ describe("Shared Knowledge Vault boundary", () => {
     const privateVault = vaults.createVault({
       userId: owner,
       name: "Private",
-      ownerCanExport: true,
     });
     const privateDoc = vaults.saveDocument({
       userId: owner,
@@ -91,6 +89,18 @@ describe("Shared Knowledge Vault boundary", () => {
     const snapshot = () => vaults.snapshot({ userId: reader, vaultId: vault.id }).selected!;
     expect(snapshot().documents.map((doc) => doc.id)).toContain(orphan.id);
     expect(snapshot().documents.map((doc) => doc.id)).not.toContain(privateDoc.id);
+    const publicSource = vaults.readDocument({
+      userId: reader,
+      vaultId: vault.id,
+      documentId: source.id,
+    });
+    expect(publicSource.links.find((link) => link.logicalPath === "foreign.md")).toEqual({
+      target: "foreign.md",
+      documentId: null,
+      logicalPath: "foreign.md",
+      title: "foreign.md",
+    });
+    expect(JSON.stringify(publicSource)).not.toContain("Private secret");
     expect(snapshot().graph).toEqual({
       edges: [{ source: source.id, target: target.id }],
       unresolvedLinks: 2,
@@ -189,15 +199,22 @@ describe("Shared Knowledge Vault boundary", () => {
   });
   it("persists independent connection choices and auto-connects new and imported owned Vaults", async () => {
     const { vaults, vault, owner, reader, databasePath } = await fixture();
-    expect(vaults.connectionScope(owner)).toEqual({ revision: 1, vaultIds: [vault.id] });
+    expect(vaults.connectionScope(owner)).toEqual({
+      revision: 1,
+      vaultIds: [vault.id],
+      personalEnabled: true,
+    });
     vaults.setMember({
       userId: owner,
       vaultId: vault.id,
       memberUserId: reader,
       role: "reader",
-      canExport: false,
     });
-    expect(vaults.connectionScope(reader)).toEqual({ revision: 0, vaultIds: [] });
+    expect(vaults.connectionScope(reader)).toEqual({
+      revision: 1,
+      vaultIds: [vault.id],
+      personalEnabled: true,
+    });
     vaults.setConnection({ userId: reader, vaultId: vault.id, connected: true });
     vaults.setConnection({ userId: reader, vaultId: vault.id, connected: true });
     expect(vaults.connectionScope(reader).revision).toBe(1);
@@ -206,15 +223,20 @@ describe("Shared Knowledge Vault boundary", () => {
       expect(new SqliteKnowledgeVaultStore(db).connectionScope(reader)).toEqual({
         revision: 1,
         vaultIds: [vault.id],
+        personalEnabled: true,
       });
     } finally {
       db.close();
     }
     vaults.removeMember({ userId: owner, vaultId: vault.id, memberUserId: reader });
-    expect(vaults.connectionScope(reader)).toEqual({ revision: 2, vaultIds: [] });
+    expect(vaults.connectionScope(reader)).toEqual({
+      revision: 2,
+      vaultIds: [],
+      personalEnabled: true,
+    });
     const copy = await vaults.importVault({
       userId: owner,
-      ownerCanExport: true,
+
       archive: await vaults.exportVault({ userId: owner, vaultId: vault.id }),
     });
     expect(vaults.connectionScope(owner).vaultIds).toEqual([vault.id, copy.id].toSorted());
@@ -225,7 +247,6 @@ describe("Shared Knowledge Vault boundary", () => {
     const second = vaults.createVault({
       userId: owner,
       name: "Other project",
-      ownerCanExport: true,
     });
     vaults.saveDocument({
       userId: owner,
@@ -279,21 +300,19 @@ describe("Shared Knowledge Vault boundary", () => {
       }),
     ).toThrow("1-16");
   });
-  it("enforces membership, roles, separate export permission and last active Owner", async () => {
+  it("enforces membership, roles, role-based export permission and last active Owner", async () => {
     const { vaults, vault, owner, reader, editor, outsider, databasePath } = await fixture();
     vaults.setMember({
       userId: owner,
       vaultId: vault.id,
       accountId: "reader",
       role: "reader",
-      canExport: false,
     });
     vaults.setMember({
       userId: owner,
       vaultId: vault.id,
       memberUserId: editor,
       role: "editor",
-      canExport: false,
     });
     const doc = vaults.saveDocument({
       userId: owner,
@@ -338,21 +357,19 @@ describe("Shared Knowledge Vault boundary", () => {
         vaultId: vault.id,
         memberUserId: outsider,
         role: "reader",
-        canExport: false,
       }),
     ).toThrow(/unavailable/u);
     expect(() =>
       vaults.removeMember({ userId: owner, vaultId: vault.id, memberUserId: owner }),
-    ).toThrow(/last Owner/u);
+    ).toThrow(/last effective Owner/u);
     vaults.setMember({
       userId: owner,
       vaultId: vault.id,
       memberUserId: reader,
       role: "reader",
-      canExport: true,
     });
     expect(
-      (await vaults.exportVault({ userId: reader, vaultId: vault.id })).length,
+      (await vaults.exportVault({ userId: editor, vaultId: vault.id })).length,
     ).toBeGreaterThan(0);
     vaults.removeMember({ userId: owner, vaultId: vault.id, memberUserId: reader });
     expect(vaults.search({ userId: reader, query: "LPDDR" })).toEqual([]);
@@ -385,7 +402,10 @@ describe("Shared Knowledge Vault boundary", () => {
       content: original,
     });
     expect(doc.content).toBe(original);
-    expect(doc.links).toEqual([expect.objectContaining({ documentId: target.id })]);
+    expect(doc.links).toEqual([
+      { target: "bad%xx.md", documentId: null, logicalPath: "bad%xx.md", title: "bad%xx.md" },
+      expect.objectContaining({ documentId: target.id }),
+    ]);
     vaults.saveDocument({
       userId: owner,
       vaultId: vault.id,
@@ -406,6 +426,7 @@ describe("Shared Knowledge Vault boundary", () => {
     const read = vaults.readDocument({ userId: owner, vaultId: vault.id, documentId: doc.id });
     expect(read.content).toBe(original);
     expect(read.links).toEqual([
+      { target: "bad%xx.md", documentId: null, logicalPath: "bad%xx.md", title: "bad%xx.md" },
       expect.objectContaining({ documentId: target.id, logicalPath: "spec/phy.md" }),
     ]);
     expect(
@@ -565,7 +586,7 @@ describe("Shared Knowledge Vault boundary", () => {
     expect(await zip.file("documents/spec/lpddr.md")!.async("nodebuffer")).toEqual(
       Buffer.from(content),
     );
-    const imported = await vaults.importVault({ userId: reader, archive, ownerCanExport: true });
+    const imported = await vaults.importVault({ userId: reader, archive });
     expect(imported.id).not.toBe(vault.id);
     const snapshot = vaults.snapshot({ userId: reader, vaultId: imported.id }).selected!;
     expect(snapshot.members).toEqual([expect.objectContaining({ userId: reader, role: "owner" })]);
@@ -584,7 +605,7 @@ describe("Shared Knowledge Vault boundary", () => {
         path: "waveforms/data.bin",
       }).content,
     ).toEqual(Buffer.from([0, 1, 2, 255]));
-    expect(vaults.listVaults(owner)).toHaveLength(1);
+    expect(vaults.listVaults(owner).filter((item) => item.canRead)).toHaveLength(1);
     const maliciousMetadata = JSON.parse(await zip.file("vault.json")!.async("string"));
     maliciousMetadata.attachments[0].mediaType = "text/plain\r\nX-Injected: value";
     zip.file("vault.json", JSON.stringify(maliciousMetadata));
@@ -592,10 +613,9 @@ describe("Shared Knowledge Vault boundary", () => {
       vaults.importVault({
         userId: reader,
         archive: await zip.generateAsync({ type: "nodebuffer" }),
-        ownerCanExport: true,
       }),
     ).rejects.toThrow(/MIME/u);
-    expect(vaults.listVaults(reader)).toHaveLength(1);
+    expect(vaults.listVaults(reader).filter((item) => item.canRead)).toHaveLength(1);
     expect(() =>
       vaults.uploadAttachment({
         userId: owner,
@@ -611,9 +631,8 @@ describe("Shared Knowledge Vault boundary", () => {
       vaults.importVault({
         userId: reader,
         archive: await hostile.generateAsync({ type: "nodebuffer" }),
-        ownerCanExport: true,
       }),
     ).rejects.toThrow();
-    expect(vaults.listVaults(reader)).toHaveLength(1);
+    expect(vaults.listVaults(reader).filter((item) => item.canRead)).toHaveLength(1);
   });
 });

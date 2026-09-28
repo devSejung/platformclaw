@@ -537,6 +537,7 @@ export async function buildPreparedCompactionRuntime(prepared: DirectCompactionP
     const promptContribution =
       runtimePlan.prompt.resolveSystemPromptContribution(promptContributionContext);
     const preparedMemoryPrompt = await prepareAgentMemoryPrompt({
+      runId: params.runId,
       enabled: promptMode === "full",
       toolNames: effectiveTools.map((tool) => tool.name),
       citationsMode: params.config?.memory?.citations,

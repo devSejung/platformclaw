@@ -429,7 +429,7 @@ export function createMemorySearchTool(options: {
           return jsonResult({
             results: [],
             error: "Choose only vaultId or vaultName.",
-            action: "Use the explicitly selected ID or exact Shared/Managed name, never both.",
+            action: "Use the explicitly selected ID or exact Shared Wiki name, never both.",
           });
         }
         const maxResults = Math.min(50, readPositiveIntegerParam(rawParams, "maxResults") ?? 10);

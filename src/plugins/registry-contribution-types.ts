@@ -133,6 +133,7 @@ export type MemoryEmbeddingProviderAdapter = Omit<
 };
 
 export type MemoryPromptSectionParams = {
+  runId?: string;
   availableTools: Set<string>;
   citationsMode?: MemoryCitationsMode;
   agentId?: string;
@@ -158,6 +159,8 @@ export type PreparedMemoryPromptSection = Readonly<{
 }>;
 
 export type MemoryCorpusSearchResult = {
+  /** Owner-generated same-Wiki Markdown, ready to insert without path guessing. */
+  link?: string;
   /** Vault identity is supplied by the owning backend after authorization. */
   vaultId?: string;
   vaultName?: string;
@@ -186,6 +189,18 @@ export type MemoryCorpusSearchResult = {
 };
 
 export type MemoryCorpusGetResult = {
+  link?: string;
+  vaultId?: string;
+  vaultName?: string;
+  vaultType?: "personal" | "shared" | "managed";
+  documentId?: string;
+  revision?: string | number;
+  editMode?: "body" | "notes" | null;
+  editableContent?: string;
+  readOnlyReason?: string;
+  totalLines?: number;
+  truncated?: boolean;
+  nextFromLine?: number;
   corpus: string;
   path: string;
   title?: string;
@@ -201,6 +216,10 @@ export type MemoryCorpusGetResult = {
 };
 
 export type MemoryCorpusSupplement = {
+  /** Owner-prepared Wiki selection; excludes raw automatic Memory and explicit document access. */
+  scope?(context: { runId?: string; agentId?: string }): Promise<{ personalWikiEnabled: boolean }>;
+  /** Return null only when this owner does not own the explicitly selected vault. */
+  wiki?(params: MemoryWikiOperation): Promise<MemoryWikiOperationResult | null>;
   /** Include this corpus when memory_search omits corpus. Explicit narrow corpora still win. */
   includeByDefault?: boolean;
   status?: () =>
@@ -228,6 +247,23 @@ export type MemoryCorpusSupplement = {
     sandboxed?: boolean;
   }): Promise<MemoryCorpusGetResult | null>;
 };
+
+export type MemoryWikiOperation = {
+  agentId?: string;
+  runId?: string;
+  vaultId?: string;
+  vaultName?: string;
+  operation: "status" | "lint" | "apply";
+  mutation?: {
+    op: "create" | "update" | "refresh";
+    title?: string;
+    body?: string;
+    lookup?: string;
+    expectedRevision?: string;
+  };
+};
+
+export type MemoryWikiOperationResult = { text: string; details: Record<string, unknown> };
 
 export type MemoryCorpusSupplementRegistration = {
   pluginId: string;

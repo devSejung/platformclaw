@@ -1,7 +1,7 @@
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
-import type { OrganizationMemoryClient, VaultTurnScope } from "./client.js";
+import type { WikiHubMemoryClient, VaultTurnScope } from "./client.js";
 
 const NAMESPACE = "vault-connections";
 
@@ -9,6 +9,7 @@ function readScope(value: unknown): VaultTurnScope {
   const scope = asOptionalRecord(value);
   if (
     !scope ||
+    typeof scope.personalEnabled !== "boolean" ||
     !Number.isSafeInteger(scope.revision) ||
     (scope.revision as number) < 0 ||
     !Array.isArray(scope.vaultIds) ||
@@ -21,17 +22,26 @@ function readScope(value: unknown): VaultTurnScope {
   ) {
     throw new Error("Invalid vault connection snapshot");
   }
-  return { revision: scope.revision as number, vaultIds: scope.vaultIds };
+  return {
+    revision: scope.revision as number,
+    vaultIds: scope.vaultIds,
+    personalEnabled: scope.personalEnabled,
+  };
 }
 
 /** The host owns run-state cleanup; retries reuse the first prepared selection. */
 export function createVaultTurnScopeController(
   api: Pick<OpenClawPluginApi, "runContext" | "logger">,
-  client: Pick<OrganizationMemoryClient, "captureScope">,
+  client: Pick<WikiHubMemoryClient, "captureScope">,
 ) {
-  return {
+  const pending = new Map<string, Promise<void>>();
+  const controller = {
     async prepare(context: { runId?: string; agentId?: string }) {
       const { runId, agentId } = context;
+      if (runId && pending.has(runId)) {
+        await pending.get(runId);
+        return;
+      }
       if (
         !runId ||
         !agentId ||
@@ -49,23 +59,44 @@ export function createVaultTurnScopeController(
       ) {
         return;
       }
+      const task = (async () => {
+        try {
+          const scope = readScope(await client.captureScope({ agentId }));
+          api.runContext.setRunContext({
+            runId,
+            namespace: NAMESPACE,
+            value: { agentId, status: "ready", scope },
+          });
+        } catch (error) {
+          api.runContext.setRunContext({
+            runId,
+            namespace: NAMESPACE,
+            value: { agentId, status: "failed" },
+          });
+          api.logger.warn(
+            `Vault connections unavailable for this turn: ${formatErrorMessage(error).slice(0, 500)}`,
+          );
+        }
+      })();
+      pending.set(runId, task);
       try {
-        const scope = readScope(await client.captureScope({ agentId }));
-        api.runContext.setRunContext({
-          runId,
-          namespace: NAMESPACE,
-          value: { agentId, status: "ready", scope },
-        });
-      } catch (error) {
-        api.runContext.setRunContext({
-          runId,
-          namespace: NAMESPACE,
-          value: { agentId, status: "failed" },
-        });
-        api.logger.warn(
-          `Vault connections unavailable for this turn: ${formatErrorMessage(error).slice(0, 500)}`,
-        );
+        await task;
+      } finally {
+        pending.delete(runId);
       }
+    },
+    async resolve(
+      this: void,
+      context: { runId?: string; agentId?: string },
+    ): Promise<VaultTurnScope> {
+      if (!context.agentId) {
+        throw new Error("Wiki scope requires an agent owner");
+      }
+      if (!context.runId) {
+        return readScope(await client.captureScope({ agentId: context.agentId }));
+      }
+      await controller.prepare(context);
+      return controller.get({ ...context, agentId: context.agentId })!;
     },
     get(this: void, context: { runId?: string; agentId: string }): VaultTurnScope | undefined {
       if (!context.runId) {
@@ -93,4 +124,5 @@ export function createVaultTurnScopeController(
       return readScope(state.scope);
     },
   };
+  return controller;
 }

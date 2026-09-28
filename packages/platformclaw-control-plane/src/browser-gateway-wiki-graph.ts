@@ -39,10 +39,12 @@ export function projectWikiGraph(
       return fail("Gateway returned invalid wiki graph node kind");
     }
     const updatedAt = optionalText(node.updatedAt, "wiki graph node updatedAt", fail, 256);
+    const snippet = optionalText(node.snippet, "wiki graph node snippet", fail, 320);
     return {
       id: wikiPath(node.id, "wiki graph node id", fail),
       title: text(node.title, "wiki graph node title", fail),
       kind,
+      ...(snippet ? { snippet } : {}),
       ...(updatedAt ? { updatedAt } : {}),
     };
   });

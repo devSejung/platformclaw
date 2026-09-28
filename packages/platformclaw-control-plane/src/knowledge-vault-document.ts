@@ -64,3 +64,34 @@ export function resolveKnowledgeVaultDocumentMetadata(
   }
   return { title, logicalPath };
 }
+
+/** Preserve the authored prefix verbatim; only a valid YAML map is metadata. */
+export function knowledgeVaultEditableSource(source: string): { prefix: string; body: string } {
+  const frontmatter = extractFrontmatterBlock(source);
+  if (!frontmatter) {
+    return { prefix: "", body: source };
+  }
+  const parsed = parseDocument(frontmatter.block, { schema: "core", prettyErrors: false });
+  if (parsed.errors.length || !isMap(parsed.contents)) {
+    return { prefix: "", body: source };
+  }
+  const delimiters =
+    /^(?:\uFEFF)?---[^\S\r\n]*(?:\r\n|\n|\r)[\s\S]*?^---[^\S\r\n]*(?:(?:\r\n|\n|\r)|$)/mu.exec(
+      source,
+    );
+  if (!delimiters || delimiters.index !== 0) {
+    return { prefix: "", body: source };
+  }
+  const prefix = delimiters[0];
+  return { prefix, body: source.slice(prefix.length) };
+}
+
+export function knowledgeVaultBodySnippet(source: string): string {
+  const body = knowledgeVaultEditableSource(source).body;
+  return body
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^(?:#{1,6}\s|```|~~~|<!--)/u.test(line))
+    .join(" ")
+    .slice(0, 240);
+}

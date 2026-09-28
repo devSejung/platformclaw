@@ -1,4 +1,25 @@
 export const vaultTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.vault.linksTruncated":
+    "Only part of the document links is shown. Links beyond this limit are not available in this reader.",
+  "platformClaw.vault.insertLink": "Document link",
+  "platformClaw.vault.linkPickerHint":
+    "Choose a document from this Wiki. Its link will replace the selected text or be inserted at the cursor.",
+  "platformClaw.vault.findLinkDocument": "Search documents in this Wiki",
+  "platformClaw.vault.insertLinkAction": "Insert link",
+  "platformClaw.vault.noLinkDocuments": "No matching documents in this Wiki.",
+  "platformClaw.vault.linkMoreResults": "More documents match. Refine your search.",
+  "platformClaw.vault.backToDraft": "Back to draft",
+
+  "platformClaw.vault.connectionCapacity":
+    "AI reference could not be enabled because its limit was reached. Turn off another vault, then enable this one.",
+  "platformClaw.vault.attachmentsTruncated":
+    "Only part of the attachment list is shown. The vault ZIP includes every attachment within the export limits.",
+  "platformClaw.vault.recoverOwner": "Assign a new Owner",
+  "platformClaw.vault.recoverOwnerHint":
+    "This vault has no active Owner. Choose a person to take ownership. Administrative recovery does not give you access to its documents.",
+  "platformClaw.vault.confirmOwner": "Confirm new Owner",
+  "platformClaw.vault.ownerRecovered": "The new Owner can now manage this vault.",
+
   "platformClaw.vault.documentViews": "Document views",
   "platformClaw.vault.graph": "Document graph",
   "platformClaw.vault.graphHint":
@@ -40,25 +61,21 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
     "You become Owner. This new vault is connected for your next turn.",
   "platformClaw.vault.createdNotice":
     "Created and connected. Add documents or invite members to begin.",
-  "platformClaw.vault.exportAllowed": "Entire-vault download allowed",
-  "platformClaw.vault.exportNotAllowed": "Entire-vault download not allowed",
   "platformClaw.vault.catalogHint":
-    "Connect project knowledge for your AI to reference. Manage documents and access here.",
+    "Open your personal and shared knowledge. Choose which vaults AI can reference.",
   "platformClaw.vault.mine": "My vaults",
-  "platformClaw.vault.discover": "Find vaults",
-  "platformClaw.vault.catalogTabs": "Memory Hub views",
-  "platformClaw.vault.findLabel": "Find an accessible vault",
+  "platformClaw.vault.discover": "Discover",
+  "platformClaw.vault.catalogTabs": "Wiki Hub views",
+  "platformClaw.vault.findLabel": "Find vaults",
   "platformClaw.vault.findPlaceholder": "Search vault names or topics",
   "platformClaw.vault.nextTurnHint":
-    "Connections apply from your next turn. Information already in this conversation remains.",
+    "AI reference changes apply from the next turn. Information already in this conversation remains.",
   "platformClaw.vault.accessibleHint":
-    "Only vaults you can access are shown. Adding a vault keeps its documents in their original location.",
-  "platformClaw.vault.alwaysOn": "Always available",
-  "platformClaw.vault.personalTitle": "My personal knowledge",
+    "All your accessible vaults appear here, including those with AI reference turned off.",
+  "platformClaw.vault.personalTitle": "Personal",
   "platformClaw.vault.personalHint":
-    "Your memory and Personal Wiki remain private. Sharing requires publishing a copy.",
+    "Private knowledge. Publish an explicit copy to share with a Shared vault.",
   "platformClaw.vault.privateLabel": "Only you",
-  "platformClaw.vault.openPersonal": "Open Personal Wiki",
   "platformClaw.vault.aiOn": "AI reference enabled",
   "platformClaw.vault.notConnected": "Not connected",
   "platformClaw.vault.sharedHint": "Project knowledge shared with vault members.",
@@ -78,13 +95,11 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
     "Imported and connected as a new vault. Your AI can reference it from your next turn.",
   "platformClaw.vault.chooseZip": "Choose ZIP file",
   "platformClaw.vault.closeDialog": "Close dialog",
-  "platformClaw.vault.managedTitle": "Organization knowledge",
-  "platformClaw.vault.openManaged": "Open Organization Memory",
   "platformClaw.vault.searchDocuments": "Search document contents",
-  "platformClaw.vault.connectedScope": "Personal + connected vaults",
+  "platformClaw.vault.connectedScope": "AI-enabled vaults",
   "memoryPage.memories.searchDescription":
-    "Search Personal memory and Wiki, Shared project vaults, and Managed knowledge within the selected scope.",
-  "memoryPage.memories.searchPlaceholder": "Search Personal, Shared, and Managed knowledge",
+    "Search personal memory and the Personal and Shared vaults in Wiki Hub within the selected scope.",
+  "memoryPage.memories.searchPlaceholder": "Search personal memory and Wiki Hub",
   "platformClaw.vault.invalidUtf8":
     "Markdown must be valid UTF-8. Save the original as UTF-8 and upload it again.",
   "platformClaw.vault.secureContext":
@@ -92,18 +107,15 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.retainedIndex":
     "Search index update failed. Showing the last successful indexed version.",
   "platformClaw.vault.searchUnavailable":
-    "Shared and Managed vault search is temporarily unavailable. Results may be incomplete; retry the search.",
+    "Shared vault search is temporarily unavailable. Some results may be missing; try again.",
   "platformClaw.vault.downloadAttachment": "Download attachment",
-  "platformClaw.vault.title": "Memory Hub",
+  "platformClaw.vault.title": "Wiki Hub",
   "platformClaw.vault.intro":
-    "Personal is private. Shared is for project members. Managed follows organization permissions.",
+    "Personal is private. Shared brings people and project knowledge together.",
   "platformClaw.vault.private":
     "Personal content stays private until you explicitly publish a copy.",
-  "platformClaw.vault.managed":
-    "Managed knowledge continues in Organization Memory with its existing approval and access rules.",
   "platformClaw.vault.shared": "Shared",
   "platformClaw.vault.typePersonal": "Personal",
-  "platformClaw.vault.typeManaged": "Managed",
   "platformClaw.vault.new": "Create Shared vault",
   "platformClaw.vault.name": "Vault name",
   "platformClaw.vault.description": "Description",
@@ -112,7 +124,7 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.choose": "Choose a Shared vault",
   "platformClaw.vault.empty": "No Shared vaults yet. Create one or ask an Owner to add you.",
   "platformClaw.vault.unavailable":
-    "Memory Hub is unavailable. Connect to a gateway that supports vaults.",
+    "Wiki Hub is unavailable. Connect to a gateway with Wiki Hub support.",
   "platformClaw.vault.loading": "Loading vault…",
   "platformClaw.vault.refresh": "Refresh",
   "platformClaw.vault.import": "Import ZIP as new vault",
@@ -120,7 +132,7 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
     "Choose a PlatformClaw vault export ZIP, not a general document archive. This creates a new Shared vault without merging. Members are not invited automatically; search and links are rebuilt.",
   "platformClaw.vault.export": "Download entire vault ZIP",
   "platformClaw.vault.exportHint":
-    "Entire-vault download requires its own permission, separate from reading documents.",
+    "Editor and Owner can download documents, attachments and the entire vault.",
   "platformClaw.vault.documents": "Documents",
   "platformClaw.vault.noDocuments":
     "No documents yet. Use Add knowledge to write, choose Personal knowledge, or import Markdown.",
@@ -131,18 +143,17 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.body": "Markdown content",
   "platformClaw.vault.save": "Save document",
   "platformClaw.vault.cancel": "Cancel",
-  "platformClaw.vault.edit": "Edit / move",
+  "platformClaw.vault.edit": "Edit document",
   "platformClaw.vault.download": "Download Markdown",
   "platformClaw.vault.saved": "Document saved. Search and link status is shown with the document.",
   "platformClaw.vault.members": "Members and permissions",
   "platformClaw.vault.account": "Employee account ID",
   "platformClaw.vault.role": "Role",
-  "platformClaw.vault.reader": "Reader · read",
-  "platformClaw.vault.editor": "Editor · read and edit",
-  "platformClaw.vault.owner": "Owner · manage vault",
-  "platformClaw.vault.allowExport": "Allow entire-vault download",
-  "platformClaw.vault.setMember": "Save member permissions",
-  "platformClaw.vault.removeMember": "Remove member",
+  "platformClaw.vault.reader": "Reader",
+  "platformClaw.vault.editor": "Editor",
+  "platformClaw.vault.owner": "Owner",
+  "platformClaw.vault.setMember": "Add or change access",
+  "platformClaw.vault.removeMember": "Remove grant",
   "platformClaw.vault.attachments": "Attachments",
   "platformClaw.vault.uploadAttachment": "Upload attachment",
   "platformClaw.vault.rebuild": "Rebuild search and links",
@@ -156,7 +167,7 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.links": "Links",
   "platformClaw.vault.backlinks": "Backlinks / affected documents",
   "platformClaw.vault.publish": "Publish to Shared vault",
-  "platformClaw.vault.sourcePath": "Personal Wiki source path",
+  "platformClaw.vault.sourcePath": "Personal source path",
   "platformClaw.vault.previewSource": "Review source",
   "platformClaw.vault.publishConfirm": "Publish shared copy",
   "platformClaw.vault.publishHint":
@@ -168,22 +179,22 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.operationDone": "Done. Showing latest vault state.",
   "platformClaw.vault.tooLarge": "File exceeds the upload limit.",
   "platformClaw.vault.sourceUnavailable":
-    "This source cannot be published. Choose a complete, revisioned Personal Wiki document.",
+    "This source cannot be published. Choose a complete, revisioned Personal document.",
   "platformClaw.vault.close": "Close document",
   "platformClaw.vault.addKnowledge": "Add knowledge",
-  "platformClaw.vault.personalSource": "From Personal Wiki",
+  "platformClaw.vault.personalSource": "From Personal",
   "platformClaw.vault.chooseMarkdown": "Choose Markdown file",
   "platformClaw.vault.markdownHint":
     "Import one UTF-8 .md or .markdown file (up to 1 MB). Review and edit before saving.",
   "platformClaw.vault.automaticTitle": "Detect from Markdown or filename",
   "platformClaw.vault.writeCopy": "Edit content",
-  "platformClaw.vault.previewCopy": "Review before sharing",
+  "platformClaw.vault.previewCopy": "Review document",
   "platformClaw.vault.advancedPath": "Advanced: document path",
   "platformClaw.vault.automaticPath": "Created automatically",
   "platformClaw.vault.automaticPathHint":
     "Leave blank to create a unique path automatically. Set a path only when organizing or moving documents.",
   "platformClaw.vault.noEditableVault":
-    "No Shared vaults you can edit. Create one in Memory Hub or ask an Owner for Editor access.",
+    "No editable Shared vaults. Create one in Wiki Hub or request Editor access.",
   "platformClaw.vault.linkReviewHint":
     "Links resolve within the destination vault after saving. Missing targets are shown in the document; text is still searchable.",
   "platformClaw.vault.attachmentHint":
@@ -203,4 +214,50 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.viewPublished": "Open shared copy",
   "platformClaw.vault.searchWithinVault": "Search this vault’s document contents",
   "platformClaw.vault.selectedPersonalSource": "Personal source",
+  "platformClaw.vault.requests": "Requests",
+  "platformClaw.vault.personal": "Personal",
+  "platformClaw.vault.aiReference": "AI reference",
+  "platformClaw.vault.noAccess": "Access required",
+  "platformClaw.vault.accessRequired": "Request Reader or Editor access to open documents.",
+  "platformClaw.vault.requestAccess": "Request access",
+  "platformClaw.vault.requestPending": "Request pending",
+  "platformClaw.vault.requestHint":
+    "The vault Owner reviews your request. Approval grants access and enables AI reference.",
+  "platformClaw.vault.requestReason": "Reason (optional)",
+  "platformClaw.vault.sendRequest": "Send request",
+  "platformClaw.vault.requestSent": "Request sent. Track the result in Requests.",
+  "platformClaw.vault.myRequest": "Your request",
+  "platformClaw.vault.myRequests": "My requests",
+  "platformClaw.vault.pendingApprovals": "Requests to review",
+  "platformClaw.vault.noPendingApprovals": "No requests awaiting your approval.",
+  "platformClaw.vault.noRequests": "No access requests yet.",
+  "platformClaw.vault.approve": "Approve",
+  "platformClaw.vault.reject": "Reject",
+  "platformClaw.vault.cancelRequest": "Cancel request",
+  "platformClaw.vault.requestStatus.pending": "Pending",
+  "platformClaw.vault.requestStatus.approved": "Approved",
+  "platformClaw.vault.requestStatus.rejected": "Rejected",
+  "platformClaw.vault.requestStatus.cancelled": "Cancelled",
+  "platformClaw.vault.grantHint":
+    "Access can come from a person or organization grant. The highest role applies. Editor and Owner can export; new grants enable AI reference automatically.",
+  "platformClaw.vault.directMembers": "People",
+  "platformClaw.vault.organizationGrants": "Organization grants",
+  "platformClaw.vault.noOrganizationGrants": "No organization grants.",
+  "platformClaw.vault.grantTarget": "Grant to",
+  "platformClaw.vault.person": "Person",
+  "platformClaw.vault.organization": "Organization",
+  "platformClaw.vault.searchPeople": "Search name or account",
+  "platformClaw.vault.searchOrganizations": "Search organization name",
+  "platformClaw.vault.searchTargets": "Search",
+  "platformClaw.vault.targetsHasMore": "More matches available. Refine your search.",
+  "platformClaw.vault.grantAccess": "Grant selected role",
+  "platformClaw.vault.claims": "Claims",
+  "platformClaw.vault.questions": "Open questions",
+  "platformClaw.vault.contradictions": "Contradictions",
+  "platformClaw.vault.discoverHint":
+    "Browse Shared vaults. Request access when you are not a member.",
+  "platformClaw.vault.deleteDocument": "Delete document",
+  "platformClaw.vault.deleteDocumentHint":
+    "Delete this document from its vault. Other documents and published copies remain.",
+  "platformClaw.vault.documentDeleted": "Document deleted. Search and links will refresh.",
 };

@@ -138,6 +138,7 @@ export async function bootstrapHarnessContextEngine(params: {
  * Assemble model context through the active harness-owned context engine.
  */
 export async function assembleHarnessContextEngine(params: {
+  runId?: string;
   contextEngine?: HarnessContextEngine;
   sessionId: string;
   sessionKey?: string;
@@ -182,6 +183,7 @@ export async function assembleHarnessContextEngine(params: {
       ? await assemble()
       : await runWithPreparedMemoryPromptSection(
           {
+            runId: params.runId,
             availableTools: new Set(params.availableTools),
             citationsMode: params.citationsMode,
             agentId: resolveAgentIdFromSessionKey(params.sessionKey),

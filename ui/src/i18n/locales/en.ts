@@ -2749,7 +2749,7 @@ export const en: TranslationMap = {
       offline: "Gateway offline. Reconnect to load or refresh personal memory.",
       searchTitle: "Search all knowledge",
       searchDescription:
-        "Search personal memory, Personal Wiki, and organization knowledge you can access.",
+        "Search personal memory, Personal Wiki, and shared knowledge you can access.",
       searchLabel: "Search all memory",
       searchPlaceholder: "Search personal memory, Personal Wiki, and organization knowledge",
       searchButton: "Search",

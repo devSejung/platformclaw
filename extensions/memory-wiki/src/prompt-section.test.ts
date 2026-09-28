@@ -4,6 +4,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
+import {
+  clearMemoryPluginState,
+  registerMemoryCorpusSupplement,
+} from "openclaw/plugin-sdk/memory-host-core";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../api.js";
 import {
@@ -42,6 +46,7 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
+  clearMemoryPluginState();
   vi.restoreAllMocks();
   configureMemoryWikiCompiledCacheStore(undefined);
 });
@@ -132,6 +137,52 @@ function createStaticPreparer(config: ResolvedMemoryWikiConfig) {
 }
 
 describe("Memory Wiki prompt section", () => {
+  it("omits the Personal digest when disabled or when selection cannot be authorized", async () => {
+    const config = resolveMemoryWikiConfig({
+      vault: { path: path.join(suiteRoot, "scope-disabled") },
+      context: { includeCompiledDigestPrompt: true },
+    });
+    await seedCompiledDigest({
+      config,
+      claimCount: 1,
+      pages: [
+        {
+          title: "Private",
+          kind: "concept",
+          claimCount: 1,
+          topClaims: [{ text: "PRIVATE_WIKI_CLAIM" }],
+        },
+      ],
+    });
+    expect(
+      (await createStaticPreparer(config)({ agentId: "main", availableTools: new Set() })).join(
+        "\n",
+      ),
+    ).toContain("PRIVATE_WIKI_CLAIM");
+    const scope = vi.fn(async () => ({ personalWikiEnabled: false }));
+    registerMemoryCorpusSupplement("selection", {
+      search: async () => [],
+      get: async () => null,
+      scope,
+    });
+    const prepare = createStaticPreparer(config);
+    expect(
+      await prepare({
+        runId: "scope-run",
+        agentId: "main",
+        availableTools: new Set(["wiki_search"]),
+      }),
+    ).toEqual([]);
+    expect(scope).toHaveBeenCalledWith({ runId: "scope-run", agentId: "main" });
+    scope.mockRejectedValueOnce(new Error("selection authorization unavailable"));
+    expect(
+      await prepare({
+        runId: "failed-run",
+        agentId: "main",
+        availableTools: new Set(["wiki_search"]),
+      }),
+    ).toEqual([]);
+  });
   const buildGuidance = createWikiPromptSectionBuilder();
 
   it("prefers shared memory corpus guidance when memory tools are available", () => {

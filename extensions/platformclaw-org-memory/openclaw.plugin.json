@@ -1,7 +1,7 @@
 {
   "id": "platformclaw-org-memory",
-  "name": "PlatformClaw Organization Memory",
-  "description": "Authorized Group, Part, and Global memory corpus for personal agents.",
+  "name": "PlatformClaw Wiki Hub",
+  "description": "Authorized Shared Wikis and per-turn Wiki selection.",
   "activation": { "onStartup": true },
   "configSchema": {
     "type": "object",

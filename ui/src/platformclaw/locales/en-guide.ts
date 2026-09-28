@@ -1,38 +1,11 @@
 import { wikiDocumentTranslations } from "../../pages/agents/memory/wiki-document-translations.ts";
 import { executionTranslations } from "./en-execution.ts";
-import { organizationMemoryKnowledgeTranslations } from "./en-organization-memory-knowledge.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
   ...vaultTranslations,
   ...executionTranslations,
   ...wikiDocumentTranslations.en,
-  "platformClaw.memory.organization.scopeSelect": "Select organization",
-  "platformClaw.memory.organization.noReadableScope": "No readable organization knowledge scope.",
-  "platformClaw.memory.organization.partAudience":
-    "Knowledge approved and shared within the selected Part.",
-  "platformClaw.memory.organization.groupAudience":
-    "Knowledge shared with members of the selected Group. Group leaders can select each of the Parts under their own Group in the Part view.",
-  "platformClaw.memory.organization.teamAudience":
-    "Knowledge shared with members of the selected Team.",
-  "platformClaw.memory.organization.globalAudience": "Knowledge shared with all employees.",
-  "platformClaw.memory.organization.teamGraph": "Team knowledge",
-  "platformClaw.memory.organization.globalGraph": "Global knowledge",
-  "platformClaw.memory.organization.legendTitle": "Connection legend",
-  "platformClaw.memory.organization.partSelect": "Select Part",
-  "platformClaw.memory.organization.readerReadOnly": "Read only",
-  "platformClaw.memory.organization.readerExcerpt": "Source excerpt · lines {from}–{to} of {total}",
-  "platformClaw.memory.organization.readerTextTruncated":
-    "This excerpt reached the display character limit.",
-  "platformClaw.memory.organization.readerPrevious": "Previous excerpt",
-  "platformClaw.memory.organization.readerNext": "Next excerpt",
-  "platformClaw.memory.organization.referenceLegend":
-    "Reference A→B: A refers to B as related knowledge.",
-  "platformClaw.memory.organization.provenanceLegend":
-    "Promotion A→B: approved sharing from A to B.",
-  "platformClaw.memory.organization.comparisonLegend":
-    "Dashed A—B: undirected AI comparison candidate, not a verified fact.",
-  ...organizationMemoryKnowledgeTranslations,
   "dreaming.wiki.documentActions": "Document actions",
   "dreaming.wiki.edit": "Edit",
   "dreaming.wiki.editNotes": "Edit notes",
@@ -60,18 +33,18 @@ export const translations: Readonly<Record<string, string>> = {
     "Shared-vault pages cannot be deleted from a personal workspace.",
   "platformClaw.wiki.deleteLargeUnavailable":
     "This page exceeds the 256 KiB deletion limit. Ask an administrator to review it.",
-  "platformClaw.wiki.delete": "Delete Personal Wiki page",
+  "platformClaw.wiki.delete": "Delete Personal page",
   "platformClaw.wiki.deleteDescription":
     "Delete the entire selected Wiki page. This cannot be undone.",
   "platformClaw.wiki.deleteRetention":
-    "Raw memory, conversations, and approved organization knowledge are retained. Deleted imported pages are excluded from automatic reimport; deliberate import repair can restore them.",
+    "Raw memory, conversations, and published shared copies are retained. Deleted imported pages are excluded from automatic reimport; deliberate import repair can restore them.",
   "platformClaw.wiki.deleteUnavailable":
     "This page cannot be deleted from this preview. Refresh it and try again.",
   "platformClaw.wiki.deletePartialPreview":
     "Only part of the page is shown. Confirmation deletes the entire page, checked against its current full-file revision.",
-  "platformClaw.wiki.deleted": "Personal Wiki page deleted. Wiki views will refresh.",
+  "platformClaw.wiki.deleted": "Personal page deleted. Wiki views will refresh.",
   "platformClaw.wiki.deletedRefreshPending":
-    "Personal Wiki page deleted, but index refresh failed. Refresh Personal Wiki to check its current state.",
+    "Personal page deleted, but index refresh failed. Refresh Personal to check its current state.",
   "platformClaw.memory.graph.unverified": "Approval and source revision metadata unavailable",
   "platformClaw.memory.actions": "Memory actions",
   "platformClaw.memory.share": "Request organization sharing…",
@@ -79,17 +52,12 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.memory.deleteDescription":
     "Delete the entire file shown below, including all its entries. This cannot be undone.",
   "platformClaw.memory.deleteRetention":
-    "Search and imported Wiki sources will be refreshed. Existing conversations, independent Wiki notes, and approved organization knowledge are retained and may contain the same information.",
+    "Search and imported Wiki sources will be refreshed. Existing conversations, independent Wiki notes, and published shared copies are retained and may contain the same information.",
   "platformClaw.memory.deleteUnavailable":
     "This file cannot be deleted from this preview. Refresh it and try again.",
   "platformClaw.memory.deleted": "Memory file deleted. Search and imported Wiki sources refreshed.",
   "platformClaw.memory.deletedRefreshPending":
-    "Memory file deleted, but some search or Wiki updates failed. Refresh Memory and Personal Wiki to check their current state.",
-  "memoryPage.promotions.directVisibility": "The content below will be shared with {scope}.",
-  "memoryPage.promotions.requestVisibility":
-    "Reviewers for {scope} can see this request. If approved, the content below will be shared with {scope}.",
-  "memoryPage.promotions.publishedSuccess": "Shared with {scope}.",
-  "memoryPage.promotions.submittedSuccess": "Sharing request submitted to {scope}.",
+    "Memory file deleted, but some search or Wiki updates failed. Refresh Memory and Personal to check their current state.",
   "memoryPage.promotions.sourceNotFound": "This Wiki page is unavailable. Select another source.",
   "platformClaw.memory.graph.description":
     "Only active memory you can read is shown. Links connect related pages; they do not verify facts. Refresh to update membership and retirement changes.",
@@ -308,76 +276,6 @@ export const translations: Readonly<Record<string, string>> = {
     "No membership was removed. The roster was refreshed; review its current state.",
   "platformClaw.memory.tabs.label": "Memory and knowledge sections",
   "platformClaw.memory.tabs.organization": "Organization",
-  "platformClaw.memory.organization.views": "Organization knowledge views",
-  "platformClaw.memory.organization.sharing": "Sharing & review",
-  "platformClaw.memory.organization.graph": "Organization Graph",
-  "platformClaw.memory.organization.graphDescription":
-    "Explore approved knowledge by its Part, Group, Team, or Global sharing audience.",
-  "platformClaw.memory.organization.graphKinds": "Organization graph scopes",
-  "platformClaw.memory.organization.partGraph": "Part Graph",
-  "platformClaw.memory.organization.groupGraph": "Group Graph",
-  "platformClaw.memory.organization.graphLoading": "Loading organization graph…",
-  "platformClaw.memory.organization.graphRefresh": "Refresh",
-  "platformClaw.memory.organization.graphRetry": "Try again",
-  "platformClaw.memory.organization.graphError": "Organization graph could not be loaded.",
-  "platformClaw.memory.organization.graphUnavailable":
-    "Organization Graph requires a newer PlatformClaw Gateway.",
-  "platformClaw.memory.organization.graphEmpty": "No published knowledge yet",
-  "platformClaw.memory.organization.graphEmptyHint":
-    "Approved knowledge for your accessible scopes will appear here.",
-  "platformClaw.memory.organization.graphNodes": "{count} pages",
-  "platformClaw.memory.organization.graphEdges": "{count} connections",
-  "platformClaw.memory.organization.graphTruncated": "Showing a bounded graph",
-  "platformClaw.memory.organization.graphPartial": "Some relation data is unavailable",
-  "platformClaw.memory.organization.graphControls": "Graph view controls",
-  "platformClaw.memory.organization.graphZoomIn": "Zoom in",
-  "platformClaw.memory.organization.graphZoomOut": "Zoom out",
-  "platformClaw.memory.organization.graphResetView": "Reset view",
-  "platformClaw.memory.organization.graphSearch": "Search this graph",
-  "platformClaw.memory.organization.graphFilter.reference": "References",
-  "platformClaw.memory.organization.graphFilter.promotion": "Promotion history",
-  "platformClaw.memory.organization.graphFilter.comparison": "AI comparison candidates",
-  "platformClaw.memory.organization.graphFit": "Fit graph",
-  "platformClaw.memory.organization.graphReduce": "Reduce graph",
-  "platformClaw.memory.organization.graphExpand": "Enlarge graph",
-  "platformClaw.memory.organization.graphLabels": "Show titles",
-  "platformClaw.memory.organization.graphVisible": "{count} of {total} loaded pages",
-  "platformClaw.memory.organization.graphSelection": "Selected knowledge and connections",
-  "platformClaw.memory.organization.graphSelectDocument": "Select a document",
-  "platformClaw.memory.organization.graphOpenDocument": "Open document",
-  "platformClaw.memory.organization.graphFocus": "Focus selection",
-  "platformClaw.memory.organization.graphClearSelection": "Clear selection",
-  "platformClaw.memory.organization.graphNeighborsOnly": "Show only connected documents",
-  "platformClaw.memory.organization.graphRelationDetails": "Connection details",
-  "platformClaw.memory.organization.graphNoConnections":
-    "No visible connections for this document.",
-  "platformClaw.memory.organization.graphInspectHint":
-    "Select a node or a document from the list to see its full title and connections. Open the document when you need the content.",
-  "platformClaw.memory.organization.graphNoMatches": "No loaded pages match this search.",
-  "platformClaw.memory.organization.graphClearSearch": "Clear search",
-  "platformClaw.memory.organization.graphNavigationHint":
-    "Drag to move the view or a node. Scroll to zoom. Select a document to highlight its connections; use Focus selection to read its label or Fit graph to see everything again.",
-  "platformClaw.memory.organization.graphOffline":
-    "Reconnect to the Gateway to load organization knowledge.",
-  "memoryPage.promotions.claimsDescription":
-    "Browse organization knowledge you can access before sharing or reviewing changes.",
-  "memoryPage.promotions.claimsLoadedCount": "{visible} shown · {loaded} loaded",
-  "memoryPage.promotions.claimsMoreAvailable": "more available",
-  "memoryPage.promotions.claimsSearch": "Search organization knowledge",
-  "memoryPage.promotions.claimsSearchPlaceholder": "Search title, content, or scope",
-  "memoryPage.promotions.claimsAllScopes": "All scopes",
-  "memoryPage.promotions.claimUpdated": "updated {timestamp}",
-  "memoryPage.promotions.readClaim": "Read",
-  "memoryPage.promotions.claimsNoMatch": "No loaded organization knowledge matches these filters.",
-  "platformClaw.memory.organization.graphPreview": "Organization knowledge",
-  "platformClaw.memory.organization.graphPreviewLoading": "Loading knowledge…",
-  "platformClaw.memory.organization.graphPreviewMissing":
-    "This knowledge is no longer available to your account.",
-  "memoryPage.promotions.loading": "Loading organization knowledge…",
-  "memoryPage.promotions.target": "Target scope",
-  "memoryPage.promotions.scope": "Organization scope",
-  "memoryPage.promotions.team": "Team",
-  "memoryPage.promotions.publishDirect": "Publish directly as administrator",
   "memoryPage.promotions.personalSourceTitle": "Choose a personal Wiki source",
   "memoryPage.promotions.personalSourceHelp":
     "Search your personal Wiki, preview a complete page, then edit the proposed shared claim before submitting.",
@@ -387,23 +285,6 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.promotions.sourceEmpty": "No personal Wiki pages matched this search.",
   "memoryPage.promotions.sourceIncomplete": "This Wiki page is incomplete and cannot be promoted.",
   "memoryPage.promotions.sourcePreview": "Source preview",
-  "memoryPage.promotions.personalWikiEvidence": "Personal Wiki source",
-  "memoryPage.promotions.approvedClaimEvidence": "Approved organization claim",
-  "memoryPage.promotions.defaultReason": "Share this reviewed knowledge with the organization.",
-  "memoryPage.promotions.proposedText": "Shared knowledge",
-  "memoryPage.promotions.write": "Write",
-  "memoryPage.promotions.preview": "Preview",
-  "memoryPage.promotions.revision": "revision {revision}",
-  "memoryPage.promotions.statusPending": "Pending",
-  "memoryPage.promotions.statusApproved": "Approved",
-  "memoryPage.promotions.statusRejected": "Rejected",
-  "memoryPage.promotions.statusActive": "Active",
-  "memoryPage.promotions.statusRetired": "Retired",
-  "memoryPage.promotions.statusPurged": "Purged",
-  "memoryPage.promotions.noReviews": "No promotion requests need your review.",
-  "memoryPage.promotions.noRequests": "You have not submitted any promotion requests.",
-  "memoryPage.promotions.noClaims":
-    "No organization claims are available in your authorized scopes.",
   "platformClaw.guide.openHelp": "Help for {title}",
   "platformClaw.guide.chatTitle": "Home: start a conversation with your Agent",
   "platformClaw.guide.chatBody": "Start a new request and work with your Agent from here.",
@@ -443,22 +324,11 @@ export const translations: Readonly<Record<string, string>> = {
     "Search for details your Agent retained from your own work and conversations.",
   "platformClaw.guide.personalMemoryDetails":
     "Enter a specific phrase and run the search.|Open matching results to verify the source and context before relying on them.|This remains personal memory; use the Organization tab when it should become shared Part knowledge.",
-  "platformClaw.guide.personalWikiTitle": "Personal Wiki: review reusable source pages",
-  "platformClaw.guide.personalWikiBody":
-    "Open the complete Wiki page that contains the knowledge you want to reuse or share.",
-  "platformClaw.guide.personalWikiDetails":
-    "Search by page title or topic.|Open the full page and verify that it is complete and accurate.|Organization promotion starts from one of these reviewed Personal Wiki pages, not directly from a raw memory search result.",
-  "platformClaw.guide.organizationMemoryTitle":
-    "Organization: promote personal knowledge to your Part",
-  "platformClaw.guide.organizationMemoryBody":
-    "A Personal Wiki page becomes Part knowledge only after a promotion request is reviewed and approved.",
-  "platformClaw.guide.organizationMemoryDetails":
-    "Choose Personal as the source and search for the verified Personal Wiki page.|Select your Part as the target, then review the proposed text, evidence, and promotion reason.|Submit the promotion request; it appears under My requests as Pending.|A leader with review permission checks Needs review and selects Approve or Reject with a reason.|Only an approved request becomes active Part knowledge. Higher-scope promotion repeats the same review path; administrators may publish directly only where policy allows.",
   "platformClaw.guide.dreamingTitle": "Dreaming: inspect memory consolidation",
   "platformClaw.guide.dreamingBody":
     "Review how personal memory was organized into durable knowledge over time.",
   "platformClaw.guide.dreamingDetails":
-    "Dream Diary shows consolidation runs and their outcomes.|Use Personal Wiki to inspect the pages produced from durable knowledge.|Dreaming organizes personal knowledge; it does not bypass the Organization approval required for Part knowledge.",
+    "Dream Diary shows consolidation runs and outcomes.|Open the Personal vault in Wiki Hub to inspect durable knowledge.|Personal knowledge stays private until you explicitly publish a shared copy.",
   "platformClaw.guide.installedPluginsTitle": "Installed: manage active plugins",
   "platformClaw.guide.installedPluginsBody":
     "A plugin connects the Agent to a service, tool, channel, or model provider.",
@@ -484,4 +354,8 @@ export const translations: Readonly<Record<string, string>> = {
     "Search the company catalog for a skill that already solves your task.",
   "platformClaw.guide.skillHubDetails":
     "Search by task, then open a result to review its description and versions.|Choose a version and select Install.|Pick Basic Workspace or My VM Workspace as the installation target.",
+  "platformClaw.guide.wikiHubTitle": "Wiki Hub: personal and shared knowledge",
+  "platformClaw.guide.wikiHubBody": "Read, write and connect project knowledge in one place.",
+  "platformClaw.guide.wikiHubDetails":
+    "My vaults includes every vault you can access, even with AI reference off.|Personal stays private. Publish an explicit copy to a Shared vault to share it.|Discover Shared vaults and request Reader or Editor access. Owners manage people and organization grants.|AI reference switches apply from the next turn. Disabling reference does not remove your access.|Editor and Owner can download documents or export a Shared vault ZIP.",
 };

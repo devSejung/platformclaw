@@ -4,6 +4,7 @@ import type { Translate } from "./memory-memories-view.ts";
 type MemoryMemoriesTestElement = HTMLElement & {
   client: GatewayBrowserClient | null;
   connected: boolean;
+  refreshRevision: number;
   connectionPhase: "stopped" | "connecting" | "connected" | "reconnecting" | "offline" | "";
   methodAdvertised: boolean | null;
   wikiSearchAdvertised: boolean | null;
@@ -15,7 +16,6 @@ type MemoryMemoriesTestElement = HTMLElement & {
   browseListAdvertised: boolean | null;
   personalDetailAdvertised: boolean | null;
   wikiGetAdvertised: boolean | null;
-  organizationGetAdvertised: boolean | null;
   translator: Translate;
   agentId: string | null;
   updateComplete: Promise<unknown>;
@@ -40,7 +40,6 @@ export function createElement(
     browse?: boolean;
     browseList?: boolean | null;
     connectionPhase?: MemoryMemoriesTestElement["connectionPhase"];
-    organizationGet?: boolean | null;
     personalDetail?: boolean | null;
     wikiGet?: boolean | null;
     wikiSearch?: boolean | null;
@@ -56,7 +55,6 @@ export function createElement(
   element.browseListAdvertised = options.browseList ?? false;
   element.personalDetailAdvertised = options.personalDetail ?? true;
   element.wikiGetAdvertised = options.wikiGet ?? false;
-  element.organizationGetAdvertised = options.organizationGet ?? false;
   element.agentId = "main";
   document.body.append(element);
   return element;

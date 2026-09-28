@@ -39,11 +39,8 @@ function memoryGuide(pathname: string, search: string): string {
   if (/\/memories\/?$/.test(routedPath)) {
     return "personalMemory";
   }
-  if (/\/wiki\/?$/.test(routedPath)) {
-    return "personalWiki";
-  }
-  if (/\/organization\/?$/.test(routedPath)) {
-    return "organizationMemory";
+  if (/\/(wiki|organization|vaults)\/?$/.test(routedPath)) {
+    return "wikiHub";
   }
   if (/\/dreams\/?$/.test(routedPath)) {
     return "dreaming";

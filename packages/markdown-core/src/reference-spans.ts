@@ -14,6 +14,16 @@ type AstNode = {
 const RELATED_BLOCK =
   /(?:^|\r?\n)## Related[\t ]*\r?\n(?:[\t ]*\r?\n)*<!-- openclaw:wiki:related:start -->[\s\S]*?<!-- openclaw:wiki:related:end -->/g;
 
+export { formatWikiDocumentLink, normalizeWikiDocumentTarget } from "./wiki-links.js";
+
+function decodeWikiTarget(target: string): string {
+  try {
+    return decodeURIComponent(target);
+  } catch {
+    return target;
+  }
+}
+
 /** Parses portable Markdown reference spans without loading a Wiki runtime. */
 export function parseMemoryWikiReferenceSpans(
   markdown: string,
@@ -65,7 +75,7 @@ export function parseMemoryWikiReferenceSpans(
   for (const match of searchable.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)) {
     const target = match[1]?.trim();
     if (target) {
-      append(match, target);
+      append(match, decodeWikiTarget(target.split("#")[0] ?? ""));
     }
   }
   const definitions = new Map<string, string>();
@@ -117,7 +127,7 @@ export function parseMemoryWikiReferenceSpans(
             start,
             end,
             target: path.posix.normalize(
-              path.posix.join(path.posix.dirname(sourceRelativePath), target),
+              path.posix.join(path.posix.dirname(sourceRelativePath), decodeWikiTarget(target)),
             ),
           });
         }

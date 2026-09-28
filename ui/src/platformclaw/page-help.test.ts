@@ -70,8 +70,8 @@ describe("PlatformClaw page help", () => {
   it.each([
     ["/settings/memory", "Memory: search personal recall"],
     ["/settings/memory/memories", "Memory: search personal recall"],
-    ["/settings/memory/wiki", "Personal Wiki: review reusable source pages"],
-    ["/settings/memory/organization", "Organization: promote personal knowledge to your Part"],
+    ["/settings/memory/wiki", "Wiki Hub: personal and shared knowledge"],
+    ["/settings/memory/organization", "Wiki Hub: personal and shared knowledge"],
     ["/settings/memory/dreams", "Dreaming: inspect memory consolidation"],
   ])("selects Memory help from %s", (pathname, title) => {
     expect(pageHelpForRoute("memory", pathname).title).toBe(title);

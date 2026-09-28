@@ -6,6 +6,7 @@ import type {
   GatewayEventFrame,
   GatewayHelloOk,
 } from "../api/gateway.ts";
+import { isGatewayMethodAdvertised, canCallGatewayMethod } from "../lib/gateway-methods.ts";
 import { resolveAvatar, setAvatarGatewayOrigin } from "../lib/identity-avatar.ts";
 import { createStorageMock } from "../test-helpers/storage.ts";
 import { createApplicationGateway } from "./gateway-store.ts";
@@ -154,6 +155,23 @@ describe("createApplicationGateway connection phase", () => {
 
     current().opts.onClose?.({ code: 4008, reason: "connect failed", willRetry: false });
     expect(gateway.snapshot.phase).toBe("offline");
+  });
+
+  it("retains method identity across a transport drop without retaining authentication", () => {
+    const { gateway, current } = createStore();
+    gateway.start();
+    current().opts.onHello?.({ ...HELLO, features: { methods: ["memory.search"], events: [] } });
+    current().opts.onClose?.({ code: 1006, reason: "socket lost", willRetry: true });
+    expect(gateway.snapshot.hello).toBeNull();
+    expect(isGatewayMethodAdvertised(gateway.snapshot, "memory.search")).toBe(true);
+    expect(canCallGatewayMethod(gateway.snapshot, "memory.search", "operator.read")).toBe(false);
+    current().opts.onHello?.({ ...HELLO, features: { methods: ["wiki.search"], events: [] } });
+    expect(isGatewayMethodAdvertised(gateway.snapshot, "memory.search")).toBe(false);
+    gateway.connect({ gatewayUrl: "ws://other.test" });
+    expect(isGatewayMethodAdvertised(gateway.snapshot, "wiki.search")).toBeNull();
+    current().opts.onHello?.({ ...HELLO, features: { methods: ["memory.search"], events: [] } });
+    gateway.stop();
+    expect(isGatewayMethodAdvertised(gateway.snapshot, "memory.search")).toBeNull();
   });
 
   it("does not invent an assistant agent id before the gateway advertises one", () => {

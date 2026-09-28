@@ -90,6 +90,7 @@ export async function prepareCodexAttemptPrompt(context: CodexAttemptContext) {
       return;
     }
     const assembled = await assembleHarnessContextEngine({
+      runId: params.runId,
       contextEngine: activeContextEngine,
       sessionId: runtime.activeSessionId,
       sessionKey: contextSessionKey,

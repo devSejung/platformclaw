@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { lintMemoryWikiVault } from "./lint.js";
 import {
   renderWikiMarkdown,
   WIKI_RELATED_END_MARKER,
@@ -36,6 +37,53 @@ async function writePage(params: {
 }
 
 describe("listMemoryWikiGraph", () => {
+  it("includes bounded authored previews for source and report documents", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await writePage({
+      rootDir,
+      relativePath: "sources/source.md",
+      title: "Source",
+      body: "Source facts " + "s".repeat(500),
+    });
+    await writePage({
+      rootDir,
+      relativePath: "reports/authored.md",
+      title: "Report",
+      body: "Report facts " + "r".repeat(500),
+    });
+    const graph = await listMemoryWikiGraph(config);
+    expect(graph.nodes.find((node) => node.id === "sources/source.md")?.snippet).toContain(
+      "Source facts",
+    );
+    expect(graph.nodes.find((node) => node.id === "reports/authored.md")?.snippet).toContain(
+      "Report facts",
+    );
+    expect(graph.nodes.every((node) => (node.snippet?.length ?? 0) <= 320)).toBe(true);
+  });
+  it("leaves ambiguous titles unresolved while exact normalized paths remain selectable", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await writePage({ rootDir, relativePath: "concepts/first.md", title: "Training" });
+    await writePage({ rootDir, relativePath: "concepts/second.md", title: "Training" });
+    await writePage({
+      rootDir,
+      relativePath: "concepts/source.md",
+      title: "Source",
+      body: "[[TRAINING]] and [[concepts/FIRST]] and [Second](second.md)",
+    });
+    const original = await fs.readFile(path.join(rootDir, "concepts/source.md"), "utf8");
+    const graph = await listMemoryWikiGraph(config);
+    expect(graph.edges.filter((edge) => edge.type === "reference")).toEqual([
+      { source: "concepts/source.md", target: "concepts/first.md", type: "reference" },
+      { source: "concepts/source.md", target: "concepts/second.md", type: "reference" },
+    ]);
+    expect(graph.stats.unresolvedLinks).toBe(1);
+    expect(
+      (await lintMemoryWikiVault(config)).issues.filter((issue) => issue.category === "links"),
+    ).toEqual([
+      expect.objectContaining({ code: "ambiguous-wikilink", path: "concepts/source.md" }),
+    ]);
+    expect(await fs.readFile(path.join(rootDir, "concepts/source.md"), "utf8")).toBe(original);
+  });
   it("separates index membership, authored references, confirmed relations, and candidates", async () => {
     const { rootDir, config } = await createVault({ initialize: true });
     await writePage({ rootDir, relativePath: "concepts/target.md", title: "Target" });
@@ -147,7 +195,11 @@ describe("listMemoryWikiGraph", () => {
     const second = await listMemoryWikiGraph(config);
 
     expect(second).toEqual(first);
-    expect(first.nodes.filter((node) => node.kind !== "index")).toEqual([
+    expect(
+      first.nodes
+        .filter((node) => node.kind !== "index")
+        .map(({ snippet: _snippet, ...node }) => node),
+    ).toEqual([
       {
         id: "concepts/alpha.md",
         title: "Alpha",
@@ -157,6 +209,9 @@ describe("listMemoryWikiGraph", () => {
       { id: "concepts/beta.md", title: "Beta", kind: "concept" },
       { id: "entities/gamma.md", title: "Gamma", kind: "entity" },
     ]);
+    expect(first.nodes.find((node) => node.id === "concepts/beta.md")?.snippet).toContain(
+      "Back to [[Alpha]]",
+    );
     expect(first.edges.filter((edge) => edge.type === "reference")).toEqual([
       { source: "concepts/alpha.md", target: "concepts/beta.md", type: "reference" },
       { source: "concepts/alpha.md", target: "entities/gamma.md", type: "reference" },

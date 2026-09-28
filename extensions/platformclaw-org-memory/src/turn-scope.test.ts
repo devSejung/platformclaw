@@ -5,7 +5,7 @@ import {
   setActivePluginRegistry,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createOrganizationMemorySupplement } from "./supplement.js";
+import { createWikiHubCorpusSupplement } from "./supplement.js";
 import { createVaultTurnScopeController } from "./turn-scope.js";
 
 function fixture() {
@@ -20,15 +20,40 @@ function fixture() {
 afterEach(() => resetPluginRuntimeStateForTest());
 
 describe("vault connection turn scope", () => {
+  it("coalesces prompt/tool preparation and keeps a Personal Wiki toggle pinned until next turn", async () => {
+    const api = fixture();
+    let release!: () => void;
+    let enabled = false;
+    const captureScope = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { revision: 1, vaultIds: [], personalEnabled: enabled };
+    });
+    const controller = createVaultTurnScopeController(api, { captureScope });
+    const first = controller.resolve({ runId: "scope-first", agentId: "person_one" });
+    const concurrent = controller.resolve({ runId: "scope-first", agentId: "person_one" });
+    release();
+    expect(await first).toMatchObject({ personalEnabled: false });
+    expect(await concurrent).toMatchObject({ personalEnabled: false });
+    enabled = true;
+    expect(await controller.resolve({ runId: "scope-first", agentId: "person_one" })).toMatchObject(
+      { personalEnabled: false },
+    );
+    const next = controller.resolve({ runId: "scope-next", agentId: "person_one" });
+    release();
+    expect(await next).toMatchObject({ personalEnabled: true });
+    expect(captureScope).toHaveBeenCalledTimes(2);
+  });
   it("pins searches and same-run retries while the next turn gets new connections", async () => {
     const api = fixture();
     const captureScope = vi
       .fn()
-      .mockResolvedValueOnce({ revision: 1, vaultIds: ["old"] })
-      .mockResolvedValueOnce({ revision: 2, vaultIds: ["new"] });
+      .mockResolvedValueOnce({ revision: 1, vaultIds: ["old"], personalEnabled: false })
+      .mockResolvedValueOnce({ revision: 2, vaultIds: ["new"], personalEnabled: true });
     const controller = createVaultTurnScopeController(api, { captureScope });
     const search = vi.fn(async () => []);
-    const supplement = createOrganizationMemorySupplement(
+    const supplement = createWikiHubCorpusSupplement(
       { search, get: vi.fn() },
       api.logger,
       controller.get,
@@ -40,14 +65,14 @@ describe("vault connection turn scope", () => {
     expect(search).toHaveBeenLastCalledWith({
       agentId: "person_one",
       query: "spec",
-      turnScope: { revision: 1, vaultIds: ["old"] },
+      turnScope: { revision: 1, vaultIds: ["old"], personalEnabled: false },
     });
     await controller.prepare({ ...context, runId: "next" });
     await supplement.search({ ...context, runId: "next", query: "spec" });
     expect(search).toHaveBeenLastCalledWith({
       agentId: "person_one",
       query: "spec",
-      turnScope: { revision: 2, vaultIds: ["new"] },
+      turnScope: { revision: 2, vaultIds: ["new"], personalEnabled: true },
     });
     expect(captureScope).toHaveBeenCalledTimes(2);
     await supplement.search({ ...context, vaultId: "explicit", query: "spec" });
@@ -62,9 +87,15 @@ describe("vault connection turn scope", () => {
   });
 
   it.each([
-    { revision: 1, vaultIds: ["invalid/path"] },
-    { revision: 1, vaultIds: ["duplicate", "duplicate"] },
-    { revision: -1, vaultIds: [] },
+    { revision: 1, vaultIds: ["invalid/path"], personalEnabled: true },
+    { revision: 1, vaultIds: ["duplicate", "duplicate"], personalEnabled: true },
+    { revision: -1, vaultIds: [], personalEnabled: true },
+    { revision: 1, vaultIds: [], personalEnabled: "true" },
+    {
+      revision: 1,
+      vaultIds: Array.from({ length: 257 }, (_, i) => `v-${i}`),
+      personalEnabled: true,
+    },
   ])(
     "records failed capture without broadening or recapturing in the same turn",
     async (invalid) => {
@@ -81,7 +112,7 @@ describe("vault connection turn scope", () => {
         "hooks.allowPromptInjection",
       );
       const search = vi.fn(async () => []);
-      const supplement = createOrganizationMemorySupplement(
+      const supplement = createWikiHubCorpusSupplement(
         { search, get: vi.fn() },
         api.logger,
         controller.get,
@@ -103,12 +134,18 @@ describe("vault connection turn scope", () => {
     "host terminal %s clears scope and rejects late capture",
     async (phase) => {
       const api = fixture();
-      let release!: (value: { revision: number; vaultIds: string[] }) => void;
+      let release!: (value: {
+        revision: number;
+        vaultIds: string[];
+        personalEnabled: boolean;
+      }) => void;
       const captureScope = vi.fn(
         () =>
-          new Promise<{ revision: number; vaultIds: string[] }>((resolve) => {
-            release = resolve;
-          }),
+          new Promise<{ revision: number; vaultIds: string[]; personalEnabled: boolean }>(
+            (resolve) => {
+              release = resolve;
+            },
+          ),
       );
       const controller = createVaultTurnScopeController(api, { captureScope });
       const context = { runId: "terminal", agentId: "person_one" };
@@ -123,7 +160,7 @@ describe("vault connection turn scope", () => {
       await new Promise<void>((resolve) => {
         setImmediate(resolve);
       });
-      release({ revision: 1, vaultIds: ["late"] });
+      release({ revision: 1, vaultIds: ["late"], personalEnabled: true });
       await pending;
       await controller.prepare(context);
       expect(captureScope).toHaveBeenCalledTimes(1);

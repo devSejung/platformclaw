@@ -192,14 +192,14 @@ membership, scope status, and parent chain inside the authoritative operation.
 
 Consumers keep domain ownership:
 
-| Service     | Shared organization capability                                      | Domain state that remains with the service                         |
-| ----------- | ------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Memory Wiki | Scope read, review, publish, retire, and administrator capabilities | Claims, revisions, promotion edges, compilation, and provenance    |
-| Skill Hub   | Namespace visibility, curation, ownership eligibility, and transfer | Packages, versions, hashes, scans, publication gates, and installs |
-| Agent       | Organization-aware assignment and administration                    | Agent identity, workspace, sessions, and runtime state             |
-| VM          | Future scope-based allocation or administration checks              | Hosts, credentials, execution profiles, and target state           |
-| MCP         | Future scope visibility and credential-policy checks                | Server registry, tool policy, OAuth, and credential material       |
-| Knox        | Future organization-aware product permissions                       | Channel identity, room bindings, delivery, and room Agent state    |
+| Service   | Shared organization capability                                      | Domain state that remains with the service                                          |
+| --------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Wiki Hub  | Exact direct organization membership and employee/scope status      | Personal/Shared documents, explicit Wiki grants, access requests, indexes and links |
+| Skill Hub | Namespace visibility, curation, ownership eligibility, and transfer | Packages, versions, hashes, scans, publication gates, and installs                  |
+| Agent     | Organization-aware assignment and administration                    | Agent identity, workspace, sessions, and runtime state                              |
+| VM        | Future scope-based allocation or administration checks              | Hosts, credentials, execution profiles, and target state                            |
+| MCP       | Future scope visibility and credential-policy checks                | Server registry, tool policy, OAuth, and credential material                        |
+| Knox      | Future organization-aware product permissions                       | Channel identity, room bindings, delivery, and room Agent state                     |
 
 This consumer table is illustrative, not exhaustive. Board, approval history,
 operations, and every later PlatformClaw service that needs organization policy
@@ -218,50 +218,26 @@ The Knox transport term `group` or a Knox group chat is not a managed
 PlatformClaw Group. No room, channel, directory group, or mutable display name
 implicitly creates or selects a managed organization scope.
 
-## Memory authority and personal privacy
+## Wiki authority and personal privacy
 
-The target Memory promotion path follows the selected active organization
-lineage:
+Wiki Hub replaces the former organization knowledge system. Its destructive
+company-image startup cleanup removes old claims, promotion/review records and
+derived knowledge while preserving this organization directory and memberships.
+See [Wiki Hub upgrade behavior](/platformclaw/memory-wiki#upgrade-deletes-retired-organization-knowledge).
 
-```text
-Personal -> Part -> Group -> Team -> Global
-```
+Shared Wiki Owners explicitly choose Reader, Editor or Owner grants for users
+or organizations. An organization grant applies only to direct members of the
+selected Team, Group or Part. General upward organization access, leadership
+and administrator status do not implicitly add Wiki content access. The highest
+current direct-user or exact-organization grant wins. Personal Wiki remains
+private; sharing is an explicit reviewed document copy.
 
-Missing lower memberships are skipped. A Group-only user can request
-`Personal -> Group`; a Team-only user can request `Personal -> Team`; and an
-unaffiliated user can request `Personal -> Global`. The target still requires
-the reviewer authorized for that scope. Multiple memberships require the user
-to select the intended organization path.
-
-PlatformClaw administrators may:
-
-- create or publish organization knowledge in any managed scope or Global;
-- promote an organization claim directly to a higher ancestor or Global;
-- promote their own Personal claim directly to an organization scope; and
-- approve, reject, retire, or hard-purge organization claims according to the
-  Memory lifecycle contract.
-
-Administrator direct publication, skipped-level promotion, self-approval, and
-hard purge require an explicit reason and audit record. Administrators do not
-receive routine access to another user's Personal Memory or Personal Wiki. They
-may review only the personal claim that the user explicitly submits for
-promotion. Any future security or legal break-glass access requires a separate
-approved capability and stronger audit policy.
-
-Dreaming remains personal memory consolidation. It does not publish or promote
-organization knowledge automatically.
-
-Ordinary Memory promotion review follows the target scope:
-
-| Promotion target | Authorized reviewers                                      |
-| ---------------- | --------------------------------------------------------- |
-| Part             | Part leader, ancestor Group/Team leader, or administrator |
-| Group            | Group leader, ancestor Team leader, or administrator      |
-| Team             | Team leader or administrator                              |
-| Global           | PlatformClaw administrator only                           |
-
-The source must belong to the selected active lineage. Review authority does
-not grant routine access to Personal content that was not submitted.
+Wiki membership removal protects the last effective Owner, but employee
+disablement, organization departure and archival are authoritative and proceed.
+An ownerless Wiki retains its existing remaining grants. An administrator may
+explicitly assign a replacement Owner through an audited recovery action;
+recovery permission does not itself grant document read access. Existing
+organization lifecycle, last-administrator and Skill Hub policies remain intact.
 
 ## Lifecycle and audit
 
@@ -275,8 +251,8 @@ Normal deletion is lifecycle-based:
 - pending join requests for an archived target or descendant are rejected with
   a recorded reason;
 - a primary scope that becomes ineffective is cleared; and
-- domain assets with an owner or active lifecycle must be transferred or
-  retired before archival completes.
+- domain-specific archival rules still apply, such as Skill Hub namespace transfer.
+  Wiki grants are revoked with membership; an ownerless Wiki uses explicit admin recovery.
 
 Scopes and organization records are not hard-deleted during normal operation.
 Privacy or security purge is administrator-only and must preserve a redacted
@@ -349,7 +325,9 @@ authoritative. Recovery after a committed migration restores the verified
 pre-migration database and the matching v2 application together; an older
 runtime must not open a v3 database.
 
-Existing approved Group-to-Global Memory claims remain valid. Existing pending
+The schema-v3 migration historically preserved approved Group-to-Global Memory claims.
+The later Wiki Hub startup cleanup intentionally deletes that retired knowledge
+corpus; the following migration history does not preserve it in current runtime. Existing pending
 Group-to-Global requests remain visible and may receive one administrator
 decision under their immutable original contract; new ordinary-user requests
 after cutover follow Group-to-Team-to-Global. Runtime uses only the v3 shape

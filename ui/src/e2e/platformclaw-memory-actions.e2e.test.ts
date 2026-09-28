@@ -72,7 +72,7 @@ suite("PlatformClaw memory actions E2E", () => {
     await server?.close();
   });
 
-  it("confirms file deletion, explicitly submits Wiki sharing, and inspects organization provenance", async () => {
+  it("confirms file deletion and retains retry state", async () => {
     const context = await browser.newContext({
       locale: "en-US",
       serviceWorkers: "block",
@@ -107,10 +107,6 @@ suite("PlatformClaw memory actions E2E", () => {
           "wiki.delete",
           "wiki.overview",
           "wiki.graph",
-          "platformclaw.memory.lifecycle",
-          "platformclaw.memory.graph",
-          "platformclaw.memory.get",
-          "platformclaw.memory.promotion.submit",
         ],
         methodResponses: {
           "agents.list": {
@@ -226,67 +222,6 @@ suite("PlatformClaw memory actions E2E", () => {
             totalLines: 2,
             truncated: false,
           },
-          "platformclaw.memory.promotion.submit": { id: "request-recovery", status: "pending" },
-          "platformclaw.memory.lifecycle": {
-            scopes: [
-              {
-                kind: "part",
-                id: "part-runtime",
-                name: "Runtime",
-                canRead: true,
-                canAdminister: false,
-              },
-            ],
-            personalTargets: [
-              { kind: "part", scopeId: "part-runtime", scopeName: "Runtime", mode: "request" },
-            ],
-            claims: [],
-            submitted: [],
-            reviewable: [],
-            canApproveGlobal: false,
-          },
-          "platformclaw.memory.get": {
-            id: "approved-policy",
-            path: "organization/part/approved-policy",
-            scopeKind: "part",
-            scopeName: "Runtime",
-            title: "Approved recovery policy",
-            content: "Record the recovery owner.",
-            fromLine: 1,
-            lineCount: 1,
-            verification: {
-              revision: 2,
-              approvalStatus: "approved",
-              sourceRevision: 1,
-              sourceStatus: "changed",
-            },
-          },
-          "platformclaw.memory.graph": {
-            kind: "part",
-            nodes: [
-              {
-                id: "organization:part:approved-policy",
-                path: "organization/part/approved-policy",
-                title: "Approved recovery policy",
-                scopeName: "Runtime",
-                updatedAt: 1,
-                verification: {
-                  revision: 2,
-                  approvalStatus: "approved",
-                  sourceRevision: 1,
-                  sourceStatus: "changed",
-                },
-              },
-            ],
-            edges: [],
-            stats: {
-              totalPages: 1,
-              totalNodes: 1,
-              totalEdges: 0,
-              truncated: false,
-              partial: false,
-            },
-          },
         },
       });
       await page.goto(`${server.baseUrl}platformclaw/app/settings/memory`);
@@ -314,6 +249,22 @@ suite("PlatformClaw memory actions E2E", () => {
         .poll(() => deletion.locator(".wiki-document__reader").textContent())
         .toContain("Delete this entire obsolete checklist");
       expect(await gateway.getRequests("memory.delete")).toHaveLength(0);
+      await gateway.setOnline(false);
+      await gateway.closeLatest(1001, "delete confirmation transport proof");
+      await expect.poll(() => deletion.count()).toBe(0);
+      expect(await page.locator("platformclaw-memory-item-menu").count()).toBe(0);
+      expect(await gateway.getRequests("memory.delete")).toHaveLength(0);
+      await gateway.setOnline(true);
+      await expect
+        .poll(() => memoryRow.getByRole("button", { name: "Memory actions" }).count(), {
+          timeout: 10_000,
+        })
+        .toBe(1);
+      await memoryRow.getByRole("button", { name: "Memory actions" }).click();
+      await page.locator('platformclaw-memory-item-menu wa-dropdown-item[value="delete"]').click();
+      await expect
+        .poll(() => deletion.locator(".wiki-document__reader").textContent())
+        .toContain("Delete this entire obsolete checklist");
       await screenshot("02-delete-preview");
       await gateway.deferNext("memory.delete");
       const memoryUrl = page.url();
@@ -346,176 +297,6 @@ suite("PlatformClaw memory actions E2E", () => {
         .poll(() => page.locator("platformclaw-memory-page").textContent())
         .toContain("Memory file deleted. Search and imported Wiki sources refreshed.");
       await screenshot("03-delete-result");
-
-      await page.locator("#memory-search-input").fill("recovery");
-      await page
-        .locator(".memory-memories__search")
-        .evaluate((form) => (form as HTMLFormElement).requestSubmit());
-      const wikiRow = page
-        .locator(".memory-memories__result")
-        .filter({ hasText: "Recovery runbook" });
-      await expect.poll(() => wikiRow.isVisible()).toBe(true);
-      expect(await wikiRow.getByRole("button", { name: "Memory actions" }).count()).toBe(1);
-      await wikiRow.click({ button: "right" });
-      await screenshot("04-wiki-context-menu");
-      await page.locator('platformclaw-memory-item-menu wa-dropdown-item[value="share"]').click();
-      let promotion = page.locator("openclaw-modal-dialog openclaw-memory-promotions");
-      expect(
-        await page
-          .locator(".platformclaw-memory-action-dialog")
-          .evaluate((dialog) => getComputedStyle(dialog).overflowY),
-      ).toBe("auto");
-      await expect
-        .poll(() => promotion.locator(".memory-promotions__field textarea").first().inputValue())
-        .toContain("verify the backup");
-      expect(await gateway.getRequests("platformclaw.memory.promotion.submit")).toHaveLength(0);
-      await page
-        .locator("openclaw-modal-dialog")
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
-      await wikiRow.getByRole("button", { name: "Memory actions" }).click();
-      await page.locator('platformclaw-memory-item-menu wa-dropdown-item[value="share"]').click();
-      promotion = page.locator("openclaw-modal-dialog openclaw-memory-promotions");
-      await expect
-        .poll(() => promotion.locator(".memory-promotions__field textarea").first().inputValue())
-        .toContain("verify the backup");
-      await promotion.locator(".memory-promotions__field select").selectOption("part-runtime");
-      await promotion
-        .locator(".memory-promotions__field input")
-        .fill("Verified recovery process for the team");
-      await promotion.locator(".memory-promotions__field input").press("Tab");
-      await expect
-        .poll(() =>
-          promotion
-            .locator("button.primary")
-            .evaluate((button) => document.activeElement === button),
-        )
-        .toBe(true);
-      await expect
-        .poll(() => promotion.locator(".memory-promotions__visibility").textContent())
-        .toContain("Reviewers for Runtime");
-      await screenshot("04-sharing-review");
-      expect(await gateway.getRequests("platformclaw.memory.promotion.submit")).toHaveLength(0);
-      await gateway.deferNext("platformclaw.memory.promotion.submit");
-      await promotion.locator("button.primary").click();
-      await gateway.waitForRequest("platformclaw.memory.promotion.submit");
-      await page.keyboard.press("Escape");
-      const shareModal = page.locator(
-        'openclaw-modal-dialog[label="Request organization sharing…"]',
-      );
-      const shareDialog = page.getByRole("dialog", {
-        name: "Request organization sharing…",
-        exact: true,
-      });
-      await expect.poll(() => shareDialog.isVisible()).toBe(true);
-      expect(
-        await shareModal.getByRole("button", { name: "Close", exact: true }).isDisabled(),
-      ).toBe(true);
-      await gateway.rejectDeferred("platformclaw.memory.promotion.submit", {
-        message: "Sharing failed. Try again.",
-      });
-      await expect
-        .poll(() => promotion.getByRole("alert").textContent())
-        .toContain("Sharing failed");
-      expect(await promotion.locator(".memory-promotions__field input").inputValue()).toBe(
-        "Verified recovery process for the team",
-      );
-      await promotion.locator("button.primary").click();
-      await expect
-        .poll(
-          async () => (await gateway.getRequests("platformclaw.memory.promotion.submit")).length,
-        )
-        .toBe(2);
-      const submitted = (await gateway.getRequests("platformclaw.memory.promotion.submit")).at(-1)!;
-      expect(submitted.params).toEqual(
-        expect.objectContaining({
-          sourceKind: "personal",
-          sourceClaimId: "runbooks/recovery.md",
-          targetKind: "part",
-          targetScopeId: "part-runtime",
-          reason: "Verified recovery process for the team",
-        }),
-      );
-      await expect
-        .poll(() => page.locator("platformclaw-memory-page").textContent())
-        .toContain("Sharing request submitted to Runtime.");
-      await screenshot("05-sharing-submitted");
-
-      await page.getByRole("tab", { name: "Personal Wiki", exact: true }).click();
-      const personalWiki = page.locator("openclaw-agent-memory-panel");
-      await expect.poll(() => personalWiki.textContent()).toContain("Recovery runbook");
-      await personalWiki.locator(".memory-wiki-view-switch button").nth(1).click();
-      const node = personalWiki.locator('[data-wiki-node="runbooks/recovery.md"]');
-      await expect.poll(() => node.count()).toBe(1);
-      await node.locator("circle").click({ button: "right" });
-      await expect
-        .poll(() => page.locator("platformclaw-memory-item-menu wa-dropdown-item").count())
-        .toBe(2);
-      await screenshot("07-wiki-delete-menu");
-      await page.locator('platformclaw-memory-item-menu wa-dropdown-item[value="delete"]').click();
-      await expect
-        .poll(() => deletion.locator(".wiki-document__reader").textContent())
-        .toContain("verify the backup");
-      expect(await gateway.getRequests("wiki.delete")).toHaveLength(0);
-      await deletion.getByRole("button", { name: "Cancel", exact: true }).click();
-      expect(await gateway.getRequests("wiki.delete")).toHaveLength(0);
-      await node.locator("circle").click({ button: "right" });
-      await page.locator('platformclaw-memory-item-menu wa-dropdown-item[value="delete"]').click();
-      await expect
-        .poll(() => deletion.locator(".wiki-document__reader").textContent())
-        .toContain("verify the backup");
-      await expect
-        .poll(() => deletion.textContent())
-        .toContain("Raw memory, conversations, and approved organization knowledge are retained");
-      await screenshot("08-wiki-delete-confirmation");
-      const graphsBefore = (await gateway.getRequests("wiki.graph")).length;
-      await gateway.setMethodResponse("wiki.graph", {
-        nodes: [],
-        edges: [],
-        stats: {
-          totalPages: 0,
-          totalNodes: 0,
-          totalEdges: 0,
-          unresolvedLinks: 0,
-          truncated: false,
-        },
-      });
-      await gateway.setMethodResponse("wiki.overview", {
-        totalItems: 0,
-        totalPages: 0,
-        pageCounts: { entity: 0, concept: 0, source: 0, synthesis: 0, report: 0 },
-        totalClaims: 0,
-        totalQuestions: 0,
-        totalContradictions: 0,
-        clusters: [],
-      });
-      await deletion
-        .getByRole("button", { name: "Delete Personal Wiki page", exact: true })
-        .click();
-      const wikiDeleted = await gateway.waitForRequest("wiki.delete");
-      expect(wikiDeleted.params).toEqual({
-        agentId,
-        path: "runbooks/recovery.md",
-        expectedContentHash: "b".repeat(64),
-      });
-      await expect
-        .poll(async () => (await gateway.getRequests("wiki.graph")).length)
-        .toBeGreaterThan(graphsBefore);
-      await expect.poll(() => node.count()).toBe(0);
-      await personalWiki.locator(".memory-wiki-view-switch button").first().click();
-      await expect.poll(() => personalWiki.textContent()).not.toContain("Recovery runbook");
-      expect(await gateway.getRequests("memory.delete")).toHaveLength(2);
-      await screenshot("09-wiki-deleted");
-
-      await page.getByRole("tab", { name: "Organization", exact: true }).click();
-      await page.getByRole("tab", { name: "Organization Graph", exact: true }).click();
-      const graph = page.locator("platformclaw-organization-memory-graph");
-      await expect.poll(() => graph.isVisible()).toBe(true);
-      await graph.locator('[data-organization-node="organization/part/approved-policy"]').click();
-      await expect
-        .poll(() => graph.locator("[data-memory-verification]").textContent())
-        .toContain("Source changed since approval");
-      await screenshot("06-organization-map");
     } finally {
       await context.close();
     }

@@ -1,0 +1,42 @@
+.wiki-hub__preview.dreams-diary__preview-panel {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  background: var(--panel);
+}
+.wiki-hub__preview {
+  max-height: calc(100dvh - 48px);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+}
+.wiki-hub__preview-body {
+  min-height: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.wiki-hub__preview .md-preview-dialog__reader pre {
+  filter: none;
+}
+.wiki-hub__preview .wiki-document__reader h1 {
+  font-family: inherit;
+  font-size: 1.8rem;
+  line-height: 1.35;
+  letter-spacing: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .wiki-hub__preview .wiki-document__reader h1 {
+    font-size: 1.35rem;
+  }
+}
+
+/* Document actions share the bounded reader on narrow screens; wrapping keeps
+   editing, deletion, and close reachable without horizontal scrolling. */
+.wiki-hub__preview .wiki-document__actions {
+  min-width: 0;
+  flex-wrap: wrap;
+}

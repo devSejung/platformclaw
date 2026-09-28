@@ -60,7 +60,8 @@ export async function handleKnowledgeVaultHttp(
     sendBrowserJson(res, 401, { error: "Sign in again" });
     return true;
   }
-  const vaults = options.vaultService.store.vaults;
+  const service = options.vaultService;
+  const vaults = service.store.vaults;
   const userId = auth.user.id;
   try {
     const allowedQuery = url.pathname.endsWith("/attachment")
@@ -77,13 +78,13 @@ export async function handleKnowledgeVaultHttp(
         throw new ControlPlaneStateError("Import creates a new vault; merging is not supported");
       }
       const content = await readBytes(req, KNOWLEDGE_VAULT_LIMITS.archiveBytes);
-      const result = await vaults.importVault({ userId, archive: content, ownerCanExport: true });
+      const result = await vaults.importVault({ userId, archive: content });
       sendBrowserJson(res, 201, result);
     } else if (url.pathname === "/platformclaw/vaults/export" && method === "GET") {
-      vaults.requireExport(userId, vaultId);
-      const content = await vaults.exportVault({ userId, vaultId });
+      service.requireExport(userId, vaultId);
+      const content = await service.exportVault({ userId, vaultId });
       // Export has awaited compression; revalidate revocation before releasing bytes.
-      vaults.requireExport(userId, vaultId);
+      service.requireExport(userId, vaultId);
       download(res, content, "knowledge-vault.zip", "application/zip");
     } else if (
       url.pathname === "/platformclaw/vaults/attachment" &&
@@ -91,30 +92,34 @@ export async function handleKnowledgeVaultHttp(
     ) {
       const path = url.searchParams.get("path") ?? "";
       if (method === "GET") {
-        const file = vaults.downloadAttachment({ userId, vaultId, path });
+        const file = await service.downloadAttachment({ userId, vaultId, path });
         download(res, file.content, path.split("/").at(-1)!, "application/octet-stream");
       } else {
-        const access = vaults.snapshot({ userId, vaultId }).selected;
+        const access = (await service.snapshot({ userId, vaultId })).selected;
         if (!access?.vault.canEdit) {
           throw new ControlPlaneAuthorizationError("Editor permission required");
         }
         const revision = url.searchParams.get("expectedRevision");
         if (
           revision !== null &&
-          (!/^\d+$/u.test(revision) ||
-            !Number.isSafeInteger(Number(revision)) ||
-            Number(revision) < 1)
+          (vaultId.startsWith("personal:")
+            ? !/^[a-f0-9]{64}$/u.test(revision)
+            : !/^\d+$/u.test(revision) ||
+              !Number.isSafeInteger(Number(revision)) ||
+              Number(revision) < 1)
         ) {
           throw new ControlPlaneStateError("Invalid expectedRevision");
         }
         const content = await readBytes(req, KNOWLEDGE_VAULT_LIMITS.attachmentBytes);
-        vaults.uploadAttachment({
+        await service.uploadAttachment({
           userId,
           vaultId,
           path,
           content,
           mediaType: "application/octet-stream",
-          ...(revision === null ? {} : { expectedRevision: Number(revision) }),
+          ...(revision === null
+            ? {}
+            : { expectedRevision: vaultId.startsWith("personal:") ? revision : Number(revision) }),
         });
         sendBrowserJson(res, 200, { ok: true });
       }

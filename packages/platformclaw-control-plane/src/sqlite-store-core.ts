@@ -17,7 +17,6 @@ import {
   type EnterpriseIdentity,
   type EnterprisePrincipal,
   type MainSessionKeyBuilder,
-  type PersonalOrganizationMemorySourceResolver,
   type ManagedScope,
   type ManagedScopeMembership,
   type PlatformUser,
@@ -29,6 +28,7 @@ import {
   resolveEffectiveOrganizationAccess,
   resolveOrganizationAuthorization,
 } from "./organization-policy.js";
+import { retireOrganizationKnowledge } from "./sqlite-retire-organization-knowledge.js";
 import { migrateVmAllocationCodingAgentSchema } from "./sqlite-schema-coding-agents.js";
 import {
   ensureVmHostExecutionEnvironmentSchema,
@@ -51,7 +51,6 @@ export type SqliteControlPlaneStoreOptions = {
   idFactory?: ControlPlaneIdFactory;
   sessionPolicy?: BrowserSessionPolicy;
   onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
-  resolvePersonalOrganizationMemorySource?: PersonalOrganizationMemorySourceResolver;
 };
 
 export const ALLOWED_AGENT_TRANSITIONS: Record<
@@ -173,7 +172,6 @@ export abstract class SqliteControlPlaneStoreCore {
   protected readonly sessionPolicy: BrowserSessionPolicy;
   protected readonly initialAdminAccountIds: ReadonlySet<string>;
   protected readonly onAgentCredentialsRevoked?: (agentId: string) => Promise<void>;
-  protected readonly resolvePersonalOrganizationMemorySource?: PersonalOrganizationMemorySourceResolver;
   private vmHostExecutionEnvironmentSchemaReady = false;
 
   constructor(options: SqliteControlPlaneStoreOptions) {
@@ -187,6 +185,7 @@ export abstract class SqliteControlPlaneStoreCore {
     }
     this.db = openNodeSqliteDatabase(options.databasePath);
     initializeControlPlaneSchema(this.db, options.databasePath);
+    retireOrganizationKnowledge(this.db);
     migrateVmAllocationCodingAgentSchema(this.db);
     if (process.platform !== "win32") {
       for (const path of [
@@ -204,7 +203,6 @@ export abstract class SqliteControlPlaneStoreCore {
     this.idFactory = options.idFactory ?? defaultControlPlaneIdFactory;
     this.sessionPolicy = options.sessionPolicy ?? BROWSER_SESSION_POLICY;
     this.onAgentCredentialsRevoked = options.onAgentCredentialsRevoked;
-    this.resolvePersonalOrganizationMemorySource = options.resolvePersonalOrganizationMemorySource;
     this.initialAdminAccountIds = new Set(
       (options.initialAdminAccountIds ?? [])
         .map((value) => value.trim().toLowerCase())

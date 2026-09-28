@@ -153,32 +153,6 @@
   color: inherit;
 }
 
-.memory-promotions {
-  margin-inline: auto;
-}
-
-.memory-promotions__source-row > .settings-row__text {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-.memory-promotions__source-row > .settings-row__control {
-  flex: 1 1 0;
-  max-width: none;
-}
-
-.memory-promotions__source-row > .settings-row__control > .settings-select {
-  width: 100%;
-  min-width: 0;
-}
-
-.memory-promotions h2,
-.memory-promotions h3,
-.memory-promotions p {
-  margin: 0;
-}
-
-.memory-promotions__field,
 .memory-source-picker {
   display: grid;
   min-width: 0;
@@ -187,7 +161,6 @@
   border-bottom: 1px solid var(--border);
 }
 
-.memory-promotions__field > span,
 .memory-source-picker h4,
 .memory-source-picker h5 {
   margin: 0;
@@ -255,80 +228,9 @@
   border-left: 2px solid var(--accent);
 }
 
-.memory-promotions__empty {
-  padding: var(--space-3) var(--space-4);
-  color: var(--muted);
-}
-
 .memory-source-picker__state {
   margin: 0;
   color: var(--muted);
-}
-
-.memory-promotions .settings-input,
-.memory-promotions .settings-select,
-.memory-promotions .settings-textarea {
-  box-sizing: border-box;
-  width: 100%;
-  border-color: var(--border-strong);
-  background-color: var(--bg-elevated);
-  color: var(--text);
-}
-
-.memory-promotions__document {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-/* The modal adapter leaves slotted content overflow to its owner. Keep review
-   controls outside the bounded scroll region as comparison results grow. */
-.memory-promotions__decision-dialog {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 16px;
-  min-width: 0;
-  max-height: calc(100dvh - 48px);
-  overflow: hidden;
-}
-
-.memory-promotions__decision-body {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  overflow-wrap: anywhere;
-}
-
-.memory-promotions__decision-dialog .exec-approval-actions {
-  margin-top: 0;
-}
-
-@media (max-width: 640px) {
-  .memory-promotions__decision-dialog {
-    max-height: 90dvh;
-  }
-}
-
-.memory-promotions__document pre,
-.memory-promotions__document .table-wrapper {
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-.memory-promotions .settings-textarea {
-  min-height: 96px;
-  resize: vertical;
-}
-
-.memory-promotions > .settings-section:first-child > .settings-group > .btn {
-  margin: var(--space-3) var(--space-4);
-}
-
-.memory-promotions .settings-row__control {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
 }
 
 @media (max-width: 560px) {
@@ -344,10 +246,5 @@
 
   .memory-source-picker__search .btn {
     width: 100%;
-  }
-
-  .memory-promotions .settings-row {
-    align-items: stretch;
-    flex-direction: column;
   }
 }

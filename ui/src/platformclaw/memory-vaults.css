@@ -285,3 +285,11 @@
   margin: 0;
   padding: 12px 0 0;
 }
+
+.vaults__enable {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}

@@ -2,9 +2,6 @@ import type {
   AgentProvisioningState,
   ManagedScopeKind,
   ManagedScopeRole,
-  OrganizationMemoryClaimStatus,
-  OrganizationMemoryPromotionSourceKind,
-  OrganizationMemoryScopeKind,
   PlatformUserGlobalRole,
   PlatformUserStatus,
 } from "./contracts.js";
@@ -96,63 +93,6 @@ export type ManagedScopeMembershipRow = {
   role: ManagedScopeRole;
   created_at: number;
   updated_at: number;
-};
-export type OrganizationMemoryPageRow = {
-  id: string;
-  scope_kind: OrganizationMemoryScopeKind;
-  scope_id: string | null;
-  title: string;
-  content: string;
-  provenance_json: string;
-  revision: number;
-  status: "active" | "retired";
-  created_at: number;
-  updated_at: number;
-};
-export type OrganizationMemoryPromotionRequestRow = {
-  id: string;
-  source_kind: OrganizationMemoryPromotionSourceKind;
-  source_scope_id: string | null;
-  source_claim_id: string;
-  source_revision: number;
-  target_kind: OrganizationMemoryScopeKind;
-  target_scope_id: string | null;
-  proposed_text: string;
-  evidence_json: string;
-  reason: string;
-  requested_by_user_id: string;
-  created_at: number;
-};
-export type OrganizationMemoryClaimRow = {
-  id: string;
-  scope_kind: OrganizationMemoryScopeKind;
-  scope_id: string | null;
-  title: string;
-  claim_text: string;
-  evidence_json: string;
-  source_kind: OrganizationMemoryPromotionSourceKind;
-  source_scope_id: string | null;
-  source_claim_id: string;
-  source_revision: number;
-  promotion_request_id: string;
-  revision: number;
-  status: OrganizationMemoryClaimStatus;
-  created_by_user_id: string;
-  approved_by_user_id: string;
-  created_at: number;
-  updated_at: number;
-  retired_by_user_id: string | null;
-  retired_at: number | null;
-  retirement_reason: string | null;
-};
-export type OrganizationMemoryPromotionDecisionRow = {
-  id: string;
-  request_id: string;
-  decision: "approved" | "rejected";
-  decided_by_user_id: string;
-  reason: string;
-  target_claim_id: string | null;
-  decided_at: number;
 };
 type AuditEventRow = {
   id: string;
@@ -385,78 +325,6 @@ type BaseballIdempotencyRow = {
 };
 
 export type ControlPlaneDatabase = {
-  organization_memory_promotion_reference_inputs: { request_id: string; input_json: string };
-  organization_memory_claim_references: {
-    claim_id: string;
-    revision: number;
-    target_claim_id: string;
-    target_revision: number;
-  };
-  organization_memory_promotion_comparisons: {
-    request_id: string;
-    input_fingerprint: string;
-    input_json: string;
-    analysis_json: string;
-    compared_at: number;
-  };
-  organization_memory_claim_revisions: {
-    claim_id: string;
-    revision: number;
-    payload_json: string;
-    approved_by_user_id: string;
-    approved_at: number;
-    reason: string;
-    proposal_id: string | null;
-  };
-  organization_memory_claim_supersedes: {
-    claim_id: string;
-    revision: number;
-    source_claim_id: string;
-    source_revision: number;
-  };
-  organization_knowledge_requests: { scope_id: string; user_id: string; request_id: string };
-  organization_knowledge_jobs: {
-    id: string;
-    scope_id: string;
-    requested_by_user_id: string;
-    request_id: string;
-    input_fingerprint: string;
-    input_json: string;
-    bounds_json: string;
-    status: "queued" | "running" | "succeeded" | "failed";
-    lease_owner: string | null;
-    lease_expires_at: number | null;
-    created_at: number;
-    started_at: number | null;
-    completed_at: number | null;
-    failure_code: string | null;
-  };
-  organization_knowledge_reports: {
-    id: string;
-    job_id: string;
-    scope_id: string;
-    input_fingerprint: string;
-    analysis_json: string;
-    bounds_json: string;
-    completed_at: number;
-  };
-  organization_knowledge_proposals: {
-    id: string;
-    scope_id: string;
-    report_id: string;
-    pair_key: string;
-    comparison_json: string;
-    claim_revisions_json: string;
-  };
-  organization_knowledge_reviews: {
-    id: string;
-    proposal_id: string;
-    revision: number;
-    decision: "approve" | "reject" | "keep" | "defer" | "apply";
-    actor_user_id: string;
-    reason: string;
-    occurred_at: number;
-  };
   platform_users: PlatformUserRow;
   enterprise_identities: EnterpriseIdentityRow;
   user_directory_groups: DirectoryGroupRow;
@@ -467,10 +335,6 @@ export type ControlPlaneDatabase = {
   managed_scope_primary_memberships: ManagedScopePrimaryMembershipRow;
   organization_join_requests: OrganizationJoinRequestRow;
   organization_join_request_decisions: OrganizationJoinRequestDecisionRow;
-  organization_memory_pages: OrganizationMemoryPageRow;
-  organization_memory_claims: OrganizationMemoryClaimRow;
-  organization_memory_promotion_requests: OrganizationMemoryPromotionRequestRow;
-  organization_memory_promotion_decisions: OrganizationMemoryPromotionDecisionRow;
   control_audit_events: AuditEventRow;
   safeconnect_endpoints: SafeConnectEndpointRow;
   vm_hosts: VmHostRow;

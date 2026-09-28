@@ -381,6 +381,9 @@ export function prepareBrowserWikiRequest(params: {
     ) {
       return params.fail("Reload the complete Wiki document before saving");
     }
+    if (params.request.title !== undefined) {
+      prepared.title = text(params.request.title, "Wiki title", params.fail, 240);
+    }
     prepared.editMode = editMode;
     prepared.content = params.request.content;
     prepared.expectedRevision = params.request.expectedRevision;

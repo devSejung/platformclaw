@@ -25,7 +25,7 @@ describe("server unified Vault search", () => {
           snippet: "Last successfully indexed text",
           source: "wiki",
           vaultId: "personal:main",
-          vaultName: "Personal Wiki",
+          vaultName: "Personal",
           vaultType: "personal",
           documentId: "training",
           title: "Training",
@@ -57,6 +57,42 @@ describe("server unified Vault search", () => {
     }
   });
 
+  it("routes Personal Wiki hits through the same Wiki Hub reader callback while raw Memory uses its own file owner", async () => {
+    const hit = {
+      source: "wiki",
+      vaultId: "personal:main",
+      vaultName: "Personal",
+      vaultType: "personal",
+      documentId: "concepts/a.md",
+      path: "concepts/a.md",
+      title: "Personal title",
+      snippet: "Text",
+      revision: "hash",
+      score: 1,
+      startLine: 1,
+      endLine: 1,
+    };
+    const request = vi.fn().mockResolvedValue({ agentId: "main", results: [hit] });
+    const open = vi.fn();
+    const element = createElement(request);
+    Object.assign(element, {
+      unifiedSearch: true,
+      vaultGetAdvertised: true,
+      openVaultDocument: open,
+    });
+    try {
+      await typeQuery(element, "text");
+      submit(element);
+      await waitForFast(() =>
+        expect(element.querySelector(".wiki-hub__document-card button")).not.toBeNull(),
+      );
+      (element.querySelector(".wiki-hub__document-card button") as HTMLButtonElement).click();
+      expect(open).toHaveBeenCalledWith("personal:main", "concepts/a.md");
+      expect(request).toHaveBeenCalledOnce();
+    } finally {
+      element.remove();
+    }
+  });
   it.each(["en", "ko"] as const)(
     "uses connected search and localized shared provenance in %s",
     async (locale) => {

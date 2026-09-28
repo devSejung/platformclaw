@@ -61,7 +61,6 @@ function createProps(overrides: Partial<MemoryViewProps> = {}): MemoryViewProps 
     overview: html`<div class="test-overview"></div>`,
     memories: html`<div class="test-memories"></div>`,
     wiki: html`<div class="test-wiki"></div>`,
-    organization: html`<div class="test-organization"></div>`,
     dreams: html`<div class="test-dreams"></div>`,
     editor: html`<div class="test-editor"></div>`,
     dreamingSettings: html`<div class="test-dreaming-settings"></div>`,

@@ -6,6 +6,7 @@ import {
 
 /** Prepare memory prompt state with the same normalized tool context used by assembly. */
 export async function prepareAgentMemoryPrompt(params: {
+  runId?: string;
   enabled: boolean;
   toolNames: Iterable<string>;
   capabilityToolNames?: Iterable<string>;
@@ -23,6 +24,7 @@ export async function prepareAgentMemoryPrompt(params: {
       .filter(Boolean),
   );
   return prepareMemoryPromptSection({
+    runId: params.runId,
     availableTools,
     citationsMode: params.citationsMode,
     agentId: params.agentId,

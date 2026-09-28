@@ -15,10 +15,8 @@ import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
 import "../pages/agents/memory/memory-panel.ts";
 import "../pages/config/memory-memories.ts";
-import "./memory-organization.ts";
 import "./memory-vaults.ts";
 import { isExpandableResult, type SearchResult } from "../pages/config/memory-memories-view.ts";
-import "../pages/config/memory-promotions.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import type { MemoryMenuAction } from "./memory-item-menu.ts";
 import "./memory-item-menu.ts";
@@ -27,7 +25,7 @@ import "./memory-vault-reader.ts";
 import type { VaultAuthorSaved } from "./memory-vault-author.ts";
 import type { VaultReaderSelection } from "./memory-vault-reader.ts";
 
-const PERSONAL_MEMORY_TABS = ["memory", "wiki", "organization", "vaults", "dreaming"] as const;
+const PERSONAL_MEMORY_TABS = ["memory", "vaults", "dreaming"] as const;
 type PersonalMemoryTab = (typeof PERSONAL_MEMORY_TABS)[number];
 
 export function isPlatformClawMemoryTab(value: unknown): value is PersonalMemoryTab {
@@ -45,7 +43,14 @@ export function platformClawMemoryTabFromLocation(
   const routedPath =
     new URLSearchParams(location.search).get(INTERNAL_MEMORY_PATH_PARAM) ?? location.pathname;
   const routeTab = memoryTabFromPath(routedPath, basePath) ?? memoryTabFromPath(routedPath);
-  const tab = routeTab === "memories" ? "memory" : routeTab === "dreams" ? "dreaming" : routeTab;
+  const tab =
+    routeTab === "wiki" || routeTab === "organization"
+      ? "vaults"
+      : routeTab === "memories"
+        ? "memory"
+        : routeTab === "dreams"
+          ? "dreaming"
+          : routeTab;
   return isPlatformClawMemoryTab(tab) ? tab : "memory";
 }
 
@@ -63,15 +68,14 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     y: number;
     trigger: HTMLElement | null;
   } | null = null;
-  @state() private sharedReader: VaultReaderSelection | null = null;
+  @state() private vaultReader: VaultReaderSelection | null = null;
   @state() private publishLookup = "";
   @state() private published: VaultAuthorSaved | null = null;
   @state() private vaultTarget: { vaultId: string; documentId: string } | null = null;
-  @state() private promotionLookup = "";
-  @state() private promotionBusy = false;
   @state() private deleteTarget: { kind: "memory" | "wiki"; path: string } | null = null;
   @state() private actionMessage = "";
   @state() private refreshRevision = 0;
+  private gatewayClient: ApplicationContext["gateway"]["snapshot"]["client"] | undefined;
   private readonly subscriptions = new SubscriptionsController(this).watch(
     () => this.context?.gateway,
     (gateway, notify) => gateway.subscribe(notify),
@@ -89,16 +93,24 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
   }
 
   protected override updated(changed: PropertyValues<this>) {
-    if (changed.has("agentId") || this.context.gateway.snapshot.phase !== "connected") {
+    const gateway = this.context.gateway.snapshot;
+    if (
+      changed.has("agentId") ||
+      this.gatewayClient !== gateway.client ||
+      gateway.phase === "stopped"
+    ) {
       this.menu = null;
-      this.promotionLookup = "";
       this.publishLookup = "";
       this.published = null;
       this.vaultTarget = null;
-      this.sharedReader = null;
-      this.promotionBusy = false;
+      this.vaultReader = null;
       this.deleteTarget = null;
       this.actionMessage = "";
+    }
+    this.gatewayClient = gateway.client;
+    if (gateway.phase !== "connected") {
+      this.menu = null;
+      this.deleteTarget = null;
     }
     if (changed.has("initialTab") && this.activeTab !== this.initialTab) {
       this.activeTab = this.initialTab;
@@ -131,16 +143,6 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
       ])
     ) {
       actions.push("publish");
-    }
-    if (
-      kind === "wiki" &&
-      has([
-        "platformclaw.memory.promotion.submit",
-        "platformclaw.memory.lifecycle",
-        "wiki.document.get",
-      ])
-    ) {
-      actions.push("share");
     }
     if (
       has(kind === "wiki" ? ["wiki.delete", "wiki.get"] : ["memory.delete", "agents.workspace.get"])
@@ -177,14 +179,21 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     const gateway = this.context.gateway.snapshot;
     const menu = this.menu;
     return html`
-      ${this.sharedReader
+      ${this.vaultReader && !this.publishLookup
         ? html`<platformclaw-vault-reader
             .client=${gateway.client}
             .connected=${gateway.phase === "connected"}
             .agentId=${this.agentId}
-            .methods=${gateway.hello?.features?.methods ?? []}
-            .selection=${this.sharedReader}
-            @reader-close=${() => (this.sharedReader = null)}
+            .methods=${gateway.hello?.features?.methods ?? gateway.advertisedMethods ?? []}
+            .selection=${this.vaultReader}
+            @reader-deleted=${() => {
+              this.vaultReader = null;
+              this.refreshRevision++;
+              this.actionMessage = t("platformClaw.vault.documentDeleted");
+            }}
+            @reader-saved=${() => this.refreshRevision++}
+            @reader-publish=${(event: CustomEvent<string>) => (this.publishLookup = event.detail)}
+            @reader-close=${() => (this.vaultReader = null)}
           ></platformclaw-vault-reader>`
         : nothing}
       ${menu
@@ -204,15 +213,13 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
                 this.deleteTarget = { kind: menu.kind, path: menu.lookup };
               } else if (action === "publish") {
                 this.publishLookup = menu.lookup;
-              } else {
-                this.promotionLookup = menu.lookup;
               }
             }}
           ></platformclaw-memory-item-menu>`
         : nothing}
       ${this.publishLookup
         ? html`<platformclaw-vault-author
-            .methods=${gateway.hello?.features?.methods ?? []}
+            .methods=${gateway.hello?.features?.methods ?? gateway.advertisedMethods ?? []}
             .client=${gateway.client}
             .connected=${gateway.phase === "connected"}
             .agentId=${this.agentId}
@@ -223,59 +230,6 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
               this.published = event.detail;
             }}
           ></platformclaw-vault-author>`
-        : nothing}
-      ${this.promotionLookup
-        ? html`<openclaw-modal-dialog
-            label=${t("platformClaw.memory.share")}
-            style="--openclaw-modal-width: 800px"
-            @modal-cancel=${(event: Event) => {
-              if (this.promotionBusy) {
-                event.preventDefault();
-              } else {
-                this.promotionLookup = "";
-              }
-            }}
-            ><div class="settings-page platformclaw-memory-action-dialog">
-              <button
-                class="btn"
-                ?disabled=${this.promotionBusy}
-                @click=${() => (this.promotionLookup = "")}
-              >
-                ${t("common.close")}
-              </button>
-              <openclaw-memory-promotions
-                .getAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.memory.get") ===
-                true}
-                .referencesAdvertised=${isGatewayMethodAdvertised(
-                  gateway,
-                  "platformclaw.memory.promotion.previewReferences",
-                ) === true}
-                .comparisonAdvertised=${isGatewayMethodAdvertised(
-                  gateway,
-                  "platformclaw.memory.knowledge.comparePromotion",
-                ) === true}
-                .client=${gateway.client}
-                .connected=${gateway.phase === "connected"}
-                .methodAdvertised=${isGatewayMethodAdvertised(
-                  gateway,
-                  "platformclaw.memory.lifecycle",
-                ) === true}
-                .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search") === true}
-                .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.document.get") ===
-                true}
-                .agentId=${this.agentId}
-                .initialPersonalLookup=${this.promotionLookup}
-                .formOnly=${true}
-                @promotion-submit-state=${(event: CustomEvent<boolean>) => {
-                  this.promotionBusy = event.detail;
-                }}
-                @promotion-submitted=${(event: CustomEvent<{ message: string }>) => {
-                  this.promotionLookup = "";
-                  this.promotionBusy = false;
-                  this.actionMessage = event.detail.message;
-                }}
-              ></openclaw-memory-promotions></div
-          ></openclaw-modal-dialog>`
         : nothing}
       ${this.deleteTarget
         ? html`<platformclaw-memory-delete-dialog
@@ -313,13 +267,14 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     switch (this.activeTab) {
       case "memory":
         return html`<openclaw-memory-memories
+          .documentDialogs=${true}
           .client=${gateway.client}
           .connected=${gateway.phase === "connected"}
           .connectionPhase=${gateway.phase}
           .methodAdvertised=${isGatewayMethodAdvertised(gateway, "memory.search")}
           .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search")}
-          .openSharedDocument=${(vaultId: string, documentId: string) => {
-            this.sharedReader = { vaultId, documentId };
+          .openVaultDocument=${(vaultId: string, documentId: string) => {
+            this.vaultReader = { vaultId, documentId };
           }}
           .browseEnabled=${true}
           .unifiedSearch=${isGatewayMethodAdvertised(gateway, "platformclaw.vault.snapshot") ===
@@ -331,17 +286,14 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
           .browseListAdvertised=${isGatewayMethodAdvertised(gateway, "agents.workspace.list")}
           .personalDetailAdvertised=${isGatewayMethodAdvertised(gateway, "agents.workspace.get")}
           .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.document.get")}
-          .organizationGetAdvertised=${isGatewayMethodAdvertised(
-            gateway,
-            "platformclaw.memory.get",
-          )}
           .translator=${t}
           .refreshRevision=${this.refreshRevision}
           .itemActions=${{
             label: t("platformClaw.memory.actions"),
             available: (result: SearchResult) =>
               isExpandableResult(result) &&
-              (result.source === "memory" || result.source === "wiki") &&
+              (result.source === "memory" ||
+                (result.source === "wiki" && result.vaultType !== "shared")) &&
               this.availableActions(result.source).length > 0,
             open: (result: SearchResult, event: Event) =>
               this.openActions(result.source as "memory" | "wiki", result.path, event),
@@ -350,79 +302,15 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
         ></openclaw-memory-memories>`;
       case "vaults":
         return html`<platformclaw-memory-vaults
-          .methods=${gateway.hello?.features?.methods ?? []}
+          .methods=${gateway.hello?.features?.methods ?? gateway.advertisedMethods ?? []}
           .initialVaultId=${this.vaultTarget?.vaultId ?? ""}
           .initialDocumentId=${this.vaultTarget?.documentId ?? ""}
-          @vault-navigate=${(event: CustomEvent<"wiki" | "organization">) =>
-            this.selectTab(event.detail)}
           .client=${gateway.client}
           .connected=${gateway.phase === "connected"}
           .methodAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.vault.snapshot") ===
           true}
           .agentId=${this.agentId}
         ></platformclaw-memory-vaults>`;
-      case "wiki":
-        return html`<openclaw-agent-memory-panel
-          .agentId=${this.agentId ?? ""}
-          surface="wiki"
-          .refreshRevision=${this.refreshRevision}
-          .wikiActions=${this.availableActions("wiki").length > 0
-            ? {
-                label: t("platformClaw.memory.actions"),
-                open: (lookup: string, event: Event) => this.openActions("wiki", lookup, event),
-                ...(this.availableActions("wiki").includes("publish")
-                  ? {
-                      primary: {
-                        label: t("platformClaw.vault.publish"),
-                        run: (lookup: string) => (this.publishLookup = lookup),
-                      },
-                    }
-                  : {}),
-              }
-            : undefined}
-        ></openclaw-agent-memory-panel>`;
-      case "organization":
-        return html`<platformclaw-memory-organization
-          .referencesAdvertised=${isGatewayMethodAdvertised(
-            gateway,
-            "platformclaw.memory.promotion.previewReferences",
-          ) === true}
-          .comparisonAdvertised=${isGatewayMethodAdvertised(
-            gateway,
-            "platformclaw.memory.knowledge.comparePromotion",
-          ) === true}
-          .knowledgeAdvertised=${isGatewayMethodAdvertised(
-            gateway,
-            "platformclaw.memory.knowledge.snapshot",
-          ) === true}
-          .knowledgeGenerateAdvertised=${isGatewayMethodAdvertised(
-            gateway,
-            "platformclaw.memory.knowledge.generate",
-          ) === true}
-          .knowledgeDecideAdvertised=${isGatewayMethodAdvertised(
-            gateway,
-            "platformclaw.memory.knowledge.decide",
-          ) === true}
-          .knowledgeApplyAdvertised=${isGatewayMethodAdvertised(
-            gateway,
-            "platformclaw.memory.knowledge.apply",
-          ) === true}
-          .client=${gateway.client}
-          .connected=${gateway.phase === "connected"}
-          .lifecycleAdvertised=${isGatewayMethodAdvertised(
-            gateway,
-            "platformclaw.memory.lifecycle",
-          ) === true}
-          .graphAdvertised=${isGatewayMethodAdvertised(gateway, "platformclaw.memory.graph") ===
-          true}
-          .wikiSearchAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.search") === true}
-          .wikiGetAdvertised=${isGatewayMethodAdvertised(gateway, "wiki.document.get") === true}
-          .organizationGetAdvertised=${isGatewayMethodAdvertised(
-            gateway,
-            "platformclaw.memory.get",
-          ) === true}
-          .agentId=${this.agentId}
-        ></platformclaw-memory-organization>`;
       case "dreaming":
         return html`<openclaw-agent-memory-panel
           .agentId=${this.agentId ?? ""}
@@ -471,9 +359,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
             active: this.activeTab,
             tabs: [
               { value: "memory", label: "Memory" },
-              { value: "wiki", label: "Personal Wiki" },
               { value: "vaults", label: t("platformClaw.vault.title") },
-              { value: "organization", label: t("platformClaw.memory.tabs.organization") },
               { value: "dreaming", label: "Dreaming" },
             ],
             ariaLabel: t("platformClaw.memory.tabs.label"),

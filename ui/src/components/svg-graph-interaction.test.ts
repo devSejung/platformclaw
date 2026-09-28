@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   endSvgGraphPointer,
   fitSvgGraphView,
-  focusSvgGraphNode,
   getSvgGraphInteraction,
   handleSvgGraphWheel,
   moveSvgGraphPointer,
@@ -71,7 +70,7 @@ describe("SVG graph interaction", () => {
     }
   });
 
-  it("fits visible bounds without losing dragged positions and focuses a document", () => {
+  it("fits visible bounds without losing dragged positions", () => {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     const viewport = document.createElementNS("http://www.w3.org/2000/svg", "g");
     viewport.dataset.svgGraphViewport = "";
@@ -90,9 +89,6 @@ describe("SVG graph interaction", () => {
     const fittedScale = interaction.scale;
     handleSvgGraphWheel(wheel(svg, -1), interaction);
     expect(interaction.scale).toBeCloseTo(fittedScale * 1.15);
-    focusSvgGraphNode(svg, interaction, "one");
-    expect(interaction.x + 1600 * interaction.scale).toBeCloseTo(480);
-    expect(interaction.y + 850 * interaction.scale).toBeCloseTo(300);
   });
 
   it("preserves parallel edge lanes when dragging while zero-offset edges stay centered", () => {

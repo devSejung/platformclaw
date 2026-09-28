@@ -3,7 +3,6 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrowserAuthService, hashBrowserSessionToken } from "./browser-auth-service.js";
 import { BrowserGatewayProxy, type BrowserGatewayRpc } from "./browser-gateway-proxy.js";
@@ -107,12 +106,89 @@ async function setup() {
 }
 
 describe("knowledge vault browser boundary", () => {
+  it("bounds link targets to the editable selected Wiki and returns safe insertable markup", async () => {
+    const { store, user, proxy, token } = await setup();
+    const vault = store.vaults.createVault({ userId: user.id, name: "Picker" });
+    for (let index = 0; index < 21; index++) {
+      store.vaults.saveDocument({
+        userId: user.id,
+        vaultId: vault.id,
+        title: `Document ${index}`,
+        content: `Body ${index}`,
+      });
+    }
+    const all = await proxy.request<{ items: unknown[]; hasMore: boolean }>(
+      token,
+      "platformclaw.vault.document.targets",
+      { vaultId: vault.id, query: "" },
+    );
+    expect(all.items).toHaveLength(20);
+    expect(all.hasMore).toBe(true);
+    const target = store.vaults.saveDocument({
+      userId: user.id,
+      vaultId: vault.id,
+      title: "Escaped target",
+      logicalPath: "spec/a#b].md",
+      content: "Safe",
+    });
+    const selected = await proxy.request<{ items: Array<{ documentId: string; link: string }> }>(
+      token,
+      "platformclaw.vault.document.targets",
+      { vaultId: vault.id, query: "Escaped" },
+    );
+    expect(selected.items).toEqual([
+      expect.objectContaining({
+        documentId: target.id,
+        link: "[[spec/a%23b%5D.md|Escaped target]]",
+      }),
+    ]);
+    const source = store.vaults.saveDocument({
+      userId: user.id,
+      vaultId: vault.id,
+      content: selected.items[0]!.link,
+    });
+    expect(source.links[0]!.documentId).toBe(target.id);
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.targets", {
+        vaultId: vault.id,
+        query: "' OR 1=1 --",
+      }),
+    ).resolves.toEqual({ items: [], hasMore: false });
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.targets", {
+        vaultId: vault.id,
+        query: "x".repeat(161),
+      }),
+    ).rejects.toThrow("160");
+    const { user: other } = await store.upsertPrincipal(
+      { provider: "ldap", subject: "other", accountId: "other", employeeId: "other" },
+      Date.now(),
+    );
+    const privateVault = store.vaults.createVault({ userId: other.id, name: "No access" });
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.targets", {
+        vaultId: privateVault.id,
+        query: "",
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    store.vaults.setMember({
+      userId: other.id,
+      vaultId: privateVault.id,
+      memberUserId: user.id,
+      role: "reader",
+    });
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.targets", {
+        vaultId: privateVault.id,
+        query: "",
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+  });
   it("previews bounded metadata without writing, allocates unique paths and retains edited metadata", async () => {
     const { store, user, proxy, token } = await setup();
     const vault = store.vaults.createVault({
       userId: user.id,
       name: "Shared",
-      ownerCanExport: true,
     });
     const input = {
       vaultId: vault.id,
@@ -166,14 +242,12 @@ describe("knowledge vault browser boundary", () => {
     const readOnly = store.vaults.createVault({
       userId: owner.id,
       name: "Read only",
-      ownerCanExport: true,
     });
     store.vaults.setMember({
       userId: owner.id,
       vaultId: readOnly.id,
       memberUserId: user.id,
       role: "reader",
-      canExport: false,
     });
     await expect(
       proxy.request(token, "platformclaw.vault.document.preview", {
@@ -196,7 +270,6 @@ describe("knowledge vault browser boundary", () => {
     const vault = store.vaults.createVault({
       userId: owner.id,
       name: "PHY Spec",
-      ownerCanExport: true,
     });
     store.vaults.saveDocument({
       userId: owner.id,
@@ -209,7 +282,7 @@ describe("knowledge vault browser boundary", () => {
       vaultService.search({
         agentId: binding.agentId,
         query: "training",
-        turnScope: { revision: 0, vaultIds: [] },
+        turnScope: { revision: 0, vaultIds: [], personalEnabled: true },
         ...extra,
       });
     await expect(search({ vaultName: "PHY Spec" })).rejects.toMatchObject({
@@ -221,7 +294,6 @@ describe("knowledge vault browser boundary", () => {
       vaultId: vault.id,
       memberUserId: user.id,
       role: "reader",
-      canExport: false,
     });
     expect(await search()).toEqual([]);
     expect(await search({ vaultName: "PHY Spec" })).toEqual([
@@ -237,7 +309,7 @@ describe("knowledge vault browser boundary", () => {
       "only vaultId",
     );
     for (let i = 0; i < 6; i++) {
-      store.vaults.createVault({ userId: user.id, name: "PHY Spec", ownerCanExport: true });
+      store.vaults.createVault({ userId: user.id, name: "PHY Spec" });
     }
     await expect(search({ vaultName: "PHY Spec" })).rejects.toMatchObject({
       code: "vault-name-ambiguous",
@@ -267,14 +339,12 @@ describe("knowledge vault browser boundary", () => {
     const vault = store.vaults.createVault({
       userId: owner.id,
       name: "Invited",
-      ownerCanExport: true,
     });
     store.vaults.setMember({
       userId: owner.id,
       vaultId: vault.id,
       memberUserId: user.id,
       role: "reader",
-      canExport: false,
     });
     store.vaults.saveDocument({
       userId: owner.id,
@@ -289,12 +359,11 @@ describe("knowledge vault browser boundary", () => {
       {},
     );
     expect(snapshot.vaults.find((entry) => entry.id === vault.id)).toMatchObject({
-      connected: false,
+      connected: true,
       documentCount: 1,
       attachmentCount: 0,
       role: "reader",
       canEdit: false,
-      canExport: false,
     });
     const search = async (scope?: "connected" | "all", vaultId?: string) =>
       (
@@ -304,7 +373,7 @@ describe("knowledge vault browser boundary", () => {
           ...(vaultId ? { vaultId } : {}),
         })
       ).results.map((hit) => hit.vaultId);
-    expect(await search()).not.toContain(vault.id);
+    expect(await search()).toContain(vault.id);
     expect(await search("all")).toContain(vault.id);
     expect(await search(undefined, vault.id)).toEqual([vault.id]);
     const connected = await proxy.request<KnowledgeVaultSnapshot>(
@@ -358,55 +427,27 @@ describe("knowledge vault browser boundary", () => {
     ).rejects.toMatchObject({ code: "method-not-allowed" });
   });
 
-  it("lists Managed Vaults as read-only connections and scopes them before search limiting", async () => {
-    const { store, user, proxy, token, binding, vaultService, databasePath } = await setup();
-    vaultService.snapshot({ userId: user.id });
-    const db = new DatabaseSync(databasePath);
-    try {
-      db.prepare(
-        "INSERT INTO organization_memory_pages (id,scope_kind,scope_id,title,content,provenance_json,revision,status,created_at,updated_at) VALUES ('approved','global',NULL,'Training','training approved','{}',1,'active',1,1)",
-      ).run();
-    } finally {
-      db.close();
-    }
+  it("lists only the bound Personal Wiki and rejects foreign Personal ids", async () => {
+    const { proxy, token, binding } = await setup();
     const snapshot = await proxy.request<KnowledgeVaultSnapshot>(
       token,
       "platformclaw.vault.snapshot",
       {},
     );
-    expect(snapshot.vaults).toContainEqual(
+    expect(snapshot.vaults).toEqual([
       expect.objectContaining({
-        id: "managed:global",
-        type: "managed",
-        connected: false,
-        documentCount: 1,
-        canEdit: false,
-        canExport: false,
-        canManageMembers: false,
+        id: `personal:${binding.agentId}`,
+        type: "personal",
+        role: "owner",
+        connected: true,
       }),
-    );
-    expect(await vaultService.search({ agentId: binding.agentId, query: "training" })).toEqual([]);
-    expect(
-      await vaultService.search({
-        agentId: binding.agentId,
-        query: "training",
-        vaultName: "Global",
-      }),
-    ).toEqual([expect.objectContaining({ vaultId: "managed:global" })]);
-    expect(
-      await vaultService.search({ agentId: binding.agentId, query: "training", scope: "all" }),
-    ).toHaveLength(1);
-    const connected = await proxy.request<KnowledgeVaultSnapshot>(
-      token,
-      "platformclaw.vault.connection.set",
-      { vaultId: "managed:global", connected: true },
-    );
-    expect(connected.selected).toBeUndefined();
-    expect(connected.vaults.find((entry) => entry.id === "managed:global")?.connected).toBe(true);
-    expect(await vaultService.search({ agentId: binding.agentId, query: "training" })).toEqual([
-      expect.objectContaining({ vaultId: "managed:global" }),
     ]);
-    expect(store.vaults.listVaults(user.id)).toEqual([]);
+    await expect(
+      proxy.request(token, "platformclaw.vault.connection.set", {
+        vaultId: "personal:other",
+        connected: false,
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
   });
   it("creates, writes and searches with server identity and complete provenance", async () => {
     const { proxy, token, store, user, request } = await setup();
@@ -475,7 +516,6 @@ describe("knowledge vault browser boundary", () => {
     const vault = store.vaults.createVault({
       userId: user.id,
       name: "Shared",
-      ownerCanExport: true,
     });
     store.vaults.saveDocument({
       userId: user.id,
@@ -557,7 +597,6 @@ describe("knowledge vault browser boundary", () => {
     const vault = store.vaults.createVault({
       userId: user.id,
       name: "HTTP Vault",
-      ownerCanExport: true,
     });
     store.vaults.saveDocument({
       userId: user.id,
@@ -622,9 +661,8 @@ describe("knowledge vault browser boundary", () => {
         vaultId: vault.id,
         memberUserId: user.id,
         role: "owner",
-        canExport: false,
       });
-      expect((await fetch(`${base}/export?vaultId=${vault.id}`, { headers })).status).toBe(403);
+      expect((await fetch(`${base}/export?vaultId=${vault.id}`, { headers })).status).toBe(200);
       expect((await fetch(attachment, { headers })).status).toBe(200);
     } finally {
       server.closeAllConnections();
@@ -639,7 +677,6 @@ describe("knowledge vault browser boundary", () => {
     const vault = store.vaults.createVault({
       userId: user.id,
       name: "Shared",
-      ownerCanExport: true,
     });
     const sourceContent = "# Training\r\nOriginal body remains exact.\r\n";
     const expectedRevision = createHash("sha256").update(sourceContent).digest("hex");

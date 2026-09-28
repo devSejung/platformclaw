@@ -814,8 +814,7 @@
 }
 
 .platformclaw-memory-page__panel > .settings-page,
-.platformclaw-memory-page__panel > openclaw-memory-memories > .settings-page,
-.platformclaw-memory-page__panel :is(.memory-promotions, .organization-memory-graph) {
+.platformclaw-memory-page__panel > openclaw-memory-memories > .settings-page {
   max-width: none;
   padding-inline: 0;
   padding-bottom: 0;
@@ -837,88 +836,12 @@
   padding: 0 0 var(--space-3);
 }
 
-.platformclaw-memory-organization {
-  display: grid;
-  gap: 16px;
-}
-
-.organization-memory-graph__preview.dreams-diary__preview-panel {
-  display: flex;
-  gap: 0;
-  padding: 0;
-  background: var(--panel);
-}
-
-.organization-memory-graph__reader-pages {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border);
-}
-
-.organization-memory-graph__preview .organization-memory-graph__preview-meta,
-.organization-memory-graph__preview [data-memory-verification] {
-  margin: 12px 20px;
-  overflow-wrap: anywhere;
-}
-
-.organization-memory-graph__preview .md-preview-dialog__reader pre {
-  filter: none;
-}
-
-.organization-memory-graph__preview {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
-  max-height: calc(100dvh - 48px);
-  min-width: 0;
-  overflow: hidden;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.22);
-}
-
-.organization-memory-graph__preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 12px;
-}
-
-.organization-memory-graph__preview-header h3 {
-  margin: 0;
-}
-
-.organization-memory-graph__preview-body {
-  min-height: 0;
-  overflow: auto;
-  overflow-wrap: anywhere;
-}
-
 .platformclaw-memory-action-dialog {
   max-height: calc(100dvh - 48px);
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--card);
-}
-
-.organization-memory-graph__preview-meta {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.organization-memory-graph__preview pre {
-  max-height: 65vh;
-  margin: 0;
-  overflow: auto;
-  white-space: pre-wrap;
 }
 
 .memory-page__link {
@@ -1121,27 +1044,5 @@
 @media (max-width: 768px) {
   .settings-theme-grid {
     grid-template-columns: 1fr;
-  }
-}
-
-/* Organization graph expansion stays within the page instead of trapping
-   keyboard focus in a second full-screen modal. */
-.platformclaw-memory-page:has(.organization-memory-graph--expanded) {
-  max-width: none;
-}
-
-/* Organization documents are working references, not display headlines. */
-.organization-memory-graph__preview .wiki-document__reader h1 {
-  font-family: inherit;
-  font-size: 1.8rem;
-  line-height: 1.35;
-  letter-spacing: normal;
-  word-break: keep-all;
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 640px) {
-  .organization-memory-graph__preview .wiki-document__reader h1 {
-    font-size: 1.35rem;
   }
 }

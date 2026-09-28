@@ -247,6 +247,7 @@ export async function prepareEmbeddedAttemptSystemPrompt(params: {
   const includeMemorySection =
     !params.activeContextEngine || params.activeContextEngine.info.id === "legacy";
   const preparedMemoryPrompt = await prepareAgentMemoryPrompt({
+    runId: attempt.runId,
     enabled: effectivePromptMode === "full" && includeMemorySection,
     toolNames: params.effectiveTools.map((tool) => tool.name),
     capabilityToolNames: params.capabilityToolNames,

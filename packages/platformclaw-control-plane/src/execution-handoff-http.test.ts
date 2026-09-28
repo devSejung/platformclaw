@@ -6,11 +6,11 @@ import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ControlPlaneConflictError } from "./contracts.js";
 import { ExecutionHandoffClient } from "./execution-handoff-client.js";
 import { PlatformClawExecutionHandoffServer } from "./execution-handoff-http.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 import { KnowledgeVaultSearchError } from "./knowledge-vault-contracts.js";
-import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
 
 const servers: PlatformClawExecutionHandoffServer[] = [];
 const roots: string[] = [];
@@ -36,14 +36,24 @@ async function startServer() {
   };
   const service = {
     vaultService: {
-      captureScope: vi.fn(() => ({ revision: 4, vaultIds: ["vault-one"] })),
+      captureScope: vi.fn(() => ({ revision: 4, vaultIds: ["vault-one"], personalEnabled: true })),
+      wiki: vi.fn(() => ({
+        text: "Wiki status",
+        details: { wikis: [], totalWikis: 0, truncated: false },
+      })),
       search: vi.fn(async () => [vaultHit]),
       get: vi.fn(async () => ({
         ...vaultHit,
+        revision: "3",
+        editMode: "body",
+        editableContent: "Reviewed training facts.",
+        totalLines: 2,
+        truncated: true,
         content: "Reviewed training facts.",
         fromLine: 2,
         lineCount: 1,
         logicalPath: "training.md",
+        link: "[[training.md]]",
       })),
     },
     resolveTarget: vi.fn(async (agentId: string) => ({
@@ -68,56 +78,6 @@ async function startServer() {
       revision: 2,
       expiresAt: 60_000,
     })),
-    searchOrganizationMemory: vi.fn(async () => [
-      {
-        id: "page-1",
-        path: "organization/team/page-1",
-        scopeKind: "team" as const,
-        scopeName: "Company",
-        title: "Security policy",
-        snippet: "Use approved devices.",
-        score: 0.9,
-        updatedAt: 1_000,
-      },
-    ]),
-    getOrganizationMemory: vi.fn(async () => ({
-      id: "page-1",
-      path: "organization/team/page-1",
-      scopeKind: "team" as const,
-      scopeName: "Company",
-      title: "Security policy",
-      snippet: "Use approved devices.",
-      score: 0.9,
-      updatedAt: 1_000,
-      content: "Use approved devices.",
-      fromLine: 1,
-      lineCount: 1,
-    })),
-  } satisfies Pick<
-    ExecutionHandoffService,
-    "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
-  > & {
-    vaultService: Pick<KnowledgeVaultService, "search" | "get" | "captureScope">;
-    resolveMcpConnection(
-      agentId: string,
-      serverName: string,
-      serverUrl: string,
-    ): Promise<{
-      headers: Record<string, string>;
-      revision: number;
-      expiresAt?: number;
-    }>;
-    searchOrganizationMemory(params: {
-      agentId: string;
-      query: string;
-      maxResults?: number;
-    }): Promise<unknown[]>;
-    getOrganizationMemory(params: {
-      agentId: string;
-      path: string;
-      fromLine?: number;
-      lineCount?: number;
-    }): Promise<unknown>;
   };
   const root = await mkdtemp(join(tmpdir(), "platformclaw-handoff-"));
   roots.push(root);
@@ -178,6 +138,63 @@ async function postResponse(
 }
 
 describe("PlatformClawExecutionHandoffServer", () => {
+  it("forwards the frozen Wiki scope and explicit revision, returning actionable conflicts", async () => {
+    const { socketPath, service } = await startServer();
+    const turnScope = { revision: 4, vaultIds: ["vault-one"], personalEnabled: false };
+    const mutation = {
+      op: "update",
+      lookup: "shared/vault-one/doc-one",
+      body: "Updated body",
+      expectedRevision: "3",
+    };
+    await expect(
+      post(socketPath, "/platformclaw/internal/memory/vaults/wiki", {
+        agentId: "person_one",
+        vaultId: "vault-one",
+        operation: "apply",
+        turnScope,
+        mutation,
+      }),
+    ).resolves.toEqual({
+      text: "Wiki status",
+      details: { wikis: [], totalWikis: 0, truncated: false },
+    });
+    expect(service.vaultService.wiki).toHaveBeenCalledWith({
+      agentId: "person_one",
+      vaultId: "vault-one",
+      vaultName: undefined,
+      operation: "apply",
+      turnScope,
+      mutation,
+    });
+    service.vaultService.wiki.mockImplementationOnce(() => {
+      throw new ControlPlaneConflictError("knowledge_vault_changed", "Document changed");
+    });
+    await expect(
+      postResponse(socketPath, "/platformclaw/internal/memory/vaults/wiki", {
+        agentId: "person_one",
+        vaultId: "vault-one",
+        operation: "apply",
+        mutation,
+      }),
+    ).resolves.toMatchObject({
+      status: 409,
+      body: {
+        code: "wiki-conflict",
+        error: "Document changed",
+        action: expect.stringContaining("read the current document"),
+      },
+    });
+    const calls = service.vaultService.wiki.mock.calls.length;
+    await expect(
+      postResponse(socketPath, "/platformclaw/internal/memory/vaults/wiki", {
+        agentId: "person_one",
+        operation: "apply",
+        mutation: { ...mutation, expectedRevision: 3 },
+      }),
+    ).resolves.toMatchObject({ status: 409, body: { code: "wiki-invalid" } });
+    expect(service.vaultService.wiki).toHaveBeenCalledTimes(calls);
+  });
   it("rejects an incorrect service token before dispatch", async () => {
     const { socketPath, service } = await startServer();
     const client = new ExecutionHandoffClient(socketPath, "wrong-token");
@@ -230,47 +247,22 @@ describe("PlatformClawExecutionHandoffServer", () => {
     );
   });
 
-  it("serves bounded organization memory using the agent-scoped owner", async () => {
-    const { socketPath, service } = await startServer();
-    await expect(
-      post(socketPath, "/platformclaw/internal/memory/organization/search", {
-        agentId: "person_one",
-        query: "security",
-        maxResults: 5,
-      }),
-    ).resolves.toEqual([expect.objectContaining({ path: "organization/team/page-1" })]);
-    await expect(
-      post(socketPath, "/platformclaw/internal/memory/organization/get", {
-        agentId: "person_one",
-        path: "organization/team/page-1",
-        fromLine: 1,
-        lineCount: 20,
-      }),
-    ).resolves.toMatchObject({ content: "Use approved devices.", lineCount: 1 });
-    expect(service.searchOrganizationMemory).toHaveBeenCalledWith({
-      agentId: "person_one",
-      query: "security",
-      maxResults: 5,
-    });
-    expect(service.getOrganizationMemory).toHaveBeenCalledWith({
-      agentId: "person_one",
-      path: "organization/team/page-1",
-      fromLine: 1,
-      lineCount: 20,
-    });
-    await expect(
-      post(socketPath, "/platformclaw/internal/memory/organization/get", {
-        agentId: "person_one",
-        path: "file:///srv/private",
-      }),
-    ).rejects.toThrow("(400)");
+  it("rejects retired organization knowledge endpoints", async () => {
+    const { socketPath } = await startServer();
+    for (const path of ["search", "get"]) {
+      await expect(
+        post(socketPath, `/platformclaw/internal/memory/organization/${path}`, {
+          agentId: "person_one",
+        }),
+      ).rejects.toThrow();
+    }
   });
 
   it("delegates vault search and get with agent identity, optional scope and complete provenance", async () => {
     const { socketPath, service } = await startServer();
     await expect(
       post(socketPath, "/platformclaw/internal/memory/vaults/scope", { agentId: "person_one" }),
-    ).resolves.toEqual({ revision: 4, vaultIds: ["vault-one"] });
+    ).resolves.toEqual({ revision: 4, vaultIds: ["vault-one"], personalEnabled: true });
     expect(service.vaultService.captureScope).toHaveBeenCalledWith({ agentId: "person_one" });
     await expect(
       post(socketPath, "/platformclaw/internal/memory/vaults/search", {
@@ -318,6 +310,7 @@ describe("PlatformClawExecutionHandoffServer", () => {
     });
     // A complete bounded selection may exceed the small execution-command body limit.
     const turnScope = {
+      personalEnabled: true,
       revision: 4,
       vaultIds: Array.from({ length: 128 }, () => randomUUID()),
     };
@@ -341,7 +334,7 @@ describe("PlatformClawExecutionHandoffServer", () => {
     ).resolves.toMatchObject({
       vaultId: "vault-one",
       documentId: "doc-one",
-      revision: 3,
+      revision: "3",
       content: "Reviewed training facts.",
     });
     expect(service.vaultService.get).toHaveBeenCalledWith({

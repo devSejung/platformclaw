@@ -16,6 +16,8 @@ export type ApplicationGatewaySnapshot = {
   phase: ApplicationGatewayPhase;
   offlineStable: boolean;
   hello: GatewayHelloOk | null;
+  /** Last advertised methods for this client; transport loss clears auth, not capabilities. */
+  advertisedMethods?: string[] | null;
   canvasPluginSurfaceRoute: CanvasPluginSurfaceRoute;
   assistantAgentId: string | null;
   sessionKey: string;

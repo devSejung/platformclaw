@@ -253,7 +253,6 @@ export class BrowserGatewayProxy {
       method,
       request: prepared,
       agentId: access.binding.agentId,
-      searchOrganizationMemory: this.options.searchOrganizationMemory?.bind(this.options),
     });
     try {
       const projected = this.filterResult(access, method, prepared, result, executionTarget);

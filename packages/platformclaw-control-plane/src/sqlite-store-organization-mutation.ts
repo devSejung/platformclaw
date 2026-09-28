@@ -4,7 +4,9 @@ import {
   ControlPlaneStateError,
   type OrganizationAuthorization,
 } from "./contracts.js";
+import { reconcileWikiAccess } from "./knowledge-vault-access.js";
 import { runImmediateTransaction } from "./kysely-sync.js";
+import { ensureKnowledgeVaultSchema } from "./sqlite-schema-knowledge-vault.js";
 import { SqliteControlPlaneOrganizationAccessStore } from "./sqlite-store-organization-access.js";
 
 type OrganizationAuditAuthorizationFacts =
@@ -75,8 +77,13 @@ export abstract class SqliteControlPlaneOrganizationMutationStore extends Sqlite
     },
     operation: () => T,
   ): T {
+    ensureKnowledgeVaultSchema(this.db);
     try {
-      return runImmediateTransaction(this.db, operation);
+      return runImmediateTransaction(this.db, () => {
+        const result = operation();
+        reconcileWikiAccess(this.db);
+        return result;
+      });
     } catch (error) {
       if (
         error instanceof ControlPlaneAuthorizationError ||

@@ -5,14 +5,24 @@ import type {
   KnowledgeVaultDocumentSummary,
   KnowledgeVaultCompile,
 } from "../../../packages/platformclaw-control-plane/src/knowledge-vault-contracts.js";
+import {
+  compactKnowledgeRevision,
+  renderKnowledgeDocumentCard,
+} from "../components/knowledge-document-card.ts";
+import { renderKnowledgeDocumentReader } from "../components/knowledge-document-reader.ts";
 import { toSanitizedMarkdownHtml } from "../components/markdown.ts";
 import "../components/modal-dialog.ts";
 import "../styles/dreams.css";
+import "./memory-vaults.css";
 import { platformClawT } from "./i18n.ts";
 
 export function renderVaultDocument(options: {
   document: KnowledgeVaultDocument;
   vaultName: string;
+  vaultType: "personal" | "shared";
+  canExport: boolean;
+  onPublish?: () => void;
+  onDelete?: () => void;
   canEdit: boolean;
   busy: boolean;
   onOpen: (documentId: string) => void;
@@ -37,105 +47,136 @@ export function renderVaultDocument(options: {
           : html`<span>${link.logicalPath}</span>`,
       )}
     </div>`;
-  return html`<openclaw-modal-dialog
-    label=${document.title}
-    style="--openclaw-modal-width: 1120px"
-    @modal-cancel=${options.onClose}
-  >
-    <div class="organization-memory-graph__preview dreams-diary__preview-panel" data-vault-document>
-      <header class="dreams-diary__preview-header wiki-document__header">
-        <div class="wiki-document__heading">
-          <div class="dreams-diary__preview-title">${document.title}</div>
-          <div class="dreams-diary__preview-meta">
-            ${options.vaultName} · ${t("shared")} ·
-            ${platformClawT("memoryPage.memories.revision", {
-              revision: String(document.revision),
-            })}
-          </div>
-        </div>
-        <div class="wiki-document__actions">
-          ${options.canEdit
-            ? html`<button
-                class="btn btn--subtle btn--sm"
-                ?disabled=${options.busy}
-                @click=${options.onEdit}
-              >
-                ${t("edit")}
-              </button>`
-            : nothing}
-          <button
+  return renderKnowledgeDocumentReader({
+    title: document.title,
+    vaultDocument: true,
+    metadata: html`${options.vaultName} ·
+    ${platformClawT("memoryPage.memories.revision", {
+      revision: compactKnowledgeRevision(document.revision),
+    })}`,
+    closeLabel: t("close"),
+    onClose: options.onClose,
+    actions: html`
+      ${options.onDelete
+        ? html`<button
+            class="btn btn--subtle btn--sm danger"
+            ?disabled=${options.busy}
+            @click=${options.onDelete}
+          >
+            ${t("deleteDocument")}
+          </button>`
+        : nothing}
+      ${options.canEdit
+        ? html`<button
+            class="btn btn--subtle btn--sm"
+            ?disabled=${options.busy}
+            @click=${options.onEdit}
+          >
+            ${t("edit")}
+          </button>`
+        : nothing}
+      ${options.onPublish
+        ? html`<button
+            class="btn btn--subtle btn--sm"
+            ?disabled=${options.busy}
+            @click=${options.onPublish}
+          >
+            ${t("publish")}
+          </button>`
+        : nothing}
+      ${options.canExport
+        ? html`<button
             class="btn btn--subtle btn--sm"
             ?disabled=${options.busy}
             @click=${options.onDownload}
           >
             ${t("download")}
-          </button>
-          <button class="btn btn--subtle btn--sm" @click=${options.onClose}>${t("close")}</button>
-        </div>
-      </header>
-      <div class="organization-memory-graph__preview-body dreams-diary__preview-body">
-        <p class="vaults__hint">${t(document.compile.status)}</p>
-        ${document.compile.status !== "ready" ? renderVaultIndexStatus(document.compile) : nothing}
-        <article
-          class="md-preview-dialog__reader sidebar-markdown wiki-document__reader"
-          @click=${(event: MouseEvent) => {
-            const anchor = (event.target as Element).closest<HTMLAnchorElement>(
-              "a[href], [data-wiki-lookup]",
-            );
-            if (!anchor) {
-              return;
-            }
-            const path = anchor.dataset.wikiLookup ?? anchor.getAttribute("href") ?? "";
-            if (!anchor.dataset.wikiLookup && /^(?:https?:|#)/iu.test(path)) {
-              return;
-            }
-            event.preventDefault();
-            let logicalPath: string;
-            try {
-              logicalPath = anchor.dataset.wikiLookup
-                ? decodeURIComponent(path.split("#")[0]!)
-                : decodeURIComponent(
-                    new URL(path, `https://vault.invalid/${document.logicalPath}`).pathname.slice(
-                      1,
-                    ),
-                  );
-            } catch {
-              return;
-            }
-            const link = document.links.find((candidate) => candidate.logicalPath === logicalPath);
-            if (link?.documentId) {
-              options.onOpen(link.documentId);
-            }
-          }}
-        >
-          ${unsafeHTML(
-            toSanitizedMarkdownHtml(document.content, {
-              fileLinks: false,
-              interactiveImages: false,
-              codeBlockChrome: "none",
-              wikiLinks: true,
-            }),
-          )}
-        </article>
-        ${document.links.some((link) => !link.documentId)
-          ? html`<p class="callout" role="status">${t("unresolvedNotice")}</p>`
+          </button>`
+        : nothing}
+    `,
+    content: html`<div>
+      <p class="vaults__hint">${t(document.compile.status)}</p>
+      ${document.compile.status !== "ready" ? renderVaultIndexStatus(document.compile) : nothing}
+      <article
+        class="md-preview-dialog__reader sidebar-markdown wiki-document__reader"
+        @click=${(event: MouseEvent) => {
+          const anchor = (event.target as Element).closest<HTMLAnchorElement>(
+            "a[href], [data-wiki-lookup]",
+          );
+          if (!anchor) {
+            return;
+          }
+          const path = anchor.dataset.wikiLookup ?? anchor.getAttribute("href") ?? "";
+          if (!anchor.dataset.wikiLookup && /^(?:https?:|#)/iu.test(path)) {
+            return;
+          }
+          event.preventDefault();
+          let logicalPath: string;
+          try {
+            logicalPath = anchor.dataset.wikiLookup
+              ? decodeURIComponent(path.split("#")[0]!)
+              : decodeURIComponent(
+                  new URL(path, `https://vault.invalid/${document.logicalPath}`).pathname.slice(1),
+                );
+          } catch {
+            return;
+          }
+          // Resolution, ambiguity and access belong to the server. Match the
+          // original parsed target, not a label or the resolved document path.
+          const matches = document.links.filter((candidate) => candidate.target === logicalPath);
+          const ids = new Set(matches.map((candidate) => candidate.documentId));
+          const id = ids.size === 1 ? ids.values().next().value : null;
+          if (id && !options.busy) {
+            options.onOpen(id);
+          }
+        }}
+      >
+        ${unsafeHTML(
+          toSanitizedMarkdownHtml(document.content, {
+            fileLinks: false,
+            interactiveImages: false,
+            codeBlockChrome: "none",
+            wikiLinks: true,
+          }),
+        )}
+      </article>
+      ${document.linksTruncated
+        ? html`<p class="callout" role="status">${t("linksTruncated")}</p>`
+        : nothing}
+      ${document.links.some((link) => !link.documentId)
+        ? html`<p class="callout" role="status">${t("unresolvedNotice")}</p>`
+        : nothing}
+      <details class="vaults__relationships">
+        <summary>${t("relationships")}</summary>
+        ${links("links")}${links("backlinks")}
+      </details>
+      <details class="vaults__relationships">
+        <summary>${t("documentDetails")}</summary>
+        <p>
+          ${t(options.vaultType)} ·
+          ${platformClawT("memoryPage.memories.revision", { revision: String(document.revision) })}
+        </p>
+        <p>${document.logicalPath}</p>
+        <p>${document.vaultId} · ${document.id}</p>
+        ${document.metadata
+          ? html`${(["claims", "questions", "contradictions"] as const).map((kind) =>
+              document.metadata![kind].length
+                ? html`<h4>${t(kind)}</h4>
+                    <ul>
+                      ${document.metadata![kind].map((value) => html`<li>${value}</li>`)}
+                    </ul>`
+                : nothing,
+            )}`
           : nothing}
-        <details class="vaults__relationships">
-          <summary>${t("relationships")}</summary>
-          ${links("links")}${links("backlinks")}
-        </details>
-        <details class="vaults__relationships">
-          <summary>${t("documentDetails")}</summary>
-          <p>${document.logicalPath}</p>
-          <p>${document.vaultId} · ${document.id}</p>
-        </details>
-      </div>
-    </div>
-  </openclaw-modal-dialog>`;
+      </details>
+    </div>`,
+  });
 }
 
 export function renderVaultDocumentList(options: {
   documents: KnowledgeVaultDocumentSummary[];
+  vaultName: string;
+  vaultType: "personal" | "shared";
   canEdit: boolean;
   busy: boolean;
   onOpen: (id: string) => void;
@@ -144,21 +185,26 @@ export function renderVaultDocumentList(options: {
   return html`
     ${options.documents.length === 0
       ? html`<p>${t(options.canEdit ? "noDocuments" : "readerEmpty")}</p>`
-      : html`<div class="vaults__documents">
-          ${options.documents.map(
-            (document) => html`<article class="card" data-vault-index=${document.compile.status}>
-              <button
-                class="btn"
-                ?disabled=${options.busy}
-                @click=${() => options.onOpen(document.id)}
-              >
-                ${document.title}
-              </button>
-              <p class="muted">${t(document.compile.status)}</p>
-              ${document.compile.status !== "ready"
-                ? renderVaultIndexStatus(document.compile)
-                : nothing}
-            </article>`,
+      : html`<div class="settings-group memory-memories__results">
+          ${options.documents.map((document) =>
+            renderKnowledgeDocumentCard({
+              title: document.title,
+              snippet: document.snippet,
+              metadata: html`<span class="settings-row__desc">${options.vaultName}</span>`,
+              modal: true,
+              disabled: options.busy,
+              onOpen: () => options.onOpen(document.id),
+              status:
+                document.compile.status !== "ready"
+                  ? html`<span class="settings-row__desc" role="status"
+                      >${t(document.compile.status)}</span
+                    >`
+                  : nothing,
+              details:
+                document.compile.status !== "ready"
+                  ? renderVaultIndexStatus(document.compile)
+                  : nothing,
+            }),
           )}
         </div>`}
   `;

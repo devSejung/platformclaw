@@ -34,24 +34,29 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
   @state() private document: KnowledgeVaultDocument | null = null;
   @state() private vault: KnowledgeVault | KnowledgeVaultCatalogEntry | null = null;
   @state() private editing = false;
+  @state() private deleting = false;
   @state() private busy = false;
   @state() private error = "";
   private request = 0;
   private requestedDocumentId = "";
 
   protected override updated(changed: PropertyValues) {
-    if (["client", "connected", "agentId", "selection"].some((key) => changed.has(key))) {
+    const identityChanged = ["client", "agentId", "selection"].some((key) => changed.has(key));
+    if (identityChanged) {
       this.request++;
       this.document = null;
+      this.requestedDocumentId = this.selection.documentId;
       this.vault = null;
-      this.editing = false;
+      this.editing = this.deleting = false;
       this.error = "";
-      if (this.client && this.connected) {
-        this.vault = this.selection.vault ?? null;
-        this.document = this.selection.document ?? null;
-        if (!this.document || !this.vault) {
-          void this.load(this.selection.documentId);
-        }
+      this.vault = this.selection.vault ?? null;
+      this.document = this.selection.document ?? null;
+    }
+    if (identityChanged || changed.has("connected")) {
+      this.request++;
+      this.busy = false;
+      if (this.client && this.connected && (!this.document || !this.vault)) {
+        void this.load(this.requestedDocumentId || this.selection.documentId);
       }
     }
   }
@@ -65,6 +70,9 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
     this.dispatchEvent(new CustomEvent("reader-close", { bubbles: true }));
   }
   private async load(documentId: string) {
+    if (!this.client || !this.connected) {
+      return;
+    }
     const request = ++this.request;
     this.requestedDocumentId = documentId;
     this.busy = true;
@@ -99,7 +107,71 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
       }
     }
   }
+  private async deleteDocument() {
+    if (!this.document || !this.client || !this.connected || this.busy) {
+      return;
+    }
+    const request = ++this.request;
+    this.busy = true;
+    this.error = "";
+    try {
+      await this.client.request("platformclaw.vault.document.delete", {
+        vaultId: this.document.vaultId,
+        documentId: this.document.id,
+        expectedRevision: this.document.revision,
+      });
+      if (request !== this.request) {
+        return;
+      }
+      this.dispatchEvent(
+        new CustomEvent("reader-deleted", {
+          bubbles: true,
+          detail: { vaultId: this.document.vaultId, documentId: this.document.id },
+        }),
+      );
+      this.close();
+    } catch (error) {
+      if (request === this.request) {
+        this.error = formatErrorMessage(error, { redact: redactToolDetail });
+      }
+    } finally {
+      if (request === this.request) {
+        this.busy = false;
+      }
+    }
+  }
   override render() {
+    if (this.deleting && this.document) {
+      return renderVaultDialog({
+        title: t("deleteDocument"),
+        busy: this.busy,
+        error: this.error,
+        onClose: () => {
+          this.deleting = false;
+          this.error = "";
+        },
+        content: html`<p><strong>${this.document.title}</strong></p>
+          <p>${t("deleteDocumentHint")}</p>
+          <div class="vaults__actions">
+            <button
+              class="btn danger"
+              ?disabled=${this.busy || !this.connected}
+              @click=${() => void this.deleteDocument()}
+            >
+              ${t("deleteDocument")}</button
+            ><button
+              class="btn"
+              ?disabled=${this.busy}
+              @click=${() => {
+                this.deleting = false;
+                this.error = "";
+              }}
+            >
+              ${t("cancel")}
+            </button>
+          </div>`,
+      });
+    }
     if (this.editing && this.document && this.vault) {
       return html`<platformclaw-vault-author
         .client=${this.client}
@@ -128,7 +200,11 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
         onClose: () => this.close(),
         content: this.busy
           ? html`<p role="status">${t("loading")}</p>`
-          : html`<button class="btn" @click=${() => void this.load(this.requestedDocumentId)}>
+          : html`<button
+              class="btn"
+              ?disabled=${!this.connected}
+              @click=${() => void this.load(this.requestedDocumentId)}
+            >
               ${platformClawT("memoryPage.memories.retry")}
             </button>`,
       });
@@ -136,17 +212,38 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
     return renderVaultDocument({
       document: this.document,
       vaultName: this.vault.name,
+      vaultType: this.vault.type,
+      canExport: this.vault.canExport,
+      onDelete:
+        this.vault.canEdit && this.methods.includes("platformclaw.vault.document.delete")
+          ? () => {
+              this.deleting = true;
+            }
+          : undefined,
+      onPublish:
+        this.vault.type === "personal" && this.methods.includes("platformclaw.vault.publish")
+          ? () =>
+              this.dispatchEvent(
+                new CustomEvent("reader-publish", {
+                  bubbles: true,
+                  detail: this.document!.logicalPath,
+                }),
+              )
+          : undefined,
       canEdit:
         this.vault.canEdit &&
+        this.document.editMode !== null &&
         this.methods.includes("platformclaw.vault.document.save") &&
         this.methods.includes("platformclaw.vault.document.preview"),
-      busy: this.busy || this.refreshing,
+      busy: this.busy || this.refreshing || !this.connected,
       onOpen: (id) => void this.load(id),
       onEdit: () => (this.editing = true),
       onDownload: () => {
         const document = this.document!;
         const url = URL.createObjectURL(
-          new Blob([document.content], { type: "text/markdown;charset=utf-8" }),
+          new Blob([document.sourceContent ?? document.content], {
+            type: "text/markdown;charset=utf-8",
+          }),
         );
         const anchor = globalThis.document.createElement("a");
         anchor.href = url;

@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { formatWikiDocumentLink } from "@openclaw/markdown-core";
 import { filterMemorySearchHitsBySessionVisibility } from "@openclaw/memory-core/api.js";
 import type {
   MemoryCorpusGetResult,
@@ -121,6 +122,7 @@ type QueryDigestBundle = {
 };
 
 type WikiSearchResult = {
+  link?: string;
   indexStatus?: "failed";
   indexError?: string;
   nextRetryAt?: number;
@@ -159,6 +161,7 @@ type WikiSearchResult = {
 };
 
 type WikiGetResult = {
+  link?: string;
   /** Revision of the entire raw Wiki artifact, including frontmatter, not the body excerpt. */
   contentHash?: string;
   deletionUnavailableReason?: "shared-vault" | "page-too-large" | "generated-page";
@@ -1103,6 +1106,7 @@ function toWikiSearchResult(
     documentId: page.id ?? `wiki:${page.relativePath}`,
     path: page.relativePath,
     title: page.title,
+    link: formatWikiDocumentLink(page.relativePath, page.title),
     kind: page.kind,
     score: scorePage(page, query, mode),
     snippet: buildPageSnippet(page, query),
@@ -1399,6 +1403,7 @@ export async function getMemoryWikiPage(input: {
         corpus: "wiki",
         path: page.relativePath,
         title: page.title,
+        link: formatWikiDocumentLink(page.relativePath, page.title),
         kind: page.kind,
         content: slice,
         ...(effectiveConfig.vault.scope !== "agent" || !effectiveConfig.agentId

@@ -66,6 +66,7 @@ describe("buildAgentSystemPrompt memory guidance", () => {
     const prepare = vi.fn(async () => ["## Prepared Wiki", "Prepared before assembly.", ""]);
     registerMemoryPromptPreparation("memory-wiki", prepare);
     const preparedMemoryPrompt = await prepareAgentMemoryPrompt({
+      runId: "prepared-turn",
       enabled: true,
       toolNames: ["WIKI_SEARCH"],
       agentId: "main",
@@ -81,5 +82,6 @@ describe("buildAgentSystemPrompt memory guidance", () => {
 
     expect(prompt).toContain("## Prepared Wiki\nPrepared before assembly.");
     expect(prepare).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ runId: "prepared-turn" }));
   });
 });

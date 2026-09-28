@@ -1,8 +1,36 @@
-import path from "node:path";
-import { buildCodeSpanIndex } from "@openclaw/markdown-core/code-spans";
+import {
+  normalizeWikiDocumentTarget,
+  parseMemoryWikiReferenceSpans,
+} from "@openclaw/markdown-core";
 import { ControlPlaneStateError } from "./contracts.js";
 
 type KnowledgeVaultDerived = { chunks: string[]; links: string[] };
+
+type LinkDocument = { id: string; logical_path: string; title: string };
+const comparableTarget = normalizeWikiDocumentTarget;
+
+/** A concrete path wins over a coincidentally equal title; ambiguous shorthand never guesses. */
+export function createKnowledgeVaultLinkResolver(documents: readonly LinkDocument[]) {
+  const exact = new Map<string, LinkDocument[]>();
+  const paths = new Map<string, LinkDocument[]>();
+  const ids = new Map<string, LinkDocument[]>();
+  const titles = new Map<string, LinkDocument[]>();
+  const add = (map: Map<string, LinkDocument[]>, key: string, document: LinkDocument) => {
+    map.set(key, [...(map.get(key) ?? []), document]);
+  };
+  for (const document of documents) {
+    add(exact, document.logical_path, document);
+    add(paths, comparableTarget(document.logical_path), document);
+    add(ids, comparableTarget(document.id), document);
+    add(titles, comparableTarget(document.title), document);
+  }
+  return (target: string): readonly LinkDocument[] =>
+    exact.get(target) ??
+    paths.get(comparableTarget(target)) ??
+    ids.get(comparableTarget(target)) ??
+    titles.get(comparableTarget(target)) ??
+    [];
+}
 
 export function knowledgeVaultPath(value: string): string {
   if (
@@ -34,22 +62,16 @@ export function compileKnowledgeVaultDocument(
     chunks.push("");
   }
   const links = new Set<string>();
-  const codeSpans = buildCodeSpanIndex(content);
-  const matches = content.matchAll(/\[\[([^\]\n|#]+)(?:[^\]\n]*)\]\]|\[[^\]\n]*\]\(([^)\s]+)\)/gu);
-  for (const match of matches) {
-    if (codeSpans.isInside(match.index)) {
-      continue;
-    }
-    const raw = match[1] ?? match[2]!;
-    if (raw.startsWith("#") || /^[a-z][a-z0-9+.-]*:/iu.test(raw)) {
-      continue;
-    }
+  for (const { target } of parseMemoryWikiReferenceSpans(
+    content,
+    logicalPath,
+    Number.POSITIVE_INFINITY,
+    { purpose: "graph" },
+  )) {
     try {
-      const decoded = decodeURIComponent(raw.split("#")[0]!);
-      const target = match[1] ? decoded : path.posix.join(path.posix.dirname(logicalPath), decoded);
       links.add(knowledgeVaultPath(target));
     } catch {
-      /* Malformed or external links do not prevent indexing the original text. */
+      /* Non-document or outside-Wiki references never prevent text indexing. */
     }
   }
   return { chunks, links: [...links].toSorted() };

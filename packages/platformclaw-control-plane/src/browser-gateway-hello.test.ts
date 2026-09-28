@@ -129,18 +129,6 @@ describe("projectPlatformClawBrowserHello", () => {
         "artifacts.list",
         "chat.send",
         "commands.list",
-        "platformclaw.memory.claim.retire",
-        "platformclaw.memory.lifecycle",
-        "platformclaw.memory.get",
-        "platformclaw.memory.graph",
-        "platformclaw.memory.promotion.decide",
-        "platformclaw.memory.promotion.previewReferences",
-        "platformclaw.memory.promotion.submit",
-        "platformclaw.memory.knowledge.snapshot",
-        "platformclaw.memory.knowledge.generate",
-        "platformclaw.memory.knowledge.decide",
-        "platformclaw.memory.knowledge.apply",
-        "platformclaw.memory.knowledge.comparePromotion",
         "platformclaw.baseball.progress",
         "platformclaw.baseball.plateAppearance",
         "platformclaw.baseball.purchaseBat",
@@ -208,7 +196,7 @@ describe("projectPlatformClawBrowserHello", () => {
     });
 
     expect(projected.features.methods).toContain("plugins.list");
-    expect(projected.features.methods).toContain("platformclaw.memory.claim.purge");
+    expect(projected.features.methods).not.toContain("platformclaw.memory.claim.purge");
     expect(projected.features.methods).toContain("sessions.rewind");
     expect(projected.auth.scopes).toEqual([
       "operator.read",
@@ -279,27 +267,20 @@ describe("projectPlatformClawBrowserHello", () => {
     );
   });
 
-  it("advertises Control Plane memory lifecycle without an upstream RPC", () => {
-    const projected = projectPlatformClawBrowserHello({
-      upstream: upstreamHello(),
-      access,
-      connectionId: "browser-memory-lifecycle",
-    });
-
-    expect(projected.features.methods).toEqual(
-      expect.arrayContaining([
-        "platformclaw.memory.lifecycle",
-        "platformclaw.memory.promotion.submit",
-        "platformclaw.memory.knowledge.snapshot",
-        "platformclaw.memory.knowledge.generate",
-        "platformclaw.memory.knowledge.decide",
-        "platformclaw.memory.knowledge.apply",
-        "platformclaw.memory.knowledge.comparePromotion",
-        "platformclaw.memory.promotion.decide",
-        "platformclaw.memory.promotion.previewReferences",
-        "platformclaw.memory.claim.retire",
-      ]),
+  it("never advertises retired organization knowledge even if upstream reports it", () => {
+    const upstream = upstreamHello();
+    upstream.features.methods.push(
+      "platformclaw.memory.get",
+      "platformclaw.memory.knowledge.generate",
     );
+    const projected = projectPlatformClawBrowserHello({
+      upstream,
+      access,
+      connectionId: "retired-memory",
+    });
+    expect(
+      projected.features.methods.some((method) => method.startsWith("platformclaw.memory.")),
+    ).toBe(false);
   });
 
   it("advertises personal approval history only when the Gateway supports it", () => {

@@ -1,34 +1,9 @@
 import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
-import { organizationMemoryGraphTranslations } from "./ko-organization-memory-graph.ts";
-import { organizationMemoryKnowledgeTranslations } from "./ko-organization-memory-knowledge.ts";
 import { vaultTranslations } from "./ko-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
   ...vaultTranslations,
-  "platformClaw.memory.organization.scopeSelect": "조직 선택",
-  "platformClaw.memory.organization.noReadableScope": "읽을 수 있는 조직 지식 범위가 없습니다.",
-  "platformClaw.memory.organization.partAudience": "선택한 Part에 승인·공유된 지식입니다.",
-  "platformClaw.memory.organization.groupAudience":
-    "선택한 Group의 구성원에게 공유된 지식입니다. Group 리더는 Part 보기에서 자기 Group 산하 Part를 각각 열람할 수 있습니다.",
-  "platformClaw.memory.organization.teamAudience": "선택한 Team의 구성원에게 공유된 지식입니다.",
-  "platformClaw.memory.organization.globalAudience": "전체 구성원에게 공유된 지식입니다.",
-  "platformClaw.memory.organization.teamGraph": "Team 지식",
-  "platformClaw.memory.organization.globalGraph": "Global 지식",
-  "platformClaw.memory.organization.legendTitle": "연결 범례",
-  "platformClaw.memory.organization.partSelect": "Part 선택",
-  "platformClaw.memory.organization.readerReadOnly": "읽기 전용",
-  "platformClaw.memory.organization.readerExcerpt": "원문 발췌 · {from}–{to}행 / 전체 {total}행",
-  "platformClaw.memory.organization.readerTextTruncated":
-    "이 발췌는 표시 가능한 글자 수로 제한되었습니다.",
-  "platformClaw.memory.organization.readerPrevious": "이전 원문",
-  "platformClaw.memory.organization.readerNext": "다음 원문",
-  "platformClaw.memory.organization.referenceLegend": "참조 A→B: A가 B를 관련 지식으로 참조합니다.",
-  "platformClaw.memory.organization.provenanceLegend":
-    "승격 A→B: A에서 B로 승인·공유된 경로입니다.",
-  "platformClaw.memory.organization.comparisonLegend":
-    "점선 A—B: 방향이 없는 AI 비교 후보이며 사실 확정을 뜻하지 않습니다.",
-  ...organizationMemoryKnowledgeTranslations,
   "configView.appearance.terminalTextSize": "터미널 텍스트 크기",
   "platformClaw.skillHub.publish.action": "작업 공간 스킬 게시",
   "platformClaw.skillHub.publish.title": "작업 공간의 스킬 게시",
@@ -251,7 +226,6 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.quickActions.unavailable":
     "빠른 실행을 사용할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
   "platformClaw.memory.unavailable": "메모리를 사용할 수 없음",
-  ...organizationMemoryGraphTranslations,
   "memoryPage.memories.longTermTitle": "장기 Memory",
   "memoryPage.memories.longTermDescription": "Agent가 MEMORY.md에 보관하는 지속적인 맥락입니다.",
   "memoryPage.memories.longTermEmpty": "MEMORY.md가 비어 있습니다. 장기 내용은 여기에 저장됩니다.",
@@ -276,16 +250,16 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.memories.offline": "Gateway가 오프라인입니다. 개인 Memory를 보려면 다시 연결하세요.",
   "memoryPage.memories.searchTitle": "전체 지식 검색",
   "memoryPage.memories.searchDescription":
-    "선택한 범위의 Personal 메모리·Wiki, Shared 볼트, Managed 조직 지식을 검색합니다.",
+    "선택한 범위의 개인 메모리와 Wiki Hub의 Personal·Shared 볼트를 검색합니다.",
   "memoryPage.memories.searchLabel": "전체 Memory 검색",
-  "memoryPage.memories.searchPlaceholder": "Personal·Shared·Managed 지식 검색",
+  "memoryPage.memories.searchPlaceholder": "개인 메모리·Wiki Hub 검색",
   "memoryPage.memories.searchButton": "검색",
   "memoryPage.memories.searching": "Memory 검색 중…",
   "memoryPage.memories.results": "결과 {count}개",
   "memoryPage.memories.sourceFilter": "현재 검색 결과 출처별 필터",
   "memoryPage.memories.sourceFilterHint": "현재 검색 결과 안에서 필터링합니다",
   "memoryPage.memories.sourceAll": "전체",
-  "memoryPage.memories.sourceOrganizationFilter": "조직 지식",
+  "memoryPage.memories.sourceOrganizationFilter": "공유 지식",
   "memoryPage.memories.lastModified": "수정 {date}",
   "memoryPage.memories.empty": "“{query}”와 일치하는 Memory가 없습니다.",
   "memoryPage.memories.error": "Memory 검색 실패: {message}",
@@ -298,12 +272,11 @@ export const translations: Readonly<Record<string, string>> = {
   "memoryPage.memories.score": "검색 관련도 {score} · 정확도나 신뢰도 점수가 아닙니다",
   "memoryPage.memories.sourceMemory": "개인 Memory",
   "memoryPage.memories.sourceSessions": "세션",
-  "memoryPage.memories.sourceWiki": "Personal Wiki",
+  "memoryPage.memories.sourceWiki": "Personal",
   "memoryPage.memories.sourceOrganization": "조직 · {scope}",
-  "memoryPage.memories.organizationUnavailable": "조직 지식을 지금 불러올 수 없습니다.",
-  "memoryPage.memories.wikiUnavailable": "Personal Wiki 검색을 지금 사용할 수 없습니다.",
-  "memoryPage.memories.wikiMethodUnavailable":
-    "이 Gateway는 Personal Wiki 검색을 지원하지 않습니다.",
+  "memoryPage.memories.organizationUnavailable": "공유 지식을 지금 불러올 수 없습니다.",
+  "memoryPage.memories.wikiUnavailable": "Personal 검색을 지금 사용할 수 없습니다.",
+  "memoryPage.memories.wikiMethodUnavailable": "이 Gateway는 Personal 검색을 지원하지 않습니다.",
   "memoryPage.memories.personalUnavailable": "개인 Memory 검색을 지금 사용할 수 없습니다.",
   "memoryPage.memories.personalMethodUnavailable":
     "이 Gateway는 개인 Memory 검색을 지원하지 않습니다.",
@@ -316,68 +289,17 @@ export const translations: Readonly<Record<string, string>> = {
   "dreaming.tabs.diary": "Dream Diary",
   "dreaming.tabs.advanced": "활동",
   ...memoryWikiTranslations,
-  "memoryPage.promotions.title": "Wiki 지식 공유",
-  "memoryPage.promotions.description":
-    "검토한 Wiki 지식을 다음 조직 범위로 승격합니다. Agent가 초안을 작성할 수 있지만 제출과 승인은 사람이 합니다.",
-  "memoryPage.promotions.gatewayUpdateRequired":
-    "조직 지식을 관리하려면 PlatformClaw Gateway를 업데이트하세요.",
-  "memoryPage.promotions.loading": "조직 지식을 불러오는 중…",
   "memoryPage.promotions.wikiUnavailable":
-    "Personal Wiki 검색을 사용할 수 없습니다. memory-wiki 플러그인을 활성화하거나 업데이트한 뒤 새로고침하세요.",
-  "memoryPage.promotions.source": "원본 범위",
-  "memoryPage.promotions.target": "승격 대상",
-  "memoryPage.promotions.scope": "조직 범위",
-  "memoryPage.promotions.personal": "개인",
-  "memoryPage.promotions.part": "Part",
-  "memoryPage.promotions.group": "Group",
-  "memoryPage.promotions.team": "Team",
-  "memoryPage.promotions.personalClaimPlaceholder": "Personal Wiki 페이지 ID, 제목 또는 경로",
-  "memoryPage.promotions.personalSourceTitle": "Personal Wiki에서 원본 선택",
+    "Personal 검색을 사용할 수 없습니다. memory-wiki 플러그인을 활성화하거나 업데이트한 뒤 새로고침하세요.",
+  "memoryPage.promotions.personalSourceTitle": "Personal에서 원본 선택",
   "memoryPage.promotions.personalSourceHelp":
-    "Personal Wiki를 검색하고 전체 페이지를 미리 본 뒤 공유할 내용을 검토하세요.",
-  "memoryPage.promotions.searchPersonalWiki": "Personal Wiki 검색",
+    "Personal를 검색하고 전체 페이지를 미리 본 뒤 공유할 내용을 검토하세요.",
+  "memoryPage.promotions.searchPersonalWiki": "Personal 검색",
   "memoryPage.promotions.search": "검색",
-  "memoryPage.promotions.sourceLoading": "Personal Wiki를 불러오는 중…",
+  "memoryPage.promotions.sourceLoading": "Personal를 불러오는 중…",
   "memoryPage.promotions.sourceEmpty": "검색 결과가 없습니다.",
   "memoryPage.promotions.sourceIncomplete": "완전한 Wiki 페이지만 승격할 수 있습니다.",
   "memoryPage.promotions.sourcePreview": "원본 미리보기",
-  "memoryPage.promotions.personalWikiEvidence": "Personal Wiki 원본",
-  "memoryPage.promotions.approvedClaimEvidence": "승인된 조직 지식",
-  "memoryPage.promotions.defaultReason": "검토한 지식을 조직과 공유합니다.",
-  "memoryPage.promotions.revision": "revision {revision}",
-  "memoryPage.promotions.chooseClaim": "승인된 지식 선택",
-  "memoryPage.promotions.chooseTarget": "승격 대상 선택",
-  "memoryPage.promotions.textPlaceholder": "공유할 지식",
-  "memoryPage.promotions.proposedText": "공유할 지식",
-  "memoryPage.promotions.write": "작성",
-  "memoryPage.promotions.preview": "미리보기",
-  "memoryPage.promotions.evidencePlaceholder": "근거 또는 출처를 한 줄에 하나씩 입력",
-  "memoryPage.promotions.reasonPlaceholder": "이 지식을 승격하는 이유",
-  "memoryPage.promotions.submit": "승격 요청",
-  "memoryPage.promotions.publishDirect": "관리자 권한으로 바로 등록",
-  "memoryPage.promotions.needsReview": "검토 필요",
-  "memoryPage.promotions.myRequests": "내 요청",
-  "memoryPage.promotions.claims": "조직 지식",
-  "memoryPage.promotions.loadMore": "더 보기",
-  "memoryPage.promotions.reasonLabel": "승격 이유",
-  "memoryPage.promotions.evidenceLabel": "근거",
-  "memoryPage.promotions.decisionLabel": "검토 사유",
-  "memoryPage.promotions.approve": "승인",
-  "memoryPage.promotions.reject": "거절",
-  "memoryPage.promotions.retire": "사용 종료",
-  "memoryPage.promotions.purge": "영구 삭제",
-  "memoryPage.promotions.decisionReason": "승인 또는 거절 사유",
-  "memoryPage.promotions.retireReason": "이 지식의 사용을 종료하는 이유",
-  "memoryPage.promotions.purgeReason": "영구 삭제가 필요한 개인정보 또는 보안 사유",
-  "memoryPage.promotions.statusPending": "승인 대기",
-  "memoryPage.promotions.statusApproved": "승인됨",
-  "memoryPage.promotions.statusRejected": "거절됨",
-  "memoryPage.promotions.statusActive": "사용 중",
-  "memoryPage.promotions.statusRetired": "사용 종료",
-  "memoryPage.promotions.statusPurged": "영구 삭제됨",
-  "memoryPage.promotions.noReviews": "검토할 승격 요청이 없습니다.",
-  "memoryPage.promotions.noRequests": "제출한 승격 요청이 없습니다.",
-  "memoryPage.promotions.noClaims": "접근 가능한 조직 지식이 없습니다.",
   "platformClaw.voc.title": "VOC 등록",
   "platformClaw.voc.intro": "PlatformClaw VOC 등록 페이지입니다.",
   "platformClaw.voc.subject": "제목",
@@ -428,27 +350,17 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.organizationNavBody":
     "조직에서는 내 Team·Group·Part 소속과 기본 조직 범위를 확인하고 가입을 요청할 수 있습니다.",
   "platformClaw.guide.organizationNavDetails":
-    "개요에서 현재 소속과 상속받은 접근 범위를 확인합니다.|요청에서 조직 가입을 신청하고 처리 상태를 봅니다.|위임받은 리더와 관리자는 허용된 범위의 멤버와 조직 구조를 관리합니다.|감사 기록은 권한이 있는 사용자에게만 표시됩니다.|이 설정 카테고리는 Memory 안의 조직 지식 승격 탭과 다른 기능입니다.",
+    "개요에서 현재 소속과 상속받은 접근 범위를 확인합니다.|요청에서 조직 가입을 신청하고 처리 상태를 봅니다.|위임받은 리더와 관리자는 허용된 범위의 멤버와 조직 구조를 관리합니다.|감사 기록은 권한이 있는 사용자에게만 표시됩니다.|이 설정 카테고리는 Memory 안의 공유 지식 승격 탭과 다른 기능입니다.",
   "platformClaw.guide.personalMemoryTitle": "Memory: 개인 기억 검색하기",
   "platformClaw.guide.personalMemoryBody":
     "내 작업과 대화에서 Agent가 기억한 내용을 구체적인 문구로 검색합니다.",
   "platformClaw.guide.personalMemoryDetails":
-    "찾을 내용을 구체적으로 입력하고 검색합니다.|결과를 열어 출처와 맥락이 맞는지 확인한 뒤 사용합니다.|이 단계의 내용은 개인 메모리입니다. Part 지식으로 공유하려면 조직 지식 탭을 이용하세요.",
-  "platformClaw.guide.personalWikiTitle": "Personal Wiki: 공유할 원본 문서 검토하기",
-  "platformClaw.guide.personalWikiBody":
-    "재사용하거나 공유할 지식이 담긴 Wiki 페이지 전체를 열어 확인합니다.",
-  "platformClaw.guide.personalWikiDetails":
-    "페이지 제목이나 주제로 검색합니다.|전체 페이지를 열어 내용이 완전하고 정확한지 검토합니다.|조직 지식 승격은 검색된 원시 메모리가 아니라 검토한 Personal Wiki 페이지를 원본으로 시작합니다.",
-  "platformClaw.guide.organizationMemoryTitle": "조직 지식: 개인 지식을 Part 지식으로 승격하기",
-  "platformClaw.guide.organizationMemoryBody":
-    "Personal Wiki 페이지는 승격 요청이 검토되고 승인되어야 Part 지식이 됩니다.",
-  "platformClaw.guide.organizationMemoryDetails":
-    "원본 범위에서 개인을 선택하고 검토한 Personal Wiki 페이지를 검색해 선택합니다.|승격 대상으로 내 Part를 고른 뒤 공유할 지식, 근거, 승격 이유를 확인합니다.|승격 요청을 누르면 내 요청에 승인 대기로 표시됩니다.|검토 권한이 있는 리더가 검토 필요에서 내용을 확인하고 사유와 함께 승인 또는 거절합니다.|승인된 요청만 사용 중인 Part 지식이 됩니다. 더 높은 조직 범위로 올릴 때도 같은 승인 절차를 반복하며, 관리자는 정책상 허용된 범위에서만 바로 등록할 수 있습니다.",
+    "찾을 내용을 구체적으로 입력하고 검색합니다.|결과를 열어 출처와 맥락이 맞는지 확인한 뒤 사용합니다.|이 단계의 내용은 개인 메모리입니다. Part 지식으로 공유하려면 공유 지식 탭을 이용하세요.",
   "platformClaw.guide.dreamingTitle": "Dreaming: 메모리 정리 기록 확인하기",
   "platformClaw.guide.dreamingBody":
     "개인 메모리가 시간에 따라 장기 지식으로 정리된 과정을 확인합니다.",
   "platformClaw.guide.dreamingDetails":
-    "Dream Diary에서 정리 실행과 결과를 확인합니다.|Personal Wiki에서 장기 지식으로 만들어진 페이지를 확인합니다.|Dreaming은 개인 지식을 정리하지만 Part 지식에 필요한 조직 승인을 대신하지는 않습니다.",
+    "Dream Diary에서 정리 실행과 결과를 확인합니다.|Wiki Hub의 Personal 볼트에서 정리된 지식을 확인합니다.|개인 지식은 공유 사본을 직접 게시하기 전까지 비공개입니다.",
   "platformClaw.guide.installedPluginsTitle": "설치됨: 현재 플러그인 관리하기",
   "platformClaw.guide.installedPluginsBody":
     "플러그인은 Agent를 서비스·도구·채널·모델 제공자와 연결하는 확장 기능입니다.",
@@ -618,6 +530,11 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.mcp.adminRemoveConfirm": "모든 사용자에게서 MCP 서버 {server}를 삭제할까요?",
   "platformClaw.mcp.adminSaved": "MCP 서버 설정을 업데이트했습니다.",
   "platformClaw.mcp.adminFailed": "MCP 서버 관리 요청에 실패했습니다.",
+  "platformClaw.guide.wikiHubTitle": "Wiki Hub: 개인·공유 지식",
+  "platformClaw.guide.wikiHubBody":
+    "개인 지식과 프로젝트 지식을 같은 화면에서 읽고 작성하고 연결하세요.",
+  "platformClaw.guide.wikiHubDetails":
+    "내 볼트에는 AI 참고를 꺼 둔 볼트도 표시됩니다.|Personal은 나만 봅니다. 공유하려면 Shared 볼트에 사본을 직접 게시하세요.|볼트 찾기에서 공유 볼트를 검색하고 Reader·Editor 권한을 요청하세요. Owner는 개인·조직 권한을 관리합니다.|AI 참고 변경은 다음 턴부터 반영됩니다. 꺼도 접근 권한은 유지됩니다.|Editor·Owner는 문서 다운로드와 공유 볼트 ZIP 내보내기를 할 수 있습니다.",
 };
 
 export const statusLabels: Readonly<Record<string, string>> = {
@@ -628,4 +545,9 @@ export const statusLabels: Readonly<Record<string, string>> = {
   pending: "승인 대기",
   ready: "사용 가능",
   revoked: "회수됨",
+  "platformClaw.guide.wikiHubTitle": "Wiki Hub: 개인·공유 지식",
+  "platformClaw.guide.wikiHubBody":
+    "개인 지식과 프로젝트 지식을 같은 화면에서 읽고 작성하고 연결하세요.",
+  "platformClaw.guide.wikiHubDetails":
+    "내 볼트에는 AI 참고를 꺼 둔 볼트도 표시됩니다.|Personal은 나만 봅니다. 공유하려면 Shared 볼트에 사본을 직접 게시하세요.|볼트 찾기에서 공유 볼트를 검색하고 Reader·Editor 권한을 요청하세요. Owner는 개인·조직 권한을 관리합니다.|AI 참고 변경은 다음 턴부터 반영됩니다. 꺼도 접근 권한은 유지됩니다.|Editor·Owner는 문서 다운로드와 공유 볼트 ZIP 내보내기를 할 수 있습니다.",
 };

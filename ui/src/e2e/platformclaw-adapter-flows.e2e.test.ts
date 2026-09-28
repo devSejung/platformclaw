@@ -12,6 +12,11 @@ import {
   type ControlUiE2eServer,
   type ControlUiMockGatewayScenario,
 } from "../test-helpers/control-ui-e2e.ts";
+import {
+  wikiHubResponses,
+  wikiHubMethods,
+  wikiHubPersonalId,
+} from "../test-helpers/platformclaw-wiki-hub-fixture.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
@@ -128,7 +133,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         "doctor.memory.status",
         "doctor.memory.dreamDiary",
         "memory.search",
-        "platformclaw.memory.lifecycle",
+        ...wikiHubMethods,
         "wiki.search",
         "wiki.overview",
         "wiki.document.get",
@@ -232,14 +237,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
           totalLines: 3,
           truncated: false,
         },
-        "platformclaw.memory.lifecycle": {
-          scopes: [],
-          personalTargets: [],
-          claims: [],
-          submitted: [],
-          reviewable: [],
-          canApproveGlobal: false,
-        },
+        ...wikiHubResponses,
       },
       sessionKey: "agent:person_one:main",
     });
@@ -313,7 +311,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       .poll(async () =>
         (await memoryTabs.getByRole("tab").allTextContents()).map((label) => label.trim()),
       )
-      .toEqual(["Memory", "Personal Wiki", "Memory Hub", "Organization", "Dreaming"]);
+      .toEqual(["Memory", "Wiki Hub", "Dreaming"]);
     await expect
       .poll(() => memoryPanel.getAttribute("aria-labelledby"))
       .toBe("platformclaw-memory-tab-memory");
@@ -334,27 +332,18 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => diary.textContent())
       .toContain("Assigned personal memory was consolidated.");
-    await memoryTabs.getByRole("tab", { name: "Personal Wiki", exact: true }).click();
+    await memoryTabs.getByRole("tab", { name: "Wiki Hub", exact: true }).click();
     await expect
       .poll(() => new URL(page.url()).pathname)
-      .toBe("/platformclaw/app/settings/memory/wiki");
+      .toBe("/platformclaw/app/settings/memory/vaults");
+    await expectMemoryHelp("Wiki Hub: personal and shared knowledge");
+    const hub = page.locator("platformclaw-memory-vaults");
+    await hub.locator(`[data-vault-card="${wikiHubPersonalId}"] .vaults__card-title`).click();
+    await hub.getByRole("button", { name: "Release preflight synthesis", exact: true }).click();
     await expect
-      .poll(() => memoryPanel.getAttribute("aria-labelledby"))
-      .toBe("platformclaw-memory-tab-wiki");
-    await expectMemoryHelp("Personal Wiki: review reusable source pages");
-    const wiki = page.locator(".memory-wiki-page");
-    await expect.poll(() => wiki.textContent()).toContain("Person One knowledge");
-    await wiki.getByRole("button", { name: "Person One knowledge", exact: true }).click();
-    await expect
-      .poll(() => page.locator(".dreams-diary__preview-body .wiki-document__reader").textContent())
-      .toContain("Employee browser access stays agent scoped.");
+      .poll(() => hub.locator("[data-vault-document]").textContent())
+      .toContain("responsible owner");
     await page.keyboard.press("Escape");
-    await expect.poll(() => page.locator(".dreams-diary__preview-body").count()).toBe(0);
-    await memoryTabs.getByRole("tab", { name: "Organization", exact: true }).click();
-    await expect
-      .poll(() => new URL(page.url()).pathname)
-      .toBe("/platformclaw/app/settings/memory/organization");
-    await expectMemoryHelp("Organization: promote personal knowledge to your Part");
     await memoryTabs.getByRole("tab", { name: "Memory", exact: true }).click();
     await expect
       .poll(() => new URL(page.url()).pathname)
@@ -363,7 +352,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
 
     expect(await gateway.getRequests("config.get")).toHaveLength(0);
     expect(await page.getByText("foreign-agent", { exact: false }).count()).toBe(0);
-    for (const method of ["doctor.memory.dreamDiary", "wiki.overview", "wiki.document.get"]) {
+    for (const method of ["doctor.memory.dreamDiary"]) {
       const requests = await gateway.getRequests(method);
       expect(requests.length).toBeGreaterThan(0);
       for (const request of requests) {

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { KnowledgeVaultRole } from "./knowledge-vault-contracts.js";
+import { runImmediateTransaction } from "./kysely-sync.js";
 import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
 
 export const KNOWLEDGE_VAULT_SCHEMA = `
@@ -15,6 +16,39 @@ CREATE TABLE IF NOT EXISTS knowledge_vault_members (
   PRIMARY KEY (vault_id,user_id)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS knowledge_vault_members_user ON knowledge_vault_members(user_id);
+CREATE TABLE IF NOT EXISTS knowledge_vault_organization_grants (
+  vault_id TEXT NOT NULL REFERENCES knowledge_vaults(id) ON DELETE CASCADE,
+  scope_id TEXT NOT NULL REFERENCES managed_scopes(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('reader','editor','owner')),
+  PRIMARY KEY (vault_id,scope_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS knowledge_vault_access_states (
+  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+  vault_id TEXT NOT NULL REFERENCES knowledge_vaults(id) ON DELETE CASCADE,
+  accessible INTEGER NOT NULL CHECK (accessible IN (0,1)),
+  PRIMARY KEY (user_id,vault_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS knowledge_vault_personal_preferences (
+  user_id TEXT PRIMARY KEY REFERENCES platform_users(id) ON DELETE CASCADE,
+  enabled INTEGER NOT NULL CHECK (enabled IN (0,1))
+) STRICT;
+CREATE TABLE IF NOT EXISTS knowledge_vault_enable_outcomes (
+  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+  vault_id TEXT NOT NULL REFERENCES knowledge_vaults(id) ON DELETE CASCADE,
+  issue TEXT NOT NULL CHECK (issue = 'capacity'),
+  PRIMARY KEY (user_id,vault_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS knowledge_vault_access_requests (
+  id TEXT PRIMARY KEY,
+  vault_id TEXT NOT NULL REFERENCES knowledge_vaults(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('reader','editor')),
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','approved','rejected','cancelled')),
+  created_at INTEGER NOT NULL, decided_at INTEGER, decided_by_user_id TEXT REFERENCES platform_users(id)
+) STRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS knowledge_vault_access_requests_pending
+  ON knowledge_vault_access_requests(vault_id,user_id) WHERE status = 'pending';
 CREATE TABLE IF NOT EXISTS knowledge_vault_connections (
   user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
   vault_id TEXT NOT NULL, PRIMARY KEY (user_id,vault_id)
@@ -51,7 +85,25 @@ CREATE TABLE IF NOT EXISTS knowledge_vault_attachments (
 
 /** Additive state in the control-plane database; older readers keep working. */
 export function ensureKnowledgeVaultSchema(db: DatabaseSync): void {
-  db.exec(KNOWLEDGE_VAULT_SCHEMA);
+  const ensure = () => {
+    const hadAccessStates = db
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_vault_access_states'",
+      )
+      .get();
+    db.exec(KNOWLEDGE_VAULT_SCHEMA);
+    if (!hadAccessStates) {
+      // Existing disabled connections are an intentional preference, not a newly granted right.
+      db.exec(`INSERT INTO knowledge_vault_access_states(user_id,vault_id,accessible)
+      SELECT member.user_id,member.vault_id,1 FROM knowledge_vault_members member
+      JOIN platform_users employee ON employee.id = member.user_id WHERE employee.status = 'active'`);
+    }
+  };
+  if (db.isTransaction) {
+    ensure();
+  } else {
+    runImmediateTransaction(db, ensure);
+  }
 }
 
 export type KnowledgeVaultDocumentRow = {
@@ -70,7 +122,11 @@ export type KnowledgeVaultDocumentRow = {
 };
 export type KnowledgeVaultDatabase = Pick<
   ControlPlaneDatabase,
-  "platform_users" | "agent_bindings"
+  | "platform_users"
+  | "agent_bindings"
+  | "managed_scopes"
+  | "managed_scope_memberships"
+  | "control_audit_events"
 > & {
   knowledge_vaults: {
     id: string;
@@ -86,6 +142,25 @@ export type KnowledgeVaultDatabase = Pick<
     can_export: number;
   };
   knowledge_vault_connections: { user_id: string; vault_id: string };
+  knowledge_vault_organization_grants: {
+    vault_id: string;
+    scope_id: string;
+    role: KnowledgeVaultRole;
+  };
+  knowledge_vault_access_states: { user_id: string; vault_id: string; accessible: number };
+  knowledge_vault_personal_preferences: { user_id: string; enabled: number };
+  knowledge_vault_enable_outcomes: { user_id: string; vault_id: string; issue: "capacity" };
+  knowledge_vault_access_requests: {
+    id: string;
+    vault_id: string;
+    user_id: string;
+    role: "reader" | "editor";
+    reason: string;
+    status: "pending" | "approved" | "rejected" | "cancelled";
+    created_at: number;
+    decided_at: number | null;
+    decided_by_user_id: string | null;
+  };
   knowledge_vault_selections: { user_id: string; revision: number };
   knowledge_vault_documents: KnowledgeVaultDocumentRow;
   knowledge_vault_chunks: {

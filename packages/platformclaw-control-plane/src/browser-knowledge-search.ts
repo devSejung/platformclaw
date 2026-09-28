@@ -104,7 +104,11 @@ export async function requestBrowserKnowledgeSearch(
       },
     });
   }
-  if (includePersonal) {
+  const personalWikiEnabled =
+    vaultId !== undefined ||
+    scope === "all" ||
+    options.vaultService.captureScope({ agentId }).personalEnabled;
+  if (includePersonal && personalWikiEnabled) {
     work.push({
       name: "personalWiki",
       run: async () => {
@@ -129,18 +133,18 @@ export async function requestBrowserKnowledgeSearch(
     });
   }
   if (!vaultId?.startsWith("personal:")) {
-    // The service owns Shared membership and the existing organization read policy.
+    // The service owns Shared membership and enabled-scope policy.
     work.push({
       name: "sharedVault",
       run: async () =>
         (await options.vaultService!.search({ agentId, query, maxResults, vaultId, scope })).map(
           (hit) =>
             Object.assign(hit, {
-              source: hit.vaultType === "managed" ? "organization" : "shared",
+              source: "shared",
               provenanceLabel: hit.vaultName,
               startLine: 1,
               endLine: 1,
-              kind: hit.vaultType === "managed" ? hit.path.split("/")[1] : undefined,
+              kind: "shared",
             }),
         ),
     });
@@ -151,7 +155,10 @@ export async function requestBrowserKnowledgeSearch(
   const failed = outcomes.flatMap((outcome, i) =>
     outcome.status === "rejected" ? [work[i]!.name] : [],
   );
-  if (failed.length === work.length || (method === "wiki.search" && failed.length)) {
+  if (
+    (work.length > 0 && failed.length === work.length) ||
+    (method === "wiki.search" && failed.length)
+  ) {
     throw new BrowserGatewayProxyError(
       "agent-unavailable",
       "Knowledge search incomplete; check vault access and rebuild unavailable indexes",

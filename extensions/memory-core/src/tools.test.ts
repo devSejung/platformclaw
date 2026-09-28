@@ -175,6 +175,38 @@ describe("memory_search unavailable payloads", () => {
     expect(getMemorySearchManagerMockCalls()).toBe(0);
   });
 
+  it("keeps automatic raw Memory recall when Personal Wiki selection is disabled", async () => {
+    registerMemoryCorpusSupplement("wiki-selection", {
+      includeByDefault: true,
+      scope: async () => ({ personalWikiEnabled: false }),
+      search: async () => [],
+      get: async () => null,
+    });
+    setMemorySearchImpl(async () => [
+      {
+        path: "MEMORY.md",
+        source: "memory" as const,
+        startLine: 1,
+        endLine: 1,
+        score: 1,
+        snippet: "automatic raw memory",
+        sourceVersion: "indexed-hash",
+      },
+    ]);
+    const result = await createMemorySearchToolOrThrow().execute("raw-memory", {
+      query: "automatic",
+    });
+    expect(result.details).toMatchObject({
+      results: [
+        expect.objectContaining({
+          path: "MEMORY.md",
+          snippet: expect.stringContaining("automatic raw memory"),
+        }),
+      ],
+    });
+    expect(getMemorySearchManagerMockCalls()).toBeGreaterThan(0);
+  });
+
   it("passes string minScore through to memory search", async () => {
     let seenMinScore: number | undefined;
     setMemorySearchImpl(async (opts) => {

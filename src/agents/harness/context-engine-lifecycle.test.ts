@@ -106,6 +106,7 @@ describe("harness context engine lifecycle", () => {
 
     try {
       const result = await assembleHarnessContextEngine({
+        runId: "context-turn",
         contextEngine: createContextEngine({ assemble }),
         sessionId: sessionParams.sessionId,
         sessionKey: "agent:support:main",
@@ -122,6 +123,7 @@ describe("harness context engine lifecycle", () => {
       expect(prepare).toHaveBeenCalledWith(
         expect.objectContaining({
           agentId: "support",
+          runId: "context-turn",
           agentSessionKey: "agent:support:main",
           sandboxed: true,
         }),

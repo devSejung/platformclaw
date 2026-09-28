@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createOrganizationMemoryClient } from "./client.js";
+import { createWikiHubMemoryClient } from "./client.js";
 
 describe("vault internal client", () => {
   it.each(["success", "interrupted", "ambiguous", "query-invalid", "redacted"])(
@@ -65,14 +65,16 @@ describe("vault internal client", () => {
           } else if (mode === "redacted") {
             res.end(JSON.stringify({ error: "private-database-path-and-content" }));
           } else {
-            res.end(JSON.stringify({ revision: 4, vaultIds: ["managed:global"] }));
+            res.end(
+              JSON.stringify({ revision: 4, vaultIds: ["shared-one"], personalEnabled: true }),
+            );
           }
         });
       });
       try {
         server.listen(socketPath);
         await once(server, "listening");
-        const client = createOrganizationMemoryClient({
+        const client = createWikiHubMemoryClient({
           PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: broker,
           PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: tokenFile,
         });
@@ -101,11 +103,15 @@ describe("vault internal client", () => {
           });
         } else if (mode === "redacted") {
           await expect(capture).rejects.toMatchObject({
-            message: "Memory Hub service is unavailable (500)",
-            memoryCorpusFailure: { error: "Memory Hub service is unavailable (500)" },
+            message: "Wiki Hub service is unavailable (500)",
+            memoryCorpusFailure: { error: "Wiki Hub service is unavailable (500)" },
           });
         } else {
-          await expect(capture).resolves.toEqual({ revision: 4, vaultIds: ["managed:global"] });
+          await expect(capture).resolves.toEqual({
+            revision: 4,
+            vaultIds: ["shared-one"],
+            personalEnabled: true,
+          });
         }
         expect(received).toEqual([
           { url: "/platformclaw/internal/memory/vaults/scope", body: '{"agentId":"person_one"}' },

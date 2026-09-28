@@ -343,6 +343,8 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
           ? this.renderGraph(selected)
           : renderVaultDocumentList({
               documents: selected.documents,
+              vaultName: selected.vault.name,
+              vaultType: selected.vault.type,
               canEdit: selected.vault.canEdit,
               busy: this.busy,
               onOpen: (id) => this.open(id),

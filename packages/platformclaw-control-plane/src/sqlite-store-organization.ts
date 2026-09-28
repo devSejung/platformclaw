@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   ControlPlaneAuthorizationError,
   ControlPlaneStateError,
@@ -146,7 +145,6 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
     reason: string;
     archivedAt: number;
   }): Promise<ManagedScope> {
-    this.ensureOrganizationMemorySchema();
     this.ensureSkillHubStateSchema();
     return this.runOrganizationMutation(
       {
@@ -197,82 +195,6 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
           if (boundNamespace) {
             throw new ControlPlaneStateError(
               `archive blocked: Skill Hub namespace ${boundNamespace.namespace} must be transferred or retired`,
-            );
-          }
-          const retiredClaims = executeSync(
-            this.db,
-            this.query
-              .selectFrom("organization_memory_claims")
-              .selectAll()
-              .where("scope_id", "in", archivedScopeIds)
-              .where("status", "=", "active"),
-          ).rows;
-          const abandonedRequests = executeSync(
-            this.db,
-            this.query
-              .selectFrom("organization_memory_promotion_requests")
-              .leftJoin(
-                "organization_memory_promotion_decisions",
-                "organization_memory_promotion_decisions.request_id",
-                "organization_memory_promotion_requests.id",
-              )
-              .select("organization_memory_promotion_requests.id")
-              .where((eb) =>
-                eb.or([
-                  eb("source_scope_id", "in", archivedScopeIds),
-                  eb("target_scope_id", "in", archivedScopeIds),
-                ]),
-              )
-              .where("organization_memory_promotion_decisions.request_id", "is", null),
-          ).rows;
-          for (const request of abandonedRequests) {
-            executeSync(
-              this.db,
-              this.query.insertInto("organization_memory_promotion_decisions").values({
-                id: `memory-decision-${randomUUID()}`,
-                request_id: request.id,
-                decision: "rejected",
-                decided_by_user_id: params.actorUserId,
-                reason: "Source or target scope archived",
-                target_claim_id: null,
-                decided_at: params.archivedAt,
-              }),
-            );
-            this.insertAudit(
-              params.actorUserId,
-              "organization-memory.promotion.rejected",
-              "memory-promotion",
-              request.id,
-              params.archivedAt,
-              { reason: "Source or target scope archived" },
-            );
-          }
-          for (const claim of retiredClaims) {
-            executeSync(
-              this.db,
-              this.query
-                .updateTable("organization_memory_claims")
-                .set({
-                  status: "retired",
-                  revision: claim.revision + 1,
-                  updated_at: params.archivedAt,
-                  retired_by_user_id: params.actorUserId,
-                  retired_at: params.archivedAt,
-                  retirement_reason: "Owning scope archived",
-                })
-                .where("id", "=", claim.id),
-            );
-            this.compileClaimPage(claim.id);
-            if (claim.source_kind !== "personal") {
-              this.compileClaimPage(claim.source_claim_id);
-            }
-            this.insertAudit(
-              params.actorUserId,
-              "organization-memory.claim.retired",
-              "memory-claim",
-              claim.id,
-              params.archivedAt,
-              { reason: "Owning scope archived" },
             );
           }
           executeSync(

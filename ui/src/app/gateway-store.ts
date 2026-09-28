@@ -94,6 +94,7 @@ export function createApplicationGateway(
     phase: "stopped",
     offlineStable: false,
     hello: null,
+    advertisedMethods: null,
     canvasPluginSurfaceRoute: canvasSurfaceRoute(null, "connecting"),
     assistantAgentId: null,
     sessionKey: settings.sessionKey,
@@ -387,6 +388,7 @@ export function createApplicationGateway(
           client: nextClient,
           phase: "connected",
           hello,
+          advertisedMethods: hello.features?.methods ?? null,
           canvasPluginSurfaceRoute,
           // Trim guards a whitespace-only defaultId from becoming a truthy selection.
           assistantAgentId: sessionDefaults?.defaultAgentId?.trim() || null,
@@ -471,6 +473,7 @@ export function createApplicationGateway(
       // recovery or a manual retry when a session already existed.
       phase: everConnected ? "reconnecting" : "connecting",
       hello: null,
+      advertisedMethods: null,
       canvasPluginSurfaceRoute: canvasSurfaceRoute(null, "connecting"),
       assistantAgentId: null,
       selfUser: null,
@@ -537,6 +540,7 @@ export function createApplicationGateway(
         phase: "stopped",
         offlineStable: false,
         hello: null,
+        advertisedMethods: null,
         canvasPluginSurfaceRoute: canvasSurfaceRoute(null, "connecting"),
         assistantAgentId: null,
         selfUser: null,

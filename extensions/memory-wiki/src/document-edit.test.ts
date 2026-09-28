@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -18,6 +19,41 @@ import { createMemoryWikiTestHarness } from "./test-helpers.js";
 const { createVault } = createMemoryWikiTestHarness();
 
 describe("personal Wiki document editing", () => {
+  it("returns canonical per-reference navigation without guessing ambiguous titles", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    await fs.writeFile(
+      path.join(rootDir, "concepts/a.md"),
+      "---\nid: first\ntitle: Duplicate\n---\nA",
+    );
+    await fs.writeFile(path.join(rootDir, "concepts/b.md"), "---\ntitle: Duplicate\n---\nB");
+    const raw = "[[Duplicate]] [[FIRST]] [[concepts/a.md]] [B](b.md) [[missing]]";
+    await fs.writeFile(path.join(rootDir, "concepts/source.md"), raw);
+    const document = await getMemoryWikiDocument({ config, lookup: "concepts/source.md" });
+    expect(document?.links).toEqual([
+      { target: "Duplicate", documentId: null, logicalPath: "Duplicate", title: "Duplicate" },
+      {
+        target: "FIRST",
+        documentId: "concepts/a.md",
+        logicalPath: "concepts/a.md",
+        title: "Duplicate",
+      },
+      {
+        target: "concepts/a.md",
+        documentId: "concepts/a.md",
+        logicalPath: "concepts/a.md",
+        title: "Duplicate",
+      },
+      {
+        target: "concepts/b.md",
+        documentId: "concepts/b.md",
+        logicalPath: "concepts/b.md",
+        title: "Duplicate",
+      },
+      { target: "missing", documentId: null, logicalPath: "missing", title: "missing" },
+    ]);
+    expect(document?.linksTruncated).toBe(false);
+    expect(await fs.readFile(path.join(rootDir, "concepts/source.md"), "utf8")).toBe(raw);
+  });
   it("loads shared vault documents read-only and rejects saves", async () => {
     const { rootDir, config } = await createVault({ initialize: true });
     await fs.writeFile(path.join(rootDir, "concepts/alpha.md"), "# Shared alpha\n");
@@ -28,7 +64,7 @@ describe("personal Wiki document editing", () => {
       readOnlyReason: "shared-vault",
     });
     expect(document).not.toHaveProperty("editableContent");
-    expect(document).not.toHaveProperty("revision");
+    expect(document?.revision).toBe(createHash("sha256").update("# Shared alpha\n").digest("hex"));
     await expect(
       saveMemoryWikiDocument({
         config,
@@ -57,17 +93,23 @@ describe("personal Wiki document editing", () => {
     );
     const document = await getMemoryWikiDocument({ config: personal, lookup: pagePath });
     expect(document).toMatchObject({ editMode: "body", editableContent: "# Alpha\n\nOld body" });
+    expect(document?.sourceContent).toBe(await fs.readFile(path.join(rootDir, pagePath), "utf8"));
+    expect(document?.revision).toBe(
+      createHash("sha256").update(document!.sourceContent).digest("hex"),
+    );
     const saved = await saveMemoryWikiDocument({
       config: personal,
       path: pagePath,
       editMode: "body",
       content: "# Alpha\n\nNew **body**",
+      title: "Reviewed Alpha",
       expectedRevision: document!.revision!,
     });
     expect(saved).toMatchObject({ saved: true, indexesRefreshed: true });
     const parsed = parseWikiMarkdown(await fs.readFile(path.join(rootDir, pagePath), "utf8"));
     expect(parsed.frontmatter).toMatchObject({
       id: "concept.alpha",
+      title: "Reviewed Alpha",
       sourceIds: ["private.source"],
     });
     expect(parsed.body).toContain("New **body**");
@@ -258,26 +300,33 @@ describe("personal Wiki document editing", () => {
         "<!-- openclaw:human:end -->",
       ].join("\n"),
     },
-  ])("hides managed markers from the $path preview and source projection", async (fixture) => {
-    const { rootDir, config } = await createVault({ initialize: true });
-    const personal = {
-      ...config,
-      agentId: "main",
-      vault: { ...config.vault, scope: "agent" as const },
-    };
-    await fs.mkdir(path.dirname(path.join(rootDir, fixture.path)), { recursive: true });
-    await fs.writeFile(
-      path.join(rootDir, fixture.path),
-      renderWikiMarkdown({
-        frontmatter: { pageType: fixture.pageType, title: fixture.path },
-        body: fixture.body,
-      }),
-    );
+  ])(
+    "hides managed markers from the $path preview while preserving downloadable source",
+    async (fixture) => {
+      const { rootDir, config } = await createVault({ initialize: true });
+      const personal = {
+        ...config,
+        agentId: "main",
+        vault: { ...config.vault, scope: "agent" as const },
+      };
+      await fs.mkdir(path.dirname(path.join(rootDir, fixture.path)), { recursive: true });
+      await fs.writeFile(
+        path.join(rootDir, fixture.path),
+        renderWikiMarkdown({
+          frontmatter: { pageType: fixture.pageType, title: fixture.path },
+          body: fixture.body,
+        }),
+      );
 
-    const document = await getMemoryWikiDocument({ config: personal, lookup: fixture.path });
-    expect(document?.displayContent).not.toContain("<!-- openclaw:");
-    expect(document?.sourceContent).not.toContain("<!-- openclaw:");
-    expect(document?.displayContent).toContain(fixture.visible);
-    expect(await fs.readFile(path.join(rootDir, fixture.path), "utf8")).toContain("<!-- openclaw:");
-  });
+      const document = await getMemoryWikiDocument({ config: personal, lookup: fixture.path });
+      expect(document?.displayContent).not.toContain("<!-- openclaw:");
+      expect(document?.sourceContent).toBe(
+        await fs.readFile(path.join(rootDir, fixture.path), "utf8"),
+      );
+      expect(document?.displayContent).toContain(fixture.visible);
+      expect(await fs.readFile(path.join(rootDir, fixture.path), "utf8")).toContain(
+        "<!-- openclaw:",
+      );
+    },
+  );
 });

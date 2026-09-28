@@ -5,7 +5,7 @@ import {
   normalizeComparableWikiTarget,
   resolveWikiLinkTarget,
 } from "./link-resolution.js";
-import type { WikiPageKind } from "./markdown.js";
+import { parseWikiMarkdown, type WikiPageKind } from "./markdown.js";
 import { readQueryableWikiPages } from "./query.js";
 
 const MAX_MEMORY_WIKI_GRAPH_NODES = 500;
@@ -23,6 +23,7 @@ type MemoryWikiGraph = {
     id: string;
     title: string;
     kind: WikiPageKind | "index";
+    snippet?: string;
     updatedAt?: string;
   }>;
   edges: MemoryWikiGraphEdge[];
@@ -66,7 +67,9 @@ export async function listMemoryWikiGraph(
   for (const source of pages) {
     for (const target of source.linkTargets) {
       const matches = resolveWikiLinkTarget(targetIndex, target);
-      if (matches.length === 0) {
+      // A title shared by several documents is unresolved, not a reference to all
+      // of them. Explicit paths let the author choose without graph guessing.
+      if (matches.length !== 1) {
         unresolvedLinkKeys.add(
           `${source.relativePath}\u0000${normalizeComparableWikiTarget(target)}`,
         );
@@ -140,6 +143,7 @@ export async function listMemoryWikiGraph(
       id: page.relativePath,
       title: page.title,
       kind: page.kind,
+      snippet: parseWikiMarkdown(page.raw).body.slice(0, 320),
       ...(page.updatedAt ? { updatedAt: page.updatedAt } : {}),
     });
   }

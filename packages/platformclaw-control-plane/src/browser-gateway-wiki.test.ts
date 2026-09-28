@@ -382,6 +382,8 @@ describe("BrowserGatewayProxy personal memory wiki", () => {
       revision: "a".repeat(64),
       sourceType: "native",
       updatedAt: "2026-09-10T00:00:00.000Z",
+      links: [],
+      linksTruncated: false,
     });
     expect(request).toHaveBeenCalledWith("wiki.document.get", {
       agentId: binding.agentId,

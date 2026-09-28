@@ -1,8 +1,5 @@
 import type { BrowserGatewayProxyOptions } from "./browser-gateway-contracts.js";
-import {
-  appendOrganizationMemorySearch,
-  recoverMissingBrowserMemoryResult,
-} from "./browser-gateway-memory.js";
+import { recoverMissingBrowserMemoryResult } from "./browser-gateway-memory.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -12,19 +9,12 @@ export async function requestBrowserGatewayUpstream(params: {
   method: string;
   request: JsonObject;
   agentId: string;
-  searchOrganizationMemory: BrowserGatewayProxyOptions["searchOrganizationMemory"];
 }): Promise<unknown> {
   const upstreamMethod = params.method === "commands.list" ? "chat.metadata" : params.method;
   const upstreamParams =
     params.method === "commands.list" ? { agentId: params.request.agentId } : params.request;
   try {
-    return await appendOrganizationMemorySearch(
-      params.method,
-      await params.gateway.request(upstreamMethod, upstreamParams),
-      params.agentId,
-      typeof params.request.query === "string" ? params.request.query : "",
-      params.searchOrganizationMemory,
-    );
+    return await params.gateway.request(upstreamMethod, upstreamParams);
   } catch (error) {
     const recovered = recoverMissingBrowserMemoryResult({ ...params, error });
     if (recovered !== undefined) {

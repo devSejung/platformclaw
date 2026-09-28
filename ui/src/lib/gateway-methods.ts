@@ -5,13 +5,14 @@ export type GatewayMethodOperatorScope = "operator.read" | "operator.write" | "o
 
 export function isGatewayMethodAdvertised(
   host: {
+    advertisedMethods?: string[] | null;
     hello?: {
       features?: { methods?: string[] } | null;
     } | null;
   },
   method: string,
 ): boolean | null {
-  const methods = host.hello?.features?.methods;
+  const methods = host.hello?.features?.methods ?? host.advertisedMethods;
   if (!Array.isArray(methods)) {
     return null;
   }

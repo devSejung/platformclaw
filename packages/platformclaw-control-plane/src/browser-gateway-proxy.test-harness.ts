@@ -6,11 +6,6 @@ import type {
   ControlAuditEvent,
   ControlPlaneAuditWriter,
   EnterprisePrincipal,
-  OrganizationMemorySearchHit,
-  OrganizationMemoryDocument,
-  OrganizationMemoryGraph,
-  OrganizationMemoryGraphKind,
-  OrganizationMemoryLifecycle,
 } from "./contracts.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
 
@@ -41,22 +36,6 @@ export function safeCronJob(agentId: string, extra: Record<string, unknown> = {}
 export async function setupBrowserGatewayProxyTest(
   options: {
     admin?: boolean;
-    searchOrganizationMemory?: (params: {
-      agentId: string;
-      query: string;
-      maxResults?: number;
-    }) => Promise<OrganizationMemorySearchHit[]>;
-    getOrganizationMemory?: (params: {
-      agentId: string;
-      path: string;
-      fromLine?: number;
-      lineCount?: number;
-    }) => Promise<OrganizationMemoryDocument | null>;
-    getOrganizationMemoryGraph?: (params: {
-      agentId: string;
-      kind: OrganizationMemoryGraphKind;
-    }) => Promise<OrganizationMemoryGraph>;
-    organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
     baseballStore?: BaseballGameStore;
     now?: () => number;
   } = {},
@@ -127,18 +106,6 @@ export async function setupBrowserGatewayProxyTest(
     gateway: { request },
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
     resolveAgentIdFromSessionKey: sessionAgentId,
-    ...(options.searchOrganizationMemory
-      ? { searchOrganizationMemory: options.searchOrganizationMemory }
-      : {}),
-    ...(options.getOrganizationMemory
-      ? { getOrganizationMemory: options.getOrganizationMemory }
-      : {}),
-    ...(options.getOrganizationMemoryGraph
-      ? { getOrganizationMemoryGraph: options.getOrganizationMemoryGraph }
-      : {}),
-    ...(options.organizationMemoryLifecycle
-      ? { organizationMemoryLifecycle: options.organizationMemoryLifecycle }
-      : {}),
     now: options.now ?? (() => NOW),
   });
   return { auditEvents, auditWriter, binding, created, proxy, request, store, token, user };

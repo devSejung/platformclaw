@@ -5,12 +5,17 @@ import { createConnection } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
 import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import lockfile from "proper-lockfile";
-import type { OrganizationMemoryDocument, OrganizationMemorySearchHit } from "./contracts.js";
+import {
+  ControlPlaneAuthorizationError,
+  ControlPlaneConflictError,
+  ControlPlaneStateError,
+} from "./contracts.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 import {
   KnowledgeVaultSearchError,
   type KnowledgeVaultTurnScope,
 } from "./knowledge-vault-contracts.js";
+import type { KnowledgeVaultWikiOperation } from "./knowledge-vault-operations.js";
 import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
 
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
@@ -22,13 +27,11 @@ export const PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH =
 export const PLATFORMCLAW_MCP_CONNECTION_PATH = "/platformclaw/internal/mcp/connection";
 export const PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH =
   "/platformclaw/internal/execution/credentials";
-export const PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH =
-  "/platformclaw/internal/memory/organization/search";
-export const PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH =
-  "/platformclaw/internal/memory/organization/get";
 export const PLATFORMCLAW_VAULT_SEARCH_PATH = "/platformclaw/internal/memory/vaults/search";
 export const PLATFORMCLAW_VAULT_GET_PATH = "/platformclaw/internal/memory/vaults/get";
 export const PLATFORMCLAW_VAULT_SCOPE_PATH = "/platformclaw/internal/memory/vaults/scope";
+
+export const PLATFORMCLAW_VAULT_WIKI_PATH = "/platformclaw/internal/memory/vaults/wiki";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 // Turn selections travel between trusted services, never in the model's tool schema.
@@ -38,7 +41,7 @@ type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
   "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
 > & {
-  vaultService?: Pick<KnowledgeVaultService, "search" | "get" | "captureScope">;
+  vaultService?: Pick<KnowledgeVaultService, "search" | "get" | "captureScope" | "wiki">;
   resolveMcpConnection?: (
     agentId: string,
     serverName: string,
@@ -49,17 +52,6 @@ type ExecutionHandoffHandler = Pick<
     expiresAt?: number;
   } | null>;
   resolveExecCredentials?: (agentId: string) => Promise<Record<string, string>>;
-  searchOrganizationMemory?: (params: {
-    agentId: string;
-    query: string;
-    maxResults?: number;
-  }) => Promise<OrganizationMemorySearchHit[]>;
-  getOrganizationMemory?: (params: {
-    agentId: string;
-    path: string;
-    fromLine?: number;
-    lineCount?: number;
-  }) => Promise<OrganizationMemoryDocument | null>;
 };
 
 export function deriveExecutionHandoffAddress(credentialBrokerAddress: string): string {
@@ -178,6 +170,7 @@ function readVaultTurnScope(value: unknown): KnowledgeVaultTurnScope | undefined
   }
   const scope = objectBody(value);
   if (
+    typeof scope.personalEnabled !== "boolean" ||
     !Number.isSafeInteger(scope.revision) ||
     (scope.revision as number) < 0 ||
     !Array.isArray(scope.vaultIds) ||
@@ -189,7 +182,11 @@ function readVaultTurnScope(value: unknown): KnowledgeVaultTurnScope | undefined
   ) {
     throw new Error("Invalid vault turn scope");
   }
-  return { revision: scope.revision as number, vaultIds: scope.vaultIds as string[] };
+  return {
+    revision: scope.revision as number,
+    vaultIds: scope.vaultIds as string[],
+    personalEnabled: scope.personalEnabled,
+  };
 }
 
 export class PlatformClawExecutionHandoffServer {
@@ -341,8 +338,7 @@ export class PlatformClawExecutionHandoffServer {
         pathname !== PLATFORMCLAW_VAULT_SEARCH_PATH &&
         pathname !== PLATFORMCLAW_VAULT_GET_PATH &&
         pathname !== PLATFORMCLAW_VAULT_SCOPE_PATH &&
-        pathname !== PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH &&
-        pathname !== PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH
+        pathname !== PLATFORMCLAW_VAULT_WIKI_PATH
       ) {
         sendJson(res, 404, { error: "not found" });
         return;
@@ -350,20 +346,66 @@ export class PlatformClawExecutionHandoffServer {
       const body = objectBody(
         await readJson(
           req,
-          pathname === PLATFORMCLAW_VAULT_SEARCH_PATH ? MAX_VAULT_SEARCH_BYTES : MAX_REQUEST_BYTES,
+          pathname === PLATFORMCLAW_VAULT_WIKI_PATH
+            ? 2 * 1024 * 1024
+            : pathname === PLATFORMCLAW_VAULT_SEARCH_PATH
+              ? MAX_VAULT_SEARCH_BYTES
+              : MAX_REQUEST_BYTES,
         ),
       );
       const agentId = requestAgentId(body);
       if (
         pathname === PLATFORMCLAW_VAULT_SEARCH_PATH ||
         pathname === PLATFORMCLAW_VAULT_GET_PATH ||
-        pathname === PLATFORMCLAW_VAULT_SCOPE_PATH
+        pathname === PLATFORMCLAW_VAULT_SCOPE_PATH ||
+        pathname === PLATFORMCLAW_VAULT_WIKI_PATH
       ) {
         if (!this.service.vaultService) {
-          sendJson(res, 503, { error: "Memory Hub unavailable" });
+          sendJson(res, 503, { error: "Wiki Hub unavailable" });
           return;
         }
-        if (pathname === PLATFORMCLAW_VAULT_SEARCH_PATH) {
+        if (pathname === PLATFORMCLAW_VAULT_WIKI_PATH) {
+          const turnScope = readVaultTurnScope(body.turnScope);
+          if (
+            (body.operation !== "status" &&
+              body.operation !== "lint" &&
+              body.operation !== "apply") ||
+            (body.vaultId !== undefined &&
+              (typeof body.vaultId !== "string" || !body.vaultId || body.vaultId.length > 512)) ||
+            (body.vaultName !== undefined &&
+              (typeof body.vaultName !== "string" ||
+                !body.vaultName.trim() ||
+                body.vaultName.length > 240))
+          ) {
+            throw new ControlPlaneStateError("Invalid Wiki operation or target");
+          }
+          const mutation = body.mutation === undefined ? undefined : objectBody(body.mutation);
+          if (
+            mutation &&
+            ((mutation.op !== "create" && mutation.op !== "update" && mutation.op !== "refresh") ||
+              ["title", "body", "lookup", "expectedRevision"].some(
+                (key) => mutation[key] !== undefined && typeof mutation[key] !== "string",
+              ) ||
+              (typeof mutation.title === "string" && mutation.title.length > 240) ||
+              (typeof mutation.lookup === "string" && mutation.lookup.length > 1024) ||
+              (typeof mutation.expectedRevision === "string" &&
+                mutation.expectedRevision.length > 64))
+          ) {
+            throw new ControlPlaneStateError("Invalid Wiki mutation");
+          }
+          sendJson(
+            res,
+            200,
+            this.service.vaultService.wiki({
+              agentId,
+              operation: body.operation,
+              vaultId: body.vaultId as string | undefined,
+              vaultName: body.vaultName as string | undefined,
+              turnScope,
+              mutation: mutation as KnowledgeVaultWikiOperation["mutation"],
+            }),
+          );
+        } else if (pathname === PLATFORMCLAW_VAULT_SEARCH_PATH) {
           let turnScope: KnowledgeVaultTurnScope | undefined;
           try {
             turnScope = readVaultTurnScope(body.turnScope);
@@ -434,75 +476,6 @@ export class PlatformClawExecutionHandoffServer {
           return;
         }
         sendJson(res, 200, await this.service.resolveExecCredentials(agentId));
-        return;
-      }
-      if (pathname === PLATFORMCLAW_ORGANIZATION_MEMORY_SEARCH_PATH) {
-        const query = typeof body.query === "string" ? body.query.trim() : "";
-        const maxResults = body.maxResults;
-        if (
-          !query ||
-          query.length > 1_000 ||
-          (maxResults !== undefined &&
-            (typeof maxResults !== "number" ||
-              !Number.isSafeInteger(maxResults) ||
-              maxResults < 1 ||
-              maxResults > 50))
-        ) {
-          sendJson(res, 400, { error: "invalid organization memory search" });
-          return;
-        }
-        if (!this.service.searchOrganizationMemory) {
-          sendJson(res, 503, { error: "organization memory unavailable" });
-          return;
-        }
-        sendJson(
-          res,
-          200,
-          await this.service.searchOrganizationMemory({
-            agentId,
-            query,
-            ...(typeof maxResults === "number" ? { maxResults } : {}),
-          }),
-        );
-        return;
-      }
-      if (pathname === PLATFORMCLAW_ORGANIZATION_MEMORY_GET_PATH) {
-        const path = typeof body.path === "string" ? body.path : "";
-        const fromLine = body.fromLine;
-        const lineCount = body.lineCount;
-        if (
-          !/^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(path)
-        ) {
-          sendJson(res, 400, { error: "invalid organization memory path" });
-          return;
-        }
-        if (
-          (fromLine !== undefined &&
-            (typeof fromLine !== "number" || !Number.isSafeInteger(fromLine) || fromLine < 1)) ||
-          (lineCount !== undefined &&
-            (typeof lineCount !== "number" ||
-              !Number.isSafeInteger(lineCount) ||
-              lineCount < 1 ||
-              lineCount > 200))
-        ) {
-          sendJson(res, 400, { error: "invalid organization memory range" });
-          return;
-        }
-        if (!this.service.getOrganizationMemory) {
-          sendJson(res, 503, { error: "organization memory unavailable" });
-          return;
-        }
-        const result = await this.service.getOrganizationMemory({
-          agentId,
-          path,
-          ...(typeof fromLine === "number" ? { fromLine } : {}),
-          ...(typeof lineCount === "number" ? { lineCount } : {}),
-        });
-        if (!result) {
-          sendJson(res, 404, { error: "organization memory not found" });
-          return;
-        }
-        sendJson(res, 200, result);
         return;
       }
       if (pathname === PLATFORMCLAW_MCP_CONNECTION_PATH) {
@@ -618,6 +591,24 @@ export class PlatformClawExecutionHandoffServer {
           code: error.code,
           action: error.action.slice(0, 500),
           vaultChoices: error.vaultChoices.slice(0, 5),
+        });
+        return;
+      }
+      if (
+        req.url?.split("?")[0] === PLATFORMCLAW_VAULT_WIKI_PATH &&
+        (error instanceof ControlPlaneStateError ||
+          error instanceof ControlPlaneConflictError ||
+          error instanceof ControlPlaneAuthorizationError)
+      ) {
+        sendJson(res, 409, {
+          error: error.message.slice(0, 500),
+          code:
+            error instanceof ControlPlaneAuthorizationError
+              ? "wiki-forbidden"
+              : error instanceof ControlPlaneConflictError
+                ? "wiki-conflict"
+                : "wiki-invalid",
+          action: "Check Wiki access and read the current document before retrying a write.",
         });
         return;
       }

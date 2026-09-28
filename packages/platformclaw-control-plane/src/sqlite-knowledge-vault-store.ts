@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { formatWikiDocumentLink } from "@openclaw/markdown-core";
 import { sql } from "kysely";
 import {
   ControlPlaneConflictError,
@@ -7,11 +8,20 @@ import {
   ControlPlaneStateError,
 } from "./contracts.js";
 import {
+  effectiveWikiRoles,
+  reconcileWikiAccess,
+  recordWikiAudit,
+} from "./knowledge-vault-access.js";
+import {
   decodeKnowledgeVaultArchive,
   encodeKnowledgeVaultArchive,
   requireKnowledgeVaultMediaType,
 } from "./knowledge-vault-archive.js";
-import { compileKnowledgeVaultDocument, knowledgeVaultPath } from "./knowledge-vault-compiler.js";
+import {
+  compileKnowledgeVaultDocument,
+  createKnowledgeVaultLinkResolver,
+  knowledgeVaultPath,
+} from "./knowledge-vault-compiler.js";
 import {
   KNOWLEDGE_VAULT_LIMITS,
   KnowledgeVaultSearchError,
@@ -21,19 +31,20 @@ import {
   type KnowledgeVaultDocumentInput,
   type KnowledgeVaultSnapshot,
 } from "./knowledge-vault-contracts.js";
-import { resolveKnowledgeVaultDocumentMetadata } from "./knowledge-vault-document.js";
+import {
+  knowledgeVaultEditableSource,
+  resolveKnowledgeVaultDocumentMetadata,
+} from "./knowledge-vault-document.js";
 import {
   executeSync,
   runImmediateTransaction,
   runReadTransaction,
   takeFirstSync,
 } from "./kysely-sync.js";
-import {
-  SqliteKnowledgeVaultCore,
-  requireKnowledgeVaultText,
-} from "./sqlite-knowledge-vault-core.js";
+import { requireKnowledgeVaultText } from "./sqlite-knowledge-vault-core.js";
+import { SqliteKnowledgeVaultSharingStore } from "./sqlite-knowledge-vault-sharing.js";
 
-export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
+export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultSharingStore {
   constructor(
     db: DatabaseSync,
     private readonly compiler = compileKnowledgeVaultDocument,
@@ -52,8 +63,11 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
           "Document changed; reload before saving",
         );
       }
+      const content = prior
+        ? knowledgeVaultEditableSource(prior.content).prefix + params.content
+        : params.content;
       // Allocate generated paths under the write lock so concurrent creates cannot overwrite.
-      const { title, logicalPath } = this.documentMetadata(params, prior);
+      const { title, logicalPath } = this.documentMetadata({ ...params, content }, prior);
       const collision = takeFirstSync(
         this.db,
         this.query
@@ -70,14 +84,14 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
       }
       this.requireCapacity(
         params.vaultId,
-        Buffer.byteLength(params.content) - Buffer.byteLength(prior?.content ?? ""),
+        Buffer.byteLength(content) - Buffer.byteLength(prior?.content ?? ""),
         prior ? 0 : 1,
       );
       const now = Date.now();
       const values = {
         title,
         logical_path: logicalPath,
-        content: params.content,
+        content,
         revision: (prior?.revision ?? 0) + 1,
         updated_at: now,
         compile_status: "pending" as const,
@@ -110,6 +124,50 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
     return this.readDocument({ ...params, documentId: id });
   }
 
+  deleteDocument(params: {
+    userId: string;
+    vaultId: string;
+    documentId: string;
+    expectedRevision: number | string;
+  }) {
+    this.access(params.userId, params.vaultId, "edit");
+    runImmediateTransaction(this.db, () => {
+      this.access(params.userId, params.vaultId, "edit");
+      const document = this.document(params.vaultId, params.documentId);
+      if (document.revision !== params.expectedRevision) {
+        throw new ControlPlaneConflictError(
+          "knowledge_vault_changed",
+          "Document changed; reload before deleting",
+        );
+      }
+      // Keep the authored target path as unresolved; cascade only the deleted page's derived data.
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("knowledge_vault_links")
+          .set({ target_document_id: null })
+          .where("target_document_id", "=", document.id),
+      );
+      executeSync(
+        this.db,
+        this.query.deleteFrom("knowledge_vault_documents").where("id", "=", document.id),
+      );
+      this.resolveLinks(params.vaultId);
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("knowledge_vaults")
+          .set({ updated_at: Date.now() })
+          .where("id", "=", params.vaultId),
+      );
+      recordWikiAudit(this.db, params.userId, "wiki.document.deleted", params.vaultId, {
+        documentId: document.id,
+        revision: document.revision,
+      });
+    });
+    return { deleted: true, documentId: params.documentId };
+  }
+
   previewDocument(params: KnowledgeVaultDocumentInput): { title: string; logicalPath: string } {
     this.access(params.userId, params.vaultId, "edit");
     return runReadTransaction(this.db, () => this.documentMetadata(params));
@@ -137,6 +195,48 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
       metadata.logicalPath = `${stem}-${suffix}.md`;
     }
     return metadata;
+  }
+
+  private resolveLinks(vaultId: string): void {
+    const documents = executeSync(
+      this.db,
+      this.query
+        .selectFrom("knowledge_vault_documents")
+        .select(["id", "logical_path", "title"])
+        .where("vault_id", "=", vaultId),
+    ).rows;
+    const ids = new Set(documents.map((document) => document.id));
+    if (!ids.size) {
+      return;
+    }
+    const resolve = createKnowledgeVaultLinkResolver(documents);
+    const links = executeSync(
+      this.db,
+      this.query
+        .selectFrom("knowledge_vault_links")
+        .selectAll()
+        .where("document_id", "in", [...ids]),
+    ).rows;
+    for (const link of links) {
+      const matches = resolve(link.target_path);
+      // Existing identity survives moves/path reuse; ambiguous current names are always unresolved.
+      const target =
+        matches.length > 1
+          ? null
+          : link.target_document_id && ids.has(link.target_document_id)
+            ? link.target_document_id
+            : (matches[0]?.id ?? null);
+      if (target !== link.target_document_id) {
+        executeSync(
+          this.db,
+          this.query
+            .updateTable("knowledge_vault_links")
+            .set({ target_document_id: target })
+            .where("document_id", "=", link.document_id)
+            .where("target_path", "=", link.target_path),
+        );
+      }
+    }
   }
 
   private compileDocument(documentId: string): void {
@@ -183,60 +283,18 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
           );
         }
         for (const targetPath of derived.links) {
-          const exactTarget = takeFirstSync(
-            this.db,
-            this.query
-              .selectFrom("knowledge_vault_documents")
-              .select("id")
-              .where("vault_id", "=", source.vault_id)
-              .where((eb) =>
-                eb.or([eb("logical_path", "=", targetPath), eb("id", "=", targetPath)]),
-              ),
-          );
-          // A missing extension names the same exact Markdown path, never a guessed title.
-          const target =
-            exactTarget ??
-            takeFirstSync(
-              this.db,
-              this.query
-                .selectFrom("knowledge_vault_documents")
-                .select("id")
-                .where("vault_id", "=", source.vault_id)
-                .where("logical_path", "=", `${targetPath}.md`),
-            );
-          const priorTarget = previous.find(
-            (link) => link.target_path === targetPath,
-          )?.target_document_id;
-          // Existing references keep their identity after a target moves or its old path is reused.
           executeSync(
             this.db,
             this.query.insertInto("knowledge_vault_links").values({
               document_id: source.id,
               target_path: targetPath,
-              target_document_id: priorTarget ?? target?.id ?? null,
+              target_document_id:
+                previous.find((link) => link.target_path === targetPath)?.target_document_id ??
+                null,
             }),
           );
         }
-        // A newly created target resolves earlier missing links without editing their source documents.
-        const peers = this.query
-          .selectFrom("knowledge_vault_documents")
-          .select("id")
-          .where("vault_id", "=", source.vault_id);
-        executeSync(
-          this.db,
-          this.query
-            .updateTable("knowledge_vault_links")
-            .set({ target_document_id: source.id })
-            .where("target_document_id", "is", null)
-            .where(
-              "target_path",
-              "in",
-              source.logical_path.endsWith(".md")
-                ? [source.logical_path, source.logical_path.slice(0, -3)]
-                : [source.logical_path],
-            )
-            .where("document_id", "in", peers),
-        );
+        this.resolveLinks(source.vault_id);
         executeSync(
           this.db,
           this.query
@@ -338,11 +396,16 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
       scores.map((score) => sql`max(${score})`),
       sql` + `,
     )} + CASE WHEN lower(chunk.title) = ${needle} THEN 10 ELSE 0 END + CASE WHEN lower(doc.id) = ${needle} THEN 20 ELSE 0 END`;
+    const accessible = [...effectiveWikiRoles(this.db)]
+      .filter(([, members]) => members.has(params.userId))
+      .map(([id]) => id);
+    if (!accessible.length) {
+      return [];
+    }
     let query = this.query
       .selectFrom("knowledge_vault_chunks as chunk")
       .innerJoin("knowledge_vault_documents as doc", "doc.id", "chunk.document_id")
       .innerJoin("knowledge_vaults as vault", "vault.id", "doc.vault_id")
-      .innerJoin("knowledge_vault_members as member", "member.vault_id", "vault.id")
       .select([
         "vault.id as vault_id",
         "vault.name",
@@ -374,7 +437,7 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
           .limit(1)
           .as("content"),
       )
-      .where("member.user_id", "=", params.userId);
+      .where("vault.id", "in", accessible);
     if (params.vaultId) {
       query = query.where("vault.id", "=", params.vaultId);
     } else if (params.vaultIds !== undefined) {
@@ -423,6 +486,7 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
         title: row.title,
         path: `shared/${row.vault_id}/${row.id}`,
         logicalPath: row.logical_path,
+        link: formatWikiDocumentLink(row.logical_path, row.title),
         snippet: content.slice(start, start + 480),
         revision: row.revision,
         score: row.rank / (tokens.length * 15 + 30),
@@ -553,7 +617,6 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
   async importVault(params: {
     userId: string;
     archive: Buffer;
-    ownerCanExport: boolean;
     name?: string;
   }): Promise<KnowledgeVault> {
     this.activeUser(params.userId);
@@ -581,10 +644,10 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultCore {
           vault_id: vaultId,
           user_id: params.userId,
           role: "owner",
-          can_export: Number(params.ownerCanExport),
+          can_export: 1,
         }),
       );
-      this.writeConnection({ userId: params.userId, vaultId, connected: true });
+      reconcileWikiAccess(this.db);
       for (const doc of documents) {
         executeSync(
           this.db,

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { setupBrowserGatewayProxyTest as setup } from "./browser-gateway-proxy.test-harness.js";
 
 describe("BrowserGatewayProxy personal memory", () => {
@@ -133,171 +133,17 @@ describe("BrowserGatewayProxy personal memory", () => {
       }),
     ).resolves.toMatchObject({ deleted: true, indexesRefreshed: true, wikiRefreshed: false });
   });
-  it("adds safe organization hits for the pinned agent without exposing storage paths", async () => {
-    const searchOrganizationMemory = vi.fn(async () => [
-      {
-        id: "claim-1",
-        path: "organization/team/claim-1",
-        scopeKind: "team" as const,
-        scopeId: "scope-1",
-        scopeName: "Platform",
-        title: "Release policy",
-        snippet: "Production releases need two approvals.",
-        score: 0.9,
-        updatedAt: 1_000,
-      },
-    ]);
-    const { binding, proxy, request, token } = await setup({ searchOrganizationMemory });
-    request.mockResolvedValueOnce({
-      agentId: binding.agentId,
-      provider: "local",
-      searchMode: "fts-only",
-      results: [],
-    });
-
-    const response = await proxy.request<{ results: Array<Record<string, unknown>> }>(
-      token,
-      "memory.search",
-      { query: "release" },
-    );
-
-    expect(searchOrganizationMemory).toHaveBeenCalledWith({
-      agentId: binding.agentId,
-      query: "release",
-      maxResults: 20,
-    });
-    expect(response.results).toEqual([
-      expect.objectContaining({
-        source: "organization",
-        path: "organization/team/claim-1",
-        provenanceLabel: "Platform",
-      }),
-    ]);
-    expect(JSON.stringify(response)).not.toContain("scope-1");
-  });
-
-  it("keeps personal results when organization memory is unavailable", async () => {
-    const { binding, proxy, request, token } = await setup({
-      searchOrganizationMemory: vi.fn(async () => {
-        throw new Error("organization store offline");
-      }),
-    });
-    request.mockResolvedValueOnce({
-      agentId: binding.agentId,
-      provider: "local",
-      searchMode: "fts-only",
-      results: [
-        {
-          path: "MEMORY.md",
-          startLine: 1,
-          endLine: 1,
-          score: 0.8,
-          snippet: "Personal memory remains available.",
-          source: "memory",
-        },
-      ],
-    });
-
-    await expect(proxy.request(token, "memory.search", { query: "memory" })).resolves.toEqual({
-      agentId: binding.agentId,
-      provider: "local",
-      searchMode: "fts-only",
-      organizationMemoryUnavailable: true,
-      results: [expect.objectContaining({ path: "MEMORY.md" })],
-    });
-  });
-
-  it("opens an authorized organization result without dispatching to the Gateway", async () => {
-    const getOrganizationMemory = vi.fn(async () => ({
-      id: "claim-1",
-      path: "organization/group/claim-1",
-      scopeKind: "group" as const,
-      scopeId: "scope-1",
-      scopeName: "Memory Group",
-      title: "Release policy",
-      snippet: "Use the reviewed checklist.",
-      score: 1,
-      updatedAt: 1_000,
-      content: "# Release policy\nUse the reviewed checklist.",
-      fromLine: 1,
-      lineCount: 2,
-      totalLines: 2,
-      textTruncated: false,
-      verification: {
-        approvalStatus: "approved" as const,
-        revision: 3,
-        sourceRevision: 2,
-        sourceStatus: "current" as const,
-      },
-    }));
-    const { binding, proxy, request, token } = await setup({ getOrganizationMemory });
-
-    await expect(
-      proxy.request(token, "platformclaw.memory.get", {
-        agentId: binding.agentId,
-        path: "organization/group/claim-1",
-      }),
-    ).resolves.toEqual({
-      path: "organization/group/claim-1",
-      title: "Release policy",
-      kind: "group",
-      provenanceLabel: "Memory Group",
-      content: "# Release policy\nUse the reviewed checklist.",
-      fromLine: 1,
-      lineCount: 2,
-      totalLines: 2,
-      textTruncated: false,
-      verification: {
-        approvalStatus: "approved",
-        revision: 3,
-        sourceRevision: 2,
-        sourceStatus: "current",
-      },
-      updatedAt: "1970-01-01T00:00:01.000Z",
-    });
-    expect(getOrganizationMemory).toHaveBeenCalledWith({
-      agentId: binding.agentId,
-      path: "organization/group/claim-1",
+  it.each([
+    "platformclaw.memory.get",
+    "platformclaw.memory.graph",
+    "platformclaw.memory.lifecycle",
+    "platformclaw.memory.knowledge.generate",
+  ])("rejects retired organization knowledge RPC %s before dispatch", async (method) => {
+    const { proxy, request, token } = await setup();
+    await expect(proxy.request(token, method, {})).rejects.toMatchObject({
+      code: "method-not-allowed",
     });
     expect(request).not.toHaveBeenCalled();
-  });
-
-  it("ranks combined personal and organization results within the browser cap", async () => {
-    const { binding, proxy, request, token } = await setup({
-      searchOrganizationMemory: vi.fn(async () => [
-        {
-          id: "policy",
-          path: "organization/global/policy",
-          scopeKind: "global" as const,
-          scopeName: "Global",
-          title: "Policy",
-          snippet: "Company policy",
-          score: 0.99,
-          updatedAt: 1,
-        },
-      ]),
-    });
-    request.mockResolvedValueOnce({
-      agentId: binding.agentId,
-      provider: "local",
-      searchMode: "fts-only",
-      results: Array.from({ length: 50 }, (_, index) => ({
-        path: index === 0 ? "MEMORY.md" : `memory/result-${index}.md`,
-        startLine: 1,
-        endLine: 1,
-        score: 0.1,
-        snippet: `Personal ${index}`,
-        source: "memory",
-      })),
-    });
-
-    const result = await proxy.request<{ results: Array<Record<string, unknown>> }>(
-      token,
-      "memory.search",
-      { query: "policy" },
-    );
-    expect(result.results).toHaveLength(50);
-    expect(result.results[0]).toMatchObject({ path: "organization/global/policy" });
   });
   it("pins searches to the personal Agent and projects only canonical memory documents", async () => {
     const { binding, proxy, request, token } = await setup();
@@ -492,7 +338,7 @@ describe("BrowserGatewayProxy personal memory", () => {
         agentId: "other",
         path: "organization/group/claim-1",
       }),
-    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
       proxy.request(token, "platformclaw.memory.get", { path: "organization/group/../claim-1" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });

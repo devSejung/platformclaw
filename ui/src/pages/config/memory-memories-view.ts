@@ -2,6 +2,11 @@ import { html, nothing } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type { MemorySearchResponse } from "../../../../src/gateway/server-methods/memory-search.ts";
 import { icons } from "../../components/icons.ts";
+import {
+  compactKnowledgeRevision,
+  renderKnowledgeDocumentCard,
+} from "../../components/knowledge-document-card.ts";
+import { renderKnowledgeDocumentReader } from "../../components/knowledge-document-reader.ts";
 import { toSanitizedMarkdownHtml } from "../../components/markdown.ts";
 import { renderMemoryItemActions } from "../../components/memory-item-actions.ts";
 import { renderSettingsRow, renderSettingsSegmented } from "../../components/settings-ui.ts";
@@ -75,7 +80,7 @@ export type SearchResult = Omit<MemorySearchResponse["results"][number], "source
   provenanceLabel?: string;
   vaultId?: string;
   vaultName?: string;
-  vaultType?: "personal" | "shared" | "managed";
+  vaultType?: "personal" | "shared";
   documentId?: string;
   revision?: string | number;
   indexStatus?: "failed";
@@ -84,7 +89,6 @@ export type SearchResult = Omit<MemorySearchResponse["results"][number], "source
 };
 export type BrowserMemorySearchResponse = Omit<MemorySearchResponse, "results"> & {
   results: SearchResult[];
-  organizationMemoryUnavailable?: boolean;
   sharedVaultUnavailable?: boolean;
   personalWikiUnavailable?: boolean;
   personalMemoryUnavailable?: boolean;
@@ -96,7 +100,7 @@ export type SearchState =
   | { kind: "loading"; query: string }
   | ({ kind: "ready"; query: string } & BrowserMemorySearchResponse)
   | { kind: "error"; query: string; message: string };
-export type MemorySourceFilter = "all" | "memory" | "wiki" | "organization" | "shared" | "sessions";
+export type MemorySourceFilter = "all" | "memory" | "wiki" | "shared" | "sessions";
 export type DetailState =
   | { kind: "loading" }
   | { kind: "ready"; content: string }
@@ -167,11 +171,6 @@ export function isExpandableResult(result: SearchResult): boolean {
   if (result.source === "wiki") {
     return safeRelativePath && result.path.endsWith(".md");
   }
-  if (result.source === "organization") {
-    return /^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(
-      normalizedPath,
-    );
-  }
   return result.source === "memory" && safeRelativePath && workspaceMemoryPath;
 }
 
@@ -203,6 +202,7 @@ type DetailView = {
   result: SearchResult;
   text: Translate;
   onRetry: (key: string, result: SearchResult) => void;
+  onClose?: () => void;
 };
 
 function renderDetail(view: DetailView) {
@@ -210,7 +210,7 @@ function renderDetail(view: DetailView) {
     return nothing;
   }
   const detail = view.details.get(view.key);
-  return html`<div id=${view.panelId} class="memory-memories__detail">
+  const content = html`<div id=${view.panelId} class="memory-memories__detail">
     ${!detail || detail.kind === "loading"
       ? html`<p role="status">${view.text("memoryPage.memories.fileLoading")}</p>`
       : detail.kind === "error"
@@ -222,6 +222,15 @@ function renderDetail(view: DetailView) {
           </div>`
         : renderFileContent(detail.content, view.result.startLine > 0 ? view.result : undefined)}
   </div>`;
+  return view.onClose
+    ? renderKnowledgeDocumentReader({
+        title: view.result.title ?? view.result.path,
+        metadata: view.result.vaultName ?? view.result.path,
+        content,
+        closeLabel: view.text("platformClaw.vault.close"),
+        onClose: view.onClose,
+      })
+    : content;
 }
 
 export function renderMemoryBrowseFile(options: {
@@ -238,6 +247,7 @@ export function renderMemoryBrowseFile(options: {
   path: string;
   text: Translate;
   updatedAtMs?: number;
+  onClose?: () => void;
 }) {
   const result: SearchResult = {
     path: options.path,
@@ -292,6 +302,7 @@ export function renderMemoryBrowseFile(options: {
       result,
       text: options.text,
       onRetry: options.onRetry,
+      onClose: options.onClose,
     })}
   </article>`;
 }
@@ -299,7 +310,8 @@ export function renderMemoryBrowseFile(options: {
 export function renderMemorySearchState(options: {
   actions?: MemoryResultActions;
   canLoadResult: (result: SearchResult) => boolean;
-  sharedDocumentDialog?: boolean;
+  vaultDocumentDialog?: boolean;
+  onClose?: () => void;
   details: ReadonlyMap<string, DetailState>;
   onRetry: (key: string, result: SearchResult) => void;
   onSearch: (query: string) => void;
@@ -334,7 +346,8 @@ export function renderMemorySearchState(options: {
         openResultKey: options.openResultKey,
         text: options.text,
         canLoadResult: options.canLoadResult,
-        sharedDocumentDialog: options.sharedDocumentDialog,
+        vaultDocumentDialog: options.vaultDocumentDialog,
+        onClose: options.onClose,
         onToggle: options.onToggle,
         onRetry: options.onRetry,
       });
@@ -346,7 +359,8 @@ export function renderMemorySearchState(options: {
 function renderMemorySearchResults(options: {
   actions?: MemoryResultActions;
   canLoadResult: (result: SearchResult) => boolean;
-  sharedDocumentDialog?: boolean;
+  vaultDocumentDialog?: boolean;
+  onClose?: () => void;
   details: ReadonlyMap<string, DetailState>;
   onRetry: (key: string, result: SearchResult) => void;
   onToggle: (result: SearchResult, index: number) => void;
@@ -378,9 +392,6 @@ function renderMemorySearchResults(options: {
       : ready.personalMemoryMethodUnavailable
         ? text("memoryPage.memories.personalMethodUnavailable")
         : null,
-    ready.organizationMemoryUnavailable
-      ? text("memoryPage.memories.organizationUnavailable")
-      : null,
     ready.personalWikiUnavailable
       ? text("memoryPage.memories.wikiUnavailable")
       : ready.personalWikiMethodUnavailable
@@ -405,7 +416,6 @@ function renderMemorySearchResults(options: {
                 ["all", text("memoryPage.memories.sourceAll")],
                 ["memory", text("memoryPage.memories.sourceMemory")],
                 ["wiki", text("memoryPage.memories.sourceWiki")],
-                ["organization", text("memoryPage.memories.sourceOrganizationFilter")],
                 ["shared", text("platformClaw.vault.shared")],
                 ["sessions", text("memoryPage.memories.sourceSessions")],
               ] as const
@@ -456,101 +466,67 @@ function renderMemorySearchResults(options: {
                 end: String(result.endLine),
               })}</span
             >`;
-            const summary = html`
-              <span class="settings-row__text">
-                <span class="settings-row__title">${result.title ?? result.snippet}</span>
-                ${result.vaultId
-                  ? html`<span class="settings-row__desc" data-vault-provenance>
-                      ${result.vaultName} ·
-                      ${text(
-                        result.vaultType === "shared"
-                          ? "platformClaw.vault.shared"
-                          : result.vaultType === "managed"
-                            ? "platformClaw.vault.typeManaged"
-                            : "platformClaw.vault.typePersonal",
-                      )}
-                      ·
-                      ${text("memoryPage.memories.revision", { revision: String(result.revision) })}
-                    </span>`
-                  : nothing}
-                ${result.title
-                  ? html`<span class="settings-row__desc memory-memories__snippet"
-                      >${result.snippet}</span
-                    >`
-                  : nothing}
-                ${result.indexStatus === "failed"
-                  ? html`<span class="settings-row__desc" data-memory-index-warning role="status">
-                      ${text("platformClaw.vault.retainedIndex")} ${result.indexError ?? ""}
-                      ${result.nextRetryAt
-                        ? html`${text("platformClaw.vault.retryAt")}:
-                          ${formatDateTimeMs(result.nextRetryAt)}`
-                        : nothing}
-                    </span>`
-                  : nothing}
-                ${result.vaultId ? nothing : path}
-              </span>
-              <span class="settings-row__control memory-memories__meta">
-                <span
-                  class="memory-memories__source"
-                  title=${text("memoryPage.memories.score", { score: result.score.toFixed(2) })}
-                  >${result.vaultType === "shared"
-                    ? text("platformClaw.vault.shared")
-                    : result.source === "organization"
-                      ? text("memoryPage.memories.sourceOrganization", {
-                          scope: result.provenanceLabel ?? "",
-                        })
-                      : result.source === "wiki"
-                        ? text("memoryPage.memories.sourceWiki")
-                        : text(
-                            result.source === "sessions"
-                              ? "memoryPage.memories.sourceSessions"
-                              : "memoryPage.memories.sourceMemory",
-                          )}</span
-                >
-                ${expandable
-                  ? html`<span class="settings-row__chevron" aria-hidden="true"
-                      >${open ? icons.chevronDown : icons.chevronRight}</span
-                    >`
-                  : nothing}
-              </span>
-            `;
+            const metadata = result.vaultId
+              ? html`<span class="settings-row__desc" data-vault-provenance
+                  >${result.vaultName} ·
+                  ${text(
+                    result.vaultType === "shared"
+                      ? "platformClaw.vault.shared"
+                      : "platformClaw.vault.typePersonal",
+                  )}
+                  ·
+                  ${text("memoryPage.memories.revision", {
+                    revision: compactKnowledgeRevision(result.revision ?? ""),
+                  })}</span
+                >`
+              : html`${path}<span
+                    class="memory-memories__source"
+                    title=${text("memoryPage.memories.score", { score: result.score.toFixed(2) })}
+                    >${result.source === "wiki"
+                      ? text("memoryPage.memories.sourceWiki")
+                      : result.source === "sessions"
+                        ? text("memoryPage.memories.sourceSessions")
+                        : text("memoryPage.memories.sourceMemory")}</span
+                  >`;
+            const status =
+              result.indexStatus === "failed"
+                ? html`<span class="settings-row__desc" data-memory-index-warning role="status"
+                    >${text("platformClaw.vault.retainedIndex")}
+                    ${result.indexError ?? ""}${result.nextRetryAt
+                      ? html`${text("platformClaw.vault.retryAt")}:
+                        ${formatDateTimeMs(result.nextRetryAt)}`
+                      : nothing}</span
+                  >`
+                : nothing;
             const actions = resultActions(result, options.actions);
-            return html`<article
-              class="memory-memories__result"
-              data-memory-source=${result.source}
-              @contextmenu=${actions
-                ? (event: MouseEvent) => actions.open(result.path, event)
-                : nothing}
-            >
-              ${expandable
-                ? html`<button
-                    type="button"
-                    class="settings-row settings-row--nav"
-                    aria-haspopup=${options.sharedDocumentDialog && result.vaultType === "shared"
-                      ? "dialog"
-                      : nothing}
-                    aria-expanded=${options.sharedDocumentDialog && result.vaultType === "shared"
-                      ? nothing
-                      : String(open)}
-                    aria-controls=${options.sharedDocumentDialog && result.vaultType === "shared"
-                      ? nothing
-                      : panelId}
-                    @click=${() => options.onToggle(result, index)}
-                  >
-                    ${summary}
-                  </button>`
-                : html`<div class="settings-row">${summary}</div>`}
-              ${renderMemoryItemActions(result.path, actions)}
-              ${result.vaultId
+            return renderKnowledgeDocumentCard({
+              title: result.title ?? result.snippet,
+              metadata,
+              snippet: result.title ? result.snippet : undefined,
+              status,
+              source: result.source,
+              modal:
+                Boolean(options.onClose) ||
+                (options.vaultDocumentDialog &&
+                  (result.vaultType === "shared" || result.source === "wiki")),
+              expanded: open,
+              panelId,
+              onOpen: expandable ? () => options.onToggle(result, index) : undefined,
+              onContextMenu: actions ? (event) => actions.open(result.path, event) : undefined,
+              actions: renderMemoryItemActions(result.path, actions),
+              details: html`${result.vaultId
                 ? html`<details class="memory-memories__provenance-details">
                     <summary>${text("platformClaw.vault.documentDetails")}</summary>
                     <span class="settings-row__desc memory-memories__path"
                       >${result.vaultId} · ${result.documentId}</span
+                    >${path}
+                    <span class="settings-row__desc"
+                      >${text("memoryPage.memories.revision", {
+                        revision: String(result.revision),
+                      })}</span
                     >
-                    ${path}
                   </details>`
-                : nothing}
-              ${expandable
+                : nothing}${expandable
                 ? renderDetail({
                     details: options.details,
                     key,
@@ -559,9 +535,10 @@ function renderMemorySearchResults(options: {
                     result,
                     text,
                     onRetry: options.onRetry,
+                    onClose: options.onClose,
                   })
-                : nothing}
-            </article>`;
+                : nothing}`,
+            });
           })}
         </div>`}
   `;

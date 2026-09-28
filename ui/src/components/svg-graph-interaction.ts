@@ -264,23 +264,6 @@ export function fitSvgGraphView(svg: SVGSVGElement, interaction: SvgGraphInterac
   updateSvg(svg, interaction);
 }
 
-export function focusSvgGraphNode(
-  svg: SVGSVGElement,
-  interaction: SvgGraphInteraction,
-  id: string,
-) {
-  const point = interaction.positions.get(id);
-  if (!point) {
-    return;
-  }
-  const box = svg.viewBox?.baseVal ?? { x: 0, y: 0, width: 960, height: 600 };
-  const screenScale = Math.abs(svg.getScreenCTM?.()?.a ?? 1) || 1;
-  interaction.scale = Math.min(MAX_SCALE, Math.max(1, 1.25 / screenScale));
-  interaction.x = box.x + box.width / 2 - point.x * interaction.scale;
-  interaction.y = box.y + box.height / 2 - point.y * interaction.scale;
-  updateSvg(svg, interaction);
-}
-
 export function renderSvgGraphControls(params: {
   label: string;
   zoomIn: string;

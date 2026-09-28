@@ -27,6 +27,7 @@ import {
   type PlatformUserStatus,
 } from "./contracts.js";
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
+import { reconcileWikiAccess } from "./knowledge-vault-access.js";
 import {
   executeSync,
   runImmediateTransaction,
@@ -35,8 +36,9 @@ import {
 } from "./kysely-sync.js";
 import { SqliteKnowledgeVaultStore } from "./sqlite-knowledge-vault-store.js";
 import { ensureBaseballGameSchema } from "./sqlite-schema-baseball.js";
+import { ensureKnowledgeVaultSchema } from "./sqlite-schema-knowledge-vault.js";
 import { normalizeAccountId } from "./sqlite-store-core.js";
-import { SqliteControlPlaneOrganizationKnowledgeStore } from "./sqlite-store-organization-knowledge.js";
+import { SqliteControlPlaneOrganizationJoinStore } from "./sqlite-store-organization-join.js";
 
 type BaseballOperationEnvelope<T> =
   | { ok: true; result: T }
@@ -59,7 +61,7 @@ function baseballPayloadDigest(payload: unknown): string {
 }
 
 export class SqliteControlPlaneStore
-  extends SqliteControlPlaneOrganizationKnowledgeStore
+  extends SqliteControlPlaneOrganizationJoinStore
   implements
     ControlPlaneStore,
     ControlPlaneManagementStore,
@@ -536,6 +538,7 @@ export class SqliteControlPlaneStore
     status: PlatformUserStatus;
     changedAt: number;
   }): Promise<PlatformUser> {
+    ensureKnowledgeVaultSchema(this.db);
     let revokedAgentId: string | undefined;
     const user = runImmediateTransaction(this.db, () => {
       this.requireAdmin(params.actorUserId);
@@ -566,6 +569,7 @@ export class SqliteControlPlaneStore
           .set({ status: params.status, updated_at: params.changedAt })
           .where("id", "=", target.id),
       );
+      reconcileWikiAccess(this.db);
       if (params.status === "disabled") {
         revokedAgentId = executeSync(
           this.db,
