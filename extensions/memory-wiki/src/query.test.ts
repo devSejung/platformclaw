@@ -227,7 +227,9 @@ describe("getMemoryWikiPage", () => {
     }
 
     await expect(getMemoryWikiPage({ config, lookup })).rejects.toMatchObject({
-      code: expect.stringMatching(/^(?:outside-workspace|symlink)$/u),
+      name: "FsSafeError",
+      // fs-safe also reports a resolved path escaping the root as an alias.
+      code: expect.stringMatching(/^(?:outside-workspace|path-alias|symlink)$/u),
     });
   });
 

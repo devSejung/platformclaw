@@ -33,8 +33,9 @@ import {
 import { renderWikiMarkdown } from "./markdown.js";
 import { createWikiPromptSectionPreparer } from "./prompt-section.js";
 import { getMemoryWikiPage } from "./query.js";
+import { syncMemoryWikiImportedSources } from "./source-sync.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
-import { initializeMemoryWikiVault } from "./vault.js";
+import { activateExistingMemoryWikiVault, initializeMemoryWikiVault } from "./vault.js";
 
 const { createTempDir, createVault } = createMemoryWikiTestHarness();
 let blobStateDir = "";
@@ -174,6 +175,87 @@ describe("Memory Wiki compiled cache lifecycle", () => {
     blobStateDir = "";
     blobStoreEnv = {};
   });
+
+  it("keeps a valid publication when local sync starts with an inactive owner", async () => {
+    const { rootDir, config } = await createPersistentVault({
+      initialize: true,
+      config: { vaultMode: "isolated", ingest: { autoCompile: true } },
+    });
+    await fs.writeFile(path.join(rootDir, "sources", "alpha.md"), "# Alpha\n\nLocal source.\n");
+    await compileMemoryWikiVault(config);
+    const before = await loadMemoryWikiVaultIdentity(rootDir);
+    deactivateMemoryWikiCompiledCacheOwnersExcept(new Set());
+
+    await expect(syncMemoryWikiImportedSources({ config })).resolves.toMatchObject({
+      indexesRefreshed: false,
+      indexRefreshReason: "no-import-changes",
+    });
+    expect((await loadMemoryWikiVaultIdentity(rootDir)).compiledCachePublicationId).toBe(
+      before.compiledCachePublicationId,
+    );
+    await expect(loadMemoryWikiCompiledCache(config)).resolves.not.toBeNull();
+  });
+
+  it("recompiles local indexes when an index is invalidated", async () => {
+    const { rootDir, config } = await createPersistentVault({
+      initialize: true,
+      config: { vaultMode: "isolated", ingest: { autoCompile: true } },
+    });
+    await fs.writeFile(path.join(rootDir, "sources", "alpha.md"), "# Alpha\n\nLocal source.\n");
+    await compileMemoryWikiVault(config);
+    const before = await loadMemoryWikiVaultIdentity(rootDir);
+    await fs.unlink(path.join(rootDir, "sources", "index.md"));
+
+    await expect(syncMemoryWikiImportedSources({ config })).resolves.toMatchObject({
+      indexesRefreshed: true,
+      indexRefreshReason: "missing-indexes",
+    });
+    expect((await loadMemoryWikiVaultIdentity(rootDir)).compiledCachePublicationId).not.toBe(
+      before.compiledCachePublicationId,
+    );
+    await expect(loadMemoryWikiCompiledCache(config)).resolves.not.toBeNull();
+  });
+
+  it("reuses the reconciled owner for repeated initialization and exact reads", async () => {
+    const { rootDir, config } = await createPersistentVault({ initialize: true });
+    await fs.writeFile(path.join(rootDir, "sources", "alpha.md"), "# Alpha\n\nRequested.\n");
+    await compileMemoryWikiVault(config);
+    const readdir = vi.spyOn(fs, "readdir");
+    try {
+      await initializeMemoryWikiVault(config);
+      await expect(
+        getMemoryWikiPage({ config, lookup: "sources/alpha.md" }),
+      ).resolves.toMatchObject({
+        path: "sources/alpha.md",
+        content: expect.stringContaining("Requested."),
+      });
+      expect(readdir).not.toHaveBeenCalled();
+    } finally {
+      readdir.mockRestore();
+    }
+  });
+
+  it.each(["source-edit", "log-rollback"] as const)(
+    "explicit activation rejects a stale publication after %s",
+    async (change) => {
+      const { rootDir, config } = await createPersistentVault({ initialize: true });
+      const sourcePath = path.join(rootDir, "sources", "alpha.md");
+      const logPath = path.join(rootDir, ".openclaw-wiki", "log.jsonl");
+      await fs.writeFile(sourcePath, "# Alpha\n\nOriginal.\n");
+      const originalLog = await fs.readFile(logPath, "utf8");
+      await compileMemoryWikiVault(config);
+      await expect(loadMemoryWikiCompiledCache(config)).resolves.not.toBeNull();
+      if (change === "source-edit") {
+        await fs.writeFile(sourcePath, "# Alpha\n\nChanged.\n");
+      } else {
+        await fs.writeFile(logPath, originalLog);
+      }
+
+      await activateExistingMemoryWikiVault(config);
+
+      await expect(loadMemoryWikiCompiledCache(config)).resolves.toBeNull();
+    },
+  );
 
   it("round-trips compile through async preparation and claim query after restart", async () => {
     const { rootDir, config } = await createPersistentVault({

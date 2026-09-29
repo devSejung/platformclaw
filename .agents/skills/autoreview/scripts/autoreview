@@ -2518,7 +2518,7 @@ def run_trufflehog_preflight(
             [
                 trufflehog_bin,
                 "git",
-                scan_repo.resolve().as_uri(),
+                trufflehog_git_source(scan_repo),
                 "--since-commit",
                 base_commit,
                 "--branch",
