@@ -36,12 +36,26 @@ export abstract class SqliteKnowledgeVaultAttachmentStore extends SqliteKnowledg
           .where("vault_id", "=", params.vaultId)
           .where("path", "=", attachmentPath),
       );
+      if (params.expectedRevision !== undefined && !prior) {
+        throw new ControlPlaneConflictError(
+          "knowledge_vault_changed",
+          "Attachment changed; reload before replacing",
+        );
+      }
       if (prior && prior.revision !== params.expectedRevision) {
         throw new ControlPlaneConflictError(
           "knowledge_vault_changed",
           "Attachment changed; reload before replacing",
         );
       }
+      const generation = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("knowledge_vault_attachment_revisions")
+          .select("revision")
+          .where("vault_id", "=", params.vaultId)
+          .where("path", "=", attachmentPath),
+      );
       this.requireCapacity(
         params.vaultId,
         params.content.length - (prior?.bytes ?? 0),
@@ -50,7 +64,7 @@ export abstract class SqliteKnowledgeVaultAttachmentStore extends SqliteKnowledg
       const values = {
         media_type: mediaType,
         content: params.content,
-        revision: (prior?.revision ?? 0) + 1,
+        revision: Math.max(generation?.revision ?? 0, prior?.revision ?? 0) + 1,
       };
       executeSync(
         this.db,
@@ -58,6 +72,15 @@ export abstract class SqliteKnowledgeVaultAttachmentStore extends SqliteKnowledg
           .insertInto("knowledge_vault_attachments")
           .values({ ...values, vault_id: params.vaultId, path: attachmentPath })
           .onConflict((oc) => oc.columns(["vault_id", "path"]).doUpdateSet(values)),
+      );
+      executeSync(
+        this.db,
+        this.query
+          .insertInto("knowledge_vault_attachment_revisions")
+          .values({ vault_id: params.vaultId, path: attachmentPath, revision: values.revision })
+          .onConflict((oc) =>
+            oc.columns(["vault_id", "path"]).doUpdateSet({ revision: values.revision }),
+          ),
       );
     });
   }

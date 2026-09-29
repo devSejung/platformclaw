@@ -601,6 +601,14 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultAttachmentSto
             revision: 1,
           }),
         );
+        executeSync(
+          this.db,
+          this.query.insertInto("knowledge_vault_attachment_revisions").values({
+            vault_id: vaultId,
+            path: file.path,
+            revision: 1,
+          }),
+        );
       }
     });
     for (const doc of documents) {

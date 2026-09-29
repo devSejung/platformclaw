@@ -688,6 +688,37 @@ describe("Shared Knowledge Vault boundary", () => {
         expectedRevision: 2,
       }),
     ).toEqual({ deleted: true, path: "capture.bin" });
+    expect(() =>
+      vaults.uploadAttachment({
+        userId: owner,
+        vaultId: vault.id,
+        path: "capture.bin",
+        mediaType: "application/octet-stream",
+        content: Buffer.from("stale-after-delete"),
+        expectedRevision: 2,
+      }),
+    ).toThrow(/reload before replacing/u);
+    vaults.uploadAttachment({
+      userId: owner,
+      vaultId: vault.id,
+      path: "capture.bin",
+      mediaType: "application/octet-stream",
+      content: Buffer.from("three"),
+    });
+    const recreated = vaults.downloadAttachment({
+      userId: owner,
+      vaultId: vault.id,
+      path: "capture.bin",
+    });
+    expect(recreated.revision).toBe(3);
+    expect(() =>
+      vaults.deleteAttachment({
+        userId: owner,
+        vaultId: vault.id,
+        path: "capture.bin",
+        expectedRevision: 2,
+      }),
+    ).toThrow(/reload before deleting/u);
 
     expect(() => vaults.renameVault({ userId: reader, vaultId: vault.id, name: "Nope" })).toThrow(
       /unavailable/u,
