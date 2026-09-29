@@ -2,7 +2,7 @@
 
 # PlatformClaw
 
-### Enterprise AI agents for real engineering work
+<p><strong>Enterprise AI agents for real engineering work</strong></p>
 
 **A private, multi-user AI agent platform built as a maintainable enterprise downstream of OpenClaw.**
 
