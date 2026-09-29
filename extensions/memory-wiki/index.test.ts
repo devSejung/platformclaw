@@ -62,7 +62,12 @@ describe("memory-wiki plugin", () => {
       expect.objectContaining({ id: "memory-wiki-compiled-cache-owner-cleanup" }),
     );
     expect(registerGatewayMethod.mock.calls.map((call) => call[0])).toEqual([
+      "wiki.archive.manifest",
+      "wiki.archive.read",
+      "wiki.attachment.put",
+      "wiki.attachment.delete",
       "wiki.delete",
+      "wiki.document.create",
       "wiki.document.get",
       "wiki.document.save",
       "wiki.status",

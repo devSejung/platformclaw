@@ -147,6 +147,7 @@ function cloneMemoryPromptSectionParams(
 ): MemoryPromptSectionParams {
   return {
     availableTools: new Set(params.availableTools),
+    runId: params.runId,
     citationsMode: params.citationsMode,
     agentId: params.agentId,
     agentSessionKey: params.agentSessionKey,

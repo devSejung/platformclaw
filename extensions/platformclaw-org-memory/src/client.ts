@@ -5,12 +5,19 @@ import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
 const SEARCH_PATH = "/platformclaw/internal/memory/vaults/search";
 const GET_PATH = "/platformclaw/internal/memory/vaults/get";
+const WIKI_PATH = "/platformclaw/internal/memory/vaults/wiki";
 const SCOPE_PATH = "/platformclaw/internal/memory/vaults/scope";
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
-export type VaultTurnScope = { revision: number; vaultIds: string[] };
+export type VaultTurnScope = { revision: number; vaultIds: string[]; personalEnabled: boolean };
 
-export type OrganizationMemoryClient = {
+export type WikiHubMemoryClient = {
+  wiki(
+    params: import("openclaw/plugin-sdk/memory-core-host-runtime-core").MemoryWikiOperation & {
+      agentId: string;
+      turnScope?: VaultTurnScope;
+    },
+  ): Promise<unknown>;
   captureScope(params: { agentId: string }): Promise<unknown>;
   search(params: {
     agentId: string;
@@ -29,12 +36,12 @@ export type OrganizationMemoryClient = {
 };
 
 export function vaultServiceUnavailable(status?: number): Error {
-  const error = `Memory Hub service is unavailable${status ? ` (${status})` : ""}`;
+  const error = `Wiki Hub service is unavailable${status ? ` (${status})` : ""}`;
   return Object.assign(new Error(error), {
     memoryCorpusFailure: {
       error,
       action:
-        "Retry the search. If it keeps failing, ask an administrator to check the Memory Hub service.",
+        "Retry the search. If it keeps failing, ask an administrator to check the Wiki Hub service.",
     },
   });
 }
@@ -47,6 +54,9 @@ function responseError(status: number, body: string): Error {
     return vaultServiceUnavailable(status);
   }
   if (
+    value?.code !== "wiki-invalid" &&
+    value?.code !== "wiki-conflict" &&
+    value?.code !== "wiki-forbidden" &&
     value?.code !== "vault-name-ambiguous" &&
     value?.code !== "vault-name-not-found" &&
     value?.code !== "vault-query-invalid"
@@ -64,7 +74,7 @@ function responseError(status: number, body: string): Error {
           choice.vaultId.length <= 512 &&
           typeof choice.vaultName === "string" &&
           choice.vaultName.length <= 240 &&
-          (choice.vaultType === "shared" || choice.vaultType === "managed")
+          choice.vaultType === "shared"
           ? [{ vaultId: choice.vaultId, vaultName: choice.vaultName, vaultType: choice.vaultType }]
           : [];
       })
@@ -99,14 +109,14 @@ async function call(socketPath: string, token: string, route: string, body: unkn
         },
       },
       (res) => {
-        res.once("aborted", () => reject(new Error("organization memory response interrupted")));
+        res.once("aborted", () => reject(new Error("Wiki Hub response interrupted")));
         res.once("error", reject);
         const chunks: Buffer[] = [];
         let size = 0;
         res.on("data", (chunk: Buffer) => {
           size += chunk.length;
           if (size > MAX_RESPONSE_BYTES) {
-            req.destroy(new Error("organization memory response too large"));
+            req.destroy(new Error("Wiki Hub response too large"));
           } else {
             chunks.push(chunk);
           }
@@ -119,20 +129,18 @@ async function call(socketPath: string, token: string, route: string, body: unkn
           try {
             resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
           } catch {
-            reject(new Error("organization memory response is invalid"));
+            reject(new Error("Wiki Hub response is invalid"));
           }
         });
       },
     );
-    req.setTimeout(5_000, () => req.destroy(new Error("organization memory request timed out")));
+    req.setTimeout(5_000, () => req.destroy(new Error("Wiki Hub request timed out")));
     req.once("error", reject);
     req.end(payload);
   });
 }
 
-export function createOrganizationMemoryClient(
-  env: NodeJS.ProcessEnv,
-): OrganizationMemoryClient | null {
+export function createWikiHubMemoryClient(env: NodeJS.ProcessEnv): WikiHubMemoryClient | null {
   const broker = env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS?.trim();
   const tokenFile = env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE?.trim();
   if (!broker || !tokenFile) {
@@ -140,10 +148,11 @@ export function createOrganizationMemoryClient(
   }
   const token = readFileSync(tokenFile, "utf8").trim();
   if (!token) {
-    throw new Error("organization memory service token is empty");
+    throw new Error("Wiki Hub service token is empty");
   }
   const socketPath = handoffAddress(broker);
   return {
+    wiki: async (params) => await call(socketPath, token, WIKI_PATH, params),
     captureScope: async (params) => await call(socketPath, token, SCOPE_PATH, params),
     search: async (params) => await call(socketPath, token, SEARCH_PATH, params),
     get: async (params) => await call(socketPath, token, GET_PATH, params),

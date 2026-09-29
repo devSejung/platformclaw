@@ -32,7 +32,13 @@ export type {
   MemoryPluginRuntime,
   MemoryPromptSectionBuilder,
 } from "../plugins/memory-state.js";
+export type {
+  MemoryWikiOperation,
+  MemoryWikiOperationResult,
+} from "../plugins/registry-contribution-types.js";
 export {
+  resolveMemoryCorpusScope,
+  runMemoryWikiSupplementOperation,
   getMemoryCorpusSupplementResult,
   searchMemoryCorpusSupplements,
   formatMemoryCorpusSupplementFailure,

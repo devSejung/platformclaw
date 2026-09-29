@@ -1,3 +1,4 @@
+import { resolveMemoryCorpusScope } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 // Memory Wiki plugin module implements prompt section behavior.
 import type { MemoryPromptSectionBuilder } from "openclaw/plugin-sdk/memory-host-core";
 import {
@@ -143,7 +144,7 @@ function buildWikiToolGuidance(availableTools: Set<string>): string[] {
 
   if (hasMemorySearch) {
     lines.push(
-      "Prefer `memory_search` with selectors omitted for one recall pass across Personal and server-selected knowledge. Use short distinctive keywords.",
+      "Prefer `memory_search` with selectors omitted for one recall pass across automatic Memory and enabled Wikis. Use short distinctive keywords.",
     );
   }
   if (hasMemoryGet) {
@@ -168,12 +169,12 @@ function buildWikiToolGuidance(availableTools: Set<string>): string[] {
 
   if (hasWikiApply) {
     lines.push(
-      "Use `wiki_apply` only for Personal Wiki synthesis filing, metadata repair, or Personal index refresh. Edit or rebuild Shared/Managed documents through their Vault UI.",
+      "Use `wiki_apply` to create, update, or refresh the user's explicitly selected Wiki. Read before updating and pass its current revision. Preserve protected source metadata and only copy Personal content into Shared when explicitly requested.",
     );
   }
   if (hasWikiApply && hasWikiSearch && hasWikiGet) {
     lines.push(
-      "Before filing a Personal synthesis, search for related material and inspect Personal Wiki candidate pages. Add [[exact-returned-path-or-id]] links only when their contents support the relationship; keep unrelated material separate and never invent a target or use a private alias as evidence.",
+      "Before filing, search related material and read candidate documents. Add Markdown or Wiki links only when their contents support the relationship; use the returned logical path or document identity and never invent a target.",
     );
   }
   if (hasWikiLint) {
@@ -191,13 +192,19 @@ export function createWikiPromptSectionPreparer(params: {
   config: ResolvedMemoryWikiConfig;
   resolveConfig: MemoryWikiConfigResolver;
 }) {
-  return async ({ agentId }: Parameters<MemoryPromptSectionBuilder>[0]) => {
+  return async ({ agentId, runId }: Parameters<MemoryPromptSectionBuilder>[0]) => {
     // Context-free preparation must not choose or disclose another agent's vault.
     if (params.config.vault.scope === "agent" && !agentId) {
       return [];
     }
     const config = params.resolveConfig(agentId);
     if (!config.context.includeCompiledDigestPrompt) {
+      return [];
+    }
+    // Selection is captured by the same run owner as tool search. An unavailable
+    // scope must not leak disabled personal knowledge into the prompt.
+    const scope = await resolveMemoryCorpusScope({ agentId, runId }).catch(() => null);
+    if (!scope?.personalWikiEnabled) {
       return [];
     }
     const snapshot = await loadMemoryWikiCompiledCache(config);

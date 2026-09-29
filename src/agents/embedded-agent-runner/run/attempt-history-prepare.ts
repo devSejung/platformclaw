@@ -225,6 +225,7 @@ export async function prepareEmbeddedAttemptHistory(input: {
       });
       const messageBudget = Math.max(1, promptBudget - renderedPromptTokens);
       const assembled = await assembleAttemptContextEngine({
+        runId: attempt.runId,
         contextEngine: input.activeContextEngine,
         sessionId: attempt.sessionId,
         sessionKey: attempt.sessionKey,

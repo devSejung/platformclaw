@@ -14,10 +14,12 @@ import {
 import { deleteMemoryWikiPage, MemoryWikiDeleteValidationError } from "./delete.js";
 import {
   getMemoryWikiDocument,
+  createMemoryWikiDocument,
   MemoryWikiEditConflictError,
   MemoryWikiEditValidationError,
   saveMemoryWikiDocument,
 } from "./document-edit.js";
+import { registerMemoryWikiArtifactGatewayMethods } from "./gateway-artifacts.js";
 import { listMemoryWikiImportInsights } from "./import-insights.js";
 import { listMemoryWikiImportRuns } from "./import-runs.js";
 import { ingestMemoryWikiSource } from "./ingest.js";
@@ -137,6 +139,8 @@ export function registerMemoryWikiGatewayMethods(params: {
     }
   };
 
+  registerMemoryWikiArtifactGatewayMethods(api, resolveRequestContext);
+
   api.registerGatewayMethod(
     "wiki.delete",
     async ({ params: requestParams, respond }) => {
@@ -183,6 +187,43 @@ export function registerMemoryWikiGatewayMethods(params: {
   );
 
   api.registerGatewayMethod(
+    "wiki.document.create",
+    async ({ params: requestParams, respond }) => {
+      try {
+        if (
+          Object.keys(requestParams).some(
+            (key) => !["agentId", "title", "content", "filename"].includes(key),
+          ) ||
+          typeof requestParams.content !== "string"
+        ) {
+          throw new MemoryWikiEditValidationError(
+            "wiki.document.create requires title and content only.",
+          );
+        }
+        const { config } = resolveRequestContext(requestParams);
+        respond(
+          true,
+          await createMemoryWikiDocument({
+            config,
+            title: readStringParam(requestParams, "title", { required: true }),
+            content: requestParams.content,
+            filename: readStringParam(requestParams, "filename"),
+          }),
+        );
+      } catch (error) {
+        respond(false, undefined, {
+          code: error instanceof MemoryWikiEditValidationError ? "INVALID_REQUEST" : "UNAVAILABLE",
+          message:
+            error instanceof MemoryWikiEditValidationError
+              ? error.message
+              : "Wiki document creation could not be confirmed. Search for it before retrying.",
+        });
+      }
+    },
+    { scope: WRITE_SCOPE },
+  );
+
+  api.registerGatewayMethod(
     "wiki.document.get",
     async ({ params: requestParams, respond }) => {
       try {
@@ -212,7 +253,10 @@ export function registerMemoryWikiGatewayMethods(params: {
       try {
         if (
           Object.keys(requestParams).some(
-            (key) => !["agentId", "path", "editMode", "content", "expectedRevision"].includes(key),
+            (key) =>
+              !["agentId", "path", "editMode", "content", "expectedRevision", "title"].includes(
+                key,
+              ),
           )
         ) {
           throw new MemoryWikiEditValidationError(
@@ -233,6 +277,9 @@ export function registerMemoryWikiGatewayMethods(params: {
             path: readStringParam(requestParams, "path", { required: true }),
             editMode,
             content: requestParams.content,
+            ...(requestParams.title === undefined
+              ? {}
+              : { title: readStringParam(requestParams, "title", { required: true }) }),
             expectedRevision: readStringParam(requestParams, "expectedRevision", {
               required: true,
             }),

@@ -26,6 +26,7 @@ function fixture(): Selected {
       type: "shared",
       description: "",
       role: "reader",
+      canRead: true,
       canEdit: false,
       canManageMembers: false,
       canExport: false,
@@ -42,6 +43,7 @@ function fixture(): Selected {
       compile: ready,
     })),
     members: [],
+    grants: [],
     attachments: [],
     graph: {
       edges: [

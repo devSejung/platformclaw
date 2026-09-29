@@ -1,6 +1,7 @@
 // Memory Wiki tests cover tool plugin behavior.
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
 import { lintMemoryWikiVault } from "./lint.js";
@@ -19,31 +20,45 @@ function asSchemaObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function unionLiteralValues(schema: Record<string, unknown>): string[] {
-  const variants = schema.anyOf ?? schema.oneOf;
-  if (!Array.isArray(variants)) {
-    throw new Error("Expected union schema variants");
-  }
-  return variants
-    .map((variant) => asSchemaObject(variant).const)
-    .filter((value): value is string => typeof value === "string")
-    .toSorted();
-}
-
 describe("memory-wiki tools", () => {
   const harness = createMemoryWikiTestHarness();
 
-  it("accepts CLI-style operation aliases in wiki_apply schema", () => {
+  it("exposes only bounded common mutations with an explicit Wiki target", () => {
     const tool = createWikiApplyTool({} as ResolvedMemoryWikiConfig);
-    const applyProperties = asSchemaObject(asSchemaObject(tool.parameters).properties);
-    const opSchema = asSchemaObject(applyProperties.op);
-
-    expect(unionLiteralValues(opSchema)).toEqual([
-      "create_synthesis",
-      "metadata",
-      "refresh",
-      "synthesis",
-      "update_metadata",
+    expect(
+      Value.Check(tool.parameters, {
+        op: "create",
+        vaultId: "personal:main",
+        title: "Spec",
+        body: "source",
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(tool.parameters, {
+        op: "update",
+        vaultId: "shared-one",
+        lookup: "shared/shared-one/doc",
+        expectedRevision: "7",
+        body: "new",
+      }),
+    ).toBe(true);
+    expect(Value.Check(tool.parameters, { op: "refresh" })).toBe(false);
+    expect(Value.Check(tool.parameters, { op: "metadata", vaultId: "personal:main" })).toBe(false);
+    expect(Value.Check(tool.parameters, { op: "create", vaultId: "one", vaultName: "two" })).toBe(
+      false,
+    );
+    expect(
+      Value.Check(tool.parameters, { op: "create", vaultId: "one", body: "x".repeat(262145) }),
+    ).toBe(false);
+    const properties = asSchemaObject(asSchemaObject(tool.parameters).properties);
+    expect(Object.keys(properties).toSorted()).toEqual([
+      "body",
+      "expectedRevision",
+      "lookup",
+      "op",
+      "title",
+      "vaultId",
+      "vaultName",
     ]);
   });
 
@@ -65,30 +80,6 @@ describe("memory-wiki tools", () => {
     expect(Object.keys(get).toSorted()).toEqual(["fromLine", "lineCount", "lookup"]);
   });
 
-  it("allows provenance metadata in wiki_apply claim evidence", () => {
-    const tool = createWikiApplyTool({} as ResolvedMemoryWikiConfig);
-    const applyProperties = asSchemaObject(asSchemaObject(tool.parameters).properties);
-    const claimsSchema = asSchemaObject(applyProperties.claims);
-    const claimSchema = asSchemaObject(claimsSchema.items);
-    const claimProperties = asSchemaObject(claimSchema.properties);
-    const evidenceSchema = asSchemaObject(claimProperties.evidence);
-    const evidenceArraySchema = asSchemaObject(evidenceSchema.items);
-    const evidenceProperties = asSchemaObject(evidenceArraySchema.properties);
-
-    expect(Object.keys(evidenceProperties).toSorted()).toEqual([
-      "confidence",
-      "kind",
-      "lines",
-      "note",
-      "path",
-      "privacyTier",
-      "sourceId",
-      "updatedAt",
-      "weight",
-    ]);
-    expect(evidenceProperties.confidence).toEqual({ type: "number", minimum: 0, maximum: 1 });
-  });
-
   it("returns tool-safe relative report paths from wiki_lint", async () => {
     const { rootDir, config } = await harness.createVault({ initialize: true });
     await fs.mkdir(path.join(rootDir, "syntheses"), { recursive: true });
@@ -107,16 +98,16 @@ describe("memory-wiki tools", () => {
     );
 
     const tool = createWikiLintTool(config);
-    const result = await tool.execute("lint-call", {});
+    const result = await tool.execute("lint-call", { vaultId: "personal:main" });
     const text = result.content.find((part) => part.type === "text")?.text ?? "";
     const details = asSchemaObject(result.details);
 
-    expect(text).toContain("Report: reports/lint.md");
+    expect(text).toContain("issues");
     expect(text).not.toContain(rootDir);
     expect(details.reportPath).toBe("reports/lint.md");
     expect(details).not.toHaveProperty("vaultRoot");
     expect(JSON.stringify(details)).not.toContain(rootDir);
-    expect(asSchemaObject(details.issuesByCategory).links).toEqual(
+    expect(details.issues).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: "broken-wikilink" })]),
     );
 

@@ -58,8 +58,8 @@ function createPlatformClawMemoryFixture(params: {
   description: string;
   responses: typeof platformClawMemoryResponses;
   waitForMemoryFile?: boolean;
-  openOrganizationTab?: boolean;
-  openOrganizationGraph?: boolean;
+  openWikiHub?: boolean;
+  openWikiGraph?: boolean;
 }): ControlUiPreviewFixture {
   return {
     id: params.id,
@@ -89,10 +89,13 @@ function createPlatformClawMemoryFixture(params: {
           (!waitForMemoryFile || (surface.textContent ?? "").includes("MEMORY.md"))
         );
       }, params.waitForMemoryFile !== false);
-      if (params.openOrganizationTab) {
-        await page.locator("#platformclaw-memory-tab-organization").click();
-        if (params.openOrganizationGraph) {
-          await page.locator("#platformclaw-memory-organization-tab-graph").click();
+      if (params.openWikiHub) {
+        await page.locator("#platformclaw-memory-tab-vaults").click();
+        if (params.openWikiGraph) {
+          await page
+            .locator('[data-vault-card="personal:assigned-personal"] .vaults__card-title')
+            .click();
+          await page.locator("#vault-documents-tab-graph").click();
         }
       }
       return { context, page };
@@ -104,7 +107,7 @@ const platformClawMemoryFixture = createPlatformClawMemoryFixture({
   id: "platformclaw-memory",
   label: "PlatformClaw Memory",
   description:
-    "Populated personal Memory, Personal Wiki, organization sharing, and Dreaming with synthetic data.",
+    "Populated personal Memory, Personal, Shared Wiki Hub, and Dreaming with synthetic data.",
   responses: platformClawMemoryResponses,
 });
 
@@ -112,31 +115,31 @@ const platformClawMemoryBusyFixture = createPlatformClawMemoryFixture({
   id: "platformclaw-memory-busy",
   label: "PlatformClaw Memory · Busy",
   description:
-    "Dense synthetic Personal Wiki and organization knowledge for graph navigation, long titles, edge review, filters, questions, and contradictions.",
+    "Dense synthetic Personal and Shared knowledge for graph navigation, long titles, edge review, filters, questions, and contradictions.",
   responses: platformClawMemoryBusyResponses,
 });
 
-const platformClawOrganizationMemoryFixture = createPlatformClawMemoryFixture({
-  id: "platformclaw-organization-memory",
-  label: "PlatformClaw Memory · Organization",
+const platformClawWikiHubFixture = createPlatformClawMemoryFixture({
+  id: "platformclaw-wiki-hub",
+  label: "PlatformClaw Memory · Wiki Hub",
   description:
-    "Populated synthetic Part, Group, Team, and Global knowledge with reference, provenance, and comparison graph edges.",
+    "Personal and Shared vaults with one reader, links, permissions and access requests.",
   responses: platformClawMemoryBusyResponses,
-  openOrganizationTab: true,
-  openOrganizationGraph: true,
+  openWikiHub: true,
+  openWikiGraph: true,
 });
 
 const platformClawMemoryEmptyFixture = createPlatformClawMemoryFixture({
   id: "platformclaw-memory-empty",
   label: "PlatformClaw Memory · Empty",
-  description: "Synthetic empty-state Memory, Personal Wiki, and Dreaming surfaces.",
+  description: "Synthetic empty-state Memory, Personal, and Dreaming surfaces.",
   responses: platformClawMemoryEmptyResponses,
   waitForMemoryFile: false,
 });
 
 export const CONTROL_UI_PREVIEW_FIXTURES: readonly ControlUiPreviewFixture[] = [
   platformClawMemoryFixture,
-  platformClawOrganizationMemoryFixture,
+  platformClawWikiHubFixture,
   platformClawMemoryBusyFixture,
   platformClawMemoryEmptyFixture,
   createPlatformClawMemoryFixture({

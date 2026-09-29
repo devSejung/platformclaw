@@ -1,9 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { i18n } from "../i18n/index.ts";
 import { loadPlatformClawLocale } from "./i18n.ts";
 import { pageHelpForRoute, PlatformClawPageHelpElement } from "./page-help.ts";
 
 describe("PlatformClaw page help", () => {
+  afterEach(async () => {
+    await i18n.setLocale("en");
+  });
   beforeEach(async () => {
     document.body.innerHTML = "";
     await i18n.setLocale("en");
@@ -70,8 +73,8 @@ describe("PlatformClaw page help", () => {
   it.each([
     ["/settings/memory", "Memory: search personal recall"],
     ["/settings/memory/memories", "Memory: search personal recall"],
-    ["/settings/memory/wiki", "Personal Wiki: review reusable source pages"],
-    ["/settings/memory/organization", "Organization: promote personal knowledge to your Part"],
+    ["/settings/memory/wiki", "Wiki Hub: personal and shared knowledge"],
+    ["/settings/memory/organization", "Wiki Hub: personal and shared knowledge"],
     ["/settings/memory/dreams", "Dreaming: inspect memory consolidation"],
   ])("selects Memory help from %s", (pathname, title) => {
     expect(pageHelpForRoute("memory", pathname).title).toBe(title);

@@ -4,9 +4,61 @@ import { listMemoryCorpusSupplements } from "./memory-state.js";
 import type {
   MemoryCorpusGetResult,
   MemoryCorpusSearchResult,
+  MemoryWikiOperation,
+  MemoryWikiOperationResult,
 } from "./registry-contribution-types.js";
 
 const MEMORY_CORPUS_SUPPLEMENT_TIMEOUT_MS = 10_000;
+
+/** Wiki selection never disables raw automatic Memory; explicit Wiki selectors bypass it. */
+export async function resolveMemoryCorpusScope(context: { runId?: string; agentId?: string }) {
+  const scopes = await Promise.all(
+    listMemoryCorpusSupplements().flatMap(({ supplement }) =>
+      supplement.scope
+        ? [
+            withTimeout(
+              supplement.scope(context),
+              MEMORY_CORPUS_SUPPLEMENT_TIMEOUT_MS,
+              "Wiki scope preparation",
+            ),
+          ]
+        : [],
+    ),
+  );
+  return { personalWikiEnabled: scopes.every((scope) => scope.personalWikiEnabled) };
+}
+
+export async function runMemoryWikiSupplementOperation(
+  params: MemoryWikiOperation,
+): Promise<MemoryWikiOperationResult[]> {
+  const results: MemoryWikiOperationResult[] = [];
+  for (const { supplement } of listMemoryCorpusSupplements()) {
+    if (!supplement.wiki) {
+      continue;
+    }
+    try {
+      // Writes are awaited to their owner outcome, never timed out then retried blindly.
+      const result = await supplement.wiki(params);
+      if (result) {
+        results.push({ text: result.text.slice(0, 4_000), details: result.details });
+        if (params.vaultId || params.vaultName) {
+          break;
+        }
+      }
+    } catch (error) {
+      const failure = readOwnerFailure(error) ?? {
+        error: "Wiki operation could not be completed.",
+        action:
+          "Check the Wiki status before retrying. For a write, read the document to verify whether it was saved.",
+      };
+      results.push({ text: formatMemoryCorpusSupplementFailure(failure), details: { failure } });
+      if (params.vaultId || params.vaultName) {
+        break;
+      }
+    }
+  }
+  return results;
+}
 
 export type MemoryCorpusSupplementStatus = "ok" | "empty" | "unavailable" | "failed";
 

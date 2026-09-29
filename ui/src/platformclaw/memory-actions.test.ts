@@ -36,7 +36,21 @@ function createPage(omitMethods: string[] = []) {
       case "agents.workspace.list":
         return { entries: [] };
       case "memory.search":
-        return { agentId: "personal", provider: "local", results: [] };
+        return {
+          agentId: "personal",
+          provider: "local",
+          results: [
+            {
+              source: "wiki",
+              path: "concepts/runbook.md",
+              title: "My runbook",
+              snippet: "Approved source candidate",
+              score: 1,
+              startLine: 1,
+              endLine: 2,
+            },
+          ],
+        };
       case "wiki.search":
         return [
           {
@@ -54,19 +68,6 @@ function createPage(omitMethods: string[] = []) {
           displayContent: "# My runbook\nCheck the service first.",
           sourceContent: "# My runbook\nCheck the service first.",
           editMode: "body",
-        };
-      case "platformclaw.memory.lifecycle":
-        return {
-          scopes: [
-            { kind: "group", id: "group", name: "Platform", canRead: true, canAdminister: false },
-          ],
-          personalTargets: [
-            { kind: "group", scopeId: "group", scopeName: "Platform", mode: "request" },
-          ],
-          claims: [],
-          submitted: [],
-          reviewable: [],
-          canApproveGlobal: false,
         };
       case "memory.delete":
         deleted = true;
@@ -93,8 +94,9 @@ function createPage(omitMethods: string[] = []) {
               "wiki.get",
               "wiki.document.get",
               "wiki.delete",
-              "platformclaw.memory.lifecycle",
-              "platformclaw.memory.promotion.submit",
+              "platformclaw.vault.snapshot",
+              "platformclaw.vault.document.preview",
+              "platformclaw.vault.publish",
             ].filter((method) => !omitMethods.includes(method)),
           },
         },
@@ -111,7 +113,7 @@ function createPage(omitMethods: string[] = []) {
   return { page, request };
 }
 
-async function chooseMenuAction(page: Element, action = "share") {
+async function chooseMenuAction(page: Element, action = "publish") {
   await waitForFast(() =>
     expect(page.querySelector("platformclaw-memory-item-menu wa-dropdown")).not.toBeNull(),
   );
@@ -126,9 +128,9 @@ async function chooseMenuAction(page: Element, action = "share") {
 
 describe("personal memory action integration", () => {
   it.each([
-    { omitted: ["platformclaw.memory.promotion.submit"], expected: ["delete"] },
-    { omitted: ["wiki.delete"], expected: ["share"] },
-    { omitted: [], expected: ["share", "delete"] },
+    { omitted: ["platformclaw.vault.publish"], expected: ["delete"] },
+    { omitted: ["wiki.delete"], expected: ["publish"] },
+    { omitted: [], expected: ["publish", "delete"] },
   ])("gates Wiki sharing and deletion independently ($expected)", async ({ omitted, expected }) => {
     const { page, request } = createPage(omitted);
     await waitForFast(() => expect(page.querySelector("#memory-search-input")).not.toBeNull());
@@ -157,57 +159,6 @@ describe("personal memory action integration", () => {
       ),
     ).toBe(false);
   });
-
-  it.each(["contextmenu", "ellipsis"])(
-    "opens a prefilled application from %s without submitting",
-    async (action) => {
-      const { page, request } = createPage();
-      await waitForFast(() => expect(page.querySelector("#memory-search-input")).not.toBeNull());
-      const memories = page.querySelector("openclaw-memory-memories") as UpdatingElement;
-      const input = page.querySelector<HTMLInputElement>("#memory-search-input")!;
-      input.value = "runbook";
-      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
-      await memories.updateComplete;
-      memories
-        .querySelector("form")!
-        .dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
-      await waitForFast(() => expect(memories.textContent).toContain("My runbook"));
-      const row = Array.from(memories.querySelectorAll("article")).find((entry) =>
-        entry.textContent?.includes("My runbook"),
-      )!;
-      expect(row).toBeDefined();
-      if (action === "contextmenu") {
-        row.dispatchEvent(
-          new MouseEvent("contextmenu", {
-            bubbles: true,
-            cancelable: true,
-            clientX: 30,
-            clientY: 40,
-          }),
-        );
-      } else {
-        row.querySelector<HTMLButtonElement>(".memory-item-actions")!.click();
-      }
-      await chooseMenuAction(page);
-      await waitForFast(() => {
-        const form = page.querySelector("openclaw-modal-dialog openclaw-memory-promotions");
-        expect(form).not.toBeNull();
-        expect(
-          Array.from(form!.querySelectorAll("textarea")).map((entry) => entry.value),
-        ).toContain("# My runbook\nCheck the service first.");
-      });
-      expect(request).toHaveBeenCalledWith(
-        "wiki.document.get",
-        expect.objectContaining({ agentId: "personal", lookup: "concepts/runbook.md" }),
-      );
-      expect(
-        request.mock.calls.some(
-          ([method]) => method.includes("promotion.submit") || method.includes("promotion.publish"),
-        ),
-      ).toBe(false);
-      expect(page.querySelector("platformclaw-memory-item-menu")).toBeNull();
-    },
-  );
 
   it("deletes only after preview confirmation and refreshes the browse list", async () => {
     const { page, request } = createPage();

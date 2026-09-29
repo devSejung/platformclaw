@@ -1,4 +1,4 @@
-type KnowledgeVaultType = "personal" | "shared" | "managed";
+type KnowledgeVaultType = "personal" | "shared";
 export type KnowledgeVaultRole = "reader" | "editor" | "owner";
 
 export class KnowledgeVaultSearchError extends Error {
@@ -9,7 +9,7 @@ export class KnowledgeVaultSearchError extends Error {
     readonly vaultChoices: Array<{
       vaultId: string;
       vaultName: string;
-      vaultType: "shared" | "managed";
+      vaultType: KnowledgeVaultType;
     }> = [],
   ) {
     super(message);
@@ -40,6 +40,7 @@ export type KnowledgeSearchHit = {
   revision: number | string;
   score: number;
   logicalPath?: string;
+  link?: string;
   indexStatus?: "failed";
   indexError?: string;
   nextRetryAt?: number;
@@ -48,9 +49,10 @@ export type KnowledgeSearchHit = {
 export type KnowledgeVault = {
   id: string;
   name: string;
-  type: "shared";
+  type: KnowledgeVaultType;
   description: string;
   role: KnowledgeVaultRole;
+  canRead: boolean;
   canEdit: boolean;
   canManageMembers: boolean;
   canExport: boolean;
@@ -58,27 +60,62 @@ export type KnowledgeVault = {
   updatedAt: number;
 };
 
-export type KnowledgeVaultCatalogEntry = Omit<KnowledgeVault, "type"> & {
-  type: "shared" | "managed";
+export type KnowledgeVaultCatalogEntry = Omit<KnowledgeVault, "role"> & {
+  role: KnowledgeVaultRole | null;
   connected: boolean;
-  documentCount: number;
-  attachmentCount: number;
+  /** Access was granted, but auto-enable reached the per-user enabled-Wiki limit. */
+  connectionIssue?: "capacity";
+  /** Explicit administrative owner recovery; never grants document read access. */
+  canRecoverOwner?: boolean;
+  documentCount?: number;
+  attachmentCount?: number;
 };
 
 /** Internal run context, never a model-selected search argument. ACLs remain live. */
-export type KnowledgeVaultTurnScope = { revision: number; vaultIds: string[] };
+export type KnowledgeVaultTurnScope = {
+  revision: number;
+  vaultIds: string[];
+  personalEnabled: boolean;
+};
 
-export type KnowledgeVaultMember = {
+type KnowledgeVaultMember = {
   userId: string;
   accountId: string;
   displayName: string;
   role: KnowledgeVaultRole;
-  canExport: boolean;
+};
+
+type KnowledgeVaultOrganizationGrant = {
+  scopeId: string;
+  scopeName: string;
+  scopeKind: "team" | "group" | "part";
+  role: KnowledgeVaultRole;
+};
+
+export type KnowledgeVaultAccessRequest = {
+  id: string;
+  vaultId: string;
+  vaultName: string;
+  userId: string;
+  accountId: string;
+  displayName: string;
+  role: "reader" | "editor";
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  createdAt: number;
+  decidedAt?: number;
+};
+
+export type KnowledgeVaultGrantTarget = {
+  id: string;
+  label: string;
+  detail: string;
+  accountId?: string;
 };
 
 export type KnowledgeVaultCompile = {
   status: "pending" | "ready" | "failed";
-  indexedRevision: number | null;
+  indexedRevision: number | string | null;
   error: string | null;
   attempts: number;
   retryAt: number | null;
@@ -88,23 +125,45 @@ export type KnowledgeVaultDocumentSummary = {
   id: string;
   vaultId: string;
   title: string;
+  /** Bounded preview of authored body content, never status or storage metadata. */
+  snippet?: string;
+  link?: string;
   logicalPath: string;
-  revision: number;
+  revision: number | string;
   updatedAt: number;
   compile: KnowledgeVaultCompile;
+  metadata?: KnowledgeVaultDocumentMetadata;
 };
 
-type KnowledgeVaultLink = { documentId: string | null; logicalPath: string; title: string };
+type KnowledgeVaultDocumentMetadata = {
+  claims: string[];
+  questions: string[];
+  contradictions: string[];
+  sourceType?: string;
+  kind?: string;
+};
+
+type KnowledgeVaultLink = {
+  target: string;
+  documentId: string | null;
+  logicalPath: string;
+  title: string;
+};
 export type KnowledgeVaultDocument = KnowledgeVaultDocumentSummary & {
   content: string;
+  sourceContent?: string;
+  editableContent?: string;
+  editMode?: "body" | "notes" | null;
+  readOnlyReason?: string | null;
   links: KnowledgeVaultLink[];
+  linksTruncated?: boolean;
   backlinks: KnowledgeVaultLink[];
 };
 type KnowledgeVaultAttachment = {
   path: string;
   mediaType: string;
   bytes: number;
-  revision: number;
+  revision: number | string;
 };
 export type KnowledgeVaultGraph = {
   /** Node metadata comes from selected.documents; edges use each source's indexedRevision. */
@@ -115,11 +174,15 @@ export type KnowledgeVaultGraph = {
 export type KnowledgeVaultSnapshot = {
   vaults: KnowledgeVaultCatalogEntry[];
   selectionRevision: number;
+  ownRequests: KnowledgeVaultAccessRequest[];
+  pendingRequests: KnowledgeVaultAccessRequest[];
   selected?: {
     vault: KnowledgeVault;
     documents: KnowledgeVaultDocumentSummary[];
     members: KnowledgeVaultMember[];
+    grants: KnowledgeVaultOrganizationGrant[];
     attachments: KnowledgeVaultAttachment[];
+    attachmentsTruncated?: boolean;
     graph: KnowledgeVaultGraph;
   };
 };
@@ -128,10 +191,11 @@ export type KnowledgeVaultDocumentInput = {
   userId: string;
   vaultId: string;
   documentId?: string;
-  title: string;
-  logicalPath: string;
+  title?: string;
+  logicalPath?: string;
+  filename?: string;
   content: string;
-  expectedRevision?: number;
+  expectedRevision?: number | string;
 };
 
 export const KNOWLEDGE_VAULT_LIMITS = {

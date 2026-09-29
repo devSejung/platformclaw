@@ -25,6 +25,7 @@ import {
   renderMemoryConnectionStatus,
   renderMemoryBrowseFile,
   renderMemorySearchState,
+  renderMemorySearchForm,
   resultKey,
   type SearchResult,
   type SearchState,
@@ -51,17 +52,20 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   @property({ attribute: false }) wikiSearchAdvertised: boolean | null = false;
   @property({ type: Boolean }) browseEnabled = false;
   @property({ type: Boolean }) unifiedSearch = false;
+  @property({ type: Boolean }) compactSearch = false;
+  @property({ type: Boolean }) documentDialogs = false;
+  @property() searchPlaceholder: string | null = null;
   @property({ type: Boolean }) vaultGetAdvertised = false;
   @property() vaultId: string | null = null;
   @property() searchScope: "connected" | "all" = "connected";
   @property({ attribute: false }) browseListAdvertised: boolean | null = false;
   @property({ attribute: false }) personalDetailAdvertised: boolean | null = true;
   @property({ attribute: false }) wikiGetAdvertised: boolean | null = false;
-  @property({ attribute: false }) organizationGetAdvertised: boolean | null = false;
   @property({ attribute: false }) translator: Translate = t;
   @property() agentId: string | null = null;
   @property({ attribute: false }) itemActions?: MemoryResultActions;
   @property({ type: Number }) refreshRevision = 0;
+  @property({ attribute: false }) openVaultDocument?: (vaultId: string, documentId: string) => void;
 
   @state() private query = "";
   @state() private searchState: SearchState = { kind: "idle" };
@@ -78,16 +82,24 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   protected override willUpdate(changed: PropertyValues<this>) {
     const identityChanged = changed.has("agentId") || changed.has("client");
     const connectionChanged = changed.has("connected") || changed.has("connectionPhase");
-    if (
-      identityChanged ||
-      changed.has("refreshRevision") ||
+    if (identityChanged) {
+      this.resetSearch();
+      this.resetBrowse();
+    } else if (changed.has("refreshRevision")) {
+      // Mutations refresh results without changing the user's query or source filter.
+      this.cancelPendingSearch();
+      this.clearDetails(false);
+      this.searchState = { kind: "idle" };
+      this.resetBrowse();
+    } else if (
       changed.has("vaultId") ||
       changed.has("searchScope") ||
       changed.has("unifiedSearch")
     ) {
+      // Search scope does not own cached workspace files or their loaded details.
       this.resetSearch();
-      this.resetBrowse();
-    } else if (connectionChanged && !this.gatewayReady) {
+    }
+    if (connectionChanged && !this.gatewayReady) {
       this.cancelPendingSearch();
       this.detailRequests.clear();
       this.discardTransientDetails();
@@ -98,8 +110,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       changed.has("methodAdvertised") ||
       changed.has("wikiSearchAdvertised") ||
       changed.has("personalDetailAdvertised") ||
-      changed.has("wikiGetAdvertised") ||
-      changed.has("organizationGetAdvertised")
+      changed.has("wikiGetAdvertised")
     ) {
       this.resetSearch();
     }
@@ -119,6 +130,9 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   protected override updated(changed: PropertyValues<this>) {
     const identityChanged = changed.has("agentId") || changed.has("client");
     const connectionChanged = changed.has("connected") || changed.has("connectionPhase");
+    if (changed.has("refreshRevision") && this.gatewayReady && this.query.trim()) {
+      void this.search(this.query, true);
+    }
     if (
       this.gatewayReady &&
       this.browseEnabled &&
@@ -270,7 +284,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     };
   }
 
-  private async search(query: string) {
+  private async search(query: string, preserveFilter = false) {
     const normalizedQuery = query.trim();
     const client = this.gatewayReady ? this.client : null;
     const agentId = this.agentId;
@@ -285,7 +299,9 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     const request = { client, agentId, query: normalizedQuery };
     this.searchRequest = request;
     this.query = normalizedQuery;
-    this.sourceFilter = "all";
+    if (!preserveFilter) {
+      this.sourceFilter = "all";
+    }
     this.searchState = { kind: "loading", query: normalizedQuery };
     this.clearDetails(false);
     const [personal, wiki] = await Promise.all([
@@ -363,11 +379,21 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
         ? { personalWikiMethodUnavailable: true }
         : {}),
       ...(wiki?.ok === false ? { personalWikiUnavailable: true } : {}),
-      ...(personal?.ok !== true ? { organizationMemoryUnavailable: true } : {}),
     };
   }
 
   private toggleResult(result: SearchResult, index: number, content?: string) {
+    if (
+      (result.source === "wiki" || result.vaultType === "shared") &&
+      result.vaultId &&
+      result.documentId &&
+      this.openVaultDocument
+    ) {
+      if (this.canLoadResult(result)) {
+        this.openVaultDocument(result.vaultId, result.documentId);
+      }
+      return;
+    }
     const key = resultKey(result, index);
     const cached = content !== undefined || this.details.get(key)?.kind === "ready";
     if (!cached && !this.canLoadResult(result)) {
@@ -390,13 +416,12 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     if (!this.gatewayReady || !isExpandableResult(result)) {
       return false;
     }
-    return result.vaultType === "shared"
+    return result.vaultType === "shared" ||
+      (result.source === "wiki" && this.openVaultDocument && result.vaultId && result.documentId)
       ? this.vaultGetAdvertised
       : result.source === "wiki"
         ? this.wikiGetAdvertised === true
-        : result.source === "organization"
-          ? this.organizationGetAdvertised === true
-          : this.personalDetailAdvertised === true;
+        : this.personalDetailAdvertised === true;
   }
 
   private async loadDetail(key: string, result: SearchResult) {
@@ -420,15 +445,10 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
                 agentId,
                 lookup: result.path,
               })
-            : result.source === "organization"
-              ? await client.request<WikiGetResult | null>("platformclaw.memory.get", {
-                  agentId,
-                  path: result.path,
-                })
-              : await client.request<AgentsWorkspaceGetResult>("agents.workspace.get", {
-                  agentId,
-                  path: result.path,
-                });
+            : await client.request<AgentsWorkspaceGetResult>("agents.workspace.get", {
+                agentId,
+                path: result.path,
+              });
       if (this.detailRequests.get(key) !== request || !this.isCurrentRequest(request)) {
         return;
       }
@@ -473,6 +493,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   ) {
     return renderMemoryBrowseFile({
       actions: this.gatewayReady ? this.itemActions : undefined,
+      onClose: this.documentDialogs ? () => (this.openResultKey = null) : undefined,
       path,
       name,
       index,
@@ -628,6 +649,8 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       onToggle: (result, index) => this.toggleResult(result, index),
       openResultKey: this.openResultKey,
       searchState: this.searchState,
+      vaultDocumentDialog: Boolean(this.openVaultDocument),
+      onClose: this.documentDialogs ? () => (this.openResultKey = null) : undefined,
       sourceFilter: this.sourceFilter,
       text: this.text.bind(this),
     });
@@ -650,55 +673,42 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     return html`<div class="settings-page memory-memories">
       ${connectionStatus}
       <section class="settings-section">
-        <div class="settings-section__header">
-          <h2 class="settings-section__heading">${this.text("memoryPage.memories.searchTitle")}</h2>
-        </div>
-        <p class="settings-section__desc">${this.text("memoryPage.memories.searchDescription")}</p>
+        ${this.compactSearch
+          ? nothing
+          : html`<div class="settings-section__header">
+                <h2 class="settings-section__heading">
+                  ${this.text("memoryPage.memories.searchTitle")}
+                </h2>
+              </div>
+              <p class="settings-section__desc">
+                ${this.text("memoryPage.memories.searchDescription")}
+              </p>`}
         ${searchUnavailable
           ? renderSettingsEmpty(this.text("memoryPage.memories.gatewayUpdateRequired"))
-          : html`<form
-                class="memory-memories__search"
-                role="search"
-                @submit=${(event: SubmitEvent) => {
-                  event.preventDefault();
-                  void this.search(this.query);
-                }}
-              >
-                <label class="settings-control__sr-label" for="memory-search-input"
-                  >${this.text("memoryPage.memories.searchLabel")}</label
-                >
-                <input
-                  id="memory-search-input"
-                  type="search"
-                  class="settings-input"
-                  .value=${this.query}
-                  placeholder=${this.text("memoryPage.memories.searchPlaceholder")}
-                  @input=${(event: InputEvent) => {
-                    const next = (event.currentTarget as HTMLInputElement).value;
-                    if (next !== this.query) {
-                      this.cancelPendingSearch();
-                      this.clearDetails(false);
-                      this.searchState = { kind: "idle" };
-                    }
-                    this.query = next;
-                  }}
-                />
-                <button
-                  class="btn btn--sm primary"
-                  type="submit"
-                  ?disabled=${!this.gatewayReady ||
-                  !searchAvailable ||
-                  !this.agentId ||
-                  !this.query.trim() ||
-                  this.searchState.kind === "loading"}
-                >
-                  ${this.text("memoryPage.memories.searchButton")}
-                </button>
-              </form>
-              ${searchCapabilitiesLoading
-                ? html`<p role="status">${this.text("memoryPage.memories.capabilitiesLoading")}</p>`
-                : nothing}
-              ${this.renderSearchState()}`}
+          : html`${renderMemorySearchForm({
+              text: this.text.bind(this),
+              query: this.query,
+              placeholder: this.searchPlaceholder,
+              disabled:
+                !this.gatewayReady ||
+                !searchAvailable ||
+                !this.agentId ||
+                !this.query.trim() ||
+                this.searchState.kind === "loading",
+              onSubmit: () => void this.search(this.query),
+              onInput: (next) => {
+                if (next !== this.query) {
+                  this.cancelPendingSearch();
+                  this.clearDetails(false);
+                  this.searchState = { kind: "idle" };
+                }
+                this.query = next;
+              },
+            })}
+            ${searchCapabilitiesLoading
+              ? html`<p role="status">${this.text("memoryPage.memories.capabilitiesLoading")}</p>`
+              : nothing}
+            ${this.renderSearchState()}`}
       </section>
       ${this.renderBrowse()}
     </div>`;

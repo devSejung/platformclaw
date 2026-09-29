@@ -28,7 +28,7 @@ vi.mock("../../lib/plugins/index.ts", async (importOriginal) => {
 /** Which tab body is actually mounted, rather than what the tab strip claims. */
 function visibleTab(
   element: HTMLElement,
-): "overview" | "memories" | "wiki" | "organization" | "dreams" | "settings" | null {
+): "overview" | "memories" | "wiki" | "dreams" | "settings" | null {
   const panel = element.querySelector('[role="tabpanel"]');
   if (!panel) {
     return null;
@@ -41,9 +41,6 @@ function visibleTab(
   }
   if (panel.querySelector('openclaw-agent-memory-panel[surface="wiki"]')) {
     return "wiki";
-  }
-  if (panel.querySelector("openclaw-memory-promotions")) {
-    return "organization";
   }
   return panel.querySelector(".memory-overview") ? "overview" : "settings";
 }
@@ -644,10 +641,6 @@ describe("MemorySettingsPage tab routing", () => {
       element.routeData = memoryTabRoute("wiki");
       await element.updateComplete;
       expect(visibleTab(element)).toBe("wiki");
-
-      element.routeData = memoryTabRoute("organization");
-      await element.updateComplete;
-      expect(visibleTab(element)).toBe("organization");
 
       element.routeData = memoryTabRoute("dreams");
       await element.updateComplete;

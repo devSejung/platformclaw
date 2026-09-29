@@ -34,14 +34,7 @@ export const DEFAULT_MEMORY_ENGINE_ID = defaultSlotIdForKey("memory");
 /** Scroll target for `memory.backend`, which Settings curates out of the editor. */
 export const MEMORY_BACKEND_ANCHOR_ID = "memory-backend";
 
-const MEMORY_TABS: readonly MemoryTab[] = [
-  "overview",
-  "memories",
-  "wiki",
-  "organization",
-  "dreams",
-  "settings",
-];
+const MEMORY_TABS: readonly MemoryTab[] = ["overview", "memories", "wiki", "dreams", "settings"];
 
 /** Reads a `?tab=` value from a settings-search destination or a shared link. */
 function normalizeMemoryTab(value: string | null | undefined): MemoryTab | null {

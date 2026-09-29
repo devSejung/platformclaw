@@ -4,7 +4,6 @@ import { property, state } from "lit/decorators.js";
 import type {
   KnowledgeVault,
   KnowledgeVaultCatalogEntry,
-  KnowledgeVaultDocument,
   KnowledgeVaultSnapshot,
 } from "../../../packages/platformclaw-control-plane/src/knowledge-vault-contracts.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
@@ -12,38 +11,42 @@ import { redactToolDetail } from "../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import "./memory-vaults.css";
 import "./memory-vault-graph.ts";
+import "./memory-vault-author.ts";
 import { loadPlatformClawLocale, platformClawT } from "./i18n.ts";
+import { renderVaultRequests } from "./memory-vault-access.ts";
+import type { VaultAuthorSaved } from "./memory-vault-author.ts";
 import {
   renderVaultCatalog,
   renderVaultDialog,
   renderVaultSearch,
   type VaultCatalogTab,
 } from "./memory-vault-catalog.ts";
-import { renderVaultDocument } from "./memory-vault-document.ts";
-import {
-  renderVaultCreateForm,
-  renderVaultEditorForm,
-  renderVaultMembersForm,
-  type VaultDraft,
-} from "./memory-vault-forms.ts";
+import "./memory-vault-reader.ts";
+import "./memory-vault-recovery.ts";
+import { renderVaultCreateForm } from "./memory-vault-forms.ts";
+import type { VaultReaderSelection } from "./memory-vault-reader.ts";
 
 const t = (key: string) => platformClawT(`platformClaw.vault.${key}`);
 const RPC = "platformclaw.vault.";
 const API = "/platformclaw/vaults";
 
-type PublishSource = { lookup: string; title: string; sourceContent: string; revision: string };
-
 class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property({ type: Boolean }) connected = false;
   @property({ type: Boolean }) methodAdvertised = false;
+  @property({ attribute: false }) methods: readonly string[] = [];
   @property() agentId: string | null = null;
-  @state() private snapshot: KnowledgeVaultSnapshot = { vaults: [], selectionRevision: 0 };
+  @state() private snapshot: KnowledgeVaultSnapshot = {
+    vaults: [],
+    selectionRevision: 0,
+    ownRequests: [],
+    pendingRequests: [],
+  };
   @state() private selectedId = "";
-  @state() private document: KnowledgeVaultDocument | null = null;
-  @state() private draft: VaultDraft | null = null;
-  @state() private source: PublishSource | null = null;
-  @state() private publishing = false;
+  @state() private reader: VaultReaderSelection | null = null;
+  @property() initialVaultId = "";
+  @property() initialDocumentId = "";
+  @state() private authorOpen = false;
   @state() private creating = false;
   @state() private busy = false;
   @state() private error = "";
@@ -53,7 +56,9 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   @state() private searchScope: "connected" | "all" | "selected" = "connected";
   @state() private membersOpen = false;
   @state() private importing = false;
-  @state() private managedVault: KnowledgeVaultCatalogEntry | null = null;
+  @state() private requestVault: KnowledgeVaultCatalogEntry | null = null;
+  @state() private recoveryVault: KnowledgeVaultCatalogEntry | null = null;
+  @state() private publishLookup: string | null = null;
   private epoch = 0;
 
   override connectedCallback() {
@@ -65,21 +70,44 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     super.disconnectedCallback();
   }
   protected override updated(changed: PropertyValues) {
-    if (["client", "connected", "agentId", "methodAdvertised"].some((key) => changed.has(key))) {
+    const identityChanged = ["client", "agentId"].some((key) => changed.has(key));
+    if (identityChanged || (changed.has("methodAdvertised") && !this.methodAdvertised)) {
       this.epoch++;
-      this.snapshot = { vaults: [], selectionRevision: 0 };
+      this.snapshot = { vaults: [], selectionRevision: 0, ownRequests: [], pendingRequests: [] };
       this.selectedId = "";
-      this.document = null;
-      this.draft = null;
-      this.source = null;
+      this.reader = null;
+      this.authorOpen = false;
       this.busy = false;
       this.error = "";
       this.message = "";
-      this.creating = this.publishing = this.membersOpen = this.importing = false;
-      this.managedVault = null;
+      this.creating = this.membersOpen = this.importing = false;
+      this.requestVault = null;
+      this.recoveryVault = null;
+      this.publishLookup = null;
       this.searchScope = "connected";
+    }
+    if (["client", "connected", "agentId", "methodAdvertised"].some((key) => changed.has(key))) {
+      // Keep the same-session reader/editor mounted across transport loss.
+      this.epoch++;
+      this.busy = false;
+      if (!this.connected) {
+        // Native modal dialogs escape ancestor inert; dismiss non-editor actions as before.
+        this.creating = this.membersOpen = this.importing = false;
+        this.requestVault = this.recoveryVault = null;
+      }
       if (this.available) {
-        void this.load();
+        const epoch = this.epoch;
+        void this.run(() => this.readSnapshot(this.selectedId || this.initialVaultId)).then(() => {
+          if (
+            identityChanged &&
+            epoch === this.epoch &&
+            this.initialDocumentId &&
+            this.selected?.vault.id === this.initialVaultId
+          ) {
+            this.searchScope = "selected";
+            this.openDocument(this.initialDocumentId);
+          }
+        });
       }
     }
   }
@@ -89,14 +117,27 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   private get selected() {
     return this.snapshot.selected;
   }
-  private async run(action: () => Promise<void>) {
+  private get canAuthor() {
+    return (
+      this.methods.includes(`${RPC}document.save`) &&
+      this.methods.includes(`${RPC}document.preview`)
+    );
+  }
+  private documentVault(vaultId: string) {
+    return this.selected?.vault.id === vaultId
+      ? this.selected.vault
+      : this.snapshot.vaults.find((vault) => vault.id === vaultId);
+  }
+  private async run(action: () => Promise<void>, clearMessage = true) {
     if (!this.available || this.busy) {
       return;
     }
     const epoch = this.epoch;
     this.busy = true;
     this.error = "";
-    this.message = "";
+    if (clearMessage) {
+      this.message = "";
+    }
     try {
       await action();
     } catch (error) {
@@ -122,9 +163,8 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     this.selectedId = response.selected?.vault.id ?? id;
   }
   private load(id = this.selectedId) {
-    this.document = null;
-    this.source = null;
-    this.publishing = false;
+    this.reader = null;
+    this.authorOpen = false;
     return this.run(async () => {
       // An ACL rejection must remove previously visible vault contents.
       this.snapshot = { ...this.snapshot, selected: undefined };
@@ -137,38 +177,19 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     if (epoch !== this.epoch) {
       return;
     }
-    this.draft = null;
-    this.source = null;
-    this.document = null;
-    this.publishing = false;
+    this.authorOpen = false;
+    this.reader = null;
     this.message = t(message);
     await this.readSnapshot();
   }
-  private async openDocument(documentId: string) {
-    return this.run(async () => {
-      const epoch = this.epoch;
-      const document = await this.client!.request<KnowledgeVaultDocument>(`${RPC}document.get`, {
-        vaultId: this.selectedId,
-        documentId,
-      });
-      if (epoch === this.epoch) {
-        this.document = document;
-        await this.updateComplete;
-        this.querySelector("[data-vault-document]")?.scrollIntoView?.({ block: "start" });
-      }
-    });
-  }
-  private navigateMemory(tab: "wiki" | "organization") {
-    this.dispatchEvent(
-      new CustomEvent("vault-navigate", { detail: tab, bubbles: true, composed: true }),
-    );
+  private openDocument(documentId: string, vaultId = this.selectedId) {
+    this.reader = { vaultId, documentId, vault: this.documentVault(vaultId) };
   }
   private openVault(vault: KnowledgeVaultCatalogEntry) {
     if (this.busy) {
       return;
     }
-    if (vault.type === "managed") {
-      this.managedVault = vault;
+    if (!vault.canRead) {
       return;
     }
     this.selectedId = vault.id;
@@ -189,7 +210,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
         ...snapshot,
         selected: this.selectedId ? snapshot.selected : undefined,
       };
-      this.managedVault = null;
+      this.requestVault = null;
       this.message = t(vault.connected ? "disconnectedNotice" : "connectedNotice");
     });
   }
@@ -223,7 +244,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
       >${t(label)}<input
         type="file"
         accept=${accept}
-        ?disabled=${this.busy || Boolean(this.draft)}
+        ?disabled=${this.busy || this.authorOpen}
         @change=${(event: Event) => {
           const input = event.currentTarget as HTMLInputElement;
           const file = input.files?.[0];
@@ -258,177 +279,104 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
       },
     });
   }
-  private renderEditor() {
-    const draft = this.draft!;
-    return renderVaultEditorForm({
-      draft,
-      busy: this.busy,
-      onCancel: () => (this.draft = null),
-      onSubmit: (event) => {
-        const data = this.form(event);
-        // Textareas normalize CRLF. Keep source bytes when displayed text was not edited.
-        const submitted = this.field(data, "content");
-        const content =
-          submitted === draft.content.replace(/\r\n?/gu, "\n") ? draft.content : submitted;
-        const next = {
-          ...draft,
-          title: this.field(data, "title"),
-          logicalPath: this.field(data, "path"),
-          content,
-        };
-        this.draft = next;
-        void this.run(() =>
-          this.mutate("document.save", { vaultId: this.selectedId, ...next }, "saved"),
-        );
-      },
-    });
+  private saved(event: CustomEvent<VaultAuthorSaved>, open = true) {
+    const result = event.detail;
+    this.authorOpen = false;
+    this.publishLookup = null;
+    if (open) {
+      this.reader = {
+        vaultId: result.vaultId,
+        documentId: result.document.id,
+        document: result.document,
+        vault: this.documentVault(result.vaultId),
+      };
+    }
+    this.message = `${result.document.title} · ${result.vaultName} — ${t(result.published ? "published" : "saved")}`;
+    void this.run(() => this.readSnapshot(), false);
+  }
+  private renderAuthor() {
+    return (this.authorOpen && this.selected) || this.publishLookup
+      ? html`<platformclaw-vault-author
+          .client=${this.client}
+          .connected=${this.connected}
+          .agentId=${this.agentId}
+          .vault=${this.publishLookup ? null : (this.selected?.vault ?? null)}
+          .initialPersonalLookup=${this.publishLookup}
+          .methods=${this.methods}
+          @author-close=${() => {
+            this.authorOpen = false;
+            this.publishLookup = null;
+          }}
+          @author-saved=${(event: CustomEvent<VaultAuthorSaved>) => this.saved(event)}
+        ></platformclaw-vault-author>`
+      : nothing;
   }
   private renderDocument() {
-    const document = this.document;
-    if (!document || this.draft || !this.selected) {
-      return nothing;
-    }
-    return renderVaultDocument({
-      document,
-      vaultName: this.selected.vault.name,
-      canEdit: this.selected.vault.canEdit,
-      busy: this.busy,
-      onOpen: (id) => void this.openDocument(id),
-      onEdit: () => {
-        this.draft = {
-          documentId: document.id,
-          expectedRevision: document.revision,
-          title: document.title,
-          logicalPath: document.logicalPath,
-          content: document.content,
-        };
-      },
-      onDownload: () =>
-        this.download(
-          new Blob([document.content], { type: "text/markdown;charset=utf-8" }),
-          document.logicalPath.split("/").at(-1)!,
-        ),
-      onClose: () => {
-        this.document = null;
-      },
-    });
-  }
-  private renderPublish() {
-    if (!this.publishing) {
-      return nothing;
-    }
-    return html`<section class="vaults__form">
-      <p>${t("publishHint")}</p>
-      <form
-        class="vaults__form"
-        @submit=${(event: SubmitEvent) => {
-          const data = this.form(event);
-          const lookup = this.field(data, "lookup");
-          this.source = null;
-          void this.run(async () => {
-            const epoch = this.epoch;
-            const value = await this.client!.request<{
-              title: string;
-              sourceContent?: string;
-              truncated?: boolean;
-            }>("wiki.document.get", { agentId: this.agentId, lookup });
-            if (epoch !== this.epoch) {
-              return;
-            }
-            if (value.sourceContent === undefined || value.truncated) {
-              throw new Error(t("sourceUnavailable"));
-            }
-            if (!globalThis.crypto?.subtle) {
-              throw new Error(t("secureContext"));
-            }
-            // Publish pins the full reviewed source, not the editable-body revision.
-            const digest = await crypto.subtle.digest(
-              "SHA-256",
-              new TextEncoder().encode(value.sourceContent),
-            );
-            if (epoch !== this.epoch) {
-              return;
-            }
-            const revision = Array.from(new Uint8Array(digest), (byte) =>
-              byte.toString(16).padStart(2, "0"),
-            ).join("");
-            this.source = {
-              lookup,
-              title: value.title,
-              sourceContent: value.sourceContent,
-              revision,
-            };
-          });
-        }}
-      >
-        <label>${t("sourcePath")}<input class="settings-input" name="lookup" required /></label
-        ><button class="btn" ?disabled=${this.busy}>${t("previewSource")}</button>
-      </form>
-      ${this.source
-        ? html`<form
-            class="vaults__form"
-            @submit=${(event: SubmitEvent) => {
-              const data = this.form(event);
-              const source = this.source!;
-              void this.run(() =>
-                this.mutate(
-                  "publish",
-                  {
-                    lookup: source.lookup,
-                    expectedRevision: source.revision,
-                    targetVaultId: this.selectedId,
-                    path: this.field(data, "path"),
-                  },
-                  "published",
-                ),
-              );
-            }}
-          >
-            <h4>${this.source.title}</h4>
-            <pre class="vaults__source">${this.source.sourceContent}</pre>
-            <label
-              >${t("path")}<input
-                class="settings-input"
-                name="path"
-                required
-                .value=${this.source.lookup} /></label
-            ><button class="btn primary" ?disabled=${this.busy}>${t("publishConfirm")}</button>
-          </form>`
-        : nothing}
-      <button
-        class="btn"
-        ?disabled=${this.busy}
-        @click=${() => {
-          this.publishing = false;
-          this.source = null;
-        }}
-      >
-        ${t("cancel")}
-      </button>
-    </section>`;
+    return this.reader && !this.publishLookup
+      ? html`<platformclaw-vault-reader
+          .client=${this.client}
+          .connected=${this.connected}
+          .refreshing=${this.busy}
+          .agentId=${this.agentId}
+          .methods=${this.methods}
+          .selection=${this.reader}
+          @reader-deleted=${() => {
+            this.reader = null;
+            this.message = t("documentDeleted");
+            void this.run(() => this.readSnapshot(), false);
+          }}
+          @reader-publish=${(event: CustomEvent<string>) => (this.publishLookup = event.detail)}
+          @reader-close=${() => (this.reader = null)}
+          @reader-saved=${(event: CustomEvent<VaultAuthorSaved>) => this.saved(event, false)}
+        ></platformclaw-vault-reader>`
+      : nothing;
   }
   private renderMembers() {
-    const selected = this.selected;
-    if (!selected?.vault.canManageMembers) {
-      return nothing;
-    }
-    return renderVaultMembersForm({
-      members: selected.members,
-      busy: this.busy,
-      onRemove: (userId) =>
-        void this.run(() => this.mutate("member.remove", { vaultId: this.selectedId, userId })),
-      onSubmit: (event) => {
+    return this.selected?.vault.canManageMembers
+      ? html`<platformclaw-vault-access
+          .client=${this.client}
+          .selected=${this.selected}
+          .busy=${this.busy}
+          @vault-access-mutate=${(
+            event: CustomEvent<{ method: string; params: Record<string, unknown> }>,
+          ) => void this.run(() => this.mutate(event.detail.method, event.detail.params))}
+        ></platformclaw-vault-access>`
+      : nothing;
+  }
+  private renderRequest() {
+    return html`<form
+      class="vaults__form"
+      @submit=${(event: SubmitEvent) => {
         const data = this.form(event);
-        void this.run(() =>
-          this.mutate("member.set", {
-            vaultId: this.selectedId,
-            accountId: this.field(data, "accountId"),
-            role: this.field(data, "role"),
-            canExport: data.get("canExport") === "on",
-          }),
-        );
-      },
-    });
+        const vaultId = this.requestVault!.id;
+        void this.run(async () => {
+          await this.mutate(
+            "access.request",
+            { vaultId, role: this.field(data, "role"), reason: this.field(data, "reason") },
+            "requestSent",
+          );
+          this.requestVault = null;
+        });
+      }}
+    >
+      <p>${this.requestVault!.name}</p>
+      <p class="vaults__hint">${t("requestHint")}</p>
+      <label
+        >${t("role")}<select class="settings-select" name="role">
+          <option value="reader">${t("reader")}</option>
+          <option value="editor">${t("editor")}</option>
+        </select></label
+      >
+      <label
+        >${t("requestReason")}<textarea
+          class="settings-input"
+          name="reason"
+          rows="3"
+          maxlength="1000"
+        ></textarea>
+      </label>
+      <button class="btn primary" ?disabled=${this.busy}>${t("sendRequest")}</button>
+    </form>`;
   }
   private renderSelected() {
     const selected = this.selected;
@@ -443,7 +391,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
         ?disabled=${this.busy}
         @click=${() => {
           this.selectedId = "";
-          this.document = null;
+          this.reader = null;
           this.snapshot = { ...this.snapshot, selected: undefined };
           this.searchScope = "connected";
         }}
@@ -453,10 +401,10 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
       <header>
         <h2>${vault.name}</h2>
         <p>${vault.description}</p>
-        <p class="muted">Shared · ${vault.role} · ${vault.id}</p>
+        <p class="muted">${t(vault.type)} · ${t(vault.role)}</p>
       </header>
       <div class="vaults__actions">
-        ${vault.canManageMembers
+        ${vault.type === "shared" && vault.canManageMembers
           ? html`<button class="btn btn--sm" @click=${() => (this.membersOpen = true)}>
               ${t("members")}
             </button>`
@@ -464,7 +412,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
         ${vault.canExport
           ? html`<button
               class="btn"
-              ?disabled=${this.busy || Boolean(this.draft)}
+              ?disabled=${this.busy || this.authorOpen}
               @click=${() =>
                 void this.run(async () => {
                   const epoch = this.epoch;
@@ -481,61 +429,39 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
         ${vault.canEdit
           ? html`<button
               class="btn"
-              ?disabled=${this.busy || Boolean(this.draft)}
+              ?disabled=${this.busy || this.authorOpen}
               @click=${() => void this.run(() => this.mutate("rebuild", { vaultId: vault.id }))}
             >
               ${t("rebuild")}
             </button>`
           : nothing}
       </div>
-      <h3>${t("documents")}</h3>
-      ${vault.canEdit
-        ? html`<div class="vaults__actions">
-            <button
-              class="btn"
-              ?disabled=${this.busy || Boolean(this.draft)}
-              @click=${() => (this.draft = { title: "", logicalPath: "", content: "" })}
+      <div class="vaults__heading">
+        <h3>${t("documents")}</h3>
+        ${vault.canEdit && this.canAuthor
+          ? html`<button
+              class="btn primary"
+              ?disabled=${this.busy}
+              @click=${() => {
+                this.authorOpen = true;
+              }}
             >
-              ${t("newDocument")}
-            </button>
-            ${this.fileInput("uploadMarkdown", ".md,.markdown,text/markdown", async (file) => {
-              if (file.size > 1024 * 1024) {
-                throw new Error(t("tooLarge"));
-              }
-              const epoch = this.epoch;
-              let content: string;
-              try {
-                content = new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(
-                  await file.arrayBuffer(),
-                );
-              } catch {
-                throw new Error(t("invalidUtf8"));
-              }
-              if (epoch === this.epoch) {
-                this.draft = {
-                  title: file.name.replace(/\.(md|markdown)$/i, ""),
-                  logicalPath: file.name,
-                  content,
-                };
-              }
-            })}
-            <button
-              class="btn"
-              ?disabled=${this.busy || Boolean(this.draft)}
-              @click=${() => (this.publishing = true)}
-            >
-              ${t("publish")}
-            </button>
-          </div>`
-        : nothing}
-      ${this.renderDocument()}
+              ${t("addKnowledge")}
+            </button>`
+          : nothing}
+      </div>
+      ${this.renderSearch()}
       <platformclaw-vault-documents
         .selected=${selected}
-        .busy=${this.busy || Boolean(this.draft)}
-        @vault-document-open=${(event: CustomEvent<string>) => void this.openDocument(event.detail)}
+        .busy=${this.busy || this.authorOpen}
+        @vault-document-open=${(event: CustomEvent<string>) => this.openDocument(event.detail)}
       ></platformclaw-vault-documents>
-      <details class="card">
+      ${html`<details class="card">
         <summary>${t("attachments")}</summary>
+        <p class="vaults__hint">${t("attachmentHint")}</p>
+        ${selected.attachmentsTruncated
+          ? html`<p class="callout" role="status">${t("attachmentsTruncated")}</p>`
+          : nothing}
         ${vault.canEdit
           ? this.fileInput("uploadAttachment", "", async (file) => {
               if (file.size > 8 * 1024 * 1024) {
@@ -578,7 +504,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
               </button>
             </div>`,
         )}
-      </details>
+      </details>`}
     </section>`;
   }
   private renderImport() {
@@ -607,81 +533,115 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   private renderDialog() {
     const kind = this.creating
       ? "new"
-      : this.draft
-        ? "body"
-        : this.publishing
-          ? "publish"
-          : this.membersOpen
-            ? "members"
-            : this.importing
-              ? "import"
-              : this.managedVault
-                ? "managedTitle"
-                : null;
+      : this.membersOpen
+        ? "members"
+        : this.importing
+          ? "import"
+          : this.requestVault
+            ? "requestAccess"
+            : null;
     if (!kind) {
       return nothing;
     }
     const content = this.creating
       ? this.renderCreate()
-      : this.draft
-        ? this.renderEditor()
-        : this.publishing
-          ? this.renderPublish()
-          : this.membersOpen
-            ? this.renderMembers()
-            : this.importing
-              ? this.renderImport()
-              : html`<h3>${this.managedVault!.name}</h3>
-                  <p>${t("managed")}</p>
-                  <button class="btn primary" @click=${() => this.navigateMemory("organization")}>
-                    ${t("openManaged")}
-                  </button>`;
+      : this.membersOpen
+        ? this.renderMembers()
+        : this.importing
+          ? this.renderImport()
+          : this.renderRequest();
     return renderVaultDialog({
       title: t(kind),
       content,
       busy: this.busy,
       error: this.error,
       onClose: () => {
-        this.creating = this.publishing = this.membersOpen = this.importing = false;
-        this.draft = null;
-        this.source = null;
-        this.managedVault = null;
+        this.creating = this.membersOpen = this.importing = false;
+        this.requestVault = null;
         this.error = "";
       },
     });
   }
+  private renderSearch() {
+    return renderVaultSearch({
+      client: this.client,
+      connected: this.connected,
+      agentId: this.agentId,
+      scope: this.searchScope,
+      vaultId: this.selected?.vault.id ?? null,
+      revision: this.snapshot.selectionRevision,
+      methods: this.methods,
+      onScope: (scope) => (this.searchScope = scope),
+      onOpen: (vaultId, documentId) => this.openDocument(documentId, vaultId),
+    });
+  }
   override render() {
-    if (!this.available) {
+    if (
+      !this.client ||
+      !this.methodAdvertised ||
+      (!this.connected && !this.snapshot.vaults.length)
+    ) {
       return html`<p role="status">${t("unavailable")}</p>`;
     }
     return html`<div class="vaults">
-      ${this.error ? html`<p class="callout danger" role="alert">${this.error}</p>` : nothing}
-      ${this.message ? html`<p class="callout success" role="status">${this.message}</p>` : nothing}
-      ${this.busy ? html`<p class="vaults__hint" role="status">${t("loading")}</p>` : nothing}
-      ${this.selected
-        ? this.renderSelected()
-        : renderVaultCatalog({
-            vaults: this.snapshot.vaults,
-            tab: this.catalogTab,
-            query: this.catalogQuery,
-            busy: this.busy,
-            onTab: (tab) => (this.catalogTab = tab),
-            onQuery: (query) => (this.catalogQuery = query),
-            onOpen: (vault) => this.openVault(vault),
-            onConnection: (vault) => this.setConnection(vault),
-            onPersonal: () => this.navigateMemory("wiki"),
-            onCreate: () => (this.creating = true),
-            onImport: () => (this.importing = true),
-          })}
-      ${renderVaultSearch({
-        client: this.client,
-        connected: this.connected,
-        agentId: this.agentId,
-        scope: this.searchScope,
-        vaultId: this.selected?.vault.id ?? null,
-        revision: this.snapshot.selectionRevision,
-        onScope: (scope) => (this.searchScope = scope),
-      })}${this.renderDialog()}
+      ${!this.connected
+        ? html`<p role="status">${platformClawT("memoryPage.memories.offline")}</p>`
+        : nothing}
+      <div ?inert=${!this.connected}>
+        ${this.error ? html`<p class="callout danger" role="alert">${this.error}</p>` : nothing}
+        ${this.message
+          ? html`<p class="callout success" role="status">${this.message}</p>`
+          : nothing}
+        ${this.busy ? html`<p class="vaults__hint" role="status">${t("loading")}</p>` : nothing}
+        ${this.selected
+          ? this.renderSelected()
+          : renderVaultCatalog({
+              vaults: this.snapshot.vaults,
+              tab: this.catalogTab,
+              query: this.catalogQuery,
+              busy: this.busy,
+              onTab: (tab) => (this.catalogTab = tab),
+              onQuery: (query) => (this.catalogQuery = query),
+              onOpen: (vault) => this.openVault(vault),
+              onConnection: (vault) => this.setConnection(vault),
+              requestCount:
+                this.snapshot.pendingRequests.length +
+                this.snapshot.ownRequests.filter((request) => request.status === "pending").length,
+              pendingVaultIds: new Set(
+                this.snapshot.ownRequests
+                  .filter((request) => request.status === "pending")
+                  .map((request) => request.vaultId),
+              ),
+              requestsContent: renderVaultRequests({
+                own: this.snapshot.ownRequests,
+                pending: this.snapshot.pendingRequests,
+                busy: this.busy,
+                onCancel: (requestId) =>
+                  void this.run(() => this.mutate("access.cancel", { requestId })),
+                onDecide: (requestId, decision) =>
+                  void this.run(() => this.mutate("access.decide", { requestId, decision })),
+              }),
+              onRequest: (vault) => (this.requestVault = vault),
+              onRecover: (vault) => (this.recoveryVault = vault),
+              onCreate: () => (this.creating = true),
+              onImport: () => (this.importing = true),
+            })}
+        ${!this.selected && this.catalogTab !== "requests" ? this.renderSearch() : nothing}
+        ${this.recoveryVault
+          ? html`<platformclaw-vault-recovery
+              .client=${this.client}
+              .vault=${this.recoveryVault}
+              @recovery-close=${() => (this.recoveryVault = null)}
+              @recovery-saved=${() => {
+                this.recoveryVault = null;
+                this.message = t("ownerRecovered");
+                void this.run(() => this.readSnapshot(), false);
+              }}
+            ></platformclaw-vault-recovery>`
+          : nothing}
+        ${this.renderDialog()}
+      </div>
+      ${this.renderAuthor()}${this.renderDocument()}
     </div>`;
   }
 }

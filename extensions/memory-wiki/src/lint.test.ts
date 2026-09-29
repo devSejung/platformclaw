@@ -383,7 +383,7 @@ describe("lintMemoryWikiVault", () => {
     );
   });
 
-  it("resolves title, slug, fragment, and imported source-path wikilinks", async () => {
+  it("resolves document titles and paths but reports unresolvable slug and external-source aliases", async () => {
     const { rootDir, config } = await createVault({
       prefix: "memory-wiki-lint-links-",
       config: {
@@ -438,10 +438,19 @@ describe("lintMemoryWikiVault", () => {
 
     const result = await lintMemoryWikiVault(config);
 
-    expect(result.issues.filter((issue) => issue.code === "broken-wikilink")).toEqual([]);
+    expect(
+      result.issues
+        .filter((issue) => issue.code === "broken-wikilink")
+        .map((issue) => issue.message),
+    ).toEqual([
+      "Broken wikilink target `alpha-database`.",
+      "Broken wikilink target `research notes/Alpha System Overview`.",
+      "Broken wikilink target `Alpha System Overview`.",
+      "Broken wikilink target `alpha-system-overview`.",
+    ]);
   });
 
-  it("keeps path target matching case-sensitive", async () => {
+  it("normalizes full paths without inventing title slugs or basename targets", async () => {
     const { rootDir, config } = await createVault({
       prefix: "memory-wiki-lint-path-case-",
       config: {
@@ -495,12 +504,12 @@ describe("lintMemoryWikiVault", () => {
       .map((issue) => issue.message);
 
     expect(brokenTargets).toEqual([
-      "Broken wikilink target `syntheses/Alpha-DB`.",
+      "Broken wikilink target `alpha-database`.",
       "Broken wikilink target `Alpha-DB`.",
     ]);
   });
 
-  it("preserves question marks in Obsidian title and slug wikilinks", async () => {
+  it("preserves literal question marks in wikilinks rather than guessing a document query", async () => {
     const { rootDir, config } = await createVault({
       prefix: "memory-wiki-lint-title-query-",
       config: {
@@ -552,6 +561,8 @@ describe("lintMemoryWikiVault", () => {
     expect(brokenTargets).toEqual([
       "Broken wikilink target `Roadmap? v2`.",
       "Broken wikilink target `roadmap? v2`.",
+      "Broken wikilink target `syntheses/roadmap?view=compact`.",
+      "Broken wikilink target `syntheses/roadmap.md?view=compact`.",
     ]);
   });
 

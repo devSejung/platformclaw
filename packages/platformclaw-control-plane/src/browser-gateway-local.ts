@@ -5,10 +5,6 @@ import type {
   BrowserGatewayProxyErrorCode,
 } from "./browser-gateway-contracts.js";
 import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
-import { requestBrowserOrganizationKnowledge } from "./browser-gateway-knowledge.js";
-import { requestBrowserOrganizationMemoryLifecycle } from "./browser-gateway-memory-lifecycle.js";
-import { requestBrowserOrganizationMemoryGet } from "./browser-gateway-memory.js";
-import { requestBrowserOrganizationMemoryGraph } from "./browser-gateway-organization-graph.js";
 import { projectBrowserSelfUser } from "./browser-gateway-self-service-projections.js";
 import { requestBrowserKnowledgeVault } from "./browser-gateway-vault.js";
 import { requestBrowserKnowledgeSearch } from "./browser-knowledge-search.js";
@@ -52,60 +48,7 @@ export async function requestBrowserGatewayLocal(
     if (baseball.handled) {
       return baseball;
     }
-    const knowledge = await requestBrowserOrganizationKnowledge({
-      store: options.organizationKnowledgeStore,
-      service: options.organizationKnowledgeService,
-      agentId: access.binding.agentId,
-      method,
-      request,
-      now: (options.now ?? Date.now)(),
-    });
-    if (knowledge.handled) {
-      return knowledge;
-    }
-    const graph = await requestBrowserOrganizationMemoryGraph({
-      method,
-      request,
-      agentId: access.binding.agentId,
-      get: options.getOrganizationMemoryGraph?.bind(options),
-    });
-    if (graph.handled) {
-      return graph;
-    }
-    const memory = await requestBrowserOrganizationMemoryGet({
-      method,
-      request,
-      agentId: access.binding.agentId,
-      get: options.getOrganizationMemory?.bind(options),
-    });
-    if (memory.handled) {
-      return memory;
-    }
-    const lifecycle = await requestBrowserOrganizationMemoryLifecycle({
-      lifecycle: options.organizationMemoryLifecycle,
-      agentId: access.binding.agentId,
-      method,
-      request,
-      now: (options.now ?? Date.now)(),
-    });
-    if (
-      lifecycle.handled &&
-      method === "platformclaw.memory.promotion.submit" &&
-      options.organizationKnowledgeService &&
-      typeof lifecycle.result === "object" &&
-      lifecycle.result !== null &&
-      "id" in lifecycle.result &&
-      typeof lifecycle.result.id === "string"
-    ) {
-      const relatedKnowledgeComparison = await options.organizationKnowledgeService
-        .comparePromotion({ agentId: access.binding.agentId, requestId: lifecycle.result.id })
-        .catch(() => ({
-          status: "unavailable",
-          reason: "Submission was accepted; related comparison is unavailable.",
-        }));
-      return { handled: true, result: { ...lifecycle.result, relatedKnowledgeComparison } };
-    }
-    return lifecycle;
+    return { handled: false };
   } catch (error) {
     if (error instanceof BrowserGatewayProxyError) {
       await auditDenied(error.code);

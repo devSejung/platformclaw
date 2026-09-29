@@ -34,7 +34,7 @@ export async function requestBrowserKnowledgeVault(params: {
     return { handled: false };
   }
   if (!params.service) {
-    throw new BrowserGatewayProxyError("method-not-allowed", "Memory Hub unavailable");
+    throw new BrowserGatewayProxyError("method-not-allowed", "Wiki Hub unavailable");
   }
   const { service, request, access, method } = params;
   const vaults = service.store.vaults;
@@ -44,7 +44,7 @@ export async function requestBrowserKnowledgeVault(params: {
   try {
     let result: unknown;
     if (method === "platformclaw.vault.snapshot") {
-      result = service.snapshot({
+      result = await service.snapshot({
         userId,
         ...(request.vaultId === undefined ? {} : { vaultId: field("vaultId") }),
       });
@@ -52,7 +52,7 @@ export async function requestBrowserKnowledgeVault(params: {
       if (typeof request.connected !== "boolean") {
         throw new ControlPlaneStateError("connected must be a boolean");
       }
-      result = service.setConnection({
+      result = await service.setConnection({
         userId,
         vaultId: field("vaultId"),
         connected: request.connected,
@@ -61,7 +61,6 @@ export async function requestBrowserKnowledgeVault(params: {
       result = vaults.createVault({
         userId,
         name: field("name", 160),
-        ownerCanExport: true,
         description: request.description === undefined ? "" : field("description", 2000, true),
       });
     } else if (method === "platformclaw.vault.publish") {
@@ -70,52 +69,132 @@ export async function requestBrowserKnowledgeVault(params: {
         agentId: access.binding.agentId,
         lookup: field("lookup"),
         targetVaultId: field("targetVaultId"),
-        path: field("path"),
+        ...(request.path === undefined ? {} : { path: field("path") }),
         expectedRevision: field("expectedRevision", 64),
+        ...(request.title === undefined ? {} : { title: field("title", 240) }),
+        ...(request.content === undefined ? {} : { content: field("content", 1024 * 1024, true) }),
       });
+    } else if (
+      method === "platformclaw.vault.access.cancel" ||
+      method === "platformclaw.vault.access.decide"
+    ) {
+      const decision = method.endsWith(".cancel") ? "cancel" : request.decision;
+      if (decision !== "cancel" && decision !== "approve" && decision !== "reject") {
+        throw new ControlPlaneStateError("Choose approve or reject");
+      }
+      if (method.endsWith(".decide") && decision === "cancel") {
+        throw new ControlPlaneStateError("Choose approve or reject");
+      }
+      result = vaults.decideAccess({ userId, requestId: field("requestId"), decision });
     } else {
       const vaultId = field("vaultId");
       if (method === "platformclaw.vault.document.get") {
-        result = vaults.readDocument({ userId, vaultId, documentId: field("documentId") });
-      } else if (method === "platformclaw.vault.document.save") {
+        result = await service.readDocument({ userId, vaultId, documentId: field("documentId") });
+      } else if (method === "platformclaw.vault.document.targets") {
+        result = await service.documentTargets({
+          userId,
+          vaultId,
+          query: field("query", 160, true),
+        });
+      } else if (method === "platformclaw.vault.document.delete") {
+        if (
+          !(
+            typeof request.expectedRevision === "number" &&
+            Number.isSafeInteger(request.expectedRevision) &&
+            request.expectedRevision > 0
+          ) &&
+          !(
+            typeof request.expectedRevision === "string" &&
+            /^[a-f0-9]{64}$/u.test(request.expectedRevision)
+          )
+        ) {
+          throw new ControlPlaneStateError("Read the document before deleting");
+        }
+        result = await service.deleteDocument({
+          userId,
+          vaultId,
+          documentId: field("documentId"),
+          expectedRevision: request.expectedRevision as number | string,
+        });
+      } else if (
+        method === "platformclaw.vault.document.save" ||
+        method === "platformclaw.vault.document.preview"
+      ) {
         if (
           request.expectedRevision !== undefined &&
+          !(
+            typeof request.expectedRevision === "string" &&
+            /^[a-f0-9]{64}$/u.test(request.expectedRevision)
+          ) &&
           (!Number.isSafeInteger(request.expectedRevision) ||
             (request.expectedRevision as number) < 1)
         ) {
-          throw new ControlPlaneStateError("expectedRevision must be a positive integer");
+          throw new ControlPlaneStateError("expectedRevision must be a source revision");
         }
-        result = vaults.saveDocument({
+        const document = {
           userId,
           vaultId,
-          title: field("title", 240),
-          logicalPath: field("logicalPath"),
+          ...(request.title === undefined ? {} : { title: field("title", 240) }),
+          ...(request.logicalPath === undefined ? {} : { logicalPath: field("logicalPath") }),
+          ...(request.filename === undefined ? {} : { filename: field("filename") }),
           content: field("content", 1024 * 1024, true),
           ...(request.documentId === undefined ? {} : { documentId: field("documentId") }),
           ...(request.expectedRevision === undefined
             ? {}
-            : { expectedRevision: request.expectedRevision as number }),
-        });
+            : { expectedRevision: request.expectedRevision as number | string }),
+        };
+        result =
+          method === "platformclaw.vault.document.preview"
+            ? service.previewDocument(document)
+            : await service.saveDocument(document);
       } else if (method === "platformclaw.vault.member.set") {
-        if (
-          !["reader", "editor", "owner"].includes(String(request.role)) ||
-          typeof request.canExport !== "boolean"
-        ) {
-          throw new ControlPlaneStateError(
-            "A Reader, Editor or Owner role and export permission are required",
-          );
+        if (!["reader", "editor", "owner"].includes(String(request.role))) {
+          throw new ControlPlaneStateError("A Reader, Editor or Owner role is required");
         }
         result = vaults.setMember({
           userId,
           vaultId,
           accountId: field("accountId", 160),
           role: request.role as "reader" | "editor" | "owner",
-          canExport: request.canExport,
         });
       } else if (method === "platformclaw.vault.member.remove") {
         result = vaults.removeMember({ userId, vaultId, memberUserId: field("userId") });
+      } else if (method === "platformclaw.vault.targets.search") {
+        if (request.kind !== "user" && request.kind !== "organization") {
+          throw new ControlPlaneStateError("Choose user or organization");
+        }
+        result = vaults.searchGrantTargets({
+          userId,
+          vaultId,
+          kind: request.kind,
+          query: field("query", 160, true),
+        });
+      } else if (method === "platformclaw.vault.owner.recover") {
+        result = vaults.recoverOwner({ userId, vaultId, accountId: field("accountId", 160) });
+      } else if (method === "platformclaw.vault.grant.set") {
+        if (request.role !== "reader" && request.role !== "editor" && request.role !== "owner") {
+          throw new ControlPlaneStateError("Choose Reader, Editor or Owner");
+        }
+        result = vaults.setOrganizationGrant({
+          userId,
+          vaultId,
+          scopeId: field("scopeId"),
+          role: request.role,
+        });
+      } else if (method === "platformclaw.vault.grant.remove") {
+        result = vaults.removeOrganizationGrant({ userId, vaultId, scopeId: field("scopeId") });
+      } else if (method === "platformclaw.vault.access.request") {
+        if (request.role !== "reader" && request.role !== "editor") {
+          throw new ControlPlaneStateError("Request Reader or Editor");
+        }
+        result = vaults.requestAccess({
+          userId,
+          vaultId,
+          role: request.role,
+          reason: request.reason === undefined ? undefined : field("reason", 1000, true),
+        });
       } else if (method === "platformclaw.vault.rebuild") {
-        result = vaults.rebuild({
+        result = await service.rebuild({
           userId,
           vaultId,
           ...(request.documentId === undefined ? {} : { documentId: field("documentId") }),

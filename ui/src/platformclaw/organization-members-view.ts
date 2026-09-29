@@ -1,6 +1,7 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { renderSettingsRow } from "../components/settings-ui.ts";
 import { platformClawT as t } from "./i18n.ts";
+import { renderMemberTargetSearch } from "./member-target-search.ts";
 import type {
   OrganizationManagement,
   OrganizationMemberRole,
@@ -22,40 +23,27 @@ export function renderOrganizationAddMember(options: {
   return renderSettingsRow({
     title: t("platformClaw.organization.members.add"),
     description: t("platformClaw.organization.members.addDescription"),
-    control: html`<form
-        class="settings-row__controls"
-        @submit=${(event: SubmitEvent) => {
-          event.preventDefault();
-          const value = new FormData(event.currentTarget as HTMLFormElement).get("query");
-          options.onSearch(typeof value === "string" ? value.trim() : "");
-        }}
-      >
-        <input
-          name="query"
-          maxlength="128"
-          placeholder=${t("platformClaw.organization.members.search")}
-        />
-        <button class="btn btn--sm" type="submit">${t("platformClaw.organization.search")}</button>
-      </form>
-      ${options.users.map(
-        (user) => html`<div class="settings-row__controls">
-          <span>${user.displayName ?? user.accountId} · ${user.accountId}</span>
-          <button
-            class="btn btn--sm"
-            ?disabled=${options.busy || Boolean(user.currentRole)}
-            @click=${() => options.onAdd(user.id, user.displayName ?? user.accountId)}
-          >
-            ${user.currentRole
-              ? t(`platformClaw.organization.role.${user.currentRole}`)
-              : t("platformClaw.organization.members.addAction")}
-          </button>
-        </div>`,
-      )}
-      ${options.hasMore
-        ? html`<p class="muted" role="status">
-            ${t("platformClaw.organization.members.searchHasMore")}
-          </p>`
-        : nothing}`,
+    control: renderMemberTargetSearch({
+      label: t("platformClaw.organization.members.search"),
+      searchLabel: t("platformClaw.organization.search"),
+      moreLabel: t("platformClaw.organization.members.searchHasMore"),
+      busy: options.busy,
+      hasMore: options.hasMore,
+      items: options.users.map((user) => ({
+        id: user.id,
+        label: user.displayName ?? user.accountId,
+        detail: user.accountId,
+        action: user.currentRole
+          ? t(`platformClaw.organization.role.${user.currentRole}`)
+          : t("platformClaw.organization.members.addAction"),
+        disabled: Boolean(user.currentRole),
+      })),
+      onSearch: (query) => options.onSearch(query),
+      onSelect: (id) => {
+        const user = options.users.find((entry) => entry.id === id)!;
+        options.onAdd(id, user.displayName ?? user.accountId);
+      },
+    }),
   });
 }
 

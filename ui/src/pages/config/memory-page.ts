@@ -29,7 +29,6 @@ import {
 } from "../agents/memory/dreaming.ts";
 import "./memory-dreaming-page.ts";
 import "./memory-memories.ts";
-import "./memory-promotions.ts";
 import {
   buildMemoryAgentOptions,
   memoryTabRouteLocation,

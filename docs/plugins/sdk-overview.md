@@ -315,7 +315,7 @@ Contract notes:
   requester. OpenClaw never falls back to another requester's credentials.
 
 Memory prompt supplement builders receive optional `agentId`,
-`agentSessionKey`, and `sandboxed` context. Memory corpus supplement `search`
+`agentSessionKey`, `runId`, and `sandboxed` context. Memory corpus supplement `search`
 and `get` calls receive optional `agentId` and `sandboxed` context. Plugins with
 agent-owned storage should resolve that storage for each call instead of
 capturing one global path during registration. If an agent id is required but
@@ -326,6 +326,21 @@ Search adapters also receive optional explicit `vaultId` or `vaultName` selector
 and trusted `runId` context. Resolve names under the caller's current permissions;
 do not guess between duplicate names. The registry filters returned Vault identity
 again so an adapter that ignores a selector cannot broaden the result scope.
+
+Corpus supplements may also implement `scope({ agentId, runId })`, returning
+`{ personalWikiEnabled }` from owner-prepared turn state. This controls default
+Personal Wiki search and prompt inclusion only; raw Memory and explicit reads
+keep their own authority. Do not reinterpret it as a storage selector or ACL.
+
+Optional `wiki(operation)` dispatches `status`, `lint` and `apply` through the
+same owner boundary. Operations carry trusted agent/run context and optional
+explicit Wiki identity. Mutations use `create`, `update` or `refresh`; an update
+carries `lookup`, complete editable `body` and opaque `expectedRevision`.
+Return `{ text, details }` with bounded, actionable outcomes. Return `null` only
+for a target that the adapter does not own, never to hide an owned authorization
+failure. Read results may include `editMode`, `editableContent`, `revision`,
+`totalLines`, `truncated`, `nextFromLine` and `readOnlyReason`; partial excerpts
+must not masquerade as a complete replacement body.
 
 An adapter can attach a `memoryCorpusFailure` object to a thrown error when it
 has a safe, user-facing recovery message. The registry bounds its `error` and
@@ -339,7 +354,7 @@ marker only after confirming that the path belongs to this adapter.
 
 Use `registerMemoryPromptPreparation(...)` when prompt text depends on async
 plugin state. The callback runs once before each full agent prompt and receives
-the same tool, agent, session, and sandbox context as synchronous memory prompt
+the same tool, agent, session, run, and sandbox context as synchronous memory prompt
 builders. Validate the current storage-owner instance before loading persisted
 state, then return only lines for that run. OpenClaw freezes those lines and
 hands the immutable result to synchronous prompt assembly. Keep persistence,

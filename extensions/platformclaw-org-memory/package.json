@@ -2,7 +2,7 @@
   "name": "@platformclaw/org-memory",
   "version": "2026.7.2",
   "private": true,
-  "description": "Private PlatformClaw organizational memory corpus adapter.",
+  "description": "Private PlatformClaw Wiki Hub adapter.",
   "type": "module",
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*"

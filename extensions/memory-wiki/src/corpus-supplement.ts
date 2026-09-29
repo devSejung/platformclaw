@@ -1,3 +1,4 @@
+import { resolveMemoryCorpusScope } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 // Memory Wiki plugin module implements corpus supplement behavior.
 import type { OpenClawConfig } from "../api.js";
 import type { MemoryWikiConfigResolver } from "./config.js";
@@ -12,6 +13,7 @@ export function createWikiCorpusSupplement(params: {
     status: () => ({ available: true as const }),
     search: async (input: {
       query: string;
+      runId?: string;
       vaultId?: string;
       vaultName?: string;
       maxResults?: number;
@@ -19,7 +21,10 @@ export function createWikiCorpusSupplement(params: {
       agentSessionKey?: string;
       sandboxed?: boolean;
     }) => {
-      if (input.vaultName) {
+      if (
+        input.vaultName ||
+        (!input.vaultId && !(await resolveMemoryCorpusScope(input)).personalWikiEnabled)
+      ) {
         return [];
       }
       const appConfig = params.getAppConfig();

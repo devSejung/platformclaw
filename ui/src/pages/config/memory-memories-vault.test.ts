@@ -1,5 +1,5 @@
 /* @vitest-environment jsdom */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import { loadPlatformClawLocale, platformClawT } from "../../platformclaw/i18n.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
@@ -9,6 +9,9 @@ import "./memory-memories.ts";
 beforeEach(async () => {
   await i18n.setLocale("en");
   await loadPlatformClawLocale();
+});
+afterEach(async () => {
+  await i18n.setLocale("en");
 });
 
 describe("server unified Vault search", () => {
@@ -25,7 +28,7 @@ describe("server unified Vault search", () => {
           snippet: "Last successfully indexed text",
           source: "wiki",
           vaultId: "personal:main",
-          vaultName: "Personal Wiki",
+          vaultName: "Personal",
           vaultType: "personal",
           documentId: "training",
           title: "Training",
@@ -57,6 +60,42 @@ describe("server unified Vault search", () => {
     }
   });
 
+  it("routes Personal Wiki hits through the same Wiki Hub reader callback while raw Memory uses its own file owner", async () => {
+    const hit = {
+      source: "wiki",
+      vaultId: "personal:main",
+      vaultName: "Personal",
+      vaultType: "personal",
+      documentId: "concepts/a.md",
+      path: "concepts/a.md",
+      title: "Personal title",
+      snippet: "Text",
+      revision: "hash",
+      score: 1,
+      startLine: 1,
+      endLine: 1,
+    };
+    const request = vi.fn().mockResolvedValue({ agentId: "main", results: [hit] });
+    const open = vi.fn();
+    const element = createElement(request);
+    Object.assign(element, {
+      unifiedSearch: true,
+      vaultGetAdvertised: true,
+      openVaultDocument: open,
+    });
+    try {
+      await typeQuery(element, "text");
+      submit(element);
+      await waitForFast(() =>
+        expect(element.querySelector(".wiki-hub__document-card button")).not.toBeNull(),
+      );
+      (element.querySelector(".wiki-hub__document-card button") as HTMLButtonElement).click();
+      expect(open).toHaveBeenCalledWith("personal:main", "concepts/a.md");
+      expect(request).toHaveBeenCalledOnce();
+    } finally {
+      element.remove();
+    }
+  });
   it.each(["en", "ko"] as const)(
     "uses connected search and localized shared provenance in %s",
     async (locale) => {
@@ -102,7 +141,21 @@ describe("server unified Vault search", () => {
         });
         expect(
           element.querySelector("[data-vault-provenance]")?.textContent?.replace(/\s+/gu, " "),
-        ).toContain(`PHY · shared · v1 · d1 · ${locale === "ko" ? "버전" : "Revision"} 7`);
+        ).toContain(
+          `PHY · ${locale === "ko" ? "공유 · Shared" : "Shared"} · ${locale === "ko" ? "버전" : "Revision"} 7`,
+        );
+        const provenance = element.querySelector<HTMLDetailsElement>(
+          ".memory-memories__provenance-details",
+        )!;
+        expect(provenance.open).toBe(false);
+        expect(provenance.closest("button")).toBeNull();
+        expect(provenance.textContent).toContain("v1 · d1");
+        expect(provenance.textContent).toContain(hit.path);
+        expect(element.querySelector("[aria-controls=memory-detail-0]")?.textContent).not.toContain(
+          hit.path,
+        );
+        provenance.querySelector("summary")!.click();
+        expect(provenance.open).toBe(true);
         element.querySelector<HTMLButtonElement>("[aria-controls=memory-detail-0]")!.click();
         await waitForFast(() =>
           expect(element.querySelector("#memory-detail-0 h1")?.textContent).toBe("Shared training"),

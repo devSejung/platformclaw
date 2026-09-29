@@ -109,15 +109,39 @@ export function projectWikiDocumentResult(params: {
       params.fail,
       MAX_WIKI_CONTENT_CHARS,
     );
+  }
+  if (item.revision !== undefined || editMode) {
     result.revision =
       typeof item.revision === "string" && WIKI_CONTENT_HASH.test(item.revision)
         ? item.revision
-        : params.fail("Gateway returned Wiki edit data without a valid revision");
+        : params.fail("Gateway returned Wiki data without a valid revision");
   }
   const sourceType = optionalText(item.sourceType, "wiki source type", params.fail, 256);
+  const links = item.links === undefined ? [] : item.links;
+  if (
+    !Array.isArray(links) ||
+    links.length > 2000 ||
+    (item.linksTruncated !== undefined && typeof item.linksTruncated !== "boolean")
+  ) {
+    return params.fail("Gateway returned invalid Wiki document links");
+  }
+  const projectedLinks = links.map((value) => {
+    const link = failObject(value, "wiki document link", params.fail);
+    return {
+      target: text(link.target, "wiki link target", params.fail, 1024),
+      documentId:
+        link.documentId === null
+          ? null
+          : wikiPath(link.documentId, "wiki link document", params.fail),
+      logicalPath: text(link.logicalPath, "wiki link logical path", params.fail, 1024),
+      title: text(link.title, "wiki link title", params.fail, 1024),
+    };
+  });
   const updatedAt = optionalText(item.updatedAt, "wiki updatedAt", params.fail, 256);
   return {
     ...result,
+    links: projectedLinks,
+    linksTruncated: item.linksTruncated ?? false,
     ...(sourceType ? { sourceType } : {}),
     ...(updatedAt ? { updatedAt } : {}),
   };

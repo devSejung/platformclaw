@@ -133,7 +133,7 @@ suite("PlatformClaw search-first Memory product experience", () => {
     await server?.close();
   });
 
-  it("routes all four tabs with browser history and an accessible shared panel", async () => {
+  it("routes all three tabs with browser history and an accessible shared panel", async () => {
     const context = await createContext({
       locale: "en-US",
       mode: "light",
@@ -179,38 +179,11 @@ suite("PlatformClaw search-first Memory product experience", () => {
         )
         .toEqual(["Search all knowledge", "Long-term memory", "Recent daily memory"]);
 
-      await memoryTabs.getByRole("tab", { name: "Personal Wiki", exact: true }).click();
-      await expectActive("Personal Wiki", "wiki", "/platformclaw/app/settings/memory/wiki");
-      const wikiPanel = page.locator("openclaw-agent-memory-panel");
-      await expect.poll(() => wikiPanel.textContent()).toContain("Release preflight synthesis");
-      await wikiPanel.getByRole("button", { name: "Graph", exact: true }).click();
-      await expect.poll(async () => (await gateway.getRequests("wiki.graph")).length).toBe(1);
-      await expect.poll(() => wikiPanel.locator(".memory-wiki-graph svg").count()).toBe(1);
-      await expect.poll(() => wikiPanel.locator(".memory-wiki-graph__edges line").count()).toBe(1);
-      await wikiPanel.locator('[data-wiki-node="syntheses/release-preflight.md"] circle').click();
+      await memoryTabs.getByRole("tab", { name: "Wiki Hub", exact: true }).click();
+      await expectActive("Wiki Hub", "vaults", "/platformclaw/app/settings/memory/vaults");
       await expect
-        .poll(() => wikiPanel.locator(".memory-wiki-graph__inspector").textContent())
-        .toContain("Release ownership");
-      expect(await gateway.getRequests("wiki.document.get")).toHaveLength(0);
-      await wikiPanel.locator(".memory-wiki-graph__open").click();
-      await expect
-        .poll(async () => (await gateway.getRequests("wiki.document.get")).length)
-        .toBe(1);
-      await expect
-        .poll(() => page.locator(".wiki-document__reader").textContent())
-        .toContain("Record canary health and the responsible owner.");
-      await page.getByRole("button", { name: "Close" }).click();
-
-      await memoryTabs.getByRole("tab", { name: "Organization", exact: true }).click();
-      await expectActive(
-        "Organization",
-        "organization",
-        "/platformclaw/app/settings/memory/organization",
-      );
-      await expect
-        .poll(() => page.locator("openclaw-memory-promotions").textContent())
-        .toContain("Runtime");
-
+        .poll(() => page.locator("platformclaw-memory-vaults").textContent())
+        .toContain("Ulysses PHY Spec");
       await memoryTabs.getByRole("tab", { name: "Dreaming", exact: true }).click();
       await expectActive("Dreaming", "dreaming", "/platformclaw/app/settings/memory/dreams");
       await expect
@@ -248,16 +221,12 @@ suite("PlatformClaw search-first Memory product experience", () => {
       await page.goBack();
       await expectActive("Dreaming", "dreaming", "/platformclaw/app/settings/memory/dreams");
       await page.goBack();
-      await expectActive(
-        "Organization",
-        "organization",
-        "/platformclaw/app/settings/memory/organization",
-      );
+      await expectActive("Wiki Hub", "vaults", "/platformclaw/app/settings/memory/vaults");
       await page.goForward();
       await expectActive("Dreaming", "dreaming", "/platformclaw/app/settings/memory/dreams");
 
       expect(await gateway.getRequests("wiki.get")).toHaveLength(0);
-      expect(await gateway.getRequests("platformclaw.memory.get")).toHaveLength(0);
+
       expect(await gateway.getRequests("config.get")).toHaveLength(0);
       expect(await gateway.getRequests("config.patch")).toHaveLength(0);
       expect(JSON.stringify(await gateway.getRequests())).not.toContain("foreign-agent");
@@ -316,6 +285,7 @@ suite("PlatformClaw search-first Memory product experience", () => {
         await expect
           .poll(() => surface.locator("#memory-long-term-detail").textContent())
           .toContain("bounded canary");
+        await page.keyboard.press("Escape");
 
         const search = surface.locator("#memory-search-input");
         await search.fill("release");
@@ -331,7 +301,7 @@ suite("PlatformClaw search-first Memory product experience", () => {
         const firstResult = surface.locator(".memory-memories__results button").first();
         await firstResult.focus();
         await page.keyboard.press("Space");
-        await expect.poll(() => firstResult.getAttribute("aria-expanded")).toBe("true");
+        await expect.poll(() => surface.locator("[data-knowledge-document]").count()).toBe(1);
         await expect
           .poll(() => surface.locator("#memory-detail-0").textContent())
           .toContain("Canary stayed healthy");
@@ -381,7 +351,11 @@ suite("PlatformClaw search-first Memory product experience", () => {
       await expect
         .poll(() => surface.textContent())
         .toContain("Canary stayed healthy for thirty minutes");
-      await cachedRecent.click();
+      await surface
+        .locator("[data-knowledge-document] .wiki-document__actions button")
+        .last()
+        .click();
+      await expect.poll(() => surface.locator("[data-knowledge-document]").count()).toBe(0);
       const refreshButton = surface.getByRole("button", {
         name: "개인 Memory 새로고침",
         exact: true,
@@ -426,6 +400,11 @@ suite("PlatformClaw search-first Memory product experience", () => {
       await expect
         .poll(() => surface.textContent())
         .toContain("Canary stayed healthy for thirty minutes");
+      await surface
+        .locator("[data-knowledge-document] .wiki-document__actions button")
+        .last()
+        .click();
+      await expect.poll(() => surface.locator("[data-knowledge-document]").count()).toBe(0);
       const cachedMemory = surface.locator('button[aria-controls="memory-long-term-detail"]');
       expect(await cachedMemory.isVisible()).toBe(true);
       await cachedMemory.click();
@@ -436,7 +415,11 @@ suite("PlatformClaw search-first Memory product experience", () => {
       expect(await searchButton.isDisabled()).toBe(true);
       await expectNoHorizontalOverflow(page);
       expect(await surface.locator(".settings-status").count()).toBe(0);
-      await cachedMemory.click();
+      await surface
+        .locator("[data-knowledge-document] .wiki-document__actions button")
+        .last()
+        .click();
+      await expect.poll(() => surface.locator("[data-knowledge-document]").count()).toBe(0);
       await page.locator("#control-ui-main").evaluate((element) => {
         element.scrollTop = 0;
       });
@@ -449,6 +432,11 @@ suite("PlatformClaw search-first Memory product experience", () => {
         .poll(() => surface.textContent())
         .toContain("The release checklist starts with a bounded canary");
       await captureScreenshot(page, "07b-memory-cached-detail-mobile-dark.png");
+      await surface
+        .locator("[data-knowledge-document] .wiki-document__actions button")
+        .last()
+        .click();
+      await expect.poll(() => surface.locator("[data-knowledge-document]").count()).toBe(0);
       await gateway.setOnline(true);
       await expect.poll(() => gatewayPhase(page), { timeout: 10_000 }).toBe("connected");
       await expect
@@ -498,154 +486,4 @@ suite("PlatformClaw search-first Memory product experience", () => {
       await context.close();
     }
   }, 60_000);
-
-  it("preserves server-projected member and admin organization states", async () => {
-    const roles = [
-      {
-        role: "member" as const,
-        mode: "light" as const,
-        name: "09-organization-member-desktop-light.png",
-        lifecycle: {
-          scopes: [
-            {
-              kind: "part",
-              id: "part-runtime",
-              name: "Runtime",
-              canRead: true,
-              canAdminister: false,
-            },
-          ],
-          personalTargets: [
-            { kind: "part", scopeId: "part-runtime", scopeName: "Runtime", mode: "request" },
-          ],
-          claims: [],
-          submitted: [],
-          reviewable: [],
-          canApproveGlobal: false,
-        },
-      },
-      {
-        role: "admin" as const,
-        mode: "dark" as const,
-        name: "10-organization-admin-desktop-dark.png",
-        lifecycle: {
-          scopes: [{ kind: "global", name: "Global", canRead: true, canAdminister: true }],
-          personalTargets: [{ kind: "global", scopeName: "Global", mode: "direct" }],
-          claims: [
-            {
-              id: "claim-1",
-              scopeKind: "global",
-              scopeName: "Global",
-              title: "Release policy",
-              text: "Two approvals are required before production rollout.",
-              revision: 1,
-              status: "active",
-              createdAt: 1,
-              updatedAt: 1,
-              promotionTargets: [],
-              canRetire: true,
-              canPurge: false,
-            },
-            {
-              id: "claim-2",
-              scopeKind: "global",
-              scopeName: "Global",
-              title: "Retired incident note",
-              text: "Legacy incident note pending privacy cleanup.",
-              revision: 2,
-              status: "retired",
-              createdAt: 1,
-              updatedAt: 2,
-              promotionTargets: [],
-              canRetire: false,
-              canPurge: true,
-            },
-          ],
-          submitted: [],
-          reviewable: [
-            {
-              id: "request-1",
-              sourceKind: "personal",
-              sourceClaimId: "runbooks/release.md",
-              sourceRevision: 1,
-              targetKind: "global",
-              targetScopeName: "Global",
-              proposedText: "Keep rollback owners on call.",
-              evidence: ["incident-1"],
-              reason: "Reusable release policy",
-              status: "pending",
-              createdAt: 1,
-              canReview: true,
-            },
-          ],
-          canApproveGlobal: true,
-        },
-      },
-    ];
-
-    for (const scenario of roles) {
-      const context = await createContext({
-        locale: "en-US",
-        mode: scenario.mode,
-        viewport: { height: 900, width: 1440 },
-      });
-      try {
-        const { gateway, page } = await openMemory(
-          context,
-          {
-            featureMethods: [...memoryMethods, "platformclaw.memory.lifecycle"],
-            methodResponses: {
-              ...populatedResponses,
-              "platformclaw.memory.lifecycle": scenario.lifecycle,
-            },
-          },
-          scenario.role,
-        );
-        await page
-          .locator(".platformclaw-memory-page__tabs")
-          .getByRole("tab", { name: "Organization", exact: true })
-          .click();
-        const organization = page.locator("openclaw-memory-promotions");
-        await expect
-          .poll(() => organization.textContent())
-          .toContain(scenario.role === "admin" ? "Keep rollback owners" : "Runtime");
-        await organization
-          .getByRole("combobox", { name: "Target scope" })
-          .selectOption(scenario.role === "admin" ? "global" : "part-runtime");
-        await expectTheme(page, scenario.mode);
-        if (scenario.role === "admin") {
-          const publishDirect = organization.getByRole("button", {
-            name: "Publish directly as administrator",
-          });
-          const retire = organization.getByRole("button", { name: "Retire" });
-          const hardPurge = organization.getByRole("button", { name: "Hard purge" });
-          await expect.poll(() => publishDirect.isVisible()).toBe(true);
-          await expect.poll(() => retire.isVisible()).toBe(true);
-          await expect.poll(() => hardPurge.isVisible()).toBe(true);
-          await publishDirect.scrollIntoViewIfNeeded();
-          await captureScreenshot(page, scenario.name);
-          await hardPurge.scrollIntoViewIfNeeded();
-          await captureScreenshot(page, "12-organization-admin-lifecycle-controls-dark.png");
-        } else {
-          const requestPromotion = organization.getByRole("button", { name: "Request promotion" });
-          await expect.poll(() => requestPromotion.isVisible()).toBe(true);
-          expect(
-            await organization
-              .getByRole("button", { name: "Publish directly as administrator" })
-              .count(),
-          ).toBe(0);
-          expect(await organization.getByRole("button", { name: "Retire" }).count()).toBe(0);
-          expect(await organization.getByRole("button", { name: "Hard purge" }).count()).toBe(0);
-          await requestPromotion.scrollIntoViewIfNeeded();
-          await captureScreenshot(page, scenario.name);
-        }
-        expect(await gateway.getRequests("platformclaw.memory.lifecycle")).toEqual([
-          expect.objectContaining({ params: {} }),
-        ]);
-        expect(await gateway.getRequests("config.get")).toHaveLength(0);
-      } finally {
-        await context.close();
-      }
-    }
-  }, 120_000);
 });

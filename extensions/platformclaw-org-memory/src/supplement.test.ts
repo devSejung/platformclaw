@@ -1,7 +1,54 @@
 import { describe, expect, it, vi } from "vitest";
-import { createOrganizationMemorySupplement } from "./supplement.js";
+import { createWikiHubCorpusSupplement } from "./supplement.js";
 
-describe("PlatformClaw organization memory supplement", () => {
+describe("Wiki Hub supplement", () => {
+  it("forwards common operations with the prepared scope and passes editor metadata", async () => {
+    const scope = { revision: 9, vaultIds: ["one"], personalEnabled: false };
+    const wiki = vi.fn(async () => ({ text: "One Wiki, healthy", details: { vaultId: "one" } }));
+    const supplement = createWikiHubCorpusSupplement(
+      {
+        search: async () => [],
+        get: async () => ({
+          vaultId: "one",
+          vaultName: "Spec",
+          vaultType: "shared",
+          documentId: "doc",
+          revision: 7,
+          path: "shared/one/doc",
+          title: "Spec",
+          content: "editable body",
+          editMode: "body",
+          fromLine: 1,
+          lineCount: 1,
+          totalLines: 1,
+          truncated: false,
+        }),
+        wiki,
+      },
+      { warn: vi.fn() },
+      () => scope,
+      async () => scope,
+    );
+    await expect(supplement.scope!({ agentId: "owner", runId: "run" })).resolves.toEqual({
+      personalWikiEnabled: false,
+    });
+    await supplement.wiki({ agentId: "owner", runId: "run", operation: "status" });
+    expect(wiki).toHaveBeenCalledWith({
+      agentId: "owner",
+      runId: "run",
+      operation: "status",
+      turnScope: scope,
+    });
+    await expect(
+      supplement.get({ agentId: "owner", lookup: "shared/one/doc" }),
+    ).resolves.toMatchObject({
+      revision: 7,
+      editMode: "body",
+      content: "editable body",
+      totalLines: 1,
+      truncated: false,
+    });
+  });
   it("forwards an explicit name without a captured scope and preserves safe disambiguation", async () => {
     const failure = {
       error: "Multiple accessible Vaults have that exact name",
@@ -14,7 +61,7 @@ describe("PlatformClaw organization memory supplement", () => {
     const getTurnScope = vi.fn(() => {
       throw new Error("must not capture");
     });
-    const supplement = createOrganizationMemorySupplement(
+    const supplement = createWikiHubCorpusSupplement(
       { search, get: vi.fn() },
       { warn: vi.fn() },
       getTurnScope,
@@ -34,7 +81,7 @@ describe("PlatformClaw organization memory supplement", () => {
     });
     expect(getTurnScope).not.toHaveBeenCalled();
     await expect(
-      createOrganizationMemorySupplement(null, { warn: vi.fn() }).get({
+      createWikiHubCorpusSupplement(null, { warn: vi.fn() }).get({
         lookup: "concepts/private.md",
         agentId: "person_one",
       }),
@@ -68,7 +115,7 @@ describe("PlatformClaw organization memory supplement", () => {
       fromLine: 1,
       lineCount: 1,
     }));
-    const supplement = createOrganizationMemorySupplement({ search, get }, { warn: vi.fn() });
+    const supplement = createWikiHubCorpusSupplement({ search, get }, { warn: vi.fn() });
     await expect(
       supplement.search({ query: "training", agentId: "person_one", vaultId: "project-one" }),
     ).resolves.toEqual([expect.objectContaining(identity)]);
@@ -86,68 +133,51 @@ describe("PlatformClaw organization memory supplement", () => {
     });
   });
 
+  it("marks an owned Shared read outage so it cannot fall through to Personal", async () => {
+    const supplement = createWikiHubCorpusSupplement(
+      {
+        search: async () => [],
+        get: async () => {
+          throw new Error("private socket path");
+        },
+      },
+      { warn: vi.fn() },
+    );
+    await expect(
+      supplement.get({ lookup: "shared/project-one/doc-one", agentId: "person_one" }),
+    ).rejects.toMatchObject({
+      memoryCorpusFailure: expect.objectContaining({ action: expect.any(String) }),
+    });
+  });
+
   it("declares default participation and reports missing managed wiring", async () => {
-    const supplement = createOrganizationMemorySupplement(null, { warn: vi.fn() });
+    const supplement = createWikiHubCorpusSupplement(null, { warn: vi.fn() });
 
     expect(supplement.includeByDefault).toBe(true);
     expect(supplement.status()).toEqual({ available: false, reason: "not-configured" });
     await expect(supplement.search({ query: "release", agentId: "person_one" })).rejects.toThrow(
-      "Knowledge Vault service is unavailable",
+      "Wiki Hub service is unavailable",
     );
   });
 
-  it("maps bounded virtual results and forwards the pinned agent", async () => {
-    const search = vi.fn(async () => [
-      {
-        path: "organization/team/page-1",
-        title: "Release policy",
-        vaultId: "managed:team:platform",
-        vaultName: "Platform",
-        vaultType: "managed",
-        documentId: "page-1",
-        revision: 1,
-        snippet: "Two approvals",
-        score: 0.9,
-        updatedAt: 1_000,
-      },
-    ]);
-    const get = vi.fn(async () => ({
-      path: "organization/team/page-1",
-      title: "Release policy",
-      vaultId: "managed:team:platform",
-      vaultName: "Platform",
-      vaultType: "managed",
-      documentId: "page-1",
-      revision: 1,
-      content: "Two approvals",
-      fromLine: 1,
-      lineCount: 1,
-    }));
-    const supplement = createOrganizationMemorySupplement({ search, get }, { warn: vi.fn() });
-
+  it("rejects retired Organization results and never reads their paths", async () => {
+    const get = vi.fn();
+    const supplement = createWikiHubCorpusSupplement(
+      { search: async () => [{ vaultType: "managed", path: "organization/team/old" }], get },
+      { warn: vi.fn() },
+    );
+    await expect(supplement.search({ query: "legacy", agentId: "person_one" })).rejects.toThrow(
+      "Wiki Hub service is unavailable",
+    );
     await expect(
-      supplement.search({ query: "release", maxResults: 5, agentId: "person_one" }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        corpus: "platformclaw-organization",
-        source: "organization",
-        path: "organization/team/page-1",
-        provenanceLabel: "Platform",
-      }),
-    ]);
-    expect(search).toHaveBeenCalledWith({
-      agentId: "person_one",
-      query: "release",
-      maxResults: 5,
-    });
-    await expect(
-      supplement.get({ lookup: "organization/team/page-1", agentId: "person_one" }),
-    ).resolves.toMatchObject({ content: "Two approvals", fromLine: 1, lineCount: 1 });
+      supplement.get({ lookup: "organization/team/old", agentId: "person_one" }),
+    ).resolves.toBeNull();
+    expect(get).not.toHaveBeenCalled();
   });
 
   it("fails closed for foreign paths and surfaces organization search outages", async () => {
     const warn = vi.fn();
-    const supplement = createOrganizationMemorySupplement(
+    const supplement = createWikiHubCorpusSupplement(
       {
         search: vi.fn(async () => {
           throw new Error("offline");
@@ -157,7 +187,7 @@ describe("PlatformClaw organization memory supplement", () => {
       { warn },
     );
     await expect(supplement.search({ query: "x", agentId: "person_one" })).rejects.toThrow(
-      "Knowledge Vault service is unavailable",
+      "Wiki Hub service is unavailable",
     );
     await expect(
       supplement.get({ lookup: "/srv/private/page", agentId: "person_one" }),

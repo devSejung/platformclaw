@@ -126,13 +126,13 @@ describe("agent-scoped memory-wiki tools", () => {
       const result = await createWikiApplyTool(agent.config, appConfig).execute(
         `apply-${agent.id}`,
         {
-          op: "create_synthesis",
+          op: "create",
+          vaultId: `personal:${agent.id}`,
           title: agent.title,
           body: `Private synthesis marker: ${agent.sentinel}`,
-          sourceIds: [`source.${agent.id}`],
         },
       );
-      const pagePath = asRecord(result.details).pagePath;
+      const pagePath = asRecord(result.details).path;
       if (typeof pagePath !== "string") {
         throw new Error("Expected wiki_apply to return pagePath");
       }

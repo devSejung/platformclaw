@@ -1,18 +1,3 @@
-import type {
-  OrganizationMemoryClaim,
-  OrganizationMemoryDocument,
-  OrganizationMemoryGraph,
-  OrganizationMemoryGraphKind,
-  OrganizationMemoryLifecycleSnapshot,
-  OrganizationMemoryPromotionReferenceParameters,
-  OrganizationMemoryPromotionRequest,
-  OrganizationMemoryPromotionSourceKind,
-  OrganizationMemoryReferencesPreview,
-  OrganizationMemoryScopeKind,
-  OrganizationMemorySearchHit,
-} from "./organization-memory-contracts.js";
-export type * from "./organization-memory-contracts.js";
-
 export const BROWSER_SESSION_POLICY = {
   idleTimeoutMs: 12 * 60 * 60 * 1000,
   absoluteTimeoutMs: 7 * 24 * 60 * 60 * 1000,
@@ -358,84 +343,6 @@ export interface ControlPlaneAuditReader {
   listAuditEvents(limit?: number): Promise<ControlAuditEvent[]>;
 }
 
-/** Read-only shared-memory boundary. PR4 is the sole owner of approved writes. */
-export interface OrganizationMemoryReader {
-  searchOrganizationMemory(params: {
-    agentId: string;
-    query: string;
-    maxResults?: number;
-  }): Promise<OrganizationMemorySearchHit[]>;
-  getOrganizationMemory(params: {
-    agentId: string;
-    path: string;
-    fromLine?: number;
-    lineCount?: number;
-  }): Promise<OrganizationMemoryDocument | null>;
-  getOrganizationMemoryGraph(params: {
-    agentId: string;
-    kind: OrganizationMemoryGraphKind;
-    scopeId?: string;
-  }): Promise<OrganizationMemoryGraph>;
-}
-
-/** Authenticated claim-level promotion owner. Browser callers are always Agent-pinned. */
-export interface OrganizationMemoryLifecycle {
-  previewOrganizationMemoryPromotionReferences(
-    params: OrganizationMemoryPromotionReferenceParameters,
-  ): Promise<{ proposedText: string; references?: OrganizationMemoryReferencesPreview }>;
-  getOrganizationMemoryLifecycle(
-    agentId: string,
-    page?: { claims?: number; submitted?: number; reviewable?: number },
-  ): Promise<OrganizationMemoryLifecycleSnapshot>;
-  submitOrganizationMemoryPromotion(params: {
-    expectedReferencesFingerprint?: string;
-    agentId: string;
-    sourceKind: OrganizationMemoryPromotionSourceKind;
-    sourceClaimId: string;
-    expectedSourceRevision?: number;
-    targetKind: OrganizationMemoryScopeKind;
-    targetScopeId?: string;
-    proposedText: string;
-    evidence: string[];
-    reason: string;
-    submittedAt: number;
-  }): Promise<OrganizationMemoryPromotionRequest>;
-  publishOrganizationMemoryDirect(params: {
-    expectedReferencesFingerprint?: string;
-    agentId: string;
-    sourceKind: OrganizationMemoryPromotionSourceKind;
-    sourceClaimId: string;
-    expectedSourceRevision?: number;
-    targetKind: OrganizationMemoryScopeKind;
-    targetScopeId?: string;
-    proposedText: string;
-    evidence: string[];
-    reason: string;
-    publishedAt: number;
-  }): Promise<OrganizationMemoryPromotionRequest>;
-  decideOrganizationMemoryPromotion(params: {
-    expectedReferencesFingerprint?: string;
-    expectedComparisonFingerprint?: string;
-    agentId: string;
-    requestId: string;
-    decision: "approve" | "reject";
-    reason: string;
-    decidedAt: number;
-  }): Promise<OrganizationMemoryPromotionRequest>;
-  retireOrganizationMemoryClaim(params: {
-    agentId: string;
-    claimId: string;
-    reason: string;
-    retiredAt: number;
-  }): Promise<OrganizationMemoryClaim>;
-  purgeOrganizationMemoryClaim(params: {
-    agentId: string;
-    claimId: string;
-    reason: string;
-    purgedAt: number;
-  }): Promise<OrganizationMemoryClaim>;
-}
-
 export interface ControlPlaneManagementStore {
   setManagedUserStatus(params: {
     actorUserId: string;
@@ -616,9 +523,7 @@ export class ControlPlaneNotFoundError extends Error {
       | "knowledge-vault-attachment"
       | "agent-binding"
       | "managed-scope"
-      | "organization-join-request"
-      | "memory-promotion"
-      | "organization-memory-claim",
+      | "organization-join-request",
     id: string,
   ) {
     super(`${resource} not found: ${id}`);

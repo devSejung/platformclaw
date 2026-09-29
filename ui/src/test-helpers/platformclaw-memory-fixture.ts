@@ -3,10 +3,11 @@ import type { ThemeName } from "../app/theme.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import { controlUiBundledGatewayUrl, type ControlUiMockGatewayScenario } from "./control-ui-e2e.ts";
 import {
-  organizationMemoryGetCases,
-  organizationMemoryGraphCases,
-  organizationMemoryLifecycle,
-} from "./platformclaw-organization-memory-fixture-data.ts";
+  wikiHubMethods,
+  wikiHubResponses,
+  wikiHubPersonalDocument,
+  wikiHubPersonalId,
+} from "./platformclaw-wiki-hub-fixture.ts";
 
 export const platformClawMemoryAgentId = "assigned-personal";
 
@@ -77,15 +78,13 @@ const releaseOwnershipDocument = editableWikiDocument({
 });
 
 export const platformClawMemoryMethods = [
+  ...wikiHubMethods,
   "agents.list",
   "agents.workspace.get",
   "agents.workspace.list",
   "doctor.memory.dreamDiary",
   "doctor.memory.status",
   "memory.search",
-  "platformclaw.memory.get",
-  "platformclaw.memory.graph",
-  "platformclaw.memory.lifecycle",
   "wiki.document.get",
   "wiki.graph",
   "wiki.get",
@@ -101,6 +100,7 @@ const personalRoster = {
 };
 
 export const platformClawMemoryResponses: PlatformClawMemoryResponses = {
+  ...wikiHubResponses,
   "agents.list": personalRoster,
   "agents.workspace.get": {
     cases: [
@@ -149,16 +149,18 @@ export const platformClawMemoryResponses: PlatformClawMemoryResponses = {
         endLine: 3,
       },
       {
-        source: "organization",
-        corpus: "platformclaw-organization",
-        path: "organization/group/platform-release-policy",
-        title: "Platform release policy",
-        kind: "group",
-        provenanceLabel: "Platform",
-        snippet: "Two approvals are required before production rollout.",
+        source: "wiki",
+        vaultId: wikiHubPersonalId,
+        vaultName: "Personal",
+        vaultType: "personal",
+        documentId: wikiHubPersonalDocument.id,
+        revision: wikiHubPersonalDocument.revision,
+        path: wikiHubPersonalDocument.logicalPath,
+        title: wikiHubPersonalDocument.title,
+        snippet: "Canary health and owner checks should be recorded together.",
         score: 0.91,
         startLine: 1,
-        endLine: 1,
+        endLine: 3,
       },
     ],
   },
@@ -214,9 +216,6 @@ export const platformClawMemoryResponses: PlatformClawMemoryResponses = {
       truncated: false,
     },
   },
-  "platformclaw.memory.get": { cases: organizationMemoryGetCases },
-  "platformclaw.memory.graph": { cases: organizationMemoryGraphCases },
-  "platformclaw.memory.lifecycle": organizationMemoryLifecycle,
   "wiki.overview": {
     totalItems: 2,
     totalPages: 2,

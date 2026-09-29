@@ -220,6 +220,7 @@ export default definePluginEntry({
         const resolved = resolveToolContext(ctx.agentId);
         return resolved
           ? createWikiStatusTool(resolved.config, resolved.appConfig, {
+              runId: ctx.runId,
               agentId: resolved.config.agentId ?? ctx.agentId,
             })
           : null;
@@ -229,14 +230,24 @@ export default definePluginEntry({
     api.registerTool(
       (ctx) => {
         const resolved = resolveToolContext(ctx.agentId);
-        return resolved ? createWikiLintTool(resolved.config, resolved.appConfig) : null;
+        return resolved
+          ? createWikiLintTool(resolved.config, resolved.appConfig, {
+              runId: ctx.runId,
+              agentId: resolved.config.agentId ?? ctx.agentId,
+            })
+          : null;
       },
       { name: "wiki_lint" },
     );
     api.registerTool(
       (ctx) => {
         const resolved = resolveToolContext(ctx.agentId);
-        return resolved ? createWikiApplyTool(resolved.config, resolved.appConfig) : null;
+        return resolved
+          ? createWikiApplyTool(resolved.config, resolved.appConfig, {
+              runId: ctx.runId,
+              agentId: resolved.config.agentId ?? ctx.agentId,
+            })
+          : null;
       },
       { name: "wiki_apply" },
     );

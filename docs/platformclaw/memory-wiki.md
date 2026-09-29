@@ -1,52 +1,231 @@
 ---
-summary: "PlatformClaw personal and shared Memory Wiki rollout contract"
+summary: "PlatformClaw Wiki Hub privacy, sharing, access and upgrade behavior"
 read_when:
-  - Enabling Memory Wiki for PlatformClaw employees
-  - Implementing shared knowledge scopes, promotion, or approval
-  - Reviewing Memory Wiki ownership and BFF policy
+  - Using Personal or Shared Wiki in PlatformClaw
+  - Operating Wiki Hub access and source backups
+  - Upgrading a deployment with legacy organization knowledge
 title: "Memory Wiki rollout"
 ---
 
-# Memory Wiki rollout
+# Wiki Hub
 
-PlatformClaw adopts the bundled OpenClaw `memory-wiki` plugin instead of
-building a second wiki engine. The rollout keeps durable personal memory,
-compiled wiki pages, and shared knowledge as distinct product layers.
+Open **Settings > Memory > Wiki Hub**. Personal and Shared Wikis use the same
+catalog, document cards, reader/editor dialog, search and graph. **Memory** remains
+the separate durable recall surface; **Dreaming** remains personal consolidation.
+Organization directory management stays under **Settings > Organization**.
 
-## Layer model
+## Upgrade deletes retired organization knowledge
 
-- `memory-core` owns personal recall, promotion, daily memory, and Dreaming.
-- `memory-wiki` compiles durable sources into navigable Markdown pages with
-  provenance, claims, backlinks, related pages, and reports.
-- PlatformClaw owns browser authorization and the shared organization scopes,
-  approval workflow, and audit trail.
-- Assigned-VM selection changes project execution only. Personal memory and
-  wiki state remain attached to the Gateway-hosted personal Agent.
+This company deployment intentionally removes the old Organization Memory
+knowledge system. On Control Plane startup, the upgrade deletes its claims,
+pages, promotion requests and decisions, comparisons, reports, proposals,
+references, revisions, related knowledge audit payloads and stale Managed Wiki
+connections. This includes pending proposals; nothing is automatically approved
+or migrated into Shared Wikis. The old organization knowledge tools, browser
+APIs, analysis jobs and generators are removed.
 
-Dreaming does not curate the wiki. It consolidates the personal Agent's memory
-on its configured schedule. Bridge mode lets the wiki import published memory
-artifacts; structured wiki mutations still occur through native `wiki_apply`
-or an explicit operator action. PR1 adds no background LLM curator.
+The cleanup preserves employees, organizations, direct memberships, join
+requests, Personal Memory, Personal Wiki, Shared Wiki documents and their grants.
+It executes atomically before services start, records a durable completion marker,
+and retries after failure. Later startups also remove retired rows reintroduced
+by an older image or restored database. A completed marker never allows the old
+corpus to become searchable again. Historical schema definitions remain only for
+supported database upgrades; the control schema version stays unchanged.
 
-## Delivery plan
+Treat deployment as a destructive knowledge cutover. Existing offline operator
+backups are outside this runtime cleanup. Restoring an older company image can
+recreate old knowledge; starting this version removes it again.
 
-| PR  | Capability                  | Storage and authority                                                            |
-| --- | --------------------------- | -------------------------------------------------------------------------------- |
-| 1   | Native personal Memory Wiki | One `vault.scope=agent` vault per personal Agent; native plugin and UI           |
-| 2   | Generic multi-corpus seam   | Upstream-compatible corpus registry/query contract; no organization policy       |
-| 3   | Organization read scopes    | Personal, Part, Group, Team, and Global corpora with canonical membership checks |
-| 4   | Organization UI foundation  | Bounded server projections and a shared Memory administration surface            |
-| 5   | Promotion lifecycle         | Claim-level request, approval, retirement, audit, and derived semantic links     |
+## Catalog and access
 
-Each PR leaves a deployable system. PR3 intentionally ships an empty shared
-read model until PR5 adds the only authorized promotion writer; it is useful as
-an authorization, query, and UI foundation but does not fabricate seed data.
-Later PRs must reuse native Memory Wiki compiler and query contracts rather
-than fork page rendering or search.
+**My Wikis** includes accessible Personal and Shared Wikis, including those with
+AI reference disabled. **Find Wikis** searches all Shared names and descriptions.
+An authenticated employee can discover a Shared Wiki before receiving access;
+its documents, document counts, attachments, snippets and graph stay private.
+Personal Wiki is visible only to its bound employee.
 
-## PR1: personal Agent Wiki
+| Role   | Capability                                                                              |
+| ------ | --------------------------------------------------------------------------------------- |
+| Reader | Read and search documents; download individual sources and attachments                  |
+| Editor | Reader capabilities plus create, edit, delete, upload, rebuild and complete ZIP export  |
+| Owner  | Editor capabilities plus manage user and organization grants and decide access requests |
 
-PlatformClaw deployment enables `memory-wiki` with this managed policy:
+Owners can grant a role to an employee or an exact Team, Group or Part. An
+organization grant applies to **direct members of that selected scope only**.
+It does not automatically include ancestors, descendants or sibling scopes.
+Overlapping direct-user and organization grants resolve to the highest role.
+Current employee status, direct membership and active scope lineage are checked
+on each read. Organization leadership alone does not grant Wiki ownership.
+The old independent whole-Wiki export permission is retired; effective Editor
+or Owner is required for Shared ZIP export.
+
+Choose **Request access** for Reader or Editor. **Requests** shows your outcomes
+and pending requests you may decide as Owner. The requester can cancel a pending
+request. Approval records the decision and grants access in one transaction;
+a second decision fails explicitly. Grants, requests, decisions and owner
+recovery have audit records. Recent request lists are bounded to 50 per inbox.
+
+An explicit Wiki grant or member removal cannot remove its last effective Owner.
+Employee disablement, organization departure and archival still proceed: they
+must not be blocked by Wiki ownership. If these changes leave no active Owner,
+an administrator can explicitly assign a replacement Owner from the catalog.
+This recovery permission reveals no document content and does not automatically
+grant the administrator read access or ownership.
+
+## AI reference and turn context
+
+Access and AI reference are separate. New effective access automatically enables
+that Wiki for AI reference. Turning it off preserves read/edit access. Your choice
+survives login, refresh, redundant grants and role changes. Losing all access
+removes it; genuinely regaining access enables it again. Personal Wiki has its
+own AI-reference toggle, enabled initially. This toggle does not disable raw
+Personal Memory recall.
+
+Changes apply to the **next agent turn**. The current turn retains its starting
+selection, while every actual read still checks live permission. Content already
+retrieved into conversation history cannot be removed by toggling a Wiki. Use a
+new conversation when that history must be excluded. The bounded internal turn
+selection supports up to 256 enabled Shared Wikis.
+At that limit, a new grant still provides access, but the catalog records why
+automatic AI reference could not be enabled. Disable another Shared Wiki, then
+enable the new one explicitly; freeing a slot does not silently change preferences.
+
+## Add and edit knowledge
+
+Use **Add knowledge** to write a document or upload UTF-8 `.md` or `.markdown`.
+Shared Wikis also offer a searchable Personal Wiki source picker. Ordinary
+Markdown needs no special fields or template. The server previews the title
+using a valid YAML string `title`, then the first H1 outside code blocks, then
+the filename. Source-less new documents use `Untitled document`.
+
+Paths are assigned automatically without overwriting another document. Shared
+Wikis offer an advanced explicit path; an occupied explicit path fails. Personal
+Wiki assigns its path through its source owner and shows the actual path after
+saving. Shared path moves retain document identity.
+
+Document cards preview the document body for both Personal and Shared Wikis;
+source paths and indexing status stay in metadata. While editing, **Insert document
+link** searches documents in the current Wiki and inserts the selected full path.
+The server requires edit access and returns at most 20 targets per search. A link
+does not grant access to another Wiki or automatically publish private content.
+
+Uploads preserve original bytes when their derived title is accepted. Shared
+display titles are separate metadata. An explicitly changed Personal title is
+an intentional source metadata edit: its title frontmatter changes while other
+metadata and body remain intact. This is a user write, never compiler rewriting.
+Ordinary edits expose the editable body, preserving existing valid frontmatter.
+Source-owned Personal pages expose their notes editor or a read-only explanation.
+
+Cards, graph nodes and search hits open the same document dialog. Closing it
+preserves the search query and results, including cross-Wiki hits. Unsaved edits
+require confirmation before discard. Delete requires a fresh source revision;
+a changed document must be reviewed again. Deletion removes that document, not
+its independent published copies or conversation history. Imported Personal
+pages retain the existing source-owner deletion and resynchronization policy.
+
+### Explicit Personal publication
+
+From a Personal document, choose **Publish to Shared vault**, choose an editable
+Shared Wiki and review the copy. The same source picker is available inside a
+Shared Wiki. Publication checks the original Personal source revision again.
+It preserves the private original and copies only the explicitly reviewed
+Markdown; attachments and linked documents are not silently shared. Later edits
+do not synchronize. There is no organization knowledge review/approval workflow.
+
+### Attachments and archives
+
+Personal and Shared Wikis provide attachment upload/download and complete ZIP
+export. PDF and Word files remain binary attachments; their text is not extracted
+or searched. Add their content as Markdown when it must be searchable.
+
+The ZIP contains `vault.json`, original Markdown under `documents/`, and files
+under `attachments/`. It excludes indexes, generated navigation/reports, derived
+links and access grants. Personal exports include only safe files inside the
+Personal Wiki source root, never linked external source files or host paths.
+Reads pin source revisions; changing files abort an inconsistent export.
+
+**Import ZIP as new vault** accepts the PlatformClaw export format and creates a
+new Shared Wiki owned by the importer. It rebuilds indexes and links, never
+merges or overwrites another Wiki. Arbitrary repository or Obsidian ZIPs are not
+accepted as-is. Limits: 1 MiB per Markdown source, 8 MiB per attachment, 999 source
+files, 32 MiB ZIP and 64 MiB expanded data. Shared storage reserves capacity at
+31 MiB of source data. An over-limit Personal export fails explicitly rather
+than silently omitting files; ordinary Personal browsing remains available.
+
+ZIP excludes derived identity links. A link still naming a document's old path
+may need manual repair after import; export does not rewrite authored Markdown.
+
+## Search and tools
+
+`memory_search` combines raw Personal Memory with enabled authorized Wiki
+sources. `wiki_search` searches Wiki knowledge. Omitting a Wiki target uses the
+server-selected enabled scope; an explicit accessible target also works when
+AI reference is disabled. Browser search can explicitly include all accessible
+Wikis without changing AI-reference settings.
+
+Agents pass a returned `vaultId` or an exact user-provided `vaultName`, never
+both. Duplicate names return bounded choices for the user instead of guessing.
+The model does not choose file versus database storage or receive a large Wiki
+catalog. Results carry `vaultId`, `vaultName`, `vaultType`, `documentId`, `title`,
+`path`, `snippet`, an owner-generated insertable `link`, and revision/source version. Display titles and snippets stay
+prominent; technical identity and path remain available in expandable details.
+
+Search uses literal keywords, not inferred synonyms. Shared search supports up
+to 16 distinct keywords across title, body, path and document identity. Links
+are not required for a document to appear. Return paths unchanged to the read
+tool. Reads expose the editable body and opaque source revision, up to 200 lines
+and 12,000 characters per excerpt, with truncation and continuation metadata.
+Never replace a complete document with a partial excerpt. An oversized single
+line directs the user to the browser editor instead of looping on the same range.
+
+The existing `wiki_status`, `wiki_lint` and `wiki_apply` tools also dispatch to
+the authorized owner. `wiki_apply` uses `create`, `update` or `refresh`; Shared
+writes require an explicit destination and updates require the just-read
+revision. Status/lint use enabled sources by default, return bounded summaries
+and disclose omitted Wikis. No duplicate search tool or backend argument exists.
+
+## Compilation and graph
+
+The index is a derived searchable lookup of original text and accepted source
+versions. Compilation builds search chunks/indexes, metadata, authored links,
+backlinks and related navigation. It never rewrites user-authored Markdown or
+invents source claims. Shared compilation uses no LLM.
+
+For example, `[Training](training.md)` creates an outgoing reference and a
+backlink. Both Wikis resolve exact full paths first, then normalized paths
+(case-insensitive, optional `.md`), document IDs, and titles. `[[PHY Training]]`
+can name a unique title; duplicate titles remain unresolved. The document picker
+inserts an escaped full path, including filenames containing spaces or link
+delimiters. Relative Markdown paths, reference-style links and heading anchors
+resolve within the same Wiki. Code examples do not create links. Missing or
+ambiguous links remain visible and
+do not prevent search. Documents without links still appear in the graph.
+
+A failed compile preserves the source and last successful search index, records
+the error, and schedules a bounded retry. Use **Rebuild search and links** to
+retry manually. Shared retries run each minute with bounded exponential backoff;
+Personal uses its existing compiler retry owner. Graph data can show the last
+accepted Shared revision while the source has changed. Personal graph reads
+current sources while search retains the accepted publication.
+
+The common graph supports document selection, filtering, pan, zoom and fitting
+the view. Directed links use saved relationships, not inferred similarity;
+Personal's existing relationship types remain owned by its compiler. Limits and
+truncated results are visible. Source metadata such as claims, questions and
+contradictions is available in document details without automatic new inference.
+
+## Runtime ownership
+
+The bundled `memory-wiki` plugin owns Personal sources, source-safe writes,
+compilation and attachments. Shared source/derived data, ACL, access requests,
+enabled preferences and retirement markers use additive tables in the existing
+Control Plane SQLite database. There is no schema-version bump, vector database,
+LLM router, private-source auto-publication or VM-local memory mirror.
+
+The deployed `platformclaw-org-memory` plugin identifier remains in managed
+configuration to preserve existing installations. It now supplies Wiki Hub
+corpus dispatch only; it does not retain organization knowledge producers.
+The normal deployment reconciler enables native memory and Wiki policy:
 
 ```json5
 {
@@ -73,634 +252,8 @@ PlatformClaw deployment enables `memory-wiki` with this managed policy:
 }
 ```
 
-The deployment reconciler applies this policy to new and existing PlatformClaw
-config. Operators do not need a new environment variable or manual JSON edit.
-Redeploy/restart through the normal PlatformClaw deployment flow is sufficient.
-The reconciler preserves unrelated plugin options but owns the values above:
-global vaults, `unsafe-local`, disabled bridge imports, and official Obsidian
-CLI access are incompatible with the personal multi-user boundary.
-The managed memory slot is native `memory-core`; Dreaming is enabled at 03:00
-using the Gateway timezone. PlatformClaw therefore requires no separate Wiki or
-Dreaming toggle. Operators needing another memory engine must treat that as a
-future PlatformClaw policy change, not a per-user browser setting.
-
-PR1 exposes bounded personal RPCs to employee browsers:
-
-- Dreaming: `doctor.memory.status`, `doctor.memory.dreamDiary`
-- Wiki UI: `wiki.importInsights`, `wiki.overview`, `wiki.get`
-- Personal exploration: `wiki.status`, `wiki.search`
-- Personal Dreaming maintenance: `doctor.memory.backfillDreamDiary`,
-  `doctor.memory.dedupeDreamDiary`, `doctor.memory.resetDreamDiary`,
-  `doctor.memory.resetGroundedShortTerm`, and
-  `doctor.memory.repairDreamingArtifacts`
-
-The BFF replaces any browser-supplied `agentId` with the authenticated personal
-Agent, rejects foreign IDs and unknown parameters, caps query/result/content
-sizes, and removes host paths and backend-only metadata. Reset, dedupe, and
-repair actions are explicit personal operations; destructive resets require a
-browser confirmation. It does not expose wiki ingest, compile, apply,
-unsafe-local, Obsidian command, or global `config.*` RPCs. Agents write Wiki
-content through the plugin's native tools, which already run in the selected
-Agent context.
-
-`agents.workspace.list` is not a general browser workspace API: the BFF pins
-the authenticated personal Agent, accepts only the exact top-level `memory`
-directory, caps the upstream read, and projects direct-child `.md` entries only.
-Directory names, raw totals and cursors, host metadata, malformed paths, and
-foreign-Agent results are stripped or fail closed.
-
-Users access the feature through **Settings > Memory**. PlatformClaw groups the
-native surfaces into one hub without merging their data models:
-
-- **Memory** searches the personal Agent's durable recall, Personal Wiki, and
-  connected Shared and Managed Vaults. An explicit browser scope can search all
-  accessible Vaults. Results are labeled and open in place.
-- **Personal Wiki** opens compiled Wiki pages and imported insights.
-- **Dreaming** contains Overview, Dream Diary, and Activity views for scheduled
-  memory consolidation.
-- **Organization** keeps sharing and review separate from read-only Part and
-  Group knowledge graphs.
-
-The hub keeps only one surface open at a time, so Dreaming and organization
-administration do not create one unbounded Settings page. PlatformClaw's server
-combines authorized Personal, Shared, and Managed results for the browser's
-single `memory.search` request. Backend ranking scales do not compete directly.
-Personal files still open through `agents.workspace.get`, Wiki pages through
-`wiki.get`, and organization pages through the local, Agent-pinned
-`platformclaw.memory.get` BFF method.
-
-The compiler remains the sole index owner. `index.md` links the five category
-indexes, and every compiled page appears in its category index. Generated
-indexes are exact-get navigation artifacts: `wiki_get` and the Personal Wiki
-preview can read only the root and five known category indexes, while
-`wiki_search`, ranking, digest, and ordinary page scans continue to exclude
-them. A committed page whose compile fails remains preserved and returns
-`indexesRefreshed:false`; `wiki_apply op=refresh` repairs derived indexes and
-Graph without rewriting the page.
-
-Navigation and semantic relationships are separate. Index membership is
-compiler-generated. Authored Markdown links are document references. A
-structured relationship is accepted only after `wiki_get` supplied the exact
-target revision and the write owner re-resolved that target in the same
-personal vault. Confirmed relationships and AI comparison candidates retain
-separate status and semantic kinds such as enrichment, condition difference,
-duplicate, or conflict. `sourceIds` remain provenance. The Personal Wiki Graph
-renders index membership, authored references, confirmed relationships, and
-candidate comparisons as distinct edge types; generated Related blocks remain
-presentation-only and do not create graph edges or backlinks.
-
-Organization Graph is a Control Plane read projection, not another vault. It
-loads only after the user selects **Organization > Organization Graph**, then
-offers separate Part, Group, Team, and Global views. Each managed view selects one readable scope; Global is visible to every active employee. Group leaders can select each Part in their own Group. Approval authority alone does not add read visibility. `platformclaw.memory.graph` accepts only
-the view kind and an optional authorized scope ID. Scope selection filters at the owner before counts and limits. The UI uses the canonical read flag rather than approval capabilities and does not combine different Parts. The BFF supplies the authenticated personal Agent and the store
-recomputes effective entitlements on every request. Results contain at most 500
-authorized pages and 2,000 relations in deterministic order. Solid directional edges show provenance or approved document references; dashed comparison edges show inferred relationships. Reads do not run a model. The
-projection echoes only an explicitly selected authorized scope ID and excludes absolute paths, unauthorized scopes, private Personal
-Wiki source IDs, and every edge whose endpoints are not both visible. Clicking
-a node reuses the Agent-pinned `platformclaw.memory.get` preview boundary.
-Both graph surfaces use the same dependency-free SVG controls for anchored
-wheel zoom, pan, reset, and draggable in-memory node positions. Personal Wiki
-also derives client-only directory toggles from each safe relative page ID;
-filtering keeps only selected nodes and edges whose two endpoints remain shown.
-No filter or layout position is sent to the Gateway or persisted.
-
-### Delete a personal memory file
-
-In **Settings > Memory > Memory**, right-click a personal memory item or open
-its **…** menu, then choose **Delete memory file**. Review the freshly loaded
-file and confirm deletion. This removes the entire file, including entries
-outside the search snippet; it cannot be undone. Organization and Personal Wiki
-results do not use this file-deletion action.
-
-The confirmation sends the preview's content hash with `memory.delete`. If the
-file changed after the preview, refresh and review it again before deleting.
-The result separately reports deletion and refresh of the search index
-(`indexesRefreshed`) and imported Wiki sources (`wikiRefreshed`). A refresh
-failure does not undo a completed deletion: the UI reports the partial outcome
-and directs the user to refresh Memory and Personal Wiki.
-
-Existing conversations, independent Wiki notes, and approved organization
-knowledge remain available and may contain the same information. Deleting a
-personal source is not an erasure of every copy or a retirement of organization
-knowledge. Use the organization lifecycle actions for shared claims.
-
-### PR1 acceptance
-
-- New and upgraded deployments advertise the bounded RPC set.
-- Employee A cannot request or receive Employee B's Agent data.
-- Browser responses contain no workspace or vault absolute path.
-- Native Dreams, Imported Insights, Wiki overview, and page preview render.
-- Basic-server and assigned-VM sessions resolve the same personal wiki.
-- Linux Docker smoke proves effective managed config and Gateway method
-  advertisement; focused tests prove request and response projection.
-
-## PR2: generic multi-corpus seam
-
-PR2 introduces a plugin-neutral corpus registration and combined-query seam.
-It carries stable corpus identity, owner scope, provenance, and bounded search
-results without embedding PlatformClaw roles into OpenClaw core. Native
-personal memory and personal Wiki become two corpora behind one query path.
-No part, group, or global authorization ships in PR2.
-
-## PR3: organization scopes
-
-PR3 adds five logical corpus classes. Shared corpora are SQLite read models,
-not host filesystem vaults:
-
-| Scope    | Read authority                                | Write authority                                 |
-| -------- | --------------------------------------------- | ----------------------------------------------- |
-| Personal | Bound employee                                | Native personal Agent tools                     |
-| Part     | Direct Part members                           | Promotion; authorized leaders/admin curate      |
-| Group    | Direct Group and descendant Part members      | Promotion; target/ancestor leaders/admin review |
-| Team     | Direct Team and descendant Group/Part members | Promotion; target/ancestor leaders/admin review |
-| Global   | Every active authenticated employee           | Promotion; PlatformClaw administrator approval  |
-
-Ordinary group members cannot read sibling part vaults. Default search spans
-every corpus authorized for the current employee and labels each result's
-scope. Membership is resolved by PlatformClaw at request time; browser input
-never grants scope.
-
-The additive `organization_memory_pages` table remains under schema version 2
-and is created idempotently on first use. It stores only compiler output and
-bounded provenance JSON. It exposes no production write API in PR3. PR5 owns
-claim submission, approval, retirement, and compilation into this table.
-
-Authorization is evaluated for every search and page read:
-
-- an active personal Agent must map to an active employee;
-- Global pages are readable by every active employee;
-- direct Team, Group, or Part membership grants read access to that active
-  scope and its active ancestors;
-- a direct Group leader additionally receives read-only search access to each
-  active child Part in that Group; this does not grant child-Part analysis,
-  review, or apply authority;
-- archived lineages, retired pages, Knox/unknown Agents, descendants, and
-  sibling scopes fail closed for ordinary reads.
-
-The private `platformclaw-org-memory` plugin adapts the Control Plane read model
-to the generic memory corpus registry. It runs with the Gateway on the Basic
-server, so Basic and assigned-VM execution targets see the same authorized
-results. Ordinary `memory_search` calls include registered Personal Wiki and
-organization corpora by default. Explicit `corpus=memory` and
-`corpus=sessions` calls remain narrow; `corpus=wiki` and `corpus=all` remain
-available for explicit broad supplement searches. Results distinguish a
-successful empty corpus from an unavailable or failed corpus. Candidate slots
-are balanced across supplement owners and then against personal memory because
-their scores use different scales.
-Employee browsers use **Settings > Memory > Memory**; the BFF pins the Agent,
-combines personal, Personal Wiki, and organization results, and returns only virtual
-`organization/<scope>/<page-id>` paths plus a display scope. Host paths,
-internal provenance, scope IDs, and approval identities never reach the UI.
-Opening an organization result reauthorizes the virtual path against current
-membership before returning bounded text; it never reads a workspace path.
-
-Deployment owns the plugin enablement. Operators need no new environment
-variable: the plugin reuses the existing owner-only Control Plane handoff token
-and socket. Redeploy/restart the PlatformClaw Gateway and web ingress after
-upgrade. If the broker or service-token file is missing, the plugin stays
-registered as unavailable and logs the missing managed connection without
-exposing credential values.
-
-These are the current schema v3 rules. Team is a managed organization corpus,
-and every read reuses the canonical organization authorization snapshot. See
-[PlatformClaw organization architecture](/platformclaw/organization-architecture).
-
-## PR5: promotion and lifecycle
-
-Promotion unit is a structured claim, not an entire generated page. A request
-contains source scope and claim identity, target scope, proposed text,
-evidence/provenance, reason, and expected source revision. An LLM may draft or
-recommend the request, but a user explicitly submits it.
-
-For a personal source, the selector is a native personal Wiki page ID, title,
-or relative path. The Control Plane resolves it through the private Gateway
-with the requester's pinned personal Agent, records a canonical content
-revision, and resolves it again before approval. Browser-supplied revisions,
-raw `MEMORY.md` files, absolute paths, missing pages, incomplete pages, and
-changed pages fail closed. Shared-source revisions come from the authoritative
-organization claim row.
-
-Approval authority:
-
-- personal to a directly joined Part, Group, or Team: target-scope leader,
-  ancestor leader, or PlatformClaw administrator;
-- personal to Global: PlatformClaw administrator, only for an unaffiliated user;
-- Part to its parent Group and Group to its parent Team: target-scope leader,
-  ancestor leader, or PlatformClaw administrator;
-- Team to Global: PlatformClaw administrator.
-
-Approval creates a target-scope claim linked to its immutable source claim.
-The compiler rebuilds pages, backlinks, related pages, and reports from claims;
-promotion does not copy an opaque page tree. Later source changes do not
-silently rewrite the approved target claim. A new revision or superseding
-promotion is required.
-
-Shared claims support retirement with reason and audit history. Retired claims
-leave active search/page views but keep a tombstone for provenance. Hard purge
-is restricted to PlatformClaw administrators and reserved for privacy or
-security removal. Semantic links are derived, rebuildable metadata: background
-LLM work may suggest relationships among approved claims, but it cannot create,
-promote, approve, or restore authoritative claims.
-
-Archiving a Team, Group, or Part atomically retires its active claims and
-recompiles their source links, and records immutable rejections for pending
-requests whose source or target is in the archived subtree. This prevents archived scopes from leaving searchable or
-unpurgeable knowledge behind. PlatformClaw administrators can still list the
-retired archived-scope tombstones and hard-purge them. Ordinary retirement
-preserves the request payload; only hard purge redacts that payload while
-retaining immutable request lineage, decision, and audit facts.
-
-The lifecycle stores authoritative state in three tables under schema version
-3: immutable promotion requests, one immutable
-decision per request, and revisioned organization claims. It adds no file
-sidecars and no new environment variable. Approved claims compile into PR3's
-`organization_memory_pages` read model; retirement removes the compiled page
-from active recall, and hard purge clears claim text and evidence while keeping
-the decision and audit tombstones.
-
-The current ordinary edges are `personal -> a direct Part/Group/Team`,
-`part -> its parent group`, `group -> its parent team`, and `team -> global`.
-An unaffiliated employee may request `personal -> global`. Submission and
-approval both resolve current direct membership and canonical capabilities at
-the Control Plane transaction boundary. The target leader or an ancestor leader
-reviews a managed-scope request; submitters cannot review their own ordinary
-requests. Global approval and hard purge require an active PlatformClaw
-administrator. Administrators use a separate atomic, reasoned direct-publication
-action for their own Personal Wiki source or a manageable organization claim;
-they cannot read another employee's Personal Wiki. Archived lineages, disabled
-employees, stale source revisions, siblings, duplicate pending requests, and
-second decisions fail closed.
-
-Employees manage the lifecycle under **Settings > Memory > Organization**. The UI
-shows authorized targets, the employee's submitted requests, requests they may
-review, and readable active/retired claims. A separate read-only Graph view
-shows authorized Part or Group pages without copying them into Personal Wiki.
-The BFF exposes only these
-Agent-pinned methods:
-
-- `platformclaw.memory.graph`
-- `platformclaw.memory.lifecycle`
-- `platformclaw.memory.promotion.submit`
-- `platformclaw.memory.promotion.publishDirect` (administrator only)
-- `platformclaw.memory.promotion.decide`
-- `platformclaw.memory.claim.retire`
-- `platformclaw.memory.claim.purge`
-
-The request form searches the requester's existing personal Wiki through the
-already Agent-pinned `wiki.search` and `wiki.get` boundary. Selecting a complete
-page shows a preview and pre-fills the proposed claim, provenance, and reason;
-the user reviews or edits those fields and explicitly submits. Advancing an
-approved Part, Group, or Team claim likewise pre-fills its text and revision
-instead of asking the user to retype it. Source content stays in its original language;
-PlatformClaw does not translate knowledge automatically.
-
-From a Personal Wiki item in the memory hub, right-click or open **…**, then
-choose **Request organization sharing…**. This opens the existing form with
-that source selected. The picker loads the complete current page again; a
-missing or incomplete page cannot supply the request. Choose an authorized
-target and review the proposed text, provenance, reason, and sharing scope
-before submitting. Opening the menu or selecting the source does not submit
-anything. The UI confirms submission to the selected organization; an
-administrator's direct publication is identified separately.
-
-### Delete a Personal Wiki page
-
-Right-click a Personal Wiki card or graph node, or open **…**, and choose
-**Delete Personal Wiki page**. Review the current page and confirm deletion.
-A partial preview is labeled explicitly; confirmation removes the whole page,
-using the server's full-file content hash to reject changes since the preview.
-The Wiki overview and graph refresh after deletion.
-
-Deletion is available for personal Agent-scoped pages up to 256 KiB. Shared
-vault pages and generated reports or navigation pages show an explanation
-instead of an enabled confirmation button.
-
-Raw memory, conversations, and approved organization knowledge are retained.
-Deleted imported pages are excluded from automatic source synchronization,
-including when the source later changes. A deliberate import repair can restore
-them. Sharing and deletion have separate capability checks; an unavailable
-sharing action does not remove an otherwise available deletion action.
-
-### Organization graph provenance
-
-Organization Graph previews include the approval state, claim revision, and
-approved source revision for managed claims. Opening a document reads these facts again under current permissions. Bounded document pages report the total line count and whether the selected text was shortened. The source status compares the
-current readable source revision with the approved snapshot. A source outside
-the reader's scope, retired, personal, or unavailable cannot be inspected and
-its identity is omitted. Existing pages without a managed claim show that
-verification metadata is unavailable. These are provenance indicators, not
-factual verification of the content. Use the graph's Refresh action to apply
-current membership, archival, or retirement changes.
-
-The graph also shows labeled, non-directional inferred relations from the last
-successful knowledge report when both visible claims still match its cited
-revisions. Dashed comparison links remain separate from solid, directional
-promotion provenance. Their details show the model classification and human
-review status; keeping two claims does not confirm a duplicate classification.
-Rejected, stale, retired, and evidence-insufficient pairs do not create inferred
-links. Reading the graph never generates a report or changes approved claims.
-
-### Shared organization architecture
-
-The canonical approved target is documented in
-[PlatformClaw organization architecture](/platformclaw/organization-architecture).
-It is the current Memory authorization owner. Settings > Organization now owns
-the PR6A tree, membership, leader, primary-scope, and structure-management
-surface. PR6B adds join onboarding and delegated request review; PR6C adds the
-administrator-only organization audit explorer. Memory retains its own
-domain-specific audit owner.
-
-- The hierarchy becomes `Global > Team > Group > Part`, with direct membership
-  allowed at any managed level, multiple memberships, multiple leaders, an
-  optional primary scope, and upward-only effective organization read access.
-  Approved Memory knowledge additionally permits active Group leaders to read
-  their own active child Parts; this does not change member-management policy.
-- Users may remain unaffiliated. Join requests and their leader/administrator
-  review workflow belong to the shared organization owner, not Memory.
-- Only PlatformClaw administrators appoint or remove leaders. Scope leaders
-  manage ordinary membership and review requests within their delegated scope
-  and descendants.
-- Agents inherit the memberships and capabilities of their bound human user;
-  an Agent never owns independent organization membership.
-- Memory reuses shared hierarchy, membership, authorization, lifecycle, and
-  audit facts while retaining claims, revisions, promotion edges, compilation,
-  and provenance.
-
-Organization CRUD (create, rename, archive, and hierarchy changes) belongs in
-the organization management surface. Settings > Memory owns knowledge search,
-promotion, review, retirement, and audit presentation only.
-
-The shared authorization contract replaces Memory-specific roles:
-
-| Actor                      | Managed scope                        | Default delegated capabilities                       |
-| -------------------------- | ------------------------------------ | ---------------------------------------------------- |
-| PlatformClaw administrator | Every Team, Group, and Part          | Structure, leaders, membership, review, and curation |
-| Team leader                | Own Team and descendant Groups/Parts | Ordinary membership and scoped review/curation       |
-| Group leader               | Own Group and descendant Parts       | Ordinary membership and scoped review/curation       |
-| Part leader                | Own Part                             | Ordinary membership and scoped review/curation       |
-| Member                     | Direct scopes and active ancestors   | Read/use capabilities granted by domain policy       |
-
-An employee may belong to multiple Teams, Groups, or Parts. Multiple leaders are
-allowed. The resolver evaluates active membership and delegation at request
-time, returns explicit capabilities, and records the acting user, target scope,
-decision, and reason for mutations. PlatformClaw administrators may publish
-directly to any organization scope or self-approve only through an explicit
-audited action. Administrators do not receive routine access to another user's
-Personal Memory or Personal Wiki; they may review only a personal claim the user
-explicitly submits.
-
-Memory and SkillHub reuse this identity, hierarchy, membership, delegation,
-revocation, archival, and audit layer. They do not reuse domain state:
-organization Memory still owns claims, revisions, promotion edges, and
-retirement; SkillHub still owns package versions, hashes, provenance, scans,
-and publication gates.
-
-Lifecycle lists are authorization-filtered before bounded database pagination.
-The UI follows bounded page offsets with **Load more**, so company-wide traffic
-cannot hide an employee's request or a reviewer's pending decision behind an
-unrelated global limit.
-
-Browser callers cannot supply an Agent or employee identity. Stable claim,
-request, and managed-scope identifiers are accepted only as selectors and are
-re-authorized on every operation. User IDs, approver identities, raw audit
-rows, compiler provenance, database locations, and host paths are never
-returned. Models continue to read approved output through the PR3 corpus and
-`memory_search`; PR4 intentionally adds no model-facing write tool. An LLM may
-draft text in chat, but a person must submit the request and an authorized
-person must make the immutable decision.
-
-Operators upgrade through the normal PlatformClaw deployment and restart the
-Gateway/web ingress. Existing shared search stays available while the lazy
-tables are created on first lifecycle use. There is no schema-version bump,
-backfill command, dual-write period, or per-VM configuration. Basic-server and
-assigned-VM chats use the same Gateway-owned organization memory.
-
-## Review Part and Group knowledge
-
-Open **Settings > Memory > Organization > Knowledge management** to review
-approved knowledge for a Part or Group that you currently lead directly. Group
-leaders can also read approved knowledge, reports, and proposal sources from
-Parts in their own Group. These child Part scopes are read-only in knowledge
-management. Administrator status and Team leadership alone do not grant report
-access. Archived lineages and inactive employees have no access.
-
-Direct leaders choose a scope and explicitly generate a report. Opening or refreshing this
-view only reads shared server state. It does not start analysis, create a
-personal chat, or schedule an automation. Leaders of the same scope see the
-same current job, last successful report, proposals, and decision history.
-An unchanged input can reuse its report; regeneration is an explicit action.
-If a job fails, its visible failure does not replace the last successful report.
-
-Reports compare bounded related candidates among approved claims. They show
-included and omitted inputs, candidate coverage, and whether input revisions
-have changed. Retrieval can miss related claims with different wording; an
-empty result does not prove that every claim was compared or that no conflict
-exists. Different board, version, and operating conditions remain distinct.
-Duplicate, enrichment, condition-difference, conflict, and insufficient-evidence
-recommendations cite pinned claim revisions and require human judgment. The
-review separates each stored source excerpt and its evidence from model
-analysis, and labels truncated or unavailable source material.
-
-Direct leaders approve, reject, or keep a proposal with a reason. Keep records
-that the existing claims should remain as they are and closes the proposal as kept.
-Rejected and kept proposals leave the current review list and remain in history.
-History provides a rejection filter and additional pages, with the stored reason,
-reviewer, time, comparison, and original source excerpts when still authorized.
-Existing defer audit entries remain preserved; those proposals return to pending
-review, and new defer decisions are unavailable. Approval records a decision;
-changing approved knowledge requires the separate Apply action, review of the
-resulting text and affected originals, and a reason. Changed claim revisions
-invalidate a proposal until a current report is generated. Reviewed proposals
-for the same pinned pair and policy are not repeatedly added to the pending list.
-Submitted sharing requests can also compare their proposed claim with bounded
-approved candidates; unavailable comparison does not automatically block
-submission or decide approval.
-
-Analysis uses the existing configured `company/<MODEL_ID>` default model and
-that provider entry's credential or explicit SecretRef. It receives approved
-claim data only, with no employee Agent credentials, private conversations,
-personal memory, or tools. There is no external provider fallback or new
-configuration variable. If analysis is unavailable, verify the existing company
-model, endpoint, and provider-entry credential, reconnect after a normal
-deployment restart, and explicitly retry the scope.
-
-Synthetic browser previews and injected model fixtures demonstrate the workflow
-and failure handling. They do not verify the real company DT model's comparison
-quality; that requires a separate live check with approved nonidentifying inputs.
-
-## Related documents during sharing
-
-An Agent can add related document links after confirming the exact personal Wiki
-document identity. Sharing previews only the links in the submitted public text.
-Before submitting or publishing, review the final public body and its resolved
-organization documents. Private link paths, labels, and aliases are replaced with
-neutral references; public external URLs remain intact. The preview shows counts
-for unresolved, blocked, and ambiguous links without disclosing their private names.
-
-The initial scope resolves an already approved counterpart in the exact destination
-organization, or a current approved document explicitly named in that destination.
-It does not select an ancestor organization's copy. A Group leader's ability to
-read a child Part does not make that Part document readable to the Group audience.
-Missing, ambiguous, or inaccessible targets are never shared automatically.
-Submissions support at most 32 references and 64 related authorized candidates;
-unrelated hidden documents do not affect that bound.
-
-Approval rechecks the reviewed public text, frozen source identities, destination
-permissions, and target revisions. A changed preview requires refreshed human
-review. Approved references become canonical facts in the same transaction as
-publication. The existing compiler generates document links without an LLM call,
-and the organization graph shows them as directional reference edges, separately
-from provenance and inferred comparisons. Retired or changed target revisions
-remove current links and refresh directly referring compiled pages.
-
-Applying a reviewed revision preserves the surviving document's current safe
-references. Adding new document links requires the sharing preview flow. Native
-`wiki.references.resolve` uses an exact Agent vault and submitted text; its result
-contains identities, revisions, offsets, and a text hash, with no linked private
-document body or title. Synthetic tool and compiler checks verify this workflow;
-they do not establish a live model's document selection quality.
-
-## Memory Hub
-
-Open **Settings > Memory > Memory Hub** (**메모리 허브** in Korean).
-Memory Hub is the catalog; each Vault is a separate knowledge space with its own
-documents and access permissions.
-Use one Shared Vault for a project or subject, such as **Ulysses PHY Spec**,
-**DRAM Controller**, **DDRPHY**, or **LPDDR Training**.
-
-The existing Memory, Personal Wiki, Organization, and Dreaming tabs remain in
-place. Memory Hub adds **My vaults** and **Find vaults** inside the Memory
-hub, using the same tabs, cards, search fields, and dialogs as its other pages.
-Find vaults searches the names and descriptions of Shared and Managed Vaults
-you can already access. Open a card to inspect it, then choose **Add to my vaults**.
-My vaults shows the connected sources your AI will use alongside Personal knowledge.
-
-Adding or disconnecting a Vault applies to the **next agent turn**. An active
-turn retains its starting selection, while permissions are checked again on
-every read. Disconnecting does not delete documents or remove membership.
-Previously retrieved text remains in the conversation; start a new conversation
-when that existing context must be excluded. Creating or importing a Shared
-Vault connects it for its creator; invited members choose their own connections.
-Each employee can connect up to 256 Shared and Managed Vaults. Personal knowledge
-remains available independently of those connections.
-
-| Type     | Purpose                                    | Authority                                               |
-| -------- | ------------------------------------------ | ------------------------------------------------------- |
-| Personal | Private recall and Personal Wiki           | Authenticated personal Agent                            |
-| Shared   | Collaborative project or subject documents | Explicit Vault membership                               |
-| Managed  | Approved organization knowledge            | Existing organization membership and publication policy |
-
-Create a Shared Vault, then use **Members and permissions** to add an existing
-employee account. Reader can read and download individual documents; Editor can
-also write, upload, move, and rebuild; Owner can also manage members. Whole-Vault
-ZIP download is a separate permission, not a consequence of Reader or Editor.
-Removing the last active Owner is rejected until another Owner is assigned.
-
-Write Markdown or upload a Markdown document, review its title and path, then
-save. Attachments use a separate upload/download area. Editing the path moves a
-document without changing its stable identity. Links and backlinks show related
-and affected documents; documents without links remain searchable.
-
-Personal knowledge is never automatically shared. **Publish from Personal Wiki**
-loads a complete source preview. Review it and explicitly publish a copy into the
-selected Shared Vault. A changed source requires a fresh preview; the Personal
-original remains intact. Organization publication retains its existing review
-and approval workflow.
-
-Search defaults to Personal knowledge and **My vaults**. The browser also offers
-an explicit **All accessible vaults** search without changing AI connections.
-For an explicit selection, agents pass either the exact `vaultId` from a result
-or the user-provided Shared/Managed `vaultName`, never both. The server resolves
-an exact name within current permissions, including accessible disconnected
-Vaults. Duplicate names return bounded choices for the user; the agent must not
-guess. Agents continue using `memory_search` and `wiki_search`, without
-choosing storage backends or receiving a large Vault catalog. The server resolves
-membership before searching and merges only authorized results from the selected
-scope. Vault contents are retrieved as needed, not injected in full into every
-prompt. Each result
-carries `vaultId`, `vaultName`, `vaultType`, `documentId`, `title`, `path`, `snippet`,
-and a revision or indexed source version. Shared document paths use stable IDs;
-the displayed logical path can change when the document moves.
-
-Use short, distinctive search keywords (at most 16 for Shared search). Shared search matches keywords across
-title, content, path, and document identity; it does not infer synonyms or answer
-questions by itself. Pass a returned `path` unchanged to `memory_get` or
-`wiki_get`; the registered owner reads it under current permissions. Ordinary
-search and exact reads do not require a `corpus` selector. Read up to 200 lines
-per call and request the next line range when more context is needed.
-
-Agent searches default to 10 hits and accept at most 50. Each tool snippet is
-bounded to 1,200 characters and each index error to 500. Multi-document results
-can exceed 1,000 tokens because each excerpt retains its required source identity;
-document bodies are fetched separately.
-
-The search index is a derived lookup of document text and source versions. It
-lets search find matching excerpts without changing the original documents.
-Compilation never rewrites authored Markdown. Shared compilation splits source
-text into search chunks, extracts authored Markdown links and wiki links, and
-resolves document identities. Reverse references become backlinks. For example,
-`[Training](training.md)` in `overview.md` creates an outgoing link from Overview
-and a backlink on Training; no source text is changed. It does not invent semantic
-relationships or use an LLM to rewrite documents. A failed compile preserves the
-original and the last successful search snapshot, records the reason, and schedules
-a retry. The UI shows the failed status and indexed revision. Use **Rebuild search and links**
-for Shared Vaults or the existing Personal Wiki rebuild action to retry manually.
-Shared retries run every minute with bounded exponential backoff up to an hour.
-Personal retries check every 30 seconds with bounded backoff. The Personal-only
-`wiki_apply` refresh operation cannot rebuild a Shared Vault; use that Vault's
-**Rebuild search and links** action.
-
-Open a Shared Vault and select **Document graph** to see its documents and directed links.
-Select a node to inspect its incoming and outgoing references, then open the
-document. Documents without links still appear. Search titles and paths to narrow
-the graph; zoom, pan, drag nodes, or fit the view using the graph controls.
-The graph uses the compiler's saved link relationships, not inferred similarity.
-It displays up to 2,000 distinct directed connections and explicitly indicates
-when additional connections are omitted. Individual document links and backlinks
-remain available.
-
-An indexing failure means the latest search and link data could not be generated;
-it does not mean the source was lost. Document titles and paths show the current
-source, while outgoing graph connections retain the last successful compiled
-revision. Failed or pending documents show their indexed revision, error, and
-retry information. A document that has never compiled successfully has no saved
-outgoing links yet. Rebuild updates search and links together after success.
-
-Personal Wiki and Organization retain their existing graph views.
-The Personal graph reads current source files, while search retains its accepted
-index after a compile failure; those views can differ until a successful rebuild.
-
-**Download Vault ZIP** includes `vault.json`, Markdown under `documents/`, and
-files under `attachments/`. It excludes indexes, derived links, and access grants.
-**Import Vault ZIP** creates a new Shared Vault owned by the importer and rebuilds
-derived data; it never merges or overwrites an existing Vault. The new Owner grants
-membership explicitly. Current limits are 1 MiB per Markdown document, 8 MiB per
-attachment, 999 source files and 31 MiB of source data per Vault, and a 32 MiB ZIP
-with at most 64 MiB expanded data.
-
-Move-related references retain document identity inside the original Vault.
-Because ZIP excludes the derived graph, a reference that still names a target's
-old path can require manual repair after import. Reserving old paths as portable
-document metadata needs an explicit product decision before this limitation is
-removed; source text must not be silently rewritten.
-
-Shared source and derived data live in additive tables in the existing Control
-Plane SQLite store; no database schema-version bump is needed. Personal Wiki
-continues using its native source files and compiled cache. Managed search adapts
-the existing Organization Memory read model into the common result shape. It
-does not delete, copy, migrate, or replace Organization claims, memberships,
-approval records, or promotion flows. A later storage consolidation requires a
-separate approved migration plan.
-
-Follow-up: **Personal Wiki state-store migration**. Existing source-sync and
-publication-log formats remain intact; consolidating that legacy state requires
-a separate migration review. Search reads the active publication rather than
-re-reading its publication log for every query.
-
-## Non-goals
-
-- No separate browser-only wiki implementation.
-- No VM-local memory mirror or dual-write path.
-- No automatic organization-wide publication from Dreaming.
-- No browser access to arbitrary workspace files or host paths.
-- No global vault shared by all personal Agents under one filesystem boundary.
+The server pins browser operations to the authenticated employee's active
+personal Agent. Basic-server and assigned-VM chats use the same knowledge owner.
+No new environment variable, external service or per-user backend setting is
+required. Existing raw Memory deletion, Dreaming and imported-source ownership
+remain separate from Shared publication.

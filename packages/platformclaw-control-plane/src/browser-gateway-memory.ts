@@ -6,7 +6,6 @@ import {
   type BrowserGatewayProxyOptions,
 } from "./browser-gateway-contracts.js";
 import { projectBrowserWikiResult } from "./browser-gateway-wiki.js";
-import type { OrganizationMemorySearchHit } from "./contracts.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -18,11 +17,7 @@ const MAX_COMBINED_RESULTS = 100;
 const MAX_PROVIDER_CHARS = 256;
 const MAX_SNIPPET_CHARS = 16 * 1024;
 const MAX_MEMORY_FILE_CHARS = 256 * 1024;
-const MAX_DOCUMENT_LINES = 5_000;
 const MAX_WORKSPACE_LIST_LIMIT = 500;
-const ORGANIZATION_MEMORY_PATH =
-  /^organization\/(global|team|group|part)\/[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
-
 function requireObject(value: unknown, label: string, fail: ProjectionFailure): JsonObject {
   return isRecord(value) ? value : fail(`Gateway returned invalid ${label}`);
 }
@@ -74,92 +69,6 @@ function projectMemorySearchHit(value: unknown, fail: ProjectionFailure): JsonOb
   return { path, startLine, endLine, score, snippet: hit.snippet, source: "memory" };
 }
 
-function projectOrganizationMemorySearchHit(value: unknown, fail: ProjectionFailure): JsonObject {
-  const hit = requireObject(value, "organization memory search hit", fail);
-  const score = finiteNumber(hit.score);
-  if (
-    typeof hit.path !== "string" ||
-    !ORGANIZATION_MEMORY_PATH.test(hit.path) ||
-    score === null ||
-    typeof hit.snippet !== "string" ||
-    hit.snippet.length > MAX_SNIPPET_CHARS ||
-    typeof hit.title !== "string" ||
-    hit.title.length > 512 ||
-    (hit.kind !== "global" && hit.kind !== "team" && hit.kind !== "group" && hit.kind !== "part") ||
-    typeof hit.provenanceLabel !== "string" ||
-    !hit.provenanceLabel ||
-    hit.provenanceLabel.length > 256
-  ) {
-    return fail("Gateway returned an invalid organization memory search hit");
-  }
-  return {
-    corpus: "platformclaw-organization",
-    source: "organization",
-    path: hit.path,
-    title: hit.title,
-    kind: hit.kind,
-    score,
-    snippet: hit.snippet,
-    startLine: 1,
-    endLine: 1,
-    provenanceLabel: hit.provenanceLabel,
-    ...(typeof hit.updatedAt === "string" ? { updatedAt: hit.updatedAt } : {}),
-  };
-}
-
-function appendOrganizationMemoryResults(
-  result: unknown,
-  organizationResults: readonly OrganizationMemorySearchHit[],
-): unknown {
-  if (!isRecord(result) || !Array.isArray(result.results)) {
-    return result;
-  }
-  return {
-    ...result,
-    results: [
-      ...result.results,
-      ...organizationResults.map((hit) => ({
-        corpus: "platformclaw-organization",
-        source: "organization",
-        path: hit.path,
-        title: hit.title,
-        kind: hit.scopeKind,
-        score: hit.score,
-        snippet: hit.snippet,
-        startLine: 1,
-        endLine: 1,
-        provenanceLabel: hit.scopeName,
-        updatedAt: new Date(hit.updatedAt).toISOString(),
-      })),
-    ],
-  };
-}
-
-export async function appendOrganizationMemorySearch(
-  method: string,
-  result: unknown,
-  agentId: string,
-  query: string,
-  search?: (params: {
-    agentId: string;
-    query: string;
-    maxResults?: number;
-  }) => Promise<OrganizationMemorySearchHit[]>,
-): Promise<unknown> {
-  if (method !== "memory.search" || !search) {
-    return result;
-  }
-  try {
-    return appendOrganizationMemoryResults(
-      result,
-      await search({ agentId, query, maxResults: 20 }),
-    );
-  } catch {
-    // Organization memory is supplemental: its outage must not hide personal memory.
-    return isRecord(result) ? { ...result, organizationMemoryUnavailable: true } : result;
-  }
-}
-
 export function recoverMissingBrowserMemoryResult(params: {
   method: string;
   request: JsonObject;
@@ -208,8 +117,7 @@ export function prepareBrowserMemoryRequest(params: {
     params.method !== "memory.search" &&
     params.method !== "memory.delete" &&
     params.method !== "agents.workspace.get" &&
-    params.method !== "agents.workspace.list" &&
-    params.method !== "platformclaw.memory.get"
+    params.method !== "agents.workspace.list"
   ) {
     return undefined;
   }
@@ -260,26 +168,6 @@ export function prepareBrowserMemoryRequest(params: {
       ...(scope === undefined ? {} : { scope }),
     };
   }
-  if (params.method === "platformclaw.memory.get") {
-    const path = typeof params.request.path === "string" ? params.request.path : "";
-    if (!ORGANIZATION_MEMORY_PATH.test(path)) {
-      return params.fail("organization memory path is invalid");
-    }
-    const prepared: JsonObject = { agentId: params.agentId, path };
-    for (const [key, max] of [
-      ["fromLine", Number.MAX_SAFE_INTEGER],
-      ["lineCount", MAX_DOCUMENT_LINES],
-    ] as const) {
-      const value = params.request[key];
-      if (value !== undefined) {
-        if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > max) {
-          return params.fail(`${key} must be an integer from 1 to ${max}`);
-        }
-        prepared[key] = value;
-      }
-    }
-    return prepared;
-  }
   if (params.method === "agents.workspace.list") {
     if (params.request.path !== "memory") {
       return params.fail("browser workspace browsing is limited to the personal memory directory");
@@ -322,97 +210,6 @@ export async function refreshDeletedMemory(
     // Refresh is a separate outcome; it cannot roll back deletion.
   }
   return { ...deletion, wikiRefreshed };
-}
-
-export async function requestBrowserOrganizationMemoryGet(params: {
-  method: string;
-  request: JsonObject;
-  agentId: string;
-  get?: (request: {
-    agentId: string;
-    path: string;
-    fromLine?: number;
-    lineCount?: number;
-  }) => Promise<import("./contracts.js").OrganizationMemoryDocument | null>;
-}): Promise<{ handled: false } | { handled: true; result: unknown }> {
-  if (params.method !== "platformclaw.memory.get") {
-    return { handled: false };
-  }
-  if (!params.get) {
-    throw new BrowserGatewayProxyError("method-not-allowed", "Organization memory is unavailable");
-  }
-  const path = params.request.path as string;
-  const document = await params.get({
-    agentId: params.agentId,
-    path,
-    ...(typeof params.request.fromLine === "number" ? { fromLine: params.request.fromLine } : {}),
-    ...(typeof params.request.lineCount === "number"
-      ? { lineCount: params.request.lineCount }
-      : {}),
-  });
-  if (!document) {
-    return { handled: true, result: null };
-  }
-  if (
-    document.path !== path ||
-    !ORGANIZATION_MEMORY_PATH.test(document.path) ||
-    typeof document.content !== "string" ||
-    document.content.length > MAX_MEMORY_FILE_CHARS ||
-    typeof document.title !== "string" ||
-    document.title.length > 512 ||
-    (document.scopeKind !== "global" &&
-      document.scopeKind !== "team" &&
-      document.scopeKind !== "group" &&
-      document.scopeKind !== "part") ||
-    typeof document.scopeName !== "string" ||
-    !document.scopeName ||
-    document.scopeName.length > 256 ||
-    finiteNumber(document.updatedAt) === null ||
-    !positiveInteger(document.fromLine) ||
-    !positiveInteger(document.lineCount) ||
-    document.lineCount > MAX_DOCUMENT_LINES ||
-    (document.totalLines !== undefined &&
-      (!positiveInteger(document.totalLines) || document.totalLines < document.lineCount)) ||
-    (document.textTruncated !== undefined && typeof document.textTruncated !== "boolean") ||
-    (document.verification !== undefined &&
-      (!isRecord(document.verification) ||
-        document.verification.approvalStatus !== "approved" ||
-        !Number.isSafeInteger(document.verification.revision) ||
-        document.verification.revision < 1 ||
-        !Number.isSafeInteger(document.verification.sourceRevision) ||
-        document.verification.sourceRevision < 1 ||
-        !["current", "changed", "unavailable"].includes(document.verification.sourceStatus)))
-  ) {
-    throw new BrowserGatewayProxyError(
-      "upstream-result-denied",
-      "Organization memory returned an invalid document",
-    );
-  }
-  return {
-    handled: true,
-    result: {
-      path: document.path,
-      title: document.title,
-      kind: document.scopeKind,
-      provenanceLabel: document.scopeName,
-      content: document.content,
-      fromLine: document.fromLine,
-      lineCount: document.lineCount,
-      ...(document.totalLines !== undefined ? { totalLines: document.totalLines } : {}),
-      ...(document.textTruncated !== undefined ? { textTruncated: document.textTruncated } : {}),
-      ...(document.verification
-        ? {
-            verification: {
-              approvalStatus: document.verification.approvalStatus,
-              revision: document.verification.revision,
-              sourceRevision: document.verification.sourceRevision,
-              sourceStatus: document.verification.sourceStatus,
-            },
-          }
-        : {}),
-      updatedAt: new Date(document.updatedAt).toISOString(),
-    },
-  };
 }
 
 export function projectBrowserMemoryResult(params: {
@@ -464,17 +261,8 @@ export function projectBrowserMemoryResult(params: {
       (value) =>
         isRecord(value) && value.source === "memory" && canonicalMemoryFilePath(value.path),
     );
-    const organizationHits = payload.results.filter(
-      (value) =>
-        isRecord(value) &&
-        value.source === "organization" &&
-        typeof value.path === "string" &&
-        ORGANIZATION_MEMORY_PATH.test(value.path),
-    );
-    const results = [
-      ...memoryHits.map((hit) => projectMemorySearchHit(hit, params.fail)),
-      ...organizationHits.map((hit) => projectOrganizationMemorySearchHit(hit, params.fail)),
-    ]
+    const results = memoryHits
+      .map((hit) => projectMemorySearchHit(hit, params.fail))
       .toSorted((left, right) => (finiteNumber(right.score) ?? 0) - (finiteNumber(left.score) ?? 0))
       .slice(0, MAX_RESULTS);
     return {
@@ -483,9 +271,6 @@ export function projectBrowserMemoryResult(params: {
       searchMode: payload.searchMode,
       results,
       ...(payload.stale === true ? { stale: true } : {}),
-      ...(payload.organizationMemoryUnavailable === true
-        ? { organizationMemoryUnavailable: true }
-        : {}),
     };
   }
   if (params.method === "agents.workspace.list") {

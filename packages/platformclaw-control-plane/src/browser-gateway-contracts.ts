@@ -3,11 +3,6 @@ import type { BrowserAuthService } from "./browser-auth-service.js";
 import type {
   ControlPlaneAuditWriter,
   ControlPlaneStore,
-  OrganizationMemoryLifecycle,
-  OrganizationMemoryDocument,
-  OrganizationMemoryGraph,
-  OrganizationMemoryGraphKind,
-  OrganizationMemorySearchHit,
   PersonalAgentBinding,
   PlatformUser,
   BrowserSession,
@@ -74,23 +69,5 @@ export type BrowserGatewayProxyOptions = {
   vaultService?: import("./knowledge-vault-service.js").KnowledgeVaultService;
   buildAgentMainSessionKey(params: { agentId: string }): string;
   resolveAgentIdFromSessionKey(sessionKey: string): string | null;
-  searchOrganizationMemory?(params: {
-    agentId: string;
-    query: string;
-    maxResults?: number;
-  }): Promise<OrganizationMemorySearchHit[]>;
-  getOrganizationMemory?(params: {
-    agentId: string;
-    path: string;
-    fromLine?: number;
-    lineCount?: number;
-  }): Promise<OrganizationMemoryDocument | null>;
-  getOrganizationMemoryGraph?(params: {
-    agentId: string;
-    kind: OrganizationMemoryGraphKind;
-  }): Promise<OrganizationMemoryGraph>;
-  organizationMemoryLifecycle?: OrganizationMemoryLifecycle;
-  organizationKnowledgeStore?: import("./sqlite-store.js").SqliteControlPlaneStore;
-  organizationKnowledgeService?: import("./organization-knowledge-service.js").OrganizationKnowledgeService;
   now?: () => number;
 };

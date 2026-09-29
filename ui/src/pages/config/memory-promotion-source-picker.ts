@@ -23,6 +23,7 @@ type WikiPage = {
   content?: string;
   truncated?: boolean;
   displayContent?: string;
+  sourceContent?: string;
 };
 
 export type PersonalWikiSourceSelected = {
@@ -30,6 +31,7 @@ export type PersonalWikiSourceSelected = {
   title: string;
   content: string;
   path: string;
+  sourceContent?: string;
 };
 
 class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
@@ -39,6 +41,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
   @property({ type: Boolean }) getAdvertised = false;
   @property() agentId: string | null = null;
   @property() initialPersonalLookup: string | null = null;
+  @property({ type: Boolean }) showPreview = true;
   @state() private query = "";
   @state() private results: WikiSearchResult[] = [];
   @state() private selected: WikiPage | null = null;
@@ -163,6 +166,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
             title: page.title ?? page.path,
             content: page.displayContent,
             path: page.path,
+            sourceContent: page.sourceContent,
           },
         }),
       );
@@ -236,7 +240,7 @@ class MemoryPromotionSourcePickerElement extends OpenClawLightDomElement {
             )}
           </div>`
         : nothing}
-      ${this.selected
+      ${this.selected && this.showPreview
         ? html`<article class="memory-source-picker__preview">
             <h5>${t("memoryPage.promotions.sourcePreview")}: ${this.selected.title}</h5>
             <article class="sidebar-markdown wiki-document__reader">

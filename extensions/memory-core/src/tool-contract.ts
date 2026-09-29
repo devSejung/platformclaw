@@ -22,7 +22,7 @@ export const MemorySearchSchema = {
       minLength: 1,
       maxLength: 240,
       description:
-        "Exact Shared or Managed vault name explicitly selected by the user. Ambiguous names return choices; ask the user, never guess. Do not combine with vaultId.",
+        "Exact Shared vault name explicitly selected by the user. Ambiguous names return choices; ask the user, never guess. Do not combine with vaultId.",
     },
     maxResults: { type: "integer", minimum: 1, maximum: 50 },
     minScore: { type: "number" },
@@ -66,6 +66,6 @@ export const MemoryGetSchema = {
 } as const satisfies TSchema;
 
 export const MEMORY_SEARCH_DESCRIPTION =
-  "Search accessible knowledge before answering about prior work, decisions, dates, people, preferences, todos, or workplace knowledge. Omit vaultId, vaultName, and corpus for the server-selected scope. Restrict a vault only when explicitly selected by the user; use its returned vaultId or exact Shared/Managed vaultName. Results include vault, document, path, and source version. Report warnings and follow action guidance; unavailable is not no knowledge.";
+  "Search accessible knowledge before answering about prior work, decisions, dates, people, preferences, todos, or workplace knowledge. Omit vaultId, vaultName, and corpus for the server-selected scope. Restrict a vault only when explicitly selected by the user; use its returned vaultId or exact Shared vaultName. Results include vault, document, path, and source version. Report warnings and follow action guidance; unavailable is not no knowledge.";
 export const MEMORY_GET_DESCRIPTION =
-  "Read a bounded excerpt using the exact path returned by search. The server selects the authorized source, including Personal, Shared, and Managed knowledge; no corpus choice is needed. Optional from/lines select a line range; request another range when needed.";
+  "Read a bounded excerpt using the exact path returned by search. The server selects the authorized source, including Personal and Shared knowledge; no corpus choice is needed. Optional from/lines select a line range; request another range when needed.";
