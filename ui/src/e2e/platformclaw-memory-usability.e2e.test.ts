@@ -257,7 +257,9 @@ suite("PlatformClaw Memory usability", () => {
             };
           }),
         );
-        expect(badges.map((badge) => badge.label)).toEqual(["Owner", "Owner", "Editor"]);
+        expect(badges.map((badge) => badge.label)).toEqual(
+          locale === "ko-KR" ? ["소유자", "소유자", "편집자"] : ["Owner", "Owner", "Editor"],
+        );
         for (const badge of badges) {
           expect(badge).toMatchObject({ lines: 1, readable: true });
         }

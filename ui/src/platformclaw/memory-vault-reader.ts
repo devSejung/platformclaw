@@ -213,7 +213,6 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
       document: this.document,
       vaultName: this.vault.name,
       vaultType: this.vault.type,
-      canExport: this.vault.canExport,
       onDelete:
         this.vault.canEdit && this.methods.includes("platformclaw.vault.document.delete")
           ? () => {

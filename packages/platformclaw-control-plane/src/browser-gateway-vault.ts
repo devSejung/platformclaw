@@ -63,6 +63,10 @@ export async function requestBrowserKnowledgeVault(params: {
         name: field("name", 160),
         description: request.description === undefined ? "" : field("description", 2000, true),
       });
+    } else if (method === "platformclaw.vault.rename") {
+      result = vaults.renameVault({ userId, vaultId: field("vaultId"), name: field("name", 160) });
+    } else if (method === "platformclaw.vault.delete") {
+      result = vaults.deleteVault({ userId, vaultId: field("vaultId") });
     } else if (method === "platformclaw.vault.publish") {
       result = await service.publish({
         userId,

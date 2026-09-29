@@ -13,17 +13,31 @@ import "./memory-vaults.css";
 import "./memory-vault-graph.ts";
 import "./memory-vault-author.ts";
 import { loadPlatformClawLocale, platformClawT } from "./i18n.ts";
-import { renderVaultRequests } from "./memory-vault-access.ts";
+import { renderVaultAccessRequestForm, renderVaultRequests } from "./memory-vault-access.ts";
 import type { VaultAuthorSaved } from "./memory-vault-author.ts";
 import {
   renderVaultCatalog,
-  renderVaultDialog,
   renderVaultSearch,
   type VaultCatalogTab,
 } from "./memory-vault-catalog.ts";
 import "./memory-vault-reader.ts";
 import "./memory-vault-recovery.ts";
 import { renderVaultCreateForm } from "./memory-vault-forms.ts";
+import {
+  deleteAttachmentLifecycle,
+  deleteVaultLifecycle,
+  downloadAttachment,
+  renameVaultLifecycle,
+  replaceAttachment,
+  renderAttachmentDeleteConfirmation,
+  renderVaultAttachments,
+  renderVaultDeleteConfirmation,
+  renderVaultManagementActions,
+  renderVaultRenameForm,
+  renderVaultSelectedLayout,
+  renderVaultStateDialog,
+  uploadAttachment,
+} from "./memory-vault-management.ts";
 import type { VaultReaderSelection } from "./memory-vault-reader.ts";
 
 const t = (key: string) => platformClawT(`platformClaw.vault.${key}`);
@@ -56,6 +70,9 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   @state() private searchScope: "connected" | "all" | "selected" = "connected";
   @state() private membersOpen = false;
   @state() private importing = false;
+  @state() private renaming = false;
+  @state() private deletingVault = false;
+  @state() private deletingAttachment: { path: string; revision: number | string } | null = null;
   @state() private requestVault: KnowledgeVaultCatalogEntry | null = null;
   @state() private recoveryVault: KnowledgeVaultCatalogEntry | null = null;
   @state() private publishLookup: string | null = null;
@@ -80,19 +97,29 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
       this.busy = false;
       this.error = "";
       this.message = "";
-      this.creating = this.membersOpen = this.importing = false;
+      this.creating =
+        this.membersOpen =
+        this.importing =
+        this.renaming =
+        this.deletingVault =
+          false;
+      this.deletingAttachment = null;
       this.requestVault = null;
       this.recoveryVault = null;
       this.publishLookup = null;
       this.searchScope = "connected";
     }
     if (["client", "connected", "agentId", "methodAdvertised"].some((key) => changed.has(key))) {
-      // Keep the same-session reader/editor mounted across transport loss.
       this.epoch++;
       this.busy = false;
       if (!this.connected) {
-        // Native modal dialogs escape ancestor inert; dismiss non-editor actions as before.
-        this.creating = this.membersOpen = this.importing = false;
+        this.creating =
+          this.membersOpen =
+          this.importing =
+          this.renaming =
+          this.deletingVault =
+            false;
+        this.deletingAttachment = null;
         this.requestVault = this.recoveryVault = null;
       }
       if (this.available) {
@@ -166,9 +193,18 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     this.reader = null;
     this.authorOpen = false;
     return this.run(async () => {
+      const epoch = this.epoch;
       // An ACL rejection must remove previously visible vault contents.
       this.snapshot = { ...this.snapshot, selected: undefined };
-      await this.readSnapshot(id);
+      try {
+        await this.readSnapshot(id);
+      } catch (error) {
+        if (epoch === this.epoch) {
+          this.selectedId = "";
+          this.searchScope = "connected";
+        }
+        throw error;
+      }
     });
   }
   private async mutate(name: string, params: Record<string, unknown>, message = "operationDone") {
@@ -236,11 +272,15 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     anchor.href = url;
     anchor.download = filename;
     anchor.click();
-    // Keep the URL alive until the browser has consumed the navigation.
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
-  private fileInput(label: string, accept: string, action: (file: File) => Promise<void>) {
-    return html`<label class="btn vaults__upload"
+  private fileInput(
+    label: string,
+    accept: string,
+    action: (file: File) => Promise<void>,
+    small = false,
+  ) {
+    return html`<label class=${`btn${small ? " btn--sm" : ""} vaults__upload`}
       >${t(label)}<input
         type="file"
         accept=${accept}
@@ -344,39 +384,93 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
       : nothing;
   }
   private renderRequest() {
-    return html`<form
-      class="vaults__form"
-      @submit=${(event: SubmitEvent) => {
-        const data = this.form(event);
-        const vaultId = this.requestVault!.id;
+    const vault = this.requestVault!;
+    return renderVaultAccessRequestForm({
+      vaultName: vault.name,
+      busy: this.busy,
+      onSubmit: (role, reason) => {
         void this.run(async () => {
-          await this.mutate(
-            "access.request",
-            { vaultId, role: this.field(data, "role"), reason: this.field(data, "reason") },
-            "requestSent",
-          );
+          await this.mutate("access.request", { vaultId: vault.id, role, reason }, "requestSent");
           this.requestVault = null;
         });
-      }}
-    >
-      <p>${this.requestVault!.name}</p>
-      <p class="vaults__hint">${t("requestHint")}</p>
-      <label
-        >${t("role")}<select class="settings-select" name="role">
-          <option value="reader">${t("reader")}</option>
-          <option value="editor">${t("editor")}</option>
-        </select></label
-      >
-      <label
-        >${t("requestReason")}<textarea
-          class="settings-input"
-          name="reason"
-          rows="3"
-          maxlength="1000"
-        ></textarea>
-      </label>
-      <button class="btn primary" ?disabled=${this.busy}>${t("sendRequest")}</button>
-    </form>`;
+      },
+    });
+  }
+  private renderRename() {
+    const vault = this.selected!.vault;
+    return renderVaultRenameForm({
+      vault,
+      busy: this.busy,
+      onCancel: () => (this.renaming = false),
+      onSubmit: (name) => {
+        const epoch = this.epoch;
+        void this.run(() =>
+          renameVaultLifecycle({
+            client: this.client!,
+            vaultId: vault.id,
+            name,
+            isCurrent: () => epoch === this.epoch,
+            refresh: () => this.readSnapshot(vault.id),
+            onRenamed: () => {
+              this.renaming = false;
+              this.message = t("vaultRenamed");
+            },
+          }),
+        );
+      },
+    });
+  }
+  private renderDeleteVault() {
+    const vault = this.selected!.vault;
+    return renderVaultDeleteConfirmation({
+      vault,
+      busy: this.busy,
+      onCancel: () => (this.deletingVault = false),
+      onConfirm: () => {
+        const epoch = this.epoch;
+        void this.run(() =>
+          deleteVaultLifecycle({
+            client: this.client!,
+            vaultId: vault.id,
+            isCurrent: () => epoch === this.epoch,
+            onDeleted: () => {
+              this.deletingVault = false;
+              this.selectedId = "";
+              this.reader = null;
+              this.searchScope = "connected";
+              this.snapshot = { ...this.snapshot, selected: undefined };
+              this.message = t("vaultDeleted");
+            },
+            refreshCatalog: () => this.readSnapshot(""),
+          }),
+        );
+      },
+    });
+  }
+  private renderDeleteAttachment() {
+    const vault = this.selected!.vault;
+    const attachment = this.deletingAttachment!;
+    return renderAttachmentDeleteConfirmation({
+      path: attachment.path,
+      busy: this.busy,
+      onCancel: () => (this.deletingAttachment = null),
+      onConfirm: () => {
+        const epoch = this.epoch;
+        void this.run(() =>
+          deleteAttachmentLifecycle({
+            binary: (path, init) => this.binary(path, init),
+            vaultId: vault.id,
+            attachment,
+            isCurrent: () => epoch === this.epoch,
+            refresh: () => this.readSnapshot(vault.id),
+            onDeleted: () => {
+              this.deletingAttachment = null;
+              this.message = t("attachmentDeleted");
+            },
+          }),
+        );
+      },
+    });
   }
   private renderSelected() {
     const selected = this.selected;
@@ -385,127 +479,84 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     }
     const { vault } = selected;
     const query = new URLSearchParams({ vaultId: vault.id });
-    return html`<section class="vaults__selected">
-      <button
-        class="btn btn--sm vaults__back"
-        ?disabled=${this.busy}
-        @click=${() => {
-          this.selectedId = "";
-          this.reader = null;
-          this.snapshot = { ...this.snapshot, selected: undefined };
-          this.searchScope = "connected";
-        }}
-      >
-        ${t("backToVaults")}
-      </button>
-      <header>
-        <h2>${vault.name}</h2>
-        <p>${vault.description}</p>
-        <p class="muted">${t(vault.type)} · ${t(vault.role)}</p>
-      </header>
-      <div class="vaults__actions">
-        ${vault.type === "shared" && vault.canManageMembers
-          ? html`<button class="btn btn--sm" @click=${() => (this.membersOpen = true)}>
-              ${t("members")}
-            </button>`
-          : nothing}
-        ${vault.canExport
-          ? html`<button
-              class="btn"
-              ?disabled=${this.busy || this.authorOpen}
-              @click=${() =>
-                void this.run(async () => {
-                  const epoch = this.epoch;
-                  const response = await this.binary(`/export?${query}`);
-                  const archive = await response.blob();
-                  if (epoch === this.epoch) {
-                    this.download(archive, `${vault.name}.zip`);
-                  }
-                })}
-            >
-              ${t("export")}
-            </button>`
-          : nothing}
-        ${vault.canEdit
-          ? html`<button
-              class="btn"
-              ?disabled=${this.busy || this.authorOpen}
-              @click=${() => void this.run(() => this.mutate("rebuild", { vaultId: vault.id }))}
-            >
-              ${t("rebuild")}
-            </button>`
-          : nothing}
-      </div>
-      <div class="vaults__heading">
-        <h3>${t("documents")}</h3>
-        ${vault.canEdit && this.canAuthor
-          ? html`<button
-              class="btn primary"
-              ?disabled=${this.busy}
-              @click=${() => {
-                this.authorOpen = true;
-              }}
-            >
-              ${t("addKnowledge")}
-            </button>`
-          : nothing}
-      </div>
-      ${this.renderSearch()}
-      <platformclaw-vault-documents
-        .selected=${selected}
-        .busy=${this.busy || this.authorOpen}
-        @vault-document-open=${(event: CustomEvent<string>) => this.openDocument(event.detail)}
-      ></platformclaw-vault-documents>
-      ${html`<details class="card">
-        <summary>${t("attachments")}</summary>
-        <p class="vaults__hint">${t("attachmentHint")}</p>
-        ${selected.attachmentsTruncated
-          ? html`<p class="callout" role="status">${t("attachmentsTruncated")}</p>`
-          : nothing}
-        ${vault.canEdit
-          ? this.fileInput("uploadAttachment", "", async (file) => {
-              if (file.size > 8 * 1024 * 1024) {
-                throw new Error(t("tooLarge"));
-              }
-              const epoch = this.epoch;
-              await this.binary(
-                `/attachment?${new URLSearchParams({ vaultId: vault.id, path: file.name })}`,
-                {
-                  method: "PUT",
-                  headers: { "Content-Type": file.type || "application/octet-stream" },
-                  body: file,
-                },
-              );
-              if (epoch === this.epoch) {
-                await this.readSnapshot();
-              }
-            })
-          : nothing}
-        ${selected.attachments.map(
-          (attachment) =>
-            html`<div class="vaults__member">
-              <span>${attachment.path} · ${attachment.bytes} bytes · r${attachment.revision}</span
-              ><button
-                class="btn"
-                ?disabled=${this.busy}
-                @click=${() =>
-                  void this.run(async () => {
-                    const epoch = this.epoch;
-                    const response = await this.binary(
-                      `/attachment?${new URLSearchParams({ vaultId: vault.id, path: attachment.path })}`,
-                    );
-                    const blob = await response.blob();
-                    if (epoch === this.epoch) {
-                      this.download(blob, attachment.path.split("/").at(-1)!);
-                    }
-                  })}
-              >
-                ${t("downloadAttachment")}
-              </button>
-            </div>`,
-        )}
-      </details>`}
-    </section>`;
+    const management = renderVaultManagementActions({
+      selected,
+      methods: this.methods,
+      busy: this.busy,
+      authorOpen: this.authorOpen,
+      onMembers: () => (this.membersOpen = true),
+      onExport: () =>
+        void this.run(async () => {
+          const epoch = this.epoch;
+          const response = await this.binary(`/export?${query}`);
+          const archive = await response.blob();
+          if (epoch === this.epoch) {
+            this.download(archive, `${vault.name}.zip`);
+          }
+        }),
+      onRebuild: () => void this.run(() => this.mutate("rebuild", { vaultId: vault.id })),
+      onRename: () => (this.renaming = true),
+      onDelete: () => (this.deletingVault = true),
+    });
+    const attachments = renderVaultAttachments({
+      selected,
+      busy: this.busy,
+      renderFileInput: (label, accept, action, small) =>
+        this.fileInput(label, accept, action, small),
+      onUpload: (file) => {
+        const epoch = this.epoch;
+        return uploadAttachment({
+          binary: (path, init) => this.binary(path, init),
+          vaultId: vault.id,
+          file,
+          isCurrent: () => epoch === this.epoch,
+          refresh: () => this.readSnapshot(),
+        });
+      },
+      onDownload: (attachment) => {
+        const epoch = this.epoch;
+        void this.run(() =>
+          downloadAttachment({
+            binary: (path, init) => this.binary(path, init),
+            vaultId: vault.id,
+            attachment,
+            isCurrent: () => epoch === this.epoch,
+            download: (blob, filename) => this.download(blob, filename),
+          }),
+        );
+      },
+      onReplace: (attachment, file) => {
+        const epoch = this.epoch;
+        return replaceAttachment({
+          binary: (path, init) => this.binary(path, init),
+          vaultId: vault.id,
+          attachment,
+          file,
+          isCurrent: () => epoch === this.epoch,
+          refresh: () => this.readSnapshot(vault.id),
+          onReplaced: () => (this.message = t("attachmentReplaced")),
+        });
+      },
+      onDelete: (attachment) =>
+        (this.deletingAttachment = { path: attachment.path, revision: attachment.revision }),
+    });
+    return renderVaultSelectedLayout({
+      selected,
+      busy: this.busy,
+      authorOpen: this.authorOpen,
+      canAuthor: this.canAuthor,
+      management,
+      search: this.renderSearch(),
+      attachments,
+      onBack: () => {
+        this.selectedId = "";
+        this.reader = null;
+        this.snapshot = { ...this.snapshot, selected: undefined };
+        this.searchScope = "connected";
+      },
+      onAddKnowledge: () => (this.authorOpen = true),
+      onDocumentOpen: (documentId) => this.openDocument(documentId),
+    });
   }
   private renderImport() {
     return html`<p>${t("importHint")}</p>
@@ -531,32 +582,31 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
       })}`;
   }
   private renderDialog() {
-    const kind = this.creating
-      ? "new"
-      : this.membersOpen
-        ? "members"
-        : this.importing
-          ? "import"
-          : this.requestVault
-            ? "requestAccess"
-            : null;
-    if (!kind) {
-      return nothing;
-    }
-    const content = this.creating
-      ? this.renderCreate()
-      : this.membersOpen
-        ? this.renderMembers()
-        : this.importing
-          ? this.renderImport()
-          : this.renderRequest();
-    return renderVaultDialog({
-      title: t(kind),
-      content,
+    return renderVaultStateDialog({
+      creating: this.creating,
+      membersOpen: this.membersOpen,
+      importing: this.importing,
+      renaming: this.renaming,
+      deletingVault: this.deletingVault,
+      deletingAttachment: Boolean(this.deletingAttachment),
+      requestingAccess: Boolean(this.requestVault),
       busy: this.busy,
       error: this.error,
+      create: this.creating ? this.renderCreate() : nothing,
+      members: this.membersOpen ? this.renderMembers() : nothing,
+      importVault: this.importing ? this.renderImport() : nothing,
+      rename: this.renaming ? this.renderRename() : nothing,
+      deleteVault: this.deletingVault ? this.renderDeleteVault() : nothing,
+      deleteAttachment: this.deletingAttachment ? this.renderDeleteAttachment() : nothing,
+      requestAccess: this.requestVault ? this.renderRequest() : nothing,
       onClose: () => {
-        this.creating = this.membersOpen = this.importing = false;
+        this.creating =
+          this.membersOpen =
+          this.importing =
+          this.renaming =
+          this.deletingVault =
+            false;
+        this.deletingAttachment = null;
         this.requestVault = null;
         this.error = "";
       },

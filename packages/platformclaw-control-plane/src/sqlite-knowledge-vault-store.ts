@@ -2,11 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { formatWikiDocumentLink } from "@openclaw/markdown-core";
 import { sql } from "kysely";
-import {
-  ControlPlaneConflictError,
-  ControlPlaneNotFoundError,
-  ControlPlaneStateError,
-} from "./contracts.js";
+import { ControlPlaneConflictError } from "./contracts.js";
 import {
   effectiveWikiRoles,
   reconcileWikiAccess,
@@ -15,15 +11,12 @@ import {
 import {
   decodeKnowledgeVaultArchive,
   encodeKnowledgeVaultArchive,
-  requireKnowledgeVaultMediaType,
 } from "./knowledge-vault-archive.js";
 import {
   compileKnowledgeVaultDocument,
   createKnowledgeVaultLinkResolver,
-  knowledgeVaultPath,
 } from "./knowledge-vault-compiler.js";
 import {
-  KNOWLEDGE_VAULT_LIMITS,
   KnowledgeVaultSearchError,
   type KnowledgeSearchHit,
   type KnowledgeVault,
@@ -41,10 +34,10 @@ import {
   runReadTransaction,
   takeFirstSync,
 } from "./kysely-sync.js";
+import { SqliteKnowledgeVaultAttachmentStore } from "./sqlite-knowledge-vault-attachments.js";
 import { requireKnowledgeVaultText } from "./sqlite-knowledge-vault-core.js";
-import { SqliteKnowledgeVaultSharingStore } from "./sqlite-knowledge-vault-sharing.js";
 
-export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultSharingStore {
+export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultAttachmentStore {
   constructor(
     db: DatabaseSync,
     private readonly compiler = compileKnowledgeVaultDocument,
@@ -502,76 +495,6 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultSharingStore 
       }
       return hit;
     });
-  }
-
-  uploadAttachment(params: {
-    userId: string;
-    vaultId: string;
-    path: string;
-    mediaType: string;
-    content: Buffer;
-    expectedRevision?: number;
-  }): void {
-    this.access(params.userId, params.vaultId, "edit");
-    const attachmentPath = knowledgeVaultPath(params.path);
-    if (params.content.length > KNOWLEDGE_VAULT_LIMITS.attachmentBytes) {
-      throw new ControlPlaneStateError("Attachment exceeds 8 MiB");
-    }
-    const mediaType = requireKnowledgeVaultMediaType(params.mediaType);
-    runImmediateTransaction(this.db, () => {
-      this.access(params.userId, params.vaultId, "edit");
-      const prior = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("knowledge_vault_attachments")
-          .select(["revision", sql<number>`length(content)`.as("bytes")])
-          .where("vault_id", "=", params.vaultId)
-          .where("path", "=", attachmentPath),
-      );
-      if (prior && prior.revision !== params.expectedRevision) {
-        throw new ControlPlaneConflictError(
-          "knowledge_vault_changed",
-          "Attachment changed; reload before replacing",
-        );
-      }
-      this.requireCapacity(
-        params.vaultId,
-        params.content.length - (prior?.bytes ?? 0),
-        prior ? 0 : 1,
-      );
-      const values = {
-        media_type: mediaType,
-        content: params.content,
-        revision: (prior?.revision ?? 0) + 1,
-      };
-      executeSync(
-        this.db,
-        this.query
-          .insertInto("knowledge_vault_attachments")
-          .values({ ...values, vault_id: params.vaultId, path: attachmentPath })
-          .onConflict((oc) => oc.columns(["vault_id", "path"]).doUpdateSet(values)),
-      );
-    });
-  }
-
-  downloadAttachment(params: { userId: string; vaultId: string; path: string }): {
-    content: Buffer;
-    mediaType: string;
-    revision: number;
-  } {
-    this.access(params.userId, params.vaultId);
-    const row = takeFirstSync(
-      this.db,
-      this.query
-        .selectFrom("knowledge_vault_attachments")
-        .selectAll()
-        .where("vault_id", "=", params.vaultId)
-        .where("path", "=", params.path),
-    );
-    if (!row) {
-      throw new ControlPlaneNotFoundError("knowledge-vault-attachment", params.path);
-    }
-    return { content: Buffer.from(row.content), mediaType: row.media_type, revision: row.revision };
   }
 
   requireExport(userId: string, vaultId: string): void {

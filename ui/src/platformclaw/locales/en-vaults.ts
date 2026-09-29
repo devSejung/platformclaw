@@ -147,6 +147,17 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.download": "Download Markdown",
   "platformClaw.vault.saved": "Document saved. Search and link status is shown with the document.",
   "platformClaw.vault.members": "Members and permissions",
+  "platformClaw.vault.manageVault": "Vault management",
+  "platformClaw.vault.renameVault": "Rename vault",
+  "platformClaw.vault.renameVaultHint":
+    "Change the name shown in Wiki Hub. Documents and access stay unchanged.",
+  "platformClaw.vault.saveVaultName": "Save name",
+  "platformClaw.vault.vaultRenamed": "Vault name updated.",
+  "platformClaw.vault.deleteVault": "Delete vault",
+  "platformClaw.vault.deleteVaultHint":
+    "This permanently removes this Shared vault, its documents, attachments, access grants, and pending requests. Published copies in other vaults are not affected.",
+  "platformClaw.vault.deleteVaultConfirm": "Delete vault permanently",
+  "platformClaw.vault.vaultDeleted": "Vault deleted.",
   "platformClaw.vault.account": "Employee account ID",
   "platformClaw.vault.role": "Role",
   "platformClaw.vault.reader": "Reader",
@@ -154,8 +165,24 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.owner": "Owner",
   "platformClaw.vault.setMember": "Add or change access",
   "platformClaw.vault.removeMember": "Remove grant",
+  "platformClaw.vault.confirmAccessChange": "Confirm permission change",
+  "platformClaw.vault.confirmAccessChangeAction": "Confirm change",
+  "platformClaw.vault.confirmRemoveMember":
+    "Remove {name}'s direct access to this vault? Organization access may still apply.",
+  "platformClaw.vault.confirmRemoveOrganization":
+    "Remove only the {name} organization grant from this vault? Its members may lose access unless another direct or organization grant applies.",
+  "platformClaw.vault.confirmOrganizationOwner":
+    "Grant Owner to the direct members of {name}? Only direct members of that exact organization receive this role. They can manage this vault and its permissions; the server still prevents removing the last Owner.",
   "platformClaw.vault.attachments": "Attachments",
   "platformClaw.vault.uploadAttachment": "Upload attachment",
+  "platformClaw.vault.replaceAttachment": "Replace",
+  "platformClaw.vault.deleteAttachment": "Delete",
+  "platformClaw.vault.deleteAttachmentTitle": "Delete attachment",
+  "platformClaw.vault.deleteAttachmentConfirm": "Delete attachment",
+  "platformClaw.vault.deleteAttachmentHint":
+    "Permanently delete this attachment from the vault? A newer revision will not be deleted.",
+  "platformClaw.vault.attachmentReplaced": "Attachment replaced.",
+  "platformClaw.vault.attachmentDeleted": "Attachment deleted.",
   "platformClaw.vault.rebuild": "Rebuild search and links",
   "platformClaw.vault.pending": "Updating search and links",
   "platformClaw.vault.ready": "Search ready",

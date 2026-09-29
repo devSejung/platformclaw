@@ -49,7 +49,7 @@ export async function handleKnowledgeVaultHttp(
     return false;
   }
   const method = req.method;
-  const mutation = method === "POST" || method === "PUT";
+  const mutation = method === "POST" || method === "PUT" || method === "DELETE";
   if (mutation && !isMutationOriginAllowed(req)) {
     sendBrowserJson(res, 403, { error: "Origin denied" });
     return true;
@@ -88,7 +88,7 @@ export async function handleKnowledgeVaultHttp(
       download(res, content, "knowledge-vault.zip", "application/zip");
     } else if (
       url.pathname === "/platformclaw/vaults/attachment" &&
-      (method === "GET" || method === "PUT")
+      (method === "GET" || method === "PUT" || method === "DELETE")
     ) {
       const path = url.searchParams.get("path") ?? "";
       if (method === "GET") {
@@ -110,18 +110,37 @@ export async function handleKnowledgeVaultHttp(
         ) {
           throw new ControlPlaneStateError("Invalid expectedRevision");
         }
-        const content = await readBytes(req, KNOWLEDGE_VAULT_LIMITS.attachmentBytes);
-        await service.uploadAttachment({
-          userId,
-          vaultId,
-          path,
-          content,
-          mediaType: "application/octet-stream",
-          ...(revision === null
-            ? {}
-            : { expectedRevision: vaultId.startsWith("personal:") ? revision : Number(revision) }),
-        });
-        sendBrowserJson(res, 200, { ok: true });
+        const expectedRevision =
+          revision === null
+            ? undefined
+            : vaultId.startsWith("personal:")
+              ? revision
+              : Number(revision);
+        if (method === "DELETE") {
+          if (expectedRevision === undefined) {
+            throw new ControlPlaneStateError(
+              "expectedRevision is required to delete an attachment",
+            );
+          }
+          const result = await service.deleteAttachment({
+            userId,
+            vaultId,
+            path,
+            expectedRevision,
+          });
+          sendBrowserJson(res, 200, result);
+        } else {
+          const content = await readBytes(req, KNOWLEDGE_VAULT_LIMITS.attachmentBytes);
+          await service.uploadAttachment({
+            userId,
+            vaultId,
+            path,
+            content,
+            mediaType: "application/octet-stream",
+            ...(expectedRevision === undefined ? {} : { expectedRevision }),
+          });
+          sendBrowserJson(res, 200, { ok: true });
+        }
       }
     } else {
       sendBrowserJson(res, 405, { error: "Unsupported vault action" });

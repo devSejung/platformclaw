@@ -175,17 +175,6 @@
   font-size: 12px;
   font-weight: 600;
 }
-.vaults__badge {
-  padding: 4px 8px;
-  border-radius: var(--radius-full);
-  color: var(--muted);
-  background: var(--bg-elevated);
-  font-size: 11px;
-}
-.vaults__badge.is-active {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
 .vaults__empty {
   display: grid;
   justify-items: start;
@@ -278,6 +267,19 @@
 .vaults__selected .vaults__search-panel {
   border-top: 0;
   padding-top: 0;
+}
+.vaults__management {
+  padding-block: 4px 10px;
+  border-block: 1px solid var(--border);
+}
+.vaults__management > summary {
+  color: var(--muted);
+}
+.vaults__management > .vaults__actions {
+  padding-top: 8px;
+}
+.vaults__confirmation p {
+  margin-block: 8px 12px;
 }
 
 .vaults__search-panel .memory-memories {

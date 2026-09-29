@@ -103,6 +103,10 @@ Wikis offer an advanced explicit path; an occupied explicit path fails. Personal
 Wiki assigns its path through its source owner and shows the actual path after
 saving. Shared path moves retain document identity.
 
+Shared Wiki Owners can rename or delete a Wiki. Delete removes the Wiki source,
+derived data, grants, requests and attachments atomically, and disconnects it from
+users whose AI reference selection included it.
+
 Document cards preview the document body for both Personal and Shared Wikis;
 source paths and indexing status stay in metadata. While editing, **Insert document
 link** searches documents in the current Wiki and inserts the selected full path.
@@ -137,6 +141,11 @@ do not synchronize. There is no organization knowledge review/approval workflow.
 Personal and Shared Wikis provide attachment upload/download and complete ZIP
 export. PDF and Word files remain binary attachments; their text is not extracted
 or searched. Add their content as Markdown when it must be searchable.
+
+Readers can download an individual Markdown source or attachment. Attachment
+replacement and deletion require the revision from the latest snapshot; stale
+mutations fail so a concurrent change is never overwritten or removed. Complete
+ZIP export remains Editor/Owner only.
 
 The ZIP contains `vault.json`, original Markdown under `documents/`, and files
 under `attachments/`. It excludes indexes, generated navigation/reports, derived

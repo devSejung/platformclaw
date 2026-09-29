@@ -3,6 +3,8 @@ export const KNOWLEDGE_VAULT_RPC_PARAMS = {
   "platformclaw.vault.snapshot": ["vaultId"],
   "platformclaw.vault.connection.set": ["vaultId", "connected"],
   "platformclaw.vault.create": ["name", "description"],
+  "platformclaw.vault.rename": ["vaultId", "name"],
+  "platformclaw.vault.delete": ["vaultId"],
   "platformclaw.vault.document.delete": ["vaultId", "documentId", "expectedRevision"],
   "platformclaw.vault.document.get": ["vaultId", "documentId"],
   "platformclaw.vault.document.targets": ["vaultId", "query"],

@@ -88,7 +88,7 @@ export function renderVaultCatalog(options: {
                 (vault) => html`<article class="vaults__card" data-vault-card=${vault.id}>
                   <div class="vaults__card-top">
                     ${vault.role
-                      ? html`<span class="vaults__badge" data-vault-role=${vault.role}
+                      ? html`<span class="vaults__type" data-vault-role=${vault.role}
                           >${t(vault.role)}</span
                         >`
                       : html`<span class="vaults__hint">${t("noAccess")}</span>`}
@@ -130,15 +130,8 @@ export function renderVaultCatalog(options: {
                           ? t("documentCount").replace("{count}", String(vault.documentCount))
                           : t("accessRequired")}</span
                     >
-                    ${vault.canRead
+                    ${!vault.canRead
                       ? html`<button
-                          class="btn btn--sm"
-                          ?disabled=${options.busy}
-                          @click=${() => options.onOpen(vault)}
-                        >
-                          ${t("view")}
-                        </button>`
-                      : html`<button
                           class="btn btn--sm primary"
                           ?disabled=${options.busy || options.pendingVaultIds.has(vault.id)}
                           @click=${() => options.onRequest(vault)}
@@ -148,7 +141,8 @@ export function renderVaultCatalog(options: {
                               ? "requestPending"
                               : "requestAccess",
                           )}
-                        </button>`}
+                        </button>`
+                      : nothing}
                     ${vault.canRecoverOwner
                       ? html`<button
                           class="btn btn--sm"

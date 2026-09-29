@@ -77,3 +77,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+@media (max-width: 640px) {
+  .vault-graph__toolbar .svg-graph-controls,
+  .vault-graph__toolbar > button,
+  .vault-graph__canvas {
+    display: none;
+  }
+}

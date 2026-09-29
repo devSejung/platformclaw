@@ -656,6 +656,25 @@ describe("knowledge vault browser boundary", () => {
       expect(new Uint8Array(await (await fetch(attachment, { headers })).arrayBuffer())).toEqual(
         bytes,
       );
+      const revision = store.vaults.snapshot({ userId: user.id, vaultId: vault.id }).selected!
+        .attachments[0]!.revision;
+      expect(
+        (
+          await fetch(`${attachment}&expectedRevision=${revision}`, {
+            method: "PUT",
+            headers,
+            body: new Uint8Array([9, 8, 7]),
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await fetch(`${attachment}&expectedRevision=${revision}`, {
+            method: "DELETE",
+            headers,
+          })
+        ).status,
+      ).toBe(409);
       store.vaults.setMember({
         userId: user.id,
         vaultId: vault.id,
@@ -664,6 +683,16 @@ describe("knowledge vault browser boundary", () => {
       });
       expect((await fetch(`${base}/export?vaultId=${vault.id}`, { headers })).status).toBe(200);
       expect((await fetch(attachment, { headers })).status).toBe(200);
+      const nextRevision = store.vaults.snapshot({ userId: user.id, vaultId: vault.id }).selected!
+        .attachments[0]!.revision;
+      expect(
+        (
+          await fetch(`${attachment}&expectedRevision=${nextRevision}`, {
+            method: "DELETE",
+            headers,
+          })
+        ).status,
+      ).toBe(200);
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
