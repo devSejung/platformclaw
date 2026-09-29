@@ -652,21 +652,33 @@ describe("knowledge vault browser boundary", () => {
       ).toHaveLength(1);
       const attachment = `${base}/attachment?${new URLSearchParams({ vaultId: vault.id, path: "timing.bin" })}`;
       const bytes = new Uint8Array([0, 255, 1, 2]);
-      expect((await fetch(attachment, { method: "PUT", headers, body: bytes })).status).toBe(200);
-      expect(new Uint8Array(await (await fetch(attachment, { headers })).arrayBuffer())).toEqual(
-        bytes,
-      );
+      expect(
+        (
+          await fetch(attachment, {
+            method: "PUT",
+            headers: { ...headers, "content-type": "application/pdf" },
+            body: bytes,
+          })
+        ).status,
+      ).toBe(200);
+      const downloaded = await fetch(attachment, { headers });
+      expect(downloaded.headers.get("content-type")).toBe("application/pdf");
+      expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(bytes);
       const revision = store.vaults.snapshot({ userId: user.id, vaultId: vault.id }).selected!
         .attachments[0]!.revision;
       expect(
         (
           await fetch(`${attachment}&expectedRevision=${revision}`, {
             method: "PUT",
-            headers,
+            headers: { ...headers, "content-type": "application/vnd.platformclaw.test+bin" },
             body: new Uint8Array([9, 8, 7]),
           })
         ).status,
       ).toBe(200);
+      expect(
+        store.vaults.snapshot({ userId: user.id, vaultId: vault.id }).selected!.attachments[0]!
+          .mediaType,
+      ).toBe("application/vnd.platformclaw.test+bin");
       expect(
         (
           await fetch(`${attachment}&expectedRevision=${revision}`, {

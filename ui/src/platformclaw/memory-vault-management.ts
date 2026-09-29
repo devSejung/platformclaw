@@ -314,8 +314,8 @@ export function renderVaultAttachments(options: {
       : nothing}
     ${selected.attachments.map(
       (attachment) => html`<div class="vaults__member">
-        <span>
-          <strong>${attachment.path.split("/").at(-1)}</strong>
+        <span class="vaults__attachment-meta">
+          <strong>${attachment.path}</strong>
           <span class="muted"> · ${formatBytes(attachment.bytes)}</span>
         </span>
         <div class="vaults__actions">

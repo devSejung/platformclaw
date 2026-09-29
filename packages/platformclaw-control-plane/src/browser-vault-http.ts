@@ -8,6 +8,7 @@ import {
   ControlPlaneNotFoundError,
   ControlPlaneStateError,
 } from "./contracts.js";
+import { requireKnowledgeVaultMediaType } from "./knowledge-vault-archive.js";
 import { KNOWLEDGE_VAULT_LIMITS } from "./knowledge-vault-contracts.js";
 import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
 
@@ -93,7 +94,7 @@ export async function handleKnowledgeVaultHttp(
       const path = url.searchParams.get("path") ?? "";
       if (method === "GET") {
         const file = await service.downloadAttachment({ userId, vaultId, path });
-        download(res, file.content, path.split("/").at(-1)!, "application/octet-stream");
+        download(res, file.content, path.split("/").at(-1)!, file.mediaType);
       } else {
         const access = (await service.snapshot({ userId, vaultId })).selected;
         if (!access?.vault.canEdit) {
@@ -131,12 +132,18 @@ export async function handleKnowledgeVaultHttp(
           sendBrowserJson(res, 200, result);
         } else {
           const content = await readBytes(req, KNOWLEDGE_VAULT_LIMITS.attachmentBytes);
+          const rawMediaType = req.headers["content-type"];
+          const mediaType = requireKnowledgeVaultMediaType(
+            (Array.isArray(rawMediaType) ? rawMediaType[0] : rawMediaType)
+              ?.split(";", 1)[0]
+              ?.trim() || "application/octet-stream",
+          );
           await service.uploadAttachment({
             userId,
             vaultId,
             path,
             content,
-            mediaType: "application/octet-stream",
+            mediaType,
             ...(expectedRevision === undefined ? {} : { expectedRevision }),
           });
           sendBrowserJson(res, 200, { ok: true });

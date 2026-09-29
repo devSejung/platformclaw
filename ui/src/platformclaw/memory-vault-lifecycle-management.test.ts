@@ -83,6 +83,12 @@ describe("Wiki Hub vault lifecycle management", () => {
         bytes: 2048,
         revision: 2,
       },
+      {
+        path: "archive/training-result.pdf",
+        mediaType: "application/pdf",
+        bytes: 1024,
+        revision: 4,
+      },
     ];
     const request = vi.fn().mockImplementation(async () => current);
     const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
@@ -100,7 +106,8 @@ describe("Wiki Hub vault lifecycle management", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const element = mount(request);
-    await waitForFast(() => expect(element.textContent).toContain("training-result.pdf"));
+    await waitForFast(() => expect(element.textContent).toContain("captures/training-result.pdf"));
+    expect(element.textContent).toContain("archive/training-result.pdf");
     expect(element.textContent).toContain("2 KB");
     expect(element.textContent).not.toContain("r2");
 
