@@ -72,6 +72,44 @@ export function renderVaultRequests(options: {
   </section>`;
 }
 
+export function renderVaultAccessRequestForm(options: {
+  vaultName: string;
+  busy: boolean;
+  onSubmit: (role: string, reason: string) => void;
+}) {
+  return html`<form
+    class="vaults__form"
+    @submit=${(event: SubmitEvent) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget as HTMLFormElement);
+      const role = data.get("role");
+      const reason = data.get("reason");
+      options.onSubmit(
+        typeof role === "string" ? role : "",
+        typeof reason === "string" ? reason : "",
+      );
+    }}
+  >
+    <p>${options.vaultName}</p>
+    <p class="vaults__hint">${t("requestHint")}</p>
+    <label
+      >${t("role")}<select class="settings-select" name="role">
+        <option value="reader">${t("reader")}</option>
+        <option value="editor">${t("editor")}</option>
+      </select></label
+    >
+    <label
+      >${t("requestReason")}<textarea
+        class="settings-input"
+        name="reason"
+        rows="3"
+        maxlength="1000"
+      ></textarea>
+    </label>
+    <button class="btn primary" ?disabled=${options.busy}>${t("sendRequest")}</button>
+  </form>`;
+}
+
 class PlatformClawVaultAccess extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property({ attribute: false }) selected!: NonNullable<KnowledgeVaultSnapshot["selected"]>;
@@ -83,12 +121,19 @@ class PlatformClawVaultAccess extends OpenClawLightDomElement {
   @state() private searching = false;
   @state() private searched = false;
   @state() private error = "";
+  @state() private confirmation: {
+    message: string;
+    method: string;
+    params: Record<string, unknown>;
+    danger: boolean;
+  } | null = null;
   private epoch = 0;
   protected override updated(changed: PropertyValues) {
     if (changed.has("client") || changed.has("selected")) {
       this.epoch++;
       this.targets = [];
       this.searched = this.searching = false;
+      this.confirmation = null;
     }
   }
   override disconnectedCallback() {
@@ -127,12 +172,21 @@ class PlatformClawVaultAccess extends OpenClawLightDomElement {
     }
   }
   private mutate(method: string, params: Record<string, unknown>) {
+    this.confirmation = null;
     this.dispatchEvent(
       new CustomEvent("vault-access-mutate", {
         bubbles: true,
         detail: { method, params: { vaultId: this.selected.vault.id, ...params } },
       }),
     );
+  }
+  private confirmMutation(
+    message: string,
+    method: string,
+    params: Record<string, unknown>,
+    danger = false,
+  ) {
+    this.confirmation = { message, method, params, danger };
   }
   override render() {
     if (!this.selected?.vault.canManageMembers) {
@@ -141,6 +195,28 @@ class PlatformClawVaultAccess extends OpenClawLightDomElement {
     const busy = this.busy || this.searching;
     return html`<section class="vaults__form">
       <p class="vaults__hint">${t("grantHint")}</p>
+      ${this.confirmation
+        ? html`<div class="callout warning vaults__confirmation" role="alert">
+            <strong>${t("confirmAccessChange")}</strong>
+            <p>${this.confirmation.message}</p>
+            <div class="vaults__actions">
+              <button
+                class=${`btn btn--sm ${this.confirmation.danger ? "danger" : "primary"}`}
+                ?disabled=${busy}
+                @click=${() => this.mutate(this.confirmation!.method, this.confirmation!.params)}
+              >
+                ${t("confirmAccessChangeAction")}
+              </button>
+              <button
+                class="btn btn--sm"
+                ?disabled=${busy}
+                @click=${() => (this.confirmation = null)}
+              >
+                ${t("cancel")}
+              </button>
+            </div>
+          </div>`
+        : nothing}
       <h3>${t("directMembers")}</h3>
       ${this.selected.members.map(
         (member) =>
@@ -152,7 +228,13 @@ class PlatformClawVaultAccess extends OpenClawLightDomElement {
             <button
               class="btn btn--sm"
               ?disabled=${busy}
-              @click=${() => this.mutate("member.remove", { userId: member.userId })}
+              @click=${() =>
+                this.confirmMutation(
+                  t("confirmRemoveMember").replace("{name}", member.displayName),
+                  "member.remove",
+                  { userId: member.userId },
+                  true,
+                )}
             >
               ${t("removeMember")}
             </button>
@@ -170,7 +252,13 @@ class PlatformClawVaultAccess extends OpenClawLightDomElement {
                 <button
                   class="btn btn--sm"
                   ?disabled=${busy}
-                  @click=${() => this.mutate("grant.remove", { scopeId: grant.scopeId })}
+                  @click=${() =>
+                    this.confirmMutation(
+                      t("confirmRemoveOrganization").replace("{name}", grant.scopeName),
+                      "grant.remove",
+                      { scopeId: grant.scopeId },
+                      true,
+                    )}
                 >
                   ${t("removeMember")}
                 </button>
@@ -221,10 +309,20 @@ class PlatformClawVaultAccess extends OpenClawLightDomElement {
         onSearch: (query) => void this.search(query),
         onSelect: (id) => {
           const target = this.targets.find((item) => item.id === id)!;
-          this.mutate(this.kind === "user" ? "member.set" : "grant.set", {
+          const method = this.kind === "user" ? "member.set" : "grant.set";
+          const params = {
             ...(this.kind === "user" ? { accountId: target.accountId } : { scopeId: target.id }),
             role: this.selectedGrantRole,
-          });
+          };
+          if (this.kind === "organization" && this.selectedGrantRole === "owner") {
+            this.confirmMutation(
+              t("confirmOrganizationOwner").replace("{name}", target.label),
+              method,
+              params,
+            );
+            return;
+          }
+          this.mutate(method, params);
         },
       })}
       ${this.searched && !this.targets.length

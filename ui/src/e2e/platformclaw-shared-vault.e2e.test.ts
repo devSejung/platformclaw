@@ -237,13 +237,14 @@ suite("Shared Knowledge Vault browser experience", () => {
               exact: true,
             })
             .count(),
-        ).toBe(owner ? 1 : 0);
+        ).toBe(1);
         await screenshot(page, `${name}-shared-reader.png`, reader);
         const bounds = await reader.locator("[data-knowledge-document]").boundingBox();
         expect(bounds!.width).toBeLessThanOrEqual(width);
         expect(bounds!.height).toBeLessThanOrEqual(900);
         await page.keyboard.press("Escape");
         if (owner) {
+          await hub.locator("details.vaults__management > summary").click();
           await hub.getByRole("button", { name: "멤버 · 권한", exact: true }).click();
           const access = hub.locator("platformclaw-vault-access");
           await access.locator("select").first().selectOption("organization");

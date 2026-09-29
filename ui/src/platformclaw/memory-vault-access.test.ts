@@ -59,6 +59,105 @@ describe("Wiki Hub access", () => {
       }),
     );
   });
+  it("confirms removals before mutating member or organization access", async () => {
+    const current = snapshot();
+    current.selected!.grants = [
+      { scopeId: "team-1", scopeName: "PHY Team", scopeKind: "team", role: "reader" },
+    ];
+    const request = vi.fn().mockResolvedValue(current);
+    const element = mount(request);
+    await waitForFast(() => expect(element.textContent).toContain("PHY Spec"));
+    button(element, "Members and permissions").click();
+    await waitForFast(() =>
+      expect(element.querySelector("platformclaw-vault-access")).not.toBeNull(),
+    );
+    const access = element.querySelector<HTMLElement>("platformclaw-vault-access")!;
+    const removal = [...access.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === "Remove grant",
+    );
+    removal!.click();
+    await waitForFast(() =>
+      expect(access.textContent).toContain("Remove Reader User's direct access"),
+    );
+    expect(request.mock.calls.some(([method]) => method === `${rpc}member.remove`)).toBe(false);
+    expect(button(access, "Confirm change").classList.contains("danger")).toBe(true);
+    button(access, "Confirm change").click();
+    await waitForFast(() =>
+      expect(request).toHaveBeenCalledWith(`${rpc}member.remove`, {
+        vaultId: "vault-1",
+        userId: "u-reader",
+      }),
+    );
+    element.remove();
+
+    const organizationRequest = vi.fn().mockResolvedValue(current);
+    const organizationElement = mount(organizationRequest);
+    await waitForFast(() => expect(organizationElement.textContent).toContain("PHY Spec"));
+    button(organizationElement, "Members and permissions").click();
+    await waitForFast(() =>
+      expect(organizationElement.querySelector("platformclaw-vault-access")).not.toBeNull(),
+    );
+    const organizationAccess = organizationElement.querySelector<HTMLElement>(
+      "platformclaw-vault-access",
+    )!;
+    const nextRemovals = [
+      ...organizationAccess.querySelectorAll<HTMLButtonElement>("button"),
+    ].filter((candidate) => candidate.textContent?.trim() === "Remove grant");
+    nextRemovals[1]!.click();
+    await waitForFast(() =>
+      expect(organizationAccess.textContent).toContain(
+        "Remove only the PHY Team organization grant",
+      ),
+    );
+    expect(organizationRequest.mock.calls.some(([method]) => method === `${rpc}grant.remove`)).toBe(
+      false,
+    );
+    expect(button(organizationAccess, "Confirm change").classList.contains("danger")).toBe(true);
+    button(organizationAccess, "Confirm change").click();
+    await waitForFast(() =>
+      expect(organizationRequest).toHaveBeenCalledWith(`${rpc}grant.remove`, {
+        vaultId: "vault-1",
+        scopeId: "team-1",
+      }),
+    );
+  });
+  it("requires explicit impact confirmation before granting Owner to an organization", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === `${rpc}targets.search`
+        ? { items: [{ id: "team-1", label: "PHY Team", detail: "Platform / PHY" }], hasMore: false }
+        : snapshot(),
+    );
+    const element = mount(request);
+    await waitForFast(() => expect(element.textContent).toContain("PHY Spec"));
+    button(element, "Members and permissions").click();
+    await waitForFast(() =>
+      expect(element.querySelector("platformclaw-vault-access form")).not.toBeNull(),
+    );
+    const access = element.querySelector<HTMLElement>("platformclaw-vault-access")!;
+    const selects = access.querySelectorAll("select");
+    selects[0]!.value = "organization";
+    selects[0]!.dispatchEvent(new Event("change", { bubbles: true }));
+    selects[1]!.value = "owner";
+    selects[1]!.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    submit(access.querySelector("form")!);
+    await waitForFast(() => expect(access.textContent).toContain("PHY Team"));
+    button(access, "Grant selected role").click();
+    await waitForFast(() =>
+      expect(access.textContent).toContain("Only direct members of that exact organization"),
+    );
+    expect(request.mock.calls.some(([method]) => method === `${rpc}grant.set`)).toBe(false);
+    expect(button(access, "Confirm change").classList.contains("primary")).toBe(true);
+    expect(button(access, "Confirm change").classList.contains("danger")).toBe(false);
+    button(access, "Confirm change").click();
+    await waitForFast(() =>
+      expect(request).toHaveBeenCalledWith(`${rpc}grant.set`, {
+        vaultId: "vault-1",
+        scopeId: "team-1",
+        role: "owner",
+      }),
+    );
+  });
   it("shows owner approvals and own requests with explicit outcomes", async () => {
     let current = wikiHubSnapshot({ pending: true });
     const request = vi.fn(async (method: string) => {

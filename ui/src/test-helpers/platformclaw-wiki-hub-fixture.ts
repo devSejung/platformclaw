@@ -10,6 +10,8 @@ export const wikiHubMethods = [
   "snapshot",
   "connection.set",
   "create",
+  "rename",
+  "delete",
   "document.get",
   "document.save",
   "document.delete",
@@ -236,7 +238,17 @@ export function wikiHubSnapshot(
                     },
                   ]
                 : [],
-            attachments: [],
+            attachments:
+              selectedVault.type === "shared"
+                ? [
+                    {
+                      path: "captures/training-result.pdf",
+                      mediaType: "application/pdf",
+                      bytes: 245_760,
+                      revision: 2,
+                    },
+                  ]
+                : [],
             graph: {
               edges: [{ source: documents[0]!.id, target: documents[1]!.id }],
               unresolvedLinks: 0,
@@ -263,6 +275,8 @@ export const wikiHubResponses = {
       { match: {}, response: wikiHubSnapshot() },
     ],
   },
+  "platformclaw.vault.rename": vault("vault-phy", "Renamed PHY Spec", "shared", "owner"),
+  "platformclaw.vault.delete": { deleted: true, vaultId: "vault-phy" },
   "platformclaw.vault.document.get": {
     cases: [
       {

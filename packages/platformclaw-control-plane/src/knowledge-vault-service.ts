@@ -101,6 +101,23 @@ export class KnowledgeVaultService {
       expectedRevision: params.expectedRevision,
     });
   }
+  async deleteAttachment(params: {
+    userId: string;
+    vaultId: string;
+    path: string;
+    expectedRevision: number | string;
+  }) {
+    if (params.vaultId.startsWith("personal:")) {
+      return this.personal.deleteAttachment(params);
+    }
+    if (typeof params.expectedRevision !== "number") {
+      throw new ControlPlaneStateError("Invalid Shared attachment revision");
+    }
+    return this.store.vaults.deleteAttachment({
+      ...params,
+      expectedRevision: params.expectedRevision,
+    });
+  }
   readDocument(params: { userId: string; vaultId: string; documentId: string }) {
     return params.vaultId.startsWith("personal:")
       ? this.personal.read(params)

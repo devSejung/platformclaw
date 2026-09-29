@@ -137,6 +137,9 @@ async function fixture(saved = true) {
     if (method === "wiki.attachment.put") {
       return { path: "_attachments/new.bin", revision: "c".repeat(64), size: 3 };
     }
+    if (method === "wiki.attachment.delete") {
+      return { path: "_attachments/design.bin", deleted: true };
+    }
     throw new Error(`Unexpected ${method}`);
   });
   const service = new KnowledgeVaultService(store, { request });
@@ -286,5 +289,22 @@ describe("Personal Wiki common adapter", () => {
       archive: await f.service.exportVault({ userId: f.user.id, vaultId: f.vaultId }),
     });
     expect(copied.type).toBe("shared");
+  });
+  it("deletes a Personal attachment through its revision-pinned artifact path", async () => {
+    const f = await fixture();
+    const expectedRevision = "b".repeat(64);
+    await expect(
+      f.service.deleteAttachment({
+        userId: f.user.id,
+        vaultId: f.vaultId,
+        path: "_attachments/design.bin",
+        expectedRevision,
+      }),
+    ).resolves.toEqual({ path: "_attachments/design.bin", deleted: true });
+    expect(f.request).toHaveBeenCalledWith("wiki.attachment.delete", {
+      agentId: f.binding.agentId,
+      path: "_attachments/design.bin",
+      expectedRevision,
+    });
   });
 });

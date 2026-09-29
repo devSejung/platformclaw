@@ -87,6 +87,8 @@ export function mount(request: ReturnType<typeof vi.fn>) {
       `${rpc}document.delete`,
       `${rpc}document.preview`,
       `${rpc}publish`,
+      `${rpc}rename`,
+      `${rpc}delete`,
     ],
   });
   globalThis.document.body.append(element);

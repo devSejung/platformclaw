@@ -20,7 +20,6 @@ export function renderVaultDocument(options: {
   document: KnowledgeVaultDocument;
   vaultName: string;
   vaultType: "personal" | "shared";
-  canExport: boolean;
   onPublish?: () => void;
   onDelete?: () => void;
   canEdit: boolean;
@@ -84,15 +83,7 @@ export function renderVaultDocument(options: {
             ${t("publish")}
           </button>`
         : nothing}
-      ${options.canExport
-        ? html`<button
-            class="btn btn--subtle btn--sm"
-            ?disabled=${options.busy}
-            @click=${options.onDownload}
-          >
-            ${t("download")}
-          </button>`
-        : nothing}
+      <button class="btn btn--subtle btn--sm" @click=${options.onDownload}>${t("download")}</button>
     `,
     content: html`<div>
       <p class="vaults__hint">${t(document.compile.status)}</p>
