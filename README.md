@@ -1,11 +1,16 @@
 # PlatformClaw
 
 <p align="center">
-  <img src="docs/assets/platformclaw-readme-hero.svg" alt="PlatformClaw — enterprise AI agents for real engineering work" width="100%" />
+  <strong>Enterprise AI agents for real engineering work.</strong><br />
+  Personal agents · shared knowledge · managed skills · governed execution
 </p>
 
 <p align="center">
-  <strong>Give every engineer a personal agent — then add the organization, knowledge, skills, credentials, and execution boundaries needed to run those agents at team scale.</strong>
+  <img src="docs/assets/platformclaw-ui-chat.png" alt="Actual PlatformClaw Control UI showing a personal engineering agent" width="100%" />
+</p>
+
+<p align="center">
+  Actual PlatformClaw Control UI rendered from this branch with deterministic demo data.
 </p>
 
 <p align="center">
@@ -46,6 +51,29 @@ PlatformClaw is a **private, multi-user AI agent platform** built as a maintaina
     </td>
   </tr>
 </table>
+
+## Actual product surfaces
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/assets/platformclaw-ui-wiki-hub.png" alt="Actual PlatformClaw Wiki Hub UI" width="100%" />
+      <br /><br />
+      <strong>Wiki Hub</strong><br />
+      Personal and Shared Wikis, access-aware AI reference, vault search, and knowledge lifecycle in the real Control UI.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/assets/platformclaw-ui-skill-hub.png" alt="Actual PlatformClaw Skill Hub UI" width="100%" />
+      <br /><br />
+      <strong>Skill Hub</strong><br />
+      Search, inspect, publish, and install reusable company skills through the same product surface.
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  These screenshots use the current PlatformClaw frontend and test-safe demo data; they are not design mockups.
+</p>
 
 ## The PlatformClaw workspace
 
