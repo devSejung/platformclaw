@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  clearMemoryPluginState,
+  registerMemoryCorpusSupplement,
+} from "openclaw/plugin-sdk/memory-host-core";
+import type {
+  AnyAgentTool,
+  OpenClawPluginApi,
+  OpenClawPluginToolFactory,
+  PluginJsonValue,
+} from "openclaw/plugin-sdk/plugin-entry";
+import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -8,17 +19,6 @@ import {
   deriveExecutionHandoffAddress,
 } from "../../packages/platformclaw-control-plane/src/index.js";
 import { createWikiHubTestFixture } from "../../packages/platformclaw-control-plane/src/wiki-hub.test-fixtures.js";
-import {
-  clearMemoryPluginState,
-  registerMemoryCorpusSupplement,
-} from "../../src/plugin-sdk/memory-host-core.js";
-import type {
-  AnyAgentTool,
-  OpenClawPluginApi,
-  OpenClawPluginToolFactory,
-  PluginJsonValue,
-} from "../../src/plugin-sdk/plugin-entry.js";
-import { createTestPluginApi } from "../../src/plugin-sdk/plugin-test-api.js";
 import wikiPlugin from "../memory-wiki/index.js";
 import hubPlugin from "./index.js";
 
