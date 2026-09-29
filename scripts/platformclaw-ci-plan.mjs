@@ -74,6 +74,7 @@ export function classifyPlatformClawChanges(inputFiles) {
   const hasWorkflowChanges = files.some((file) =>
     file.startsWith(".github/workflows/platformclaw-"),
   );
+  const hasAutoreviewChanges = files.some((file) => file.startsWith(".agents/skills/autoreview/"));
   const hasUiChanges = files.some(
     (file) =>
       file.startsWith("ui/src/platformclaw/") ||
@@ -115,6 +116,7 @@ export function classifyPlatformClawChanges(inputFiles) {
     needs_knox_checks: hasKnoxChanges,
     needs_planner_tests: hasPlannerChanges,
     needs_workflow_checks: hasWorkflowChanges,
+    needs_autoreview_python_checks: hasAutoreviewChanges,
     needs_ui_checks: hasUiChanges,
     needs_deployment_checks: hasDeploymentChanges,
     needs_changed_surface_checks: hasUpstreamSurface,

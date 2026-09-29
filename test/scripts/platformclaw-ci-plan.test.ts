@@ -69,6 +69,20 @@ describe("classifyPlatformClawChanges", () => {
     expect(plan.needs_dependencies).toBe(true);
   });
 
+  it("runs the Python suite for vendored autoreview changes", () => {
+    const plan = classifyPlatformClawChanges([
+      ".agents/skills/autoreview/scripts/autoreview",
+      ".agents/skills/autoreview/tests/test_git_boundary.py",
+    ]);
+
+    expect(plan.needs_autoreview_python_checks).toBe(true);
+    expect(plan.needs_changed_surface_checks).toBe(true);
+    expect(
+      classifyPlatformClawChanges(["docs/platformclaw/architecture.md"])
+        .needs_autoreview_python_checks,
+    ).toBe(false);
+  });
+
   it("recognizes deployment and future private UI surfaces", () => {
     const plan = classifyPlatformClawChanges([
       "docker/platformclaw-jammy/Dockerfile",
@@ -193,6 +207,21 @@ describe("PlatformClaw workflow checkout", () => {
 });
 
 describe("PlatformClaw shared check workflow", () => {
+  it("runs the vendored Python suite without reviewer credentials", () => {
+    const workflow = parse(
+      readFileSync(new URL("../../.github/workflows/platformclaw-ci.yml", import.meta.url), "utf8"),
+    ) as {
+      jobs: { validate: { steps: Array<{ name?: string; if?: string; run?: string }> } };
+    };
+    const step = workflow.jobs.validate.steps.find(
+      (entry) => entry.name === "Validate vendored autoreview",
+    );
+
+    expect(step?.if).toBe("steps.plan.outputs.needs_autoreview_python_checks == 'true'");
+    expect(step?.run).toContain("python .agents/skills/autoreview/scripts/autoreview_test.py");
+    expect(step?.run).toContain("python -m unittest");
+  });
+
   it("installs dependencies before running MDX-backed documentation checks", () => {
     const workflow = parse(
       readFileSync(new URL("../../.github/workflows/platformclaw-ci.yml", import.meta.url), "utf8"),

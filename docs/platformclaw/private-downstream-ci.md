@@ -64,6 +64,27 @@ Repository policy, documentation, deployment, workflow, and genuine
 upstream-path gates remain separate workflow checks. Security and architecture
 coverage therefore remains visible and mandatory.
 
+## Vendored autoreview
+
+The development review tool at `.agents/skills/autoreview/` is a complete copy of
+`openclaw/agent-skills` `skills/autoreview/` at
+`d5cbe626989195044e97545b3acb7c99b06a6103`. Its 21 canonical files are
+compared by Git blob and mode when refreshed. The repository-owned
+`CLAUDE.md -> AGENTS.md` symlink is the sole extra file.
+
+PlatformClaw CI selects a Python 3.12 test step when that directory changes.
+It runs the copied helper's core and boundary suites, syntax and frontmatter
+checks, and the shell launcher check without reviewer credentials or model calls.
+For local validation, run `.agents/skills/autoreview/scripts/autoreview_test.py` and every
+`test_*.py` module under `.agents/skills/autoreview/tests/` with Python 3.12 or
+newer, using `.agents` as `PYTHONPATH`. The workflow contains the exact commands.
+
+The canonical helper does not run an external secret scanner. Its reviewer can
+report suspected credentials only after review input has been sent. Keep any
+required scan before external transmission as a separate operator control;
+the repository's TruffleHog CI step in `.github/workflows/ci.yml` remains
+independent and enabled.
+
 The login UI's private source, HTML entry point, and dedicated Vite configuration
 stay on the focused path. That path runs the complete UI typecheck, lints both
 Vite configurations, runs the private Vite regression tests, and performs the

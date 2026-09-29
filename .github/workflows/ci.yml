@@ -933,7 +933,7 @@ jobs:
         with:
           base: ${{ steps.diff_base.outputs.sha }}
           head: ${{ github.sha }}
-          version: "3.95.9@sha256:59b244249d1a1aef4baa24fe73d3c931616264482580d806d77f6c74d26b3e42"
+          version: "3.97.0@sha256:ff4c95e9df7d645daf2140e3ca1039031c63106268d5fbb25feb43ceca1bcc33"
           extra_args: --results=verified,unknown --fail-on-scan-errors
 
       - name: Prepare trusted pre-commit config
