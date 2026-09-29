@@ -31,9 +31,7 @@ describe("Control UI service worker cache versioning", () => {
       'postMessage({ type: "sw-updated", version: CACHE_VERSION },',
     );
     expect(viteConfigSource).toContain("source.replace(placeholder, JSON.stringify(buildId))");
-    expect(viteConfigSource).toContain(
-      '"globalThis.OPENCLAW_CONTROL_UI_BUILD_INFO": JSON.stringify(buildInfo)',
-    );
+    expect(viteConfigSource).toContain("controlUiServiceWorkerBuildIdPlugin(buildInfo.buildId");
     expect(viteConfigSource).not.toContain(
       "OPENCLAW_CONTROL_UI_BUILD_ID: JSON.stringify(controlUiBuildId)",
     );

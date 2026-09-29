@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import { controlUiLocaleModulesPlugin } from "../../config/control-ui-locales.ts";
-import {
+import controlUiViteConfig, {
   controlUiBrowserOnlySharedModuleAliases,
   createControlUiPrecompressedAssetVariants,
   resolveControlUiBuildInfo,
@@ -12,6 +12,7 @@ import {
   resolveSourcePackageAliasesForVite,
   resolveTsconfigPathAliasesForVite,
 } from "../../vite.config.ts";
+import { normalizeControlUiBuildInfo } from "../build-info-normalizers.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 type ResolveIdHandler = (
@@ -26,6 +27,27 @@ function findStringAlias(key: string) {
 }
 
 describe("Control UI Vite config", () => {
+  it("derives the default browser build ID without duplicating it in the bundle", () => {
+    vi.stubEnv("GIT_COMMIT", "0123456789abcdef0123456789abcdef01234567");
+    vi.stubEnv("OPENCLAW_BUILD_TIMESTAMP", "2026-07-10T12:34:56Z");
+    try {
+      const define = controlUiViteConfig().define;
+      const embedded = JSON.parse(define?.["globalThis.OPENCLAW_CONTROL_UI_BUILD_INFO"] as string);
+      expect(embedded).not.toHaveProperty("buildId");
+      expect(normalizeControlUiBuildInfo(embedded).buildId).toContain(
+        "0123456789ab-2026-07-10T12-34-56.000Z",
+      );
+
+      vi.stubEnv("OPENCLAW_CONTROL_UI_BUILD_ID", "release-override");
+      const explicit = JSON.parse(
+        controlUiViteConfig().define?.["globalThis.OPENCLAW_CONTROL_UI_BUILD_INFO"] as string,
+      );
+      expect(explicit.buildId).toBe("release-override");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("emits Brotli and gzip variants only for bundled compressible assets", () => {
     const source = "console.log('precompressed');\n".repeat(200);
     const variants = createControlUiPrecompressedAssetVariants("assets/app-AbCd1234.js", source);

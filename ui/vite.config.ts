@@ -441,11 +441,17 @@ export default function controlUiViteConfig(options: { outDir?: string } = {}): 
   const bootstrapConfigPath =
     base === "./" ? "/control-ui-config.json" : `${base}control-ui-config.json`;
   const buildInfo = resolveControlUiBuildInfo();
+  // The browser derives the default ID from these fields; only an explicit ID
+  // needs to be repeated in the startup bundle to match the service worker.
+  const embeddedBuildInfo = {
+    ...buildInfo,
+    buildId: process.env.OPENCLAW_CONTROL_UI_BUILD_ID?.trim() ? buildInfo.buildId : undefined,
+  };
   const buildOutDir = options.outDir ?? outDir;
   return {
     base,
     define: {
-      "globalThis.OPENCLAW_CONTROL_UI_BUILD_INFO": JSON.stringify(buildInfo),
+      "globalThis.OPENCLAW_CONTROL_UI_BUILD_INFO": JSON.stringify(embeddedBuildInfo),
     },
     publicDir: path.resolve(here, "public"),
     optimizeDeps: {
