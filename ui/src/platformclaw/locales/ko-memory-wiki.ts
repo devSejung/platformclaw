@@ -8,25 +8,25 @@ export const memoryWikiTranslations: Readonly<Record<string, string>> = {
     "공유 보관함 페이지는 개인 작업 공간에서 삭제할 수 없습니다.",
   "platformClaw.wiki.deleteLargeUnavailable":
     "이 페이지는 삭제 한도인 256 KiB를 초과합니다. 관리자에게 검토를 요청하세요.",
-  "platformClaw.wiki.delete": "Personal 문서 삭제",
+  "platformClaw.wiki.delete": "개인 문서 삭제",
   "platformClaw.wiki.deleteDescription":
     "선택한 Wiki 페이지 전체를 삭제합니다. 되돌릴 수 없습니다.",
   "platformClaw.wiki.deleteRetention":
-    "원본 메모리, 대화, 게시한 Shared 사본은 유지됩니다. 삭제한 가져온 페이지는 자동으로 다시 가져오지 않으며, 명시적인 가져오기 복구로 되살릴 수 있습니다.",
+    "원본 메모리, 대화, 게시한 공유 사본은 유지됩니다. 삭제한 가져온 페이지는 자동으로 다시 가져오지 않으며, 명시적인 가져오기 복구로 되살릴 수 있습니다.",
   "platformClaw.wiki.deleteUnavailable":
     "이 미리보기에서는 페이지를 삭제할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
   "platformClaw.wiki.deletePartialPreview":
     "페이지의 일부만 표시됩니다. 삭제를 확인하면 전체 파일의 현재 버전을 확인한 뒤 페이지 전체를 삭제합니다.",
-  "platformClaw.wiki.deleted": "Personal 문서를 삭제했습니다. Wiki 화면을 갱신합니다.",
+  "platformClaw.wiki.deleted": "개인 문서를 삭제했습니다. Wiki 화면을 갱신합니다.",
   "platformClaw.wiki.deletedRefreshPending":
-    "Personal 문서는 삭제했지만 색인 갱신에 실패했습니다. Wiki Hub를 새로고침해 현재 상태를 확인하세요.",
+    "개인 문서는 삭제했지만 색인 갱신에 실패했습니다. Wiki Hub를 새로고침해 현재 상태를 확인하세요.",
   "platformClaw.memory.actions": "메모리 작업",
   "platformClaw.memory.share": "조직에 공유 신청…",
   "platformClaw.memory.delete": "메모리 파일 삭제",
   "platformClaw.memory.deleteDescription":
     "아래 파일 전체와 포함된 모든 항목을 삭제합니다. 되돌릴 수 없습니다.",
   "platformClaw.memory.deleteRetention":
-    "검색과 가져온 Wiki 원본을 갱신합니다. 기존 대화, 별도로 작성된 Wiki, 게시한 Shared 사본은 유지되며 같은 정보가 남아 있을 수 있습니다.",
+    "검색과 가져온 Wiki 원본을 갱신합니다. 기존 대화, 별도로 작성된 Wiki, 게시한 공유 사본은 유지되며 같은 정보가 남아 있을 수 있습니다.",
   "platformClaw.memory.deleteUnavailable":
     "이 미리보기에서는 파일을 삭제할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
   "platformClaw.memory.deleted": "메모리 파일을 삭제하고 검색과 가져온 Wiki 원본을 갱신했습니다.",
@@ -44,7 +44,7 @@ export const memoryWikiTranslations: Readonly<Record<string, string>> = {
   "platformClaw.memory.tabs.organization": "조직 지식",
   "platformClaw.memory.organization.views": "조직 지식 보기",
   "platformClaw.memory.organization.sharing": "공유 및 검토",
-  "dreaming.wiki.wikiTab": "Personal Wiki",
+  "dreaming.wiki.wikiTab": "개인 Wiki",
   "dreaming.wiki.insightsTab": "가져온 지식",
   "dreaming.wiki.viewMode": "Wiki 보기",
   "dreaming.wiki.cardsView": "카드",

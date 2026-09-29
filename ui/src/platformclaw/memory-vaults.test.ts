@@ -92,7 +92,12 @@ describe("Shared Knowledge Vault UI", () => {
     const card = element.querySelector<HTMLElement>('[data-vault-card="vault-dram"]')!;
     expect(card.textContent).toContain("Turn off another vault");
     expect(card.querySelectorAll("[data-vault-role]")).toHaveLength(1);
-    expect(button(card, "Open vault").disabled).toBe(false);
+    expect(card.querySelector<HTMLButtonElement>(".vaults__card-title")?.disabled).toBe(false);
+    expect(
+      [...card.querySelectorAll("button")].filter(
+        (item) => item.textContent?.trim() === "Open vault",
+      ),
+    ).toHaveLength(0);
     expect((card.querySelector("wa-switch") as HTMLElement & { checked: boolean }).checked).toBe(
       false,
     );
@@ -141,6 +146,30 @@ describe("Shared Knowledge Vault UI", () => {
         "Search document contents",
       ),
     );
+  });
+  it("falls back to connected search when opening a vault loses access", async () => {
+    const catalog = { ...snapshot(), selected: undefined };
+    let calls = 0;
+    const request = vi.fn(async (method: string, params?: { vaultId?: string }) => {
+      if (method === `${rpc}snapshot`) {
+        calls += 1;
+        if (calls > 1 && params?.vaultId === "vault-1") {
+          throw new Error("Vault access changed");
+        }
+      }
+      return catalog;
+    });
+    const element = mount(request);
+    await waitForFast(() =>
+      expect(element.querySelector('[data-vault-card="vault-1"]')).not.toBeNull(),
+    );
+    button(element, "PHY Spec").click();
+    await waitForFast(() => expect(element.textContent).toContain("Vault access changed"));
+    expect(element.querySelector("#vault-search-tab-selected")).toBeNull();
+    expect(
+      element.querySelector("#vault-search-tab-connected")?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(element.querySelector("openclaw-memory-memories")?.getAttribute("vaultId")).toBeNull();
   });
   it("keeps a rejected connection unchanged and opens create/import in themed dialogs", async () => {
     const value = { ...snapshot(), selected: undefined };
@@ -193,7 +222,10 @@ describe("Shared Knowledge Vault UI", () => {
       [...element.querySelectorAll("button")].some(
         (candidate) => candidate.textContent?.trim() === "Download Markdown",
       ),
-    ).toBe(false);
+    ).toBe(true);
+    element.connected = false;
+    await element.updateComplete;
+    expect(button(element, "Download Markdown").disabled).toBe(false);
     expect(request).toHaveBeenLastCalledWith(`${rpc}document.get`, {
       vaultId: "vault-1",
       documentId: "doc-1",

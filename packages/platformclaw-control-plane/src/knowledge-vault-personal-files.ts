@@ -209,4 +209,21 @@ export class PersonalKnowledgeFiles {
     }
     return result;
   }
+
+  async delete(agentId: string, params: { path: string; expectedRevision: string }) {
+    const path = knowledgeVaultPath(params.path).replace(/^_attachments\//u, "");
+    const artifactPath = `_attachments/${path}`;
+    if (!/^[a-f0-9]{64}$/u.test(params.expectedRevision)) {
+      throw new ControlPlaneStateError("Reload the attachment before deleting it");
+    }
+    const result = await this.gateway.request("wiki.attachment.delete", {
+      agentId,
+      path: artifactPath,
+      expectedRevision: params.expectedRevision,
+    });
+    if (!isRecord(result) || result.path !== artifactPath || result.deleted !== true) {
+      return invalid();
+    }
+    return result;
+  }
 }

@@ -294,6 +294,20 @@ export class PersonalKnowledgeVault {
   }) {
     return this.files.upload(this.agent(params.userId, params.vaultId), params);
   }
+  deleteAttachment(params: {
+    userId: string;
+    vaultId: string;
+    path: string;
+    expectedRevision: number | string;
+  }) {
+    if (typeof params.expectedRevision !== "string") {
+      throw new ControlPlaneStateError("Reload the attachment before deleting it");
+    }
+    return this.files.delete(this.agent(params.userId, params.vaultId), {
+      path: params.path,
+      expectedRevision: params.expectedRevision,
+    });
+  }
   async delete(params: {
     userId: string;
     vaultId: string;

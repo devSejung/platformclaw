@@ -320,6 +320,48 @@ export abstract class SqliteKnowledgeVaultCore {
     return this.access(params.userId, id);
   }
 
+  renameVault(params: { userId: string; vaultId: string; name: string }): KnowledgeVault {
+    const name = requireKnowledgeVaultText(params.name, "Vault name", 160);
+    runImmediateTransaction(this.db, () => {
+      this.access(params.userId, params.vaultId, "owner");
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("knowledge_vaults")
+          .set({ name, updated_at: Date.now() })
+          .where("id", "=", params.vaultId),
+      );
+      recordWikiAudit(this.db, params.userId, "wiki.vault.renamed", params.vaultId, { name });
+    });
+    return this.access(params.userId, params.vaultId);
+  }
+
+  deleteVault(params: { userId: string; vaultId: string }): { deleted: true; vaultId: string } {
+    runImmediateTransaction(this.db, () => {
+      this.access(params.userId, params.vaultId, "owner");
+      const connectedUsers = executeSync(
+        this.db,
+        this.query
+          .selectFrom("knowledge_vault_connections")
+          .select("user_id")
+          .where("vault_id", "=", params.vaultId),
+      ).rows.map((row) => row.user_id);
+      recordWikiAudit(this.db, params.userId, "wiki.vault.deleted", params.vaultId, {});
+      executeSync(
+        this.db,
+        this.query.deleteFrom("knowledge_vault_connections").where("vault_id", "=", params.vaultId),
+      );
+      executeSync(
+        this.db,
+        this.query.deleteFrom("knowledge_vaults").where("id", "=", params.vaultId),
+      );
+      for (const userId of connectedUsers) {
+        bumpWikiSelection(this.db, userId);
+      }
+    });
+    return { deleted: true, vaultId: params.vaultId };
+  }
+
   snapshot(params: { userId: string; vaultId?: string }): KnowledgeVaultSnapshot {
     this.activeUser(params.userId);
     const read = (): KnowledgeVaultSnapshot => {

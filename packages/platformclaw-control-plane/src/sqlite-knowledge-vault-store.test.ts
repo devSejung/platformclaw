@@ -635,4 +635,106 @@ describe("Shared Knowledge Vault boundary", () => {
     ).rejects.toThrow();
     expect(vaults.listVaults(reader).filter((item) => item.canRead)).toHaveLength(1);
   });
+
+  it("uses revision CAS for attachment replacement/delete and owner-gates vault rename/delete", async () => {
+    const { vaults, vault, owner, reader } = await fixture();
+    vaults.setMember({ userId: owner, vaultId: vault.id, memberUserId: reader, role: "reader" });
+    vaults.setConnection({ userId: reader, vaultId: vault.id, connected: true });
+    const selectionBefore = vaults.connectionScope(reader).revision;
+
+    vaults.uploadAttachment({
+      userId: owner,
+      vaultId: vault.id,
+      path: "capture.bin",
+      mediaType: "application/octet-stream",
+      content: Buffer.from("one"),
+    });
+    const first = vaults.downloadAttachment({
+      userId: reader,
+      vaultId: vault.id,
+      path: "capture.bin",
+    });
+    expect(first.revision).toBe(1);
+    expect(() =>
+      vaults.uploadAttachment({
+        userId: owner,
+        vaultId: vault.id,
+        path: "capture.bin",
+        mediaType: "application/octet-stream",
+        content: Buffer.from("stale"),
+      }),
+    ).toThrow(/reload before replacing/u);
+    vaults.uploadAttachment({
+      userId: owner,
+      vaultId: vault.id,
+      path: "capture.bin",
+      mediaType: "application/octet-stream",
+      content: Buffer.from("two"),
+      expectedRevision: 1,
+    });
+    expect(() =>
+      vaults.deleteAttachment({
+        userId: owner,
+        vaultId: vault.id,
+        path: "capture.bin",
+        expectedRevision: 1,
+      }),
+    ).toThrow(/reload before deleting/u);
+    expect(
+      vaults.deleteAttachment({
+        userId: owner,
+        vaultId: vault.id,
+        path: "capture.bin",
+        expectedRevision: 2,
+      }),
+    ).toEqual({ deleted: true, path: "capture.bin" });
+    expect(() =>
+      vaults.uploadAttachment({
+        userId: owner,
+        vaultId: vault.id,
+        path: "capture.bin",
+        mediaType: "application/octet-stream",
+        content: Buffer.from("stale-after-delete"),
+        expectedRevision: 2,
+      }),
+    ).toThrow(/reload before replacing/u);
+    vaults.uploadAttachment({
+      userId: owner,
+      vaultId: vault.id,
+      path: "capture.bin",
+      mediaType: "application/octet-stream",
+      content: Buffer.from("three"),
+    });
+    const recreated = vaults.downloadAttachment({
+      userId: owner,
+      vaultId: vault.id,
+      path: "capture.bin",
+    });
+    expect(recreated.revision).toBe(3);
+    expect(() =>
+      vaults.deleteAttachment({
+        userId: owner,
+        vaultId: vault.id,
+        path: "capture.bin",
+        expectedRevision: 2,
+      }),
+    ).toThrow(/reload before deleting/u);
+
+    expect(() => vaults.renameVault({ userId: reader, vaultId: vault.id, name: "Nope" })).toThrow(
+      /unavailable/u,
+    );
+    expect(vaults.renameVault({ userId: owner, vaultId: vault.id, name: "Renamed" }).name).toBe(
+      "Renamed",
+    );
+    expect(() => vaults.deleteVault({ userId: reader, vaultId: vault.id })).toThrow(/unavailable/u);
+    expect(vaults.deleteVault({ userId: owner, vaultId: vault.id })).toEqual({
+      deleted: true,
+      vaultId: vault.id,
+    });
+    expect(vaults.connectionScope(reader)).toMatchObject({
+      revision: selectionBefore + 1,
+      vaultIds: [],
+    });
+    expect(vaults.listVaults(owner).some((item) => item.id === vault.id)).toBe(false);
+  });
 });

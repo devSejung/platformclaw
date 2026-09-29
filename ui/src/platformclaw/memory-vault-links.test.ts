@@ -214,7 +214,6 @@ describe("Wiki document links", () => {
           document: doc,
           vaultName: "Example",
           vaultType: type,
-          canExport: true,
           canEdit: true,
           busy: false,
           onOpen: open,

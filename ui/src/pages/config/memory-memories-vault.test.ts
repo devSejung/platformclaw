@@ -142,7 +142,7 @@ describe("server unified Vault search", () => {
         expect(
           element.querySelector("[data-vault-provenance]")?.textContent?.replace(/\s+/gu, " "),
         ).toContain(
-          `PHY · ${locale === "ko" ? "공유 · Shared" : "Shared"} · ${locale === "ko" ? "버전" : "Revision"} 7`,
+          `PHY · ${locale === "ko" ? "공유" : "Shared"} · ${locale === "ko" ? "버전" : "Revision"} 7`,
         );
         const provenance = element.querySelector<HTMLDetailsElement>(
           ".memory-memories__provenance-details",

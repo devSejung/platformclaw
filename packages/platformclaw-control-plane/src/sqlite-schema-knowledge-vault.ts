@@ -81,6 +81,11 @@ CREATE TABLE IF NOT EXISTS knowledge_vault_attachments (
   path TEXT NOT NULL, media_type TEXT NOT NULL, content BLOB NOT NULL,
   revision INTEGER NOT NULL, PRIMARY KEY (vault_id,path)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS knowledge_vault_attachment_revisions (
+  vault_id TEXT NOT NULL REFERENCES knowledge_vaults(id) ON DELETE CASCADE,
+  path TEXT NOT NULL, revision INTEGER NOT NULL,
+  PRIMARY KEY (vault_id,path)
+) STRICT;
 `;
 
 /** Additive state in the control-plane database; older readers keep working. */
@@ -92,6 +97,16 @@ export function ensureKnowledgeVaultSchema(db: DatabaseSync): void {
       )
       .get();
     db.exec(KNOWLEDGE_VAULT_SCHEMA);
+    db.exec(`INSERT OR IGNORE INTO knowledge_vault_attachment_revisions(vault_id,path,revision)
+      SELECT vault_id,path,revision FROM knowledge_vault_attachments`);
+    db.exec(`UPDATE knowledge_vault_attachment_revisions
+      SET revision = (SELECT attachment.revision FROM knowledge_vault_attachments attachment
+        WHERE attachment.vault_id = knowledge_vault_attachment_revisions.vault_id
+          AND attachment.path = knowledge_vault_attachment_revisions.path)
+      WHERE EXISTS (SELECT 1 FROM knowledge_vault_attachments attachment
+        WHERE attachment.vault_id = knowledge_vault_attachment_revisions.vault_id
+          AND attachment.path = knowledge_vault_attachment_revisions.path
+          AND attachment.revision > knowledge_vault_attachment_revisions.revision)`);
     if (!hadAccessStates) {
       // Existing disabled connections are an intentional preference, not a newly granted right.
       db.exec(`INSERT INTO knowledge_vault_access_states(user_id,vault_id,accessible)
@@ -180,6 +195,11 @@ export type KnowledgeVaultDatabase = Pick<
     path: string;
     media_type: string;
     content: Uint8Array;
+    revision: number;
+  };
+  knowledge_vault_attachment_revisions: {
+    vault_id: string;
+    path: string;
     revision: number;
   };
 };
