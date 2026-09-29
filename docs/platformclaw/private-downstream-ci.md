@@ -82,8 +82,8 @@ newer, using `.agents` as `PYTHONPATH`. The workflow contains the exact commands
 The canonical helper does not run an external secret scanner. Its reviewer can
 report suspected credentials only after review input has been sent. Keep any
 required scan before external transmission as a separate operator control;
-the repository's TruffleHog CI step in `.github/workflows/ci.yml` is separate
-and remains unchanged.
+the repository's TruffleHog CI step in `.github/workflows/ci.yml` remains
+independent and enabled.
 
 The login UI's private source, HTML entry point, and dedicated Vite configuration
 stay on the focused path. That path runs the complete UI typecheck, lints both
