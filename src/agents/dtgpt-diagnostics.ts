@@ -4,10 +4,10 @@ import { redactIdentifier } from "../logging/redact-identifier.js";
 import { getDefaultRedactPatterns, redactSensitiveText } from "../logging/redact.js";
 import { extractLeadingHttpStatus, parseApiErrorInfo } from "../shared/assistant-error-format.js";
 
-export const DTGPT_PROVIDER_ID = "dtgpt";
-export const DTGPT_SUPPORT_MESSAGE = "DT팀 API에 현재 이상현상이 있다. seungon.jung 에게 문의해라.";
+const DTGPT_PROVIDER_ID = "dtgpt";
+const DTGPT_SUPPORT_MESSAGE = "DT팀 API에 현재 이상현상이 있다. seungon.jung 에게 문의해라.";
 
-export type DtgptFailureDiagnostic = {
+type DtgptFailureDiagnostic = {
   httpCode?: string;
   errorType?: string;
   messagePreview?: string;
@@ -39,7 +39,7 @@ function stringifyDiagnosticField(value: string | undefined): string | undefined
   return sanitizeDiagnosticText(value, 160)?.replace(/\s+/g, " ");
 }
 
-export function formatRetryDelayKo(waitMs: number): string {
+function formatRetryDelayKo(waitMs: number): string {
   const seconds = Math.max(1, Math.ceil(waitMs / 1000));
   if (seconds < 60) {
     return `약 ${seconds}초`;
