@@ -1265,6 +1265,45 @@ describe("getApiKeyForModel", () => {
     ).rejects.toThrow(/Inline API key for provider "demo-local" is temporarily disabled/);
   });
 
+  it("shows persisted DT GPT failure details while the inline key is cooling down", async () => {
+    const usageId = resolveInlineProviderApiKeyUsageId("dtgpt");
+    await expect(
+      resolveApiKeyForProvider({
+        provider: "dtgpt",
+        store: {
+          version: 1,
+          profiles: {},
+          usageStats: {
+            [usageId]: {
+              cooldownUntil: Date.now() + 30_000,
+              cooldownReason: "billing",
+              lastFailureDiagnostic: {
+                httpCode: "402",
+                errorType: "insufficient_balance",
+                messagePreview: "DT upstream quota service unavailable",
+                rawHash: "errhash123",
+              },
+            },
+          },
+        },
+        cfg: {
+          models: {
+            providers: {
+              dtgpt: {
+                baseUrl: "https://dtgpt.example",
+                api: "openai-completions",
+                apiKey: "config-dtgpt-key",
+                models: [],
+              },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      /DT팀 API에 현재 이상현상이 있다\. seungon\.jung 에게 문의해라\.[\s\S]*reason=billing[\s\S]*status=402[\s\S]*type=insufficient_balance[\s\S]*DT upstream quota service unavailable[\s\S]*재시도: 약 30초 후 가능/,
+    );
+  });
+
   it("blocks configured env-marker apiKey while its inline provider cooldown is active", async () => {
     const usageId = resolveInlineProviderApiKeyUsageId("inline-cloud");
     await withEnvAsync({ INLINE_CLOUD_API_KEY: "env-cloud-key" }, async () => {

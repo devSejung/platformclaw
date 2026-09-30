@@ -218,6 +218,30 @@ describe("isProfileInCooldown", () => {
       [[undefined, true]],
     ],
     [
+      "caps a legacy 5h billing disable to the new 30s first-failure window",
+      "anthropic:default",
+      {
+        disabledUntil: now + 5 * 60 * 60 * 1000,
+        disabledReason: "billing",
+        errorCount: 1,
+        failureCounts: { billing: 1 },
+        lastFailureAt: now - 20_000,
+      },
+      [[undefined, true]],
+    ],
+    [
+      "releases a legacy 5h billing disable once the new 30s window has elapsed",
+      "anthropic:default",
+      {
+        disabledUntil: now + 5 * 60 * 60 * 1000,
+        disabledReason: "billing",
+        errorCount: 1,
+        failureCounts: { billing: 1 },
+        lastFailureAt: now - 31_000,
+      },
+      [[undefined, false]],
+    ],
+    [
       "returns false for OpenRouter even when cooldown fields exist",
       "openrouter:default",
       activeCooldown(undefined, undefined, {
@@ -337,6 +361,23 @@ describe("isProfileInCooldown", () => {
 
 describe("getSoonestCooldownExpiry", () => {
   const now = 1_700_000_000_000;
+  it("reports the capped expiry for a legacy 5h billing disable", () => {
+    const lastFailureAt = now - 20_000;
+    const store = makeStore({
+      "anthropic:default": {
+        disabledUntil: now + 5 * 60 * 60 * 1000,
+        disabledReason: "billing",
+        errorCount: 1,
+        failureCounts: { billing: 1 },
+        lastFailureAt,
+      },
+    });
+
+    expect(getSoonestCooldownExpiry(store, ["anthropic:default"], { now })).toBe(
+      lastFailureAt + 30_000,
+    );
+  });
+
   it.each([
     {
       name: "treats a model_not_found cooldown for the requested model as model-scoped — #116464",
@@ -388,6 +429,27 @@ describe("resolveProfilesUnavailableReason", () => {
         now,
       }),
     ).toBe("billing");
+  });
+
+  it("ignores a legacy 5h billing disable after the new 30s first-failure window", () => {
+    const now = Date.now();
+    const store = makeStore({
+      "anthropic:default": {
+        disabledUntil: now + 5 * 60 * 60 * 1000,
+        disabledReason: "billing",
+        errorCount: 1,
+        failureCounts: { billing: 1 },
+        lastFailureAt: now - 31_000,
+      },
+    });
+
+    expect(
+      resolveProfilesUnavailableReason({
+        store,
+        profileIds: ["anthropic:default"],
+        now,
+      }),
+    ).toBeNull();
   });
 
   it("returns auth_permanent for active permanent auth disables", () => {
@@ -561,23 +623,47 @@ describe("clearExpiredCooldowns", () => {
       },
     },
     {
-      name: "clears expired disabledUntil and disabledReason",
+      name: "clears legacy billing disabledUntil while preserving the billing retry sequence",
       usageStats: {
         "anthropic:default": {
           disabledUntil: now - 1_000,
           disabledReason: "billing",
           errorCount: 2,
           failureCounts: { billing: 2 },
+          lastFailureAt: now - 1_000,
         },
       },
       expectedMutated: true,
-      expectCleared: true,
       expectedUsageStats: {
         "anthropic:default": {
           disabledUntil: undefined,
           disabledReason: undefined,
-          errorCount: 0,
-          failureCounts: undefined,
+          errorCount: 2,
+          failureCounts: { billing: 2 },
+          lastFailureAt: now - 1_000,
+        },
+      },
+    },
+    {
+      name: "clears expired billing cooldown while preserving the billing retry sequence",
+      usageStats: {
+        "anthropic:default": {
+          cooldownUntil: now - 1_000,
+          cooldownReason: "billing",
+          errorCount: 2,
+          failureCounts: { billing: 2 },
+          lastFailureAt: now - 1_000,
+        },
+      },
+      expectedMutated: true,
+      expectedUsageStats: {
+        "anthropic:default": {
+          cooldownUntil: undefined,
+          cooldownReason: undefined,
+          cooldownModel: undefined,
+          errorCount: 2,
+          failureCounts: { billing: 2 },
+          lastFailureAt: now - 1_000,
         },
       },
     },
@@ -626,7 +712,7 @@ describe("clearExpiredCooldowns", () => {
       },
     },
     {
-      name: "resets errorCount only when both cooldown and disabled have expired",
+      name: "preserves only billing sequence when both cooldown and billing disable expire",
       usageStats: {
         "anthropic:default": {
           cooldownUntil: now - 2_000,
@@ -637,7 +723,6 @@ describe("clearExpiredCooldowns", () => {
         },
       },
       expectedMutated: true,
-      expectCleared: true,
       expectedUsageStats: {
         "anthropic:default": {
           cooldownUntil: undefined,
@@ -645,8 +730,8 @@ describe("clearExpiredCooldowns", () => {
           cooldownModel: undefined,
           disabledUntil: undefined,
           disabledReason: undefined,
-          errorCount: 0,
-          failureCounts: undefined,
+          errorCount: 2,
+          failureCounts: { billing: 2 },
         },
       },
     },
@@ -861,16 +946,16 @@ describe("markAuthProfileFailure — active windows do not extend on retry", () 
       readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
     },
     {
-      label: "disabledUntil",
+      label: "cooldownUntil(billing)",
       reason: "billing" as const,
       buildUsageStats: (now: number): WindowStats => ({
-        disabledUntil: now + 20 * 60 * 60 * 1000,
-        disabledReason: "billing",
-        errorCount: 5,
-        failureCounts: { billing: 5 },
+        cooldownUntil: now + 4 * 60 * 1000,
+        cooldownReason: "billing",
+        errorCount: 3,
+        failureCounts: { billing: 3 },
         lastFailureAt: now - 60_000,
       }),
-      readUntil: (stats: WindowStats | undefined) => stats?.disabledUntil,
+      readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
     },
     {
       label: "disabledUntil(auth_permanent)",
@@ -922,19 +1007,19 @@ describe("markAuthProfileFailure — active windows do not extend on retry", () 
       readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
     },
     {
-      label: "disabledUntil",
+      label: "cooldownUntil(billing)",
       reason: "billing" as const,
       buildUsageStats: (now: number): WindowStats => ({
-        disabledUntil: now - 60_000,
-        disabledReason: "billing",
-        errorCount: 5,
+        cooldownUntil: now - 60_000,
+        cooldownReason: "billing",
+        errorCount: 2,
         failureCounts: { billing: 2 },
         lastFailureAt: now - 60_000,
       }),
-      // errorCount resets, billing count resets to 1 →
-      // calculateDisabledLaneBackoffMs(1, 5h, 24h) = 5h
-      expectedUntil: (now: number) => now + 5 * 60 * 60 * 1000,
-      readUntil: (stats: WindowStats | undefined) => stats?.disabledUntil,
+      // Billing intentionally keeps its short retry sequence across an expired
+      // window: 30s -> 1m -> 5m max. Two previous failures means the next is 5m.
+      expectedUntil: (now: number) => now + 5 * 60 * 1000,
+      readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
     },
     {
       label: "disabledUntil(auth_permanent)",
@@ -978,9 +1063,9 @@ describe("markAuthProfileFailure — active windows do not extend on retry", () 
       readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
     },
     {
-      label: "disabledUntil",
+      label: "cooldownUntil(billing)",
       reason: "billing" as const,
-      readUntil: (stats: WindowStats | undefined) => stats?.disabledUntil,
+      readUntil: (stats: WindowStats | undefined) => stats?.cooldownUntil,
     },
   ])("keeps recomputed $label inside the valid Date range", async (testCase) => {
     const store = makeStore({});
@@ -993,6 +1078,32 @@ describe("markAuthProfileFailure — active windows do not extend on retry", () 
 
     const stats = store.usageStats?.["anthropic:default"];
     expect(testCase.readUntil(stats)).toBe(MAX_DATE_TIMESTAMP_MS);
+  });
+
+  it("steps billing retries through 30s, 1m, then 5m max", async () => {
+    const store = makeStore({});
+    const firstAt = 1_000_000;
+
+    await markFailureAt({ store, now: firstAt, reason: "billing" });
+    expect(store.usageStats?.["anthropic:default"]?.cooldownUntil).toBe(firstAt + 30_000);
+
+    const secondAt = firstAt + 31_000;
+    expect(clearExpiredCooldowns(store, secondAt)).toBe(true);
+    expect(store.usageStats?.["anthropic:default"]?.failureCounts).toEqual({ billing: 1 });
+    await markFailureAt({ store, now: secondAt, reason: "billing" });
+    expect(store.usageStats?.["anthropic:default"]?.cooldownUntil).toBe(secondAt + 60_000);
+
+    const thirdAt = secondAt + 61_000;
+    expect(clearExpiredCooldowns(store, thirdAt)).toBe(true);
+    expect(store.usageStats?.["anthropic:default"]?.failureCounts).toEqual({ billing: 2 });
+    await markFailureAt({ store, now: thirdAt, reason: "billing" });
+    expect(store.usageStats?.["anthropic:default"]?.cooldownUntil).toBe(thirdAt + 5 * 60_000);
+
+    const fourthAt = thirdAt + 5 * 60_000 + 1;
+    expect(clearExpiredCooldowns(store, fourthAt)).toBe(true);
+    expect(store.usageStats?.["anthropic:default"]?.failureCounts).toEqual({ billing: 3 });
+    await markFailureAt({ store, now: fourthAt, reason: "billing" });
+    expect(store.usageStats?.["anthropic:default"]?.cooldownUntil).toBe(fourthAt + 5 * 60_000);
   });
 });
 

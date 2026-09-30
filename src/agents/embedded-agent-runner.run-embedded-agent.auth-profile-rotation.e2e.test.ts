@@ -973,8 +973,9 @@ describe("runEmbeddedAgent auth profile rotation", () => {
       expect(runEmbeddedAttemptMock).toHaveBeenCalledTimes(1);
       const usageStats = await readUsageStats(agentDir);
       const usageId = resolveInlineProviderApiKeyUsageId("openai");
-      expect(usageStats[usageId]?.disabledReason).toBe("billing");
-      expect(typeof usageStats[usageId]?.disabledUntil).toBe("number");
+      expect(usageStats[usageId]?.disabledReason).toBeUndefined();
+      expect(usageStats[usageId]?.cooldownReason).toBe("billing");
+      expect(typeof usageStats[usageId]?.cooldownUntil).toBe("number");
       expect(usageStats["openai:p1"]).toBeUndefined();
     });
   });

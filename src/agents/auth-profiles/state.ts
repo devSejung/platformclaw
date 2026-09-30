@@ -14,6 +14,7 @@ import { readPersistedAuthProfileStateRaw } from "./sqlite.js";
 import type {
   AuthProfileBlockedReason,
   AuthProfileBlockedSource,
+  AuthProfileFailureDiagnostic,
   AuthProfileFailureReason,
   AuthProfileState,
   AuthProfileStateStore,
@@ -66,6 +67,34 @@ function normalizeFailureCounts(raw: unknown): ProfileUsageStats["failureCounts"
     normalized[reason as AuthProfileFailureReason] = Math.trunc(count);
   }
   return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeDiagnosticString(value: unknown, maxChars: number): string | undefined {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.length > maxChars ? normalized.slice(0, maxChars) : normalized;
+}
+
+function normalizeFailureDiagnostic(raw: unknown): AuthProfileFailureDiagnostic | undefined {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const diagnostic: AuthProfileFailureDiagnostic = {
+    httpCode: normalizeDiagnosticString(raw.httpCode, 16),
+    errorType: normalizeDiagnosticString(raw.errorType, 128),
+    messagePreview: normalizeDiagnosticString(raw.messagePreview, 400),
+    rawPreview: normalizeDiagnosticString(raw.rawPreview, 800),
+    rawHash: normalizeDiagnosticString(raw.rawHash, 64),
+    requestIdHash: normalizeDiagnosticString(raw.requestIdHash, 64),
+  };
+  for (const key of Object.keys(diagnostic) as Array<keyof AuthProfileFailureDiagnostic>) {
+    if (diagnostic[key] === undefined) {
+      delete diagnostic[key];
+    }
+  }
+  return Object.keys(diagnostic).length > 0 ? diagnostic : undefined;
 }
 
 function normalizeAuthProfileOrder(raw: unknown): AuthProfileState["order"] {
@@ -127,6 +156,7 @@ function normalizeUsageStatsEntry(raw: unknown): ProfileUsageStats | undefined {
     errorCount: normalizeFiniteNumber(raw.errorCount),
     failureCounts: normalizeFailureCounts(raw.failureCounts),
     lastFailureAt: normalizeFiniteNumber(raw.lastFailureAt),
+    lastFailureDiagnostic: normalizeFailureDiagnostic(raw.lastFailureDiagnostic),
     lastProbeAt: normalizeFiniteNumber(raw.lastProbeAt),
   };
   for (const key of Object.keys(stats) as Array<keyof ProfileUsageStats>) {

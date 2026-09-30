@@ -176,6 +176,7 @@ export async function resolveEmbeddedRunTerminal(input: {
     profileId?: string;
     reason?: AuthProfileFailureReason | null;
     modelId?: string;
+    rawError?: string;
   }) => Promise<void>;
   assistantProfileFailureReason?: AuthProfileFailureReason | null;
   startedAtMs: number;

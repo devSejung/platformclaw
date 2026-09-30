@@ -23,17 +23,21 @@ import { updateAuthProfileStoreWithLock } from "./store.js";
 import type {
   AuthProfileBlockedSource,
   AuthProfileCredential,
+  AuthProfileFailureDiagnostic,
   AuthProfileFailureReason,
   AuthProfileStore,
   ProfileUsageStats,
 } from "./types.js";
 import {
+  calculateAuthProfileCooldownMs,
   isActiveUnusableWindow,
   isAuthCooldownBypassedForProvider,
   isModelScopedCooldownReason,
+  resolveProfileDisabledUntil,
   resolveProfileUnusableUntil,
 } from "./usage-state.js";
 export {
+  calculateAuthProfileCooldownMs,
   clearExpiredCooldowns,
   getSoonestCooldownExpiry,
   isProfileInCooldown,
@@ -383,7 +387,7 @@ function shouldHalfOpenProbeWhamBlock(params: {
     stats.blockedReason !== "subscription_limit" ||
     !isActiveUnusableWindow(stats.blockedUntil, params.now) ||
     isActiveUnusableWindow(stats.cooldownUntil, params.now) ||
-    isActiveUnusableWindow(stats.disabledUntil, params.now) ||
+    isActiveUnusableWindow(resolveProfileDisabledUntil(stats), params.now) ||
     !shouldProbeWhamForFailure(profile, "rate_limit")
   ) {
     return false;
@@ -611,7 +615,7 @@ export function resolveProfilesUnavailableReason(params: {
       continue;
     }
 
-    const disabledActive = isActiveUnusableWindow(stats.disabledUntil, now);
+    const disabledActive = isActiveUnusableWindow(resolveProfileDisabledUntil(stats), now);
     if (disabledActive && stats.disabledReason && FAILURE_REASON_SET.has(stats.disabledReason)) {
       // Disabled reasons are explicit and high-signal; weight heavily.
       addScore(stats.disabledReason, 1_000);
@@ -669,27 +673,13 @@ export function resolveProfilesUnavailableReason(params: {
   return best;
 }
 
-/** Returns the regular transient-failure cooldown duration for an error count. */
-export function calculateAuthProfileCooldownMs(errorCount: number): number {
-  const normalized = Math.max(1, errorCount);
-  if (normalized <= 1) {
-    return 30_000; // 30 seconds
-  }
-  if (normalized <= 2) {
-    return 60_000; // 1 minute
-  }
-  return 5 * 60_000; // 5 minutes max
-}
-
 type ResolvedAuthCooldownConfig = {
-  billingBackoffMs: number;
-  billingMaxMs: number;
   authPermanentBackoffMs: number;
   authPermanentMaxMs: number;
   failureWindowMs: number;
 };
 
-type DisabledFailureReason = Extract<AuthProfileFailureReason, "billing" | "auth_permanent">;
+type DisabledFailureReason = Extract<AuthProfileFailureReason, "auth_permanent">;
 
 type DisabledFailureBackoffPolicy = {
   baseMs: (cfg: ResolvedAuthCooldownConfig) => number;
@@ -697,10 +687,6 @@ type DisabledFailureBackoffPolicy = {
 };
 
 const DISABLED_FAILURE_BACKOFF_POLICIES = {
-  billing: {
-    baseMs: (cfg) => cfg.billingBackoffMs,
-    maxMs: (cfg) => cfg.billingMaxMs,
-  },
   auth_permanent: {
     // Keep high-confidence permanent-auth failures in the disabled lane, but
     // recover much sooner than billing because some providers surface
@@ -710,16 +696,12 @@ const DISABLED_FAILURE_BACKOFF_POLICIES = {
   },
 } as const satisfies Record<DisabledFailureReason, DisabledFailureBackoffPolicy>;
 
-const DEFAULT_BILLING_BACKOFF_HOURS = 5;
-const DEFAULT_BILLING_MAX_HOURS = 24;
 const DEFAULT_AUTH_PERMANENT_BACKOFF_MINUTES = 10;
 const DEFAULT_AUTH_PERMANENT_MAX_MINUTES = 60;
 const DEFAULT_FAILURE_WINDOW_HOURS = 24;
 
 function resolveAuthCooldownConfig(): ResolvedAuthCooldownConfig {
   return {
-    billingBackoffMs: DEFAULT_BILLING_BACKOFF_HOURS * 60 * 60 * 1000,
-    billingMaxMs: DEFAULT_BILLING_MAX_HOURS * 60 * 60 * 1000,
     authPermanentBackoffMs: DEFAULT_AUTH_PERMANENT_BACKOFF_MINUTES * 60 * 1000,
     authPermanentMaxMs: DEFAULT_AUTH_PERMANENT_MAX_MINUTES * 60 * 1000,
     failureWindowMs: DEFAULT_FAILURE_WINDOW_HOURS * 60 * 60 * 1000,
@@ -799,6 +781,7 @@ function resetUsageStats(
     disabledUntil: undefined,
     disabledReason: undefined,
     failureCounts: undefined,
+    lastFailureDiagnostic: undefined,
     ...overrides,
   };
 }
@@ -845,7 +828,19 @@ function computeNextProfileUsageStats(params: {
   const unusableUntil = resolveProfileUnusableUntil(params.existing);
   const previousCooldownExpired = typeof unusableUntil === "number" && params.now >= unusableUntil;
 
-  const shouldResetCounters = windowExpired || previousCooldownExpired;
+  const continuingBillingSequence =
+    params.reason === "billing" &&
+    (params.existing.cooldownReason === "billing" ||
+      params.existing.disabledReason === "billing" ||
+      (params.existing.failureCounts?.billing ?? 0) > 0);
+  const switchingFromPreservedBillingSequence =
+    params.reason !== "billing" &&
+    !unusableUntil &&
+    (params.existing.failureCounts?.billing ?? 0) > 0;
+  const shouldResetCounters =
+    windowExpired ||
+    (previousCooldownExpired && !continuingBillingSequence) ||
+    switchingFromPreservedBillingSequence;
   const baseErrorCount = shouldResetCounters ? 0 : (params.existing.errorCount ?? 0);
   const nextErrorCount = baseErrorCount + 1;
   const failureCounts = shouldResetCounters ? {} : { ...params.existing.failureCounts };
@@ -858,8 +853,7 @@ function computeNextProfileUsageStats(params: {
     lastFailureAt: params.now,
   };
 
-  const disabledFailureReason =
-    params.reason === "billing" || params.reason === "auth_permanent" ? params.reason : null;
+  const disabledFailureReason = params.reason === "auth_permanent" ? params.reason : null;
 
   if (disabledFailureReason) {
     const disableCount = failureCounts[disabledFailureReason] ?? 1;
@@ -877,7 +871,16 @@ function computeNextProfileUsageStats(params: {
     });
     updatedStats.disabledReason = disabledFailureReason;
   } else {
-    const backoffMs = calculateAuthProfileCooldownMs(nextErrorCount);
+    // Billing is intentionally transient: 30s -> 1m -> 5m max. Clear any
+    // persisted legacy billing disable marker so a pre-upgrade 5h window cannot
+    // continue to dominate the new cooldown.
+    if (params.existing.disabledReason === "billing") {
+      updatedStats.disabledUntil = undefined;
+      updatedStats.disabledReason = undefined;
+    }
+    const cooldownErrorCount =
+      params.reason === "billing" ? (failureCounts.billing ?? 1) : nextErrorCount;
+    const backoffMs = calculateAuthProfileCooldownMs(cooldownErrorCount);
     // Keep active cooldown windows immutable so retries within the window
     // cannot push recovery further out.
     updatedStats.cooldownUntil = keepActiveWindowOrRecompute({
@@ -943,8 +946,9 @@ export async function markAuthProfileFailure(params: {
   agentDir?: string;
   runId?: string;
   modelId?: string;
+  diagnostic?: AuthProfileFailureDiagnostic;
 }): Promise<void> {
-  const { store, profileId, reason, agentDir, runId, modelId } = params;
+  const { store, profileId, reason, agentDir, runId, modelId, diagnostic } = params;
   const profile = store.profiles[profileId];
   if (!profile || isAuthCooldownBypassedForProvider(profile.provider)) {
     return;
@@ -992,6 +996,9 @@ export async function markAuthProfileFailure(params: {
         cfgResolved,
         modelId,
       });
+      if (diagnostic) {
+        computed.lastFailureDiagnostic = diagnostic;
+      }
       nextStats = currentWhamResult
         ? applyWhamCooldownResult({
             existing: previousStats ?? {},
@@ -1148,8 +1155,9 @@ export async function markInlineProviderApiKeyFailure(params: {
   agentDir?: string;
   runId?: string;
   modelId?: string;
+  diagnostic?: AuthProfileFailureDiagnostic;
 }): Promise<void> {
-  const { store, provider, reason, agentDir, runId, modelId } = params;
+  const { store, provider, reason, agentDir, runId, modelId, diagnostic } = params;
   if (
     (reason !== "auth" && reason !== "auth_permanent" && reason !== "billing") ||
     isAuthCooldownBypassedForProvider(provider)
@@ -1176,6 +1184,9 @@ export async function markInlineProviderApiKeyFailure(params: {
         cfgResolved,
         modelId,
       });
+      if (diagnostic) {
+        nextStats.lastFailureDiagnostic = diagnostic;
+      }
       updateUsageStatsEntry(freshStore, usageId, () => nextStats as ProfileUsageStats);
       return true;
     },

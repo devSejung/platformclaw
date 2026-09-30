@@ -15,6 +15,7 @@ import { ensureAuthProfileStore, hasAnyAuthProfileStoreSource } from "../auth-pr
 import {
   isActiveUnusableWindow,
   isModelScopedCooldownReason,
+  resolveProfileDisabledUntil,
 } from "../auth-profiles/usage-state.js";
 import { isProfileInCooldown } from "../auth-profiles/usage.js";
 
@@ -196,7 +197,7 @@ function isProfileGloballyInCooldown(
   }
   const now = Date.now();
   return (
-    isActiveUnusableWindow(usage.disabledUntil, now) ||
+    isActiveUnusableWindow(resolveProfileDisabledUntil(usage), now) ||
     (isActiveUnusableWindow(usage.blockedUntil, now) &&
       (usage.blockedScope !== "model" || !usage.blockedModel)) ||
     (isActiveUnusableWindow(usage.cooldownUntil, now) &&

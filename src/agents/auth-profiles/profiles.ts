@@ -62,6 +62,7 @@ function resetSuccessfulUsageStats(
     disabledUntil: undefined,
     disabledReason: undefined,
     failureCounts: undefined,
+    lastFailureDiagnostic: undefined,
     lastUsed,
   };
 }

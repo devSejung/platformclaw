@@ -624,6 +624,30 @@ describe("formatAssistantErrorText", () => {
     );
   });
 
+  it("surfaces redacted DT GPT diagnostics with support contact", () => {
+    const msg = makeAssistantMessageFixture({
+      provider: "dtgpt",
+      model: "qwen3.6-27b",
+      errorMessage:
+        '402 {"error":{"type":"insufficient_balance","message":"upstream billing unavailable for tenant"},"request_id":"req_dt_123"}',
+      errorCode: "402",
+      content: [],
+    });
+
+    const text = formatUserFacingAssistantErrorText(msg, {
+      provider: "dtgpt",
+      model: "qwen3.6-27b",
+    });
+    expect(text).toContain("DT팀 API에 현재 이상현상이 있다. seungon.jung 에게 문의해라.");
+    expect(text).toContain("provider=dtgpt");
+    expect(text).toContain("model=qwen3.6-27b");
+    expect(text).toContain("status=402");
+    expect(text).toContain("type=insufficient_balance");
+    expect(text).toContain("upstream billing unavailable for tenant");
+    expect(text).toContain("requestIdHash=");
+    expect(text).not.toContain("req_dt_123");
+  });
+
   it("uses structured error body detail for model-not-found copy", () => {
     const msg = makeAssistantMessageFixture({
       errorMessage: "400 Param Incorrect",
