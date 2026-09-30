@@ -21,6 +21,7 @@ export {
   parseApiErrorInfo,
 } from "../../shared/assistant-error-format.js";
 import { classifyOAuthRefreshFailure } from "../auth-profiles/oauth-refresh-failure.js";
+import { formatDtgptProviderFailureMessage } from "../dtgpt-diagnostics.js";
 import { formatExecDeniedUserMessage } from "../exec-approval-result.js";
 import { isModelNotFoundErrorMessage } from "../live-model-errors.js";
 import { formatSandboxToolPolicyBlockedMessage } from "../sandbox/runtime-status.js";
@@ -1310,6 +1311,23 @@ export function formatAssistantErrorText(
   }
   if (!raw) {
     return "LLM request failed with an unknown error.";
+  }
+
+  const dtgptFailoverReason = classifyAssistantFailoverReason(msg, {
+    provider: opts?.provider ?? msg.provider,
+  });
+  if (dtgptFailoverReason) {
+    const dtgptMessage = formatDtgptProviderFailureMessage({
+      provider: opts?.provider ?? msg.provider,
+      model: opts?.model ?? msg.model,
+      reason: dtgptFailoverReason,
+      rawError: raw,
+      errorCode: msg.errorCode,
+      errorType: msg.errorType,
+    });
+    if (dtgptMessage) {
+      return dtgptMessage;
+    }
   }
 
   const providerRuntimeFailureKind = classifyProviderRuntimeFailureKind({

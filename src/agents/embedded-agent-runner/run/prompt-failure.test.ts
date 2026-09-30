@@ -97,6 +97,7 @@ describe("handleEmbeddedPromptFailure", () => {
         profileId: "openai:p1",
         reason: "rate_limit",
         modelId: "gpt-5",
+        rawError: "rate limit exceeded",
       });
     } finally {
       releaseMark?.();

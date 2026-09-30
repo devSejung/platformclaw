@@ -82,6 +82,7 @@ export async function handleEmbeddedAssistantFailure(input: {
     profileId?: string;
     reason?: AuthProfileFailureReason | null;
     modelId?: string;
+    rawError?: string;
   }) => Promise<void>;
   maybeEscalateRateLimitProfileFallback: Parameters<
     typeof handleAssistantFailover

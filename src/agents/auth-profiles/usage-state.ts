@@ -7,6 +7,18 @@ import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { asDateTimestampMs } from "../../shared/number-coercion.js";
 import type { AuthProfileFailureReason, AuthProfileStore, ProfileUsageStats } from "./types.js";
 
+/** Returns the transient cooldown duration for a failure count: 30s -> 1m -> 5m max. */
+export function calculateAuthProfileCooldownMs(errorCount: number): number {
+  const normalized = Math.max(1, errorCount);
+  if (normalized <= 1) {
+    return 30_000;
+  }
+  if (normalized <= 2) {
+    return 60_000;
+  }
+  return 5 * 60_000;
+}
+
 /** Returns true for providers whose auth-profile cooldowns are provider-managed. */
 export function isAuthCooldownBypassedForProvider(provider: string | undefined): boolean {
   const normalized = normalizeProviderId(provider ?? "");
@@ -23,18 +35,50 @@ export function isModelScopedCooldownReason(reason: AuthProfileFailureReason | u
   return reason === "rate_limit" || reason === "timeout" || reason === "model_not_found";
 }
 
+/** Resolves disabledUntil with legacy long billing windows capped to the current retry policy. */
+export function resolveProfileDisabledUntil(
+  stats: Pick<
+    ProfileUsageStats,
+    "disabledUntil" | "disabledReason" | "lastFailureAt" | "errorCount" | "failureCounts"
+  >,
+): number | undefined {
+  const disabledUntil = asDateTimestampMs(stats.disabledUntil);
+  if (stats.disabledReason !== "billing" || disabledUntil === undefined) {
+    return disabledUntil;
+  }
+
+  // Billing used to enter a 5h-24h disabled lane. Treat persisted legacy rows
+  // with the new transient policy immediately so upgrading does not leave a key
+  // blocked for hours after the policy change.
+  const lastFailureAt = asDateTimestampMs(stats.lastFailureAt);
+  if (lastFailureAt === undefined) {
+    return disabledUntil;
+  }
+  const billingFailureCount = stats.failureCounts?.billing ?? stats.errorCount ?? 1;
+  const cappedUntil = lastFailureAt + calculateAuthProfileCooldownMs(billingFailureCount);
+  return Math.min(disabledUntil, cappedUntil);
+}
+
 /** Resolves the latest active blocked/cooldown/disabled timestamp for a profile. */
 export function resolveProfileUnusableUntil(
   stats: Pick<
     ProfileUsageStats,
-    "blockedUntil" | "blockedModel" | "blockedScope" | "cooldownUntil" | "disabledUntil"
+    | "blockedUntil"
+    | "blockedModel"
+    | "blockedScope"
+    | "cooldownUntil"
+    | "disabledUntil"
+    | "disabledReason"
+    | "lastFailureAt"
+    | "errorCount"
+    | "failureCounts"
   >,
   forModel?: string,
 ): number | null {
   const blockedUntil = isBlockScopedToDifferentModel(stats, forModel)
     ? undefined
     : stats.blockedUntil;
-  const values = [blockedUntil, stats.cooldownUntil, stats.disabledUntil]
+  const values = [blockedUntil, stats.cooldownUntil, resolveProfileDisabledUntil(stats)]
     .map((value) => asDateTimestampMs(value))
     .filter((value): value is number => value !== undefined && value > 0);
   if (values.length === 0) {
@@ -83,6 +127,10 @@ function shouldBypassModelScopedCooldown(
     | "cooldownReason"
     | "cooldownModel"
     | "disabledUntil"
+    | "disabledReason"
+    | "lastFailureAt"
+    | "errorCount"
+    | "failureCounts"
   >,
   now: number,
   forModel?: string,
@@ -93,7 +141,7 @@ function shouldBypassModelScopedCooldown(
     stats.cooldownModel &&
     stats.cooldownModel !== forModel &&
     !isBlockedWindowActiveForModel(stats, now, forModel) &&
-    !isActiveUnusableWindow(stats.disabledUntil, now),
+    !isActiveUnusableWindow(resolveProfileDisabledUntil(stats), now),
   );
 }
 
@@ -155,7 +203,7 @@ export function getSoonestCooldownExpiry(
       stats.cooldownReason === "rate_limit" &&
       stats.cooldownModel === options.forModel &&
       !isBlockedWindowActiveForModel(stats, ts, options.forModel) &&
-      !isActiveUnusableWindow(stats.disabledUntil, ts);
+      !isActiveUnusableWindow(resolveProfileDisabledUntil(stats), ts);
     if (matchingModelScopedCooldown) {
       latestMatchingModelCooldown =
         latestMatchingModelCooldown === null ? until : Math.max(latestMatchingModelCooldown, until);
@@ -178,10 +226,10 @@ export function getSoonestCooldownExpiry(
  * Clear expired cooldowns from all profiles in the store.
  *
  * When `cooldownUntil` or `disabledUntil` has passed, the corresponding fields
- * are removed and error counters are reset so the profile gets a fresh start
- * (circuit-breaker half-open -> closed). Without this, a stale `errorCount`
- * causes the *next* transient failure to immediately escalate to a much longer
- * cooldown -- the root cause of profiles appearing "stuck" after rate limits.
+ * are removed and error counters are normally reset so the profile gets a fresh
+ * start (circuit-breaker half-open -> closed). Billing is the exception: its
+ * deliberate 30s -> 1m -> 5m sequence must survive the half-open retry, and a
+ * successful request clears that sequence through markAuthProfileSuccess().
  *
  * `cooldownUntil` and `disabledUntil` are handled independently: if a profile
  * has both and only one has expired, only that field is cleared.
@@ -217,11 +265,17 @@ export function clearExpiredCooldowns(store: AuthProfileStore, now?: number): bo
       Number.isFinite(stats.blockedUntil) &&
       stats.blockedUntil > 0 &&
       ts >= stats.blockedUntil;
+    const effectiveDisabledUntil = resolveProfileDisabledUntil(stats);
     const disabledExpired =
-      typeof stats.disabledUntil === "number" &&
-      Number.isFinite(stats.disabledUntil) &&
-      stats.disabledUntil > 0 &&
-      ts >= stats.disabledUntil;
+      typeof effectiveDisabledUntil === "number" &&
+      Number.isFinite(effectiveDisabledUntil) &&
+      effectiveDisabledUntil > 0 &&
+      ts >= effectiveDisabledUntil;
+    const billingFailureCountBeforeClear =
+      (cooldownExpired && stats.cooldownReason === "billing") ||
+      (disabledExpired && stats.disabledReason === "billing")
+        ? (stats.failureCounts?.billing ?? stats.errorCount ?? 1)
+        : 0;
 
     if (cooldownExpired) {
       stats.cooldownUntil = undefined;
@@ -244,11 +298,18 @@ export function clearExpiredCooldowns(store: AuthProfileStore, now?: number): bo
     }
 
     // Reset error counters when ALL cooldowns have expired so the profile gets
-    // a fair retry window. Preserves lastFailureAt for the failureWindowMs
-    // decay check in computeNextProfileUsageStats.
+    // a fair retry window. Billing deliberately retains only its own sequence
+    // count so a failed half-open retry progresses 30s -> 1m -> 5m instead of
+    // restarting at 30s forever. Preserves lastFailureAt for failureWindowMs
+    // decay in computeNextProfileUsageStats.
     if (profileMutated && !resolveProfileUnusableUntil(stats)) {
-      stats.errorCount = 0;
-      stats.failureCounts = undefined;
+      if (billingFailureCountBeforeClear > 0) {
+        stats.errorCount = billingFailureCountBeforeClear;
+        stats.failureCounts = { billing: billingFailureCountBeforeClear };
+      } else {
+        stats.errorCount = 0;
+        stats.failureCounts = undefined;
+      }
     }
 
     if (profileMutated) {

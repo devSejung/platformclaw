@@ -5,6 +5,8 @@ import {
   markAuthProfileFailure,
   markInlineProviderApiKeyFailure,
 } from "../../auth-profiles.js";
+import { isDtgptProvider } from "../../dtgpt-diagnostics.js";
+import { buildApiErrorObservationFields } from "../../embedded-agent-error-observation.js";
 import type { FailoverReason } from "../../embedded-agent-helpers.js";
 import { FailoverError, resolveFailoverStatus } from "../../failover-error.js";
 import { isConfigBackedInlineProviderApiKey, type ResolvedProviderAuth } from "../../model-auth.js";
@@ -110,6 +112,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
       profileId?: string;
       reason?: AuthProfileFailureReason | null;
       modelId?: string;
+      rawError?: string;
     }) => {
       if (params.authProfileStateMode === "read-only") {
         return;
@@ -121,6 +124,42 @@ export function createEmbeddedRunFailoverRetryController(input: {
       if (input.harnessOwnsTransport() && reason === "timeout") {
         return;
       }
+      const observedError = buildApiErrorObservationFields(failure.rawError, { provider });
+      const diagnostic =
+        observedError.httpCode ||
+        observedError.providerErrorType ||
+        observedError.providerErrorMessagePreview ||
+        observedError.rawErrorPreview ||
+        observedError.rawErrorHash ||
+        observedError.requestIdHash
+          ? {
+              httpCode: observedError.httpCode,
+              errorType: observedError.providerErrorType,
+              messagePreview: observedError.providerErrorMessagePreview,
+              rawPreview: observedError.rawErrorPreview,
+              rawHash: observedError.rawErrorHash,
+              requestIdHash: observedError.requestIdHash,
+            }
+          : undefined;
+      if (isDtgptProvider(provider)) {
+        const detail = sanitizeForLog(
+          observedError.providerErrorMessagePreview ?? observedError.rawErrorPreview ?? "unknown",
+        );
+        log.warn("dtgpt provider failure", {
+          event: "dtgpt_provider_failure",
+          tags: ["error_handling", "dtgpt", "provider_failure"],
+          runId: params.runId,
+          provider,
+          model: failure.modelId ?? modelId,
+          reason,
+          ...observedError,
+          consoleMessage:
+            "DT팀 API에 현재 이상현상이 있다. seungon.jung 에게 문의해라. " +
+            `provider=${sanitizeForLog(provider)} model=${sanitizeForLog(failure.modelId ?? modelId)} ` +
+            `reason=${sanitizeForLog(reason)} status=${sanitizeForLog(observedError.httpCode ?? "-")} ` +
+            `type=${sanitizeForLog(observedError.providerErrorType ?? "-")} error=${detail}`,
+        });
+      }
       if (profileId) {
         await markAuthProfileFailure({
           store: profileFailureStore,
@@ -130,6 +169,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
           agentDir,
           runId: params.runId,
           modelId: failure.modelId,
+          diagnostic,
         });
         return;
       }
@@ -156,6 +196,7 @@ export function createEmbeddedRunFailoverRetryController(input: {
         agentDir,
         runId: params.runId,
         modelId: failure.modelId,
+        diagnostic,
       });
     },
     resolveAuthProfileFailureReason: (

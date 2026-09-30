@@ -99,6 +99,16 @@ export type AuthProfileBlockedReason = "subscription_limit";
 /** Source that marked a profile as blocked. */
 export type AuthProfileBlockedSource = "codex_rate_limits" | "wham";
 
+/** Redacted provider failure detail retained for operator diagnostics. */
+export type AuthProfileFailureDiagnostic = {
+  httpCode?: string;
+  errorType?: string;
+  messagePreview?: string;
+  rawPreview?: string;
+  rawHash?: string;
+  requestIdHash?: string;
+};
+
 /** Per-profile usage statistics for round-robin and cooldown tracking */
 export type ProfileUsageStats = {
   lastUsed?: number;
@@ -115,6 +125,7 @@ export type ProfileUsageStats = {
   errorCount?: number;
   failureCounts?: Partial<Record<AuthProfileFailureReason, number>>;
   lastFailureAt?: number;
+  lastFailureDiagnostic?: AuthProfileFailureDiagnostic;
   lastProbeAt?: number;
 };
 

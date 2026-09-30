@@ -25,6 +25,7 @@ import {
   isAuthCooldownBypassedForProvider,
   resolveProfileUnusableUntil,
 } from "./auth-profiles/usage-state.js";
+import { formatDtgptProviderFailureMessage } from "./dtgpt-diagnostics.js";
 import { resolveEnvApiKey, type EnvApiKeyResult } from "./model-auth-env.js";
 import {
   CUSTOM_LOCAL_AUTH_MARKER,
@@ -581,9 +582,25 @@ export function assertInlineProviderApiKeyUsable(params: {
     return;
   }
   const waitMs = Math.max(0, unusableUntil - Date.now());
-  const waitMinutes = Math.max(1, Math.ceil(waitMs / 60_000));
+  const usageId = `inline-api-key:${normalizeProviderId(params.provider)}`;
+  const stats = params.store.usageStats?.[usageId];
+  const failureReason = stats?.cooldownReason ?? stats?.disabledReason;
+  const dtgptMessage = formatDtgptProviderFailureMessage({
+    provider: params.provider,
+    reason: failureReason,
+    diagnostic: stats?.lastFailureDiagnostic,
+    retryAfterMs: waitMs,
+  });
+  if (dtgptMessage) {
+    throw new Error(dtgptMessage);
+  }
+  const waitSeconds = Math.max(1, Math.ceil(waitMs / 1000));
+  const waitText =
+    waitSeconds < 60
+      ? `${waitSeconds} second${waitSeconds === 1 ? "" : "s"}`
+      : `${Math.ceil(waitSeconds / 60)} minute${Math.ceil(waitSeconds / 60) === 1 ? "" : "s"}`;
   throw new Error(
-    `Inline API key for provider "${params.provider}" is temporarily disabled after a provider auth/billing failure. Retry after about ${waitMinutes} minute${waitMinutes === 1 ? "" : "s"}, or switch to a different auth profile/API key.`,
+    `Inline API key for provider "${params.provider}" is temporarily disabled after a provider auth/billing failure. Retry after about ${waitText}, or switch to a different auth profile/API key.`,
   );
 }
 

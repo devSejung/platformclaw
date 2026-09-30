@@ -154,7 +154,7 @@ describe("markAuthProfileFailure", () => {
     expect(typeof reloaded.usageStats?.["openai:default"]?.cooldownUntil).toBe("number");
   });
 
-  it("disables billing failures for ~5 hours by default", async () => {
+  it("cools billing failures for ~30 seconds on the first failure", async () => {
     await withAuthProfileStore(async ({ agentDir, store }) => {
       const startedAt = Date.now();
       await markAuthProfileFailure({
@@ -164,10 +164,13 @@ describe("markAuthProfileFailure", () => {
         agentDir,
       });
 
-      const disabledUntil = store.usageStats?.["anthropic:default"]?.disabledUntil;
-      expect(typeof disabledUntil).toBe("number");
-      const remainingMs = (disabledUntil as number) - startedAt;
-      expectCooldownInRange(remainingMs, 4.5 * 60 * 60 * 1000, 5.5 * 60 * 60 * 1000);
+      const stats = store.usageStats?.["anthropic:default"];
+      expect(stats?.disabledUntil).toBeUndefined();
+      expect(stats?.disabledReason).toBeUndefined();
+      expect(stats?.cooldownReason).toBe("billing");
+      expect(typeof stats?.cooldownUntil).toBe("number");
+      const remainingMs = (stats?.cooldownUntil as number) - startedAt;
+      expectCooldownInRange(remainingMs, 25_000, 35_000);
     });
   });
   it("records billing backoff for inline provider api keys without creating an auth profile", async () => {
@@ -178,15 +181,33 @@ describe("markAuthProfileFailure", () => {
         provider: "anthropic",
         reason: "billing",
         agentDir,
+        diagnostic: {
+          httpCode: "402",
+          errorType: "insufficient_balance",
+          messagePreview: "DT API balance unavailable",
+          rawHash: "sha256:test",
+        },
       });
 
       const usageId = resolveInlineProviderApiKeyUsageId("anthropic");
       const stats = store.usageStats?.[usageId];
       expect(store.profiles[usageId]).toBeUndefined();
-      expect(stats?.disabledReason).toBe("billing");
-      expect(typeof stats?.disabledUntil).toBe("number");
-      const remainingMs = (stats?.disabledUntil as number) - startedAt;
-      expectCooldownInRange(remainingMs, 4.5 * 60 * 60 * 1000, 5.5 * 60 * 60 * 1000);
+      expect(stats?.disabledReason).toBeUndefined();
+      expect(stats?.cooldownReason).toBe("billing");
+      expect(stats?.lastFailureDiagnostic).toEqual({
+        httpCode: "402",
+        errorType: "insufficient_balance",
+        messagePreview: "DT API balance unavailable",
+        rawHash: "sha256:test",
+      });
+      expect(typeof stats?.cooldownUntil).toBe("number");
+      const remainingMs = (stats?.cooldownUntil as number) - startedAt;
+      expectCooldownInRange(remainingMs, 25_000, 35_000);
+
+      const reloaded = ensureAuthProfileStore(agentDir);
+      expect(reloaded.usageStats?.[usageId]?.lastFailureDiagnostic).toEqual(
+        stats?.lastFailureDiagnostic,
+      );
     });
   });
 

@@ -77,6 +77,7 @@ export async function handleEmbeddedPromptFailure(input: {
     profileId?: string;
     reason?: AuthProfileFailureReason | null;
     modelId?: string;
+    rawError?: string;
   }) => Promise<void>;
   maybeBackoffBeforeOverloadFailover: (reason: FailoverReason | null) => Promise<void>;
   attemptedThinking: Set<ThinkLevel>;
@@ -183,6 +184,7 @@ export async function handleEmbeddedPromptFailure(input: {
           profileId: failedProfileId,
           reason: promptProfileFailureReason,
           modelId: input.modelId,
+          rawError: errorText,
         })
         .catch((error: unknown) => {
           log.warn(`prompt profile failure mark failed: ${String(error)}`);
@@ -229,6 +231,7 @@ export async function handleEmbeddedPromptFailure(input: {
         profileId: failedProfileId,
         reason: promptProfileFailureReason,
         modelId: input.modelId,
+        rawError: errorText,
       });
     } catch (error) {
       log.warn(`prompt profile failure mark failed: ${String(error)}`);
