@@ -18,6 +18,7 @@ minimumReleaseAgeExclude:
   - "@agentclientprotocol/sdk"
   - "@agentclientprotocol/codex-acp@1.1.7"
   - "axios"
+  - "@grpc/grpc-js@1.14.5"
   - "basic-ftp"
   - "baileys@7.0.0-rc13"
   - "brace-expansion@5.0.11"
@@ -129,7 +130,8 @@ overrides:
   "@aws-sdk/xml-builder": 3.972.37
   hono: 4.12.32
   "@hono/node-server": 2.0.12
-  axios: 1.18.1
+  axios: 1.20.0
+  "@grpc/grpc-js": 1.14.5
   fast-uri: 4.1.4
   "undici@7": 7.29.1
   "undici@8": 8.10.2

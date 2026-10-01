@@ -177,7 +177,9 @@ describeE2e("PlatformClaw login", () => {
         expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
         expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(variant.width);
         expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(variant.height);
-        expect(await page.locator("video").evaluate((video) => video.paused)).toBe(true);
+        expect(
+          await page.locator("video").evaluate((video) => (video as HTMLVideoElement).paused),
+        ).toBe(true);
         await expect.poll(() => page.locator("[data-login-guide-error]").isVisible()).toBe(true);
         expect(mediaRequests).toBeGreaterThan(0);
         const external = page.getByRole("link", { name: "새 탭에서 열기" });
