@@ -1,7 +1,6 @@
 import {
   createServer,
   request as httpRequest,
-  setGlobalProxyFromEnv,
   type IncomingHttpHeaders,
   type RequestListener,
 } from "node:http";
@@ -82,7 +81,6 @@ afterEach(async () => {
       process.env[key] = value;
     }
   }
-  setGlobalProxyFromEnv();
 });
 
 describe("guide video proxy", () => {
@@ -107,7 +105,6 @@ describe("guide video proxy", () => {
     process.env.HTTPS_PROXY = fakeProxy.origin;
     process.env.ALL_PROXY = fakeProxy.origin;
     process.env.NO_PROXY = "";
-    setGlobalProxyFromEnv();
 
     const ingress = await listen((req, res) => {
       if (new URL(req.url ?? "/", "http://localhost").pathname !== PLATFORMCLAW_GUIDE_VIDEO_PATH) {
