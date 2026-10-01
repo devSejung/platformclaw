@@ -77,7 +77,7 @@ const messages = [
     text: "The shared notes describe revision C. Compare the cold-start conditions before assuming the same cause.",
     timestamp: issue.updatedAt + 1000,
   },
-];
+] as const;
 let browser: Browser;
 let server: ControlUiE2eServer;
 
@@ -155,6 +155,9 @@ suite("Team Space rendered browser workflows", () => {
     const { context, page, gateway, snapshot, name } = await setup("owner-desktop");
     try {
       await page.goto(`${server.baseUrl}platformclaw/app/spaces`);
+      const spaceLink = page.locator('a[href="/platformclaw/app/spaces"]');
+      await expect.poll(() => spaceLink.textContent()).toContain("Spaces");
+      await spaceLink.click();
       const ui = page.locator("platformclaw-spaces-page");
       await expect
         .poll(() => ui.getByRole("button", { name: "Create Space", exact: true }).isVisible())
@@ -292,6 +295,27 @@ suite("Team Space rendered browser workflows", () => {
       const overflow = await ui.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
       expect(overflow).toBe(false);
       await capture(page, "narrow-restored-conversation");
+    } finally {
+      await finish(context, page, name);
+    }
+  });
+  it("renders the corrected shared issue in Korean", async () => {
+    const { context, page, name } = await setup("owner-korean-desktop", 1440, "owner", "ko-KR");
+    try {
+      await page.goto(
+        `${server.baseUrl}platformclaw/app/spaces?space=${space.id}&page=${issue.id}`,
+      );
+      const ui = page.locator("platformclaw-spaces-page");
+      await expect
+        .poll(() => ui.getByRole("button", { name: "구성원과 접근 권한", exact: true }).isVisible())
+        .toBe(true);
+      await expect.poll(() => ui.locator("#message-message-a").isVisible()).toBe(true);
+      await expect
+        .poll(() => page.locator('a[href="/platformclaw/app/spaces"]').textContent())
+        .toContain("Spaces");
+      await capture(page, "korean-issue-overview");
+      await ui.getByRole("region", { name: "이슈 대화", exact: true }).scrollIntoViewIfNeeded();
+      await capture(page, "korean-shared-conversation");
     } finally {
       await finish(context, page, name);
     }

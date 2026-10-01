@@ -9,6 +9,7 @@ import {
   navigationIconForRoute,
   serializeSidebarEntry,
   type NavigationRouteId,
+  type NavigationRouteCopy,
   SIDEBAR_NAV_ROUTES,
   type SidebarNavRoute,
   sidebarMoreRoutes,
@@ -66,6 +67,7 @@ export function sidebarPluginTabs(
 }
 
 type SidebarNavRouteParams = {
+  copy?: NavigationRouteCopy;
   routeId: NavigationRouteId;
   href: string;
   active: boolean;
@@ -95,7 +97,7 @@ export function renderSidebarNavRoute(params: SidebarNavRouteParams) {
       <span class="nav-item__icon" aria-hidden="true"
         >${icons[navigationIconForRoute(params.routeId)]}</span
       >
-      <span class="nav-item__text">${titleForRoute(params.routeId)}</span>
+      <span class="nav-item__text">${titleForRoute(params.routeId, params.copy)}</span>
     </a>
   `;
 }
@@ -136,6 +138,7 @@ type SidebarMenuNavigationHandlers = {
 };
 
 type SidebarMoreMenuParams = SidebarMenuNavigationHandlers & {
+  navigationCopy?: Readonly<Partial<Record<NavigationRouteId, NavigationRouteCopy>>>;
   position: SidebarMenuPosition | null;
   basePath: string;
   activeRouteId: NavigationRouteId | undefined;
@@ -172,7 +175,9 @@ function renderMoreMenuRoute(params: SidebarMoreMenuParams, routeId: SidebarNavR
         <span class="nav-item__icon" aria-hidden="true"
           >${icons[navigationIconForRoute(routeId)]}</span
         >
-        <span class="sidebar-customize-menu__text">${titleForRoute(routeId)}</span>
+        <span class="sidebar-customize-menu__text"
+          >${titleForRoute(routeId, params.navigationCopy?.[routeId])}</span
+        >
       </a>
     </wa-dropdown-item>
   `;
@@ -234,6 +239,7 @@ export function renderSidebarMoreMenu(params: SidebarMoreMenuParams) {
 }
 
 type SidebarCustomizeMenuParams = {
+  navigationCopy?: Readonly<Partial<Record<NavigationRouteId, NavigationRouteCopy>>>;
   position: SidebarMenuPosition | null;
   sidebarEntries: readonly string[];
   isRouteEnabled: (routeId: NavigationRouteId) => boolean;
@@ -300,7 +306,9 @@ export function renderSidebarCustomizeMenu(params: SidebarCustomizeMenuParams) {
               <span slot="icon" class="nav-item__icon" aria-hidden="true"
                 >${icons[navigationIconForRoute(routeId)]}</span
               >
-              <span class="sidebar-customize-menu__text">${titleForRoute(routeId)}</span>
+              <span class="sidebar-customize-menu__text"
+                >${titleForRoute(routeId, params.navigationCopy?.[routeId])}</span
+              >
             </wa-dropdown-item>
           `;
         })}

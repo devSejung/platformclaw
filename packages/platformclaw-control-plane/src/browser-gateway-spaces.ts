@@ -5,7 +5,7 @@ import {
 import { SPACE_RPC_PARAMS, type SpaceRole } from "./space-contracts.js";
 import type { SpaceService } from "./space-service.js";
 import { spaceText } from "./sqlite-spaces.js";
-export async function requestBrowserSpace(params: {
+async function requestBrowserSpace(params: {
   service?: SpaceService;
   access: BrowserGatewayAccess;
   method: string;

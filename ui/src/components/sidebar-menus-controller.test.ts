@@ -14,6 +14,24 @@ import {
 } from "./sidebar-menus-controller.ts";
 
 describe("SidebarMenusController session routes", () => {
+  it("uses the product route title instead of the stock fallback", () => {
+    const host = {
+      addController: vi.fn(),
+      requestUpdate: vi.fn(),
+      activeRouteId: "spaces",
+      activeWorkboardBoardId: "",
+      basePath: "/platformclaw/app",
+      enabledRouteIds: ["spaces"],
+      sidebarRouteTargets: {},
+      navigationCopy: { spaces: { title: () => "Spaces", subtitle: "Shared issues" } },
+      onNavigate: vi.fn(),
+    } as unknown as SidebarMenusControllerHost;
+    const container = document.createElement("div");
+    render(new SidebarMenusController(host).renderRoute("spaces"), container);
+    expect(container.querySelector("a")?.textContent?.trim()).toBe("Spaces");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("/platformclaw/app/spaces");
+  });
+
   it("keeps the current catalog session when switching either face", () => {
     const sessionKey = buildCatalogSessionKey({
       catalogId: "claude",

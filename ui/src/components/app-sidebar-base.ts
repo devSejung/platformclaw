@@ -4,6 +4,7 @@ import type { UpdateAvailable } from "../api/types.ts";
 import {
   DEFAULT_SIDEBAR_ENTRIES,
   type NavigationRouteId,
+  type NavigationRouteCopy,
   type SidebarRouteTargets,
 } from "../app-navigation.ts";
 import type { RouteId } from "../app-route-paths.ts";
@@ -32,6 +33,9 @@ export abstract class AppSidebarBase extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) activeWorkboardBoardId = "";
   @property({ attribute: false }) enabledRouteIds?: readonly NavigationRouteId[];
   @property({ attribute: false }) sidebarRouteTargets: SidebarRouteTargets = {};
+  @property({ attribute: false }) navigationCopy: Readonly<
+    Partial<Record<NavigationRouteId, NavigationRouteCopy>>
+  > = {};
   @property({ attribute: false }) connected = false;
   @property({ attribute: false }) offline = false;
   @property({ attribute: false }) outboxCountForSession: (sessionKey: string) => number = () => 0;

@@ -37,6 +37,8 @@
   padding: 16px 0;
 }
 .pc-space-message time {
+  display: inline-block;
+  margin-inline-start: 8px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -44,4 +46,8 @@
   .pc-spaces-layout {
     grid-template-columns: 1fr;
   }
+}
+
+.pc-spaces select {
+  margin-inline-start: 8px;
 }

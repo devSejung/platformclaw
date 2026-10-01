@@ -38,4 +38,3 @@ export const SPACE_RPC_PARAMS = {
 export const SPACE_RPC_METHODS = Object.keys(SPACE_RPC_PARAMS) as Array<
   keyof typeof SPACE_RPC_PARAMS
 >;
-export const SPACE_AGENT_PATTERN = /^space-[a-f0-9-]{36}$/u;

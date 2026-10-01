@@ -211,6 +211,7 @@ export function renderApplicationShell(host: ShellViewHost) {
       activePluginTabId,
       enabledRouteIds: host.enabledRouteIds(),
       sidebarRouteTargets: runtime.sidebarRouteTargets,
+      navigationCopy: runtime.navigationCopy,
       activeWorkboardBoardId:
         workboardBoardIdFromPath(host.routeState.location?.pathname ?? "", context.basePath) ?? "",
       sessionKey: host.activeSessionKey,

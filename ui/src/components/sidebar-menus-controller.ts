@@ -4,6 +4,7 @@ import {
   cancelRoutePreload,
   scheduleRoutePreload,
   type NavigationRouteId,
+  type NavigationRouteCopy,
   type SidebarZoneEntry,
 } from "../app-navigation.ts";
 import { isSessionRouteId, pathForRoute, type RouteId } from "../app-route-paths.ts";
@@ -74,6 +75,7 @@ export interface SidebarMenusControllerHost
   readonly connected: boolean;
   readonly offline: boolean;
   readonly enabledRouteIds?: readonly NavigationRouteId[];
+  readonly navigationCopy?: Readonly<Partial<Record<NavigationRouteId, NavigationRouteCopy>>>;
   readonly sidebarRouteTargets: Readonly<Partial<Record<NavigationRouteId, NavigationRouteId>>>;
   readonly gatewayVersion: string | null;
   readonly onNavigate?: (
@@ -573,6 +575,7 @@ export class SidebarMenusController implements ReactiveController, SidebarMenusC
         : null;
     return renderSidebarNavRoute({
       routeId,
+      copy: this.host.navigationCopy?.[routeId],
       href: sessionTarget?.href ?? pathForRoute(targetRouteId, this.host.basePath),
       active:
         isSidebarRouteActive(this.host.activeRouteId, targetRouteId) &&

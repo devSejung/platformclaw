@@ -14,7 +14,7 @@ export type SpaceMessage = {
   authorId: string | null;
   authorName: string | null;
 };
-export function projectSpaceMessages(value: unknown): SpaceMessage[] {
+function projectSpaceMessages(value: unknown): SpaceMessage[] {
   if (!isRecord(value) || !Array.isArray(value.messages)) {
     throw new ControlPlaneStateError("Conversation history unavailable");
   }
