@@ -16,47 +16,110 @@
     <main class="login-page" data-platformclaw-login>
       <section class="login-hero" data-login-hero aria-hidden="true"></section>
 
-      <section class="login-card" aria-labelledby="login-title">
-        <div class="login-mascot" data-login-mascot aria-hidden="true"></div>
-        <div class="login-card__heading">
-          <h2 id="login-title">PlatformClaw</h2>
-          <p>업무 계정으로 워크스페이스에 로그인하세요.</p>
+      <div class="login-access">
+        <section class="login-card" aria-labelledby="login-title">
+          <div class="login-mascot" data-login-mascot aria-hidden="true"></div>
+          <div class="login-card__heading">
+            <h2 id="login-title">PlatformClaw</h2>
+            <p>업무 계정으로 워크스페이스에 로그인하세요.</p>
+          </div>
+          <form data-login-form novalidate>
+            <label>
+              <span>계정</span>
+              <input
+                name="identifier"
+                type="text"
+                autocomplete="username"
+                autocapitalize="none"
+                spellcheck="false"
+                placeholder="AD ID"
+                required
+                disabled
+              />
+            </label>
+            <label>
+              <span>비밀번호</span>
+              <input
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                placeholder="비밀번호"
+                required
+                disabled
+              />
+            </label>
+            <p class="login-error" data-login-error role="alert" hidden></p>
+            <button type="submit" disabled>세션 확인 중</button>
+          </form>
+          <div class="login-divider" aria-hidden="true"><span>또는</span></div>
+          <a class="login-sso-button" data-login-adsso href="/employee/auth/adsso">
+            ADSSO 로그인
+          </a>
+          <p class="login-status" data-login-status aria-live="polite">
+            기존 로그인 상태를 확인하고 있습니다.
+          </p>
+          <p class="login-privacy">인증 정보는 브라우저에 저장되지 않습니다.</p>
+        </section>
+        <div class="login-guide" data-login-guide hidden>
+          <span>처음 사용하시나요?</span>
+          <button
+            type="button"
+            class="login-guide__button"
+            data-login-guide-open
+            aria-haspopup="dialog"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5" />
+              <path d="m10 8 6 4-6 4Z" fill="currentColor" />
+            </svg>
+            가이드 영상 보기
+          </button>
         </div>
-        <form data-login-form novalidate>
-          <label>
-            <span>계정</span>
-            <input
-              name="identifier"
-              type="text"
-              autocomplete="username"
-              autocapitalize="none"
-              spellcheck="false"
-              placeholder="AD ID"
-              required
-              disabled
-            />
-          </label>
-          <label>
-            <span>비밀번호</span>
-            <input
-              name="password"
-              type="password"
-              autocomplete="current-password"
-              placeholder="비밀번호"
-              required
-              disabled
-            />
-          </label>
-          <p class="login-error" data-login-error role="alert" hidden></p>
-          <button type="submit" disabled>세션 확인 중</button>
-        </form>
-        <div class="login-divider" aria-hidden="true"><span>또는</span></div>
-        <a class="login-sso-button" data-login-adsso href="/employee/auth/adsso"> ADSSO 로그인 </a>
-        <p class="login-status" data-login-status aria-live="polite">
-          기존 로그인 상태를 확인하고 있습니다.
+      </div>
+      <dialog
+        class="login-guide-dialog"
+        data-login-guide-dialog
+        aria-labelledby="login-guide-title"
+        aria-describedby="login-guide-description"
+      >
+        <header class="login-guide-dialog__header">
+          <div>
+            <h2 id="login-guide-title">PlatformClaw 사용 가이드</h2>
+            <p id="login-guide-description">시작하기부터 주요 기능까지, 영상으로 둘러보세요.</p>
+          </div>
+          <button
+            type="button"
+            class="login-guide-dialog__close"
+            data-login-guide-close
+            aria-label="영상 닫기"
+            autofocus
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="m6 6 12 12M18 6 6 18"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </header>
+        <video
+          class="login-guide-dialog__video"
+          data-login-guide-video
+          controls
+          playsinline
+          preload="none"
+          aria-label="PlatformClaw 가이드 영상"
+        ></video>
+        <p class="login-guide-dialog__error" data-login-guide-error role="status" hidden>
+          영상을 불러오지 못했습니다. 네트워크 연결을 확인하거나 새 탭에서 열어 주세요.
         </p>
-        <p class="login-privacy">인증 정보는 브라우저에 저장되지 않습니다.</p>
-      </section>
+        <footer class="login-guide-dialog__footer">
+          <span>전체 화면으로 더 크게 볼 수 있어요.</span>
+          <a data-login-guide-link target="_blank" rel="noopener noreferrer">새 탭에서 열기 ↗</a>
+        </footer>
+      </dialog>
     </main>
     <script type="module" src="/src/platformclaw/login.ts"></script>
   </body>

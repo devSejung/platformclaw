@@ -89,6 +89,7 @@ services:
     environment:
       HOME: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/control/home
       PLATFORMCLAW_PUBLIC_ORIGIN: ${PLATFORMCLAW_PUBLIC_ORIGIN:?set PLATFORMCLAW_PUBLIC_ORIGIN}
+      PLATFORMCLAW_GUIDE_VIDEO_URL: ${PLATFORMCLAW_GUIDE_VIDEO_URL:-}
       PLATFORMCLAW_LISTEN_HOST: 0.0.0.0
       PLATFORMCLAW_LISTEN_PORT: "19002"
       PLATFORMCLAW_DATABASE_PATH: ${PLATFORMCLAW_DEPLOY_ROOT:?run platformclaw-compose with a service user}/data/control/platformclaw-control.sqlite

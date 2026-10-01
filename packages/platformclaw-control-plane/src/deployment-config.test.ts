@@ -57,6 +57,13 @@ function fixtureEnv(): NodeJS.ProcessEnv {
   };
 }
 
+function credentialedGuideUrl(): string {
+  const url = new URL("https://video.example.test/guide.mp4");
+  url.username = "fixture-user";
+  url.password = "fixture-password";
+  return url.toString();
+}
+
 describe("loadPlatformClawDeploymentConfig", () => {
   it("loads paths, bounded secrets, and derived private Gateway endpoints", () => {
     const env = fixtureEnv();
@@ -74,10 +81,13 @@ describe("loadPlatformClawDeploymentConfig", () => {
       }),
     );
     env[PLATFORMCLAW_DEPLOYMENT_ENV.jiraVocConfigFile] = vocConfigFile;
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl] =
+      "http://cdn.example.test/guides/platformclaw.mp4?lang=ko";
     const config = loadPlatformClawDeploymentConfig(env);
 
     expect(config).toMatchObject({
       publicOrigin: "http://127.0.0.1:19001",
+      guideVideoUrl: "http://cdn.example.test/guides/platformclaw.mp4?lang=ko",
       jiraVoc: {
         baseUrl: "https://jira.company.example",
         projectKey: "VOC",
@@ -185,6 +195,45 @@ describe("loadPlatformClawDeploymentConfig", () => {
     writeFileSync(secretPath, "too-short");
     expect(() => loadPlatformClawDeploymentConfig(shortSecret)).toThrow(
       "must contain at least 32 bytes",
+    );
+  });
+
+  it("keeps the guide video disabled when its deployment value is blank", () => {
+    const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl] = "   ";
+
+    expect(loadPlatformClawDeploymentConfig(env)).not.toHaveProperty("guideVideoUrl");
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "ftp://video.example.test/guide.mp4",
+    credentialedGuideUrl(),
+    "not a url",
+  ])("rejects unsafe guide video URL %s without echoing it", (value) => {
+    const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl] = value;
+
+    let error: unknown;
+    try {
+      loadPlatformClawDeploymentConfig(env);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl} must be an HTTP(S) URL without embedded credentials`,
+    );
+    expect((error as Error).message).not.toContain(value);
+  });
+
+  it("allows an internal HTTP guide upstream behind an HTTPS login origin", () => {
+    const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin] = "https://platformclaw.example.test";
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl] = "http://video.example.test/guide.mp4";
+
+    expect(loadPlatformClawDeploymentConfig(env).guideVideoUrl).toBe(
+      "http://video.example.test/guide.mp4",
     );
   });
 

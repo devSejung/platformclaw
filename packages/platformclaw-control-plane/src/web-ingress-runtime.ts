@@ -76,6 +76,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   adminRpc: GatewayAdminRpc;
   publicOrigin: string;
   controlUiRoot: string;
+  guideVideoUrl?: string;
   employeeSso?: EmployeeSsoConfig;
   jiraVoc?: JiraVocConfig;
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
@@ -330,6 +331,7 @@ export function createPlatformClawWebIngressRuntime(
     webAssets: createPlatformClawWebAssetHandler(options.controlUiRoot, {
       publicOrigin: options.publicOrigin,
       vocEnabled: Boolean(vocService),
+      ...(options.guideVideoUrl ? { guideVideoUrl: options.guideVideoUrl } : {}),
     }),
     ...options.ingress,
   });

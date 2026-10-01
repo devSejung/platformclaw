@@ -6,8 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parsePlatformClawWebDescriptor } from "../../../ui/src/platformclaw/web-contract.js";
+import { PLATFORMCLAW_GUIDE_VIDEO_PATH } from "./guide-video-proxy.js";
 import {
   createPlatformClawWebAssetHandler,
+  PLATFORMCLAW_GUIDE_VIDEO_META_NAME,
   PLATFORMCLAW_WEB_APP_PATH,
   PLATFORMCLAW_WEB_ASSET_PREFIX,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -22,7 +24,10 @@ function fixtureRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "platformclaw-web-assets-"));
   tempDirectories.push(root);
   mkdirSync(join(root, "assets"));
-  writeFileSync(join(root, "platformclaw-login.html"), "<!doctype html><title>Login</title>");
+  writeFileSync(
+    join(root, "platformclaw-login.html"),
+    "<!doctype html><html><head><title>Login</title></head><body>Login</body></html>",
+  );
   writeFileSync(
     join(root, "index.html"),
     '<!doctype html><html><head><!-- OpenClaw upstream compatibility --><title>OpenClaw Control</title><link rel="icon" type="image/svg+xml" href="./favicon.svg"><link rel="icon" type="image/png" href="./favicon-32.png"><link rel="apple-touch-icon" href="./apple-touch-icon.png"><link rel="manifest" href="./manifest.webmanifest"><script>globalThis.ready=true;globalThis.message="OpenClaw will retry"</script></head><body><p>OpenClaw Control UI</p><script type="module" src="./assets/app-ABC123.js"></script></body></html>',
@@ -52,11 +57,17 @@ function fixtureRoot(): string {
   return root;
 }
 
-async function serveFixture(root: string): Promise<{
+async function serveFixture(
+  root: string,
+  guideVideoUrl?: string,
+): Promise<{
   origin: string;
   close(): Promise<void>;
 }> {
-  const handler = createPlatformClawWebAssetHandler(root, { publicOrigin: PUBLIC_ORIGIN });
+  const handler = createPlatformClawWebAssetHandler(root, {
+    publicOrigin: PUBLIC_ORIGIN,
+    ...(guideVideoUrl ? { guideVideoUrl } : {}),
+  });
   const server = createServer((req, res) => {
     void handler.handlePublic(req, res).then((handled) => {
       if (!handled) {
@@ -93,6 +104,7 @@ afterEach(() => {
 async function serveApplicationFixture(
   root: string,
   vocEnabled = false,
+  guideVideoUrl?: string,
 ): Promise<{
   origin: string;
   close(): Promise<void>;
@@ -100,6 +112,7 @@ async function serveApplicationFixture(
   const handler = createPlatformClawWebAssetHandler(root, {
     publicOrigin: PUBLIC_ORIGIN,
     vocEnabled,
+    ...(guideVideoUrl ? { guideVideoUrl } : {}),
   });
   const server = createServer((req, res) => {
     void handler.handleApplication(req, res).then((handled) => {
@@ -133,15 +146,89 @@ describe("createPlatformClawWebAssetHandler", () => {
     const fixture = await serveFixture(fixtureRoot());
     try {
       const response = await fetch(`${fixture.origin}${PLATFORMCLAW_WEB_LOGIN_PATH}`);
+      const body = await response.text();
       expect(response.status).toBe(200);
-      expect(await response.text()).toContain("<title>Login</title>");
+      expect(body).toContain("<title>Login</title>");
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
       expect(response.headers.get("content-security-policy")).toContain("base-uri 'self'");
+      expect(response.headers.get("content-security-policy")).toContain("media-src 'self'");
+      expect(body).not.toContain(PLATFORMCLAW_GUIDE_VIDEO_META_NAME);
       expect(response.headers.get("x-content-type-options")).toBe("nosniff");
       expect(response.headers.get("x-frame-options")).toBe("DENY");
     } finally {
       await fixture.close();
+    }
+  });
+
+  it("keeps the upstream URL server-side and exposes only a same-origin login media path", async () => {
+    const upstream = createServer((req, res) => {
+      expect(req.headers.range).toBe("bytes=10-19");
+      res.statusCode = 206;
+      // A compromised/misconfigured object must not become active content at
+      // the PlatformClaw origin through the public pre-login relay.
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Content-Range", "bytes 10-19/20");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.end("0123456789");
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, "127.0.0.1", () => resolve());
+    });
+    const upstreamPort = (upstream.address() as AddressInfo).port;
+    const guideVideoUrl = `http://127.0.0.1:${upstreamPort}/guides/platformclaw.mp4?token=server-only`;
+    const root = fixtureRoot();
+    const loginFixture = await serveFixture(root, guideVideoUrl);
+    try {
+      const response = await fetch(`${loginFixture.origin}${PLATFORMCLAW_WEB_LOGIN_PATH}`);
+      const body = await response.text();
+      const csp = response.headers.get("content-security-policy") ?? "";
+
+      expect(body).toContain(
+        `<meta name="${PLATFORMCLAW_GUIDE_VIDEO_META_NAME}" content="${PUBLIC_ORIGIN}${PLATFORMCLAW_GUIDE_VIDEO_PATH}" />`,
+      );
+      expect(body).not.toContain("server-only");
+      expect(body).not.toContain(String(upstreamPort));
+      expect(csp).toContain("media-src 'self'");
+      expect(csp).not.toContain("127.0.0.1");
+
+      const video = await fetch(`${loginFixture.origin}${PLATFORMCLAW_GUIDE_VIDEO_PATH}`, {
+        headers: { Range: "bytes=10-19" },
+      });
+      expect(video.status).toBe(206);
+      expect(video.headers.get("content-type")).toBe("video/mp4");
+      expect(video.headers.get("content-range")).toBe("bytes 10-19/20");
+      expect(video.headers.get("cache-control")).toBe("no-store");
+      expect(await video.text()).toBe("0123456789");
+
+      const head = await fetch(`${loginFixture.origin}${PLATFORMCLAW_WEB_LOGIN_PATH}`, {
+        method: "HEAD",
+      });
+      expect(head.status).toBe(200);
+      expect(head.headers.get("cache-control")).toBe("no-store");
+      expect(head.headers.get("content-security-policy")).toContain("media-src 'self'");
+      expect(await head.text()).toBe("");
+    } finally {
+      await loginFixture.close();
+      await new Promise<void>((resolve, reject) => {
+        upstream.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    }
+
+    const appFixture = await serveApplicationFixture(root, false, guideVideoUrl);
+    try {
+      const response = await fetch(`${appFixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/chat`);
+      expect(await response.text()).not.toContain(PLATFORMCLAW_GUIDE_VIDEO_META_NAME);
+      expect(response.headers.get("content-security-policy")).not.toContain("media-src");
+    } finally {
+      await appFixture.close();
     }
   });
 

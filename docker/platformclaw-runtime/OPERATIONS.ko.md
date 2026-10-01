@@ -103,6 +103,7 @@ PLATFORMCLAW_IMAGE=platformclaw:<sha12>
 PLATFORMCLAW_SANDBOX_IMAGE=platformclaw-sandbox:<sha12>
 PLATFORMCLAW_PUBLIC_ORIGIN=https://<platformclaw-host>
 PLATFORMCLAW_PUBLIC_PORT=19002
+PLATFORMCLAW_GUIDE_VIDEO_URL=
 PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL=https://<employee-auth-host>/login
 PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL=https://<employee-auth-host>/adsso
 PLATFORMCLAW_TZ=Asia/Seoul
@@ -123,6 +124,35 @@ CA가 필요하면 승인된 PEM bundle로 이 파일을 교체한다. Gateway�
 
 ```bash
 ./platformclaw-deploy ca apply
+```
+
+#### 선택: 로그인 가이드 영상
+
+로그인 화면에 가이드 영상 버튼을 노출하려면 `deployment.env`에 Control 컨테이너가 접근할
+수 있는 HTTP(S) MP4/S3 주소를 넣는다.
+
+```dotenv
+PLATFORMCLAW_GUIDE_VIDEO_URL=https://media.example.com/platformclaw-guide.mp4
+```
+
+빈 값이면 기능이 비활성화된다. 브라우저에는 S3 원본 주소를 노출하지 않고 같은 origin의
+`/platformclaw/guide/video`만 제공한다. Control이 GET/HEAD/Range를 원본으로 스트리밍하며,
+이 원본 연결은 Node direct socket을 사용해 `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`,
+`NO_PROXY` 설정을 의도적으로 사용하지 않는다. 즉 사내 S3 주소 접근은 항상 no-proxy다.
+브라우저가 아니라 Control 컨테이너에서 원본 S3 주소로 접근 가능해야 한다. 외부 로그인은
+HTTPS여도 내부 S3 원본은 HTTP를 사용할 수 있다. 원본 redirect는 같은 origin만 따라간다.
+다른 host로 redirect되는 S3라면 최종 S3/media endpoint 주소를 직접 설정한다.
+
+S3 Access Key/Secret Key를 URL이나 로그인 HTML에 넣으면 안 된다. 인증이 필요한 private
+S3에 대한 Access Key 인증은 현재 URL-only 모드에는 아직 구현되어 있지 않다. credential은
+서버 쪽 secret으로 보관하고 서버에서 서명/인증하는 방식으로 확장해야 한다. 가이드 endpoint는
+로그인 전 공개 경로이므로 PlatformClaw 로그인 화면에 접근 가능한 사용자는 backing S3 object가
+private이어도 가이드 영상 바이트 자체는 읽을 수 있다.
+
+환경값 변경 뒤에는 기존 Control 컨테이너를 restart만 하지 말고 재생성한다.
+
+```bash
+./platformclaw-compose --service-user platformclaw up -d --wait --no-deps --force-recreate platformclaw-control
 ```
 
 #### 선택: Jira VoC 접수
