@@ -155,9 +155,9 @@ suite("Team Space rendered browser workflows", () => {
     const { context, page, gateway, snapshot, name } = await setup("owner-desktop");
     try {
       await page.goto(`${server.baseUrl}platformclaw/app/spaces`);
-      const spaceLink = page.locator('a[href="/platformclaw/app/spaces"]');
-      await expect.poll(() => spaceLink.textContent()).toContain("Spaces");
-      await spaceLink.click();
+      const spacesLink = page.getByRole("link", { name: "Spaces", exact: true });
+      await expect.poll(() => spacesLink.isVisible()).toBe(true);
+      await spacesLink.click();
       const ui = page.locator("platformclaw-spaces-page");
       await expect
         .poll(() => ui.getByRole("button", { name: "Create Space", exact: true }).isVisible())
@@ -207,6 +207,7 @@ suite("Team Space rendered browser workflows", () => {
       expect((await gateway.getRequests(`${rpc}page.create`)).at(-1)?.params).not.toHaveProperty(
         "parentId",
       );
+      await ui.getByRole("button", { name: "Notes", exact: true }).click();
       await ui.getByRole("button", { name: "New child issue", exact: true }).click();
       await ui.getByLabel("Title", { exact: true }).fill(child.title);
       await ui.getByLabel("Issue description / notes", { exact: true }).fill(child.body);
@@ -241,7 +242,11 @@ suite("Team Space rendered browser workflows", () => {
       await ui.getByLabel("Search shared issues", { exact: true }).fill("board revision");
       await ui.getByRole("button", { name: "Search shared issues", exact: true }).click();
       await expect.poll(async () => (await gateway.getRequests(`${rpc}search`)).length).toBe(1);
-      await ui.getByRole("button", { name: issue.title, exact: true }).last().click();
+      await ui
+        .getByRole("region", { name: "Search results", exact: true })
+        .getByRole("button")
+        .first()
+        .click();
       await expect.poll(() => new URL(page.url()).searchParams.get("message")).toBe("message-a");
     } finally {
       await finish(context, page, name);
@@ -257,8 +262,10 @@ suite("Team Space rendered browser workflows", () => {
       const ui = page.locator("platformclaw-spaces-page");
       await expect.poll(() => ui.locator("#message-message-a").isVisible()).toBe(true);
       expect(await ui.getByRole("button", { name: "Send to Space", exact: true }).count()).toBe(0);
+      await ui.getByRole("button", { name: "Notes", exact: true }).click();
       expect(await ui.getByRole("button", { name: "Edit page", exact: true }).count()).toBe(0);
       await capture(page, "viewer-read-only");
+      await ui.getByRole("button", { name: "Close panel", exact: true }).click();
       await gateway.setMethodResponse(`${rpc}list`, []);
       await gateway.emitGatewayEvent("platformclaw.spaces.invalidated", {});
       await expect.poll(() => ui.textContent()).not.toContain(messages[0].text);
@@ -277,14 +284,20 @@ suite("Team Space rendered browser workflows", () => {
       );
       const ui = page.locator("platformclaw-spaces-page");
       await expect.poll(() => ui.locator("#message-message-a").isVisible()).toBe(true);
+      await ui.getByRole("button", { name: "Notes", exact: true }).click();
       await ui.getByRole("button", { name: "Edit page", exact: true }).click();
       await ui.getByLabel("Title", { exact: true }).fill("Uncommitted edit");
       await ui.getByRole("button", { name: "Cancel", exact: true }).click();
       expect(await gateway.getRequests(`${rpc}page.save`)).toHaveLength(0);
+      await ui.getByRole("button", { name: "Close panel", exact: true }).click();
+      await ui
+        .getByRole("button", { name: "Browse Spaces and conversations", exact: true })
+        .click();
       await gateway.setMethodResponse(`${rpc}list`, {
         __mockError: { code: "UNAVAILABLE", message: "Synthetic retryable service error" },
       });
       await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+      await ui.getByRole("button", { name: "Back to conversation", exact: true }).click();
       await expect
         .poll(() => ui.getByRole("alert").textContent())
         .toContain("Synthetic retryable service error");

@@ -52,6 +52,12 @@ describe("ChatSendParamsSchema", () => {
     expect(Value.Check(ChatSendParamsSchema, { ...send, unknown: true })).toBe(false);
   });
 
+  it("accepts opt-in queue overflow rejection without accepting capacity overrides", () => {
+    expect(Value.Check(ChatSendParamsSchema, { ...send, rejectQueueOverflow: true })).toBe(true);
+    expect(Value.Check(ChatSendParamsSchema, { ...send, rejectQueueOverflow: "true" })).toBe(false);
+    expect(Value.Check(ChatSendParamsSchema, { ...send, queueCap: 200 })).toBe(false);
+  });
+
   it("bounds privileged sender attribution", () => {
     expect(
       Value.Check(ChatSendParamsSchema, {

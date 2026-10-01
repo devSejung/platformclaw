@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAgentRunRestartAbortError } from "../../agents/run-termination.js";
+import { resolveAgentRunAdmissionId } from "../../infra/agent-run-registry.js";
 import {
   createMinimalRunAgentTurnParams,
   createMockReplyOperation,
@@ -10,6 +11,26 @@ const state = setupAgentRunnerExecutionTestState();
 const { executeAgentTurn } = await import("./agent-runner-execution.js");
 
 describe("executeAgentTurn contract", () => {
+  it("registers the queued admission before entering the model runtime", async () => {
+    const params = createMinimalRunAgentTurnParams();
+    params.sessionKey = "agent:team:issue";
+    params.followupRun.run.agentId = "team";
+    params.followupRun.run.admissionRunId = "admitted-request";
+    params.opts = { ...params.opts, runId: "queued-execution" };
+    state.runEmbeddedAgentMock.mockImplementation(async () => {
+      expect(
+        resolveAgentRunAdmissionId({
+          runId: "queued-execution",
+          agentId: "team",
+          sessionKey: params.sessionKey,
+        }),
+      ).toBe("admitted-request");
+      return { payloads: [{ text: "done" }], meta: { durationMs: 1 } };
+    });
+    await executeAgentTurn(params);
+    expect(state.runEmbeddedAgentMock).toHaveBeenCalled();
+  });
+
   it("returns one closed settled result with winner and fallback facts", async () => {
     state.runEmbeddedAgentMock.mockResolvedValue({
       payloads: [{ text: "done" }],

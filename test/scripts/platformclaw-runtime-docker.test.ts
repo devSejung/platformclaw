@@ -860,6 +860,8 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
           "wiki_lint",
           "wiki_search",
           "wiki_status",
+          "space_search",
+          "space_get",
         ],
         deny: ["group:nodes"],
         sandbox: { tools: { alsoAllow: REQUIRED_MANAGED_SANDBOX_TOOL_IDS } },
@@ -893,6 +895,10 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
         },
       },
     });
+    const seededPolicy = resolveSandboxToolPolicyForAgent(config as OpenClawConfig, undefined);
+    for (const tool of ["space_search", "space_get"]) {
+      expect(isToolAllowed(seededPolicy, tool)).toBe(true);
+    }
     expect(serialized).not.toContain("OPENCLAW_GATEWAY_TOKEN");
     expect(serialized).not.toContain("platformclaw_gateway_token");
   });
@@ -943,6 +949,8 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
       "wiki_lint",
       "wiki_search",
       "wiki_status",
+      "space_search",
+      "space_get",
     ]);
     expect(result.config.tools.deny).toEqual(["group:nodes"]);
     const sandboxToolPolicy = resolveSandboxToolPolicyForAgent(
@@ -951,6 +959,9 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     );
     expect(sandboxToolPolicy.deny).not.toContain("automations");
     expect(isToolAllowed(sandboxToolPolicy, "automations")).toBe(true);
+    for (const tool of ["space_search", "space_get"]) {
+      expect(isToolAllowed(sandboxToolPolicy, tool)).toBe(true);
+    }
     expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");
   });
 
@@ -1313,6 +1324,57 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
       },
     });
     expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+  });
+
+  it("accepts only isolated read-only managed Spaces during deployment validation", () => {
+    const root = "/managed/spaces";
+    const id = "space-00000000-0000-0000-0000-000000000001";
+    const agent = {
+      workspace: `${root}/${id}`,
+      contextInjection: "never",
+      skills: [],
+      memory: { search: { enabled: false } },
+      heartbeat: { every: "0m" },
+      sandbox: { mode: "off" },
+      tools: {
+        allow: ["space_search", "space_get"],
+        alsoAllow: [],
+        byProvider: {},
+        toolsBySender: {},
+        codeMode: false,
+        elevated: { enabled: false },
+      },
+    };
+    const source = JSON.parse(readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"));
+    source.agents.entries = { [id]: agent };
+    const { config } = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+    expect(() =>
+      validateManagedConfig(config, "platformclaw-sandbox:test", false, root),
+    ).not.toThrow();
+    for (const override of [
+      { workspace: "/private/person" },
+      { agentDir: "/private/person/agent" },
+      { tools: { ...agent.tools, toolsBySender: { owner: { allow: ["exec"] } } } },
+      { contextInjection: "always" },
+      { skills: ["private-skill"] },
+      { memory: { search: { enabled: true } } },
+      { tools: { ...agent.tools, allow: ["space_search", "exec"] } },
+      { tools: { ...agent.tools, alsoAllow: ["exec"] } },
+      { tools: { ...agent.tools, byProvider: { openai: { allow: ["exec"] } } } },
+      { tools: { ...agent.tools, codeMode: true } },
+      { tools: { ...agent.tools, elevated: { enabled: true } } },
+    ]) {
+      const candidate = {
+        ...config,
+        agents: { ...config.agents, entries: { [id]: { ...agent, ...override } } },
+      };
+      expect(() =>
+        validateManagedConfig(candidate, "platformclaw-sandbox:test", false, root),
+      ).toThrow("managed PlatformClaw execution policy");
+    }
+    expect(() => validateManagedConfig(config, "platformclaw-sandbox:test")).toThrow(
+      "managed PlatformClaw execution policy",
+    );
   });
 
   it("fails closed when persistent config would bypass managed execution", () => {

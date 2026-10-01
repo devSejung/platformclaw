@@ -30,6 +30,7 @@ export function createChatSendDispatchErrorLifecycle(params: {
   >;
   context: GatewayRequestContext;
   isQueuedFollowupEnqueued: () => boolean;
+  isQueuedFollowupSettled?: () => boolean;
   persistUserTurnTranscript: () => Promise<unknown>;
   session: Pick<
     PreparedChatSendSession,
@@ -60,6 +61,9 @@ export function createChatSendDispatchErrorLifecycle(params: {
     const errorMessage = String(err);
     const queuedFollowupEnqueued = isQueuedFollowupEnqueued();
     if (queuedFollowupEnqueued) {
+      if (params.isQueuedFollowupSettled?.()) {
+        return;
+      }
       context.logGateway.warn(
         `webchat dispatch failed after followup queue admission: ${formatForLog(err)}`,
       );
@@ -70,7 +74,7 @@ export function createChatSendDispatchErrorLifecycle(params: {
           entry: {
             ts: Date.now(),
             ok: true,
-            payload: { runId: clientRunId, status: "ok" as const },
+            payload: { runId: clientRunId, status: "in_flight" as const },
           },
         });
         broadcastChatFinal({
@@ -78,6 +82,7 @@ export function createChatSendDispatchErrorLifecycle(params: {
           runId: clientRunId,
           sessionKey,
           agentId,
+          queuePhase: "deferred",
         });
       }
       return;

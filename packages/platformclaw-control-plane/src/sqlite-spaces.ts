@@ -459,16 +459,9 @@ export class SqliteSpaceStore {
         ) {
           this.conflict();
         }
-        if (prior.state === "failed") {
-          executeSync(
-            this.db,
-            this.query
-              .updateTable("collaboration_space_runs")
-              .set({ state: "active" })
-              .where("run_id", "=", runId),
-          );
+        if (prior.state !== "failed") {
+          return prior.state === "finished";
         }
-        return prior.state === "finished";
       }
       const count = takeFirstSync(
         this.db,
@@ -480,6 +473,16 @@ export class SqliteSpaceStore {
       )!.count;
       if (count >= 200) {
         throw new ControlPlaneStateError("Space has too many pending messages; wait and retry");
+      }
+      if (prior) {
+        executeSync(
+          this.db,
+          this.query
+            .updateTable("collaboration_space_runs")
+            .set({ state: "active" })
+            .where("run_id", "=", runId),
+        );
+        return false;
       }
       executeSync(
         this.db,
@@ -515,18 +518,18 @@ export class SqliteSpaceStore {
     }
     this.page(row.user_id, row.space_id, row.page_id, "editor");
   }
-  revokedRuns(spaceId: string, userId: string) {
+  revokedRuns(spaceId: string, userId: string, afterRunId?: string) {
     this.ensure();
-    return executeSync(
-      this.db,
-      this.query
-        .selectFrom("collaboration_space_runs")
-        .select(["run_id", "page_id"])
-        .where("space_id", "=", spaceId)
-        .where("user_id", "=", userId)
-        .where("state", "=", "revoked")
-        .limit(200),
-    ).rows;
+    let query = this.query
+      .selectFrom("collaboration_space_runs")
+      .select(["run_id", "page_id"])
+      .where("space_id", "=", spaceId)
+      .where("user_id", "=", userId)
+      .where("state", "=", "revoked");
+    if (afterRunId !== undefined) {
+      query = query.where("run_id", ">", afterRunId);
+    }
+    return executeSync(this.db, query.orderBy("run_id").limit(200)).rows;
   }
   finishRun(runId: string, pageId?: string) {
     this.ensure();
@@ -534,7 +537,7 @@ export class SqliteSpaceStore {
       .updateTable("collaboration_space_runs")
       .set({ state: "finished" })
       .where("run_id", "=", runId)
-      .where("state", "=", "active");
+      .where("state", "in", ["active", "revoked"]);
     if (pageId) {
       update = update.where("page_id", "=", pageId);
     }

@@ -48,4 +48,21 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.runFailed": "공동 답변 생성에 실패했습니다. 질문을 다시 보내세요.",
   "platformClaw.spaces.indexing": "검색 색인 작업 중입니다. 최근 대화가 누락될 수 있습니다.",
   "platformClaw.spaces.latest": "최신 대화로 돌아가기",
+  "platformClaw.spaces.pages": "Space와 대화",
+  "platformClaw.spaces.openNavigation": "Space와 대화 찾아보기",
+  "platformClaw.spaces.closeNavigation": "대화로 돌아가기",
+  "platformClaw.spaces.searchResults": "검색 결과",
+  "platformClaw.spaces.notes": "노트",
+  "platformClaw.spaces.closePanel": "패널 닫기",
+  "platformClaw.spaces.startConversation": "대화를 시작해 보세요",
+  "platformClaw.spaces.conversationHint":
+    "질문하거나 진행 상황을 남겨 보세요. Space 구성원이 함께 볼 수 있어요.",
+  "platformClaw.spaces.sharedConversation": "Space 구성원과 공유",
+  "platformClaw.spaces.spaceHint":
+    "프로젝트를 함께할 공간을 만드세요. 만든 뒤 구성원을 초대할 수 있어요.",
+  "platformClaw.spaces.notesHint": "이 대화에 필요한 배경, 결정 사항, 참고할 내용을 정리하세요.",
+  "platformClaw.spaces.emptyNotes": "배경 설명이나 기억할 결정 사항을 남겨 보세요.",
+  "platformClaw.spaces.choosePage": "대화를 선택하거나 팀과 함께할 이슈를 시작하세요.",
+  "platformClaw.spaces.startIssue": "이슈 시작하기",
+  "platformClaw.spaces.startSpace": "첫 Space 만들기",
 };

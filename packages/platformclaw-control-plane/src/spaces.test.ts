@@ -56,11 +56,13 @@ async function fixture() {
     async (method: string, _params?: unknown): Promise<unknown> =>
       method === "chat.history"
         ? { messages: [] }
-        : method === "sessions.search"
-          ? { results: [] }
-          : method === "models.list"
-            ? { models: [] }
-            : { status: "started" },
+        : method === "chat.abort"
+          ? { ok: true, aborted: true }
+          : method === "sessions.search"
+            ? { results: [] }
+            : method === "models.list"
+              ? { models: [] }
+              : { status: "started" },
   );
   const call = vi.fn(async (_method: string, params: unknown) => ({
     ready: true,
@@ -167,6 +169,7 @@ describe("Web Space boundaries", () => {
         agentId: f.space.agentId,
         sessionKey: `agent:${f.space.agentId}:space:${f.page.id}`,
         queueMode: "followup",
+        rejectQueueOverflow: true,
         deliver: false,
         suppressCommandInterpretation: true,
         senderAttribution: { profileId: actor.user.id },
@@ -581,6 +584,97 @@ describe("Web Space boundaries", () => {
     ).toMatchObject({ results: [{ pageId: page.id, snippet: "timing requirement" }] });
     expect(f.request).not.toHaveBeenCalled();
   });
+  it("finds notes-only pages from a shared run and shows the matching text", async () => {
+    const f = await fixture();
+    const body = `${"earlier context ".repeat(700)}needle evidence after the first window`;
+    const page = f.store.spaces.createPage(f.alice.user.id, f.space.id, {
+      title: "Notes without a conversation",
+      body,
+      requestId: "notes-only",
+    });
+    const result = await f.service.agentRead({
+      agentId: f.space.agentId,
+      runId: "fixture-history",
+      operation: "search",
+      query: "needle evidence",
+    });
+    expect(result).toMatchObject({
+      results: [
+        {
+          pageId: page.id,
+          snippet: expect.stringContaining("needle evidence"),
+          bodyOffset: expect.any(Number),
+          pageRevision: page.revision,
+        },
+      ],
+    });
+    expect(f.request).toHaveBeenCalledWith(
+      "sessions.search",
+      expect.objectContaining({ sessionKeys: [`agent:${f.space.agentId}:space:${f.page.id}`] }),
+    );
+    const personal = await f.service.search(
+      f.alice.user.id,
+      "needle evidence",
+      f.space.id,
+      async () => {},
+    );
+    expect(personal).toMatchObject({
+      results: [{ snippet: expect.stringContaining("needle evidence") }],
+    });
+  });
+  it.each(["personal", "shared"] as const)(
+    "reads every page window and rejects stale continuation for %s agents",
+    async (kind) => {
+      const f = await fixture();
+      const body = "abcdefgh".repeat(4000);
+      const page = f.store.spaces.createPage(f.alice.user.id, f.space.id, {
+        title: "Long issue",
+        body,
+        requestId: "long-notes",
+      });
+      const params = {
+        agentId: kind === "shared" ? f.space.agentId : f.alice.binding.agentId,
+        runId: "fixture-history",
+        operation: "get",
+        spaceId: f.space.id,
+        pageId: page.id,
+      };
+      const chunks: string[] = [];
+      let bodyOffset: number | null = 0;
+      for (let index = 0; index < 4 && bodyOffset !== null; index++) {
+        const result = await f.service.agentRead({
+          ...params,
+          bodyOffset,
+          pageRevision: page.revision,
+        });
+        expect(result).toHaveProperty("page");
+        const window = (
+          result as { page: { body: string; bodyOffset: number; nextBodyOffset: number | null } }
+        ).page;
+        expect(window.body.length).toBeLessThanOrEqual(8000);
+        expect(window.bodyOffset).toBe(bodyOffset);
+        chunks.push(window.body);
+        bodyOffset = window.nextBodyOffset;
+      }
+      expect(bodyOffset).toBeNull();
+      expect(chunks.join("")).toBe(body);
+      expect(f.request).not.toHaveBeenCalled();
+      await expect(f.service.agentRead({ ...params, bodyOffset: 8000 })).rejects.toThrow(
+        "revision",
+      );
+      f.store.spaces.savePage(
+        f.alice.user.id,
+        f.space.id,
+        page.id,
+        page.title,
+        "replacement",
+        page.revision,
+      );
+      await expect(
+        f.service.agentRead({ ...params, bodyOffset: 8000, pageRevision: page.revision }),
+      ).rejects.toThrow("changed");
+    },
+  );
   it("releases failed submissions and permits a same-id retry without exhausting pending capacity", async () => {
     const f = await fixture();
     f.request.mockImplementation(async (method) => {
@@ -634,6 +728,143 @@ describe("Web Space boundaries", () => {
     ).resolves.toMatchObject({ status: "ok", replayed: true });
     expect(f.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(sent);
   });
+  it("keeps individually queued requests authorized and cancellable until native settlement", async () => {
+    const f = await fixture();
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "editor", 1);
+    const runId = `space:${f.page.id}:${f.bob.user.id}:queued`;
+    await f.service.send(
+      f.bob.user.id,
+      f.space.id,
+      f.page.id,
+      "queued",
+      "queued",
+      undefined,
+      async () => {},
+    );
+    const payload = {
+      sessionKey: `agent:${f.space.agentId}:space:${f.page.id}`,
+      state: "final",
+      runId,
+    };
+    f.service.observe({ event: "chat", payload: { ...payload, queuePhase: "deferred" } });
+    expect(() => f.store.spaces.assertRun(f.space.agentId, runId)).not.toThrow();
+    await expect(
+      f.service.agentRead({
+        agentId: f.space.agentId,
+        runId,
+        operation: "context",
+        sessionKey: payload.sessionKey,
+      }),
+    ).resolves.toMatchObject({ page: { id: f.page.id } });
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, null, 2);
+    await f.service.cancelRevoked(f.space, f.bob.user.id);
+    expect(f.request).toHaveBeenCalledWith("chat.abort", {
+      agentId: f.space.agentId,
+      sessionKey: payload.sessionKey,
+      runId,
+    });
+    expect(() => f.store.spaces.assertRun(f.space.agentId, runId)).toThrow("unavailable");
+    f.service.observe({ event: "chat", payload: { ...payload, queuePhase: "settled" } });
+    expect(() => f.store.spaces.assertRun(f.space.agentId, runId)).toThrow("unavailable");
+  });
+
+  it("retires acknowledged revocations so historical runs cannot hide a new cancellation", async () => {
+    const f = await fixture();
+    f.store.spaces.finishRun("fixture-history");
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "editor", 1);
+    for (let i = 0; i < 200; i++) {
+      f.store.spaces.beginRun(f.bob.user.id, f.space.id, f.page.id, `old-${i}`, "question");
+    }
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, null, 2);
+    await f.service.cancelRevoked(f.space, f.bob.user.id);
+    expect(f.store.spaces.revokedRuns(f.space.id, f.bob.user.id)).toEqual([]);
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "editor", 3);
+    expect(f.store.spaces.beginRun(f.bob.user.id, f.space.id, f.page.id, "old-0", "question")).toBe(
+      true,
+    );
+    expect(() => f.store.spaces.assertRun(f.space.agentId, "old-0")).toThrow("unavailable");
+    f.store.spaces.beginRun(f.bob.user.id, f.space.id, f.page.id, "new-201", "new question");
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, null, 4);
+    f.request.mockClear();
+    f.request.mockResolvedValue({ ok: true, aborted: false });
+    await f.service.cancelRevoked(f.space, f.bob.user.id);
+    expect(f.request).toHaveBeenCalledExactlyOnceWith(
+      "chat.abort",
+      expect.objectContaining({ runId: "new-201" }),
+    );
+    expect(f.store.spaces.revokedRuns(f.space.id, f.bob.user.id)).toEqual([]);
+  });
+
+  it("pages past failed and uncertain cancellations without reopening their authorization", async () => {
+    const f = await fixture();
+    f.store.spaces.finishRun("fixture-history");
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "editor", 1);
+    for (let i = 0; i < 200; i++) {
+      f.store.spaces.beginRun(f.bob.user.id, f.space.id, f.page.id, `old-${i}`, "question");
+    }
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, null, 2);
+    f.request.mockImplementation(async (_method, raw) => {
+      const runId = (raw as { runId: string }).runId;
+      if (runId === "old-0") {
+        return { status: "unknown" };
+      }
+      if (runId.startsWith("old-")) {
+        throw new Error("native owner unavailable");
+      }
+      return { ok: true, aborted: true };
+    });
+    await expect(f.service.cancelRevoked(f.space, f.bob.user.id)).rejects.toThrow(
+      "could not be stopped",
+    );
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "editor", 3);
+    f.store.spaces.beginRun(f.bob.user.id, f.space.id, f.page.id, "zz-new-201", "new question");
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, null, 4);
+    f.request.mockClear();
+    await expect(f.service.cancelRevoked(f.space, f.bob.user.id)).rejects.toThrow(
+      "could not be stopped",
+    );
+    expect(f.request).toHaveBeenCalledTimes(201);
+    expect(f.request).toHaveBeenCalledWith(
+      "chat.abort",
+      expect.objectContaining({ runId: "zz-new-201" }),
+    );
+    expect(f.store.spaces.revokedRuns(f.space.id, f.bob.user.id)).toHaveLength(200);
+    expect(() => f.store.spaces.assertRun(f.space.agentId, "old-0")).toThrow("unavailable");
+    f.request.mockResolvedValue({ ok: true, aborted: true });
+    await f.service.cancelRevoked(f.space, f.bob.user.id);
+    expect(f.store.spaces.revokedRuns(f.space.id, f.bob.user.id)).toEqual([]);
+  });
+
+  it("applies the active quota to failed retries without charging replays twice", async () => {
+    const f = await fixture();
+    f.store.spaces.finishRun("fixture-history");
+    f.store.spaces.beginRun(f.alice.user.id, f.space.id, f.page.id, "retry", "question");
+    f.store.spaces.failRun("retry");
+    for (let i = 0; i < 200; i++) {
+      f.store.spaces.beginRun(f.alice.user.id, f.space.id, f.page.id, `pending-${i}`, "question");
+    }
+    expect(() =>
+      f.store.spaces.beginRun(f.alice.user.id, f.space.id, f.page.id, "retry", "question"),
+    ).toThrow("too many pending");
+    expect(
+      f.store.spaces.beginRun(f.alice.user.id, f.space.id, f.page.id, "pending-0", "question"),
+    ).toBe(false);
+    expect(
+      f.store.spaces.beginRun(
+        f.alice.user.id,
+        f.space.id,
+        f.page.id,
+        "fixture-history",
+        "existing shared question",
+      ),
+    ).toBe(true);
+    f.store.spaces.finishRun("pending-0");
+    expect(
+      f.store.spaces.beginRun(f.alice.user.id, f.space.id, f.page.id, "retry", "question"),
+    ).toBe(false);
+    expect(() => f.store.spaces.assertRun(f.space.agentId, "retry")).not.toThrow();
+  });
+
   it("preserves exact message anchors in shared-agent source links", async () => {
     const f = await fixture();
     const runId = `space:${f.page.id}:${f.alice.user.id}:anchor`;

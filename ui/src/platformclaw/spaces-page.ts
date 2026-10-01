@@ -1,5 +1,5 @@
 import { consume } from "@lit/context";
-import { html, nothing, type PropertyValues, type TemplateResult } from "lit";
+import { html, nothing, type PropertyValues } from "lit";
 import { state } from "lit/decorators.js";
 import type {
   Space,
@@ -12,22 +12,14 @@ import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT } from "./i18n.ts";
 import { renderSpaceMembers } from "./space-members-view.ts";
+import { renderSpacesView, type SpaceSnapshot, type SpaceSearchHit } from "./spaces-view.ts";
 import "./spaces.css";
 const t = (key: string) => platformClawT(`platformClaw.spaces.${key}`);
 const RPC = "platformclaw.spaces.";
-type Snapshot = { space: Space; pages: SpacePage[]; members: SpaceMember[] };
-type Hit = {
-  spaceId: string;
-  pageId: string;
-  pageTitle: string;
-  snippet: string;
-  link: string;
-  messageId?: string;
-};
 export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true }) private context!: ApplicationContext;
   @state() private spaces: Space[] = [];
-  @state() private snapshot: Snapshot | null = null;
+  @state() private snapshot: SpaceSnapshot | null = null;
   @state() private page: SpacePage | null = null;
   @state() private messages: SpaceMessage[] = [];
   @state() private error = "";
@@ -36,15 +28,19 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   @state() private historyAnchor = "";
   @state() private loading = false;
   @state() private busy = false;
-  @state() private editing = false;
+  // Keep the draft's original revision when membership revalidation refreshes the page.
+  @state() private editing: SpacePage | null = null;
   @state() private membersOpen = false;
+  @state() private notesOpen = false;
+  @state() private navigationOpen = false;
+  private followConversation = true;
   @state() private creating: "space" | "page" | null = null;
   @state() private draftTitle = "";
   @state() private body = "";
   private newParentId: string | undefined;
   @state() private draft = "";
   @state() private query = "";
-  @state() private hits: Hit[] = [];
+  @state() private hits: SpaceSearchHit[] = [];
   @state() private account = "";
   @state() private candidates: Array<Omit<SpaceMember, "role">> = [];
   @state() private pendingMember: { userId: string; label: string; role: SpaceRole | null } | null =
@@ -69,7 +65,17 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     clearTimeout(this.historyTimer);
     super.disconnectedCallback();
   }
-  protected override updated(_changed: PropertyValues) {
+  protected override updated(changed: PropertyValues) {
+    if (changed.has("messages") || changed.has("streaming") || changed.has("page")) {
+      const history = this.querySelector<HTMLElement>(".pc-space-history");
+      if (this.historyAnchor) {
+        this.querySelector<HTMLElement>('[data-source="true"]')?.scrollIntoView?.({
+          block: "center",
+        });
+      } else if (history && this.followConversation) {
+        history.scrollTop = history.scrollHeight;
+      }
+    }
     if (!this.context?.gateway) {
       return;
     }
@@ -81,12 +87,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       this.gatewayClient = gateway.snapshot.client;
       this.epoch++;
       this.historyEpoch++;
-      this.snapshot = null;
-      this.page = null;
-      this.messages = [];
+      this.clearSensitive();
       this.spaces = [];
-      this.draft = "";
-      this.hits = [];
       this.unsubscribe?.();
       this.unsubscribe = gateway.subscribeEvents((event) => {
         if (event.event === "platformclaw.spaces.invalidated") {
@@ -103,7 +105,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
               this.scheduleHistory();
             }
             if (update.state === "error") {
-              this.notice = t("runFailed");
+              this.error = t("runFailed");
+              this.notice = "";
             }
             if (update.state === "final") {
               this.notice = "";
@@ -153,17 +156,22 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.messages = [];
     this.streaming = "";
     this.hits = [];
-    this.editing = false;
+    this.editing = null;
+    this.creating = null;
+    this.draftTitle = "";
     this.body = "";
     this.draft = "";
     this.membersOpen = false;
+    this.notesOpen = false;
     this.candidates = [];
     this.pendingMember = null;
   }
   private async refresh(revalidate = false) {
     const epoch = ++this.epoch;
     this.loading = true;
-    this.error = "";
+    if (!revalidate) {
+      this.error = "";
+    }
     const selected = this.snapshot?.space.id ?? new URL(location.href).searchParams.get("space");
     try {
       const spaces = await this.rpc<Space[]>("list");
@@ -195,24 +203,30 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.messages = [];
     this.hits = [];
     this.loading = true;
-    this.error = "";
     if (!revalidate) {
-      this.editing = false;
+      this.error = "";
+      this.editing = null;
       this.creating = null;
+      this.draftTitle = "";
+      this.body = "";
       this.pendingMember = null;
       this.draft = "";
+      this.notesOpen = false;
+      this.membersOpen = false;
     }
     try {
-      const snapshot = await this.rpc<Snapshot>("get", { spaceId: id });
+      const snapshot = await this.rpc<SpaceSnapshot>("get", { spaceId: id });
       if (epoch !== this.epoch) {
         return;
       }
       this.snapshot = snapshot;
       const pageId = priorPage ?? new URL(location.href).searchParams.get("page");
       this.page = snapshot.pages.find((page) => page.id === pageId) ?? null;
-      if (snapshot.space.role === "viewer") {
-        this.editing = false;
+      if (snapshot.space.role === "viewer" || (this.editing && this.editing.id !== this.page?.id)) {
+        this.editing = null;
         this.creating = null;
+        this.draftTitle = "";
+        this.body = "";
         this.draft = "";
       }
       if (this.page) {
@@ -236,6 +250,10 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       return;
     }
     this.page = page;
+    this.navigationOpen = false;
+    this.notesOpen = false;
+    this.membersOpen = false;
+    this.followConversation = true;
     this.historyAnchor = messageId;
     this.streaming = "";
     this.messages = [];
@@ -295,6 +313,10 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     }
   }
   private openCreate(kind: "space" | "page", parentId?: string) {
+    this.editing = null;
+    this.navigationOpen = false;
+    this.membersOpen = false;
+    this.notesOpen = false;
     this.newParentId = kind === "page" ? parentId : undefined;
     this.creating = kind;
     this.draftTitle = "";
@@ -307,7 +329,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   }
   private cancelEdit() {
     this.creating = null;
-    this.editing = false;
+    this.editing = null;
     this.draftTitle = "";
     this.body = "";
     this.pendingMember = null;
@@ -340,19 +362,19 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
           body: this.body,
           requestId: this.createRequestId,
         });
-      } else if (this.page) {
+      } else if (this.editing) {
         page = await this.rpc<SpacePage>("page.save", {
-          spaceId: this.page.spaceId,
-          pageId: this.page.id,
+          spaceId: this.editing.spaceId,
+          pageId: this.editing.id,
           title: this.draftTitle,
           body: this.body,
-          expectedRevision: this.page.revision,
+          expectedRevision: this.editing.revision,
         });
       } else {
         return;
       }
       this.creating = null;
-      this.editing = false;
+      this.editing = null;
       await this.selectSpace(page.spaceId);
       this.selectPage(page);
       this.notice = t("saved");
@@ -371,7 +393,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       });
       this.draft = "";
       this.draftRequestId = crypto.randomUUID();
-      this.notice = t("accepted");
+      this.notice = this.error ? "" : t("accepted");
       await this.loadHistory();
     });
   }
@@ -381,7 +403,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
         return;
       }
       const epoch = this.epoch;
-      const result = await this.rpc<{ results: Hit[]; indexing?: boolean }>("search", {
+      const result = await this.rpc<{ results: SpaceSearchHit[]; indexing?: boolean }>("search", {
         spaceId: this.snapshot.space.id,
         query: this.query,
       });
@@ -421,250 +443,114 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       await this.refresh(true);
     });
   }
-  private tree(parentId: string | null = null, depth = 0): TemplateResult {
-    return html`<ul>
-      ${this.snapshot?.pages
-        .filter((page) => page.parentId === parentId)
-        .map(
-          (page) =>
-            html`<li>
-              <button
-                class="btn btn--sm"
-                aria-current=${this.page?.id === page.id ? "page" : nothing}
-                ?disabled=${this.busy || this.editing || Boolean(this.creating)}
-                @click=${() => this.selectPage(page)}
-              >
-                ${page.title}</button
-              >${depth < 20 ? this.tree(page.id, depth + 1) : nothing}
-            </li>`,
-        )}
-    </ul>`;
+  private togglePanel(panel: "notes" | "members") {
+    if (this.editing || this.creating) {
+      this.notice = t("finishEditing");
+      return;
+    }
+    const wasOpen = panel === "notes" ? this.notesOpen : this.membersOpen;
+    this.notesOpen = panel === "notes" && !wasOpen;
+    this.membersOpen = panel === "members" && !wasOpen;
+    if (!this.membersOpen) {
+      this.pendingMember = null;
+    }
+    this.navigationOpen = false;
+    if (!wasOpen) {
+      void this.updateComplete.then(() =>
+        this.querySelector<HTMLButtonElement>(".pc-space-panel-header button")?.focus(),
+      );
+    }
+  }
+  private closePanel() {
+    const members = this.membersOpen;
+    if (this.editing || this.creating) {
+      this.cancelEdit();
+    }
+    this.notesOpen = false;
+    this.membersOpen = false;
+    this.pendingMember = null;
+    void this.updateComplete.then(() =>
+      this.querySelector<HTMLButtonElement>(
+        members ? ".pc-space-members-trigger" : ".pc-space-notes-trigger",
+      )?.focus(),
+    );
   }
   override render() {
-    const canEdit = this.snapshot && this.snapshot.space.role !== "viewer";
-    return html`<main class="pc-spaces settings-page settings-page--wide">
-      <header>
-        <h1>${t("title")}</h1>
-        <p>${t("intro")}</p>
-        <button
-          class="btn"
-          ?disabled=${this.busy || this.loading}
-          @click=${() => this.openCreate("space")}
-        >
-          ${t("createSpace")}</button
-        ><button class="btn" ?disabled=${this.busy} @click=${() => this.refresh()}>
-          ${t("refresh")}
-        </button>
-      </header>
-      ${this.error ? html`<p class="callout danger" role="alert">${this.error}</p>` : nothing}${this
-        .notice
-        ? html`<p role="status">${this.notice}</p>`
-        : nothing}${this.loading ? html`<p role="status">${t("loading")}</p>` : nothing}
-      <div class="pc-spaces-layout">
-        <nav aria-label=${t("title")}>
-          ${this.spaces.map(
-            (space) =>
-              html`<button
-                class="btn"
-                ?disabled=${this.busy}
-                @click=${() => this.selectSpace(space.id)}
-              >
-                ${space.name}
-              </button>`,
-          )}${this.snapshot ? this.tree() : nothing}
-        </nav>
-        <section>
-          ${this.snapshot
-            ? html`<h2>${this.snapshot.space.name}</h2>
-                <p class="callout">${t("sharedNotice")} · ${t(this.snapshot.space.role)}</p>
-                <button
-                  class="btn"
-                  @click=${() => {
-                    this.membersOpen = !this.membersOpen;
-                  }}
-                >
-                  ${t("members")}</button
-                >${canEdit
-                  ? html`<button
-                        data-new-page
-                        class="btn"
-                        ?disabled=${this.busy}
-                        @click=${() => this.openCreate("page")}
-                      >
-                        ${t("createPage")}</button
-                      >${this.page
-                        ? html`<button
-                            class="btn"
-                            ?disabled=${this.busy}
-                            @click=${() => this.openCreate("page", this.page!.id)}
-                          >
-                            ${t("createChild")}
-                          </button>`
-                        : nothing}`
-                  : nothing}
-                <form
-                  @submit=${(event: Event) => {
-                    event.preventDefault();
-                    this.search();
-                  }}
-                >
-                  <label
-                    >${t("search")}<input
-                      .value=${this.query}
-                      @input=${(event: Event) => {
-                        this.query = (event.target as HTMLInputElement).value;
-                      }} /></label
-                  ><button class="btn" ?disabled=${this.busy}>${t("search")}</button>
-                </form>
-                ${this.hits.map(
-                  (hit) =>
-                    html`<article class="card">
-                      <button
-                        class="btn"
-                        @click=${() => {
-                          const page = this.snapshot?.pages.find((item) => item.id === hit.pageId);
-                          if (page) {
-                            this.selectPage(page, hit.messageId);
-                          }
-                        }}
-                      >
-                        ${hit.pageTitle}
-                      </button>
-                      <p>${hit.snippet}</p>
-                    </article>`,
-                )}
-                ${this.membersOpen ? this.renderMembers() : nothing}`
-            : html`<p>${t("chooseSpace")}</p>`}
-          ${this.creating || this.editing
-            ? html`<form
-                class="card"
-                @submit=${(event: Event) => {
-                  event.preventDefault();
-                  this.save();
-                }}
-              >
-                <h3>
-                  ${t(
-                    this.creating === "space"
-                      ? "createSpace"
-                      : this.creating
-                        ? "createPage"
-                        : "edit",
-                  )}
-                </h3>
-                <label
-                  >${t("name")}<input
-                    data-title
-                    required
-                    maxlength="160"
-                    .value=${this.draftTitle}
-                    @input=${(event: Event) => {
-                      this.draftTitle = (event.target as HTMLInputElement).value;
-                      this.createRequestId = crypto.randomUUID();
-                    }} /></label
-                >${this.creating !== "space"
-                  ? html`<label
-                      >${t("body")}<textarea
-                        rows="8"
-                        maxlength="32000"
-                        .value=${this.body}
-                        @input=${(event: Event) => {
-                          this.body = (event.target as HTMLTextAreaElement).value;
-                          this.createRequestId = crypto.randomUUID();
-                        }}
-                      ></textarea>
-                    </label>`
-                  : nothing}<button class="btn primary" ?disabled=${this.busy}>${t("save")}</button
-                ><button
-                  type="button"
-                  class="btn"
-                  ?disabled=${this.busy}
-                  @click=${() => this.cancelEdit()}
-                >
-                  ${t("cancel")}
-                </button>
-              </form>`
-            : nothing}
-          ${this.page && !this.editing && !this.creating
-            ? html`<article class="card">
-                  <h2>${this.page.title}</h2>
-                  <p class="muted">
-                    ${t("revision")} ${this.page.revision} ·
-                    ${new Date(this.page.updatedAt).toLocaleString()}
-                  </p>
-                  <div class="pc-space-text">${this.page.body}</div>
-                  ${canEdit
-                    ? html`<button
-                        class="btn"
-                        @click=${() => {
-                          this.editing = true;
-                          this.draftTitle = this.page!.title;
-                          this.body = this.page!.body;
-                        }}
-                      >
-                        ${t("edit")}
-                      </button>`
-                    : nothing}
-                </article>
-                <section class="card" aria-label=${t("conversation")}>
-                  <h3>${t("conversation")}</h3>
-                  ${this.historyAnchor
-                    ? html`<button
-                        class="btn"
-                        @click=${() => {
-                          this.historyAnchor = "";
-                          void this.loadHistory();
-                        }}
-                      >
-                        ${t("latest")}
-                      </button>`
-                    : nothing}
-                  ${this.streaming
-                    ? html`<article class="pc-space-message">
-                        <strong>AI</strong>
-                        <div class="pc-space-text">${this.streaming}</div>
-                      </article>`
-                    : nothing}
-                  ${this.messages.map(
-                    (message) =>
-                      html`<article class="pc-space-message" id=${`message-${message.id}`}>
-                        <strong
-                          >${message.role === "assistant"
-                            ? "AI"
-                            : (message.authorName ?? t("unknownAuthor"))}</strong
-                        >
-                        ${message.timestamp
-                          ? html`<time>${new Date(message.timestamp).toLocaleString()}</time>`
-                          : nothing}
-                        <div class="pc-space-text">${message.text}</div>
-                      </article>`,
-                  )}${canEdit
-                    ? html`<form
-                        @submit=${(event: Event) => {
-                          event.preventDefault();
-                          this.send();
-                        }}
-                      >
-                        <label
-                          >${t("ask")}<textarea
-                            rows="3"
-                            maxlength="16000"
-                            .value=${this.draft}
-                            @input=${(event: Event) => {
-                              this.draft = (event.target as HTMLTextAreaElement).value;
-                              this.draftRequestId = crypto.randomUUID();
-                            }}
-                          ></textarea></label
-                        ><button class="btn primary" ?disabled=${this.busy || !this.draft.trim()}>
-                          ${t("send")}
-                        </button>
-                      </form>`
-                    : html`<p>${t("viewerNotice")}</p>`}
-                </section>`
-            : nothing}
-        </section>
-      </div>
-    </main>`;
+    return renderSpacesView({
+      spaces: this.spaces,
+      snapshot: this.snapshot,
+      page: this.page,
+      messages: this.messages,
+      error: this.error,
+      notice: this.notice,
+      streaming: this.streaming,
+      historyAnchor: this.historyAnchor,
+      loading: this.loading,
+      busy: this.busy,
+      navigationOpen: this.navigationOpen,
+      panel: this.membersOpen ? "members" : this.notesOpen ? "notes" : null,
+      editor:
+        this.creating || this.editing
+          ? { kind: this.creating ?? "edit", title: this.draftTitle, body: this.body }
+          : null,
+      draft: this.draft,
+      query: this.query,
+      hits: this.hits,
+      membersView: this.membersOpen ? this.renderMembers() : nothing,
+      onSelectSpace: (id) => {
+        void this.selectSpace(id);
+      },
+      onSelectPage: (page, messageId) => this.selectPage(page, messageId),
+      onCreate: (kind, parentId) => this.openCreate(kind, parentId),
+      onRefresh: () => {
+        void this.refresh(Boolean(this.editing || this.creating));
+      },
+      onSearch: () => this.search(),
+      onQuery: (value) => {
+        this.query = value;
+      },
+      onDraft: (value) => {
+        this.draft = value;
+        this.draftRequestId = crypto.randomUUID();
+      },
+      onSend: () => this.send(),
+      onPanel: (panel) => this.togglePanel(panel),
+      onClosePanel: () => this.closePanel(),
+      onToggleNavigation: () => {
+        this.navigationOpen = !this.navigationOpen;
+        if (this.navigationOpen) {
+          this.notesOpen = false;
+          this.membersOpen = false;
+          this.pendingMember = null;
+        }
+      },
+      onEdit: () => {
+        if (this.page) {
+          this.editing = this.page;
+          this.draftTitle = this.page.title;
+          this.body = this.page.body;
+        }
+      },
+      onCancel: () => this.cancelEdit(),
+      onSave: () => this.save(),
+      onTitle: (value) => {
+        this.draftTitle = value;
+        this.createRequestId = crypto.randomUUID();
+      },
+      onBody: (value) => {
+        this.body = value;
+        this.createRequestId = crypto.randomUUID();
+      },
+      onLatest: () => {
+        this.historyAnchor = "";
+        this.followConversation = true;
+        void this.loadHistory();
+      },
+      onHistoryScroll: (event) => {
+        const target = event.currentTarget as HTMLElement;
+        this.followConversation = target.scrollHeight - target.scrollTop - target.clientHeight < 96;
+      },
+    });
   }
   private renderMembers() {
     return renderSpaceMembers({

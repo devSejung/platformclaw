@@ -21,6 +21,8 @@ export type WikiHubMemoryClient = {
     sessionKey?: string;
     runId?: string;
     messageId?: string;
+    bodyOffset?: number;
+    pageRevision?: number;
   }): Promise<unknown>;
   wiki(
     params: import("openclaw/plugin-sdk/memory-core-host-runtime-core").MemoryWikiOperation & {
@@ -67,6 +69,9 @@ function responseError(status: number, body: string): Error {
     value?.code !== "wiki-invalid" &&
     value?.code !== "wiki-conflict" &&
     value?.code !== "wiki-forbidden" &&
+    value?.code !== "space-invalid" &&
+    value?.code !== "space-conflict" &&
+    value?.code !== "space-forbidden" &&
     value?.code !== "vault-name-ambiguous" &&
     value?.code !== "vault-name-not-found" &&
     value?.code !== "vault-query-invalid"

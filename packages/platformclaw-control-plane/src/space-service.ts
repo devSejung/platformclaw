@@ -1,8 +1,12 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { BrowserGatewayRpc, BrowserGatewayEvent } from "./browser-gateway-contracts.js";
-import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
+import {
+  ControlPlaneAuthorizationError,
+  ControlPlaneConflictError,
+  ControlPlaneStateError,
+} from "./contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
-import type { SpacePage } from "./space-contracts.js";
+import type { Space, SpacePage } from "./space-contracts.js";
 import { spaceText, type SqliteSpaceStore } from "./sqlite-spaces.js";
 import type { SqliteControlPlaneStore } from "./sqlite-store.js";
 
@@ -76,6 +80,29 @@ function toolSourceMessages(messages: SpaceMessage[], messageId?: string) {
       truncated: message.text.length > 1200,
     }),
   );
+}
+
+function projectSpacePage(
+  page: SpacePage,
+  params: { bodyOffset?: number; pageRevision?: number } = {},
+) {
+  const bodyOffset = params.bodyOffset ?? 0;
+  if (params.pageRevision !== undefined && params.pageRevision !== page.revision) {
+    throw new ControlPlaneConflictError(
+      "space_changed",
+      "Page changed; read from bodyOffset 0 before continuing",
+    );
+  }
+  if (bodyOffset > 0 && params.pageRevision === undefined) {
+    throw new ControlPlaneStateError("A continuation requires the returned page revision");
+  }
+  if (!Number.isSafeInteger(bodyOffset) || bodyOffset < 0 || bodyOffset > page.body.length) {
+    throw new ControlPlaneStateError("Invalid page offset; read from bodyOffset 0");
+  }
+  const body = page.body.slice(bodyOffset, bodyOffset + 8000);
+  const nextBodyOffset =
+    bodyOffset + body.length < page.body.length ? bodyOffset + body.length : null;
+  return { ...page, body, bodyOffset, nextBodyOffset, truncated: nextBodyOffset !== null };
 }
 
 /** Space is the authority; Gateway sessions own transcript storage and run scheduling. */
@@ -207,6 +234,7 @@ export class SpaceService {
         deliver: false,
         suppressCommandInterpretation: true,
         queueMode: "followup",
+        rejectQueueOverflow: true,
         idempotencyKey: runId,
         senderAttribution: {
           id: user.accountId,
@@ -241,6 +269,60 @@ export class SpaceService {
     }
     return { status: typeof result.status === "string" ? result.status : "accepted" };
   }
+  private async searchSpace(
+    space: Pick<Space, "id" | "name" | "agentId">,
+    pages: SpacePage[],
+    query: string,
+    revalidate: () => Promise<void>,
+  ) {
+    const keys = new Map(
+      pages
+        .filter((page) => this.spaces.hasConversation(page.id))
+        .map((page) => [this.key(space.agentId, page.id), page]),
+    );
+    const raw = keys.size
+      ? await this.gateway.request("sessions.search", {
+          agentId: space.agentId,
+          sessionKeys: [...keys.keys()],
+          query,
+          limit: 10,
+        })
+      : { results: [] };
+    await revalidate();
+    if (!isRecord(raw) || !Array.isArray(raw.results)) {
+      throw new ControlPlaneStateError("Space search unavailable; retry");
+    }
+    const source = (page: SpacePage, snippet: string, messageId?: string) => ({
+      spaceId: space.id,
+      spaceName: space.name,
+      pageId: page.id,
+      pageTitle: page.title,
+      snippet: snippet.slice(0, 1200),
+      ...(messageId ? { messageId } : {}),
+      link: `/platformclaw/app/spaces?space=${encodeURIComponent(space.id)}&page=${encodeURIComponent(page.id)}${messageId ? `&message=${encodeURIComponent(messageId)}` : ""}`,
+    });
+    // Notes have no transcript until the first send. Search both owned sources for every caller.
+    const needle = query.toLowerCase();
+    const notes = pages.flatMap((page) => {
+      const match = page.body.toLowerCase().indexOf(needle);
+      if (match < 0 && !page.title.toLowerCase().includes(needle)) {
+        return [];
+      }
+      const bodyOffset = Math.max(0, match - 120);
+      const snippet = match < 0 ? page.title : page.body.slice(bodyOffset, bodyOffset + 1200);
+      return [{ ...source(page, snippet), bodyOffset, pageRevision: page.revision }];
+    });
+    const conversations = raw.results.flatMap((hit) => {
+      if (!isRecord(hit) || typeof hit.sessionKey !== "string" || typeof hit.snippet !== "string") {
+        return [];
+      }
+      const page = keys.get(hit.sessionKey);
+      return page
+        ? [source(page, hit.snippet, typeof hit.messageId === "string" ? hit.messageId : undefined)]
+        : [];
+    });
+    return { results: [...notes, ...conversations].slice(0, 20), indexing: raw.indexing === true };
+  }
   async search(
     userId: string,
     query: string,
@@ -249,80 +331,30 @@ export class SpaceService {
   ) {
     spaceText(query, "query", 1000);
     const spaces = spaceId ? [this.spaces.access(userId, spaceId)] : this.spaces.list(userId);
-    let indexing = false;
-    const results: Array<{
-      spaceId: string;
-      spaceName: string;
-      pageId: string;
-      pageTitle: string;
-      messageId?: string;
-      snippet: string;
-      link: string;
-    }> = [];
+    const matches: Awaited<ReturnType<SpaceService["searchSpace"]>>[] = [];
     for (const space of spaces) {
-      const pages = this.spaces.pages(userId, space.id);
-      if (!pages.length) {
-        continue;
-      }
-      const keys = new Map(
-        pages
-          .filter((page) => this.spaces.hasConversation(page.id))
-          .map((page) => [this.key(space.agentId, page.id), page]),
+      matches.push(
+        await this.searchSpace(space, this.spaces.pages(userId, space.id), query, async () => {
+          await revalidate();
+          this.spaces.access(userId, space.id);
+        }),
       );
-      const raw = keys.size
-        ? await this.gateway.request("sessions.search", {
-            agentId: space.agentId,
-            sessionKeys: [...keys.keys()],
-            query,
-            limit: 10,
-          })
-        : { results: [] };
-      await revalidate();
-      this.spaces.access(userId, space.id);
-      const add = (page: SpacePage, snippet: string, messageId?: string) =>
-        results.push({
-          spaceId: space.id,
-          spaceName: space.name,
-          pageId: page.id,
-          pageTitle: page.title,
-          snippet: snippet.slice(0, 1200),
-          ...(messageId ? { messageId } : {}),
-          link: `/platformclaw/app/spaces?space=${encodeURIComponent(space.id)}&page=${encodeURIComponent(page.id)}${messageId ? `&message=${encodeURIComponent(messageId)}` : ""}`,
-        });
-      for (const page of pages) {
-        if (`${page.title}\n${page.body}`.toLowerCase().includes(query.toLowerCase())) {
-          add(page, page.body);
-        }
-      }
-      if (!isRecord(raw) || !Array.isArray(raw.results)) {
-        throw new ControlPlaneStateError("Space search unavailable; retry");
-      }
-      indexing ||= raw.indexing === true;
-      for (const hit of raw.results) {
-        if (
-          !isRecord(hit) ||
-          typeof hit.sessionKey !== "string" ||
-          typeof hit.snippet !== "string"
-        ) {
-          continue;
-        }
-        const page = keys.get(hit.sessionKey);
-        if (page) {
-          add(page, hit.snippet, typeof hit.messageId === "string" ? hit.messageId : undefined);
-        }
-      }
     }
     await revalidate();
     for (const space of spaces) {
       this.spaces.access(userId, space.id);
     }
-    return { results: results.slice(0, 20), indexing };
+    return {
+      results: matches.flatMap((match) => match.results).slice(0, 20),
+      indexing: matches.some((match) => match.indexing),
+    };
   }
   observe(event: BrowserGatewayEvent) {
     if (
       event.event !== "chat" ||
       !isRecord(event.payload) ||
       !["final", "aborted", "error"].includes(String(event.payload.state)) ||
+      event.payload.queuePhase === "deferred" ||
       typeof event.payload.runId !== "string" ||
       typeof event.payload.sessionKey !== "string"
     ) {
@@ -390,6 +422,8 @@ export class SpaceService {
     sessionKey?: string;
     runId?: string;
     messageId?: string;
+    bodyOffset?: number;
+    pageRevision?: number;
   }) {
     const sharedId = this.spaces.spaceForAgent(params.agentId);
     if (!sharedId) {
@@ -417,7 +451,7 @@ export class SpaceService {
         params.messageId,
       );
       return {
-        page: { ...page, body: page.body.slice(0, 8000), truncated: page.body.length > 8000 },
+        page: projectSpacePage(page, params),
         messages: toolSourceMessages(history.messages, params.messageId),
       };
     }
@@ -437,15 +471,10 @@ export class SpaceService {
         throw new ControlPlaneAuthorizationError("Space Page unavailable");
       }
       if (params.operation === "context") {
+        this.spaces.assertRun(params.agentId, params.runId, page.id);
         return {
           spaceName: scope.space.name,
-          page: {
-            id: page.id,
-            title: page.title,
-            body: page.body.slice(0, 8000),
-            revision: page.revision,
-            truncated: page.body.length > 8000,
-          },
+          page: projectSpacePage(page),
         };
       }
       const raw = this.spaces.hasConversation(page.id)
@@ -463,61 +492,47 @@ export class SpaceService {
         throw new ControlPlaneAuthorizationError("Space unavailable");
       }
       return {
-        page: { ...page, body: page.body.slice(0, 8000), truncated: page.body.length > 8000 },
+        page: projectSpacePage(page, params),
         messages: toolSourceMessages(projectSpaceMessages(raw), params.messageId),
       };
     }
     const query = spaceText(params.query, "query", 1000);
-    if (!scope.pages.length) {
-      return { results: [] };
-    }
-    const keys = new Map(scope.pages.map((page) => [this.key(params.agentId, page.id), page]));
-    const raw = await this.gateway.request("sessions.search", {
-      agentId: params.agentId,
-      sessionKeys: [...keys.keys()],
-      query,
-      limit: 10,
+    return await this.searchSpace(scope.space, scope.pages, query, async () => {
+      this.spaces.assertRun(params.agentId, params.runId);
+      this.spaces.agentScope(params.agentId);
     });
-    if (!isRecord(raw) || !Array.isArray(raw.results)) {
-      throw new ControlPlaneStateError("Space search unavailable");
-    }
-    this.spaces.assertRun(params.agentId, params.runId);
-    this.spaces.agentScope(params.agentId);
-    const results = raw.results.flatMap((hit) => {
-      if (!isRecord(hit) || typeof hit.sessionKey !== "string" || typeof hit.snippet !== "string") {
-        return [];
-      }
-      const page = keys.get(hit.sessionKey);
-      return page
-        ? [
-            {
-              spaceId: sharedId,
-              spaceName: scope.space.name,
-              pageId: page.id,
-              pageTitle: page.title,
-              snippet: hit.snippet.slice(0, 1200),
-              messageId: typeof hit.messageId === "string" ? hit.messageId : null,
-              link: `/platformclaw/app/spaces?space=${sharedId}&page=${page.id}${typeof hit.messageId === "string" ? `&message=${encodeURIComponent(hit.messageId)}` : ""}`,
-            },
-          ]
-        : [];
-    });
-    return { results, indexing: raw.indexing === true };
   }
   async cancelRevoked(space: { id: string; agentId: string }, removedUserId: string) {
     // The membership writer captured this identity while the actor was still an Owner.
     // Self-removal must not require the removed person to retain authority afterward.
     const spaceId = space.id;
-    const results = await Promise.allSettled(
-      this.spaces.revokedRuns(spaceId, removedUserId).map((row) =>
-        this.gateway.request("chat.abort", {
-          agentId: space.agentId,
-          sessionKey: this.key(space.agentId, row.page_id),
-          runId: row.run_id,
+    let afterRunId: string | undefined;
+    let incomplete = false;
+    // Keyset paging visits new requests even when earlier failed cancellations
+    // remain pending. Successful native acknowledgements retire their tombstones.
+    for (;;) {
+      const runs = this.spaces.revokedRuns(spaceId, removedUserId, afterRunId);
+      if (!runs.length) {
+        break;
+      }
+      const results = await Promise.allSettled(
+        runs.map(async (row) => {
+          const result = await this.gateway.request("chat.abort", {
+            agentId: space.agentId,
+            sessionKey: this.key(space.agentId, row.page_id),
+            runId: row.run_id,
+          });
+          if (!isRecord(result) || result.ok !== true || typeof result.aborted !== "boolean") {
+            throw new ControlPlaneStateError("Conversation cancellation outcome unavailable");
+          }
+          // aborted=false is the native owner's acknowledgement that no matching work remains.
+          this.spaces.finishRun(row.run_id, row.page_id);
         }),
-      ),
-    );
-    if (results.some((result) => result.status === "rejected")) {
+      );
+      incomplete ||= results.some((result) => result.status === "rejected");
+      afterRunId = runs.at(-1)!.run_id;
+    }
+    if (incomplete) {
       throw new ControlPlaneStateError(
         "Access removed; some running requests could not be stopped. Retry removal to stop remaining work.",
       );

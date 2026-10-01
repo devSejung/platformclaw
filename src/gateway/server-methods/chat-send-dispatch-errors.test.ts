@@ -5,7 +5,7 @@ import { createChatRunState } from "../server-chat-state.js";
 import { createChatSendDispatchErrorLifecycle } from "./chat-send-dispatch-errors.js";
 
 describe("createChatSendDispatchErrorLifecycle", () => {
-  it("terminalizes an admitted queued followup as successful despite later dispatch failure", async () => {
+  it("retains queued admission despite later dispatch failure", async () => {
     const broadcast = vi.fn();
     const cleanupAdmittedRun = vi.fn();
     const removeChatRun = vi.fn();
@@ -56,11 +56,11 @@ describe("createChatSendDispatchErrorLifecycle", () => {
     );
     expect(dedupe.get("chat:run-1")).toMatchObject({
       ok: true,
-      payload: { runId: "run-1", status: "ok" },
+      payload: { runId: "run-1", status: "in_flight" },
     });
     expect(broadcast).toHaveBeenCalledWith(
       "chat",
-      expect.objectContaining({ runId: "run-1", state: "final" }),
+      expect.objectContaining({ runId: "run-1", state: "final", queuePhase: "deferred" }),
       { sessionKeys: ["agent:main:main"] },
     );
     expect(cleanupAdmittedRun).toHaveBeenCalledOnce();

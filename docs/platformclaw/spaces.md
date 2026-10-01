@@ -24,7 +24,11 @@ this Space; they do not change organization administration or personal tools.
 - Editors create and edit issue Pages and send shared questions.
 - Viewers read Pages, conversation history, and search results.
 
-Create an issue Page and optionally create child issues underneath it. Each
+The left sidebar holds Spaces and issue conversations. The center shows the
+conversation with its composer pinned below. Open **Notes** for the issue
+context and editing, or **Members and access** for membership.
+
+Create an issue Page and optionally create child issues from its Notes panel. Each
 Page has an independent OpenClaw conversation. Its notes and conversation are
 shared from the start with all Space members; sending inside the Space does
 not require a separate publication confirmation. Inviting a member grants
@@ -44,6 +48,15 @@ The control plane owns Space membership and the Page-to-session binding. Each
 Space has a managed logical agent, not a new VM or model server. A Page maps to
 one session under that agent. Questions use the existing follow-up queue so
 separate senders do not deliberately merge input into an active model turn.
+Queued questions retain the admitted employee request identity until the native
+queue settles, including during their later execution. Queue-admission `final`
+events are not treated as completion for authorization or revocation.
+The configured native queue limit still applies (20 pending questions by default).
+Spaces reject a full queue rather than dropping or summarizing questions under a
+different identity. A send acknowledgment can precede this asynchronous rejection;
+the shared conversation reports failure and the question can be resent after a
+pending answer finishes. The separate 200-request Space admission limit is not a
+promise of 200 queue slots on one Page.
 
 Space agents have a dedicated workspace, no personal bootstrap context, no
 skills, no personal Memory search, and only the `space_search` and `space_get`
@@ -55,7 +68,11 @@ Browser Gateway ownership checks remain intact.
 The normal deployed Wiki Hub/internal execution-handoff service is required for
 Space-agent context and recall. The Space UI can manage Pages without it, but
 conversation submission fails explicitly until that existing service is
-configured. No new credential or separate database service is introduced.
+configured. Managed deployment seeds and reconciles the read-only Space tools
+into personal-agent sandbox policy. Its restart validator permits only the
+strict managed read-only Space shape outside the execution sandbox; personal
+and room agents retain their execution isolation. No new credential or
+separate database service is introduced.
 Models use the Gateway configuration; this feature does not pin a model family
 or import a creator's personal provider account.
 
@@ -69,10 +86,14 @@ contains a verified profile identity; missing attribution remains unknown.
 An AI response is not marked as a human-verified solution.
 
 Search reuses the existing session index. An indexing indication means recent
-messages can still be absent. Page text also participates in browser/personal
-search. Model context is bounded: at most 8,000 Page characters and eight
-1,200-character message excerpts are returned by issue reads, with truncation
-indicated. These user-authored issue excerpts are necessary shared context,
+messages can still be absent. Page notes also participate in browser, personal-agent, and Space-agent
+search, including Pages without a conversation. Note matches include surrounding
+text and a revision-pinned position. Model context is bounded: issue reads return
+at most 8,000 Page characters and eight 1,200-character message excerpts. When
+`nextBodyOffset` is present, continue with that `bodyOffset` and the returned
+Page `revision` as `pageRevision`. If the Page changes, restart from offset zero
+to avoid combining different revisions. Conversation excerpts still indicate
+truncation. These user-authored issue excerpts are necessary shared context,
 not authority to execute tools. The Web history view loads a bounded window;
 source links can request an older anchored window.
 

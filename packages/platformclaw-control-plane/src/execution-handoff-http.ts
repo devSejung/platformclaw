@@ -48,8 +48,16 @@ export function parseSpaceReadRequest(
     "sessionKey",
     "runId",
     "messageId",
+    "bodyOffset",
+    "pageRevision",
   ]);
   if (
+    (body.bodyOffset !== undefined &&
+      (!Number.isSafeInteger(body.bodyOffset) ||
+        (body.bodyOffset as number) < 0 ||
+        (body.bodyOffset as number) > 32000)) ||
+    (body.pageRevision !== undefined &&
+      (!Number.isSafeInteger(body.pageRevision) || (body.pageRevision as number) < 1)) ||
     !["search", "get", "context"].includes(String(body.operation)) ||
     Object.keys(body).some((key) => !allowed.has(key)) ||
     ["query", "spaceId", "pageId", "sessionKey", "runId", "messageId"].some(
@@ -69,6 +77,8 @@ export function parseSpaceReadRequest(
     ...(body.sessionKey === undefined ? {} : { sessionKey: body.sessionKey as string }),
     ...(body.runId === undefined ? {} : { runId: body.runId as string }),
     ...(body.messageId === undefined ? {} : { messageId: body.messageId as string }),
+    ...(body.bodyOffset === undefined ? {} : { bodyOffset: body.bodyOffset as number }),
+    ...(body.pageRevision === undefined ? {} : { pageRevision: body.pageRevision as number }),
   };
 }
 
@@ -647,20 +657,25 @@ export class PlatformClawExecutionHandoffServer {
         return;
       }
       if (
-        req.url?.split("?")[0] === PLATFORMCLAW_VAULT_WIKI_PATH &&
+        [PLATFORMCLAW_VAULT_WIKI_PATH, SPACE_READ_PATH].includes(req.url?.split("?")[0] ?? "") &&
         (error instanceof ControlPlaneStateError ||
           error instanceof ControlPlaneConflictError ||
           error instanceof ControlPlaneAuthorizationError)
       ) {
+        const isSpace = req.url?.split("?")[0] === SPACE_READ_PATH;
+        const prefix = isSpace ? "space" : "wiki";
+        const code =
+          error instanceof ControlPlaneAuthorizationError
+            ? "forbidden"
+            : error instanceof ControlPlaneConflictError
+              ? "conflict"
+              : "invalid";
         sendJson(res, 409, {
           error: error.message.slice(0, 500),
-          code:
-            error instanceof ControlPlaneAuthorizationError
-              ? "wiki-forbidden"
-              : error instanceof ControlPlaneConflictError
-                ? "wiki-conflict"
-                : "wiki-invalid",
-          action: "Check Wiki access and read the current document before retrying a write.",
+          code: `${prefix}-${code}`,
+          action: isSpace
+            ? "Check Space access and restart the page read at bodyOffset 0 without pageRevision."
+            : "Check Wiki access and read the current document before retrying a write.",
         });
         return;
       }

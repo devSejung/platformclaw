@@ -156,6 +156,12 @@ type OpenClawPluginAgentApi = {
 };
 
 type OpenClawPluginRunContextApi = {
+  /** Stable ingress identity for an individual followup; requires the matching runtime owner. */
+  resolveAdmissionId: (context: {
+    runId?: string;
+    agentId?: string;
+    sessionKey?: string;
+  }) => string | undefined;
   /** Store namespaced, JSON-compatible data for the active run. Cleared on run end/error. */
   setRunContext: (patch: PluginRunContextPatch) => boolean;
   /** Read namespaced plugin data for a run. */

@@ -153,6 +153,7 @@ async function executeAgentTurnInternalWithRetryState(
   let lifecycleGeneration = captureAgentRunLifecycleGeneration(runId);
   if (params.sessionKey) {
     registerAgentRunContext(runId, {
+      admissionRunId: params.followupRun.run.admissionRunId,
       sessionKey: params.sessionKey,
       ...(params.followupRun.run.sessionId ? { sessionId: params.followupRun.run.sessionId } : {}),
       agentId: params.followupRun.run.agentId,

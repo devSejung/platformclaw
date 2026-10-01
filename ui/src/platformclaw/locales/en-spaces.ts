@@ -48,4 +48,22 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.runFailed": "The shared answer failed. Retry your question.",
   "platformClaw.spaces.indexing": "Search is still indexing; recent conversations may be missing.",
   "platformClaw.spaces.latest": "Back to latest messages",
+  "platformClaw.spaces.pages": "Spaces and conversations",
+  "platformClaw.spaces.openNavigation": "Browse Spaces and conversations",
+  "platformClaw.spaces.closeNavigation": "Back to conversation",
+  "platformClaw.spaces.searchResults": "Search results",
+  "platformClaw.spaces.notes": "Notes",
+  "platformClaw.spaces.closePanel": "Close panel",
+  "platformClaw.spaces.startConversation": "Start the conversation",
+  "platformClaw.spaces.conversationHint":
+    "Ask a question or share an update. Everyone in this Space can follow along.",
+  "platformClaw.spaces.sharedConversation": "Shared with your Space",
+  "platformClaw.spaces.spaceHint":
+    "Bring the right people together around a project. You can invite members after creating it.",
+  "platformClaw.spaces.notesHint":
+    "Keep the brief, decisions, and useful context alongside this conversation.",
+  "platformClaw.spaces.emptyNotes": "Add a brief or capture the decisions that matter.",
+  "platformClaw.spaces.choosePage": "Choose a conversation or start an issue for your team.",
+  "platformClaw.spaces.startIssue": "Start an issue",
+  "platformClaw.spaces.startSpace": "Create your first Space",
 };

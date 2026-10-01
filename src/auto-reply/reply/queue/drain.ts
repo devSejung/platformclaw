@@ -920,7 +920,7 @@ export function createOverflowSummaryRetrySource(source: FollowupRun): FollowupR
     ...(source.currentInboundEventKind === "room_event"
       ? { currentInboundEventKind: "room_event" }
       : {}),
-    run: source.run,
+    run: { ...source.run, admissionRunId: undefined },
   };
 }
 
@@ -974,7 +974,7 @@ async function runSyntheticOverflowSummary(params: {
     transcriptPrompt: params.prompt,
     messageId: params.source.messageId,
     userTurnTranscriptRecorder,
-    run: params.source.run,
+    run: { ...params.source.run, admissionRunId: undefined },
     enqueuedAt: Date.now(),
     abortSignal: params.abortSignal,
     onReplyAdmissionWaitChange: collectRuntimeMetadata(params.sources).onReplyAdmissionWaitChange,

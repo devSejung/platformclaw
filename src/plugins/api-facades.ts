@@ -28,6 +28,8 @@ type PluginApiFacadeSource = Pick<
 /** Attaches nested facade namespaces to the flat plugin API implementation. */
 export function attachPluginApiFacades<T extends object>(
   api: T & PluginApiFacadeSource & Partial<PluginApiFacadeFields>,
+  resolveAdmissionId: OpenClawPluginApi["runContext"]["resolveAdmissionId"] = api.runContext
+    ?.resolveAdmissionId ?? (() => undefined),
 ): T & PluginApiFacadeFields {
   api.session = {
     state: {
@@ -52,6 +54,7 @@ export function attachPluginApiFacades<T extends object>(
     },
   };
   api.runContext = {
+    resolveAdmissionId,
     setRunContext: (...args) => api.setRunContext(...args),
     getRunContext: (...args) => api.getRunContext(...args),
     clearRunContext: (...args) => api.clearRunContext(...args),

@@ -37,6 +37,7 @@ type ChatSendRequestParams = {
   fastMode?: FastMode;
   fastAutoOnSeconds?: number;
   queueMode?: QueueMode;
+  rejectQueueOverflow?: boolean;
   deliver?: boolean;
   originatingChannel?: string;
   originatingTo?: string;

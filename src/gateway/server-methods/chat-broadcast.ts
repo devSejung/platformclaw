@@ -68,6 +68,7 @@ export function broadcastChatFinal(params: {
   sessionKey: string;
   agentId?: string;
   message?: Record<string, unknown>;
+  queuePhase?: "deferred" | "settled";
 }): void {
   const seq = nextChatSeq(params.context, params.runId);
   const payloadAgentId = params.sessionKey === "global" ? params.agentId : undefined;
@@ -77,6 +78,7 @@ export function broadcastChatFinal(params: {
     ...(payloadAgentId ? { agentId: payloadAgentId } : {}),
     seq,
     state: "final" as const,
+    ...(params.queuePhase ? { queuePhase: params.queuePhase } : {}),
     message: projectChatDisplayMessage(params.message),
   };
   params.context.broadcast("chat", payload, {

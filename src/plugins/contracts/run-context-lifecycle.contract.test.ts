@@ -7,6 +7,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withTempConfig } from "../../gateway/test-temp-config.js";
 import { emitAgentEvent, resetAgentEventsForTest } from "../../infra/agent-events.js";
+import { registerAgentRunContext } from "../../infra/agent-run-registry.js";
 import { loadSessionStore, updateSessionStore } from "../../plugin-sdk/session-store-runtime.js";
 import { createOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { runPluginHostCleanup } from "../host-hook-cleanup.js";
@@ -81,6 +82,18 @@ describe("plugin run context lifecycle", () => {
     });
     setActivePluginRegistry(registry.registry);
 
+    registerAgentRunContext("followup-run", {
+      agentId: "main",
+      sessionKey: "agent:main:main",
+      admissionRunId: "source-request",
+    });
+    expect(
+      capturedApi?.runContext.resolveAdmissionId({
+        runId: "followup-run",
+        agentId: "main",
+        sessionKey: "agent:main:main",
+      }),
+    ).toBe("source-request");
     capturedApi?.registerGatewayMethod("late-run-context.blocked", () => {});
     expect(Object.keys(registry.registry.gatewayHandlers)).not.toContain(
       "late-run-context.blocked",
@@ -124,6 +137,7 @@ describe("plugin run context lifecycle", () => {
     });
     setActivePluginRegistry(registry.registry);
     setActivePluginRegistry(createEmptyPluginRegistry());
+    expect(capturedApi?.runContext.resolveAdmissionId({ runId: "old-run" })).toBeUndefined();
 
     expect(
       capturedApi?.runContext?.setRunContext({
