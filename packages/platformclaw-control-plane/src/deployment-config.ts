@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { JiraVocConfig } from "./browser-voc-http.js";
 import { normalizeEmployeeSsoLoginUrl, type EmployeeSsoConfig } from "./employee-sso.js";
 import { ExecCredentialCipher } from "./exec-credential-crypto.js";
+import type { PlatformClawGuideVideoS3Config } from "./guide-video-s3.js";
 import { parseJiraVocConfig } from "./jira-voc-config.js";
 import { McpCredentialCipher } from "./mcp-credential-crypto.js";
 import { SshCredentialCipher } from "./ssh-credential-crypto.js";
@@ -11,10 +12,18 @@ const DEFAULT_LISTEN_HOST = "127.0.0.1";
 const DEFAULT_LISTEN_PORT = 19_001;
 const MAX_SECRET_FILE_BYTES = 16 * 1024;
 const DEFAULT_SKILL_HUB_MAX_PACKAGE_BYTES = 10 * 1024 * 1024;
+const DEFAULT_GUIDE_VIDEO_S3_REGION = "us-east-1";
 
 export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   publicOrigin: "PLATFORMCLAW_PUBLIC_ORIGIN",
   guideVideoUrl: "PLATFORMCLAW_GUIDE_VIDEO_URL",
+  guideVideoS3Endpoint: "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT",
+  guideVideoS3Region: "PLATFORMCLAW_GUIDE_VIDEO_S3_REGION",
+  guideVideoS3Bucket: "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET",
+  guideVideoS3Key: "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY",
+  guideVideoS3AccessKeyFile: "PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE",
+  guideVideoS3SecretKeyFile: "PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE",
+  guideVideoS3ForcePathStyle: "PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE",
   listenHost: "PLATFORMCLAW_LISTEN_HOST",
   listenPort: "PLATFORMCLAW_LISTEN_PORT",
   databasePath: "PLATFORMCLAW_DATABASE_PATH",
@@ -42,6 +51,7 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
 export type PlatformClawDeploymentConfig = {
   publicOrigin: string;
   guideVideoUrl?: string;
+  guideVideoS3?: PlatformClawGuideVideoS3Config;
   listenHost: string;
   listenPort: number;
   databasePath: string;
@@ -111,6 +121,107 @@ function parseGuideVideoUrl(raw: string | undefined): string | undefined {
     );
   }
   return url.toString();
+}
+
+function parseOptionalBoolean(raw: string | undefined, name: string, fallback: boolean): boolean {
+  const value = raw?.trim().toLowerCase();
+  if (!value) {
+    return fallback;
+  }
+  if (value === "true" || value === "1") {
+    return true;
+  }
+  if (value === "false" || value === "0") {
+    return false;
+  }
+  throw new Error(`${name} must be true or false`);
+}
+
+function parseGuideVideoS3Endpoint(raw: string, name: string): string {
+  let endpoint: URL;
+  try {
+    endpoint = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be an HTTP(S) origin`);
+  }
+  if (
+    (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.pathname !== "/" ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
+    throw new Error(`${name} must be an HTTP(S) origin`);
+  }
+  return endpoint.origin;
+}
+
+function loadGuideVideoS3Config(
+  env: NodeJS.ProcessEnv,
+): PlatformClawGuideVideoS3Config | undefined {
+  const endpoint = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint]?.trim();
+  const region = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Region]?.trim();
+  const bucket = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket]?.trim();
+  const key = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key]?.trim();
+  const accessKeyFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile]?.trim();
+  const secretKeyFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile]?.trim();
+  const forcePathStyleRaw = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3ForcePathStyle]?.trim();
+  // Region, secret-file paths, and path-style have harmless deployment defaults;
+  // only the endpoint/bucket/key triplet opts the deployment into private S3 mode.
+  if (!endpoint && !bucket && !key) {
+    return undefined;
+  }
+  if (!endpoint || !bucket || !key || !accessKeyFile || !secretKeyFile) {
+    throw new Error(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint}, ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket}, ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key}, ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile}, and ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile} must be set together`,
+    );
+  }
+  let invalidBucket = false;
+  for (const character of bucket) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (
+      character === "/" ||
+      character === "\\" ||
+      /\s/u.test(character) ||
+      codePoint < 0x20 ||
+      codePoint === 0x7f
+    ) {
+      invalidBucket = true;
+      break;
+    }
+  }
+  if (invalidBucket) {
+    throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket} is invalid`);
+  }
+  const normalizedKey = key.replace(/^\/+/, "");
+  if (!normalizedKey) {
+    throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key} is empty`);
+  }
+  const accessKeyId = readDeploymentSecret(
+    accessKeyFile,
+    PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile,
+  );
+  const secretAccessKey = readDeploymentSecret(
+    secretKeyFile,
+    PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile,
+  );
+  if (/\s/u.test(accessKeyId)) {
+    throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile} is invalid`);
+  }
+  return {
+    endpoint: parseGuideVideoS3Endpoint(endpoint, PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint),
+    region: region || DEFAULT_GUIDE_VIDEO_S3_REGION,
+    bucket,
+    key: normalizedKey,
+    accessKeyId,
+    secretAccessKey,
+    forcePathStyle: parseOptionalBoolean(
+      forcePathStyleRaw,
+      PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3ForcePathStyle,
+      true,
+    ),
+  };
 }
 
 function parseGatewayUrl(raw: string): { websocketUrl: string; adminRpcUrl: string } {
@@ -289,6 +400,12 @@ export function loadPlatformClawDeploymentConfig(
     requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin),
   );
   const guideVideoUrl = parseGuideVideoUrl(env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl]);
+  const guideVideoS3 = loadGuideVideoS3Config(env);
+  if (guideVideoUrl && guideVideoS3) {
+    throw new Error(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl} cannot be combined with private S3 guide video settings`,
+    );
+  }
   const gateway = parseGatewayUrl(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.gatewayUrl));
   const initialAdminAccountIds = parseInitialAdminAccountIds(
     readDeploymentSecret(
@@ -316,6 +433,7 @@ export function loadPlatformClawDeploymentConfig(
   return {
     publicOrigin,
     ...(guideVideoUrl ? { guideVideoUrl } : {}),
+    ...(guideVideoS3 ? { guideVideoS3 } : {}),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,
     listenPort,
     databasePath: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.databasePath)),

@@ -461,6 +461,219 @@ exec bash "$1" config --format json
     }
   });
 
+  it.runIf(
+    process.platform !== "win32" &&
+      spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0,
+  )("connects optional private guide S3 through the production Compose wrapper", () => {
+    const root = tempDirs.make("platformclaw-guide-s3-compose-");
+    const envFile = path.join(root, "deployment.env");
+    const wrapper = path.resolve("docker/platformclaw-runtime/platformclaw-compose");
+    const baseEnvironment = [
+      "PLATFORMCLAW_PUBLIC_ORIGIN=https://platformclaw.example.test",
+      "PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL=https://auth.example.test/login",
+      "PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL=https://auth.example.test/adsso",
+      "PLATFORMCLAW_KNOX_CDEP_URL=https://cdep.example.test/outbound",
+      ...[
+        "EMPLOYEE_AUTH_CA_FILE",
+        "EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE",
+        "GATEWAY_TOKEN_SECRET_FILE",
+        "GATEWAY_SERVICE_IDENTITY_SECRET_FILE",
+        "EXECUTION_SERVICE_TOKEN_SECRET_FILE",
+        "INITIAL_ADMIN_IDS_SECRET_FILE",
+        "KNOX_WEBHOOK_SECRET_SECRET_FILE",
+        "KNOX_SERVICE_TOKEN_SECRET_FILE",
+        "SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE",
+      ].map((key) => `PLATFORMCLAW_${key}=${root}/secret`),
+    ];
+    const script = String.raw`
+getent() { printf 'platformclaw:x:1000:1000::%s:/bin/bash\n' "$PLATFORMCLAW_TEST_HOME"; }
+id() { printf '1000\n'; }
+export -f getent id
+exec bash "$1" config --format json
+`;
+
+    for (const entry of [
+      { enabled: false, settings: [] },
+      {
+        enabled: true,
+        settings: [
+          "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.internal.example",
+          "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
+          "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guides/platformclaw-guide.mp4",
+          "PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=ap-northeast-2",
+          "PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=true",
+        ],
+      },
+    ]) {
+      writeFileSync(envFile, [...baseEnvironment, ...entry.settings, ""].join("\n"), "utf8");
+      const result = spawnSync("bash", ["-ceu", script, "--", wrapper], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PLATFORMCLAW_TEST_HOME: root,
+          PLATFORMCLAW_DEPLOY_ROOT: root,
+          PLATFORMCLAW_ENV_FILE: envFile,
+          // deployment.env owns S3 selection; ambient values must not enable it.
+          PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT: "https://ambient.example.test",
+          PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET: "ambient",
+          PLATFORMCLAW_GUIDE_VIDEO_S3_KEY: "ambient.mp4",
+        },
+      });
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      const config = JSON.parse(result.stdout) as {
+        services: Record<
+          string,
+          {
+            environment: Record<string, string>;
+            volumes?: Array<{
+              source: string;
+              target: string;
+              read_only: boolean;
+              bind?: { create_host_path?: boolean };
+            }>;
+          }
+        >;
+      };
+      const control = config.services["platformclaw-control"]!;
+      if (!entry.enabled) {
+        expect(control.environment.PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT).toBeUndefined();
+        expect(
+          control.volumes?.some((volume) => volume.source.includes("guide-video-s3")) ?? false,
+        ).toBe(false);
+        continue;
+      }
+      expect(control.environment).toMatchObject({
+        PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT: "https://s3.internal.example",
+        PLATFORMCLAW_GUIDE_VIDEO_S3_REGION: "ap-northeast-2",
+        PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET: "platformclaw-media",
+        PLATFORMCLAW_GUIDE_VIDEO_S3_KEY: "guides/platformclaw-guide.mp4",
+        PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE:
+          "/run/secrets/platformclaw_guide_video_s3_access_key",
+        PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE:
+          "/run/secrets/platformclaw_guide_video_s3_secret_key",
+        PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE: "true",
+      });
+      const accessMount = control.volumes?.find((volume) =>
+        volume.source.endsWith("/secrets/guide-video-s3-access-key"),
+      );
+      const secretMount = control.volumes?.find((volume) =>
+        volume.source.endsWith("/secrets/guide-video-s3-secret-key"),
+      );
+      expect(accessMount).toMatchObject({
+        source: `${root}/secrets/guide-video-s3-access-key`,
+        target: "/run/secrets/platformclaw_guide_video_s3_access_key",
+        read_only: true,
+      });
+      expect(secretMount).toMatchObject({
+        source: `${root}/secrets/guide-video-s3-secret-key`,
+        target: "/run/secrets/platformclaw_guide_video_s3_secret_key",
+        read_only: true,
+      });
+      expect(accessMount?.bind?.create_host_path ?? false).toBe(false);
+      expect(secretMount?.bind?.create_host_path ?? false).toBe(false);
+    }
+
+    writeFileSync(
+      envFile,
+      [
+        ...baseEnvironment,
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.internal.example",
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guide.mp4",
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE=/run/secrets/guide-s3-access-key",
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE=/run/secrets/guide-s3-secret-key",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const customTarget = spawnSync("bash", ["-ceu", script, "--", wrapper], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PLATFORMCLAW_TEST_HOME: root,
+        PLATFORMCLAW_DEPLOY_ROOT: root,
+        PLATFORMCLAW_ENV_FILE: envFile,
+      },
+    });
+    expect(customTarget.status, customTarget.stderr || customTarget.stdout).toBe(0);
+    const customConfig = JSON.parse(customTarget.stdout) as {
+      services: Record<
+        string,
+        { volumes?: Array<{ source: string; target: string; read_only: boolean }> }
+      >;
+    };
+    const customVolumes = customConfig.services["platformclaw-control"]?.volumes ?? [];
+    expect(
+      customVolumes.find((volume) => volume.source.endsWith("/guide-video-s3-access-key")),
+    ).toMatchObject({
+      target: "/run/secrets/guide-s3-access-key",
+      read_only: true,
+    });
+    expect(
+      customVolumes.find((volume) => volume.source.endsWith("/guide-video-s3-secret-key")),
+    ).toMatchObject({
+      target: "/run/secrets/guide-s3-secret-key",
+      read_only: true,
+    });
+
+    for (const invalidSettings of [
+      [
+        'PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=""',
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guide.mp4",
+      ],
+      [
+        "PLATFORMCLAW_GUIDE_VIDEO_URL=https://cdn.example.test/guide.mp4",
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.internal.example",
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guide.mp4",
+      ],
+    ]) {
+      writeFileSync(envFile, [...baseEnvironment, ...invalidSettings, ""].join("\n"), "utf8");
+      const invalid = spawnSync("bash", ["-ceu", script, "--", wrapper], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PLATFORMCLAW_TEST_HOME: root,
+          PLATFORMCLAW_DEPLOY_ROOT: root,
+          PLATFORMCLAW_ENV_FILE: envFile,
+        },
+      });
+      expect(invalid.status).not.toBe(0);
+      expect(invalid.stderr).toMatch(/Private guide S3 requires|cannot be combined/u);
+    }
+
+    writeFileSync(
+      envFile,
+      [
+        ...baseEnvironment,
+        'PLATFORMCLAW_GUIDE_VIDEO_URL="   "',
+        'PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT="   "',
+        'PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET="   "',
+        'PLATFORMCLAW_GUIDE_VIDEO_S3_KEY="   "',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const quotedDisabled = spawnSync("bash", ["-ceu", script, "--", wrapper], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PLATFORMCLAW_TEST_HOME: root,
+        PLATFORMCLAW_DEPLOY_ROOT: root,
+        PLATFORMCLAW_ENV_FILE: envFile,
+      },
+    });
+    expect(quotedDisabled.status, quotedDisabled.stderr || quotedDisabled.stdout).toBe(0);
+    const quotedConfig = JSON.parse(quotedDisabled.stdout) as {
+      services: Record<string, { environment: Record<string, string> }>;
+    };
+    expect(
+      quotedConfig.services["platformclaw-control"]?.environment
+        .PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT,
+    ).toBeUndefined();
+  });
+
   it("embeds SkillHub v0.2.16 as an internal, persistent, health-gated profile", () => {
     const compose = parse(
       readRepoFile("docker/platformclaw-runtime/compose.yaml"),
@@ -568,6 +781,7 @@ exec bash "$1" config --format json
     const releasePrepare = readRepoFile(
       ".agents/skills/release-platformclaw/scripts/prepare-release.mjs",
     );
+    expect(releasePrepare).toContain('["compose.guide-video-s3.yaml", false]');
     expect(releasePrepare).toContain('["SKILLHUB-LICENSE.txt", false]');
     expect(releasePrepare).toContain('["SKILLHUB-NOTICE.md", false]');
     expect(readRepoFile("docker/platformclaw-runtime/SKILLHUB-NOTICE.md")).toContain(
@@ -1534,6 +1748,9 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(deploy).toContain("Legacy migration requires one administrator run");
     expect(deploy).toContain("--employee-auth-login-url");
     expect(deploy).toContain("validate_deployment_env");
+    expect(deploy).toContain("require_guide_video_s3_credentials");
+    expect(deploy).toContain("Missing private guide S3 credential");
+    expect(deploy).toContain('compose_environment="$("${compose[@]}" config --environment)"');
     expect(deploy).toContain('image inspect "$sandbox_image"');
     expect(deploy).toContain("PLATFORMCLAW_INITIAL_ADMIN_IDS_SOURCE");
     expect(deploy).toContain("Initial admin IDs source has no account ID");
@@ -1593,6 +1810,7 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(prepareRuntimeLayout.indexOf("reconcile_skillhub_environment")).toBeLessThan(
       prepareRuntimeLayout.indexOf("validate_deployment_env"),
     );
+    expect(prepareRuntimeLayout).toContain("require_guide_video_s3_credentials");
     const prepareImageUpdateRuntimeFiles = deploy.slice(
       deploy.indexOf("prepare_image_update_runtime_files()"),
       deploy.indexOf("require_gateway_restore_access()"),

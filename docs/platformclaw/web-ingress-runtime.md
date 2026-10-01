@@ -253,6 +253,13 @@ The process requires these deployment-owned values:
 | ---------------------------------------------- | ------------------------------------------ |
 | `PLATFORMCLAW_PUBLIC_ORIGIN`                   | Exact browser HTTP(S) origin               |
 | `PLATFORMCLAW_GUIDE_VIDEO_URL`                 | Optional server-reachable guide MP4/S3 URL |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT`         | Optional private S3-compatible endpoint    |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_REGION`           | S3 signing region; defaults to `us-east-1` |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET`           | Private guide-video bucket                 |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_KEY`              | Private guide-video object key             |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE`  | Mounted S3 Access Key file                 |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE`  | Mounted S3 Secret Key file                 |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE` | Path-style addressing; defaults to `true`  |
 | `PLATFORMCLAW_LISTEN_HOST`                     | Listener host; defaults to `127.0.0.1`     |
 | `PLATFORMCLAW_LISTEN_PORT`                     | Listener port; defaults to `19001`         |
 | `PLATFORMCLAW_DATABASE_PATH`                   | Persistent control-plane SQLite path       |
@@ -278,28 +285,29 @@ personal-agent provisioning. The control process derives that HTTP endpoint
 from the Gateway origin on the internal Docker backplane. It does not accept a
 second endpoint or token that could drift from the WebSocket connection.
 
-`PLATFORMCLAW_GUIDE_VIDEO_URL` is optional. A blank value keeps the login page
-unchanged. When configured, the control process validates an HTTP(S) URL without
-embedded credentials but does not expose that upstream to the browser. Login
-HTML receives only the same-origin `/platformclaw/guide/video` source and the
-application document/CSP remain unchanged. The public handler relays GET, HEAD,
-Range, and If-Range requests to the configured upstream and follows HTTP(S)
-redirects server-side only when they stay on the configured upstream origin;
-cross-origin redirects fail closed. The outbound guide-media hop uses Node core `http(s)`
-with `agent:false`; it intentionally does not consume `HTTP_PROXY`,
-`HTTPS_PROXY`, `ALL_PROXY`, or `NO_PROXY`. This guarantees that internal S3
-traffic does not traverse a deployment proxy. The upstream only has to be
-reachable from the Control container. An HTTP internal upstream is valid behind
-an HTTPS public login because the browser only talks to the same-origin HTTPS
-endpoint. The relay forces `Cache-Control: no-store` even when the upstream
-advertises a cacheable response. Storage credentials must remain server-side;
-do not encode an access key or secret in the URL. URL-only mode does not
-currently implement S3 Access Key signing. The same-origin guide endpoint is
-intentionally available before login, so its configured video bytes are readable
-by anyone who can reach the login page even if a future backing object is private.
-Compose deployments must recreate
-`platformclaw-control` after changing the value; restarting the existing
-container does not apply a changed environment.
+The guide supports two mutually exclusive sources. `PLATFORMCLAW_GUIDE_VIDEO_URL`
+configures an unsigned HTTP(S) upstream. Private S3 mode instead uses the
+`PLATFORMCLAW_GUIDE_VIDEO_S3_*` settings, reads Access Key and Secret Key values
+from bounded regular secret files, constructs the configured bucket/object URL,
+and signs each GET/HEAD request with AWS Signature Version 4. Region defaults to
+`us-east-1`; `FORCE_PATH_STYLE` defaults to `true` for internal S3-compatible
+deployments. Login HTML receives only the same-origin `/platformclaw/guide/video`
+source and never contains the upstream S3 URL or credentials.
+
+The public handler relays GET, HEAD, Range, and If-Range requests and follows
+HTTP(S) redirects server-side only when they stay on the configured upstream
+origin for unsigned URL mode; cross-origin redirects fail closed. Signed private
+S3 mode rejects every redirect so SigV4 is never recomputed over redirect-supplied
+path bytes. The outbound guide-media hop uses
+Node core `http(s)` with `agent:false`; it intentionally does not consume
+`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, or `NO_PROXY`. This guarantees that
+internal S3 traffic does not traverse a deployment proxy. The upstream only has
+to be reachable from the Control container. The relay forces `Cache-Control:
+no-store` even when the upstream advertises a cacheable response. The same-origin
+guide endpoint is intentionally available before login, so its configured video
+bytes are readable by anyone who can reach the login page even when the backing
+S3 object is private. Compose deployments must recreate `platformclaw-control`
+after changing guide configuration or credentials.
 
 Initial administrator IDs, the Gateway operator token, and the SSH credential
 master key are read from bounded regular files. Production mounts those files

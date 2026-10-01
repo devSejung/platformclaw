@@ -265,6 +265,48 @@ require_adsso_secret() {
   fi
 }
 
+trim_env_value() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+require_guide_video_s3_credentials() {
+  local compose_environment endpoint bucket key guide_url
+  # Use the same Compose dotenv parser as platformclaw-compose so quoted blanks
+  # and escapes cannot make preflight disagree with the container environment.
+  compose_environment="$("${compose[@]}" config --environment)"
+  endpoint="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=//p' <<<"$compose_environment" | tail -n 1)")"
+  bucket="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=//p' <<<"$compose_environment" | tail -n 1)")"
+  key="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=//p' <<<"$compose_environment" | tail -n 1)")"
+  guide_url="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_URL=//p' <<<"$compose_environment" | tail -n 1)")"
+  if [[ -z "$endpoint" && -z "$bucket" && -z "$key" ]]; then
+    return 0
+  fi
+  if [[ -z "$endpoint" || -z "$bucket" || -z "$key" ]]; then
+    echo "Private guide S3 requires endpoint, bucket, and key together in $env_file." >&2
+    exit 1
+  fi
+  if [[ -n "$guide_url" ]]; then
+    echo "PLATFORMCLAW_GUIDE_VIDEO_URL cannot be combined with private S3 guide settings." >&2
+    exit 1
+  fi
+  local name path
+  for name in guide-video-s3-access-key guide-video-s3-secret-key; do
+    path="$secret_root/$name"
+    if [[ -e "$path" && ! -r "$path" ]]; then
+      echo "Private guide S3 credential is unreadable: $path" >&2
+      exit 1
+    fi
+    if [[ ! -s "$path" ]] || ! grep -q '[^[:space:]]' "$path"; then
+      echo "Missing private guide S3 credential: $path" >&2
+      echo "Install an owner-only credential containing a non-whitespace value before updating or starting PlatformClaw." >&2
+      exit 1
+    fi
+  done
+}
+
 require_skillhub_images() {
   skillhub_enabled || return
   local key
@@ -373,6 +415,7 @@ prepare_runtime_file_layout() {
   validate_deployment_env
   provision_ca
   require_adsso_secret
+  require_guide_video_s3_credentials
 }
 
 prepare_runtime_files() {
