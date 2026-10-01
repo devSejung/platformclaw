@@ -82,11 +82,6 @@ function setRequestUserAgent(req: unknown) {
   inst.interceptors?.request?.use(setRequestUserAgent);
 }
 
-type FeishuHttpInstanceLike = Pick<
-  typeof feishuClientSdk.defaultHttpInstance,
-  "request" | "get" | "post" | "put" | "patch" | "delete" | "head" | "options"
->;
-
 function readHeader(headers: unknown, name: string): string | undefined {
   if (!isRecord(headers)) {
     return undefined;
@@ -277,7 +272,10 @@ function createFeishuHttpInstance(
   defaultTimeoutMs: number,
   configuredDomain?: FeishuDomain,
 ): Lark.HttpInstance {
-  const base: FeishuHttpInstanceLike = feishuClientSdk.defaultHttpInstance;
+  // The SDK publicly accepts its default Axios transport through the narrower
+  // HttpInstance contract. Keep our wrapper typed to that contract so Axios
+  // response-generic changes do not leak into the plugin surface.
+  const base = feishuClientSdk.defaultHttpInstance as unknown as Lark.HttpInstance;
   const customDomain =
     configuredDomain && configuredDomain !== "feishu" && configuredDomain !== "lark"
       ? new URL(configuredDomain)
