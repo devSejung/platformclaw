@@ -128,6 +128,41 @@ does not generate this shared secret. The Control container receives it as a
 read-only Docker secret and exposes neither the value nor its host path to the
 browser.
 
+### Optional login guide video
+
+Set an HTTP(S) MP4 upstream in `deployment.env` to show the guide video entry
+on the login page:
+
+```dotenv
+PLATFORMCLAW_GUIDE_VIDEO_URL=https://media.example.com/platformclaw-guide.mp4
+```
+
+Leave the value blank to hide the guide entry. The browser only loads the
+same-origin `/platformclaw/guide/video` endpoint; the configured upstream URL
+is not exposed in the pre-login HTML. Control streams `GET`/`HEAD` and Range
+requests to the configured media/S3 host over a direct Node HTTP(S) socket.
+That hop deliberately ignores `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and
+`NO_PROXY`, so an internal S3 address never traverses the deployment proxy.
+The upstream therefore needs to be reachable from the Control container, not
+from each employee browser. HTTP upstreams are valid even when the public login
+origin is HTTPS because the browser sees only the same-origin HTTPS endpoint.
+Only same-origin upstream redirects are followed; configure the final S3/media
+endpoint directly if the service redirects to a different host.
+
+Do not put an S3 access key or secret in this URL. If the S3 object requires
+credentials, this URL-only mode does not authenticate to S3 yet. Keep those
+credentials server-side and add/use a server-side signing/auth mode; never
+expose storage credentials to the login page. The guide endpoint is intentionally
+available before login, so anyone who can reach the PlatformClaw login page can
+read the configured guide bytes even if the backing S3 object itself is private.
+
+After changing this Compose environment value, recreate the Control container;
+a plain restart keeps the old environment:
+
+```bash
+./platformclaw-compose --service-user platformclaw up -d --wait --no-deps --force-recreate platformclaw-control
+```
+
 ### Optional Jira intake
 
 Set these paths in `deployment.env` to enable the VoC form:

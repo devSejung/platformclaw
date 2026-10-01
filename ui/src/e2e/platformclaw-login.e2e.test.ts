@@ -23,6 +23,7 @@ let server: ControlUiE2eServer;
 async function openLogin(
   colorScheme: "light" | "dark",
   viewport: { width: number; height: number },
+  guideVideoUrl?: string,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     colorScheme,
@@ -37,6 +38,20 @@ async function openLogin(
   await page.route("**/platformclaw/api/auth/session", async (route) => {
     await route.fulfill({ contentType: "application/json", body: '{"authenticated":false}' });
   });
+  if (guideVideoUrl) {
+    // The real ingress injects this deployment metadata; this suite owns UI behavior.
+    await page.route("**/platformclaw-login.html", async (route) => {
+      const response = await route.fetch();
+      const html = await response.text();
+      await route.fulfill({
+        response,
+        body: html.replace(
+          "<head>",
+          `<head><meta name="platformclaw-guide-video-url" content="${guideVideoUrl}">`,
+        ),
+      });
+    });
+  }
   await page.goto(`${server.baseUrl}platformclaw-login.html`);
   const identifier = page.locator('input[name="identifier"]');
   await identifier.waitFor();
@@ -75,6 +90,7 @@ describeE2e("PlatformClaw login", () => {
         const hero = page.locator("[data-login-hero] .hero");
         await hero.waitFor();
         expect(await hero.isVisible()).toBe(true);
+        expect(await page.locator("[data-login-guide]").isVisible()).toBe(false);
         expect(await page.locator("[data-login-mascot] svg").getAttribute("viewBox")).toBe(
           "0 0 66 66",
         );
@@ -118,6 +134,70 @@ describeE2e("PlatformClaw login", () => {
           "/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat",
         );
         await screenshot(page, `desktop-${mode}.png`);
+      } finally {
+        await context.close();
+      }
+    },
+  );
+
+  it.each([
+    { name: "desktop-light", mode: "light", width: 1920, height: 1080 },
+    { name: "desktop-dark", mode: "dark", width: 1440, height: 900 },
+    { name: "mobile", mode: "light", width: 390, height: 844 },
+    { name: "landscape", mode: "dark", width: 844, height: 390 },
+  ] as const)(
+    "keeps the optional video guide secondary and accessible on $name",
+    async (variant) => {
+      const guideVideoUrl = `${server.baseUrl}guide-fixture.mp4`;
+      const { context, page } = await openLogin(variant.mode, variant, guideVideoUrl);
+      try {
+        let mediaRequests = 0;
+        await page.route("**/guide-fixture.mp4", async (route) => {
+          mediaRequests += 1;
+          await route.fulfill({ status: 404, body: "Missing fixture video" });
+        });
+        const guide = page.getByRole("button", { name: "가이드 영상 보기" });
+        expect(await guide.isVisible()).toBe(true);
+        const card = await page.locator(".login-card").boundingBox();
+        const guideBox = await guide.boundingBox();
+        expect(card).not.toBeNull();
+        expect(guideBox).not.toBeNull();
+        expect(guideBox!.y).toBeGreaterThanOrEqual(card!.y + card!.height);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(variant.width);
+        expect(mediaRequests).toBe(0);
+        const account = page.locator('input[name="identifier"]');
+        await account.fill("person.one");
+        await screenshot(page, `guide-${variant.name}.png`);
+        await guide.click();
+        const dialog = page.getByRole("dialog", { name: "PlatformClaw 사용 가이드" });
+        expect(await dialog.isVisible()).toBe(true);
+        const close = page.getByRole("button", { name: "영상 닫기" });
+        expect(await close.evaluate((element) => element === document.activeElement)).toBe(true);
+        const dialogBox = await dialog.boundingBox();
+        expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
+        expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(variant.width);
+        expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(variant.height);
+        expect(await page.locator("video").evaluate((video) => video.paused)).toBe(true);
+        await expect.poll(() => page.locator("[data-login-guide-error]").isVisible()).toBe(true);
+        expect(mediaRequests).toBeGreaterThan(0);
+        const external = page.getByRole("link", { name: "새 탭에서 열기" });
+        expect(await external.getAttribute("href")).toBe(guideVideoUrl);
+        expect(await external.getAttribute("rel")).toBe("noopener noreferrer");
+        await screenshot(page, `guide-dialog-${variant.name}.png`);
+        await page.keyboard.press("Tab");
+        expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(
+          true,
+        );
+        await page.keyboard.press("Escape");
+        expect(await dialog.isVisible()).toBe(false);
+        // Native dialog close events are queued after the modal leaves the top layer.
+        await expect.poll(() => page.locator("video").getAttribute("src")).toBeNull();
+        expect(await guide.evaluate((element) => element === document.activeElement)).toBe(true);
+        expect(await account.inputValue()).toBe("person.one");
+        expect(await account.isEnabled()).toBe(true);
+        await guide.click();
+        await close.click();
+        expect(await dialog.isVisible()).toBe(false);
       } finally {
         await context.close();
       }

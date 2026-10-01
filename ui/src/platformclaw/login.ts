@@ -1,3 +1,4 @@
+import { installPlatformClawLoginGuide } from "./login-guide.ts";
 import { installPlatformClawLoginHero } from "./login-hero.ts";
 import { installPlatformClawLoginMascot } from "./login-mascot.ts";
 import {
@@ -116,6 +117,7 @@ export class PlatformClawLoginController {
   }
 
   start(): void {
+    installPlatformClawLoginGuide(this.elements.form.ownerDocument);
     installPlatformClawLoginHero(this.elements.hero);
     installPlatformClawLoginMascot(
       this.elements.mascot,

@@ -252,6 +252,7 @@ The process requires these deployment-owned values:
 | Environment variable                           | Purpose                                    |
 | ---------------------------------------------- | ------------------------------------------ |
 | `PLATFORMCLAW_PUBLIC_ORIGIN`                   | Exact browser HTTP(S) origin               |
+| `PLATFORMCLAW_GUIDE_VIDEO_URL`                 | Optional server-reachable guide MP4/S3 URL |
 | `PLATFORMCLAW_LISTEN_HOST`                     | Listener host; defaults to `127.0.0.1`     |
 | `PLATFORMCLAW_LISTEN_PORT`                     | Listener port; defaults to `19001`         |
 | `PLATFORMCLAW_DATABASE_PATH`                   | Persistent control-plane SQLite path       |
@@ -276,6 +277,29 @@ The Gateway token is shared with the private `admin-http-rpc` endpoint used for
 personal-agent provisioning. The control process derives that HTTP endpoint
 from the Gateway origin on the internal Docker backplane. It does not accept a
 second endpoint or token that could drift from the WebSocket connection.
+
+`PLATFORMCLAW_GUIDE_VIDEO_URL` is optional. A blank value keeps the login page
+unchanged. When configured, the control process validates an HTTP(S) URL without
+embedded credentials but does not expose that upstream to the browser. Login
+HTML receives only the same-origin `/platformclaw/guide/video` source and the
+application document/CSP remain unchanged. The public handler relays GET, HEAD,
+Range, and If-Range requests to the configured upstream and follows HTTP(S)
+redirects server-side only when they stay on the configured upstream origin;
+cross-origin redirects fail closed. The outbound guide-media hop uses Node core `http(s)`
+with `agent:false`; it intentionally does not consume `HTTP_PROXY`,
+`HTTPS_PROXY`, `ALL_PROXY`, or `NO_PROXY`. This guarantees that internal S3
+traffic does not traverse a deployment proxy. The upstream only has to be
+reachable from the Control container. An HTTP internal upstream is valid behind
+an HTTPS public login because the browser only talks to the same-origin HTTPS
+endpoint. The relay forces `Cache-Control: no-store` even when the upstream
+advertises a cacheable response. Storage credentials must remain server-side;
+do not encode an access key or secret in the URL. URL-only mode does not
+currently implement S3 Access Key signing. The same-origin guide endpoint is
+intentionally available before login, so its configured video bytes are readable
+by anyone who can reach the login page even if a future backing object is private.
+Compose deployments must recreate
+`platformclaw-control` after changing the value; restarting the existing
+container does not apply a changed environment.
 
 Initial administrator IDs, the Gateway operator token, and the SSH credential
 master key are read from bounded regular files. Production mounts those files

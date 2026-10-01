@@ -5,12 +5,14 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE } from "../../../src/gateway/control-ui-contract.js";
+import { PLATFORMCLAW_GUIDE_VIDEO_PATH, proxyPlatformClawGuideVideo } from "./guide-video-proxy.js";
 
 export const PLATFORMCLAW_WEB_LOGIN_PATH = "/platformclaw/login";
 export const PLATFORMCLAW_WEB_APP_PATH = "/platformclaw/app";
 export const PLATFORMCLAW_WEB_DEFAULT_APP_PATH = `${PLATFORMCLAW_WEB_APP_PATH}/chat`;
 export const PLATFORMCLAW_WEB_ASSET_PREFIX = "/platformclaw/assets/";
 export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
+export const PLATFORMCLAW_GUIDE_VIDEO_META_NAME = "platformclaw-guide-video-url";
 const PLATFORMCLAW_PRODUCT_NAME = "PlatformClaw";
 
 export const PLATFORMCLAW_WEB_DESCRIPTOR = {
@@ -52,6 +54,7 @@ export type PlatformClawWebAssetHandler = {
 export type PlatformClawWebAssetOptions = {
   publicOrigin: string;
   vocEnabled?: boolean;
+  guideVideoUrl?: string;
 };
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -255,6 +258,7 @@ function documentSecurityPolicy(
   allowSameOriginBase = false,
   websocketOrigin?: string,
   allowWasm = false,
+  mediaSources?: readonly string[],
 ): string {
   const scriptSources = [
     "'self'",
@@ -265,6 +269,7 @@ function documentSecurityPolicy(
   return [
     ...DOCUMENT_SECURITY_POLICY_BASE,
     `connect-src ${connectSources.join(" ")}`,
+    ...(mediaSources ? [`media-src ${mediaSources.join(" ")}`] : []),
     `base-uri ${allowSameOriginBase ? "'self'" : "'none'"}`,
     `script-src ${scriptSources.join(" ")}`,
   ].join("; ");
@@ -298,6 +303,18 @@ function escapeHtmlAttribute(value: string): string {
     .replaceAll('"', "&quot;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function prepareLoginDocument(source: string, guideVideoSource: string): Buffer {
+  const headOpen = /<head(?:\s[^>]*)?>/i.exec(source);
+  if (!headOpen?.[0] || headOpen.index < 0) {
+    throw new Error("PlatformClaw login document is missing <head>");
+  }
+  const injectionIndex = headOpen.index + headOpen[0].length;
+  const meta = `<meta name="${PLATFORMCLAW_GUIDE_VIDEO_META_NAME}" content="${escapeHtmlAttribute(guideVideoSource)}" />`;
+  return Buffer.from(
+    `${source.slice(0, injectionIndex)}\n    ${meta}${source.slice(injectionIndex)}`,
+  );
 }
 
 type PlatformClawWebDescriptorPayload = Omit<typeof PLATFORMCLAW_WEB_DESCRIPTOR, "vocEnabled"> & {
@@ -395,6 +412,12 @@ export function createPlatformClawWebAssetHandler(
   const loginFile = assertRegularFileInsideRoot(root, join(root, "platformclaw-login.html"));
   const applicationFile = assertRegularFileInsideRoot(root, join(root, "index.html"));
   const websocketOrigin = resolveWebSocketOrigin(options.publicOrigin);
+  const loginDocument = options.guideVideoUrl
+    ? prepareLoginDocument(
+        readFileSync(loginFile, "utf8"),
+        new URL(PLATFORMCLAW_GUIDE_VIDEO_PATH, options.publicOrigin).toString(),
+      )
+    : undefined;
   const assetsDirectory = realpathSync(join(root, "assets"));
   if (!assetsDirectory.startsWith(`${root}${sep}`)) {
     throw new Error("PlatformClaw web assets directory escapes root");
@@ -424,6 +447,16 @@ export function createPlatformClawWebAssetHandler(
         res.end();
         return true;
       }
+      if (pathname === PLATFORMCLAW_GUIDE_VIDEO_PATH && options.guideVideoUrl) {
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          methodNotAllowed(res);
+          return true;
+        }
+        setSecurityHeaders(res);
+        res.setHeader("Cache-Control", "no-store");
+        await proxyPlatformClawGuideVideo(req, res, options.guideVideoUrl);
+        return true;
+      }
       const isLogin = pathname === PLATFORMCLAW_WEB_LOGIN_PATH;
       const asset = assets.get(pathname);
       if (!isLogin && !asset) {
@@ -442,7 +475,10 @@ export function createPlatformClawWebAssetHandler(
       if (isLogin) {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-store");
-        res.setHeader("Content-Security-Policy", documentSecurityPolicy([], true));
+        res.setHeader(
+          "Content-Security-Policy",
+          documentSecurityPolicy([], true, undefined, false, ["'self'"]),
+        );
       } else if (asset) {
         res.setHeader("Content-Type", asset.contentType);
         res.setHeader(
@@ -457,7 +493,9 @@ export function createPlatformClawWebAssetHandler(
         res.end();
         return true;
       }
-      res.end(asset?.content ?? (await readFile(filePath)));
+      res.end(
+        asset?.content ?? (isLogin && loginDocument ? loginDocument : await readFile(filePath)),
+      );
       return true;
     },
     async handleApplication(req, res) {

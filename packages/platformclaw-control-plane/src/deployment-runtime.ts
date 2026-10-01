@@ -89,6 +89,7 @@ export function createPlatformClawDeploymentRuntime(
     adminRpc: rpc,
     publicOrigin: config.publicOrigin,
     controlUiRoot: config.controlUiRoot,
+    ...(config.guideVideoUrl ? { guideVideoUrl: config.guideVideoUrl } : {}),
     ...(config.employeeSso ? { employeeSso: config.employeeSso } : {}),
     ...(config.jiraVoc ? { jiraVoc: config.jiraVoc } : {}),
     credentialBrokerAddress: config.credentialBrokerAddress,

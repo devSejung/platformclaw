@@ -24,6 +24,7 @@ afterAll(() => rmSync(fixtureRoot, { recursive: true, force: true }));
 
 const config: PlatformClawDeploymentConfig = {
   publicOrigin: "http://127.0.0.1:19001",
+  guideVideoUrl: "https://video.example.test/platformclaw-guide.mp4",
   listenHost: "127.0.0.1",
   listenPort: 19001,
   databasePath: "/state/platformclaw-control.sqlite",
@@ -68,6 +69,7 @@ describe("createPlatformClawDeploymentRuntime", () => {
       databasePath: config.databasePath,
       initialAdminAccountIds: config.initialAdminAccountIds,
       publicOrigin: config.publicOrigin,
+      guideVideoUrl: config.guideVideoUrl,
       controlUiRoot: config.controlUiRoot,
       jiraVoc: config.jiraVoc,
       employeeSso: config.employeeSso,

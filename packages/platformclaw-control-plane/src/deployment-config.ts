@@ -14,6 +14,7 @@ const DEFAULT_SKILL_HUB_MAX_PACKAGE_BYTES = 10 * 1024 * 1024;
 
 export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   publicOrigin: "PLATFORMCLAW_PUBLIC_ORIGIN",
+  guideVideoUrl: "PLATFORMCLAW_GUIDE_VIDEO_URL",
   listenHost: "PLATFORMCLAW_LISTEN_HOST",
   listenPort: "PLATFORMCLAW_LISTEN_PORT",
   databasePath: "PLATFORMCLAW_DATABASE_PATH",
@@ -40,6 +41,7 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
 
 export type PlatformClawDeploymentConfig = {
   publicOrigin: string;
+  guideVideoUrl?: string;
   listenHost: string;
   listenPort: number;
   databasePath: string;
@@ -88,6 +90,27 @@ function parsePublicOrigin(raw: string): string {
     throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin} must be an HTTP(S) origin`);
   }
   return url.origin;
+}
+
+function parseGuideVideoUrl(raw: string | undefined): string | undefined {
+  const value = raw?.trim();
+  if (!value) {
+    return undefined;
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl} must be an HTTP(S) URL without embedded credentials`,
+    );
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
+    throw new Error(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl} must be an HTTP(S) URL without embedded credentials`,
+    );
+  }
+  return url.toString();
 }
 
 function parseGatewayUrl(raw: string): { websocketUrl: string; adminRpcUrl: string } {
@@ -262,6 +285,10 @@ function parseInitialAdminAccountIds(raw: string): string[] {
 export function loadPlatformClawDeploymentConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): PlatformClawDeploymentConfig {
+  const publicOrigin = parsePublicOrigin(
+    requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin),
+  );
+  const guideVideoUrl = parseGuideVideoUrl(env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl]);
   const gateway = parseGatewayUrl(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.gatewayUrl));
   const initialAdminAccountIds = parseInitialAdminAccountIds(
     readDeploymentSecret(
@@ -287,7 +314,8 @@ export function loadPlatformClawDeploymentConfig(
   const skillHub = loadSkillHubConfig(env);
   const employeeSso = loadOptionalEmployeeSsoConfig(env);
   return {
-    publicOrigin: parsePublicOrigin(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin)),
+    publicOrigin,
+    ...(guideVideoUrl ? { guideVideoUrl } : {}),
     listenHost: env[PLATFORMCLAW_DEPLOYMENT_ENV.listenHost]?.trim() || DEFAULT_LISTEN_HOST,
     listenPort,
     databasePath: resolve(requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.databasePath)),
