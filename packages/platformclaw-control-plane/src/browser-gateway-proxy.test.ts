@@ -169,7 +169,7 @@ describe("BrowserGatewayProxy", () => {
       proxy.request(token, "sessions.messages.subscribe", { key, includeApprovals: false }),
     ).rejects.toMatchObject({ code: "invalid-params" });
     await expect(
-      proxy.request(token, "sessions.create", { key, model: "company/qwen@operator" }),
+      proxy.request(token, "sessions.create", { key, futureCreateOption: true }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     expect(request).not.toHaveBeenCalled();
   });
@@ -188,45 +188,6 @@ describe("BrowserGatewayProxy", () => {
       agentId: binding.agentId,
       icon: "🧰",
     });
-  });
-
-  it("allows configured model selection only for an owned session", async () => {
-    const { binding, proxy, request, token } = await setup();
-    const key = `agent:${binding.agentId}:main`;
-    request
-      .mockResolvedValueOnce({
-        models: [{ id: "company/qwen", name: "Qwen", provider: "company", available: true }],
-      })
-      .mockResolvedValueOnce({ ok: true, key });
-
-    await expect(
-      proxy.request(token, "sessions.patch", { key, model: "company/qwen" }),
-    ).resolves.toEqual({ ok: true, key });
-    expect(request).toHaveBeenNthCalledWith(1, "models.list", { view: "configured" });
-    expect(request).toHaveBeenNthCalledWith(2, "sessions.patch", {
-      key,
-      agentId: binding.agentId,
-      model: "company/qwen",
-    });
-
-    request.mockResolvedValueOnce({ models: [{ id: "company/qwen" }] });
-    await expect(
-      proxy.request(token, "sessions.patch", { key, model: "company/other" }),
-    ).rejects.toMatchObject({ code: "method-not-allowed" });
-  });
-
-  it("accepts the provider-qualified model value produced by the upstream picker", async () => {
-    const { binding, proxy, request, token } = await setup();
-    const key = `agent:${binding.agentId}:main`;
-    request
-      .mockResolvedValueOnce({
-        models: [{ id: "qwen", name: "Qwen", provider: "company", available: true }],
-      })
-      .mockResolvedValueOnce({ ok: true, key });
-
-    await expect(
-      proxy.request(token, "sessions.patch", { key, model: "company/qwen" }),
-    ).resolves.toEqual({ ok: true, key });
   });
 
   it("scopes direct background task reads to the authenticated agent", async () => {

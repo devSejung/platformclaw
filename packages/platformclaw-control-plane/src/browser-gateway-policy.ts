@@ -288,6 +288,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "key",
       "agentId",
       "label",
+      "model",
       "thinkingLevel",
       "catalogId",
       "parentSessionKey",

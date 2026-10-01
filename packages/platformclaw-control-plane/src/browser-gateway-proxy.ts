@@ -165,7 +165,7 @@ export class BrowserGatewayProxy {
         }
       }
       if (
-        method === "sessions.patch" &&
+        (method === "sessions.patch" || method === "sessions.create") &&
         typeof prepared.model === "string" &&
         !(await isConfiguredBrowserModel(this.options.gateway, prepared.model))
       ) {
