@@ -211,6 +211,7 @@ suite("Team Space rendered browser workflows", () => {
       await ui.getByRole("button", { name: "New child issue", exact: true }).click();
       await ui.getByLabel("Title", { exact: true }).fill(child.title);
       await ui.getByLabel("Issue description / notes", { exact: true }).fill(child.body);
+      await capture(page, "owner-page-editor");
       await gateway.setMethodResponse(`${rpc}page.create`, child);
       await gateway.setMethodResponse(`${rpc}get`, snapshot);
       await ui.getByRole("button", { name: "Save", exact: true }).click();
@@ -239,7 +240,9 @@ suite("Team Space rendered browser workflows", () => {
         .scrollIntoViewIfNeeded();
       await capture(page, "owner-shared-conversation");
       expect(await ui.locator("#message-message-a").textContent()).toContain(alice.displayName);
-      await ui.getByLabel("Search shared issues", { exact: true }).fill("board revision");
+      await ui
+        .getByRole("searchbox", { name: "Search shared issues", exact: true })
+        .fill("board revision");
       await ui.getByRole("button", { name: "Search shared issues", exact: true }).click();
       await expect.poll(async () => (await gateway.getRequests(`${rpc}search`)).length).toBe(1);
       await ui

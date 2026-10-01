@@ -116,6 +116,33 @@ function input(element: HTMLElement, label: string, value: string) {
   field.dispatchEvent(new Event("input", { bubbles: true }));
 }
 describe("Space issue page UX", () => {
+  it("preserves only authored whitespace in user message bubbles", async () => {
+    const { element, request } = await mount();
+    expect(
+      element.querySelector(".pc-space-message--user .pc-space-message-body")?.textContent,
+    ).toBe("Earlier question");
+    const original = request.getMockImplementation()!;
+    request.mockImplementation(async (method) =>
+      method.endsWith(".history")
+        ? {
+            messages: [
+              {
+                id: "multiline",
+                role: "user",
+                authorName: "Alice",
+                text: "First line\n  Indented second line",
+              },
+            ],
+          }
+        : original(method),
+    );
+    element.selectPage(page);
+    await vi.waitFor(() =>
+      expect(
+        element.querySelector(".pc-space-message--user .pc-space-message-body")?.textContent,
+      ).toBe("First line\n  Indented second line"),
+    );
+  });
   it("keeps a rejected answer visible across invalidation, a late acknowledgment, and another final", async () => {
     const { element, request, emit } = await mount();
     const original = request.getMockImplementation()!;

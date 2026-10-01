@@ -187,6 +187,7 @@ function renderSidebar(p: SpacesViewProps) {
 
 function renderMessage(message: SpaceMessage, anchor: string) {
   const assistant = message.role === "assistant";
+  // Pre-wrap must preserve authored line breaks, not the template indentation.
   return html`<article
     class="pc-space-message ${assistant ? "pc-space-message--assistant" : "pc-space-message--user"}"
     id=${`message-${message.id}`}
@@ -203,11 +204,11 @@ function renderMessage(message: SpaceMessage, anchor: string) {
           >`
         : nothing}
     </div>
-    <div class="pc-space-message-body ${assistant ? "markdown-content" : "pc-space-text"}">
-      ${assistant
-        ? unsafeHTML(toSanitizedMarkdownHtml(message.text, { codeBlockChrome: "none" }))
-        : message.text}
-    </div>
+    ${assistant
+      ? html`<div class="pc-space-message-body markdown-content">
+          ${unsafeHTML(toSanitizedMarkdownHtml(message.text, { codeBlockChrome: "none" }))}
+        </div>`
+      : html`<div class="pc-space-message-body pc-space-text" .textContent=${message.text}></div>`}
   </article>`;
 }
 
