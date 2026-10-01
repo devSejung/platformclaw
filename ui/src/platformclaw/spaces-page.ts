@@ -689,3 +689,11 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
 if (!customElements.get("platformclaw-spaces-page")) {
   customElements.define("platformclaw-spaces-page", PlatformClawSpacesPage);
 }
+
+export async function loadSpacePage() {
+  await loadPlatformClawLocale();
+  return {
+    header: false,
+    render: () => html`<platformclaw-spaces-page></platformclaw-spaces-page>`,
+  };
+}

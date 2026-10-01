@@ -12,10 +12,9 @@ import { t } from "../i18n/index.ts";
 import { isPersonalVmTerminalSession, isTerminalAvailable } from "../lib/terminal-availability.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
-import {
-  createPlatformClawControlUiAdapter,
-  type PlatformClawControlUiAdapter,
-  type PlatformClawSessionIdentity,
+import type {
+  PlatformClawControlUiAdapter,
+  PlatformClawSessionIdentity,
 } from "../platformclaw/control-ui-adapter.ts";
 import { bootstrapApplication, type ApplicationRuntime } from "./bootstrap.ts";
 import { applicationContext, type ApplicationContext } from "./context.ts";
@@ -120,8 +119,7 @@ export class OpenClawApp extends OpenClawLightDomElement {
     void import("../components/app-sidebar.ts");
     this.resetLoginSensitivePresentation();
     const epoch = ++this.connectionEpoch;
-    this.platformClawAdapter = createPlatformClawControlUiAdapter();
-    if (this.platformClawAdapter) {
+    if (document.querySelector('meta[name="platformclaw-web-descriptor"]')) {
       void this.startPlatformClawApplication(epoch);
       return;
     }
@@ -129,13 +127,22 @@ export class OpenClawApp extends OpenClawLightDomElement {
   }
 
   private async startPlatformClawApplication(epoch: number): Promise<void> {
-    const adapter = this.platformClawAdapter;
-    if (!adapter) {
-      return;
-    }
     this.platformClawStartupError = false;
+    let adapter: PlatformClawControlUiAdapter | null = this.platformClawAdapter;
     let identity: PlatformClawSessionIdentity | null;
     try {
+      if (!adapter) {
+        const { createPlatformClawControlUiAdapter } =
+          await import("../platformclaw/control-ui-adapter.ts");
+        if (epoch !== this.connectionEpoch || !this.isConnected) {
+          return;
+        }
+        adapter = createPlatformClawControlUiAdapter();
+        if (!adapter) {
+          throw new Error("PlatformClaw descriptor is unavailable");
+        }
+        this.platformClawAdapter = adapter;
+      }
       identity = await adapter.loadSession(true);
     } catch {
       if (epoch === this.connectionEpoch && this.isConnected) {
@@ -153,9 +160,6 @@ export class OpenClawApp extends OpenClawLightDomElement {
   }
 
   private retryPlatformClawStartup(): void {
-    if (!this.platformClawAdapter) {
-      return;
-    }
     void this.startPlatformClawApplication(++this.connectionEpoch);
   }
 

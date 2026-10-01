@@ -6,7 +6,7 @@ import type {
 } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
 import { platformClawT } from "./i18n.ts";
 const t = (key: string) => platformClawT(`platformClaw.spaces.${key}`);
-export type PendingSpaceMember = { userId: string; label: string; role: SpaceRole | null };
+type PendingSpaceMember = { userId: string; label: string; role: SpaceRole | null };
 export function renderSpaceMembers(props: {
   owner: boolean;
   members: SpaceMember[];

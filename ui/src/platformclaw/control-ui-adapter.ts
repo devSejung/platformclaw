@@ -209,13 +209,7 @@ export class PlatformClawControlUiAdapter {
       routeOverrides: {
         spaces: {
           loader: async () => undefined,
-          component: async () => {
-            await Promise.all([import("./spaces-page.ts"), loadPlatformClawLocale()]);
-            return {
-              header: false,
-              render: () => html`<platformclaw-spaces-page></platformclaw-spaces-page>`,
-            };
-          },
+          component: () => import("./spaces-page.ts").then((module) => module.loadSpacePage()),
         },
         credentials: {
           loader: async () => undefined,

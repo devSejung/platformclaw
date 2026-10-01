@@ -27,6 +27,26 @@ describe("Space recall tools", () => {
       operation: "search",
       query: "timing",
     });
+    expect(search.parameters).toEqual({
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 1, maxLength: 1000 },
+        spaceId: { type: "string", maxLength: 128 },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    });
+    const get = registerTool.mock.calls[1]![0]({ agentId: "person-a", runId: "run-a" });
+    expect(get.parameters).toEqual({
+      type: "object",
+      properties: {
+        spaceId: { type: "string", maxLength: 128 },
+        pageId: { type: "string", maxLength: 128 },
+        messageId: { type: "string", maxLength: 256 },
+      },
+      required: ["spaceId", "pageId"],
+      additionalProperties: false,
+    });
     expect(search.parameters.properties.agentId).toBeUndefined();
     expect(search.parameters.properties.runId).toBeUndefined();
     expect(registerTool.mock.calls.map((call) => call[1].name)).toEqual([

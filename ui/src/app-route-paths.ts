@@ -82,10 +82,10 @@ const APP_ROUTE_DEFINITIONS = {
 
 export type RouteId = keyof typeof APP_ROUTE_DEFINITIONS;
 const ALL_APP_ROUTE_IDS = Object.keys(APP_ROUTE_DEFINITIONS) as RouteId[];
-// Credentials is an opt-in embedder route. Products that own a credential
-// surface enable it with a route override; the stock Control UI stays unchanged.
+// Product-owned credentials, organization and Spaces are opt-in embedder routes.
+// Products enable them with route overrides; the stock Control UI stays unchanged.
 export const APP_ROUTE_IDS = ALL_APP_ROUTE_IDS.filter(
-  (routeId) => routeId !== "credentials" && routeId !== "organization",
+  (routeId) => routeId !== "credentials" && routeId !== "organization" && routeId !== "spaces",
 );
 
 export function isRouteId(routeId: string): routeId is RouteId {

@@ -2,6 +2,7 @@ import type { HelloOk } from "@openclaw/gateway-protocol";
 import { describe, expect, it } from "vitest";
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
 import type { BrowserGatewayAccess } from "./browser-gateway-proxy.js";
+import { SPACE_RPC_METHODS } from "./space-contracts.js";
 
 function upstreamHello(): HelloOk {
   return {
@@ -124,6 +125,7 @@ describe("projectPlatformClawBrowserHello", () => {
     expect(projected.server).toEqual({ version: "2026.7.20", connId: "browser-1" });
     expect(projected.features).toEqual({
       methods: [
+        ...SPACE_RPC_METHODS,
         "agents.list",
         "artifacts.download",
         "artifacts.list",
