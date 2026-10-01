@@ -146,28 +146,61 @@ PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.example.internal
 PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=us-east-1
 PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media
 PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guides/platformclaw-guide.mp4
-PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE=/run/secrets/platformclaw_guide_video_s3_access_key
-PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE=/run/secrets/platformclaw_guide_video_s3_secret_key
+PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE=
+PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE=/run/secrets/platformclaw_guide_video_s3_credentials
 PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=true
 ```
 
-Install the two credential files on the deployment host at:
+Install one owner-only candidate credential bundle on the deployment host at:
 
 ```text
-<deploy-root>/secrets/guide-video-s3-access-key
-<deploy-root>/secrets/guide-video-s3-secret-key
+<deploy-root>/secrets/guide-video-s3-credentials.env
 ```
 
-Both files must be non-empty and readable by the PlatformClaw service user;
-owner-only mode such as `0400` is recommended. PlatformClaw never generates or
-rotates these external S3 credentials.
+Its contents are one inseparable credential pair:
 
-The Compose wrapper automatically adds `compose.guide-video-s3.yaml`, mounts
-those two files read-only under `/run/secrets`, and never puts their contents in
-the login document. `REGION` defaults to `us-east-1` when blank. Path-style
-addressing defaults to `true`, which is appropriate for most internal
-S3-compatible services; set it to `false` only when the endpoint expects
-virtual-hosted bucket names.
+```dotenv
+AWS_ACCESS_KEY_ID=<access-key-id>
+AWS_SECRET_ACCESS_KEY=<secret-access-key>
+```
+
+The file must be readable by the PlatformClaw service user; owner-only mode such
+as `0400` is recommended. Keeping the pair in one file prevents an Access Key ID
+from one issuance from being accidentally combined with a Secret Access Key from
+another. This is the desired/candidate pair. After the real S3 probe succeeds,
+deployment atomically publishes the validated runtime copy at
+`<deploy-root>/secrets/guide-video-s3-credentials.active.env`. Control mounts only
+that validated copy. A rejected candidate therefore cannot become active on a
+later container restart. PlatformClaw never invents or rotates these external S3
+credentials.
+
+As an optional deployment convenience, set
+`PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE=<profile>` when the service user's
+`~/.aws/credentials` already contains that static named profile.
+`platformclaw-deploy up` reads the Access Key ID and Secret Access Key together
+from one stable credentials-file snapshot and atomically refreshes the candidate
+bundle from that pair. AWS CLI, `AWS_PROFILE`, interactive login, and mounting
+`~/.aws` into Control are not required. Profiles containing temporary session
+credentials are rejected by this static-key mode.
+
+The Compose wrapper automatically adds `compose.guide-video-s3.yaml`. The
+isolated deployment probe mounts the candidate bundle, while Control mounts only
+the validated active bundle read-only under `/run/secrets`; neither value is put
+in the login document. Upgrades from the initial split-file private S3 release
+migrate those two files once into the candidate/validated model and retain
+generated split projections only for image-rollback compatibility; operators
+should not edit the projections. `REGION` defaults to `us-east-1` when blank. Path-style
+addressing defaults to `true`, which is appropriate for most internal S3-compatible
+services; set it to `false` only when the endpoint expects virtual-hosted bucket
+names.
+
+Before starting or replacing Control, `platformclaw-deploy` launches a transient
+Control container on the same network path and performs the same SigV4-signed,
+direct/no-proxy one-byte Range GET used by the product. Invalid Access Key IDs,
+wrong secrets, region/addressing/object mistakes, redirects, and connectivity
+failures therefore stop the deployment before the live stack is changed. When
+the credential bundle changes, a successful `platformclaw-deploy up` recreates
+Control so the probed pair is the pair the running process uses.
 
 Leave the value blank to hide the guide entry. The browser only loads the
 same-origin `/platformclaw/guide/video` endpoint; the configured upstream URL
@@ -185,16 +218,16 @@ endpoint directly.
 
 Do not put an S3 access key or secret in the URL. Private S3 mode signs every
 GET/HEAD request server-side with AWS Signature Version 4 and keeps the Access
-Key and Secret Key in mounted secret files. The guide endpoint is intentionally
+Key and Secret Key in the mounted credential bundle. The guide endpoint is intentionally
 available before login, so anyone who can reach the PlatformClaw login page can
 read the configured guide bytes even if the backing S3 object itself is private.
 Direct URL mode and private S3 mode are mutually exclusive.
 
-After changing guide configuration or credentials, recreate the Control container;
-a plain restart keeps the old environment:
+After changing guide configuration or credentials, use the deployment owner so
+the candidate is probed and only a validated pair can be activated:
 
 ```bash
-./platformclaw-compose --service-user platformclaw up -d --wait --no-deps --force-recreate platformclaw-control
+./platformclaw-deploy up
 ```
 
 ### Optional Jira intake

@@ -11,6 +11,7 @@
   "bin": {
     "platformclaw-admin": "./dist/admin-main.mjs",
     "platformclaw-control": "./dist/server-main.mjs",
+    "platformclaw-guide-video-check": "./dist/guide-video-check-main.mjs",
     "platformclaw-sshpass": "./dist/sshpass-main.mjs"
   },
   "exports": {
