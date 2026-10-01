@@ -58,7 +58,7 @@ export function renderOrganizationActionDialog(options: {
     }}
   >
     <form
-      class="exec-approval-card"
+      class="exec-approval-card platformclaw-organization-confirmation"
       @submit=${(event: SubmitEvent) => {
         event.preventDefault();
         const form = event.currentTarget as HTMLFormElement;

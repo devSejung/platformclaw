@@ -37,7 +37,7 @@ export function renderOrganizationJoinDialog(props: {
     }}
   >
     <form
-      class="organization-action-form"
+      class="organization-action-form exec-approval-card platformclaw-organization-confirmation"
       @submit=${(event: SubmitEvent) => {
         event.preventDefault();
         const form = event.currentTarget as HTMLFormElement;
