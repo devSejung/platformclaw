@@ -171,6 +171,23 @@ describe("guide video proxy", () => {
     expect(redirectedRequests).toBe(0);
   });
 
+  it("blocks every redirect for signed S3 requests", async () => {
+    const upstream = await listen((_req, res) => {
+      res.statusCode = 302;
+      res.setHeader("Location", "/final.mp4");
+      res.end();
+    });
+    const ingress = await listen((req, res) => {
+      void proxyPlatformClawGuideVideo(req, res, `${upstream.origin}/guide.mp4`, () => ({
+        authorization: "AWS4-HMAC-SHA256 fixture",
+      }));
+    });
+
+    const response = await directRequest(ingress.origin);
+    expect(response.status).toBe(502);
+    expect(response.body).toContain("signed upstream redirect is blocked");
+  });
+
   it("forwards HEAD Range and If-Range without a response body", async () => {
     let seenMethod = "";
     let seenRange: string | undefined;
@@ -198,5 +215,40 @@ describe("guide video proxy", () => {
     expect(seenMethod).toBe("HEAD");
     expect(seenRange).toBe("bytes=0-99");
     expect(seenIfRange).toBe('"etag-1"');
+  });
+
+  it("applies server-only request signing headers without forwarding browser credentials", async () => {
+    let authorization = "";
+    let browserAuthorization: string | undefined;
+    const upstream = await listen((req, res) => {
+      authorization = req.headers.authorization ?? "";
+      browserAuthorization = req.headers["x-browser-authorization"] as string | undefined;
+      res.setHeader("Content-Type", "video/mp4");
+      res.end("video");
+    });
+    const ingress = await listen((req, res) => {
+      void proxyPlatformClawGuideVideo(
+        req,
+        res,
+        `${upstream.origin}/guide.mp4`,
+        ({ method, target, range }) => {
+          expect(method).toBe("GET");
+          expect(target.toString()).toBe(`${upstream.origin}/guide.mp4`);
+          expect(range).toBe("bytes=0-4");
+          return { authorization: "AWS4-HMAC-SHA256 fixture-signature" };
+        },
+      );
+    });
+
+    const response = await directRequest(ingress.origin, {
+      headers: {
+        Authorization: "Bearer browser-must-not-forward",
+        Range: "bytes=0-4",
+        "X-Browser-Authorization": "must-not-forward",
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(authorization).toBe("AWS4-HMAC-SHA256 fixture-signature");
+    expect(browserAuthorization).toBeUndefined();
   });
 });

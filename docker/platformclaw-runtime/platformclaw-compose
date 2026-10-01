@@ -71,6 +71,10 @@ skillhub_enabled="$(sed -n 's/^PLATFORMCLAW_SKILL_HUB_ENABLED=//p' "$PLATFORMCLA
 # must not silently override an image update, rollback, origin, or secret path.
 unset PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE \
   PLATFORMCLAW_PUBLIC_ORIGIN PLATFORMCLAW_PUBLIC_PORT PLATFORMCLAW_GUIDE_VIDEO_URL \
+  PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT PLATFORMCLAW_GUIDE_VIDEO_S3_REGION \
+  PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET PLATFORMCLAW_GUIDE_VIDEO_S3_KEY \
+  PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE \
+  PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE \
   PLATFORMCLAW_JIRA_VOC_CONFIG_FILE PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE \
   PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL PLATFORMCLAW_TZ \
   PLATFORMCLAW_KNOX_CDEP_URL \
@@ -96,6 +100,27 @@ compose_args+=(-f "$script_dir/compose.yaml")
 # Resolve optional paths with Compose's dotenv parser, including quoted empty values.
 # Keep the file mount absent for deployments that have not enabled Jira intake.
 compose_environment="$("${compose_args[@]}" config --environment)"
+trim_compose_value() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+guide_url="$(trim_compose_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_URL=//p' <<<"$compose_environment" | tail -n 1)")"
+guide_s3_endpoint="$(trim_compose_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=//p' <<<"$compose_environment" | tail -n 1)")"
+guide_s3_bucket="$(trim_compose_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=//p' <<<"$compose_environment" | tail -n 1)")"
+guide_s3_key="$(trim_compose_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=//p' <<<"$compose_environment" | tail -n 1)")"
+if [[ -n "$guide_s3_endpoint" || -n "$guide_s3_bucket" || -n "$guide_s3_key" ]]; then
+  if [[ -z "$guide_s3_endpoint" || -z "$guide_s3_bucket" || -z "$guide_s3_key" ]]; then
+    echo "Private guide S3 requires PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT, PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET, and PLATFORMCLAW_GUIDE_VIDEO_S3_KEY together." >&2
+    exit 1
+  fi
+  if [[ -n "$guide_url" ]]; then
+    echo "PLATFORMCLAW_GUIDE_VIDEO_URL cannot be combined with private S3 guide settings." >&2
+    exit 1
+  fi
+  compose_args+=(-f "$script_dir/compose.guide-video-s3.yaml")
+fi
 if grep -Eq '^PLATFORMCLAW_JIRA_VOC_CONFIG_(HOST_)?FILE=.+$' <<<"$compose_environment"; then
   compose_args+=(-f "$script_dir/compose.jira-voc.yaml")
 fi

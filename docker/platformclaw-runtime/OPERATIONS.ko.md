@@ -110,7 +110,9 @@ PLATFORMCLAW_TZ=Asia/Seoul
 ```
 
 secret 경로는 `~/platformclaw/secrets`를 가리킨다. `init`은 경로만 기록하며, 첫
-새 설치의 첫 `up`은 누락된 secret 파일을 생성한다. image 업데이트는 기존 Gateway,
+새 설치의 첫 `up`은 PlatformClaw이 소유하는 Gateway/Knox/execution 계열의 누락 secret을
+생성한다. 외부 시스템 credential은 자동 생성하지 않는다. 예를 들어 private S3 가이드의
+Access Key/Secret Key 파일은 운영자가 직접 설치해야 한다. image 업데이트는 기존 Gateway,
 execution, SSH credential secret이 모두 존재해야 시작하며, 신규 Knox secret만 누락된
 경우 이를 서비스 중지 전에 추가한다. 기존 non-empty secret은 다시 만들지 않는다. 특히 SSH credential master key를 잃으면
 Control DB의 저장 credential을 복호화할 수 없다.
@@ -135,6 +137,37 @@ CA가 필요하면 승인된 PEM bundle로 이 파일을 교체한다. Gateway�
 PLATFORMCLAW_GUIDE_VIDEO_URL=https://media.example.com/platformclaw-guide.mp4
 ```
 
+Access Key가 필요한 private S3라면 `PLATFORMCLAW_GUIDE_VIDEO_URL`은 비우고 아래 S3
+모드를 사용한다.
+
+```dotenv
+PLATFORMCLAW_GUIDE_VIDEO_URL=
+PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.example.internal
+PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=us-east-1
+PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media
+PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guides/platformclaw-guide.mp4
+PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE=/run/secrets/platformclaw_guide_video_s3_access_key
+PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE=/run/secrets/platformclaw_guide_video_s3_secret_key
+PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=true
+```
+
+실제 credential 값은 `deployment.env`에 넣지 않고 호스트의 다음 파일에 저장한다.
+
+```text
+<deploy-root>/secrets/guide-video-s3-access-key
+<deploy-root>/secrets/guide-video-s3-secret-key
+```
+
+두 파일은 비어 있으면 안 되고 PlatformClaw service user가 읽을 수 있어야 한다. `0400`
+같은 owner-only 권한을 권장하며, 이 외부 S3 credential은 PlatformClaw이 생성하거나
+회전하지 않는다.
+
+`platformclaw-compose`가 S3 endpoint 설정을 감지하면 `compose.guide-video-s3.yaml`을
+자동 적용하고 두 파일을 `/run/secrets`에 read-only로 마운트한다. `REGION`을 비우면
+`us-east-1`을 사용한다. 사내 S3-compatible 서비스는 보통 path-style이므로 기본값은
+`true`이며, bucket을 hostname에 붙이는 virtual-hosted 방식이 필요한 경우에만 `false`로
+바꾼다.
+
 빈 값이면 기능이 비활성화된다. 브라우저에는 S3 원본 주소를 노출하지 않고 같은 origin의
 `/platformclaw/guide/video`만 제공한다. Control이 GET/HEAD/Range를 원본으로 스트리밍하며,
 이 원본 연결은 Node direct socket을 사용해 `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`,
@@ -142,12 +175,13 @@ PLATFORMCLAW_GUIDE_VIDEO_URL=https://media.example.com/platformclaw-guide.mp4
 브라우저가 아니라 Control 컨테이너에서 원본 S3 주소로 접근 가능해야 한다. 외부 로그인은
 HTTPS여도 내부 S3 원본은 HTTP를 사용할 수 있다. 원본 redirect는 같은 origin만 따라간다.
 다른 host로 redirect되는 S3라면 최종 S3/media endpoint 주소를 직접 설정한다.
+private S3 서명 모드는 redirect를 전혀 따라가지 않으므로 최종 S3 endpoint를 직접 설정한다.
 
-S3 Access Key/Secret Key를 URL이나 로그인 HTML에 넣으면 안 된다. 인증이 필요한 private
-S3에 대한 Access Key 인증은 현재 URL-only 모드에는 아직 구현되어 있지 않다. credential은
-서버 쪽 secret으로 보관하고 서버에서 서명/인증하는 방식으로 확장해야 한다. 가이드 endpoint는
-로그인 전 공개 경로이므로 PlatformClaw 로그인 화면에 접근 가능한 사용자는 backing S3 object가
-private이어도 가이드 영상 바이트 자체는 읽을 수 있다.
+S3 Access Key/Secret Key를 URL이나 로그인 HTML에 넣으면 안 된다. private S3 모드는
+Control 서버가 GET/HEAD 요청마다 AWS Signature Version 4로 서명하고 credential 값은 secret
+파일 안에만 둔다. 가이드 endpoint는 로그인 전 공개 경로이므로 PlatformClaw 로그인 화면에
+접근 가능한 사용자는 backing S3 object가 private이어도 가이드 영상 바이트 자체는 읽을 수
+있다. direct URL 모드와 private S3 모드는 동시에 설정할 수 없다.
 
 환경값 변경 뒤에는 기존 Control 컨테이너를 restart만 하지 말고 재생성한다.
 

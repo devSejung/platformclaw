@@ -136,4 +136,39 @@ describe("createPlatformClawDeploymentRuntime", () => {
     expect(createRuntime.mock.calls[0]?.[0].skillHub).not.toHaveProperty("token");
     expect(createRuntime.mock.calls[0]?.[0].skillHub).not.toHaveProperty("bootstrapPassword");
   });
+
+  it("turns private S3 guide credentials into server-only signed media requests", () => {
+    const runtime = {} as PlatformClawWebIngressRuntime;
+    const createRuntime = vi.fn((_options: PlatformClawWebIngressRuntimeOptions) => runtime);
+    const { guideVideoUrl: _directGuide, ...withoutDirectGuide } = config;
+    createPlatformClawDeploymentRuntime(
+      {
+        ...withoutDirectGuide,
+        guideVideoS3: {
+          endpoint: "https://s3.internal.example",
+          region: "us-east-1",
+          bucket: "platformclaw-media",
+          key: "guides/guide.mp4",
+          accessKeyId: "fixture-access",
+          secretAccessKey: "fixture-secret",
+          forcePathStyle: true,
+        },
+      },
+      { createRuntime },
+    );
+
+    const options = createRuntime.mock.calls[0]?.[0];
+    expect(options?.guideVideoUrl).toBe(
+      "https://s3.internal.example/platformclaw-media/guides/guide.mp4",
+    );
+    expect(options?.guideVideoRequestHeaders).toEqual(expect.any(Function));
+    const target = new URL(options?.guideVideoUrl ?? "https://invalid.example");
+    const signed = options?.guideVideoRequestHeaders?.({
+      method: "GET",
+      target,
+      range: "bytes=0-99",
+    });
+    expect(signed?.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=fixture-access\//u);
+    expect(JSON.stringify(options)).not.toContain("fixture-secret");
+  });
 });

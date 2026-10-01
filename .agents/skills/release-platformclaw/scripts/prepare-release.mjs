@@ -120,6 +120,7 @@ writeFileSync(imageChecksum, `${imageDigest}  ${basename(options.imageTar)}\n`, 
 const staging = mkdtempSync(resolve(options.outputDir, ".deployment-bundle-"));
 const bundleFiles = [
   ["compose.yaml", false],
+  ["compose.guide-video-s3.yaml", false],
   ["compose.jira-voc.yaml", false],
   ["platformclaw-compose", true],
   ["platformclaw-deploy", true],

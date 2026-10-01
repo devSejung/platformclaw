@@ -4,6 +4,7 @@ import type { PlatformClawDeploymentConfig } from "./deployment-config.js";
 import { HttpGatewayAdminRpcClient } from "./gateway-admin-rpc-client.js";
 import { PLATFORMCLAW_GATEWAY_SERVICE_SCOPES } from "./gateway-runtime-client.js";
 import { loadGatewayServiceIdentity } from "./gateway-service-identity.js";
+import { createPlatformClawGuideVideoS3Source } from "./guide-video-s3.js";
 import { GatewayKnoxRoomAgentProvisioner } from "./knox-room-agent-provisioner.js";
 import { GatewayPersonalAgentProvisioner } from "./personal-agent-provisioner.js";
 import { IflytekSkillHubAdapter } from "./skill-hub-adapter.js";
@@ -54,6 +55,9 @@ export function createPlatformClawDeploymentRuntime(
     workspaceRoot: config.workspaceRoot,
   });
   const createRuntime = options.createRuntime ?? createPlatformClawWebIngressRuntime;
+  const guideVideoS3Source = config.guideVideoS3
+    ? createPlatformClawGuideVideoS3Source(config.guideVideoS3)
+    : undefined;
   return createRuntime({
     databasePath: config.databasePath,
     initialAdminAccountIds: config.initialAdminAccountIds,
@@ -89,7 +93,14 @@ export function createPlatformClawDeploymentRuntime(
     adminRpc: rpc,
     publicOrigin: config.publicOrigin,
     controlUiRoot: config.controlUiRoot,
-    ...(config.guideVideoUrl ? { guideVideoUrl: config.guideVideoUrl } : {}),
+    ...(config.guideVideoUrl
+      ? { guideVideoUrl: config.guideVideoUrl }
+      : guideVideoS3Source
+        ? {
+            guideVideoUrl: guideVideoS3Source.targetUrl,
+            guideVideoRequestHeaders: guideVideoS3Source.requestHeaders,
+          }
+        : {}),
     ...(config.employeeSso ? { employeeSso: config.employeeSso } : {}),
     ...(config.jiraVoc ? { jiraVoc: config.jiraVoc } : {}),
     credentialBrokerAddress: config.credentialBrokerAddress,

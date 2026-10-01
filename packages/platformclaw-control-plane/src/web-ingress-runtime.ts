@@ -30,6 +30,7 @@ import {
   PlatformClawGatewayRuntimeClient,
   type PlatformClawGatewayRuntimeClientOptions,
 } from "./gateway-runtime-client.js";
+import type { PlatformClawGuideVideoRequestHeaders } from "./guide-video-s3.js";
 import { KnowledgeVaultService } from "./knowledge-vault-service.js";
 import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
 import { OrganizationService } from "./organization-service.js";
@@ -77,6 +78,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   publicOrigin: string;
   controlUiRoot: string;
   guideVideoUrl?: string;
+  guideVideoRequestHeaders?: PlatformClawGuideVideoRequestHeaders;
   employeeSso?: EmployeeSsoConfig;
   jiraVoc?: JiraVocConfig;
   loginRateLimiter?: MemoryBrowserLoginRateLimiterOptions;
@@ -332,6 +334,9 @@ export function createPlatformClawWebIngressRuntime(
       publicOrigin: options.publicOrigin,
       vocEnabled: Boolean(vocService),
       ...(options.guideVideoUrl ? { guideVideoUrl: options.guideVideoUrl } : {}),
+      ...(options.guideVideoRequestHeaders
+        ? { guideVideoRequestHeaders: options.guideVideoRequestHeaders }
+        : {}),
     }),
     ...options.ingress,
   });

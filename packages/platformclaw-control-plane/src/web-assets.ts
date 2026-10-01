@@ -6,6 +6,7 @@ import { extname, join, relative, resolve, sep } from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE } from "../../../src/gateway/control-ui-contract.js";
 import { PLATFORMCLAW_GUIDE_VIDEO_PATH, proxyPlatformClawGuideVideo } from "./guide-video-proxy.js";
+import type { PlatformClawGuideVideoRequestHeaders } from "./guide-video-s3.js";
 
 export const PLATFORMCLAW_WEB_LOGIN_PATH = "/platformclaw/login";
 export const PLATFORMCLAW_WEB_APP_PATH = "/platformclaw/app";
@@ -55,6 +56,7 @@ export type PlatformClawWebAssetOptions = {
   publicOrigin: string;
   vocEnabled?: boolean;
   guideVideoUrl?: string;
+  guideVideoRequestHeaders?: PlatformClawGuideVideoRequestHeaders;
 };
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -454,7 +456,12 @@ export function createPlatformClawWebAssetHandler(
         }
         setSecurityHeaders(res);
         res.setHeader("Cache-Control", "no-store");
-        await proxyPlatformClawGuideVideo(req, res, options.guideVideoUrl);
+        await proxyPlatformClawGuideVideo(
+          req,
+          res,
+          options.guideVideoUrl,
+          options.guideVideoRequestHeaders,
+        );
         return true;
       }
       const isLogin = pathname === PLATFORMCLAW_WEB_LOGIN_PATH;

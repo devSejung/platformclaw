@@ -1,5 +1,6 @@
 import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
+import type { PlatformClawGuideVideoRequestHeaders } from "./guide-video-s3.js";
 
 export const PLATFORMCLAW_GUIDE_VIDEO_PATH = "/platformclaw/guide/video";
 
@@ -42,6 +43,7 @@ async function proxyOnce(
   target: URL,
   allowedOrigin: string,
   redirectsRemaining: number,
+  requestHeaders?: PlatformClawGuideVideoRequestHeaders,
 ): Promise<void> {
   await new Promise<void>((resolve) => {
     const headers: Record<string, string> = {};
@@ -50,6 +52,16 @@ async function proxyOnce(
     }
     if (typeof req.headers["if-range"] === "string") {
       headers["if-range"] = req.headers["if-range"];
+    }
+    if (requestHeaders) {
+      Object.assign(
+        headers,
+        requestHeaders({
+          method: req.method === "HEAD" ? "HEAD" : "GET",
+          target,
+          ...(typeof req.headers.range === "string" ? { range: req.headers.range } : {}),
+        }),
+      );
     }
     const onResponse = (upstream: IncomingMessage): void => {
       clearTimeout(openTimeout);
@@ -72,6 +84,12 @@ async function proxyOnce(
           resolve();
           return;
         }
+        if (requestHeaders) {
+          res.statusCode = 502;
+          res.end("Guide video signed upstream redirect is blocked");
+          resolve();
+          return;
+        }
         let redirected: URL;
         try {
           redirected = validateTarget(new URL(location, target).toString());
@@ -87,7 +105,14 @@ async function proxyOnce(
           resolve();
           return;
         }
-        void proxyOnce(req, res, redirected, allowedOrigin, redirectsRemaining - 1).then(resolve);
+        void proxyOnce(
+          req,
+          res,
+          redirected,
+          allowedOrigin,
+          redirectsRemaining - 1,
+          requestHeaders,
+        ).then(resolve);
         return;
       }
 
@@ -162,7 +187,8 @@ export async function proxyPlatformClawGuideVideo(
   req: IncomingMessage,
   res: ServerResponse,
   targetUrl: string,
+  requestHeaders?: PlatformClawGuideVideoRequestHeaders,
 ): Promise<void> {
   const target = validateTarget(targetUrl);
-  await proxyOnce(req, res, target, target.origin, MAX_REDIRECTS);
+  await proxyOnce(req, res, target, target.origin, MAX_REDIRECTS, requestHeaders);
 }

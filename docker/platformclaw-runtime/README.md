@@ -137,6 +137,38 @@ on the login page:
 PLATFORMCLAW_GUIDE_VIDEO_URL=https://media.example.com/platformclaw-guide.mp4
 ```
 
+For a private S3-compatible object that requires an Access Key, leave
+`PLATFORMCLAW_GUIDE_VIDEO_URL` blank and configure the S3 mode instead:
+
+```dotenv
+PLATFORMCLAW_GUIDE_VIDEO_URL=
+PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.example.internal
+PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=us-east-1
+PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media
+PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guides/platformclaw-guide.mp4
+PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE=/run/secrets/platformclaw_guide_video_s3_access_key
+PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE=/run/secrets/platformclaw_guide_video_s3_secret_key
+PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=true
+```
+
+Install the two credential files on the deployment host at:
+
+```text
+<deploy-root>/secrets/guide-video-s3-access-key
+<deploy-root>/secrets/guide-video-s3-secret-key
+```
+
+Both files must be non-empty and readable by the PlatformClaw service user;
+owner-only mode such as `0400` is recommended. PlatformClaw never generates or
+rotates these external S3 credentials.
+
+The Compose wrapper automatically adds `compose.guide-video-s3.yaml`, mounts
+those two files read-only under `/run/secrets`, and never puts their contents in
+the login document. `REGION` defaults to `us-east-1` when blank. Path-style
+addressing defaults to `true`, which is appropriate for most internal
+S3-compatible services; set it to `false` only when the endpoint expects
+virtual-hosted bucket names.
+
 Leave the value blank to hide the guide entry. The browser only loads the
 same-origin `/platformclaw/guide/video` endpoint; the configured upstream URL
 is not exposed in the pre-login HTML. Control streams `GET`/`HEAD` and Range
@@ -148,15 +180,17 @@ from each employee browser. HTTP upstreams are valid even when the public login
 origin is HTTPS because the browser sees only the same-origin HTTPS endpoint.
 Only same-origin upstream redirects are followed; configure the final S3/media
 endpoint directly if the service redirects to a different host.
+Private S3 signing mode follows no redirects; configure its final S3-compatible
+endpoint directly.
 
-Do not put an S3 access key or secret in this URL. If the S3 object requires
-credentials, this URL-only mode does not authenticate to S3 yet. Keep those
-credentials server-side and add/use a server-side signing/auth mode; never
-expose storage credentials to the login page. The guide endpoint is intentionally
+Do not put an S3 access key or secret in the URL. Private S3 mode signs every
+GET/HEAD request server-side with AWS Signature Version 4 and keeps the Access
+Key and Secret Key in mounted secret files. The guide endpoint is intentionally
 available before login, so anyone who can reach the PlatformClaw login page can
 read the configured guide bytes even if the backing S3 object itself is private.
+Direct URL mode and private S3 mode are mutually exclusive.
 
-After changing this Compose environment value, recreate the Control container;
+After changing guide configuration or credentials, recreate the Control container;
 a plain restart keeps the old environment:
 
 ```bash
