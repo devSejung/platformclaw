@@ -33,6 +33,7 @@ type NavigationItem = {
 // is a fixed personal-workspace row at the session-list boundary rather than a
 // customizable page pin.
 export const SIDEBAR_NAV_ROUTES = [
+  "spaces",
   "workboard",
   "dashboards",
   "cron",
@@ -280,6 +281,7 @@ const NAVIGATION_ICONS: NavigationItem = {
   mcp: "wrench",
   memory: "book",
   organization: "users",
+  spaces: "users",
   talk: "mic",
   infrastructure: "globe",
   labs: "flaskConical",
@@ -399,6 +401,7 @@ const NAVIGATION_COPY: Record<NavigationRouteId, { titleKey: string; subtitleKey
   memory: { titleKey: "tabs.memory", subtitleKey: "subtitles.memory" },
   // Organization is opt-in. Embedders enabling it provide product-local copy.
   organization: { titleKey: "nav.settings", subtitleKey: "subtitles.config" },
+  spaces: { titleKey: "nav.settings", subtitleKey: "subtitles.config" },
   talk: { titleKey: "tabs.talk", subtitleKey: "subtitles.talk" },
   infrastructure: { titleKey: "tabs.infrastructure", subtitleKey: "subtitles.infrastructure" },
   labs: { titleKey: "tabs.labs", subtitleKey: "subtitles.labs" },

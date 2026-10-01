@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolveBrowserGatewayCommandSuppression } from "./browser-command-policy.js";
 import {
   createBrowserSenderAttribution,
+  auditBrowserGatewayDenied,
   resolveBrowserGatewayAccess,
 } from "./browser-gateway-access.js";
 import { BrowserGatewayAssertions } from "./browser-gateway-assertions.js";
@@ -15,6 +16,7 @@ import {
   type BrowserGatewayProxyOptions,
   type BrowserGatewayRequestContext,
 } from "./browser-gateway-contracts.js";
+import { BrowserSpaceGateway } from "./browser-gateway-spaces.js";
 export * from "./browser-gateway-contracts.js";
 import {
   preflightCronMutation,
@@ -71,6 +73,7 @@ type JsonObject = Record<string, unknown>;
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
   private readonly assertions: BrowserGatewayAssertions;
+  private readonly spaceGateway: BrowserSpaceGateway;
   private readonly liveCapabilities: BrowserGatewayLiveCapabilities;
   private readonly observerVisibility: BrowserGatewayObserverVisibility;
   private readonly terminals: BrowserGatewayTerminalController;
@@ -99,6 +102,9 @@ export class BrowserGatewayProxy {
       },
     );
     this.terminals = new BrowserGatewayTerminalController(options);
+    this.spaceGateway = new BrowserSpaceGateway(options.spaceService, (token) =>
+      this.resolveAccess(token, false),
+    );
   }
 
   async resolveAccess(token: string, touch = true): Promise<BrowserGatewayAccess> {
@@ -184,7 +190,7 @@ export class BrowserGatewayProxy {
       await preflightCronMutation(this.browserCronContext(access), method, prepared);
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
-        await this.auditDeniedRequest(access, method, error.code);
+        await auditBrowserGatewayDenied(this.options, access, method, error.code);
         throw new BrowserGatewayProxyError(error.code, error.message, "rejected-before-dispatch");
       }
       throw error;
@@ -207,7 +213,7 @@ export class BrowserGatewayProxy {
         })) as T;
       } catch (error) {
         if (error instanceof BrowserGatewayProxyError) {
-          await this.auditDeniedRequest(access, method, error.code);
+          await auditBrowserGatewayDenied(this.options, access, method, error.code);
         }
         throw error;
       }
@@ -222,17 +228,21 @@ export class BrowserGatewayProxy {
         })) as T;
       } catch (error) {
         if (error instanceof BrowserGatewayProxyError) {
-          await this.auditDeniedRequest(access, method, error.code);
+          await auditBrowserGatewayDenied(this.options, access, method, error.code);
         }
         throw error;
       }
+    }
+    const spaceResult = await this.spaceGateway.request(token, access, method, prepared, context);
+    if (spaceResult.handled) {
+      return spaceResult.result as T;
     }
     const localResult = await requestBrowserGatewayLocal(
       this.options,
       access,
       method,
       prepared,
-      async (reason) => await this.auditDeniedRequest(access, method, reason),
+      async (reason) => await auditBrowserGatewayDenied(this.options, access, method, reason),
     );
     if (localResult.handled) {
       return localResult.result as T;
@@ -243,7 +253,8 @@ export class BrowserGatewayProxy {
       params: prepared,
       context,
       cronContext: this.browserCronContext(access),
-      auditDenied: async (reason) => await this.auditDeniedRequest(access, method, reason),
+      auditDenied: async (reason) =>
+        await auditBrowserGatewayDenied(this.options, access, method, reason),
     });
     if (specialResult.handled) {
       return specialResult.result as T;
@@ -263,7 +274,7 @@ export class BrowserGatewayProxy {
       ) as T;
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
-        await this.auditDeniedRequest(access, method, error.code);
+        await auditBrowserGatewayDenied(this.options, access, method, error.code);
       }
       throw error;
     }
@@ -287,6 +298,10 @@ export class BrowserGatewayProxy {
       } catch {
         return null;
       }
+    }
+    const spaceEvent = this.options.spaceService?.event(access.user.id, event);
+    if (spaceEvent !== undefined) {
+      return spaceEvent;
     }
     return this.liveCapabilities.filterEvent({
       agentId: access.binding.agentId,
@@ -312,7 +327,10 @@ export class BrowserGatewayProxy {
     connectionId: string,
     listener: (event: BrowserGatewayEvent) => void,
   ): () => void {
-    return this.terminals.subscribeConnectionEvents(connectionId, listener);
+    return this.spaceGateway.subscribe(
+      this.terminals.subscribeConnectionEvents(connectionId, listener),
+      listener,
+    );
   }
 
   registerBrowserConnection(connectionId: string, access?: BrowserGatewayAccess): void {
@@ -700,20 +718,5 @@ export class BrowserGatewayProxy {
     payload: unknown,
   ): JsonObject | null {
     return projectBrowserSessionPayloadForAccess(this.browserTaskAccess(access), payload);
-  }
-
-  private async auditDeniedRequest(
-    access: BrowserGatewayAccess,
-    method: string,
-    reason: BrowserGatewayProxyErrorCode,
-  ): Promise<void> {
-    await this.options.auditWriter.recordAuditEvent({
-      actorUserId: access.user.id,
-      eventType: "browser.gateway.denied",
-      targetType: "agent-binding",
-      targetId: access.binding.id,
-      details: { method, reason },
-      createdAt: (this.options.now ?? Date.now)(),
-    });
   }
 }

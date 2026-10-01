@@ -17,6 +17,7 @@ import {
 } from "./knowledge-vault-contracts.js";
 import type { KnowledgeVaultWikiOperation } from "./knowledge-vault-operations.js";
 import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
+import type { SpaceService } from "./space-service.js";
 
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
 export const PLATFORMCLAW_EXECUTION_GRANT_PATH = "/platformclaw/internal/execution/grant";
@@ -33,6 +34,44 @@ export const PLATFORMCLAW_VAULT_SCOPE_PATH = "/platformclaw/internal/memory/vaul
 
 export const PLATFORMCLAW_VAULT_WIKI_PATH = "/platformclaw/internal/memory/vaults/wiki";
 
+const SPACE_READ_PATH = "/platformclaw/internal/spaces/read";
+export function parseSpaceReadRequest(
+  body: Record<string, unknown>,
+  agentId: string,
+): Parameters<SpaceService["agentRead"]>[0] {
+  const allowed = new Set([
+    "agentId",
+    "operation",
+    "query",
+    "spaceId",
+    "pageId",
+    "sessionKey",
+    "runId",
+    "messageId",
+  ]);
+  if (
+    !["search", "get", "context"].includes(String(body.operation)) ||
+    Object.keys(body).some((key) => !allowed.has(key)) ||
+    ["query", "spaceId", "pageId", "sessionKey", "runId", "messageId"].some(
+      (key) =>
+        body[key] !== undefined &&
+        (typeof body[key] !== "string" || (body[key] as string).length > 1000),
+    )
+  ) {
+    throw new ControlPlaneStateError("Invalid Space read");
+  }
+  return {
+    agentId,
+    operation: body.operation as string,
+    ...(body.query === undefined ? {} : { query: body.query as string }),
+    ...(body.spaceId === undefined ? {} : { spaceId: body.spaceId as string }),
+    ...(body.pageId === undefined ? {} : { pageId: body.pageId as string }),
+    ...(body.sessionKey === undefined ? {} : { sessionKey: body.sessionKey as string }),
+    ...(body.runId === undefined ? {} : { runId: body.runId as string }),
+    ...(body.messageId === undefined ? {} : { messageId: body.messageId as string }),
+  };
+}
+
 const MAX_REQUEST_BYTES = 4 * 1024;
 // Turn selections travel between trusted services, never in the model's tool schema.
 const MAX_VAULT_SEARCH_BYTES = 144 * 1024;
@@ -41,6 +80,7 @@ type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
   "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
 > & {
+  spaceService?: Pick<SpaceService, "agentRead">;
   vaultService?: Pick<KnowledgeVaultService, "search" | "get" | "captureScope" | "wiki">;
   resolveMcpConnection?: (
     agentId: string,
@@ -329,6 +369,7 @@ export class PlatformClawExecutionHandoffServer {
     try {
       const pathname = new URL(req.url ?? "/", "http://platformclaw.internal").pathname;
       if (
+        pathname !== SPACE_READ_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_GRANT_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH &&
@@ -354,6 +395,17 @@ export class PlatformClawExecutionHandoffServer {
         ),
       );
       const agentId = requestAgentId(body);
+      if (pathname === SPACE_READ_PATH) {
+        if (!this.service.spaceService) {
+          sendJson(res, 503, { error: "Spaces unavailable" });
+          return;
+        }
+        const result = await this.service.spaceService.agentRead(
+          parseSpaceReadRequest(body, agentId),
+        );
+        sendJson(res, 200, result);
+        return;
+      }
       if (
         pathname === PLATFORMCLAW_VAULT_SEARCH_PATH ||
         pathname === PLATFORMCLAW_VAULT_GET_PATH ||

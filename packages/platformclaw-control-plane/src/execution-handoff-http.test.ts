@@ -8,7 +8,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ControlPlaneConflictError } from "./contracts.js";
 import { ExecutionHandoffClient } from "./execution-handoff-client.js";
-import { PlatformClawExecutionHandoffServer } from "./execution-handoff-http.js";
+import {
+  PlatformClawExecutionHandoffServer,
+  parseSpaceReadRequest,
+} from "./execution-handoff-http.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 import { KnowledgeVaultSearchError } from "./knowledge-vault-contracts.js";
 
@@ -547,4 +550,18 @@ describe("PlatformClawExecutionHandoffServer", () => {
       });
     }
   });
+});
+
+it("validates source anchors in the same parser used by internal Space reads", () => {
+  const input = {
+    agentId: "person_one",
+    operation: "get",
+    spaceId: "space-one",
+    pageId: "page-one",
+    messageId: "old-message",
+  };
+  expect(parseSpaceReadRequest(input, "person_one")).toEqual(input);
+  expect(() => parseSpaceReadRequest({ ...input, userId: "forged" }, "person_one")).toThrow(
+    "Invalid Space read",
+  );
 });

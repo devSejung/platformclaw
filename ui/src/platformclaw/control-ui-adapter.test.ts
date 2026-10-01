@@ -78,6 +78,7 @@ describe("PlatformClawControlUiAdapter", () => {
         "credentials",
         "memory",
         "organization",
+        "spaces",
         "profile",
         "notifications",
         "about",
@@ -87,7 +88,13 @@ describe("PlatformClawControlUiAdapter", () => {
         "mcp",
       ],
       navigation: {
-        sidebarEntries: ["route:cron", "route:skills", "route:skill-workshop", "route:skill-hub"],
+        sidebarEntries: [
+          "route:spaces",
+          "route:cron",
+          "route:skills",
+          "route:skill-workshop",
+          "route:skill-hub",
+        ],
       },
       gateway: {
         url: "wss://platformclaw.example/platformclaw/gateway",
@@ -345,6 +352,7 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(adminOptions.enabledRouteIds).toContain("mcp");
     expect(adminOptions.enabledRouteIds).toContain("credentials");
     expect(adminOptions.navigation?.sidebarEntries).toEqual([
+      "route:spaces",
       "route:cron",
       "route:skills",
       "route:skill-workshop",
@@ -399,6 +407,7 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(memberOptions.enabledRouteIds).toContain("mcp");
     expect(memberOptions.enabledRouteIds).toContain("credentials");
     expect(memberOptions.navigation?.sidebarEntries).toEqual([
+      "route:spaces",
       "route:cron",
       "route:skills",
       "route:skill-workshop",

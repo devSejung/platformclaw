@@ -51,6 +51,7 @@ const APP_ROUTE_DEFINITIONS = {
   mcp: { path: "/settings/mcp", aliases: ["/mcp"] },
   memory: { path: "/settings/memory" },
   organization: { path: "/settings/organization" },
+  spaces: { path: "/spaces" },
   talk: { path: "/settings/talk" },
   infrastructure: { path: "/settings/infrastructure", aliases: ["/infrastructure"] },
   labs: { path: "/settings/labs" },

@@ -1,9 +1,11 @@
 import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
+import { spaceTranslations } from "./ko-spaces.ts";
 import { vaultTranslations } from "./ko-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
   ...vaultTranslations,
+  ...spaceTranslations,
   "configView.appearance.terminalTextSize": "터미널 텍스트 크기",
   "platformClaw.skillHub.publish.action": "작업 공간 스킬 게시",
   "platformClaw.skillHub.publish.title": "작업 공간의 스킬 게시",

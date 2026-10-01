@@ -1,5 +1,6 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { createWikiHubMemoryClient } from "./src/client.js";
+import { registerSpaceTools } from "./src/space-tools.js";
 import { createWikiHubCorpusSupplement } from "./src/supplement.js";
 import { createVaultTurnScopeController } from "./src/turn-scope.js";
 
@@ -19,11 +20,16 @@ export default definePluginEntry({
         "platformclaw-org-memory: Wiki Hub is not configured; Shared operations will report it unavailable",
       );
     }
+    if (client) {
+      registerSpaceTools(api, client);
+    }
     const turnScope = client ? createVaultTurnScopeController(api, client) : undefined;
     if (turnScope) {
       // All tool-capable harnesses await this hook; some do not emit agent_turn_prepare.
       api.on("before_prompt_build", async (_event, context) => {
-        await turnScope.prepare(context);
+        if (!/^space-[a-f0-9-]{36}$/u.test(context.agentId ?? "")) {
+          await turnScope.prepare(context);
+        }
       });
     }
     api.registerMemoryCorpusSupplement(

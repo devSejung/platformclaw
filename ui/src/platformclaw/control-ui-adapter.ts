@@ -197,6 +197,7 @@ export class PlatformClawControlUiAdapter {
       (routeId) => routeId !== "plugins" || identity.globalRole === "admin",
     ) as readonly RouteId[];
     const sidebarEntries = [
+      "route:spaces",
       "route:cron",
       "route:skills",
       "route:skill-workshop",
@@ -206,6 +207,16 @@ export class PlatformClawControlUiAdapter {
       accessMode: "personal-agent",
       enabledRouteIds,
       routeOverrides: {
+        spaces: {
+          loader: async () => undefined,
+          component: async () => {
+            await Promise.all([import("./spaces-page.ts"), loadPlatformClawLocale()]);
+            return {
+              header: false,
+              render: () => html`<platformclaw-spaces-page></platformclaw-spaces-page>`,
+            };
+          },
+        },
         credentials: {
           loader: async () => undefined,
           component: () =>
@@ -352,6 +363,11 @@ export class PlatformClawControlUiAdapter {
         sidebarEntries,
         settingsNavigationMode: "takeover",
         routeCopy: {
+          spaces: {
+            title: () => t("platformClaw.spaces.title"),
+            subtitle: () => t("platformClaw.spaces.intro"),
+            settingsLabel: () => t("platformClaw.spaces.title"),
+          },
           organization: {
             title: () => t("platformClaw.organization.title"),
             subtitle: () => t("platformClaw.organization.subtitle"),

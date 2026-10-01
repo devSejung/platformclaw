@@ -12,6 +12,16 @@ const MAX_RESPONSE_BYTES = 256 * 1024;
 export type VaultTurnScope = { revision: number; vaultIds: string[]; personalEnabled: boolean };
 
 export type WikiHubMemoryClient = {
+  spaceRead(params: {
+    agentId: string;
+    operation: string;
+    query?: string;
+    spaceId?: string;
+    pageId?: string;
+    sessionKey?: string;
+    runId?: string;
+    messageId?: string;
+  }): Promise<unknown>;
   wiki(
     params: import("openclaw/plugin-sdk/memory-core-host-runtime-core").MemoryWikiOperation & {
       agentId: string;
@@ -152,6 +162,8 @@ export function createWikiHubMemoryClient(env: NodeJS.ProcessEnv): WikiHubMemory
   }
   const socketPath = handoffAddress(broker);
   return {
+    spaceRead: async (params) =>
+      await call(socketPath, token, "/platformclaw/internal/spaces/read", params),
     wiki: async (params) => await call(socketPath, token, WIKI_PATH, params),
     captureScope: async (params) => await call(socketPath, token, SCOPE_PATH, params),
     search: async (params) => await call(socketPath, token, SEARCH_PATH, params),

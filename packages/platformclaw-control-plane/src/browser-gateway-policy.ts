@@ -3,9 +3,11 @@ import {
   KNOWLEDGE_VAULT_RPC_METHODS,
   KNOWLEDGE_VAULT_RPC_PARAMS,
 } from "./browser-gateway-vault-policy.js";
+import { SPACE_RPC_METHODS, SPACE_RPC_PARAMS } from "./space-contracts.js";
 
 export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   ...KNOWLEDGE_VAULT_RPC_METHODS,
+  ...SPACE_RPC_METHODS,
   "agent.identity.get",
   "agents.files.get",
   "agents.files.list",
@@ -132,10 +134,15 @@ export type PlatformClawWebGatewayMethod = (typeof PLATFORMCLAW_WEB_GATEWAY_METH
 export const PLATFORMCLAW_WEB_ALLOWED_METHODS = new Set<string>(PLATFORMCLAW_WEB_GATEWAY_METHODS);
 export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
   ...KNOWLEDGE_VAULT_RPC_METHODS,
+  ...SPACE_RPC_METHODS,
   ...BASEBALL_RPC_METHODS,
   "commands.list",
 ]);
 export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<string>>([
+  ...SPACE_RPC_METHODS.map((method): [string, ReadonlySet<string>] => [
+    method,
+    new Set(SPACE_RPC_PARAMS[method]),
+  ]),
   ...KNOWLEDGE_VAULT_RPC_METHODS.map((method): [string, ReadonlySet<string>] => [
     method,
     new Set(KNOWLEDGE_VAULT_RPC_PARAMS[method]),
