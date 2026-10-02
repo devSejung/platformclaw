@@ -5014,7 +5014,10 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
         "image/png",
         "image/jpeg",
       ]);
-      expect(mockState.lastDispatchCtx?.media).toBeUndefined();
+      expect(mockState.lastDispatchCtx?.media).toEqual([
+        { path: "/tmp/chat-send-image-a.png", contentType: "image/png" },
+        { path: "/tmp/chat-send-image-b.jpg", contentType: "image/jpeg" },
+      ]);
       expect(mockState.lastDispatchImages).toHaveLength(2);
     });
   });
@@ -5374,7 +5377,6 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       {
         path: "/tmp/1.png",
         contentType: "image/png",
-        workspaceDir: "/tmp",
       },
     ]);
     expect(mockState.savedMediaCalls).toEqual([
@@ -5529,7 +5531,6 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       {
         path: "/tmp/1.png",
         contentType: "image/png",
-        workspaceDir: "/tmp",
       },
     ]);
     expect(mockState.savedMediaCalls).toEqual([
@@ -5570,7 +5571,6 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       {
         path: "/home/user/.openclaw/media/inbound/report.pdf",
         contentType: "application/pdf",
-        workspaceDir: "/home/user/.openclaw/media/inbound",
       },
     ]);
     // Non-image offloads retain their claim-check line while the staged path
@@ -5621,7 +5621,6 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       {
         path: "/home/user/.openclaw/media/inbound/fake.zip",
         contentType: "application/zip",
-        workspaceDir: "/home/user/.openclaw/media/inbound",
       },
     ]);
     expect(mockState.lastDispatchImages).toBeUndefined();
@@ -5719,6 +5718,10 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     expect(mockState.lastDispatchImages).toHaveLength(1);
     expect(mockState.lastDispatchImageOrder).toEqual(["inline"]);
     expect(mockState.lastDispatchCtx?.media).toEqual([
+      {
+        path: "/home/user/.openclaw/media/inbound/screenshot.png",
+        contentType: "image/png",
+      },
       {
         path: "media/inbound/report.pdf",
         contentType: "application/pdf",
@@ -5933,7 +5936,6 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       {
         path: "/home/user/.openclaw/media/inbound/huge.pdf",
         contentType: "application/pdf",
-        workspaceDir: "/home/user/.openclaw/media/inbound",
       },
     ]);
     expect(mockState.deleteMediaBufferCalls).toEqual([]);
@@ -5976,7 +5978,6 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       {
         path: "/home/user/.openclaw/media/inbound/report.pdf",
         contentType: "application/pdf",
-        workspaceDir: "/home/user/.openclaw/media/inbound",
       },
     ]);
     expect(mockState.deleteMediaBufferCalls).toEqual([]);
@@ -6013,7 +6014,6 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       {
         path: "/home/user/.openclaw/media/inbound/report.pdf",
         contentType: "application/pdf",
-        workspaceDir: "/sandbox/workspace",
       },
     ]);
     expect(mockState.deleteMediaBufferCalls).toEqual([]);
