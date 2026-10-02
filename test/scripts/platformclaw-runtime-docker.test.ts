@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -489,24 +489,27 @@ exec bash "$1" config --format json
 getent() { printf 'platformclaw:x:1000:1000::%s:/bin/bash\n' "$PLATFORMCLAW_TEST_HOME"; }
 id() { printf '1000\n'; }
 export -f getent id
-exec bash "$1" config --format json
+unset COMPOSE_PROFILES
+wrapper="$1"
+shift
+exec bash "$wrapper" "$@" config --format json
 `;
+    const s3Settings = [
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.internal.example",
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guides/platformclaw-guide.mp4",
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=ap-northeast-2",
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=true",
+    ];
 
     for (const entry of [
-      { enabled: false, settings: [] },
-      {
-        enabled: true,
-        settings: [
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.internal.example",
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guides/platformclaw-guide.mp4",
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=ap-northeast-2",
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=true",
-        ],
-      },
+      { enabled: false, settings: [], probeProfile: false },
+      { enabled: true, settings: s3Settings, probeProfile: false },
+      { enabled: true, settings: s3Settings, probeProfile: true },
     ]) {
       writeFileSync(envFile, [...baseEnvironment, ...entry.settings, ""].join("\n"), "utf8");
-      const result = spawnSync("bash", ["-ceu", script, "--", wrapper], {
+      const composeArgs = entry.probeProfile ? ["--profile", "guide-video-check"] : [];
+      const result = spawnSync("bash", ["-ceu", script, "--", wrapper, ...composeArgs], {
         encoding: "utf8",
         env: {
           ...process.env,
@@ -535,6 +538,11 @@ exec bash "$1" config --format json
         >;
       };
       const control = config.services["platformclaw-control"]!;
+      const probe = config.services["platformclaw-guide-video-check"];
+      if (!entry.probeProfile) {
+        // The one-shot preflight must stay out of normal stack startup.
+        expect(probe).toBeUndefined();
+      }
       if (!entry.enabled) {
         expect(control.environment.PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT).toBeUndefined();
         expect(
@@ -583,7 +591,9 @@ exec bash "$1" config --format json
       expect(secretMount?.bind?.create_host_path ?? false).toBe(false);
       expect(credentialMount?.bind?.create_host_path ?? false).toBe(false);
 
-      const probe = config.services["platformclaw-guide-video-check"];
+      if (!entry.probeProfile) {
+        continue;
+      }
       expect(probe).toBeDefined();
       expect((probe as { profiles?: string[] }).profiles).toContain("guide-video-check");
       expect((probe as { read_only?: boolean }).read_only).toBe(true);
