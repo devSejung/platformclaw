@@ -1,8 +1,7 @@
 import type { PlatformUser } from "./contracts.js";
+import { SkillHubCommandService } from "./skill-hub-command-service.js";
 import { SkillHubGovernanceError } from "./skill-hub-governance-client.js";
-import { SkillHubPublicationService } from "./skill-hub-service-publication.js";
 import {
-  compareSemVer,
   projectSkillHubAccessGrant,
   safeName,
   SKILL_KEY_PATTERN,
@@ -36,140 +35,7 @@ export {
 } from "./skill-hub-service-support.js";
 export type { AuthenticatedWorkspace, SkillInstallTarget } from "./skill-hub-service-support.js";
 
-export class SkillHubService extends SkillHubPublicationService {
-  async command(accountId: string, rawArgs: string | undefined): Promise<{ text: string }> {
-    const actor = await this.authenticateAccount(accountId);
-    if (!actor) {
-      throw new SkillHubServiceError("linked active employee account required", 401);
-    }
-    const [action = "help", ...tail] = (rawArgs ?? "").trim().split(/\s+/u).filter(Boolean);
-    if (action === "help") {
-      return { text: tail[0]?.toLowerCase() === "ko" ? skillHubHelpKo() : skillHubHelpEn() };
-    }
-    if (action === "list") {
-      const page = tail[0] === undefined ? 1 : Number(tail[0]);
-      const result = await this.commandCatalog(actor.user, page);
-      const lines = [
-        `## Downloadable skills — page ${result.page}`,
-        "",
-        "| Skill | Namespace | Latest |",
-        "|---|---|---|",
-        ...result.items.map(
-          (item) => `| \`${item.slug}\` | \`${item.namespace}\` | \`${item.latestVersion}\` |`,
-        ),
-      ];
-      if (result.items.length === 0) {
-        lines.splice(2, lines.length - 2, "No downloadable skills on this page.");
-      }
-      if (result.hasNext) {
-        lines.push("", `Next: \`/skillhub list ${result.page + 1}\``);
-      }
-      return { text: lines.join("\n") };
-    }
-    if (action === "installed") {
-      const result = await this.commandInstalled(actor);
-      const target = result.target === "assigned_vm" ? "My VM workspace" : "Basic workspace";
-      if (result.items.length === 0) {
-        return { text: `## Installed skills\n\nTarget: **${target}**\n\nNo skills installed.` };
-      }
-      return {
-        text: [
-          "## Installed skills",
-          "",
-          `Target: **${target}**`,
-          "",
-          "| Skill | Version |",
-          "|---|---|",
-          ...result.items.map(
-            (item) => `| \`${item.skillKey ?? "unknown"}\` | \`${item.version ?? "unknown"}\` |`,
-          ),
-        ].join("\n"),
-      };
-    }
-    if (action === "publish") {
-      if (tail.length !== 1) {
-        throw new SkillHubServiceError("usage: /skillhub publish <slug>", 400);
-      }
-      const slug = safeName(tail[0]!, "skill slug", SKILL_KEY_PATTERN);
-      const execution = await this.resolveExecutionTarget(actor.agentId);
-      const workspace = await this.workspaceSkills(actor, execution.activeTarget);
-      const skill = workspace.items.find((item) => item.skillKey === slug);
-      if (!skill) {
-        throw new SkillHubServiceError(`skill is not installed on the active target: ${slug}`, 404);
-      }
-      const config = await this.config(actor);
-      const namespace = config.namespaces[0];
-      if (!namespace) {
-        throw new SkillHubServiceError("no authorized publishing namespace is available", 403);
-      }
-      const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
-      const visibility = binding?.visibilityCeiling === "PRIVATE" ? "PRIVATE" : "NAMESPACE_ONLY";
-      const version = skill.version ?? "0.1.0";
-      const result = await this.publish(actor, {
-        skill: slug,
-        source: execution.activeTarget,
-        namespace,
-        version,
-        visibility,
-      });
-      return {
-        text: `## Published\n\n- Skill: \`${result.namespace}/${result.slug}\`\n- Version: \`${result.version}\`\n- Source: \`${execution.activeTarget}\`\n- Visibility: \`${visibility}\``,
-      };
-    }
-    if (action === "install" || action === "update") {
-      if (tail.length !== 1) {
-        throw new SkillHubServiceError(`usage: /skillhub ${action} <slug|namespace/slug>`, 400);
-      }
-      const skill = await this.resolveCommandSkill(actor.user, tail[0]!);
-      const execution = await this.resolveExecutionTarget(actor.agentId);
-      let currentVersion: string | undefined;
-      let currentRevision: string | undefined;
-      if (action === "update") {
-        const installed = await this.commandInstalled(actor);
-        const current = installed.items.find((item) => item.skillKey === skill.slug);
-        currentVersion = current?.version;
-        currentRevision = current?.revision;
-        if (!currentVersion || !currentRevision) {
-          throw new SkillHubServiceError(
-            `installed skill identity is unavailable on the active target: ${skill.slug}`,
-            409,
-          );
-        }
-        if (compareSemVer(skill.version, currentVersion) < 0) {
-          throw new SkillHubServiceError(
-            `latest registry version ${skill.version} is older than installed version ${currentVersion}`,
-            409,
-          );
-        }
-      }
-      await this.install(actor, {
-        ...skill,
-        destination: execution.activeTarget,
-        ...(currentRevision ? { acknowledgedReplacement: true, currentRevision } : {}),
-      });
-      const verb = action === "update" ? "Updated" : "Installed";
-      return {
-        text: `## ${verb}\n\n- Skill: \`${skill.namespace}/${skill.slug}\`\n- Version: \`${skill.version}\`\n- Target: \`${execution.activeTarget}\``,
-      };
-    }
-    if (action === "delete") {
-      const refs = tail.filter((value) => value !== "--confirm");
-      if (!tail.includes("--confirm") || refs.length !== 1 || refs.length === tail.length) {
-        throw new SkillHubServiceError("usage: /skillhub delete <slug> --confirm", 400);
-      }
-      const reference = refs[0]!.trim().toLowerCase();
-      if (reference.includes("/")) {
-        throw new SkillHubServiceError("delete accepts an installed skill slug only", 400);
-      }
-      const slug = safeName(reference, "skill slug", SKILL_KEY_PATTERN);
-      const result = await this.uninstall(actor, slug);
-      return {
-        text: `## Deleted\n\n- Skill: \`${slug}\`\n- Version: \`${result.version ?? "unknown"}\`\n- Target: \`${result.target}\``,
-      };
-    }
-    throw new SkillHubServiceError(`unknown SkillHub command: ${action}`, 400);
-  }
-
+export class SkillHubService extends SkillHubCommandService {
   async notifications(user: PlatformUser, limit = 50) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
       throw new SkillHubServiceError("notification limit must be between 1 and 100", 400);
@@ -676,32 +542,4 @@ export class SkillHubService extends SkillHubPublicationService {
     }
     return { processed };
   }
-}
-
-function skillHubHelpEn(): string {
-  return [
-    "## SkillHub commands",
-    "",
-    "- `/skillhub help [ko|en]`",
-    "- `/skillhub list [page]`",
-    "- `/skillhub installed`",
-    "- `/skillhub publish <slug>`",
-    "- `/skillhub install <slug|namespace/slug>`",
-    "- `/skillhub update <slug|namespace/slug>`",
-    "- `/skillhub delete <slug> --confirm`",
-  ].join("\n");
-}
-
-function skillHubHelpKo(): string {
-  return [
-    "## SkillHub 명령어",
-    "",
-    "- `/skillhub help [ko|en]`: 도움말",
-    "- `/skillhub list [페이지]`: 다운로드 가능한 스킬",
-    "- `/skillhub installed`: 현재 설치된 스킬",
-    "- `/skillhub publish <slug>`: 현재 작업공간의 스킬 게시",
-    "- `/skillhub install <slug|namespace/slug>`: 설치",
-    "- `/skillhub update <slug|namespace/slug>`: 업데이트",
-    "- `/skillhub delete <slug> --confirm`: 현재 실행 대상에서 제거",
-  ].join("\n");
 }

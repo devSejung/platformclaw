@@ -2,7 +2,13 @@ import path from "node:path";
 import JSZip, { type JSZipObject } from "jszip";
 import { isMap, parseDocument } from "yaml";
 import type { BrowserAuthService } from "./browser-auth-service.js";
-import type { ControlPlaneAuditWriter, ControlPlaneStore, PlatformUser } from "./contracts.js";
+import type {
+  ControlPlaneAuditWriter,
+  ControlPlaneStore,
+  KnoxRoomAgentBinding,
+  MainSessionKeyBuilder,
+  PlatformUser,
+} from "./contracts.js";
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type { OrganizationService } from "./organization-service.js";
@@ -130,13 +136,20 @@ export type SkillHubServiceOptions = {
   governance?: SkillHubGovernanceClient;
   adminRpc: GatewayAdminRpc;
   workspaceRoot: string;
+  buildAgentMainSessionKey: MainSessionKeyBuilder;
   allowedNamespaces: readonly string[];
   organization: OrganizationService;
   maxPackageBytes: number;
   now?: () => number;
 };
 
-export type AuthenticatedWorkspace = { user: PlatformUser; agentId: string; workspaceDir: string };
+export type AuthenticatedWorkspace = {
+  user: PlatformUser;
+  agentId: string;
+  workspaceDir: string;
+  roomBinding?: KnoxRoomAgentBinding;
+};
+export type SkillHubAudience = "employee" | "room";
 export type SkillInstallTarget = "platform_server" | "assigned_vm";
 
 export function safeName(raw: string, label: string, pattern: RegExp): string {

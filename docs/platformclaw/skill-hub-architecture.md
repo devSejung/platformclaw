@@ -88,7 +88,13 @@ Skill Hub continues to own package and registry policy. See
 The Knox channel remains transport-only. It extracts a structurally valid final
 command line and passes it to the shared command registry. The
 `platformclaw-skillhub` plugin owns the `/skillhub` product command and calls the
-control-plane-owned employee, ACL, catalog, and mutation boundary.
+control-plane-owned employee, ACL, catalog, and mutation boundary. Trusted
+conversation context pins DM commands to the personal binding and group commands
+to the registered room binding. The employee owns registry authorization; the
+resolved conversation owns the workspace. Group catalog/install operations do
+not inherit private employee grants. Room backend requests omit the personal
+execution-target selector and reuse the existing room-aware target resolver and
+mutation lock.
 
 ## Embedded deployment boundary
 

@@ -126,6 +126,9 @@
       "platformclaw-org-memory": {
         "enabled": true
       },
+      "platformclaw-skillhub": {
+        "enabled": true
+      },
       "platformclaw-user-mcp": {
         "enabled": true
       }

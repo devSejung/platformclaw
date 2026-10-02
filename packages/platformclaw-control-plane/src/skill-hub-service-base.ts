@@ -28,6 +28,7 @@ import {
   SKILL_HUB_UPLOAD_EXPANDED_BYTES,
   type SkillHubServiceOptions,
   type SkillInstallTarget,
+  type SkillHubAudience,
 } from "./skill-hub-service-support.js";
 import type { SkillHubGovernanceJob } from "./skill-hub-state.js";
 import type { SkillHubNamespaceBinding } from "./skill-hub-state.js";
@@ -154,6 +155,7 @@ export abstract class SkillHubServiceBase {
     slug: string,
     visibility: SkillHubVisibility,
     version?: string,
+    audience: SkillHubAudience = "employee",
   ): Promise<boolean> {
     const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
     const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
@@ -169,6 +171,11 @@ export abstract class SkillHubServiceBase {
     ].reduce((mostRestrictive, candidate) =>
       visibilityRank[candidate] < visibilityRank[mostRestrictive] ? candidate : mostRestrictive,
     );
+    // A shared room cannot inherit one employee's private/organization grants,
+    // including an administrator's view. Respect the same effective visibility ceiling.
+    if (audience === "room") {
+      return effectiveVisibility === "PUBLIC";
+    }
     if (effectiveVisibility === "PUBLIC" || user.globalRole === "admin") {
       return true;
     }
@@ -196,8 +203,9 @@ export abstract class SkillHubServiceBase {
     slug: string,
     visibility: SkillHubVisibility,
     version?: string,
+    audience: SkillHubAudience = "employee",
   ): Promise<void> {
-    if (!(await this.canAccessSkill(user, namespace, slug, visibility, version))) {
+    if (!(await this.canAccessSkill(user, namespace, slug, visibility, version, audience))) {
       throw new SkillHubServiceError("Skill Hub skill not found", 404);
     }
   }

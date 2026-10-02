@@ -31,7 +31,16 @@ describe("PlatformClaw SkillHub command", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(
-        command.handler({ senderId: "person.one", accountId: "default", args: "list", config: {} }),
+        command.handler({
+          agentId: "agent-1",
+          sessionKey: "agent:agent-1:main",
+          from: "dm:42",
+          to: "dm:42",
+          senderId: "person.one",
+          accountId: "default",
+          args: "list",
+          config: {},
+        }),
       ).resolves.toEqual({
         text: "## Downloadable skills\n\nNo downloadable skills on this page.",
       });
@@ -40,7 +49,18 @@ describe("PlatformClaw SkillHub command", () => {
         "http://control.example/platformclaw/internal/knox/skillhub",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ accountId: "person.one", args: "list" }),
+          body: JSON.stringify({
+            accountId: "person.one",
+            args: "list",
+            locale: "ko",
+            context: {
+              accountId: "default",
+              conversationType: "dm",
+              conversationId: "42",
+              agentId: "agent-1",
+              sessionKey: "agent:agent-1:main",
+            },
+          }),
         }),
       );
     });

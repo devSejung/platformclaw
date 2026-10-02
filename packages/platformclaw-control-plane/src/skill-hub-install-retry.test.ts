@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSkillHubServiceFixture as fixture } from "./skill-hub-service.test-fixtures.js";
 
 async function skillArchive(): Promise<Buffer> {
@@ -75,12 +75,22 @@ describe("SkillHubService install retry", () => {
   it("isolates concurrent upload retries by Agent and destination", async () => {
     const {
       service,
+      store,
       actor,
       adapterMocks,
       adminRpcCall,
       getPersonalExecutionProfile,
       getVmAllocationForAgent,
     } = await fixture();
+    const firstBinding = await store.getPersonalAgentBinding(actor.user.id);
+    if (!firstBinding) {
+      throw new Error("fixture personal binding missing");
+    }
+    vi.mocked(store.getPersonalAgentBinding).mockImplementation(async (userId) => ({
+      ...firstBinding,
+      userId,
+      agentId: userId === actor.user.id ? actor.agentId : "agent-2",
+    }));
     const archive = await skillArchive();
     adapterMocks.download.mockResolvedValue(archive);
     getPersonalExecutionProfile.mockResolvedValue({
@@ -129,7 +139,7 @@ describe("SkillHubService install retry", () => {
         destination: "assigned_vm",
       }),
       service.install(
-        { ...actor, agentId: "agent-2" },
+        { ...actor, user: { ...actor.user, id: "user-2" }, agentId: "agent-2" },
         {
           namespace: "engineering",
           slug: "demo-skill",

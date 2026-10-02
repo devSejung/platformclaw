@@ -183,20 +183,40 @@ revision-pinned copy from the active workspace target.
 
 ## Knox commands
 
-Authenticated employees can manage the active execution target from Knox Teams.
-Responses are Markdown. English is the default; only `help ko` selects Korean
-help text.
+Authenticated employees can use `/skillhub` directly in Knox Teams without an
+Agent/model turn. Managed initial configuration and upgrade reconciliation enable
+the command plugin. Disabling the optional registry profile keeps the command
+registered and returns an explicit unavailable message.
+
+DM commands target the employee's active Basic or assigned-VM workspace. Group
+commands target the registered room Agent workspace, never the sender's personal
+Agent or VM. The relay account, room, Agent, and session are checked together.
+Room catalog and installation use effective Public visibility; an employee's
+private, organization, owner, or administrator grants do not become room grants.
+Installed listing and removal stay in that room. Publishing reads that room's
+source skill and still requires the sender's normal namespace/ownership rights.
+
+Responses default to Korean; `help en` shows English help.
 
 | Command                                    | Result                                                           |
 | ------------------------------------------ | ---------------------------------------------------------------- |
-| `/skillhub help`                           | English command help                                             |
-| `/skillhub help ko`                        | Korean command help                                              |
-| `/skillhub list [page]`                    | Skills the employee may download                                 |
+| `/skillhub help`                           | Korean command help                                              |
+| `/skillhub help [ko\|en]`                  | Select the help language                                         |
+| `/skillhub list [page\|all]`               | Skills the employee may download                                 |
 | `/skillhub installed`                      | Skill Hub skills installed on the active target                  |
 | `/skillhub publish <slug>`                 | Publish a skill from the active Basic or assigned-VM workspace   |
 | `/skillhub install <slug\|namespace/slug>` | Install the latest accessible version                            |
 | `/skillhub update <slug\|namespace/slug>`  | Replace the installed version with the latest accessible version |
 | `/skillhub delete <slug> --confirm`        | Remove the revision-pinned skill from the active target          |
+
+`list all` is a compatibility alias for page 1. The previous categories
+`knowledge`, `automation`, `utility`, and `other` do not exist in the current
+registry; requests for them return the current listing syntax instead of an
+unfiltered result disguised as a category.
+
+Pages follow registry order and exclude inaccessible entries within each page.
+A page can therefore contain fewer skills or be empty; use its next-page command
+to continue browsing without skipping accessible skills later in the registry.
 
 A bare slug works when it identifies exactly one accessible namespace. If the
 same slug is visible in multiple namespaces, the response lists candidates and

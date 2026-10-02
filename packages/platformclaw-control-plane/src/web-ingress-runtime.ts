@@ -260,6 +260,7 @@ export function createPlatformClawWebIngressRuntime(
     : undefined;
   const skillHub = options.skillHub
     ? new SkillHubService({
+        buildAgentMainSessionKey: options.buildAgentMainSessionKey,
         authService: auth.service,
         store: auth.store,
         adapter: options.skillHub.adapter,
