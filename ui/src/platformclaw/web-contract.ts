@@ -32,6 +32,7 @@ const PLATFORMCLAW_ENABLED_ROUTES = [
   "credentials",
   "memory",
   "organization",
+  "spaces",
   "profile",
   "notifications",
   "about",

@@ -11,6 +11,8 @@ import { ExecutionHandoffClient } from "./execution-handoff-client.js";
 import { PlatformClawExecutionHandoffServer } from "./execution-handoff-http.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 import { KnowledgeVaultSearchError } from "./knowledge-vault-contracts.js";
+import { parseSpaceReadRequest } from "./space-read-request.js";
+import type { SpaceService } from "./space-service.js";
 
 const servers: PlatformClawExecutionHandoffServer[] = [];
 const roots: string[] = [];
@@ -35,6 +37,9 @@ async function startServer() {
     score: 0.9,
   };
   const service = {
+    spaceService: {
+      agentRead: vi.fn<SpaceService["agentRead"]>(async () => ({ results: [], indexing: false })),
+    },
     vaultService: {
       captureScope: vi.fn(() => ({ revision: 4, vaultIds: ["vault-one"], personalEnabled: true })),
       wiki: vi.fn(() => ({
@@ -195,6 +200,36 @@ describe("PlatformClawExecutionHandoffServer", () => {
     ).resolves.toMatchObject({ status: 409, body: { code: "wiki-invalid" } });
     expect(service.vaultService.wiki).toHaveBeenCalledTimes(calls);
   });
+  it("forwards Space continuation and returns an actionable page conflict", async () => {
+    const { socketPath, service } = await startServer();
+    const input = {
+      agentId: "person_one",
+      operation: "get",
+      spaceId: "shared",
+      pageId: "page",
+      bodyOffset: 8000,
+      pageRevision: 1,
+    };
+    await post(socketPath, "/platformclaw/internal/spaces/read", input);
+    expect(service.spaceService.agentRead).toHaveBeenCalledWith(input);
+    service.spaceService.agentRead.mockRejectedValueOnce(
+      new ControlPlaneConflictError(
+        "space_changed",
+        "Page changed; read from bodyOffset 0 before continuing",
+      ),
+    );
+    await expect(
+      postResponse(socketPath, "/platformclaw/internal/spaces/read", input),
+    ).resolves.toMatchObject({
+      status: 409,
+      body: {
+        code: "space-conflict",
+        error: expect.stringContaining("Page changed"),
+        action: expect.stringContaining("without pageRevision"),
+      },
+    });
+  });
+
   it("rejects an incorrect service token before dispatch", async () => {
     const { socketPath, service } = await startServer();
     const client = new ExecutionHandoffClient(socketPath, "wrong-token");
@@ -547,4 +582,88 @@ describe("PlatformClawExecutionHandoffServer", () => {
       });
     }
   });
+});
+
+it("validates source anchors in the same parser used by internal Space reads", () => {
+  const input = {
+    agentId: "person_one",
+    operation: "get",
+    spaceId: "space-one",
+    pageId: "page-one",
+    conversationId: "conversation-one",
+    messageId: "old-message",
+    bodyOffset: 8000,
+    pageRevision: 3,
+  };
+  expect(parseSpaceReadRequest(input, "person_one")).toEqual(input);
+  expect(() => parseSpaceReadRequest({ ...input, userId: "forged" }, "person_one")).toThrow(
+    "Invalid Space read",
+  );
+});
+
+it.each([
+  { bodyOffset: -1 },
+  { bodyOffset: 32001 },
+  { bodyOffset: 0.5 },
+  { pageRevision: 0 },
+  { pageRevision: "1" },
+])("rejects malformed Space page continuation %j", (params) => {
+  expect(() => parseSpaceReadRequest({ operation: "get", ...params }, "person_one")).toThrow(
+    "Invalid Space read",
+  );
+});
+
+it.each([
+  { limit: 0 },
+  { limit: 1.5 },
+  { limit: 9 },
+  { bodyLimitBytes: 0 },
+  { bodyLimitBytes: 8001 },
+  { cursor: "-1" },
+  { cursor: "21" },
+  { cursor: "1e1" },
+  { cursor: "01" },
+  { messageOffset: 1 },
+  { messageOffset: -1, messageId: "m" },
+  { messageOffset: 16001, messageId: "m" },
+])("rejects invalid bounded Space recall arguments %j", (params) => {
+  expect(() => parseSpaceReadRequest({ operation: "get", ...params }, "person_one")).toThrow(
+    "Invalid Space read",
+  );
+});
+
+it("preserves bounded recall controls and validates operation-specific limits", () => {
+  const params = {
+    operation: "get",
+    messageId: "answer",
+    messageOffset: 800,
+    limit: 8,
+    bodyLimitBytes: 8000,
+    bodyOffset: 4000,
+    pageRevision: 2,
+  };
+  expect(parseSpaceReadRequest(params, "person_one")).toEqual({ agentId: "person_one", ...params });
+  expect(
+    parseSpaceReadRequest({ operation: "search", limit: 20, cursor: "5" }, "person_one"),
+  ).toEqual({ agentId: "person_one", operation: "search", limit: 20, cursor: "5" });
+});
+
+it("accepts bounded trusted native-session authorization and rejects incomplete callers", () => {
+  const params = {
+    operation: "native",
+    nativeTool: "sessions_history",
+    broad: true,
+    sessionKey: "agent:person_one:main",
+    targetSessionKey: "opaque-session-id",
+  };
+  expect(parseSpaceReadRequest(params, "person_one")).toEqual({ agentId: "person_one", ...params });
+  expect(() =>
+    parseSpaceReadRequest({ operation: "native", nativeTool: "sessions_history" }, "person_one"),
+  ).toThrow("Invalid Space read");
+  expect(() => parseSpaceReadRequest({ ...params, broad: "true" }, "person_one")).toThrow(
+    "Invalid Space read",
+  );
+  expect(() =>
+    parseSpaceReadRequest({ ...params, targetSessionKey: "x".repeat(1001) }, "person_one"),
+  ).toThrow("Invalid Space read");
 });

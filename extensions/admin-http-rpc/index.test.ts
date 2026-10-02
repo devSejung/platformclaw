@@ -21,6 +21,9 @@ describe("admin-http-rpc plugin entry", () => {
     const routes: Array<Record<string, unknown>> = [];
     const gatewayMethods: Array<{ method: string; options: unknown }> = [];
     const hooks: string[] = [];
+    let beforeToolCall:
+      | ((event: { toolName: string }, context: { agentId: string }) => unknown)
+      | undefined;
     const stores: unknown[] = [];
     const profileStore: { value?: unknown } = {};
     const beforePromptBuild: Array<
@@ -53,6 +56,9 @@ describe("admin-http-rpc plugin entry", () => {
       },
       on(hook: Parameters<PluginApi["on"]>[0], handler: unknown) {
         hooks.push(hook);
+        if (hook === "before_tool_call") {
+          beforeToolCall = handler as typeof beforeToolCall;
+        }
         if (hook === "before_prompt_build") {
           beforePromptBuild.push(handler as (typeof beforePromptBuild)[number]);
         }
@@ -67,11 +73,23 @@ describe("admin-http-rpc plugin entry", () => {
       gatewayRuntimeScopeSurface: "trusted-operator",
     });
     expect(gatewayMethods).toEqual([
+      { method: "platformclaw.space.ensureAgent", options: { scope: "operator.admin" } },
       { method: "platformclaw.agent.configStatus", options: { scope: "operator.admin" } },
       { method: "platformclaw.profile.seed", options: { scope: "operator.admin" } },
       { method: "platformclaw.profile.status", options: { scope: "operator.admin" } },
     ]);
-    expect(hooks).toEqual(["before_prompt_build"]);
+    expect(hooks).toEqual(["before_tool_call", "before_prompt_build"]);
+    const sharedAgent = "space-12345678-1234-1234-1234-123456789abc";
+    expect(beforeToolCall?.({ toolName: "exec" }, { agentId: sharedAgent })).toMatchObject({
+      block: true,
+    });
+    expect(beforeToolCall?.({ toolName: "memory_search" }, { agentId: sharedAgent })).toMatchObject(
+      { block: true },
+    );
+    expect(
+      beforeToolCall?.({ toolName: "space_search" }, { agentId: sharedAgent }),
+    ).toBeUndefined();
+    expect(beforeToolCall?.({ toolName: "exec" }, { agentId: "person-alice" })).toBeUndefined();
     expect(stores).toEqual([
       {
         namespace: "platformclaw.employee-profiles",

@@ -17,6 +17,7 @@ type BuildPluginApiParams = {
   runtime: PluginRuntime;
   logger: PluginLogger;
   resolvePath: (input: string) => string;
+  resolveAdmissionId?: OpenClawPluginApi["runContext"]["resolveAdmissionId"];
   handlers?: Partial<
     Pick<
       OpenClawPluginApi,
@@ -292,5 +293,5 @@ export function buildPluginApi(params: BuildPluginApiParams): OpenClawPluginApi 
     resolvePath: params.resolvePath,
     on: handlers.on ?? noopOn,
   };
-  return attachPluginApiFacades(api);
+  return attachPluginApiFacades(api, params.resolveAdmissionId);
 }

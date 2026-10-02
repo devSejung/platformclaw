@@ -18,11 +18,6 @@ import {
 import { retainGatewayRootWorkAdmissionContinuation } from "../../process/gateway-work-admission.js";
 import { isOperatorUiClient } from "../../utils/message-channel.js";
 import { updateChatRunProvider } from "../chat-abort.js";
-import {
-  completeQueuedChatTurn,
-  registerQueuedChatTurn,
-  retireQueuedChatTurnCancellation,
-} from "../chat-queued-turns.js";
 import type { ChatRunTiming } from "../server-chat-state.js";
 import { formatForLog } from "../ws-log.js";
 import { setGatewayDedupeEntry } from "./agent-job.js";
@@ -37,6 +32,7 @@ import {
 import { createChatSendDispatchErrorLifecycle } from "./chat-send-dispatch-errors.js";
 import { finalizeChatSendNonAgentReplies } from "./chat-send-nonagent-finalization.js";
 import { respondChatSessionRoutingChanged } from "./chat-send-pre-admission.js";
+import { createChatSendFollowupLifecycle } from "./chat-send-queue-lifecycle.js";
 import {
   applyChatSendReplyContextFields,
   resolveChatSendReplyContext,
@@ -306,12 +302,26 @@ export async function handleChatSend(
       session: preparedSession.value,
       userTurnRecorder,
     });
-    let queuedFollowupEnqueued = false;
-    let releaseQueuedFollowupWorkAdmission: (() => void) | undefined;
+    let queueOverflowRejected = false;
+    const queuedFollowup = createChatSendFollowupLifecycle({
+      context,
+      clientRunId,
+      sessionKey,
+      sessionId: backingSessionId ?? clientRunId,
+      agentId: selectedAgent.agentId,
+      controller: activeRunAbort.controller,
+      lifecycleGeneration,
+      ownerKey: queuedFollowupOwnerKey,
+      ownerConnId: normalizeOptionalText(client?.connId),
+      ownerDeviceId: normalizeOptionalText(client?.connect?.device?.id),
+      expectedLeafEntryId,
+      retainWorkAdmission: retainGatewayWorkAdmission,
+    });
     const dispatchErrorLifecycle = createChatSendDispatchErrorLifecycle({
       admission: admitted.value,
       context,
-      isQueuedFollowupEnqueued: () => queuedFollowupEnqueued,
+      isQueuedFollowupEnqueued: queuedFollowup.isEnqueued,
+      isQueuedFollowupSettled: queuedFollowup.isSettled,
       persistUserTurnTranscript: persistGatewayUserTurnTranscript,
       session: preparedSession.value,
       terminalizeRestartSafeAdmission,
@@ -406,6 +416,8 @@ export async function handleChatSend(
                 // Keep a Gateway-owned cancel identity after this chat.send
                 // terminalizes while the prompt waits in followup/collect queue.
                 onFollowupQueueDisposition: (reason) => {
+                  queueOverflowRejected ||=
+                    p.rejectQueueOverflow === true && reason === "queue-cap-new";
                   context.logGateway.info("chat queue turn intentionally skipped", {
                     runId: clientRunId,
                     sessionKey,
@@ -413,55 +425,14 @@ export async function handleChatSend(
                     reason,
                   });
                 },
-                turnAdoptionLifecycle: {
-                  // Gateway cancel identity only — share collect key via ownerKey.
-                  admission: "cancel-only",
-                  ...(expectedLeafEntryId !== undefined
-                    ? { originatingLeafEntryId: expectedLeafEntryId }
-                    : {}),
-                  ownerKey: queuedFollowupOwnerKey,
-                  onAdopted: async () => {},
-                  onDeferred: () => {
-                    queuedFollowupEnqueued = registerQueuedChatTurn({
-                      chatQueuedTurns: context.chatQueuedTurns,
-                      runId: clientRunId,
-                      controller: activeRunAbort.controller,
-                      sessionId: backingSessionId ?? clientRunId,
-                      sessionKey,
-                      agentId: selectedAgent.agentId,
-                      ownerConnId: normalizeOptionalText(client?.connId),
-                      ownerDeviceId: normalizeOptionalText(client?.connect?.device?.id),
-                    });
-                    if (queuedFollowupEnqueued && !releaseQueuedFollowupWorkAdmission) {
-                      // The detached dispatch can finish before this queued turn is
-                      // adopted. Retain the session fence across that ownership gap.
-                      releaseQueuedFollowupWorkAdmission = retainGatewayWorkAdmission();
-                    }
-                    return queuedFollowupEnqueued;
-                  },
-                  onCancellationRetired: () => {
-                    retireQueuedChatTurnCancellation(
-                      context.chatQueuedTurns,
-                      clientRunId,
-                      activeRunAbort.controller,
-                    );
-                  },
-                  onSettled: () => {
-                    completeQueuedChatTurn(
-                      context.chatQueuedTurns,
-                      clientRunId,
-                      activeRunAbort.controller,
-                    );
-                    releaseQueuedFollowupWorkAdmission?.();
-                    releaseQueuedFollowupWorkAdmission = undefined;
-                  },
-                },
+                turnAdoptionLifecycle: queuedFollowup.lifecycle,
                 images: replyOptionImages,
                 imageOrder: imageOrder.length > 0 ? imageOrder : undefined,
                 media: replyOptionMedia,
                 thinkingLevelOverride: p.thinking,
                 fastModeOverride: p.fastMode,
                 queueModeOverride: p.queueMode,
+                rejectQueueOverflow: p.rejectQueueOverflow,
                 userTurnTranscriptRecorder: userTurnRecorder,
                 ...(restartSafeAdmission ? { suppressNextUserMessagePersistence: true } : {}),
                 fastModeAutoOnSecondsOverride: p.fastAutoOnSeconds,
@@ -538,6 +509,14 @@ export async function handleChatSend(
         ),
       )
       .then(async () => {
+        if (queueOverflowRejected) {
+          await dispatchErrorLifecycle.handleError(
+            new Error(
+              "Conversation queue is full. Wait for an answer to finish, then resend this question.",
+            ),
+          );
+          return;
+        }
         emitServerTiming("dispatch-completed", undefined, dispatchStartedAtMs);
         const postDispatchStartedAtMs = performance.now();
         await measureDiagnosticsTimelineSpan(
@@ -577,7 +556,7 @@ export async function handleChatSend(
             // duplicate normal embedded-agent assistant turns. The non-agent branch below has no
             // runtime-owned assistant turn, so it appends a gateway-injected assistant entry before
             // broadcasting the final UI event.
-            if (!agentRunStarted && !queuedFollowupEnqueued) {
+            if (!agentRunStarted && !queuedFollowup.isEnqueued()) {
               await finalizeChatSendNonAgentReplies({
                 accountId,
                 context,
@@ -628,7 +607,13 @@ export async function handleChatSend(
                         status: "error" as const,
                         summary: returnedAgentErrorMessage ?? "agent returned an error payload",
                       }
-                    : { runId: clientRunId, status: "ok" as const },
+                    : {
+                        runId: clientRunId,
+                        status:
+                          queuedFollowup.isEnqueued() && !queuedFollowup.isSettled()
+                            ? ("in_flight" as const)
+                            : ("ok" as const),
+                      },
                   ...(returnedAgentError ? { error: returnedAgentError } : {}),
                 },
               });
@@ -647,7 +632,11 @@ export async function handleChatSend(
           },
           dispatchStartedAtMs,
         );
-        if (queuedFollowupEnqueued && !context.chatRunState.hasAbortMarker(clientRunId)) {
+        if (
+          queuedFollowup.isEnqueued() &&
+          !queuedFollowup.isSettled() &&
+          !context.chatRunState.hasAbortMarker(clientRunId)
+        ) {
           // Successful queue admission ends this client run. The later
           // aggregate/followup owns its own run id.
           broadcastChatFinal({
@@ -655,6 +644,7 @@ export async function handleChatSend(
             runId: clientRunId,
             sessionKey,
             agentId,
+            queuePhase: "deferred",
           });
         }
       })

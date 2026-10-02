@@ -31,6 +31,8 @@ type InternalReplySessionOptions = {
   onFollowupQueueDisposition?: (disposition: FollowupQueueDisposition) => void;
   /** Overrides persisted queue mode for this reply only. */
   queueModeOverride?: QueueMode;
+  /** Reject incoming overflow without changing configured capacity or existing pending work. */
+  rejectQueueOverflow?: boolean;
   /** Dispatch-owned operation used to defer hooks until durable run admission. */
   replyOperation?: ReplyOperation;
   skillOverrides?: SessionToolOverrides["skills"];

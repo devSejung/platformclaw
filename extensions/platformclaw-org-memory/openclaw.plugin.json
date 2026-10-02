@@ -2,10 +2,18 @@
   "id": "platformclaw-org-memory",
   "name": "PlatformClaw Wiki Hub",
   "description": "Authorized Shared Wikis and per-turn Wiki selection.",
-  "activation": { "onStartup": true },
+  "activation": {
+    "onStartup": true
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {}
+  },
+  "contracts": {
+    "tools": [
+      "space_search",
+      "space_get"
+    ]
   }
 }

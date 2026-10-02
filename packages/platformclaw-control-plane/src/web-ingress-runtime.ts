@@ -42,6 +42,7 @@ import {
 import type { SkillHubAdapter } from "./skill-hub-adapter.js";
 import type { SkillHubGovernanceClient } from "./skill-hub-governance-client.js";
 import { SkillHubService } from "./skill-hub-service.js";
+import { SpaceService } from "./space-service.js";
 import { SshCredentialBroker } from "./ssh-credential-broker.js";
 import { createPlatformClawWebAssetHandler } from "./web-assets.js";
 import {
@@ -142,6 +143,14 @@ export function createPlatformClawWebIngressRuntime(
     throw new Error("credential broker requires an SSH credential vault");
   }
   const vaultService = new KnowledgeVaultService(auth.store, gateway);
+  const spaceService = new SpaceService(
+    auth.store,
+    gateway,
+    Boolean(
+      options.executionServiceToken && options.credentialBrokerAddress && auth.credentialVault,
+    ),
+  );
+  const unsubscribeSpaceEvents = gateway.subscribe((event) => spaceService.observe(event));
   const credentialBroker =
     options.credentialBrokerAddress && auth.credentialVault
       ? new SshCredentialBroker(options.credentialBrokerAddress, auth.credentialVault)
@@ -176,6 +185,7 @@ export function createPlatformClawWebIngressRuntime(
           options.executionServiceToken,
           {
             vaultService,
+            spaceService,
             resolveTarget: (agentId) => executionService.resolveTarget(agentId),
             resolveConnectionTarget: (agentId) => executionService.resolveConnectionTarget(agentId),
             changeTarget: (params) => executionService.changeTarget(params),
@@ -273,6 +283,7 @@ export function createPlatformClawWebIngressRuntime(
     store: auth.store,
     baseballStore: auth.store,
     vaultService,
+    spaceService,
     auditWriter: auth.store,
     gateway,
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
@@ -383,6 +394,7 @@ export function createPlatformClawWebIngressRuntime(
       }
     },
     async close() {
+      unsubscribeSpaceEvents();
       if (closed) {
         return;
       }

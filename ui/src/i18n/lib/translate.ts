@@ -174,7 +174,9 @@ class I18nManager {
           }
           return;
         }
-        this.translations[locale] = translation;
+        // An explicit registration during this load owns the newer map, even
+        // when a later same-locale selection made this request stale.
+        this.translations[locale] ??= translation;
       } catch (e) {
         const isCurrentRequest = this.localeRequestGeneration === requestGeneration;
         if (isCurrentRequest) {

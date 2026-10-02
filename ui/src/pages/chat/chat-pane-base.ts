@@ -91,6 +91,9 @@ export abstract class ChatPaneBase extends OpenClawLightDomElement {
     nextSessionKey: string,
     options?: PaneSessionChangeOptions,
   ) => void;
+  /** Embedded containers own navigation and session creation; the pane keeps the canonical runtime. */
+  @property({ attribute: false }) embedded = false;
+  @property({ attribute: false }) onCreateSession?: () => Promise<string | null>;
   @property({ attribute: false }) paneTitle = "";
   @property({ attribute: false }) narrow = false;
   @property({ attribute: false }) mergedChrome = false;

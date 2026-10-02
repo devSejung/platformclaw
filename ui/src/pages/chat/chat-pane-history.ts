@@ -41,6 +41,7 @@ import {
 } from "./scroll.ts";
 
 export abstract class ChatPaneHistory extends ChatPaneSession {
+  private releaseCommandPaletteTarget?: () => void;
   private activeCatalogContinuation: symbol | null = null;
 
   protected hasOlderMessages(): boolean {
@@ -559,12 +560,18 @@ export abstract class ChatPaneHistory extends ChatPaneSession {
   protected announceCommandPaletteTarget(
     onSlashCommand: CommandPaletteTargetDetail["onSlashCommand"],
   ) {
+    this.releaseCommandPaletteTarget?.();
+    this.releaseCommandPaletteTarget = undefined;
     this.dispatchEvent(
       new CustomEvent<CommandPaletteTargetDetail>(COMMAND_PALETTE_TARGET_EVENT, {
         bubbles: true,
         composed: true,
         detail: {
           owner: this,
+          sessionKey: this.state?.sessionKey,
+          registerRelease: (release) => {
+            this.releaseCommandPaletteTarget = release;
+          },
           onSlashCommand,
         },
       }),

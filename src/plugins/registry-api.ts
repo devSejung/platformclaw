@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { resolveAgentRunAdmissionId } from "../infra/agent-run-registry.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { resolveUserPath } from "../utils.js";
 import { emitPluginAgentEvent } from "./agent-event-emission.js";
@@ -171,6 +172,10 @@ export function createPluginApiFactory(
       runtime: resolvePluginRuntime(record.id),
       logger: normalizeLogger(registryParams.logger),
       resolvePath: (input: string) => resolvePluginPath(input, record.rootDir),
+      resolveAdmissionId: (context) =>
+        registryParams.activateGlobalSideEffects !== false && shouldCommitWorkflowSideEffect()
+          ? resolveAgentRunAdmissionId(context)
+          : undefined,
       handlers: {
         ...(registrationCapabilities.capabilityHandlers
           ? {

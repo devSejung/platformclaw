@@ -27,6 +27,8 @@ export const REQUIRED_MANAGED_AGENT_TOOL_IDS = [
   "wiki_lint",
   "wiki_search",
   "wiki_status",
+  "space_search",
+  "space_get",
 ];
 
 export const REQUIRED_MANAGED_SANDBOX_TOOL_IDS = [
@@ -155,7 +157,50 @@ function mergeSandboxPolicy(defaults, override) {
   };
 }
 
-export function validateManagedConfig(config, sandboxImage, skillHubEnabled = false) {
+function validateManagedSpaceAgent(agent, agentId, workspaceRoot) {
+  const empty = (value) =>
+    value != null && typeof value === "object" && Object.keys(value).length === 0;
+  requirePolicy(
+    Object.keys(agent).every((key) =>
+      [
+        "id",
+        "name",
+        "workspace",
+        "contextInjection",
+        "skills",
+        "memory",
+        "tools",
+        "sandbox",
+        "heartbeat",
+      ].includes(key),
+    ),
+  );
+  requirePolicy(agent.id === undefined || agent.id === agentId);
+  requirePolicy(typeof workspaceRoot === "string" && path.isAbsolute(workspaceRoot));
+  requirePolicy(agent.workspace === path.join(workspaceRoot, agentId));
+  requirePolicy(
+    agent.contextInjection === "never" && Array.isArray(agent.skills) && agent.skills.length === 0,
+  );
+  requirePolicy(agent.memory?.search?.enabled === false && agent.heartbeat?.every === "0m");
+  requirePolicy(agent.sandbox?.mode === "off" && Object.keys(agent.sandbox).length === 1);
+  const tools = agent.tools;
+  requirePolicy(
+    tools &&
+      Object.keys(tools).every((key) =>
+        ["allow", "alsoAllow", "byProvider", "toolsBySender", "codeMode", "elevated"].includes(key),
+      ),
+  );
+  requirePolicy(
+    Array.isArray(tools?.allow) &&
+      tools.allow.length === 2 &&
+      ["space_search", "space_get"].every((name) => tools.allow.includes(name)),
+  );
+  requirePolicy(Array.isArray(tools?.alsoAllow) && tools.alsoAllow.length === 0);
+  requirePolicy(empty(tools.byProvider) && empty(tools.toolsBySender));
+  requirePolicy(tools.codeMode === false && tools.elevated?.enabled === false);
+}
+
+export function validateManagedConfig(config, sandboxImage, skillHubEnabled, spaceWorkspaceRoot) {
   const defaults = config?.agents?.defaults?.sandbox;
   validateSandboxPolicy(defaults, sandboxImage, new Set(["platformclaw-execution"]));
   validateToolPolicy(config?.tools);
@@ -179,11 +224,19 @@ export function validateManagedConfig(config, sandboxImage, skillHubEnabled = fa
   // Current upstream persists `entries` and materializes a non-enumerable `list`
   // projection. Checking both keeps this gate aligned with the effective runtime.
   const configuredAgents = [
-    ...Object.values(entries ?? {}),
-    ...(Array.isArray(projectedList) ? projectedList : []),
+    ...Object.entries(entries ?? {}).map(([id, agent]) => ({ id, agent })),
+    ...(Array.isArray(projectedList)
+      ? projectedList.map((agent) => ({ id: agent?.id, agent }))
+      : []),
   ];
-  for (const agent of configuredAgents) {
+  for (const { id, agent } of configuredAgents) {
     validateToolPolicy(agent?.tools);
+    // Managed Spaces have no execution tools or personal context. This exception is
+    // shape- and workspace-pinned; an ID alone must never disable sandbox enforcement.
+    if (/^space-[a-f0-9-]{36}$/u.test(id ?? "")) {
+      validateManagedSpaceAgent(agent, id, spaceWorkspaceRoot);
+      continue;
+    }
     validateManagedSandboxGate(
       effectiveSandboxTools(globalSandboxTools, agent?.tools?.sandbox?.tools),
     );
@@ -246,7 +299,13 @@ async function main() {
     throw new Error("usage: validate-managed-config.mjs <sandbox-image> <skillhub-enabled>");
   }
   const { loadConfig } = await import("/app/dist/config/config.js");
-  validateManagedConfig(loadConfig({ pin: false }), sandboxImage, skillHubEnabledValue === "true");
+  const { resolveAgentWorkspaceDir } = await import("/app/dist/plugin-sdk/agent-runtime.js");
+  const config = loadConfig({ pin: false });
+  const spaceWorkspaceRoot = path.join(
+    path.dirname(resolveAgentWorkspaceDir(config, "main")),
+    "spaces",
+  );
+  validateManagedConfig(config, sandboxImage, skillHubEnabledValue === "true", spaceWorkspaceRoot);
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

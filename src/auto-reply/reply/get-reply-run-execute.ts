@@ -298,8 +298,12 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
   const replyPolicyChannel =
     (replyRoute.channel as OriginatingChannelType | undefined) ??
     (messageProvider as OriginatingChannelType | undefined);
+  // A followup is one admitted request even when the queue mode changes later.
+  // Never give a collected/overflow aggregate one source's authorization identity.
+  const admissionRunId = resolvedQueue.mode === "followup" ? opts?.runId : undefined;
   const followupRun = {
     prompt: queuedBody,
+    ...(admissionRunId ? { disableCollectBatching: true } : {}),
     transcriptPrompt: transcriptCommandBody,
     ...(userTurnTranscriptRecorder ? { userTurnTranscriptRecorder } : {}),
     currentInboundEventKind: inboundEventKind,
@@ -332,6 +336,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
       normalizeOptionalString(sessionCtx.ChatId),
     originatingChatType: replyRoute.chatType,
     run: {
+      ...(admissionRunId ? { admissionRunId } : {}),
       agentId,
       agentDir,
       sessionId: preparedSessionState.sessionId,

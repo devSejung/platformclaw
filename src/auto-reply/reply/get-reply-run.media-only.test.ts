@@ -838,6 +838,28 @@ describe("runPreparedReply media-only handling", () => {
     expect(call?.followupRun.originatingChannel).toBe(channel);
   });
 
+  it.each(["followup", "collect"] as const)(
+    "keeps a single admission identity only for %s queue mode",
+    async (mode) => {
+      const queueSettings = await import("./queue/settings-runtime.js");
+      vi.mocked(queueSettings.resolveQueueSettings).mockReturnValueOnce({ mode });
+      await runPreparedReply(
+        baseParams({ opts: { runId: "ingress-request", queueModeOverride: mode } }),
+      );
+      const queued = requireLastRunReplyAgentCall().followupRun;
+      expect(queued.run.admissionRunId).toBe(mode === "followup" ? "ingress-request" : undefined);
+      expect(queued.disableCollectBatching).toBe(mode === "followup" ? true : undefined);
+    },
+  );
+
+  it("passes explicit overflow rejection without changing native queue capacity", async () => {
+    const queueSettings = await import("./queue/settings-runtime.js");
+    await runPreparedReply(baseParams({ opts: { rejectQueueOverflow: true } }));
+    expect(queueSettings.resolveQueueSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ inlineOptions: { dropPolicy: "new" } }),
+    );
+  });
+
   it("prefers a one-turn queue override over the stored session mode", async () => {
     const queueSettings = await import("./queue/settings-runtime.js");
     const embeddedAgentRuntime = await import("../../agents/embedded-agent.runtime.js");

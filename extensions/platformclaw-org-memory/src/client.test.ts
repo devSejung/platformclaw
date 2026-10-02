@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { createWikiHubMemoryClient } from "./client.js";
 
 describe("vault internal client", () => {
-  it.each(["success", "interrupted", "ambiguous", "query-invalid", "redacted"])(
+  it.each(["success", "interrupted", "ambiguous", "query-invalid", "space-conflict", "redacted"])(
     "settles scope capture with a %s response",
     async (mode) => {
       const root = await fs.mkdtemp(path.join(os.tmpdir(), "vault-client-"));
@@ -29,7 +29,7 @@ describe("vault internal client", () => {
         req.on("end", () => {
           received.push({ url: req.url, body });
           res.writeHead(
-            mode === "ambiguous" || mode === "query-invalid"
+            mode === "ambiguous" || mode === "query-invalid" || mode === "space-conflict"
               ? 409
               : mode === "redacted"
                 ? 500
@@ -62,6 +62,14 @@ describe("vault internal client", () => {
                 action: "Retry with fewer keywords.",
               }),
             );
+          } else if (mode === "space-conflict") {
+            res.end(
+              JSON.stringify({
+                error: "Page changed",
+                code: "space-conflict",
+                action: "Restart at bodyOffset 0 without pageRevision.",
+              }),
+            );
           } else if (mode === "redacted") {
             res.end(JSON.stringify({ error: "private-database-path-and-content" }));
           } else {
@@ -79,7 +87,17 @@ describe("vault internal client", () => {
           PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: tokenFile,
         });
         expect(client).not.toBeNull();
-        const capture = client!.captureScope({ agentId: "person_one" });
+        const capture =
+          mode === "space-conflict"
+            ? client!.spaceRead({
+                agentId: "person_one",
+                operation: "get",
+                spaceId: "shared",
+                pageId: "page",
+                bodyOffset: 8000,
+                pageRevision: 1,
+              })
+            : client!.captureScope({ agentId: "person_one" });
         if (mode === "interrupted") {
           await expect(capture).rejects.toThrow(/interrupted|socket hang up/u);
         } else if (mode === "ambiguous") {
@@ -101,6 +119,14 @@ describe("vault internal client", () => {
               action: "Retry with fewer keywords.",
             },
           });
+        } else if (mode === "space-conflict") {
+          await expect(capture).rejects.toMatchObject({
+            message: "Page changed",
+            memoryCorpusFailure: {
+              code: "space-conflict",
+              action: "Restart at bodyOffset 0 without pageRevision.",
+            },
+          });
         } else if (mode === "redacted") {
           await expect(capture).rejects.toMatchObject({
             message: "Wiki Hub service is unavailable (500)",
@@ -114,7 +140,22 @@ describe("vault internal client", () => {
           });
         }
         expect(received).toEqual([
-          { url: "/platformclaw/internal/memory/vaults/scope", body: '{"agentId":"person_one"}' },
+          mode === "space-conflict"
+            ? {
+                url: "/platformclaw/internal/spaces/read",
+                body: JSON.stringify({
+                  agentId: "person_one",
+                  operation: "get",
+                  spaceId: "shared",
+                  pageId: "page",
+                  bodyOffset: 8000,
+                  pageRevision: 1,
+                }),
+              }
+            : {
+                url: "/platformclaw/internal/memory/vaults/scope",
+                body: '{"agentId":"person_one"}',
+              },
         ]);
       } finally {
         server.closeAllConnections();

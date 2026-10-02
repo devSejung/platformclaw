@@ -29,13 +29,14 @@ const BUNDLED_TYPED_HOOK_REGISTRATION_FILES = [
   "extensions/platformclaw-execution/index.ts",
   "extensions/platformclaw-execution/src/gateway.ts",
   "extensions/platformclaw-org-memory/index.ts",
+  "extensions/platformclaw-org-memory/src/space-tools.ts",
   "extensions/thread-ownership/index.ts",
   "extensions/workboard/index.ts",
 ] as const;
 const BUNDLED_TYPED_HOOK_REGISTRATION_GUARDS = {
   "extensions/acpx/index.ts": ["reply_dispatch"],
   "extensions/active-memory/index.ts": ["agent_end", "before_model_resolve", "before_prompt_build"],
-  "extensions/admin-http-rpc/index.ts": ["before_prompt_build"],
+  "extensions/admin-http-rpc/index.ts": ["before_prompt_build", "before_tool_call"],
   "extensions/clickclack/src/discussions/register.ts": ["before_tool_call"],
   "extensions/codex/index.ts": ["after_compaction", "inbound_claim", "session_end"],
   "extensions/diffs/src/plugin.ts": ["before_prompt_build"],
@@ -53,6 +54,11 @@ const BUNDLED_TYPED_HOOK_REGISTRATION_GUARDS = {
   "extensions/platformclaw-execution/index.ts": ["gateway_stop"],
   "extensions/platformclaw-execution/src/gateway.ts": ["before_agent_run"],
   "extensions/platformclaw-org-memory/index.ts": ["before_prompt_build"],
+  "extensions/platformclaw-org-memory/src/space-tools.ts": [
+    "before_agent_run",
+    "before_prompt_build",
+    "before_tool_call",
+  ],
   "extensions/thread-ownership/index.ts": ["message_received", "message_sending"],
   "extensions/workboard/index.ts": ["subagent_ended"],
 } as const satisfies Record<

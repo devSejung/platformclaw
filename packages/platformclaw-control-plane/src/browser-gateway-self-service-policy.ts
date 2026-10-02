@@ -1,5 +1,6 @@
 import { isBaseballRpcMethod } from "./baseball-contracts.js";
 import { isKnowledgeVaultRpc } from "./browser-gateway-vault-policy.js";
+import { SPACE_RPC_PARAMS } from "./space-contracts.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -80,6 +81,7 @@ export function prepareBrowserSelfServiceRequest(
   if (
     PASSTHROUGH_METHODS.has(method) ||
     isBaseballRpcMethod(method) ||
+    Object.hasOwn(SPACE_RPC_PARAMS, method) ||
     isKnowledgeVaultRpc(method)
   ) {
     return params;

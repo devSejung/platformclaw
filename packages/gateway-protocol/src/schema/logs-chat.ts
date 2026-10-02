@@ -131,6 +131,8 @@ export const ChatSendParamsSchema = closedObject({
   fastAutoOnSeconds: Type.Optional(Type.Integer({ minimum: 1 })),
   // One-turn override for active-run queue admission.
   queueMode: Type.Optional(Type.String({ enum: ["steer", "followup", "collect", "interrupt"] })),
+  // Opt in to rejecting a full queue instead of dropping/summarizing accepted questions.
+  rejectQueueOverflow: Type.Optional(Type.Boolean()),
   deliver: Type.Optional(Type.Boolean()),
   originatingChannel: Type.Optional(Type.String()),
   originatingTo: Type.Optional(Type.String()),
@@ -216,6 +218,8 @@ export const ChatDeltaEventSchema = closedObject({
 export const ChatFinalEventSchema = closedObject({
   ...ChatEventBaseSchema,
   state: Type.Literal("final"),
+  // Client admission may terminalize while the individually cancellable queued turn remains.
+  queuePhase: Type.Optional(Type.Union([Type.Literal("deferred"), Type.Literal("settled")])),
   message: Type.Optional(Type.Unknown()),
   usage: Type.Optional(Type.Unknown()),
   stopReason: Type.Optional(Type.String()),

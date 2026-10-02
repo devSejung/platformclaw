@@ -1,3 +1,4 @@
+export { SPACE_SCHEMA, ensureSpaceSchema } from "./sqlite-schema-spaces.js";
 import { randomUUID } from "node:crypto";
 import { chmodSync, unlinkSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";

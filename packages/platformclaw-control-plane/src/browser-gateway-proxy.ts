@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolveBrowserGatewayCommandSuppression } from "./browser-command-policy.js";
 import {
   createBrowserSenderAttribution,
+  auditBrowserGatewayDenied,
   resolveBrowserGatewayAccess,
 } from "./browser-gateway-access.js";
 import { BrowserGatewayAssertions } from "./browser-gateway-assertions.js";
@@ -15,6 +16,8 @@ import {
   type BrowserGatewayProxyOptions,
   type BrowserGatewayRequestContext,
 } from "./browser-gateway-contracts.js";
+import { BrowserGatewaySpaceAccess } from "./browser-gateway-space-access.js";
+import { BrowserSpaceGateway } from "./browser-gateway-spaces.js";
 export * from "./browser-gateway-contracts.js";
 import {
   preflightCronMutation,
@@ -26,11 +29,6 @@ import { BrowserGatewayLiveCapabilities } from "./browser-gateway-live-capabilit
 import { requestBrowserGatewayLocal } from "./browser-gateway-local.js";
 import { refreshDeletedMemory } from "./browser-gateway-memory.js";
 import { BrowserGatewayObserverVisibility } from "./browser-gateway-observer-visibility.js";
-import {
-  browserEventPayloadBelongsToAccess,
-  browserPayloadBelongsToAccess,
-  projectBrowserSessionPayloadForAccess,
-} from "./browser-gateway-ownership.js";
 import {
   prepareBrowserPersonalReadRequest,
   projectBrowserPersonalReadResult,
@@ -61,7 +59,6 @@ import {
   projectBrowserSkillResult,
 } from "./browser-gateway-self-service-projections.js";
 import {
-  browserTaskEventBelongsToAccess,
   isBrowserTaskMethod,
   preflightBrowserTaskMutation,
   projectBrowserTaskResult,
@@ -71,11 +68,16 @@ type JsonObject = Record<string, unknown>;
 /** Enforces the browser-session-to-agent boundary before using operator Gateway RPC. */
 export class BrowserGatewayProxy {
   private readonly assertions: BrowserGatewayAssertions;
+  private readonly spaceGateway: BrowserSpaceGateway;
+  private readonly spaceAccess: BrowserGatewaySpaceAccess;
   private readonly liveCapabilities: BrowserGatewayLiveCapabilities;
   private readonly observerVisibility: BrowserGatewayObserverVisibility;
   private readonly terminals: BrowserGatewayTerminalController;
 
   constructor(private readonly options: BrowserGatewayProxyOptions) {
+    this.spaceAccess = new BrowserGatewaySpaceAccess(options, (token) =>
+      this.resolveAccess(token, false),
+    );
     this.assertions = new BrowserGatewayAssertions(
       (sessionKey) => this.options.resolveAgentIdFromSessionKey(sessionKey),
       PLATFORMCLAW_WEB_ALLOWED_PARAMS,
@@ -97,8 +99,13 @@ export class BrowserGatewayProxy {
       (code, message): never => {
         throw new BrowserGatewayProxyError(code, message);
       },
+      (agentId, sessionKey, write) =>
+        this.spaceAccess.allowsAgentSession(agentId, sessionKey, write),
     );
     this.terminals = new BrowserGatewayTerminalController(options);
+    this.spaceGateway = new BrowserSpaceGateway(options.spaceService, (token) =>
+      this.resolveAccess(token, false),
+    );
   }
 
   async resolveAccess(token: string, touch = true): Promise<BrowserGatewayAccess> {
@@ -121,6 +128,25 @@ export class BrowserGatewayProxy {
     context?: BrowserGatewayRequestContext,
   ): Promise<T> {
     const access = await this.resolveAccess(token);
+    return await this.spaceAccess.guardRequest(
+      token,
+      access,
+      method,
+      params,
+      context,
+      (validateAdmission) =>
+        this.requestWithAccess<T>(token, access, method, params, context, validateAdmission),
+    );
+  }
+
+  private async requestWithAccess<T>(
+    token: string,
+    access: BrowserGatewayAccess,
+    method: string,
+    params?: unknown,
+    context?: BrowserGatewayRequestContext,
+    validateAdmission?: () => void,
+  ): Promise<T> {
     if (context?.isConnected?.() === false) {
       throw new BrowserGatewayProxyError(
         "unauthenticated",
@@ -161,7 +187,13 @@ export class BrowserGatewayProxy {
           message: prepared.message,
         });
         if (method === "chat.send") {
-          prepared = { ...prepared, suppressCommandInterpretation: initialCommandSuppressed };
+          prepared = {
+            ...prepared,
+            suppressCommandInterpretation: this.spaceAccess.suppressCommandInterpretation(
+              prepared.sessionKey,
+              initialCommandSuppressed,
+            ),
+          };
         }
       }
       if (
@@ -178,13 +210,18 @@ export class BrowserGatewayProxy {
         method,
         request: prepared,
         loadTask: (taskId) => this.options.gateway.request("tasks.get", { taskId }),
-        assertOwnedResult: (taskId, result) =>
-          this.filterResult(access, "tasks.get", { taskId }, result),
+        assertOwnedResult: (taskId, result) => {
+          this.filterResult(access, "tasks.get", { taskId }, result);
+          this.spaceAccess.assertTaskResult(access, method, result);
+        },
       });
       await preflightCronMutation(this.browserCronContext(access), method, prepared);
+      // Async preflights cannot preserve authority across a concurrent membership change.
+      this.spaceAccess.assertRequest(access, method, prepared);
+      validateAdmission?.();
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
-        await this.auditDeniedRequest(access, method, error.code);
+        await auditBrowserGatewayDenied(this.options, access, method, error.code);
         throw new BrowserGatewayProxyError(error.code, error.message, "rejected-before-dispatch");
       }
       throw error;
@@ -207,7 +244,7 @@ export class BrowserGatewayProxy {
         })) as T;
       } catch (error) {
         if (error instanceof BrowserGatewayProxyError) {
-          await this.auditDeniedRequest(access, method, error.code);
+          await auditBrowserGatewayDenied(this.options, access, method, error.code);
         }
         throw error;
       }
@@ -222,17 +259,21 @@ export class BrowserGatewayProxy {
         })) as T;
       } catch (error) {
         if (error instanceof BrowserGatewayProxyError) {
-          await this.auditDeniedRequest(access, method, error.code);
+          await auditBrowserGatewayDenied(this.options, access, method, error.code);
         }
         throw error;
       }
+    }
+    const spaceResult = await this.spaceGateway.request(token, access, method, prepared, context);
+    if (spaceResult.handled) {
+      return spaceResult.result as T;
     }
     const localResult = await requestBrowserGatewayLocal(
       this.options,
       access,
       method,
       prepared,
-      async (reason) => await this.auditDeniedRequest(access, method, reason),
+      async (reason) => await auditBrowserGatewayDenied(this.options, access, method, reason),
     );
     if (localResult.handled) {
       return localResult.result as T;
@@ -243,11 +284,13 @@ export class BrowserGatewayProxy {
       params: prepared,
       context,
       cronContext: this.browserCronContext(access),
-      auditDenied: async (reason) => await this.auditDeniedRequest(access, method, reason),
+      auditDenied: async (reason) =>
+        await auditBrowserGatewayDenied(this.options, access, method, reason),
     });
     if (specialResult.handled) {
       return specialResult.result as T;
     }
+    validateAdmission?.();
     const result = await requestBrowserGatewayUpstream({
       gateway: this.options.gateway,
       method,
@@ -263,7 +306,7 @@ export class BrowserGatewayProxy {
       ) as T;
     } catch (error) {
       if (error instanceof BrowserGatewayProxyError) {
-        await this.auditDeniedRequest(access, method, error.code);
+        await auditBrowserGatewayDenied(this.options, access, method, error.code);
       }
       throw error;
     }
@@ -279,26 +322,13 @@ export class BrowserGatewayProxy {
     if (terminalEvent !== undefined) {
       return terminalEvent;
     }
-    let access = authorizedAccess;
-    if (!access) {
-      try {
-        // Server-pushed traffic must not keep an unattended browser session alive.
-        access = await this.resolveAccess(token, false);
-      } catch {
-        return null;
-      }
-    }
-    return this.liveCapabilities.filterEvent({
-      agentId: access.binding.agentId,
+    return await this.spaceAccess.filterEvent(
+      token,
       event,
       context,
-      taskEventBelongsToAccess: (payload) =>
-        browserTaskEventBelongsToAccess(this.browserTaskAccess(access), payload),
-      eventPayloadBelongsToAccess: (payload) =>
-        browserEventPayloadBelongsToAccess(this.browserTaskAccess(access), payload),
-      projectSessionPayloadForAccess: (payload) =>
-        this.projectSessionPayloadForAccess(access, payload),
-    });
+      authorizedAccess,
+      this.liveCapabilities,
+    );
   }
 
   filterConnectionEvent(
@@ -312,7 +342,10 @@ export class BrowserGatewayProxy {
     connectionId: string,
     listener: (event: BrowserGatewayEvent) => void,
   ): () => void {
-    return this.terminals.subscribeConnectionEvents(connectionId, listener);
+    return this.spaceGateway.subscribe(
+      this.terminals.subscribeConnectionEvents(connectionId, listener),
+      listener,
+    );
   }
 
   registerBrowserConnection(connectionId: string, access?: BrowserGatewayAccess): void {
@@ -509,12 +542,13 @@ export class BrowserGatewayProxy {
     access: BrowserGatewayAccess,
     method: string,
     prepared: JsonObject,
-    result: unknown,
+    upstreamResult: unknown,
     executionTarget?: "platform_server" | "assigned_vm",
   ): unknown {
     const fail = (message: string): never => {
       throw new BrowserGatewayProxyError("upstream-result-denied", message);
     };
+    const result = this.spaceAccess.filterResult(access, method, upstreamResult);
     if (method.startsWith("cron.")) {
       return projectCronResult(this.browserCronContext(access), method, result);
     }
@@ -528,7 +562,8 @@ export class BrowserGatewayProxy {
       result,
       assertOwnedResultSessionKey: (value) =>
         this.assertions.ownedResultSessionKey(access.binding.agentId, value),
-      projectSessionPayloadForAccess: (value) => this.projectSessionPayloadForAccess(access, value),
+      projectSessionPayloadForAccess: (value) =>
+        this.spaceAccess.projectSessionPayload(access, value),
       fail,
     });
     if (sessionResult !== undefined) {
@@ -536,7 +571,7 @@ export class BrowserGatewayProxy {
     }
     if (isBrowserTaskMethod(method)) {
       return projectBrowserTaskResult({
-        access: this.browserTaskAccess(access),
+        access: this.spaceAccess.taskAccess(access),
         method,
         ...(method === "tasks.retry" || method === "tasks.dismiss"
           ? { requestedTaskIds: new Set(prepared.taskIds as string[]) }
@@ -588,7 +623,7 @@ export class BrowserGatewayProxy {
       const sessionInfo =
         payload.sessionInfo === undefined
           ? undefined
-          : this.projectSessionPayloadForAccess(access, payload.sessionInfo);
+          : this.spaceAccess.projectSessionPayload(access, payload.sessionInfo);
       if (sessionInfo === null) {
         throw new BrowserGatewayProxyError(
           "upstream-result-denied",
@@ -635,7 +670,7 @@ export class BrowserGatewayProxy {
     if (method === "sessions.search") {
       const payload = asObject(result, "sessions.search result");
       const results = Array.isArray(payload.results) ? payload.results : [];
-      if (results.some((entry) => !this.payloadBelongsToAccess(access, entry))) {
+      if (results.some((entry) => !this.spaceAccess.payloadBelongsToAccess(access, entry))) {
         throw new BrowserGatewayProxyError(
           "upstream-result-denied",
           "Gateway returned a search result outside the browser binding",
@@ -646,7 +681,7 @@ export class BrowserGatewayProxy {
     if (method === "sessions.preview") {
       const payload = asObject(result, "sessions.preview result");
       const previews = Array.isArray(payload.previews) ? payload.previews : [];
-      if (previews.some((entry) => !this.payloadBelongsToAccess(access, entry))) {
+      if (previews.some((entry) => !this.spaceAccess.payloadBelongsToAccess(access, entry))) {
         throw new BrowserGatewayProxyError(
           "upstream-result-denied",
           "Gateway returned a preview outside the browser binding",
@@ -681,39 +716,5 @@ export class BrowserGatewayProxy {
         throw new BrowserGatewayProxyError(code, message);
       },
     };
-  }
-
-  private browserTaskAccess(access: BrowserGatewayAccess) {
-    return {
-      agentId: access.binding.agentId,
-      resolveAgentIdFromSessionKey: (sessionKey: string) =>
-        this.options.resolveAgentIdFromSessionKey(sessionKey),
-    };
-  }
-
-  private payloadBelongsToAccess(access: BrowserGatewayAccess, payload: unknown): boolean {
-    return browserPayloadBelongsToAccess(this.browserTaskAccess(access), payload);
-  }
-
-  private projectSessionPayloadForAccess(
-    access: BrowserGatewayAccess,
-    payload: unknown,
-  ): JsonObject | null {
-    return projectBrowserSessionPayloadForAccess(this.browserTaskAccess(access), payload);
-  }
-
-  private async auditDeniedRequest(
-    access: BrowserGatewayAccess,
-    method: string,
-    reason: BrowserGatewayProxyErrorCode,
-  ): Promise<void> {
-    await this.options.auditWriter.recordAuditEvent({
-      actorUserId: access.user.id,
-      eventType: "browser.gateway.denied",
-      targetType: "agent-binding",
-      targetId: access.binding.id,
-      details: { method, reason },
-      createdAt: (this.options.now ?? Date.now)(),
-    });
   }
 }

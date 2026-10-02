@@ -7,5 +7,6 @@ export declare function validateManagedConfig(
   config: unknown,
   sandboxImage: string,
   skillHubEnabled?: boolean,
+  spaceWorkspaceRoot?: string,
 ): void;
 export declare function sandboxPolicyDeniesBundleMcp(sandboxTools: unknown): boolean;

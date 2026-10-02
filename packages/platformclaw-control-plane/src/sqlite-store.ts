@@ -37,6 +37,7 @@ import {
 import { SqliteKnowledgeVaultStore } from "./sqlite-knowledge-vault-store.js";
 import { ensureBaseballGameSchema } from "./sqlite-schema-baseball.js";
 import { ensureKnowledgeVaultSchema } from "./sqlite-schema-knowledge-vault.js";
+import { SqliteSpaceStore } from "./sqlite-spaces.js";
 import { normalizeAccountId } from "./sqlite-store-core.js";
 import { SqliteControlPlaneOrganizationJoinStore } from "./sqlite-store-organization-join.js";
 
@@ -70,6 +71,7 @@ export class SqliteControlPlaneStore
     BaseballGameStore
 {
   readonly vaults = new SqliteKnowledgeVaultStore(this.db);
+  readonly spaces = new SqliteSpaceStore(this.db);
   private baseballGameSchemaReady = false;
 
   async loadBaseballProgress(userId: string): Promise<BaseballProgress> {

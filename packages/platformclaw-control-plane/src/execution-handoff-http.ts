@@ -17,6 +17,8 @@ import {
 } from "./knowledge-vault-contracts.js";
 import type { KnowledgeVaultWikiOperation } from "./knowledge-vault-operations.js";
 import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
+import { parseSpaceReadRequest } from "./space-read-request.js";
+import type { SpaceService } from "./space-service.js";
 
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
 export const PLATFORMCLAW_EXECUTION_GRANT_PATH = "/platformclaw/internal/execution/grant";
@@ -33,6 +35,7 @@ export const PLATFORMCLAW_VAULT_SCOPE_PATH = "/platformclaw/internal/memory/vaul
 
 export const PLATFORMCLAW_VAULT_WIKI_PATH = "/platformclaw/internal/memory/vaults/wiki";
 
+const SPACE_READ_PATH = "/platformclaw/internal/spaces/read";
 const MAX_REQUEST_BYTES = 4 * 1024;
 // Turn selections travel between trusted services, never in the model's tool schema.
 const MAX_VAULT_SEARCH_BYTES = 144 * 1024;
@@ -41,6 +44,7 @@ type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
   "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
 > & {
+  spaceService?: Pick<SpaceService, "agentRead">;
   vaultService?: Pick<KnowledgeVaultService, "search" | "get" | "captureScope" | "wiki">;
   resolveMcpConnection?: (
     agentId: string,
@@ -329,6 +333,7 @@ export class PlatformClawExecutionHandoffServer {
     try {
       const pathname = new URL(req.url ?? "/", "http://platformclaw.internal").pathname;
       if (
+        pathname !== SPACE_READ_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_GRANT_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH &&
@@ -354,6 +359,17 @@ export class PlatformClawExecutionHandoffServer {
         ),
       );
       const agentId = requestAgentId(body);
+      if (pathname === SPACE_READ_PATH) {
+        if (!this.service.spaceService) {
+          sendJson(res, 503, { error: "Spaces unavailable" });
+          return;
+        }
+        const result = await this.service.spaceService.agentRead(
+          parseSpaceReadRequest(body, agentId),
+        );
+        sendJson(res, 200, result);
+        return;
+      }
       if (
         pathname === PLATFORMCLAW_VAULT_SEARCH_PATH ||
         pathname === PLATFORMCLAW_VAULT_GET_PATH ||
@@ -595,20 +611,25 @@ export class PlatformClawExecutionHandoffServer {
         return;
       }
       if (
-        req.url?.split("?")[0] === PLATFORMCLAW_VAULT_WIKI_PATH &&
+        [PLATFORMCLAW_VAULT_WIKI_PATH, SPACE_READ_PATH].includes(req.url?.split("?")[0] ?? "") &&
         (error instanceof ControlPlaneStateError ||
           error instanceof ControlPlaneConflictError ||
           error instanceof ControlPlaneAuthorizationError)
       ) {
+        const isSpace = req.url?.split("?")[0] === SPACE_READ_PATH;
+        const prefix = isSpace ? "space" : "wiki";
+        const code =
+          error instanceof ControlPlaneAuthorizationError
+            ? "forbidden"
+            : error instanceof ControlPlaneConflictError
+              ? "conflict"
+              : "invalid";
         sendJson(res, 409, {
           error: error.message.slice(0, 500),
-          code:
-            error instanceof ControlPlaneAuthorizationError
-              ? "wiki-forbidden"
-              : error instanceof ControlPlaneConflictError
-                ? "wiki-conflict"
-                : "wiki-invalid",
-          action: "Check Wiki access and read the current document before retrying a write.",
+          code: `${prefix}-${code}`,
+          action: isSpace
+            ? "Check Space access and restart the page read at bodyOffset 0 without pageRevision."
+            : "Check Wiki access and read the current document before retrying a write.",
         });
         return;
       }

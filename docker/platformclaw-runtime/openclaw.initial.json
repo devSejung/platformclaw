@@ -33,7 +33,9 @@
       "wiki_get",
       "wiki_lint",
       "wiki_search",
-      "wiki_status"
+      "wiki_status",
+      "space_search",
+      "space_get"
     ],
     "deny": ["group:nodes"],
     "sandbox": {
@@ -48,7 +50,9 @@
           "wiki_get",
           "wiki_lint",
           "wiki_search",
-          "wiki_status"
+          "wiki_status",
+      "space_search",
+      "space_get"
         ]
       }
     }

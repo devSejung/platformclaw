@@ -28,6 +28,11 @@ export class BrowserGatewayLiveCapabilities {
     gateway: BrowserGatewayRpc,
     private readonly resolveAgentIdFromSessionKey: (sessionKey: string) => string | null,
     private readonly fail: (code: BrowserGatewayProxyErrorCode, message: string) => never,
+    private readonly canAccessSession: (
+      agentId: string,
+      sessionKey: string,
+      write: boolean,
+    ) => boolean = () => true,
   ) {
     this.interactiveOwnership = new BrowserGatewayInteractiveOwnership(gateway, fail);
     this.messageSubscriptions = new BrowserGatewaySessionMessageSubscriptions(gateway, () =>
@@ -159,6 +164,8 @@ export class BrowserGatewayLiveCapabilities {
     return {
       agentId,
       resolveAgentIdFromSessionKey: this.resolveAgentIdFromSessionKey,
+      canAccessSession: (sessionKey: string, write: boolean) =>
+        this.canAccessSession(agentId, sessionKey, write),
     };
   }
 

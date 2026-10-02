@@ -5,6 +5,7 @@ import { WebSocket } from "ws";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import type { BrowserOrganizationService } from "./browser-organization-http.js";
+import { SPACE_RPC_METHODS } from "./space-contracts.js";
 import {
   PlatformClawWebIngressServer,
   type PlatformClawBrowserGatewayPolicy,
@@ -209,6 +210,7 @@ describe("PlatformClawWebIngressServer", () => {
         type: "hello-ok",
         features: {
           methods: [
+            ...SPACE_RPC_METHODS,
             "agents.list",
             "chat.send",
             "commands.list",

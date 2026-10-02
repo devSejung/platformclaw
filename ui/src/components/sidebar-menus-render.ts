@@ -103,6 +103,7 @@ export function renderSidebarCustomizeMenuForController(controller: SidebarMenus
   const trigger = controller.customizeMenuTrigger;
   return renderSidebarCustomizeMenu({
     position,
+    navigationCopy: host.navigationCopy,
     sidebarEntries: host.sidebarEntries,
     isRouteEnabled: (routeId) => controller.isRouteEnabled(routeId),
     workboardBoards: host.workboardBoards,
@@ -462,6 +463,7 @@ export function renderSidebarMoreMenuForController(controller: SidebarMenusContr
   const trigger = controller.moreMenuTrigger;
   return renderSidebarMoreMenu({
     position,
+    navigationCopy: host.navigationCopy,
     basePath: host.basePath,
     activeRouteId: host.activeRouteId,
     activeWorkboardBoardId: activeWorkboardBoardIsPinned(host) ? host.activeWorkboardBoardId : "",

@@ -6,6 +6,7 @@ import type {
   SidebarWorkboardRenderers,
   SidebarWorkboardSnapshot,
 } from "../components/app-sidebar-workboard.ts";
+import type { CommandPaletteTargetDetail } from "../components/command-palette-contract.ts";
 import { icons } from "../components/icons.ts";
 import { renderSettingsSidebar } from "../components/settings-sidebar.ts";
 import type { ThemeModeChangeDetail } from "../components/theme-mode-toggle.ts";
@@ -52,6 +53,7 @@ export interface ShellViewHost {
   readonly runtime: ApplicationRuntime | undefined;
   readonly activeSessionKey: string;
   readonly commandPaletteElement: OptionalCustomElement;
+  readonly commandPaletteTarget?: CommandPaletteTargetDetail;
   readonly custodianMinimizeRequestId: number;
   readonly desktopNavigationExpanded: boolean;
   readonly execApprovalElement: OptionalCustomElement;
@@ -185,9 +187,15 @@ export function renderApplicationShell(host: ShellViewHost) {
   // its scrolling and pins the composer dock to the bottom.
   const chatLikeRoute = isSessionRouteId(activeRoute) || activeRoute === "new-session";
   const custodianRoute = activeRoute === "custodian";
-  const inlineApproval = isSessionRouteId(activeRoute)
-    ? findInlineApproval(overlaySnapshot.approvalQueue, host.activeSessionKey)
-    : null;
+  // The mounted pane owns inline approvals, including on product-embedded
+  // routes. Its lifetime must not overwrite the normal chat route selection.
+  const paneSessionKey = host.commandPaletteTarget?.owner.isConnected
+    ? host.commandPaletteTarget.sessionKey
+    : undefined;
+  const inlineApproval = findInlineApproval(
+    overlaySnapshot.approvalQueue,
+    paneSessionKey ?? (isSessionRouteId(activeRoute) ? host.activeSessionKey : null),
+  );
   const saveIndicator = {
     status: runtimeConfig.configAutoSaveStatus,
     lastError: runtimeConfig.lastError,
@@ -211,6 +219,7 @@ export function renderApplicationShell(host: ShellViewHost) {
       activePluginTabId,
       enabledRouteIds: host.enabledRouteIds(),
       sidebarRouteTargets: runtime.sidebarRouteTargets,
+      navigationCopy: runtime.navigationCopy,
       activeWorkboardBoardId:
         workboardBoardIdFromPath(host.routeState.location?.pathname ?? "", context.basePath) ?? "",
       sessionKey: host.activeSessionKey,

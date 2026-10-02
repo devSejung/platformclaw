@@ -458,6 +458,15 @@ tool calls and retry attempts within that run. The host clears this state when
 the run ends. Direct Gateway calls can omit `runId`; it is trusted runtime
 context, not a model-facing tool parameter.
 
+For authorization that follows one individually queued request, use
+`api.runContext.resolveAdmissionId(ctx)`. Pass the host-provided `runId`,
+`agentId`, and `sessionKey` from the hook or tool factory. The resolver returns
+the original ingress run ID only when the active execution has that exact
+agent/session owner; otherwise it returns the supplied run ID. Missing run IDs
+or inactive plugin APIs return `undefined`. This does not authorize a request:
+plugins must still check their own current access and admission state. Collected
+and synthetic overflow turns do not inherit one constituent request's identity.
+
 The equivalent flat methods remain available as deprecated compatibility
 aliases for existing plugins. Do not add new plugin code that calls
 `api.registerSessionExtension`, `api.enqueueNextTurnInjection`,

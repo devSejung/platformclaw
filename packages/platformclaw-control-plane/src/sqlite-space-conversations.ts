@@ -1,0 +1,260 @@
+import { randomUUID } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
+import {
+  ControlPlaneAuthorizationError,
+  ControlPlaneConflictError,
+  ControlPlaneStateError,
+} from "./contracts.js";
+import {
+  createSyncKysely,
+  executeSync,
+  runImmediateTransaction,
+  takeFirstSync,
+} from "./kysely-sync.js";
+import type { SpaceConversation, SpaceRole } from "./space-contracts.js";
+import type { SpaceConversationRow } from "./sqlite-schema-spaces.js";
+import type { SqliteSpaceStore } from "./sqlite-spaces.js";
+import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
+
+type Database = Pick<
+  ControlPlaneDatabase,
+  "platform_users" | "agent_bindings" | "control_audit_events"
+> & {
+  collaboration_space_conversations: SpaceConversationRow;
+  collaboration_space_members: { space_id: string; user_id: string; role: SpaceRole };
+};
+type RegisteredConversation = Omit<SpaceConversation, "canWrite">;
+
+function projectConversation(row: SpaceConversationRow): RegisteredConversation {
+  return {
+    id: row.id,
+    spaceId: row.space_id,
+    pageId: row.page_id,
+    title: row.title,
+    ownerId: row.owner_id,
+    ownerName: row.owner_name,
+    agentId: row.agent_id,
+    sessionKey: row.session_key,
+    createdAt: row.created_at,
+  };
+}
+
+/** Only agent recall shares history; browser access and execution remain creator-owned. */
+export class SqliteSpaceConversationStore {
+  private readonly query = createSyncKysely<Database>();
+  constructor(
+    private readonly db: DatabaseSync,
+    private readonly spaces: Pick<SqliteSpaceStore, "access" | "page">,
+  ) {}
+  private personalBinding(userId: string) {
+    return takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("agent_bindings as binding")
+        .innerJoin("platform_users as owner", "owner.id", "binding.user_id")
+        .select(["binding.agent_id", "owner.display_name", "owner.account_id"])
+        .where("binding.user_id", "=", userId)
+        .where("binding.kind", "=", "personal")
+        .where("binding.state", "=", "active")
+        .where("owner.status", "=", "active"),
+    );
+  }
+  private projectAccess(
+    userId: string,
+    role: SpaceRole,
+    conversation: RegisteredConversation,
+    personalAgentId: string | undefined,
+    write: boolean,
+  ): SpaceConversation {
+    const canWrite =
+      userId === conversation.ownerId &&
+      role !== "viewer" &&
+      personalAgentId === conversation.agentId;
+    if (write && !canWrite) {
+      throw new ControlPlaneAuthorizationError("Space conversation is read-only");
+    }
+    return { ...conversation, canWrite };
+  }
+  create(
+    userId: string,
+    spaceId: string,
+    params: { pageId: string; title: string; requestId: string },
+  ): SpaceConversation {
+    this.spaces.page(userId, spaceId, params.pageId, "editor");
+    return runImmediateTransaction(this.db, () => {
+      this.spaces.page(userId, spaceId, params.pageId, "editor");
+      const binding = this.personalBinding(userId);
+      if (!binding) {
+        throw new ControlPlaneAuthorizationError("Active personal agent required");
+      }
+      const prior = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("collaboration_space_conversations")
+          .selectAll()
+          .where("owner_id", "=", userId)
+          .where("request_id", "=", params.requestId),
+      );
+      if (prior) {
+        if (
+          prior.space_id !== spaceId ||
+          prior.page_id !== params.pageId ||
+          prior.title !== params.title
+        ) {
+          throw new ControlPlaneConflictError(
+            "space_changed",
+            "Conversation request changed; start a new request",
+          );
+        }
+        return this.get(userId, spaceId, prior.id, true);
+      }
+      const count = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("collaboration_space_conversations")
+          .select(({ fn }) => fn.countAll<number>().as("count"))
+          .where("space_id", "=", spaceId),
+      )!.count;
+      if (count >= 200) {
+        throw new ControlPlaneStateError("Space conversation limit reached");
+      }
+      const id = randomUUID();
+      const createdAt = Date.now();
+      const row: SpaceConversationRow = {
+        id,
+        space_id: spaceId,
+        page_id: params.pageId,
+        title: params.title,
+        owner_id: userId,
+        owner_name: binding.display_name || binding.account_id,
+        agent_id: binding.agent_id,
+        // Only this writer may register the reserved namespace. Existing private keys are never adopted.
+        session_key: `agent:${binding.agent_id}:space-session:${id}`,
+        request_id: params.requestId,
+        created_at: createdAt,
+      };
+      executeSync(this.db, this.query.insertInto("collaboration_space_conversations").values(row));
+      executeSync(
+        this.db,
+        this.query.insertInto("control_audit_events").values({
+          id: randomUUID(),
+          actor_user_id: userId,
+          event_type: "space.conversation.created",
+          target_type: "space",
+          target_id: spaceId,
+          details_json: JSON.stringify({ conversationId: id, pageId: params.pageId }),
+          created_at: createdAt,
+        }),
+      );
+      return { ...projectConversation(row), canWrite: true };
+    });
+  }
+  list(
+    userId: string,
+    spaceId: string,
+    pageId?: string,
+    scope: "personal" | "shared" = "personal",
+  ): SpaceConversation[] {
+    const space = this.spaces.access(userId, spaceId);
+    if (pageId !== undefined) {
+      this.spaces.page(userId, spaceId, pageId);
+    }
+    let query = this.query
+      .selectFrom("collaboration_space_conversations")
+      .selectAll()
+      .where("space_id", "=", spaceId);
+    if (scope === "personal") {
+      query = query.where("owner_id", "=", userId);
+    }
+    if (pageId !== undefined) {
+      query = query.where("page_id", "=", pageId);
+    }
+    const personalAgentId = this.personalBinding(userId)?.agent_id;
+    return executeSync(
+      this.db,
+      query.orderBy("created_at", "desc").orderBy("id").limit(200),
+    ).rows.map((row) =>
+      this.projectAccess(userId, space.role, projectConversation(row), personalAgentId, false),
+    );
+  }
+  get(
+    userId: string,
+    spaceId: string,
+    conversationId: string,
+    write = false,
+    scope: "personal" | "shared" = "personal",
+  ): SpaceConversation {
+    const space = this.spaces.access(userId, spaceId);
+    const row = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("collaboration_space_conversations")
+        .selectAll()
+        .where("space_id", "=", spaceId)
+        .where("id", "=", conversationId),
+    );
+    if (!row || (scope === "personal" && row.owner_id !== userId)) {
+      throw new ControlPlaneAuthorizationError("Space conversation unavailable");
+    }
+    const personalAgentId = this.personalBinding(userId)?.agent_id;
+    return this.projectAccess(userId, space.role, projectConversation(row), personalAgentId, write);
+  }
+  bySession(userId: string, sessionKey: string, write = false): SpaceConversation {
+    const conversation = this.registered(sessionKey);
+    if (!conversation || conversation.ownerId !== userId) {
+      throw new ControlPlaneAuthorizationError("Space conversation unavailable");
+    }
+    const space = this.spaces.access(userId, conversation.spaceId);
+    const personalAgentId = this.personalBinding(userId)?.agent_id;
+    return this.projectAccess(userId, space.role, conversation, personalAgentId, write);
+  }
+  // These trusted lookups deliberately retain rows after creator removal/disable; callers gate access.
+  registered(sessionKey: string): RegisteredConversation | undefined {
+    const row = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("collaboration_space_conversations")
+        .selectAll()
+        .where("session_key", "=", sessionKey),
+    );
+    return row ? projectConversation(row) : undefined;
+  }
+  owned(spaceId: string, userId: string): RegisteredConversation[] {
+    return executeSync(
+      this.db,
+      this.query
+        .selectFrom("collaboration_space_conversations")
+        .selectAll()
+        .where("space_id", "=", spaceId)
+        .where("owner_id", "=", userId)
+        .orderBy("id")
+        .limit(200),
+    ).rows.map(projectConversation);
+  }
+  hasInaccessible(userId: string | undefined, agentId?: string): boolean {
+    let query = this.query
+      .selectFrom("collaboration_space_conversations as conversation")
+      .select("conversation.id");
+    if (agentId !== undefined) {
+      query = query.where("conversation.agent_id", "=", agentId);
+    }
+    if (userId === undefined) {
+      return Boolean(takeFirstSync(this.db, query.limit(1)));
+    }
+    return Boolean(
+      takeFirstSync(
+        this.db,
+        query
+          .leftJoin("collaboration_space_members as member", (join) =>
+            join
+              .onRef("member.space_id", "=", "conversation.space_id")
+              .on("member.user_id", "=", userId),
+          )
+          .where((eb) =>
+            eb.or([eb("conversation.owner_id", "!=", userId), eb("member.user_id", "is", null)]),
+          )
+          .limit(1),
+      ),
+    );
+  }
+}

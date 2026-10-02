@@ -324,13 +324,20 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
   };
   let preparedSessionState = resolvePreparedSessionState();
   const resolvedQueue = useFastReplyRuntime
-    ? { mode: "collect" as const, debounceMs: 0, cap: 1, dropPolicy: "summarize" as const }
+    ? {
+        mode: "collect" as const,
+        debounceMs: 0,
+        cap: 1,
+        dropPolicy: opts?.rejectQueueOverflow ? ("new" as const) : ("summarize" as const),
+      }
     : resolveQueueSettings({
         cfg,
         channel: sessionCtx.Provider,
         sessionEntry,
         inlineMode: effectiveQueueMode,
-        inlineOptions: perMessageQueueOptions,
+        inlineOptions: opts?.rejectQueueOverflow
+          ? { ...perMessageQueueOptions, dropPolicy: "new" }
+          : perMessageQueueOptions,
       });
   const embeddedAgentRuntime = useFastReplyRuntime
     ? null

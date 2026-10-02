@@ -23,6 +23,7 @@ import {
   listAgentRunsForSession,
   readAgentRunIndexVersion,
   registerAgentRunContext,
+  resolveAgentRunAdmissionId,
   releaseAgentRunContext,
   retainQueuedAgentRunContext,
   sweepStaleRunContexts,
@@ -69,6 +70,21 @@ describe("agent-events sequencing", () => {
       }),
     ]);
     unsubscribe();
+  });
+
+  test("resolves an individual followup admission only for its runtime agent and session", () => {
+    const context = { runId: "execution", agentId: "team", sessionKey: "agent:team:issue" };
+    registerAgentRunContext(context.runId, { ...context, admissionRunId: "request" });
+    expect(resolveAgentRunAdmissionId(context)).toBe("request");
+    expect(resolveAgentRunAdmissionId({ ...context, agentId: "other" })).toBe("execution");
+    expect(resolveAgentRunAdmissionId({ ...context, sessionKey: "agent:team:other" })).toBe(
+      "execution",
+    );
+    expect(resolveAgentRunAdmissionId({ runId: "execution" })).toBe("execution");
+    rotateAgentEventLifecycleGeneration();
+    expect(resolveAgentRunAdmissionId(context)).toBe("execution");
+    clearAgentRunContext(context.runId);
+    expect(resolveAgentRunAdmissionId(context)).toBe("execution");
   });
 
   test("stores and clears run context", () => {

@@ -12,6 +12,29 @@ const MAX_RESPONSE_BYTES = 256 * 1024;
 export type VaultTurnScope = { revision: number; vaultIds: string[]; personalEnabled: boolean };
 
 export type WikiHubMemoryClient = {
+  spaceRead(params: {
+    agentId: string;
+    operation: string;
+    query?: string;
+    spaceId?: string;
+    pageId?: string;
+    conversationId?: string;
+    sessionKey?: string;
+    runId?: string;
+    messageId?: string;
+    bodyOffset?: number;
+    pageRevision?: number;
+    limit?: number;
+    cursor?: string;
+    bodyLimitBytes?: number;
+    messageOffset?: number;
+    nativeTool?: string;
+    targetSessionKey?: string;
+    targetLabel?: string;
+    targetAgentId?: string;
+    nativeAction?: string;
+    broad?: boolean;
+  }): Promise<unknown>;
   wiki(
     params: import("openclaw/plugin-sdk/memory-core-host-runtime-core").MemoryWikiOperation & {
       agentId: string;
@@ -57,6 +80,9 @@ function responseError(status: number, body: string): Error {
     value?.code !== "wiki-invalid" &&
     value?.code !== "wiki-conflict" &&
     value?.code !== "wiki-forbidden" &&
+    value?.code !== "space-invalid" &&
+    value?.code !== "space-conflict" &&
+    value?.code !== "space-forbidden" &&
     value?.code !== "vault-name-ambiguous" &&
     value?.code !== "vault-name-not-found" &&
     value?.code !== "vault-query-invalid"
@@ -152,6 +178,8 @@ export function createWikiHubMemoryClient(env: NodeJS.ProcessEnv): WikiHubMemory
   }
   const socketPath = handoffAddress(broker);
   return {
+    spaceRead: async (params) =>
+      await call(socketPath, token, "/platformclaw/internal/spaces/read", params),
     wiki: async (params) => await call(socketPath, token, WIKI_PATH, params),
     captureScope: async (params) => await call(socketPath, token, SCOPE_PATH, params),
     search: async (params) => await call(socketPath, token, SEARCH_PATH, params),

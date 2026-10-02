@@ -34,3 +34,22 @@ export async function resolveBrowserGatewayAccess(params: {
     mainSessionKey: params.buildAgentMainSessionKey({ agentId: binding.agentId }),
   };
 }
+
+export async function auditBrowserGatewayDenied(
+  options: Pick<
+    import("./browser-gateway-contracts.js").BrowserGatewayProxyOptions,
+    "auditWriter" | "now"
+  >,
+  access: BrowserGatewayAccess,
+  method: string,
+  reason: import("./browser-gateway-contracts.js").BrowserGatewayProxyErrorCode,
+): Promise<void> {
+  await options.auditWriter.recordAuditEvent({
+    actorUserId: access.user.id,
+    eventType: "browser.gateway.denied",
+    targetType: "agent-binding",
+    targetId: access.binding.id,
+    details: { method, reason },
+    createdAt: (options.now ?? Date.now)(),
+  });
+}

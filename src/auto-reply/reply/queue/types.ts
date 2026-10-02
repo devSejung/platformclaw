@@ -131,6 +131,8 @@ export type FollowupRun = {
   /** Chat type for context-aware threading (e.g., DM vs channel). */
   originatingChatType?: string;
   run: {
+    /** Stable ingress identity for an individually queued followup, not a collect aggregate. */
+    admissionRunId?: string;
     agentId: string;
     agentDir: string;
     sessionId: string;

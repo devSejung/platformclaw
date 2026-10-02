@@ -17484,6 +17484,7 @@ public struct ChatSendParams: Codable, Sendable {
     public var fastmode: Bool? { fastmodevalue?.value as? Bool }
     public let fastautoonseconds: Int?
     public let queuemode: String?
+    public let rejectqueueoverflow: Bool?
     public let deliver: Bool?
     public let originatingchannel: String?
     public let originatingto: String?
@@ -17510,6 +17511,7 @@ public struct ChatSendParams: Codable, Sendable {
         fastmodevalue: AnyCodable? = nil,
         fastautoonseconds: Int? = nil,
         queuemode: String? = nil,
+        rejectqueueoverflow: Bool? = nil,
         deliver: Bool? = nil,
         originatingchannel: String? = nil,
         originatingto: String? = nil,
@@ -17535,6 +17537,7 @@ public struct ChatSendParams: Codable, Sendable {
         self.fastmodevalue = fastmodevalue
         self.fastautoonseconds = fastautoonseconds
         self.queuemode = queuemode
+        self.rejectqueueoverflow = rejectqueueoverflow
         self.deliver = deliver
         self.originatingchannel = originatingchannel
         self.originatingto = originatingto
@@ -17561,6 +17564,7 @@ public struct ChatSendParams: Codable, Sendable {
         thinking: String? = nil,
         fastmode: Bool?,
         queuemode: String? = nil,
+        rejectqueueoverflow: Bool? = nil,
         deliver: Bool? = nil,
         originatingchannel: String? = nil,
         originatingto: String? = nil,
@@ -17587,6 +17591,7 @@ public struct ChatSendParams: Codable, Sendable {
             fastmodevalue: fastmode.map { AnyCodable($0) },
             fastautoonseconds: nil,
             queuemode: queuemode,
+            rejectqueueoverflow: rejectqueueoverflow,
             deliver: deliver,
             originatingchannel: originatingchannel,
             originatingto: originatingto,
@@ -17614,6 +17619,7 @@ public struct ChatSendParams: Codable, Sendable {
         case fastmodevalue = "fastMode"
         case fastautoonseconds = "fastAutoOnSeconds"
         case queuemode = "queueMode"
+        case rejectqueueoverflow = "rejectQueueOverflow"
         case deliver
         case originatingchannel = "originatingChannel"
         case originatingto = "originatingTo"
@@ -17780,6 +17786,7 @@ public struct ChatFinalEvent: Codable, Sendable {
     public let spawnedby: String?
     public let seq: Int
     public let state: String
+    public let queuephase: AnyCodable?
     public let message: AnyCodable?
     public let usage: AnyCodable?
     public let stopreason: String?
@@ -17792,6 +17799,7 @@ public struct ChatFinalEvent: Codable, Sendable {
         spawnedby: String? = nil,
         seq: Int,
         state: String,
+        queuephase: AnyCodable? = nil,
         message: AnyCodable? = nil,
         usage: AnyCodable? = nil,
         stopreason: String? = nil,
@@ -17803,6 +17811,7 @@ public struct ChatFinalEvent: Codable, Sendable {
         self.spawnedby = spawnedby
         self.seq = seq
         self.state = state
+        self.queuephase = queuephase
         self.message = message
         self.usage = usage
         self.stopreason = stopreason
@@ -17816,6 +17825,7 @@ public struct ChatFinalEvent: Codable, Sendable {
         case spawnedby = "spawnedBy"
         case seq
         case state
+        case queuephase = "queuePhase"
         case message
         case usage
         case stopreason = "stopReason"

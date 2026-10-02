@@ -1,4 +1,5 @@
-import { i18n, t } from "../i18n/index.ts";
+import { i18n, t, type TranslationMap } from "../i18n/index.ts";
+import { loadLazyLocaleTranslation } from "../i18n/lib/registry.ts";
 import { resolveProductDisplayText } from "./branding.ts";
 
 type PlatformClawKoreanBundle = typeof import("./locales/ko.ts");
@@ -8,6 +9,35 @@ let koreanBundle: PlatformClawKoreanBundle | undefined;
 let koreanBundlePromise: Promise<void> | undefined;
 let englishGuideBundle: PlatformClawEnglishGuideBundle | undefined;
 let englishGuideBundlePromise: Promise<void> | undefined;
+
+function mergeNativeTranslations(base: TranslationMap, overrides: TranslationMap): TranslationMap {
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(overrides)) {
+    const existing = merged[key];
+    merged[key] =
+      typeof value === "string"
+        ? value
+        : mergeNativeTranslations(typeof existing === "object" ? existing : {}, value);
+  }
+  return merged;
+}
+
+function loadKoreanBundle(): Promise<void> {
+  koreanBundlePromise ??= Promise.all([import("./locales/ko.ts"), loadLazyLocaleTranslation("ko")])
+    .then(([bundle, base]) => {
+      if (!base) {
+        throw new Error("Korean locale is unavailable");
+      }
+      const translations = mergeNativeTranslations(base, bundle.nativeTranslations);
+      i18n.registerTranslation("ko", translations);
+      koreanBundle = bundle;
+    })
+    .catch((error: unknown) => {
+      koreanBundlePromise = undefined;
+      throw error;
+    });
+  return koreanBundlePromise;
+}
 
 export async function loadPlatformClawLocale(): Promise<void> {
   if (i18n.getLocale() !== "ko") {
@@ -23,20 +53,14 @@ export async function loadPlatformClawLocale(): Promise<void> {
   if (koreanBundle) {
     return;
   }
-  koreanBundlePromise ??= import("./locales/ko.ts").then((bundle) => {
-    koreanBundle = bundle;
-  });
-  await koreanBundlePromise;
+  await loadKoreanBundle();
 }
 
 export async function loadAllPlatformClawLocales(): Promise<void> {
-  koreanBundlePromise ??= import("./locales/ko.ts").then((bundle) => {
-    koreanBundle = bundle;
-  });
   englishGuideBundlePromise ??= import("./locales/en-guide.ts").then((bundle) => {
     englishGuideBundle = bundle;
   });
-  await Promise.all([koreanBundlePromise, englishGuideBundlePromise]);
+  await Promise.all([loadKoreanBundle(), englishGuideBundlePromise]);
 }
 
 export function platformClawT(key: string, params?: Record<string, string>): string {

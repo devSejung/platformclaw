@@ -1,9 +1,62 @@
+import type { TranslationMap } from "../../i18n/index.ts";
 import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
+import { spaceTranslations } from "./ko-spaces.ts";
 import { vaultTranslations } from "./ko-vaults.ts";
+
+// Native chat uses the shared translator; keep product-owned copy here rather
+// than hand-editing the generated upstream locale catalog.
+export const nativeTranslations = {
+  execApproval: {
+    expiresIn: "{time} 후 만료",
+    expired: "만료됨",
+    execApprovalNeeded: "명령 실행 승인 필요",
+    pluginApprovalNeeded: "플러그인 승인 필요",
+    pending: "대기 중 {count}건",
+    otherPending: "다른 승인 대기 요청",
+    reviewRequest: "{agent}의 승인 요청 검토: {command}",
+    agentPendingOne: "승인 대기 {count}건",
+    agentPending: "승인 대기 {count}건",
+    allowOnce: "한 번 허용",
+    alwaysAllow: "항상 허용",
+    allowAlwaysUnavailable: "이 명령은 항상 허용할 수 없습니다.",
+    deny: "거부",
+    labels: {
+      host: "호스트",
+      agent: "에이전트",
+      session: "세션",
+      cwd: "작업 디렉터리",
+      resolved: "실행 파일 경로",
+      security: "보안",
+      ask: "승인 요청",
+      severity: "심각도",
+      plugin: "플러그인",
+    },
+  },
+  chat: {
+    runControls: {
+      newSession: "새 대화",
+      newSessionDisconnected: "새 대화를 만들려면 연결하세요",
+      newSessionWorktree: "워크트리에서 새 대화",
+      export: "내보내기",
+      exportChat: "대화 내보내기",
+      queue: "대기열에 추가",
+      queueMessage: "메시지를 대기열에 추가",
+      stop: "중지",
+      stopGenerating: "생성 중지",
+      send: "보내기",
+      sendMessage: "메시지 보내기",
+    },
+    composer: {
+      placeholder: "{name}에게 메시지 보내기",
+      placeholderWithAttachments: "메시지를 입력하거나 이미지를 더 붙여넣으세요…",
+    },
+  },
+} satisfies TranslationMap;
 
 export const translations: Readonly<Record<string, string>> = {
   ...vaultTranslations,
+  ...spaceTranslations,
   "configView.appearance.terminalTextSize": "터미널 텍스트 크기",
   "platformClaw.skillHub.publish.action": "작업 공간 스킬 게시",
   "platformClaw.skillHub.publish.title": "작업 공간의 스킬 게시",

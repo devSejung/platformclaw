@@ -484,6 +484,7 @@ export interface ControlPlaneManagementStore {
 }
 
 export type ControlPlaneConflictCode =
+  | "space_changed"
   | "knowledge_vault_changed"
   | "account_id_conflict"
   | "account_id_mismatch"

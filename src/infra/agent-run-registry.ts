@@ -6,6 +6,8 @@ import { clearAgentRunUsage, resetAgentRunUsageForTest } from "./agent-run-usage
 
 /** Per-run metadata used to stamp events and gate Control UI visibility. */
 type AgentRunContext = {
+  /** Original ingress identity for a single followup execution. */
+  admissionRunId?: string;
   sessionKey?: string;
   /** Resolved agent owner, including for unscoped session keys. */
   agentId?: string;
@@ -121,6 +123,9 @@ export function registerAgentRunContext(
     return;
   }
   let runIndexChanged = false;
+  if (context.admissionRunId) {
+    existing.admissionRunId = context.admissionRunId;
+  }
   if (context.sessionKey && existing.sessionKey !== context.sessionKey) {
     existing.sessionKey = context.sessionKey;
     runIndexChanged = true;
@@ -255,6 +260,26 @@ export function claimAgentRunContext(
 /** Returns the currently registered context for a run, if it has not been cleared or swept. */
 export function getAgentRunContext(runId: string): AgentRunContext | undefined {
   return getAgentRunRegistryState().contexts.get(runId);
+}
+
+/** Resolve ingress authorization without exposing one run's lineage to another session/agent. */
+export function resolveAgentRunAdmissionId(params: {
+  runId?: string;
+  agentId?: string;
+  sessionKey?: string;
+}): string | undefined {
+  if (!params.runId) {
+    return undefined;
+  }
+  const context = getAgentRunContext(params.runId);
+  return context?.admissionRunId &&
+    context.lifecycleGeneration === getAgentRunLifecycleGeneration() &&
+    params.agentId &&
+    context.agentId === params.agentId &&
+    params.sessionKey &&
+    context.sessionKey === params.sessionKey
+    ? context.admissionRunId
+    : params.runId;
 }
 
 /** Holds an existing run context only while its current execution awaits lane admission. */

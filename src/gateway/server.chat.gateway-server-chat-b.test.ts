@@ -3902,6 +3902,94 @@ describe("gateway server chat", () => {
     });
   });
 
+  test("chat.send explicitly rejects the twenty-first pending question without synthesis", async () => {
+    await withDirectChatSession(async () => {
+      await writeStoredMainSession({});
+      const { enqueueFollowupRun } = await import("../auto-reply/reply/queue.js");
+      const { createQueueTestRun } = await import("../auto-reply/reply/queue.test-helpers.js");
+      const { resolveQueueSettings } = await import("../auto-reply/reply/queue/settings.js");
+      const { getExistingFollowupQueue, clearFollowupQueue } =
+        await import("../auto-reply/reply/queue/state.js");
+      const key = "agent:main:main";
+      const broadcast = vi.fn();
+      const context = createDirectChatContext({
+        chatQueuedTurns: new Map(),
+        broadcast,
+        getRuntimeConfig: () => ({}),
+      });
+      dispatchInboundMessageMock.mockImplementationOnce(async (args: unknown) => {
+        const options = (args as { replyOptions: InternalGetReplyOptions }).replyOptions;
+        expect(options.rejectQueueOverflow).toBe(true);
+        const settings = resolveQueueSettings({
+          cfg: {},
+          inlineMode: "followup",
+          inlineOptions: { dropPolicy: "new" },
+        });
+        expect(settings.cap).toBe(20);
+        for (let i = 0; i < 20; i++) {
+          expect(
+            enqueueFollowupRun(
+              key,
+              createQueueTestRun({ prompt: `accepted-${i}` }),
+              settings,
+              "none",
+              undefined,
+              false,
+            ),
+          ).toBe(true);
+        }
+        const rejected = createQueueTestRun({ prompt: "question-21" });
+        rejected.onQueueDisposition = options.onFollowupQueueDisposition;
+        rejected.turnAdoptionLifecycle = options.turnAdoptionLifecycle;
+        expect(enqueueFollowupRun(key, rejected, settings, "none", undefined, false)).toBe(false);
+        return {};
+      });
+      try {
+        const respond = vi.fn() as RespondFn;
+        await callDirectChat("chat.send", {
+          id: "overflow",
+          params: {
+            sessionKey: "main",
+            message: "question-21",
+            idempotencyKey: "overflow-21",
+            queueMode: "followup",
+            rejectQueueOverflow: true,
+          },
+          client: {
+            connId: "conn-ui",
+            connect: {
+              client: { id: GATEWAY_CLIENT_NAMES.TUI, mode: GATEWAY_CLIENT_MODES.UI },
+              scopes: ["operator.write", "operator.admin"],
+            },
+          } as never,
+          isWebchatConnect: () => true,
+          respond,
+          context,
+        });
+        await waitForFast(() => expect(context.removeChatRun).toHaveBeenCalled(), FAST_WAIT_OPTS);
+        const events = broadcast.mock.calls.filter(
+          ([event, payload]) => event === "chat" && payload.runId === "overflow-21",
+        );
+        expect(events).toHaveLength(1);
+        expect(events[0]?.[1]).toMatchObject({
+          state: "error",
+          errorMessage: expect.stringContaining("queue is full"),
+        });
+        expect(context.dedupe.get("chat:overflow-21")).toMatchObject({
+          ok: false,
+          payload: { status: "error" },
+        });
+        const queue = getExistingFollowupQueue(key);
+        expect(queue?.items).toHaveLength(20);
+        expect(queue?.summarySources).toEqual([]);
+        expect(queue?.items[0]?.prompt).toBe("accepted-0");
+        expect(context.chatQueuedTurns.has("overflow-21")).toBe(false);
+      } finally {
+        clearFollowupQueue(key);
+      }
+    });
+  });
+
   test("chat.send terminalizes the client run when a followup is queued", async () => {
     await withDirectChatSession(async (_sessionDir, storePath) => {
       await writeStoredMainSession({});
@@ -3962,6 +4050,7 @@ describe("gateway server chat", () => {
             runId: "idem-queued-followup",
             sessionKey: "agent:main:main",
             state: "final",
+            queuePhase: "deferred",
           }),
           { sessionKeys: ["agent:main:main"] },
         );
@@ -3987,6 +4076,9 @@ describe("gateway server chat", () => {
         },
       );
 
+      expect(context.dedupe.get("chat:idem-queued-followup")?.payload).toMatchObject({
+        status: "in_flight",
+      });
       context.dedupe.delete("chat:idem-queued-followup");
       const replayRespond = vi.fn() as RespondFn;
       await callDirectChat("chat.send", {
@@ -4021,6 +4113,17 @@ describe("gateway server chat", () => {
       expect(context.chatQueuedTurns.has("idem-queued-followup")).toBe(false);
 
       turnAdoptionLifecycle?.onSettled?.();
+      expect(broadcast).toHaveBeenCalledWith(
+        "chat",
+        expect.objectContaining({
+          runId: "idem-queued-followup",
+          queuePhase: "settled",
+        }),
+        expect.anything(),
+      );
+      expect(context.dedupe.get("chat:idem-queued-followup")?.payload).toMatchObject({
+        status: "ok",
+      });
       expect(context.chatQueuedTurns.has("idem-queued-followup")).toBe(false);
       expect(isSessionWorkAdmissionActive(storePath, ["agent:main:main", "sess-main"])).toBe(false);
       await waitForFast(
@@ -4067,10 +4170,10 @@ describe("gateway server chat", () => {
           (payload as { runId?: string }).runId === "idem-queued-followup-post-error",
       );
       expect(acceptedErrorEvents).toHaveLength(1);
-      expect(acceptedErrorEvents[0]?.[1]).toMatchObject({ state: "final" });
+      expect(acceptedErrorEvents[0]?.[1]).toMatchObject({ state: "final", queuePhase: "deferred" });
       expect(context.dedupe.get("chat:idem-queued-followup-post-error")).toMatchObject({
         ok: true,
-        payload: { status: "ok" },
+        payload: { status: "in_flight" },
       });
       expect(context.chatQueuedTurns.has("idem-queued-followup-post-error")).toBe(true);
       failedDispatchLifecycle?.onSettled?.();

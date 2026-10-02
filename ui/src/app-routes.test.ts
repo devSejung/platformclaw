@@ -15,6 +15,14 @@ describe("application router registration", () => {
     expect([...routeIds].toSorted()).toEqual([...APP_ROUTE_IDS].toSorted());
   });
 
+  it("requires an explicit product override for the opt-in Space route", () => {
+    expect(router.getRoute("spaces")).toBeNull();
+    const embedded = createApplicationRouter(["spaces"], {
+      spaces: { component: async () => ({ render: () => "Space" }) },
+    });
+    expect(embedded.getRoute("spaces")?.path).toBe("/spaces");
+  });
+
   it("serves the table's canonical paths and aliases", () => {
     for (const route of router.routes) {
       expect(route.path, `path for route "${route.id}"`).toBe(pathForRoute(route.id));
