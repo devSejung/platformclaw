@@ -83,6 +83,9 @@ skillhub_state="$deploy_root/data/skillhub"
 skillhub_state_backup_root="$deploy_root/backups/skillhub-state"
 previous_skillhub_state_file="$env_file.previous-skillhub-state"
 secret_root="$deploy_root/secrets"
+guide_video_s3_bundle="$secret_root/guide-video-s3-credentials.env"
+guide_video_s3_active_bundle="$secret_root/guide-video-s3-credentials.active.env"
+guide_video_s3_active_config_fingerprint="$secret_root/guide-video-s3-config.active.sha256"
 cert_root="$deploy_root/certs"
 legacy_state_marker="$deploy_root/.legacy-durable-state"
 skillhub_state_marker="$deploy_root/.skillhub-durable-state"
@@ -90,6 +93,10 @@ compose=("$script_dir/platformclaw-compose" --service-user "$service_user")
 rootless=(env "XDG_RUNTIME_DIR=/run/user/$runtime_uid" "DOCKER_HOST=unix:///run/user/$runtime_uid/docker.sock" docker)
 cleanup_daemons=()
 cleanup_refs=()
+guide_video_s3_enabled=0
+guide_video_s3_bundle_changed=0
+guide_video_s3_bundle_migrated=0
+guide_video_s3_config_fingerprint=""
 
 require_service_user() {
   if [[ "$(id -u)" != "$runtime_uid" ]]; then
@@ -272,16 +279,267 @@ trim_env_value() {
   printf '%s' "$value"
 }
 
+publish_guide_video_s3_bundle() {
+  local access_key_id="$1"
+  local secret_access_key="$2"
+  local staging
+  staging="$(mktemp "$secret_root/.guide-video-s3-credentials.XXXXXX")"
+  chmod 0600 "$staging"
+  printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\n' \
+    "$access_key_id" "$secret_access_key" >"$staging"
+  chmod 0400 "$staging"
+  if [[ -f "$guide_video_s3_bundle" ]] && cmp -s "$staging" "$guide_video_s3_bundle"; then
+    rm -f "$staging"
+    return 0
+  fi
+  mv -f "$staging" "$guide_video_s3_bundle"
+  guide_video_s3_bundle_changed=1
+}
+
+sync_guide_video_s3_profile_credentials() {
+  local profile="$1"
+  [[ -n "$profile" ]] || return 0
+  local credentials_file="$service_home/.aws/credentials"
+  if [[ ! -r "$credentials_file" ]]; then
+    echo "Private guide S3 AWS profile requires a readable static credentials file: $credentials_file" >&2
+    exit 1
+  fi
+
+  # Read the whole shared-credentials file twice and accept only a stable snapshot.
+  # This prevents an operator rotation between independent key reads from creating
+  # the same mixed-generation pair that this deployment path is designed to avoid.
+  local credentials_snapshot="" first_read second_read
+  local attempt
+  for attempt in 1 2 3; do
+    first_read="$(<"$credentials_file")"
+    second_read="$(<"$credentials_file")"
+    if [[ "$first_read" == "$second_read" ]]; then
+      credentials_snapshot="$first_read"
+      break
+    fi
+  done
+  if [[ -z "$credentials_snapshot" ]]; then
+    echo "Private guide S3 AWS profile credentials changed while being read; retry after rotation completes." >&2
+    exit 1
+  fi
+
+  local parsed
+  parsed="$(awk -v wanted="$profile" '
+    /^[[:space:]]*\[/ {
+      section = $0
+      sub(/^[[:space:]]*\[/, "", section)
+      sub(/\][[:space:]]*$/, "", section)
+      active = section == wanted
+      next
+    }
+    active && /^[[:space:]]*(aws_access_key_id|aws_secret_access_key|aws_session_token)[[:space:]]*=/ {
+      key = $0
+      sub(/^[[:space:]]*/, "", key)
+      sub(/[[:space:]]*=.*$/, "", key)
+      value = $0
+      sub(/^[^=]*=[[:space:]]*/, "", value)
+      sub(/[[:space:]]*$/, "", value)
+      print key "\t" value
+    }
+  ' <<<"$credentials_snapshot")"
+
+  local access_key_id="" secret_access_key="" session_token=""
+  local access_count=0 secret_count=0 token_count=0 key value
+  while IFS=$'\t' read -r key value; do
+    case "$key" in
+      aws_access_key_id)
+        access_count=$((access_count + 1))
+        access_key_id="$value"
+        ;;
+      aws_secret_access_key)
+        secret_count=$((secret_count + 1))
+        secret_access_key="$value"
+        ;;
+      aws_session_token)
+        token_count=$((token_count + 1))
+        session_token="$value"
+        ;;
+    esac
+  done <<<"$parsed"
+  access_key_id="$(trim_env_value "$access_key_id")"
+  secret_access_key="$(trim_env_value "$secret_access_key")"
+  session_token="$(trim_env_value "$session_token")"
+  if [[ "$access_count" != "1" || "$secret_count" != "1" || "$token_count" -gt 1 || \
+    -z "$access_key_id" || -z "$secret_access_key" || \
+    "$access_key_id" =~ [[:space:]] || "$secret_access_key" =~ [[:space:]] ]]; then
+    echo "Private guide S3 AWS profile has no usable static Access Key ID/Secret Access Key: $profile" >&2
+    exit 1
+  fi
+  if [[ -n "$session_token" ]]; then
+    echo "Private guide S3 AWS profile uses temporary session credentials, which this deployment mode does not support: $profile" >&2
+    exit 1
+  fi
+  publish_guide_video_s3_bundle "$access_key_id" "$secret_access_key"
+  if [[ "$guide_video_s3_bundle_changed" == "1" ]]; then
+    echo "Synchronized private guide S3 credential bundle from AWS profile: $profile"
+  fi
+}
+
+migrate_legacy_guide_video_s3_credentials() {
+  [[ -e "$guide_video_s3_bundle" ]] && return 0
+  local access_path="$secret_root/guide-video-s3-access-key"
+  local secret_path="$secret_root/guide-video-s3-secret-key"
+  [[ -s "$access_path" && -s "$secret_path" ]] || return 0
+  local access_key_id secret_access_key
+  access_key_id="$(trim_env_value "$(<"$access_path")")"
+  secret_access_key="$(trim_env_value "$(<"$secret_path")")"
+  if [[ -z "$access_key_id" || -z "$secret_access_key" || \
+    "$access_key_id" =~ [[:space:]] || "$secret_access_key" =~ [[:space:]] ]]; then
+    echo "Legacy private guide S3 credential files are invalid; refusing automatic migration." >&2
+    exit 1
+  fi
+  publish_guide_video_s3_bundle "$access_key_id" "$secret_access_key"
+  guide_video_s3_bundle_migrated=1
+  echo "Migrated private guide S3 credentials into the canonical owner-only bundle: $guide_video_s3_bundle"
+}
+
+read_guide_video_s3_pair() {
+  local bundle="$1"
+  if [[ ! -s "$bundle" || ! -r "$bundle" ]]; then
+    echo "Missing private guide S3 credential bundle: $bundle" >&2
+    echo "Install AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY there, or configure PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE." >&2
+    return 1
+  fi
+  chmod 0400 "$bundle"
+  local access_count secret_count token_count
+  access_count="$(grep -c '^AWS_ACCESS_KEY_ID=' "$bundle" || true)"
+  secret_count="$(grep -c '^AWS_SECRET_ACCESS_KEY=' "$bundle" || true)"
+  token_count="$(grep -c '^AWS_SESSION_TOKEN=' "$bundle" || true)"
+  if [[ "$access_count" != "1" || "$secret_count" != "1" || "$token_count" -gt 1 ]]; then
+    echo "Private guide S3 credential bundle must contain exactly one AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY." >&2
+    return 1
+  fi
+  local access_key_id secret_access_key session_token
+  access_key_id="$(sed -n 's/^AWS_ACCESS_KEY_ID=//p' "$bundle")"
+  secret_access_key="$(sed -n 's/^AWS_SECRET_ACCESS_KEY=//p' "$bundle")"
+  session_token="$(sed -n 's/^AWS_SESSION_TOKEN=//p' "$bundle")"
+  if [[ -z "$access_key_id" || -z "$secret_access_key" || \
+    "$access_key_id" =~ [[:space:]] || "$secret_access_key" =~ [[:space:]] ]]; then
+    echo "Private guide S3 credential bundle contains an invalid Access Key ID or Secret Access Key." >&2
+    return 1
+  fi
+  if [[ -n "$session_token" ]]; then
+    echo "Private guide S3 credential bundle contains AWS_SESSION_TOKEN, which is not supported yet." >&2
+    return 1
+  fi
+  printf '%s\t%s\n' "$access_key_id" "$secret_access_key"
+}
+
+project_guide_video_s3_credentials() {
+  local pair access_key_id secret_access_key
+  pair="$(read_guide_video_s3_pair "$guide_video_s3_active_bundle")" || return 1
+  IFS=$'\t' read -r access_key_id secret_access_key <<<"$pair"
+
+  local access_path="$secret_root/guide-video-s3-access-key"
+  local secret_path="$secret_root/guide-video-s3-secret-key"
+  if [[ -f "$access_path" && -f "$secret_path" ]] && \
+    [[ "$(<"$access_path")" == "$access_key_id" ]] && \
+    [[ "$(<"$secret_path")" == "$secret_access_key" ]]; then
+    return 0
+  fi
+  local access_staging secret_staging
+  access_staging="$(mktemp "$secret_root/.guide-video-s3-access-key.XXXXXX")" || return 1
+  secret_staging="$(mktemp "$secret_root/.guide-video-s3-secret-key.XXXXXX")" || {
+    rm -f -- "$access_staging"
+    return 1
+  }
+  chmod 0600 "$access_staging" "$secret_staging" || {
+    rm -f -- "$access_staging" "$secret_staging"
+    return 1
+  }
+  printf '%s\n' "$access_key_id" >"$access_staging" || {
+    rm -f -- "$access_staging" "$secret_staging"
+    return 1
+  }
+  printf '%s\n' "$secret_access_key" >"$secret_staging" || {
+    rm -f -- "$access_staging" "$secret_staging"
+    return 1
+  }
+  chmod 0400 "$access_staging" "$secret_staging" || {
+    rm -f -- "$access_staging" "$secret_staging"
+    return 1
+  }
+  mv -f -- "$access_staging" "$access_path" || {
+    rm -f -- "$access_staging" "$secret_staging"
+    return 1
+  }
+  mv -f -- "$secret_staging" "$secret_path" || {
+    rm -f -- "$secret_staging"
+    return 1
+  }
+}
+
+activate_guide_video_s3_credentials() {
+  read_guide_video_s3_pair "$guide_video_s3_bundle" >/dev/null || return 1
+  if [[ -f "$guide_video_s3_active_bundle" ]] && cmp -s "$guide_video_s3_bundle" "$guide_video_s3_active_bundle"; then
+    project_guide_video_s3_credentials || return 1
+    return 0
+  fi
+  local staging
+  staging="$(mktemp "$secret_root/.guide-video-s3-credentials.active.XXXXXX")" || return 1
+  cp -- "$guide_video_s3_bundle" "$staging" || {
+    rm -f -- "$staging"
+    return 1
+  }
+  chmod 0400 "$staging" || {
+    rm -f -- "$staging"
+    return 1
+  }
+  mv -f -- "$staging" "$guide_video_s3_active_bundle" || {
+    rm -f -- "$staging"
+    return 1
+  }
+  project_guide_video_s3_credentials || return 1
+}
+
+publish_guide_video_s3_config_fingerprint() {
+  [[ -n "$guide_video_s3_config_fingerprint" ]] || {
+    echo "Private guide S3 validated-config fingerprint is unavailable." >&2
+    return 1
+  }
+  local staging
+  staging="$(mktemp "$secret_root/.guide-video-s3-config.active.XXXXXX")" || return 1
+  chmod 0600 "$staging" || {
+    rm -f -- "$staging"
+    return 1
+  }
+  printf '%s\n' "$guide_video_s3_config_fingerprint" >"$staging" || {
+    rm -f -- "$staging"
+    return 1
+  }
+  chmod 0400 "$staging" || {
+    rm -f -- "$staging"
+    return 1
+  }
+  mv -f -- "$staging" "$guide_video_s3_active_config_fingerprint" || {
+    rm -f -- "$staging"
+    return 1
+  }
+}
+
+activate_guide_video_s3_runtime_state() {
+  activate_guide_video_s3_credentials || return 1
+  publish_guide_video_s3_config_fingerprint || return 1
+}
+
 require_guide_video_s3_credentials() {
-  local compose_environment endpoint bucket key guide_url
+  local compose_environment endpoint region bucket key profile force_path_style guide_url
   # Use the same Compose dotenv parser as platformclaw-compose so quoted blanks
   # and escapes cannot make preflight disagree with the container environment.
   compose_environment="$("${compose[@]}" config --environment)"
   endpoint="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=//p' <<<"$compose_environment" | tail -n 1)")"
+  region="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=//p' <<<"$compose_environment" | tail -n 1)")"
   bucket="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=//p' <<<"$compose_environment" | tail -n 1)")"
   key="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=//p' <<<"$compose_environment" | tail -n 1)")"
+  profile="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE=//p' <<<"$compose_environment" | tail -n 1)")"
+  force_path_style="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=//p' <<<"$compose_environment" | tail -n 1)")"
   guide_url="$(trim_env_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_URL=//p' <<<"$compose_environment" | tail -n 1)")"
-  if [[ -z "$endpoint" && -z "$bucket" && -z "$key" ]]; then
+  if [[ -z "$endpoint" && -z "$bucket" && -z "$key" && -z "$profile" ]]; then
     return 0
   fi
   if [[ -z "$endpoint" || -z "$bucket" || -z "$key" ]]; then
@@ -292,19 +550,64 @@ require_guide_video_s3_credentials() {
     echo "PLATFORMCLAW_GUIDE_VIDEO_URL cannot be combined with private S3 guide settings." >&2
     exit 1
   fi
-  local name path
-  for name in guide-video-s3-access-key guide-video-s3-secret-key; do
-    path="$secret_root/$name"
-    if [[ -e "$path" && ! -r "$path" ]]; then
-      echo "Private guide S3 credential is unreadable: $path" >&2
-      exit 1
+  guide_video_s3_enabled=1
+  [[ -n "$region" ]] || region="us-east-1"
+  [[ -n "$force_path_style" ]] || force_path_style="true"
+  guide_video_s3_config_fingerprint="$(printf '%s\0' \
+    "$endpoint" "$region" "$bucket" "$key" "$force_path_style" | sha256sum | awk '{ print $1 }')"
+  sync_guide_video_s3_profile_credentials "$profile"
+  migrate_legacy_guide_video_s3_credentials
+  read_guide_video_s3_pair "$guide_video_s3_bundle" >/dev/null
+}
+
+preflight_guide_video_s3_runtime() {
+  [[ "$guide_video_s3_enabled" == "1" ]] || return 0
+  local probe_image probe_status output
+  probe_image="$(read_env_value PLATFORMCLAW_IMAGE)"
+  if DOCKER_HOST=unix:///var/run/docker.sock docker run --rm --network none --read-only \
+    --cap-drop ALL --security-opt no-new-privileges:true \
+    --entrypoint sh "$probe_image" -c \
+    'test -x /usr/local/bin/platformclaw-guide-video-check || exit 42'; then
+    probe_status=0
+  else
+    probe_status=$?
+  fi
+  if [[ "$probe_status" == "42" ]]; then
+    if [[ "$guide_video_s3_bundle_migrated" == "1" && ! -e "$guide_video_s3_active_bundle" ]]; then
+      echo "Legacy private guide S3 credentials are unverified and cannot be activated by an image without the S3 preflight probe." >&2
+      echo "Update to an image containing platformclaw-guide-video-check, then retry so the legacy pair is validated before activation." >&2
+      return 1
     fi
-    if [[ ! -s "$path" ]] || ! grep -q '[^[:space:]]' "$path"; then
-      echo "Missing private guide S3 credential: $path" >&2
-      echo "Install an owner-only credential containing a non-whitespace value before updating or starting PlatformClaw." >&2
-      exit 1
+    if [[ ! -e "$guide_video_s3_active_bundle" ]] || ! cmp -s "$guide_video_s3_bundle" "$guide_video_s3_active_bundle"; then
+      echo "Private guide S3 credentials were not activated because this legacy image cannot validate a new pair." >&2
+      return 1
     fi
-  done
+    if [[ ! -s "$guide_video_s3_active_config_fingerprint" ]] || \
+      [[ "$(<"$guide_video_s3_active_config_fingerprint")" != "$guide_video_s3_config_fingerprint" ]]; then
+      echo "Private guide S3 configuration was not activated because this legacy image cannot validate changed endpoint/object/signing settings." >&2
+      return 1
+    fi
+    project_guide_video_s3_credentials || return 1
+    echo "Legacy PlatformClaw image has no private guide S3 probe; continuing with its previously validated credential pair." >&2
+    return 0
+  fi
+  if [[ "$probe_status" != "0" ]]; then
+    echo "Unable to start the isolated private guide S3 probe image: $probe_image" >&2
+    return 1
+  fi
+
+  if output="$("${compose[@]}" --profile guide-video-check run --rm --no-deps \
+    platformclaw-guide-video-check 2>&1)"; then
+    [[ -z "$output" ]] || printf '%s\n' "$output"
+    activate_guide_video_s3_runtime_state || {
+      echo "Private guide S3 preflight succeeded, but publishing the validated runtime state failed." >&2
+      return 1
+    }
+    return 0
+  fi
+  [[ -z "$output" ]] || printf '%s\n' "$output" >&2
+  echo "Private guide S3 preflight rejected the configured credentials/object before startup." >&2
+  return 1
 }
 
 require_skillhub_images() {
@@ -977,6 +1280,7 @@ apply_images() {
   local rollback_sandbox=""
   local rollback_pair_available="0"
   local same_image_pair="0"
+  local previous_env_staging=""
   require_service_user
   require_immutable_image_ref "$main_image" "Main image"
   require_immutable_image_ref "$sandbox_image" "Sandbox image"
@@ -1013,9 +1317,23 @@ apply_images() {
   require_gateway_restore_access
 
   if [[ "$same_image_pair" != "1" ]]; then
-    cp -f "$env_file" "$env_file.previous"
-    chmod 0600 "$env_file.previous"
+    previous_env_staging="$(mktemp "$deploy_root/.deployment.env.preflight.XXXXXX")"
+    cp -p "$env_file" "$previous_env_staging"
     set_image_pair "$main_image" "$sandbox_image"
+  fi
+
+  if ! preflight_guide_video_s3_runtime; then
+    if [[ "$same_image_pair" != "1" ]]; then
+      mv -f "$previous_env_staging" "$env_file"
+      previous_env_staging=""
+    fi
+    echo "Image update was not started; the running PlatformClaw stack was left untouched." >&2
+    exit 1
+  fi
+  if [[ "$same_image_pair" != "1" ]]; then
+    mv -f "$previous_env_staging" "$env_file.previous"
+    previous_env_staging=""
+    chmod 0600 "$env_file.previous"
   fi
 
   # Doctor owns persisted-state upgrades. Keep a quiesced full state snapshot so
@@ -1204,9 +1522,16 @@ case "$command_name" in
     DOCKER_HOST=unix:///var/run/docker.sock docker image inspect "$main_image" >/dev/null
     "${rootless[@]}" image inspect "$sandbox_image" >/dev/null
     require_skillhub_images
+    preflight_guide_video_s3_runtime
     bootstrap_skillhub
     "${compose[@]}" config --quiet
     "${compose[@]}" up -d --wait
+    # Secret-file replacements do not change Compose service config. Always
+    # recreate Control in private-S3 mode so the running process is guaranteed
+    # to consume the exact pair/config that the preflight just validated.
+    if [[ "$guide_video_s3_enabled" == "1" ]]; then
+      "${compose[@]}" up -d --wait --no-deps --force-recreate platformclaw-control
+    fi
     "${compose[@]}" ps
     ;;
   down)
@@ -1317,8 +1642,16 @@ case "$command_name" in
       apply)
         require_service_user
         require_main_docker
-        "${compose[@]}" restart openclaw-gateway platformclaw-control
-        "${compose[@]}" up -d --wait openclaw-gateway platformclaw-control
+        prepare_runtime_files
+        preflight_guide_video_s3_runtime
+        "${compose[@]}" restart openclaw-gateway
+        if [[ "$guide_video_s3_enabled" == "1" ]]; then
+          "${compose[@]}" up -d --wait --no-deps --force-recreate platformclaw-control
+          "${compose[@]}" up -d --wait openclaw-gateway platformclaw-control
+        else
+          "${compose[@]}" restart platformclaw-control
+          "${compose[@]}" up -d --wait openclaw-gateway platformclaw-control
+        fi
         ;;
       *) usage >&2; exit 2 ;;
     esac
@@ -1363,6 +1696,16 @@ case "$command_name" in
         }
         current_backup="$env_file.failed.$(date -u +%Y%m%dT%H%M%SZ)"
         cp -p "$env_file" "$current_backup"
+        prepare_runtime_files
+        rollback_preflight_env="$(mktemp "$deploy_root/.deployment.env.rollback-preflight.XXXXXX")"
+        cp -p "$env_file" "$rollback_preflight_env"
+        set_image_pair "$previous_main" "$previous_sandbox"
+        if ! preflight_guide_video_s3_runtime; then
+          mv -f "$rollback_preflight_env" "$env_file"
+          echo "Rollback was not started; the running PlatformClaw stack was left untouched." >&2
+          exit 1
+        fi
+        mv -f "$rollback_preflight_env" "$env_file"
         "${compose[@]}" down
         create_gateway_state_backup
         current_gateway_backup="$gateway_state_backup"

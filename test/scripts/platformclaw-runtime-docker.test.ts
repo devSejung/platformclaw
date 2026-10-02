@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -489,24 +489,27 @@ exec bash "$1" config --format json
 getent() { printf 'platformclaw:x:1000:1000::%s:/bin/bash\n' "$PLATFORMCLAW_TEST_HOME"; }
 id() { printf '1000\n'; }
 export -f getent id
-exec bash "$1" config --format json
+unset COMPOSE_PROFILES
+wrapper="$1"
+shift
+exec bash "$wrapper" "$@" config --format json
 `;
+    const s3Settings = [
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.internal.example",
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guides/platformclaw-guide.mp4",
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=ap-northeast-2",
+      "PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=true",
+    ];
 
     for (const entry of [
-      { enabled: false, settings: [] },
-      {
-        enabled: true,
-        settings: [
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.internal.example",
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guides/platformclaw-guide.mp4",
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=ap-northeast-2",
-          "PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=true",
-        ],
-      },
+      { enabled: false, settings: [], probeProfile: false },
+      { enabled: true, settings: s3Settings, probeProfile: false },
+      { enabled: true, settings: s3Settings, probeProfile: true },
     ]) {
       writeFileSync(envFile, [...baseEnvironment, ...entry.settings, ""].join("\n"), "utf8");
-      const result = spawnSync("bash", ["-ceu", script, "--", wrapper], {
+      const composeArgs = entry.probeProfile ? ["--profile", "guide-video-check"] : [];
+      const result = spawnSync("bash", ["-ceu", script, "--", wrapper, ...composeArgs], {
         encoding: "utf8",
         env: {
           ...process.env,
@@ -535,6 +538,11 @@ exec bash "$1" config --format json
         >;
       };
       const control = config.services["platformclaw-control"]!;
+      const probe = config.services["platformclaw-guide-video-check"];
+      if (!entry.probeProfile) {
+        // The one-shot preflight must stay out of normal stack startup.
+        expect(probe).toBeUndefined();
+      }
       if (!entry.enabled) {
         expect(control.environment.PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT).toBeUndefined();
         expect(
@@ -547,18 +555,28 @@ exec bash "$1" config --format json
         PLATFORMCLAW_GUIDE_VIDEO_S3_REGION: "ap-northeast-2",
         PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET: "platformclaw-media",
         PLATFORMCLAW_GUIDE_VIDEO_S3_KEY: "guides/platformclaw-guide.mp4",
+        PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE:
+          "/run/secrets/platformclaw_guide_video_s3_credentials",
         PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE:
           "/run/secrets/platformclaw_guide_video_s3_access_key",
         PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE:
           "/run/secrets/platformclaw_guide_video_s3_secret_key",
         PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE: "true",
       });
+      const credentialMount = control.volumes?.find((volume) =>
+        volume.source.endsWith("/secrets/guide-video-s3-credentials.active.env"),
+      );
       const accessMount = control.volumes?.find((volume) =>
         volume.source.endsWith("/secrets/guide-video-s3-access-key"),
       );
       const secretMount = control.volumes?.find((volume) =>
         volume.source.endsWith("/secrets/guide-video-s3-secret-key"),
       );
+      expect(credentialMount).toMatchObject({
+        source: `${root}/secrets/guide-video-s3-credentials.active.env`,
+        target: "/run/secrets/platformclaw_guide_video_s3_credentials",
+        read_only: true,
+      });
       expect(accessMount).toMatchObject({
         source: `${root}/secrets/guide-video-s3-access-key`,
         target: "/run/secrets/platformclaw_guide_video_s3_access_key",
@@ -571,6 +589,49 @@ exec bash "$1" config --format json
       });
       expect(accessMount?.bind?.create_host_path ?? false).toBe(false);
       expect(secretMount?.bind?.create_host_path ?? false).toBe(false);
+      expect(credentialMount?.bind?.create_host_path ?? false).toBe(false);
+
+      if (!entry.probeProfile) {
+        continue;
+      }
+      expect(probe).toBeDefined();
+      expect((probe as { profiles?: string[] }).profiles).toContain("guide-video-check");
+      expect((probe as { read_only?: boolean }).read_only).toBe(true);
+      expect((probe as { entrypoint?: string[] }).entrypoint).toEqual([
+        "platformclaw-guide-video-check",
+      ]);
+      const probeNetworks = (probe as { networks?: Record<string, unknown> }).networks ?? {};
+      expect(Object.keys(probeNetworks)).toEqual(["platformclaw-control-egress"]);
+      const probeVolumes =
+        (
+          probe as {
+            volumes?: Array<{
+              source: string;
+              target: string;
+              read_only: boolean;
+              bind?: { create_host_path?: boolean };
+            }>;
+          }
+        ).volumes ?? [];
+      expect(probeVolumes).toHaveLength(2);
+      expect(probeVolumes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            source: `${root}/secrets/guide-video-s3-credentials.env`,
+            target: "/run/secrets/platformclaw_guide_video_s3_credentials",
+            read_only: true,
+          }),
+          expect.objectContaining({
+            target: "/etc/platformclaw/certs/employee-auth-ca.pem",
+            read_only: true,
+          }),
+        ]),
+      );
+      expect((probe as { secrets?: unknown }).secrets).toBeUndefined();
+      expect(probeVolumes.some((volume) => volume.source.includes("/data/"))).toBe(false);
+      expect(probeVolumes.some((volume) => volume.source.includes("credential-broker"))).toBe(
+        false,
+      );
     }
 
     writeFileSync(
@@ -580,8 +641,7 @@ exec bash "$1" config --format json
         "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.internal.example",
         "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
         "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guide.mp4",
-        "PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE=/run/secrets/guide-s3-access-key",
-        "PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE=/run/secrets/guide-s3-secret-key",
+        "PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE=/run/secrets/guide-s3-credentials",
         "",
       ].join("\n"),
       "utf8",
@@ -604,15 +664,11 @@ exec bash "$1" config --format json
     };
     const customVolumes = customConfig.services["platformclaw-control"]?.volumes ?? [];
     expect(
-      customVolumes.find((volume) => volume.source.endsWith("/guide-video-s3-access-key")),
+      customVolumes.find((volume) =>
+        volume.source.endsWith("/guide-video-s3-credentials.active.env"),
+      ),
     ).toMatchObject({
-      target: "/run/secrets/guide-s3-access-key",
-      read_only: true,
-    });
-    expect(
-      customVolumes.find((volume) => volume.source.endsWith("/guide-video-s3-secret-key")),
-    ).toMatchObject({
-      target: "/run/secrets/guide-s3-secret-key",
+      target: "/run/secrets/guide-s3-credentials",
       read_only: true,
     });
 
@@ -622,6 +678,7 @@ exec bash "$1" config --format json
         "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media",
         "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guide.mp4",
       ],
+      ["PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE=org-example"],
       [
         "PLATFORMCLAW_GUIDE_VIDEO_URL=https://cdn.example.test/guide.mp4",
         "PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.internal.example",
@@ -822,6 +879,77 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
 `;
       const result = spawnSync("bash", ["-ceu", script, "--", deployScript, root], {
         encoding: "utf8",
+      });
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "keeps private guide S3 credentials as one profile-sourced atomic pair",
+    () => {
+      const root = tempDirs.make("platformclaw-guide-s3-credentials-");
+      const secretRoot = path.join(root, "secrets");
+      const awsRoot = path.join(root, ".aws");
+      mkdirSync(secretRoot, { recursive: true });
+      mkdirSync(awsRoot, { recursive: true });
+      const credentialsFile = path.join(awsRoot, "credentials");
+      writeFileSync(
+        credentialsFile,
+        [
+          "[org-platform-dev]",
+          "aws_access_key_id = profile-access-1",
+          "aws_secret_access_key = profile-secret-1",
+          "",
+        ].join("\n"),
+        { mode: 0o600 },
+      );
+      const deployScript = path.resolve("docker/platformclaw-runtime/platformclaw-deploy");
+      const script = String.raw`
+deploy_script="$1"
+secret_root="$2"
+service_home="$3"
+guide_video_s3_bundle="$secret_root/guide-video-s3-credentials.env"
+guide_video_s3_active_bundle="$secret_root/guide-video-s3-credentials.active.env"
+guide_video_s3_active_config_fingerprint="$secret_root/guide-video-s3-config.active.sha256"
+guide_video_s3_bundle_changed=0
+guide_video_s3_bundle_migrated=0
+guide_video_s3_config_fingerprint=fingerprint-1
+eval "$(awk '/^trim_env_value\(\)/ { emit = 1 } /^require_guide_video_s3_credentials\(\)/ { emit = 0 } emit' "$deploy_script")"
+
+sync_guide_video_s3_profile_credentials org-platform-dev
+grep -qx 'AWS_ACCESS_KEY_ID=profile-access-1' "$guide_video_s3_bundle"
+grep -qx 'AWS_SECRET_ACCESS_KEY=profile-secret-1' "$guide_video_s3_bundle"
+activate_guide_video_s3_runtime_state
+cmp -s "$guide_video_s3_bundle" "$guide_video_s3_active_bundle"
+grep -qx 'fingerprint-1' "$guide_video_s3_active_config_fingerprint"
+grep -qx 'profile-access-1' "$secret_root/guide-video-s3-access-key"
+grep -qx 'profile-secret-1' "$secret_root/guide-video-s3-secret-key"
+
+cat >"$service_home/.aws/credentials" <<'EOF'
+[org-platform-dev]
+aws_access_key_id = profile-access-2
+aws_secret_access_key = profile-secret-2
+EOF
+guide_video_s3_bundle_changed=0
+sync_guide_video_s3_profile_credentials org-platform-dev
+grep -qx 'AWS_ACCESS_KEY_ID=profile-access-2' "$guide_video_s3_bundle"
+grep -qx 'AWS_SECRET_ACCESS_KEY=profile-secret-2' "$guide_video_s3_bundle"
+# Candidate changes do not touch the validated runtime pair until activation.
+grep -qx 'AWS_ACCESS_KEY_ID=profile-access-1' "$guide_video_s3_active_bundle"
+grep -qx 'fingerprint-1' "$guide_video_s3_active_config_fingerprint"
+grep -qx 'profile-access-1' "$secret_root/guide-video-s3-access-key"
+grep -qx 'profile-secret-1' "$secret_root/guide-video-s3-secret-key"
+
+guide_video_s3_config_fingerprint=fingerprint-2
+activate_guide_video_s3_runtime_state
+cmp -s "$guide_video_s3_bundle" "$guide_video_s3_active_bundle"
+grep -qx 'fingerprint-2' "$guide_video_s3_active_config_fingerprint"
+grep -qx 'profile-access-2' "$secret_root/guide-video-s3-access-key"
+grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
+`;
+      const result = spawnSync("bash", ["-ceu", script, "--", deployScript, secretRoot, root], {
+        encoding: "utf8",
+        env: process.env,
       });
       expect(result.status, result.stderr || result.stdout).toBe(0);
     },
@@ -1825,7 +1953,10 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(deploy).toContain("platformclaw-admin add");
     expect(deploy).toContain("restart_gateway_and_wait");
     expect(deploy).toContain("require_immutable_image_ref");
-    expect(deploy).toContain('"${compose[@]}" restart openclaw-gateway platformclaw-control');
+    expect(deploy).toContain('"${compose[@]}" restart openclaw-gateway');
+    expect(deploy).toContain(
+      '"${compose[@]}" up -d --wait --no-deps --force-recreate platformclaw-control',
+    );
     expect(deploy).toContain('cp -p "$backup" "$config_path"');
     expect(deploy).toContain("image rollback");
     expect(deploy).toContain("image cleanup [--apply]");
@@ -1873,6 +2004,22 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
       prepareRuntimeLayout.indexOf("validate_deployment_env"),
     );
     expect(prepareRuntimeLayout).toContain("require_guide_video_s3_credentials");
+    const guidePreflight = deploy.slice(
+      deploy.indexOf("preflight_guide_video_s3_runtime()"),
+      deploy.indexOf("\nrequire_skillhub_images()"),
+    );
+    expect(guidePreflight).toContain(
+      "Legacy private guide S3 credentials are unverified and cannot be activated",
+    );
+    expect(guidePreflight).not.toContain("adopting its existing legacy credential pair");
+    expect(guidePreflight).toContain("activate_guide_video_s3_runtime_state || {");
+    const guideActivation = deploy.slice(
+      deploy.indexOf("activate_guide_video_s3_credentials()"),
+      deploy.indexOf("\nrequire_guide_video_s3_credentials()"),
+    );
+    expect(guideActivation).toContain("project_guide_video_s3_credentials || return 1");
+    expect(guideActivation).toContain("activate_guide_video_s3_credentials || return 1");
+    expect(guideActivation).toContain("publish_guide_video_s3_config_fingerprint || return 1");
     const prepareImageUpdateRuntimeFiles = deploy.slice(
       deploy.indexOf("prepare_image_update_runtime_files()"),
       deploy.indexOf("require_gateway_restore_access()"),
@@ -1892,8 +2039,14 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     expect(sameImageBranch).not.toContain('"${compose[@]}" up -d --wait');
     expect(sameImageBranch).not.toContain("return");
     expect(applyImages.indexOf("prepare_image_update_runtime_files")).toBeLessThan(
-      applyImages.indexOf('cp -f "$env_file" "$env_file.previous"'),
+      applyImages.indexOf("preflight_guide_video_s3_runtime"),
     );
+    expect(applyImages.indexOf("preflight_guide_video_s3_runtime")).toBeLessThan(
+      applyImages.indexOf('"${compose[@]}" down'),
+    );
+    expect(applyImages).toContain('mktemp "$deploy_root/.deployment.env.preflight.XXXXXX"');
+    expect(applyImages).toContain('mv -f "$previous_env_staging" "$env_file"');
+    expect(applyImages).toContain('mv -f "$previous_env_staging" "$env_file.previous"');
     expect(applyImages.indexOf("run_upgrade_doctor")).toBeLessThan(
       applyImages.indexOf('"${compose[@]}" up -d --wait &&'),
     );
@@ -1906,6 +2059,30 @@ if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
     );
     expect(deploy.indexOf("recreate_sandboxes; }; then")).toBeLessThan(
       deploy.indexOf('echo "PlatformClaw updated: $main_image / $sandbox_image"'),
+    );
+    const upCommand = deploy.slice(deploy.indexOf("  up)"), deploy.indexOf("\n  down)"));
+    expect(upCommand.indexOf("preflight_guide_video_s3_runtime")).toBeLessThan(
+      upCommand.indexOf("bootstrap_skillhub"),
+    );
+    expect(upCommand).toContain(
+      'if [[ "$guide_video_s3_enabled" == "1" ]]; then\n      "${compose[@]}" up -d --wait --no-deps --force-recreate platformclaw-control',
+    );
+    const caCommand = deploy.slice(deploy.indexOf("  ca)"), deploy.indexOf("\n  image)"));
+    expect(caCommand.indexOf("prepare_runtime_files")).toBeLessThan(
+      caCommand.indexOf("preflight_guide_video_s3_runtime"),
+    );
+    expect(caCommand.indexOf("preflight_guide_video_s3_runtime")).toBeLessThan(
+      caCommand.indexOf('"${compose[@]}" restart openclaw-gateway'),
+    );
+    const rollbackCommand = deploy.slice(
+      deploy.indexOf("      rollback)"),
+      deploy.indexOf("\n      cleanup)", deploy.indexOf("      rollback)")),
+    );
+    expect(rollbackCommand.indexOf("preflight_guide_video_s3_runtime")).toBeLessThan(
+      rollbackCommand.indexOf('"${compose[@]}" down'),
+    );
+    expect(rollbackCommand).toContain(
+      'echo "Rollback was not started; the running PlatformClaw stack was left untouched."',
     );
     expect(deploy).toContain('scan_cleanup_repository "main" "platformclaw"');
     expect(deploy).toContain('scan_cleanup_repository "sandbox" "platformclaw-sandbox"');
