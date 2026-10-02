@@ -19,6 +19,10 @@ export function isCommandPaletteShortcut(event: KeyboardEvent): boolean {
 
 export type CommandPaletteTargetDetail = {
   owner: Element;
+  /** The live pane also owns in-thread approval presentation on embedded routes. */
+  sessionKey?: string;
+  /** Lets a detached pane release ownership without bubbling through its former parent. */
+  registerRelease?: (release: () => void) => void;
   onSlashCommand: ((command: string) => void) | null;
 };
 

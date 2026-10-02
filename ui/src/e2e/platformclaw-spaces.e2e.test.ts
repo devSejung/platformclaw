@@ -78,23 +78,88 @@ const messages = [
     timestamp: issue.updatedAt + 1000,
   },
 ] as const;
+const conversation = {
+  id: "conversation-alice",
+  spaceId: space.id,
+  pageId: issue.id,
+  title: "Compare revision C traces",
+  ownerId: alice.userId,
+  ownerName: alice.displayName,
+  agentId: platformClawMemoryAgentId,
+  sessionKey: `agent:${platformClawMemoryAgentId}:space-session:00000000-0000-4000-8000-000000000001`,
+  createdAt: issue.updatedAt,
+  canWrite: true,
+};
+const nativeMessages = [
+  {
+    id: "personal-user",
+    role: "user",
+    content: [{ type: "text", text: "Compare the revision C evidence." }],
+    timestamp: issue.updatedAt,
+  },
+  {
+    id: "personal-assistant",
+    role: "assistant",
+    content: [
+      { type: "text", text: "The personal agent found the shared timing evidence." },
+      { type: "toolCall", id: "call-shared-read", name: "read", arguments: { path: "traces.txt" } },
+    ],
+    timestamp: issue.updatedAt + 1000,
+  },
+  {
+    role: "toolResult",
+    toolCallId: "call-shared-read",
+    toolName: "read",
+    content: [{ type: "text", text: "Revision C cold-start traces" }],
+    timestamp: issue.updatedAt + 2000,
+  },
+];
 let browser: Browser;
 let server: ControlUiE2eServer;
 
-async function setup(name: string, width = 1440, role = "owner", locale = "en-US") {
+async function setup(
+  name: string,
+  width = 1440,
+  role = "owner",
+  locale = "en-US",
+  conversations: Array<typeof conversation> = [],
+) {
   const context = await createPlatformClawMemoryContext(browser, server.baseUrl, {
     locale,
     mode: "light",
+    recordVideo: { dir: proofDir, size: { width, height: 1000 } },
     viewport: { width, height: 1000 },
   });
   await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
   const page = await context.newPage();
   await installPlatformClawMemoryDocument(page, server.baseUrl);
-  const snapshot = { space: { ...space, role }, pages: [issue, child], members: [alice, bob] };
+  const snapshot = {
+    space: { ...space, role },
+    pages: [issue, child],
+    members: [alice, bob],
+    currentUserId: role === "owner" ? alice.userId : bob.userId,
+    conversations,
+  };
   const gateway = await installMockGateway(page, {
     basePath: "/platformclaw/app",
     defaultAgentId: platformClawMemoryAgentId,
-    featureMethods: [...platformClawMemoryMethods, ...SPACE_RPC_METHODS],
+    sessionKey: conversation.sessionKey,
+    historyMessages: nativeMessages,
+    featureMethods: [
+      ...platformClawMemoryMethods,
+      ...SPACE_RPC_METHODS,
+      "chat.abort",
+      "chat.history",
+      "chat.metadata",
+      "chat.send",
+      "chat.startup",
+      "sessions.list",
+      "sessions.patch",
+      "sessions.subscribe",
+      "sessions.messages.subscribe",
+      "sessions.messages.unsubscribe",
+      "exec.approval.resolve",
+    ],
     methodResponses: {
       ...platformClawMemoryResponses,
       [`${rpc}list`]: [snapshot.space],
@@ -102,7 +167,12 @@ async function setup(name: string, width = 1440, role = "owner", locale = "en-US
       [`${rpc}create`]: space,
       [`${rpc}page.create`]: issue,
       [`${rpc}chat.history`]: { messages },
-      [`${rpc}chat.send`]: { accepted: true },
+      [`${rpc}conversation.create`]: conversation,
+      [`${rpc}conversation.history`]: {
+        messages: nativeMessages,
+        sessionKey: conversation.sessionKey,
+        conversation: conversations[0] ?? conversation,
+      },
       [`${rpc}people`]: [bob],
       [`${rpc}member.set`]: { updated: true },
       [`${rpc}member.remove`]: { updated: true },
@@ -130,11 +200,13 @@ async function capture(page: Page, name: string) {
   });
 }
 async function finish(context: BrowserContext, page: Page, name: string) {
+  const video = page.video();
   try {
     await capture(page, `${name}-final`);
   } finally {
     await context.tracing.stop({ path: path.join(proofDir, `${name}-trace.zip`) });
     await context.close();
+    await video?.saveAs(path.join(proofDir, `${name}.webm`));
   }
 }
 suite("Team Space rendered browser workflows", () => {
@@ -151,7 +223,7 @@ suite("Team Space rendered browser workflows", () => {
     await server?.close();
   });
 
-  it("creates a Space, confirms membership, nests issues and shares an attributed conversation", async () => {
+  it("creates a Space, confirms membership, nests issues and retains attributed legacy Q&A", async () => {
     const { context, page, gateway, snapshot, name } = await setup("owner-desktop");
     try {
       await page.goto(`${server.baseUrl}platformclaw/app/spaces`);
@@ -219,22 +291,10 @@ suite("Team Space rendered browser workflows", () => {
         .poll(async () => (await gateway.getRequests(`${rpc}page.create`)).at(-1)?.params)
         .toMatchObject({ parentId: issue.id, title: child.title });
       await ui.getByRole("button", { name: issue.title, exact: true }).click();
-      await ui
-        .getByLabel("Ask or add context", { exact: true })
-        .fill("Compare the conditions with revision C.");
-      await ui.getByRole("button", { name: "Send to Space", exact: true }).click();
-      await expect
-        .poll(async () => (await gateway.getRequests(`${rpc}chat.send`)).at(-1)?.params)
-        .toMatchObject({ pageId: issue.id, message: "Compare the conditions with revision C." });
-      await gateway.emitGatewayEvent("platformclaw.space.changed", {
-        spaceId: space.id,
-        pageId: issue.id,
-        state: "delta",
-        text: "Comparing the shared revision C evidence…",
-      });
-      await expect
-        .poll(() => ui.textContent())
-        .toContain("Comparing the shared revision C evidence");
+      await ui.getByRole("tab", { name: "Shared Q&A", exact: true }).click();
+      await expect.poll(() => ui.locator("#message-message-a").isVisible()).toBe(true);
+      expect(await ui.locator(".pc-space-conversation textarea").count()).toBe(0);
+      expect(await gateway.getRequests(`${rpc}chat.send`)).toHaveLength(0);
       await ui
         .getByRole("region", { name: "Issue conversation", exact: true })
         .scrollIntoViewIfNeeded();
@@ -251,6 +311,223 @@ suite("Team Space rendered browser workflows", () => {
         .first()
         .click();
       await expect.poll(() => new URL(page.url()).searchParams.get("message")).toBe("message-a");
+    } finally {
+      await finish(context, page, name);
+    }
+  });
+
+  it("creates an owned personal conversation in Space and keeps canonical tools, approvals and interruption", async () => {
+    const { context, page, gateway, snapshot, name } = await setup("owner-personal-session");
+    try {
+      await page.goto(
+        `${server.baseUrl}platformclaw/app/spaces?space=${space.id}&page=${issue.id}`,
+      );
+      const ui = page.locator("platformclaw-spaces-page");
+      await ui.getByRole("button", { name: "New conversation", exact: true }).click();
+      await ui.getByLabel("Title", { exact: true }).fill(conversation.title);
+      await expect
+        .poll(() => ui.locator(".pc-space-panel-hint").textContent())
+        .toContain("Only you can open this conversation");
+      expect(await ui.locator(".pc-space-panel-hint").textContent()).toContain(
+        "Questions and final answers",
+      );
+      await capture(page, "owner-conversation-sharing-notice");
+      await gateway.setMethodResponse(`${rpc}get`, { ...snapshot, conversations: [conversation] });
+      await gateway.deferNext(`${rpc}conversation.create`);
+      const create = ui.getByRole("button", { name: "Create conversation", exact: true });
+      await create.click();
+      const creation = await gateway.waitForRequest(`${rpc}conversation.create`);
+      expect(creation.params).toMatchObject({
+        spaceId: space.id,
+        pageId: issue.id,
+        title: conversation.title,
+        requestId: expect.any(String),
+      });
+      expect(await create.isDisabled()).toBe(true);
+      expect(await gateway.getRequests(`${rpc}conversation.create`)).toHaveLength(1);
+      await gateway.resolveDeferred(`${rpc}conversation.create`, conversation);
+      const tab = ui.locator(`[role="tab"][data-conversation-id="${conversation.id}"]`);
+      await expect.poll(() => tab.getAttribute("aria-selected")).toBe("true");
+      await expect.poll(() => tab.textContent()).toContain("Your personal agent");
+      expect(new URL(page.url()).pathname).toBe("/platformclaw/app/spaces");
+      const pane = ui.locator("openclaw-chat-pane");
+      const composer = pane.locator(".agent-chat__composer-combobox textarea");
+      await composer.fill("Inspect the cold-start trace on my personal agent.");
+      await pane.getByRole("button", { name: "Send message", exact: true }).click();
+      const send = await gateway.waitForRequest("chat.send");
+      expect(send.params).toMatchObject({
+        sessionKey: conversation.sessionKey,
+        message: "Inspect the cold-start trace on my personal agent.",
+      });
+      const runId = (send.params as { idempotencyKey: string }).idempotencyKey;
+      await gateway.emitGatewayEvent("agent", {
+        runId,
+        seq: 1,
+        stream: "tool",
+        ts: Date.now(),
+        sessionKey: conversation.sessionKey,
+        data: {
+          toolCallId: "owner-trace-read",
+          name: "read",
+          phase: "start",
+          args: { path: "private-cold-start-trace.txt" },
+        },
+      });
+      await gateway.emitGatewayEvent("chat", {
+        runId,
+        sessionKey: conversation.sessionKey,
+        state: "delta",
+        deltaText: "Inspecting the trace privately before summarizing.",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Inspecting the trace privately before summarizing." }],
+        },
+      });
+      await pane.locator(".chat-tool-row--running").waitFor();
+      await pane.getByText("Inspecting the trace privately before summarizing.").waitFor();
+      await gateway.emitGatewayEvent("exec.approval.requested", {
+        id: "approval-space-owner",
+        createdAtMs: Date.now(),
+        expiresAtMs: Date.now() + 120_000,
+        request: {
+          command: "cat private-cold-start-trace.txt",
+          agentId: conversation.agentId,
+          sessionKey: conversation.sessionKey,
+        },
+      });
+      const approval = pane.locator('[data-approval-id="approval-space-owner"]');
+      await approval.getByRole("button", { name: "Allow once", exact: true }).waitFor();
+      await expect
+        .poll(() => page.locator('[data-approval-id="approval-space-owner"]').count())
+        .toBe(1);
+      expect(await page.locator("openclaw-exec-approval .exec-approval-card").count()).toBe(0);
+      await capture(page, "owner-native-tool-and-approval");
+      await approval.getByRole("button", { name: "Allow once", exact: true }).click();
+      expect((await gateway.waitForRequest("exec.approval.resolve")).params).toMatchObject({
+        id: "approval-space-owner",
+        decision: "allow-once",
+      });
+      await pane.getByRole("button", { name: "Stop generating", exact: true }).click();
+      expect((await gateway.waitForRequest("chat.abort")).params).toMatchObject({
+        sessionKey: conversation.sessionKey,
+      });
+      await gateway.emitGatewayEvent("chat", {
+        runId,
+        sessionKey: conversation.sessionKey,
+        state: "aborted",
+      });
+      await expect
+        .poll(() => pane.getByRole("button", { name: "Stop generating" }).count())
+        .toBe(0);
+      await composer.fill("Continue with only the final summary.");
+      await pane.getByRole("button", { name: "Send message", exact: true }).click();
+      await expect.poll(async () => (await gateway.getRequests("chat.send")).length).toBe(2);
+      const sends = await gateway.getRequests("chat.send");
+      const second = sends[1].params as { idempotencyKey: string; sessionKey: string };
+      expect(second.sessionKey).toBe(conversation.sessionKey);
+      expect(second.idempotencyKey).not.toBe(runId);
+      await gateway.emitChatFinal({
+        runId: second.idempotencyKey,
+        sessionKey: conversation.sessionKey,
+        text: "The final summary is available for Space agent recall.",
+      });
+      await pane.getByText("The final summary is available for Space agent recall.").waitFor();
+      expect(new URL(page.url()).pathname).toBe("/platformclaw/app/spaces");
+      expect(await gateway.getRequests(`${rpc}chat.send`)).toHaveLength(0);
+      expect(await gateway.getRequests("sessions.create")).toHaveLength(0);
+      expect(await gateway.getRequests(`${rpc}conversation.create`)).toHaveLength(1);
+      await capture(page, "owner-personal-conversation-result");
+      const startupCount = (await gateway.getRequests("chat.startup")).length;
+      await gateway.setMethodResponse(`${rpc}get`, {
+        ...snapshot,
+        space: { ...snapshot.space, role: "viewer" },
+        conversations: [{ ...conversation, canWrite: false }],
+      });
+      await gateway.emitGatewayEvent("platformclaw.spaces.invalidated", {});
+      const readonly = ui.locator("platformclaw-space-conversation-history");
+      await readonly
+        .getByText("The personal agent found the shared timing evidence.", { exact: true })
+        .waitFor();
+      expect((await gateway.waitForRequest(`${rpc}conversation.history`)).params).toMatchObject({
+        spaceId: space.id,
+        conversationId: conversation.id,
+      });
+      expect(await pane.count()).toBe(0);
+      expect(await ui.locator("textarea").count()).toBe(0);
+      expect(await gateway.getRequests("chat.startup")).toHaveLength(startupCount);
+      expect(await gateway.getRequests("chat.send")).toHaveLength(2);
+      await capture(page, "owner-lost-write-access");
+    } finally {
+      await finish(context, page, name);
+    }
+  });
+
+  it("keeps another member's personal tab inaccessible even through a guessed conversation URL", async () => {
+    const { context, page, gateway, name } = await setup(
+      "member-private-tab-isolation",
+      1440,
+      "editor",
+    );
+    try {
+      await page.goto(
+        `${server.baseUrl}platformclaw/app/spaces?space=${space.id}&page=${issue.id}&conversation=${conversation.id}`,
+      );
+      const ui = page.locator("platformclaw-spaces-page");
+      await ui.locator("#message-message-a").waitFor();
+      expect(
+        await ui.locator(`[role="tab"][data-conversation-id="${conversation.id}"]`).count(),
+      ).toBe(0);
+      expect(await ui.locator("openclaw-chat-pane").count()).toBe(0);
+      expect(await ui.locator("textarea").count()).toBe(0);
+      expect(await ui.textContent()).not.toContain(
+        "The personal agent found the shared timing evidence.",
+      );
+      await gateway.emitGatewayEvent("agent", {
+        runId: "owner-private-run",
+        seq: 1,
+        stream: "tool",
+        ts: Date.now(),
+        sessionKey: conversation.sessionKey,
+        data: {
+          toolCallId: "private-tool",
+          name: "read",
+          phase: "result",
+          result: "Private tool result must not leak",
+        },
+      });
+      await gateway.emitChatFinal({
+        runId: "owner-private-run",
+        sessionKey: conversation.sessionKey,
+        text: "Another user's private final answer must not appear in this browser",
+      });
+      await capture(page, "member-private-tab-inaccessible");
+      expect(await ui.textContent()).not.toContain("Private tool result must not leak");
+      expect(await ui.textContent()).not.toContain("Another user's private final answer");
+      for (const method of [
+        `${rpc}conversation.history`,
+        "chat.send",
+        "chat.abort",
+        "chat.startup",
+        "chat.history",
+        "sessions.patch",
+        "sessions.create",
+        "sessions.messages.subscribe",
+        "exec.approval.resolve",
+      ]) {
+        expect(await gateway.getRequests(method), method).toHaveLength(0);
+      }
+      const expand = ui.getByRole("button", { name: `Expand ${issue.title}`, exact: true });
+      if (await expand.count()) {
+        await expand.click();
+      }
+      await ui.getByRole("button", { name: child.title, exact: true }).waitFor();
+      await ui.getByRole("button", { name: `Collapse ${issue.title}`, exact: true }).click();
+      expect(await ui.getByRole("button", { name: child.title, exact: true }).count()).toBe(0);
+      await ui.getByRole("button", { name: `Expand ${issue.title}`, exact: true }).click();
+      await ui.getByRole("button", { name: child.title, exact: true }).click();
+      await expect.poll(() => new URL(page.url()).searchParams.get("page")).toBe(child.id);
+      await ui.getByRole("button", { name: issue.title, exact: true }).click();
+      await ui.getByRole("tab", { name: "Shared Q&A", exact: true }).waitFor();
     } finally {
       await finish(context, page, name);
     }

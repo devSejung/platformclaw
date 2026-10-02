@@ -1,7 +1,7 @@
 export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.title": "Spaces",
   "platformClaw.spaces.intro":
-    "이슈 페이지와 대화를 함께 사용합니다. 개인 에이전트와 VM 인증정보는 공유되지 않습니다.",
+    "공유 페이지에서 내 에이전트와 대화합니다. Space 에이전트는 공용 질문과 최종 답변을 참고할 수 있습니다.",
   "platformClaw.spaces.createSpace": "Space 만들기",
   "platformClaw.spaces.refresh": "새로고침",
   "platformClaw.spaces.loading": "불러오는 중…",
@@ -33,7 +33,7 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.invite": "초대",
   "platformClaw.spaces.confirmMember": "구성원 변경 확인",
   "platformClaw.spaces.inviteNotice":
-    "이 구성원은 Space의 기존 및 향후 페이지와 대화를 읽을 수 있습니다. 개인 파일·도구·인증정보는 공유되지 않습니다.",
+    "이 구성원은 공유 페이지와 기존 공동 Q&A를 읽을 수 있습니다. 개인 대화 탭은 본인만 볼 수 있으며, Space 에이전트는 질문과 최종 답변을 공용 맥락으로 참고합니다. 도구·인증정보는 공유되지 않습니다.",
   "platformClaw.spaces.removeNotice":
     "새 열람과 메시지가 차단됩니다. 이미 읽거나 내려받은 사본은 회수할 수 없습니다.",
   "platformClaw.spaces.confirm": "확인",
@@ -54,15 +54,30 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.searchResults": "검색 결과",
   "platformClaw.spaces.notes": "노트",
   "platformClaw.spaces.closePanel": "패널 닫기",
-  "platformClaw.spaces.startConversation": "대화를 시작해 보세요",
+  "platformClaw.spaces.startConversation": "기존 공동 Q&A",
   "platformClaw.spaces.conversationHint":
-    "질문하거나 진행 상황을 남겨 보세요. Space 구성원이 함께 볼 수 있어요.",
+    "기존 공동 질문과 답변이 여기에 표시됩니다. 내 에이전트와 새 대화를 시작해 이어가세요.",
   "platformClaw.spaces.sharedConversation": "Space 구성원과 공유",
   "platformClaw.spaces.spaceHint":
     "프로젝트를 함께할 공간을 만드세요. 만든 뒤 구성원을 초대할 수 있어요.",
   "platformClaw.spaces.notesHint": "이 대화에 필요한 배경, 결정 사항, 참고할 내용을 정리하세요.",
   "platformClaw.spaces.emptyNotes": "배경 설명이나 기억할 결정 사항을 남겨 보세요.",
-  "platformClaw.spaces.choosePage": "대화를 선택하거나 팀과 함께할 이슈를 시작하세요.",
+  "platformClaw.spaces.choosePage":
+    "페이지를 선택해 내 대화를 열거나 팀과 함께할 페이지를 만드세요.",
   "platformClaw.spaces.startIssue": "이슈 시작하기",
   "platformClaw.spaces.startSpace": "첫 Space 만들기",
+  "platformClaw.spaces.expand": "펼치기",
+  "platformClaw.spaces.collapse": "접기",
+  "platformClaw.spaces.conversations": "내 대화",
+  "platformClaw.spaces.newConversation": "새 대화",
+  "platformClaw.spaces.createConversation": "대화 만들기",
+  "platformClaw.spaces.yourConversation": "내 개인 에이전트",
+  "platformClaw.spaces.readOnly": "읽기 전용",
+  "platformClaw.spaces.legacyConversation": "기존 공동 Q&A",
+  "platformClaw.spaces.legacyNotice":
+    "기존 공동 Q&A는 읽기 전용입니다. 계속하려면 내 대화를 시작하세요.",
+  "platformClaw.spaces.conversationSharingNotice":
+    "이 대화는 본인만 열어볼 수 있습니다. 질문과 최종 답변은 같은 Space의 에이전트가 답변에 참고할 공용 맥락으로 쓰입니다. 도구 호출·실행 권한과 Space 밖 대화는 공유되지 않습니다.",
+  "platformClaw.spaces.ownerConversationNotice":
+    "이 탭은 본인만 볼 수 있습니다. Space 에이전트는 질문과 최종 답변을 참고하며 도구 활동은 공유되지 않습니다. 공용 맥락 보존을 위해 초기화·되감기·삭제는 제한됩니다.",
 };

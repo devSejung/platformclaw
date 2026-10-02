@@ -390,6 +390,7 @@ export abstract class ChatPaneSession extends ChatPaneSharing {
     if (
       !state ||
       !this.active ||
+      this.embedded ||
       !this.sessionKey.trim() ||
       parseCatalogSessionKey(state.sessionKey)
     ) {

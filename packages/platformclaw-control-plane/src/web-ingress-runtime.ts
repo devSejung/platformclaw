@@ -146,7 +146,6 @@ export function createPlatformClawWebIngressRuntime(
   const spaceService = new SpaceService(
     auth.store,
     gateway,
-    options.adminRpc,
     Boolean(
       options.executionServiceToken && options.credentialBrokerAddress && auth.credentialVault,
     ),

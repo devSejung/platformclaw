@@ -6,12 +6,16 @@ import type {
   SpacePage,
   SpaceMember,
   SpaceRole,
+  SpaceConversation,
 } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
 import type { SpaceMessage } from "../../../packages/platformclaw-control-plane/src/space-service.js";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT } from "./i18n.ts";
+import { renderSpaceConversation } from "./space-conversation-history.ts";
 import { renderSpaceMembers } from "./space-members-view.ts";
+import "../styles/chat.css";
+import "../pages/chat/chat-pane.ts";
 import { renderSpacesView, type SpaceSnapshot, type SpaceSearchHit } from "./spaces-view.ts";
 import "./spaces.css";
 const t = (key: string) => platformClawT(`platformClaw.spaces.${key}`);
@@ -22,9 +26,11 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   @state() private snapshot: SpaceSnapshot | null = null;
   @state() private page: SpacePage | null = null;
   @state() private messages: SpaceMessage[] = [];
+  @state() private conversation: SpaceConversation | null = null;
+  @state() private conversationMessages: unknown[] = [];
+  @state() private expandedPages = new Set<string>();
   @state() private error = "";
   @state() private notice = "";
-  @state() private streaming = "";
   @state() private historyAnchor = "";
   @state() private loading = false;
   @state() private busy = false;
@@ -34,11 +40,10 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   @state() private notesOpen = false;
   @state() private navigationOpen = false;
   private followConversation = true;
-  @state() private creating: "space" | "page" | null = null;
+  @state() private creating: "space" | "page" | "conversation" | null = null;
   @state() private draftTitle = "";
   @state() private body = "";
   private newParentId: string | undefined;
-  @state() private draft = "";
   @state() private query = "";
   @state() private hits: SpaceSearchHit[] = [];
   @state() private account = "";
@@ -50,9 +55,9 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   private unsubscribe: (() => void) | undefined;
   private unsubscribeState: (() => void) | undefined;
   private historyTimer: ReturnType<typeof setTimeout> | undefined;
-  private draftRequestId = crypto.randomUUID();
   private createRequestId = crypto.randomUUID();
   private gatewayClient: unknown;
+  private gatewayConnected = false;
   override connectedCallback() {
     super.connectedCallback();
     void loadPlatformClawLocale().then(() => this.requestUpdate());
@@ -66,7 +71,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     super.disconnectedCallback();
   }
   protected override updated(changed: PropertyValues) {
-    if (changed.has("messages") || changed.has("streaming") || changed.has("page")) {
+    if (changed.has("messages") || changed.has("page")) {
       const history = this.querySelector<HTMLElement>(".pc-space-history");
       if (this.historyAnchor) {
         this.querySelector<HTMLElement>('[data-source="true"]')?.scrollIntoView?.({
@@ -80,6 +85,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       return;
     }
     const gateway = this.context.gateway;
+    const reconnected = !this.gatewayConnected && gateway.snapshot.phase === "connected";
+    this.gatewayConnected = gateway.snapshot.phase === "connected";
     if (!this.unsubscribeState) {
       this.unsubscribeState = gateway.subscribe(() => this.requestUpdate());
     }
@@ -97,37 +104,28 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
         if (event.event === "platformclaw.space.changed" && this.page) {
           const payload = event.payload as { spaceId?: string; pageId?: string };
           if (payload?.pageId === this.page.id && payload.spaceId === this.snapshot?.space.id) {
-            const update = event.payload as { state?: string; text?: string };
-            if (update.state === "delta") {
-              this.streaming = update.text ?? this.streaming;
-            } else {
-              this.streaming = "";
-              this.scheduleHistory();
-            }
-            if (update.state === "error") {
-              this.error = t("runFailed");
-              this.notice = "";
-            }
-            if (update.state === "final") {
-              this.notice = "";
-            }
+            this.scheduleHistory();
           }
         }
       });
       if (gateway.snapshot.phase === "connected") {
         void this.refresh();
       }
+    } else if (reconnected) {
+      void this.refresh(true);
     }
     if (gateway.snapshot.phase !== "connected") {
+      this.conversation = null;
+      if (this.conversationMessages.length) {
+        this.conversationMessages = [];
+      }
       if (this.messages.length) {
         this.messages = [];
       }
       if (this.hits.length) {
         this.hits = [];
       }
-      if (this.streaming) {
-        this.streaming = "";
-      }
+
       this.historyEpoch++;
       clearTimeout(this.historyTimer);
     }
@@ -154,13 +152,13 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.snapshot = null;
     this.page = null;
     this.messages = [];
-    this.streaming = "";
+    this.conversation = null;
+    this.conversationMessages = [];
     this.hits = [];
     this.editing = null;
     this.creating = null;
     this.draftTitle = "";
     this.body = "";
-    this.draft = "";
     this.membersOpen = false;
     this.notesOpen = false;
     this.candidates = [];
@@ -199,7 +197,11 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   private async selectSpace(id: string, revalidate = false) {
     const epoch = ++this.epoch;
     const priorPage = this.snapshot?.space.id === id ? this.page?.id : undefined;
+    const priorConversation = this.conversation?.id;
     this.historyEpoch++;
+    // Stop the personal pane immediately while an ACL invalidation is revalidated.
+    this.conversation = null;
+    this.conversationMessages = [];
     this.messages = [];
     this.hits = [];
     this.loading = true;
@@ -210,7 +212,6 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       this.draftTitle = "";
       this.body = "";
       this.pendingMember = null;
-      this.draft = "";
       this.notesOpen = false;
       this.membersOpen = false;
     }
@@ -219,6 +220,17 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       if (epoch !== this.epoch) {
         return;
       }
+      // The server is authoritative; narrow again before rendering user-specific tabs.
+      const conversations: SpaceConversation[] = [];
+      for (const conversation of snapshot.conversations ?? []) {
+        if (conversation.ownerId === snapshot.currentUserId) {
+          conversations.push({
+            ...conversation,
+            canWrite: conversation.canWrite && snapshot.space.role !== "viewer",
+          });
+        }
+      }
+      snapshot.conversations = conversations;
       this.snapshot = snapshot;
       const pageId = priorPage ?? new URL(location.href).searchParams.get("page");
       this.page = snapshot.pages.find((page) => page.id === pageId) ?? null;
@@ -227,10 +239,16 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
         this.creating = null;
         this.draftTitle = "";
         this.body = "";
-        this.draft = "";
       }
       if (this.page) {
-        this.historyAnchor = new URL(location.href).searchParams.get("message") ?? "";
+        const url = new URL(location.href);
+        this.historyAnchor = url.searchParams.get("message") ?? "";
+        this.expandAncestors(this.page);
+        const requested = priorConversation ?? url.searchParams.get("conversation");
+        this.conversation =
+          (snapshot.conversations ?? []).find(
+            (item) => item.pageId === this.page?.id && item.id === requested,
+          ) ?? null;
         await this.loadHistory();
       }
     } catch (error) {
@@ -250,24 +268,56 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       return;
     }
     this.page = page;
+    this.expandAncestors(page);
+    this.conversationMessages = [];
+    this.conversation = messageId
+      ? null
+      : ((this.snapshot?.conversations ?? []).find((item) => item.pageId === page.id) ?? null);
     this.navigationOpen = false;
     this.notesOpen = false;
     this.membersOpen = false;
     this.followConversation = true;
     this.historyAnchor = messageId;
-    this.streaming = "";
     this.messages = [];
-    this.draft = "";
     this.hits = [];
-    this.draftRequestId = crypto.randomUUID();
     const url = new URL(location.href);
     url.searchParams.set("space", page.spaceId);
     url.searchParams.set("page", page.id);
+    if (this.conversation) {
+      url.searchParams.set("conversation", this.conversation.id);
+    } else {
+      url.searchParams.set("conversation", "shared");
+    }
     if (messageId) {
       url.searchParams.set("message", messageId);
     } else {
       url.searchParams.delete("message");
     }
+    history.replaceState(null, "", url);
+    void this.loadHistory();
+  }
+  private expandAncestors(page: SpacePage) {
+    const expanded = new Set(this.expandedPages);
+    let parentId = page.parentId;
+    while (parentId && !expanded.has(parentId)) {
+      expanded.add(parentId);
+      parentId = this.snapshot?.pages.find((item) => item.id === parentId)?.parentId ?? null;
+    }
+    this.expandedPages = expanded;
+  }
+  private selectConversation(conversation: SpaceConversation | null) {
+    this.historyEpoch++;
+    this.conversation = conversation;
+    this.conversationMessages = [];
+    this.messages = [];
+    this.historyAnchor = "";
+    const url = new URL(location.href);
+    if (conversation) {
+      url.searchParams.set("conversation", conversation.id);
+    } else {
+      url.searchParams.set("conversation", "shared");
+    }
+    url.searchParams.delete("message");
     history.replaceState(null, "", url);
     void this.loadHistory();
   }
@@ -280,19 +330,35 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       return;
     }
     const page = this.page;
+    const conversation = this.conversation;
     const epoch = ++this.historyEpoch;
+    // The canonical pane owns owner history, streaming and tool state.
+    if (conversation?.canWrite) {
+      return;
+    }
     try {
+      if (conversation) {
+        const value = await this.rpc<{ messages: unknown[] }>("conversation.history", {
+          spaceId: page.spaceId,
+          conversationId: conversation.id,
+        });
+        if (epoch === this.historyEpoch && this.conversation?.id === conversation.id) {
+          this.conversationMessages = value.messages;
+        }
+        return;
+      }
       const value = await this.rpc<{ messages: SpaceMessage[] }>("chat.history", {
         spaceId: page.spaceId,
         pageId: page.id,
         ...(this.historyAnchor ? { messageId: this.historyAnchor } : {}),
       });
-      if (epoch === this.historyEpoch && this.page?.id === page.id) {
+      if (epoch === this.historyEpoch && this.page?.id === page.id && !this.conversation) {
         this.messages = value.messages;
       }
     } catch (error) {
       if (epoch === this.historyEpoch) {
         this.messages = [];
+        this.conversationMessages = [];
         this.error = this.message(error);
       }
     }
@@ -312,14 +378,14 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       this.busy = false;
     }
   }
-  private openCreate(kind: "space" | "page", parentId?: string) {
+  private openCreate(kind: "space" | "page" | "conversation", parentId?: string) {
     this.editing = null;
     this.navigationOpen = false;
     this.membersOpen = false;
     this.notesOpen = false;
     this.newParentId = kind === "page" ? parentId : undefined;
     this.creating = kind;
-    this.draftTitle = "";
+    this.draftTitle = kind === "conversation" ? t("newConversation") : "";
     this.body = "";
     this.createRequestId = crypto.randomUUID();
     this.notice = "";
@@ -339,6 +405,10 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     );
   }
   private save() {
+    if (this.creating === "conversation") {
+      void this.createConversation(this.draftTitle);
+      return;
+    }
     void this.action(async () => {
       if (this.creating === "space") {
         const space = await this.rpc<Space>("create", {
@@ -380,22 +450,47 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       this.notice = t("saved");
     });
   }
-  private send() {
-    void this.action(async () => {
-      if (!this.page || !this.draft.trim()) {
-        return;
-      }
-      await this.rpc("chat.send", {
-        spaceId: this.page.spaceId,
-        pageId: this.page.id,
-        message: this.draft,
-        requestId: this.draftRequestId,
+  private async createConversation(title = t("newConversation")): Promise<string | null> {
+    const page = this.page;
+    if (this.busy || !page || !this.snapshot || this.snapshot.space.role === "viewer") {
+      return null;
+    }
+    const epoch = this.epoch;
+    this.busy = true;
+    this.error = "";
+    this.notice = "";
+    try {
+      const conversation = await this.rpc<SpaceConversation>("conversation.create", {
+        spaceId: page.spaceId,
+        pageId: page.id,
+        title,
+        requestId: this.createRequestId,
       });
-      this.draft = "";
-      this.draftRequestId = crypto.randomUUID();
-      this.notice = this.error ? "" : t("accepted");
-      await this.loadHistory();
-    });
+      if (epoch !== this.epoch || this.page?.id !== page.id || !this.snapshot) {
+        return null;
+      }
+      if (conversation.ownerId !== this.snapshot.currentUserId || !conversation.canWrite) {
+        throw new Error(t("lostAccess"));
+      }
+      this.snapshot = {
+        ...this.snapshot,
+        conversations: [
+          ...(this.snapshot.conversations ?? []).filter((item) => item.id !== conversation.id),
+          conversation,
+        ],
+      };
+      this.creating = null;
+      this.createRequestId = crypto.randomUUID();
+      this.selectConversation(conversation);
+      return conversation.sessionKey;
+    } catch (error) {
+      if (epoch === this.epoch) {
+        this.error = this.message(error);
+      }
+      return null;
+    } finally {
+      this.busy = false;
+    }
   }
   private search() {
     void this.action(async () => {
@@ -483,7 +578,6 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       messages: this.messages,
       error: this.error,
       notice: this.notice,
-      streaming: this.streaming,
       historyAnchor: this.historyAnchor,
       loading: this.loading,
       busy: this.busy,
@@ -493,7 +587,22 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
         this.creating || this.editing
           ? { kind: this.creating ?? "edit", title: this.draftTitle, body: this.body }
           : null,
-      draft: this.draft,
+      conversation: this.conversation,
+      conversationView: renderSpaceConversation({
+        conversation: this.conversation,
+        messages: this.conversationMessages,
+        loading: this.loading,
+        onCreate: () => this.createConversation(),
+        onSessionChange: (key) => {
+          const next = this.snapshot?.conversations.find(
+            (item) => item.sessionKey === key && item.pageId === this.page?.id,
+          );
+          if (next && next.id !== this.conversation?.id) {
+            this.selectConversation(next);
+          }
+        },
+      }),
+      expandedPages: this.expandedPages,
       query: this.query,
       hits: this.hits,
       membersView: this.membersOpen ? this.renderMembers() : nothing,
@@ -509,11 +618,16 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       onQuery: (value) => {
         this.query = value;
       },
-      onDraft: (value) => {
-        this.draft = value;
-        this.draftRequestId = crypto.randomUUID();
+      onSelectConversation: (conversation) => this.selectConversation(conversation),
+      onTogglePage: (id) => {
+        const expanded = new Set(this.expandedPages);
+        if (expanded.has(id)) {
+          expanded.delete(id);
+        } else {
+          expanded.add(id);
+        }
+        this.expandedPages = expanded;
       },
-      onSend: () => this.send(),
       onPanel: (panel) => this.togglePanel(panel),
       onClosePanel: () => this.closePanel(),
       onToggleNavigation: () => {

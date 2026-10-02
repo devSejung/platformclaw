@@ -28,6 +28,15 @@ CREATE TABLE IF NOT EXISTS collaboration_space_runs (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS collaboration_space_runs_actor ON collaboration_space_runs(space_id,user_id,state);
 CREATE INDEX IF NOT EXISTS collaboration_space_pages_space ON collaboration_space_pages(space_id);
+CREATE TABLE IF NOT EXISTS collaboration_space_conversations (
+ id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES collaboration_spaces(id) ON DELETE CASCADE,
+ page_id TEXT NOT NULL REFERENCES collaboration_space_pages(id) ON DELETE CASCADE,
+ title TEXT NOT NULL, owner_id TEXT NOT NULL REFERENCES platform_users(id), owner_name TEXT NOT NULL,
+ agent_id TEXT NOT NULL, session_key TEXT NOT NULL UNIQUE, request_id TEXT NOT NULL,
+ created_at INTEGER NOT NULL, UNIQUE(owner_id,request_id)
+) STRICT;
+CREATE INDEX IF NOT EXISTS collaboration_space_conversations_space
+ ON collaboration_space_conversations(space_id,created_at,id);
 `;
 export function ensureSpaceSchema(db: DatabaseSync) {
   const ensure = () => db.exec(SPACE_SCHEMA);
@@ -56,4 +65,16 @@ export type SpacePageRow = {
   creator_id: string;
   request_id: string;
   updated_at: number;
+};
+export type SpaceConversationRow = {
+  id: string;
+  space_id: string;
+  page_id: string;
+  title: string;
+  owner_id: string;
+  owner_name: string;
+  agent_id: string;
+  session_key: string;
+  request_id: string;
+  created_at: number;
 };

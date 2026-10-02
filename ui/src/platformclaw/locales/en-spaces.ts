@@ -1,7 +1,7 @@
 export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.title": "Spaces",
   "platformClaw.spaces.intro":
-    "Shared issue pages and conversations. Private agents and VM credentials stay private.",
+    "Shared pages and your own agent conversations. Space agents can recall shared questions and final answers.",
   "platformClaw.spaces.createSpace": "Create Space",
   "platformClaw.spaces.refresh": "Refresh",
   "platformClaw.spaces.loading": "Loading…",
@@ -33,7 +33,7 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.invite": "Invite",
   "platformClaw.spaces.confirmMember": "Confirm membership change",
   "platformClaw.spaces.inviteNotice":
-    "This person can read all existing and future pages and conversations in this Space. Personal files, tools and credentials are not shared.",
+    "This person can read shared pages and earlier shared Q&A. Each person sees only their own agent tabs. Space agents can recall questions and final answers across Space conversations; tools and credentials stay private.",
   "platformClaw.spaces.removeNotice":
     "New reads and messages will be blocked. Previously read or downloaded copies cannot be recalled.",
   "platformClaw.spaces.confirm": "Confirm",
@@ -54,16 +54,31 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.searchResults": "Search results",
   "platformClaw.spaces.notes": "Notes",
   "platformClaw.spaces.closePanel": "Close panel",
-  "platformClaw.spaces.startConversation": "Start the conversation",
+  "platformClaw.spaces.startConversation": "Earlier shared Q&A",
   "platformClaw.spaces.conversationHint":
-    "Ask a question or share an update. Everyone in this Space can follow along.",
+    "Earlier shared questions and answers appear here. Start a new conversation with your own agent to continue.",
   "platformClaw.spaces.sharedConversation": "Shared with your Space",
   "platformClaw.spaces.spaceHint":
     "Bring the right people together around a project. You can invite members after creating it.",
   "platformClaw.spaces.notesHint":
     "Keep the brief, decisions, and useful context alongside this conversation.",
   "platformClaw.spaces.emptyNotes": "Add a brief or capture the decisions that matter.",
-  "platformClaw.spaces.choosePage": "Choose a conversation or start an issue for your team.",
+  "platformClaw.spaces.choosePage":
+    "Choose a page to open your conversations or create a page for your team.",
   "platformClaw.spaces.startIssue": "Start an issue",
   "platformClaw.spaces.startSpace": "Create your first Space",
+  "platformClaw.spaces.expand": "Expand",
+  "platformClaw.spaces.collapse": "Collapse",
+  "platformClaw.spaces.conversations": "Your conversations",
+  "platformClaw.spaces.newConversation": "New conversation",
+  "platformClaw.spaces.createConversation": "Create conversation",
+  "platformClaw.spaces.yourConversation": "Your personal agent",
+  "platformClaw.spaces.readOnly": "Read-only",
+  "platformClaw.spaces.legacyConversation": "Shared Q&A",
+  "platformClaw.spaces.legacyNotice":
+    "Earlier shared Q&A is read-only. Start your own conversation to continue.",
+  "platformClaw.spaces.conversationSharingNotice":
+    "Only you can open this conversation. Questions and final answers become shared context that agents in this Space may recall in their replies. Tool calls, execution access and chats outside this Space stay private.",
+  "platformClaw.spaces.ownerConversationNotice":
+    "Only you can open this tab. Space agents may recall its questions and final answers. Tool activity stays private. Shared-context history cannot be reset, rewound or deleted.",
 };

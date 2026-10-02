@@ -8,12 +8,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ControlPlaneConflictError } from "./contracts.js";
 import { ExecutionHandoffClient } from "./execution-handoff-client.js";
-import {
-  PlatformClawExecutionHandoffServer,
-  parseSpaceReadRequest,
-} from "./execution-handoff-http.js";
+import { PlatformClawExecutionHandoffServer } from "./execution-handoff-http.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 import { KnowledgeVaultSearchError } from "./knowledge-vault-contracts.js";
+import { parseSpaceReadRequest } from "./space-read-request.js";
 import type { SpaceService } from "./space-service.js";
 
 const servers: PlatformClawExecutionHandoffServer[] = [];
@@ -592,6 +590,7 @@ it("validates source anchors in the same parser used by internal Space reads", (
     operation: "get",
     spaceId: "space-one",
     pageId: "page-one",
+    conversationId: "conversation-one",
     messageId: "old-message",
     bodyOffset: 8000,
     pageRevision: 3,
@@ -612,4 +611,59 @@ it.each([
   expect(() => parseSpaceReadRequest({ operation: "get", ...params }, "person_one")).toThrow(
     "Invalid Space read",
   );
+});
+
+it.each([
+  { limit: 0 },
+  { limit: 1.5 },
+  { limit: 9 },
+  { bodyLimitBytes: 0 },
+  { bodyLimitBytes: 8001 },
+  { cursor: "-1" },
+  { cursor: "21" },
+  { cursor: "1e1" },
+  { cursor: "01" },
+  { messageOffset: 1 },
+  { messageOffset: -1, messageId: "m" },
+  { messageOffset: 16001, messageId: "m" },
+])("rejects invalid bounded Space recall arguments %j", (params) => {
+  expect(() => parseSpaceReadRequest({ operation: "get", ...params }, "person_one")).toThrow(
+    "Invalid Space read",
+  );
+});
+
+it("preserves bounded recall controls and validates operation-specific limits", () => {
+  const params = {
+    operation: "get",
+    messageId: "answer",
+    messageOffset: 800,
+    limit: 8,
+    bodyLimitBytes: 8000,
+    bodyOffset: 4000,
+    pageRevision: 2,
+  };
+  expect(parseSpaceReadRequest(params, "person_one")).toEqual({ agentId: "person_one", ...params });
+  expect(
+    parseSpaceReadRequest({ operation: "search", limit: 20, cursor: "5" }, "person_one"),
+  ).toEqual({ agentId: "person_one", operation: "search", limit: 20, cursor: "5" });
+});
+
+it("accepts bounded trusted native-session authorization and rejects incomplete callers", () => {
+  const params = {
+    operation: "native",
+    nativeTool: "sessions_history",
+    broad: true,
+    sessionKey: "agent:person_one:main",
+    targetSessionKey: "opaque-session-id",
+  };
+  expect(parseSpaceReadRequest(params, "person_one")).toEqual({ agentId: "person_one", ...params });
+  expect(() =>
+    parseSpaceReadRequest({ operation: "native", nativeTool: "sessions_history" }, "person_one"),
+  ).toThrow("Invalid Space read");
+  expect(() => parseSpaceReadRequest({ ...params, broad: "true" }, "person_one")).toThrow(
+    "Invalid Space read",
+  );
+  expect(() =>
+    parseSpaceReadRequest({ ...params, targetSessionKey: "x".repeat(1001) }, "person_one"),
+  ).toThrow("Invalid Space read");
 });

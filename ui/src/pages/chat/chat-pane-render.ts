@@ -378,7 +378,10 @@ export class ChatPane extends ChatPaneHeader {
               this.requestUpdate();
             }
           : undefined,
-      sessions: state.sessionsResult,
+      sessions:
+        this.embedded && state.sessionsResult
+          ? { ...state.sessionsResult, sessions: selectedSession ? [selectedSession] : [] }
+          : state.sessionsResult,
       toolOverrides: selectedSession?.toolOverrides,
       capabilityMenu: catalogKey
         ? undefined
@@ -480,13 +483,15 @@ export class ChatPane extends ChatPaneHeader {
             ? void this.addCurrentSessionSuggestion()
             : void state.handleSendChat(),
       onCompact: sessionActionCallbacks.onCompact,
-      onOpenSessionCheckpoints: () => {
-        const search = new URLSearchParams({ session: state.sessionKey });
-        if (selectedSessionArchived) {
-          search.set("status", "archived");
-        }
-        this.context.navigate("sessions", { search: `?${search.toString()}` });
-      },
+      onOpenSessionCheckpoints: this.embedded
+        ? undefined
+        : () => {
+            const search = new URLSearchParams({ session: state.sessionKey });
+            if (selectedSessionArchived) {
+              search.set("status", "archived");
+            }
+            this.context.navigate("sessions", { search: `?${search.toString()}` });
+          },
       onToggleRealtimeTalk: () => void state.toggleRealtimeTalk(),
       onToggleRealtimeCamera: () => void state.toggleRealtimeTalkCamera(),
       onSwitchRealtimeCamera: () => void state.switchRealtimeTalkCamera(),
@@ -521,10 +526,10 @@ export class ChatPane extends ChatPaneHeader {
         state.chatReplyTarget = target;
         state.requestUpdate?.();
       },
-      onRewindMessage: sessionActionCallbacks.onRewindMessage,
-      onForkMessage: sessionActionCallbacks.onForkMessage,
+      onRewindMessage: this.embedded ? undefined : sessionActionCallbacks.onRewindMessage,
+      onForkMessage: this.embedded ? undefined : sessionActionCallbacks.onForkMessage,
       onNewSession: () => void this.createSession(),
-      onClearHistory: sessionActionCallbacks.onClearHistory,
+      onClearHistory: this.embedded ? undefined : sessionActionCallbacks.onClearHistory,
       agentsList: state.agentsList,
       currentAgentId,
       ...chatProps,
@@ -532,9 +537,11 @@ export class ChatPane extends ChatPaneHeader {
         const nextSessionKey = buildAgentMainSessionKey({ agentId });
         this.onPaneSessionChange?.(this.paneId, nextSessionKey);
       },
-      onSessionSelect: (next) => {
-        this.onPaneSessionChange?.(this.paneId, next);
-      },
+      onSessionSelect: this.embedded
+        ? undefined
+        : (next) => {
+            this.onPaneSessionChange?.(this.paneId, next);
+          },
       canvasPluginSurfaceRoute: state.canvasPluginSurfaceRoute,
       recoverCanvasPluginSurfaceUrl: state.recoverCanvasPluginSurfaceUrl,
       boardProvider: board.provider,
@@ -682,14 +689,16 @@ export class ChatPane extends ChatPaneHeader {
       primary,
       sessionKey: state.sessionKey,
     });
-    return html`${this.renderPaneHeader(
-      sessionWorkspace,
-      backgroundTasks,
-      selectedSession,
-      Boolean(catalogKey),
-      selectedAgent?.workspace,
-      selectedAgent?.workspaceGit === true,
-    )}${content}${renderChatImageLightbox(
+    return html`${this.embedded
+      ? nothing
+      : this.renderPaneHeader(
+          sessionWorkspace,
+          backgroundTasks,
+          selectedSession,
+          Boolean(catalogKey),
+          selectedAgent?.workspace,
+          selectedAgent?.workspaceGit === true,
+        )}${content}${renderChatImageLightbox(
       state.imageLightbox,
       state.handleCloseImage,
     )}${this.renderResetConfirmation()}`;

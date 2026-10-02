@@ -13,6 +13,7 @@ import {
 } from "./kysely-sync.js";
 import type { Space, SpacePage, SpaceRole } from "./space-contracts.js";
 import { ensureSpaceSchema, type SpaceRow, type SpacePageRow } from "./sqlite-schema-spaces.js";
+import { SqliteSpaceConversationStore } from "./sqlite-space-conversations.js";
 import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
 
 type Database = Pick<
@@ -41,8 +42,11 @@ export function spaceText(value: unknown, label: string, max: number, empty = fa
 const rank = { viewer: 1, editor: 2, owner: 3 };
 export class SqliteSpaceStore {
   private readonly query = createSyncKysely<Database>();
+  private readonly conversationStore: SqliteSpaceConversationStore;
   private ready = false;
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: DatabaseSync) {
+    this.conversationStore = new SqliteSpaceConversationStore(db, this);
+  }
   private ensure() {
     if (!this.ready) {
       ensureSpaceSchema(this.db);
@@ -413,12 +417,63 @@ export class SqliteSpaceStore {
     this.activeUser(row.user_id);
     return row.user_id;
   }
+  personalAgentOwner(agentId: string): string | undefined {
+    this.ensure();
+    return (
+      takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("agent_bindings")
+          .select("user_id")
+          .where("agent_id", "=", agentId)
+          .where("kind", "=", "personal"),
+      )?.user_id ?? undefined
+    );
+  }
   spaceForAgent(agentId: string): string | undefined {
     this.ensure();
     return takeFirstSync(
       this.db,
       this.query.selectFrom("collaboration_spaces").select("id").where("agent_id", "=", agentId),
     )?.id;
+  }
+  createConversation(
+    userId: string,
+    spaceId: string,
+    params: { pageId: string; title: string; requestId: string },
+  ) {
+    spaceText(params.pageId, "page id", 128);
+    spaceText(params.title, "conversation title", 240);
+    spaceText(params.requestId, "request id", 128);
+    return this.conversationStore.create(userId, spaceId, params);
+  }
+  conversations(userId: string, spaceId: string, pageId?: string) {
+    return this.conversationStore.list(userId, spaceId, pageId);
+  }
+  sharedConversations(userId: string, spaceId: string, pageId?: string) {
+    return this.conversationStore.list(userId, spaceId, pageId, "shared");
+  }
+  conversation(userId: string, spaceId: string, conversationId: string, write = false) {
+    return this.conversationStore.get(userId, spaceId, conversationId, write);
+  }
+  sharedConversation(userId: string, spaceId: string, conversationId: string) {
+    return this.conversationStore.get(userId, spaceId, conversationId, false, "shared");
+  }
+  conversationForSession(userId: string, sessionKey: string, write = false) {
+    this.ensure();
+    return this.conversationStore.bySession(userId, sessionKey, write);
+  }
+  registeredConversation(sessionKey: string) {
+    this.ensure();
+    return this.conversationStore.registered(sessionKey);
+  }
+  ownedConversations(spaceId: string, userId: string) {
+    this.ensure();
+    return this.conversationStore.owned(spaceId, userId);
+  }
+  hasInaccessibleConversations(userId: string | undefined, agentId?: string) {
+    this.ensure();
+    return this.conversationStore.hasInaccessible(userId, agentId);
   }
   agentScope(agentId: string) {
     this.ensure();

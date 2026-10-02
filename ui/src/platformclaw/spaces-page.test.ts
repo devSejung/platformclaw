@@ -41,28 +41,42 @@ type Element = HTMLElement & {
 };
 async function mount(role = "owner") {
   const listeners = new Set<(event: { event: string; payload?: unknown }) => void>();
-  const request = vi.fn(async (method: string): Promise<unknown> => {
-    if (method.endsWith(".list")) {
-      return [{ ...space, role }];
-    }
-    if (method.endsWith(".get")) {
-      return { space: { ...space, role }, pages: [page], members: [member] };
-    }
-    if (method.endsWith(".history")) {
-      return {
-        messages: [
-          { id: "m1", role: "user", text: "Earlier question", timestamp: 100, authorName: "Alice" },
-        ],
-      };
-    }
-    if (method.endsWith(".people")) {
-      return [{ userId: "bob", accountId: "bob", displayName: "Bob" }];
-    }
-    if (method.endsWith(".search")) {
-      return { results: [] };
-    }
-    return { updated: true };
-  });
+  const request = vi.fn(
+    async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
+      if (method.endsWith(".list")) {
+        return [{ ...space, role }];
+      }
+      if (method.endsWith(".get")) {
+        return {
+          space: { ...space, role },
+          pages: [page],
+          members: [member],
+          conversations: [],
+          currentUserId: "alice",
+        };
+      }
+      if (method.endsWith(".history")) {
+        return {
+          messages: [
+            {
+              id: "m1",
+              role: "user",
+              text: "Earlier question",
+              timestamp: 100,
+              authorName: "Alice",
+            },
+          ],
+        };
+      }
+      if (method.endsWith(".people")) {
+        return [{ userId: "bob", accountId: "bob", displayName: "Bob" }];
+      }
+      if (method.endsWith(".search")) {
+        return { results: [] };
+      }
+      return { updated: true };
+    },
+  );
   const gateway = {
     snapshot: { phase: "connected", client: { request } },
     subscribe: () => () => {},
@@ -143,58 +157,146 @@ describe("Space issue page UX", () => {
       ).toBe("First line\n  Indented second line"),
     );
   });
-  it("keeps a rejected answer visible across invalidation, a late acknowledgment, and another final", async () => {
-    const { element, request, emit } = await mount();
+  it.each(["owner", "editor", "viewer"])("keeps legacy Q&A read-only for a %s", async (role) => {
+    const { element, request } = await mount(role);
+    expect(element.querySelector(".pc-space-conversation textarea")).toBeNull();
+    expect(element.querySelector("openclaw-chat-pane")).toBeNull();
+    expect(element.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
+      "Shared Q&A",
+    );
+    expect(request.mock.calls.some(([method]) => method.endsWith(".send"))).toBe(false);
+  });
+  it("reuses a creation request after an ambiguous failure and blocks repeated pending submits", async () => {
+    const { element, request } = await mount();
     const original = request.getMockImplementation()!;
-    let release!: (value: unknown) => void;
+    let rejectCreation!: (error: Error) => void;
     request.mockImplementation(async (method) =>
-      method.endsWith(".send")
-        ? await new Promise((resolve) => {
-            release = resolve;
+      method.endsWith("conversation.create")
+        ? new Promise((_resolve, reject) => {
+            rejectCreation = reject;
           })
         : original(method),
     );
-    const draft = element.querySelector<HTMLTextAreaElement>("#pc-space-draft")!;
-    draft.value = "One more shared question";
-    draft.dispatchEvent(new Event("input", { bubbles: true }));
+    button(element, "New conversation").click();
     await element.updateComplete;
-    button(element, "Send to Space").click();
+    input(element, "Title", "Trace investigation");
+    await element.updateComplete;
+    const form = element.querySelector<HTMLFormElement>(".pc-space-editor")!;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    const creations = () =>
+      request.mock.calls.filter(([method]) => method.endsWith("conversation.create"));
+    expect(creations()).toHaveLength(1);
+    const first = creations()[0][1];
+    expect(first).toMatchObject({
+      spaceId: space.id,
+      pageId: page.id,
+      title: "Trace investigation",
+      requestId: expect.any(String),
+    });
+    rejectCreation(new Error("Connection lost before acknowledgment"));
+    await vi.waitFor(() =>
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+        "Connection lost before acknowledgment",
+      ),
+    );
+    expect(element.querySelector<HTMLInputElement>("[data-title]")!.value).toBe(
+      "Trace investigation",
+    );
+    button(element, "Create conversation").click();
+    await vi.waitFor(() => expect(creations()).toHaveLength(2));
+    expect(creations()[1][1]).toEqual(first);
+    rejectCreation(new Error("Service still unavailable"));
+    await vi.waitFor(() =>
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+        "Service still unavailable",
+      ),
+    );
+  });
+  it("does not adopt a late conversation creation after navigating to a different Space", async () => {
+    const { element, request } = await mount();
+    const original = request.getMockImplementation()!;
+    const otherSpace = { ...space, id: "work-b", name: "Other project" };
+    let release!: (value: unknown) => void;
+    request.mockImplementation(async (method, params) => {
+      if (method.endsWith("conversation.create")) {
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      if (method.endsWith(".get") && params?.spaceId === otherSpace.id) {
+        return {
+          space: otherSpace,
+          pages: [],
+          members: [member],
+          conversations: [],
+          currentUserId: "alice",
+        };
+      }
+      return original(method, params);
+    });
+    button(element, "New conversation").click();
+    await element.updateComplete;
+    button(element, "Create conversation").click();
     await vi.waitFor(() => expect(release).toBeDefined());
-    emit({
-      event: "platformclaw.space.changed",
-      payload: { spaceId: space.id, pageId: page.id, state: "error" },
+    await element.selectSpace(otherSpace.id);
+    release({
+      id: "late-conversation",
+      spaceId: space.id,
+      pageId: page.id,
+      title: "Old Space conversation",
+      ownerId: "alice",
+      ownerName: "Alice",
+      agentId: "personal-alice",
+      sessionKey: "agent:personal-alice:space-session:00000000-0000-4000-8000-000000000002",
+      createdAt: 100,
+      canWrite: true,
     });
     await element.updateComplete;
-    expect(element.querySelector('[role="alert"]')?.textContent).toContain(
-      "The shared answer failed. Retry your question.",
+    await vi.waitFor(() => expect(button(element, "Create Space").disabled).toBe(false));
+    expect(element.textContent).toContain("Other project");
+    expect(element.textContent).not.toContain("Old Space conversation");
+    expect(element.querySelector("openclaw-chat-pane")).toBeNull();
+  });
+  it("does not expose another user's personal tab even if a snapshot contains it", async () => {
+    const { element, request } = await mount();
+    const original = request.getMockImplementation()!;
+    request.mockImplementation(async (method) =>
+      method.endsWith(".get")
+        ? {
+            space,
+            pages: [page],
+            members: [member],
+            currentUserId: "alice",
+            conversations: [
+              {
+                id: "peer-conversation",
+                spaceId: space.id,
+                pageId: page.id,
+                title: "Bob's personal conversation",
+                ownerId: "bob",
+                ownerName: "Bob",
+                agentId: "personal-bob",
+                sessionKey: "agent:personal-bob:space-session:00000000-0000-4000-8000-000000000003",
+                createdAt: 100,
+                canWrite: true,
+              },
+            ],
+          }
+        : original(method),
     );
-    const gets = request.mock.calls.filter(([method]) => method.endsWith(".get")).length;
-    emit({ event: "platformclaw.spaces.invalidated", payload: {} });
-    await vi.waitFor(() =>
-      expect(
-        request.mock.calls.filter(([method]) => method.endsWith(".get")).length,
-      ).toBeGreaterThan(gets),
+    history.replaceState(
+      null,
+      "",
+      `/?space=${space.id}&page=${page.id}&conversation=peer-conversation`,
     );
-    await vi.waitFor(() => expect(element.textContent).toContain("Earlier question"));
-    const histories = request.mock.calls.filter(([method]) => method.endsWith(".history")).length;
-    release({ status: "started" });
-    await vi.waitFor(() =>
-      expect(
-        request.mock.calls.filter(([method]) => method.endsWith(".history")).length,
-      ).toBeGreaterThan(histories),
-    );
+    await element.selectSpace(space.id);
     await element.updateComplete;
-    expect(element.querySelector('[role="alert"]')?.textContent).toContain(
-      "The shared answer failed. Retry your question.",
-    );
-    expect(element.querySelector('[role="status"]')).toBeNull();
-    emit({
-      event: "platformclaw.space.changed",
-      payload: { spaceId: space.id, pageId: page.id, state: "final" },
-    });
-    await element.updateComplete;
-    expect(element.querySelector('[role="alert"]')?.textContent).toContain(
-      "The shared answer failed. Retry your question.",
+    expect(element.textContent).toContain("Earlier question");
+    expect(element.textContent).not.toContain("Bob's personal conversation");
+    expect(element.querySelector("openclaw-chat-pane")).toBeNull();
+    expect(request.mock.calls.some(([method]) => method.endsWith("conversation.history"))).toBe(
+      false,
     );
   });
   it("renders assistant markdown without unsafe HTML, remote images, or inert code-copy controls", async () => {
@@ -229,7 +331,7 @@ describe("Space issue page UX", () => {
   it("opens notes and members beside the conversation and returns focus when dismissed", async () => {
     const { element } = await mount();
     expect(element.querySelector(".pc-space-conversation")).not.toBeNull();
-    expect(element.querySelector(".pc-space-composer-dock textarea")).not.toBeNull();
+    expect(element.querySelector(".pc-space-conversation textarea")).toBeNull();
     expect(element.querySelector(".pc-space-panel")).toBeNull();
     expect(element.textContent).not.toContain("Shared notes");
     button(element, "Notes").click();
@@ -249,38 +351,6 @@ describe("Space issue page UX", () => {
       expect(document.activeElement).toBe(button(element, "Members and access")),
     );
   });
-  it("sends on Enter once while preserving Shift+Enter and composition input", async () => {
-    const { element, request } = await mount();
-    let release!: (value: unknown) => void;
-    const original = request.getMockImplementation()!;
-    request.mockImplementation(async (method) =>
-      method.endsWith(".send")
-        ? new Promise((resolve) => {
-            release = resolve;
-          })
-        : original(method),
-    );
-    const composer = element.querySelector<HTMLTextAreaElement>("#pc-space-draft")!;
-    composer.value = "A shared question";
-    composer.dispatchEvent(new Event("input", { bubbles: true }));
-    await element.updateComplete;
-    composer.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true }),
-    );
-    composer.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }),
-    );
-    expect(request.mock.calls.some(([method]) => method.endsWith(".send"))).toBe(false);
-    composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    expect(request.mock.calls.filter(([method]) => method.endsWith(".send"))).toHaveLength(1);
-    expect(request).toHaveBeenCalledWith(
-      "platformclaw.spaces.chat.send",
-      expect.objectContaining({ pageId: page.id, message: "A shared question" }),
-    );
-    release({ accepted: true });
-    await vi.waitFor(() => expect(composer.value).toBe(""));
-  });
   it("cancels an editor panel on Escape without saving", async () => {
     const { element, request } = await mount();
     await beginEdit(element);
@@ -295,7 +365,7 @@ describe("Space issue page UX", () => {
   });
   it("shows per-issue shared context and cancels page edits without mutation", async () => {
     const { element, request } = await mount();
-    expect(element.textContent).toContain("all Space members");
+    expect(element.textContent).toContain("Earlier shared Q&A is read-only");
     expect(element.querySelector(".pc-space-panel")).toBeNull();
     await beginEdit(element);
     input(element, "Title", "Unsaved");
@@ -314,7 +384,13 @@ describe("Space issue page UX", () => {
     let saves = 0;
     request.mockImplementation(async (method) => {
       if (method.endsWith(".get")) {
-        return { space, pages: [remotePage], members: [member] };
+        return {
+          space,
+          pages: [remotePage],
+          members: [member],
+          conversations: [],
+          currentUserId: "alice",
+        };
       }
       if (method.endsWith(".save")) {
         if (saves++ === 0) {
@@ -375,7 +451,13 @@ describe("Space issue page UX", () => {
     const original = request.getMockImplementation()!;
     request.mockImplementation(async (method) => {
       if (method.endsWith(".get")) {
-        return { space: otherSpace, pages: [otherPage], members: [member] };
+        return {
+          space: otherSpace,
+          pages: [otherPage],
+          members: [member],
+          conversations: [],
+          currentUserId: "alice",
+        };
       }
       if (method.endsWith(".save")) {
         return { ...otherPage, revision: 8 };
@@ -407,7 +489,13 @@ describe("Space issue page UX", () => {
     const original = request.getMockImplementation()!;
     request.mockImplementation(async (method) =>
       method.endsWith(".get")
-        ? { space: { ...space, role: "viewer" }, pages: [page], members: [member] }
+        ? {
+            space: { ...space, role: "viewer" },
+            pages: [page],
+            members: [member],
+            conversations: [],
+            currentUserId: "alice",
+          }
         : original(method),
     );
     emit({ event: "platformclaw.spaces.invalidated", payload: {} });
@@ -438,7 +526,10 @@ describe("Space issue page UX", () => {
     await vi.waitFor(() => expect(element.textContent).toContain("Invite Bob"));
     button(element, "Invite Bob (bob)").click();
     await element.updateComplete;
-    expect(element.textContent).toContain("existing and future");
+    const notice = element.querySelector('[role="alertdialog"]')?.textContent;
+    expect(notice).toContain("read shared pages and earlier shared Q&A");
+    expect(notice).toContain("only their own agent tabs");
+    expect(notice).toContain("Space agents can recall questions and final answers");
     button(element, "Cancel").click();
     await element.updateComplete;
     expect(request.mock.calls.some(([method]) => method.endsWith("member.set"))).toBe(false);

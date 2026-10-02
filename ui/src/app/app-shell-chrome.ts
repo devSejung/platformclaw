@@ -527,6 +527,12 @@ export class ShellChromeOwner {
     }
     if (detail.onSlashCommand) {
       host.commandPaletteTarget = detail;
+      detail.registerRelease?.(() => {
+        if (host.commandPaletteTarget === detail) {
+          host.commandPaletteTarget = undefined;
+          host.requestUpdate();
+        }
+      });
     } else if (host.commandPaletteTarget?.owner === detail.owner) {
       host.commandPaletteTarget = undefined;
     }

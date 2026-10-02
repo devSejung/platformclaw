@@ -54,7 +54,11 @@ const BUNDLED_TYPED_HOOK_REGISTRATION_GUARDS = {
   "extensions/platformclaw-execution/index.ts": ["gateway_stop"],
   "extensions/platformclaw-execution/src/gateway.ts": ["before_agent_run"],
   "extensions/platformclaw-org-memory/index.ts": ["before_prompt_build"],
-  "extensions/platformclaw-org-memory/src/space-tools.ts": ["before_prompt_build"],
+  "extensions/platformclaw-org-memory/src/space-tools.ts": [
+    "before_agent_run",
+    "before_prompt_build",
+    "before_tool_call",
+  ],
   "extensions/thread-ownership/index.ts": ["message_received", "message_sending"],
   "extensions/workboard/index.ts": ["subagent_ended"],
 } as const satisfies Record<

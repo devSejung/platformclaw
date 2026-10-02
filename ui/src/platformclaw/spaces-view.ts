@@ -4,13 +4,20 @@ import type {
   Space,
   SpaceMember,
   SpacePage,
+  SpaceConversation,
 } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
 import type { SpaceMessage } from "../../../packages/platformclaw-control-plane/src/space-service.js";
 import { icons } from "../components/icons.ts";
 import { toSanitizedMarkdownHtml } from "../components/markdown.ts";
 import { platformClawT } from "./i18n.ts";
 const t = (key: string) => platformClawT(`platformClaw.spaces.${key}`);
-export type SpaceSnapshot = { space: Space; pages: SpacePage[]; members: SpaceMember[] };
+export type SpaceSnapshot = {
+  space: Space;
+  pages: SpacePage[];
+  members: SpaceMember[];
+  conversations: SpaceConversation[];
+  currentUserId: string;
+};
 export type SpaceSearchHit = {
   spaceId: string;
   pageId: string;
@@ -19,7 +26,11 @@ export type SpaceSearchHit = {
   link: string;
   messageId?: string;
 };
-type SpaceEditor = { kind: "space" | "page" | "edit"; title: string; body: string };
+type SpaceEditor = {
+  kind: "space" | "page" | "conversation" | "edit";
+  title: string;
+  body: string;
+};
 type SpacesViewProps = {
   spaces: Space[];
   snapshot: SpaceSnapshot | null;
@@ -27,25 +38,26 @@ type SpacesViewProps = {
   messages: SpaceMessage[];
   error: string;
   notice: string;
-  streaming: string;
   historyAnchor: string;
   loading: boolean;
   busy: boolean;
   editor: SpaceEditor | null;
   panel: "notes" | "members" | null;
   navigationOpen: boolean;
-  draft: string;
+  conversation: SpaceConversation | null;
+  conversationView: TemplateResult | typeof nothing;
+  expandedPages: ReadonlySet<string>;
   query: string;
   hits: SpaceSearchHit[];
   membersView: TemplateResult | typeof nothing;
   onSelectSpace: (id: string) => void;
   onSelectPage: (page: SpacePage, messageId?: string) => void;
-  onCreate: (kind: "space" | "page", parentId?: string) => void;
+  onCreate: (kind: "space" | "page" | "conversation", parentId?: string) => void;
+  onSelectConversation: (conversation: SpaceConversation | null) => void;
+  onTogglePage: (id: string) => void;
   onRefresh: () => void;
   onSearch: () => void;
   onQuery: (value: string) => void;
-  onDraft: (value: string) => void;
-  onSend: () => void;
   onPanel: (panel: "notes" | "members") => void;
   onClosePanel: () => void;
   onToggleNavigation: () => void;
@@ -66,19 +78,34 @@ function renderPageTree(
   return html`<ul class="pc-space-tree">
     ${p.snapshot?.pages
       .filter((page) => page.parentId === parentId)
-      .map(
-        (page) => html` <li>
-          <button
-            class="pc-space-tree-item"
-            aria-current=${p.page?.id === page.id ? "page" : nothing}
-            ?disabled=${p.busy || Boolean(p.editor)}
-            @click=${() => p.onSelectPage(page)}
-            title=${page.title}
-          >
-            ${icons.messageSquare}<span>${page.title}</span></button
-          >${depth < 20 ? renderPageTree(p, page.id, depth + 1) : nothing}
-        </li>`,
-      )}
+      .map((page) => {
+        const hasChildren = p.snapshot!.pages.some((child) => child.parentId === page.id);
+        const expanded = p.expandedPages.has(page.id);
+        return html`<li>
+          <div class="pc-space-tree-row">
+            ${hasChildren
+              ? html`<button
+                  class="pc-space-tree-toggle"
+                  aria-expanded=${expanded}
+                  aria-label=${`${t(expanded ? "collapse" : "expand")} ${page.title}`}
+                  @click=${() => p.onTogglePage(page.id)}
+                >
+                  ${expanded ? icons.chevronDown : icons.chevronRight}
+                </button>`
+              : html`<span class="pc-space-tree-spacer"></span>`}
+            <button
+              class="pc-space-tree-item"
+              aria-current=${p.page?.id === page.id ? "page" : nothing}
+              ?disabled=${p.busy || Boolean(p.editor)}
+              @click=${() => p.onSelectPage(page)}
+              title=${page.title}
+            >
+              ${hasChildren ? icons.folder : icons.fileText}<span>${page.title}</span>
+            </button>
+          </div>
+          ${hasChildren && expanded && depth < 20 ? renderPageTree(p, page.id, depth + 1) : nothing}
+        </li>`;
+      })}
   </ul>`;
 }
 
@@ -213,7 +240,6 @@ function renderMessage(message: SpaceMessage, anchor: string) {
 }
 
 function renderConversation(p: SpacesViewProps) {
-  const canEdit = p.snapshot && p.snapshot.space.role !== "viewer";
   return html`<section class="pc-space-conversation" aria-label=${t("conversation")}>
     <div
       class="pc-space-history"
@@ -227,69 +253,17 @@ function renderConversation(p: SpacesViewProps) {
               ${icons.arrowDown}${t("latest")}
             </button>`
           : nothing}
-        ${p.messages.length || p.streaming
+        ${p.messages.length
           ? p.messages.map((message) => renderMessage(message, p.historyAnchor))
           : html` <div class="pc-space-conversation-empty">
               <span class="pc-space-empty-icon">${icons.messageSquare}</span>
               <h2>${t("startConversation")}</h2>
               <p>${t("conversationHint")}</p>
             </div>`}
-        ${p.streaming
-          ? html`<article class="pc-space-message pc-space-message--assistant" aria-live="polite">
-              <div class="pc-space-message-meta">
-                <strong>AI</strong><span class="pc-space-live-dot"></span>
-              </div>
-              <div class="pc-space-message-body markdown-content">
-                ${unsafeHTML(toSanitizedMarkdownHtml(p.streaming, { codeBlockChrome: "none" }))}
-              </div>
-            </article>`
-          : nothing}
       </div>
     </div>
     <div class="pc-space-composer-dock">
-      ${canEdit
-        ? html`<form
-            class="pc-space-composer"
-            @submit=${(event: Event) => {
-              event.preventDefault();
-              p.onSend();
-            }}
-          >
-            <label class="pc-space-sr-only" for="pc-space-draft">${t("ask")}</label>
-            <textarea
-              id="pc-space-draft"
-              rows="2"
-              maxlength="16000"
-              .value=${p.draft}
-              placeholder=${t("ask")}
-              @input=${(event: Event) => p.onDraft((event.target as HTMLTextAreaElement).value)}
-              @keydown=${(event: KeyboardEvent) => {
-                if (
-                  event.key === "Enter" &&
-                  !event.shiftKey &&
-                  !event.isComposing &&
-                  p.draft.trim() &&
-                  !p.busy
-                ) {
-                  event.preventDefault();
-                  p.onSend();
-                }
-              }}
-            ></textarea>
-            <div class="pc-space-composer-bottom">
-              <span>${icons.users}${t("sharedConversation")}</span>
-              <button
-                class="pc-space-send"
-                aria-label=${t("send")}
-                title=${t("send")}
-                ?disabled=${p.busy || !p.draft.trim()}
-              >
-                ${icons.arrowUp}<span class="pc-space-sr-only">${t("send")}</span>
-              </button>
-            </div>
-          </form>`
-        : html`<p class="pc-space-viewer-notice">${icons.lock}${t("viewerNotice")}</p>`}
-      <p class="pc-space-sharing-hint">${t("sharedNotice")}</p>
+      <p class="pc-space-viewer-notice">${icons.lock}${t("legacyNotice")}</p>
     </div>
   </section>`;
 }
@@ -303,7 +277,13 @@ function renderEditor(p: SpacesViewProps) {
       p.onSave();
     }}
   >
-    <p class="pc-space-panel-hint">${editor.kind === "space" ? t("spaceHint") : t("notesHint")}</p>
+    <p class="pc-space-panel-hint">
+      ${editor.kind === "space"
+        ? t("spaceHint")
+        : editor.kind === "conversation"
+          ? t("conversationSharingNotice")
+          : t("notesHint")}
+    </p>
     <label
       >${t("name")}<input
         data-title
@@ -312,7 +292,7 @@ function renderEditor(p: SpacesViewProps) {
         .value=${editor.title}
         @input=${(event: Event) => p.onTitle((event.target as HTMLInputElement).value)}
     /></label>
-    ${editor.kind !== "space"
+    ${editor.kind !== "space" && editor.kind !== "conversation"
       ? html`<label class="pc-space-editor-body"
           >${t("body")}<textarea
             rows="12"
@@ -325,7 +305,9 @@ function renderEditor(p: SpacesViewProps) {
     <div class="pc-space-editor-actions">
       <button type="button" class="btn" ?disabled=${p.busy} @click=${p.onCancel}>
         ${t("cancel")}</button
-      ><button class="btn primary" ?disabled=${p.busy}>${t("save")}</button>
+      ><button class="btn primary" ?disabled=${p.busy}>
+        ${t(editor.kind === "conversation" ? "createConversation" : "save")}
+      </button>
     </div>
   </form>`;
 }
@@ -337,7 +319,9 @@ function renderPanel(p: SpacesViewProps) {
           ? "createSpace"
           : p.editor.kind === "page"
             ? "createPage"
-            : "edit",
+            : p.editor.kind === "conversation"
+              ? "newConversation"
+              : "edit",
       )
     : t(p.panel === "members" ? "members" : "notes");
   return html`<aside class="pc-space-panel" aria-label=${title}>
@@ -386,6 +370,86 @@ function renderPanel(p: SpacesViewProps) {
             : nothing}
     </div>
   </aside>`;
+}
+
+function handleConversationTabKeydown(event: KeyboardEvent) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    return;
+  }
+  const tabs = [
+    ...(event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>(
+      "[role=tab]:not(:disabled)",
+    ),
+  ];
+  const index = tabs.indexOf(event.target as HTMLButtonElement);
+  if (index < 0) {
+    return;
+  }
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[next]?.focus();
+  tabs[next]?.click();
+}
+
+function renderConversationTabs(p: SpacesViewProps) {
+  const conversations = (p.snapshot?.conversations ?? []).filter(
+    (item) => item.pageId === p.page?.id,
+  );
+  return html`<div class="pc-space-conversation-bar">
+      <div
+        class="pc-space-conversation-tabs"
+        role="tablist"
+        aria-label=${t("conversations")}
+        @keydown=${handleConversationTabKeydown}
+      >
+        ${conversations.map(
+          (conversation) => html`<button
+            role="tab"
+            class="pc-space-conversation-tab"
+            data-conversation-id=${conversation.id}
+            aria-selected=${p.conversation?.id === conversation.id}
+            tabindex=${p.conversation?.id === conversation.id ? 0 : -1}
+            ?disabled=${p.busy || Boolean(p.editor)}
+            @click=${() => p.onSelectConversation(conversation)}
+          >
+            ${icons.messageSquare}<span
+              >${conversation.title}<small
+                >${t(conversation.canWrite ? "yourConversation" : "readOnly")}</small
+              ></span
+            >
+          </button>`,
+        )}
+        <button
+          role="tab"
+          class="pc-space-conversation-tab"
+          aria-selected=${!p.conversation}
+          tabindex=${p.conversation ? -1 : 0}
+          ?disabled=${p.busy || Boolean(p.editor)}
+          @click=${() => p.onSelectConversation(null)}
+        >
+          ${icons.users}<span>${t("legacyConversation")}</span>
+        </button>
+      </div>
+      <button
+        class="pc-space-text-button pc-space-new-conversation"
+        ?disabled=${p.busy || Boolean(p.editor) || p.snapshot?.space.role === "viewer"}
+        title=${p.snapshot?.space.role === "viewer" ? t("viewerNotice") : t("newConversation")}
+        aria-label=${t("newConversation")}
+        @click=${() => p.onCreate("conversation")}
+      >
+        ${icons.plus}<span>${t("newConversation")}</span>
+      </button>
+    </div>
+    ${p.conversation
+      ? html`<p class="pc-space-conversation-privacy">
+          ${icons.lock}${t(p.conversation.canWrite ? "ownerConversationNotice" : "viewerNotice")}
+        </p>`
+      : nothing}`;
 }
 
 export function renderSpacesView(p: SpacesViewProps) {
@@ -465,7 +529,9 @@ export function renderSpacesView(p: SpacesViewProps) {
           : nothing}
       </div>
       ${p.page
-        ? renderConversation(p)
+        ? html`${renderConversationTabs(p)}${p.conversation
+            ? p.conversationView
+            : renderConversation(p)}`
         : html`<section class="pc-space-welcome">
             <span class="pc-space-empty-icon">${icons.messageSquare}</span>
             <h2>${p.snapshot ? p.snapshot.space.name : t("title")}</h2>

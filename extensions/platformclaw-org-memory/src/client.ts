@@ -18,11 +18,22 @@ export type WikiHubMemoryClient = {
     query?: string;
     spaceId?: string;
     pageId?: string;
+    conversationId?: string;
     sessionKey?: string;
     runId?: string;
     messageId?: string;
     bodyOffset?: number;
     pageRevision?: number;
+    limit?: number;
+    cursor?: string;
+    bodyLimitBytes?: number;
+    messageOffset?: number;
+    nativeTool?: string;
+    targetSessionKey?: string;
+    targetLabel?: string;
+    targetAgentId?: string;
+    nativeAction?: string;
+    broad?: boolean;
   }): Promise<unknown>;
   wiki(
     params: import("openclaw/plugin-sdk/memory-core-host-runtime-core").MemoryWikiOperation & {

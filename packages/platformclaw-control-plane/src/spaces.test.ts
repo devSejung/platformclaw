@@ -1,105 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { BrowserAuthService, hashBrowserSessionToken } from "./browser-auth-service.js";
-import { BrowserGatewayProxy } from "./browser-gateway-proxy.js";
-import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
-import { SpaceService } from "./space-service.js";
-import { SqliteControlPlaneStore } from "./sqlite-store.js";
+import { createSpaceTestFixture as fixture } from "./spaces.test-fixture.js";
 import { PlatformClawWebIngressServer } from "./web-ingress-server.js";
 import { createFrameQueue, FakeGateway, isRecord } from "./web-ingress-test-harness.js";
-const cleanup: Array<() => void> = [];
-afterEach(() => {
-  for (const fn of cleanup.splice(0)) {
-    fn();
-  }
-});
-async function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "spaces-"));
-  const store = new SqliteControlPlaneStore({
-    databasePath: join(root, "control.sqlite"),
-    initialAdminAccountIds: ["alice"],
-    buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
-  });
-  cleanup.push(() => {
-    store.close();
-    rmSync(root, { recursive: true, force: true });
-  });
-  const users = [];
-  for (const account of ["alice", "bob", "carol"]) {
-    const { user } = await store.upsertPrincipal(
-      { provider: "ldap", subject: account, accountId: account, employeeId: account },
-      Date.now(),
-    );
-    const reserved = await store.reservePersonalAgent(user.id, Date.now());
-    const binding = await store.transitionAgent({
-      bindingId: reserved.binding.id,
-      state: "active",
-      changedAt: Date.now(),
-    });
-    await store.createBrowserSession({
-      userId: user.id,
-      tokenHash: hashBrowserSessionToken(account),
-      createdAt: Date.now(),
-    });
-    users.push({ user, binding, token: account });
-  }
-  const [alice, bob, carol] = users as [
-    (typeof users)[number],
-    (typeof users)[number],
-    (typeof users)[number],
-  ];
-  const request = vi.fn(
-    async (method: string, _params?: unknown): Promise<unknown> =>
-      method === "chat.history"
-        ? { messages: [] }
-        : method === "chat.abort"
-          ? { ok: true, aborted: true }
-          : method === "sessions.search"
-            ? { results: [] }
-            : method === "models.list"
-              ? { models: [] }
-              : { status: "started" },
-  );
-  const call = vi.fn(async (_method: string, params: unknown) => ({
-    ready: true,
-    agentId: (params as { agentId: string }).agentId,
-  }));
-  const service = new SpaceService(store, { request }, { call } as unknown as GatewayAdminRpc);
-  const auth = new BrowserAuthService({
-    store,
-    authenticator: {
-      authenticatePassword: async () => ({ status: "rejected", message: "unused" }),
-    },
-    provisioner: { provisionOrRefresh: async () => {} },
-  });
-  const proxy = new BrowserGatewayProxy({
-    store,
-    authService: auth,
-    auditWriter: store,
-    gateway: { request },
-    spaceService: service,
-    buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
-    resolveAgentIdFromSessionKey: (key) => key.split(":")[1] ?? null,
-  });
-  const space = store.spaces.create(alice.user.id, "PMU", "create-pmu");
-  const page = store.spaces.createPage(alice.user.id, space.id, {
-    title: "SPMI timeout",
-    body: "Board revision A",
-    requestId: "page-one",
-  });
-  store.spaces.beginRun(
-    alice.user.id,
-    space.id,
-    page.id,
-    "fixture-history",
-    "existing shared question",
-  );
-  return { store, service, proxy, request, call, alice, bob, carol, space, page, auth };
-}
 const rpc = "platformclaw.spaces.";
 describe("Web Space boundaries", () => {
   it("isolates Space listing, page tree, role changes and private sessions", async () => {
@@ -117,7 +21,7 @@ describe("Web Space boundaries", () => {
         message: "run",
         requestId: "q1",
       }),
-    ).rejects.toThrow("unavailable");
+    ).rejects.toThrow("conversation tab");
     await expect(
       f.proxy.request(f.bob.token, rpc + "page.save", {
         spaceId: f.space.id,
@@ -150,51 +54,6 @@ describe("Web Space boundaries", () => {
       }),
     ).rejects.toThrow("parameter");
     expect(f.request).not.toHaveBeenCalled();
-  });
-  it("uses one native session per issue, authenticated senders and followup queue", async () => {
-    const f = await fixture();
-    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "editor", 1);
-    for (const actor of [f.alice, f.bob]) {
-      await f.proxy.request(actor.token, rpc + "chat.send", {
-        spaceId: f.space.id,
-        pageId: f.page.id,
-        message: `from ${actor.token}`,
-        requestId: "q1",
-      });
-    }
-    const sends = f.request.mock.calls.filter(([method]) => method === "chat.send");
-    expect(sends).toHaveLength(2);
-    for (const [i, actor] of [f.alice, f.bob].entries()) {
-      expect(sends[i]?.[1]).toMatchObject({
-        agentId: f.space.agentId,
-        sessionKey: `agent:${f.space.agentId}:space:${f.page.id}`,
-        queueMode: "followup",
-        rejectQueueOverflow: true,
-        deliver: false,
-        suppressCommandInterpretation: true,
-        senderAttribution: { profileId: actor.user.id },
-      });
-    }
-    expect((sends[0]![1] as { idempotencyKey: string }).idempotencyKey).not.toBe(
-      (sends[1]![1] as { idempotencyKey: string }).idempotencyKey,
-    );
-    const child = f.store.spaces.createPage(f.bob.user.id, f.space.id, {
-      title: "Aging",
-      body: "",
-      parentId: f.page.id,
-      requestId: "child",
-    });
-    expect(child.parentId).toBe(f.page.id);
-    await f.proxy.request(f.bob.token, rpc + "chat.send", {
-      spaceId: f.space.id,
-      pageId: child.id,
-      message: "next",
-      requestId: "q2",
-    });
-    expect(f.request).toHaveBeenLastCalledWith(
-      "chat.send",
-      expect.objectContaining({ sessionKey: `agent:${f.space.agentId}:space:${child.id}` }),
-    );
   });
   it("rechecks membership after async history and provisioning, and filters events", async () => {
     const f = await fixture();
@@ -323,13 +182,8 @@ describe("Web Space boundaries", () => {
     async (role) => {
       const f = await fixture();
       f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "owner", 1);
-      await f.proxy.request(f.alice.token, rpc + "chat.send", {
-        spaceId: f.space.id,
-        pageId: f.page.id,
-        message: "queued question",
-        requestId: "self-removal",
-      });
       const runId = `space:${f.page.id}:${f.alice.user.id}:self-removal`;
+      f.store.spaces.beginRun(f.alice.user.id, f.space.id, f.page.id, runId, "queued question");
       await f.proxy.request(f.alice.token, rpc + (role ? "member.set" : "member.remove"), {
         spaceId: f.space.id,
         userId: f.alice.user.id,
@@ -344,30 +198,6 @@ describe("Web Space boundaries", () => {
       expect(() => f.store.spaces.assertRun(f.space.agentId, runId)).toThrow("unavailable");
     },
   );
-  it("prevents a removed editor's delayed provisioning from submitting a turn", async () => {
-    const f = await fixture();
-    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "editor", 1);
-    let release!: (value: unknown) => void;
-    f.call.mockImplementationOnce(
-      async () =>
-        (await new Promise<unknown>((resolve) => {
-          release = resolve;
-        })) as never,
-    );
-    const pending = f.service.send(
-      f.bob.user.id,
-      f.space.id,
-      f.page.id,
-      "late question",
-      "late",
-      undefined,
-      async () => {},
-    );
-    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, null, 2);
-    release({ agentId: f.space.agentId, ready: true });
-    await expect(pending).rejects.toThrow("unavailable");
-    expect(f.request.mock.calls.some(([method]) => method === "chat.send")).toBe(false);
-  });
   it("keeps private and other-Space corpus out of shared agent tools", async () => {
     const f = await fixture();
     const other = f.store.spaces.create(
@@ -489,9 +319,11 @@ describe("Web Space boundaries", () => {
         return {
           frames,
           next,
-          async call(method: string, params: Record<string, unknown> = {}) {
+          async call(method: string, params: Record<string, unknown> = {}, native = false) {
             const id = `request-${++sequence}`;
-            ws.send(JSON.stringify({ type: "req", id, method: rpc + method, params }));
+            ws.send(
+              JSON.stringify({ type: "req", id, method: native ? method : rpc + method, params }),
+            );
             return await next(
               (frame) => isRecord(frame) && frame.type === "res" && frame.id === id,
             );
@@ -502,6 +334,63 @@ describe("Web Space boundaries", () => {
         bob = await connect(f.bob.token),
         carol = await connect(f.carol.token);
       expect(await carol.call("list")).toMatchObject({ ok: true, payload: [] });
+      const created = await alice.call("conversation.create", {
+        spaceId: f.space.id,
+        pageId: f.page.id,
+        title: "Alice native work",
+        requestId: "transport-tab",
+      });
+      expect(created).toMatchObject({
+        ok: true,
+        payload: { ownerId: f.alice.user.id, agentId: f.alice.binding.agentId },
+      });
+      if (!isRecord(created) || !isRecord(created.payload)) {
+        throw new Error("Missing conversation response");
+      }
+      const owned = created.payload;
+      expect(await bob.call("get", { spaceId: f.space.id })).toMatchObject({
+        ok: true,
+        payload: { conversations: [] },
+      });
+      expect(
+        await bob.call("conversation.history", { spaceId: f.space.id, conversationId: owned.id }),
+      ).toMatchObject({ ok: false });
+      expect(
+        await bob.call(
+          "chat.send",
+          {
+            sessionKey: owned.sessionKey,
+            message: "use someone else's VM",
+            idempotencyKey: "foreign",
+          },
+          true,
+        ),
+      ).toMatchObject({ ok: false });
+      expect(
+        await alice.call(
+          "chat.send",
+          {
+            sessionKey: owned.sessionKey,
+            message: "use my normal tools",
+            idempotencyKey: "native",
+          },
+          true,
+        ),
+      ).toMatchObject({ ok: true });
+      gateway.emit({
+        type: "event",
+        event: "session.tool",
+        payload: {
+          sessionKey: owned.sessionKey,
+          agentId: f.alice.binding.agentId,
+          data: { command: "owner-only tool trace" },
+        },
+      });
+      await alice.next((frame) => isRecord(frame) && frame.event === "session.tool");
+      // A subsequent response is the connection's ordering barrier for all earlier frames.
+      await bob.call("get", { spaceId: f.space.id });
+      expect(JSON.stringify(bob.frames)).not.toContain("owner-only tool trace");
+      expect(JSON.stringify(carol.frames)).not.toContain("owner-only tool trace");
       expect(
         await bob.call("chat.send", {
           spaceId: f.space.id,
@@ -641,7 +530,7 @@ describe("Web Space boundaries", () => {
       };
       const chunks: string[] = [];
       let bodyOffset: number | null = 0;
-      for (let index = 0; index < 4 && bodyOffset !== null; index++) {
+      for (let index = 0; index < 16 && bodyOffset !== null; index++) {
         const result = await f.service.agentRead({
           ...params,
           bodyOffset,
@@ -675,72 +564,11 @@ describe("Web Space boundaries", () => {
       ).rejects.toThrow("changed");
     },
   );
-  it("releases failed submissions and permits a same-id retry without exhausting pending capacity", async () => {
-    const f = await fixture();
-    f.request.mockImplementation(async (method) => {
-      if (method === "chat.send") {
-        throw new Error("rejected before admission");
-      }
-      return { status: "ok" };
-    });
-    for (let i = 0; i < 205; i++) {
-      await expect(
-        f.service.send(
-          f.alice.user.id,
-          f.space.id,
-          f.page.id,
-          "question",
-          `failed-${i}`,
-          undefined,
-          async () => {},
-        ),
-      ).rejects.toThrow("rejected before admission");
-    }
-    f.request.mockResolvedValue({ status: "started" });
-    await expect(
-      f.service.send(
-        f.alice.user.id,
-        f.space.id,
-        f.page.id,
-        "question",
-        "failed-0",
-        undefined,
-        async () => {},
-      ),
-    ).resolves.toMatchObject({ status: "started" });
-    const runId = `space:${f.page.id}:${f.alice.user.id}:failed-0`;
-    expect(() => f.store.spaces.assertRun(f.space.agentId, runId)).not.toThrow();
-    f.service.observe({
-      event: "chat",
-      payload: { sessionKey: `agent:${f.space.agentId}:space:${f.page.id}`, state: "final", runId },
-    });
-    const sent = f.request.mock.calls.filter(([method]) => method === "chat.send").length;
-    await expect(
-      f.service.send(
-        f.alice.user.id,
-        f.space.id,
-        f.page.id,
-        "question",
-        "failed-0",
-        undefined,
-        async () => {},
-      ),
-    ).resolves.toMatchObject({ status: "ok", replayed: true });
-    expect(f.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(sent);
-  });
   it("keeps individually queued requests authorized and cancellable until native settlement", async () => {
     const f = await fixture();
     f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "editor", 1);
     const runId = `space:${f.page.id}:${f.bob.user.id}:queued`;
-    await f.service.send(
-      f.bob.user.id,
-      f.space.id,
-      f.page.id,
-      "queued",
-      "queued",
-      undefined,
-      async () => {},
-    );
+    f.store.spaces.beginRun(f.bob.user.id, f.space.id, f.page.id, runId, "queued");
     const payload = {
       sessionKey: `agent:${f.space.agentId}:space:${f.page.id}`,
       state: "final",

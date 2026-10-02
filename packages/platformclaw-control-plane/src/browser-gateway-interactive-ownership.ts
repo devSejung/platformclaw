@@ -5,6 +5,7 @@ type JsonObject = Record<string, unknown>;
 export type BrowserInteractiveAccess = {
   agentId: string;
   resolveAgentIdFromSessionKey(sessionKey: string): string | null;
+  canAccessSession?(sessionKey: string, write: boolean): boolean;
 };
 
 type OwnerBinding = {
@@ -67,7 +68,8 @@ function bindingBelongsToAccess(access: BrowserInteractiveAccess, binding: Owner
   return (
     binding.agentId === access.agentId &&
     (!binding.sessionKey ||
-      access.resolveAgentIdFromSessionKey(binding.sessionKey) === access.agentId)
+      (access.resolveAgentIdFromSessionKey(binding.sessionKey) === access.agentId &&
+        access.canAccessSession?.(binding.sessionKey, true) !== false))
   );
 }
 
@@ -122,7 +124,9 @@ export class BrowserGatewayInteractiveOwnership {
       } else {
         this.fail("invalid-params", "question.resolve requires answers or cancel=true");
       }
-      return { handled: true, result: await this.gateway.request(method, request) };
+      const result = await this.gateway.request(method, request);
+      this.projectQuestionGet(access, current);
+      return { handled: true, result };
     }
     if (method === "taskSuggestions.list") {
       const sessionKey = nonEmptyString(params.sessionKey);
@@ -144,6 +148,10 @@ export class BrowserGatewayInteractiveOwnership {
           ? { reason: params.reason }
           : {}),
       });
+      const currentOwner = this.taskSuggestionOwners.get(taskId);
+      if (!currentOwner || !bindingBelongsToAccess(access, currentOwner)) {
+        this.fail("cross-agent-denied", "task suggestion is no longer owned by browser agent");
+      }
       if (method === "taskSuggestions.accept") {
         const record = asRecord(result);
         const key = nonEmptyString(record?.key);
@@ -167,7 +175,8 @@ export class BrowserGatewayInteractiveOwnership {
         !result ||
         !projected ||
         nonEmptyString(projected.id) !== id ||
-        nonEmptyString(presentation?.kind) !== binding.kind
+        nonEmptyString(presentation?.kind) !== binding.kind ||
+        !bindingBelongsToAccess(access, binding)
       ) {
         this.fail("upstream-result-denied", "Gateway returned a mismatched approval record");
       }
@@ -185,6 +194,9 @@ export class BrowserGatewayInteractiveOwnership {
         this.fail("invalid-params", "approval kind or decision does not match the session prompt");
       }
       const result = asRecord(await this.gateway.request(method, { id, kind, decision }));
+      if (!bindingBelongsToAccess(access, binding)) {
+        this.fail("cross-agent-denied", "approval is no longer bound to the browser agent");
+      }
       const approval = asRecord(result?.approval);
       const projected = approval ? projectSessionApproval(approval) : null;
       return {
@@ -246,7 +258,8 @@ export class BrowserGatewayInteractiveOwnership {
     if (
       !replay ||
       !sessionKey ||
-      access.resolveAgentIdFromSessionKey(sessionKey) !== access.agentId
+      access.resolveAgentIdFromSessionKey(sessionKey) !== access.agentId ||
+      access.canAccessSession?.(sessionKey, true) === false
     ) {
       this.fail("upstream-result-denied", "Gateway returned a foreign approval replay");
     }
@@ -367,6 +380,7 @@ export class BrowserGatewayInteractiveOwnership {
       !kind ||
       allowedDecisions.length === 0 ||
       access.resolveAgentIdFromSessionKey(sessionKey) !== access.agentId ||
+      access.canAccessSession?.(sessionKey, true) === false ||
       (presentationAgentId && presentationAgentId !== access.agentId)
     ) {
       return false;

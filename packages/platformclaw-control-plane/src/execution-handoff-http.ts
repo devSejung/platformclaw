@@ -17,6 +17,7 @@ import {
 } from "./knowledge-vault-contracts.js";
 import type { KnowledgeVaultWikiOperation } from "./knowledge-vault-operations.js";
 import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
+import { parseSpaceReadRequest } from "./space-read-request.js";
 import type { SpaceService } from "./space-service.js";
 
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
@@ -35,53 +36,6 @@ export const PLATFORMCLAW_VAULT_SCOPE_PATH = "/platformclaw/internal/memory/vaul
 export const PLATFORMCLAW_VAULT_WIKI_PATH = "/platformclaw/internal/memory/vaults/wiki";
 
 const SPACE_READ_PATH = "/platformclaw/internal/spaces/read";
-export function parseSpaceReadRequest(
-  body: Record<string, unknown>,
-  agentId: string,
-): Parameters<SpaceService["agentRead"]>[0] {
-  const allowed = new Set([
-    "agentId",
-    "operation",
-    "query",
-    "spaceId",
-    "pageId",
-    "sessionKey",
-    "runId",
-    "messageId",
-    "bodyOffset",
-    "pageRevision",
-  ]);
-  if (
-    (body.bodyOffset !== undefined &&
-      (!Number.isSafeInteger(body.bodyOffset) ||
-        (body.bodyOffset as number) < 0 ||
-        (body.bodyOffset as number) > 32000)) ||
-    (body.pageRevision !== undefined &&
-      (!Number.isSafeInteger(body.pageRevision) || (body.pageRevision as number) < 1)) ||
-    !["search", "get", "context"].includes(String(body.operation)) ||
-    Object.keys(body).some((key) => !allowed.has(key)) ||
-    ["query", "spaceId", "pageId", "sessionKey", "runId", "messageId"].some(
-      (key) =>
-        body[key] !== undefined &&
-        (typeof body[key] !== "string" || (body[key] as string).length > 1000),
-    )
-  ) {
-    throw new ControlPlaneStateError("Invalid Space read");
-  }
-  return {
-    agentId,
-    operation: body.operation as string,
-    ...(body.query === undefined ? {} : { query: body.query as string }),
-    ...(body.spaceId === undefined ? {} : { spaceId: body.spaceId as string }),
-    ...(body.pageId === undefined ? {} : { pageId: body.pageId as string }),
-    ...(body.sessionKey === undefined ? {} : { sessionKey: body.sessionKey as string }),
-    ...(body.runId === undefined ? {} : { runId: body.runId as string }),
-    ...(body.messageId === undefined ? {} : { messageId: body.messageId as string }),
-    ...(body.bodyOffset === undefined ? {} : { bodyOffset: body.bodyOffset as number }),
-    ...(body.pageRevision === undefined ? {} : { pageRevision: body.pageRevision as number }),
-  };
-}
-
 const MAX_REQUEST_BYTES = 4 * 1024;
 // Turn selections travel between trusted services, never in the model's tool schema.
 const MAX_VAULT_SEARCH_BYTES = 144 * 1024;

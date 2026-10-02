@@ -42,6 +42,8 @@ async function requestBrowserSpace(params: {
         space: store.access(userId, spaceId),
         members: store.members(userId, spaceId),
         pages: store.pages(userId, spaceId),
+        conversations: store.conversations(userId, spaceId),
+        currentUserId: userId,
       };
     } else if (method === "platformclaw.spaces.people") {
       result = store.people(userId, spaceId, field("query", 160));
@@ -79,6 +81,23 @@ async function requestBrowserSpace(params: {
         revision(),
       );
       service.changed();
+    } else if (method === "platformclaw.spaces.conversation.create") {
+      result = await service.conversations.create(
+        userId,
+        spaceId,
+        field("pageId"),
+        field("title", 240),
+        field("requestId"),
+        revalidate,
+      );
+    } else if (method === "platformclaw.spaces.conversation.history") {
+      result = await service.conversations.history(
+        userId,
+        spaceId,
+        field("conversationId"),
+        revalidate,
+        request.messageId === undefined ? undefined : field("messageId", 256),
+      );
     } else if (method === "platformclaw.spaces.chat.history") {
       result = await service.history(
         userId,
@@ -88,16 +107,10 @@ async function requestBrowserSpace(params: {
         request.messageId === undefined ? undefined : field("messageId", 256),
       );
     } else if (method === "platformclaw.spaces.chat.send") {
-      result = await service.send(
-        userId,
-        spaceId,
-        field("pageId"),
-        field("message", 16000),
-        field("requestId"),
-        request.model === undefined ? undefined : field("model", 256),
-        revalidate,
+      throw new BrowserGatewayProxyError(
+        "method-not-allowed",
+        "Create your own conversation tab to ask your personal agent",
       );
-      service.changed();
     } else if (method === "platformclaw.spaces.search") {
       result = await service.search(userId, field("query", 1000), spaceId, revalidate);
     }
