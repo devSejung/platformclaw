@@ -1562,22 +1562,50 @@ describe("redactSensitiveText", () => {
       `fixturefw-${"C".repeat(40)}`,
       `fixture_fw_${"A".repeat(40)}`,
       `fixture_fpk_${"B".repeat(40)}`,
+      "11111111-2222-4333-8afc-123456789abc",
+      "transcript-repair:11111111-2222-4333-8afc-123456789abc",
+      `fixture_fc-${"A".repeat(32)}`,
     ].join(" ");
     const output = redactSensitiveText(input, { mode: "tools" });
     expect(output).toBe(input);
   });
 
-  it("masks Fireworks tokens that cross bounded-replacement chunk boundaries", () => {
+  it("masks boundary-aware vendor tokens across bounded-replacement chunk boundaries", () => {
     const chunkSize = 16_384;
     const prefix = `${"x".repeat(chunkSize - 2)} `;
     const suffix = "y".repeat(chunkSize);
-    const tokens = [`fw-${"C".repeat(40)}`, `fw_${"A".repeat(40)}`, `fpk_${"B".repeat(40)}`];
+    const tokens = [
+      `fw-${"C".repeat(40)}`,
+      `fw_${"A".repeat(40)}`,
+      `fpk_${"B".repeat(40)}`,
+      `fc-${"A".repeat(32)}`,
+    ];
 
     for (const token of tokens) {
       expect(redactSensitiveText(`${prefix}${token}${suffix}`, { mode: "tools" })).not.toContain(
         token,
       );
     }
+  });
+
+  it.each(["", "value: ", '"', "Bearer ", "("])(
+    "masks a Firecrawl credential after %j without changing the prefix",
+    (prefix) => {
+      const token = `fc-${"A".repeat(32)}`;
+      expect(redactSensitiveText(`${prefix}${token}`, { mode: "tools" })).toBe(
+        `${prefix}fc-AAA…AAAA`,
+      );
+      expect(redactSecrets({ idempotencyKey: `${prefix}${token}` })).toEqual({
+        idempotencyKey: `${prefix}fc-AAA…AAAA`,
+      });
+    },
+  );
+
+  it("preserves a UUID when its fc- substring starts a replacement chunk", () => {
+    const id = "11111111-2222-4333-8afc-123456789abc";
+    const prefix = "x".repeat(16_384 - id.indexOf("fc-"));
+    const input = `${prefix}${id}${"y".repeat(32_768)}`;
+    expect(redactSensitiveText(input, { mode: "tools" })).toBe(input);
   });
 
   it("masks Telegram bot tokens that cross bounded-replacement chunk boundaries", () => {
