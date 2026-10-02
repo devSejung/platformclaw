@@ -81,4 +81,16 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
     "Only you can open this conversation. Questions and final answers become shared context that agents in this Space may recall in their replies. Tool calls, execution access and chats outside this Space stay private.",
   "platformClaw.spaces.ownerConversationNotice":
     "Only you can open this tab. Space agents may recall its questions and final answers. Tool activity stays private. Shared-context history cannot be reset, rewound or deleted.",
+  "platformClaw.spaces.loadOlder": "Load older messages",
+  "platformClaw.spaces.draftStale":
+    "A newer saved revision is available. Your draft is unchanged. Copy it before replacing it, then reapply any changes you want to keep.",
+  "platformClaw.spaces.copyDraft": "Copy draft",
+  "platformClaw.spaces.reviewSavedRevision": "Review saved revision",
+  "platformClaw.spaces.replaceDraftNotice":
+    "Replacing your draft discards its unsaved changes. You can review the saved content below first.",
+  "platformClaw.spaces.keepEditing": "Keep editing",
+  "platformClaw.spaces.replaceDraft": "Discard draft and use saved revision",
+  "platformClaw.spaces.draftReplaced": "Saved revision loaded. Reapply your changes before saving.",
+  "platformClaw.spaces.refreshDraftHint":
+    "Refresh keeps your draft. If the saved revision changed, review it in the editor before retrying.",
 };

@@ -91,12 +91,22 @@ async function requestBrowserSpace(params: {
         revalidate,
       );
     } else if (method === "platformclaw.spaces.conversation.history") {
+      const offset = request.offset;
+      if (
+        offset !== undefined &&
+        (!Number.isSafeInteger(offset) || (offset as number) < 0 || request.messageId !== undefined)
+      ) {
+        throw new BrowserGatewayProxyError("invalid-params", "Invalid conversation history offset");
+      }
       result = await service.conversations.history(
         userId,
         spaceId,
         field("conversationId"),
         revalidate,
-        request.messageId === undefined ? undefined : field("messageId", 256),
+        {
+          ...(request.messageId === undefined ? {} : { messageId: field("messageId", 256) }),
+          ...(offset === undefined ? {} : { offset: offset as number }),
+        },
       );
     } else if (method === "platformclaw.spaces.chat.history") {
       result = await service.history(
