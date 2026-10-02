@@ -8,6 +8,7 @@ import type { SessionEntry } from "../../config/sessions.js";
 import {
   listSessionEntries,
   loadTranscriptEvents,
+  updateSessionEntry,
 } from "../../config/sessions/session-accessor.js";
 import type { appendExactAssistantMessageToSessionTranscript } from "../../config/sessions/transcript.runtime.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -245,7 +246,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  vi.clearAllMocks();
+  // Admission failures can leave an unconsumed one-shot attempt for the next test.
+  vi.resetAllMocks();
   state.loadManifestModelCatalogMock.mockReturnValue([]);
   state.normalizeProviderModelIdWithRuntimeMock.mockImplementation(() => undefined);
   state.runCliTurnCompactionLifecycleMock.mockImplementation(
@@ -453,6 +455,9 @@ describe("assistant transcript repair", () => {
       ok: false,
       reason: "simulated transcript table corruption",
     });
+    state.runAgentAttemptMock.mockResolvedValueOnce(
+      makeResult({ sessionId, text: "must not run before recovery", runner: "cli" }),
+    );
     await expect(
       agentCommand({ message: "user two", sessionId, sessionKey, cwd: state.workspaceDir }),
     ).rejects.toThrow("pending transcript recovery");
@@ -473,6 +478,14 @@ describe("assistant transcript repair", () => {
     );
     await agentCommand({ message: "user one", sessionId, sessionKey, cwd: state.workspaceDir });
 
+    // This valid UUID contains a substring that resembles a Firecrawl credential.
+    // Recovery must keep its exact identity even when a cleanup failure forces replay.
+    await updateSessionEntry({ sessionKey, storePath: requireStorePath() }, (entry) => ({
+      pendingTranscriptRepair: entry.pendingTranscriptRepair?.map((repair) => ({
+        ...repair,
+        id: "11111111-2222-4333-8afc-123456789abc",
+      })),
+    }));
     state.persistSessionEntryMock.mockRejectedValueOnce(new Error("simulated cleanup failure"));
     state.runAgentAttemptMock.mockResolvedValueOnce(
       makeResult({ sessionId, text: "assistant two", runner: "cli" }),
@@ -492,6 +505,13 @@ describe("assistant transcript repair", () => {
       .filter((message) => message.role === "assistant")
       .map((message) => message.text);
     expect(assistantTexts.filter((text) => text === repairedText)).toHaveLength(1);
+    expect(
+      await readSessionMessages({ agentId: "main", sessionId, storePath: requireStorePath() }),
+    ).toContainEqual(
+      expect.objectContaining({
+        idempotencyKey: "transcript-repair:11111111-2222-4333-8afc-123456789abc",
+      }),
+    );
   });
 
   it("does not queue a repair for a final owned by another transcript writer", async () => {
