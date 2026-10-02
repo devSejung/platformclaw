@@ -806,3 +806,25 @@ platformclaw-space-conversation-history,
     padding: 8px 16px;
   }
 }
+
+.pc-space-draft-recovery {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.pc-space-draft-recovery summary {
+  margin-top: 12px;
+  cursor: pointer;
+}
+.pc-space-draft-recovery .pc-space-editor-actions {
+  flex-wrap: wrap;
+}
+.pc-space-saved-preview {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pc-space-history-older {
+  align-self: center;
+  margin: 8px;
+}

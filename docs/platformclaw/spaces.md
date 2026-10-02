@@ -37,11 +37,17 @@ retained.
 - Editors edit pages and create and run their own sessions.
 - Viewers can read shared pages and their own existing session history, but
   cannot create sessions or run new turns. Changing someone to Viewer cancels
-  their active Space work and removes write authority.
+  their active Space work and removes write authority. **Load older messages**
+  reads one bounded page of their own retained history at a time.
 
 Role changes apply only to the Space. They do not grant organization
 administration or another person's personal tools. Page edits use revision
 checks so concurrent changes require a reload instead of overwriting notes.
+**Refresh** keeps your draft and its original revision. If a newer saved revision
+is available, copy your draft before choosing **Review saved revision**. Review the
+saved text, then choose **Discard draft and use saved revision** to replace the
+draft. Reconcile your changes before saving.
+Canceling the replacement keeps the draft unchanged.
 Initial page limits remain 100 Spaces created per employee, 200 members and
 200 pages per Space, and fewer than 20 nesting levels.
 
@@ -69,7 +75,9 @@ records, it fails with guidance to choose an exact permitted target or use Space
 Q&A recall; unrelated native targets keep the existing deployment policy.
 Cross-personal-agent spawning does not grant access to another employee's VM.
 
-Only questions and final assistant text are eligible for agent recall. Creating
+Only questions and final assistant text are eligible for agent recall. Interrupted
+assistant partials stay in their owner's history but are excluded from shared
+Q&A reads and search. Creating
 a Space session therefore means that its Q&A may be cited or summarized in
 another current member's agent response. Do not use it for content that must
 remain confidential from those members. This is an access boundary, not an

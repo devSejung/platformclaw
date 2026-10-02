@@ -23,9 +23,15 @@ const page = {
 };
 const member = { userId: "alice", accountId: "alice", displayName: "Alice", role: "owner" };
 const roots: HTMLElement[] = [];
+const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
 afterEach(() => {
   roots.splice(0).forEach((root) => root.remove());
   vi.restoreAllMocks();
+  if (clipboardDescriptor) {
+    Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+  } else {
+    Reflect.deleteProperty(navigator, "clipboard");
+  }
   history.replaceState(null, "", "/");
 });
 beforeEach(async () => {
@@ -249,6 +255,89 @@ describe("Space issue page UX", () => {
       }
     },
   );
+  it("loads older own read-only history once per click and rejects late pages after navigation", async () => {
+    const own: SpaceConversation = {
+      id: "own-conversation",
+      spaceId: space.id,
+      pageId: page.id,
+      title: "Own investigation",
+      ownerId: "alice",
+      ownerName: "Alice",
+      agentId: "personal-alice",
+      sessionKey: "agent:personal-alice:space-session:00000000-0000-4000-8000-000000000004",
+      createdAt: 100,
+      canWrite: false,
+    };
+    const { element, request } = await mount("viewer", [own]);
+    const original = request.getMockImplementation()!;
+    const message = (id: number) => ({
+      role: "user",
+      content: [{ type: "text", text: `Own message ${id}` }],
+      __openclaw: { seq: id },
+    });
+    let release!: (value: unknown) => void;
+    request.mockImplementation(async (method, params) => {
+      if (!method.endsWith("conversation.history")) {
+        return original(method, params);
+      }
+      if (params?.offset !== undefined) {
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return {
+        messages: [message(3)],
+        hasMore: true,
+        nextOffset: 100,
+        totalMessages: 201,
+        sessionId: "session-a",
+      };
+    });
+    element.selectPage(page);
+    await vi.waitFor(() => expect(button(element, "Load older messages")).toBeDefined());
+    const older = button(element, "Load older messages");
+    older.click();
+    older.click();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    const olderRequests = () =>
+      request.mock.calls.filter(
+        ([method, params]) =>
+          method.endsWith("conversation.history") && params?.offset !== undefined,
+      );
+    expect(olderRequests()).toHaveLength(1);
+    expect(olderRequests()[0]?.[1]).toEqual({
+      spaceId: space.id,
+      conversationId: own.id,
+      offset: 100,
+    });
+    release({
+      messages: [message(2), message(3)],
+      hasMore: true,
+      nextOffset: 200,
+      totalMessages: 201,
+      sessionId: "session-a",
+    });
+    await vi.waitFor(() =>
+      expect(element.querySelector("platformclaw-space-conversation-history")).toHaveProperty(
+        "messages",
+        [message(2), message(3)],
+      ),
+    );
+    button(element, "Load older messages").click();
+    expect(olderRequests()).toHaveLength(2);
+    const shared = element.querySelector<HTMLElement>('wa-tab[panel="shared"]')!;
+    shared.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await element.updateComplete;
+    release({ messages: [message(1)], hasMore: false, sessionId: "session-a" });
+    await vi.waitFor(() => expect(element.textContent).toContain("Earlier question"));
+    expect(element.querySelector("platformclaw-space-conversation-history")).toBeNull();
+    expect(element.querySelector("openclaw-chat-pane")).toBeNull();
+    expect(
+      request.mock.calls.some(([method]) => /(?:send|abort|reset|rewind|delete)$/.test(method)),
+    ).toBe(false);
+  });
   it("reuses a creation request after an ambiguous failure and blocks repeated pending submits", async () => {
     const { element, request } = await mount();
     const original = request.getMockImplementation()!;
@@ -461,15 +550,16 @@ describe("Space issue page UX", () => {
     expect(element.textContent).toContain("Timing issue");
     expect(request.mock.calls.some(([method]) => method.endsWith("page.save"))).toBe(false);
   });
-  it("preserves the draft's base revision across revalidation and keeps a rejected draft editable", async () => {
-    const { element, request, emit } = await mount();
+  it("retains a rejected draft across Refresh until explicit saved-revision replacement", async () => {
+    const { element, request } = await mount();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     await beginEdit(element);
     input(element, "Title", "My draft");
     input(element, "Issue description / notes", "My notes");
-    const remotePage = { ...page, title: "Remote title", body: "Remote notes", revision: 2 };
+    let remotePage = { ...page, title: "Remote title", body: "Remote notes", revision: 2 };
     const original = request.getMockImplementation()!;
-    let saves = 0;
-    request.mockImplementation(async (method) => {
+    request.mockImplementation(async (method, params) => {
       if (method.endsWith(".get")) {
         return {
           space,
@@ -480,48 +570,78 @@ describe("Space issue page UX", () => {
         };
       }
       if (method.endsWith(".save")) {
-        if (saves++ === 0) {
-          throw new Error("Page revision conflict");
+        if (params?.expectedRevision !== remotePage.revision) {
+          throw new Error("Space changed; reload before retrying");
         }
-        return { ...remotePage, revision: 3 };
+        remotePage = {
+          ...remotePage,
+          title: String(params.title),
+          body: String(params.body),
+          revision: remotePage.revision + 1,
+        };
+        return remotePage;
       }
-      return original(method);
+      return original(method, params);
     });
-    emit({ event: "platformclaw.spaces.invalidated", payload: {} });
-    await vi.waitFor(() => expect(element.textContent).toContain("Remote title"));
-    expect(element.querySelector<HTMLInputElement>("[data-title]")!.value).toBe("My draft");
     button(element, "Save").click();
     await vi.waitFor(() =>
       expect(element.querySelector("[role=alert]")?.textContent).toContain(
-        "Page revision conflict",
+        "reload before retrying",
       ),
     );
-    expect(request).toHaveBeenCalledWith("platformclaw.spaces.page.save", {
-      spaceId: space.id,
-      pageId: page.id,
-      title: "My draft",
-      body: "My notes",
-      expectedRevision: 1,
-    });
+    button(element, "Refresh").click();
+    await vi.waitFor(() =>
+      expect(element.querySelector(".pc-space-heading")?.textContent).toContain("Remote title"),
+    );
     expect(element.querySelector<HTMLInputElement>("[data-title]")!.value).toBe("My draft");
     expect(element.querySelector<HTMLTextAreaElement>(".pc-space-editor textarea")!.value).toBe(
       "My notes",
     );
-    button(element, "Cancel").click();
+    button(element, "Save").click();
+    await vi.waitFor(() =>
+      expect(request.mock.calls.filter(([method]) => method.endsWith("page.save"))).toHaveLength(2),
+    );
+    expect(
+      request.mock.calls
+        .filter(([method]) => method.endsWith("page.save"))
+        .every(([, params]) => params?.expectedRevision === 1),
+    ).toBe(true);
+    await vi.waitFor(() => expect(button(element, "Save").disabled).toBe(false));
+    button(element, "Copy draft").click();
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("My draft\n\nMy notes"));
+    const details = element.querySelector<HTMLDetailsElement>(".pc-space-draft-recovery details")!;
+    details.open = true;
+    expect(details.textContent).toContain("Remote notes");
+    button(element, "Keep editing").click();
+    expect(details.open).toBe(false);
+    expect(element.querySelector<HTMLInputElement>("[data-title]")!.value).toBe("My draft");
+    details.open = true;
+    details.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(details.open).toBe(false);
+    expect(element.querySelector(".pc-space-editor")).not.toBeNull();
+    details.open = true;
+    const replace = button(element, "Discard draft and use saved revision");
+    replace.click();
+    replace.click();
     await element.updateComplete;
-    expect(element.textContent).toContain("Remote notes");
-    await beginEdit(element);
+    expect(element.querySelector<HTMLInputElement>("[data-title]")!.value).toBe("Remote title");
+    expect(element.querySelector<HTMLTextAreaElement>(".pc-space-editor textarea")!.value).toBe(
+      "Remote notes",
+    );
+    expect(request.mock.calls.filter(([method]) => method.endsWith("page.save"))).toHaveLength(2);
+    input(element, "Issue description / notes", "Remote notes\nMy notes");
     button(element, "Save").click();
     await vi.waitFor(() =>
       expect(request).toHaveBeenCalledWith("platformclaw.spaces.page.save", {
         spaceId: space.id,
         pageId: page.id,
         title: "Remote title",
-        body: "Remote notes",
+        body: "Remote notes\nMy notes",
         expectedRevision: 2,
       }),
     );
     await vi.waitFor(() => expect(element.querySelector("[data-title]")).toBeNull());
+    expect(remotePage.body).toBe("Remote notes\nMy notes");
   });
   it("starts a fresh edit base after explicit Space navigation", async () => {
     const { element, request } = await mount();

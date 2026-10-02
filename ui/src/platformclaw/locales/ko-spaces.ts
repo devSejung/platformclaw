@@ -80,4 +80,17 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
     "이 대화는 본인만 열어볼 수 있습니다. 질문과 최종 답변은 같은 Space의 에이전트가 답변에 참고할 공용 맥락으로 쓰입니다. 도구 호출·실행 권한과 Space 밖 대화는 공유되지 않습니다.",
   "platformClaw.spaces.ownerConversationNotice":
     "이 탭은 본인만 볼 수 있습니다. Space 에이전트는 질문과 최종 답변을 참고하며 도구 활동은 공유되지 않습니다. 공용 맥락 보존을 위해 초기화·되감기·삭제는 제한됩니다.",
+  "platformClaw.spaces.loadOlder": "이전 메시지 불러오기",
+  "platformClaw.spaces.draftStale":
+    "더 최근에 저장된 수정본이 있습니다. 작성 중인 내용은 유지됩니다. 교체하기 전에 복사한 뒤, 유지할 변경 내용을 다시 반영하세요.",
+  "platformClaw.spaces.copyDraft": "작성 내용 복사",
+  "platformClaw.spaces.reviewSavedRevision": "저장된 수정본 확인",
+  "platformClaw.spaces.replaceDraftNotice":
+    "교체하면 저장하지 않은 변경 내용이 사라집니다. 먼저 아래의 저장된 내용을 확인하세요.",
+  "platformClaw.spaces.keepEditing": "계속 편집",
+  "platformClaw.spaces.replaceDraft": "작성 내용을 버리고 저장된 수정본 사용",
+  "platformClaw.spaces.draftReplaced":
+    "저장된 수정본을 불러왔습니다. 변경 내용을 다시 반영한 뒤 저장하세요.",
+  "platformClaw.spaces.refreshDraftHint":
+    "새로고침해도 작성 중인 내용은 유지됩니다. 저장된 수정본이 변경되었다면 편집기에서 확인한 뒤 다시 시도하세요.",
 };

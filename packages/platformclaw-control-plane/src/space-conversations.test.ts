@@ -610,6 +610,84 @@ describe("Space-created personal conversations", () => {
     await expect(create(f, f.alice, "new-after-demotion")).rejects.toThrow("unavailable");
   });
 
+  it("pages an own Viewer's retained history through the bounded native contract", async () => {
+    const f = await fixture();
+    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "owner", 1);
+    const conversation = await create(f);
+    f.store.spaces.setMember(f.bob.user.id, f.space.id, f.alice.user.id, "viewer", 2);
+    const history = (params: Record<string, unknown> = {}, token = f.alice.token) =>
+      f.proxy.request(token, rpc + "conversation.history", {
+        spaceId: f.space.id,
+        conversationId: conversation.id,
+        ...params,
+      });
+    const first = {
+      sessionKey: conversation.sessionKey,
+      sessionId: "retained-transcript",
+      messages: [textMessage("assistant", "newer", "Latest answer")],
+      offset: 0,
+      hasMore: true,
+      nextOffset: 100,
+      totalMessages: 101,
+    };
+    f.request.mockResolvedValueOnce(first);
+    expect(await history()).toMatchObject({ ...first, conversation: { canWrite: false } });
+    const older = {
+      sessionKey: conversation.sessionKey,
+      sessionId: first.sessionId,
+      messages: [textMessage("assistant", "older", "Older answer")],
+      offset: 100,
+      hasMore: false,
+      totalMessages: first.totalMessages,
+    };
+    f.request.mockResolvedValueOnce(older);
+    const olderPage = await history({ offset: 100 });
+    expect(olderPage).toMatchObject(older);
+    expect(olderPage).not.toHaveProperty("nextOffset");
+    expect(f.request).toHaveBeenLastCalledWith("chat.history", {
+      agentId: conversation.agentId,
+      sessionKey: conversation.sessionKey,
+      limit: 100,
+      offset: 100,
+    });
+    const calls = f.request.mock.calls.length;
+    for (const offset of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, "100"]) {
+      await expect(history({ offset })).rejects.toThrow("offset");
+    }
+    await expect(history({ offset: 0, messageId: "older" })).rejects.toThrow("offset");
+    await expect(history({ offset: 100, sessionId: first.sessionId })).rejects.toThrow("parameter");
+    await expect(history({ offset: 100 }, f.bob.token)).rejects.toThrow("unavailable");
+    expect(f.request).toHaveBeenCalledTimes(calls);
+  });
+
+  it.each(["membership", "binding"])(
+    "revalidates %s before returning an older owner-history page",
+    async (changed) => {
+      const f = await fixture();
+      f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "owner", 1);
+      const conversation = await create(f);
+      f.request.mockImplementationOnce(async () => {
+        if (changed === "membership") {
+          f.store.spaces.setMember(f.bob.user.id, f.space.id, f.alice.user.id, null, 2);
+        } else {
+          await f.store.transitionAgent({
+            bindingId: f.alice.binding.id,
+            state: "disabled",
+            changedAt: Date.now(),
+          });
+        }
+        return { messages: [textMessage("assistant", "older", "Older answer")], hasMore: false };
+      });
+      await expect(
+        f.proxy.request(f.alice.token, rpc + "conversation.history", {
+          spaceId: f.space.id,
+          conversationId: conversation.id,
+          offset: 100,
+        }),
+      ).rejects.toThrow(changed === "membership" ? "unavailable" : "active personal agent");
+    },
+  );
+
   it("cancels a native send admitted during membership revocation", async () => {
     const f = await fixture();
     f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "owner", 1);

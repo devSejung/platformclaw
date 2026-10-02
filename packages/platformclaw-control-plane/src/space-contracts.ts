@@ -46,7 +46,7 @@ export const SPACE_RPC_PARAMS = {
   "platformclaw.spaces.chat.history": ["spaceId", "pageId", "messageId"],
   "platformclaw.spaces.chat.send": ["spaceId", "pageId", "message", "requestId", "model"],
   "platformclaw.spaces.conversation.create": ["spaceId", "pageId", "title", "requestId"],
-  "platformclaw.spaces.conversation.history": ["spaceId", "conversationId", "messageId"],
+  "platformclaw.spaces.conversation.history": ["spaceId", "conversationId", "messageId", "offset"],
   "platformclaw.spaces.search": ["spaceId", "query"],
 } as const;
 export const SPACE_RPC_METHODS = Object.keys(SPACE_RPC_PARAMS) as Array<

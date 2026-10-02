@@ -67,6 +67,8 @@ function projectSpaceConversationMessages(
     if (
       role === "assistant" &&
       (toolActivity ||
+        // Gateway-injected stopped partials keep stopReason="stop"; the abort marker is authoritative.
+        (isRecord(message.openclawAbort) && message.openclawAbort.aborted === true) ||
         (message.phase !== undefined && message.phase !== "final_answer") ||
         (message.stopReason !== undefined &&
           message.stopReason !== "stop" &&
@@ -212,14 +214,14 @@ export class SpaceConversationService {
     spaceId: string,
     conversationId: string,
     revalidate: () => Promise<void>,
-    messageId?: string,
+    page: { messageId?: string; offset?: number } = {},
   ) {
     const conversation = this.spaces.conversation(userId, spaceId, conversationId);
     const result = await this.gateway.request("chat.history", {
       agentId: conversation.agentId,
       sessionKey: conversation.sessionKey,
       limit: 100,
-      ...(messageId ? { messageId } : {}),
+      ...page,
     });
     await revalidate();
     const current = this.spaces.conversation(userId, spaceId, conversationId);
@@ -237,6 +239,11 @@ export class SpaceConversationService {
       conversation: current,
       sessionKey: conversation.sessionKey,
       messages: result.messages,
+      ...(typeof result.sessionId === "string" ? { sessionId: result.sessionId } : {}),
+      ...(typeof result.offset === "number" ? { offset: result.offset } : {}),
+      ...(typeof result.hasMore === "boolean" ? { hasMore: result.hasMore } : {}),
+      ...(typeof result.nextOffset === "number" ? { nextOffset: result.nextOffset } : {}),
+      ...(typeof result.totalMessages === "number" ? { totalMessages: result.totalMessages } : {}),
     };
   }
 
