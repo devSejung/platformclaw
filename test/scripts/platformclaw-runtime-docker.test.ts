@@ -1175,6 +1175,84 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
     expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
   });
 
+  it("enables SkillHub commands without opting into the optional registry profile", () => {
+    const source = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as {
+      agents: { defaults: { sandbox: { docker: { image: string } } } };
+      plugins: { entries: Record<string, { enabled?: boolean }> };
+      skills?: { install?: { allowUploadedArchives?: boolean } };
+    };
+    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+
+    expect(source.plugins.entries["platformclaw-skillhub"]).toEqual({ enabled: true });
+    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test", false);
+
+    expect(result.config.plugins.entries["platformclaw-skillhub"]).toEqual({ enabled: true });
+    expect(result.config.skills?.install?.allowUploadedArchives).not.toBe(true);
+    expect(() =>
+      validateManagedConfig(result.config, "platformclaw-sandbox:test", false),
+    ).not.toThrow();
+    expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test", false).changed).toBe(
+      false,
+    );
+  });
+
+  it.each(["missing", "disabled", "not-allowed", "denied"] as const)(
+    "repairs %s SkillHub command enablement in existing managed deployments",
+    (state) => {
+      const source = JSON.parse(
+        readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+      ) as {
+        agents: { defaults: { sandbox: { docker: { image: string } } } };
+        plugins: {
+          allow?: string[];
+          deny?: string[];
+          entries: Record<
+            string,
+            { enabled?: boolean; hooks?: { allowPromptInjection?: boolean } }
+          >;
+        };
+      };
+      source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
+      const pluginId = "platformclaw-skillhub";
+      const preservedHooks = { allowPromptInjection: false };
+      source.plugins.entries[pluginId] = { enabled: true, hooks: preservedHooks };
+      if (state === "missing") {
+        delete source.plugins.entries[pluginId];
+      } else if (state === "disabled") {
+        source.plugins.entries[pluginId].enabled = false;
+      } else if (state === "not-allowed") {
+        source.plugins.allow = Object.keys(source.plugins.entries).filter((id) => id !== pluginId);
+      } else {
+        source.plugins.deny = [pluginId, "unrelated-plugin"];
+      }
+      expect(() => validateManagedConfig(source, "platformclaw-sandbox:test", false)).toThrow(
+        "managed PlatformClaw execution policy",
+      );
+
+      const result = reconcileManagedConfig(source, "platformclaw-sandbox:test", false);
+
+      expect(result.changed).toBe(true);
+      expect(result.config.plugins.entries[pluginId]).toEqual({
+        enabled: true,
+        ...(state === "missing" ? {} : { hooks: preservedHooks }),
+      });
+      if (state === "not-allowed") {
+        expect(result.config.plugins.allow).toEqual([...source.plugins.allow!, pluginId]);
+      }
+      if (state === "denied") {
+        expect(result.config.plugins.deny).toEqual(["unrelated-plugin"]);
+      }
+      expect(() =>
+        validateManagedConfig(result.config, "platformclaw-sandbox:test", false),
+      ).not.toThrow();
+      expect(
+        reconcileManagedConfig(result.config, "platformclaw-sandbox:test", false).changed,
+      ).toBe(false);
+    },
+  );
+
   it("keeps managed PlatformClaw product identity prompt injection enabled", () => {
     const source = JSON.parse(
       readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
@@ -1369,6 +1447,7 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
       "memory-wiki",
       "platformclaw-execution",
       "platformclaw-org-memory",
+      "platformclaw-skillhub",
       "platformclaw-user-mcp",
     ]);
     expect(result.config.plugins.deny).toEqual(["blocked-plugin"]);

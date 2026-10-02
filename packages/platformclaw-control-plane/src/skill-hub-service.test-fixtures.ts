@@ -218,6 +218,7 @@ export async function createSkillHubServiceFixture(
     listScopes: vi.fn(async () => []),
   } as unknown as OrganizationService;
   const service = new SkillHubService({
+    buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
     authService: { authenticateToken } as unknown as BrowserAuthService,
     store,
     adapter,

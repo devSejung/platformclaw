@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { PlatformUser } from "./contracts.js";
+import { assertSkillHubWorkspace } from "./skill-hub-command-workspace.js";
 import { SkillHubRegistryMutationLock } from "./skill-hub-registry-mutation-lock.js";
 import { SkillHubServiceBase } from "./skill-hub-service-base.js";
 import {
@@ -23,6 +24,7 @@ import {
   validateDownloadedArchive,
   type AuthenticatedWorkspace,
   type SkillInstallTarget,
+  type SkillHubAudience,
 } from "./skill-hub-service-support.js";
 import { downloadVmWorkspaceArchive } from "./skill-hub-workspace-export.js";
 import { validateZipArchiveFile, ZipArchiveValidationError } from "./zip-archive-validator.js";
@@ -148,11 +150,22 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     };
   }
 
-  async search(user: PlatformUser, query: string, limit = 20) {
+  async search(
+    user: PlatformUser,
+    query: string,
+    limit = 20,
+    audience: SkillHubAudience = "employee",
+    options: { requireComplete?: boolean } = {},
+  ) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
       throw new SkillHubServiceError("limit must be between 1 and 50", 400);
     }
     const result = await this.adapterCall(() => this.options.adapter.search(query.trim(), limit));
+    if (options.requireComplete && result.total > result.items.length) {
+      throw new SkillHubServiceError("search is incomplete; specify namespace/slug", 409, {
+        code: "incomplete-search",
+      });
+    }
     const visibility = await Promise.all(
       result.items.map(
         async (item) =>
@@ -163,6 +176,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
             item.slug,
             item.visibility,
             item.latestVersion,
+            audience,
           )),
       ),
     );
@@ -170,71 +184,8 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     return { items, total: items.length };
   }
 
-  async commandCatalog(user: PlatformUser, page: number, pageSize = 20) {
-    if (!Number.isSafeInteger(page) || page < 1 || page > 25) {
-      throw new SkillHubServiceError("page must be between 1 and 25", 400);
-    }
-    const fetchLimit = page * pageSize;
-    const result = await this.adapterCall(() => this.options.adapter.search("", fetchLimit));
-    const visible = (
-      await Promise.all(
-        result.items.map(async (item) => ({
-          item,
-          allowed:
-            this.namespaces.has(item.namespace.toLowerCase()) &&
-            (await this.canAccessSkill(
-              user,
-              item.namespace.toLowerCase(),
-              item.slug,
-              item.visibility,
-              item.latestVersion,
-            )),
-        })),
-      )
-    )
-      .filter((entry) => entry.allowed)
-      .map((entry) => entry.item);
-    return {
-      items: visible.slice((page - 1) * pageSize, page * pageSize),
-      page,
-      pageSize,
-      hasNext: result.total > fetchLimit || visible.length > page * pageSize,
-      registryTotal: result.total,
-    };
-  }
-
-  async resolveCommandSkill(user: PlatformUser, raw: string) {
-    const value = raw.trim().toLowerCase();
-    if (!value) {
-      throw new SkillHubServiceError("skill slug is required", 400);
-    }
-    const separator = value.indexOf("/");
-    if (separator >= 0) {
-      const namespace = this.authorizeNamespace(value.slice(0, separator));
-      const slug = safeName(value.slice(separator + 1), "skill slug", SKILL_KEY_PATTERN);
-      const detail = await this.detail(user, namespace, slug);
-      const version = detail.versions.find((candidate) => candidate.downloadAvailable)?.version;
-      if (!version) {
-        throw new SkillHubServiceError("skill has no downloadable version", 409);
-      }
-      return { namespace, slug, version };
-    }
-    const slug = safeName(value, "skill slug", SKILL_KEY_PATTERN);
-    const result = await this.search(user, slug, 50);
-    const matches = result.items.filter((item) => item.slug.toLowerCase() === slug);
-    if (matches.length === 0) {
-      throw new SkillHubServiceError(`skill not found: ${slug}`, 404);
-    }
-    if (matches.length > 1) {
-      throw new SkillHubServiceError("skill slug is ambiguous", 409, {
-        candidates: matches.map((item) => `${item.namespace}/${item.slug}`),
-      });
-    }
-    const match = matches[0]!;
-    return { namespace: match.namespace, slug: match.slug, version: match.latestVersion };
-  }
-
   async workspaceSkills(actor: AuthenticatedWorkspace, source: SkillInstallTarget) {
+    await assertSkillHubWorkspace(this.options.store, actor);
     await this.authorizeInstallTarget(actor.agentId, source);
     const status = await this.gatewayCall<{
       skills?: Array<{
@@ -248,7 +199,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     }>("skills.status", {
       agentId: actor.agentId,
       refresh: true,
-      backendTarget: source,
+      ...(actor.roomBinding ? {} : { backendTarget: source }),
     });
     const ownerSource =
       source === "assigned_vm" ? "platformclaw-vm-workspace" : "openclaw-workspace";
@@ -268,16 +219,10 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     };
   }
 
-  async commandInstalled(actor: AuthenticatedWorkspace) {
-    const execution = await this.resolveExecutionTarget(actor.agentId);
-    const workspace = await this.workspaceSkills(actor, execution.activeTarget);
-    return { target: workspace.source, items: workspace.items };
-  }
-
   async uninstall(actor: AuthenticatedWorkspace, slugRaw: string) {
     const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
     const execution = await this.resolveExecutionTarget(actor.agentId);
-    const installed = await this.commandInstalled(actor);
+    const installed = await this.workspaceSkills(actor, execution.activeTarget);
     const item = installed.items.find((candidate) => candidate.skillKey === slug);
     if (!item) {
       throw new SkillHubServiceError(`skill is not installed on the active target: ${slug}`, 404);
@@ -285,11 +230,12 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     if (!/^sha256:[a-f0-9]{16}$/u.test(item.revision ?? "")) {
       throw new SkillHubServiceError("installed skill revision is unavailable", 409);
     }
+    await assertSkillHubWorkspace(this.options.store, actor);
     const result = await this.gatewayCall<Record<string, unknown>>("skills.uninstall", {
       agentId: actor.agentId,
       slug,
       destination: "sandbox-backend",
-      backendTarget: execution.activeTarget,
+      ...(actor.roomBinding ? {} : { backendTarget: execution.activeTarget }),
       expectedTargetRevision: execution.targetRevision,
       expectedSkillRevision: item.revision,
     });
@@ -304,12 +250,17 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     return { ok: true, slug, version: item.version, target: execution.activeTarget };
   }
 
-  async detail(user: PlatformUser, namespaceRaw: string, slugRaw: string) {
+  async detail(
+    user: PlatformUser,
+    namespaceRaw: string,
+    slugRaw: string,
+    audience: SkillHubAudience = "employee",
+  ) {
     const namespace = this.authorizeNamespace(namespaceRaw);
     const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
     const skill = await this.adapterCall(() => this.options.adapter.getSkill(namespace, slug));
     this.validateSkillIdentity(skill.namespace, skill.slug, namespace, slug);
-    await this.authorizeSkillAccess(user, namespace, slug, skill.visibility);
+    await this.authorizeSkillAccess(user, namespace, slug, skill.visibility, undefined, audience);
     const versions = await this.adapterCall(() =>
       this.options.adapter.listVersions(namespace, slug),
     );
@@ -405,6 +356,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
         namespace,
         skill,
       );
+      await assertSkillHubWorkspace(this.options.store, actor);
       const result = await this.adapterCall(() =>
         this.options.adapter.publish({
           namespace,
@@ -485,6 +437,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
         namespace,
         slug,
       );
+      await assertSkillHubWorkspace(this.options.store, actor);
       const result = await this.adapterCall(() =>
         this.options.adapter.publish({
           namespace,
@@ -585,13 +538,20 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     const version = validVersion(params.version);
     const detail = await this.adapterCall(() => this.options.adapter.getSkill(namespace, slug));
     this.validateSkillIdentity(detail.namespace, detail.slug, namespace, slug);
-    await this.authorizeSkillAccess(actor.user, namespace, slug, detail.visibility, version);
+    await this.authorizeSkillAccess(
+      actor.user,
+      namespace,
+      slug,
+      detail.visibility,
+      version,
+      actor.roomBinding ? "room" : "employee",
+    );
     const status = await this.gatewayCall<{
       skills?: Array<{ skillKey?: string; source?: string; version?: string; revision?: string }>;
     }>("skills.status", {
       agentId: actor.agentId,
       refresh: true,
-      backendTarget: params.destination,
+      ...(actor.roomBinding ? {} : { backendTarget: params.destination }),
     });
     const installedSource =
       params.destination === "assigned_vm" ? "platformclaw-vm-workspace" : "openclaw-workspace";
@@ -687,7 +647,15 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       this.options.adapter.getSkill(namespace, slug),
     );
     this.validateSkillIdentity(currentDetail.namespace, currentDetail.slug, namespace, slug);
-    await this.authorizeSkillAccess(actor.user, namespace, slug, currentDetail.visibility, version);
+    await this.authorizeSkillAccess(
+      actor.user,
+      namespace,
+      slug,
+      currentDetail.visibility,
+      version,
+      actor.roomBinding ? "room" : "employee",
+    );
+    await assertSkillHubWorkspace(this.options.store, actor);
     const result = await this.gatewayCall<Record<string, unknown>>("skills.install", {
       agentId: actor.agentId,
       source: "upload",
@@ -696,7 +664,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       force: replacing,
       sha256,
       destination: "sandbox-backend",
-      backendTarget: params.destination,
+      ...(actor.roomBinding ? {} : { backendTarget: params.destination }),
       expectedTargetRevision: execution.targetRevision,
       ...(installedRevision ? { expectedSkillRevision: installedRevision } : {}),
     });

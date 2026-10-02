@@ -90,9 +90,19 @@ export function registerPlatformClawSkillHubCommand(api: OpenClawPluginApi): voi
     acceptsArgs: true,
     requireAuth: true,
     handler: async (ctx) => {
+      const target = /^(dm|room):(.+)$/u.exec(ctx.to ?? "");
+      if (!target || ctx.from !== ctx.to || !ctx.accountId || !ctx.agentId || !ctx.sessionKey) {
+        return {
+          text: "대화방 정보를 확인할 수 없습니다. 해당 대화에서 다시 시도해 주세요.",
+          isError: true,
+        };
+      }
       const senderId = ctx.senderId?.trim();
       if (!senderId) {
-        return { text: "Employee identity is unavailable.", isError: true };
+        return {
+          text: "직원 계정을 확인할 수 없습니다. 웹에서 로그인한 뒤 다시 시도해 주세요.",
+          isError: true,
+        };
       }
       let guarded: Awaited<ReturnType<typeof fetchWithSsrFGuard>>;
       try {
@@ -110,7 +120,18 @@ export function registerPlatformClawSkillHubCommand(api: OpenClawPluginApi): voi
               Authorization: `Bearer ${endpoint.token}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ accountId: senderId, args: ctx.args ?? "" }),
+            body: JSON.stringify({
+              accountId: senderId,
+              args: ctx.args ?? "",
+              locale: "ko",
+              context: {
+                accountId: ctx.accountId,
+                conversationType: target[1],
+                conversationId: target[2],
+                agentId: ctx.agentId,
+                sessionKey: ctx.sessionKey,
+              },
+            }),
           },
           maxRedirects: 0,
           timeoutMs: 120_000,
@@ -119,7 +140,10 @@ export function registerPlatformClawSkillHubCommand(api: OpenClawPluginApi): voi
         });
       } catch (error) {
         api.logger.warn(`SkillHub command failed: ${String(error)}`);
-        return { text: "SkillHub is unavailable. Try again later.", isError: true };
+        return {
+          text: "Skill Hub에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+          isError: true,
+        };
       }
       try {
         let body: Record<string, unknown>;
@@ -127,7 +151,10 @@ export function registerPlatformClawSkillHubCommand(api: OpenClawPluginApi): voi
           body = await readResponse(guarded.response);
         } catch (error) {
           api.logger.warn(`SkillHub response failed: ${String(error)}`);
-          return { text: "SkillHub returned an invalid response.", isError: true };
+          return {
+            text: "Skill Hub 응답을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+            isError: true,
+          };
         }
         if (!guarded.response.ok) {
           const candidates =
@@ -143,8 +170,11 @@ export function registerPlatformClawSkillHubCommand(api: OpenClawPluginApi): voi
           };
         }
         return typeof body.text === "string"
-          ? { text: body.text }
-          : { text: "SkillHub returned an invalid response.", isError: true };
+          ? { text: body.text, ...(body.isError === true ? { isError: true } : {}) }
+          : {
+              text: "Skill Hub 응답을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+              isError: true,
+            };
       } finally {
         await guarded.release();
       }

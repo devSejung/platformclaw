@@ -15,6 +15,7 @@ export const REQUIRED_MANAGED_PLUGIN_IDS = [
   "memory-wiki",
   "platformclaw-execution",
   "platformclaw-org-memory",
+  "platformclaw-skillhub",
   "platformclaw-user-mcp",
 ];
 

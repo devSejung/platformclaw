@@ -142,6 +142,12 @@ describe("PlatformClaw Skill Hub integration", () => {
       })),
     } as unknown as BrowserAuthService;
     const store = {
+      getUserById: vi.fn(async () => ({
+        id: "user-one",
+        status: "active",
+        globalRole: "member",
+        groups: ["engineering"],
+      })),
       getPersonalExecutionProfile: vi.fn(async () => null),
       getVmAllocationForAgent: vi.fn(async () => null),
       getPersonalAgentBinding: vi.fn(async () => ({
@@ -179,6 +185,7 @@ describe("PlatformClaw Skill Hub integration", () => {
       enqueueSkillHubGovernanceJob: vi.fn(async () => undefined),
     } as unknown as SkillHubStore;
     const service = new SkillHubService({
+      buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
       authService,
       store,
       adapter: new IflytekSkillHubAdapter({
