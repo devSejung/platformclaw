@@ -3,17 +3,28 @@ import { createServer, type Server } from "node:http";
 import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import skillHubPlugin from "../../../extensions/platformclaw-skillhub/index.js";
 import {
   clearPluginCommands,
   executePluginCommand,
   matchPluginCommand,
   registerPluginCommand,
 } from "../../../src/plugin-sdk/plugin-runtime.js";
+import type { OpenClawPluginApi } from "../../../src/plugins/types.js";
+import { resolveRelativeBundledPluginPublicModuleId } from "../../../src/test-utils/bundled-plugin-public-surface.js";
 import { readBrowserJsonBody } from "./browser-http-shared.js";
 import type { KnoxRoutingService } from "./knox-routing-service.js";
 import { handlePlatformClawKnoxInternalRequest } from "./knox-skill-hub-http.js";
 import { createSkillHubServiceFixture } from "./skill-hub-service.test-fixtures.js";
+
+// Load the source entry through its public boundary without extending the core TypeScript graph.
+const skillHubModuleId = resolveRelativeBundledPluginPublicModuleId({
+  fromModuleUrl: import.meta.url,
+  pluginId: "platformclaw-skillhub",
+  artifactBasename: "index.js",
+});
+const { default: skillHubPlugin } = (await import(skillHubModuleId)) as {
+  default: { register(api: OpenClawPluginApi): void };
+};
 
 const servers: Server[] = [];
 afterEach(async () => {
@@ -289,7 +300,7 @@ describe("Knox Skill Hub command transport", () => {
     async (visibility) => {
       const f = await setup(true, true);
       f.actor.user.globalRole = "admin";
-      vi.mocked(f.store.hasSkillHubAccess).mockResolvedValue(true);
+      vi.spyOn(f.store, "hasSkillHubAccess").mockResolvedValue(true);
       f.adapterMocks.search.mockResolvedValue({
         items: [
           {
@@ -335,7 +346,7 @@ describe("Knox Skill Hub command transport", () => {
       const bytes = await zip.generateAsync({ type: "nodebuffer" });
       f.adapterMocks.download.mockImplementation(async () => {
         const current = await f.store.getPersonalAgentBinding(f.actor.user.id);
-        vi.mocked(f.store.getPersonalAgentBinding).mockResolvedValue(
+        vi.spyOn(f.store, "getPersonalAgentBinding").mockResolvedValue(
           current
             ? {
                 ...current,

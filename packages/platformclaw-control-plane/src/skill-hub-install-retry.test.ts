@@ -86,7 +86,7 @@ describe("SkillHubService install retry", () => {
     if (!firstBinding) {
       throw new Error("fixture personal binding missing");
     }
-    vi.mocked(store.getPersonalAgentBinding).mockImplementation(async (userId) => ({
+    vi.spyOn(store, "getPersonalAgentBinding").mockImplementation(async (userId) => ({
       ...firstBinding,
       userId,
       agentId: userId === actor.user.id ? actor.agentId : "agent-2",

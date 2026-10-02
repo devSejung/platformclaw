@@ -69,7 +69,7 @@ async function handlePlatformClawKnoxSkillHubRequest(
     Array.isArray(context) ||
     (context.conversationType !== "dm" && context.conversationType !== "room") ||
     ["accountId", "conversationId", "agentId", "sessionKey"].some(
-      (key) => typeof context[key] !== "string" || !String(context[key]).trim(),
+      (key) => typeof context[key] !== "string" || !context[key].trim(),
     )
   ) {
     send(res, 400, { error: "invalid_command_context" });

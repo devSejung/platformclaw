@@ -54,7 +54,7 @@ describe("Skill Hub workspace publication", () => {
         }
         if (method === "platformclaw-execution.skillExport.read") {
           if (revoked) {
-            vi.mocked(store.getPersonalAgentBinding).mockResolvedValue(null);
+            vi.spyOn(store, "getPersonalAgentBinding").mockResolvedValue(null);
           }
           return { offset: request.offset, data: bytes.toString("base64"), done: true };
         }
