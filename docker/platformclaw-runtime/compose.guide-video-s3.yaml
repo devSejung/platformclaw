@@ -5,19 +5,61 @@ services:
       PLATFORMCLAW_GUIDE_VIDEO_S3_REGION: ${PLATFORMCLAW_GUIDE_VIDEO_S3_REGION:-us-east-1}
       PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET: ${PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET:?set PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET}
       PLATFORMCLAW_GUIDE_VIDEO_S3_KEY: ${PLATFORMCLAW_GUIDE_VIDEO_S3_KEY:?set PLATFORMCLAW_GUIDE_VIDEO_S3_KEY}
-      PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE: ${PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE:-/run/secrets/platformclaw_guide_video_s3_access_key}
-      PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE: ${PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE:-/run/secrets/platformclaw_guide_video_s3_secret_key}
+      PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE: ${PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE:-/run/secrets/platformclaw_guide_video_s3_credentials}
+      # Legacy #257 targets remain projected only so an image rollback can still boot.
+      PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE: /run/secrets/platformclaw_guide_video_s3_access_key
+      PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE: /run/secrets/platformclaw_guide_video_s3_secret_key
       PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE: ${PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE:-true}
     volumes:
       - type: bind
+        source: ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?set PLATFORMCLAW_DEPLOY_HOST_ROOT}/secrets/guide-video-s3-credentials.active.env
+        target: ${PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE:-/run/secrets/platformclaw_guide_video_s3_credentials}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
         source: ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?set PLATFORMCLAW_DEPLOY_HOST_ROOT}/secrets/guide-video-s3-access-key
-        target: ${PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE:-/run/secrets/platformclaw_guide_video_s3_access_key}
+        target: /run/secrets/platformclaw_guide_video_s3_access_key
         read_only: true
         bind:
           create_host_path: false
       - type: bind
         source: ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?set PLATFORMCLAW_DEPLOY_HOST_ROOT}/secrets/guide-video-s3-secret-key
-        target: ${PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE:-/run/secrets/platformclaw_guide_video_s3_secret_key}
+        target: /run/secrets/platformclaw_guide_video_s3_secret_key
         read_only: true
         bind:
           create_host_path: false
+
+  platformclaw-guide-video-check:
+    image: ${PLATFORMCLAW_IMAGE:-platformclaw:local}
+    pull_policy: never
+    profiles: [guide-video-check]
+    user: "${PLATFORMCLAW_RUNTIME_UID:?run platformclaw-compose with a service user}:${PLATFORMCLAW_RUNTIME_GID:?run platformclaw-compose with a service user}"
+    read_only: true
+    environment:
+      PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT: ${PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT:?set PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT}
+      PLATFORMCLAW_GUIDE_VIDEO_S3_REGION: ${PLATFORMCLAW_GUIDE_VIDEO_S3_REGION:-us-east-1}
+      PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET: ${PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET:?set PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET}
+      PLATFORMCLAW_GUIDE_VIDEO_S3_KEY: ${PLATFORMCLAW_GUIDE_VIDEO_S3_KEY:?set PLATFORMCLAW_GUIDE_VIDEO_S3_KEY}
+      PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE: ${PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE:-/run/secrets/platformclaw_guide_video_s3_credentials}
+      PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE: ${PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE:-true}
+      NODE_EXTRA_CA_CERTS: /etc/platformclaw/certs/employee-auth-ca.pem
+    volumes:
+      - type: bind
+        source: ${PLATFORMCLAW_DEPLOY_HOST_ROOT:?set PLATFORMCLAW_DEPLOY_HOST_ROOT}/secrets/guide-video-s3-credentials.env
+        target: ${PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE:-/run/secrets/platformclaw_guide_video_s3_credentials}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE:?set PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE}
+        target: /etc/platformclaw/certs/employee-auth-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks:
+      platformclaw-control-egress: {}
+    entrypoint: ["platformclaw-guide-video-check"]
+    restart: "no"

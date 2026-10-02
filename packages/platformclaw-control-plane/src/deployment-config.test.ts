@@ -64,6 +64,17 @@ function credentialedGuideUrl(): string {
   return url.toString();
 }
 
+function addGuideVideoS3Credentials(
+  env: NodeJS.ProcessEnv,
+  content = "AWS_ACCESS_KEY_ID=fixture-access-key\nAWS_SECRET_ACCESS_KEY=fixture-secret-key\n",
+): string {
+  const root = dirname(env[PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile] ?? "");
+  const credentialsFile = join(root, "guide-s3-credentials.env");
+  writeFileSync(credentialsFile, content, { mode: 0o600 });
+  env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3CredentialsFile] = credentialsFile;
+  return credentialsFile;
+}
+
 describe("loadPlatformClawDeploymentConfig", () => {
   it("loads paths, bounded secrets, and derived private Gateway endpoints", () => {
     const env = fixtureEnv();
@@ -202,8 +213,8 @@ describe("loadPlatformClawDeploymentConfig", () => {
     const env = fixtureEnv();
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl] = "   ";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Region] = "us-east-1";
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile] = "/run/secrets/default-access";
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile] = "/run/secrets/default-secret";
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3CredentialsFile] =
+      "/run/secrets/default-credentials";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3ForcePathStyle] = "true";
 
     expect(loadPlatformClawDeploymentConfig(env)).not.toHaveProperty("guideVideoUrl");
@@ -212,16 +223,10 @@ describe("loadPlatformClawDeploymentConfig", () => {
 
   it("loads private S3 guide settings with server-only credentials and defaults", () => {
     const env = fixtureEnv();
-    const root = dirname(env[PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile] ?? "");
-    const accessKeyFile = join(root, "guide-s3-access-key");
-    const secretKeyFile = join(root, "guide-s3-secret-key");
-    writeFileSync(accessKeyFile, "fixture-access-key\n", { mode: 0o600 });
-    writeFileSync(secretKeyFile, "fixture-secret-key\n", { mode: 0o600 });
+    addGuideVideoS3Credentials(env);
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint] = "https://s3.internal.example";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket] = "platformclaw-media";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key] = "/guides/platformclaw-guide.mp4";
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile] = accessKeyFile;
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile] = secretKeyFile;
 
     expect(loadPlatformClawDeploymentConfig(env).guideVideoS3).toEqual({
       endpoint: "https://s3.internal.example",
@@ -236,17 +241,11 @@ describe("loadPlatformClawDeploymentConfig", () => {
 
   it("supports explicit S3 region and virtual-hosted addressing", () => {
     const env = fixtureEnv();
-    const root = dirname(env[PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile] ?? "");
-    const accessKeyFile = join(root, "guide-s3-access-key");
-    const secretKeyFile = join(root, "guide-s3-secret-key");
-    writeFileSync(accessKeyFile, "fixture-access-key", { mode: 0o600 });
-    writeFileSync(secretKeyFile, "fixture-secret-key", { mode: 0o600 });
+    addGuideVideoS3Credentials(env);
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint] = "https://s3.example.test";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Region] = "ap-northeast-2";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket] = "guide-media";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key] = "guide.mp4";
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile] = accessKeyFile;
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile] = secretKeyFile;
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3ForcePathStyle] = "false";
 
     expect(loadPlatformClawDeploymentConfig(env).guideVideoS3).toMatchObject({
@@ -261,17 +260,11 @@ describe("loadPlatformClawDeploymentConfig", () => {
     expect(() => loadPlatformClawDeploymentConfig(partial)).toThrow("must be set together");
 
     const conflict = fixtureEnv();
-    const root = dirname(conflict[PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile] ?? "");
-    const accessKeyFile = join(root, "guide-s3-access-key");
-    const secretKeyFile = join(root, "guide-s3-secret-key");
-    writeFileSync(accessKeyFile, "fixture-access-key", { mode: 0o600 });
-    writeFileSync(secretKeyFile, "fixture-secret-key", { mode: 0o600 });
+    addGuideVideoS3Credentials(conflict);
     conflict[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl] = "https://cdn.example.test/guide.mp4";
     conflict[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint] = "https://s3.example.test";
     conflict[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket] = "guide-media";
     conflict[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key] = "guide.mp4";
-    conflict[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile] = accessKeyFile;
-    conflict[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile] = secretKeyFile;
     expect(() => loadPlatformClawDeploymentConfig(conflict)).toThrow(
       `${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl} cannot be combined with private S3 guide video settings`,
     );
@@ -279,21 +272,36 @@ describe("loadPlatformClawDeploymentConfig", () => {
 
   it("rejects invalid private S3 endpoint and path-style values", () => {
     const env = fixtureEnv();
-    const root = dirname(env[PLATFORMCLAW_DEPLOYMENT_ENV.gatewayAuthFile] ?? "");
-    const accessKeyFile = join(root, "guide-s3-access-key");
-    const secretKeyFile = join(root, "guide-s3-secret-key");
-    writeFileSync(accessKeyFile, "fixture-access-key", { mode: 0o600 });
-    writeFileSync(secretKeyFile, "fixture-secret-key", { mode: 0o600 });
+    addGuideVideoS3Credentials(env);
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint] = "https://s3.example.test/path";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket] = "guide-media";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key] = "guide.mp4";
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile] = accessKeyFile;
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile] = secretKeyFile;
     expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must be an HTTP(S) origin");
 
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint] = "https://s3.example.test";
     env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3ForcePathStyle] = "sometimes";
     expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must be true or false");
+  });
+
+  it("rejects malformed or temporary private S3 credential bundles", () => {
+    const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint] = "https://s3.example.test";
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket] = "guide-media";
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key] = "guide.mp4";
+
+    addGuideVideoS3Credentials(
+      env,
+      "AWS_ACCESS_KEY_ID=fixture-access-key\nAWS_ACCESS_KEY_ID=duplicate\nAWS_SECRET_ACCESS_KEY=fixture-secret-key\n",
+    );
+    expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("is invalid");
+
+    addGuideVideoS3Credentials(
+      env,
+      "AWS_ACCESS_KEY_ID=fixture-access-key\nAWS_SECRET_ACCESS_KEY=fixture-secret-key\nAWS_SESSION_TOKEN=temporary-token\n",
+    );
+    expect(() => loadPlatformClawDeploymentConfig(env)).toThrow(
+      "contains unsupported temporary session credentials",
+    );
   });
 
   it.each([

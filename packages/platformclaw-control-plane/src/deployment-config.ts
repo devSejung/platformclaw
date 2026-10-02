@@ -21,8 +21,7 @@ export const PLATFORMCLAW_DEPLOYMENT_ENV = {
   guideVideoS3Region: "PLATFORMCLAW_GUIDE_VIDEO_S3_REGION",
   guideVideoS3Bucket: "PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET",
   guideVideoS3Key: "PLATFORMCLAW_GUIDE_VIDEO_S3_KEY",
-  guideVideoS3AccessKeyFile: "PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE",
-  guideVideoS3SecretKeyFile: "PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE",
+  guideVideoS3CredentialsFile: "PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE",
   guideVideoS3ForcePathStyle: "PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE",
   listenHost: "PLATFORMCLAW_LISTEN_HOST",
   listenPort: "PLATFORMCLAW_LISTEN_PORT",
@@ -157,24 +156,59 @@ function parseGuideVideoS3Endpoint(raw: string, name: string): string {
   return endpoint.origin;
 }
 
-function loadGuideVideoS3Config(
+function parseGuideVideoS3Credentials(
+  raw: string,
+  name: string,
+): { accessKeyId: string; secretAccessKey: string } {
+  const values = new Map<string, string>();
+  for (const line of raw.split(/\r?\n/u)) {
+    if (!line) {
+      continue;
+    }
+    const separator = line.indexOf("=");
+    if (separator <= 0) {
+      throw new Error(`${name} is invalid`);
+    }
+    const key = line.slice(0, separator);
+    const value = line.slice(separator + 1);
+    if (
+      (key !== "AWS_ACCESS_KEY_ID" &&
+        key !== "AWS_SECRET_ACCESS_KEY" &&
+        key !== "AWS_SESSION_TOKEN") ||
+      values.has(key)
+    ) {
+      throw new Error(`${name} is invalid`);
+    }
+    values.set(key, value);
+  }
+  if (values.get("AWS_SESSION_TOKEN")) {
+    throw new Error(`${name} contains unsupported temporary session credentials`);
+  }
+  const accessKeyId = values.get("AWS_ACCESS_KEY_ID") ?? "";
+  const secretAccessKey = values.get("AWS_SECRET_ACCESS_KEY") ?? "";
+  if (!accessKeyId || !secretAccessKey || /\s/u.test(accessKeyId) || /\s/u.test(secretAccessKey)) {
+    throw new Error(`${name} is invalid`);
+  }
+  return { accessKeyId, secretAccessKey };
+}
+
+export function loadPlatformClawGuideVideoS3Config(
   env: NodeJS.ProcessEnv,
 ): PlatformClawGuideVideoS3Config | undefined {
   const endpoint = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint]?.trim();
   const region = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Region]?.trim();
   const bucket = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket]?.trim();
   const key = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key]?.trim();
-  const accessKeyFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile]?.trim();
-  const secretKeyFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile]?.trim();
+  const credentialsFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3CredentialsFile]?.trim();
   const forcePathStyleRaw = env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3ForcePathStyle]?.trim();
-  // Region, secret-file paths, and path-style have harmless deployment defaults;
+  // Region, credential-file path, and path-style have harmless deployment defaults;
   // only the endpoint/bucket/key triplet opts the deployment into private S3 mode.
   if (!endpoint && !bucket && !key) {
     return undefined;
   }
-  if (!endpoint || !bucket || !key || !accessKeyFile || !secretKeyFile) {
+  if (!endpoint || !bucket || !key || !credentialsFile) {
     throw new Error(
-      `${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint}, ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket}, ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key}, ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile}, and ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile} must be set together`,
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint}, ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Bucket}, ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key}, and ${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3CredentialsFile} must be set together`,
     );
   }
   let invalidBucket = false;
@@ -198,17 +232,10 @@ function loadGuideVideoS3Config(
   if (!normalizedKey) {
     throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Key} is empty`);
   }
-  const accessKeyId = readDeploymentSecret(
-    accessKeyFile,
-    PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile,
+  const { accessKeyId, secretAccessKey } = parseGuideVideoS3Credentials(
+    readDeploymentSecret(credentialsFile, PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3CredentialsFile),
+    PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3CredentialsFile,
   );
-  const secretAccessKey = readDeploymentSecret(
-    secretKeyFile,
-    PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3SecretKeyFile,
-  );
-  if (/\s/u.test(accessKeyId)) {
-    throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3AccessKeyFile} is invalid`);
-  }
   return {
     endpoint: parseGuideVideoS3Endpoint(endpoint, PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoS3Endpoint),
     region: region || DEFAULT_GUIDE_VIDEO_S3_REGION,
@@ -400,7 +427,7 @@ export function loadPlatformClawDeploymentConfig(
     requiredEnv(env, PLATFORMCLAW_DEPLOYMENT_ENV.publicOrigin),
   );
   const guideVideoUrl = parseGuideVideoUrl(env[PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl]);
-  const guideVideoS3 = loadGuideVideoS3Config(env);
+  const guideVideoS3 = loadPlatformClawGuideVideoS3Config(env);
   if (guideVideoUrl && guideVideoS3) {
     throw new Error(
       `${PLATFORMCLAW_DEPLOYMENT_ENV.guideVideoUrl} cannot be combined with private S3 guide video settings`,

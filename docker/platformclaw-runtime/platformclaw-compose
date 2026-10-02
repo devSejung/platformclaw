@@ -73,6 +73,8 @@ unset PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE \
   PLATFORMCLAW_PUBLIC_ORIGIN PLATFORMCLAW_PUBLIC_PORT PLATFORMCLAW_GUIDE_VIDEO_URL \
   PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT PLATFORMCLAW_GUIDE_VIDEO_S3_REGION \
   PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET PLATFORMCLAW_GUIDE_VIDEO_S3_KEY \
+  PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE \
+  PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE \
   PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE \
   PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE \
   PLATFORMCLAW_JIRA_VOC_CONFIG_FILE PLATFORMCLAW_JIRA_VOC_CONFIG_HOST_FILE \
@@ -110,7 +112,8 @@ guide_url="$(trim_compose_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_URL=//p' 
 guide_s3_endpoint="$(trim_compose_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=//p' <<<"$compose_environment" | tail -n 1)")"
 guide_s3_bucket="$(trim_compose_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=//p' <<<"$compose_environment" | tail -n 1)")"
 guide_s3_key="$(trim_compose_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=//p' <<<"$compose_environment" | tail -n 1)")"
-if [[ -n "$guide_s3_endpoint" || -n "$guide_s3_bucket" || -n "$guide_s3_key" ]]; then
+guide_s3_profile="$(trim_compose_value "$(sed -n 's/^PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE=//p' <<<"$compose_environment" | tail -n 1)")"
+if [[ -n "$guide_s3_endpoint" || -n "$guide_s3_bucket" || -n "$guide_s3_key" || -n "$guide_s3_profile" ]]; then
   if [[ -z "$guide_s3_endpoint" || -z "$guide_s3_bucket" || -z "$guide_s3_key" ]]; then
     echo "Private guide S3 requires PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT, PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET, and PLATFORMCLAW_GUIDE_VIDEO_S3_KEY together." >&2
     exit 1

@@ -146,27 +146,55 @@ PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT=https://s3.example.internal
 PLATFORMCLAW_GUIDE_VIDEO_S3_REGION=us-east-1
 PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET=platformclaw-media
 PLATFORMCLAW_GUIDE_VIDEO_S3_KEY=guides/platformclaw-guide.mp4
-PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE=/run/secrets/platformclaw_guide_video_s3_access_key
-PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE=/run/secrets/platformclaw_guide_video_s3_secret_key
+PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE=
+PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE=/run/secrets/platformclaw_guide_video_s3_credentials
 PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE=true
 ```
 
-실제 credential 값은 `deployment.env`에 넣지 않고 호스트의 다음 파일에 저장한다.
+실제 credential 값은 `deployment.env`에 넣지 않고 호스트의 **하나의 candidate credential bundle**에
+같이 저장한다.
 
 ```text
-<deploy-root>/secrets/guide-video-s3-access-key
-<deploy-root>/secrets/guide-video-s3-secret-key
+<deploy-root>/secrets/guide-video-s3-credentials.env
 ```
 
-두 파일은 비어 있으면 안 되고 PlatformClaw service user가 읽을 수 있어야 한다. `0400`
-같은 owner-only 권한을 권장하며, 이 외부 S3 credential은 PlatformClaw이 생성하거나
-회전하지 않는다.
+파일 내용은 다음처럼 한 credential pair를 한 파일에 둔다.
+
+```dotenv
+AWS_ACCESS_KEY_ID=<access-key-id>
+AWS_SECRET_ACCESS_KEY=<secret-access-key>
+```
+
+파일은 PlatformClaw service user가 읽을 수 있어야 하고 `0400` 같은 owner-only 권한을
+권장한다. Access Key ID와 Secret Access Key를 서로 다른 파일로 따로 관리하지 않으므로
+서로 다른 발급 세대의 값이 섞이는 문제를 막는다. 이 파일은 desired/candidate pair이고,
+실제 S3 probe가 성공한 뒤에만
+`<deploy-root>/secrets/guide-video-s3-credentials.active.env`로 검증 완료 pair를 원자적으로
+발행한다. Control은 이 active 파일만 마운트하므로 잘못된 candidate가 나중 재시작으로
+갑자기 적용되는 일도 없다. 외부 S3 credential 자체를 PlatformClaw이 임의로 생성하거나
+회전하지는 않는다.
+
+service user의 `~/.aws/credentials`에 static named profile이 이미 있다면
+`PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE=<profile>`을 선택적으로 설정할 수 있다.
+`platformclaw-deploy up`이 해당 credentials 파일의 **한 번의 안정된 snapshot**에서 Access Key
+ID와 Secret Access Key를 같이 읽고 candidate bundle을 원자적으로 갱신한다. AWS CLI나 별도
+로그인은 필요 없고, Control 컨테이너에는 `~/.aws`나 `AWS_PROFILE`을 전달하지 않는다.
+session token을 쓰는 임시 credential profile은 현재 static-key 모드에서 거부한다.
 
 `platformclaw-compose`가 S3 endpoint 설정을 감지하면 `compose.guide-video-s3.yaml`을
-자동 적용하고 두 파일을 `/run/secrets`에 read-only로 마운트한다. `REGION`을 비우면
-`us-east-1`을 사용한다. 사내 S3-compatible 서비스는 보통 path-style이므로 기본값은
-`true`이며, bucket을 hostname에 붙이는 virtual-hosted 방식이 필요한 경우에만 `false`로
-바꾼다.
+자동 적용한다. 격리된 probe 서비스는 candidate bundle을, 실제 Control은 검증 완료 active
+bundle만 `/run/secrets`에 read-only로 마운트한다. 초기 split-file private-S3 버전에서
+업그레이드하면 기존 두 파일을 candidate/active 모델로 한 번 migration하고, 예전 이미지
+rollback용 split 파일은 active bundle에서 생성한 projection으로만 유지한다. 운영자가 projection을
+직접 수정하면 안 된다. `REGION`을 비우면 `us-east-1`을 사용한다. 사내 S3-compatible 서비스는
+보통 path-style이므로 기본값은 `true`이며, bucket을 hostname에 붙이는 virtual-hosted 방식이
+필요한 경우에만 `false`로 바꾼다.
+
+`platformclaw-deploy`는 Control을 시작/교체하기 전에 실제 Control image와 같은 network 경로에서
+임시 Control 컨테이너를 띄우고, 제품과 같은 SigV4 + direct/no-proxy 경로로 `bytes=0-0` Range
+GET을 수행한다. 잘못된 Access Key ID/Secret, region/addressing/object 오류, redirect, 네트워크
+실패가 있으면 live stack을 바꾸기 전에 배포가 실패한다. bundle 내용이 바뀌면 성공한
+`platformclaw-deploy up`이 Control을 recreate해서 **검증한 pair와 실행 중 pair가 같도록** 한다.
 
 빈 값이면 기능이 비활성화된다. 브라우저에는 S3 원본 주소를 노출하지 않고 같은 origin의
 `/platformclaw/guide/video`만 제공한다. Control이 GET/HEAD/Range를 원본으로 스트리밍하며,
@@ -183,10 +211,12 @@ Control 서버가 GET/HEAD 요청마다 AWS Signature Version 4로 서명하고 
 접근 가능한 사용자는 backing S3 object가 private이어도 가이드 영상 바이트 자체는 읽을 수
 있다. direct URL 모드와 private S3 모드는 동시에 설정할 수 없다.
 
-환경값 변경 뒤에는 기존 Control 컨테이너를 restart만 하지 말고 재생성한다.
+private S3 설정/credential 적용은 아래 `platformclaw-compose` 직접 호출보다
+`./platformclaw-deploy up`을 사용한다. 이 경로가 credential 동기화, 실제 S3 preflight,
+필요 시 Control recreate까지 함께 수행한다.
 
 ```bash
-./platformclaw-compose --service-user platformclaw up -d --wait --no-deps --force-recreate platformclaw-control
+./platformclaw-deploy up
 ```
 
 #### 선택: Jira VoC 접수

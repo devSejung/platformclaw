@@ -257,8 +257,7 @@ The process requires these deployment-owned values:
 | `PLATFORMCLAW_GUIDE_VIDEO_S3_REGION`           | S3 signing region; defaults to `us-east-1` |
 | `PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET`           | Private guide-video bucket                 |
 | `PLATFORMCLAW_GUIDE_VIDEO_S3_KEY`              | Private guide-video object key             |
-| `PLATFORMCLAW_GUIDE_VIDEO_S3_ACCESS_KEY_FILE`  | Mounted S3 Access Key file                 |
-| `PLATFORMCLAW_GUIDE_VIDEO_S3_SECRET_KEY_FILE`  | Mounted S3 Secret Key file                 |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE` | Mounted atomic S3 credential-pair file     |
 | `PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE` | Path-style addressing; defaults to `true`  |
 | `PLATFORMCLAW_LISTEN_HOST`                     | Listener host; defaults to `127.0.0.1`     |
 | `PLATFORMCLAW_LISTEN_PORT`                     | Listener port; defaults to `19001`         |
@@ -288,11 +287,26 @@ second endpoint or token that could drift from the WebSocket connection.
 The guide supports two mutually exclusive sources. `PLATFORMCLAW_GUIDE_VIDEO_URL`
 configures an unsigned HTTP(S) upstream. Private S3 mode instead uses the
 `PLATFORMCLAW_GUIDE_VIDEO_S3_*` settings, reads Access Key and Secret Key values
-from bounded regular secret files, constructs the configured bucket/object URL,
-and signs each GET/HEAD request with AWS Signature Version 4. Region defaults to
+together from one bounded credential-pair file, constructs the configured
+bucket/object URL, and signs each GET/HEAD request with AWS Signature Version 4.
+Keeping the pair in one file prevents independently updated credential halves
+from being combined. Region defaults to
 `us-east-1`; `FORCE_PATH_STYLE` defaults to `true` for internal S3-compatible
 deployments. Login HTML receives only the same-origin `/platformclaw/guide/video`
 source and never contains the upstream S3 URL or credentials.
+
+Compose deployment may optionally set `PLATFORMCLAW_GUIDE_VIDEO_S3_AWS_PROFILE`
+in `deployment.env`. That is a host-side import selector, not a Control runtime
+credential source: `platformclaw-deploy` reads the static pair together from a
+stable snapshot of the service user's `~/.aws/credentials` and atomically writes
+the candidate bundle. It never mounts the operator AWS configuration, needs no
+AWS CLI/login, and does not pass `AWS_PROFILE` into Control. Before changing the
+live stack, deployment launches an isolated least-privilege probe service with
+only the candidate S3 bundle, enterprise CA, and Control egress network. That
+service performs the same SigV4 signed, direct/no-proxy one-byte Range GET as the
+runtime. Only success publishes the separate validated active bundle that
+Control mounts; an invalid pair or S3 object therefore cannot become active on a
+later restart.
 
 The public handler relays GET, HEAD, Range, and If-Range requests and follows
 HTTP(S) redirects server-side only when they stay on the configured upstream
@@ -306,8 +320,9 @@ to be reachable from the Control container. The relay forces `Cache-Control:
 no-store` even when the upstream advertises a cacheable response. The same-origin
 guide endpoint is intentionally available before login, so its configured video
 bytes are readable by anyone who can reach the login page even when the backing
-S3 object is private. Compose deployments must recreate `platformclaw-control`
-after changing guide configuration or credentials.
+S3 object is private. Use `platformclaw-deploy up` after changing private-S3
+configuration or credentials; it owns validation and deterministic Control
+reload.
 
 Initial administrator IDs, the Gateway operator token, and the SSH credential
 master key are read from bounded regular files. Production mounts those files
