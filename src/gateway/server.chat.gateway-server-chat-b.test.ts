@@ -2501,12 +2501,13 @@ describe("gateway server chat", () => {
         expect(responses[0]?.ok).toBe(true);
         await waitForFast(() => expect(captured).toBeDefined(), FAST_WAIT_OPTS);
         expect(captured?.replyOptions?.images).toBeUndefined();
+        // The dispatch stub has not run workspace staging. A managed upload is
+        // still a usable attachment, but its dirname is not workspace ownership.
         expect(captured?.ctx?.media).toEqual([
-          expect.objectContaining({
+          {
             path: expect.any(String),
             contentType: "image/png",
-            workspaceDir: expect.any(String),
-          }),
+          },
         ]);
         await waitForFast(() => expect(context.removeChatRun).toHaveBeenCalledTimes(1));
       } finally {

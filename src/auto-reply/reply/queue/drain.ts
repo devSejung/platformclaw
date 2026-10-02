@@ -290,10 +290,14 @@ function renderCollectItemPrompt(item: FollowupRun, idx: number, prompt: string)
 
 function collectQueuedPromptMedia(
   items: FollowupRun[],
-): Pick<FollowupRun, "images" | "imageOrder" | "media"> {
+): Pick<FollowupRun, "images" | "imageOrder" | "media" | "workspaceMedia"> {
   const images: NonNullable<FollowupRun["images"]> = [];
   const imageOrder: NonNullable<FollowupRun["imageOrder"]> = [];
   const media: NonNullable<FollowupRun["media"]> = [];
+  const workspaceMedia: NonNullable<FollowupRun["workspaceMedia"]> = [];
+  // Presence is semantic: [] means this turn has no workspace files and must not
+  // fall back to prompt aliases. Legacy items fall back only inside a mixed batch.
+  const hasExplicitWorkspaceMedia = items.some((item) => item.workspaceMedia !== undefined);
   for (const item of items) {
     if (item.images) {
       images.push(...item.images);
@@ -304,11 +308,15 @@ function collectQueuedPromptMedia(
     if (item.media) {
       media.push(...item.media);
     }
+    if (hasExplicitWorkspaceMedia) {
+      workspaceMedia.push(...(item.workspaceMedia ?? item.media ?? []));
+    }
   }
   return {
     ...(images.length > 0 ? { images } : {}),
     ...(imageOrder.length > 0 ? { imageOrder } : {}),
     ...(media.length > 0 ? { media } : {}),
+    ...(hasExplicitWorkspaceMedia ? { workspaceMedia } : {}),
   };
 }
 
@@ -903,6 +911,7 @@ export function createOverflowSummaryRetrySource(source: FollowupRun): FollowupR
     queueAbortSignal: source.queueAbortSignal,
     transcriptPrompt: source.transcriptPrompt,
     media: source.media,
+    workspaceMedia: source.workspaceMedia,
     messageId: source.messageId,
     summaryLine: source.summaryLine,
     enqueuedAt: source.enqueuedAt,

@@ -53,7 +53,21 @@ async function persistChatSendImages(params: {
   });
 }
 
-function resolveChatSendManagedMedia(savedImages: SavedMedia[]): MediaFact[] {
+function resolveChatSendManagedMedia(
+  savedImages: SavedMedia[],
+  expectedImageCount: number,
+): MediaFact[] {
+  // Only the awaited dispatch carrier is strict. The transcript promise remains
+  // best-effort: it may not be consumed until error persistence, so rejecting it
+  // here would create a second, temporarily unhandled rejection.
+  const persistedImageCount = savedImages.filter((entry) =>
+    entry.contentType?.startsWith("image/"),
+  ).length;
+  if (persistedImageCount !== expectedImageCount) {
+    throw new Error(
+      `chat.send failed to persist all inbound images (${persistedImageCount}/${expectedImageCount})`,
+    );
+  }
   return savedImages.map((entry) => ({
     path: entry.path,
     contentType: entry.contentType ?? "application/octet-stream",
@@ -63,6 +77,24 @@ function resolveChatSendManagedMedia(savedImages: SavedMedia[]): MediaFact[] {
 export function applyChatSendManagedMedia(ctx: MsgContext, media: MediaFact[]): void {
   if ((!ctx.media || ctx.media.length === 0) && media.length > 0) {
     ctx.media = media;
+    return;
+  }
+  // Native image blocks still need a file identity for later image/read/exec
+  // calls. Preserve pre-staged document paths while adding the missing images.
+  // Managed filenames contain their unique media-store ID, not just the label.
+  const existingNames = new Set(
+    (ctx.media ?? []).flatMap((fact) =>
+      fact.path ? [path.posix.basename(fact.path.replaceAll("\\", "/"))] : [],
+    ),
+  );
+  const additionalImages = media.filter(
+    (fact) =>
+      fact.contentType?.startsWith("image/") &&
+      fact.path &&
+      !existingNames.has(path.posix.basename(fact.path.replaceAll("\\", "/"))),
+  );
+  if (additionalImages.length > 0) {
+    ctx.media = [...additionalImages, ...(ctx.media ?? [])];
   }
 }
 
@@ -203,11 +235,25 @@ function buildChatSendMessageContext(params: {
   if (params.mediaPathOffloadPaths.length > 0) {
     // Pre-staged offloads must use structured facts and marker text so the
     // dispatch path renders their prompt note without staging them a second time.
-    ctx.media = params.mediaPathOffloadPaths.map((pathValue, index) => ({
-      path: pathValue,
-      contentType: params.mediaPathOffloadTypes[index],
-      workspaceDir: params.mediaPathOffloadWorkspaceDir ?? path.dirname(pathValue),
-    }));
+    ctx.media = params.mediaPathOffloadPaths.map((pathValue, index) => {
+      const workspaceDir = params.mediaPathOffloadWorkspaceDir;
+      const relativeToWorkspace =
+        workspaceDir && path.isAbsolute(pathValue)
+          ? path.relative(path.resolve(workspaceDir), path.resolve(pathValue))
+          : undefined;
+      const ownedByWorkspace =
+        Boolean(workspaceDir) &&
+        (!path.isAbsolute(pathValue) ||
+          (relativeToWorkspace !== undefined &&
+            relativeToWorkspace !== ".." &&
+            !relativeToWorkspace.startsWith(`..${path.sep}`) &&
+            !path.isAbsolute(relativeToWorkspace)));
+      return {
+        path: pathValue,
+        contentType: params.mediaPathOffloadTypes[index],
+        ...(ownedByWorkspace ? { workspaceDir } : {}),
+      };
+    });
   }
   return {
     accountId,
@@ -265,10 +311,20 @@ export function prepareChatSendUserTurn(params: {
         : {}),
     })),
   );
-  const pluginBoundMediaPromise =
-    attachments.explicitOriginTargetsPlugin && attachments.parsedImages.length > 0
-      ? persistedMediaForTranscriptPromise.then(resolveChatSendManagedMedia)
-      : Promise.resolve([]);
+  const hasManagedImages =
+    !isAcpBridgeClient(client) &&
+    (attachments.parsedImages.length > 0 ||
+      attachments.imageOrder.length > 0 ||
+      attachments.offloadedRefs.some((ref) => ref.mimeType.startsWith("image/")));
+  const managedMediaPromise = hasManagedImages
+    ? persistedMediaForTranscriptPromise.then((savedImages) =>
+        resolveChatSendManagedMedia(
+          savedImages,
+          attachments.parsedImages.length +
+            attachments.offloadedRefs.filter((ref) => ref.mimeType.startsWith("image/")).length,
+        ),
+      )
+    : Promise.resolve([]);
   const messageContext = buildChatSendMessageContext({
     agentId: session.agentId,
     client,
@@ -291,7 +347,7 @@ export function prepareChatSendUserTurn(params: {
   );
   return {
     ...messageContext,
-    pluginBoundMediaPromise,
+    managedMediaPromise,
     replyOptionImages: mediaPathOffloadsIncludeImages
       ? undefined
       : attachments.parsedImages.length > 0

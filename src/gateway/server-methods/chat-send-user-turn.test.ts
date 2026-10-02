@@ -12,10 +12,12 @@ import { hydratePromptMediaMessages } from "../../agents/embedded-agent-runner/r
 import type { AgentMessage } from "../../agents/runtime/index.js";
 import type { MsgContext } from "../../auto-reply/templating.js";
 import { resolveStateDir } from "../../config/paths.js";
+import { MEDIA_MAX_BYTES } from "../../media/store.js";
 import {
   buildPersistedUserTurnMessage,
   type UserTurnInput,
 } from "../../sessions/user-turn-transcript.js";
+import type { ChatImageContent } from "../chat-attachments.js";
 import { applyChatSendManagedMedia, prepareChatSendUserTurn } from "./chat-send-user-turn.js";
 
 function createUserTurnInputController() {
@@ -53,6 +55,7 @@ function createAttachments(
     mediaPathOffloadTypes: string[];
     mediaPathOffloadWorkspaceDir: string | undefined;
     imageOrder: Array<"inline" | "offloaded">;
+    parsedImages: ChatImageContent[];
     offloadedRefs: Array<{
       mediaRef: string;
       id: string;
@@ -175,7 +178,7 @@ describe("prepareChatSendUserTurn", () => {
     expect(prepared.isInternalTextSlashCommandTurn).toBe(true);
     expect(prepared.queuedFollowupOwnerKey).toBeUndefined();
     expect(prepared.replyOptionImages).toBeUndefined();
-    await expect(prepared.pluginBoundMediaPromise).resolves.toEqual([]);
+    await expect(prepared.managedMediaPromise).resolves.toEqual([]);
     await expect(readInput()).resolves.toEqual(controller.baseInput);
   });
 
@@ -304,9 +307,197 @@ describe("prepareChatSendUserTurn", () => {
         contentType: "image/png",
       },
     ]);
+    await expect(prepared.managedMediaPromise).resolves.toEqual([
+      { path: "/media/inbound/image-1.png", contentType: "image/png" },
+    ]);
     await expect(readInput()).resolves.toMatchObject({
       mediaImageLayout: { slots: [{ kind: "offloaded", factIndex: 0 }] },
     });
+  });
+
+  it("keeps native and offloaded images in the managed media carrier", async () => {
+    const { controller } = createUserTurnInputController();
+    const offloadedPath = "/media/inbound/offloaded-image.png";
+    const prepared = prepareChatSendUserTurn({
+      request: {
+        clientInfo: createClientInfo(),
+        normalizedAttachments: [{}, {}],
+        suppressCommandInterpretation: false,
+        systemInputProvenance: undefined,
+        systemProvenanceReceipt: undefined,
+      },
+      session: {
+        agentId: "main",
+        clientRunId: "run-mixed-images",
+        sessionKey: "agent:main:main",
+      },
+      admission: {
+        originatingRoute: { originatingChannel: "webchat", explicitDeliverRoute: false },
+      },
+      attachments: createAttachments({
+        parsedImages: [
+          {
+            type: "image",
+            data: createSolidPngBuffer(2, 2, { r: 1, g: 2, b: 3 }).toString("base64"),
+            mimeType: "image/png",
+          },
+        ],
+        imageOrder: ["inline", "offloaded"],
+        offloadedRefs: [
+          {
+            mediaRef: "media://inbound/offloaded-image.png",
+            id: "offloaded-image.png",
+            path: offloadedPath,
+            kind: "image",
+            mimeType: "image/png",
+            label: "offloaded.png",
+            sizeBytes: 10,
+          },
+        ],
+      }),
+      client: null,
+      logGateway: { warn: vi.fn() } as never,
+      userTurn: controller,
+    });
+
+    const managed = await prepared.managedMediaPromise;
+    const native = managed.find((entry) => entry.path !== offloadedPath);
+    try {
+      expect(managed).toHaveLength(2);
+      expect(new Set(managed.map((entry) => entry.path)).size).toBe(2);
+      expect(managed).toContainEqual({ path: offloadedPath, contentType: "image/png" });
+      expect(native).toMatchObject({ contentType: "image/png" });
+      expect(native?.path).toBeTruthy();
+    } finally {
+      if (native?.path) {
+        await fs.rm(native.path, { force: true });
+      }
+    }
+  });
+
+  it("rejects managed media when transcript persistence drops an inline image", async () => {
+    const { controller, readInput } = createUserTurnInputController();
+    const logGateway = { warn: vi.fn() };
+    const prepared = prepareChatSendUserTurn({
+      request: {
+        clientInfo: createClientInfo(),
+        normalizedAttachments: [{}],
+        suppressCommandInterpretation: false,
+        systemInputProvenance: undefined,
+        systemProvenanceReceipt: undefined,
+      },
+      session: {
+        agentId: "main",
+        clientRunId: "run-image-persist-failure",
+        sessionKey: "agent:main:main",
+      },
+      admission: {
+        originatingRoute: { originatingChannel: "webchat", explicitDeliverRoute: false },
+      },
+      attachments: createAttachments({
+        parsedImages: [
+          {
+            type: "image",
+            data: Buffer.alloc(MEDIA_MAX_BYTES + 1).toString("base64"),
+            mimeType: "image/png",
+          },
+        ],
+        imageOrder: ["inline"],
+      }),
+      client: null,
+      logGateway: logGateway as never,
+      userTurn: controller,
+    });
+
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      await expect(prepared.managedMediaPromise).rejects.toThrow(
+        "chat.send failed to persist all inbound images (0/1)",
+      );
+      // Match dispatch timing: transcript persistence may run on a later turn of
+      // the event loop, after the carrier failure has already been reported.
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+      expect(unhandled).not.toHaveBeenCalled();
+      await expect(readInput()).resolves.toEqual(controller.baseInput);
+      expect(logGateway.warn).toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
+  it("keeps workspace ownership only for staged or workspace-contained offloads", () => {
+    const { controller } = createUserTurnInputController();
+    const workspaceDir = path.resolve("agent-workspace");
+    const stagedRelative = "media/inbound/staged.pdf";
+    const ownedAbsolute = path.join(workspaceDir, "media", "inbound", "owned.pdf");
+    const passThroughAbsolute = path.resolve("gateway-media", "oversized.pdf");
+    const prepared = prepareChatSendUserTurn({
+      request: {
+        clientInfo: createClientInfo(),
+        normalizedAttachments: [{}, {}, {}],
+        suppressCommandInterpretation: false,
+        systemInputProvenance: undefined,
+        systemProvenanceReceipt: undefined,
+      },
+      session: {
+        agentId: "main",
+        clientRunId: "run-pdf-paths",
+        sessionKey: "agent:main:main",
+      },
+      admission: {
+        originatingRoute: { originatingChannel: "webchat", explicitDeliverRoute: false },
+      },
+      attachments: createAttachments({
+        mediaPathOffloadPaths: [stagedRelative, ownedAbsolute, passThroughAbsolute],
+        mediaPathOffloadTypes: ["application/pdf", "application/pdf", "application/pdf"],
+        mediaPathOffloadWorkspaceDir: workspaceDir,
+      }),
+      client: null,
+      logGateway: { warn: vi.fn() } as never,
+      userTurn: controller,
+    });
+
+    expect(prepared.ctx.media).toEqual([
+      { path: stagedRelative, contentType: "application/pdf", workspaceDir },
+      { path: ownedAbsolute, contentType: "application/pdf", workspaceDir },
+      { path: passThroughAbsolute, contentType: "application/pdf" },
+    ]);
+  });
+
+  it("does not infer workspace ownership from a pass-through PDF dirname", () => {
+    const { controller } = createUserTurnInputController();
+    const passThroughAbsolute = path.resolve("gateway-media", "oversized-only.pdf");
+    const prepared = prepareChatSendUserTurn({
+      request: {
+        clientInfo: createClientInfo(),
+        normalizedAttachments: [{}],
+        suppressCommandInterpretation: false,
+        systemInputProvenance: undefined,
+        systemProvenanceReceipt: undefined,
+      },
+      session: {
+        agentId: "main",
+        clientRunId: "run-pdf-pass-through",
+        sessionKey: "agent:main:main",
+      },
+      admission: {
+        originatingRoute: { originatingChannel: "webchat", explicitDeliverRoute: false },
+      },
+      attachments: createAttachments({
+        mediaPathOffloadPaths: [passThroughAbsolute],
+        mediaPathOffloadTypes: ["application/pdf"],
+      }),
+      client: null,
+      logGateway: { warn: vi.fn() } as never,
+      userTurn: controller,
+    });
+
+    expect(prepared.ctx.media).toEqual([
+      { path: passThroughAbsolute, contentType: "application/pdf" },
+    ]);
   });
 
   it.each([
@@ -551,13 +742,34 @@ describe("prepareChatSendUserTurn", () => {
 });
 
 describe("applyChatSendManagedMedia", () => {
-  it("does not replace pre-staged facts", () => {
+  it("keeps pre-staged documents while adding native image file identities", () => {
     const ctx = {
       media: [{ path: "uploads/report.pdf", workspaceDir: "/workspace" }],
     } as MsgContext;
 
     applyChatSendManagedMedia(ctx, [{ path: "managed/image.png", contentType: "image/png" }]);
 
-    expect(ctx.media).toEqual([{ path: "uploads/report.pdf", workspaceDir: "/workspace" }]);
+    expect(ctx.media).toEqual([
+      { path: "managed/image.png", contentType: "image/png" },
+      { path: "uploads/report.pdf", workspaceDir: "/workspace" },
+    ]);
+  });
+
+  it("does not replace or duplicate an already staged image on repeated delivery", () => {
+    const image = {
+      path: "media/inbound/shot---f9b329f0-a777-4155-b575-45a6b86e942f.png",
+      workspaceDir: "/workspace",
+      contentType: "image/png",
+    };
+    const ctx = { media: [image] } as MsgContext;
+    const managed = [
+      {
+        path: `/gateway/${path.posix.basename(image.path)}`,
+        contentType: "image/png",
+      },
+    ];
+    applyChatSendManagedMedia(ctx, managed);
+    applyChatSendManagedMedia(ctx, managed);
+    expect(ctx.media).toEqual([image]);
   });
 });
