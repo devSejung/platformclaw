@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { i18n } from "../i18n/index.ts";
-import { loadAllPlatformClawLocales, platformClawProductT, platformClawT } from "./i18n.ts";
+import { i18n, t } from "../i18n/index.ts";
+import { loadLazyLocaleTranslation } from "../i18n/lib/registry.ts";
+import {
+  loadAllPlatformClawLocales,
+  loadPlatformClawLocale,
+  platformClawProductT,
+  platformClawT,
+} from "./i18n.ts";
 import {
   PLATFORMCLAW_WEB_DESCRIPTOR,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
@@ -26,6 +32,59 @@ describe("PlatformClaw product translations", () => {
 
     await i18n.setLocale("en");
     expect(platformClawT("configView.appearance.terminalTextSize")).toBe("Terminal text size");
+  });
+
+  it("loads native Korean controls alongside the core locale without replacing other copy", async () => {
+    const base = await loadLazyLocaleTranslation("ko");
+    const original = structuredClone(base);
+    await Promise.all([i18n.setLocale("ko"), loadAllPlatformClawLocales()]);
+
+    expect(t("execApproval.execApprovalNeeded")).toBe("명령 실행 승인 필요");
+    expect(t("execApproval.allowOnce")).toBe("한 번 허용");
+    expect(t("execApproval.alwaysAllow")).toBe("항상 허용");
+    expect(t("execApproval.deny")).toBe("거부");
+    expect(t("execApproval.labels.cwd")).toBe("작업 디렉터리");
+    expect(t("execApproval.allowAlwaysUnavailable")).toBe("이 명령은 항상 허용할 수 없습니다.");
+    expect(t("chat.runControls.sendMessage")).toBe("메시지 보내기");
+    expect(t("chat.runControls.stopGenerating")).toBe("생성 중지");
+    expect(t("execApproval.expiresIn", { time: "01:30" })).toBe("01:30 후 만료");
+    expect(t("execApproval.reviewRequest", { agent: "도우미" })).toBe(
+      "도우미의 승인 요청 검토: {command}",
+    );
+    expect(t("chat.composer.placeholder", { name: "OpenClaw test" })).toBe(
+      "OpenClaw test에게 메시지 보내기",
+    );
+    for (const key of ["common.health", "chat.view.reasoning", "chat.composer.startVoiceInput"]) {
+      const expected = key.split(".").reduce<unknown>((value, part) => {
+        return value && typeof value === "object"
+          ? (value as Record<string, unknown>)[part]
+          : undefined;
+      }, original);
+      expect(t(key), key).toBe(expected);
+      expect(platformClawT(key), key).toBe(t(key));
+    }
+    expect(platformClawT("missing.platformClaw.translation")).toBe(
+      "missing.platformClaw.translation",
+    );
+    expect(base).toEqual(original);
+  });
+
+  it("retains native Korean copy across locale switches without changing other locales", async () => {
+    await loadAllPlatformClawLocales();
+    await i18n.setLocale("ko");
+    await loadPlatformClawLocale();
+    expect(t("execApproval.allowOnce")).toBe("한 번 허용");
+
+    await i18n.setLocale("en");
+    expect(t("execApproval.allowOnce")).toBe("Allow once");
+    expect(t("chat.runControls.sendMessage")).toBe("Send message");
+    await i18n.setLocale("de");
+    const germanLabel = t("execApproval.allowOnce");
+    await loadAllPlatformClawLocales();
+    expect(i18n.getLocale()).toBe("de");
+    expect(t("execApproval.allowOnce")).toBe(germanLabel);
+    await i18n.setLocale("ko");
+    expect(t("chat.runControls.sendMessage")).toBe("메시지 보내기");
   });
 
   it("brands the trusted template without rewriting interpolated runtime data", () => {

@@ -723,38 +723,46 @@ platformclaw-spaces-page {
   padding: 0 20px;
   border-bottom: 1px solid var(--border);
 }
-.pc-space-conversation-tabs {
-  display: flex;
+wa-tab-group.pc-space-conversation-tabs {
+  --track-width: 0;
+  display: block;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
 }
-.pc-space-conversation-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+wa-tab-group.pc-space-conversation-tabs::part(tabs) {
+  gap: 0;
+}
+.pc-space-conversation-tabs wa-tab.hub-tab {
   flex: 0 0 auto;
   max-width: 240px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.pc-space-conversation-tabs wa-tab.hub-tab::part(base) {
+  display: flex;
+  gap: 8px;
   min-height: 56px;
   padding: 10px 14px;
-  border: 0;
+  box-sizing: border-box;
   border-bottom: 2px solid transparent;
   background: transparent;
-  color: var(--muted);
   text-align: left;
-  font-size: 12px;
 }
-.pc-space-conversation-tab[aria-selected="true"] {
+.pc-space-conversation-tabs wa-tab.hub-tab[active] {
   color: var(--text-strong);
+}
+.pc-space-conversation-tabs wa-tab.hub-tab[active]::part(base) {
   border-bottom-color: var(--accent);
   background: var(--bg-hover);
 }
-.pc-space-conversation-tab > span {
+.pc-space-conversation-tabs wa-tab > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pc-space-conversation-tab small {
+.pc-space-conversation-tabs wa-tab small {
   display: block;
   padding-top: 3px;
   color: var(--muted);
@@ -775,6 +783,7 @@ platformclaw-spaces-page {
   font-size: 11px;
   line-height: 1.6;
 }
+.pc-space-conversation-panel,
 .pc-space-personal-chat,
 platformclaw-space-conversation-history,
 .pc-space-readonly-history {

@@ -7,6 +7,7 @@ import type {
   SpaceConversation,
 } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
 import type { SpaceMessage } from "../../../packages/platformclaw-control-plane/src/space-service.js";
+import { renderHubTabs } from "../components/hub-tabs.ts";
 import { icons } from "../components/icons.ts";
 import { toSanitizedMarkdownHtml } from "../components/markdown.ts";
 import { platformClawT } from "./i18n.ts";
@@ -372,69 +373,39 @@ function renderPanel(p: SpacesViewProps) {
   </aside>`;
 }
 
-function handleConversationTabKeydown(event: KeyboardEvent) {
-  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
-    return;
-  }
-  const tabs = [
-    ...(event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>(
-      "[role=tab]:not(:disabled)",
-    ),
-  ];
-  const index = tabs.indexOf(event.target as HTMLButtonElement);
-  if (index < 0) {
-    return;
-  }
-  const next =
-    event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? tabs.length - 1
-        : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-  event.preventDefault();
-  tabs[next]?.focus();
-  tabs[next]?.click();
-}
-
 function renderConversationTabs(p: SpacesViewProps) {
   const conversations = (p.snapshot?.conversations ?? []).filter(
     (item) => item.pageId === p.page?.id,
   );
+  const disabled = p.busy || Boolean(p.editor);
   return html`<div class="pc-space-conversation-bar">
-      <div
-        class="pc-space-conversation-tabs"
-        role="tablist"
-        aria-label=${t("conversations")}
-        @keydown=${handleConversationTabKeydown}
-      >
-        ${conversations.map(
-          (conversation) => html`<button
-            role="tab"
-            class="pc-space-conversation-tab"
-            data-conversation-id=${conversation.id}
-            aria-selected=${p.conversation?.id === conversation.id}
-            tabindex=${p.conversation?.id === conversation.id ? 0 : -1}
-            ?disabled=${p.busy || Boolean(p.editor)}
-            @click=${() => p.onSelectConversation(conversation)}
-          >
-            ${icons.messageSquare}<span
-              >${conversation.title}<small
-                >${t(conversation.canWrite ? "yourConversation" : "readOnly")}</small
-              ></span
-            >
-          </button>`,
-        )}
-        <button
-          role="tab"
-          class="pc-space-conversation-tab"
-          aria-selected=${!p.conversation}
-          tabindex=${p.conversation ? -1 : 0}
-          ?disabled=${p.busy || Boolean(p.editor)}
-          @click=${() => p.onSelectConversation(null)}
-        >
-          ${icons.users}<span>${t("legacyConversation")}</span>
-        </button>
-      </div>
+      ${renderHubTabs({
+        id: "pc-space-conversations",
+        active: p.conversation?.id ?? "shared",
+        ariaLabel: t("conversations"),
+        panelId: "pc-space-conversation-panel",
+        className: "pc-space-conversation-tabs",
+        tabs: [
+          ...conversations.map((conversation) => ({
+            value: conversation.id,
+            disabled,
+            label: html`${icons.messageSquare}<span data-conversation-id=${conversation.id}
+                >${conversation.title}<small
+                  >${t(conversation.canWrite ? "yourConversation" : "readOnly")}</small
+                ></span
+              >`,
+          })),
+          {
+            value: "shared",
+            disabled,
+            label: html`${icons.users}<span>${t("legacyConversation")}</span>`,
+          },
+        ],
+        onSelect: (id) =>
+          p.onSelectConversation(
+            conversations.find((conversation) => conversation.id === id) ?? null,
+          ),
+      })}
       <button
         class="pc-space-text-button pc-space-new-conversation"
         ?disabled=${p.busy || Boolean(p.editor) || p.snapshot?.space.role === "viewer"}
@@ -529,9 +500,15 @@ export function renderSpacesView(p: SpacesViewProps) {
           : nothing}
       </div>
       ${p.page
-        ? html`${renderConversationTabs(p)}${p.conversation
-            ? p.conversationView
-            : renderConversation(p)}`
+        ? html`${renderConversationTabs(p)}
+            <section
+              id="pc-space-conversation-panel"
+              class="pc-space-conversation-panel"
+              role="tabpanel"
+              aria-labelledby=${`pc-space-conversations-tab-${p.conversation?.id ?? "shared"}`}
+            >
+              ${p.conversation ? p.conversationView : renderConversation(p)}
+            </section>`
         : html`<section class="pc-space-welcome">
             <span class="pc-space-empty-icon">${icons.messageSquare}</span>
             <h2>${p.snapshot ? p.snapshot.space.name : t("title")}</h2>

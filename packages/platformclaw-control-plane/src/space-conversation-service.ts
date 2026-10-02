@@ -38,7 +38,7 @@ export function isSpaceConversationSession(key: string): boolean {
 }
 
 /** Agent recall contains questions/final answers, never a tool/approval capability. */
-export function projectSpaceConversationMessages(
+function projectSpaceConversationMessages(
   value: unknown,
   ownerId: string,
 ): Record<string, unknown>[] {
@@ -69,7 +69,8 @@ export function projectSpaceConversationMessages(
       (toolActivity ||
         (message.phase !== undefined && message.phase !== "final_answer") ||
         (message.stopReason !== undefined &&
-          !["stop", "length"].includes(String(message.stopReason))))
+          message.stopReason !== "stop" &&
+          message.stopReason !== "length"))
     ) {
       return [];
     }

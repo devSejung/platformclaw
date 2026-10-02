@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SpaceNativeSessionGuard } from "./space-native-session-guard.js";
-import { createSpaceTestFixture } from "./spaces.test-fixture.js";
+import { createSpaceTestFixture } from "./spaces.test-fixtures.js";
 
 async function fixture() {
   const f = await createSpaceTestFixture();

@@ -23,9 +23,12 @@ function createEmbeddedPane() {
     create: vi.fn(async () => "agent:main:unbound"),
     createResult: vi.fn(async () => ({ key: "agent:main:unbound" })),
     reset: vi.fn(),
-  } as unknown as SessionCapability;
+  };
   const client = { request: vi.fn(async () => ({})) } as unknown as GatewayBrowserClient;
-  const fixture = createTestChatPane({ client, sessions });
+  const fixture = createTestChatPane({
+    client,
+    sessions: sessions as unknown as SessionCapability,
+  });
   const pane = fixture.pane as EmbeddedPane;
   pane.embedded = true;
   pane.active = true;

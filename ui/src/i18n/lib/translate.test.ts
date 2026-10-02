@@ -115,6 +115,30 @@ describe("I18nManager pending locale retry", () => {
     expect(loadTranslation).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])(
+    "preserves a locale registered during a pending load (newer selection: %s)",
+    async (newerSelection) => {
+      const { loadTranslation, manager } = createManager();
+      const localeLoad = deferred<TranslationMap | null>();
+      loadTranslation.mockReturnValueOnce(localeLoad.promise);
+      const observedLabels: string[] = [];
+      manager.subscribe(() => observedLabels.push(manager.t("common.health")));
+
+      const pending = manager.setLocale("de");
+      manager.registerTranslation("de", { common: { health: "Registered translation" } });
+      if (newerSelection) {
+        await manager.setLocale("de");
+      }
+      localeLoad.resolve(german);
+      await pending;
+
+      expect(manager.getLocale()).toBe("de");
+      expect(manager.t("common.health")).toBe("Registered translation");
+      expect(observedLabels).toEqual(["Registered translation"]);
+      expect(loadTranslation).toHaveBeenCalledExactlyOnceWith("de");
+    },
+  );
+
   it("deduplicates an in-flight target and permits retry after the shared load settles", async () => {
     const { internals, loadTranslation, manager } = createManager();
     vi.spyOn(console, "error").mockImplementation(() => {});

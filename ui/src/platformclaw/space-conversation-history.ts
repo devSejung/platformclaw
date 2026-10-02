@@ -9,7 +9,7 @@ import {
 } from "../pages/chat/components/chat-thread.ts";
 
 /** An own-session snapshot after losing write access; no personal client or mutation callbacks. */
-export class SpaceConversationHistory extends OpenClawLightDomElement {
+class SpaceConversationHistory extends OpenClawLightDomElement {
   @property({ attribute: false }) conversationId = "";
   @property({ attribute: false }) messages: unknown[] = [];
   @property({ attribute: false }) ownerName = "";

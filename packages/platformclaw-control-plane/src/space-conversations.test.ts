@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SpaceConversation } from "./space-contracts.js";
-import { projectSpaceConversationMessages } from "./space-conversation-service.js";
 import { projectSpaceRecallResult, validateSpaceRecallWindow } from "./space-recall-projection.js";
-import { createSpaceTestFixture as fixture } from "./spaces.test-fixture.js";
+import { createSpaceTestFixture as fixture } from "./spaces.test-fixtures.js";
 
 const rpc = "platformclaw.spaces.";
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -155,13 +154,20 @@ describe("Space-created personal conversations", () => {
     const conversation = await create(f);
     const messages = [
       textMessage("user", "q", "Why did it fail?", f.alice.user.id),
-      textMessage("assistant", "a", "The clock configuration was wrong"),
+      {
+        ...textMessage("assistant", "a", "The clock configuration was wrong"),
+        stopReason: "stop",
+      },
       {
         ...textMessage("assistant", "commentary", "Inspecting private files"),
         phase: "commentary",
       },
       { ...textMessage("assistant", "error", "private failure"), stopReason: "error" },
       { ...textMessage("assistant", "aborted", "unfinished private text"), stopReason: "aborted" },
+      {
+        ...textMessage("assistant", "malformed-stop", "private malformed metadata"),
+        stopReason: { reason: "stop" },
+      },
       { ...textMessage("assistant", "hidden", "hidden payload"), display: false },
       {
         ...textMessage("assistant", "mirror", "private message tool output"),
@@ -195,6 +201,7 @@ describe("Space-created personal conversations", () => {
             textSignature: JSON.stringify({ v: 1, phase: "final_answer" }),
           },
         ],
+        stopReason: "length",
         __openclaw: { id: "phases" },
       },
     ];
@@ -224,7 +231,6 @@ describe("Space-created personal conversations", () => {
         conversationId: conversation.id,
       }),
     ).rejects.toThrow("unavailable");
-    expect(projectSpaceConversationMessages({ messages }, f.alice.user.id)).toHaveLength(3);
   });
 
   it("builds recall search snippets from final Q&A, not foreign or tool-index hits", async () => {

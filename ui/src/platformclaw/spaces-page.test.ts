@@ -1,5 +1,6 @@
 import { webcrypto } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SpaceConversation } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
 import { i18n } from "../i18n/index.ts";
 import { loadAllPlatformClawLocales } from "./i18n.ts";
 import "./spaces-page.ts";
@@ -39,7 +40,7 @@ type Element = HTMLElement & {
   selectPage: (page: unknown) => void;
   refresh: () => Promise<void>;
 };
-async function mount(role = "owner") {
+async function mount(role = "owner", conversations: SpaceConversation[] = []) {
   const listeners = new Set<(event: { event: string; payload?: unknown }) => void>();
   const request = vi.fn(
     async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
@@ -51,7 +52,7 @@ async function mount(role = "owner") {
           space: { ...space, role },
           pages: [page],
           members: [member],
-          conversations: [],
+          conversations,
           currentUserId: "alice",
         };
       }
@@ -94,7 +95,12 @@ async function mount(role = "owner") {
   await element.selectSpace(space.id);
   element.selectPage(page);
   await element.updateComplete;
-  await vi.waitFor(() => expect(element.textContent).toContain("Earlier question"));
+  await vi.waitFor(() =>
+    expect(element.querySelector('[role="tab"][aria-selected="true"]')).not.toBeNull(),
+  );
+  if (conversations.length === 0) {
+    await vi.waitFor(() => expect(element.textContent).toContain("Earlier question"));
+  }
   return {
     element,
     request,
@@ -166,6 +172,83 @@ describe("Space issue page UX", () => {
     );
     expect(request.mock.calls.some(([method]) => method.endsWith(".send"))).toBe(false);
   });
+  it.each(["owner", "viewer"])(
+    "preserves %s read-only conversations through shared tabs",
+    async (role) => {
+      const own: SpaceConversation = {
+        id: "own-conversation",
+        spaceId: space.id,
+        pageId: page.id,
+        title: "Own investigation",
+        ownerId: "alice",
+        ownerName: "Alice",
+        agentId: "personal-alice",
+        sessionKey: "agent:personal-alice:space-session:00000000-0000-4000-8000-000000000004",
+        createdAt: 100,
+        canWrite: role === "viewer",
+      };
+      const { element, request } = await mount(role, [
+        own,
+        { ...own, id: "peer-conversation", title: "Private peer conversation", ownerId: "bob" },
+        { ...own, id: "other-page-conversation", pageId: "other-page", title: "Other issue" },
+      ]);
+      const group = element.querySelector("wa-tab-group.pc-space-conversation-tabs")!;
+      const personalTab = group.querySelector<HTMLElement>('wa-tab[panel="own-conversation"]')!;
+      const sharedTab = group.querySelector<HTMLElement>('wa-tab[panel="shared"]')!;
+      const panel = element.querySelector('[role="tabpanel"]')!;
+      expect(group.querySelectorAll("wa-tab")).toHaveLength(2);
+      expect(personalTab.getAttribute("aria-controls")).toBe(panel.id);
+      expect(panel.getAttribute("aria-labelledby")).toBe(personalTab.id);
+      expect(personalTab.textContent).toContain("Read-only");
+      expect(button(element, "New conversation").disabled).toBe(role === "viewer");
+      const pane = element.querySelector("platformclaw-space-conversation-history");
+      expect(pane).not.toBeNull();
+      expect(element.querySelector("openclaw-chat-pane")).toBeNull();
+
+      const calls = request.mock.calls.length;
+      personalTab.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
+      group.dispatchEvent(
+        new CustomEvent("wa-tab-show", { detail: { name: "shared" }, bubbles: true }),
+      );
+      sharedTab.click();
+      await element.updateComplete;
+      expect(request.mock.calls).toHaveLength(calls);
+      expect(element.querySelector("platformclaw-space-conversation-history")).toBe(pane);
+      expect(panel.getAttribute("aria-labelledby")).toBe(personalTab.id);
+
+      sharedTab.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+      await element.updateComplete;
+      await vi.waitFor(() => expect(element.textContent).toContain("Earlier question"));
+      expect(element.querySelector("openclaw-chat-pane")).toBeNull();
+      expect(element.querySelector("platformclaw-space-conversation-history")).toBeNull();
+      expect(panel.getAttribute("aria-labelledby")).toBe(sharedTab.id);
+      expect(new URL(location.href).searchParams.get("conversation")).toBe("shared");
+
+      personalTab.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
+      await element.updateComplete;
+      expect(panel.getAttribute("aria-labelledby")).toBe(personalTab.id);
+      expect(new URL(location.href).searchParams.get("conversation")).toBe(own.id);
+      expect(element.querySelector("platformclaw-space-conversation-history")).not.toBeNull();
+      expect(element.querySelector("openclaw-chat-pane")).toBeNull();
+      if (role === "owner") {
+        await beginEdit(element);
+        expect(
+          [...group.querySelectorAll("wa-tab")].every((tab) => tab.hasAttribute("disabled")),
+        ).toBe(true);
+        sharedTab.dispatchEvent(
+          new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }),
+        );
+        sharedTab.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
+        await element.updateComplete;
+        expect(new URL(location.href).searchParams.get("conversation")).toBe(own.id);
+        button(element, "Cancel").click();
+        await element.updateComplete;
+        expect(group.querySelector("wa-tab[disabled]")).toBeNull();
+      }
+    },
+  );
   it("reuses a creation request after an ambiguous failure and blocks repeated pending submits", async () => {
     const { element, request } = await mount();
     const original = request.getMockImplementation()!;
@@ -187,7 +270,9 @@ describe("Space issue page UX", () => {
     const creations = () =>
       request.mock.calls.filter(([method]) => method.endsWith("conversation.create"));
     expect(creations()).toHaveLength(1);
-    const first = creations()[0][1];
+    const firstCall = creations()[0];
+    assert.isDefined(firstCall);
+    const first = firstCall[1];
     expect(first).toMatchObject({
       spaceId: space.id,
       pageId: page.id,
@@ -205,7 +290,9 @@ describe("Space issue page UX", () => {
     );
     button(element, "Create conversation").click();
     await vi.waitFor(() => expect(creations()).toHaveLength(2));
-    expect(creations()[1][1]).toEqual(first);
+    const retryCall = creations()[1];
+    assert.isDefined(retryCall);
+    expect(retryCall[1]).toEqual(first);
     rejectCreation(new Error("Service still unavailable"));
     await vi.waitFor(() =>
       expect(element.querySelector('[role="alert"]')?.textContent).toContain(

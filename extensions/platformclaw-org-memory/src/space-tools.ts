@@ -145,7 +145,7 @@ export function registerSpaceTools(api: OpenClawPluginApi, client: WikiHubMemory
   api.on("before_tool_call", async (event, context) => {
     await revalidatePersonalSpace(context);
     if (!NATIVE_SESSION_TOOLS.has(event.toolName)) {
-      return;
+      return undefined;
     }
     if (!context.agentId) {
       throw new Error("Session owner unavailable; retry in an authenticated personal session");
@@ -224,7 +224,7 @@ export function registerSpaceTools(api: OpenClawPluginApi, client: WikiHubMemory
       return { params: { ...params, agentId: targetAgentId } };
     }
     if (typeof response.sessionKey === "string") {
-      const authorized = { ...params, sessionKey: response.sessionKey };
+      const authorized: Record<string, unknown> = { ...params, sessionKey: response.sessionKey };
       if (event.toolName === "sessions_send") {
         delete authorized.label;
         delete authorized.agentId;

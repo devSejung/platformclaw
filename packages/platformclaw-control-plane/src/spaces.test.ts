@@ -1,7 +1,7 @@
 import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { createSpaceTestFixture as fixture } from "./spaces.test-fixture.js";
+import { createSpaceTestFixture as fixture } from "./spaces.test-fixtures.js";
 import { PlatformClawWebIngressServer } from "./web-ingress-server.js";
 import { createFrameQueue, FakeGateway, isRecord } from "./web-ingress-test-harness.js";
 const rpc = "platformclaw.spaces.";

@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, describe, expect, it, vi } from "vitest";
 import {
   COMMAND_PALETTE_TARGET_EVENT,
   type CommandPaletteTargetDetail,
@@ -116,11 +116,15 @@ describe("ShellChromeOwner mounted chat target ownership", () => {
     const current = declare("agent:main:second");
     requestUpdate.mockClear();
 
-    releases[0]();
+    const firstRelease = releases[0];
+    const secondRelease = releases[1];
+    assert.isDefined(firstRelease);
+    assert.isDefined(secondRelease);
+    firstRelease();
 
     expect(host.commandPaletteTarget).toBe(current);
     expect(requestUpdate).not.toHaveBeenCalled();
-    releases[1]();
+    secondRelease();
     expect(host.commandPaletteTarget).toBeUndefined();
     expect(requestUpdate).toHaveBeenCalledOnce();
   });
