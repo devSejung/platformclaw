@@ -211,6 +211,8 @@ export type RunEmbeddedAgentParams = {
   imageOrder?: PromptImageOrderEntry[];
   /** Ordered facts represented by attachment text in the current prompt. */
   media?: MediaFact[];
+  /** Full current-turn workspace facts used only for sandbox file materialization. */
+  workspaceMedia?: MediaFact[];
   /** Optional client-provided tools (OpenResponses hosted tools). */
   clientTools?: ClientToolDefinition[];
   /** Disable built-in tools for this run (LLM-only mode). */

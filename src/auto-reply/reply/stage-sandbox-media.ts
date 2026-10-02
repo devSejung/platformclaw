@@ -107,15 +107,13 @@ export async function stageSandboxMedia(params: {
       continue;
     }
     const stageIntoSandboxMediaDir = Boolean(sandbox);
-    const relativeDest =
+    let relativeDest =
       stageIntoSandboxMediaDir || hostWorkspaceStagingDir
         ? path.join(hostWorkspaceStagingDir ?? path.join("media", "inbound"), fileName)
         : fileName;
-    const dest = path.join(effectiveWorkspaceDir, relativeDest);
-
     try {
       if (ctx.MediaRemoteHost) {
-        await stageRemoteFileIntoRoot({
+        relativeDest = await stageRemoteFileIntoRoot({
           remoteHost: ctx.MediaRemoteHost,
           remotePath: source.physicalPath,
           rootDir: effectiveWorkspaceDir,
@@ -124,7 +122,7 @@ export async function stageSandboxMedia(params: {
         });
       } else {
         const copySource = await fs.realpath(source.physicalPath).catch(() => source.physicalPath);
-        await stageLocalFileIntoRoot({
+        relativeDest = await stageLocalFileIntoRoot({
           sourcePath: copySource,
           rootDir: effectiveWorkspaceDir,
           relativeDestPath: relativeDest,
@@ -143,7 +141,9 @@ export async function stageSandboxMedia(params: {
     }
 
     // For sandbox use relative path, for remote cache use absolute path
-    const stagedPath = stageIntoSandboxMediaDir ? toPosixRelativePath(relativeDest) : dest;
+    const stagedPath = stageIntoSandboxMediaDir
+      ? toPosixRelativePath(relativeDest)
+      : path.join(effectiveWorkspaceDir, relativeDest);
     staged.set(entry.index, stagedPath);
     if (
       await isUrlAliasForStagedSource({
@@ -257,11 +257,37 @@ async function stageLocalFileIntoRoot(params: {
   rootDir: string;
   relativeDestPath: string;
   maxBytes?: number;
-}): Promise<void> {
+}): Promise<string> {
   const root = await fsRoot(params.rootDir);
-  await root.copyIn(params.relativeDestPath, params.sourcePath, {
+  const sourceRoot = await fsRoot(path.dirname(params.sourcePath));
+  const { buffer } = await sourceRoot.read(path.basename(params.sourcePath), {
     maxBytes: params.maxBytes,
+    nonBlockingRead: true,
   });
+  try {
+    await root.create(params.relativeDestPath, buffer, { mkdir: true });
+    return params.relativeDestPath;
+  } catch (error) {
+    if (!(error instanceof FsSafeError) || error.code !== "already-exists") {
+      throw error;
+    }
+  }
+  // Managed inbound IDs are immutable UUID-backed filenames. Reuse an identical
+  // local snapshot, but never replace another queued turn's same-name attachment.
+  const existing = await root.read(params.relativeDestPath, {
+    maxBytes: params.maxBytes,
+    nonBlockingRead: true,
+  });
+  if (existing.buffer.equals(buffer)) {
+    return params.relativeDestPath;
+  }
+  const uniqueDest = path.join(
+    path.dirname(params.relativeDestPath),
+    `openclaw-staged-${crypto.randomUUID()}`,
+    path.basename(params.relativeDestPath),
+  );
+  await root.create(uniqueDest, buffer, { mkdir: true });
+  return uniqueDest;
 }
 
 async function stageRemoteFileIntoRoot(params: {
@@ -270,14 +296,14 @@ async function stageRemoteFileIntoRoot(params: {
   rootDir: string;
   relativeDestPath: string;
   maxBytes?: number;
-}): Promise<void> {
+}): Promise<string> {
   const tmpRoot = resolvePreferredOpenClawTmpDir();
   await fs.mkdir(tmpRoot, { recursive: true });
   const tmpDir = await fs.mkdtemp(path.join(tmpRoot, "stage-sandbox-media-"));
   const tmpPath = path.join(tmpDir, "download");
   try {
     await scpFile(params.remoteHost, params.remotePath, tmpPath);
-    await stageLocalFileIntoRoot({
+    return await stageLocalFileIntoRoot({
       sourcePath: tmpPath,
       rootDir: params.rootDir,
       relativeDestPath: params.relativeDestPath,

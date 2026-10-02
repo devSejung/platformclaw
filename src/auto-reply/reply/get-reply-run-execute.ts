@@ -322,6 +322,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
     images: currentTurnImages.images,
     imageOrder: currentTurnImages.imageOrder,
     media: promptMedia,
+    workspaceMedia: ctxMediaForPersistence,
     // Originating channel for reply routing.
     originatingChannel: replyRoute.channel,
     originatingTo: replyRoute.to,

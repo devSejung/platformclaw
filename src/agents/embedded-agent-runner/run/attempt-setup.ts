@@ -2,6 +2,7 @@
  * Resolves workspace, sandbox, provider runtime, and phase reporting for an embedded attempt.
  */
 import fs from "node:fs/promises";
+import { isAbortError } from "../../../infra/abort-signal.js";
 import { isPluginMetadataSnapshotCompatible } from "../../../plugins/plugin-metadata-snapshot.js";
 import type { PluginMetadataSnapshot } from "../../../plugins/plugin-metadata-snapshot.types.js";
 import {
@@ -10,7 +11,9 @@ import {
 } from "../../../plugins/provider-hook-runtime.js";
 import { resolveUserPath } from "../../../utils.js";
 import { resolveSessionAgentIds } from "../../agent-scope.js";
+import { stageInboundMediaForSandbox } from "../../inbound-media-staging.js";
 import { resolveSandboxContext } from "../../sandbox.js";
+import { toSandboxProvisioningError } from "../../sandbox/provisioning-error.js";
 import { log } from "../logger.js";
 import { mapThinkingLevel, mapThinkingLevelForProvider } from "../utils.js";
 import { configureEmbeddedAttemptHttpRuntime } from "./attempt-http-runtime.js";
@@ -34,6 +37,9 @@ type AttemptWorkspaceParams = Pick<
   | "config"
   | "cwd"
   | "execOverrides"
+  | "abortSignal"
+  | "media"
+  | "workspaceMedia"
   | "sandboxSessionKey"
   | "sessionId"
   | "sessionKey"
@@ -59,6 +65,21 @@ export async function resolveAttemptWorkspaceSandbox(params: AttemptWorkspacePar
     throw new Error(
       "cwd override is not supported for sandboxed embedded agent runs; omit cwd or use the agent workspace as cwd",
     );
+  }
+  const workspaceMedia = params.workspaceMedia ?? params.media;
+  if (sandbox?.enabled && workspaceMedia?.length) {
+    try {
+      await stageInboundMediaForSandbox({
+        sandbox,
+        media: workspaceMedia,
+        signal: params.abortSignal,
+      });
+    } catch (error) {
+      if (params.abortSignal?.aborted || isAbortError(error)) {
+        throw error;
+      }
+      throw toSandboxProvisioningError(error, sandbox.backendId);
+    }
   }
   await fs.mkdir(effectiveWorkspace, { recursive: true });
   const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({

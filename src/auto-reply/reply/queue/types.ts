@@ -107,6 +107,8 @@ export type FollowupRun = {
   imageOrder?: PromptImageOrderEntry[];
   /** Ordered facts represented by attachment text in this prompt. */
   media?: MediaFact[];
+  /** Full current-turn workspace facts used only for backend file materialization. */
+  workspaceMedia?: MediaFact[];
   /**
    * Originating channel for reply routing.
    * When set, replies should be routed back to this provider

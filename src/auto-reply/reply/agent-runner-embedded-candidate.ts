@@ -214,6 +214,7 @@ export async function runEmbeddedFallbackCandidate(params: {
         prompt: turn.commandBody,
         transcriptPrompt: turn.transcriptCommandBody,
         media: turn.followupRun.media,
+        workspaceMedia: turn.followupRun.workspaceMedia,
         userTurnTranscriptRecorder: params.userTurnTranscriptRecorder,
         currentInboundEventKind: turn.followupRun.currentInboundEventKind,
         currentInboundContext: turn.followupRun.currentInboundContext,
