@@ -18,24 +18,6 @@ const sandboxMocks = vi.hoisted(() => ({
 const childProcessMocks = vi.hoisted(() => ({
   spawn: vi.fn(),
 }));
-const fsSafeMocks = vi.hoisted(() => {
-  class MockFsSafeError extends Error {
-    readonly code: string;
-
-    constructor(code: string, message: string) {
-      super(message);
-      this.name = "FsSafeError";
-      this.code = code;
-    }
-  }
-
-  return {
-    FsSafeError: MockFsSafeError,
-    rootCopyFrom: vi.fn(),
-    root: vi.fn(),
-    readLocalFileSafely: vi.fn(),
-  };
-});
 const mediaRootMocks = vi.hoisted(() => ({
   resolveChannelRemoteInboundAttachmentRoots: vi.fn(),
 }));
@@ -51,85 +33,12 @@ vi.mock("node:child_process", async () => {
     spawn: childProcessMocks.spawn,
   };
 });
-vi.mock("../infra/fs-safe.js", () => fsSafeMocks);
 vi.mock("../media/channel-inbound-roots.js", () => mediaRootMocks);
-
-async function rootCopyFromForTest({
-  sourcePath,
-  rootDir,
-  relativePath,
-  maxBytes,
-}: {
-  sourcePath: string;
-  rootDir: string;
-  relativePath: string;
-  maxBytes?: number;
-}) {
-  const sourceStat = await fs.stat(sourcePath);
-  if (typeof maxBytes === "number" && sourceStat.size > maxBytes) {
-    throw new fsSafeMocks.FsSafeError(
-      "too-large",
-      `file exceeds limit of ${maxBytes} bytes (got ${sourceStat.size})`,
-    );
-  }
-
-  await fs.mkdir(rootDir, { recursive: true });
-  const rootReal = await fs.realpath(rootDir);
-  const destPath = path.resolve(rootReal, relativePath);
-  const rootPrefix = `${rootReal}${path.sep}`;
-  if (destPath !== rootReal && !destPath.startsWith(rootPrefix)) {
-    throw new fsSafeMocks.FsSafeError("outside-workspace", "file is outside workspace root");
-  }
-
-  const parentDir = dirname(destPath);
-  const relativeParent = path.relative(rootReal, parentDir);
-  if (relativeParent && !relativeParent.startsWith("..")) {
-    let cursor = rootReal;
-    for (const segment of relativeParent.split(path.sep)) {
-      cursor = path.join(cursor, segment);
-      try {
-        const stat = await fs.lstat(cursor);
-        if (stat.isSymbolicLink()) {
-          throw new fsSafeMocks.FsSafeError("symlink", "symlink not allowed");
-        }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          await fs.mkdir(cursor, { recursive: true });
-          continue;
-        }
-        throw error;
-      }
-    }
-  }
-
-  try {
-    const destStat = await fs.lstat(destPath);
-    if (destStat.isSymbolicLink()) {
-      throw new fsSafeMocks.FsSafeError("symlink", "symlink not allowed");
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
-    }
-  }
-
-  await fs.copyFile(sourcePath, destPath);
-}
 
 beforeEach(() => {
   sandboxMocks.ensureSandboxWorkspaceForSession.mockReset();
   sandboxMocks.assertSandboxPath.mockReset().mockResolvedValue({ resolved: "", relative: "" });
   childProcessMocks.spawn.mockClear();
-  fsSafeMocks.rootCopyFrom.mockReset().mockImplementation(rootCopyFromForTest);
-  fsSafeMocks.root.mockReset().mockImplementation(async (rootDir: string) => ({
-    copyIn: async (relativePath: string, sourcePath: string, options?: { maxBytes?: number }) =>
-      await rootCopyFromForTest({
-        sourcePath,
-        rootDir,
-        relativePath,
-        maxBytes: options?.maxBytes,
-      }),
-  }));
   mediaRootMocks.resolveChannelRemoteInboundAttachmentRoots
     .mockReset()
     .mockReturnValue(["/Users/demo/Library/Messages/Attachments"]);
@@ -169,6 +78,45 @@ async function writeInboundMedia(
 }
 
 describe("stageSandboxMedia", () => {
+  it("keeps same-name attachments from separate queued turns as separate immutable snapshots", async () => {
+    await withSandboxMediaTempHome("openclaw-staging-collision-", async (home) => {
+      const { cfg, workspaceDir, sandboxDir } = await setupSandboxWorkspace(home);
+      const source = await writeInboundMedia(home, "same-name.csv", "first,1\n");
+      const first = createSandboxMediaContexts(source);
+      await stageSandboxMedia({ ...first, cfg, sessionKey: "agent:main:main", workspaceDir });
+
+      await fs.writeFile(source, "second,2\n");
+      const second = createSandboxMediaContexts(source);
+      await stageSandboxMedia({ ...second, cfg, sessionKey: "agent:main:main", workspaceDir });
+      const firstPath = first.ctx.media?.[0]?.path;
+      const secondPath = second.ctx.media?.[0]?.path;
+      expect(firstPath).toBe("media/inbound/same-name.csv");
+      expect(secondPath).toMatch(/^media\/inbound\/openclaw-staged-[0-9a-f-]+\/same-name.csv$/);
+      expect(secondPath).not.toBe(firstPath);
+      expect(await fs.readFile(join(sandboxDir, firstPath!), "utf8")).toBe("first,1\n");
+      expect(await fs.readFile(join(sandboxDir, secondPath!), "utf8")).toBe("second,2\n");
+    });
+  });
+
+  it("atomically reuses identical inbound IDs when two turns stage concurrently", async () => {
+    await withSandboxMediaTempHome("openclaw-staging-repeat-", async (home) => {
+      const { cfg, workspaceDir, sandboxDir } = await setupSandboxWorkspace(home);
+      const source = await writeInboundMedia(home, "immutable.png", Buffer.from([0, 255, 10]));
+      const first = createSandboxMediaContexts(source);
+      const second = createSandboxMediaContexts(source);
+      await Promise.all(
+        [first, second].map((contexts) =>
+          stageSandboxMedia({ ...contexts, cfg, sessionKey: "agent:main:main", workspaceDir }),
+        ),
+      );
+      expect(first.ctx.media?.[0]?.path).toBe("media/inbound/immutable.png");
+      expect(second.ctx.media).toEqual(first.ctx.media);
+      expect(await fs.readFile(join(sandboxDir, "media/inbound/immutable.png"))).toEqual(
+        Buffer.from([0, 255, 10]),
+      );
+    });
+  });
+
   it("stages managed inbound media URIs into the sandbox workspace", async () => {
     await withSandboxMediaTempHome("openclaw-triggers-", async (home) => {
       const { cfg, workspaceDir, sandboxDir } = await setupSandboxWorkspace(home);
@@ -223,7 +171,7 @@ describe("stageSandboxMedia", () => {
       });
 
       const stagedPath = ctx.media?.[0]?.path ?? "";
-      const stagedRelativePath = path.relative(workspaceDir, stagedPath);
+      const stagedRelativePath = path.relative(workspaceDir, stagedPath).split(path.sep).join("/");
       expect(stagedRelativePath).toMatch(
         new RegExp(`^media/inbound/openclaw-staged-[0-9a-f-]+/${fileName}$`),
       );
@@ -480,8 +428,19 @@ describe("stageSandboxMedia", () => {
       await fs.writeFile(victimPath, "ORIGINAL");
 
       await fs.mkdir(sandboxDir, { recursive: true });
-      await fs.symlink(outsideDir, join(sandboxDir, "media"));
-      await fs.symlink(victimPath, join(outsideInboundDir, basename(mediaPath)));
+      await fs.symlink(
+        outsideDir,
+        join(sandboxDir, "media"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      const outsideTarget = join(outsideInboundDir, basename(mediaPath));
+      if (process.platform === "win32") {
+        // Junctions exercise the directory escape without requiring Windows
+        // symlink privileges; a hard link keeps the victim observation exact.
+        await fs.link(victimPath, outsideTarget);
+      } else {
+        await fs.symlink(victimPath, outsideTarget);
+      }
 
       const { ctx, sessionCtx } = createSandboxMediaContexts(mediaPath);
       await stageSandboxMedia({

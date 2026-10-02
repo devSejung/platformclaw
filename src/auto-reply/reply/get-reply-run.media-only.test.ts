@@ -1223,6 +1223,52 @@ describe("runPreparedReply media-only handling", () => {
     expect(call.followupRun.imageOrder).toEqual(["inline"]);
   });
 
+  it("keeps transcribed audio in workspace media after prompt projection removes it", async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), "openclaw-followup-audio-"));
+    cleanupPaths.push(tmpDir);
+    const audioPath = path.join(tmpDir, "voice.ogg");
+    await writeFile(audioPath, Buffer.from("audio"));
+    const audio = {
+      path: audioPath,
+      workspaceDir: tmpDir,
+      contentType: "audio/ogg",
+      transcribed: true,
+    };
+
+    const result = await runPreparedReply(
+      baseParams({
+        ctx: {
+          ...createInboundBody("transcribed audio"),
+          media: [audio],
+          OriginatingChannel: "discord",
+          OriginatingTo: "C123",
+          ChatType: "group",
+        },
+        sessionCtx: {
+          ...createSessionBody("transcribed audio"),
+          Provider: "discord",
+          OriginatingChannel: "discord",
+          OriginatingTo: "C123",
+          ChatType: "group",
+          media: [audio],
+        },
+      }),
+    );
+
+    expect(result).toEqual({ text: "ok" });
+    const call = requireRunReplyAgentCall();
+    expect(call.followupRun.media).toBeUndefined();
+    expect(call.followupRun.workspaceMedia).toEqual([
+      expect.objectContaining({
+        path: audioPath,
+        workspaceDir: tmpDir,
+        contentType: "audio/ogg",
+        kind: "audio",
+        transcribed: true,
+      }),
+    ]);
+  });
+
   it("does not copy prior session media onto text-only followups", async () => {
     await runPreparedReply(
       baseParams({

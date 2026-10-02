@@ -85,6 +85,49 @@ five-second limit; authentication plus the remote identity command has a
 15-second overall limit. Gateway logs
 `platformclaw_vm_connection_test_timing` for diagnosing slow enterprise paths.
 
+## Verify uploaded attachments
+
+For an embedded Agent using a VM, workspace-staged inbound files are prepared
+through the filesystem bridge belonging to that run's selected execution target
+before the Agent starts. The Gateway and VM keep the same workspace-relative
+path, such as `media/inbound/<stored-file-name>`. Their absolute workspace roots
+do not have to match. This is attachment publication, not workspace mirroring:
+existing project files and Agent edits on the VM are not overwritten.
+
+Test the following with disposable files and a configured model provider:
+
+1. Select a text-only primary model and configure a separate `imageModel`.
+   Attach a PNG, then ask the Agent to inspect it with the `image` tool. Check
+   that the file exists under the VM workspace and the tool returns an analysis.
+   The Gateway reads the image bytes through the VM bridge and sends those bytes
+   to the image provider; the provider never opens the VM path directly.
+2. Attach a CSV, a small PDF, and a binary fixture in the same turn. Read the CSV
+   and inspect the other files using appropriate VM tools. Compare the binary
+   checksum with the uploaded fixture, including files with spaces or non-ASCII
+   characters in their names. The publication step is independent of file type;
+   it does not make every format a valid image-model input.
+3. Repeat with a native-vision primary model and a mixed image/document turn.
+   Inline vision input remains available, and the image's managed file identity
+   also reaches workspace staging for subsequent file-tool calls.
+4. Submit different payloads with the same displayed filename in queued turns.
+   Each turn must keep its own bytes and recorded path. When a stored name
+   actually collides with different content, Gateway staging chooses an isolated
+   `openclaw-staged-<id>` subdirectory instead of replacing the earlier snapshot.
+5. Edit an already published file on the VM, then retry the same staged input.
+   The existing regular VM file must be reused rather than reset to the Gateway
+   original. A directory or unsafe path at the destination must fail closed.
+6. Interrupt a publication or make the VM destination unwritable. The run must
+   report a sandbox provisioning error before model execution; model fallback
+   must not disguise a transfer failure. Restore access and retry. Files already
+   published successfully must remain intact.
+
+The existing inbound workspace-staging limit is **5 MiB per file**. This is
+separate from upload and model-specific limits; files not admitted to workspace
+staging do not become VM files through this mechanism. Switching execution
+locations does not migrate a session's entire attachment history or workspace.
+The current run's staged inputs are checked against its actual target, so a
+publication on a previous VM is not treated as proof that another VM has them.
+
 ## Stop, inspect, and reset
 
 ```powershell

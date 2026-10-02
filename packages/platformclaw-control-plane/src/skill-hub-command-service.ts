@@ -72,6 +72,15 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
           isError: true,
         };
       }
+      if (error.details?.code === "incomplete-search") {
+        return {
+          text:
+            locale === "ko"
+              ? "검색 결과가 많아 스킬을 확정할 수 없습니다. namespace/slug로 지정해 주세요."
+              : "The search is incomplete. Specify the skill using namespace/slug.",
+          isError: true,
+        };
+      }
       const candidates = error.details?.candidates;
       if (Array.isArray(candidates)) {
         return {
@@ -165,7 +174,7 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
       return { namespace, slug, version };
     }
     const slug = safeName(value, "skill slug", SKILL_KEY_PATTERN);
-    const result = await this.search(user, slug, 50, audience);
+    const result = await this.search(user, slug, 50, audience, { requireComplete: true });
     const matches = result.items.filter((item) => item.slug.toLowerCase() === slug);
     if (matches.length === 0) {
       throw new SkillHubServiceError(`skill not found: ${slug}`, 404);

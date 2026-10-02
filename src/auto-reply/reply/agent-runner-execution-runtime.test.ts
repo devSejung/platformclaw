@@ -17,6 +17,28 @@ import type { FallbackRunnerParams } from "./agent-runner-execution.test-support
 const state = setupAgentRunnerExecutionTestState();
 
 describe("executeAgentTurn: runtime selection", () => {
+  it("forwards workspace media independently from prompt media to embedded candidates", async () => {
+    state.runEmbeddedAgentMock.mockResolvedValueOnce({ payloads: [{ text: "done" }], meta: {} });
+    const executeAgentTurn = await getExecuteAgentTurnForTest();
+    const followupRun = createFollowupRun();
+    followupRun.media = [{ path: "/gateway/raw-image-alias.png", contentType: "image/png" }];
+    followupRun.workspaceMedia = [
+      {
+        path: "media/inbound/original-audio.ogg",
+        contentType: "audio/ogg",
+        workspaceDir: "/tmp",
+      },
+    ];
+
+    const result = await executeAgentTurn(createMinimalRunAgentTurnParams({ followupRun }));
+
+    expect(result.kind).toBe("success");
+    expectMockCallArgFields(state.runEmbeddedAgentMock, 0, "embedded run params", {
+      media: followupRun.media,
+      workspaceMedia: followupRun.workspaceMedia,
+    });
+  });
+
   it.each(["group", "channel"] as const)(
     "forwards authoritative %s type through CLI fallback for opaque session keys",
     async (chatType) => {

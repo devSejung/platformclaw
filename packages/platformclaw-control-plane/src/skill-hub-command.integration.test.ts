@@ -295,6 +295,36 @@ describe("Knox Skill Hub command transport", () => {
     },
   );
 
+  it.each([
+    { room: false, exactMatchInPage: false },
+    { room: false, exactMatchInPage: true },
+    { room: true, exactMatchInPage: false },
+    { room: true, exactMatchInPage: true },
+  ])(
+    "requires namespace/slug for incomplete search (room=$room, match=$exactMatchInPage)",
+    async ({ room, exactMatchInPage }) => {
+      const f = await setup(true, room);
+      f.adapterMocks.search.mockResolvedValue({
+        items: Array.from({ length: 50 }, (_, index) => ({
+          namespace: "engineering",
+          slug: exactMatchInPage && index === 0 ? "demo-skill" : `demo-skill-${index}`,
+          latestVersion: "1.0.0",
+          summary: "Demo",
+          visibility: "PUBLIC" as const,
+        })),
+        total: 51,
+      });
+      for (const action of ["install", "update"]) {
+        expect(await f.run(`${action} demo-skill`)).toMatchObject({
+          isError: true,
+          text: expect.stringContaining("namespace/slug"),
+        });
+      }
+      expect(f.adapterMocks.download).not.toHaveBeenCalled();
+      expect(f.adminRpcCall).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["PRIVATE", "NAMESPACE_ONLY"] as const)(
     "keeps %s skills and personal grants out of room search/install",
     async (visibility) => {

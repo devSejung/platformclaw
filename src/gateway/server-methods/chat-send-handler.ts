@@ -265,7 +265,7 @@ export async function handleChatSend(
       accountId,
       ctx,
       isInternalTextSlashCommandTurn,
-      pluginBoundMediaPromise,
+      managedMediaPromise,
       queuedFollowupOwnerKey,
       replyOptionImages,
       replyOptionMedia,
@@ -369,7 +369,7 @@ export async function handleChatSend(
         measureDiagnosticsTimelineSpan(
           "gateway.chat_send.dispatch_inbound",
           async () => {
-            applyChatSendManagedMedia(ctx, await pluginBoundMediaPromise);
+            applyChatSendManagedMedia(ctx, await managedMediaPromise);
             if (replyContextFieldsPromise) {
               applyChatSendReplyContextFields(ctx, await replyContextFieldsPromise);
             }

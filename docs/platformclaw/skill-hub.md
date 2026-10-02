@@ -220,7 +220,8 @@ to continue browsing without skipping accessible skills later in the registry.
 
 A bare slug works when it identifies exactly one accessible namespace. If the
 same slug is visible in multiple namespaces, the response lists candidates and
-requires `namespace/slug`. Install, update, and delete resolve the authoritative
+requires `namespace/slug`. Incomplete search results also require `namespace/slug`
+instead of selecting a skill from a partial result set. Install, update, and delete resolve the authoritative
 Basic or assigned-VM target at execution time; they never fall back to the other
 workspace. Publication chooses the first authorized namespace, the installed
 skill version (or `0.1.0`), and Namespace-only visibility unless the namespace

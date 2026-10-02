@@ -155,11 +155,17 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
     query: string,
     limit = 20,
     audience: SkillHubAudience = "employee",
+    options: { requireComplete?: boolean } = {},
   ) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
       throw new SkillHubServiceError("limit must be between 1 and 50", 400);
     }
     const result = await this.adapterCall(() => this.options.adapter.search(query.trim(), limit));
+    if (options.requireComplete && result.total > result.items.length) {
+      throw new SkillHubServiceError("search is incomplete; specify namespace/slug", 409, {
+        code: "incomplete-search",
+      });
+    }
     const visibility = await Promise.all(
       result.items.map(
         async (item) =>

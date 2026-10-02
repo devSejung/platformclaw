@@ -41,11 +41,12 @@ describe("browser tool detail redaction", () => {
     }
   });
 
-  it("preserves long non-token identifiers containing Fireworks prefixes", () => {
+  it("preserves non-token identifiers containing vendor prefixes", () => {
     const input = [
       `fixturefw-${"C".repeat(40)}`,
       `fixture_fw_${"A".repeat(40)}`,
       `fixture_fpk_${"B".repeat(40)}`,
+      "transcript-repair:11111111-2222-4333-8afc-123456789abc",
     ].join(" ");
 
     expect(redactToolDetail(input)).toBe(input);
@@ -61,6 +62,7 @@ describe("browser tool detail redaction", () => {
     ["SendGrid", `SG.${"A".repeat(15)}.${"B".repeat(15)}`],
     ["DigitalOcean", `dop_v1_${"A".repeat(20)}`],
     ["fal", `fal_${"A".repeat(20)}`],
+    ["Firecrawl", `fc-${"A".repeat(32)}`],
     ["Fernet", `gAAAA${"A".repeat(24)}`],
   ])("redacts the canonical %s secret family", (label, secret) => {
     const prefix = label === "Discord bot" ? "discord token " : "";

@@ -7,6 +7,7 @@ import type {
   SpaceConversation,
 } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
 import type { SpaceMessage } from "../../../packages/platformclaw-control-plane/src/space-service.js";
+import { renderCopyButton } from "../components/copy-button.ts";
 import { renderHubTabs } from "../components/hub-tabs.ts";
 import { icons } from "../components/icons.ts";
 import { toSanitizedMarkdownHtml } from "../components/markdown.ts";
@@ -31,6 +32,7 @@ type SpaceEditor = {
   kind: "space" | "page" | "conversation" | "edit";
   title: string;
   body: string;
+  revision?: number;
 };
 type SpacesViewProps = {
   spaces: Space[];
@@ -64,6 +66,7 @@ type SpacesViewProps = {
   onToggleNavigation: () => void;
   onEdit: () => void;
   onCancel: () => void;
+  onUseSavedRevision: (page: SpacePage) => void;
   onHistoryScroll: (event: Event) => void;
   onSave: () => void;
   onTitle: (value: string) => void;
@@ -285,6 +288,46 @@ function renderEditor(p: SpacesViewProps) {
           ? t("conversationSharingNotice")
           : t("notesHint")}
     </p>
+    ${editor.kind === "edit" && p.page && editor.revision !== p.page.revision
+      ? html`<section class="pc-space-draft-recovery">
+          <p role="status">${t("draftStale")}</p>
+          ${renderCopyButton(`${editor.title}\n\n${editor.body}`, t("copyDraft"))}
+          <details
+            @keydown=${(event: KeyboardEvent) => {
+              if (event.key === "Escape") {
+                (event.currentTarget as HTMLDetailsElement).open = false;
+                event.stopPropagation();
+              }
+            }}
+          >
+            <summary>${t("reviewSavedRevision")}</summary>
+            <p>${t("replaceDraftNotice")}</p>
+            <p>${t("revision")} ${p.page.revision}: ${p.page.title}</p>
+            <pre class="pc-space-saved-preview">${p.page.body}</pre>
+            <div class="pc-space-editor-actions">
+              <button
+                type="button"
+                class="btn"
+                @click=${(event: Event) => {
+                  if (event.currentTarget instanceof HTMLElement) {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                  }
+                }}
+              >
+                ${t("keepEditing")}
+              </button>
+              <button
+                type="button"
+                class="btn"
+                ?disabled=${p.busy || p.loading}
+                @click=${() => p.onUseSavedRevision(p.page!)}
+              >
+                ${t("replaceDraft")}
+              </button>
+            </div>
+          </details>
+        </section>`
+      : nothing}
     <label
       >${t("name")}<input
         data-title
@@ -484,7 +527,9 @@ export function renderSpacesView(p: SpacesViewProps) {
       <div class="pc-space-feedback">
         ${p.error
           ? html`<p class="pc-space-error" role="alert">
-              ${p.error}<button
+              ${p.error}${p.editor?.kind === "edit"
+                ? html`<span> ${t("refreshDraftHint")}</span>`
+                : nothing}<button
                 class="pc-space-text-button"
                 ?disabled=${p.busy}
                 @click=${p.onRefresh}
