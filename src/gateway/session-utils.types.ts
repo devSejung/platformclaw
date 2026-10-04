@@ -152,6 +152,8 @@ export type GatewaySessionRow = {
   runtimeMs?: number;
   parentSessionKey?: string;
   childSessions?: string[];
+  /** Live subset of childSessions; projections must recheck access before aggregating activity. */
+  activeChildSessions?: string[];
   responseUsage?: "on" | "off" | "tokens" | "full";
   /** Resolved effective usage mode (session override → channel config → default → off). Populated by surfaces that have config access; absent from the raw session store row. */
   effectiveResponseUsage?: "on" | "off" | "tokens" | "full";

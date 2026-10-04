@@ -1439,25 +1439,38 @@ describe("buildCachedChatItems", () => {
     expect(groups[0]?.messages).toHaveLength(3);
   });
 
-  it("renders non-compaction system messages as notices and skips empty output", () => {
-    const items = buildCachedChatItems(
-      createProps({
-        messages: [
-          { role: "system", content: "Command output\n  indented", timestamp: 1000 },
-          { role: "system", content: "  \n", timestamp: 1001 },
-        ],
-      }),
-    );
+  it.each([
+    { searchQuery: "", matches: true },
+    { searchQuery: " COMMAND ", matches: true },
+    { searchQuery: "missing output", matches: false },
+  ])(
+    "filters system notices by visible text for query '$searchQuery'",
+    ({ searchQuery, matches }) => {
+      const items = buildCachedChatItems(
+        createProps({
+          searchOpen: true,
+          searchQuery,
+          messages: [
+            { role: "system", content: "Command output\n  indented", timestamp: 1000 },
+            { role: "system", content: "  \n", timestamp: 1001 },
+          ],
+        }),
+      );
 
-    expect(items).toEqual([
-      {
-        kind: "notice",
-        key: expect.any(String),
-        text: "Command output\n  indented",
-        timestamp: 1000,
-      },
-    ]);
-  });
+      expect(items).toEqual(
+        matches
+          ? [
+              {
+                kind: "notice",
+                key: expect.any(String),
+                text: "Command output\n  indented",
+                timestamp: 1000,
+              },
+            ]
+          : [],
+      );
+    },
+  );
 
   it("attributes assistant groups to the latest user in multi-sender threads", () => {
     const groups = messageGroups({

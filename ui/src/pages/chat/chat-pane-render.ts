@@ -44,6 +44,7 @@ import {
 } from "./chat-pane-state.ts";
 import { dismissRealtimeTalkError } from "./chat-realtime.ts";
 import { activeChatRunStartupStatus } from "./chat-run-startup.ts";
+import { readChatSelectedSessionSnapshot } from "./chat-selected-session-snapshot.ts";
 import { refreshChatCommands, refreshPageChat } from "./chat-state-refresh.ts";
 import {
   resolveChatAgentId,
@@ -382,6 +383,7 @@ export class ChatPane extends ChatPaneHeader {
         this.embedded && state.sessionsResult
           ? { ...state.sessionsResult, sessions: selectedSession ? [selectedSession] : [] }
           : state.sessionsResult,
+      selectedSession: catalogKey ? null : (readChatSelectedSessionSnapshot(state) ?? null),
       toolOverrides: selectedSession?.toolOverrides,
       capabilityMenu: catalogKey
         ? undefined

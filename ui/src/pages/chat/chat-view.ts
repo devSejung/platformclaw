@@ -165,6 +165,8 @@ export type ChatProps = {
   workspaceConflict?: WorkspaceResultConflict;
   onDismissWorkspaceConflict?: () => void;
   sessions: SessionsListResult | null;
+  /** Selected-pane wait metadata may outlive its row in a capped roster. */
+  selectedSession?: GatewaySessionRow | null;
   toolOverrides?: SessionToolOverrides;
   capabilityMenu?: Omit<
     ChatComposerPlusMenuProps,
@@ -348,6 +350,10 @@ export function renderChat(props: ChatProps) {
       planStatus: props.planStatus,
       questionPrompts: props.gatewayQuestionPrompts,
       sessions: props.sessions,
+      selectedSession: props.selectedSession,
+      subagentSessions: props.swarmSessions?.length
+        ? props.swarmSessions
+        : props.sessions?.sessions,
       sessionHost: props.sessionHost,
       gatewayUrl: props.gatewayUrl,
       boardProvider: props.boardProvider,

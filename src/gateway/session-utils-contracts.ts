@@ -17,6 +17,7 @@ export type SessionActorProfileIdentity = {
 export type SessionListRowContext = {
   subagentRuns: SubagentRunReadIndex<SubagentRunReadRecord>;
   storeChildSessionsByKey: Map<string, string[]>;
+  excludedChildSessionKeys?: ReadonlySet<string>;
   selectedModelByOverrideRef: Map<string, ReturnType<typeof resolveSessionModelRef>>;
   thinkingMetadataByModelRef: Map<
     string,

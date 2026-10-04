@@ -10,6 +10,7 @@ import {
 import { refreshChatAvatar, resolveAgentIdForSession } from "./chat-avatar.ts";
 import { applyRemoteSlashCommandsResult, refreshSlashCommands } from "./chat-commands.ts";
 import { loadChatHistory, type ChatMetadataResult, type ChatState } from "./chat-history.ts";
+import { readChatSelectedSessionSnapshot } from "./chat-selected-session-snapshot.ts";
 import { flushChatQueueForEvent } from "./chat-send-actions.ts";
 import { flushChatQueueAfterIdleSessionReconciliation } from "./chat-session.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
@@ -296,6 +297,7 @@ async function refreshChat(
 ) {
   const refreshedSessionKey = host.sessionKey;
   const refreshedClient = host.client;
+  const refreshedConnectionEpoch = host.connectionEpoch;
   const refreshedAgentId = resolveAgentIdForSession(host);
   const requestUpdate = () => host.requestUpdate?.();
   const previousSessionsResult = host.sessionsResult;
@@ -310,13 +312,26 @@ async function refreshChat(
     requestUpdate();
   });
   const sessionsRefresh = historyLoad.then((history) => {
-    if (!history?.sessionInfo) {
+    if (
+      !history?.sessionInfo ||
+      host.client !== refreshedClient ||
+      !host.connected ||
+      host.connectionEpoch !== refreshedConnectionEpoch ||
+      host.sessionKey !== refreshedSessionKey ||
+      resolveAgentIdForSession(host) !== refreshedAgentId
+    ) {
       return;
     }
-    if (areUiSessionKeysEquivalent(history.sessionInfo.key, refreshedSessionKey)) {
-      host.selectedChatSessionArchived = history.sessionInfo.archived === true;
+    // A later event or targeted metadata read can supersede this history
+    // request without changing the parent's persisted updatedAt timestamp.
+    const selectedSnapshot = readChatSelectedSessionSnapshot(host);
+    if (!selectedSnapshot) {
+      return;
     }
-    const reconciled = host.sessions.reconcile(history.sessionInfo, history.defaults, {
+    if (areUiSessionKeysEquivalent(selectedSnapshot.key, refreshedSessionKey)) {
+      host.selectedChatSessionArchived = selectedSnapshot.archived === true;
+    }
+    const reconciled = host.sessions.reconcile(selectedSnapshot, history.defaults, {
       resultAgentId: host.sessionsResultAgentId ?? refreshedAgentId,
       selectedGlobalAgentId: refreshedAgentId,
       archivedFilter: host.sessionsArchivedFilter,
@@ -326,11 +341,11 @@ async function refreshChat(
       host.sessionsResult = sessionsResult;
     }
     const snapshotRunId = history.inFlightRun?.runId?.trim();
-    const activeRunIds = history.sessionInfo.activeRunIds;
+    const activeRunIds = selectedSnapshot.activeRunIds;
     const snapshotConfirmsCurrentRun = Boolean(
       snapshotRunId &&
       host.chatRunId === snapshotRunId &&
-      isSessionRunActive(history.sessionInfo) &&
+      isSessionRunActive(selectedSnapshot) &&
       (!Array.isArray(activeRunIds) || activeRunIds.includes(snapshotRunId)),
     );
     if (snapshotConfirmsCurrentRun) {
@@ -340,7 +355,7 @@ async function refreshChat(
     }
     const sessionInfo = sessionsResult?.sessions.find(
       (row: GatewaySessionRow) =>
-        areUiSessionKeysEquivalent(row.key, history.sessionInfo?.key) ||
+        areUiSessionKeysEquivalent(row.key, selectedSnapshot.key) ||
         row.key === refreshedSessionKey,
     );
     if (!sessionInfo) {

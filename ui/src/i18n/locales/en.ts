@@ -4924,6 +4924,10 @@ export const en: TranslationMap = {
     sendErrors: {
       activeLeafChanged: "The thread switched branches — review and resend.",
     },
+    waitingOnSubagents: "Waiting on subagents",
+    yieldWaiting: "Handed off and waiting",
+    yieldResumed: "Resumed",
+    yieldFailed: "Could not hand off the turn",
     waitingForApproval: "Waiting for approval…",
     startupStatus: {
       preparingWorkspace: "Preparing workspace…",

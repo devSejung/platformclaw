@@ -27,6 +27,10 @@ import { applySelectedSessionProjection } from "./chat-pane-state.ts";
 import { resolveAssistantAttachmentAuthToken } from "./chat-pane-state.ts";
 import { markQueuedChatSendsWaitingForReconnect } from "./chat-queue.ts";
 import { stopChatRealtimeTalk } from "./chat-realtime.ts";
+import {
+  clearChatSelectedSessionSnapshot,
+  syncChatSelectedSessionSnapshot,
+} from "./chat-selected-session-snapshot.ts";
 import { retryReconnectableQueuedChatSends } from "./chat-send-actions.ts";
 import { retireChatModelSelectionOwnership } from "./chat-session.ts";
 import {
@@ -90,6 +94,15 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
     this.refreshSwarmRoster();
     this.refreshBuiltinBoardSnapshot();
     const selectedSession = selectedChatSessionRow(state);
+    if (selectedSessionDeleted) {
+      clearChatSelectedSessionSnapshot(state);
+    } else {
+      syncChatSelectedSessionSnapshot(
+        state,
+        selectedSession,
+        this.context.sessions.canonicalListRevision,
+      );
+    }
     if (applySelectedSessionProjection(state, selectedSession)) {
       this.markSessionRead(selectedSession);
     }
@@ -187,6 +200,7 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       this.presencePayload = presence ? { presence } : undefined;
     }
     if (sourceChanged) {
+      clearChatSelectedSessionSnapshot(state);
       this.cancelHeaderRename();
       cancelChatScroll(state);
       releaseChatMediaResourceSubscriber(state.requestUpdate);

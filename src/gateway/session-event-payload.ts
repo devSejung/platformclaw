@@ -68,6 +68,9 @@ export function buildGatewaySessionEventFields(params: {
     deliveryContext: sessionRow.deliveryContext,
     parentSessionKey: params.parentSessionKey ?? sessionRow.parentSessionKey,
     childSessions: sessionRow.childSessions,
+    activeChildSessions: sessionRow.activeChildSessions,
+    subagentRunState: sessionRow.subagentRunState,
+    hasActiveSubagentRun: sessionRow.hasActiveSubagentRun,
     // Explicit null lets subscribed clients clear an override during merge-reconcile.
     thinkingLevel: sessionRow.thinkingLevel ?? null,
     fastMode: sessionRow.fastMode,

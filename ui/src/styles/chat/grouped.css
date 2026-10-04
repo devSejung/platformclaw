@@ -413,6 +413,20 @@
   text-align: center;
 }
 
+.chat-yield-marker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.chat-yield-marker__icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+
 .chat-notice .chat-text {
   color: inherit;
   font-size: inherit;

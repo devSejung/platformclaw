@@ -1,6 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import type { GatewaySessionRow } from "../../api/types.ts";
 import * as assistantIdentity from "../../app/assistant-identity.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { createInitialUserMessageHandoff } from "../../app/initial-user-message-handoff.ts";
@@ -22,6 +23,10 @@ import {
   updateQueuedMessageForSession,
 } from "./chat-queue.ts";
 import { createInitialChatRealtimeState } from "./chat-realtime.ts";
+import {
+  applyChatSelectedSessionSnapshot,
+  readChatSelectedSessionSnapshot,
+} from "./chat-selected-session-snapshot.ts";
 import { ChatStateController } from "./chat-state-controller.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
@@ -99,6 +104,39 @@ describe("canonical session message recovery", () => {
     } as unknown as ChatPageHost;
     return { request, state };
   }
+
+  it("does not adopt a foreign-agent raw-global event as selected-pane wait metadata", () => {
+    const own: GatewaySessionRow = {
+      key: "global",
+      kind: "global",
+      updatedAt: 1,
+      hasActiveRun: false,
+      hasActiveSubagentRun: false,
+    };
+    const foreign = { ...own, hasActiveSubagentRun: true };
+    const { state } = createSessionEventState({
+      sessionKey: "global",
+      assistantAgentId: "work",
+      agentsList: { agents: [], defaultId: "main", mainKey: "main", scope: "global" },
+      sessionsResultAgentId: "main",
+      sessions: {
+        state: { result: null, agentId: "main", error: null },
+        reconcileChanged: vi.fn().mockReturnValue({ applied: true, row: foreign }),
+      } as unknown as ChatPageHost["sessions"],
+    });
+    applyChatSelectedSessionSnapshot(state, own);
+    handlePageGatewayEvent(state, {
+      type: "event",
+      event: "sessions.changed",
+      payload: {
+        sessionKey: "global",
+        agentId: "main",
+        reason: "subagent-status",
+        session: foreign,
+      },
+    });
+    expect(readChatSelectedSessionSnapshot(state)).toBe(own);
+  });
 
   it("rejects envelope-only sequence for an incomplete imported user identity", () => {
     const { state } = createSessionEventState({ connected: false });

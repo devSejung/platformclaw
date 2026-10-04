@@ -151,8 +151,6 @@ function buildGatewaySessionSnapshot(params: {
       hasActiveRun: params.hasActiveRun,
       activeRunIds: params.activeRunIds,
     }),
-    subagentRunState: sessionRow.subagentRunState,
-    hasActiveSubagentRun: sessionRow.hasActiveSubagentRun,
   };
 }
 

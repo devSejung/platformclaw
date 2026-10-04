@@ -34,6 +34,10 @@ import {
   readDeliveredQueuedChatSendForRun,
   removeDeliveredQueuedChatSendForRun,
 } from "./chat-queue.ts";
+import {
+  applyChatSelectedSessionSnapshot,
+  clearChatSelectedSessionSnapshot,
+} from "./chat-selected-session-snapshot.ts";
 import { flushChatQueueForEvent, resumeStoredChatOutboxes } from "./chat-send-actions.ts";
 import { recordChatSendServerTiming } from "./chat-send-timing.ts";
 import { refreshCurrentChatSessionList } from "./chat-session.ts";
@@ -136,6 +140,15 @@ function reconcileSessionEvent(state: ChatPageHost, payload: unknown): SessionCh
     archivedFilter: state.sessionsArchivedFilter,
   });
   if (reconciled.applied) {
+    const event = readSessionChangedEvent(payload);
+    if (
+      reconciled.row &&
+      event &&
+      globalSessionEventMatchesChat(state, event) &&
+      sessionMessageMatchesChat(state, event)
+    ) {
+      applyChatSelectedSessionSnapshot(state, reconciled.row);
+    }
     state.sessionsResult = state.sessions.state.result;
     state.sessionsResultAgentId = state.sessions.state.agentId;
     state.sessionsError = state.sessions.state.error;
@@ -249,6 +262,9 @@ function handleSessionsChangedEvent(state: ChatPageHost, payload: unknown) {
       : null;
   const resetsSelectedSession =
     matchesChat && (source?.reason === "reset" || source?.phase === "reset");
+  if (resetsSelectedSession || (matchesChat && source?.reason === "delete")) {
+    clearChatSelectedSessionSnapshot(state);
+  }
   if (resetsSelectedSession) {
     const scope = readChatSessionProjectionScope(state, { agentId: resolveChatAgentId(state) });
     // Reset keeps the public session ID; the explicit reducer event is the

@@ -1,8 +1,10 @@
 import { html, nothing } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
+import { icons } from "../../../components/icons.ts";
 import { toSanitizedMarkdownHtml } from "../../../components/markdown.ts";
 import type { ChatItem } from "../../../lib/chat/chat-types.ts";
 import { detectTextDirection } from "../../../lib/text-direction.ts";
+import { renderChatTimestamp } from "./chat-message-timestamp.ts";
 
 export function renderChatDivider(
   item: Extract<ChatItem, { kind: "divider" }>,
@@ -52,6 +54,17 @@ export function renderChatDivider(
 }
 
 export function renderChatNotice(item: Extract<ChatItem, { kind: "notice" }>) {
+  if (item.sessionsYield) {
+    return html`<div
+      class="chat-notice chat-yield-marker"
+      data-chat-row-key=${item.key}
+      data-ts=${String(item.timestamp)}
+    >
+      <span class="chat-yield-marker__icon" aria-hidden="true">${icons.hourglass}</span>
+      <span>${item.text}</span>
+      ${item.timestamp > 0 ? renderChatTimestamp(item.timestamp) : nothing}
+    </div>`;
+  }
   return html`
     <div class="chat-notice" data-chat-row-key=${item.key} data-ts=${String(item.timestamp)}>
       <div class="chat-text" dir=${detectTextDirection(item.text)}>

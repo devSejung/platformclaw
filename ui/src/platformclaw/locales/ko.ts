@@ -34,6 +34,10 @@ export const nativeTranslations = {
     },
   },
   chat: {
+    waitingOnSubagents: "하위 에이전트 작업 대기 중",
+    yieldWaiting: "작업을 맡기고 대기 중",
+    yieldResumed: "재개됨",
+    yieldFailed: "작업을 맡기지 못했습니다",
     runControls: {
       newSession: "새 대화",
       newSessionDisconnected: "새 대화를 만들려면 연결하세요",

@@ -87,22 +87,22 @@ export function projectBrowserGatewayEvent(options: {
   if (options.event.event === "task") {
     return options.taskEventBelongsToAccess(options.event.payload) ? options.event : null;
   }
-  if (options.event.event === "sessions.changed") {
-    const payload = options.projectSessionPayloadForAccess(options.event.payload);
-    if (!payload) {
-      return null;
-    }
-    if (payload.session === undefined) {
-      return { ...options.event, payload };
-    }
-    const session = options.projectSessionPayloadForAccess(payload.session);
-    return session ? { ...options.event, payload: { ...payload, session } } : null;
-  }
   if (
-    !SESSION_SCOPED_EVENTS.has(options.event.event) ||
-    !options.eventPayloadBelongsToAccess(options.event.payload)
+    options.event.event !== "sessions.changed" &&
+    (!SESSION_SCOPED_EVENTS.has(options.event.event) ||
+      !options.eventPayloadBelongsToAccess(options.event.payload))
   ) {
     return null;
   }
-  return options.event;
+  // Admitted transcript/tool events also carry row snapshots; project their private
+  // activity evidence just like sessions.changed without broadening event admission.
+  const payload = options.projectSessionPayloadForAccess(options.event.payload);
+  if (!payload) {
+    return null;
+  }
+  if (payload.session === undefined) {
+    return { ...options.event, payload };
+  }
+  const session = options.projectSessionPayloadForAccess(payload.session);
+  return session ? { ...options.event, payload: { ...payload, session } } : null;
 }
