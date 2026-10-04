@@ -7,6 +7,7 @@ import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import { loggingState } from "../logging/state.js";
 import { resolveInstalledPluginIndexPolicyHash } from "./installed-plugin-index-policy.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
+import { markPluginRegistryRetired } from "./registry-lifecycle.js";
 import { appendRuntimePluginToolGrant } from "./tool-grant-allowlist.js";
 
 type MockRegistryToolEntry = {
@@ -2298,6 +2299,266 @@ describe("resolvePluginTools optional tools", () => {
     expect(factory).toHaveBeenCalledTimes(2);
   });
 
+  it("uses the current prepared registry for cached execution without caching run tools", async () => {
+    const context = { ...createContext(), sessionId: "prepared-cache" };
+    const config = context.config;
+    const factory = vi.fn(() => {
+      const tool = makeTool("prepared_cached_tool");
+      tool.execute = async () => {
+        const scopedRegistry = getPluginRuntimeGatewayRequestScope()?.pluginRegistry as
+          | { memoryCorpusSupplements?: Array<{ pluginId: string }> }
+          | undefined;
+        return {
+          content: [
+            {
+              type: "text",
+              text: scopedRegistry?.memoryCorpusSupplements?.[0]?.pluginId ?? "missing",
+            },
+          ],
+        };
+      };
+      return tool;
+    });
+    const entry: MockRegistryToolEntry = {
+      pluginId: "prepared-cache-owner",
+      optional: false,
+      source: "/tmp/prepared-cache-owner.js",
+      names: ["prepared_cached_tool"],
+      factory,
+    };
+    const oldRegistry = createToolRegistry([entry]) as ReturnType<typeof createToolRegistry> & {
+      memoryCorpusSupplements: Array<{ pluginId: string; supplement: Record<string, never> }>;
+    };
+    oldRegistry.memoryCorpusSupplements = [{ pluginId: "old-provider", supplement: {} }];
+    const newRegistry = createToolRegistry([entry]) as typeof oldRegistry;
+    newRegistry.memoryCorpusSupplements = [{ pluginId: "new-provider", supplement: {} }];
+    const metadataSnapshot = installToolManifestSnapshots({
+      config,
+      plugins: [createToolManifest("prepared-cache-owner", ["prepared_cached_tool"])],
+    });
+    const createPreparedRuntime = (registry: typeof oldRegistry) => ({
+      loadContext: {
+        rawConfig: config,
+        config,
+        activationSourceConfig: config,
+        autoEnabledReasons: {},
+        workspaceDir: "/tmp",
+        env: process.env,
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        manifestRegistry: metadataSnapshot.manifestRegistry as never,
+        metadataSnapshot: metadataSnapshot as never,
+        installRecords: {},
+      },
+      metadataSnapshot: metadataSnapshot as never,
+      registry: registry as never,
+    });
+
+    const [fresh] = resolvePluginTools({
+      ...createResolveToolsParams({ context }),
+      preparedRuntime: createPreparedRuntime(oldRegistry),
+    });
+    expect(await fresh?.execute("fresh", {}, undefined)).toEqual({
+      content: [{ type: "text", text: "old-provider" }],
+    });
+    expect(factory).toHaveBeenCalledTimes(1);
+
+    const [cachedNewGeneration] = resolvePluginTools({
+      ...createResolveToolsParams({ context }),
+      preparedRuntime: createPreparedRuntime(newRegistry),
+    });
+    expect(cachedNewGeneration).not.toBe(fresh);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(await cachedNewGeneration?.execute("cached-new", {}, undefined)).toEqual({
+      content: [{ type: "text", text: "new-provider" }],
+    });
+    expect(factory).toHaveBeenCalledTimes(2);
+
+    const [nextRunTool] = resolvePluginTools({
+      ...createResolveToolsParams({ context }),
+      preparedRuntime: createPreparedRuntime(newRegistry),
+    });
+    expect(nextRunTool).not.toBe(cachedNewGeneration);
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(await nextRunTool?.execute("next-run", {}, undefined)).toEqual({
+      content: [{ type: "text", text: "new-provider" }],
+    });
+    expect(factory).toHaveBeenCalledTimes(3);
+    expect(loadOpenClawPluginsMock).not.toHaveBeenCalled();
+
+    const missingOwnerRegistry = createToolRegistry([]) as typeof oldRegistry;
+    missingOwnerRegistry.memoryCorpusSupplements = [
+      { pluginId: "current-provider", supplement: {} },
+    ];
+    loadOpenClawPluginsMock.mockReturnValue(createToolRegistry([]));
+    const [missingCurrentOwnerTool] = resolvePluginTools({
+      ...createResolveToolsParams({ context }),
+      preparedRuntime: createPreparedRuntime(missingOwnerRegistry),
+    });
+    await expect(
+      missingCurrentOwnerTool?.execute("missing-current-owner", {}, undefined),
+    ).rejects.toThrow("plugin tool runtime unavailable");
+    expect(loadOpenClawPluginsMock).toHaveBeenCalledTimes(1);
+    expect(mockCallParams(loadOpenClawPluginsMock).onlyPluginIds).toEqual([
+      "current-provider",
+      "prepared-cache-owner",
+    ]);
+    expect(factory).toHaveBeenCalledTimes(3);
+  });
+
+  it("rebuilds an incomplete prepared registry with its loaded sibling providers", async () => {
+    const context = createContext();
+    const config = context.config;
+    const createScopedTool = (name: string) => {
+      const tool = makeTool(name);
+      tool.execute = async () => {
+        const scopedRegistry = getPluginRuntimeGatewayRequestScope()?.pluginRegistry as
+          | (ReturnType<typeof createToolRegistry> & {
+              memoryCorpusSupplements?: Array<{ pluginId: string }>;
+            })
+          | undefined;
+        expect(scopedRegistry).toBe(expectedRegistry);
+        return {
+          content: [
+            {
+              type: "text",
+              text: scopedRegistry?.memoryCorpusSupplements?.[0]?.pluginId ?? "missing",
+            },
+          ],
+        };
+      };
+      return tool;
+    };
+    const preparedEntry = createNamedToolEntry("prepared-owner", "prepared_tool", {
+      factory: () => createScopedTool("prepared_tool"),
+    });
+    const lazyEntry = createNamedToolEntry("lazy-owner", "lazy_tool", {
+      factory: () => createScopedTool("lazy_tool"),
+    });
+    const preparedRegistry = createToolRegistry([preparedEntry]) as ReturnType<
+      typeof createToolRegistry
+    > & {
+      memoryCorpusSupplements: Array<{ pluginId: string; supplement: Record<string, never> }>;
+    };
+    preparedRegistry.plugins.push({
+      id: "passive-provider",
+      origin: "bundled",
+      status: "loaded",
+    });
+    preparedRegistry.memoryCorpusSupplements = [{ pluginId: "passive-provider", supplement: {} }];
+    const metadataSnapshot = installToolManifestSnapshots({
+      config,
+      plugins: [
+        createToolManifest("prepared-owner", ["prepared_tool"]),
+        createToolManifest("lazy-owner", ["lazy_tool"]),
+        createToolManifest("passive-provider", []),
+      ],
+    });
+    const rebuiltRegistry = createToolRegistry([
+      preparedEntry,
+      lazyEntry,
+    ]) as typeof preparedRegistry;
+    rebuiltRegistry.plugins.push({
+      id: "passive-provider",
+      origin: "bundled",
+      status: "loaded",
+    });
+    rebuiltRegistry.memoryCorpusSupplements = [{ pluginId: "passive-provider", supplement: {} }];
+    const expectedRegistry = rebuiltRegistry;
+    loadOpenClawPluginsMock.mockReturnValue(rebuiltRegistry);
+
+    const tools = resolvePluginTools({
+      ...createResolveToolsParams({
+        context,
+        toolAllowlist: ["prepared_tool", "lazy_tool"],
+      }),
+      preparedRuntime: {
+        loadContext: {
+          rawConfig: config,
+          config,
+          activationSourceConfig: config,
+          autoEnabledReasons: {},
+          workspaceDir: "/tmp",
+          env: process.env,
+          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+          manifestRegistry: metadataSnapshot.manifestRegistry as never,
+          metadataSnapshot: metadataSnapshot as never,
+          installRecords: {},
+        },
+        metadataSnapshot: metadataSnapshot as never,
+        registry: preparedRegistry as never,
+      },
+    });
+
+    expectResolvedToolNames(tools, ["prepared_tool", "lazy_tool"]);
+    expect(loadOpenClawPluginsMock).toHaveBeenCalledTimes(1);
+    expect(mockCallParams(loadOpenClawPluginsMock).onlyPluginIds).toEqual([
+      "lazy-owner",
+      "passive-provider",
+      "prepared-owner",
+    ]);
+    for (const tool of tools) {
+      await expect(tool.execute("call", {}, undefined)).resolves.toEqual({
+        content: [{ type: "text", text: "passive-provider" }],
+      });
+    }
+  });
+
+  it("retains a composed cold registry for cached descriptor execution", async () => {
+    const context = createContext();
+    const factory = vi.fn(() => {
+      const tool = makeTool("cold_composed_tool");
+      tool.execute = async () => {
+        const scopedRegistry = getPluginRuntimeGatewayRequestScope()?.pluginRegistry as
+          | { memoryCorpusSupplements?: Array<{ pluginId: string }> }
+          | undefined;
+        return {
+          content: [
+            {
+              type: "text",
+              text: scopedRegistry?.memoryCorpusSupplements?.[0]?.pluginId ?? "missing",
+            },
+          ],
+        };
+      };
+      return tool;
+    });
+    const coldRegistry = createToolRegistry([
+      {
+        pluginId: "cold-composed-owner",
+        optional: false,
+        source: "/tmp/cold-composed-owner.js",
+        names: ["cold_composed_tool"],
+        factory,
+      },
+    ]) as ReturnType<typeof createToolRegistry> & {
+      memoryCorpusSupplements: Array<{ pluginId: string; supplement: Record<string, never> }>;
+    };
+    coldRegistry.memoryCorpusSupplements = [{ pluginId: "sibling-provider", supplement: {} }];
+    installToolManifestSnapshot({
+      config: context.config,
+      plugin: createToolManifest("cold-composed-owner", ["cold_composed_tool"]),
+    });
+    loadOpenClawPluginsMock.mockReturnValue(coldRegistry);
+
+    const [fresh] = resolvePluginTools(createResolveToolsParams({ context }));
+    expect(fresh?.name).toBe("cold_composed_tool");
+    expect(loadOpenClawPluginsMock).toHaveBeenCalledTimes(1);
+    expect(factory).toHaveBeenCalledTimes(1);
+
+    loadOpenClawPluginsMock.mockReset();
+    loadOpenClawPluginsMock.mockImplementation(() => {
+      throw new Error("cached execution should reuse the captured composed registry");
+    });
+    const [cached] = resolvePluginTools(createResolveToolsParams({ context }));
+    expect(cached).not.toBe(fresh);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(await cached?.execute("cached", {}, undefined)).toEqual({
+      content: [{ type: "text", text: "sibling-provider" }],
+    });
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(loadOpenClawPluginsMock).not.toHaveBeenCalled();
+  });
+
   it("keeps cached ordinary plugin tools free of network provenance", async () => {
     const factory = vi.fn(() => makeTool("cached_ordinary_tool"));
     setRegistry([
@@ -2776,9 +3037,63 @@ describe("resolvePluginTools optional tools", () => {
     expect(externalFactory).not.toHaveBeenCalled();
   });
 
-  it("retains cold-loaded plugin tools for cached descriptor execution after active registry replacement", async () => {
+  it.each([false, true])(
+    "preserves passive providers when a retired cache has preferred registry=%s",
+    async (usePreferred) => {
+      const context = createContext();
+      const entry = createNamedToolEntry("retired-tool-owner", "retired_search", {
+        factory: () => ({
+          ...makeTool("retired_search"),
+          async execute() {
+            const registry = getPluginRuntimeGatewayRequestScope()?.pluginRegistry;
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: registry?.memoryCorpusSupplements?.[0]?.pluginId ?? "missing",
+                },
+              ],
+            };
+          },
+        }),
+      });
+      const withProvider = () =>
+        Object.assign(createToolRegistry([entry]), {
+          memoryCorpusSupplements: [{ pluginId: "passive-provider", supplement: {} }],
+        });
+      const retired = withProvider();
+      installToolManifestSnapshots({
+        config: context.config,
+        plugins: [
+          createToolManifest("retired-tool-owner", ["retired_search"]),
+          createToolManifest("passive-provider", []),
+        ],
+      });
+      const args = { ...createResolveToolsParams({ context }), runtimeRegistry: retired as never };
+      resolvePluginTools(args);
+      const [cached] = resolvePluginTools(
+        usePreferred ? args : createResolveToolsParams({ context }),
+      );
+      markPluginRegistryRetired(retired as never);
+      resolveCompatibleRuntimePluginRegistryMock.mockReturnValue(undefined);
+      loadOpenClawPluginsMock.mockImplementation((options: { onlyPluginIds?: string[] }) =>
+        options.onlyPluginIds?.includes("passive-provider")
+          ? withProvider()
+          : createToolRegistry([entry]),
+      );
+      expect(await cached?.execute("reload", {}, undefined)).toEqual({
+        content: [{ type: "text", text: "passive-provider" }],
+      });
+      expect(mockCallParams(loadOpenClawPluginsMock).onlyPluginIds).toEqual([
+        "passive-provider",
+        "retired-tool-owner",
+      ]);
+    },
+  );
+
+  it("reloads cached descriptor runtime after its retained registry is retired", async () => {
     const factory = vi.fn(() => makeTool("cached_lifecycle_tool"));
-    const gatewayRegistry = setRegistry([
+    setRegistry([
       {
         pluginId: "cache-lifecycle-test",
         optional: false,
@@ -2818,10 +3133,17 @@ describe("resolvePluginTools optional tools", () => {
     });
     setActivePluginRegistry?.(replacementRegistry as never, "provider-runtime", "default", "/tmp");
     resolveCompatibleRuntimePluginRegistryMock.mockReturnValue(undefined);
+    const reloadedRegistry = createToolRegistry([
+      {
+        pluginId: "cache-lifecycle-test",
+        optional: false,
+        source: "/tmp/cache-lifecycle-test.js",
+        names: ["cached_lifecycle_tool"],
+        factory,
+      },
+    ]);
     loadOpenClawPluginsMock.mockReset();
-    loadOpenClawPluginsMock
-      .mockReturnValueOnce(gatewayRegistry)
-      .mockReturnValue(createToolRegistry([]));
+    loadOpenClawPluginsMock.mockReturnValue(reloadedRegistry);
 
     await expect(tool?.execute("call-1", {}, undefined)).resolves.toEqual({
       content: [{ type: "text", text: "ok" }],

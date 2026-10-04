@@ -1056,7 +1056,11 @@ Beyond `api.runtime`, the API object also provides:
   Scoped logger (`debug`, `info`, `warn`, `error`).
 </ParamField>
 <ParamField path="api.registrationMode" type="PluginRegistrationMode">
-  Current load mode: `"full"` (live activation), `"discovery"` / `"tool-discovery"` (read-only capability discovery), `"setup-only"` (lightweight setup entry), `"setup-runtime"` (setup flow that also needs the runtime channel entry), or `"cli-metadata"` (CLI command metadata collection).
+  Current load mode: `"full"` (live activation), `"discovery"` / `"tool-discovery"` (capability registration without global activation), `"setup-only"` (lightweight setup entry), `"setup-runtime"` (setup flow that also needs the runtime channel entry), or `"cli-metadata"` (CLI command metadata collection).
+  Register passive tools and memory corpus providers in all three capability modes.
+  The host can execute them from a prepared registry without activating services.
+  [Per-run state](/plugins/sdk-overview#host-hooks-for-workflow-plugins) remains
+  available only within its loaded owning execution scope or the active lifecycle.
 </ParamField>
 <ParamField path="api.resolvePath(input)" type="(string) => string">
   Resolve a path relative to the plugin root.

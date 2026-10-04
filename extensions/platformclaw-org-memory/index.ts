@@ -11,7 +11,13 @@ export default definePluginEntry({
   name: "PlatformClaw Wiki Hub",
   description: "Authorized Shared Wiki operations and per-turn Wiki selection.",
   register(api) {
-    if (api.registrationMode !== "full") {
+    // Prepared agents and cached tools execute these passive capabilities from
+    // non-activating registries too; only setup/metadata loads omit them.
+    if (
+      api.registrationMode !== "full" &&
+      api.registrationMode !== "discovery" &&
+      api.registrationMode !== "tool-discovery"
+    ) {
       return;
     }
     const client = createWikiHubMemoryClient(process.env);
@@ -36,7 +42,7 @@ export default definePluginEntry({
       createWikiHubCorpusSupplement(client, api.logger, turnScope?.get, turnScope?.resolve),
     );
     api.registerMemoryPromptSupplement(({ availableTools }) =>
-      client && availableTools.has("memory_search")
+      client && (availableTools.has("memory_search") || availableTools.has("wiki_search"))
         ? [
             "Search automatic Memory and enabled Personal/Shared Wikis by default using short distinctive keywords. Connection changes apply next turn. Only for an explicitly selected vault, use its returned vaultId or exact Shared vaultName, never both. Ask the user to choose ambiguous names; never guess a vault or backend. Personal content is shared only by explicit publication or copying. Cite the vault name and document version.",
           ]
