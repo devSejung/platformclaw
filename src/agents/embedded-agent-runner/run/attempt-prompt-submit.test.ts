@@ -1,13 +1,18 @@
 import type { StreamFn } from "openclaw/plugin-sdk/agent-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { convertToLlm } from "../../../../packages/agent-core/src/harness/messages.js";
 import type { ImageContent } from "../../../llm/types.js";
 import type { AgentMessage } from "../../runtime/index.js";
+import { makeAgentAssistantMessage } from "../../test-helpers/agent-message-fixtures.js";
 import {
   clearEmbeddedSessionPromptStates,
   getEmbeddedSessionPromptState,
 } from "../session-prompt-state.js";
 import { submitEmbeddedAttemptPrompt } from "./attempt-prompt-submit.js";
-import type { RuntimeContextCustomMessage } from "./runtime-context-prompt.js";
+import {
+  buildRuntimeContextCustomMessage,
+  type RuntimeContextCustomMessage,
+} from "./runtime-context-prompt.js";
 
 const sessionId = "attempt-prompt-submit-test";
 
@@ -132,6 +137,74 @@ describe("submitEmbeddedAttemptPrompt", () => {
     expect(activeSession.agent.streamFn).toBe(baseStreamFn);
     expect(activeSession.agent.transformContext).toBe(originalTransformContext);
   });
+
+  it.each(["runtime context", "queued steering"])(
+    "preserves frozen history and fresh results across %s at provider dispatch",
+    async (carrier) => {
+      const { activeSession } = createSession();
+      const input = createBaseInput();
+      const toolResult = (toolCallId: string, text: string, timestamp: number): AgentMessage => ({
+        role: "toolResult",
+        toolCallId,
+        toolName: "read",
+        content: [{ type: "text", text }],
+        isError: false,
+        timestamp,
+      });
+      const history = [
+        toolResult("history_a", "a".repeat(4_000), 2),
+        toolResult("history_b", "b".repeat(4_000), 3),
+      ];
+      activeSession.agent.state.messages = history;
+      const providerRequests: AgentMessage[][] = [];
+      activeSession.agent.streamFn = ((_model, context) => {
+        providerRequests.push((context as { messages: AgentMessage[] }).messages);
+        return undefined as never;
+      }) as StreamFn;
+      const dispatch = async () => {
+        await activeSession.agent.streamFn(
+          {} as never,
+          { messages: convertToLlm(activeSession.messages) } as never,
+          {} as never,
+        );
+      };
+      await submitEmbeddedAttemptPrompt({ ...input, activeSession, promptActiveSession: dispatch });
+      const frozenBytes = providerRequests[0]!.map((message) => JSON.stringify(message));
+      const freshText = "fresh file content ".padEnd(135, "f");
+      activeSession.agent.state.messages = [
+        ...history,
+        makeAgentAssistantMessage({
+          content: [{ type: "toolCall", id: "fresh", name: "read", arguments: { path: "file" } }],
+          stopReason: "toolUse",
+          timestamp: 4,
+        }),
+        toolResult("fresh", freshText, 5),
+        ...(carrier === "queued steering"
+          ? [{ role: "user" as const, content: "continue", timestamp: 6 }]
+          : []),
+      ];
+      const runtimeContextMessage =
+        carrier === "runtime context"
+          ? buildRuntimeContextCustomMessage("runtime context refresh")
+          : undefined;
+      await submitEmbeddedAttemptPrompt({
+        ...input,
+        activeSession,
+        promptActiveSession: dispatch,
+        runtimeContextMessage,
+      });
+
+      const request = providerRequests[1]!;
+      expect(request.slice(0, history.length).map((message) => JSON.stringify(message))).toEqual(
+        frozenBytes,
+      );
+      expect(
+        request.find((message) => message.role === "toolResult" && message.toolCallId === "fresh"),
+      ).toMatchObject({ content: [{ type: "text", text: freshText }] });
+      expect(request.at(-1)?.role).toBe("user");
+      expect(activeSession.messages).not.toContain(runtimeContextMessage);
+    },
+  );
 
   it("caps oversized MCP tool results at the provider boundary", async () => {
     const { activeSession } = createSession();
