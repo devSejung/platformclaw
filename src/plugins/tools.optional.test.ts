@@ -2503,17 +2503,32 @@ describe("resolvePluginTools optional tools", () => {
     }
   });
 
-  it.each(["enabled", "disabled", "denied", "not-allowed", "not-startup"] as const)(
+  it.each([
+    "enabled",
+    "disabled",
+    "denied",
+    "not-allowed",
+    "not-startup",
+    "default-enabled",
+    "default-disabled",
+    "platform-enabled",
+    "platform-disabled",
+    "source-unconfigured",
+  ] as const)(
     "includes only eligible startup sidecars in standalone cold and cached tools (%s)",
     async (mode) => {
       const context = createContext();
       const providerId = "startup-corpus";
       const ownerId = "standalone-search-owner";
+      const implicit =
+        mode.startsWith("default-") ||
+        mode.startsWith("platform-") ||
+        mode === "source-unconfigured";
       context.config.plugins = {
         ...context.config.plugins,
-        allow: mode === "not-allowed" ? [ownerId] : [ownerId, providerId],
+        allow: implicit ? [] : mode === "not-allowed" ? [ownerId] : [ownerId, providerId],
         ...(mode === "denied" ? { deny: [providerId] } : {}),
-        entries: { [providerId]: { enabled: mode !== "disabled" } },
+        entries: implicit ? {} : { [providerId]: { enabled: mode !== "disabled" } },
       };
       const snapshot = installToolManifestSnapshots({
         config: context.config,
@@ -2521,6 +2536,19 @@ describe("resolvePluginTools optional tools", () => {
           createToolManifest(ownerId, ["standalone_search"]),
           createToolManifest(providerId, ["sidecar_tool"], {
             activation: { onStartup: mode !== "not-startup" },
+            enabledByDefault: mode !== "default-disabled" && !mode.startsWith("platform-"),
+            ...(mode.startsWith("platform-")
+              ? {
+                  enabledByDefaultOnPlatforms: [
+                    mode === "platform-enabled"
+                      ? process.platform
+                      : process.platform === "linux"
+                        ? "darwin"
+                        : "linux",
+                  ],
+                }
+              : {}),
+            ...(mode === "source-unconfigured" ? { packageBuild: { bundledDist: false } } : {}),
           }),
         ],
       });
@@ -2554,8 +2582,10 @@ describe("resolvePluginTools optional tools", () => {
         };
       });
       const params = createResolveToolsParams({ context, toolAllowlist: ["standalone_search"] });
-      const expectedIds = mode === "enabled" ? [ownerId, providerId].toSorted() : [ownerId];
-      const expectedText = mode === "enabled" ? providerId : "missing";
+      const included =
+        mode === "enabled" || mode === "default-enabled" || mode === "platform-enabled";
+      const expectedIds = included ? [ownerId, providerId].toSorted() : [ownerId];
+      const expectedText = included ? providerId : "missing";
       for (const phase of ["cold", "cached"]) {
         const tools = resolvePluginTools(params);
         expectResolvedToolNames(tools, ["standalone_search"]);

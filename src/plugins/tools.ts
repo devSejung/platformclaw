@@ -18,7 +18,12 @@ import {
   isHostRestrictedConversationReadTool,
   registrationIncludesHostRestrictedConversationReadTool,
 } from "./compat/conversation-read-tools.js";
-import { applyTestPluginDefaults, normalizePluginsConfig } from "./config-state.js";
+import {
+  applyTestPluginDefaults,
+  normalizePluginsConfig,
+  resolveEffectivePluginActivationState,
+} from "./config-state.js";
+import { isPluginEnabledByDefaultForPlatform } from "./default-enablement.js";
 import { loadPluginRegistryHandle, type PluginLoadOptions } from "./loader.js";
 import {
   isManifestPluginAvailableForControlPlane,
@@ -686,6 +691,7 @@ function filterManifestToolNamesForAvailability(params: {
 
 function resolvePluginToolRuntimePluginIds(params: {
   config: PluginLoadOptions["config"];
+  activationSourceConfig?: PluginLoadOptions["config"];
   availabilityConfig?: PluginLoadOptions["config"];
   workspaceDir?: string;
   env: NodeJS.ProcessEnv;
@@ -699,6 +705,11 @@ function resolvePluginToolRuntimePluginIds(params: {
   const allowlist = normalizeAllowlist(params.toolAllowlist);
   const denylist = normalizeDenylist(params.toolDenylist);
   const normalizedPlugins = normalizePluginsConfig(params.config?.plugins);
+  const activationSourceConfig = params.activationSourceConfig ?? params.config;
+  const activationSource = {
+    plugins: normalizePluginsConfig(activationSourceConfig?.plugins),
+    rootConfig: activationSourceConfig,
+  };
   const snapshot =
     params.snapshot ??
     loadManifestContractSnapshot({
@@ -726,7 +737,26 @@ function resolvePluginToolRuntimePluginIds(params: {
     // tools. Preserve their declared runtime dependency even in a cold scope;
     // tool grants still control which tool factories are exposed below.
     if (plugin.activation?.onStartup === true) {
-      startupPluginIds.add(plugin.id);
+      const startupOrigin =
+        plugin.origin === "bundled" && plugin.packageBuild?.bundledDist === false
+          ? "workspace"
+          : plugin.origin;
+      const activation = resolveEffectivePluginActivationState({
+        id: plugin.id,
+        origin: startupOrigin,
+        config: normalizedPlugins,
+        rootConfig: params.config,
+        enabledByDefault: isPluginEnabledByDefaultForPlatform(plugin),
+        activationSource,
+      });
+      if (
+        activation.enabled &&
+        (startupOrigin === "bundled"
+          ? activation.source === "explicit" || activation.source === "default"
+          : activation.explicitlyEnabled)
+      ) {
+        startupPluginIds.add(plugin.id);
+      }
     }
     if (denylistBlocksPlugin({ pluginId: plugin.id, denylist })) {
       continue;
@@ -1258,6 +1288,7 @@ function resolvePluginToolLoadState(params: {
         });
   const { toolPluginIds: onlyPluginIds, startupPluginIds } = resolvePluginToolRuntimePluginIds({
     config: context.config,
+    activationSourceConfig: context.activationSourceConfig,
     availabilityConfig: params.context.runtimeConfig ?? context.config,
     workspaceDir: context.workspaceDir,
     env,
