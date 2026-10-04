@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "../../runtime/index.js";
 import { SessionManager } from "../../sessions/index.js";
+import { log } from "../logger.js";
 import {
   handleEmbeddedAttemptMidTurnPrecheck,
   prepareEmbeddedAttemptPromptPreflight,
@@ -8,6 +9,7 @@ import {
 import {
   PREEMPTIVE_OVERFLOW_ERROR_TEXT,
   estimateLlmBoundaryTokenPressure,
+  estimateToolSchemaTokenPressure,
 } from "./preemptive-compaction.js";
 
 const attempt = {
@@ -45,6 +47,70 @@ function createSessionManagerWithMessage(message: AgentMessage): SessionManager 
 }
 
 describe("attempt prompt preflight", () => {
+  it("records tool-heavy pressure with consistent budgets and no prompt contents in logs", async () => {
+    const debug = vi.spyOn(log, "debug").mockImplementation(() => {});
+    const info = vi.spyOn(log, "info").mockImplementation(() => {});
+    try {
+      const systemPrompt = "private-system-marker";
+      const prompt = "private-user-marker";
+      const toolSchemaTokens = estimateToolSchemaTokenPressure([
+        {
+          name: "private_client_tool",
+          description: "private-tool-description ".repeat(2_000),
+          parameters: { type: "object", properties: { private_argument: { type: "string" } } },
+        },
+      ]);
+      const result = await prepareEmbeddedAttemptPromptPreflight({
+        attempt,
+        contextEngineAssemblySucceeded: false,
+        contextEnginePromptAuthority: "assembled",
+        contextTokenBudget: 8_000,
+        hookMessagesForCurrentPrompt: [],
+        includeBoundaryTimestamp: false,
+        promptForPrecheck: prompt,
+        reserveTokens: 1_000,
+        sessionMessageCount: 0,
+        state: {
+          contextBudgetStatus: undefined,
+          preflightRecovery: undefined,
+          promptError: null,
+          promptErrorSource: null,
+          skipPromptSubmission: false,
+        },
+        systemPrompt,
+        toolResultMaxChars: 1_000,
+        toolSchemaTokens,
+      });
+      const estimatedPromptTokens = estimateLlmBoundaryTokenPressure({
+        messages: [],
+        systemPrompt,
+        prompt,
+        toolSchemaTokens,
+      });
+      expect(result.contextBudgetStatus).toMatchObject({
+        estimatedPromptTokens,
+        promptBudgetBeforeReserve: 7_000,
+        effectiveReserveTokens: 1_000,
+        overflowTokens: estimatedPromptTokens - 7_000,
+        remainingPromptBudgetTokens: 0,
+      });
+      expect(result).toMatchObject({
+        skipPromptSubmission: false,
+        promptError: null,
+        preflightRecovery: undefined,
+      });
+      const logs = [...debug.mock.calls, ...info.mock.calls].flat().join(" ");
+      expect(logs).toContain(`toolSchemaTokens=${toolSchemaTokens}`);
+      expect(logs).toContain(`systemPromptChars=${systemPrompt.length}`);
+      expect(logs).toContain(`estimatedPromptTokens=${estimatedPromptTokens}`);
+      expect(logs).not.toContain("private-");
+      expect(logs).not.toContain("private_");
+    } finally {
+      debug.mockRestore();
+      info.mockRestore();
+    }
+  });
+
   it("routes a mid-turn compaction request with its measured budget", () => {
     const outcome = handleEmbeddedAttemptMidTurnPrecheck({
       attempt,

@@ -7,6 +7,7 @@ import { estimateToolResultReductionPotential } from "../tool-result-truncation.
 
 let PREEMPTIVE_OVERFLOW_ERROR_TEXT: typeof import("./preemptive-compaction.js").PREEMPTIVE_OVERFLOW_ERROR_TEXT;
 let estimateLlmBoundaryTokenPressure: typeof import("./preemptive-compaction.js").estimateLlmBoundaryTokenPressure;
+let estimateToolSchemaTokenPressure: typeof import("./preemptive-compaction.js").estimateToolSchemaTokenPressure;
 let buildPrePromptContextBudgetStatus: typeof import("./preemptive-compaction.js").buildPrePromptContextBudgetStatus;
 let estimateRenderedLlmBoundaryTokenPressure: typeof import("./preemptive-compaction.js").estimateRenderedLlmBoundaryTokenPressure;
 let formatPrePromptPrecheckLog: typeof import("./preemptive-compaction.js").formatPrePromptPrecheckLog;
@@ -19,6 +20,7 @@ beforeAll(async () => {
   ({
     PREEMPTIVE_OVERFLOW_ERROR_TEXT,
     estimateLlmBoundaryTokenPressure,
+    estimateToolSchemaTokenPressure,
     buildPrePromptContextBudgetStatus,
     estimateRenderedLlmBoundaryTokenPressure,
     formatPrePromptPrecheckLog,
@@ -103,6 +105,90 @@ describe("preemptive-compaction", () => {
     expect(larger).toBeGreaterThan(smaller);
   });
 
+  it("counts model-facing tool definitions once and excludes runtime metadata", () => {
+    const definition = {
+      name: "lookup",
+      description: "Look up a record. ".repeat(2_000),
+      parameters: { type: "object", properties: { query: { type: "string" } } },
+    };
+    const runtimeTool = {
+      ...definition,
+      label: "Record lookup",
+      outputSchema: { type: "string", description: "result documentation ".repeat(4_000) },
+      executionMode: "parallel",
+      execute: async () => ({ content: [], details: {} }),
+    };
+    const toolSchemaTokens = estimateToolSchemaTokenPressure([runtimeTool]);
+    expect(toolSchemaTokens).toBe(estimateToolSchemaTokenPressure([definition]));
+    expect(estimateToolSchemaTokenPressure([])).toBe(0);
+    expect(estimateToolSchemaTokenPressure(undefined)).toBe(0);
+
+    const params = {
+      messages: [makeAssistantHistory("short history")],
+      systemPrompt: "sys",
+      prompt: "continue",
+      contextTokenBudget: 8_000,
+      reserveTokens: 1_000,
+    };
+    const withoutTools = shouldPreemptivelyCompactBeforePrompt(params);
+    const withTools = shouldPreemptivelyCompactBeforePrompt({ ...params, toolSchemaTokens });
+    expect(withoutTools.route).toBe("fits");
+    expect(withTools.route).toBe("compact_only");
+    expect(withTools.estimatedPromptTokens).toBe(
+      withoutTools.estimatedPromptTokens + toolSchemaTokens,
+    );
+    expect(shouldPreemptivelyCompactBeforePrompt({ ...params, toolSchemaTokens: 0 })).toEqual(
+      withoutTools,
+    );
+    // A caller-supplied full boundary estimate already contains the same tools.
+    expect(
+      shouldPreemptivelyCompactBeforePrompt({
+        ...params,
+        toolSchemaTokens,
+        llmBoundaryTokenPressure: {
+          estimatedPromptTokens: withTools.estimatedPromptTokens,
+          source: "complete_payload",
+        },
+      }).estimatedPromptTokens,
+    ).toBe(withTools.estimatedPromptTokens);
+  });
+
+  it("does not add provider usage to the raw transcript and current tool estimate", () => {
+    const message = makeAssistantHistory("already measured conversation");
+    const params = { systemPrompt: "sys", prompt: "next", toolSchemaTokens: 2_000 };
+    const withoutUsage = estimateLlmBoundaryTokenPressure({ ...params, messages: [message] });
+    const withUsage = estimateLlmBoundaryTokenPressure({
+      ...params,
+      messages: [
+        {
+          ...message,
+          usage: {
+            input: 80_000,
+            output: 20_000,
+            totalTokens: 100_000,
+            contextUsage: { state: "available", promptTokens: 80_000, totalTokens: 100_000 },
+          },
+        } as AgentMessage,
+      ],
+    });
+    expect(withUsage).toBe(withoutUsage);
+  });
+
+  it("includes tools in an unwindowed diagnostic without adding them twice", () => {
+    const params = {
+      messages: [],
+      unwindowedMessages: [makeAssistantHistory(verboseHistory)],
+      systemPrompt: "sys",
+      prompt: "next",
+      contextTokenBudget: 10_000,
+      reserveTokens: 1_000,
+    };
+    const withoutTools = shouldPreemptivelyCompactBeforePrompt(params);
+    const withTools = shouldPreemptivelyCompactBeforePrompt({ ...params, toolSchemaTokens: 500 });
+    expect(withTools.pressureSource).toBe("unwindowed_transcript_estimate");
+    expect(withTools.estimatedPromptTokens).toBe(withoutTools.estimatedPromptTokens + 500);
+  });
+
   it("requests preemptive compaction when the reserve-based prompt budget would be exceeded", () => {
     const result = shouldPreemptivelyCompactBeforePrompt({
       messages: [makeAssistantHistory(verboseHistory)],
@@ -150,6 +236,8 @@ describe("preemptive-compaction", () => {
       contextTokenBudget: 10_000,
       reserveTokens: 1_000,
       sessionFile: "sessions/session-1.json",
+      systemPromptChars: 3,
+      toolSchemaTokens: 0,
     });
 
     expect(line).toContain("[context-overflow-precheck] pre-prompt check");
@@ -157,6 +245,8 @@ describe("preemptive-compaction", () => {
     expect(line).toContain("provider=anthropic/claude-opus-4-6");
     expect(line).toContain("route=fits");
     expect(line).toContain(`estimatedPromptTokens=${result.estimatedPromptTokens}`);
+    expect(line).toContain("systemPromptChars=3");
+    expect(line).toContain("toolSchemaTokens=0");
     expect(line).toContain(`promptBudgetBeforeReserve=${result.promptBudgetBeforeReserve}`);
     expect(line).toContain("overflowTokens=0");
     expect(line).toContain(`toolResultReducibleChars=${result.toolResultReducibleChars}`);

@@ -169,6 +169,7 @@ export async function prepareEmbeddedAttemptPromptPreflight(input: {
   systemPrompt: string;
   timezone?: string;
   toolResultMaxChars: number;
+  toolSchemaTokens?: number;
   unwindowedContextEngineMessagesForPrecheck?: AgentMessage[];
 }): Promise<AttemptPromptPreflightState> {
   const { attempt } = input;
@@ -193,6 +194,7 @@ export async function prepareEmbeddedAttemptPromptPreflight(input: {
     messages: input.hookMessagesForCurrentPrompt,
     systemPrompt: input.systemPrompt,
     prompt: input.promptForPrecheck,
+    toolSchemaTokens: input.toolSchemaTokens,
   });
   let preemptiveCompaction: ReturnType<typeof shouldPreemptivelyCompactBeforePrompt> | null = null;
   const shouldSkipPrecheck =
@@ -218,6 +220,7 @@ export async function prepareEmbeddedAttemptPromptPreflight(input: {
       contextTokenBudget: input.contextTokenBudget,
       reserveTokens: input.reserveTokens,
       toolResultMaxChars: input.toolResultMaxChars,
+      toolSchemaTokens: input.toolSchemaTokens,
       llmBoundaryTokenPressure: {
         estimatedPromptTokens: llmBoundaryTokenPressure,
         source: "llm_boundary_normalized_prompt",
@@ -247,6 +250,8 @@ export async function prepareEmbeddedAttemptPromptPreflight(input: {
         messageCount: input.sessionMessageCount,
         contextTokenBudget: input.contextTokenBudget,
         reserveTokens: input.reserveTokens,
+        systemPromptChars: input.systemPrompt.length,
+        toolSchemaTokens: input.toolSchemaTokens,
         ...(attempt.sessionKey ? { sessionKey: attempt.sessionKey } : {}),
         ...(attempt.sessionId ? { sessionId: attempt.sessionId } : {}),
         ...(input.contextEnginePromptAuthority === "preassembly_may_overflow" &&

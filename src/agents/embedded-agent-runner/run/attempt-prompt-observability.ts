@@ -152,7 +152,7 @@ export function observeEmbeddedAttemptPrompt(input: {
     historyTextChars: sessionSummary.totalTextChars,
     historyImageBlocks: sessionSummary.totalImageBlocks,
     maxMessageTextChars: sessionSummary.maxMessageTextChars,
-    systemPromptChars: input.systemPromptText?.length ?? 0,
+    systemPromptChars: input.systemPromptForHook.length,
     promptChars: input.effectivePrompt.length,
     promptImages: input.imageCount,
     contextTokenBudget: input.contextTokenBudget,
@@ -172,7 +172,7 @@ export function observeEmbeddedAttemptPrompt(input: {
         `historyTextChars=${sessionSummary.totalTextChars} ` +
         `maxMessageTextChars=${sessionSummary.maxMessageTextChars} ` +
         `historyImageBlocks=${sessionSummary.totalImageBlocks} ` +
-        `systemPromptChars=${input.systemPromptText?.length ?? 0} ` +
+        `systemPromptChars=${input.systemPromptForHook.length} ` +
         `promptChars=${input.effectivePrompt.length} ` +
         `promptImages=${input.imageCount} ` +
         `provider=${attempt.provider}/${attempt.modelId} sessionFile=${attempt.sessionFile}`,

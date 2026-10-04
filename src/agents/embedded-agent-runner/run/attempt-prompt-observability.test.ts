@@ -115,6 +115,19 @@ describe("observeEmbeddedAttemptPrompt", () => {
     hoisted.log.isEnabled.mockReturnValue(false);
   });
 
+  it("reports the effective system prompt size after prompt transforms", () => {
+    const systemPromptForHook = "effective-system-prompt-with-private-context";
+    hoisted.log.isEnabled.mockReturnValue(true);
+    observeEmbeddedAttemptPrompt(createInput({ systemPromptForHook, systemPromptText: "base" }));
+    expect(hoisted.emitTrustedDiagnosticEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ systemPromptChars: systemPromptForHook.length }),
+    );
+    expect(hoisted.log.debug).toHaveBeenCalledWith(
+      expect.stringContaining(`systemPromptChars=${systemPromptForHook.length}`),
+    );
+    expect(hoisted.log.debug.mock.calls.flat().join(" ")).not.toContain(systemPromptForHook);
+  });
+
   it("records the assembled prompt boundary and dispatches a cloned llm_input snapshot", () => {
     const input = createInput();
 

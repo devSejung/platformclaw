@@ -78,6 +78,19 @@ function estimateJsonPayloadTokenPressure(
   }
 }
 
+/** Count only model-facing definitions, never runtime output schemas or execution metadata. */
+export function estimateToolSchemaTokenPressure(
+  tools: readonly { name: string; description: string; parameters: unknown }[] | undefined,
+): number {
+  return tools?.length
+    ? Math.ceil(
+        estimateJsonPayloadTokenPressure(
+          tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
+        ) * SAFETY_MARGIN,
+      )
+    : 0;
+}
+
 function estimateIdentifierTokenPressure(
   value: unknown,
   charsPerToken = JSON_PAYLOAD_CHARS_PER_TOKEN,
@@ -231,14 +244,17 @@ export function estimateLlmBoundaryTokenPressure(params: {
   messages: AgentMessage[];
   systemPrompt?: string;
   prompt: string;
+  toolSchemaTokens?: number;
 }): number {
   const historyTokens = params.messages.reduce(
     (sum, message) => sum + estimateMessageTokenPressure(message),
     0,
   );
-  return Math.max(
-    0,
-    Math.ceil((historyTokens + estimateRenderedPromptTokens(params)) * SAFETY_MARGIN),
+  return (
+    Math.max(0, Math.ceil((historyTokens + estimateRenderedPromptTokens(params)) * SAFETY_MARGIN)) +
+    // This raw-transcript estimate does not add provider usage totals. Tool
+    // pressure already includes its safety margin and belongs here exactly once.
+    Math.max(0, params.toolSchemaTokens ?? 0)
   );
 }
 
@@ -279,6 +295,7 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
   contextTokenBudget: number;
   reserveTokens: number;
   toolResultMaxChars?: number;
+  toolSchemaTokens?: number;
   llmBoundaryTokenPressure?: LlmBoundaryTokenPressure;
 }): PreemptiveCompactionDecision {
   let messagesForPressure = params.messages;
@@ -291,6 +308,7 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
       messages: params.messages,
       systemPrompt: params.systemPrompt,
       prompt: params.prompt,
+      toolSchemaTokens: params.toolSchemaTokens,
     });
   let pressureSource = llmBoundaryTokenPressure?.source ?? "transcript_estimate";
   if (params.unwindowedMessages && params.unwindowedMessages !== params.messages) {
@@ -298,6 +316,7 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
       messages: params.unwindowedMessages,
       systemPrompt: params.systemPrompt,
       prompt: params.prompt,
+      toolSchemaTokens: params.toolSchemaTokens,
     });
     if (unwindowedEstimatedPromptTokens > estimatedPromptTokens) {
       estimatedPromptTokens = unwindowedEstimatedPromptTokens;
@@ -366,6 +385,8 @@ export function formatPrePromptPrecheckLog(params: {
   contextTokenBudget: number;
   reserveTokens: number;
   sessionFile?: string;
+  systemPromptChars?: number;
+  toolSchemaTokens?: number;
 }): string {
   const { result } = params;
   return (
@@ -374,6 +395,8 @@ export function formatPrePromptPrecheckLog(params: {
     `provider=${params.provider}/${params.modelId} ` +
     `route=${result.route} ` +
     `estimatedPromptTokens=${result.estimatedPromptTokens} ` +
+    `systemPromptChars=${params.systemPromptChars ?? "unknown"} ` +
+    `toolSchemaTokens=${params.toolSchemaTokens ?? 0} ` +
     `pressureSource=${result.pressureSource ?? "unknown"} ` +
     `promptBudgetBeforeReserve=${result.promptBudgetBeforeReserve} ` +
     `overflowTokens=${result.overflowTokens} ` +
