@@ -734,7 +734,6 @@ type ToolResultBranchEntry = {
   type: string;
   message?: AgentMessage;
   aggregateEligible?: boolean;
-  deferAggregateRecovery?: boolean;
 };
 
 type ToolResultReplacement = {
@@ -841,7 +840,6 @@ function projectToolResultBranch(params: {
     messageEntries.map((entry) => entry.message),
     params.projectionState,
   );
-  const hasFrozenProjectionBaseline = params.projectionState.frozen.size > 0;
   let messageIndex = 0;
   return {
     keys,
@@ -868,10 +866,9 @@ function projectToolResultBranch(params: {
       return {
         ...entry,
         message,
-        aggregateEligible:
-          !key || !frozen || (projected !== undefined && message === entry.message),
-        // Reduce frozen history first so steering cannot make fresh output disappear.
-        deferAggregateRecovery: key !== undefined && hasFrozenProjectionBaseline && !frozen,
+        // Dispatch must replay frozen bytes. Explicit overflow recovery (frozenOnly)
+        // forfeits that cached prefix and must still be able to reduce history.
+        aggregateEligible: params.frozenOnly || !key || !frozen,
       };
     }),
   };
@@ -907,7 +904,6 @@ function buildAggregateToolResultReplacements(params: {
               spillSourceMessage: params.spillSourceBranch?.[index]?.message ?? message,
               textLength: getToolResultTextBudget(message),
               aggregateEligible: entry.aggregateEligible !== false,
-              deferredByFreshProjection: entry.deferAggregateRecovery === true,
               protectedByTrailingBatch: params.protectedEntryIds?.has(entry.id) ?? false,
             },
           ]
@@ -933,14 +929,10 @@ function buildAggregateToolResultReplacements(params: {
 
   let remainingReduction = totalChars - params.aggregateBudgetChars;
   const replacements = new Map<string, ToolResultReplacement>();
-  // Frozen projections shrink first; stable sorting preserves the original oldest-first order.
-  const recoveryCandidates = candidates
-    .filter((candidate) => !candidate.protectedByTrailingBatch)
-    .toSorted(
-      (left, right) =>
-        Number(left.deferredByFreshProjection) - Number(right.deferredByFreshProjection) ||
-        Number(right.aggregateEligible) - Number(left.aggregateEligible),
-    );
+  // Preserve sent prompt bytes; real context overflow belongs to explicit recovery.
+  const recoveryCandidates = candidates.filter(
+    (candidate) => candidate.aggregateEligible && !candidate.protectedByTrailingBatch,
+  );
 
   // Trim all older entries before clearing any, so fresh output and spill pointers stay recoverable.
   for (const clear of [false, true]) {
@@ -989,16 +981,14 @@ function getTrailingToolResultEntryIds(branch: ToolResultBranchEntry[]): Set<str
   const ids = new Set<string>();
   for (let index = branch.length - 1; index >= 0; index--) {
     const entry = branch[index];
-    if (entry?.type !== "message" || !entry.message) {
-      if (ids.size === 0) {
-        continue;
-      }
+    // Only an assistant response consumes tool results. Runtime context and
+    // queued steering must not make the pending batch eligible for elision.
+    if (entry?.type === "message" && entry.message?.role === "assistant") {
       break;
     }
-    if ((entry.message as { role?: string }).role !== "toolResult") {
-      break;
+    if (entry?.type === "message" && entry.message?.role === "toolResult") {
+      ids.add(entry.id);
     }
-    ids.add(entry.id);
   }
   return ids;
 }
