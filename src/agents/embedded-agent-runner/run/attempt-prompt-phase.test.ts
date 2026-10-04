@@ -52,6 +52,7 @@ vi.mock("./attempt-transcript-helpers.js", () => ({
 }));
 
 import { runEmbeddedAttemptPromptPhase } from "./attempt-prompt-phase.js";
+import { estimateToolSchemaTokenPressure } from "./preemptive-compaction.js";
 
 type PromptPhaseInput = Parameters<typeof runEmbeddedAttemptPromptPhase>[0];
 type PromptPhaseState = ReturnType<PromptPhaseInput["lifecycle"]["readState"]>;
@@ -267,6 +268,23 @@ beforeEach(() => {
 });
 
 describe("runEmbeddedAttemptPromptPhase", () => {
+  it("measures installed client tools instead of the original tool catalog", async () => {
+    const fixture = createFixture();
+    const tools = [
+      { name: "builtin", description: "Built in", parameters: { type: "object" } },
+      { name: "client_lookup", description: "Client tool", parameters: { type: "object" } },
+    ];
+    fixture.input.activeSession.agent.state.tools = tools as never;
+    await runEmbeddedAttemptPromptPhase(fixture.input);
+    expect(mocks.dispatchPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preflight: expect.objectContaining({
+          toolSchemaTokens: estimateToolSchemaTokenPressure(tools),
+        }),
+      }),
+    );
+  });
+
   it("runs prompt work in phase order and publishes prompt outputs", async () => {
     const fixture = createFixture();
 

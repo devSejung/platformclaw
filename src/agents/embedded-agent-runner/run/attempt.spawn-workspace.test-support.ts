@@ -38,8 +38,8 @@ type SubscribeEmbeddedAgentSessionFn =
   typeof import("../../embedded-agent-subscribe.js").subscribeEmbeddedAgentSession;
 type AcquireSessionWriteLockFn =
   typeof import("../../session-write-lock.js").acquireSessionWriteLock;
-type ShouldPreemptivelyCompactBeforePromptFn =
-  typeof import("./preemptive-compaction.js").shouldPreemptivelyCompactBeforePrompt;
+type EstimatePrePromptContextBudgetFn =
+  typeof import("./preemptive-compaction.js").estimatePrePromptContextBudget;
 
 type SubscriptionMock = ReturnType<SubscribeEmbeddedAgentSessionFn>;
 type UnknownMock = Mock<(...args: unknown[]) => unknown>;
@@ -116,7 +116,7 @@ type AttemptSpawnWorkspaceHoisted = {
     (sessionKey: string | undefined, config: unknown) => number | undefined
   >;
   limitHistoryTurnsMock: Mock<<T>(messages: T, limit: number | undefined) => T>;
-  preemptiveCompactionCalls: Parameters<ShouldPreemptivelyCompactBeforePromptFn>[0][];
+  preemptiveCompactionCalls: Parameters<EstimatePrePromptContextBudgetFn>[0][];
   compactionReserveTokens: number;
   systemPromptTexts: string[];
   embeddedSystemPromptInputs: unknown[];
@@ -230,7 +230,7 @@ const hoisted = vi.hoisted((): AttemptSpawnWorkspaceHoisted => {
   const limitHistoryTurnsMock = vi.fn<<T>(messages: T, limit: number | undefined) => T>(
     (messages) => messages,
   );
-  const preemptiveCompactionCalls: Parameters<ShouldPreemptivelyCompactBeforePromptFn>[0][] = [];
+  const preemptiveCompactionCalls: Parameters<EstimatePrePromptContextBudgetFn>[0][] = [];
   const compactionReserveTokens = 0;
   const systemPromptTexts: string[] = [];
   const embeddedSystemPromptInputs: unknown[] = [];
@@ -850,11 +850,12 @@ vi.mock("./preemptive-compaction.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./preemptive-compaction.js")>();
   return {
     ...actual,
-    shouldPreemptivelyCompactBeforePrompt: (
-      params: Parameters<typeof actual.shouldPreemptivelyCompactBeforePrompt>[0],
+    // Capture the embedded runner entrypoint; the public SDK wrapper is no longer its call site.
+    estimatePrePromptContextBudget: (
+      params: Parameters<typeof actual.estimatePrePromptContextBudget>[0],
     ) => {
       hoisted.preemptiveCompactionCalls.push(params);
-      return actual.shouldPreemptivelyCompactBeforePrompt(params);
+      return actual.estimatePrePromptContextBudget(params);
     },
   };
 });

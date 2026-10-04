@@ -17,6 +17,7 @@ import { handleEmbeddedAttemptMidTurnPrecheck } from "./attempt-prompt-preflight
 import { applyPromptBuildToolsAllow } from "./attempt-prompt-tool-policy.js";
 import { removeTrailingMidTurnPrecheckAssistantError } from "./attempt-transcript-helpers.js";
 import type { MidTurnPrecheckRequest } from "./midturn-precheck.js";
+import { estimateToolSchemaTokenPressure } from "./preemptive-compaction.js";
 
 type PromptAssemblyInput = Parameters<typeof prepareEmbeddedAttemptPromptAssembly>[0];
 type PromptAssemblyResult = Awaited<ReturnType<typeof prepareEmbeddedAttemptPromptAssembly>>;
@@ -294,7 +295,12 @@ export async function runEmbeddedAttemptPromptPhase(input: {
           : {}),
         transcriptLeafId,
       },
-      preflight,
+      preflight: {
+        ...preflight,
+        // Installed tools include client tools and reflect prompt-build policy;
+        // the original catalog may contain tools the model will never receive.
+        toolSchemaTokens: estimateToolSchemaTokenPressure(activeSession.agent.state.tools),
+      },
       submission: {
         ...(promptBuildAppendContext ? { appendContext: promptBuildAppendContext } : {}),
         ...(leasedSteering ? { leasedSteering } : {}),
