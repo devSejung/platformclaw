@@ -2514,11 +2514,16 @@ describe("resolvePluginTools optional tools", () => {
     "platform-enabled",
     "platform-disabled",
     "source-unconfigured",
+    "source-alias-enabled",
+    "source-alias-disabled",
+    "source-alias-denied",
   ] as const)(
     "includes only eligible startup sidecars in standalone cold and cached tools (%s)",
     async (mode) => {
       const context = createContext();
       const providerId = "startup-corpus";
+      const providerAlias = "legacy-startup-corpus";
+      const aliased = mode.startsWith("source-alias-");
       const ownerId = "standalone-search-owner";
       const implicit =
         mode.startsWith("default-") ||
@@ -2526,9 +2531,20 @@ describe("resolvePluginTools optional tools", () => {
         mode === "source-unconfigured";
       context.config.plugins = {
         ...context.config.plugins,
-        allow: implicit ? [] : mode === "not-allowed" ? [ownerId] : [ownerId, providerId],
-        ...(mode === "denied" ? { deny: [providerId] } : {}),
-        entries: implicit ? {} : { [providerId]: { enabled: mode !== "disabled" } },
+        allow:
+          implicit || aliased ? [] : mode === "not-allowed" ? [ownerId] : [ownerId, providerId],
+        ...(mode === "denied"
+          ? { deny: [providerId] }
+          : mode === "source-alias-denied"
+            ? { deny: [providerAlias] }
+            : {}),
+        entries: implicit
+          ? {}
+          : {
+              [aliased ? providerAlias : providerId]: {
+                enabled: mode !== "disabled" && mode !== "source-alias-disabled",
+              },
+            },
       };
       const snapshot = installToolManifestSnapshots({
         config: context.config,
@@ -2548,7 +2564,10 @@ describe("resolvePluginTools optional tools", () => {
                   ],
                 }
               : {}),
-            ...(mode === "source-unconfigured" ? { packageBuild: { bundledDist: false } } : {}),
+            ...(mode === "source-unconfigured" || aliased
+              ? { packageBuild: { bundledDist: false } }
+              : {}),
+            ...(aliased ? { legacyPluginIds: [providerAlias] } : {}),
           }),
         ],
       });
@@ -2583,7 +2602,10 @@ describe("resolvePluginTools optional tools", () => {
       });
       const params = createResolveToolsParams({ context, toolAllowlist: ["standalone_search"] });
       const included =
-        mode === "enabled" || mode === "default-enabled" || mode === "platform-enabled";
+        mode === "enabled" ||
+        mode === "default-enabled" ||
+        mode === "platform-enabled" ||
+        mode === "source-alias-enabled";
       const expectedIds = included ? [ownerId, providerId].toSorted() : [ownerId];
       const expectedText = included ? providerId : "missing";
       for (const phase of ["cold", "cached"]) {

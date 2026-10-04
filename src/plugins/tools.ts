@@ -32,6 +32,7 @@ import {
 import type { PluginManifestRecord } from "./manifest-registry.js";
 import { hasManifestToolAvailability } from "./manifest-tool-availability.js";
 import type { PluginMetadataManifestView } from "./plugin-metadata-snapshot.types.js";
+import { normalizePluginsConfigWithRegistry } from "./plugin-registry-contributions.js";
 import { isPluginRegistryRetired } from "./registry-lifecycle.js";
 import type { PluginRegistry, PluginToolRegistration } from "./registry-types.js";
 import {
@@ -704,12 +705,6 @@ function resolvePluginToolRuntimePluginIds(params: {
   const startupPluginIds = new Set<string>();
   const allowlist = normalizeAllowlist(params.toolAllowlist);
   const denylist = normalizeDenylist(params.toolDenylist);
-  const normalizedPlugins = normalizePluginsConfig(params.config?.plugins);
-  const activationSourceConfig = params.activationSourceConfig ?? params.config;
-  const activationSource = {
-    plugins: normalizePluginsConfig(activationSourceConfig?.plugins),
-    rootConfig: activationSourceConfig,
-  };
   const snapshot =
     params.snapshot ??
     loadManifestContractSnapshot({
@@ -717,6 +712,21 @@ function resolvePluginToolRuntimePluginIds(params: {
       workspaceDir: params.workspaceDir,
       env: params.env,
     });
+  const registryOptions = { manifestRegistry: { plugins: [...snapshot.plugins], diagnostics: [] } };
+  const normalizedPlugins = normalizePluginsConfigWithRegistry(
+    params.config?.plugins,
+    snapshot.index,
+    registryOptions,
+  );
+  const activationSourceConfig = params.activationSourceConfig ?? params.config;
+  const activationSource = {
+    plugins: normalizePluginsConfigWithRegistry(
+      activationSourceConfig?.plugins,
+      snapshot.index,
+      registryOptions,
+    ),
+    rootConfig: activationSourceConfig,
+  };
   for (const plugin of snapshot.plugins) {
     if (
       !isManifestPluginAvailableForControlPlane({
