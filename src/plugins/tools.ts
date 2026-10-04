@@ -693,8 +693,9 @@ function resolvePluginToolRuntimePluginIds(params: {
   toolDenylist?: string[];
   hasAuthForProvider?: (providerId: string) => boolean;
   snapshot?: PluginMetadataManifestView;
-}): string[] {
+}): { toolPluginIds: string[]; startupPluginIds: string[] } {
   const pluginIds = new Set<string>();
+  const startupPluginIds = new Set<string>();
   const allowlist = normalizeAllowlist(params.toolAllowlist);
   const denylist = normalizeDenylist(params.toolDenylist);
   const normalizedPlugins = normalizePluginsConfig(params.config?.plugins);
@@ -720,6 +721,12 @@ function resolvePluginToolRuntimePluginIds(params: {
       normalizedPlugins.deny.includes(plugin.id)
     ) {
       continue;
+    }
+    // Startup sidecars may supply passive capabilities to another plugin's
+    // tools. Preserve their declared runtime dependency even in a cold scope;
+    // tool grants still control which tool factories are exposed below.
+    if (plugin.activation?.onStartup === true) {
+      startupPluginIds.add(plugin.id);
     }
     if (denylistBlocksPlugin({ pluginId: plugin.id, denylist })) {
       continue;
@@ -751,7 +758,10 @@ function resolvePluginToolRuntimePluginIds(params: {
       pluginIds.add(plugin.id);
     }
   }
-  return [...pluginIds].toSorted((left, right) => left.localeCompare(right));
+  return {
+    toolPluginIds: [...pluginIds].toSorted((left, right) => left.localeCompare(right)),
+    startupPluginIds: [...startupPluginIds].toSorted((left, right) => left.localeCompare(right)),
+  };
 }
 
 function readPluginCacheSource(plugin: PluginManifestRecord): string {
@@ -802,6 +812,7 @@ function createCachedDescriptorPluginTool(params: {
   loadContext: ReturnType<typeof resolvePluginRuntimeLoadContext>;
   runtimeOptions: PluginLoadOptions["runtimeOptions"];
   preferredRegistry?: PluginRegistry;
+  startupPluginIds: readonly string[];
 }): AnyAgentTool {
   const { descriptor } = params.descriptor;
   const pluginId = descriptor.owner.kind === "plugin" ? descriptor.owner.pluginId : "";
@@ -823,7 +834,7 @@ function createCachedDescriptorPluginTool(params: {
         params.descriptor,
       );
       const requiredPluginIds = composePluginRuntimeScope(
-        [pluginId],
+        [pluginId, ...params.startupPluginIds],
         params.preferredRegistry ?? retainedRegistry,
       );
       const loadOptions = buildPluginRuntimeLoadOptions(params.loadContext, {
@@ -942,6 +953,7 @@ function resolveCachedPluginTools(params: {
   loadContext: ReturnType<typeof resolvePluginRuntimeLoadContext>;
   runtimeOptions: PluginLoadOptions["runtimeOptions"];
   preferredRegistry?: PluginRegistry;
+  startupPluginIds: readonly string[];
   currentRuntimeConfig?: PluginLoadOptions["config"] | null;
   configCacheKeyMemo: PluginToolDescriptorConfigCacheKeyMemo;
   clientCaps: ReadonlySet<string>;
@@ -1069,6 +1081,7 @@ function resolveCachedPluginTools(params: {
           loadContext: params.loadContext,
           runtimeOptions: params.runtimeOptions,
           preferredRegistry: params.preferredRegistry,
+          startupPluginIds: params.startupPluginIds,
         }),
       );
     }
@@ -1207,6 +1220,7 @@ function resolvePluginToolLoadState(params: {
       env: NodeJS.ProcessEnv;
       loadOptions: PluginLoadOptions;
       onlyPluginIds: string[];
+      startupPluginIds: string[];
       runtimeOptions: PluginLoadOptions["runtimeOptions"];
       snapshot: PluginMetadataManifestView;
     }
@@ -1242,7 +1256,7 @@ function resolvePluginToolLoadState(params: {
           workspaceDir: context.workspaceDir,
           env,
         });
-  const onlyPluginIds = resolvePluginToolRuntimePluginIds({
+  const { toolPluginIds: onlyPluginIds, startupPluginIds } = resolvePluginToolRuntimePluginIds({
     config: context.config,
     availabilityConfig: params.context.runtimeConfig ?? context.config,
     workspaceDir: context.workspaceDir,
@@ -1255,10 +1269,11 @@ function resolvePluginToolLoadState(params: {
   const loadOptions = buildPluginRuntimeLoadOptions(context, {
     activate: false,
     toolDiscovery: true,
-    onlyPluginIds,
+    onlyPluginIds:
+      onlyPluginIds.length === 0 ? [] : uniqueStrings([...onlyPluginIds, ...startupPluginIds]),
     runtimeOptions,
   });
-  return { context, env, loadOptions, onlyPluginIds, runtimeOptions, snapshot };
+  return { context, env, loadOptions, onlyPluginIds, startupPluginIds, runtimeOptions, snapshot };
 }
 
 export function ensureStandalonePluginToolRegistryLoaded(params: {
@@ -1274,12 +1289,19 @@ export function ensureStandalonePluginToolRegistryLoaded(params: {
     return undefined;
   }
   const registry = loadPluginRegistryHandle(loadState.loadOptions);
-  if (registryHasScopedPluginTools(registry, loadState.onlyPluginIds)) {
+  if (
+    registryHasScopedPluginTools(
+      registry,
+      loadState.onlyPluginIds,
+      loadState.loadOptions.onlyPluginIds,
+    )
+  ) {
     return registry;
   }
   return resolvePluginToolRegistry({
     loadOptions: loadState.loadOptions,
     onlyPluginIds: loadState.onlyPluginIds,
+    requiredPluginIds: loadState.loadOptions.onlyPluginIds,
   });
 }
 
@@ -1302,7 +1324,7 @@ export function resolvePluginTools(params: {
   if (!loadState) {
     return [];
   }
-  const { context, env, onlyPluginIds, runtimeOptions, snapshot } = loadState;
+  const { context, env, onlyPluginIds, startupPluginIds, runtimeOptions, snapshot } = loadState;
   const tools: AnyAgentTool[] = [];
   const existing = params.existingToolNames ?? new Set<string>();
   const existingNormalized = new Set(Array.from(existing, (tool) => normalizeToolName(tool)));
@@ -1343,6 +1365,7 @@ export function resolvePluginTools(params: {
     loadContext: context,
     runtimeOptions,
     preferredRegistry: preparedOrExplicitRegistry,
+    startupPluginIds,
     currentRuntimeConfig: currentRuntimeConfigForDescriptorCache,
     configCacheKeyMemo,
     clientCaps,
@@ -1354,7 +1377,10 @@ export function resolvePluginTools(params: {
   if (runtimePluginIds.length === 0) {
     return tools;
   }
-  const requiredPluginIds = composePluginRuntimeScope(runtimePluginIds, preparedOrExplicitRegistry);
+  const requiredPluginIds = composePluginRuntimeScope(
+    [...runtimePluginIds, ...startupPluginIds],
+    preparedOrExplicitRegistry,
+  );
   const loadOptions = buildPluginRuntimeLoadOptions(context, {
     activate: false,
     toolDiscovery: true,

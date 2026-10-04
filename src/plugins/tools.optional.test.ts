@@ -2503,6 +2503,78 @@ describe("resolvePluginTools optional tools", () => {
     }
   });
 
+  it.each(["enabled", "disabled", "denied", "not-allowed", "not-startup"] as const)(
+    "includes only eligible startup sidecars in standalone cold and cached tools (%s)",
+    async (mode) => {
+      const context = createContext();
+      const providerId = "startup-corpus";
+      const ownerId = "standalone-search-owner";
+      context.config.plugins = {
+        ...context.config.plugins,
+        allow: mode === "not-allowed" ? [ownerId] : [ownerId, providerId],
+        ...(mode === "denied" ? { deny: [providerId] } : {}),
+        entries: { [providerId]: { enabled: mode !== "disabled" } },
+      };
+      const snapshot = installToolManifestSnapshots({
+        config: context.config,
+        plugins: [
+          createToolManifest(ownerId, ["standalone_search"]),
+          createToolManifest(providerId, ["sidecar_tool"], {
+            activation: { onStartup: mode !== "not-startup" },
+          }),
+        ],
+      });
+      if (mode === "not-allowed") {
+        snapshot.index.plugins.find((entry) => entry.pluginId === providerId)!.enabled = false;
+      }
+      const searchEntry = createNamedToolEntry(ownerId, "standalone_search", {
+        factory: () => ({
+          ...makeTool("standalone_search"),
+          async execute() {
+            const registry = getPluginRuntimeGatewayRequestScope()?.pluginRegistry;
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: registry?.memoryCorpusSupplements?.[0]?.pluginId ?? "missing",
+                },
+              ],
+            };
+          },
+        }),
+      });
+      loadOpenClawPluginsMock.mockImplementation((options: { onlyPluginIds: string[] }) => {
+        const included = options.onlyPluginIds.includes(providerId);
+        return {
+          ...createToolRegistry([
+            searchEntry,
+            ...(included ? [createNamedToolEntry(providerId, "sidecar_tool")] : []),
+          ]),
+          memoryCorpusSupplements: included ? [{ pluginId: providerId, supplement: {} }] : [],
+        };
+      });
+      const params = createResolveToolsParams({ context, toolAllowlist: ["standalone_search"] });
+      const expectedIds = mode === "enabled" ? [ownerId, providerId].toSorted() : [ownerId];
+      const expectedText = mode === "enabled" ? providerId : "missing";
+      for (const phase of ["cold", "cached"]) {
+        const tools = resolvePluginTools(params);
+        expectResolvedToolNames(tools, ["standalone_search"]);
+        await expect(tools[0]!.execute(phase, {}, undefined)).resolves.toEqual({
+          content: [{ type: "text", text: expectedText }],
+        });
+      }
+      expect(loadOpenClawPluginsMock).toHaveBeenCalledTimes(1);
+      expect(mockCallParams(loadOpenClawPluginsMock)).toMatchObject({
+        activate: false,
+        toolDiscovery: true,
+        onlyPluginIds: expectedIds,
+      });
+      loadOpenClawPluginsMock.mockClear();
+      expect(ensureStandalonePluginToolRegistryLoaded(params)).toBeDefined();
+      expect(mockCallParams(loadOpenClawPluginsMock).onlyPluginIds).toEqual(expectedIds);
+    },
+  );
+
   it("retains a composed cold registry for cached descriptor execution", async () => {
     const context = createContext();
     const factory = vi.fn(() => {
