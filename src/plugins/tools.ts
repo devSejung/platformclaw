@@ -727,6 +727,9 @@ function resolvePluginToolRuntimePluginIds(params: {
     ),
     rootConfig: activationSourceConfig,
   };
+  const installedPlugins = new Map(
+    snapshot.index.plugins.map((plugin) => [plugin.pluginId, plugin]),
+  );
   for (const plugin of snapshot.plugins) {
     if (
       !isManifestPluginAvailableForControlPlane({
@@ -748,7 +751,8 @@ function resolvePluginToolRuntimePluginIds(params: {
     // tool grants still control which tool factories are exposed below.
     if (plugin.activation?.onStartup === true) {
       const startupOrigin =
-        plugin.origin === "bundled" && plugin.packageBuild?.bundledDist === false
+        plugin.origin === "bundled" &&
+        installedPlugins.get(plugin.id)?.packageBuild?.bundledDist === false
           ? "workspace"
           : plugin.origin;
       const activation = resolveEffectivePluginActivationState({

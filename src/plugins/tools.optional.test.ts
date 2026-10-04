@@ -2564,13 +2564,15 @@ describe("resolvePluginTools optional tools", () => {
                   ],
                 }
               : {}),
-            ...(mode === "source-unconfigured" || aliased
-              ? { packageBuild: { bundledDist: false } }
-              : {}),
             ...(aliased ? { legacyPluginIds: [providerAlias] } : {}),
           }),
         ],
       });
+      if (mode === "source-unconfigured" || aliased) {
+        snapshot.index.plugins.find((entry) => entry.pluginId === providerId)!.packageBuild = {
+          bundledDist: false,
+        };
+      }
       if (mode === "not-allowed") {
         snapshot.index.plugins.find((entry) => entry.pluginId === providerId)!.enabled = false;
       }
