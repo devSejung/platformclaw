@@ -115,7 +115,7 @@ describe("parent subagent activity projection", () => {
       });
       for (const row of [sync, asyncRow, single, buildGatewaySessionEventRow(single)]) {
         expect(row?.key).toBe(parentKey);
-        expect(row?.hasActiveSubagentRun === true).toBe(active);
+        expect(row?.hasActiveSubagentRun).toBe(active);
         expect(row?.activeChildSessions).toEqual(active ? [childKey] : []);
         // Child work must not rewrite the parent's own completed lifecycle.
         expect(row?.status).toBe("done");
@@ -124,21 +124,39 @@ describe("parent subagent activity projection", () => {
     },
   );
 
-  test("clears parent activity after child completion despite a retained child link", () => {
-    const now = Date.now();
-    const store = createStore(now);
-    addRun(now);
-    registerAgentRunContext("child-run", { sessionKey: childKey });
-    const list = () => listSessionsFromStore({ cfg, storePath, store, opts: { limit: 1 } });
-    expect(list().sessions[0]?.hasActiveSubagentRun).toBe(true);
+  test.each(["ended", "moved", "removed"] as const)(
+    "clears parent activity after its last child is %s",
+    (state) => {
+      const now = Date.now();
+      const store = createStore(now);
+      addRun(now);
+      registerAgentRunContext("child-run", { sessionKey: childKey });
+      const list = () => listSessionsFromStore({ cfg, storePath, store, opts: { limit: 1 } });
+      expect(list().sessions[0]?.hasActiveSubagentRun).toBe(true);
 
-    clearAgentRunContext("child-run");
-    addRun(now, parentKey, now);
-    const parent = list().sessions[0];
-    expect(parent?.childSessions).toEqual([childKey]);
-    expect(parent?.hasActiveSubagentRun).toBe(false);
-    expect(parent?.activeChildSessions).toEqual([]);
-  });
+      if (state !== "moved") {
+        clearAgentRunContext("child-run");
+      }
+      if (state === "ended") {
+        addRun(now, parentKey, now);
+      } else if (state === "moved") {
+        addRun(now, otherParentKey);
+      } else {
+        resetSubagentRegistryForTests({ persist: false });
+        delete store[childKey];
+      }
+      const parent = list().sessions[0];
+      expect(parent?.childSessions).toEqual(state === "ended" ? [childKey] : undefined);
+      expect(parent?.hasActiveSubagentRun).toBe(false);
+      expect(parent?.activeChildSessions).toEqual([]);
+      const serializedRow = JSON.stringify(
+        buildGatewaySessionEventRow(expectDefined(parent, "parent session")),
+      );
+      const wireRow = JSON.parse(serializedRow);
+      expect(wireRow.hasActiveSubagentRun).toBe(false);
+      expect(wireRow.activeChildSessions).toEqual([]);
+    },
+  );
 
   test("publishes live and settled parent activity through real lifecycle and transcript snapshots", async () => {
     await withStateDirEnv("openclaw-subagent-activity-push-", async ({ stateDir }) => {
@@ -241,7 +259,7 @@ describe("parent subagent activity projection", () => {
       });
       const parent = result.sessions.find((row) => row.key === parentKey);
       expect(parent?.childSessions).toBeUndefined();
-      expect(parent?.hasActiveSubagentRun).not.toBe(true);
+      expect(parent?.hasActiveSubagentRun).toBe(false);
       expect(parent?.activeChildSessions).toEqual([]);
       expect(result.sessions.some((row) => row.key === childKey)).toBe(false);
     },

@@ -97,6 +97,27 @@ describe("browser subagent activity evidence", () => {
     },
   );
 
+  it("clears parent activity when the authoritative snapshot has no remaining child links", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const key = `agent:${binding.agentId}:main`;
+    const row = { key, activeChildSessions: [] };
+    const expected = { key, hasActiveSubagentRun: false };
+    request.mockResolvedValueOnce({ session: row });
+    await expect(proxy.request(token, "sessions.describe", { key })).resolves.toEqual({
+      session: expected,
+    });
+    await expect(
+      proxy.filterEvent(token, {
+        event: "sessions.changed",
+        payload: { sessionKey: key, ...row, session: row },
+      }),
+    ).resolves.toEqual({
+      event: "sessions.changed",
+      payload: { sessionKey: key, ...expected, session: expected },
+    });
+    expect(row).toEqual({ key, activeChildSessions: [] });
+  });
+
   it("retains legacy self-only flags and rejects malformed evidence envelopes", async () => {
     const { binding, proxy, request, token } = await setup();
     const key = `agent:${binding.agentId}:main`;

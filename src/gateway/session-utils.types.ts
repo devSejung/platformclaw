@@ -146,13 +146,14 @@ export type GatewaySessionRow = {
   /** An enabled cron job is bound to this session (runs in it or delivers to it). */
   hasAutomation?: boolean;
   subagentRunState?: SubagentRunState;
+  /** Current snapshots include false so merge events clear departed child activity. */
   hasActiveSubagentRun?: boolean;
   startedAt?: number;
   endedAt?: number;
   runtimeMs?: number;
   parentSessionKey?: string;
   childSessions?: string[];
-  /** Live subset of childSessions; projections must recheck access before aggregating activity. */
+  /** Live child subset, including [] when none remain; projections recheck access before aggregating. */
   activeChildSessions?: string[];
   responseUsage?: "on" | "off" | "tokens" | "full";
   /** Resolved effective usage mode (session override → channel config → default → off). Populated by surfaces that have config access; absent from the raw session store row. */

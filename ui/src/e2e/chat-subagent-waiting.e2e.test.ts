@@ -91,9 +91,7 @@ suite.define(() => {
       methodResponses: { "sessions.list": sessionsListResponse([parent, child]) },
     });
     await page.goto(controlUiSessionUrl(suite.server.baseUrl, parent.key));
-    const indicator = page.locator(
-      ".chat-pane-cache__pane--active .chat-working-indicator--subagents",
-    );
+    const indicator = page.locator("openclaw-chat-pane .chat-working-indicator--subagents");
     await indicator.getByText("Waiting on subagents", { exact: true }).waitFor();
     await page.getByText("Handed off and waiting", { exact: true }).waitFor();
     expect(await page.locator("body").textContent()).not.toContain("PRIVATE_CONTINUATION");

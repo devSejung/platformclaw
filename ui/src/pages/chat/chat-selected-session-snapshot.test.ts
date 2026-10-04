@@ -59,6 +59,133 @@ async function settle() {
 }
 
 describe("selected-pane session snapshot", () => {
+  it.each(
+    [false, true].flatMap((backgroundHydrate) =>
+      [
+        "event-before",
+        "event-during",
+        "event-after",
+        "ignored-event",
+        "read-before",
+        "read-during",
+        "read-after-list",
+      ].map((order) => ({ backgroundHydrate, order })),
+    ),
+  )(
+    "orders selected wait metadata $order against lists (background $backgroundHydrate)",
+    async ({ backgroundHydrate, order }) => {
+      vi.useFakeTimers();
+      let listener: ((event: GatewayEventFrame) => void) | undefined;
+      const delayedList = deferred<unknown>();
+      const settled = { ...parent, hasActiveSubagentRun: false };
+      let currentRow = parent;
+      let listCalls = 0;
+      const result = (row: GatewaySessionRow) => ({
+        ts: 1,
+        path: "",
+        count: 1,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [row],
+      });
+      const request = vi.fn(async (method: string) => {
+        if (method !== "sessions.list") {
+          throw new Error(`Unexpected request ${method}`);
+        }
+        listCalls += 1;
+        return listCalls === 2 ? delayedList.promise : result(currentRow);
+      });
+      const baseHost = createHost(request);
+      const sessions = createSessionCapability({
+        snapshot: {
+          client: baseHost.client,
+          phase: "connected",
+          sessionKey: parent.key,
+          hello: null,
+        },
+        subscribe: () => () => {},
+        subscribeEvents(next) {
+          listener = next;
+          return () => {};
+        },
+      });
+      const host = Object.assign(baseHost, { sessions });
+      const unsubscribe = sessions.subscribe((next) => {
+        syncChatSelectedSessionSnapshot(
+          host,
+          next.result?.sessions[0],
+          sessions.canonicalListRevision,
+        );
+      });
+      const publishSettledEvent = (updatedAt = parent.updatedAt) => {
+        const event: GatewayEventFrame = {
+          type: "event",
+          event: "sessions.changed",
+          payload: { ...settled, updatedAt, reason: "subagent-status" },
+        };
+        listener?.(event);
+        const previousRows = sessions.state.result?.sessions;
+        const changed = sessions.reconcileChanged(event.payload);
+        if (changed.row && !previousRows?.includes(changed.row)) {
+          applyChatSelectedSessionSnapshot(host, changed.row);
+        }
+        currentRow = settled;
+      };
+      try {
+        await sessions.refresh({ force: true });
+        expect(waits(host)).toBe(true);
+        if (order === "event-before") {
+          publishSettledEvent();
+          expect(waits(host)).toBe(false);
+        }
+        const earlierRead =
+          order === "read-before" || order === "read-after-list"
+            ? captureChatSelectedSessionRequest(host)
+            : undefined;
+        const refresh = sessions.refresh({ force: true, backgroundHydrate });
+        if (order === "event-during" || order === "ignored-event") {
+          publishSettledEvent(order === "ignored-event" ? 0 : parent.updatedAt);
+        } else if (order === "read-before" || order === "read-during") {
+          applyChatSelectedSessionSnapshot(
+            host,
+            settled,
+            earlierRead ?? captureChatSelectedSessionRequest(host),
+          );
+          expect(waits(host)).toBe(false);
+        }
+
+        const listed = order === "ignored-event" || order === "read-after-list" ? settled : parent;
+        delayedList.resolve(result(listed));
+        await refresh;
+        if (order === "event-after") {
+          publishSettledEvent();
+        } else if (order === "read-after-list") {
+          applyChatSelectedSessionSnapshot(host, parent, earlierRead);
+        }
+        // Generic roster replacement is unchanged, but it cannot resurrect
+        // wait metadata observed after this list request started.
+        expect(sessions.state.result?.sessions[0]).toEqual(
+          order === "event-after" ? settled : listed,
+        );
+        const listStartedAfterObservation = order === "event-before" || order === "read-before";
+        expect(waits(host)).toBe(listStartedAfterObservation);
+        await vi.advanceTimersByTimeAsync(200);
+        const trailingRefresh =
+          order === "event-during" || order === "event-after" || order === "ignored-event";
+        expect(listCalls).toBe(trailingRefresh ? 3 : 2);
+        expect(waits(host)).toBe(listStartedAfterObservation);
+
+        // A subsequent request really can observe a newly active child.
+        currentRow = parent;
+        await sessions.refresh({ force: true });
+        expect(waits(host)).toBe(true);
+      } finally {
+        unsubscribe();
+        sessions.dispose();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("follows real coalesced session refreshes without applying the bounded transcript", async () => {
     vi.useFakeTimers();
     let active = true;

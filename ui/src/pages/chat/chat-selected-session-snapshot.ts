@@ -1,5 +1,6 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { GatewaySessionRow } from "../../api/types.ts";
+import type { SessionCapability } from "../../lib/sessions/session-capability.ts";
 import {
   resolveUiDefaultAgentId,
   resolveUiSelectedSessionAgentId,
@@ -12,6 +13,7 @@ type SnapshotHost = UiSessionDefaultsHost & {
   connected: boolean;
   connectionEpoch: number;
   sessionKey: string;
+  sessions?: Partial<Pick<SessionCapability, "canonicalListRequestRevision">>;
   chatSelectedSessionSnapshot?: ChatSelectedSessionSnapshot;
   requestUpdate?: () => void;
 };
@@ -25,6 +27,7 @@ export type ChatSelectedSessionSnapshot = {
   readKey?: string;
   generation: number;
   listRevision: number;
+  listRequestFence: number;
   requestedRevision: number;
   missingFromList: boolean;
   pending: boolean;
@@ -63,6 +66,7 @@ function snapshotOwner(host: SnapshotHost): ChatSelectedSessionSnapshot | undefi
     agentId: selectedAgentId(host),
     generation: 0,
     listRevision: -1,
+    listRequestFence: -1,
     requestedRevision: -1,
     missingFromList: false,
     pending: false,
@@ -71,7 +75,22 @@ function snapshotOwner(host: SnapshotHost): ChatSelectedSessionSnapshot | undefi
 
 export function captureChatSelectedSessionRequest(host: SnapshotHost): SnapshotRequest | undefined {
   const owner = snapshotOwner(host);
-  return owner ? { owner, generation: ++owner.generation } : undefined;
+  if (!owner) {
+    return undefined;
+  }
+  owner.listRequestFence = host.sessions?.canonicalListRequestRevision ?? owner.listRequestFence;
+  return { owner, generation: ++owner.generation };
+}
+
+function storeSnapshotRow(
+  owner: ChatSelectedSessionSnapshot,
+  row: GatewaySessionRow | null | undefined,
+): void {
+  owner.generation += 1;
+  owner.row = row ?? null;
+  if (row) {
+    owner.readKey = row.key;
+  }
 }
 
 export function applyChatSelectedSessionSnapshot(
@@ -91,11 +110,10 @@ export function applyChatSelectedSessionSnapshot(
   if (!request && owner.row === row) {
     return;
   }
-  owner.generation += 1;
-  owner.row = row ?? null;
-  if (row) {
-    owner.readKey = row.key;
+  if (!request) {
+    owner.listRequestFence = host.sessions?.canonicalListRequestRevision ?? owner.listRequestFence;
   }
+  storeSnapshotRow(owner, row);
 }
 
 export function clearChatSelectedSessionSnapshot(host: SnapshotHost): void {
@@ -125,7 +143,7 @@ async function refreshMissingSelectedSession(
     ) {
       const revision = owner.listRevision;
       owner.requestedRevision = revision;
-      const request = { owner, generation: ++owner.generation };
+      const request = captureChatSelectedSessionRequest(host);
       try {
         const result = await owner.client.request<{ sessionInfo?: GatewaySessionRow }>(
           "chat.history",
@@ -167,12 +185,25 @@ export function syncChatSelectedSessionSnapshot(
     return;
   }
   const advanced = owner.listRevision !== canonicalListRevision;
+  // Local history reconciliation republishes the same roster revision. It
+  // must not replace newer selected-session metadata or retire its request.
+  if (!advanced) {
+    return;
+  }
   owner.listRevision = canonicalListRevision;
   owner.missingFromList = row === undefined;
   if (row) {
-    applyChatSelectedSessionSnapshot(host, row);
+    // Precise pane reads and accepted pushes retire already-started lists.
+    // Parent updatedAt does not advance when only child activity changes.
+    const requestRevision = host.sessions?.canonicalListRequestRevision;
+    if (
+      uiSessionRowMatchesSelectedChat(host, row.key, host.sessionKey) &&
+      (requestRevision === undefined || requestRevision > owner.listRequestFence)
+    ) {
+      storeSnapshotRow(owner, row);
+    }
     owner.requestedRevision = canonicalListRevision;
-  } else if (advanced && canonicalListRevision > 0 && owner.readKey) {
+  } else if (canonicalListRevision > 0 && owner.readKey) {
     void refreshMissingSelectedSession(host, owner);
   }
 }

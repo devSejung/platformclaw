@@ -96,6 +96,7 @@ describe("canonical session message recovery", () => {
       lastError: null,
       hello: null,
       sessions: {
+        state: { result: null },
         reconcileChanged: vi.fn().mockReturnValue({ applied: false }),
         refresh: vi.fn().mockResolvedValue(undefined),
       },

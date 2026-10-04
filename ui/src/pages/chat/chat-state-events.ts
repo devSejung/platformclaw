@@ -134,6 +134,7 @@ function globalSessionEventMatchesChat(
 
 function reconcileSessionEvent(state: ChatPageHost, payload: unknown): SessionChangedResult {
   const selectedAgentId = resolveChatAgentId(state);
+  const previousRows = state.sessions.state.result?.sessions;
   const reconciled = state.sessions.reconcileChanged(payload, {
     resultAgentId: state.sessionsResultAgentId ?? selectedAgentId,
     selectedGlobalAgentId: selectedAgentId,
@@ -143,6 +144,9 @@ function reconcileSessionEvent(state: ChatPageHost, payload: unknown): SessionCh
     const event = readSessionChangedEvent(payload);
     if (
       reconciled.row &&
+      // Older ignored events can advance result.ts without changing the row.
+      // Only accepted canonical state owns this pane's wait metadata.
+      !previousRows?.includes(reconciled.row) &&
       event &&
       globalSessionEventMatchesChat(state, event) &&
       sessionMessageMatchesChat(state, event)

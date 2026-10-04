@@ -24,6 +24,12 @@ import {
 import { refreshChatAvatar } from "./chat-avatar.ts";
 import * as chatCommandExecutor from "./chat-command-executor.ts";
 import type { executeSlashCommand } from "./chat-command-executor.ts";
+import {
+  applyChatSelectedSessionSnapshot,
+  captureChatSelectedSessionRequest,
+  readChatSelectedSessionSnapshot,
+  syncChatSelectedSessionSnapshot,
+} from "./chat-selected-session-snapshot.ts";
 import type { ChatHost } from "./chat-send-contract.ts";
 import {
   getPendingChatPickerPatch,
@@ -753,41 +759,154 @@ describe("refreshChat", () => {
 
   it("keeps an active run adopted from history over newer stale catalog metadata", async () => {
     const runId = "run-restored";
+    const history = createDeferred<unknown>();
+    const staleCatalog = createSessionsResult([
+      row("main", { hasActiveRun: false, status: "done", updatedAt: 10 }),
+    ]);
     const host = makeHost({
       requestHandlers: {
-        "chat.history": {
-          messages: [],
-          inFlightRun: { runId, text: "Still working after navigation." },
-          sessionInfo: row("main", {
-            activeRunIds: [runId],
-            hasActiveRun: true,
-            status: "running",
-            updatedAt: 1,
-          }),
-        },
+        "chat.history": () => history.promise,
+        "sessions.list": staleCatalog,
       },
       sessionKey: "main",
-      sessionsResult: createSessionsResult([
-        row("main", { hasActiveRun: false, status: "done", updatedAt: 10 }),
-      ]),
+      sessionsResult: staleCatalog,
     });
+    const pageHost = asChatPageHost(host);
+    const unsubscribe = host.sessions.subscribe((next) => {
+      pageHost.sessionsResult = next.result;
+      syncChatSelectedSessionSnapshot(
+        pageHost,
+        next.result?.sessions.find((session) => session.key === pageHost.sessionKey),
+        host.sessions.canonicalListRevision,
+      );
+    });
+    try {
+      const refresh = refreshPageChat(pageHost, {
+        awaitHistory: true,
+        scheduleScroll: false,
+      });
+      // First catalog publication races the history response in a real pane.
+      await host.sessions.refresh({ force: true });
+      history.resolve({
+        messages: [],
+        inFlightRun: {
+          runId,
+          text: "Still working after navigation.",
+          plan: { steps: [{ step: "Restore the active turn", status: "in_progress" }] },
+          events: [
+            {
+              runId,
+              seq: 1,
+              stream: "tool",
+              ts: 1_000,
+              sessionKey: "main",
+              data: {
+                toolCallId: "call-restored",
+                name: "read",
+                phase: "start",
+                args: { path: "README.md" },
+              },
+            },
+          ],
+        },
+        sessionInfo: row("main", {
+          activeRunIds: [runId],
+          hasActiveRun: true,
+          status: "running",
+          updatedAt: 1,
+        }),
+      });
+      await refresh;
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
 
-    await refreshPageChat(asChatPageHost(host), {
-      awaitHistory: true,
-      scheduleScroll: false,
-    });
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-
-    expect(host.chatRunId).toBe(runId);
-    expect(host.chatStream).toBe("Still working after navigation.");
-    expect(host.sessionsResult?.sessions[0]).toMatchObject({
-      hasActiveRun: false,
-      status: "done",
-      updatedAt: 10,
-    });
+      expect(host.chatRunId).toBe(runId);
+      expect(
+        [...host.chatStreamSegments.map((segment) => segment.text), host.chatStream]
+          .filter(Boolean)
+          .join(""),
+      ).toBe("Still working after navigation.");
+      expect(pageHost.planStatus?.steps).toEqual([
+        { step: "Restore the active turn", status: "in_progress" },
+      ]);
+      expect(pageHost.toolStreamById.size).toBe(1);
+      // Wait metadata does not own active-run restoration or terminal cleanup.
+      expect(readChatSelectedSessionSnapshot(pageHost)).toBe(staleCatalog.sessions[0]);
+      expect(host.sessionsResult?.sessions[0]).toMatchObject({
+        hasActiveRun: false,
+        status: "done",
+        updatedAt: 10,
+      });
+    } finally {
+      unsubscribe();
+    }
   });
+
+  it.each(["catalog", "accepted event", "targeted read", "ignored event"])(
+    "keeps selected wait metadata independent of history after a newer %s",
+    async (source) => {
+      const history = createDeferred<unknown>();
+      const waiting = row("main", {
+        hasActiveRun: false,
+        hasActiveSubagentRun: true,
+        status: "running",
+        updatedAt: 10,
+      });
+      const settled = { ...waiting, hasActiveSubagentRun: false };
+      const catalog = createSessionsResult([source === "catalog" ? settled : waiting]);
+      const host = makeHost({
+        requestHandlers: { "chat.history": () => history.promise, "sessions.list": catalog },
+        sessionKey: "main",
+      });
+      const pageHost = asChatPageHost(host);
+      const unsubscribe = host.sessions.subscribe((next) => {
+        pageHost.sessionsResult = next.result;
+        syncChatSelectedSessionSnapshot(
+          pageHost,
+          next.result?.sessions.find((session) => session.key === pageHost.sessionKey),
+          host.sessions.canonicalListRevision,
+        );
+      });
+      try {
+        const refresh = refreshPageChat(pageHost, { awaitHistory: true, scheduleScroll: false });
+        await host.sessions.refresh({ force: true });
+        if (source.endsWith("event")) {
+          handlePageGatewayEvent(pageHost, {
+            type: "event",
+            event: "sessions.changed",
+            payload: {
+              ...settled,
+              reason: "subagent-status",
+              updatedAt: source === "ignored event" ? 9 : 10,
+              ts: 30,
+            },
+          });
+        } else if (source === "targeted read") {
+          applyChatSelectedSessionSnapshot(
+            pageHost,
+            settled,
+            captureChatSelectedSessionRequest(pageHost),
+          );
+        }
+        const selected = readChatSelectedSessionSnapshot(pageHost);
+        history.resolve({ messages: [], sessionInfo: waiting });
+        await refresh;
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve);
+        });
+
+        expect(readChatSelectedSessionSnapshot(pageHost)).toBe(selected);
+        expect(selected?.hasActiveSubagentRun).toBe(source === "ignored event");
+        expect(pageHost.chatRunId).toBeNull();
+        // History may republish the shared row at the same list revision; the
+        // pane's newer wait snapshot must remain independent of that projection.
+        expect(pageHost.sessionsResult?.sessions[0]?.hasActiveSubagentRun).toBe(true);
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
 
   it.each([
     {

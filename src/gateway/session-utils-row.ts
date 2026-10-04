@@ -509,10 +509,8 @@ export function buildGatewaySessionRow(params: {
     lastRunError: entry?.lastRunError,
     hasAutomation: sessionHasAutomation(key, cfg) ? true : undefined,
     subagentRunState,
-    hasActiveSubagentRun:
-      subagentRun || childSessions?.length
-        ? liveSubagentRunActive || Boolean(activeChildSessions?.length)
-        : undefined,
+    // Explicit false clears a previously active parent in merge events after its last child leaves.
+    hasActiveSubagentRun: liveSubagentRunActive || Boolean(activeChildSessions?.length),
     startedAt: subagentRun ? subagentStartedAt : entry?.startedAt,
     endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
     runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,

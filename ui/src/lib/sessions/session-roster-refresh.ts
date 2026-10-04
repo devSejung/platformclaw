@@ -26,6 +26,7 @@ type SessionRosterRefreshHost = {
   publish: (state: SessionState, errorSource?: "session-observer" | "operation") => void;
   observerError: () => string | null;
   decorate: (result: SessionsListResult | null) => SessionsListResult | null;
+  onCanonicalListRequest: () => void;
   onCanonicalList: (result: SessionsListResult | null) => void;
 };
 
@@ -209,6 +210,7 @@ export function createSessionRosterRefresh(host: SessionRosterRefreshHost) {
       );
     }
     try {
+      host.onCanonicalListRequest();
       const result = await requestSessionList(scope.client, requestOptions);
       if (!host.connection.isCurrent(scope)) {
         return;
