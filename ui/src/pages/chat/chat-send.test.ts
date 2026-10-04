@@ -822,6 +822,9 @@ describe("refreshChat", () => {
       });
 
       expect(host.chatRunId).toBe(runId);
+      if (!host.chatStreamSegments) {
+        throw new Error("Expected restored chat stream segments");
+      }
       expect(
         [...host.chatStreamSegments.map((segment) => segment.text), host.chatStream]
           .filter(Boolean)
