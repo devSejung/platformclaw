@@ -4,27 +4,30 @@ import { join, resolve } from "node:path";
 import type { AnyAgentTool, OpenClawConfig } from "openclaw/plugin-sdk/plugin-entry";
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import wikiPlugin from "../../../extensions/memory-wiki/index.js";
-import hubPlugin from "../../../extensions/platformclaw-org-memory/index.js";
-import { resetPluginBlobStoreForTests } from "../../../src/plugin-state/plugin-blob-store.js";
-import { resetPluginStateStoreForTests } from "../../../src/plugin-state/plugin-state-store.js";
-import { clearPluginHostRuntimeState } from "../../../src/plugins/host-hook-runtime.js";
-import { createPluginRecord } from "../../../src/plugins/loader-records.js";
-import { loadManifestContractSnapshot } from "../../../src/plugins/manifest-contract-eligibility.js";
-import { createPluginRegistry } from "../../../src/plugins/registry.js";
-import { resetPluginRuntimeStateForTest } from "../../../src/plugins/runtime.js";
-import { resolvePluginRuntimeLoadContext } from "../../../src/plugins/runtime/load-context.js";
-import type { PluginRuntime } from "../../../src/plugins/runtime/types.js";
-import { pluginToolDescriptorCacheState } from "../../../src/plugins/tool-descriptor-cache.js";
-import { resolvePluginTools } from "../../../src/plugins/tools.js";
-import { resetPluginToolDescriptorCacheForTest } from "../../../src/plugins/tools.test-fixtures.js";
-import { PlatformClawExecutionHandoffServer, deriveExecutionHandoffAddress } from "./index.js";
-import { createWikiHubTestFixture } from "./wiki-hub.test-fixtures.js";
+import wikiPlugin from "../extensions/memory-wiki/index.js";
+import hubPlugin from "../extensions/platformclaw-org-memory/index.js";
+import {
+  PlatformClawExecutionHandoffServer,
+  deriveExecutionHandoffAddress,
+} from "../packages/platformclaw-control-plane/src/execution-handoff-http.js";
+import { createWikiHubTestFixture } from "../packages/platformclaw-control-plane/src/wiki-hub.test-fixtures.js";
+import { resetPluginBlobStoreForTests } from "../src/plugin-state/plugin-blob-store.js";
+import { resetPluginStateStoreForTests } from "../src/plugin-state/plugin-state-store.js";
+import { clearPluginHostRuntimeState } from "../src/plugins/host-hook-runtime.js";
+import { createPluginRecord } from "../src/plugins/loader-records.js";
+import { loadManifestContractSnapshot } from "../src/plugins/manifest-contract-eligibility.js";
+import { createPluginRegistry } from "../src/plugins/registry.js";
+import { resetPluginRuntimeStateForTest } from "../src/plugins/runtime.js";
+import { resolvePluginRuntimeLoadContext } from "../src/plugins/runtime/load-context.js";
+import type { PluginRuntime } from "../src/plugins/runtime/types.js";
+import { pluginToolDescriptorCacheState } from "../src/plugins/tool-descriptor-cache.js";
+import { resolvePluginTools } from "../src/plugins/tools.js";
+import { resetPluginToolDescriptorCacheForTest } from "../src/plugins/tools.test-fixtures.js";
 
 // This boundary supplies the already-prepared registry, just like the agent runner.
 // Re-entering the module loader would discard that registry's Shared providers.
 const loader = vi.hoisted(() => ({ load: vi.fn() }));
-vi.mock("../../../src/plugins/loader.js", () => ({
+vi.mock("../src/plugins/loader.js", () => ({
   loadPluginRegistryHandle: (options: unknown) => loader.load(options),
   resolveCompatibleRuntimePluginRegistry: () => undefined,
 }));
@@ -45,7 +48,7 @@ afterEach(async () => {
 
 describe("Wiki Hub composed tool contract", () => {
   it.each(["discovery", "tool-discovery"] as const)(
-    "preserves Shared search → read → update through cold and cached %s tools",
+    "preserves Shared search/read/update through cold and cached %s tools",
     async (registrationMode) => {
       const f = await createWikiHubTestFixture();
       cleanup.push(f.close);

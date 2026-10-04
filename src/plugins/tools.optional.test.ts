@@ -6,6 +6,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import { loggingState } from "../logging/state.js";
 import { resolveInstalledPluginIndexPolicyHash } from "./installed-plugin-index-policy.js";
+import type { InstalledPluginIndexRecord } from "./installed-plugin-index-types.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
 import { markPluginRegistryRetired } from "./registry-lifecycle.js";
 import { appendRuntimePluginToolGrant } from "./tool-grant-allowlist.js";
@@ -365,6 +366,9 @@ function installToolManifestSnapshots(params: {
   config: ReturnType<typeof createContext>["config"];
   compatibleConfigs?: ReturnType<typeof createContext>["config"][];
   env?: NodeJS.ProcessEnv;
+  installedPackageBuildById?: Readonly<
+    Record<string, NonNullable<InstalledPluginIndexRecord["packageBuild"]>>
+  >;
   plugins: Record<string, unknown>[];
 }) {
   const plugins = params.plugins;
@@ -384,6 +388,9 @@ function installToolManifestSnapshots(params: {
         origin: plugin.origin,
         enabled: true,
         enabledByDefault: plugin.enabledByDefault,
+        ...(params.installedPackageBuildById?.[String(plugin.id)]
+          ? { packageBuild: params.installedPackageBuildById[String(plugin.id)] }
+          : {}),
         startup: {
           sidecar: false,
           memory: false,
@@ -2548,6 +2555,10 @@ describe("resolvePluginTools optional tools", () => {
       };
       const snapshot = installToolManifestSnapshots({
         config: context.config,
+        installedPackageBuildById:
+          mode === "source-unconfigured" || aliased
+            ? { [providerId]: { bundledDist: false } }
+            : undefined,
         plugins: [
           createToolManifest(ownerId, ["standalone_search"]),
           createToolManifest(providerId, ["sidecar_tool"], {
@@ -2568,11 +2579,6 @@ describe("resolvePluginTools optional tools", () => {
           }),
         ],
       });
-      if (mode === "source-unconfigured" || aliased) {
-        snapshot.index.plugins.find((entry) => entry.pluginId === providerId)!.packageBuild = {
-          bundledDist: false,
-        };
-      }
       if (mode === "not-allowed") {
         snapshot.index.plugins.find((entry) => entry.pluginId === providerId)!.enabled = false;
       }
