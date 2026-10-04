@@ -19,7 +19,7 @@ import {
   buildPrePromptContextBudgetStatus,
   estimateLlmBoundaryTokenPressure,
   formatPrePromptPrecheckLog,
-  shouldPreemptivelyCompactBeforePrompt,
+  estimatePrePromptContextBudget,
 } from "./preemptive-compaction.js";
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
@@ -196,7 +196,7 @@ export async function prepareEmbeddedAttemptPromptPreflight(input: {
     prompt: input.promptForPrecheck,
     toolSchemaTokens: input.toolSchemaTokens,
   });
-  let preemptiveCompaction: ReturnType<typeof shouldPreemptivelyCompactBeforePrompt> | null = null;
+  let preemptiveCompaction: ReturnType<typeof estimatePrePromptContextBudget> | null = null;
   const shouldSkipPrecheck =
     skipPromptSubmission ||
     (input.contextEngineAssemblySucceeded &&
@@ -210,7 +210,7 @@ export async function prepareEmbeddedAttemptPromptPreflight(input: {
   }
 
   if (!shouldSkipPrecheck) {
-    preemptiveCompaction = shouldPreemptivelyCompactBeforePrompt({
+    preemptiveCompaction = estimatePrePromptContextBudget({
       messages: input.hookMessagesForCurrentPrompt,
       ...(unwindowedLlmBoundaryMessagesForPrecheck
         ? { unwindowedMessages: unwindowedLlmBoundaryMessagesForPrecheck }
@@ -250,8 +250,6 @@ export async function prepareEmbeddedAttemptPromptPreflight(input: {
         messageCount: input.sessionMessageCount,
         contextTokenBudget: input.contextTokenBudget,
         reserveTokens: input.reserveTokens,
-        systemPromptChars: input.systemPrompt.length,
-        toolSchemaTokens: input.toolSchemaTokens,
         ...(attempt.sessionKey ? { sessionKey: attempt.sessionKey } : {}),
         ...(attempt.sessionId ? { sessionId: attempt.sessionId } : {}),
         ...(input.contextEnginePromptAuthority === "preassembly_may_overflow" &&
@@ -259,7 +257,8 @@ export async function prepareEmbeddedAttemptPromptPreflight(input: {
           ? { unwindowedMessageCount: input.unwindowedContextEngineMessagesForPrecheck.length }
           : {}),
         ...(attempt.sessionFile ? { sessionFile: attempt.sessionFile } : {}),
-      }),
+      }) +
+        ` systemPromptChars=${input.systemPrompt.length} toolSchemaTokens=${input.toolSchemaTokens ?? 0}`,
     );
     if (preemptiveCompaction.route !== "fits") {
       // Character pressure remains observable, but it is not authoritative enough to

@@ -295,9 +295,18 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
   contextTokenBudget: number;
   reserveTokens: number;
   toolResultMaxChars?: number;
-  toolSchemaTokens?: number;
   llmBoundaryTokenPressure?: LlmBoundaryTokenPressure;
 }): PreemptiveCompactionDecision {
+  return estimatePrePromptContextBudget(params);
+}
+
+// Keep tool-aware embedded diagnostics off the existing public SDK signature.
+// Both callers share one routing implementation; plugins retain their original contract.
+export function estimatePrePromptContextBudget(
+  params: Parameters<typeof shouldPreemptivelyCompactBeforePrompt>[0] & {
+    toolSchemaTokens?: number;
+  },
+): PreemptiveCompactionDecision {
   let messagesForPressure = params.messages;
   const llmBoundaryTokenPressure = normalizeLlmBoundaryTokenPressure(
     params.llmBoundaryTokenPressure,
@@ -385,8 +394,6 @@ export function formatPrePromptPrecheckLog(params: {
   contextTokenBudget: number;
   reserveTokens: number;
   sessionFile?: string;
-  systemPromptChars?: number;
-  toolSchemaTokens?: number;
 }): string {
   const { result } = params;
   return (
@@ -395,8 +402,6 @@ export function formatPrePromptPrecheckLog(params: {
     `provider=${params.provider}/${params.modelId} ` +
     `route=${result.route} ` +
     `estimatedPromptTokens=${result.estimatedPromptTokens} ` +
-    `systemPromptChars=${params.systemPromptChars ?? "unknown"} ` +
-    `toolSchemaTokens=${params.toolSchemaTokens ?? 0} ` +
     `pressureSource=${result.pressureSource ?? "unknown"} ` +
     `promptBudgetBeforeReserve=${result.promptBudgetBeforeReserve} ` +
     `overflowTokens=${result.overflowTokens} ` +

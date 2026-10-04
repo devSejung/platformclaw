@@ -7,6 +7,7 @@ import { estimateToolResultReductionPotential } from "../tool-result-truncation.
 
 let PREEMPTIVE_OVERFLOW_ERROR_TEXT: typeof import("./preemptive-compaction.js").PREEMPTIVE_OVERFLOW_ERROR_TEXT;
 let estimateLlmBoundaryTokenPressure: typeof import("./preemptive-compaction.js").estimateLlmBoundaryTokenPressure;
+let estimatePrePromptContextBudget: typeof import("./preemptive-compaction.js").estimatePrePromptContextBudget;
 let estimateToolSchemaTokenPressure: typeof import("./preemptive-compaction.js").estimateToolSchemaTokenPressure;
 let buildPrePromptContextBudgetStatus: typeof import("./preemptive-compaction.js").buildPrePromptContextBudgetStatus;
 let estimateRenderedLlmBoundaryTokenPressure: typeof import("./preemptive-compaction.js").estimateRenderedLlmBoundaryTokenPressure;
@@ -21,6 +22,7 @@ beforeAll(async () => {
     PREEMPTIVE_OVERFLOW_ERROR_TEXT,
     estimateLlmBoundaryTokenPressure,
     estimateToolSchemaTokenPressure,
+    estimatePrePromptContextBudget,
     buildPrePromptContextBudgetStatus,
     estimateRenderedLlmBoundaryTokenPressure,
     formatPrePromptPrecheckLog,
@@ -131,18 +133,19 @@ describe("preemptive-compaction", () => {
       reserveTokens: 1_000,
     };
     const withoutTools = shouldPreemptivelyCompactBeforePrompt(params);
-    const withTools = shouldPreemptivelyCompactBeforePrompt({ ...params, toolSchemaTokens });
+    expect(estimatePrePromptContextBudget(params)).toEqual(withoutTools);
+    const withTools = estimatePrePromptContextBudget({ ...params, toolSchemaTokens });
     expect(withoutTools.route).toBe("fits");
     expect(withTools.route).toBe("compact_only");
     expect(withTools.estimatedPromptTokens).toBe(
       withoutTools.estimatedPromptTokens + toolSchemaTokens,
     );
-    expect(shouldPreemptivelyCompactBeforePrompt({ ...params, toolSchemaTokens: 0 })).toEqual(
+    expect(estimatePrePromptContextBudget({ ...params, toolSchemaTokens: 0 })).toEqual(
       withoutTools,
     );
     // A caller-supplied full boundary estimate already contains the same tools.
     expect(
-      shouldPreemptivelyCompactBeforePrompt({
+      estimatePrePromptContextBudget({
         ...params,
         toolSchemaTokens,
         llmBoundaryTokenPressure: {
@@ -183,8 +186,8 @@ describe("preemptive-compaction", () => {
       contextTokenBudget: 10_000,
       reserveTokens: 1_000,
     };
-    const withoutTools = shouldPreemptivelyCompactBeforePrompt(params);
-    const withTools = shouldPreemptivelyCompactBeforePrompt({ ...params, toolSchemaTokens: 500 });
+    const withoutTools = estimatePrePromptContextBudget(params);
+    const withTools = estimatePrePromptContextBudget({ ...params, toolSchemaTokens: 500 });
     expect(withTools.pressureSource).toBe("unwindowed_transcript_estimate");
     expect(withTools.estimatedPromptTokens).toBe(withoutTools.estimatedPromptTokens + 500);
   });
@@ -236,8 +239,6 @@ describe("preemptive-compaction", () => {
       contextTokenBudget: 10_000,
       reserveTokens: 1_000,
       sessionFile: "sessions/session-1.json",
-      systemPromptChars: 3,
-      toolSchemaTokens: 0,
     });
 
     expect(line).toContain("[context-overflow-precheck] pre-prompt check");
@@ -245,8 +246,6 @@ describe("preemptive-compaction", () => {
     expect(line).toContain("provider=anthropic/claude-opus-4-6");
     expect(line).toContain("route=fits");
     expect(line).toContain(`estimatedPromptTokens=${result.estimatedPromptTokens}`);
-    expect(line).toContain("systemPromptChars=3");
-    expect(line).toContain("toolSchemaTokens=0");
     expect(line).toContain(`promptBudgetBeforeReserve=${result.promptBudgetBeforeReserve}`);
     expect(line).toContain("overflowTokens=0");
     expect(line).toContain(`toolResultReducibleChars=${result.toolResultReducibleChars}`);

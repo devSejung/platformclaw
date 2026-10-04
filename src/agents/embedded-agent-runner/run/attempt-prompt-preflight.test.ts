@@ -99,7 +99,10 @@ describe("attempt prompt preflight", () => {
         promptError: null,
         preflightRecovery: undefined,
       });
-      const logs = [...debug.mock.calls, ...info.mock.calls].flat().join(" ");
+      const logs = [...debug.mock.calls, ...info.mock.calls]
+        .flat()
+        .map((value) => (typeof value === "string" ? value : JSON.stringify(value)))
+        .join(" ");
       expect(logs).toContain(`toolSchemaTokens=${toolSchemaTokens}`);
       expect(logs).toContain(`systemPromptChars=${systemPrompt.length}`);
       expect(logs).toContain(`estimatedPromptTokens=${estimatedPromptTokens}`);
