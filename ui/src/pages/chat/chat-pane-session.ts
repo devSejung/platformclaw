@@ -42,6 +42,7 @@ import {
 } from "./chat-pane-shared.ts";
 import { ChatPaneSharing } from "./chat-pane-sharing.ts";
 import { applySelectedSessionProjection } from "./chat-pane-state.ts";
+import { applyChatSelectedSessionSnapshot } from "./chat-selected-session-snapshot.ts";
 import { flushChatQueueForEvent } from "./chat-send-actions.ts";
 import { flushChatQueueAfterIdleSessionReconciliation } from "./chat-session.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
@@ -459,6 +460,9 @@ export abstract class ChatPaneSession extends ChatPaneSharing {
     // The sidebar row is already authoritative enough for first paint: it supplies
     // the header and run controls while the reset restores any cached transcript.
     applySelectedSessionProjection(state, nextSessionRow);
+    if (nextSessionRow) {
+      applyChatSelectedSessionSnapshot(state, nextSessionRow);
+    }
     this.reconcileWaitingApprovalSnapshot();
     retryChatComposerMemoryFallback(state, nextSessionKey);
     // Route restoration is the new persistence baseline. An untouched pane

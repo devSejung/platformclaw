@@ -2,12 +2,7 @@ import { readSessionMessageIdentity } from "@openclaw/gateway-client/browser";
 import { asNullableRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveToolUseId } from "../../../../src/chat/tool-content.js";
 import { escapeRegExp } from "../../../../src/shared/regexp.js";
-import type {
-  ChatItem,
-  ChatQueueItem,
-  NormalizedMessage,
-  ToolCard,
-} from "../../lib/chat/chat-types.ts";
+import type { ChatItem, NormalizedMessage, ToolCard } from "../../lib/chat/chat-types.ts";
 import { extractTextCached } from "../../lib/chat/message-extract.ts";
 import {
   normalizeMessage,
@@ -17,7 +12,6 @@ import { normalizeRoleForGrouping } from "../../lib/chat/message-normalizer.ts";
 import { extractToolCardsCached, extractToolPreview } from "../../lib/chat/tool-cards.ts";
 import { fnv1aUtf16 } from "../../lib/fnv1a.ts";
 import { normalizeLowercaseStringOrEmpty } from "../../lib/string-coerce.ts";
-import { buildUserChatMessageContentBlocks } from "./user-message-content.ts";
 
 export function appendCanvasBlockToAssistantMessage(
   message: unknown,
@@ -197,6 +191,7 @@ export function findNearestAssistantMessageIndex(
   toolTimestamp: number | null,
   minimumIndex = 0,
   maximumIndex = items.length,
+  searchQuery?: string,
 ): number | null {
   let currentTurnStart = minimumIndex;
   let currentTurnEnd = maximumIndex;
@@ -226,7 +221,10 @@ export function findNearestAssistantMessageIndex(
       }
       const message = asRecord(item.message);
       const role = typeof message?.role === "string" ? message.role.toLowerCase() : "";
-      if (role !== "assistant") {
+      if (
+        role !== "assistant" ||
+        (searchQuery && !messageMatchesSearchQuery(message, searchQuery))
+      ) {
         return null;
       }
       return {
@@ -568,30 +566,6 @@ export function hasRenderableNormalizedMessage(message: unknown): boolean {
 export function sanitizeStreamText(text: string): string {
   const stripped = stripMessageDisplayMetadataText(text);
   return stripped.trim().length > 0 ? stripped : "";
-}
-
-export function queuedSendThreadMessage(item: ChatQueueItem): Record<string, unknown> | null {
-  const content = buildUserChatMessageContentBlocks(item.text, item.attachments);
-  if (content.length === 0) {
-    return null;
-  }
-  return {
-    role: "user",
-    content,
-    timestamp: item.createdAt,
-    __openclaw: {
-      kind: "pending-send",
-      id: item.id,
-      state: item.sendState,
-      ...(item.sender?.id ? { senderId: item.sender.id } : {}),
-      ...(item.sender?.name ? { senderName: item.sender.name } : {}),
-      ...(item.sender?.profileId ? { senderProfileId: item.sender.profileId } : {}),
-      ...(item.sender?.username ? { senderUsername: item.sender.username } : {}),
-      ...(item.sender?.profileAvatarUrl
-        ? { senderProfileAvatarUrl: item.sender.profileAvatarUrl }
-        : {}),
-    },
-  };
 }
 
 export function rawMessageTimestamp(message: unknown): number | null {

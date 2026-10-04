@@ -45,6 +45,10 @@ describe("PlatformClaw product translations", () => {
     expect(t("execApproval.deny")).toBe("거부");
     expect(t("execApproval.labels.cwd")).toBe("작업 디렉터리");
     expect(t("execApproval.allowAlwaysUnavailable")).toBe("이 명령은 항상 허용할 수 없습니다.");
+    expect(t("chat.waitingOnSubagents")).toBe("하위 에이전트 작업 대기 중");
+    expect(t("chat.yieldWaiting")).toBe("작업을 맡기고 대기 중");
+    expect(t("chat.yieldResumed")).toBe("재개됨");
+    expect(t("chat.yieldFailed")).toBe("작업을 맡기지 못했습니다");
     expect(t("chat.runControls.sendMessage")).toBe("메시지 보내기");
     expect(t("chat.runControls.stopGenerating")).toBe("생성 중지");
     expect(t("execApproval.expiresIn", { time: "01:30" })).toBe("01:30 후 만료");
@@ -78,6 +82,10 @@ describe("PlatformClaw product translations", () => {
     await i18n.setLocale("en");
     expect(t("execApproval.allowOnce")).toBe("Allow once");
     expect(t("chat.runControls.sendMessage")).toBe("Send message");
+    expect(t("chat.waitingOnSubagents")).toBe("Waiting on subagents");
+    expect(t("chat.yieldWaiting")).toBe("Handed off and waiting");
+    expect(t("chat.yieldResumed")).toBe("Resumed");
+    expect(t("chat.yieldFailed")).toBe("Could not hand off the turn");
     await i18n.setLocale("de");
     const germanLabel = t("execApproval.allowOnce");
     await loadAllPlatformClawLocales();

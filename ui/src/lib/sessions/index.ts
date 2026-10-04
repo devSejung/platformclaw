@@ -100,6 +100,7 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
   const listeners = new Set<(next: SessionState) => void>();
   const createdListeners = new Set<(key: string) => void>();
   let canonicalListRevision = 0;
+  let canonicalListRequestRevision = 0;
   let hydratedClient: SessionGateway["snapshot"]["client"] = null;
   let connectionClient = gateway.snapshot.client;
   let sessionEventSubscriptionError: string | null = null;
@@ -130,6 +131,9 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     publish,
     observerError: () => sessionEventSubscriptionError,
     decorate: (result) => swarmActivity.decorate(result),
+    onCanonicalListRequest() {
+      canonicalListRequestRevision += 1;
+    },
     onCanonicalList(result) {
       mutations.settlePrepared(result);
       canonicalListRevision += 1;
@@ -416,6 +420,9 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     },
     get canonicalListRevision() {
       return canonicalListRevision;
+    },
+    get canonicalListRequestRevision() {
+      return canonicalListRequestRevision;
     },
     list: roster.list,
     listSnapshot: (scope) => roster.listSnapshot(scope),

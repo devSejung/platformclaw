@@ -146,6 +146,8 @@ export type SessionCapability = {
   readonly state: SessionState;
   /** Advances only when a canonical sessions.list result is published. */
   readonly canonicalListRevision: number;
+  /** Advances when a canonical list request starts, before its response can publish. */
+  readonly canonicalListRequestRevision: number;
   list: (options?: SessionListOptions) => Promise<SessionsListResult | null>;
   listSnapshot: (scope: SessionListScope) => SessionListSnapshot;
   subscribeList: (

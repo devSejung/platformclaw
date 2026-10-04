@@ -57,7 +57,13 @@ export type ChatQueueItem = {
 /** Union type for items in the chat thread */
 export type ChatItem =
   | { kind: "message"; key: string; message: unknown; duplicateCount?: number }
-  | { kind: "notice"; key: string; text: string; timestamp: number }
+  | {
+      kind: "notice";
+      key: string;
+      text: string;
+      timestamp: number;
+      sessionsYield?: "waiting" | "resumed";
+    }
   | {
       kind: "divider";
       key: string;

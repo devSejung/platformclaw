@@ -14,7 +14,7 @@ import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
 import { styleMap } from "lit/directives/style-map.js";
 import { classifySessionKind } from "../../../../../src/sessions/classify-session-kind.js";
-import type { SessionsListResult } from "../../../api/types.ts";
+import type { GatewaySessionRow, SessionsListResult } from "../../../api/types.ts";
 import type { QuestionPrompt } from "../../../app/question-prompt.ts";
 import { resolveLocalUserName } from "../../../app/user-identity.ts";
 import { copyMarkdownLabel } from "../../../components/copy-button.ts";
@@ -51,6 +51,7 @@ import {
 } from "../../../lib/sessions/session-key.ts";
 import { resolveTurnRecap, type TurnRecap } from "../chat-progress.ts";
 import type { ChatRunStartupStatus } from "../chat-run-startup.ts";
+import { resolveChatSubagentWait } from "../chat-subagent-wait.ts";
 import {
   assistantGroupCanOwnActiveRunStatus,
   assistantMessageExpansionSignature,
@@ -98,7 +99,7 @@ import { renderRealtimeTalkConversation } from "./chat-realtime-controls.ts";
 import { handleChatSelectionPointerUp, removeChatSelectionPopup } from "./chat-selection-popup.ts";
 import type { SidebarContent, SidebarFullMessageLoader } from "./chat-sidebar.ts";
 import { renderWelcomeState, resolveAssistantDisplayAvatar } from "./chat-welcome.ts";
-import { renderTurnRecapRow } from "./chat-working-indicator.ts";
+import { renderChatWorkingIndicator, renderTurnRecapRow } from "./chat-working-indicator.ts";
 
 const pinnedMessagesMap = new Map<string, PinnedMessages>();
 const deletedMessagesMap = new Map<string, DeletedMessages>();
@@ -142,6 +143,8 @@ type ChatThreadProps = {
   planStatus?: PlanStatus | null;
   questionPrompts?: readonly QuestionPrompt[];
   sessions: SessionsListResult | null;
+  selectedSession?: GatewaySessionRow | null;
+  subagentSessions?: readonly GatewaySessionRow[];
   /** Host context resolving global-alias session keys (scope=global fleets). */
   /** Includes assistantAgentId so bare-global welcome recents scope to the selected agent. */
   sessionHost?: UiSessionDefaultsHost | null;
@@ -1548,7 +1551,17 @@ function renderChatThreadContents(
     );
   };
   const hasRealtimeTalkConversation = (props.realtimeTalkConversation?.length ?? 0) > 0;
-  const isEmpty = chatItems.length === 0 && !props.loading && !hasRealtimeTalkConversation;
+  const subagentWait = searchFiltering
+    ? null
+    : resolveChatSubagentWait({
+        ...props,
+        selectedSession:
+          props.selectedSession === undefined
+            ? activeSession
+            : (props.selectedSession ?? undefined),
+      });
+  const isEmpty =
+    chatItems.length === 0 && !props.loading && !hasRealtimeTalkConversation && !subagentWait;
   transcript.setContentReady(!props.loading);
   // 1:1 sessions drop the avatar gutter entirely; group threads keep avatars
   // as the always-visible identity marker. The canonical session kind decides;
@@ -1791,6 +1804,20 @@ function renderChatThreadContents(
       kind: "content",
       key: "turn-recap",
       content: renderTurnRecapRow(turnRecap),
+    });
+  }
+  if (subagentWait) {
+    transcriptRows.push({
+      kind: "content",
+      key: "waiting-subagents",
+      content: renderChatWorkingIndicator(
+        {
+          kind: "reading-indicator",
+          key: `waiting-subagents:${props.sessionKey}`,
+          startedAt: subagentWait.startedAt,
+        },
+        { waitingSubagents: subagentWait, onOpenSession: props.onOpenSession },
+      ),
     });
   }
   const backgroundTasks =

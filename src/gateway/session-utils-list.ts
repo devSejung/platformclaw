@@ -399,13 +399,8 @@ function prepareSessionList(params: ListSessionsFromStoreParams) {
       ? getRowContext()
       : undefined;
   if (fullRowContext && filteredSessionKeys.size > 0) {
-    // The predicate replaces a filtered-store object; keep its hidden child links out too.
-    for (const [parentKey, childKeys] of fullRowContext.storeChildSessionsByKey) {
-      fullRowContext.storeChildSessionsByKey.set(
-        parentKey,
-        childKeys.filter((key) => !filteredSessionKeys.has(key)),
-      );
-    }
+    // Apply visibility after merging stored and runtime links so neither can restore hidden children.
+    fullRowContext.excludedChildSessionKeys = filteredSessionKeys;
   }
   const sharedRowContext =
     fullRowContext ??

@@ -23,6 +23,7 @@ import {
   writeChatQueueForScope,
 } from "./chat-queue.ts";
 import { stopChatRealtimeTalk } from "./chat-realtime.ts";
+import { clearChatSelectedSessionSnapshot } from "./chat-selected-session-snapshot.ts";
 import { refreshCurrentChatSessionList } from "./chat-session.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { invalidateImageLightbox } from "./chat-state-page.ts";
@@ -152,6 +153,7 @@ export function resetChatStateForRouteSession(
     previousComposerScope?: StoredChatOutboxScope;
   } = {},
 ): ChatComposerRouteResetResult {
+  clearChatSelectedSessionSnapshot(state);
   cancelChatStreamRenderFrame(state);
   stopChatRealtimeTalk(state);
   const previousSessionKey = state.sessionKey;

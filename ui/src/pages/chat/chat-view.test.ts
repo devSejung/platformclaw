@@ -754,6 +754,36 @@ function createDeferred<T>() {
 }
 
 describe("chat Swarm progress", () => {
+  it("renders selected-pane wait metadata when the capped list omits the parent", () => {
+    const selectedSession: GatewaySessionRow = {
+      key: "agent:main:parent",
+      kind: "direct",
+      updatedAt: 1,
+      status: "running",
+      hasActiveRun: false,
+      hasActiveSubagentRun: true,
+    };
+    const container = renderChatView({
+      sessionKey: selectedSession.key,
+      selectedSession,
+      sessions: { ...createSessionsListResult(), count: 0, sessions: [] },
+      canAbort: false,
+    });
+    expect(container.querySelector(".chat-working-indicator--subagents")).not.toBeNull();
+    render(
+      renderChat(
+        createChatProps({
+          sessionKey: selectedSession.key,
+          selectedSession: null,
+          sessions: { ...createSessionsListResult(), sessions: [selectedSession] },
+          canAbort: false,
+        }),
+      ),
+      container,
+    );
+    expect(container.querySelector(".chat-working-indicator--subagents")).toBeNull();
+  });
+
   it("stays visible during an active run between the transcript and composer", () => {
     const parentSessionKey = "agent:main:parent";
     const container = renderChatView({

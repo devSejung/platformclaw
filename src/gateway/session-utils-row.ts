@@ -43,6 +43,7 @@ import {
   buildCompactionCheckpointPreview,
   deriveSessionTitle,
   deriveSessionUnread,
+  isCurrentSessionChildOwner,
   resolveEstimatedSessionCostUsd,
   resolveLatestCompactionCheckpoint,
   resolvePositiveNumber,
@@ -299,12 +300,31 @@ export function buildGatewaySessionRow(params: {
         { adoptFreshBaseline: false },
       )
     : undefined;
-  const childSessions = params.storeChildSessionsByKey
+  const childSessionCandidates = params.storeChildSessionsByKey
     ? mergeChildSessionKeys(
         resolveRuntimeChildSessionKeys(key, now, rowContext?.subagentRuns),
         params.storeChildSessionsByKey.get(key),
       )
     : resolveChildSessionKeys(key, store, now, rowContext?.subagentRuns);
+  const childSessions = childSessionCandidates?.filter(
+    (childKey) => !rowContext?.excludedChildSessionKeys?.has(childKey),
+  );
+  // Retained history and navigation links alone do not prove active child work.
+  const activeChildSessions = childSessions?.filter((childKey) => {
+    const childRun = rowContext
+      ? rowContext.subagentRuns.getDisplaySubagentRun(childKey)
+      : getSessionDisplaySubagentRunByChildSessionKey(childKey);
+    return (
+      isSubagentRunLive(childRun) &&
+      isCurrentSessionChildOwner({
+        entry: store[childKey] ?? {},
+        ownerSessionKey: key,
+        controllerSessionKey:
+          normalizeOptionalString(childRun?.controllerSessionKey) ||
+          normalizeOptionalString(childRun?.requesterSessionKey),
+      })
+    );
+  });
   const compactionCheckpoints = resolveProjectableCompactionCheckpoints(entry);
   const compactionCheckpointCount = Array.isArray(entry?.compactionCheckpoints)
     ? compactionCheckpoints.length
@@ -489,13 +509,15 @@ export function buildGatewaySessionRow(params: {
     lastRunError: entry?.lastRunError,
     hasAutomation: sessionHasAutomation(key, cfg) ? true : undefined,
     subagentRunState,
-    hasActiveSubagentRun: subagentRun ? liveSubagentRunActive : undefined,
+    // Explicit false clears a previously active parent in merge events after its last child leaves.
+    hasActiveSubagentRun: liveSubagentRunActive || Boolean(activeChildSessions?.length),
     startedAt: subagentRun ? subagentStartedAt : entry?.startedAt,
     endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
     runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,
     // Navigation lineage is persisted; runtime control is exposed separately above.
     parentSessionKey: entry?.parentSessionKey,
-    childSessions,
+    childSessions: childSessions?.length ? childSessions : undefined,
+    activeChildSessions: activeChildSessions ?? [],
     responseUsage: entry?.responseUsage,
     effectiveResponseUsage: resolveEffectiveResponseUsage(
       entry?.responseUsage,

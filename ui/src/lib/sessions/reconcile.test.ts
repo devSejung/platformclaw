@@ -83,6 +83,34 @@ test("sessions.changed preserves the creator facet when ownership is unchanged",
 });
 
 describe("reconcileSessionChanged", () => {
+  it.each(["flat", "nested"])(
+    "clears previous parent activity from a %s snapshot after the last child leaves",
+    (shape) => {
+      const key = "agent:main:parent";
+      const result = buildResult([
+        {
+          key,
+          kind: "direct",
+          updatedAt: 1,
+          sessionId: "s1",
+          status: "done",
+          childSessions: ["agent:main:child"],
+          hasActiveSubagentRun: true,
+        },
+      ]);
+      // The producer's explicit false must survive merging even when child links are omitted.
+      const row = { key, updatedAt: 2, hasActiveSubagentRun: false };
+      const payload =
+        shape === "nested" ? { sessionKey: key, session: row } : { sessionKey: key, ...row };
+      const next = reconcileSessionChanged(result, payload);
+
+      expect(next.applied).toBe(true);
+      expect(next.row?.hasActiveSubagentRun).toBe(false);
+      expect(next.row?.status).toBe("done");
+      expect(result.sessions[0]?.hasActiveSubagentRun).toBe(true);
+    },
+  );
+
   it("drops a cleared icon from the merged row", () => {
     const key = "agent:main:main";
     const result = buildResult([

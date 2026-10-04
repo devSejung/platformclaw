@@ -26,6 +26,7 @@ import {
   resolveWorkingProgress,
   shouldRenderQueuedSendInThread,
 } from "./chat-progress.ts";
+import { projectSessionsYieldItems } from "./chat-sessions-yield.ts";
 import {
   annotateToolTurnOutcome,
   coalesceToolActivityMessages,
@@ -45,7 +46,6 @@ import {
   insertionIndexesForBounds,
   messageKey,
   messageMatchesSearchQuery,
-  queuedSendThreadMessage,
   rawMessageTimestamp,
   safeNormalizeMessage,
   insertChatItemsByTimestamp,
@@ -64,6 +64,7 @@ import {
   type LiveToolStreamRef,
 } from "./tool-stream-identity.ts";
 import type { PlanStatus } from "./tool-stream.ts";
+import { queuedSendThreadMessage } from "./user-message-content.ts";
 
 export type BuildChatItemsProps = {
   paneId: string;
@@ -205,6 +206,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
   });
   const searchFiltering = props.searchOpen === true && Boolean(props.searchQuery?.trim());
   const persistedCanvasIdentities = new Set<string>();
+  const searchVisibleCanvasKeys = new Set<string>();
   for (const message of history) {
     const source = extractChatMessagePreview(message);
     if (!source) {
@@ -246,9 +248,11 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
       persistedCanvasSource != null &&
       (!searchFiltering || turnHasMatchingAssistant(history, i, props.searchQuery ?? ""));
     if (persistedCanvasSource && renderPersistedPreview) {
+      const canvasKey = `${itemKey}:canvas`;
+      searchVisibleCanvasKeys.add(canvasKey);
       items.push({
         kind: "message",
-        key: `${itemKey}:canvas`,
+        key: canvasKey,
         message: createCanvasAssistantMessage(
           persistedCanvasSource,
           persistedCanvasSource.timestamp ?? transcriptPositionTimestamp(history, i),
@@ -256,14 +260,6 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
       });
     }
 
-    if (!props.showToolCalls && isToolResult) {
-      continue;
-    }
-
-    const searchQuery = props.searchQuery ?? "";
-    if (props.searchOpen && searchQuery.trim() && !messageMatchesSearchQuery(msg, searchQuery)) {
-      continue;
-    }
     if (!hasRenderableNormalizedMessage(msg) && normalized.role.toLowerCase() !== "assistant") {
       continue;
     }
@@ -363,6 +359,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
       liftedCanvasSource.timestamp,
       canvasMinimumIndex,
       canvasMaximumIndex,
+      searchFiltering ? props.searchQuery : undefined,
     );
     if (assistantIndex == null) {
       if (searchFiltering) {
@@ -390,12 +387,14 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
       // Canvas previews are positioned relative to the queued-send tail that
       // existed when they were lifted, so they stay in the stable row order
       // rather than being re-sorted with live stream/tool cards.
+      const canvasKey = `${
+        toolKeys[liftedCanvasSource.index] ??
+        messageKey(liftedCanvasSource.message, liftedCanvasSource.index + history.length)
+      }:canvas`;
+      searchVisibleCanvasKeys.add(canvasKey);
       items.splice(insertionIndex, 0, {
         kind: "message",
-        key: `${
-          toolKeys[liftedCanvasSource.index] ??
-          messageKey(liftedCanvasSource.message, liftedCanvasSource.index + history.length)
-        }:canvas`,
+        key: canvasKey,
         message: createCanvasAssistantMessage(liftedCanvasSource, timestamp),
       });
       continue;
@@ -475,7 +474,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
       }
     }
     const tool = toolItems[i];
-    if (tool && props.showToolCalls) {
+    if (tool) {
       const toolItem: ChatItem = {
         kind: "message",
         key: tool.key,
@@ -587,7 +586,33 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
     appendQueuedSend(queued);
   }
 
-  return annotateToolTurnOutcome(
-    groupMessages(collapseSequentialDuplicateMessages(coalesceToolActivityMessages(items))),
+  // Pair and sanitize before visibility/search filtering: results may identify their call
+  // by id alone. Filtering the call first can expose private orphan yield output.
+  const projected = projectSessionsYieldItems(
+    coalesceToolActivityMessages(items),
+    props.runActive || props.runWorking
+      ? { runId: props.runId, startedAt: props.streamStartedAt }
+      : undefined,
+    props.showToolCalls,
   );
+  const visible = projected.filter((item) => {
+    if (item.kind === "notice") {
+      return !searchFiltering || messageMatchesSearchQuery(item, props.searchQuery ?? "");
+    }
+    if (item.kind !== "message") {
+      return true;
+    }
+    if (
+      !props.showToolCalls &&
+      normalizeRoleForGrouping(safeNormalizeMessage(item.message)?.role ?? "") === "tool"
+    ) {
+      return false;
+    }
+    return (
+      !searchFiltering ||
+      searchVisibleCanvasKeys.has(item.key) ||
+      messageMatchesSearchQuery(item.message, props.searchQuery ?? "")
+    );
+  });
+  return annotateToolTurnOutcome(groupMessages(collapseSequentialDuplicateMessages(visible)));
 }

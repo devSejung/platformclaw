@@ -96,6 +96,31 @@ describe("Space-created personal conversations", () => {
       { spaceId: f.space.id },
     );
     expect(listed.conversations.map((entry) => entry.id)).toEqual([bob.id]);
+    const bobParent = {
+      key: `agent:${bob.agentId}:main`,
+      agentId: bob.agentId,
+      childSessions: [alice.sessionKey],
+      hasActiveSubagentRun: true,
+    };
+    const rawBobParent = { ...bobParent, activeChildSessions: [alice.sessionKey] };
+    f.request.mockResolvedValueOnce({ sessions: [rawBobParent] });
+    await expect(f.proxy.request(f.bob.token, "sessions.list", {})).resolves.toEqual({
+      sessions: [{ ...bobParent, childSessions: [], hasActiveSubagentRun: false }],
+    });
+    await expect(
+      f.proxy.filterEvent(f.bob.token, {
+        event: "sessions.changed",
+        payload: { sessionKey: bobParent.key, ...rawBobParent },
+      }),
+    ).resolves.toEqual({
+      event: "sessions.changed",
+      payload: {
+        sessionKey: bobParent.key,
+        ...bobParent,
+        childSessions: [],
+        hasActiveSubagentRun: false,
+      },
+    });
     await expect(
       f.proxy.request(f.bob.token, rpc + "conversation.history", {
         spaceId: f.space.id,

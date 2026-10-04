@@ -604,6 +604,14 @@ Absolute external `http(s)` embed URLs stay blocked by default. To let `[embed u
 
 The chat transcript uses a centered readable frame aligned with the composer. Assistant and tool output stay left-aligned while your own messages stay right-aligned inside that frame. In multi-user sessions (for example a group chat relayed from a channel plugin), messages from other attributed participants render left-aligned with the author's avatar, name, and a stable per-identity color, so only the signed-in viewer's messages read as "mine". When two or more attributed participants are present, assistant replies carry a small "Replying to name" marker naming the participant whose message triggered the turn. System entries such as local slash-command output render as centered notice rows without an avatar.
 
+When the parent turn has ended but its subagents are still active, chat shows
+**Waiting on subagents**. A sole active child already loaded in the pane can be
+opened from its name beside the indicator. Elapsed time appears only when loaded
+history records a successful yield after the parent's latest run began.
+Successful `sessions_yield` calls leave a quiet **Handed off and waiting** marker
+with a timestamp; it changes to **Resumed** when the conversation continues.
+Private continuation context stays hidden, including when tool details are open.
+
 ## Chat message width
 
 Wide-monitor users can override the transcript width under **Settings → Chat →

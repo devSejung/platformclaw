@@ -54,6 +54,12 @@ import {
   sleep,
 } from "./chat-history-retry.ts";
 import type { ChatRunStartupPhase, ChatRunStartupState } from "./chat-run-startup.ts";
+import {
+  applyChatSelectedSessionSnapshot,
+  captureChatSelectedSessionRequest,
+  clearChatSelectedSessionSnapshot,
+  type ChatSelectedSessionSnapshot,
+} from "./chat-selected-session-snapshot.ts";
 import { persistChatComposerState } from "./composer-persistence.ts";
 import {
   getChatSessionProjection,
@@ -166,6 +172,7 @@ function shouldApplyChatHistoryResult(
 }
 
 function resetChatHistoryProjection(state: ChatState, agentId?: string): void {
+  clearChatSelectedSessionSnapshot(state);
   const requests = getChatHistoryPaneRequests(state);
   // A destructive reset keeps the session key, so invalidate both the old
   // snapshot owner and its coalesced request before creating the next epoch.
@@ -277,6 +284,8 @@ export type ChatState = {
   chatQueueModeOverride?: GatewaySessionRow["queueMode"];
   /** Pane-owned effective queue mode from this session's latest history response. */
   chatEffectiveQueueMode?: GatewaySessionRow["effectiveQueueMode"];
+  /** Connection- and pane-owned metadata, independent of the capped sidebar list. */
+  chatSelectedSessionSnapshot?: ChatSelectedSessionSnapshot;
   chatSending: boolean;
   chatMessage: string;
   chatAttachments: ChatAttachment[];
@@ -1559,6 +1568,7 @@ async function loadChatHistoryUncached(
     sessionKey,
     requestAgentId,
   );
+  const selectedSessionRequest = captureChatSelectedSessionRequest(state);
   const startedAtMs = controlUiNowMs();
   const previousMessages = state.chatMessages;
   const previousRunProjections = getChatSessionProjection(
@@ -1602,6 +1612,9 @@ async function loadChatHistoryUncached(
         reason: "apply-version",
       });
       return undefined;
+    }
+    if (selectedSessionRequest) {
+      applyChatSelectedSessionSnapshot(state, res.sessionInfo, selectedSessionRequest);
     }
     // Fence concurrent run lifecycle before applying the response. A remount
     // may replace the map itself, so compare its canonical run entries.
@@ -1856,6 +1869,9 @@ async function loadChatHistoryUncached(
       requestAgentId,
       previousRunId,
     });
+    if (selectedSessionRequest) {
+      applyChatSelectedSessionSnapshot(state, null, selectedSessionRequest);
+    }
     if (isMissingOperatorReadScopeError(err)) {
       resetChatHistoryProjection(state, requestAgentId);
       state.chatThinkingLevel = null;

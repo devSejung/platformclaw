@@ -19,6 +19,8 @@ describe("BrowserGatewayProxy session lifecycle", () => {
       childSessionKey: 42,
       forkSource,
       childSessions: [ownedChild, acpChild, 42],
+      activeChildSessions: [acpChild],
+      hasActiveSubagentRun: true,
     };
     const originalSession = structuredClone(session);
     const projectedSession = {
@@ -28,6 +30,7 @@ describe("BrowserGatewayProxy session lifecycle", () => {
       parentSessionKey,
       forkSource,
       childSessions: [ownedChild],
+      hasActiveSubagentRun: false,
     };
     request
       .mockResolvedValueOnce({ total: 1, sessions: [session] })
@@ -115,12 +118,17 @@ describe("BrowserGatewayProxy session lifecycle", () => {
         sessionKey,
         agentId: binding.agentId,
         childSessions: [ownedChild, "agent:other:outer-child"],
+        activeChildSessions: ["agent:other:outer-child"],
+        hasActiveSubagentRun: true,
         session: {
           key: sessionKey,
           agentId: binding.agentId,
           controlOwnerSessionKey: "agent:other:controller",
           forkSource: { sessionKey: "agent:other:source", sessionId: "source-session" },
           childSessions: [ownedChild, "agent:other:nested-child"],
+          activeChildSessions: ["agent:other:nested-child"],
+          hasActiveSubagentRun: true,
+          subagentRunState: "active",
         },
       },
     };
@@ -132,7 +140,14 @@ describe("BrowserGatewayProxy session lifecycle", () => {
         sessionKey,
         agentId: binding.agentId,
         childSessions: [ownedChild],
-        session: { key: sessionKey, agentId: binding.agentId, childSessions: [ownedChild] },
+        hasActiveSubagentRun: false,
+        session: {
+          key: sessionKey,
+          agentId: binding.agentId,
+          childSessions: [ownedChild],
+          hasActiveSubagentRun: true,
+          subagentRunState: "active",
+        },
       },
     });
     expect(event).toEqual(originalEvent);
@@ -171,12 +186,15 @@ describe("BrowserGatewayProxy session lifecycle", () => {
       controlOwnerSessionKey: 42,
       forkSource: { sessionKey: 42, sessionId: "source-session" },
       childSessions: [ownedChild, "agent:other:child"],
+      activeChildSessions: ["agent:other:child"],
+      hasActiveSubagentRun: true,
     };
     const originalSessionInfo = structuredClone(sessionInfo);
     const projectedSessionInfo = {
       key,
       agentId: binding.agentId,
       childSessions: [ownedChild],
+      hasActiveSubagentRun: false,
     };
     request
       .mockResolvedValueOnce({ sessionKey: key, messages: [], sessionInfo })

@@ -91,6 +91,9 @@ export function projectBrowserSessionPayloadForAccess(
   if (record.childSessions !== undefined && !Array.isArray(record.childSessions)) {
     return null;
   }
+  if (record.activeChildSessions !== undefined && !Array.isArray(record.activeChildSessions)) {
+    return null;
+  }
   let projected = record;
   const omit = (field: string) => {
     if (projected === record) {
@@ -120,6 +123,23 @@ export function projectBrowserSessionPayloadForAccess(
     if (childSessions.length !== record.childSessions.length) {
       projected = { ...projected, childSessions };
     }
+  }
+  if (Array.isArray(record.activeChildSessions)) {
+    const visibleChildren = new Set(
+      Array.isArray(projected.childSessions) ? projected.childSessions.map(optionalString) : [],
+    );
+    // Aggregate only current, visible contributors. The private Gateway's raw boolean
+    // cannot distinguish visible work from a hidden child's work; legacy rows are self-only.
+    projected = {
+      ...projected,
+      hasActiveSubagentRun:
+        record.subagentRunState === "active" ||
+        record.activeChildSessions.some((child) => {
+          const key = optionalString(child);
+          return key !== undefined && visibleChildren.has(key);
+        }),
+    };
+    omit("activeChildSessions");
   }
   // Secondary lineage is display metadata, not authority. Keep the owned record but
   // never expose a related session key the browser binding cannot independently own.

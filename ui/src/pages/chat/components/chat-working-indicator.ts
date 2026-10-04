@@ -7,6 +7,7 @@ import type { ChatItem } from "../../../lib/chat/chat-types.ts";
 import { formatCompactTokenCount } from "../../../lib/format.ts";
 import type { TurnRecap } from "../chat-progress.ts";
 import type { ChatRunStartupPhase } from "../chat-run-startup.ts";
+import type { ChatSubagentWait } from "../chat-subagent-wait.ts";
 import { selectWorkingClawSurprise } from "./chat-working-indicator-surprise.ts";
 
 // Almost every run uses the default loop; an alternate move fires once, then yields back to it.
@@ -64,21 +65,29 @@ function renderLiveOutputTokens(outputTokens: number | null | undefined) {
 }
 
 export function renderChatWorkingIndicator(
-  part: Extract<ChatItem, { kind: "reading-indicator" }>,
+  part: Omit<Extract<ChatItem, { kind: "reading-indicator" }>, "startedAt"> & {
+    startedAt: number | null;
+  },
   options: {
     waitingApproval?: boolean;
+    waitingSubagents?: ChatSubagentWait;
+    onOpenSession?: (key: string) => void;
     startupPhase?: ChatRunStartupPhase;
     outputTokens?: number | null;
     presentation?: "standalone" | "continuation";
   } = {},
 ) {
   const waitingApproval = options.waitingApproval === true;
+  const waitingSubagents = options.waitingSubagents;
+  const child = waitingSubagents?.child;
   const continuation = options.presentation === "continuation";
   // The animated claw stays decorative; the text status exposes progress without
   // announcing every elapsed-time tick to screen readers.
   return html`
     <div
-      class="chat-working-indicator ${continuation ? "chat-working-indicator--continuation" : ""}"
+      class="chat-working-indicator ${continuation
+        ? "chat-working-indicator--continuation"
+        : ""} ${waitingSubagents ? "chat-working-indicator--subagents" : ""}"
       role="status"
       aria-live="off"
     >
@@ -87,7 +96,7 @@ export function renderChatWorkingIndicator(
         : html`
             <div
               class="chat-bubble chat-reading-indicator ${selectWorkingClawSurprise(part.key, {
-                eligible: !waitingApproval,
+                eligible: !waitingApproval && !waitingSubagents,
               })}"
               aria-hidden="true"
             >
@@ -95,32 +104,52 @@ export function renderChatWorkingIndicator(
             </div>
           `}
       <span class="chat-working-indicator__status">
-        ${waitingApproval
-          ? html`<span>${t("chat.waitingForApproval")}</span>`
-          : options.startupPhase
-            ? html`
-                <span>${startupStatusLabel(options.startupPhase)}</span>
-                <openclaw-elapsed-time
-                  class="chat-working-indicator__elapsed"
-                  .startMs=${part.startedAt}
-                ></openclaw-elapsed-time>
-                ${renderLiveOutputTokens(options.outputTokens)}
-              `
-            : html`
-                <span class=${continuation ? "" : "agent-chat__sr-only"}
-                  >${t("common.working")}</span
-                >
-                <openclaw-elapsed-time
-                  class="chat-working-indicator__elapsed"
-                  .startMs=${part.startedAt}
-                ></openclaw-elapsed-time>
-                <openclaw-working-phrase
-                  aria-hidden="true"
-                  .startMs=${part.startedAt}
-                  .seed=${part.key}
-                ></openclaw-working-phrase>
-                ${renderLiveOutputTokens(options.outputTokens)}
-              `}
+        ${waitingSubagents
+          ? html`
+              <span>${t("chat.waitingOnSubagents")}</span>
+              ${child && options.onOpenSession
+                ? html`<button
+                    class="chat-working-indicator__child"
+                    type="button"
+                    title=${child.label}
+                    @click=${() => options.onOpenSession?.(child.key)}
+                  >
+                    ${child.label}
+                  </button>`
+                : nothing}
+              ${part.startedAt === null
+                ? nothing
+                : html`<openclaw-elapsed-time
+                    class="chat-working-indicator__elapsed"
+                    .startMs=${part.startedAt}
+                  ></openclaw-elapsed-time>`}
+            `
+          : waitingApproval
+            ? html`<span>${t("chat.waitingForApproval")}</span>`
+            : options.startupPhase
+              ? html`
+                  <span>${startupStatusLabel(options.startupPhase)}</span>
+                  <openclaw-elapsed-time
+                    class="chat-working-indicator__elapsed"
+                    .startMs=${part.startedAt}
+                  ></openclaw-elapsed-time>
+                  ${renderLiveOutputTokens(options.outputTokens)}
+                `
+              : html`
+                  <span class=${continuation ? "" : "agent-chat__sr-only"}
+                    >${t("common.working")}</span
+                  >
+                  <openclaw-elapsed-time
+                    class="chat-working-indicator__elapsed"
+                    .startMs=${part.startedAt}
+                  ></openclaw-elapsed-time>
+                  <openclaw-working-phrase
+                    aria-hidden="true"
+                    .startMs=${part.startedAt}
+                    .seed=${part.key}
+                  ></openclaw-working-phrase>
+                  ${renderLiveOutputTokens(options.outputTokens)}
+                `}
       </span>
     </div>
   `;
