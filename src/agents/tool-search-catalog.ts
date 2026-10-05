@@ -24,6 +24,24 @@ import {
 } from "./tool-search-types.js";
 import { ToolInputError, type AnyAgentTool } from "./tools/common.js";
 
+const catalogAbortControllers = new WeakMap<ToolSearchCatalogRef, AbortController>();
+
+/** Bind retained calls to the current catalog authority, not a later replacement. */
+export function getToolSearchCatalogAbortSignal(ref: ToolSearchCatalogRef): AbortSignal {
+  let controller = catalogAbortControllers.get(ref);
+  if (!controller) {
+    controller = new AbortController();
+    catalogAbortControllers.set(ref, controller);
+  }
+  return controller.signal;
+}
+
+function invalidateToolSearchCatalog(ref: ToolSearchCatalogRef): void {
+  const controller = catalogAbortControllers.get(ref);
+  catalogAbortControllers.delete(ref);
+  controller?.abort();
+}
+
 const MAX_REUSABLE_CATALOG_SNAPSHOTS = 256;
 const reusableCatalogSnapshots = new Map<
   string,
@@ -138,6 +156,7 @@ function restoreToolSearchCatalog(params: {
     describeCount: 0,
     callCount: 0,
   };
+  invalidateToolSearchCatalog(params.catalogRef);
   params.catalogRef.current = next;
   catalogFingerprints.set(next, params.fingerprint);
 }
@@ -289,6 +308,9 @@ function registerToolSearchCatalog(params: {
     callCount: prior?.callCount ?? 0,
   };
   catalogFingerprints.set(next, catalogEntriesFingerprint(next.entries));
+  if (!params.append) {
+    invalidateToolSearchCatalog(params.catalogRef);
+  }
   params.catalogRef.current = next;
   return next;
 }
@@ -301,6 +323,7 @@ export function clearToolSearchCatalog(params: {
   catalogRef?: ToolSearchCatalogRef;
 }): void {
   if (params.catalogRef) {
+    invalidateToolSearchCatalog(params.catalogRef);
     params.catalogRef.current = undefined;
   }
   if (!params.runId?.trim()) {
@@ -330,6 +353,7 @@ export function restrictToolSearchCatalog(params: {
   ) {
     return entries.length;
   }
+  invalidateToolSearchCatalog(params.catalogRef!);
   current.entries = entries;
   catalogFingerprints.set(current, catalogEntriesFingerprint(entries));
   return entries.length;

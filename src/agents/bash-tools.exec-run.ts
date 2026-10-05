@@ -72,7 +72,7 @@ export function createExecTool(
     10,
     120_000,
   );
-  const allowBackground = defaults?.allowBackground ?? true;
+  const backgroundAvailable = defaults?.allowBackground ?? true;
   const defaultTimeoutSec =
     typeof defaults?.timeoutSec === "number" && defaults.timeoutSec > 0
       ? defaults.timeoutSec
@@ -163,6 +163,8 @@ export function createExecTool(
           signal,
         });
       let params = requestPreparation.normalizeParams(args);
+      // Required results stay with the existing foreground owner through terminal collection.
+      const allowBackground = backgroundAvailable && params.required !== true;
       const resolveExecEnvPrepared = requestPreparation.isResolveExecEnvPrepared(
         args as ExecToolArgs,
       );
@@ -183,7 +185,7 @@ export function createExecTool(
       const backgroundRequested = params.background === true;
       const yieldRequested = typeof params.yieldMs === "number";
       const foregroundFallbackWarning =
-        !allowBackground && (backgroundRequested || yieldRequested)
+        !backgroundAvailable && (backgroundRequested || yieldRequested)
           ? "Warning: background execution is disabled; running synchronously."
           : undefined;
       const yieldWindow = allowBackground
@@ -397,6 +399,8 @@ export function createExecTool(
         if (host === "node") {
           return executeNodeHostCommand({
             command: params.command,
+            required: params.required,
+            runId: defaults?.runId,
             toolCallId,
             workdir,
             env,
@@ -440,6 +444,7 @@ export function createExecTool(
         if (host === "gateway" && !bypassApprovals) {
           const gatewayResult = await processGatewayAllowlist({
             command: params.command,
+            required: params.required,
             workdir,
             env,
             pathPrepend: defaultPathPrepend,

@@ -1,8 +1,9 @@
 import { Type } from "typebox";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createAbortError } from "../../infra/abort-signal.js";
+import { toErrorObject } from "../../infra/errors.js";
 import { resolveSubagentCompletionResultText } from "../subagent-completion-result.js";
-import { onSubagentRegistryPersisted } from "../subagent-registry-state.js";
+import { observeSubagentRegistryChanges } from "../subagent-registry-state.js";
 import { getSubagentRunsByRunIds } from "../subagent-registry.js";
 import type { SubagentRunRecord } from "../subagent-registry.types.js";
 import { resolveSwarmConfig } from "../swarm-config.js";
@@ -14,6 +15,12 @@ const MAX_WAIT_IDS = 1_000;
 const AgentsWaitToolSchema = Type.Object({
   ids: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: MAX_WAIT_IDS }),
   timeoutSeconds: Type.Optional(Type.Number({ minimum: 0 })),
+  required: Type.Optional(
+    Type.Boolean({
+      description:
+        "Collect all authorized requested results until settlement or cancellation; mutually exclusive with timeoutSeconds. Child and run deadlines still apply.",
+    }),
+  ),
 });
 
 type WaitError = { runId: string; error: "not_found" | "not_owner" };
@@ -50,62 +57,29 @@ function completionResult(entry: SubagentRunRecord) {
 
 export type CollectorCompletionResult = NonNullable<ReturnType<typeof completionResult>>;
 
-/** Park one host bridge until its collector completes; registry writes wake it without polling. */
+/** Park one host bridge until its collector completes; local writes and persisted-state observations wake it. */
 export async function waitForCollectorCompletion(params: {
   runId: string;
   currentSessionKeys: ReadonlySet<string>;
   signal?: AbortSignal;
 }): Promise<CollectorCompletionResult> {
-  const readCompletion = (): CollectorCompletionResult | undefined => {
-    const state = readWaitState([params.runId], params.currentSessionKeys);
+  try {
+    const state = await waitForCollector({ ...params, ids: [params.runId], waitForAll: true });
     const error = state.errors?.[0];
     if (error) {
       throw new ToolInputError(`agents.run ${error.error}: ${error.runId}`);
     }
-    return state.completed[0];
-  };
-  const immediate = readCompletion();
-  if (immediate) {
-    return immediate;
-  }
-  if (params.signal?.aborted) {
-    throw new ToolInputError("agents.run wait aborted.");
-  }
-  return await new Promise<CollectorCompletionResult>((resolve, reject) => {
-    let settled = false;
-    const finish = (result: CollectorCompletionResult | Error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      unsubscribe();
-      params.signal?.removeEventListener("abort", onAbort);
-      if (result instanceof Error) {
-        reject(result);
-      } else {
-        resolve(result);
-      }
-    };
-    const check = () => {
-      try {
-        const completion = readCompletion();
-        if (completion) {
-          finish(completion);
-        }
-      } catch (error) {
-        finish(error instanceof Error ? error : new Error(String(error)));
-      }
-    };
-    const onAbort = () => finish(new ToolInputError("agents.run wait aborted."));
-    const unsubscribe = onSubagentRegistryPersisted(check);
-    params.signal?.addEventListener("abort", onAbort, { once: true });
-    // Close the read/subscribe race if completion persisted between both operations.
-    if (params.signal?.aborted) {
-      onAbort();
-    } else {
-      check();
+    const completion = state.completed[0];
+    if (!completion) {
+      throw new ToolInputError("agents.run result is unavailable.");
     }
-  });
+    return completion;
+  } catch (error) {
+    if (params.signal?.aborted) {
+      throw new ToolInputError("agents.run wait aborted.");
+    }
+    throw error;
+  }
 }
 
 function resolveWaitTargets(ids: readonly string[], currentSessionKeys: ReadonlySet<string>) {
@@ -163,39 +137,58 @@ function readWaitState(ids: readonly string[], currentSessionKeys: ReadonlySet<s
 async function waitForCollector(params: {
   ids: readonly string[];
   currentSessionKeys: ReadonlySet<string>;
-  timeoutMs: number;
+  timeoutMs?: number;
+  waitForAll?: boolean;
   signal?: AbortSignal;
 }) {
-  const deadline = Date.now() + params.timeoutMs;
-  for (;;) {
-    if (params.signal?.aborted) {
-      throw createAbortError("agents_wait aborted.");
-    }
-    // Recovery can replace a registry row while preserving its stable swarm id.
-    // Re-resolve ownership and completion on every poll instead of retaining old objects.
-    const state = readWaitState(params.ids, params.currentSessionKeys);
-    if (state.completed.length > 0 || state.pending.length === 0 || Date.now() >= deadline) {
-      return state;
-    }
-    await new Promise<void>((resolve, reject) => {
-      const finish = (error?: Error) => {
-        clearTimeout(timer);
-        params.signal?.removeEventListener("abort", onAbort);
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      };
-      const onAbort = () => finish(createAbortError("agents_wait aborted."));
-      const timer = setTimeout(finish, Math.min(25, Math.max(0, deadline - Date.now())));
-      params.signal?.addEventListener("abort", onAbort, { once: true });
-      // Abort can race listener registration; never turn that cancellation into a successful poll.
-      if (params.signal?.aborted) {
-        onAbort();
-      }
-    });
+  if (params.signal?.aborted) {
+    throw createAbortError("agents_wait aborted.");
   }
+  return await new Promise<ReturnType<typeof readWaitState>>((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (state?: ReturnType<typeof readWaitState>, error?: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe();
+      params.signal?.removeEventListener("abort", onAbort);
+      if (error !== undefined) {
+        reject(toErrorObject(error, "agents_wait failed."));
+      } else if (state) {
+        resolve(state);
+      }
+    };
+    const check = (timedOut = false) => {
+      try {
+        if (params.signal?.aborted) {
+          throw createAbortError("agents_wait aborted.");
+        }
+        // Recovery can replace a registry row or revoke ownership. Read the
+        // authoritative registry on each event, never retain old row objects.
+        const state = readWaitState(params.ids, params.currentSessionKeys);
+        if (
+          timedOut ||
+          state.pending.length === 0 ||
+          (!params.waitForAll && state.completed.length > 0)
+        ) {
+          finish(state);
+        }
+      } catch (error) {
+        finish(undefined, error);
+      }
+    };
+    const onAbort = () => finish(undefined, createAbortError("agents_wait aborted."));
+    const unsubscribe = observeSubagentRegistryChanges(() => check());
+    params.signal?.addEventListener("abort", onAbort, { once: true });
+    if (params.timeoutMs !== undefined && params.timeoutMs > 0) {
+      timer = setTimeout(() => check(true), params.timeoutMs);
+    }
+    // Subscribe before reading to close completion and abort registration races.
+    check(params.timeoutMs === 0);
+  });
 }
 
 export function createAgentsWaitTool(opts: {
@@ -210,10 +203,16 @@ export function createAgentsWaitTool(opts: {
     name: "agents_wait",
     displaySummary: "Wait for collector children.",
     description:
-      "Wait for collector subagents started by sessions_spawn collect=true. Accepts many run ids; returns once any completes (completed results incl. structured output, plus pending ids), or on timeoutSeconds.",
+      "Wait for collector subagents started by sessions_spawn collect=true. Accepts many run ids; returns once any completes (completed results incl. structured output, plus pending ids), or on timeoutSeconds. Set required=true to retain all authorized requested results until terminal collection without model polling.",
     parameters: AgentsWaitToolSchema,
     execute: async (_toolCallId, args, signal) => {
-      const params = args as { ids: string[]; timeoutSeconds?: number };
+      const params = args as { ids: string[]; timeoutSeconds?: number; required?: boolean };
+      if (params.required !== undefined && typeof params.required !== "boolean") {
+        throw new ToolInputError("agents_wait required must be a boolean.");
+      }
+      if (params.required && params.timeoutSeconds !== undefined) {
+        throw new ToolInputError("required agents_wait cannot also specify timeoutSeconds.");
+      }
       if (params.ids.length > MAX_WAIT_IDS) {
         throw new ToolInputError(`agents_wait supports at most ${MAX_WAIT_IDS} ids.`);
       }
@@ -234,7 +233,8 @@ export function createAgentsWaitTool(opts: {
       const result = await waitForCollector({
         ids,
         currentSessionKeys,
-        timeoutMs: timeoutSeconds * 1_000,
+        timeoutMs: params.required ? undefined : timeoutSeconds * 1_000,
+        waitForAll: params.required,
         signal,
       });
       const noAuthorizedTargets =

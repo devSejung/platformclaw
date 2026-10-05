@@ -15,6 +15,7 @@ import {
   reconcileOrphanedRestoredRuns,
 } from "./subagent-registry-helpers.js";
 import type { createSubagentRegistryLifecycleController } from "./subagent-registry-lifecycle.js";
+import { adoptRestoredSubagentRun } from "./subagent-registry-state.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 import { deleteSubagentSessionForCleanup } from "./subagent-session-cleanup.js";
 import {
@@ -206,6 +207,7 @@ export function createSubagentRegistryRestorer(config: {
             start: async () => {
               await runWithGatewayIndependentRootWorkAdmission(async () => {
                 launchLifecycleGeneration = getAgentEventLifecycleGeneration();
+                adoptRestoredSubagentRun(entry);
                 const response = await deps().callGateway({
                   method: "agent",
                   params: applySubagentLaunchAuthorization(launch.request, launch.authorization),
@@ -294,6 +296,7 @@ export function createSubagentRegistryRestorer(config: {
       killIntent: entry.killIntent,
       killReconciliation: entry.killReconciliation,
     };
+    adoptRestoredSubagentRun(entry);
     restoredQueuedFailureSettlementClaims.set(entry, claim);
     const refreshClaim = () => {
       claim.execution = entry.execution;

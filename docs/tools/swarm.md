@@ -404,7 +404,19 @@ while (pending.size > 0) {
 return completed;
 ```
 
-Each `agents_wait` call accepts 1–1000 run ids. It returns:
+Each `agents_wait` call accepts 1–1000 run ids. Set `required: true` to collect
+all authorized requested collectors until they settle, without an observer timeout.
+It cannot be combined with `timeoutSeconds`. Local registry events wake the wait
+immediately; bounded internal rechecks at the persisted-cache cadence also observe
+SQLite completions written by other processes. Unchanged restored collectors are
+read replicas; local dispatch, cancellation, or replacement retains local authority.
+The model does not poll. Ownership is rechecked after row replacement, and
+cancellation removes both observations.
+Child and agent-run deadlines still apply. In OpenClaw Code Mode, a required
+join also retains the enclosing cell. Ordinary calls keep their first-completion
+and bounded-timeout behavior.
+
+It returns:
 
 ```typescript
 type AgentsWaitResult = {

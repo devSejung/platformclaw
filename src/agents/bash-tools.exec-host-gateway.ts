@@ -5,7 +5,6 @@
  */
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
-import { emitAgentEvent } from "../infra/agent-events.js";
 import { describeInterpreterInlineEval } from "../infra/command-analysis/inline-eval.js";
 import { detectPolicyInlineEval } from "../infra/command-analysis/policy.js";
 import { emitTrustedSecurityEvent } from "../infra/diagnostic-events.js";
@@ -55,6 +54,7 @@ import {
   isExecApprovalRunAbortedError,
   registerExecApprovalRequestForHostOrThrow,
 } from "./bash-tools.exec-approval-request.js";
+import { awaitExecApprovalInline } from "./bash-tools.exec-approval-wait.js";
 import {
   buildDefaultExecApprovalRequestArgs,
   buildHeadlessExecApprovalDeniedMessage,
@@ -86,6 +86,7 @@ import type { AgentToolResult } from "./runtime/index.js";
 /** Full input bundle for gateway-host allowlist and approval processing. */
 type ProcessGatewayAllowlistParams = {
   command: string;
+  required?: boolean;
   workdir: string;
   env: Record<string, string>;
   pathPrepend?: string[];
@@ -1123,30 +1124,13 @@ export async function processGatewayAllowlist(
       };
     };
 
-    if (unavailableReason === null && shouldAwaitGatewayApprovalInline(params)) {
-      if (params.runId) {
-        emitAgentEvent({
-          runId: params.runId,
-          sessionKey: params.sessionKey,
-          sessionId: params.sessionId,
-          stream: "lifecycle",
-          data: { phase: "waiting-approval", approvalId, toolCallId: params.toolCallId },
-        });
-      }
-      let approvalDecision: Awaited<ReturnType<typeof resolveApprovalForExecution>>;
-      try {
-        approvalDecision = await resolveApprovalForExecution(() => undefined);
-      } finally {
-        if (params.runId) {
-          emitAgentEvent({
-            runId: params.runId,
-            sessionKey: params.sessionKey,
-            sessionId: params.sessionId,
-            stream: "lifecycle",
-            data: { phase: "approval-resolved", approvalId, toolCallId: params.toolCallId },
-          });
-        }
-      }
+    if (
+      params.required ||
+      (unavailableReason === null && shouldAwaitGatewayApprovalInline(params))
+    ) {
+      const approvalDecision = await awaitExecApprovalInline(params, approvalId, () =>
+        resolveApprovalForExecution(() => undefined),
+      );
       // A run-abort cancellation must propagate as cancellation, not resolve
       // into an ordinary denial the aborted run would keep processing. The
       // abort owner cancels approvals before firing the controller, so the

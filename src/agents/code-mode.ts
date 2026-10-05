@@ -170,6 +170,7 @@ function createCodeModeExecDescription(
     nodesGuidance +
     skillsGuidance +
     ' The `language` field accepts only "javascript" or "typescript"; do not pass "bash", "shell", or other values.' +
+    " Set required=true to collect needed results without returning a waiting handle. Required cells retain ordinary shell and collector results; explicit background=true still detaches services. Off-VM waiting pauses only the original execution allowance; cancellation and run/tool deadlines still apply. Required cells cannot yield_control before completion. " +
     " The `code` field contains JavaScript or TypeScript, never a shell command. " +
     "For shell or file operations, call the exact catalog tool from guest JavaScript; do not retry failed shell source." +
     (namespacePrompt ? `\n\n${namespacePrompt}` : "") +
@@ -193,6 +194,12 @@ export function createCodeModeTools(ctx: CodeModeToolContext): AnyAgentTool[] {
         description:
           'Source language. Must be "javascript" or "typescript". Defaults to javascript.',
       }),
+      required: Type.Optional(
+        Type.Boolean({
+          description:
+            "Keep required results owned until completion; off-VM tool waiting pauses only the original execution allowance. Run and tool deadlines still apply.",
+        }),
+      ),
       restartSafe: Type.Optional(
         Type.Boolean({
           description:
@@ -218,6 +225,7 @@ export function createCodeModeTools(ctx: CodeModeToolContext): AnyAgentTool[] {
             executionContext?.assistantMessage.responseId?.trim() ||
             executionContext?.assistantMessage.turnId?.trim(),
           language: input.language,
+          required: input.required,
           restartSafe: ctx.forceRestartSafeTools === true || input.restartSafe,
           signal,
           onUpdate,

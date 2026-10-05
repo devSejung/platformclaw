@@ -22,6 +22,7 @@ function deriveExecShortName(fullPath: string): string {
 export function describeExecTool(params?: { agentId?: string; hasCronTool?: boolean }): string {
   const base = [
     "Run shell now; background continuation supported.",
+    "Set required=true when the result is needed to finish the task; retain the call through approval and terminal collection. Do not combine with background=true.",
     "Use yieldMs/background, then process for logs/status/input/intervention.",
     "Long run: automatic completion wake when enabled and output/failure occurs; otherwise process confirms completion.",
     params?.hasCronTool ? "No sleep/delay loops for reminders/follow-ups; use cron." : undefined,

@@ -14,6 +14,7 @@ import {
   type SettledBridgeRequest,
 } from "./code-mode-runtime.js";
 import type { AgentToolUpdateCallback } from "./runtime/index.js";
+import { getToolSearchCatalogAbortSignal, resolveCatalog } from "./tool-search-catalog.js";
 import { ToolSearchRuntime, type ToolSearchToolContext } from "./tool-search.js";
 import { ToolInputError } from "./tools/common.js";
 
@@ -26,6 +27,7 @@ export type PendingBridgeState = PendingBridgeRequest & {
 
 type CodeModeRunState = {
   runId: string;
+  owner: CodeModeRunOwner;
   replayId: string;
   parentToolCallId: string;
   ctx: ToolSearchToolContext;
@@ -43,6 +45,57 @@ type CodeModeRunState = {
   runtime: ToolSearchRuntime;
   namespaceRuntime: CodeModeNamespaceRuntime;
 };
+
+export type CodeModeRunOwner = ReturnType<typeof createCodeModeRunOwner>;
+const liveRunOwners = new Map<string, CodeModeRunOwner>();
+
+/** One catalog-bound owner spans worker legs and parked continuations. */
+export function createCodeModeRunOwner(
+  ctx: ToolSearchToolContext,
+  runId = `cm_${randomUUID()}`,
+  initialRequired = false,
+) {
+  let completionRequired = initialRequired;
+  const controller = new AbortController();
+  const catalog = resolveCatalog(ctx);
+  const signal = AbortSignal.any([
+    controller.signal,
+    ...(ctx.abortSignal ? [ctx.abortSignal] : []),
+    ...(ctx.catalogRef ? [getToolSearchCatalogAbortSignal(ctx.catalogRef)] : []),
+  ]);
+  const onAbort = () => disposeCodeModeRun(runId);
+  const owner = {
+    runId,
+    // Keep telemetry and admitted bindings on the original catalog even after
+    // replacement cancels the owner. Never borrow a successor's authority.
+    ctx: { ...ctx, catalogRef: { current: catalog } },
+    signal,
+    get completionRequired() {
+      return completionRequired;
+    },
+    requireCompletion() {
+      completionRequired = true;
+    },
+    bindCall(callSignal?: AbortSignal) {
+      return callSignal ? AbortSignal.any([signal, callSignal]) : signal;
+    },
+    // Successful collection releases ownership without aborting completed tools.
+    // Only cancellation or disposal may signal their still-live work.
+    close(cancel = false) {
+      signal.removeEventListener("abort", onAbort);
+      liveRunOwners.delete(runId);
+      if (cancel) {
+        controller.abort();
+      }
+    },
+  };
+  liveRunOwners.set(runId, owner);
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) {
+    onAbort();
+  }
+  return owner;
+}
 
 const MAX_ACTIVE_CODE_MODE_RUNS = 64;
 const MAX_AGENT_WAIT_SNAPSHOT_TTL_WINDOWS = 4;
@@ -100,6 +153,7 @@ export function removeExpiredRuns(now = Date.now()): void {
 
 export function disposeCodeModeRun(runId: string): void {
   const state = activeRuns.get(runId);
+  liveRunOwners.get(runId)?.close(true);
   cancelPendingBridgeStates(state?.pending ?? []);
   activeRuns.delete(runId);
   resumingRunIds.delete(runId);
@@ -108,6 +162,9 @@ export function disposeCodeModeRun(runId: string): void {
 
 /** Cancel suspended bridge work before its Gateway-owned runtimes disappear. */
 export function disposeAllCodeModeRuns(): void {
+  for (const owner of liveRunOwners.values()) {
+    owner.close(true);
+  }
   activeRuns.forEach((state) => cancelPendingBridgeStates(state.pending));
   activeRuns.clear();
   resumingRunIds.clear();
@@ -205,6 +262,7 @@ export function reserveActiveRunSlot(ownedRunId?: string): () => void {
 }
 
 export function snapshotState(params: {
+  owner: CodeModeRunOwner;
   pendingRequests: PendingBridgeRequest[];
   snapshotBytes: Uint8Array;
   parentToolCallId: string;
@@ -222,11 +280,12 @@ export function snapshotState(params: {
   onUpdate?: AgentToolUpdateCallback;
 }) {
   enforceSnapshotStateLimits(params);
-  const runId = `cm_${randomUUID()}`;
+  const runId = params.owner.runId;
   const pending = createPendingBridgeStates({
     ...params,
     activeRunId: runId,
     codeModeRunId: params.codeModeReplayId,
+    completionRequired: params.owner.completionRequired,
   });
   try {
     return storeSnapshotState({
@@ -287,6 +346,7 @@ export function createPendingBridgeStates(params: {
   parentToolCallId: string;
   codeModeRunId: string;
   activeRunId?: string;
+  completionRequired?: boolean;
   ctx: ToolSearchToolContext;
   signal?: AbortSignal;
   onUpdate?: AgentToolUpdateCallback;
@@ -305,10 +365,17 @@ export function createPendingBridgeStates(params: {
         namespaceRuntime: params.namespaceRuntime,
         parentToolCallId: params.parentToolCallId,
         codeModeRunId: params.codeModeRunId,
+        completionRequired: params.completionRequired,
         ctx: params.ctx,
         request,
         signal,
-        onUpdate: params.onUpdate,
+        onUpdate: params.onUpdate
+          ? (update) => {
+              if (!signal.aborted && !state.settled) {
+                params.onUpdate?.(update);
+              }
+            }
+          : undefined,
       }).then((settled) => {
         state.settledSequence = ++nextPendingBridgeSettlementSequence;
         state.settled = settled;
@@ -334,6 +401,7 @@ export function createPendingBridgeStates(params: {
 }
 
 export function storeSnapshotState(params: {
+  owner: CodeModeRunOwner;
   runId: string;
   replayId: string;
   pending: PendingBridgeState[];
@@ -348,6 +416,9 @@ export function storeSnapshotState(params: {
   output: unknown[];
   deliveredOutputCount?: number;
 }) {
+  if (params.owner.completionRequired) {
+    throw new ToolInputError("required code mode cannot return an unfinished snapshot.");
+  }
   const now = Date.now();
   const expiresAt = resolveCodeModeSnapshotExpiresAt(now, params.config.snapshotTtlSeconds);
   if (expiresAt === undefined) {
@@ -364,6 +435,7 @@ export function storeSnapshotState(params: {
     : undefined;
   activeRuns.set(params.runId, {
     runId: params.runId,
+    owner: params.owner,
     replayId: params.replayId,
     parentToolCallId: params.parentToolCallId,
     ctx: params.ctx,

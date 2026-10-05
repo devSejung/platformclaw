@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { isVitestRuntimeEnv } from "../infra/env.js";
 /**
  * Subagent registry state persistence bridge.
@@ -15,6 +16,37 @@ import {
 import type { SubagentRunReadRecord, SubagentRunRecord } from "./subagent-registry.types.js";
 
 const SUBAGENT_RUNS_READ_CACHE_TTL_MS = 500;
+
+// A restored collector is a read replica until this process changes its owner
+// state or actually dispatches it. Keep provenance on the exact object so a
+// replacement/new generation can never borrow an older replica's authority.
+const restoredCollectorReadSnapshots = new WeakMap<SubagentRunRecord, SubagentRunRecord>();
+
+function collectorReadOwnerState(entry: SubagentRunRecord): SubagentRunRecord {
+  const snapshot = { ...entry };
+  // Retention backfill is metadata, not adoption of execution or wait ownership.
+  delete snapshot.archiveAtMs;
+  return snapshot;
+}
+
+/** An actual restored dispatch takes local authority before asynchronous effects. */
+export function adoptRestoredSubagentRun(entry: SubagentRunRecord): void {
+  restoredCollectorReadSnapshots.delete(entry);
+}
+
+function isUnchangedRestoredCollector(entry: SubagentRunRecord): boolean {
+  const snapshot = restoredCollectorReadSnapshots.get(entry);
+  if (!snapshot) {
+    return false;
+  }
+  if (isDeepStrictEqual(collectorReadOwnerState(entry), snapshot)) {
+    return true;
+  }
+  // A local lifecycle, generation, cancellation, or authorization mutation is
+  // authoritative even if its persistence subsequently fails.
+  adoptRestoredSubagentRun(entry);
+  return false;
+}
 
 type SubagentRunsSnapshot<T extends SubagentRunReadRecord> = {
   loadedAtMs: number;
@@ -58,6 +90,21 @@ export function onSubagentRegistryPersisted(listener: SubagentRegistryPersistLis
   SUBAGENT_REGISTRY_PERSIST_LISTENERS.add(listener);
   return () => {
     SUBAGENT_REGISTRY_PERSIST_LISTENERS.delete(listener);
+  };
+}
+
+/** Observe local writes immediately and remote SQLite writes at the read-cache cadence. */
+export function observeSubagentRegistryChanges(
+  listener: SubagentRegistryPersistListener,
+): () => void {
+  const unsubscribe = onSubagentRegistryPersisted(listener);
+  // SQLite completions can be persisted by a different Gateway worker. The
+  // process-local event alone cannot wake that reader; keep one bounded probe
+  // per active observer, and release it together with the local subscription.
+  const timer = setInterval(listener, SUBAGENT_RUNS_READ_CACHE_TTL_MS);
+  return () => {
+    clearInterval(timer);
+    unsubscribe();
   };
 }
 
@@ -121,7 +168,8 @@ function rememberSubagentRunsSnapshot<T extends SubagentRunReadRecord>(
       snapshot.runs.delete(runId);
     }
   }
-  snapshot.loadedAtMs = loadedAtMs;
+  // A partial write refreshes named rows, not the age of unrelated SQLite
+  // observations. Otherwise steady local traffic can hide remote writes forever.
 }
 
 function rememberPersistedSubagentRunsSnapshot(
@@ -187,6 +235,12 @@ function persistSubagentRuns(
       throw error;
     }
   }
+  for (const runId of changedRunIds ?? runs.keys()) {
+    const entry = runs.get(runId);
+    if (entry) {
+      isUnchangedRestoredCollector(entry);
+    }
+  }
   // In-process readers must observe the authoritative memory snapshot before the wake.
   rememberPersistedSubagentRunsSnapshot(runs, changedRunIds);
   emitSubagentRegistryPersisted();
@@ -224,6 +278,18 @@ export function restoreSubagentRunsFromDisk(params: {
     if (params.mergeOnly && params.runs.has(runId)) {
       continue;
     }
+    if (
+      entry.collect &&
+      !entry.collectorCompletion &&
+      entry.execution.status !== "terminal" &&
+      !entry.execution.suppressSessionEffects &&
+      !entry.killIntent &&
+      !entry.killReconciliation &&
+      !entry.execution.restartRecovery &&
+      entry.terminalOwner !== "interrupted-recovery"
+    ) {
+      restoredCollectorReadSnapshots.set(entry, structuredClone(collectorReadOwnerState(entry)));
+    }
     params.runs.set(runId, entry);
     added += 1;
   }
@@ -244,6 +310,7 @@ function getSubagentRunsSnapshot<T extends SubagentRunReadRecord>(
   if (scope && !key) {
     return merged;
   }
+  let persistedAvailable = false;
   if (shouldReadPersistedSubagentRuns()) {
     try {
       // Persisted state lets other worker processes observe active runs.
@@ -257,11 +324,17 @@ function getSubagentRunsSnapshot<T extends SubagentRunReadRecord>(
       for (const entry of persisted) {
         merged.set(entry.runId, scope ? structuredClone(entry) : entry);
       }
+      persistedAvailable = true;
     } catch {
       // Ignore disk read failures and fall back to local memory.
     }
   }
   for (const [runId, entry] of inMemoryRuns) {
+    // Only unchanged restored replicas defer to SQLite, including revocation
+    // or deletion. Locally created/adopted/mutated rows keep existing authority.
+    if (persistedAvailable && isUnchangedRestoredCollector(entry)) {
+      continue;
+    }
     const projected = cache.project(entry);
     if (!scope || scope.matches(projected, key)) {
       merged.set(runId, projected);

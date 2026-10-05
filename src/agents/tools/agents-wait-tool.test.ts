@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubagentRunRecord } from "../subagent-registry.types.js";
 
 const records = new Map<string, SubagentRunRecord>();
 const registryEvents = vi.hoisted(() => ({ listeners: new Set<() => void>() }));
 
 vi.mock("../subagent-registry.js", () => ({
+  getSwarmRunByLaunchReplayKey: vi.fn(),
+  initSubagentRegistry: vi.fn(),
   getSubagentRunsByRunIds: (runIds: readonly string[]) => ({
     entries: new Map(
       runIds.flatMap((runId) => {
@@ -21,12 +23,18 @@ vi.mock("../subagent-registry.js", () => ({
 }));
 
 vi.mock("../subagent-registry-state.js", () => ({
-  onSubagentRegistryPersisted: (listener: () => void) => {
+  observeSubagentRegistryChanges: (listener: () => void) => {
     registryEvents.listeners.add(listener);
     return () => registryEvents.listeners.delete(listener);
   },
 }));
 
+import { applyCodeModeCatalog } from "../code-mode.js";
+import {
+  createCodeModeHarness,
+  resetCodeModeTestState,
+  resultDetails,
+} from "../code-mode.test-support.js";
 import { isToolResultError } from "../tool-result-error.js";
 import { createAgentsWaitTool, waitForCollectorCompletion } from "./agents-wait-tool.js";
 import { testing } from "./agents-wait-tool.test-support.js";
@@ -55,6 +63,7 @@ function collectorRun(
 }
 
 describe("agents_wait", () => {
+  afterEach(() => resetCodeModeTestState());
   beforeEach(() => {
     records.clear();
     registryEvents.listeners.clear();
@@ -120,6 +129,67 @@ describe("agents_wait", () => {
     expect(registryEvents.listeners.size).toBe(0);
   });
 
+  it.each(["cell", "nested"])(
+    "retains all collector results through %s intent and registry replacement",
+    async (mode) => {
+      const first = collectorRun("one", "agent:main:main", { status: "done" });
+      const second = collectorRun("two", "agent:main:main");
+      records.set(first.runId, first);
+      records.set(second.runId, second);
+      records.set("foreign", collectorRun("foreign", "agent:other:main", { status: "done" }));
+      const tool = createAgentsWaitTool({ agentSessionKey: "agent:main:main" });
+      const h = createCodeModeHarness();
+      applyCodeModeCatalog({ ...h.ctx, tools: [...h.tools, tool] });
+      let returned = false;
+      const running = h.tools[0]!.execute("required", {
+        required: mode === "cell",
+        code: `return await tools.callValue("openclaw:core:agents_wait", ${JSON.stringify({ ids: ["one", "two", "foreign"], required: mode === "nested" })});`,
+      }).then((value) => {
+        returned = true;
+        return value;
+      });
+      await vi.waitFor(() => expect(registryEvents.listeners.size).toBe(1));
+      expect(returned).toBe(false);
+      expect(registryEvents.listeners.size).toBe(1);
+      records.set("two", collectorRun("two", "agent:main:main", { status: "failed" }));
+      for (const listener of registryEvents.listeners) {
+        listener();
+      }
+      expect(resultDetails(await running)).toMatchObject({
+        status: "completed",
+        value: {
+          completed: [
+            { runId: "one", status: "done" },
+            { runId: "two", status: "failed" },
+          ],
+          pending: [],
+          errors: [{ runId: "foreign", error: "not_owner" }],
+        },
+      });
+      expect(registryEvents.listeners.size).toBe(0);
+    },
+  );
+
+  it("cancels a required join without leaving registry listeners or accepting a late result", async () => {
+    records.set("one", collectorRun("one", "agent:main:main"));
+    const tool = createAgentsWaitTool({ agentSessionKey: "agent:main:main" });
+    const controller = new AbortController();
+    const running = tool.execute("required", { ids: ["one"], required: true }, controller.signal);
+    controller.abort();
+    await expect(running).rejects.toMatchObject({ name: "AbortError" });
+    expect(registryEvents.listeners.size).toBe(0);
+    records.set("one", collectorRun("one", "agent:main:main", { status: "done" }));
+    for (const listener of registryEvents.listeners) {
+      listener();
+    }
+    await expect(
+      tool.execute("invalid", { ids: ["one"], required: true, timeoutSeconds: 1 }),
+    ).rejects.toThrow("cannot also specify");
+    await expect(tool.execute("invalid", { ids: ["one"], required: "yes" })).rejects.toThrow(
+      "boolean",
+    );
+  });
+
   it("exposes ownership helpers through test support", () => {
     const entry = collectorRun("owned", "agent:main:main");
     expect(testing.ownsRun(entry, new Set(["agent:main:main"]))).toBe(true);
@@ -143,6 +213,9 @@ describe("agents_wait", () => {
         status: "done",
         structured: { winner: 2 },
       };
+      for (const listener of registryEvents.listeners) {
+        listener();
+      }
     }, 5);
 
     const result = await tool.execute("call", { ids: ["one", "two"], timeoutSeconds: 1 });

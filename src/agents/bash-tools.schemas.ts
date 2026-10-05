@@ -23,6 +23,12 @@ export const execSchema = Type.Object({
       description: "Milliseconds before backgrounding; default 10000.",
     }),
   ),
+  required: Type.Optional(
+    Type.Boolean({
+      description:
+        "Result required to finish the task; wait through approval and terminal collection. Incompatible with background=true.",
+    }),
+  ),
   background: Type.Optional(Type.Boolean({ description: "Run in background immediately" })),
   timeout: Type.Optional(
     Type.Number({
