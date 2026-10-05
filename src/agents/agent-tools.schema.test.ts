@@ -51,6 +51,8 @@ describe("direct exec tool schema", () => {
     expect(descriptions.join("").length).toBeLessThan(550);
     expect(describeField("workdir")).toContain("Blank/whitespace");
     expect(describeField("yieldMs")).toContain("Milliseconds");
+    expect(describeField("required")).toContain("Await final result");
+    expect(describeField("required")).toContain("no background=true");
     expect(describeField("timeout")).toContain("seconds");
     expect(describeField("pty")).toContain("PTY");
     expect(describeField("elevated")).toContain("if allowed");

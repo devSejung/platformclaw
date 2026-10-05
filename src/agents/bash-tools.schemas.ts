@@ -20,13 +20,12 @@ export const execSchema = Type.Object({
   env: Type.Optional(Type.Record(Type.String(), Type.String())),
   yieldMs: Type.Optional(
     Type.Number({
-      description: "Milliseconds before backgrounding; default 10000.",
+      description: "Milliseconds to background; default 10000.",
     }),
   ),
   required: Type.Optional(
     Type.Boolean({
-      description:
-        "Result required to finish the task; wait through approval and terminal collection. Incompatible with background=true.",
+      description: "Await final result; no background=true.",
     }),
   ),
   background: Type.Optional(Type.Boolean({ description: "Run in background immediately" })),
@@ -37,7 +36,7 @@ export const execSchema = Type.Object({
   ),
   pty: Type.Optional(
     Type.Boolean({
-      description: "Use PTY for TTY-required CLIs and coding agents.",
+      description: "PTY for TTY-required CLIs/coding agents.",
     }),
   ),
   elevated: Type.Optional(
@@ -46,7 +45,7 @@ export const execSchema = Type.Object({
     }),
   ),
   host: optionalStringEnum(EXEC_TOOL_HOST_VALUES, {
-    description: "Exec host/target (auto|sandbox|gateway|node).",
+    description: "Exec host/target.",
   }),
   security: Type.Optional(
     Type.String({

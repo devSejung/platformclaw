@@ -11,7 +11,7 @@ import { withTimeout } from "../../utils/with-timeout.js";
 import { subagentRuns } from "../subagent-registry-memory.js";
 import {
   clearSubagentRunsReadCacheForTest,
-  onSubagentRegistryPersisted,
+  observeSubagentRegistryChanges,
   persistSubagentRunsToDisk,
 } from "../subagent-registry-state.js";
 import * as registry from "../subagent-registry.js";
@@ -165,8 +165,8 @@ describe("collector completion persisted by another process", () => {
     async ({ required, restore }) => {
       await withPersistedCollector(async (source) => {
         const controller = new AbortController();
-        const localEvent = vi.fn();
-        const unsubscribe = onSubagentRegistryPersisted(localEvent);
+        const observer = vi.fn();
+        const unsubscribe = observeSubagentRegistryChanges(observer);
         const tool = createAgentsWaitTool({ agentSessionKey: owner });
         const result = tool.execute(
           "observe-collector",
@@ -175,7 +175,9 @@ describe("collector completion persisted by another process", () => {
         );
         try {
           completeInAnotherProcess(source);
-          expect(localEvent).not.toHaveBeenCalled();
+          // The synchronous child write cannot emit in this process. Only a
+          // subsequent timer turn can observe its committed SQLite state.
+          expect(observer).not.toHaveBeenCalled();
           // Much shorter than the ordinary observer timeout: only the persisted
           // registry observation can settle this already-open tool invocation.
           await expect(

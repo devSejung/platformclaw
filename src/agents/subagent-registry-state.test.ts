@@ -7,7 +7,6 @@ import {
   getSubagentRunsSnapshotForChildSession,
   getSubagentRunsSnapshotForController,
   getSubagentRunsSnapshotForRead,
-  onSubagentRegistryPersisted,
   observeSubagentRegistryChanges,
   persistSubagentRunsToDisk,
   persistSubagentRunsToDiskOrThrow,
@@ -391,7 +390,7 @@ describe("subagent registry state read cache", () => {
     mocks.loadSubagentRegistryFromSqlite.mockReturnValue(new Map([[staleRun.runId, staleRun]]));
     expect([...getSubagentRunsSnapshotForRead(new Map()).keys()]).toEqual(["stale"]);
     const listener = vi.fn();
-    const unsubscribe = onSubagentRegistryPersisted(listener);
+    const unsubscribe = observeSubagentRegistryChanges(listener);
     mocks.saveSubagentRegistryToSqlite.mockImplementationOnce(() => {
       throw new Error("disk unavailable");
     });

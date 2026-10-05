@@ -85,26 +85,18 @@ function emitSubagentRegistryPersisted(): void {
   }
 }
 
-/** Wake process-local readers after a registry mutation, even if persistence failed. */
-export function onSubagentRegistryPersisted(listener: SubagentRegistryPersistListener): () => void {
-  SUBAGENT_REGISTRY_PERSIST_LISTENERS.add(listener);
-  return () => {
-    SUBAGENT_REGISTRY_PERSIST_LISTENERS.delete(listener);
-  };
-}
-
 /** Observe local writes immediately and remote SQLite writes at the read-cache cadence. */
 export function observeSubagentRegistryChanges(
   listener: SubagentRegistryPersistListener,
 ): () => void {
-  const unsubscribe = onSubagentRegistryPersisted(listener);
+  SUBAGENT_REGISTRY_PERSIST_LISTENERS.add(listener);
   // SQLite completions can be persisted by a different Gateway worker. The
   // process-local event alone cannot wake that reader; keep one bounded probe
   // per active observer, and release it together with the local subscription.
   const timer = setInterval(listener, SUBAGENT_RUNS_READ_CACHE_TTL_MS);
   return () => {
     clearInterval(timer);
-    unsubscribe();
+    SUBAGENT_REGISTRY_PERSIST_LISTENERS.delete(listener);
   };
 }
 

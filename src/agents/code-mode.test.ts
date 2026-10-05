@@ -290,6 +290,14 @@ describe("Code Mode catalog and model-visible surface", () => {
     const codeDescription = parameters.properties?.code?.description;
 
     expect(execTool.description.length).toBeLessThan(2_400);
+    expect(execTool.description).toContain("Set required=true for essential results");
+    expect(execTool.description).toContain("shell background=true still detaches");
+    expect(execTool.description).toContain("Required cells cannot yield_control");
+    expect(parameters.properties?.required?.description).toContain("without waiting handles");
+    expect(parameters.properties?.required?.description).toContain("original execution allowance");
+    expect(parameters.properties?.required?.description).toContain(
+      "Cancellation and run/tool deadlines still apply",
+    );
     expect(execTool.description).toContain("parallelize independent work only");
     expect(codeDescription).toEqual(expect.any(String));
     expect(String(codeDescription).length).toBeLessThan(620);
