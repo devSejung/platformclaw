@@ -9,13 +9,21 @@ import { DEFAULT_PLUGIN_TOOLS_ALLOWLIST_ENTRY, normalizeToolName } from "../agen
 import type { AnyAgentTool } from "../agents/tools/common.js";
 import { normalizeConversationReadInvocationOrigin } from "../channels/plugins/conversation-read-origin.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { getLoadedRuntimePluginRegistry } from "./active-runtime-registry.js";
+import {
+  getLoadedRuntimePluginRegistry,
+  registryContainsRuntimePluginIds,
+} from "./active-runtime-registry.js";
 import {
   isBundledConversationReadToolRegistration,
   isHostRestrictedConversationReadTool,
   registrationIncludesHostRestrictedConversationReadTool,
 } from "./compat/conversation-read-tools.js";
-import { applyTestPluginDefaults, normalizePluginsConfig } from "./config-state.js";
+import {
+  applyTestPluginDefaults,
+  normalizePluginsConfig,
+  resolveEffectivePluginActivationState,
+} from "./config-state.js";
+import { isPluginEnabledByDefaultForPlatform } from "./default-enablement.js";
 import { loadPluginRegistryHandle, type PluginLoadOptions } from "./loader.js";
 import {
   isManifestPluginAvailableForControlPlane,
@@ -24,6 +32,8 @@ import {
 import type { PluginManifestRecord } from "./manifest-registry.js";
 import { hasManifestToolAvailability } from "./manifest-tool-availability.js";
 import type { PluginMetadataManifestView } from "./plugin-metadata-snapshot.types.js";
+import { normalizePluginsConfigWithRegistry } from "./plugin-registry-contributions.js";
+import { isPluginRegistryRetired } from "./registry-lifecycle.js";
 import type { PluginRegistry, PluginToolRegistration } from "./registry-types.js";
 import {
   withPluginRuntimePluginScope,
@@ -682,6 +692,7 @@ function filterManifestToolNamesForAvailability(params: {
 
 function resolvePluginToolRuntimePluginIds(params: {
   config: PluginLoadOptions["config"];
+  activationSourceConfig?: PluginLoadOptions["config"];
   availabilityConfig?: PluginLoadOptions["config"];
   workspaceDir?: string;
   env: NodeJS.ProcessEnv;
@@ -689,11 +700,11 @@ function resolvePluginToolRuntimePluginIds(params: {
   toolDenylist?: string[];
   hasAuthForProvider?: (providerId: string) => boolean;
   snapshot?: PluginMetadataManifestView;
-}): string[] {
+}): { toolPluginIds: string[]; startupPluginIds: string[] } {
   const pluginIds = new Set<string>();
+  const startupPluginIds = new Set<string>();
   const allowlist = normalizeAllowlist(params.toolAllowlist);
   const denylist = normalizeDenylist(params.toolDenylist);
-  const normalizedPlugins = normalizePluginsConfig(params.config?.plugins);
   const snapshot =
     params.snapshot ??
     loadManifestContractSnapshot({
@@ -701,6 +712,24 @@ function resolvePluginToolRuntimePluginIds(params: {
       workspaceDir: params.workspaceDir,
       env: params.env,
     });
+  const registryOptions = { manifestRegistry: { plugins: [...snapshot.plugins], diagnostics: [] } };
+  const normalizedPlugins = normalizePluginsConfigWithRegistry(
+    params.config?.plugins,
+    snapshot.index,
+    registryOptions,
+  );
+  const activationSourceConfig = params.activationSourceConfig ?? params.config;
+  const activationSource = {
+    plugins: normalizePluginsConfigWithRegistry(
+      activationSourceConfig?.plugins,
+      snapshot.index,
+      registryOptions,
+    ),
+    rootConfig: activationSourceConfig,
+  };
+  const installedPlugins = new Map(
+    snapshot.index.plugins.map((plugin) => [plugin.pluginId, plugin]),
+  );
   for (const plugin of snapshot.plugins) {
     if (
       !isManifestPluginAvailableForControlPlane({
@@ -716,6 +745,32 @@ function resolvePluginToolRuntimePluginIds(params: {
       normalizedPlugins.deny.includes(plugin.id)
     ) {
       continue;
+    }
+    // Startup sidecars may supply passive capabilities to another plugin's
+    // tools. Preserve their declared runtime dependency even in a cold scope;
+    // tool grants still control which tool factories are exposed below.
+    if (plugin.activation?.onStartup === true) {
+      const startupOrigin =
+        plugin.origin === "bundled" &&
+        installedPlugins.get(plugin.id)?.packageBuild?.bundledDist === false
+          ? "workspace"
+          : plugin.origin;
+      const activation = resolveEffectivePluginActivationState({
+        id: plugin.id,
+        origin: startupOrigin,
+        config: normalizedPlugins,
+        rootConfig: params.config,
+        enabledByDefault: isPluginEnabledByDefaultForPlatform(plugin),
+        activationSource,
+      });
+      if (
+        activation.enabled &&
+        (startupOrigin === "bundled"
+          ? activation.source === "explicit" || activation.source === "default"
+          : activation.explicitlyEnabled)
+      ) {
+        startupPluginIds.add(plugin.id);
+      }
     }
     if (denylistBlocksPlugin({ pluginId: plugin.id, denylist })) {
       continue;
@@ -747,7 +802,10 @@ function resolvePluginToolRuntimePluginIds(params: {
       pluginIds.add(plugin.id);
     }
   }
-  return [...pluginIds].toSorted((left, right) => left.localeCompare(right));
+  return {
+    toolPluginIds: [...pluginIds].toSorted((left, right) => left.localeCompare(right)),
+    startupPluginIds: [...startupPluginIds].toSorted((left, right) => left.localeCompare(right)),
+  };
 }
 
 function readPluginCacheSource(plugin: PluginManifestRecord): string {
@@ -797,6 +855,8 @@ function createCachedDescriptorPluginTool(params: {
   ctx: OpenClawPluginToolContext;
   loadContext: ReturnType<typeof resolvePluginRuntimeLoadContext>;
   runtimeOptions: PluginLoadOptions["runtimeOptions"];
+  preferredRegistry?: PluginRegistry;
+  startupPluginIds: readonly string[];
 }): AnyAgentTool {
   const { descriptor } = params.descriptor;
   const pluginId = descriptor.owner.kind === "plugin" ? descriptor.owner.pluginId : "";
@@ -814,20 +874,34 @@ function createCachedDescriptorPluginTool(params: {
       ? { resultContentSource: params.descriptor.resultContentSource }
       : {}),
     async execute(toolCallId, executeParams, signal, onUpdate) {
+      const retainedRegistry = pluginToolDescriptorCacheState.runtimeRegistries.get(
+        params.descriptor,
+      );
+      const requiredPluginIds = composePluginRuntimeScope(
+        [pluginId, ...params.startupPluginIds],
+        params.preferredRegistry ?? retainedRegistry,
+      );
       const loadOptions = buildPluginRuntimeLoadOptions(params.loadContext, {
         activate: false,
         toolDiscovery: true,
-        onlyPluginIds: [pluginId],
+        onlyPluginIds: requiredPluginIds,
         ...(params.runtimeOptions ? { runtimeOptions: params.runtimeOptions } : {}),
       });
-      const registry = resolvePluginToolRegistry({
-        loadOptions,
-        onlyPluginIds: [pluginId],
-        retainedRegistry: pluginToolDescriptorCacheState.runtimeRegistries.get(params.descriptor),
-        onRetainRegistry: (retainedRegistry) => {
-          pluginToolDescriptorCacheState.runtimeRegistries.set(params.descriptor, retainedRegistry);
-        },
-      });
+      const registry = registryHasScopedPluginTools(
+        params.preferredRegistry,
+        [pluginId],
+        requiredPluginIds,
+      )
+        ? params.preferredRegistry
+        : resolvePluginToolRegistry({
+            loadOptions,
+            onlyPluginIds: [pluginId],
+            requiredPluginIds,
+            retainedRegistry: params.preferredRegistry === undefined ? retainedRegistry : undefined,
+            onRetainRegistry: (nextRegistry) => {
+              pluginToolDescriptorCacheState.runtimeRegistries.set(params.descriptor, nextRegistry);
+            },
+          });
       const candidates = registry?.tools.filter((candidate) => candidate.pluginId === pluginId);
       if (!candidates || candidates.length === 0) {
         throw new Error(`plugin tool runtime unavailable (${pluginId}): ${toolName}`);
@@ -922,6 +996,8 @@ function resolveCachedPluginTools(params: {
   ctx: OpenClawPluginToolContext;
   loadContext: ReturnType<typeof resolvePluginRuntimeLoadContext>;
   runtimeOptions: PluginLoadOptions["runtimeOptions"];
+  preferredRegistry?: PluginRegistry;
+  startupPluginIds: readonly string[];
   currentRuntimeConfig?: PluginLoadOptions["config"] | null;
   configCacheKeyMemo: PluginToolDescriptorConfigCacheKeyMemo;
   clientCaps: ReadonlySet<string>;
@@ -1048,6 +1124,8 @@ function resolveCachedPluginTools(params: {
           ctx: params.ctx,
           loadContext: params.loadContext,
           runtimeOptions: params.runtimeOptions,
+          preferredRegistry: params.preferredRegistry,
+          startupPluginIds: params.startupPluginIds,
         }),
       );
     }
@@ -1068,37 +1146,91 @@ function resolveCachedPluginTools(params: {
 function resolvePluginToolRegistry(params: {
   loadOptions: PluginLoadOptions;
   onlyPluginIds?: readonly string[];
+  requiredPluginIds?: readonly string[];
   retainedRegistry?: PluginRegistry;
   onRetainRegistry?: (registry: PluginRegistry) => void;
 }) {
   const requestedPluginIds = params.onlyPluginIds;
-  if (registryHasScopedPluginTools(params.retainedRegistry, requestedPluginIds)) {
+  const requiredPluginIds = params.requiredPluginIds ?? requestedPluginIds;
+  if (
+    registryHasScopedPluginTools(params.retainedRegistry, requestedPluginIds, requiredPluginIds)
+  ) {
     return params.retainedRegistry;
   }
   const activeRegistry = getLoadedRuntimePluginRegistry({
     loadOptions: params.loadOptions,
     workspaceDir: params.loadOptions.workspaceDir,
-    requiredPluginIds: requestedPluginIds,
+    requiredPluginIds,
   });
-  if (registryHasScopedPluginTools(activeRegistry, requestedPluginIds)) {
+  if (registryHasScopedPluginTools(activeRegistry, requestedPluginIds, requiredPluginIds)) {
     return activeRegistry;
   }
   const registry = loadPluginRegistryHandle({
     ...params.loadOptions,
     activate: false,
-    ...(requestedPluginIds === undefined ? {} : { onlyPluginIds: [...requestedPluginIds] }),
+    ...(requiredPluginIds === undefined ? {} : { onlyPluginIds: [...requiredPluginIds] }),
   });
-  if (registryHasScopedPluginTools(registry, requestedPluginIds)) {
+  if (registryHasScopedPluginTools(registry, requestedPluginIds, requiredPluginIds)) {
     params.onRetainRegistry?.(registry);
   }
   return registry;
 }
 
+function listLoadedPluginIdsFromRegistry(registry: PluginRegistry | undefined): string[] {
+  if (!registry) {
+    return [];
+  }
+  // Retirement forbids executing old callbacks, not reading the composition
+  // needed to load their replacement. The loader rechecks current enablement.
+  const candidatePluginIds = new Set<string>();
+  for (const plugin of registry.plugins ?? []) {
+    if (typeof plugin.id === "string" && plugin.id) {
+      candidatePluginIds.add(plugin.id);
+    }
+  }
+  for (const value of Object.values(registry)) {
+    if (!Array.isArray(value)) {
+      continue;
+    }
+    for (const entry of value) {
+      if (
+        entry &&
+        typeof entry === "object" &&
+        "pluginId" in entry &&
+        typeof entry.pluginId === "string" &&
+        entry.pluginId
+      ) {
+        candidatePluginIds.add(entry.pluginId);
+      }
+    }
+  }
+  return [...candidatePluginIds]
+    .filter((pluginId) => registryContainsRuntimePluginIds(registry, [pluginId]))
+    .toSorted((left, right) => left.localeCompare(right));
+}
+
+function composePluginRuntimeScope(
+  requestedPluginIds: readonly string[],
+  registry: PluginRegistry | undefined,
+): string[] {
+  return uniqueStrings([
+    ...requestedPluginIds,
+    ...listLoadedPluginIdsFromRegistry(registry),
+  ]).toSorted((left, right) => left.localeCompare(right));
+}
+
 function registryHasScopedPluginTools(
   registry: PluginRegistry | undefined,
   pluginIds: readonly string[] | undefined,
+  requiredPluginIds: readonly string[] | undefined = pluginIds,
 ): registry is PluginRegistry {
-  if (!registry) {
+  if (!registry || isPluginRegistryRetired(registry)) {
+    return false;
+  }
+  if (
+    requiredPluginIds !== undefined &&
+    !registryContainsRuntimePluginIds(registry, requiredPluginIds)
+  ) {
     return false;
   }
   if (pluginIds === undefined) {
@@ -1132,6 +1264,7 @@ function resolvePluginToolLoadState(params: {
       env: NodeJS.ProcessEnv;
       loadOptions: PluginLoadOptions;
       onlyPluginIds: string[];
+      startupPluginIds: string[];
       runtimeOptions: PluginLoadOptions["runtimeOptions"];
       snapshot: PluginMetadataManifestView;
     }
@@ -1167,8 +1300,9 @@ function resolvePluginToolLoadState(params: {
           workspaceDir: context.workspaceDir,
           env,
         });
-  const onlyPluginIds = resolvePluginToolRuntimePluginIds({
+  const { toolPluginIds: onlyPluginIds, startupPluginIds } = resolvePluginToolRuntimePluginIds({
     config: context.config,
+    activationSourceConfig: context.activationSourceConfig,
     availabilityConfig: params.context.runtimeConfig ?? context.config,
     workspaceDir: context.workspaceDir,
     env,
@@ -1180,10 +1314,11 @@ function resolvePluginToolLoadState(params: {
   const loadOptions = buildPluginRuntimeLoadOptions(context, {
     activate: false,
     toolDiscovery: true,
-    onlyPluginIds,
+    onlyPluginIds:
+      onlyPluginIds.length === 0 ? [] : uniqueStrings([...onlyPluginIds, ...startupPluginIds]),
     runtimeOptions,
   });
-  return { context, env, loadOptions, onlyPluginIds, runtimeOptions, snapshot };
+  return { context, env, loadOptions, onlyPluginIds, startupPluginIds, runtimeOptions, snapshot };
 }
 
 export function ensureStandalonePluginToolRegistryLoaded(params: {
@@ -1199,12 +1334,19 @@ export function ensureStandalonePluginToolRegistryLoaded(params: {
     return undefined;
   }
   const registry = loadPluginRegistryHandle(loadState.loadOptions);
-  if (registryHasScopedPluginTools(registry, loadState.onlyPluginIds)) {
+  if (
+    registryHasScopedPluginTools(
+      registry,
+      loadState.onlyPluginIds,
+      loadState.loadOptions.onlyPluginIds,
+    )
+  ) {
     return registry;
   }
   return resolvePluginToolRegistry({
     loadOptions: loadState.loadOptions,
     onlyPluginIds: loadState.onlyPluginIds,
+    requiredPluginIds: loadState.loadOptions.onlyPluginIds,
   });
 }
 
@@ -1227,7 +1369,7 @@ export function resolvePluginTools(params: {
   if (!loadState) {
     return [];
   }
-  const { context, env, onlyPluginIds, runtimeOptions, snapshot } = loadState;
+  const { context, env, onlyPluginIds, startupPluginIds, runtimeOptions, snapshot } = loadState;
   const tools: AnyAgentTool[] = [];
   const existing = params.existingToolNames ?? new Set<string>();
   const existingNormalized = new Set(Array.from(existing, (tool) => normalizeToolName(tool)));
@@ -1239,6 +1381,10 @@ export function resolvePluginTools(params: {
   const denylist = normalizeDenylist(params.toolDenylist);
   const configCacheKeyMemo = createPluginToolDescriptorConfigCacheKeyMemo();
   const clientCaps = new Set(params.clientCaps ?? []);
+  const preparedOrExplicitRegistry =
+    context === params.preparedRuntime?.loadContext
+      ? params.preparedRuntime.registry
+      : params.runtimeRegistry;
   let currentRuntimeConfigForDescriptorCache: PluginLoadOptions["config"] | null | undefined =
     params.context.runtimeConfig;
   if (currentRuntimeConfigForDescriptorCache === undefined && params.context.getRuntimeConfig) {
@@ -1263,6 +1409,8 @@ export function resolvePluginTools(params: {
     ctx: params.context,
     loadContext: context,
     runtimeOptions,
+    preferredRegistry: preparedOrExplicitRegistry,
+    startupPluginIds,
     currentRuntimeConfig: currentRuntimeConfigForDescriptorCache,
     configCacheKeyMemo,
     clientCaps,
@@ -1274,23 +1422,28 @@ export function resolvePluginTools(params: {
   if (runtimePluginIds.length === 0) {
     return tools;
   }
+  const requiredPluginIds = composePluginRuntimeScope(
+    [...runtimePluginIds, ...startupPluginIds],
+    preparedOrExplicitRegistry,
+  );
   const loadOptions = buildPluginRuntimeLoadOptions(context, {
     activate: false,
     toolDiscovery: true,
-    onlyPluginIds: runtimePluginIds,
+    onlyPluginIds: requiredPluginIds,
     runtimeOptions,
   });
-  const preparedOrExplicitRegistry =
-    context === params.preparedRuntime?.loadContext
-      ? params.preparedRuntime.registry
-      : params.runtimeRegistry;
-  let registry = registryHasScopedPluginTools(preparedOrExplicitRegistry, runtimePluginIds)
+  let registry = registryHasScopedPluginTools(
+    preparedOrExplicitRegistry,
+    runtimePluginIds,
+    requiredPluginIds,
+  )
     ? preparedOrExplicitRegistry
     : undefined;
   if (!registry) {
     registry = resolvePluginToolRegistry({
       loadOptions,
       onlyPluginIds: runtimePluginIds,
+      requiredPluginIds,
     });
   }
   if (!registry) {
@@ -1546,13 +1699,13 @@ export function resolvePluginTools(params: {
       });
       if (manifestPlugin) {
         const capturedDescriptors = capturedDescriptorsByPluginId.get(entry.pluginId) ?? [];
-        capturedDescriptors.push(
-          capturePluginToolDescriptor({
-            pluginId: entry.pluginId,
-            tool,
-            optional,
-          }),
-        );
+        const capturedDescriptor = capturePluginToolDescriptor({
+          pluginId: entry.pluginId,
+          tool,
+          optional,
+        });
+        pluginToolDescriptorCacheState.runtimeRegistries.set(capturedDescriptor, registry);
+        capturedDescriptors.push(capturedDescriptor);
         capturedDescriptorsByPluginId.set(entry.pluginId, capturedDescriptors);
       }
       tools.push(tool);

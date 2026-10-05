@@ -458,6 +458,14 @@ tool calls and retry attempts within that run. The host clears this state when
 the run ends. Direct Gateway calls can omit `runId`; it is trusted runtime
 context, not a model-facing tool parameter.
 
+Prepared agent and tool-discovery registries can use `getRunContext`,
+`setRunContext`, and `clearRunContext` while the host executes a successfully
+loaded plugin within that registry's scope. Registration itself, unrelated
+registry scopes, and removed, failed, or retired handles cannot access run state.
+State remains namespaced by plugin and run, and writes cannot reopen a completed
+run. This does not enable global workflow side effects such as scheduling turns
+or emitting events from a non-activating registry.
+
 For authorization that follows one individually queued request, use
 `api.runContext.resolveAdmissionId(ctx)`. Pass the host-provided `runId`,
 `agentId`, and `sessionKey` from the hook or tool factory. The resolver returns

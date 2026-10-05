@@ -26,6 +26,7 @@ import {
   type PluginSideEffectGuard,
 } from "./registry-state.js";
 import type { PluginRecord } from "./registry-types.js";
+import { getPluginRuntimeGatewayRequestScope } from "./runtime/gateway-request-scope.js";
 import type { OpenClawPluginApi, PluginLogger, PluginRegistrationMode } from "./types.js";
 
 function normalizeLogger(logger: PluginLogger): PluginLogger {
@@ -159,6 +160,22 @@ export function createPluginApiFactory(
       !isPluginRegistryRetired(registry) &&
       (isActivatingLoadedRecord() ||
         (isPluginRegistryActivated(registry) && isLoadedRecordInRegistry()));
+    const shouldAccessRunContext = () => {
+      if (registryParams.activateGlobalSideEffects !== false) {
+        return shouldCommitWorkflowSideEffect();
+      }
+      // A discovery registry may execute agent tools/hooks without becoming the
+      // process-wide runtime. Permit only its loaded, owned execution scope;
+      // registration, unrelated scopes and rolled-back/retired handles stay inert.
+      return (
+        sideEffectGuard.active &&
+        !isPluginRegistryRetired(registry) &&
+        getPluginRuntimeGatewayRequestScope()?.pluginRegistry === registry &&
+        record.enabled &&
+        record.status === "loaded" &&
+        registry.plugins.includes(record)
+      );
+    };
     return buildPluginApi({
       id: record.id,
       name: record.name,
@@ -286,20 +303,15 @@ export function createPluginApiFactory(
                 });
               },
               setRunContext: (patch) =>
-                registryParams.activateGlobalSideEffects !== false &&
-                shouldCommitWorkflowSideEffect()
+                shouldAccessRunContext()
                   ? setPluginRunContext({ pluginId: record.id, patch })
                   : false,
               getRunContext: (get) =>
-                registryParams.activateGlobalSideEffects !== false &&
-                shouldCommitWorkflowSideEffect()
+                shouldAccessRunContext()
                   ? getPluginRunContext({ pluginId: record.id, get })
                   : undefined,
               clearRunContext: (paramsLocal) => {
-                if (
-                  registryParams.activateGlobalSideEffects === false ||
-                  !shouldCommitWorkflowSideEffect()
-                ) {
+                if (!shouldAccessRunContext()) {
                   return;
                 }
                 clearPluginRunContext({
