@@ -253,14 +253,14 @@ describe("system events (session routing)", () => {
     });
   });
 
-  it("keeps only the newest 20 queued events", () => {
+  it("preserves the first 20 queued events when capacity is reached", () => {
     const key = "agent:main:test-max-events";
     for (let index = 1; index <= 22; index += 1) {
       enqueueSystemEvent(`event ${index}`, { sessionKey: key });
     }
 
     expect(peekSystemEvents(key)).toEqual(
-      Array.from({ length: 20 }, (_, index) => `event ${index + 3}`),
+      Array.from({ length: 20 }, (_, index) => `event ${index + 1}`),
     );
   });
 
@@ -455,8 +455,8 @@ describe("system events (session routing)", () => {
     expect(isSystemEventContextChanged(key, "build:123")).toBe(false);
   });
 
-  it("allows a keyed duplicate after the original is evicted", () => {
-    const key = "agent:main:test-keyed-duplicate-after-eviction";
+  it("retains keyed duplicate suppression when later events are rejected", () => {
+    const key = "agent:main:test-keyed-duplicate-at-capacity";
     enqueueSystemEvent("Build completed", { sessionKey: key, contextKey: "build:123" });
     for (let index = 0; index < 20; index += 1) {
       enqueueSystemEvent(`event ${index}`, { sessionKey: key, contextKey: `event:${index}` });
@@ -464,7 +464,8 @@ describe("system events (session routing)", () => {
 
     expect(
       enqueueSystemEvent("Build completed", { sessionKey: key, contextKey: "build:123" }),
-    ).toBe(true);
+    ).toBe(false);
+    expect(peekSystemEvents(key)[0]).toBe("Build completed");
   });
 
   it("allows a keyed duplicate after the original is consumed from the prefix", () => {

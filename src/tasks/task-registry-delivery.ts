@@ -2,7 +2,9 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import { shouldRouteCompletionThroughRequesterSession } from "../auto-reply/reply/completion-delivery-policy.js";
 import { channelSupportsThreadDelivery } from "../channels/thread-addressing.js";
 import { requestHeartbeat } from "../infra/heartbeat-wake.js";
-import { enqueueSystemEvent } from "../infra/system-events.js";
+import { scheduleSessionDelivery } from "../infra/session-delivery-queue-runtime.js";
+import { enqueueSessionDelivery } from "../infra/session-delivery-queue.js";
+import { enqueueSystemEventEntry } from "../infra/system-events.js";
 import {
   isGatewayRestartDraining,
   runWithGatewayIndependentRootWorkAdmission,
@@ -149,7 +151,7 @@ function queueTaskSystemEvent(task: TaskRecord, text: string) {
   if (!ownerKey) {
     return false;
   }
-  enqueueSystemEvent(text, {
+  enqueueSystemEventEntry(text, {
     sessionKey: ownerKey,
     contextKey: `task:${task.taskId}`,
     deliveryContext: owner.requesterOrigin,
@@ -163,7 +165,7 @@ function queueTaskSystemEvent(task: TaskRecord, text: string) {
   return true;
 }
 
-function queueBlockedTaskFollowup(task: TaskRecord) {
+async function queueBlockedTaskFollowup(task: TaskRecord) {
   const followupText = formatTaskBlockedFollowupMessage(task);
   if (!followupText) {
     return false;
@@ -173,17 +175,14 @@ function queueBlockedTaskFollowup(task: TaskRecord) {
   if (!ownerKey) {
     return false;
   }
-  enqueueSystemEvent(followupText, {
+  const id = await enqueueSessionDelivery({
+    kind: "systemEvent",
+    text: followupText,
     sessionKey: ownerKey,
-    contextKey: `task:${task.taskId}:blocked-followup`,
+    idempotencyKey: `task:${task.taskId}:blocked-followup`,
     deliveryContext: owner.requesterOrigin,
   });
-  requestHeartbeat({
-    source: "background-task-blocked",
-    intent: "immediate",
-    reason: "background-task-blocked",
-    sessionKey: ownerKey,
-  });
+  await scheduleSessionDelivery(id);
   return true;
 }
 
@@ -269,6 +268,16 @@ async function maybeDeliverTaskTerminalUpdateUnderAdmission(
         lastEventAt: Date.now(),
       });
     }
+    if (latest.terminalOutcome === "blocked") {
+      try {
+        // The parent needs the same blocked result independently of the channel
+        // notice. Persist that handoff first so retry never resends a delivered primary.
+        await queueBlockedTaskFollowup(latest);
+      } catch (error) {
+        log.warn("Failed to persist blocked task follow-up", { taskId, error });
+        return updateTask(taskId, { deliveryStatus: "failed", lastEventAt: Date.now() });
+      }
+    }
     const shouldRouteParentReview = shouldUseParentReviewTaskTerminalMessage(latest);
     const shouldDeliverParentReviewDirect = canDeliverParentReviewTaskToThreadOrigin(latest);
     const canDeliverDirect =
@@ -281,9 +290,6 @@ async function maybeDeliverTaskTerminalUpdateUnderAdmission(
     if ((shouldRouteParentReview && !shouldDeliverParentReviewDirect) || !canDeliverDirect) {
       try {
         queueTaskSystemEvent(latest, sessionEventText);
-        if (latest.terminalOutcome === "blocked") {
-          queueBlockedTaskFollowup(latest);
-        }
         return updateTask(taskId, {
           deliveryStatus:
             shouldRouteParentReview && canDeliverDirect ? "pending" : "session_queued",
@@ -327,9 +333,6 @@ async function maybeDeliverTaskTerminalUpdateUnderAdmission(
       if (!afterSend || !shouldAutoDeliverTaskTerminalUpdate(afterSend)) {
         return afterSend ? cloneTaskRecord(afterSend) : null;
       }
-      if (afterSend.terminalOutcome === "blocked") {
-        queueBlockedTaskFollowup(afterSend);
-      }
       return updateTask(taskId, {
         deliveryStatus: "delivered",
         lastEventAt: Date.now(),
@@ -347,9 +350,6 @@ async function maybeDeliverTaskTerminalUpdateUnderAdmission(
       }
       try {
         queueTaskSystemEvent(beforeFallback, sessionEventText);
-        if (beforeFallback.terminalOutcome === "blocked") {
-          queueBlockedTaskFollowup(beforeFallback);
-        }
       } catch (fallbackError) {
         log.warn("Failed to queue background task fallback event", {
           taskId,

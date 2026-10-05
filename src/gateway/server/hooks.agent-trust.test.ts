@@ -28,6 +28,7 @@ const resolveChannelDefaultAccountIdMock = vi.fn(() => "default");
 
 vi.mock("../../infra/system-events.js", () => ({
   enqueueSystemEvent: enqueueSystemEventMock,
+  enqueueSystemEventEntry: enqueueSystemEventMock,
 }));
 vi.mock("../../infra/heartbeat-wake.js", () => ({
   requestHeartbeat: requestHeartbeatMock,

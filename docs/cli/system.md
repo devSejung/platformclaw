@@ -39,6 +39,11 @@ heartbeat injects it as a `System:` line in the prompt. Use `--mode now` to
 trigger the heartbeat immediately; `next-heartbeat` (default) waits for the
 next scheduled tick.
 
+Each session holds at most 20 pending system events. If its queue is full,
+new events fail with a retryable queue-full error rather than removing older
+pending events. Let the session process those events, then retry the rejected
+event. A successful response confirms queue admission, not delivery.
+
 Pass `--session-key` to target a specific session, for example to relay an
 async-task completion back to the channel that started it.
 

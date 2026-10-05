@@ -44,6 +44,7 @@ import type { CronJob, CronJobCreate, CronJobPatch } from "../../cron/types.js";
 import { validateScheduleTimestamp } from "../../cron/validate-timestamp.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { resolveTargetPrefixedChannel } from "../../infra/outbound/channel-target-prefix.js";
+import { SystemEventQueueFullError } from "../../infra/system-events.js";
 import { isSubagentSessionKey, normalizeAgentId } from "../../routing/session-key.js";
 import {
   AGENT_HARNESS_SESSION_ID_LOCKED_MESSAGE,
@@ -449,13 +450,24 @@ export const cronHandlers: GatewayRequestHandlers = {
     // Gateway becomes request-ready before scheduled services start; load the
     // wake owner first so an early operator event cannot disappear on cold start.
     await context.cron.prepareWake?.();
-    const result = context.cron.wake({
-      mode: p.mode,
-      text: p.text,
-      ...(sessionKey ? { sessionKey } : {}),
-      ...(callerScope ? { agentId: callerScope.agentId } : agentId ? { agentId } : {}),
-    });
-    respond(true, result, undefined);
+    try {
+      const result = context.cron.wake({
+        mode: p.mode,
+        text: p.text,
+        ...(sessionKey ? { sessionKey } : {}),
+        ...(callerScope ? { agentId: callerScope.agentId } : agentId ? { agentId } : {}),
+      });
+      respond(true, result, undefined);
+    } catch (error) {
+      if (!(error instanceof SystemEventQueueFullError)) {
+        throw error;
+      }
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, error.message, { retryable: true }),
+      );
+    }
   },
   "cron.list": async ({ params, respond, context, client }) => {
     if (!assertValidParams(params, validateCronListParams, "cron.list", respond)) {

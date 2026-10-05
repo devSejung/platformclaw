@@ -1,4 +1,5 @@
 /** Loads, normalizes, quarantines, and persists cron service store state. */
+import { SystemEventQueueFullError } from "../../infra/system-events.js";
 import { normalizeCronJobIdentityFields } from "../normalize-job-identity.js";
 import { normalizeCronJobInput } from "../normalize.js";
 import { getInvalidPersistedCronJobReason } from "../persisted-shape.js";
@@ -295,7 +296,16 @@ export async function persist(state: CronServiceState, opts?: PersistOptions) {
     suppressScheduledJobId: opts?.suppressScheduledJobId,
   });
   for (const notify of opts?.postPersistNotifications ?? []) {
-    notify();
+    try {
+      notify();
+    } catch (error) {
+      if (!(error instanceof SystemEventQueueFullError)) {
+        throw error;
+      }
+      // These notifications describe committed state. Queue pressure must not
+      // abort finalization or prevent other sessions from receiving their notices.
+      state.deps.log.warn({ err: error.message }, "cron: post-commit notification rejected");
+    }
   }
   return true;
 }

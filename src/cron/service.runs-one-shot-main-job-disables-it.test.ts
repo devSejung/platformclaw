@@ -11,6 +11,7 @@ import {
   enqueueSystemEventEntry,
   peekSystemEventEntries,
   resetSystemEventsForTest,
+  SystemEventQueueFullError,
 } from "../infra/system-events.js";
 import type { CronEvent } from "./service.js";
 import { CronService } from "./service.js";
@@ -21,6 +22,8 @@ import {
   installCronTestHooks,
 } from "./service.test-harness.js";
 import type { CronServiceDeps } from "./service/state.js";
+import { resolveMainSessionCronRunSessionKey } from "./service/task-runs.js";
+import { loadCronStore } from "./store.js";
 
 const noopLogger = createNoopLogger();
 installCronTestHooks({ logger: noopLogger });
@@ -461,6 +464,42 @@ describe("CronService", () => {
     await runPromise;
 
     await stopCronAndCleanup(cron, store);
+  });
+
+  it("records a failed cron run when its event session is already full", async () => {
+    const runHeartbeatOnce = vi.fn(async () => ({ status: "ran" as const, durationMs: 1 }));
+    const { store, cron, requestHeartbeat, events } = await createCronHarness({
+      runHeartbeatOnce,
+      useRemovableSystemEventQueue: true,
+    });
+    try {
+      const job = await addWakeModeNowMainSystemEventJob(cron);
+      // Ordinary jobs use separate per-run sessions. Deliberately saturate this
+      // exact run's session to exercise rejection, rather than assuming collisions.
+      const sessionKey = resolveMainSessionCronRunSessionKey(job, Date.now(), "main");
+      for (let index = 0; index < 20; index += 1) {
+        enqueueSystemEventEntry(`pending ${index}`, { sessionKey });
+      }
+      await cron.run(job.id, "force");
+      expect(runHeartbeatOnce).not.toHaveBeenCalled();
+      expect(requestHeartbeat).not.toHaveBeenCalled();
+      expect(peekSystemEventEntries(sessionKey)).toHaveLength(20);
+      const persisted = (await loadCronStore(store.storePath)).jobs.find(
+        (entry) => entry.id === job.id,
+      );
+      expect(persisted?.state.lastRunStatus).toBe("error");
+      expect(persisted?.state.lastError).toContain(new SystemEventQueueFullError().message);
+      expect(events?.events).toContainEqual(
+        expect.objectContaining({
+          jobId: job.id,
+          action: "finished",
+          status: "error",
+          error: expect.stringContaining(new SystemEventQueueFullError().message),
+        }),
+      );
+    } finally {
+      await stopCronAndCleanup(cron, store);
+    }
   });
 
   it("removes a queued main-session event when an immediate heartbeat fails", async () => {
