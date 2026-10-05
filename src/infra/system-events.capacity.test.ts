@@ -1,5 +1,6 @@
 // Capacity is admission control: accepted events must survive later bursts.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SystemEventQueueFullError } from "./system-event-queue-error.js";
 import {
   consumeSelectedSystemEventEntries,
   drainSystemEventEntries,
@@ -8,7 +9,6 @@ import {
   isSystemEventContextChanged,
   peekSystemEventEntries,
   resetSystemEventsForTest,
-  SystemEventQueueFullError,
 } from "./system-events.js";
 
 const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
@@ -59,7 +59,7 @@ describe("system event admission", () => {
     );
     expect(peekSystemEventEntries(sessionKey)).toEqual(pending);
     expect(isSystemEventContextChanged(sessionKey, "source:19")).toBe(false);
-    expect(warn).toHaveBeenCalledWith(new SystemEventQueueFullError().message);
+    expect(warn).toHaveBeenCalledWith(new SystemEventQueueFullError(20).message);
     expect(JSON.stringify(warn.mock.calls)).not.toMatch(/private|agent:main/);
     consumeSelectedSystemEventEntries(sessionKey, [{ text: "stale snapshot", ts: 0 }]);
     expect(enqueueSystemEvent("still full", { sessionKey })).toBe(false);

@@ -1,5 +1,5 @@
 /** Loads, normalizes, quarantines, and persists cron service store state. */
-import { SystemEventQueueFullError } from "../../infra/system-events.js";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
 import { normalizeCronJobIdentityFields } from "../normalize-job-identity.js";
 import { normalizeCronJobInput } from "../normalize.js";
 import { getInvalidPersistedCronJobReason } from "../persisted-shape.js";

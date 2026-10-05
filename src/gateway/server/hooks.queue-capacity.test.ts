@@ -2,12 +2,12 @@
 import { createServer } from "node:http";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CliDeps } from "../../cli/deps.types.js";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
 import {
   drainSystemEvents,
   enqueueSystemEvent,
   peekSystemEvents,
   resetSystemEventsForTest,
-  SystemEventQueueFullError,
 } from "../../infra/system-events.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { createHooksConfig } from "../hooks-test-helpers.js";
@@ -95,7 +95,7 @@ describe("hook queue admission over HTTP", () => {
       expect(results.slice(20)).toEqual(
         Array.from({ length: 3 }, () => ({
           status: 503,
-          body: { ok: false, error: new SystemEventQueueFullError().message },
+          body: { ok: false, error: new SystemEventQueueFullError(20).message },
         })),
       );
       expect(requestHeartbeat).toHaveBeenCalledTimes(20);

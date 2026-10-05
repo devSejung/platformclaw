@@ -7,12 +7,12 @@ import {
   SYSTEM_PRESENCE_CLEAR_LAST_INPUT_TAG,
   SYSTEM_PRESENCE_LEGACY_CLEAR_LAST_INPUT_SECONDS,
 } from "../../../packages/gateway-protocol/src/schema.js";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
 import {
   drainSystemEvents,
   enqueueSystemEvent,
   peekSystemEvents,
   resetSystemEventsForTest,
-  SystemEventQueueFullError,
 } from "../../infra/system-events.js";
 import { listSystemPresence, updateSystemPresence } from "../../infra/system-presence.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
@@ -106,7 +106,7 @@ describe("system-event routing", () => {
       undefined,
       expect.objectContaining({
         code: "UNAVAILABLE",
-        message: new SystemEventQueueFullError().message,
+        message: new SystemEventQueueFullError(20).message,
         retryable: true,
       }),
     );

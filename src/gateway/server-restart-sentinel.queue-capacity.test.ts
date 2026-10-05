@@ -8,12 +8,12 @@ import {
   loadPendingSessionDeliveries,
   type QueuedSessionDeliveryPayload,
 } from "../infra/session-delivery-queue.js";
+import { SystemEventQueueFullError } from "../infra/system-event-queue-error.js";
 import {
   drainSystemEvents,
   enqueueSystemEventEntry,
   peekSystemEvents,
   resetSystemEventsForTest,
-  SystemEventQueueFullError,
 } from "../infra/system-events.js";
 import { withTempDir } from "../test-helpers/temp-dir.js";
 import { deliverQueuedSessionDelivery } from "./server-restart-sentinel.js";
@@ -73,7 +73,7 @@ describe("restart recovery queue admission", () => {
         expect.objectContaining({
           id,
           retryCount: 1,
-          lastError: new SystemEventQueueFullError().message,
+          lastError: new SystemEventQueueFullError(20).message,
         }),
       ]);
       expect(onSettled).not.toHaveBeenCalled();

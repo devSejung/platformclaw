@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
-import { SystemEventQueueFullError } from "../../infra/system-events.js";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
 import type { createSubsystemLogger } from "../../logging/subsystem.js";
 import { resolveHookExternalContentSource as resolveHookExternalContentSourceFromSession } from "../../security/external-content.js";
 import { safeEqualSecret } from "../../security/secret-equal.js";

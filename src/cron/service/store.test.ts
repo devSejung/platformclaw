@@ -1,11 +1,11 @@
 // Cron service store tests cover persisted service state loading and writes.
 import fs from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
 import {
   enqueueSystemEventEntry,
   peekSystemEvents,
   resetSystemEventsForTest,
-  SystemEventQueueFullError,
 } from "../../infra/system-events.js";
 import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { setupCronServiceSuite } from "../service.test-harness.js";
@@ -106,7 +106,7 @@ describe("cron service store seam coverage", () => {
     expect(peekSystemEvents(sessionKey)).toHaveLength(20);
     expect(peekSystemEvents("agent:other:main")).toEqual(["another notice"]);
     expect(logger.warn).toHaveBeenCalledWith(
-      { err: new SystemEventQueueFullError().message },
+      { err: new SystemEventQueueFullError(20).message },
       "cron: post-commit notification rejected",
     );
   });

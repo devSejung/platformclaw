@@ -15,6 +15,7 @@ import {
   normalizeDeliveryContext,
 } from "../utils/delivery-context.shared.js";
 import type { DeliveryContext } from "../utils/delivery-context.types.js";
+import { SystemEventQueueFullError } from "./system-event-queue-error.js";
 
 export type SystemEvent = {
   text: string;
@@ -25,15 +26,6 @@ export type SystemEvent = {
 
 const MAX_EVENTS = 20;
 const log = createSubsystemLogger("system-events");
-
-export class SystemEventQueueFullError extends Error {
-  constructor() {
-    super(
-      `System event queue is full (${MAX_EVENTS} pending). Let the session process pending events before retrying the notification.`,
-    );
-    this.name = "SystemEventQueueFullError";
-  }
-}
 
 type SessionQueue = {
   queue: SystemEvent[];
@@ -145,7 +137,7 @@ export function enqueueSystemEventEntry(
   // Acknowledged events keep their slots until consumed. A replacement owns an
   // existing slot; every other admission at capacity must remain retryable.
   if (entry.queue.length >= MAX_EVENTS && !(options.replace && entry.queue.some(matches))) {
-    const error = new SystemEventQueueFullError();
+    const error = new SystemEventQueueFullError(MAX_EVENTS);
     if (!entry.overflowReported) {
       // Best-effort producers may ignore false. Report rejection without event
       // contents or routes, once per saturation episode rather than per burst item.

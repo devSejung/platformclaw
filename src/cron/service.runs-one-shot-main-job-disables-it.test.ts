@@ -5,13 +5,13 @@ import {
   HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT,
   type HeartbeatRunResult,
 } from "../infra/heartbeat-wake.js";
+import { SystemEventQueueFullError } from "../infra/system-event-queue-error.js";
 import {
   consumeSelectedSystemEventEntries,
   drainSystemEventEntries,
   enqueueSystemEventEntry,
   peekSystemEventEntries,
   resetSystemEventsForTest,
-  SystemEventQueueFullError,
 } from "../infra/system-events.js";
 import type { CronEvent } from "./service.js";
 import { CronService } from "./service.js";
@@ -488,13 +488,13 @@ describe("CronService", () => {
         (entry) => entry.id === job.id,
       );
       expect(persisted?.state.lastRunStatus).toBe("error");
-      expect(persisted?.state.lastError).toContain(new SystemEventQueueFullError().message);
+      expect(persisted?.state.lastError).toContain(new SystemEventQueueFullError(20).message);
       expect(events?.events).toContainEqual(
         expect.objectContaining({
           jobId: job.id,
           action: "finished",
           status: "error",
-          error: expect.stringContaining(new SystemEventQueueFullError().message),
+          error: expect.stringContaining(new SystemEventQueueFullError(20).message),
         }),
       );
     } finally {

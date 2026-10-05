@@ -34,11 +34,8 @@ import { setHeartbeatsEnabled } from "../../infra/heartbeat-runner.js";
 import { requestHeartbeat } from "../../infra/heartbeat-wake.js";
 import { getMachineDisplayName } from "../../infra/machine-name.js";
 import { resolveRuntimeOsLabel } from "../../infra/os-summary.js";
-import {
-  enqueueSystemEventEntry,
-  isSystemEventContextChanged,
-  SystemEventQueueFullError,
-} from "../../infra/system-events.js";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
+import { enqueueSystemEventEntry, isSystemEventContextChanged } from "../../infra/system-events.js";
 import { listSystemPresence, updateSystemPresence } from "../../infra/system-presence.js";
 import { normalizeAgentId, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { getGatewayProcessInstanceId } from "../process-instance.js";
