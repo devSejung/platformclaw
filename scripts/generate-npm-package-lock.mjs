@@ -62,14 +62,13 @@ function normalizeOverrides(overrides) {
       const parentSelector = key.slice(0, scopedSeparator).trim();
       const dependencyName = key.slice(scopedSeparator + 1).trim();
       if (parentSelector && dependencyName) {
-        const current = normalized[parentSelector];
-        const nested = isPlainObject(current) ? current : {};
-        nested[dependencyName] = normalizeOverrideValue(value);
-        normalized[parentSelector] = nested;
+        mergeOverrideEntry(normalized, parentSelector, {
+          [dependencyName]: normalizeOverrideValue(value),
+        });
         continue;
       }
     }
-    normalized[key] = normalizeOverrideValue(value);
+    mergeOverrideEntry(normalized, key, normalizeOverrideValue(value));
   }
   return normalized;
 }
@@ -259,32 +258,37 @@ function expandScopedOverrideValue(overrides, dependencyName, version, seen = ne
 function expandScopedOverrideChildren(overrides) {
   return Object.fromEntries(
     Object.entries(overrides)
-      .map(([parentSelector, nestedOverrides]) => [
-        parentSelector,
-        isPlainObject(nestedOverrides)
-          ? Object.fromEntries(
-              Object.entries(nestedOverrides)
-                .map(([dependencyName, version]) => [
-                  dependencyName,
-                  typeof version === "string"
-                    ? expandScopedOverrideValue(overrides, dependencyName, version)
-                    : version,
-                ])
-                .toSorted(([left], [right]) => left.localeCompare(right)),
-            )
-          : typeof nestedOverrides === "string" &&
-              exactVersionFromOverrideSpec(nestedOverrides) !== null
-            ? isPlainObject(
-                overrides[`${parentSelector}@${exactVersionFromOverrideSpec(nestedOverrides)}`],
+      .map(([parentSelector, nestedOverrides]) => {
+        const rootSpec = isPlainObject(nestedOverrides) ? nestedOverrides["."] : nestedOverrides;
+        const rootVersion = exactVersionFromOverrideSpec(rootSpec);
+        const versionedChildren = rootVersion
+          ? overrides[`${parentSelector}@${rootVersion}`]
+          : null;
+        // An explicit child override must retain the locked parent's other version-scoped
+        // children; npm selects one parent rule and does not merge sibling rules itself.
+        const scoped = isPlainObject(versionedChildren)
+          ? mergeOverrides(
+              {},
+              { [parentSelector]: nestedOverrides },
+              { [parentSelector]: versionedChildren },
+            )[parentSelector]
+          : nestedOverrides;
+        return [
+          parentSelector,
+          isPlainObject(scoped)
+            ? Object.fromEntries(
+                Object.entries(scoped)
+                  .map(([dependencyName, version]) => [
+                    dependencyName,
+                    dependencyName !== "." && typeof version === "string"
+                      ? expandScopedOverrideValue(overrides, dependencyName, version)
+                      : version,
+                  ])
+                  .toSorted(([left], [right]) => left.localeCompare(right)),
               )
-              ? expandScopedOverrideValue(
-                  overrides,
-                  parentSelector,
-                  exactVersionFromOverrideSpec(nestedOverrides),
-                )
-              : nestedOverrides
-            : nestedOverrides,
-      ])
+            : scoped,
+        ];
+      })
       .toSorted(([left], [right]) => left.localeCompare(right)),
   );
 }
@@ -374,7 +378,17 @@ function resolvePnpmLockOverridePlan(lockfile) {
 function mergeOverrideEntry(merged, name, spec) {
   const current = merged[name];
   if (current === undefined) {
-    merged[name] = spec;
+    merged[name] = normalizeOverrideValue(spec);
+    return;
+  }
+  // npm's "." pins the parent independently of its child overrides. Combining
+  // a child-only policy with a parent pin must preserve both in either order.
+  if (typeof current === "string" && isPlainObject(spec) && spec["."] === undefined) {
+    merged[name] = { ".": current, ...normalizeOverrideValue(spec) };
+    return;
+  }
+  if (isPlainObject(current) && typeof spec === "string" && current["."] === undefined) {
+    current["."] = spec;
     return;
   }
   if (isPlainObject(current) && isPlainObject(spec)) {
