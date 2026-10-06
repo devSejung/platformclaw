@@ -1,6 +1,5 @@
 // @vitest-environment node
 // Control UI tests cover translate behavior.
-import { importFreshModule } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import * as translate from "../lib/translate.ts";
@@ -51,10 +50,9 @@ const shippedLocales = {
 let translateImportCase = 0;
 
 async function importFreshTranslate() {
-  return importFreshModule<typeof import("../lib/translate.ts")>(
-    import.meta.url,
-    `../lib/translate.ts?case=${++translateImportCase}`,
-  );
+  // Bust only this module's cache; the plugin fixture barrel also loads server-only runtimes.
+  const url = new URL(`../lib/translate.ts?case=${++translateImportCase}`, import.meta.url);
+  return (await import(/* @vite-ignore */ url.href)) as typeof import("../lib/translate.ts");
 }
 
 function stubDocumentLocaleMetadata() {
