@@ -206,7 +206,7 @@ export function updateSessionUpstreamLinkMarker(
 export function deleteSessionUpstreamLink(
   sessionKey: string,
   agentId: string,
-  options: OpenClawStateDatabaseOptions = {},
+  options: OpenClawStateDatabaseOptions & { requireSuccess?: boolean } = {},
 ): void {
   try {
     runOpenClawStateWriteTransaction(({ db }) => {
@@ -219,6 +219,9 @@ export function deleteSessionUpstreamLink(
       );
     }, options);
   } catch (error) {
+    if (options.requireSuccess) {
+      throw error;
+    }
     log.warn(`failed to delete session upstream link: ${String(error)}`);
   }
 }

@@ -288,6 +288,14 @@ function createLazyMemoryRuntime(host: MemoryCoreRuntimeHost): MemoryPluginRunti
       const { memoryRuntime: runtime } = await loadRuntimeProviderModule();
       await runtime.closeAllMemorySearchManagers?.();
     },
+    async withSessionPurge(params, run) {
+      const { createMemoryRuntime } = await loadRuntimeProviderModule();
+      const runtime = createMemoryRuntime(host);
+      if (!runtime.withSessionPurge) {
+        throw new Error("memory-core session purge is unavailable");
+      }
+      return await runtime.withSessionPurge(params, run);
+    },
     async closeMemorySearchManager(params) {
       const { memoryRuntime: runtime } = await loadRuntimeProviderModule();
       await runtime.closeMemorySearchManager?.(params);

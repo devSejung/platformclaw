@@ -1,146 +1,16 @@
-import { webcrypto } from "node:crypto";
-import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import type { SpaceConversation } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
-import { i18n } from "../i18n/index.ts";
-import { loadAllPlatformClawLocales } from "./i18n.ts";
-import "./spaces-page.ts";
-const space = {
-  id: "work-a",
-  name: "Mixed Signal Project",
-  role: "owner",
-  revision: 1,
-  agentId: "space-one",
-};
-const page = {
-  id: "issue-a",
-  spaceId: space.id,
-  parentId: null,
-  title: "Timing issue",
-  body: "Shared notes",
-  revision: 1,
-  createdBy: "alice",
-  updatedAt: 100,
-};
-const member = { userId: "alice", accountId: "alice", displayName: "Alice", role: "owner" };
-const roots: HTMLElement[] = [];
-const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
-afterEach(() => {
-  roots.splice(0).forEach((root) => root.remove());
-  vi.restoreAllMocks();
-  if (clipboardDescriptor) {
-    Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
-  } else {
-    Reflect.deleteProperty(navigator, "clipboard");
-  }
-  history.replaceState(null, "", "/");
-});
-beforeEach(async () => {
-  Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
-  await i18n.setLocale("en");
-  await loadAllPlatformClawLocales();
-});
-type Element = HTMLElement & {
-  context: unknown;
-  updateComplete: Promise<unknown>;
-  selectSpace: (id: string) => Promise<void>;
-  selectPage: (page: unknown) => void;
-  refresh: () => Promise<void>;
-};
-async function mount(role = "owner", conversations: SpaceConversation[] = []) {
-  const listeners = new Set<(event: { event: string; payload?: unknown }) => void>();
-  const request = vi.fn(
-    async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
-      if (method.endsWith(".list")) {
-        return [{ ...space, role }];
-      }
-      if (method.endsWith(".get")) {
-        return {
-          space: { ...space, role },
-          pages: [page],
-          members: [member],
-          conversations,
-          currentUserId: "alice",
-        };
-      }
-      if (method.endsWith(".history")) {
-        return {
-          messages: [
-            {
-              id: "m1",
-              role: "user",
-              text: "Earlier question",
-              timestamp: 100,
-              authorName: "Alice",
-            },
-          ],
-        };
-      }
-      if (method.endsWith(".people")) {
-        return [{ userId: "bob", accountId: "bob", displayName: "Bob" }];
-      }
-      if (method.endsWith(".search")) {
-        return { results: [] };
-      }
-      return { updated: true };
-    },
-  );
-  const gateway = {
-    snapshot: { phase: "connected", client: { request } },
-    subscribe: () => () => {},
-    subscribeEvents: (fn: (event: { event: string; payload?: unknown }) => void) => {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
-  };
-  const element = document.createElement("platformclaw-spaces-page") as Element;
-  element.context = { gateway };
-  document.body.append(element);
-  roots.push(element);
-  await element.updateComplete;
-  await vi.waitFor(() => expect(request).toHaveBeenCalledWith("platformclaw.spaces.list", {}));
-  await element.selectSpace(space.id);
-  element.selectPage(page);
-  await element.updateComplete;
-  await vi.waitFor(() =>
-    expect(element.querySelector('[role="tab"][aria-selected="true"]')).not.toBeNull(),
-  );
-  if (conversations.length === 0) {
-    await vi.waitFor(() => expect(element.textContent).toContain("Earlier question"));
-  }
-  return {
-    element,
-    request,
-    gateway,
-    emit: (event: { event: string; payload?: unknown }) => listeners.forEach((fn) => fn(event)),
-  };
-}
-function button(element: HTMLElement, text: string) {
-  const found = [...element.querySelectorAll("button")].find(
-    (item) => item.textContent?.trim() === text || item.getAttribute("aria-label") === text,
-  );
-  expect(found, `button ${text}`).toBeDefined();
-  return found!;
-}
-async function beginEdit(element: Element) {
-  if (
-    ![...element.querySelectorAll("button")].some(
-      (item) => item.textContent?.trim() === "Edit page",
-    )
-  ) {
-    button(element, "Notes").click();
-    await element.updateComplete;
-  }
-  button(element, "Edit page").click();
-  await element.updateComplete;
-}
-function input(element: HTMLElement, label: string, value: string) {
-  const field = [...element.querySelectorAll("label")]
-    .find((item) => item.textContent?.includes(label))
-    ?.querySelector("input,textarea") as HTMLInputElement;
-  expect(field).toBeDefined();
-  field.value = value;
-  field.dispatchEvent(new Event("input", { bubbles: true }));
-}
+import {
+  beginEdit,
+  button,
+  input,
+  member,
+  mount,
+  page,
+  setupSpacePageTests,
+  space,
+} from "./spaces-page.test-support.ts";
+setupSpacePageTests();
 describe("Space issue page UX", () => {
   it("preserves only authored whitespace in user message bubbles", async () => {
     const { element, request } = await mount();

@@ -477,6 +477,25 @@ describe("session state events", () => {
     expect(listSessionStateEventsSince(child, "main", 0, 200, database).events).toEqual([]);
   });
 
+  it("propagates strict purge failures and permits retry without losing shared-state payloads", () => {
+    const database = createDatabaseOptions();
+    seedChild(database);
+    recordSessionStateEvent(eventInput(), database);
+    const { db } = openOpenClawStateDatabase(database);
+    db.exec(
+      "CREATE TRIGGER fail_session_purge BEFORE DELETE ON session_state_events BEGIN SELECT RAISE(ABORT, 'synthetic purge failure'); END",
+    );
+    expect(() =>
+      handleSessionStateSessionDeleted(child, "main", { ...database, requireSuccess: true }),
+    ).toThrow("synthetic purge failure");
+    expect(
+      listSessionStateEventsSince(child, "main", 0, 200, database).events.length,
+    ).toBeGreaterThan(0);
+    db.exec("DROP TRIGGER fail_session_purge");
+    handleSessionStateSessionDeleted(child, "main", { ...database, requireSuccess: true });
+    expect(listSessionStateEventsSince(child, "main", 0, 200, database).events).toEqual([]);
+  });
+
   it("classifies missing provenance as human and inter-session provenance as agent", () => {
     expect(classifySessionStateActor({})).toEqual({ actorType: "human" });
     expect(

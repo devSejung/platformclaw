@@ -119,7 +119,43 @@ export function materializeSessionArchiveForRead(filePath: string): string {
   // Concurrent readers may race to the same identity; last rename wins with
   // identical content, so neither can observe a torn or missing cache file.
   fs.renameSync(tempPath, cachePath);
+  try {
+    // A different process can purge the source after the initial read. Never
+    // publish a new plaintext copy after that owner's cache sweep completed.
+    const current = fs.statSync(filePath);
+    if (
+      current.dev !== sourceStat.dev ||
+      current.ino !== sourceStat.ino ||
+      current.size !== sourceStat.size ||
+      current.mtimeMs !== sourceStat.mtimeMs
+    ) {
+      throw new Error("Transcript archive changed during materialization");
+    }
+  } catch (error) {
+    fs.rmSync(cachePath, { force: true });
+    throw error;
+  }
   return cachePath;
+}
+
+/** Remove the plaintext projection before its source so a failed purge remains retryable. */
+export function purgeSessionArchiveReadCache(filePath: string): void {
+  const cacheDir = path.join(resolvePreferredOpenClawTmpDir(), "session-archive-read-cache");
+  const pathKey = createHash("sha256").update(filePath).digest("hex").slice(0, 32);
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(cacheDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+  for (const entry of entries) {
+    if (entry.startsWith(`${pathKey}-`)) {
+      fs.rmSync(path.join(cacheDir, entry), { force: true });
+    }
+  }
 }
 
 // Bounded plaintext exposure: cache entries expire on age so archives deleted

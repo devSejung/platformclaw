@@ -17,6 +17,8 @@ export function renderSpaceMembers(props: {
   onAccount: (value: string, immediate?: boolean) => void;
   onPending: (value: PendingSpaceMember | null) => void;
   onConfirm: () => void;
+  onLeave: () => void;
+  onDelete: () => void;
 }) {
   const search = props.search;
   const choose = (person: SpacePerson) =>
@@ -162,5 +164,15 @@ export function renderSpaceMembers(props: {
           </button>
         </div>`
       : nothing}
+    <footer class="pc-space-management-actions">
+      <button class="btn" ?disabled=${props.busy} @click=${props.onLeave}>
+        ${t("leaveSpace")}
+      </button>
+      ${props.owner
+        ? html`<button class="btn danger" ?disabled=${props.busy} @click=${props.onDelete}>
+            ${t("deleteSpace")}
+          </button>`
+        : nothing}
+    </footer>
   </section>`;
 }

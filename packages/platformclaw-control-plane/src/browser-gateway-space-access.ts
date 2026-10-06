@@ -51,20 +51,44 @@ export class BrowserGatewaySpaceAccess {
     context: BrowserGatewayRequestContext | undefined,
     run: (validateAdmission?: () => void) => Promise<T>,
   ): Promise<T> {
-    return this.options.spaceService
-      ? await this.options.spaceService.conversations.guardNativeRequest(
-          access.user.id,
-          method,
-          params,
-          async () => {
-            const current = await this.resolveAccess(token);
-            if (current.user.id !== access.user.id || context?.isConnected?.() === false) {
-              throw new BrowserGatewayProxyError("unauthenticated", "Browser session changed");
-            }
-          },
-          run,
-        )
-      : await run();
+    const service = this.options.spaceService;
+    if (!service) {
+      return await run();
+    }
+    const result = await service.conversations.guardNativeRequest(
+      access.user.id,
+      method,
+      params,
+      async () => {
+        const current = await this.resolveAccess(token);
+        if (current.user.id !== access.user.id || context?.isConnected?.() === false) {
+          throw new BrowserGatewayProxyError("unauthenticated", "Browser session changed");
+        }
+      },
+      run,
+    );
+    // The outer authentication await can outlive the local Space handler's ACL check.
+    // Recheck at this final boundary before returning any Space content to a stale tab.
+    if (method === "platformclaw.spaces.list") {
+      return service.spaces.list(access.user.id, true) as T;
+    }
+    if (
+      method.startsWith("platformclaw.spaces.") &&
+      isRecord(params) &&
+      typeof params.spaceId === "string" &&
+      ![
+        "platformclaw.spaces.member.remove",
+        "platformclaw.spaces.leave",
+        "platformclaw.spaces.delete",
+      ].includes(method)
+    ) {
+      service.spaces.access(
+        access.user.id,
+        params.spaceId,
+        method.endsWith(".people") ? "owner" : "viewer",
+      );
+    }
+    return result;
   }
 
   suppressCommandInterpretation(sessionKey: unknown, initialSuppressed: boolean): boolean {

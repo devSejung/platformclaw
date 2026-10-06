@@ -11,6 +11,7 @@ import {
   SpaceConversationService,
   isSpaceConversationSession,
 } from "./space-conversation-service.js";
+import { SpaceLifecycleService } from "./space-lifecycle-service.js";
 import {
   SpaceNativeSessionGuard,
   type SpaceNativeSessionRequest,
@@ -27,7 +28,6 @@ import type { SqliteControlPlaneStore } from "./sqlite-store.js";
 // One agent query shares this work budget across Spaces and both transcript paths.
 // Bounded output alone would still permit thousands of sequential history reads.
 const SPACE_SEARCH_LOOKUP_LIMIT = 40;
-
 function normalizeSpaceSearchQuery(query: unknown): string {
   return spaceText(query, "query", 1000).trim().replace(/\s+/gu, " ");
 }
@@ -36,6 +36,8 @@ type SpaceAgentReadParams = SpaceRecallWindow &
   Partial<Omit<SpaceNativeSessionRequest, "agentId" | "sessionKey">> & {
     agentId: string;
     query?: string;
+    authorName?: string;
+    authorId?: string;
     spaceId?: string;
     pageId?: string;
     sessionKey?: string;
@@ -131,6 +133,7 @@ export class SpaceService {
   readonly conversations: SpaceConversationService;
   private readonly nativeSessions: SpaceNativeSessionGuard;
   private readonly listeners = new Set<() => void>();
+  readonly lifecycle: SpaceLifecycleService;
   subscribe(listener: () => void) {
     this.listeners.add(listener);
     return () => {
@@ -150,6 +153,13 @@ export class SpaceService {
     this.spaces = store.spaces;
     this.conversations = new SpaceConversationService(this.spaces, gateway, runtimeReady);
     this.nativeSessions = new SpaceNativeSessionGuard(this.spaces, gateway);
+    this.lifecycle = new SpaceLifecycleService(
+      this.spaces,
+      gateway,
+      this.conversations,
+      () => this.changed(),
+      (space, userId) => this.cancelRevoked(space, userId),
+    );
   }
   private key(agentId: string, pageId: string) {
     return `agent:${agentId}:space:${pageId}`;
@@ -389,7 +399,118 @@ export class SpaceService {
       });
     }
     validateSpaceRecallWindow(params);
+    if (params.authorName !== undefined || params.authorId !== undefined) {
+      if (
+        params.operation !== "search" ||
+        (params.authorName !== undefined && params.authorId !== undefined)
+      ) {
+        throw new ControlPlaneStateError("Use one authorName or authorId filter for Space search");
+      }
+      if (params.authorName !== undefined) {
+        spaceText(params.authorName, "author name", 240);
+      }
+      if (params.authorId !== undefined) {
+        spaceText(params.authorId, "author id", 128);
+      }
+    }
     return projectSpaceRecallResult(await this.readAgentScope(params), params);
+  }
+
+  private async searchAuthor(
+    userId: string,
+    params: SpaceAgentReadParams,
+    spaceId: string | undefined,
+    revalidate: () => Promise<void>,
+  ) {
+    const query = params.query === undefined ? undefined : normalizeSpaceSearchQuery(params.query);
+    const scope = spaceId
+      ? { spaces: [this.spaces.access(userId, spaceId)], hasMore: false }
+      : this.spaces.recallScope(userId);
+    if (scope.hasMore && params.authorName !== undefined) {
+      throw new ControlPlaneStateError(
+        "Author name search spans more than 100 Spaces; provide a spaceId to resolve the author safely",
+      );
+    }
+    const { spaces } = scope;
+    const authors = new Map<
+      string,
+      { authorId: string; authorName: string; spaceName: string; conversationTitle: string }
+    >();
+    const name = params.authorName?.trim().toLowerCase();
+    for (const space of spaces) {
+      for (const conversation of this.spaces.sharedConversations(userId, space.id)) {
+        if (
+          params.authorId !== undefined
+            ? conversation.ownerId === params.authorId.trim()
+            : conversation.ownerName.toLowerCase().includes(name!)
+        ) {
+          if (!authors.has(conversation.ownerId)) {
+            authors.set(conversation.ownerId, {
+              authorId: conversation.ownerId,
+              authorName: conversation.ownerName,
+              spaceName: space.name,
+              conversationTitle: conversation.title,
+            });
+          }
+        }
+      }
+    }
+    // Resolve identity across the whole authorized scope before reading any transcript.
+    // Identical display names never silently select the first person's conversation.
+    await revalidate();
+    for (const space of spaces) {
+      this.spaces.access(userId, space.id);
+    }
+    if (authors.size > 1) {
+      return {
+        results: [],
+        indexing: false,
+        ambiguousAuthor: true,
+        authors: [...authors.values()],
+      };
+    }
+    const author = authors.values().next().value;
+    if (!author) {
+      return { results: [], indexing: false, windowLimited: scope.hasMore };
+    }
+    const results: Array<Record<string, unknown>> = [];
+    const budget = { remaining: SPACE_SEARCH_LOOKUP_LIMIT };
+    let indexing = false;
+    let windowLimited = scope.hasMore;
+    for (const space of spaces) {
+      if (query === undefined) {
+        // Identity resolution above scans the whole scope; source expansion only
+        // needs the candidate window plus one sentinel to report truncation.
+        results.push(
+          ...this.conversations.sources(userId, space.id, author.authorId, 21 - results.length),
+        );
+        if (results.length >= 21) {
+          break;
+        }
+      } else {
+        const match = await this.conversations.search(
+          userId,
+          space.id,
+          query,
+          revalidate,
+          budget,
+          author.authorId,
+        );
+        results.push(...match.results);
+        indexing ||= match.indexing;
+        windowLimited ||= match.windowLimited;
+      }
+    }
+    await revalidate();
+    for (const space of spaces) {
+      this.spaces.access(userId, space.id);
+    }
+    return {
+      results: results.slice(0, 20),
+      indexing,
+      windowLimited: windowLimited || results.length > 20,
+      ...(query === undefined ? { discoveryOnly: true } : {}),
+    };
   }
   private async readAgentScope(params: SpaceAgentReadParams) {
     const sharedId = this.spaces.spaceForAgent(params.agentId);
@@ -423,6 +544,14 @@ export class SpaceService {
         };
       }
       if (params.operation === "search") {
+        if (params.authorName !== undefined || params.authorId !== undefined) {
+          return this.searchAuthor(
+            userId,
+            params,
+            registered?.spaceId ?? params.spaceId,
+            revalidate,
+          );
+        }
         return await this.search(
           userId,
           spaceText(params.query, "query", 1000),
@@ -462,6 +591,11 @@ export class SpaceService {
         page: projectSpacePage(page, params),
         messages: history.messages,
       };
+    }
+    if (params.authorName !== undefined || params.authorId !== undefined) {
+      throw new ControlPlaneStateError(
+        "Author search requires a personal agent; search issue keywords here",
+      );
     }
     if (params.spaceId && params.spaceId !== sharedId) {
       throw new ControlPlaneAuthorizationError("Space unavailable");

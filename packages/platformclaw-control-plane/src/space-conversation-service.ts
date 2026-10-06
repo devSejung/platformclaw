@@ -2,6 +2,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { BrowserGatewayEvent, BrowserGatewayRpc } from "./browser-gateway-contracts.js";
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
+import type { SpaceConversation } from "./space-contracts.js";
 import type { SqliteSpaceStore } from "./sqlite-spaces.js";
 
 const READ_METHODS = new Set([
@@ -277,9 +278,12 @@ export class SpaceConversationService {
     query: string,
     revalidate: () => Promise<void>,
     budget: { remaining: number },
+    authorId?: string,
   ) {
     const space = this.spaces.access(userId, spaceId);
-    const conversations = this.spaces.sharedConversations(userId, spaceId);
+    const conversations = this.spaces
+      .sharedConversations(userId, spaceId)
+      .filter((conversation) => authorId === undefined || conversation.ownerId === authorId);
     const byKey = new Map(
       conversations.map((conversation) => [conversation.sessionKey, conversation]),
     );
@@ -349,22 +353,12 @@ export class SpaceConversationService {
         if (!queryTerms.every((term) => normalizedText.includes(term))) {
           continue;
         }
-        const page = this.spaces.page(userId, spaceId, conversation.pageId);
         const match = normalizedText.indexOf(queryTerms[0]!);
         const start = Math.max(0, match - 120);
         results.push({
-          spaceId,
-          spaceName: space.name,
-          pageId: page.id,
-          pageTitle: page.title,
-          conversationId: conversation.id,
-          conversationTitle: conversation.title,
-          ownerId: conversation.ownerId,
-          ownerName: conversation.ownerName,
+          ...this.source(userId, space, conversation),
           messageId: hit.messageId,
           snippet: content.text.slice(start, start + 1200),
-          // Peer sessions are agent-readable evidence, not human navigation targets.
-          link: `/platformclaw/app/spaces?space=${encodeURIComponent(spaceId)}&page=${encodeURIComponent(page.id)}`,
         });
         if (results.length >= 10) {
           return { results, indexing, windowLimited: true };
@@ -374,6 +368,37 @@ export class SpaceConversationService {
     // Completeness must not reveal whether a guessed term matched excluded
     // commentary. Peer recall always describes a bounded, non-exhaustive window.
     return { results, indexing, windowLimited: true };
+  }
+
+  sources(userId: string, spaceId: string, authorId: string, limit: number) {
+    const space = this.spaces.access(userId, spaceId);
+    return this.spaces
+      .sharedConversations(userId, spaceId)
+      .filter((conversation) => conversation.ownerId === authorId)
+      .slice(0, limit)
+      .map((conversation) =>
+        Object.assign(this.source(userId, space, conversation), { snippet: conversation.title }),
+      );
+  }
+
+  private source(
+    userId: string,
+    space: { id: string; name: string },
+    conversation: SpaceConversation,
+  ) {
+    const page = this.spaces.page(userId, space.id, conversation.pageId);
+    return {
+      spaceId: space.id,
+      spaceName: space.name,
+      pageId: page.id,
+      pageTitle: page.title,
+      conversationId: conversation.id,
+      conversationTitle: conversation.title,
+      ownerId: conversation.ownerId,
+      ownerName: conversation.ownerName,
+      // Peer sessions are agent-readable evidence, not human navigation targets.
+      link: `/platformclaw/app/spaces?space=${encodeURIComponent(space.id)}&page=${encodeURIComponent(page.id)}`,
+    };
   }
 
   canAccessNative(userId: string, sessionKey: string, write = false): boolean {
@@ -532,6 +557,14 @@ export class SpaceConversationService {
     }
     // Human access is owner-only. Membership grants agent recall, not peer UI/events.
     return this.canAccessNative(userId, key) ? undefined : null;
+  }
+
+  async drainPreparation(sessionKeys: string[]): Promise<void> {
+    // A creation admitted before the deletion tombstone may still provision its native row.
+    // Await those writers before purge so no late session can reappear after cleanup.
+    await Promise.allSettled(
+      sessionKeys.map((key) => this.preparing.get(key)).filter((pending) => pending !== undefined),
+    );
   }
 
   async cancelRevoked(spaceId: string, userId: string): Promise<void> {

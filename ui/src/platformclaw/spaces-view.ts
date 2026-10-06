@@ -53,6 +53,9 @@ type SpacesViewProps = {
   query: string;
   hits: SpaceSearchHit[];
   membersView: TemplateResult | typeof nothing;
+  managementDialog: TemplateResult | typeof nothing;
+  onRenameConversation: () => void;
+  onRetrySpace: (space: Space) => void;
   onSelectSpace: (id: string) => void;
   onSelectPage: (page: SpacePage, messageId?: string) => void;
   onCreate: (kind: "space" | "page" | "conversation", parentId?: string) => void;
@@ -73,6 +76,20 @@ type SpacesViewProps = {
   onBody: (value: string) => void;
   onLatest: () => void;
 };
+
+export function expandSpacePageAncestors(
+  expandedPages: ReadonlySet<string>,
+  page: SpacePage,
+  pages: SpacePage[],
+) {
+  const expanded = new Set(expandedPages);
+  let parentId = page.parentId;
+  while (parentId && !expanded.has(parentId)) {
+    expanded.add(parentId);
+    parentId = pages.find((item) => item.id === parentId)?.parentId ?? null;
+  }
+  return expanded;
+}
 
 function renderPageTree(
   p: SpacesViewProps,
@@ -180,17 +197,29 @@ function renderSidebar(p: SpacesViewProps) {
       <nav aria-label=${t("title")}>
         ${p.spaces.map(
           (space) => html`<div class="pc-space-group">
-            <button
-              class="pc-space-group-title"
-              ?disabled=${p.busy || Boolean(p.editor)}
-              aria-current=${p.snapshot?.space.id === space.id ? "true" : nothing}
-              @click=${() => p.onSelectSpace(space.id)}
-              title=${space.name}
-            >
-              ${icons.folder}<span>${space.name}</span> ${p.snapshot?.space.id === space.id
-                ? html`<span class="pc-space-count">${p.snapshot.pages.length}</span>`
-                : nothing}</button
-            >${p.snapshot?.space.id === space.id ? renderPageTree(p) : nothing}
+            ${space.deleting || space.leaving
+              ? html`<div class="pc-space-pending-deletion">
+                  <strong>${space.name}</strong>
+                  <p>${t(space.deleting ? "deletionPending" : "leavePending")}</p>
+                  <button
+                    class="btn btn--sm"
+                    ?disabled=${p.busy || p.loading || Boolean(p.editor)}
+                    @click=${() => p.onRetrySpace(space)}
+                  >
+                    ${t(space.deleting ? "retryDeletion" : "retryLeaving")}
+                  </button>
+                </div>`
+              : html`<button
+                    class="pc-space-group-title"
+                    ?disabled=${p.busy || Boolean(p.editor)}
+                    aria-current=${p.snapshot?.space.id === space.id ? "true" : nothing}
+                    @click=${() => p.onSelectSpace(space.id)}
+                    title=${space.name}
+                  >
+                    ${icons.folder}<span>${space.name}</span> ${p.snapshot?.space.id === space.id
+                      ? html`<span class="pc-space-count">${p.snapshot.pages.length}</span>`
+                      : nothing}</button
+                  >${p.snapshot?.space.id === space.id ? renderPageTree(p) : nothing}`}
           </div>`,
         )}
       </nav>
@@ -449,6 +478,19 @@ function renderConversationTabs(p: SpacesViewProps) {
             conversations.find((conversation) => conversation.id === id) ?? null,
           ),
       })}
+      ${p.conversation?.canWrite &&
+      p.conversation.ownerId === p.snapshot?.currentUserId &&
+      p.snapshot.space.role !== "viewer"
+        ? html`<button
+            class="pc-space-icon-button"
+            aria-label=${t("renameConversation")}
+            title=${t("renameConversation")}
+            ?disabled=${disabled || p.loading}
+            @click=${p.onRenameConversation}
+          >
+            ${icons.penLine}
+          </button>`
+        : nothing}
       <button
         class="pc-space-text-button pc-space-new-conversation"
         ?disabled=${p.busy || Boolean(p.editor) || p.snapshot?.space.role === "viewer"}
@@ -578,6 +620,6 @@ export function renderSpacesView(p: SpacesViewProps) {
             <span class="pc-space-privacy-hint">${t("intro")}</span>
           </section>`}
     </div>
-    ${hasPanel ? renderPanel(p) : nothing}
+    ${hasPanel ? renderPanel(p) : nothing} ${p.managementDialog}
   </main>`;
 }

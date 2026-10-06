@@ -32,7 +32,10 @@ teams, and a team can use multiple Spaces.
 Conversation names are local to your tabs on the selected page. If a name is
 already used, creation adds the next available number, such as **New conversation2**
 and **New conversation3**. Other employees' names do not reserve yours. Retrying
-the same creation request returns the original conversation and its assigned name.
+the same creation request returns the original conversation and its current name.
+Use **Rename conversation** to rename your writable tab. Renaming uses the same
+per-page collision numbering and preserves the conversation identity and history.
+A simultaneous rename requires a reload rather than overwriting another change.
 
 The left tree groups Spaces, pages, and nested pages. The center contains your
 conversation tabs. **Notes** opens the selected page's shared text; **Members
@@ -56,6 +59,42 @@ draft. Reconcile your changes before saving.
 Canceling the replacement keeps the draft unchanged.
 Initial page limits remain 100 Spaces created per employee, 200 members and
 200 pages per Space, and fewer than 20 nesting levels.
+
+## Leave or delete a Space
+
+Open **Members and access** and choose **Leave Space** to remove your own access.
+Your existing shared questions and final answers remain available to the remaining
+members' agents. Leaving cancels your active and queued Space work. The last active
+Owner must assign another active Owner before leaving. Membership cannot be
+changed or restored while that person's leave cleanup is pending; retry the cleanup
+before inviting them again so delayed cancellation cannot stop new authorized work.
+
+A Space Owner can choose **Delete Space**. Review the scope and type the exact
+Space name before confirming. This removes access for every member immediately
+and permanently deletes the Space pages and identifiable conversation records,
+including native transcript histories and their transcript search index. It also
+purges identifiable archive copies, provenance-linked indexed memory, and
+canonically owned outgoing attachment originals.
+
+Deletion is ownership-scoped, not a promise of complete erasure from every store.
+Unattributed legacy archives, derived memory without session provenance, shared files,
+unowned attachments and media renditions,
+preserved worktree snapshots, separately spawned-session transcripts, and external
+backups may remain. Child runtimes are stopped by the existing lifecycle, but
+Space deletion does not recursively delete independent spawned sessions. Content already
+copied into another conversation or retrieved by another person cannot be recalled.
+Untracked memory may still surface previously derived content through
+its own retrieval tools; deleting the Space does not authorize wiping unrelated
+personal memory or files.
+
+Cleanup failures keep the Space inaccessible. The deleting Owner sees a pending
+entry in the Space list and can choose **Retry deletion**, including after a
+refresh or service restart. Completion removes that pending entry; a minimal
+non-content receipt prevents a lost creation response from recreating the deleted
+Space. No restore action is provided for successfully purged records.
+If QMD has mapped session artifacts but lacks a supported physical per-session
+purge, deletion stops with an administrator-action message and retains its retry
+state. Repeated retries alone cannot resolve that backend limitation.
 
 ## Session ownership and shared context
 
@@ -103,6 +142,21 @@ bounded source excerpts with the Space, page, conversation, author when known,
 and source message identity. These are evidence, not permission to use the
 source author's tools and not a claim that an answer was verified.
 
+To ask what a colleague discussed, the agent can pass a name fragment as
+`authorName` to `space_search` without a text `query`. This discovers their
+registered shared conversation sources even when their name is absent from the
+message body. The agent then reads a source with `space_get` to summarize its
+eligible Q&A. Add `query` for topic keywords within that author's shared Q&A.
+If a name matches multiple identities, the result reports `ambiguousAuthor`
+and bounded `authors` candidates. Ask which person the user means, then pass
+that candidate's `authorId` (or a source's `ownerId`) as `authorId`. Use only
+one author selector; do not infer an identity from a nickname alone.
+
+An empty result, indexing, `windowLimited`, or truncation does not mean access
+was denied. Refine the search or explain that no evidence was found in the
+searched window. Raw peer session history remains private, while authorized
+shared questions and final answers remain readable through Space recall.
+
 Inside a Space-created session, recall is limited to that same Space. An agent
 in an ordinary personal session can search the Spaces its employee currently
 may access. Every lookup rechecks current membership; membership in one Space
@@ -126,7 +180,7 @@ form one consecutive phrase. Recall never inserts all Space sessions into the pr
   controls, not exact model-token counts.
 - Search returns `count`, `moreAvailable`, and a `nextCursor` when another page
   exists within its bounded top-20 candidate window. Use the cursor only with
-  the same query and Space. `windowLimited` means narrow the query; it is not an
+  the same query, author selector, and Space. `windowLimited` means narrow the query; it is not an
   exhaustive corpus cursor. Personal-session recall consistently reports this
   bounded window so completeness metadata cannot reveal hidden commentary hits.
 - Use a returned `nextBodyOffset` with its page revision as `pageRevision` to

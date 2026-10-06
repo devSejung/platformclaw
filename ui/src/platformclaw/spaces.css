@@ -845,3 +845,40 @@ platformclaw-space-conversation-history,
   background: var(--bg-hover);
   box-shadow: var(--focus-ring);
 }
+
+.pc-space-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.pc-space-management-dialog {
+  padding: 24px;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.pc-space-management-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+.pc-space-management-dialog p,
+.pc-space-pending-deletion {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.pc-space-management-dialog [role="alert"] {
+  color: var(--danger);
+}
+.pc-space-management-dialog .exec-approval-actions {
+  flex-wrap: wrap;
+}
+.pc-space-pending-deletion {
+  padding: 10px;
+  overflow-wrap: anywhere;
+}
+.pc-space-pending-deletion p {
+  color: var(--muted);
+}

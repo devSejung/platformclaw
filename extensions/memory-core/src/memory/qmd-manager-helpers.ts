@@ -113,7 +113,7 @@ export function resolveQmdEmbedLeaseOptions(embedTimeoutMs: number) {
 // background gateway update/embed never write the same store at once
 // (writer-vs-writer SQLITE_BUSY, #66339). Sized to the slower of the two writes
 // so a contending caller waits for the in-flight write instead of erroring.
-export function resolveQmdStoreWriteLeaseOptions(updateTimeoutMs: number, embedTimeoutMs: number) {
+export function resolveQmdStoreWriteLeaseOptions(updateTimeoutMs = 0, embedTimeoutMs = 0) {
   return resolveQmdWriteLeaseOptions(
     Math.max(updateTimeoutMs, embedTimeoutMs),
     QMD_WRITE_LEASE_MIN_WAIT_MS,

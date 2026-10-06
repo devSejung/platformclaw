@@ -315,6 +315,17 @@ type MemoryRuntimeBackendConfig =
   | { backend: "qmd"; qmd?: MemoryRuntimeQmdConfig };
 
 export type MemoryPluginRuntime = {
+  /** Purge proven session sources while fencing index writers through native deletion. */
+  withSessionPurge?<T>(
+    params: {
+      cfg: OpenClawConfig;
+      agentId: string;
+      sessionKey: string;
+      sessionIds: readonly string[];
+      archiveDirectory: string;
+    },
+    run: () => Promise<T>,
+  ): Promise<T>;
   getMemorySearchManager(params: {
     cfg: OpenClawConfig;
     agentId: string;

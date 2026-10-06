@@ -27,7 +27,18 @@ function hasArchiveSuffix(fileName: string, reason: SessionArchiveReason): boole
 }
 
 /** Returns true for archived session artifacts and legacy store backup names. */
-export function isSessionArchiveArtifactName(fileName: string): boolean {
+export function isSessionArchiveArtifactName(fileName: string, sessionId?: string): boolean {
+  if (sessionId !== undefined) {
+    // Destructive callers require the writer's exact owner/name grammar, not merely
+    // an archive-looking suffix on an unrelated neighboring file.
+    const normalized = stripSessionArchiveCompressionSuffix(fileName);
+    return (["deleted", "reset", "bak"] as const).some((reason) => {
+      const prefix = `${sessionId}.jsonl.${reason}.`;
+      return (
+        normalized.startsWith(prefix) && ARCHIVE_TIMESTAMP_RE.test(normalized.slice(prefix.length))
+      );
+    });
+  }
   if (LEGACY_STORE_BACKUP_RE.test(fileName)) {
     return true;
   }

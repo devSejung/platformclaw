@@ -35,6 +35,7 @@ import {
   runMemorySearchWithDeadline,
   type MemorySearchDeadlineControlOptions,
 } from "./search-deadline.js";
+import { purgeSessionMemoryBeforeRun, type SessionMemoryPurgeParams } from "./session-purge.js";
 
 const MEMORY_SEARCH_MANAGER_CACHE_KEY = Symbol.for("openclaw.memorySearchManagerCache");
 type Maybe<T> = T | null;
@@ -729,6 +730,26 @@ async function closeAllMemorySearchManagersWithinLifecycle(): Promise<void> {
   if (closeFailed) {
     throw firstError;
   }
+}
+
+export async function withSessionMemoryPurge<T>(
+  params: SessionMemoryPurgeParams,
+  run: () => Promise<T>,
+  withLease?: PluginStateLeaseRunner,
+): Promise<T> {
+  const agentId = normalizeAgentId(params.agentId);
+  return await runMemorySearchManagerScopeOperation(agentId, async () => {
+    await closeMemorySearchManagerWithinLifecycle({ cfg: params.cfg, agentId });
+    if (loadQmdManagerModule.peek()) {
+      const { closeQmdMemoryManagersForAgent } = await loadQmdManagerModule();
+      await closeQmdMemoryManagersForAgent(agentId);
+    }
+    const { withMemoryIndexManagersPaused } = await loadManagerRuntime();
+    return await withMemoryIndexManagersPaused(
+      agentId,
+      async () => await purgeSessionMemoryBeforeRun({ ...params, agentId }, run, withLease),
+    );
+  });
 }
 
 export async function closeMemorySearchManager(params: {

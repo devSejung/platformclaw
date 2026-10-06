@@ -14,6 +14,7 @@ import {
 import type { Space, SpacePage, SpaceRole } from "./space-contracts.js";
 import { ensureSpaceSchema, type SpaceRow, type SpacePageRow } from "./sqlite-schema-spaces.js";
 import { SqliteSpaceConversationStore } from "./sqlite-space-conversations.js";
+import { SqliteSpaceLifecycleStore } from "./sqlite-space-lifecycle.js";
 import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
 
 type Database = Pick<
@@ -30,6 +31,7 @@ type Database = Pick<
     created_at: number;
   };
   collaboration_spaces: SpaceRow;
+  collaboration_space_deletions: { space_id: string };
   collaboration_space_members: { space_id: string; user_id: string; role: SpaceRole };
   collaboration_space_pages: SpacePageRow;
 };
@@ -43,9 +45,11 @@ const rank = { viewer: 1, editor: 2, owner: 3 };
 export class SqliteSpaceStore {
   private readonly query = createSyncKysely<Database>();
   private readonly conversationStore: SqliteSpaceConversationStore;
+  private readonly lifecycle: SqliteSpaceLifecycleStore;
   private ready = false;
   constructor(private readonly db: DatabaseSync) {
     this.conversationStore = new SqliteSpaceConversationStore(db, this);
+    this.lifecycle = new SqliteSpaceLifecycleStore(db, this);
   }
   private ensure() {
     if (!this.ready) {
@@ -73,6 +77,9 @@ export class SqliteSpaceStore {
   }
   access(userId: string, spaceId: string, minimum: SpaceRole = "viewer"): Space {
     this.activeUser(userId);
+    if (this.lifecycle.deleting(spaceId)) {
+      this.unavailable();
+    }
     const row = takeFirstSync(
       this.db,
       this.query
@@ -93,17 +100,35 @@ export class SqliteSpaceStore {
       role: row.role,
     };
   }
-  list(userId: string): Space[] {
+  list(userId: string, includePending = false): Space[] {
+    const active = this.recallScope(userId).spaces;
+    return includePending
+      ? [...active, ...this.lifecycle.pending(userId), ...this.lifecycle.pendingDepartures(userId)]
+      : active;
+  }
+  recallScope(userId: string): { spaces: Space[]; hasMore: boolean } {
     this.activeUser(userId);
-    return executeSync(
+    const rows = executeSync(
       this.db,
       this.query
-        .selectFrom("collaboration_space_members")
-        .select("space_id")
-        .where("user_id", "=", userId)
-        .orderBy("space_id")
-        .limit(100),
-    ).rows.map((row) => this.access(userId, row.space_id));
+        .selectFrom("collaboration_space_members as member")
+        .leftJoin(
+          "collaboration_space_deletions as deletion",
+          "deletion.space_id",
+          "member.space_id",
+        )
+        .select("member.space_id")
+        .where("member.user_id", "=", userId)
+        .where("deletion.space_id", "is", null)
+        .orderBy("member.space_id")
+        // Count only accessible memberships: cleanup entries cannot consume the
+        // bounded author-discovery window or be mistaken for recall authority.
+        .limit(101),
+    ).rows;
+    return {
+      spaces: rows.slice(0, 100).map((row) => this.access(userId, row.space_id)),
+      hasMore: rows.length > 100,
+    };
   }
   create(userId: string, name: string, requestId: string): Space {
     this.activeUser(userId);
@@ -111,6 +136,9 @@ export class SqliteSpaceStore {
     spaceText(requestId, "request id", 128);
     return runImmediateTransaction(this.db, () => {
       this.activeUser(userId);
+      if (this.lifecycle.deletedRequest(userId, requestId)) {
+        throw new ControlPlaneStateError("Space was deleted; use a new creation request");
+      }
       const prior = takeFirstSync(
         this.db,
         this.query
@@ -253,65 +281,8 @@ export class SqliteSpaceStore {
     role: SpaceRole | null,
     revision: number,
   ) {
-    this.access(userId, spaceId, "owner");
-    if (role !== null && !Object.hasOwn(rank, role)) {
-      throw new ControlPlaneStateError("Invalid Space role");
-    }
-    return runImmediateTransaction(this.db, () => {
-      const space = this.access(userId, spaceId, "owner");
-      if (space.revision !== revision) {
-        this.conflict();
-      }
-      this.activeUser(memberId);
-      const members = this.members(userId, spaceId);
-      if (
-        role !== "owner" &&
-        members.find((m) => m.userId === memberId)?.role === "owner" &&
-        members.filter((m) => m.role === "owner").length === 1
-      ) {
-        throw new ControlPlaneStateError("Keep at least one active Space owner");
-      }
-      if (role) {
-        if (!members.some((m) => m.userId === memberId) && members.length >= 200) {
-          throw new ControlPlaneStateError("Space member limit reached");
-        }
-        executeSync(
-          this.db,
-          this.query
-            .insertInto("collaboration_space_members")
-            .values({ space_id: spaceId, user_id: memberId, role })
-            .onConflict((oc) => oc.columns(["space_id", "user_id"]).doUpdateSet({ role })),
-        );
-      } else {
-        executeSync(
-          this.db,
-          this.query
-            .deleteFrom("collaboration_space_members")
-            .where("space_id", "=", spaceId)
-            .where("user_id", "=", memberId),
-        );
-      }
-      executeSync(
-        this.db,
-        this.query
-          .updateTable("collaboration_spaces")
-          .set({ revision: space.revision + 1 })
-          .where("id", "=", spaceId),
-      );
-      if (role === null || role === "viewer") {
-        executeSync(
-          this.db,
-          this.query
-            .updateTable("collaboration_space_runs")
-            .set({ state: "revoked" })
-            .where("space_id", "=", spaceId)
-            .where("user_id", "=", memberId)
-            .where("state", "=", "active"),
-        );
-      }
-      this.audit(userId, spaceId, "space.member.changed", { userId: memberId, role });
-      return { updated: true };
-    });
+    this.ensure();
+    return this.lifecycle.setMember(userId, spaceId, memberId, role, revision);
   }
   private projectPage(row: SpacePageRow): SpacePage {
     return {
@@ -485,6 +456,44 @@ export class SqliteSpaceStore {
     spaceText(params.requestId, "request id", 128);
     return this.conversationStore.create(userId, spaceId, params);
   }
+  renameConversation(
+    userId: string,
+    spaceId: string,
+    conversationId: string,
+    title: string,
+    revision: number,
+    expectedTitle: string,
+  ) {
+    spaceText(expectedTitle, "expected title", 240);
+    spaceText(conversationId, "conversation id", 128);
+    spaceText(title, "conversation title", 240);
+    return this.conversationStore.rename(
+      userId,
+      spaceId,
+      conversationId,
+      title,
+      revision,
+      expectedTitle,
+    );
+  }
+  beginDelete(userId: string, spaceId: string, revision: number, confirmName: string) {
+    this.ensure();
+    return this.lifecycle.beginDelete(userId, spaceId, revision, confirmName);
+  }
+  deletionSessions(spaceId: string, agentId: string) {
+    this.ensure();
+    return this.lifecycle.deletionSessions(spaceId, agentId);
+  }
+  finishDelete(userId: string, spaceId: string) {
+    this.lifecycle.finishDelete(userId, spaceId);
+  }
+  finishLeave(userId: string, spaceId: string, revision: number) {
+    this.lifecycle.finishLeave(userId, spaceId, revision);
+  }
+  leave(userId: string, spaceId: string, revision: number) {
+    this.ensure();
+    return this.lifecycle.leave(userId, spaceId, revision);
+  }
   conversations(userId: string, spaceId: string, pageId?: string) {
     return this.conversationStore.list(userId, spaceId, pageId);
   }
@@ -519,7 +528,7 @@ export class SqliteSpaceStore {
       this.db,
       this.query.selectFrom("collaboration_spaces").selectAll().where("agent_id", "=", agentId),
     );
-    if (!space) {
+    if (!space || this.lifecycle.deleting(space.id)) {
       this.unavailable();
     }
     const pages = executeSync(

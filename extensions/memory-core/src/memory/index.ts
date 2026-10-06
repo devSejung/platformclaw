@@ -4,4 +4,5 @@ export {
   closeAllMemorySearchManagers,
   closeMemorySearchManager,
   getMemorySearchManager,
+  withSessionMemoryPurge,
 } from "./search-manager.js";

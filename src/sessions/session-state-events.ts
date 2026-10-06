@@ -584,7 +584,7 @@ export function handleSessionStateSessionReset(
 export function handleSessionStateSessionDeleted(
   sessionKey: string,
   agentId: string,
-  options: OpenClawStateDatabaseOptions = {},
+  options: OpenClawStateDatabaseOptions & { requireSuccess?: boolean } = {},
 ): void {
   deleteSessionUpstreamLink(sessionKey, agentId, options);
   try {
@@ -617,6 +617,9 @@ export function handleSessionStateSessionDeleted(
       );
     }, options);
   } catch (error) {
+    if (options.requireSuccess) {
+      throw error;
+    }
     log.warn(`failed to delete session state history: ${String(error)}`);
   }
 }

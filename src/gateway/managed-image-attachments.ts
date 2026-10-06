@@ -39,6 +39,7 @@ import {
 import { getMediaDir, MEDIA_MAX_BYTES, saveMediaBuffer, saveMediaSource } from "../media/store.js";
 import { resolveAgentIdFromSessionKey } from "../routing/session-key.js";
 import { safeEqualSecret } from "../security/secret-equal.js";
+import { runQueuedStoreWrite, type StoreWriterQueue } from "../shared/store-writer-queue.js";
 import { buildAssistantMediaContentDisposition } from "./assistant-media-content-disposition.js";
 import type { AuthRateLimiter } from "./auth-rate-limit.js";
 import type { ResolvedGatewayAuth } from "./auth.js";
@@ -61,6 +62,7 @@ import {
   listManagedImageRecordEntries,
   MANAGED_OUTGOING_ORIGINALS_SUBDIR,
   readManagedImageRecord,
+  resolveManagedImageOriginalPath,
   type ManagedImageRecord,
 } from "./managed-image-record-store.js";
 import { authorizeOperatorScopesForMethod } from "./method-scopes.js";
@@ -170,6 +172,7 @@ const sessionManagedOutgoingAttachmentIndexCache = new Map<
   SessionManagedOutgoingAttachmentIndexCacheEntry
 >();
 const MAX_SESSION_MANAGED_OUTGOING_ATTACHMENT_INDEX_CACHE_ENTRIES = 500;
+const managedImageCleanupQueues = new Map<string, StoreWriterQueue>();
 
 function buildSessionManagedOutgoingAttachmentIndexCacheKey(
   sessionKey: string,
@@ -328,26 +331,23 @@ async function resizeManagedImageBufferToLimits(params: {
   };
 }
 
-function resolveManagedImageOriginalPath(record: ManagedImageRecord) {
-  if (
-    !path.isAbsolute(record.original.mediaRoot) ||
-    record.original.mediaSubdir !== MANAGED_OUTGOING_ORIGINALS_SUBDIR ||
-    !record.original.mediaId ||
-    record.original.mediaId.includes("/") ||
-    record.original.mediaId.includes("\\") ||
-    record.original.mediaId.includes("\0")
-  ) {
-    throw new Error("Managed image record has an unsafe media identity");
-  }
-  return path.join(record.original.mediaRoot, record.original.mediaSubdir, record.original.mediaId);
-}
-
 function resolveManagedImageOriginalsDir(stateDir: string): string {
   const runtimeMediaRoot =
     path.resolve(stateDir) === path.resolve(resolveStateDir())
       ? getMediaDir()
       : path.join(stateDir, "media");
   return path.join(runtimeMediaRoot, MANAGED_OUTGOING_ORIGINALS_SUBDIR);
+}
+
+async function resolveManagedMediaCanonicalPath(filePath: string): Promise<string> {
+  try {
+    return await fs.realpath(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return path.resolve(filePath);
+    }
+    throw error;
+  }
 }
 
 async function hasUnmigratedManagedImageMetadata(stateDir: string): Promise<boolean> {
@@ -369,9 +369,11 @@ async function deleteAgedOrphanManagedImageFiles(params: {
   if (await hasUnmigratedManagedImageMetadata(params.stateDir)) {
     return 0;
   }
-  const referencedMediaIds = new Set(
-    listManagedImageRecordEntries({ stateDir: params.stateDir }).map(
-      ({ record }) => record.original.mediaId,
+  const referencedPaths = new Set(
+    await Promise.all(
+      listManagedImageRecordEntries({ stateDir: params.stateDir }).map(({ record }) =>
+        resolveManagedMediaCanonicalPath(resolveManagedImageOriginalPath(record)),
+      ),
     ),
   );
   const originalsDir = resolveManagedImageOriginalsDir(params.stateDir);
@@ -383,9 +385,6 @@ async function deleteAgedOrphanManagedImageFiles(params: {
   }
   let deletedCount = 0;
   for (const name of names) {
-    if (referencedMediaIds.has(name)) {
-      continue;
-    }
     const filePath = path.join(originalsDir, name);
     try {
       const stat = await fs.lstat(filePath);
@@ -394,6 +393,9 @@ async function deleteAgedOrphanManagedImageFiles(params: {
         stat.isSymbolicLink() ||
         params.nowMs - stat.mtimeMs < params.minAgeMs
       ) {
+        continue;
+      }
+      if (referencedPaths.has(await resolveManagedMediaCanonicalPath(filePath))) {
         continue;
       }
       await fs.rm(filePath, { force: true });
@@ -596,19 +598,85 @@ async function deleteManagedImageRecordArtifacts(
   stateDir = resolveStateDir(),
   alreadyClaimed = false,
 ) {
-  if (!alreadyClaimed && !claimManagedImageRecordCleanupIfCurrent(record, stateDir)) {
-    return { deletedRecord: false, deletedFileCount: 0 };
+  // Local serialization avoids unnecessary retries. The record-store co-owner
+  // check, rather than this process queue, protects the durable final claim.
+  return await runQueuedStoreWrite({
+    queues: managedImageCleanupQueues,
+    storePath: await resolveManagedMediaCanonicalPath(stateDir),
+    label: "managed media cleanup",
+    fn: async () => {
+      if (!alreadyClaimed && !claimManagedImageRecordCleanupIfCurrent(record, stateDir)) {
+        return { deletedRecord: false, deletedFileCount: 0 };
+      }
+      let deletedFileCount = 0;
+      const retainedOriginalOwners: ManagedImageRecord[] = [];
+      try {
+        const originalPath = resolveManagedImageOriginalPath(record);
+        const canonicalPath = await resolveManagedMediaCanonicalPath(originalPath);
+        for (const { record: other } of listManagedImageRecordEntries({ stateDir })) {
+          if (
+            other.attachmentId !== record.attachmentId &&
+            (await resolveManagedMediaCanonicalPath(resolveManagedImageOriginalPath(other))) ===
+              canonicalPath
+          ) {
+            retainedOriginalOwners.push(other);
+          }
+        }
+        if (retainedOriginalOwners.length === 0) {
+          // Canonical paths prove shared ownership only. Never unlink a symlink's
+          // resolved target: removal stays on the validated recorded path.
+          await fs.rm(originalPath, { force: true });
+          deletedFileCount = 1;
+        }
+      } catch {
+        // Keep the durable cleanup claim so the next sweep retries this exact file.
+        return { deletedRecord: false, deletedFileCount: 0 };
+      }
+      return {
+        deletedRecord: deleteClaimedManagedImageRecord(
+          record,
+          stateDir,
+          retainedOriginalOwners.length ? { retainedOriginalOwners } : undefined,
+        ),
+        deletedFileCount,
+      };
+    },
+  });
+}
+
+/** Purges one quiesced session's owned originals without sweeping unrelated media. */
+export async function purgeManagedOutgoingMediaForSession(params: {
+  sessionKey: string;
+  agentId: string;
+}): Promise<void> {
+  const sessionKey = params.sessionKey.trim();
+  const agentId = params.agentId.trim();
+  if (!sessionKey || !agentId) {
+    throw new Error("Managed outgoing media purge requires a session key and agent id");
   }
-  try {
-    await fs.rm(resolveManagedImageOriginalPath(record), { force: true });
-  } catch {
-    // Keep the durable cleanup claim so the next sweep retries this exact file.
-    return { deletedRecord: false, deletedFileCount: 0 };
+  const stateDir = resolveStateDir();
+  const defaultAgentId =
+    sessionKey === "global" ? resolveDefaultAgentId(getRuntimeConfig()) : undefined;
+  const readOwnedEntries = () =>
+    listManagedImageRecordEntries({ stateDir, sessionKey }).filter(
+      ({ record }) =>
+        sessionKey !== "global" ||
+        resolveManagedImageRecordAgentId(record, defaultAgentId) === agentId,
+    );
+  for (const { record, cleanupPending } of readOwnedEntries()) {
+    await deleteManagedImageRecordArtifacts(record, stateDir, cleanupPending);
   }
-  return {
-    deletedRecord: deleteClaimedManagedImageRecord(record, stateDir),
-    deletedFileCount: 1,
-  };
+  sessionManagedOutgoingAttachmentIndexCache.delete(
+    buildSessionManagedOutgoingAttachmentIndexCacheKey(sessionKey, agentId),
+  );
+  if (sessionKey === "global" && agentId === defaultAgentId) {
+    sessionManagedOutgoingAttachmentIndexCache.delete("global");
+  }
+  // Durable claims survive failed removals. Confirm the exact owner is empty so
+  // callers cannot report a purge while files still need a retry or a writer raced.
+  if (readOwnedEntries().length > 0) {
+    throw new Error(`Managed outgoing media purge incomplete for session ${sessionKey}`);
+  }
 }
 
 export async function cleanupManagedOutgoingMediaRecords(params?: {

@@ -67,4 +67,14 @@ describe("resolveDynamicSessionMutationRequiredScope", () => {
     expect(resolveDynamicSessionMutationRequiredScope("sessions.groups.put")).toBeUndefined();
     expect(resolveDynamicSessionMutationRequiredScope("sessions.list")).toBeUndefined();
   });
+
+  it("requires admin for transcript purge even when the session is archived", () => {
+    expect(
+      resolveDynamicSessionMutationRequiredScope("sessions.delete", {
+        key: "agent:main:archived",
+        archivedOnly: true,
+        purgeTranscript: true,
+      }),
+    ).toBe("operator.admin");
+  });
 });

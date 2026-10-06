@@ -110,13 +110,69 @@ describe("Space conversation title allocation", () => {
       expect(second.title.length).toBeLessThanOrEqual(240);
       create("reserved", "Name2");
       create("base", "Name");
-      expect(create("collision", " Name ").title).toBe("Name3");
+      const collision = create("collision", " Name ");
+      expect(collision.title).toBe("Name3");
+      const observer = new DatabaseSync(options.databasePath);
+      try {
+        observer.exec(`CREATE TRIGGER reject_conversation_rename
+          BEFORE INSERT ON control_audit_events
+          WHEN NEW.event_type = 'space.conversation.renamed'
+          BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;`);
+        expect(() =>
+          store!.spaces.renameConversation(user.id, space.id, first.id, "Changed", 1, first.title),
+        ).toThrow("audit unavailable");
+        expect(create("first")).toEqual(first);
+        expect(store.spaces.access(user.id, space.id).revision).toBe(1);
+        expect(
+          observer
+            .prepare(
+              "SELECT requested_title FROM collaboration_space_conversation_titles WHERE conversation_id = ?",
+            )
+            .get(first.id),
+        ).toBeUndefined();
+      } finally {
+        observer.exec("DROP TRIGGER IF EXISTS reject_conversation_rename");
+        observer.close();
+      }
+      const renamedFirst = store.spaces.renameConversation(
+        user.id,
+        space.id,
+        first.id,
+        "Renamed first",
+        1,
+        first.title,
+      );
+      const renamedSecond = store.spaces.renameConversation(
+        user.id,
+        space.id,
+        second.id,
+        "Renamed second",
+        1,
+        second.title,
+      );
+      const interim = store.spaces.renameConversation(
+        user.id,
+        space.id,
+        collision.id,
+        "Interim",
+        1,
+        collision.title,
+      );
+      const renamedCollision = store.spaces.renameConversation(
+        user.id,
+        space.id,
+        collision.id,
+        "Final",
+        1,
+        interim.title,
+      );
       closeStore();
       store = new SqliteControlPlaneStore(options);
-      expect(create("first")).toEqual(first);
-      expect(create("second")).toEqual(second);
+      expect(create("first")).toEqual(renamedFirst);
+      expect(create("second")).toEqual(renamedSecond);
+      expect(create("collision", " Name ")).toEqual(renamedCollision);
+      expect(() => create("first", renamedFirst.title)).toThrow("request changed");
       expect(() => create("second", second.title)).toThrow("request changed");
-      expect(create("collision", " Name ").title).toBe("Name3");
       expect(() => create("collision", "Name")).toThrow("request changed");
     } finally {
       try {

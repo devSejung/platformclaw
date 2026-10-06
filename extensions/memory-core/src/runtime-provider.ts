@@ -6,6 +6,7 @@ import {
   closeAllMemorySearchManagers,
   closeMemorySearchManager,
   getMemorySearchManager,
+  withSessionMemoryPurge,
 } from "./memory/index.js";
 import type { MemoryCoreRuntimeHost } from "./memory/runtime-host.js";
 
@@ -37,6 +38,9 @@ export function createMemoryRuntime(host: MemoryCoreRuntimeHost = {}): MemoryPlu
     },
     async closeAllMemorySearchManagers() {
       await closeAllMemorySearchManagers();
+    },
+    async withSessionPurge(params, run) {
+      return await withSessionMemoryPurge(params, run, host.withLease);
     },
     async closeMemorySearchManager(params) {
       await closeMemorySearchManager(params);

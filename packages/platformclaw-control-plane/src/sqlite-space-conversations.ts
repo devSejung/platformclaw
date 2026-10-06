@@ -24,6 +24,7 @@ type Database = Pick<
   collaboration_space_conversations: SpaceConversationRow;
   collaboration_space_conversation_titles: { conversation_id: string; requested_title: string };
   collaboration_space_members: { space_id: string; user_id: string; role: SpaceRole };
+  collaboration_space_deletions: { space_id: string };
 };
 type RegisteredConversation = Omit<SpaceConversation, "canWrite">;
 
@@ -77,6 +78,30 @@ export class SqliteSpaceConversationStore {
     }
     return { ...conversation, canWrite };
   }
+  private allocateTitle(
+    userId: string,
+    pageId: string,
+    requestedTitle: string,
+    conversationId?: string,
+  ): string {
+    let query = this.query
+      .selectFrom("collaboration_space_conversations")
+      .select("title")
+      .where("owner_id", "=", userId)
+      .where("page_id", "=", pageId);
+    if (conversationId !== undefined) {
+      query = query.where("id", "!=", conversationId);
+    }
+    const titles = new Set(executeSync(this.db, query).rows.map((row) => row.title));
+    // Both creation and rename allocate under the writer lock, excluding only the renamed row.
+    const baseTitle = requestedTitle.trim();
+    let title = baseTitle;
+    for (let number = 2; titles.has(title); number++) {
+      const suffix = String(number);
+      title = truncateUtf16Safe(baseTitle, 240 - suffix.length) + suffix;
+    }
+    return title;
+  }
   create(
     userId: string,
     spaceId: string,
@@ -129,23 +154,7 @@ export class SqliteSpaceConversationStore {
       if (count >= 200) {
         throw new ControlPlaneStateError("Space conversation limit reached");
       }
-      const titles = new Set(
-        executeSync(
-          this.db,
-          this.query
-            .selectFrom("collaboration_space_conversations")
-            .select("title")
-            .where("owner_id", "=", userId)
-            .where("page_id", "=", params.pageId),
-        ).rows.map((row) => row.title),
-      );
-      // Allocate while holding the writer lock so simultaneous requests cannot claim one title.
-      const baseTitle = requestedTitle.trim();
-      let title = baseTitle;
-      for (let number = 2; titles.has(title); number++) {
-        const suffix = String(number);
-        title = truncateUtf16Safe(baseTitle, 240 - suffix.length) + suffix;
-      }
+      const title = this.allocateTitle(userId, params.pageId, requestedTitle);
       const id = randomUUID();
       const createdAt = Date.now();
       const row: SpaceConversationRow = {
@@ -186,6 +195,66 @@ export class SqliteSpaceConversationStore {
         }),
       );
       return { ...projectConversation(row), canWrite: true };
+    });
+  }
+  rename(
+    userId: string,
+    spaceId: string,
+    conversationId: string,
+    requestedTitle: string,
+    revision: number,
+    expectedTitle: string,
+  ): SpaceConversation {
+    this.get(userId, spaceId, conversationId, true);
+    return runImmediateTransaction(this.db, () => {
+      const conversation = this.get(userId, spaceId, conversationId, true);
+      const space = this.spaces.access(userId, spaceId, "editor");
+      if (space.revision !== revision) {
+        throw new ControlPlaneConflictError(
+          "space_changed",
+          "Space changed; reload before retrying",
+        );
+      }
+      // Title CAS detects stale edits without changing the membership epoch used by chat admission.
+      if (conversation.title !== expectedTitle) {
+        throw new ControlPlaneConflictError(
+          "space_changed",
+          "Conversation changed; reload before renaming",
+        );
+      }
+      const title = this.allocateTitle(userId, conversation.pageId, requestedTitle, conversationId);
+      if (title === conversation.title) {
+        return conversation;
+      }
+      // Older unchanged titles are their own create receipt. Save that fact before
+      // the first rename, while retaining exact whitespace/suffix receipts already recorded.
+      executeSync(
+        this.db,
+        this.query
+          .insertInto("collaboration_space_conversation_titles")
+          .values({ conversation_id: conversationId, requested_title: conversation.title })
+          .onConflict((oc) => oc.column("conversation_id").doNothing()),
+      );
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("collaboration_space_conversations")
+          .set({ title })
+          .where("id", "=", conversationId),
+      );
+      executeSync(
+        this.db,
+        this.query.insertInto("control_audit_events").values({
+          id: randomUUID(),
+          actor_user_id: userId,
+          event_type: "space.conversation.renamed",
+          target_type: "space",
+          target_id: spaceId,
+          details_json: JSON.stringify({ conversationId, pageId: conversation.pageId }),
+          created_at: Date.now(),
+        }),
+      );
+      return { ...conversation, title };
     });
   }
   list(
@@ -289,8 +358,17 @@ export class SqliteSpaceConversationStore {
               .onRef("member.space_id", "=", "conversation.space_id")
               .on("member.user_id", "=", userId),
           )
+          .leftJoin(
+            "collaboration_space_deletions as deletion",
+            "deletion.space_id",
+            "conversation.space_id",
+          )
           .where((eb) =>
-            eb.or([eb("conversation.owner_id", "!=", userId), eb("member.user_id", "is", null)]),
+            eb.or([
+              eb("conversation.owner_id", "!=", userId),
+              eb("member.user_id", "is", null),
+              eb("deletion.space_id", "is not", null),
+            ]),
           )
           .limit(1),
       ),

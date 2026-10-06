@@ -9,6 +9,8 @@ export function parseSpaceReadRequest(
     "agentId",
     "operation",
     "query",
+    "authorName",
+    "authorId",
     "spaceId",
     "pageId",
     "conversationId",
@@ -29,6 +31,15 @@ export function parseSpaceReadRequest(
     "broad",
   ]);
   if (
+    ((body.authorName !== undefined || body.authorId !== undefined) &&
+      (body.operation !== "search" ||
+        (body.authorName !== undefined && body.authorId !== undefined))) ||
+    (body.authorName !== undefined &&
+      (typeof body.authorName !== "string" ||
+        !body.authorName.trim() ||
+        body.authorName.length > 240)) ||
+    (body.authorId !== undefined &&
+      (typeof body.authorId !== "string" || !body.authorId.trim() || body.authorId.length > 128)) ||
     (body.limit !== undefined &&
       (!Number.isSafeInteger(body.limit) ||
         (body.limit as number) < 1 ||
@@ -85,6 +96,8 @@ export function parseSpaceReadRequest(
     agentId,
     operation: body.operation as string,
     ...(body.query === undefined ? {} : { query: body.query as string }),
+    ...(body.authorName === undefined ? {} : { authorName: body.authorName as string }),
+    ...(body.authorId === undefined ? {} : { authorId: body.authorId as string }),
     ...(body.spaceId === undefined ? {} : { spaceId: body.spaceId as string }),
     ...(body.pageId === undefined ? {} : { pageId: body.pageId as string }),
     ...(body.conversationId === undefined ? {} : { conversationId: body.conversationId as string }),

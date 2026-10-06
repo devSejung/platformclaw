@@ -31,6 +31,24 @@ describe("session artifact helpers", () => {
     expect(isMigrationArchiveArtifactName("abc.jsonl.MIGRATED")).toBe(false);
   });
 
+  it("requires exact writer grammar when checking a destructive archive owner", () => {
+    const stamp = "2026-01-01T00-00-00.000Z";
+    for (const reason of ["bak", "reset", "deleted"]) {
+      expect(isSessionArchiveArtifactName(`owned.jsonl.${reason}.${stamp}`, "owned")).toBe(true);
+      expect(isSessionArchiveArtifactName(`owned.jsonl.${reason}.${stamp}.zst`, "owned")).toBe(
+        true,
+      );
+    }
+    for (const name of [
+      `owned.jsonl.notes.deleted.${stamp}`,
+      `owned.jsonl.deleted.notes.deleted.${stamp}`,
+      `other.jsonl.deleted.${stamp}`,
+      "owned.jsonl.zst",
+    ]) {
+      expect(isSessionArchiveArtifactName(name, "owned")).toBe(false);
+    }
+  });
+
   it("classifies orphaned session store atomic-write temp files", () => {
     const uuid = "0f9c1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b";
     const store = "sessions.json";

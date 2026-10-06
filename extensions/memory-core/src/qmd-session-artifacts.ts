@@ -3,7 +3,11 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { MemorySearchResult } from "openclaw/plugin-sdk/memory-core-host-runtime-files";
 import { migrateSqliteSchemaToStrict } from "openclaw/plugin-sdk/plugin-state-runtime";
-import { openNodeSqliteDatabase } from "openclaw/plugin-sdk/sqlite-runtime";
+import {
+  executeSqliteQuerySync,
+  getNodeSqliteKysely,
+  openNodeSqliteDatabase,
+} from "openclaw/plugin-sdk/sqlite-runtime";
 
 const QMD_SESSION_ARTIFACT_TABLE = "openclaw_qmd_session_artifacts";
 const QMD_SESSION_ARTIFACT_SCHEMA = `
@@ -311,4 +315,74 @@ function pickQmdSessionArtifactRow(
     return exact;
   }
   return rows.length === 1 ? (rows[0] ?? null) : null;
+}
+
+/** QMD deactivation retains content/vectors; never report a mapped session as erased. */
+export function assertNoQmdSessionArtifactsForPurge(params: {
+  indexPath: string;
+  agentId: string;
+  sessionIds: readonly string[];
+}): void {
+  type ArtifactDatabase = {
+    sqlite_master: { name: string; type: string };
+    openclaw_qmd_session_artifacts: {
+      collection: string;
+      artifact_path: string;
+      agent_id: string;
+      session_id: string;
+    };
+    documents: { collection: string; path: string };
+  };
+  const unsupported = (message: string) =>
+    Object.assign(new Error(message), {
+      reason: "session-purge-unsupported",
+      backend: "qmd",
+    });
+  const db = openQmdSessionArtifactDb(params.indexPath, true);
+  try {
+    const query = getNodeSqliteKysely<ArtifactDatabase>(db);
+    const tables = new Set(
+      executeSqliteQuerySync(
+        db,
+        query.selectFrom("sqlite_master").select("name").where("type", "=", "table"),
+      ).rows.map((row) => row.name),
+    );
+    const mappings = tables.has(QMD_SESSION_ARTIFACT_TABLE)
+      ? executeSqliteQuerySync(db, query.selectFrom(QMD_SESSION_ARTIFACT_TABLE).selectAll()).rows
+      : [];
+    const sessionIds = new Set(params.sessionIds);
+    if (mappings.some((row) => row.agent_id === params.agentId && sessionIds.has(row.session_id))) {
+      throw unsupported(
+        "Session purge requires session-scoped QMD content/vector purge, which this backend does not support. Native session data was retained.",
+      );
+    }
+    if (!tables.has("documents")) {
+      return;
+    }
+    const mappedCollections = new Set(mappings.map((row) => row.collection));
+    const mappedArtifacts = new Set(
+      mappings.map((row) => JSON.stringify([row.collection, row.artifact_path])),
+    );
+    const documents = executeSqliteQuerySync(
+      db,
+      query.selectFrom("documents").select(["collection", "path"]),
+    ).rows;
+    // Pre-mapping QMD session collections used sessions / sessions-<agent>.
+    // Their lossy filenames cannot prove which native generation owned a row.
+    if (
+      documents.some(
+        (row) =>
+          (mappedCollections.has(row.collection) ||
+            row.collection === "sessions" ||
+            row.collection.startsWith("sessions-")) &&
+          !mappedArtifacts.has(JSON.stringify([row.collection, row.path])),
+      )
+    ) {
+      throw unsupported(
+        "Session purge cannot prove ownership of unmapped QMD session documents. Repair QMD session artifact mappings before retrying; native session data was retained.",
+      );
+    }
+  } finally {
+    db.close();
+  }
 }

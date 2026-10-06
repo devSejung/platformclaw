@@ -3,4 +3,5 @@ export {
   closeAllMemoryIndexManagers,
   closeMemoryIndexManagersForAgent,
   MemoryIndexManager,
+  withMemoryIndexManagersPaused,
 } from "./src/memory/manager-runtime.js";

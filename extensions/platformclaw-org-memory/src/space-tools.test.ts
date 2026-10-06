@@ -104,11 +104,13 @@ describe("Space recall tools", () => {
       type: "object",
       properties: {
         query: { type: "string", minLength: 1, maxLength: 1000 },
+        authorName: { type: "string", minLength: 1, maxLength: 240 },
+        authorId: { type: "string", minLength: 1, maxLength: 128 },
         spaceId: { type: "string", maxLength: 128 },
         limit: { type: "integer", minimum: 1, maximum: 20 },
         cursor: { type: "string", maxLength: 32 },
       },
-      required: ["query"],
+      required: [],
       additionalProperties: false,
     });
     const get = registerTool.mock.calls[1]![0]({ agentId: "person-a", runId: "run-a" });
@@ -144,6 +146,23 @@ describe("Space recall tools", () => {
       conversationId: "conversation-a",
       bodyOffset: 8000,
       pageRevision: 3,
+    });
+    await search.execute("author-discovery", { authorName: "승언" });
+    expect(spaceRead).toHaveBeenLastCalledWith({
+      agentId: "person-a",
+      runId: "admission-a",
+      operation: "search",
+      authorName: "승언",
+      sessionKey,
+    });
+    await search.execute("author-topic", { authorId: "author-b", query: "PMIC" });
+    expect(spaceRead).toHaveBeenLastCalledWith({
+      agentId: "person-a",
+      runId: "admission-a",
+      operation: "search",
+      authorId: "author-b",
+      query: "PMIC",
+      sessionKey,
     });
     expect(search.parameters.properties.agentId).toBeUndefined();
     expect(search.parameters.properties.runId).toBeUndefined();
