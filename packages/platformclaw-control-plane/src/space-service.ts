@@ -28,6 +28,10 @@ import type { SqliteControlPlaneStore } from "./sqlite-store.js";
 // Bounded output alone would still permit thousands of sequential history reads.
 const SPACE_SEARCH_LOOKUP_LIMIT = 40;
 
+function normalizeSpaceSearchQuery(query: unknown): string {
+  return spaceText(query, "query", 1000).trim().replace(/\s+/gu, " ");
+}
+
 type SpaceAgentReadParams = SpaceRecallWindow &
   Partial<Omit<SpaceNativeSessionRequest, "agentId" | "sessionKey">> & {
     agentId: string;
@@ -205,19 +209,27 @@ export class SpaceService {
       spaceName: space.name,
       pageId: page.id,
       pageTitle: page.title,
-      snippet: snippet.slice(0, 1200),
+      snippet: truncateUtf16Safe(snippet, 1200),
       ...(messageId ? { messageId } : {}),
       link: `/platformclaw/app/spaces?space=${encodeURIComponent(space.id)}&page=${encodeURIComponent(page.id)}${messageId ? `&message=${encodeURIComponent(messageId)}` : ""}`,
     });
     // Notes have no transcript until the first send. Search both owned sources for every caller.
-    const needle = query.toLowerCase();
+    const terms = query
+      .split(" ")
+      .map((term) => new RegExp(term.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "iu"));
     const notes = pages.flatMap((page) => {
-      const match = page.body.toLowerCase().indexOf(needle);
-      if (match < 0 && !page.title.toLowerCase().includes(needle)) {
+      // Match on original text: case folding can change UTF-16 length and corrupt read offsets.
+      // Every keyword must occur in the note, matching the transcript search's AND semantics.
+      const matches = terms.map((term) => term.exec(page.body)?.index ?? -1);
+      if (!terms.every((term, index) => matches[index]! >= 0 || term.test(page.title))) {
         return [];
       }
-      const bodyOffset = truncateUtf16Safe(page.body, Math.max(0, match - 120)).length;
-      const snippet = match < 0 ? page.title : truncateUtf16Safe(page.body.slice(bodyOffset), 1200);
+      const match = Math.min(...matches.filter((index) => index >= 0));
+      const hasBodyMatch = Number.isFinite(match);
+      const bodyOffset = hasBodyMatch
+        ? truncateUtf16Safe(page.body, Math.max(0, match - 120)).length
+        : 0;
+      const snippet = hasBodyMatch ? page.body.slice(bodyOffset) : page.title;
       return [{ ...source(page, snippet), bodyOffset, pageRevision: page.revision }];
     });
     const conversations = raw.results.flatMap((hit) => {
@@ -243,7 +255,7 @@ export class SpaceService {
     revalidate: () => Promise<void>,
     includePersonalConversations = false,
   ) {
-    spaceText(query, "query", 1000);
+    const normalizedQuery = normalizeSpaceSearchQuery(query);
     const spaces = spaceId ? [this.spaces.access(userId, spaceId)] : this.spaces.list(userId);
     const matches: Array<{
       results: Array<Record<string, unknown>>;
@@ -261,7 +273,7 @@ export class SpaceService {
         await this.searchSpace(
           space,
           this.spaces.pages(userId, space.id),
-          query,
+          normalizedQuery,
           async () => {
             await revalidate();
             this.spaces.access(userId, space.id);
@@ -273,7 +285,7 @@ export class SpaceService {
         const personal = await this.conversations.search(
           userId,
           space.id,
-          query,
+          normalizedQuery,
           async () => {
             await revalidate();
             this.spaces.access(userId, space.id);
@@ -492,7 +504,7 @@ export class SpaceService {
         messages: projectSpaceMessages(raw),
       };
     }
-    const query = spaceText(params.query, "query", 1000);
+    const query = normalizeSpaceSearchQuery(params.query);
     return await this.searchSpace(scope.space, scope.pages, query, async () => {
       this.spaces.assertRun(params.agentId, params.runId);
       this.spaces.agentScope(params.agentId);

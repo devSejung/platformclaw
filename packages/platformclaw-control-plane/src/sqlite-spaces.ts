@@ -197,17 +197,55 @@ export class SqliteSpaceStore {
   people(userId: string, spaceId: string, query: string) {
     this.access(userId, spaceId, "owner");
     spaceText(query, "employee search", 160);
-    // Exact account lookup keeps the invitation target unambiguous and directory exposure bounded.
+    // Literal substring matching prevents wildcard-only queries from enumerating the directory.
+    const search = query.trim();
     return executeSync(
       this.db,
       this.query
-        .selectFrom("platform_users")
-        .select(["id as userId", "account_id as accountId", "display_name as displayName"])
-        .where("status", "=", "active")
-        .where("account_id", "=", query.trim())
-        .limit(1),
+        .selectFrom("platform_users as employee")
+        .select([
+          "employee.id as userId",
+          "employee.account_id as accountId",
+          "employee.display_name as displayName",
+        ])
+        .where("employee.status", "=", "active")
+        .where((eb) =>
+          eb.or([
+            eb(
+              eb.fn<number>("instr", [
+                eb.fn("lower", ["employee.account_id"]),
+                eb.fn("lower", [eb.val(search)]),
+              ]),
+              ">",
+              0,
+            ),
+            eb(
+              eb.fn<number>("instr", [
+                eb.fn("lower", ["employee.display_name"]),
+                eb.fn("lower", [eb.val(search)]),
+              ]),
+              ">",
+              0,
+            ),
+          ]),
+        )
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom("collaboration_space_members")
+                .select("user_id")
+                .whereRef("user_id", "=", "employee.id")
+                .where("space_id", "=", spaceId),
+            ),
+          ),
+        )
+        .orderBy("employee.account_id")
+        .orderBy("employee.id")
+        .limit(20),
     ).rows.map((row) => Object.assign({}, row, { displayName: row.displayName || row.accountId }));
   }
+
   setMember(
     userId: string,
     spaceId: string,

@@ -517,7 +517,7 @@ describe("Space issue page UX", () => {
     button(element, "Members and access").click();
     await element.updateComplete;
     expect(element.querySelector(".pc-space-panel")?.textContent).toContain(
-      "Exact employee account ID",
+      "Employee name or account ID",
     );
     expect(element.querySelector(".pc-space-notes")).toBeNull();
     button(element, "Close panel").click();
@@ -728,7 +728,7 @@ describe("Space issue page UX", () => {
     const { element, request } = await mount();
     button(element, "Members and access").click();
     await element.updateComplete;
-    input(element, "Exact employee account ID", "bob");
+    input(element, "Employee name or account ID", "bob");
     button(element, "Find employee").click();
     await vi.waitFor(() => expect(element.textContent).toContain("Invite Bob"));
     button(element, "Invite Bob (bob)").click();
@@ -741,6 +741,128 @@ describe("Space issue page UX", () => {
     await element.updateComplete;
     expect(request.mock.calls.some(([method]) => method.endsWith("member.set"))).toBe(false);
   });
+  it("suggests partial names, supports keyboard selection, and ignores out-of-order results", async () => {
+    const { element, request } = await mount();
+    const original = request.getMockImplementation()!;
+    const pending = new Map<string, (value: unknown) => void>();
+    request.mockImplementation(async (method, params) =>
+      method.endsWith(".people")
+        ? new Promise((resolve) => {
+            pending.set(params?.query as string, resolve);
+          })
+        : original(method, params),
+    );
+    button(element, "Members and access").click();
+    await element.updateComplete;
+    input(element, "Employee name or account ID", "bo");
+    await vi.waitFor(() => expect(pending.has("bo")).toBe(true));
+    expect(element.querySelector('[role="status"]')?.textContent).toContain("Loading");
+    input(element, "Employee name or account ID", "ca");
+    pending.get("bo")!([{ userId: "bob", accountId: "bob", displayName: "Bob" }]);
+    await vi.waitFor(() => expect(pending.has("ca")).toBe(true));
+    expect(element.textContent).not.toContain("Invite Bob");
+    pending.get("ca")!([{ userId: "carol", accountId: "carol", displayName: "Carol" }]);
+    await vi.waitFor(() =>
+      expect(element.querySelector('[role="option"]')?.textContent).toContain("Carol"),
+    );
+    const field = element.querySelector<HTMLInputElement>('[role="combobox"]')!;
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    await element.updateComplete;
+    expect(field.getAttribute("aria-activedescendant")).toBe(
+      element.querySelector('[role="option"]')!.id,
+    );
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await element.updateComplete;
+    expect(element.querySelector('[role="alertdialog"]')?.textContent).toContain("Carol (carol)");
+    button(element, "Confirm").click();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("platformclaw.spaces.member.set", {
+        spaceId: space.id,
+        userId: "carol",
+        role: "editor",
+        expectedRevision: 1,
+      }),
+    );
+  });
+  it("shows empty results and recoverable search failures", async () => {
+    const { element, request } = await mount();
+    const original = request.getMockImplementation()!;
+    request.mockImplementation(async (method, params) => {
+      if (method.endsWith(".people")) {
+        if (params?.query === "missing") {
+          return [];
+        }
+        throw new Error("Directory unavailable; try again");
+      }
+      return original(method, params);
+    });
+    button(element, "Members and access").click();
+    await element.updateComplete;
+    input(element, "Employee name or account ID", "missing");
+    await vi.waitFor(() => expect(element.textContent).toContain("No matching active employees"));
+    input(element, "Employee name or account ID", "failure");
+    await vi.waitFor(() =>
+      expect(element.querySelector('[role="alert"]')?.textContent).toContain(
+        "Directory unavailable; try again",
+      ),
+    );
+    expect(element.textContent).not.toContain("No matching active employees");
+  });
+  it.each(["space", "permission", "client"])(
+    "clears member suggestions and late responses on %s change",
+    async (change) => {
+      const { element, request, gateway, emit } = await mount();
+      const original = request.getMockImplementation()!;
+      let release!: (value: unknown) => void;
+      let role = "owner";
+      request.mockImplementation(async (method, params) => {
+        if (method.endsWith(".people")) {
+          return new Promise((resolve) => {
+            release = resolve;
+          });
+        }
+        if (method.endsWith(".get")) {
+          return {
+            space: { ...space, role },
+            pages: [page],
+            members: [member],
+            conversations: [],
+            currentUserId: "alice",
+          };
+        }
+        return original(method, params);
+      });
+      button(element, "Members and access").click();
+      await element.updateComplete;
+      input(element, "Employee name or account ID", "bo");
+      await vi.waitFor(() => expect(release).toBeDefined());
+      if (change === "space") {
+        await element.selectSpace("other");
+      }
+      if (change === "permission") {
+        role = "viewer";
+        emit({ event: "platformclaw.spaces.invalidated" });
+        await vi.waitFor(() => expect(element.querySelector('[role="combobox"]')).toBeNull());
+      }
+      if (change === "client") {
+        gateway.snapshot.client = { request: vi.fn(async () => []) };
+        gateway.snapshot.phase = "stopped";
+        emit({ event: "platformclaw.spaces.invalidated" });
+        await element.updateComplete;
+      }
+      release([{ userId: "bob", accountId: "bob", displayName: "Bob" }]);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      await element.updateComplete;
+      expect(element.querySelector('[role="option"]')).toBeNull();
+      expect(element.querySelector('[role="alertdialog"]')).toBeNull();
+    },
+  );
   it("does not render a retired browser identity's late history response", async () => {
     const { element, request, gateway } = await mount();
     let release!: (value: unknown) => void;

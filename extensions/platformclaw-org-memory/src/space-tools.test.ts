@@ -3,6 +3,70 @@ import { describe, expect, it, vi } from "vitest";
 import type { WikiHubMemoryClient } from "./client.js";
 import { registerSpaceTools } from "./space-tools.js";
 describe("Space recall tools", () => {
+  it.each([0, 1])("preserves bounded recovery guidance for recall tool %s", async (toolIndex) => {
+    const registerTool = vi.fn();
+    const failure = {
+      code: "space-conflict",
+      error: "Page changed",
+      action: "Restart the page read at bodyOffset 0 without pageRevision.",
+    };
+    const spaceRead = vi.fn().mockRejectedValue(
+      Object.assign(new Error(failure.error), {
+        memoryCorpusFailure: { ...failure, internal: "private-service-details" },
+      }),
+    );
+    registerSpaceTools(
+      {
+        registerTool,
+        runContext: { resolveAdmissionId: () => "admission" },
+        on: vi.fn(),
+        registerMemoryPromptSupplement: vi.fn(),
+      } as unknown as OpenClawPluginApi,
+      { spaceRead } as unknown as WikiHubMemoryClient,
+    );
+    const tool = registerTool.mock.calls[toolIndex]![0]({ agentId: "person-a" });
+    const result = await tool.execute("call", {});
+    expect(result).toEqual({
+      isError: true,
+      content: [{ type: "text", text: JSON.stringify({ status: "error", ...failure }) }],
+      details: { status: "error", ...failure },
+    });
+    spaceRead.mockRejectedValueOnce(
+      Object.assign(new Error("bounded service failure"), {
+        memoryCorpusFailure: { ...failure, error: "x".repeat(600), action: "y".repeat(600) },
+      }),
+    );
+    const bounded = await tool.execute("bounded", {});
+    expect(bounded.details.error).toHaveLength(500);
+    expect(bounded.details.action).toHaveLength(500);
+  });
+
+  it.each([0, 1])("redacts unexpected service failures for recall tool %s", async (toolIndex) => {
+    const registerTool = vi.fn();
+    const spaceRead = vi
+      .fn()
+      .mockRejectedValue(new Error("connect /private/service/socket token=secret"));
+    registerSpaceTools(
+      {
+        registerTool,
+        runContext: { resolveAdmissionId: () => "admission" },
+        on: vi.fn(),
+        registerMemoryPromptSupplement: vi.fn(),
+      } as unknown as OpenClawPluginApi,
+      { spaceRead } as unknown as WikiHubMemoryClient,
+    );
+    const tool = registerTool.mock.calls[toolIndex]![0]({ agentId: "person-a" });
+    const result = await tool.execute("call", {});
+    expect(result.isError).toBe(true);
+    expect(result.details).toEqual({
+      status: "error",
+      error: "Space service is unavailable",
+      action:
+        "Retry the Space request. If it keeps failing, ask an administrator to check the Space service.",
+    });
+    expect(JSON.stringify(result)).not.toMatch(/private|socket|secret/);
+  });
+
   it("pins the trusted runtime actor/run and advertises only read operations", async () => {
     const registerTool = vi.fn();
     const resolveAdmissionId = vi.fn((context: { runId?: string }) =>

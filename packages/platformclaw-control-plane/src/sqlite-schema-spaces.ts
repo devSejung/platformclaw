@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS collaboration_space_conversations (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS collaboration_space_conversations_space
  ON collaboration_space_conversations(space_id,created_at,id);
+CREATE TABLE IF NOT EXISTS collaboration_space_conversation_titles (
+ conversation_id TEXT PRIMARY KEY REFERENCES collaboration_space_conversations(id) ON DELETE CASCADE,
+ requested_title TEXT NOT NULL
+) STRICT;
 `;
 export function ensureSpaceSchema(db: DatabaseSync) {
   const ensure = () => db.exec(SPACE_SCHEMA);

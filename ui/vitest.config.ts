@@ -37,10 +37,6 @@ const workspaceSourceAliases = [
     replacement: path.resolve(here, "src/lib/browser-redact.ts"),
   },
   {
-    find: "openclaw/plugin-sdk/test-fixtures",
-    replacement: path.resolve(repoRoot, "src/plugin-sdk/test-fixtures.ts"),
-  },
-  {
     find: /^@openclaw\/model-catalog-core\/(.+)$/u,
     replacement: path.resolve(repoRoot, "packages/model-catalog-core/src/$1.ts"),
   },

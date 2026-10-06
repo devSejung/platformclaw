@@ -13,6 +13,7 @@ import {
   exactVersionFromOverrideSpec,
   normalizeNpmVersionDrift,
   normalizeOverrides,
+  mergeOverrides,
   packageJsonForNpmLock,
   pnpmLockOverrideVersionForVersions,
   parsePnpmPackageKey,
@@ -102,6 +103,56 @@ describe("generate-npm-package-lock", () => {
       },
       tar: "7.5",
     });
+  });
+
+  it.each([false, true])(
+    "preserves parent and scoped child pins in either input order (%s)",
+    (reverse) => {
+      const entries: [string, string][] = [
+        ["parent", "1.0.0"],
+        ["parent>child", "2.0.0"],
+      ];
+      expect(
+        normalizeOverrides(Object.fromEntries(reverse ? entries.toReversed() : entries)),
+      ).toEqual({
+        parent: { ".": "1.0.0", child: "2.0.0" },
+      });
+    },
+  );
+
+  it.each([false, true])("combines independent parent and child policies (%s)", (reverse) => {
+    const parent = { parent: "1.0.0" };
+    const child = { parent: { child: "2.0.0" } };
+    expect(mergeOverrides({}, reverse ? parent : child, reverse ? child : parent)).toEqual({
+      parent: { ".": "1.0.0", child: "2.0.0" },
+    });
+  });
+
+  it.each([false, true])("still rejects conflicting explicit parent policies (%s)", (reverse) => {
+    const parent = { parent: "1.0.0" };
+    const child = { parent: { ".": "3.0.0", child: "2.0.0" } };
+    expect(() => mergeOverrides({}, reverse ? parent : child, reverse ? child : parent)).toThrow(
+      "overrides.parent conflicts",
+    );
+  });
+
+  it("preserves aliases and nested policies without mutating their source", () => {
+    const child = { parent: { child: { ".": "2.0.0", nested: "3.0.0" } } };
+    const original = structuredClone(child);
+    expect(mergeOverrides({}, child, { parent: "npm:replacement@1.0.0" })).toEqual({
+      parent: { ".": "npm:replacement@1.0.0", child: { ".": "2.0.0", nested: "3.0.0" } },
+    });
+    expect(child).toEqual(original);
+  });
+
+  it("combines matching explicit parent pins while retaining an alias", () => {
+    expect(
+      mergeOverrides(
+        { parent: "1.0.0" },
+        { parent: { ".": "npm:replacement@1.0.0", child: "2.0.0" } },
+        {},
+      ),
+    ).toEqual({ parent: { ".": "npm:replacement@1.0.0", child: "2.0.0" } });
   });
 
   it("rejects short flag package selectors before resolving npm-lock targets", () => {

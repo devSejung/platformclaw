@@ -178,11 +178,7 @@ export class SpaceConversationService {
     return current;
   }
 
-  private async ensureSession(conversation: {
-    sessionKey: string;
-    agentId: string;
-    title: string;
-  }) {
+  private async ensureSession(conversation: { sessionKey: string; agentId: string }) {
     const resolved = await this.gateway.request("sessions.resolve", {
       key: conversation.sessionKey,
       agentId: conversation.agentId,
@@ -201,7 +197,8 @@ export class SpaceConversationService {
     const result = await this.gateway.request("sessions.create", {
       key: conversation.sessionKey,
       agentId: conversation.agentId,
-      label: conversation.title,
+      // Space owns display titles; native labels are unique across the personal agent.
+      // The reserved key identifies this conversation without colliding with private labels.
       emitCommandHooks: false,
     });
     if (!isRecord(result) || result.ok !== true || result.key !== conversation.sessionKey) {

@@ -4,7 +4,6 @@ import { state } from "lit/decorators.js";
 import type {
   Space,
   SpacePage,
-  SpaceMember,
   SpaceRole,
   SpaceConversation,
 } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
@@ -18,6 +17,7 @@ import {
 } from "./space-conversation-history.ts";
 import { requestSpaceGateway, spaceGatewayErrorMessage } from "./space-gateway-request.ts";
 import { renderSpaceMembers } from "./space-members-view.ts";
+import { SpacePeopleSearch } from "./space-people-search.ts";
 import "../styles/chat.css";
 import "../pages/chat/chat-pane.ts";
 import { renderSpacesView, type SpaceSnapshot, type SpaceSearchHit } from "./spaces-view.ts";
@@ -51,8 +51,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   private newParentId: string | undefined;
   @state() private query = "";
   @state() private hits: SpaceSearchHit[] = [];
-  @state() private account = "";
-  @state() private candidates: Array<Omit<SpaceMember, "role">> = [];
+  private readonly peopleSearch = new SpacePeopleSearch(() => this.requestUpdate());
   @state() private pendingMember: { userId: string; label: string; role: SpaceRole | null } | null =
     null;
   private epoch = 0;
@@ -68,6 +67,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     void loadPlatformClawLocale().then(() => this.requestUpdate());
   }
   override disconnectedCallback() {
+    this.peopleSearch.clear();
     this.epoch++;
     this.historyEpoch++;
     this.conversationHistory.clear();
@@ -130,6 +130,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
         this.hits = [];
       }
 
+      this.peopleSearch.clear();
+      this.pendingMember = null;
       this.historyEpoch++;
       clearTimeout(this.historyTimer);
     }
@@ -144,16 +146,15 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.conversation = null;
     this.conversationHistory.clear();
     this.hits = [];
-    this.editing = null;
-    this.creating = null;
-    this.draftTitle = "";
-    this.body = "";
+    this.clearDraft();
     this.membersOpen = false;
     this.notesOpen = false;
-    this.candidates = [];
+    this.peopleSearch.clear();
     this.pendingMember = null;
   }
   private async refresh(revalidate = false) {
+    this.peopleSearch.clear();
+    this.pendingMember = null;
     const epoch = ++this.epoch;
     this.loading = true;
     if (!revalidate) {
@@ -184,6 +185,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     }
   }
   private async selectSpace(id: string, revalidate = false) {
+    this.peopleSearch.clear();
+    this.pendingMember = null;
     const epoch = ++this.epoch;
     const priorPage = this.snapshot?.space.id === id ? this.page?.id : undefined;
     const priorConversation = this.conversation?.id;
@@ -196,10 +199,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.loading = true;
     if (!revalidate) {
       this.error = "";
-      this.editing = null;
-      this.creating = null;
-      this.draftTitle = "";
-      this.body = "";
+      this.clearDraft();
       this.pendingMember = null;
       this.notesOpen = false;
       this.membersOpen = false;
@@ -224,10 +224,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       const pageId = priorPage ?? new URL(location.href).searchParams.get("page");
       this.page = snapshot.pages.find((page) => page.id === pageId) ?? null;
       if (snapshot.space.role === "viewer" || (this.editing && this.editing.id !== this.page?.id)) {
-        this.editing = null;
-        this.creating = null;
-        this.draftTitle = "";
-        this.body = "";
+        this.clearDraft();
       }
       if (this.page) {
         const url = new URL(location.href);
@@ -381,11 +378,14 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       this.querySelector<HTMLInputElement>("[data-title]")?.focus(),
     );
   }
-  private cancelEdit() {
-    this.creating = null;
+  private clearDraft() {
     this.editing = null;
+    this.creating = null;
     this.draftTitle = "";
     this.body = "";
+  }
+  private cancelEdit() {
+    this.clearDraft();
     this.pendingMember = null;
     this.notice = "";
     void this.updateComplete.then(() =>
@@ -496,22 +496,25 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       }
     });
   }
-  private findPerson() {
-    void this.action(async () => {
-      if (this.snapshot) {
-        this.candidates = await this.rpc("people", {
-          spaceId: this.snapshot.space.id,
-          query: this.account,
-        });
-        if (!this.candidates.length) {
-          this.notice = t("noPerson");
-        }
-      }
-    });
+  private get canManageMembers() {
+    return this.snapshot?.space.role === "owner" && !this.loading && this.gatewayConnected;
+  }
+  private findPerson(query: string, immediate = false) {
+    const space = this.snapshot?.space;
+    this.pendingMember = null;
+    if (!space || !this.canManageMembers) {
+      this.peopleSearch.clear();
+      return;
+    }
+    this.peopleSearch.search(
+      query,
+      (search) => this.rpc("people", { spaceId: space.id, query: search }),
+      immediate,
+    );
   }
   private changeMember() {
     void this.action(async () => {
-      if (!this.snapshot || !this.pendingMember) {
+      if (!this.snapshot || !this.canManageMembers || !this.pendingMember) {
         return;
       }
       const { userId, role } = this.pendingMember;
@@ -522,7 +525,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
         expectedRevision: this.snapshot.space.revision,
       });
       this.pendingMember = null;
-      this.candidates = [];
+      this.peopleSearch.clear();
       await this.refresh(true);
     });
   }
@@ -531,6 +534,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       this.notice = t("finishEditing");
       return;
     }
+    this.peopleSearch.clear();
     const wasOpen = panel === "notes" ? this.notesOpen : this.membersOpen;
     this.notesOpen = panel === "notes" && !wasOpen;
     this.membersOpen = panel === "members" && !wasOpen;
@@ -545,6 +549,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     }
   }
   private closePanel() {
+    this.peopleSearch.clear();
     const members = this.membersOpen;
     if (this.editing || this.creating) {
       this.cancelEdit();
@@ -600,7 +605,21 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       expandedPages: this.expandedPages,
       query: this.query,
       hits: this.hits,
-      membersView: this.membersOpen ? this.renderMembers() : nothing,
+      membersView: this.membersOpen
+        ? renderSpaceMembers({
+            owner: this.canManageMembers,
+            members: this.snapshot?.members ?? [],
+            busy: this.busy,
+            search: this.peopleSearch,
+            pending: this.pendingMember,
+            onAccount: (value, immediate) => this.findPerson(value, immediate),
+            onPending: (value) => {
+              this.pendingMember = value;
+              this.peopleSearch.clear();
+            },
+            onConfirm: () => this.changeMember(),
+          })
+        : nothing,
       onSelectSpace: (id) => void this.selectSpace(id),
       onSelectPage: (page, messageId) => this.selectPage(page, messageId),
       onCreate: (kind, parentId) => this.openCreate(kind, parentId),
@@ -671,25 +690,6 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
         const target = event.currentTarget as HTMLElement;
         this.followConversation = target.scrollHeight - target.scrollTop - target.clientHeight < 96;
       },
-    });
-  }
-  private renderMembers() {
-    return renderSpaceMembers({
-      owner: this.snapshot?.space.role === "owner",
-      members: this.snapshot?.members ?? [],
-      busy: this.busy,
-      account: this.account,
-      candidates: this.candidates,
-      pending: this.pendingMember,
-      onAccount: (value) => {
-        this.account = value;
-        this.candidates = [];
-      },
-      onPending: (value) => {
-        this.pendingMember = value;
-      },
-      onFind: () => this.findPerson(),
-      onConfirm: () => this.changeMember(),
     });
   }
 }

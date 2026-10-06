@@ -147,6 +147,8 @@ overrides:
   "werift-ice@0.2.2>ip": "npm:neoip@3.1.0"
   ip-address: 10.3.1
   minimatch: 10.2.5
+  # Remove when node-llama-cpp accepts the patched major; 3.x leaves Git guards vulnerable.
+  "node-llama-cpp>simple-git": 4.0.2
   path-to-regexp: 8.4.2
   qs: 6.15.3
   sharp: 0.35.4

@@ -80,6 +80,9 @@ describe("package manager build policy", () => {
     const packages = collectPnpmLockPackages();
 
     expect(overrides["lru-cache"]).toBeUndefined();
+    const parent = overrides["node-llama-cpp"] as Record<string, unknown>;
+    const scoped = overrides["node-llama-cpp@3.19.1"] as Record<string, unknown>;
+    expect(parent).toMatchObject({ ".": "3.19.1", "simple-git": "4.0.2", ...scoped });
     expect(overrides["lru-memoizer@2.3.0"]).toMatchObject({
       "lru-cache": { ".": "6.0.0", yallist: "4.0.0" },
     });

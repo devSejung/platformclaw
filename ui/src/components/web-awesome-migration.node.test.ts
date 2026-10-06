@@ -51,6 +51,8 @@ describe("Web Awesome control ownership", () => {
       "pages/chat/components/chat-composer-skill-menu.ts",
       "pages/chat/components/chat-composer-slash-menu.ts",
       "pages/chat/components/chat-model-controls.ts",
+      // Employee lookup is a dynamic suggestion surface with asynchronous directory results.
+      "platformclaw/space-members-view.ts",
     ]);
   });
 
