@@ -73,9 +73,9 @@ export function parseMemoryWikiReferenceSpans(
     references.push({ start, end: index + match[0].length, target });
   };
   for (const match of searchable.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)) {
-    const target = match[1]?.trim();
-    if (target) {
-      append(match, decodeWikiTarget(target.split("#")[0] ?? ""));
+    const target = decodeWikiTarget(match[1]?.trim().split("#")[0] ?? "").replace(/^\/+/, "/");
+    if (target && target !== "/") {
+      append(match, target);
     }
   }
   const definitions = new Map<string, string>();
@@ -123,12 +123,15 @@ export function parseMemoryWikiReferenceSpans(
           if (references.length >= maxReferences) {
             throw new Error(`Wiki references exceed the ${maxReferences} reference limit.`);
           }
+          const decodedTarget = decodeWikiTarget(target);
+          // Preserve the root marker so a missing root path cannot use scoped shorthand.
+          const resolvedTarget = target.startsWith("/")
+            ? decodedTarget
+            : path.posix.join(path.posix.dirname(sourceRelativePath), decodedTarget);
           references.push({
             start,
             end,
-            target: path.posix.normalize(
-              path.posix.join(path.posix.dirname(sourceRelativePath), decodeWikiTarget(target)),
-            ),
+            target: path.posix.normalize(resolvedTarget),
           });
         }
       }

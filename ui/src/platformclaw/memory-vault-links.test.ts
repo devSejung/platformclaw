@@ -14,6 +14,7 @@ import { waitForFast } from "../test-helpers/wait-for.ts";
 import { loadPlatformClawLocale } from "./i18n.ts";
 import { renderVaultDocument, renderVaultDocumentList } from "./memory-vault-document.ts";
 import "./memory-vault-author.ts";
+import "./memory-vault-reader.ts";
 
 const rpc = "platformclaw.vault.document.";
 function button(root: Element, name: string) {
@@ -176,11 +177,12 @@ describe("Wiki document links", () => {
       const host = document.createElement("div");
       document.body.append(host);
       const open = vi.fn();
+      const unresolved = vi.fn();
       const doc: KnowledgeVaultDocument = {
         ...(type === "personal" ? wikiHubPersonalDocument : wikiHubSharedDocument),
         logicalPath: "guides/source.md",
         content:
-          "[[guides/Setup%20%23%25.md|Setup guide]] [[Shared title]] [[target-id|Identity]] [Relative](other.md) [[Ambiguous]]",
+          "[[guides/Setup%20%23%25.md|Setup guide]] [[Shared title]] [[target-id|Identity]] [Relative](other.md) [Root](/concepts/target.md#checks) [[/concepts/target.md#checks|Wiki root]] [[Ambiguous]] [Missing root](/missing.md)",
         links: [
           {
             target: "guides/Setup #%.md",
@@ -206,7 +208,20 @@ describe("Wiki document links", () => {
             documentId: "relative",
             title: "Relative",
           },
+          {
+            target: "/concepts/target.md",
+            logicalPath: "concepts/target.md",
+            documentId: "root",
+            title: "Root",
+          },
           { target: "Ambiguous", logicalPath: "Ambiguous", documentId: null, title: "Ambiguous" },
+          { target: "/missing.md", logicalPath: "/missing.md", documentId: null, title: "Missing" },
+          {
+            target: "missing.md",
+            logicalPath: "imports/missing.md",
+            documentId: "wrong-scope",
+            title: "Missing",
+          },
         ],
       };
       render(
@@ -217,6 +232,7 @@ describe("Wiki document links", () => {
           canEdit: true,
           busy: false,
           onOpen: open,
+          onUnresolvedLink: unresolved,
           onEdit: vi.fn(),
           onDownload: vi.fn(),
           onClose: vi.fn(),
@@ -231,8 +247,159 @@ describe("Wiki document links", () => {
         "title",
         "target-id",
         "relative",
+        "root",
+        "root",
       ]);
+      expect(open).toHaveBeenLastCalledWith("root", "checks");
+      expect(unresolved).toHaveBeenCalledTimes(2);
       expect(host.querySelector("p.callout[role=status]")).not.toBeNull();
     },
   );
+  it.each(["personal", "shared"] as const)(
+    "keeps %s heading navigation in the modal and preserves fragments across a failed linked read",
+    async (type) => {
+      const base = type === "personal" ? wikiHubPersonalDocument : wikiHubSharedDocument;
+      const source: KnowledgeVaultDocument = {
+        ...base,
+        logicalPath: "guides/Folder # %/source.md",
+        content: [
+          "# Source",
+          "[First](#recovery-steps) [Second](#recovery-steps-1) [[#한글 100% 확인|Korean]]",
+          "[Missing heading](#absent) [[Unknown]] [Next](target.md#recovery-steps-1) [Deep](#deep-section)",
+          "## Recovery *steps*",
+          "First section.",
+          "## Recovery steps",
+          "Second section.",
+          "## 한글 100% 확인",
+          "Korean section.",
+          "###### Deep section",
+          "Nested section.",
+        ].join("\n\n"),
+        links: [
+          { target: "Unknown", logicalPath: "Unknown", documentId: null, title: "Unknown" },
+          {
+            target: "guides/Folder # %/target.md",
+            logicalPath: "guides/Folder # %/target.md",
+            documentId: "next-document",
+            title: "Target",
+          },
+        ],
+      };
+      const target: KnowledgeVaultDocument = {
+        ...base,
+        id: "next-document",
+        logicalPath: "guides/Folder # %/target.md",
+        title: "Target",
+        content: "# Target\n\n## Recovery steps\n\nFirst.\n\n## Recovery steps\n\nSecond.",
+        links: [],
+      };
+      const request = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Read interrupted"))
+        .mockResolvedValue(target);
+      const host = document.createElement("div");
+      document.body.append(host);
+      render(
+        html`<platformclaw-vault-reader
+          .client=${{ request }}
+          .connected=${true}
+          .methods=${wikiHubMethods}
+          .agentId=${"assigned-personal"}
+          .selection=${{
+            vaultId: base.vaultId,
+            documentId: source.id,
+            document: source,
+            vault: wikiHubSnapshot().vaults.find((vault) => vault.id === base.vaultId),
+          }}
+        ></platformclaw-vault-reader>`,
+        host,
+      );
+      await waitForFast(() => expect(host.querySelector("article h2")).not.toBeNull());
+      const href = window.location.href;
+      const body = host.querySelector<HTMLElement>(".wiki-hub__preview-body")!;
+      const headings = [...host.querySelectorAll<HTMLElement>("article h2")];
+      vi.spyOn(body, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 100, 500, 300));
+      vi.spyOn(headings[0]!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 400, 500, 40));
+      const click = (label: string) => {
+        const link = [...host.querySelectorAll<HTMLAnchorElement>("article a")].find(
+          (anchor) => anchor.textContent === label,
+        );
+        expect(link, label).toBeDefined();
+        link!.click();
+      };
+      click("First");
+      await waitForFast(() => expect(document.activeElement).toBe(headings[0]));
+      expect(body.scrollTop).toBe(300);
+      click("Second");
+      await waitForFast(() => expect(document.activeElement).toBe(headings[1]));
+      click("Korean");
+      await waitForFast(() => expect(document.activeElement).toBe(headings[2]));
+      click("Deep");
+      await waitForFast(() =>
+        expect(document.activeElement).toBe(host.querySelector("article h6")),
+      );
+      expect(window.location.href).toBe(href);
+      expect(request).not.toHaveBeenCalled();
+      click("Missing heading");
+      await waitForFast(() =>
+        expect(host.textContent).toContain("The linked section was not found"),
+      );
+      expect(host.querySelector("article")?.textContent).toContain("Korean section.");
+      click("Unknown");
+      await waitForFast(() =>
+        expect(host.querySelector('[role="status"]')?.textContent).toContain(
+          "Some links have no matching document",
+        ),
+      );
+      click("Next");
+      await waitForFast(() => expect(host.textContent).toContain("Read interrupted"));
+      button(host, "Retry").click();
+      await waitForFast(() => expect(host.querySelector("article h1")?.textContent).toBe("Target"));
+      await waitForFast(() =>
+        expect(document.activeElement).toBe(host.querySelectorAll("article h2")[1]),
+      );
+      expect(request.mock.calls).toEqual([
+        [rpc + "get", { vaultId: base.vaultId, documentId: "next-document" }],
+        [rpc + "get", { vaultId: base.vaultId, documentId: "next-document" }],
+      ]);
+      expect(window.location.href).toBe(href);
+    },
+  );
+  it("leaves external URL and email navigation to the browser", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const open = vi.fn();
+    const unresolved = vi.fn();
+    render(
+      renderVaultDocument({
+        document: {
+          ...wikiHubSharedDocument,
+          content:
+            "[Web](https://example.com/page#part) [Email](mailto:owner@example.com) [Network](//example.com/page)",
+          links: [],
+        },
+        vaultName: "Example",
+        vaultType: "shared",
+        canEdit: true,
+        busy: false,
+        onOpen: open,
+        onUnresolvedLink: unresolved,
+        onEdit: vi.fn(),
+        onDownload: vi.fn(),
+        onClose: vi.fn(),
+      }),
+      host,
+    );
+    const prevented: boolean[] = [];
+    host.addEventListener("click", (event) => {
+      prevented.push(event.defaultPrevented);
+      event.preventDefault();
+    });
+    for (const anchor of host.querySelectorAll<HTMLAnchorElement>("article a")) {
+      anchor.click();
+    }
+    expect(prevented).toEqual([false, false, false]);
+    expect(open).not.toHaveBeenCalled();
+    expect(unresolved).not.toHaveBeenCalled();
+  });
 });

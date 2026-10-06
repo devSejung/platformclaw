@@ -76,3 +76,18 @@ export function positiveInteger(
     ? value
     : fail(`${label} must be an integer from 1 to ${max}`);
 }
+
+export function projectCompileFailure(value: unknown, fail: ProjectionFailure): JsonObject {
+  if (value === undefined) {
+    return {};
+  }
+  const failure = failObject(value, "wiki compile failure", fail);
+  return {
+    compileFailure: {
+      error: text(failure.error, "wiki compile error", fail, 2000).slice(0, 500),
+      failedAt: count(failure.failedAt, "wiki compile failedAt", fail),
+      nextRetryAt: count(failure.nextRetryAt, "wiki compile nextRetryAt", fail),
+      attempts: count(failure.attempts, "wiki compile attempts", fail),
+    },
+  };
+}

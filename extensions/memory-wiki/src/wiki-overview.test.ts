@@ -5,11 +5,93 @@ import { describe, expect, it } from "vitest";
 import { compileMemoryWikiVault } from "./compile.js";
 import { renderWikiMarkdown } from "./markdown.js";
 import { createMemoryWikiTestHarness } from "./test-helpers.js";
+import { listMemoryWikiGraph } from "./wiki-graph.js";
 import { listMemoryWikiOverview } from "./wiki-overview.js";
 
 const { createVault } = createMemoryWikiTestHarness();
 
 describe("listMemoryWikiOverview", () => {
+  it("bounds catalog and cluster payloads while counting every authored page and including plain sources and reports", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    const pages = Array.from({ length: 999 }, (_, index) => {
+      const name = String(index).padStart(4, "0");
+      return { path: `concepts/note-${name}.md`, content: `# Note ${name}\n\nOriginal body.` };
+    });
+    pages.push(
+      { path: "sources/plain.md", content: "# A plain source\n\nNo annotations required." },
+      { path: "reports/plain.md", content: "# A plain report\n\nNo annotations required." },
+    );
+    for (let start = 0; start < pages.length; start += 50) {
+      await Promise.all(
+        pages
+          .slice(start, start + 50)
+          .map((page) => fs.writeFile(path.join(rootDir, page.path), page.content)),
+      );
+    }
+    const result = await listMemoryWikiOverview(config);
+    expect(result).toMatchObject({
+      totalPages: 1_001,
+      totalItems: 999,
+      documentsTruncated: true,
+      pageCounts: { concept: 999, source: 1, report: 1 },
+    });
+    expect(result.documents).toHaveLength(1_000);
+    expect(result.documents.map((document) => document.pagePath)).toEqual(
+      expect.arrayContaining(["sources/plain.md", "reports/plain.md", "concepts/note-0997.md"]),
+    );
+    expect(result.documents.some((document) => document.pagePath === "concepts/note-0998.md")).toBe(
+      false,
+    );
+    const concepts = result.clusters.find((cluster) => cluster.key === "concept");
+    expect(concepts?.itemCount).toBe(999);
+    expect(concepts?.items).toHaveLength(500);
+  });
+
+  it("bounds display previews for a one MiB paragraph and large metadata without changing the source", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    const paragraph = "x".repeat(1024 * 1024);
+    await fs.writeFile(path.join(rootDir, "concepts/paragraph.md"), paragraph);
+    const long = "metadata ".repeat(3_000);
+    const metadata = renderWikiMarkdown({
+      frontmatter: {
+        title: long,
+        id: long,
+        updatedAt: long,
+        sourceType: long,
+        claims: [{ text: long }],
+        questions: [long],
+        contradictions: [long],
+      },
+      body: "# Long metadata\n\nOriginal body.",
+    });
+    await fs.writeFile(path.join(rootDir, "concepts/metadata.md"), metadata);
+    const result = await listMemoryWikiOverview(config);
+    expect(result.documentsTruncated).toBe(false);
+    expect(
+      result.documents.find((item) => item.pagePath === "concepts/paragraph.md")?.snippet,
+    ).toBe("x".repeat(320));
+    const item = result.documents.find((entry) => entry.pagePath === "concepts/metadata.md");
+    expect(item).toMatchObject({
+      title: long.slice(0, 240),
+      updatedAt: long.slice(0, 256),
+      sourceType: long.slice(0, 256),
+      claimCount: 1,
+      questionCount: 1,
+      contradictionCount: 1,
+      claims: [long.slice(0, 320)],
+      questions: [long.slice(0, 320)],
+      contradictions: [long.slice(0, 320)],
+    });
+    expect(item).not.toHaveProperty("id");
+    const graph = await listMemoryWikiGraph(config);
+    expect(graph.nodes.find((node) => node.id === "concepts/metadata.md")).toMatchObject({
+      title: long.slice(0, 240),
+      updatedAt: long.slice(0, 256),
+    });
+    expect(await fs.readFile(path.join(rootDir, "concepts/paragraph.md"), "utf8")).toBe(paragraph);
+    expect(await fs.readFile(path.join(rootDir, "concepts/metadata.md"), "utf8")).toBe(metadata);
+  });
+
   it("returns the canonical compile failure even when no search hit matches", async () => {
     const { rootDir, config } = await createVault({ initialize: true });
     await compileMemoryWikiVault(config);

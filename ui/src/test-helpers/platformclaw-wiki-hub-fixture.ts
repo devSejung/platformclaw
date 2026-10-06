@@ -14,6 +14,7 @@ export const wikiHubMethods = [
   "delete",
   "document.get",
   "document.save",
+  "document.import",
   "document.delete",
   "document.preview",
   "document.targets",

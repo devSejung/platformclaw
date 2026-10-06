@@ -168,6 +168,8 @@ type KnowledgeVaultAttachment = {
 export type KnowledgeVaultGraph = {
   /** Node metadata comes from selected.documents; edges use each source's indexedRevision. */
   edges: Array<{ source: string; target: string }>;
+  /** Personal catalog size is independent of the source owner's bounded graph. */
+  nodeIds?: string[];
   unresolvedLinks: number;
   truncated: boolean;
 };
@@ -179,6 +181,8 @@ export type KnowledgeVaultSnapshot = {
   selected?: {
     vault: KnowledgeVault;
     documents: KnowledgeVaultDocumentSummary[];
+    documentCount?: number;
+    documentsTruncated?: boolean;
     members: KnowledgeVaultMember[];
     grants: KnowledgeVaultOrganizationGrant[];
     attachments: KnowledgeVaultAttachment[];
@@ -198,9 +202,31 @@ export type KnowledgeVaultDocumentInput = {
   expectedRevision?: number | string;
 };
 
+export type KnowledgeVaultDocumentImportInput = {
+  userId: string;
+  vaultId: string;
+  importId: string;
+  documents: Array<{ relativePath: string; content: string }>;
+};
+
+export type KnowledgeVaultDocumentImportResult = {
+  importId: string;
+  rootPath: string;
+  documents: Array<
+    { relativePath: string; path: string } & (
+      | { status: "saved" | "unchanged"; title: string; revision: string }
+      | { status: "failed"; error: "conflict" | "unavailable" | "invalid" }
+    )
+  >;
+  indexesRefreshed: boolean;
+};
+
 export const KNOWLEDGE_VAULT_LIMITS = {
   connections: 256,
   documentBytes: 1024 * 1024,
+  importDocuments: 100,
+  // Even sixfold JSON escaping stays below the existing 25 MiB Gateway frame limit.
+  importBytes: 4 * 1024 * 1024,
   attachmentBytes: 8 * 1024 * 1024,
   archiveBytes: 32 * 1024 * 1024,
   expandedBytes: 64 * 1024 * 1024,

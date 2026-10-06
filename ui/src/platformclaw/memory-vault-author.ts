@@ -19,6 +19,8 @@ import { platformClawT } from "./i18n.ts";
 import { renderVaultDialog } from "./memory-vault-catalog.ts";
 import "./memory-vaults.css";
 import "./memory-vault-link-picker.ts";
+import "./memory-vault-upload.ts";
+import type { PlatformClawVaultUpload, VaultUploadSummary } from "./memory-vault-upload.ts";
 
 const t = (key: string) => platformClawT(`platformClaw.vault.${key}`);
 type SourceKind = "write" | "personal" | "upload";
@@ -37,6 +39,7 @@ class PlatformClawVaultAuthor extends OpenClawLightDomElement {
   @property({ attribute: false }) vault: KnowledgeVault | KnowledgeVaultCatalogEntry | null = null;
   @property({ attribute: false }) document: KnowledgeVaultDocument | null = null;
   @property() initialPersonalLookup: string | null = null;
+  @property() initialSourceKind: "write" | "upload" = "write";
   @state() private vaults: Array<KnowledgeVault | KnowledgeVaultCatalogEntry> = [];
   @state() private vaultId = "";
   @state() private sourceKind: SourceKind = "write";
@@ -70,7 +73,9 @@ class PlatformClawVaultAuthor extends OpenClawLightDomElement {
 
   protected override updated(changed: PropertyValues) {
     const identityChanged =
-      ["client", "agentId", "document", "initialPersonalLookup"].some((key) => changed.has(key)) ||
+      ["client", "agentId", "document", "initialPersonalLookup", "initialSourceKind"].some((key) =>
+        changed.has(key),
+      ) ||
       (changed.has("vault") &&
         (changed.get("vault") as KnowledgeVault | null | undefined)?.id !== this.vault?.id);
     if (identityChanged) {
@@ -79,7 +84,7 @@ class PlatformClawVaultAuthor extends OpenClawLightDomElement {
       this.error = "";
       this.vaults = this.vault ? [this.vault] : [];
       this.vaultId = this.vault?.id ?? "";
-      this.sourceKind = this.initialPersonalLookup ? "personal" : "write";
+      this.sourceKind = this.initialPersonalLookup ? "personal" : this.initialSourceKind;
       this.source = null;
       this.documentTitle = this.document?.title ?? "";
       this.content = this.document?.editableContent ?? this.document?.content ?? "";
@@ -185,6 +190,10 @@ class PlatformClawVaultAuthor extends OpenClawLightDomElement {
   private guardDraft(action: () => void) {
     if (this.busy) {
       return false;
+    }
+    const upload = this.querySelector<PlatformClawVaultUpload>("platformclaw-vault-upload");
+    if (upload) {
+      return upload.requestLeave(action);
     }
     if (this.draftKey() !== this.baseline) {
       this.pendingDiscard = action;
@@ -316,6 +325,12 @@ class PlatformClawVaultAuthor extends OpenClawLightDomElement {
         return;
       }
       const shared = { title: this.documentTitle, content: this.content };
+      // Personal titles may be bounded for display. An unchanged, trimmed preview
+      // must not overwrite the full title stored in the authored source.
+      const preservePersonalTitle =
+        this.vault?.type === "personal" &&
+        this.document !== null &&
+        this.documentTitle.trim() === this.document.title.trim();
       const document = this.source
         ? await this.client!.request<KnowledgeVaultDocument>("platformclaw.vault.publish", {
             targetVaultId: this.vaultId,
@@ -326,7 +341,8 @@ class PlatformClawVaultAuthor extends OpenClawLightDomElement {
           })
         : await this.client!.request<KnowledgeVaultDocument>("platformclaw.vault.document.save", {
             vaultId: this.vaultId,
-            ...shared,
+            content: this.content,
+            ...(preservePersonalTitle ? {} : { title: this.documentTitle }),
             ...(this.vault?.type !== "personal" && this.path.trim()
               ? { logicalPath: this.path }
               : {}),
@@ -509,23 +525,42 @@ class PlatformClawVaultAuthor extends OpenClawLightDomElement {
                               : nothing}`}`
                   : nothing}
                 ${this.sourceKind === "upload"
-                  ? html`<p class="vaults__hint">${t("markdownHint")}</p>
-                      <label class="btn vaults__upload"
-                        >${t("chooseMarkdown")}<input
-                          type="file"
-                          accept=".md,.markdown,text/markdown"
-                          ?disabled=${this.busy || !this.vaultId}
-                          @change=${(event: Event) => {
-                            const input = event.currentTarget as HTMLInputElement;
-                            const file = input.files?.[0];
-                            input.value = "";
-                            if (file) {
-                              this.upload(file);
-                            }
-                          }} /></label
-                      >${this.filename
-                        ? html`<p class="vaults__hint">${this.filename}</p>`
-                        : nothing}`
+                  ? this.vault?.type === "personal"
+                    ? this.methods.includes("platformclaw.vault.document.import")
+                      ? html`<platformclaw-vault-upload
+                          .client=${this.client}
+                          .connected=${this.connected}
+                          .vaultId=${this.vaultId}
+                          @upload-busy=${(event: CustomEvent<boolean>) =>
+                            (this.busy = event.detail)}
+                          @upload-complete=${(event: CustomEvent<VaultUploadSummary>) =>
+                            this.dispatchEvent(
+                              new CustomEvent("author-imported", {
+                                bubbles: true,
+                                detail: event.detail,
+                              }),
+                            )}
+                          @upload-close=${() =>
+                            this.dispatchEvent(new CustomEvent("author-close", { bubbles: true }))}
+                        ></platformclaw-vault-upload>`
+                      : html`<p role="status">${t("importUnavailable")}</p>`
+                    : html`<p class="vaults__hint">${t("markdownHint")}</p>
+                        <label class="btn vaults__upload"
+                          >${t("chooseMarkdown")}<input
+                            type="file"
+                            accept=".md,.markdown,text/markdown"
+                            ?disabled=${this.busy || !this.vaultId}
+                            @change=${(event: Event) => {
+                              const input = event.currentTarget as HTMLInputElement;
+                              const file = input.files?.[0];
+                              input.value = "";
+                              if (file) {
+                                this.upload(file);
+                              }
+                            }} /></label
+                        >${this.filename
+                          ? html`<p class="vaults__hint">${this.filename}</p>`
+                          : nothing}`
                   : nothing}
                 ${this.vaultId &&
                 (this.sourceKind !== "personal" ||

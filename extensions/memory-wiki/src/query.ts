@@ -240,7 +240,7 @@ async function listWikiMarkdownFiles(rootDir: string): Promise<string[]> {
             (entry) =>
               entry.kind === "file" &&
               entry.relativePath.endsWith(".md") &&
-              path.basename(entry.relativePath) !== "index.md",
+              entry.relativePath.split(path.sep).join("/") !== `${relativeDir}/index.md`,
           )
           .map((entry) => entry.relativePath.split(path.sep).join("/"));
       }),

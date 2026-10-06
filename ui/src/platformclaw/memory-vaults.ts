@@ -27,22 +27,26 @@ import {
   deleteAttachmentLifecycle,
   deleteVaultLifecycle,
   downloadAttachment,
+  downloadVaultBlob,
+  importVaultArchive,
   renameVaultLifecycle,
   replaceAttachment,
   renderAttachmentDeleteConfirmation,
+  renderVaultArchiveImport,
   renderVaultAttachments,
   renderVaultDeleteConfirmation,
   renderVaultManagementActions,
   renderVaultRenameForm,
   renderVaultSelectedLayout,
   renderVaultStateDialog,
+  requestVaultBinary,
   uploadAttachment,
 } from "./memory-vault-management.ts";
 import type { VaultReaderSelection } from "./memory-vault-reader.ts";
+import type { VaultUploadSummary } from "./memory-vault-upload.ts";
 
 const t = (key: string) => platformClawT(`platformClaw.vault.${key}`);
 const RPC = "platformclaw.vault.";
-const API = "/platformclaw/vaults";
 
 class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
@@ -61,6 +65,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   @property() initialVaultId = "";
   @property() initialDocumentId = "";
   @state() private authorOpen = false;
+  @state() private authorSource: "write" | "upload" = "write";
   @state() private creating = false;
   @state() private busy = false;
   @state() private error = "";
@@ -77,6 +82,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   @state() private recoveryVault: KnowledgeVaultCatalogEntry | null = null;
   @state() private publishLookup: string | null = null;
   private epoch = 0;
+  private importRefreshPending = false;
 
   override connectedCallback() {
     super.connectedCallback();
@@ -84,6 +90,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   }
   override disconnectedCallback() {
     this.epoch++;
+    this.importRefreshPending = false;
     super.disconnectedCallback();
   }
   protected override updated(changed: PropertyValues) {
@@ -111,6 +118,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     }
     if (["client", "connected", "agentId", "methodAdvertised"].some((key) => changed.has(key))) {
       this.epoch++;
+      this.importRefreshPending = false;
       this.busy = false;
       if (!this.connected) {
         this.creating =
@@ -174,8 +182,21 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     } finally {
       if (epoch === this.epoch) {
         this.busy = false;
+        if (this.importRefreshPending) {
+          this.refreshAfterImport();
+        }
       }
     }
+  }
+  private refreshAfterImport() {
+    // Several uploads can finish while one catalog request is still in flight.
+    // Keep one trailing refresh so its response includes the latest completion.
+    this.importRefreshPending = true;
+    if (!this.available || this.busy) {
+      return;
+    }
+    this.importRefreshPending = false;
+    void this.run(() => this.readSnapshot(), false);
   }
   private async readSnapshot(id = this.selectedId) {
     const epoch = this.epoch;
@@ -258,43 +279,6 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     const value = data.get(name);
     return typeof value === "string" ? value : "";
   }
-  private async binary(path: string, init?: RequestInit) {
-    const response = await fetch(`${API}${path}`, { credentials: "same-origin", ...init });
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(body?.error ?? `Vault request failed (${response.status})`);
-    }
-    return response;
-  }
-  private download(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-  private fileInput(
-    label: string,
-    accept: string,
-    action: (file: File) => Promise<void>,
-    small = false,
-  ) {
-    return html`<label class=${`btn${small ? " btn--sm" : ""} vaults__upload`}
-      >${t(label)}<input
-        type="file"
-        accept=${accept}
-        ?disabled=${this.busy || this.authorOpen}
-        @change=${(event: Event) => {
-          const input = event.currentTarget as HTMLInputElement;
-          const file = input.files?.[0];
-          input.value = "";
-          if (file) {
-            void this.run(() => action(file));
-          }
-        }}
-    /></label>`;
-  }
   private renderCreate() {
     return renderVaultCreateForm({
       busy: this.busy,
@@ -342,12 +326,23 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
           .agentId=${this.agentId}
           .vault=${this.publishLookup ? null : (this.selected?.vault ?? null)}
           .initialPersonalLookup=${this.publishLookup}
+          .initialSourceKind=${this.publishLookup ? "write" : this.authorSource}
           .methods=${this.methods}
           @author-close=${() => {
             this.authorOpen = false;
             this.publishLookup = null;
           }}
           @author-saved=${(event: CustomEvent<VaultAuthorSaved>) => this.saved(event)}
+          @author-imported=${(event: CustomEvent<VaultUploadSummary>) => {
+            const { saved, unchanged, failed, excluded } = event.detail;
+            this.message = platformClawT("platformClaw.vault.importCounts", {
+              saved: String(saved),
+              unchanged: String(unchanged),
+              failed: String(failed),
+              excluded: String(excluded),
+            });
+            this.refreshAfterImport();
+          }}
         ></platformclaw-vault-author>`
       : nothing;
   }
@@ -458,7 +453,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
         const epoch = this.epoch;
         void this.run(() =>
           deleteAttachmentLifecycle({
-            binary: (path, init) => this.binary(path, init),
+            binary: requestVaultBinary,
             vaultId: vault.id,
             attachment,
             isCurrent: () => epoch === this.epoch,
@@ -488,10 +483,10 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
       onExport: () =>
         void this.run(async () => {
           const epoch = this.epoch;
-          const response = await this.binary(`/export?${query}`);
+          const response = await requestVaultBinary(`/export?${query}`);
           const archive = await response.blob();
           if (epoch === this.epoch) {
-            this.download(archive, `${vault.name}.zip`);
+            downloadVaultBlob(archive, `${vault.name}.zip`);
           }
         }),
       onRebuild: () => void this.run(() => this.mutate("rebuild", { vaultId: vault.id })),
@@ -501,12 +496,12 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     const attachments = renderVaultAttachments({
       selected,
       busy: this.busy,
-      renderFileInput: (label, accept, action, small) =>
-        this.fileInput(label, accept, action, small),
+      authorOpen: this.authorOpen,
+      run: (action) => this.run(action),
       onUpload: (file) => {
         const epoch = this.epoch;
         return uploadAttachment({
-          binary: (path, init) => this.binary(path, init),
+          binary: requestVaultBinary,
           vaultId: vault.id,
           file,
           isCurrent: () => epoch === this.epoch,
@@ -517,18 +512,18 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
         const epoch = this.epoch;
         void this.run(() =>
           downloadAttachment({
-            binary: (path, init) => this.binary(path, init),
+            binary: requestVaultBinary,
             vaultId: vault.id,
             attachment,
             isCurrent: () => epoch === this.epoch,
-            download: (blob, filename) => this.download(blob, filename),
+            download: downloadVaultBlob,
           }),
         );
       },
       onReplace: (attachment, file) => {
         const epoch = this.epoch;
         return replaceAttachment({
-          binary: (path, init) => this.binary(path, init),
+          binary: requestVaultBinary,
           vaultId: vault.id,
           attachment,
           file,
@@ -554,32 +549,37 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
         this.snapshot = { ...this.snapshot, selected: undefined };
         this.searchScope = "connected";
       },
-      onAddKnowledge: () => (this.authorOpen = true),
+      onAddKnowledge: () => {
+        this.authorSource = "write";
+        this.authorOpen = true;
+      },
+      onUploadDocuments:
+        vault.type === "personal" && this.methods.includes(`${RPC}document.import`)
+          ? () => {
+              this.authorSource = "upload";
+              this.authorOpen = true;
+            }
+          : undefined,
       onDocumentOpen: (documentId) => this.openDocument(documentId),
     });
   }
   private renderImport() {
-    return html`<p>${t("importHint")}</p>
-      ${this.fileInput("chooseZip", ".zip,application/zip", async (file) => {
-        if (file.size > 32 * 1024 * 1024) {
-          throw new Error(t("tooLarge"));
-        }
-        const epoch = this.epoch;
-        const response = await this.binary("/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/zip" },
-          body: file,
-        });
-        const vault = (await response.json()) as KnowledgeVault;
-        if (epoch !== this.epoch) {
-          return;
-        }
-        this.importing = false;
-        this.selectedId = vault.id;
-        this.searchScope = "selected";
-        await this.readSnapshot(vault.id);
-        this.message = t("importedNotice");
-      })}`;
+    return renderVaultArchiveImport({
+      disabled: this.busy || this.authorOpen,
+      onImport: (file) =>
+        void this.run(async () => {
+          const epoch = this.epoch;
+          const vault = await importVaultArchive(file);
+          if (epoch !== this.epoch) {
+            return;
+          }
+          this.importing = false;
+          this.selectedId = vault.id;
+          this.searchScope = "selected";
+          await this.readSnapshot(vault.id);
+          this.message = t("importedNotice");
+        }),
+    });
   }
   private renderDialog() {
     return renderVaultStateDialog({

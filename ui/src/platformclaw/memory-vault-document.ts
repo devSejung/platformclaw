@@ -16,6 +16,15 @@ import "../styles/dreams.css";
 import "./memory-vaults.css";
 import { platformClawT } from "./i18n.ts";
 
+function decodeVaultLinkTarget(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    // Match the portable parser: literal percent signs remain authored target text.
+    return value;
+  }
+}
+
 export function renderVaultDocument(options: {
   document: KnowledgeVaultDocument;
   vaultName: string;
@@ -24,7 +33,9 @@ export function renderVaultDocument(options: {
   onDelete?: () => void;
   canEdit: boolean;
   busy: boolean;
-  onOpen: (documentId: string) => void;
+  linkNotice?: string;
+  onOpen: (documentId: string, heading?: string) => void;
+  onUnresolvedLink: () => void;
   onEdit: () => void;
   onDownload: () => void;
   onClose: () => void;
@@ -88,6 +99,9 @@ export function renderVaultDocument(options: {
     content: html`<div>
       <p class="vaults__hint">${t(document.compile.status)}</p>
       ${document.compile.status !== "ready" ? renderVaultIndexStatus(document.compile) : nothing}
+      ${options.linkNotice
+        ? html`<p class="callout" role="status">${options.linkNotice}</p>`
+        : nothing}
       <article
         class="md-preview-dialog__reader sidebar-markdown wiki-document__reader"
         @click=${(event: MouseEvent) => {
@@ -97,19 +111,36 @@ export function renderVaultDocument(options: {
           if (!anchor) {
             return;
           }
-          const path = anchor.dataset.wikiLookup ?? anchor.getAttribute("href") ?? "";
-          if (!anchor.dataset.wikiLookup && /^(?:https?:|#)/iu.test(path)) {
+          const wikiLookup = anchor.dataset.wikiLookup;
+          const path = wikiLookup ?? anchor.dataset.wikiPath ?? anchor.getAttribute("href") ?? "";
+          if (wikiLookup === undefined && /^(?:[a-z][a-z0-9+.-]*:|\/\/)/iu.test(path)) {
             return;
           }
           event.preventDefault();
+          if (options.busy) {
+            return;
+          }
           let logicalPath: string;
+          let heading: string;
           try {
-            logicalPath = anchor.dataset.wikiLookup
-              ? decodeURIComponent(path.split("#")[0]!)
-              : decodeURIComponent(
-                  new URL(path, `https://vault.invalid/${document.logicalPath}`).pathname.slice(1),
-                );
+            if (wikiLookup !== undefined) {
+              const separator = path.indexOf("#");
+              logicalPath = decodeVaultLinkTarget(
+                separator < 0 ? path : path.slice(0, separator),
+              ).replace(/^\/+/, "/");
+              heading = separator < 0 ? "" : decodeVaultLinkTarget(path.slice(separator + 1));
+            } else {
+              const sourcePath = document.logicalPath.split("/").map(encodeURIComponent).join("/");
+              const url = new URL(path, `https://vault.invalid/${sourcePath}`);
+              logicalPath = decodeVaultLinkTarget(url.pathname.slice(path.startsWith("/") ? 0 : 1));
+              heading = decodeVaultLinkTarget(url.hash.slice(1));
+            }
           } catch {
+            options.onUnresolvedLink();
+            return;
+          }
+          if (!logicalPath || logicalPath.replace(/^\/+/, "") === document.logicalPath) {
+            options.onOpen(document.id, heading);
             return;
           }
           // Resolution, ambiguity and access belong to the server. Match the
@@ -117,8 +148,10 @@ export function renderVaultDocument(options: {
           const matches = document.links.filter((candidate) => candidate.target === logicalPath);
           const ids = new Set(matches.map((candidate) => candidate.documentId));
           const id = ids.size === 1 ? ids.values().next().value : null;
-          if (id && !options.busy) {
-            options.onOpen(id);
+          if (id) {
+            options.onOpen(id, heading);
+          } else {
+            options.onUnresolvedLink();
           }
         }}
       >
@@ -134,7 +167,7 @@ export function renderVaultDocument(options: {
       ${document.linksTruncated
         ? html`<p class="callout" role="status">${t("linksTruncated")}</p>`
         : nothing}
-      ${document.links.some((link) => !link.documentId)
+      ${!options.linkNotice && document.links.some((link) => !link.documentId)
         ? html`<p class="callout" role="status">${t("unresolvedNotice")}</p>`
         : nothing}
       <details class="vaults__relationships">

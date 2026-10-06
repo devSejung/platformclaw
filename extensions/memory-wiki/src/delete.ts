@@ -39,7 +39,7 @@ export async function deleteMemoryWikiPage(params: {
     const vault = await root(config.vault.path);
     let exists = true;
     try {
-      const raw = await vault.readBytes(path, { maxBytes: 256 * 1024 });
+      const raw = await vault.readBytes(path, { maxBytes: 1024 * 1024 });
       if (createHash("sha256").update(raw).digest("hex") !== expectedContentHash) {
         throw new MemoryWikiDeleteValidationError("Wiki page changed. Reload it before deleting.");
       }

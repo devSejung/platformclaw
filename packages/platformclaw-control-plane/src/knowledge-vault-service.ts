@@ -14,6 +14,7 @@ import {
   type KnowledgeVaultTurnScope,
   type KnowledgeVaultSnapshot,
   type KnowledgeVaultDocumentInput,
+  type KnowledgeVaultDocumentImportInput,
 } from "./knowledge-vault-contracts.js";
 import {
   operateSharedWiki,
@@ -42,7 +43,7 @@ export class KnowledgeVaultService {
     shared.vaults.unshift(personal);
     if (params.vaultId?.startsWith("personal:")) {
       shared.selected = await this.personal.selected(params.userId, params.vaultId);
-      personal.documentCount = shared.selected.documents.length;
+      personal.documentCount = shared.selected.documentCount;
     }
     return shared;
   }
@@ -144,9 +145,12 @@ export class KnowledgeVaultService {
         documentId: document.id,
         title: document.title,
         logicalPath: document.logicalPath,
-        link: formatWikiDocumentLink(document.logicalPath, document.title),
+        // Picker selections name an exact Personal document across import namespaces.
+        link: formatWikiDocumentLink(document.logicalPath, document.title, {
+          rooted: selected.vault.type === "personal",
+        }),
       })),
-      hasMore: matches.length > 20,
+      hasMore: matches.length > 20 || selected.documentsTruncated === true,
     };
   }
   deleteDocument(params: {
@@ -168,6 +172,12 @@ export class KnowledgeVaultService {
     return params.vaultId.startsWith("personal:")
       ? this.personal.save(params)
       : this.store.vaults.saveDocument(params);
+  }
+  importDocuments(params: KnowledgeVaultDocumentImportInput) {
+    if (!params.vaultId.startsWith("personal:")) {
+      throw new ControlPlaneStateError("Batch document upload requires Personal Wiki");
+    }
+    return this.personal.importDocuments(params);
   }
   async rebuild(params: { userId: string; vaultId: string; documentId?: string }) {
     if (params.vaultId.startsWith("personal:")) {

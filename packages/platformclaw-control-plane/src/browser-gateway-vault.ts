@@ -1,3 +1,4 @@
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import {
   BrowserGatewayProxyError,
   type BrowserGatewayAccess,
@@ -9,6 +10,7 @@ import {
   ControlPlaneNotFoundError,
   ControlPlaneStateError,
 } from "./contracts.js";
+import { KNOWLEDGE_VAULT_LIMITS } from "./knowledge-vault-contracts.js";
 import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
 
 function stringField(
@@ -99,6 +101,32 @@ export async function requestBrowserKnowledgeVault(params: {
           userId,
           vaultId,
           query: field("query", 160, true),
+        });
+      } else if (method === "platformclaw.vault.document.import") {
+        if (
+          !Array.isArray(request.documents) ||
+          request.documents.length === 0 ||
+          request.documents.length > KNOWLEDGE_VAULT_LIMITS.importDocuments
+        ) {
+          throw new ControlPlaneStateError("Upload between 1 and 100 Markdown documents per batch");
+        }
+        const documents = request.documents.map((document) => {
+          if (
+            !isRecord(document) ||
+            Object.keys(document).some((key) => key !== "relativePath" && key !== "content")
+          ) {
+            throw new ControlPlaneStateError("Each upload requires relativePath and content only");
+          }
+          return {
+            relativePath: stringField(document, "relativePath"),
+            content: stringField(document, "content", KNOWLEDGE_VAULT_LIMITS.documentBytes, true),
+          };
+        });
+        result = await service.importDocuments({
+          userId,
+          vaultId,
+          importId: field("importId", 36),
+          documents,
         });
       } else if (method === "platformclaw.vault.document.delete") {
         if (

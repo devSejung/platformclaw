@@ -20,6 +20,7 @@ import {
   saveMemoryWikiDocument,
 } from "./document-edit.js";
 import { registerMemoryWikiArtifactGatewayMethods } from "./gateway-artifacts.js";
+import { registerMemoryWikiDocumentImportGatewayMethod } from "./gateway-document-import.js";
 import { listMemoryWikiImportInsights } from "./import-insights.js";
 import { listMemoryWikiImportRuns } from "./import-runs.js";
 import { ingestMemoryWikiSource } from "./ingest.js";
@@ -185,6 +186,8 @@ export function registerMemoryWikiGatewayMethods(params: {
     },
     { scope: WRITE_SCOPE },
   );
+
+  registerMemoryWikiDocumentImportGatewayMethod(api, resolveRequestContext);
 
   api.registerGatewayMethod(
     "wiki.document.create",

@@ -187,8 +187,43 @@ describe("Memory Hub Shared document graph", () => {
       .querySelector('[data-svg-graph-node="Orphan"]')!
       .dispatchEvent(new MouseEvent("click"));
     await truncated.updateComplete;
-    expect(truncated.textContent).toContain("Some links are omitted");
+    expect(truncated.textContent).toContain("Some documents or links are omitted");
     expect(truncated.textContent).toContain("2 unresolved links");
     expect(truncated.textContent).toContain("Some links may be omitted");
+  });
+  it("keeps an expanded document catalog separate from bounded graph nodes and exposes its search scope", async () => {
+    const selected = fixture();
+    selected.documentCount = 7;
+    selected.documentsTruncated = true;
+    selected.graph.nodeIds = ["Alpha", "Beta", "concepts/index.md"];
+    selected.graph.truncated = true;
+    selected.graph.edges.push({ source: "concepts/index.md", target: "Alpha" });
+    const element = await mount(selected);
+    expect(element.querySelectorAll("[data-svg-graph-node]")).toHaveLength(2);
+    expect(element.querySelector('[data-svg-graph-node="Orphan"]')).toBeNull();
+    expect(element.querySelectorAll("line")).toHaveLength(2);
+    expect(element.textContent).toContain("filter covers the displayed documents");
+    element
+      .querySelector('[data-svg-graph-node="Alpha"]')!
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await element.updateComplete;
+    expect(element.querySelectorAll(".vault-graph__inspector section button")).toHaveLength(2);
+    const documentsTab = element.querySelector<HTMLElement>("#vault-documents-tab-documents");
+    expect(documentsTab).not.toBeNull();
+    documentsTab!.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
+    await element.updateComplete;
+    expect(documentsTab!.getAttribute("aria-selected")).toBe("true");
+    const notice = element.querySelector("[data-vault-documents-truncated]");
+    expect(notice).not.toBeNull();
+    expect(notice!.textContent).toContain("Showing 3 of 7 documents");
+    expect(element.textContent).toContain("Search document contents above");
+    expect(element.querySelectorAll(".settings-row")).toHaveLength(3);
+    const opened = vi.fn();
+    element.addEventListener("vault-document-open", opened);
+    const orphan = [...element.querySelectorAll<HTMLButtonElement>(".settings-row")].find(
+      (button) => button.textContent?.includes("Orphan"),
+    )!;
+    orphan.click();
+    expect(opened.mock.calls[0]![0].detail).toBe("Orphan");
   });
 });

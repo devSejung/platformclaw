@@ -1,4 +1,61 @@
 export const vaultTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.vault.importHeading": "Add Markdown files together",
+  "platformClaw.vault.importMarkdownHint":
+    "Choose several files or a folder. Folder paths and document links stay together, and the original Markdown content is preserved.",
+  "platformClaw.vault.importChooseFiles": "Choose files",
+  "platformClaw.vault.importChooseFolder": "Choose folder",
+  "platformClaw.vault.importAction": "Upload files",
+  "platformClaw.vault.importLimits":
+    "UTF-8 .md or .markdown · up to 1 MiB per file, {count} selected files, 64 MiB total. Other files are listed as excluded; upload attachments separately.",
+  "platformClaw.vault.importFileLimit": "Select at most {count} files at once.",
+  "platformClaw.vault.importTotalLimit":
+    "Selected Markdown exceeds {size}. Remove files or choose a smaller folder.",
+  "platformClaw.vault.importDocumentLimit": "Exceeds the 1 MiB document limit.",
+  "platformClaw.vault.importMarkdownOnly": "Excluded: only .md and .markdown files are imported.",
+  "platformClaw.vault.importDuplicate":
+    "Another selected file has this destination path. Remove one copy.",
+  "platformClaw.vault.importInvalidPath":
+    "This filename or folder path cannot be imported. Rename it or remove it from the selection.",
+  "platformClaw.vault.importCryptoUnavailable":
+    "This browser cannot generate a secure upload ID. Open the page in a browser with Web Crypto support.",
+  "platformClaw.vault.importUnavailable":
+    "File upload is unavailable on this connection. Reconnect to a gateway with Markdown import support.",
+  "platformClaw.vault.importSelected": "{count} files selected · {size} of Markdown",
+  "platformClaw.vault.importCounts":
+    "{saved} uploaded · {unchanged} already present · {failed} need attention · {excluded} excluded",
+  "platformClaw.vault.importFileList": "Selected files and upload results",
+  "platformClaw.vault.importPreviewFile": "Preview {path}",
+  "platformClaw.vault.importSourcePreview": "Original Markdown",
+  "platformClaw.vault.importRemoveFile": "Remove {path} from selection",
+  "platformClaw.vault.importRemove": "Remove",
+  "platformClaw.vault.importReading": "Reading and checking files…",
+  "platformClaw.vault.importUploading": "Uploading files",
+  "platformClaw.vault.importProgress":
+    "{completed} of {total} files processed · uploading and updating links…",
+  "platformClaw.vault.importUpload": "Upload {count} files",
+  "platformClaw.vault.importRetry": "Retry pending files",
+  "platformClaw.vault.importDone": "Done",
+  "platformClaw.vault.importRetryHint":
+    "Retries keep the same destination. Confirmed files are kept and existing content is never overwritten.",
+  "platformClaw.vault.importInterrupted":
+    "The upload response was interrupted. Some files may already be saved. Retry pending files to confirm them safely.",
+  "platformClaw.vault.importUnconfirmed": "The server did not confirm every submitted file.",
+  "platformClaw.vault.importConflict":
+    "A different document already uses this path. It was not overwritten.",
+  "platformClaw.vault.importFailed": "The file could not be saved. Retry this upload.",
+  "platformClaw.vault.importInvalidMarkdown":
+    "Check the document's frontmatter format. Remove this file, correct it, and select it again.",
+  "platformClaw.vault.importIndexPending":
+    "Documents were saved, but search and links still need an update. Use Rebuild search and links in vault management.",
+  "platformClaw.vault.importDiscard":
+    "Some files have not been confirmed as uploaded. Keep the selection to retry, or close it. Files already saved remain in your Wiki.",
+  "platformClaw.vault.importStatus.ready": "Ready to upload",
+  "platformClaw.vault.importStatus.uploading": "Uploading…",
+  "platformClaw.vault.importStatus.saved": "Uploaded",
+  "platformClaw.vault.importStatus.unchanged": "Already present",
+  "platformClaw.vault.importStatus.uncertain": "Save not confirmed · safe to retry",
+  "platformClaw.vault.headingUnavailable":
+    "The linked section was not found in this document. You can still read the document below.",
   "platformClaw.vault.linksTruncated":
     "Only part of the document links is shown. Links beyond this limit are not available in this reader.",
   "platformClaw.vault.insertLink": "Document link",
@@ -38,7 +95,7 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.graphCounts": "{nodes} documents · {edges} visible links",
   "platformClaw.vault.graphUnresolved": "{count} unresolved links",
   "platformClaw.vault.graphTruncated":
-    "Some links are omitted from this view. A document without visible edges may still have links; open it to inspect all relationships.",
+    "Some documents or links are omitted from this graph. The title and path filter covers the displayed documents. Use Search document contents above to search the complete Wiki.",
   "platformClaw.vault.graphNoMatches":
     "No matching documents. Clear the filter to see all documents.",
   "platformClaw.vault.graphNoLinks": "No links in this direction.",
@@ -134,6 +191,8 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.exportHint":
     "Editor and Owner can download documents, attachments and the entire vault.",
   "platformClaw.vault.documents": "Documents",
+  "platformClaw.vault.documentsTruncated":
+    "Showing {loaded} of {total} documents. Use Search document contents above to find documents beyond this list.",
   "platformClaw.vault.noDocuments":
     "No documents yet. Use Add knowledge to write, choose Personal knowledge, or import Markdown.",
   "platformClaw.vault.newDocument": "Write document",

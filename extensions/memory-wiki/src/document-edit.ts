@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { withTrailingNewline } from "openclaw/plugin-sdk/memory-host-markdown";
-import { root as fsRoot } from "openclaw/plugin-sdk/security-runtime";
+import { FsSafeError, root as fsRoot } from "openclaw/plugin-sdk/security-runtime";
+import { asNullableRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { walkMemoryWikiDirectory } from "./bounded-walk.js";
 import { compileMemoryWikiVault, isGeneratedMemoryWikiPage } from "./compile.js";
 import { invalidateMemoryWikiCompiledPrompt } from "./compiled-cache.js";
 import type { ResolvedMemoryWikiConfig } from "./config.js";
@@ -51,6 +53,192 @@ type MemoryWikiDocument = {
 
 export class MemoryWikiEditValidationError extends Error {}
 export class MemoryWikiEditConflictError extends Error {}
+
+type MemoryWikiImportDocument =
+  | {
+      relativePath: string;
+      path: string;
+      title: string;
+      status: "saved" | "unchanged";
+      revision: string;
+    }
+  | {
+      relativePath: string;
+      path: string;
+      status: "failed";
+      error: "conflict" | "unavailable" | "invalid";
+    };
+
+type PlannedMemoryWikiImport =
+  | { relativePath: string; path: string; status: "pending"; title: string; content: string }
+  | { relativePath: string; path: string; status: "failed"; error: "invalid" };
+
+/** The client keeps this namespace through retries; existing source bytes are the receipt. */
+export async function importMemoryWikiDocuments(params: {
+  config: ResolvedMemoryWikiConfig;
+  importId: string;
+  documents: unknown;
+}): Promise<{
+  importId: string;
+  rootPath: string;
+  documents: MemoryWikiImportDocument[];
+  indexesRefreshed: boolean;
+}> {
+  assertPersonalVault(params.config);
+  if (
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(params.importId) ||
+    !Array.isArray(params.documents) ||
+    params.documents.length < 1 ||
+    params.documents.length > 100
+  ) {
+    throw new MemoryWikiEditValidationError("Use an import ID and 1–100 Markdown documents.");
+  }
+  const rootPath = `concepts/imports/${params.importId}`;
+  const paths = new Set<string>();
+  let totalBytes = 0;
+  // Validate the complete request before making source writes. NFC and extension
+  // normalization share one collision key on case-sensitive and Windows hosts.
+  const planned = params.documents.map((value): PlannedMemoryWikiImport => {
+    const document = asNullableRecord(value);
+    if (
+      !document ||
+      Object.keys(document).some((key) => key !== "relativePath" && key !== "content") ||
+      typeof document.relativePath !== "string" ||
+      typeof document.content !== "string"
+    ) {
+      throw new MemoryWikiEditValidationError("Each document requires relativePath and content.");
+    }
+    const relativePath = document.relativePath;
+    const sourcePath = relativePath.normalize("NFC").replace(/\.(?:md|markdown)$/iu, ".md");
+    const pagePath = `${rootPath}/${sourcePath}`;
+    if (
+      pagePath.length > 512 ||
+      !/\.md$/iu.test(sourcePath) ||
+      sourcePath
+        .split("/")
+        .some(
+          (part) =>
+            !part ||
+            part === "." ||
+            part === ".." ||
+            /[<>:"\\|?*]/u.test(part) ||
+            part
+              .split("")
+              .some(
+                (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+              ) ||
+            /[. ]$/u.test(part) ||
+            /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(part) ||
+            Buffer.byteLength(part) > 190,
+        )
+    ) {
+      throw new MemoryWikiEditValidationError(`Use a safe relative Markdown path: ${relativePath}`);
+    }
+    const key = sourcePath.toLowerCase();
+    if (paths.has(key)) {
+      throw new MemoryWikiEditValidationError(`Duplicate Markdown path: ${relativePath}`);
+    }
+    paths.add(key);
+    const bytes = Buffer.byteLength(document.content, "utf8");
+    totalBytes += bytes;
+    if (bytes > 1024 * 1024 || totalBytes > 4 * 1024 * 1024) {
+      throw new MemoryWikiEditValidationError(
+        "Import supports 1 MiB per file and 4 MiB per request.",
+      );
+    }
+    try {
+      const page = toWikiPageSummary({
+        absolutePath: pagePath,
+        relativePath: pagePath,
+        raw: document.content,
+      });
+      if (page) {
+        return {
+          relativePath,
+          path: pagePath,
+          title: page.title.slice(0, 240),
+          content: document.content,
+          status: "pending",
+        };
+      }
+    } catch {
+      // Invalid source stays in the upload results, never in the searchable vault.
+    }
+    return { relativePath, path: pagePath, status: "failed", error: "invalid" };
+  });
+  return withMemoryWikiVaultMutation(params.config.vault.path, async () => {
+    await initializeMemoryWikiVault(params.config);
+    const vault = await fsRoot(params.config.vault.path);
+    const existingPaths = new Map(
+      (await walkMemoryWikiDirectory(params.config.vault.path, rootPath))
+        .filter((entry) => entry.kind === "file")
+        .map((entry) => {
+          const existingPath = entry.relativePath.replaceAll("\\", "/");
+          return [existingPath.normalize("NFC").toLowerCase(), existingPath] as const;
+        }),
+    );
+    await appendMemoryWikiLog(params.config.vault.path, {
+      type: "edit",
+      timestamp: new Date().toISOString(),
+      details: { operation: "import", importId: params.importId, agentId: params.config.agentId },
+    });
+    const documents: MemoryWikiImportDocument[] = [];
+    for (const document of planned) {
+      if (document.status === "failed") {
+        documents.push(document);
+        continue;
+      }
+      const { relativePath, path: pagePath, title, content } = document;
+      const existingPath = existingPaths.get(pagePath.toLowerCase());
+      if (existingPath !== undefined && existingPath !== pagePath) {
+        documents.push({ relativePath, path: pagePath, status: "failed", error: "conflict" });
+        continue;
+      }
+      try {
+        let status: "saved" | "unchanged" = "saved";
+        try {
+          await vault.create(pagePath, content);
+        } catch (error) {
+          if (!(error instanceof FsSafeError && error.code === "already-exists")) {
+            throw error;
+          }
+          const existing = await vault.readBytes(pagePath, {
+            maxBytes: 1024 * 1024,
+            hardlinks: "reject",
+            symlinks: "reject",
+          });
+          if (!existing.equals(Buffer.from(content, "utf8"))) {
+            documents.push({ relativePath, path: pagePath, status: "failed", error: "conflict" });
+            continue;
+          }
+          status = "unchanged";
+        }
+        documents.push({
+          relativePath,
+          path: pagePath,
+          title,
+          status,
+          revision: revision(content),
+        });
+      } catch {
+        // A failed write never changes a saved sibling's outcome. Retrying the
+        // same import ID verifies committed bytes and resumes only missing files.
+        documents.push({ relativePath, path: pagePath, status: "failed", error: "unavailable" });
+      }
+    }
+    let indexesRefreshed = false;
+    if (documents.some((document) => document.status !== "failed")) {
+      invalidateMemoryWikiCompiledPrompt(params.config);
+      try {
+        await compileMemoryWikiVault(params.config);
+        indexesRefreshed = true;
+      } catch {
+        // Source outcomes are authoritative; compilation retains its failure/retry owner.
+      }
+    }
+    return { importId: params.importId, rootPath, documents, indexesRefreshed };
+  });
+}
 
 /** Creating a document never chooses or overwrites an existing title match. */
 export async function createMemoryWikiDocument(params: {
@@ -242,7 +430,7 @@ export async function getMemoryWikiDocument(params: {
     .filter((target) => target.length <= 1024)
     .slice(0, 2000)
     .map((target) => {
-      const matches = resolveWikiLinkTarget(targetIndex, target);
+      const matches = resolveWikiLinkTarget(targetIndex, target, page.relativePath);
       const resolved = matches.length === 1 ? matches[0] : undefined;
       return {
         target,
@@ -251,9 +439,11 @@ export async function getMemoryWikiDocument(params: {
         title: (resolved?.title ?? target).slice(0, 1024),
       };
     });
+  // Imported metadata is source text, not a display-size contract. Bound the
+  // presentation fields without changing the authored source or its revision.
   return {
     path: page.relativePath,
-    title: page.title,
+    title: page.title.slice(0, 240),
     kind: page.kind,
     links,
     linksTruncated: targets.length > links.length,
@@ -270,8 +460,8 @@ export async function getMemoryWikiDocument(params: {
               : stripManagedWikiMarkdown(parsed.body),
         }
       : {}),
-    ...(page.sourceType ? { sourceType: page.sourceType } : {}),
-    ...(page.updatedAt ? { updatedAt: page.updatedAt } : {}),
+    ...(page.sourceType ? { sourceType: page.sourceType.slice(0, 256) } : {}),
+    ...(page.updatedAt ? { updatedAt: page.updatedAt.slice(0, 256) } : {}),
   };
 }
 

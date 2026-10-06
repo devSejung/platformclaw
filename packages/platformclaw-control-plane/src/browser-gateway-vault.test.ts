@@ -106,6 +106,62 @@ async function setup() {
 }
 
 describe("knowledge vault browser boundary", () => {
+  it("routes a complete Markdown batch with server-bound identity and denies injected fields", async () => {
+    const { proxy, token, binding, request } = await setup();
+    const importId = "b9314df9-8828-4eee-9231-9667bf4c0f36";
+    const rootPath = `concepts/imports/${importId}`;
+    const documents = [{ relativePath: "Folder/A.md", content: "# A\r\n[B](B.md)\r\n" }];
+    const outcome = {
+      importId,
+      rootPath,
+      indexesRefreshed: true,
+      documents: [
+        {
+          relativePath: documents[0]!.relativePath,
+          path: `${rootPath}/Folder/A.md`,
+          title: "A",
+          status: "saved",
+          revision: createHash("sha256").update(documents[0]!.content).digest("hex"),
+        },
+      ],
+    };
+    request.mockResolvedValue(outcome);
+    const input = { vaultId: `personal:${binding.agentId}`, importId, documents };
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.import", input),
+    ).resolves.toEqual(outcome);
+    expect(request).toHaveBeenCalledExactlyOnceWith("wiki.document.import", {
+      agentId: binding.agentId,
+      importId,
+      documents,
+    });
+    request.mockClear();
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.import", { ...input, agentId: "other" }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.import", {
+        ...input,
+        vaultId: "personal:other",
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.import", {
+        ...input,
+        documents: [{ ...documents[0], agentId: "other" }],
+      }),
+    ).rejects.toMatchObject({ code: "invalid-params" });
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.import", { ...input, documents: [] }),
+    ).rejects.toMatchObject({ code: "invalid-params" });
+    await expect(
+      proxy.request(token, "platformclaw.vault.document.import", {
+        ...input,
+        importId: "../other",
+      }),
+    ).rejects.toMatchObject({ code: "invalid-params" });
+    expect(request).not.toHaveBeenCalled();
+  });
   it("bounds link targets to the editable selected Wiki and returns safe insertable markup", async () => {
     const { store, user, proxy, token } = await setup();
     const vault = store.vaults.createVault({ userId: user.id, name: "Picker" });

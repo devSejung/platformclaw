@@ -7,6 +7,8 @@ import { readQueryableWikiPages } from "./query.js";
 
 const OVERVIEW_KIND_ORDER: WikiPageKind[] = ["synthesis", "entity", "concept", "source", "report"];
 const PRIMARY_OVERVIEW_KINDS = new Set<WikiPageKind>(["synthesis", "entity", "concept"]);
+const MAX_OVERVIEW_DOCUMENTS = 1_000;
+const MAX_OVERVIEW_CLUSTER_ITEMS = 500;
 const OVERVIEW_KIND_LABELS: Record<WikiPageKind, string> = {
   synthesis: "Syntheses",
   entity: "Entities",
@@ -52,6 +54,8 @@ type MemoryWikiOverviewStatus = {
   totalClaims: number;
   totalQuestions: number;
   totalContradictions: number;
+  documents: MemoryWikiOverviewItem[];
+  documentsTruncated: boolean;
   clusters: MemoryWikiOverviewCluster[];
 };
 
@@ -78,7 +82,7 @@ function extractSnippet(body: string): string | undefined {
     ) {
       continue;
     }
-    return line;
+    return line.slice(0, 320);
   }
   return undefined;
 }
@@ -92,7 +96,7 @@ function compareOverviewItems(left: MemoryWikiOverviewItem, right: MemoryWikiOve
   if (right.claimCount !== left.claimCount) {
     return right.claimCount - left.claimCount;
   }
-  return left.title.localeCompare(right.title);
+  return left.title.localeCompare(right.title) || left.pagePath.localeCompare(right.pagePath);
 }
 
 export async function listMemoryWikiOverview(
@@ -106,35 +110,36 @@ export async function listMemoryWikiOverview(
   const totalClaims = pages.reduce((sum, page) => sum + page.claims.length, 0);
   const totalQuestions = pages.reduce((sum, page) => sum + page.questions.length, 0);
   const totalContradictions = pages.reduce((sum, page) => sum + page.contradictions.length, 0);
-  const items = pages
+  const allItems = pages
     .map((page) => {
       const parsed = parseWikiMarkdown(page.raw);
       const updatedAt = normalizeOptionalString(page.updatedAt);
       const sourceType = normalizeOptionalString(page.sourceType);
+      const snippet = extractSnippet(parsed.body);
       return Object.assign(
-        { pagePath: page.relativePath, title: page.title, kind: page.kind },
-        page.id ? { id: page.id } : {},
-        updatedAt ? { updatedAt } : {},
-        sourceType ? { sourceType } : {},
+        { pagePath: page.relativePath, title: page.title.slice(0, 240), kind: page.kind },
+        page.id && page.id.length <= 1_024 ? { id: page.id } : {},
+        updatedAt ? { updatedAt: updatedAt.slice(0, 256) } : {},
+        sourceType ? { sourceType: sourceType.slice(0, 256) } : {},
         {
           claimCount: page.claims.length,
           questionCount: page.questions.length,
           contradictionCount: page.contradictions.length,
-          claims: page.claims.map((claim) => claim.text).slice(0, 3),
-          questions: page.questions.slice(0, 3),
-          contradictions: page.contradictions.slice(0, 3),
+          claims: page.claims.slice(0, 3).map((claim) => claim.text.slice(0, 320)),
+          questions: page.questions.slice(0, 3).map((question) => question.slice(0, 320)),
+          contradictions: page.contradictions.slice(0, 3).map((item) => item.slice(0, 320)),
         },
-        extractSnippet(parsed.body) ? { snippet: extractSnippet(parsed.body) } : {},
+        snippet ? { snippet } : {},
       ) satisfies MemoryWikiOverviewItem;
     })
-    .filter(
-      (item) =>
-        PRIMARY_OVERVIEW_KINDS.has(item.kind) ||
-        item.claimCount > 0 ||
-        item.questionCount > 0 ||
-        item.contradictionCount > 0,
-    )
     .toSorted(compareOverviewItems);
+  const items = allItems.filter(
+    (item) =>
+      PRIMARY_OVERVIEW_KINDS.has(item.kind) ||
+      item.claimCount > 0 ||
+      item.questionCount > 0 ||
+      item.contradictionCount > 0,
+  );
 
   const clusters = OVERVIEW_KIND_ORDER.map((kind) => {
     const clusterItems = items.filter((item) => item.kind === kind);
@@ -151,7 +156,7 @@ export async function listMemoryWikiOverview(
         contradictionCount: clusterItems.reduce((sum, item) => sum + item.contradictionCount, 0),
       },
       clusterItems[0]?.updatedAt ? { updatedAt: clusterItems[0].updatedAt } : {},
-      { items: clusterItems },
+      { items: clusterItems.slice(0, MAX_OVERVIEW_CLUSTER_ITEMS) },
     ) satisfies MemoryWikiOverviewCluster;
   }).filter((entry): entry is MemoryWikiOverviewCluster => entry !== null);
 
@@ -164,6 +169,10 @@ export async function listMemoryWikiOverview(
     totalClaims,
     totalQuestions,
     totalContradictions,
+    // The document catalog includes plain sources/reports and stays independent
+    // of graph capacity and the annotated overview's presentation filter.
+    documents: allItems.slice(0, MAX_OVERVIEW_DOCUMENTS),
+    documentsTruncated: allItems.length > MAX_OVERVIEW_DOCUMENTS,
     clusters,
   };
 }

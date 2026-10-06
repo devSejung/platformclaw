@@ -78,7 +78,7 @@ export async function resolveMemoryWikiPromotionReferences(params: {
   const references = [];
   for (const span of spans) {
     // Ambiguous or unavailable private tokens carry offsets only, so callers can remove aliases too.
-    const matches = resolveWikiLinkTarget(index, span.target);
+    const matches = resolveWikiLinkTarget(index, span.target, source.path);
     const target = matches.length === 1 ? matches[0] : undefined;
     const resolved = target ? identity(await get(target.relativePath)) : null;
     references.push({

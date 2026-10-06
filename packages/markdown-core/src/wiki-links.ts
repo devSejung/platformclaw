@@ -1,5 +1,9 @@
 /** Browser-safe syntax helpers; resolution and authorization stay with the Wiki owner. */
-export function formatWikiDocumentLink(target: string, title?: string): string {
+export function formatWikiDocumentLink(
+  target: string,
+  title?: string,
+  options?: { rooted?: boolean },
+): string {
   if (
     !target ||
     target.length > 512 ||
@@ -16,7 +20,7 @@ export function formatWikiDocumentLink(target: string, title?: string): string {
   // Wiki labels have no portable delimiter escaping. Fall back to the exact
   // target rather than alter the user's title or emit malformed markup.
   const label = title && title.length <= 240 && !/[\]|\r\n]/u.test(title) ? `|${title}` : "";
-  return `[[${encoded}${label}]]`;
+  return `[[${options?.rooted ? "/" : ""}${encoded}${label}]]`;
 }
 
 export function normalizeWikiDocumentTarget(target: string): string {
