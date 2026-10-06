@@ -562,7 +562,9 @@ export class SpaceConversationService {
   async drainPreparation(sessionKeys: string[]): Promise<void> {
     // A creation admitted before the deletion tombstone may still provision its native row.
     // Await those writers before purge so no late session can reappear after cleanup.
-    await Promise.allSettled(sessionKeys.map((key) => this.preparing.get(key)));
+    await Promise.allSettled(
+      sessionKeys.map((key) => this.preparing.get(key)).filter((pending) => pending !== undefined),
+    );
   }
 
   async cancelRevoked(spaceId: string, userId: string): Promise<void> {

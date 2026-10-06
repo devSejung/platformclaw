@@ -388,7 +388,9 @@ async function runMemoryIndexManagerScopeOperation<T>(
   const scopeKeys = purposes.map((purpose) =>
     resolveMemoryIndexManagerScopeKey({ agentId: params.agentId, purpose }),
   );
-  const previousOperations = scopeKeys.map((key) => INDEX_SCOPE_CLOSES.get(key));
+  const previousOperations = scopeKeys
+    .map((key) => INDEX_SCOPE_CLOSES.get(key))
+    .filter((pending): pending is Promise<void> => pending !== undefined);
   const result = Promise.all(previousOperations).then(operation, operation);
   const tail = result.then(
     () => undefined,

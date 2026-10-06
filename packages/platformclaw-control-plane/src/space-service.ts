@@ -498,7 +498,7 @@ export class SpaceService {
         );
         results.push(...match.results);
         indexing ||= match.indexing;
-        windowLimited ||= match.windowLimited === true;
+        windowLimited ||= match.windowLimited;
       }
     }
     await revalidate();

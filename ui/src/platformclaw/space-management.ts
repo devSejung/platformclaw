@@ -83,7 +83,7 @@ export class SpaceManagementState {
       (action.kind === "rename" && !value.trim()) ||
       (action.kind === "delete" && value !== action.space.name)
     ) {
-      return;
+      return undefined;
     }
     this.busy = true;
     this.error = "";

@@ -7840,6 +7840,7 @@ public struct SessionsDeleteParams: Codable, Sendable {
     public let key: String
     public let agentid: String?
     public let deletetranscript: Bool?
+    public let purgetranscript: Bool?
     public let expectedsessionid: String?
     public let expectedlifecyclerevision: String?
     public let expectedsessionupdatedat: Double?
@@ -7850,6 +7851,7 @@ public struct SessionsDeleteParams: Codable, Sendable {
         key: String,
         agentid: String? = nil,
         deletetranscript: Bool? = nil,
+        purgetranscript: Bool? = nil,
         expectedsessionid: String? = nil,
         expectedlifecyclerevision: String? = nil,
         expectedsessionupdatedat: Double? = nil,
@@ -7859,6 +7861,7 @@ public struct SessionsDeleteParams: Codable, Sendable {
         self.key = key
         self.agentid = agentid
         self.deletetranscript = deletetranscript
+        self.purgetranscript = purgetranscript
         self.expectedsessionid = expectedsessionid
         self.expectedlifecyclerevision = expectedlifecyclerevision
         self.expectedsessionupdatedat = expectedsessionupdatedat
@@ -7870,6 +7873,7 @@ public struct SessionsDeleteParams: Codable, Sendable {
         case key
         case agentid = "agentId"
         case deletetranscript = "deleteTranscript"
+        case purgetranscript = "purgeTranscript"
         case expectedsessionid = "expectedSessionId"
         case expectedlifecyclerevision = "expectedLifecycleRevision"
         case expectedsessionupdatedat = "expectedSessionUpdatedAt"

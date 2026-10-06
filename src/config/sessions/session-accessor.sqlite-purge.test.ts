@@ -1,3 +1,4 @@
+import { strictEqual } from "node:assert";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -99,6 +100,7 @@ describe("owned session transcript purge", () => {
       }),
     ).toHaveLength(2);
     const resolved = resolveSqliteTargetFromSessionStorePath(storePath, { agentId: "main" });
+    strictEqual(resolved.agentId, "main");
     const database = openOpenClawAgentDatabase({ agentId: resolved.agentId, path: resolved.path });
     const db = getNodeSqliteKysely<DB>(database.db);
     expect(
