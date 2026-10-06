@@ -1,6 +1,12 @@
 // Cron service store tests cover persisted service state loading and writes.
 import fs from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
+import {
+  enqueueSystemEventEntry,
+  peekSystemEvents,
+  resetSystemEventsForTest,
+} from "../../infra/system-events.js";
 import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { setupCronServiceSuite } from "../service.test-harness.js";
 import * as cronStoreModule from "../store.js";
@@ -62,6 +68,7 @@ function createReloadCronJob(params?: Partial<CronJob>): CronJob {
 describe("cron service store seam coverage", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    resetSystemEventsForTest();
   });
 
   it("does not drain post-persist notifications when there is no store to write", async () => {
@@ -72,6 +79,36 @@ describe("cron service store seam coverage", () => {
     await expect(persist(state, { postPersistNotifications: [notify] })).resolves.toBe(false);
 
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("keeps committed state and later notifications when one session queue is full", async () => {
+    const { storePath } = await makeStorePath();
+    const state = createStoreTestState(storePath);
+    const job = createReloadCronJob();
+    state.store = { version: 1, jobs: [job] };
+    const sessionKey = "agent:main:saturated";
+    for (let index = 0; index < 20; index += 1) {
+      enqueueSystemEventEntry(`pending ${index}`, { sessionKey });
+    }
+    await expect(
+      persist(state, {
+        postPersistNotifications: [
+          () => {
+            enqueueSystemEventEntry("auto-disabled notice", { sessionKey });
+          },
+          () => {
+            enqueueSystemEventEntry("another notice", { sessionKey: "agent:other:main" });
+          },
+        ],
+      }),
+    ).resolves.toBe(true);
+    expect((await loadCronStore(storePath)).jobs[0]?.id).toBe(job.id);
+    expect(peekSystemEvents(sessionKey)).toHaveLength(20);
+    expect(peekSystemEvents("agent:other:main")).toEqual(["another notice"]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      { err: new SystemEventQueueFullError(20).message },
+      "cron: post-commit notification rejected",
+    );
   });
 
   it("loads stored jobs, recomputes next runs, and does not rewrite the store on load", async () => {

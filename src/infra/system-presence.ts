@@ -206,7 +206,10 @@ function mergeStringList(...values: Array<string[] | undefined>): string[] | und
   return out.size > 0 ? [...out] : undefined;
 }
 
-export function updateSystemPresence(payload: SystemPresencePayload): SystemPresenceUpdate {
+export function updateSystemPresence(
+  payload: SystemPresencePayload,
+  beforeCommit?: (update: SystemPresenceUpdate) => void,
+): SystemPresenceUpdate {
   ensureSelfPresence();
   const parsed = parsePresence(payload.text);
   const key =
@@ -241,7 +244,6 @@ export function updateSystemPresence(payload: SystemPresencePayload): SystemPres
     text: payload.text || parsed.text || existing.text,
     ts: Date.now(),
   };
-  entries.set(key, merged);
   const trackKeys = ["host", "ip", "version", "mode", "reason"] as const;
   type TrackKey = (typeof trackKeys)[number];
   const changes: Partial<Pick<SystemPresence, TrackKey>> = {};
@@ -254,13 +256,18 @@ export function updateSystemPresence(payload: SystemPresencePayload): SystemPres
       changedKeys.push(k);
     }
   }
-  return {
+  const update = {
     key,
     previous: hadExisting ? existing : undefined,
     next: merged,
     changes,
     changedKeys,
   } satisfies SystemPresenceUpdate;
+  // A caller may need to admit the delta notification before storing metadata.
+  // Rejection must leave the old snapshot intact so the same request can retry.
+  beforeCommit?.(update);
+  entries.set(key, merged);
+  return update;
 }
 
 export function upsertPresence(key: string, presence: Partial<SystemPresence>) {

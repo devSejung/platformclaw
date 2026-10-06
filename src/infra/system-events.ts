@@ -7,6 +7,7 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { channelRouteDedupeKey } from "../plugin-sdk/channel-route.js";
 import { resolveGlobalMap } from "../shared/global-singleton.js";
 import {
@@ -14,6 +15,7 @@ import {
   normalizeDeliveryContext,
 } from "../utils/delivery-context.shared.js";
 import type { DeliveryContext } from "../utils/delivery-context.types.js";
+import { SystemEventQueueFullError } from "./system-event-queue-error.js";
 
 export type SystemEvent = {
   text: string;
@@ -23,10 +25,12 @@ export type SystemEvent = {
 };
 
 const MAX_EVENTS = 20;
+const log = createSubsystemLogger("system-events");
 
 type SessionQueue = {
   queue: SystemEvent[];
   lastContextKey: string | null;
+  overflowReported?: boolean;
 };
 
 const SYSTEM_EVENT_QUEUES_KEY = Symbol.for("openclaw.systemEvents.queues");
@@ -101,23 +105,50 @@ function findDuplicateInQueue(
   return queue.some((event) => isDuplicateSystemEvent(event, incoming));
 }
 
+/** Enqueues an event snapshot for its producer; capacity rejection must not look like dedupe. */
 export function enqueueSystemEventEntry(
   text: string,
   options: SystemEventOptions,
 ): SystemEvent | null {
-  if (options.replace) {
-    return replaceSystemEventEntry(text, options);
-  }
   const key = requireSessionKey(options.sessionKey);
-  const entry = getOrCreateSessionQueue(key);
   const cleaned = text.trim();
   if (!cleaned) {
     return null;
   }
   const normalizedContextKey = normalizeContextKey(options.contextKey);
+  if (options.replace && normalizedContextKey === null) {
+    throw new Error("replaced system events require a contextKey");
+  }
+  const entry = getOrCreateSessionQueue(key);
   const normalizedDeliveryContext = normalizeDeliveryContext(options.deliveryContext);
-  if (findDuplicateInQueue(entry.queue, cleaned, normalizedContextKey, normalizedDeliveryContext)) {
+  const matches = (event: SystemEvent) =>
+    (event.contextKey ?? null) === normalizedContextKey &&
+    areDeliveryContextsEqual(event.deliveryContext, normalizedDeliveryContext);
+  if (options.replace) {
+    const matching = entry.queue.filter(matches);
+    if (matching.length === 1 && matching[0]?.text === cleaned) {
+      return null;
+    }
+  } else if (
+    findDuplicateInQueue(entry.queue, cleaned, normalizedContextKey, normalizedDeliveryContext)
+  ) {
     return null;
+  }
+  // Acknowledged events keep their slots until consumed. A replacement owns an
+  // existing slot; every other admission at capacity must remain retryable.
+  if (entry.queue.length >= MAX_EVENTS && !(options.replace && entry.queue.some(matches))) {
+    const error = new SystemEventQueueFullError(MAX_EVENTS);
+    if (!entry.overflowReported) {
+      // Best-effort producers may ignore false. Report rejection without event
+      // contents or routes, once per saturation episode rather than per burst item.
+      log.warn(error.message);
+      entry.overflowReported = true;
+    }
+    throw error;
+  }
+  if (options.replace) {
+    // Moving an update to the end preserves the ordering of unrelated sources.
+    entry.queue = entry.queue.filter((event) => !matches(event));
   }
   if (normalizedContextKey !== null) {
     entry.lastContextKey = normalizedContextKey;
@@ -129,14 +160,22 @@ export function enqueueSystemEventEntry(
     deliveryContext: normalizedDeliveryContext,
   };
   entry.queue.push(event);
-  if (entry.queue.length > MAX_EVENTS) {
-    entry.queue.shift();
+  if (entry.queue.length < MAX_EVENTS) {
+    entry.overflowReported = false;
   }
   return cloneSystemEvent(event);
 }
 
+/** Best-effort plugin/runtime contract: false means no new event was queued. */
 export function enqueueSystemEvent(text: string, options: SystemEventOptions) {
-  return enqueueSystemEventEntry(text, options) !== null;
+  try {
+    return enqueueSystemEventEntry(text, options) !== null;
+  } catch (error) {
+    if (error instanceof SystemEventQueueFullError) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export function drainSystemEventEntries(sessionKey: string): SystemEvent[] {
@@ -162,48 +201,6 @@ function areDeliveryContextsEqual(left?: DeliveryContext, right?: DeliveryContex
   return channelRouteDedupeKey(left) === channelRouteDedupeKey(right);
 }
 
-function replaceSystemEventEntry(text: string, options: SystemEventOptions): SystemEvent | null {
-  const key = requireSessionKey(options.sessionKey);
-  const entry = getOrCreateSessionQueue(key);
-  const cleaned = text.trim();
-  if (!cleaned) {
-    return null;
-  }
-  const normalizedContextKey = normalizeContextKey(options.contextKey);
-  if (normalizedContextKey === null) {
-    throw new Error("replaced system events require a contextKey");
-  }
-  const normalizedDeliveryContext = normalizeDeliveryContext(options.deliveryContext);
-  const matching = entry.queue.filter(
-    (event) =>
-      (event.contextKey ?? null) === normalizedContextKey &&
-      areDeliveryContextsEqual(event.deliveryContext, normalizedDeliveryContext),
-  );
-  if (matching.length === 1 && matching[0]?.text === cleaned) {
-    return null;
-  }
-
-  // One keyed source owns one queue slot. Moving a replacement to the end keeps
-  // event ordering current without allowing repeated updates to evict other sources.
-  entry.queue = entry.queue.filter(
-    (event) =>
-      (event.contextKey ?? null) !== normalizedContextKey ||
-      !areDeliveryContextsEqual(event.deliveryContext, normalizedDeliveryContext),
-  );
-  const event: SystemEvent = {
-    text: cleaned,
-    ts: Date.now(),
-    contextKey: normalizedContextKey,
-    deliveryContext: normalizedDeliveryContext,
-  };
-  entry.queue.push(event);
-  if (entry.queue.length > MAX_EVENTS) {
-    entry.queue.shift();
-  }
-  entry.lastContextKey = normalizedContextKey;
-  return cloneSystemEvent(event);
-}
-
 function isDuplicateSystemEvent(
   existing: SystemEvent,
   incoming: Pick<SystemEvent, "text" | "contextKey" | "deliveryContext">,
@@ -225,6 +222,9 @@ function areSystemEventsEqual(left: SystemEvent, right: SystemEvent): boolean {
 }
 
 function resetQueueState(key: string, entry: SessionQueue) {
+  if (entry.queue.length < MAX_EVENTS) {
+    entry.overflowReported = false;
+  }
   if (entry.queue.length === 0) {
     entry.lastContextKey = null;
     queues.delete(key);

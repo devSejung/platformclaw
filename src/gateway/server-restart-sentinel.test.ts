@@ -456,7 +456,7 @@ vi.mock("../channels/message/runtime.js", () => ({
 }));
 
 vi.mock("../infra/system-events.js", () => ({
-  enqueueSystemEvent: mocks.enqueueSystemEvent,
+  enqueueSystemEventEntry: mocks.enqueueSystemEvent,
 }));
 
 vi.mock("../infra/heartbeat-wake.js", async () => {

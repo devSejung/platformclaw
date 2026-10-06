@@ -12,7 +12,19 @@ import {
   type HeartbeatWakeRequest,
 } from "../infra/heartbeat-wake.js";
 import type { SessionBindingRecord } from "../infra/outbound/session-binding-service.js";
-import { peekSystemEvents, resetSystemEventsForTest } from "../infra/system-events.js";
+import { startSessionDeliveryRuntime } from "../infra/session-delivery-queue-runtime.js";
+import * as sessionDeliveryQueue from "../infra/session-delivery-queue.js";
+import {
+  drainPendingSessionDeliveries,
+  loadPendingSessionDeliveries,
+} from "../infra/session-delivery-queue.js";
+import {
+  drainSystemEvents,
+  enqueueSystemEvent,
+  enqueueSystemEventEntry,
+  peekSystemEvents,
+  resetSystemEventsForTest,
+} from "../infra/system-events.js";
 import {
   beginGatewayRestartSignalAdmission,
   getActiveGatewayRootWorkCount,
@@ -1879,6 +1891,31 @@ describe("task-registry", () => {
     });
   });
 
+  it("records rejected terminal delivery instead of claiming a saturated session was queued", async () => {
+    await withTaskRegistryTempDir(async (root) => {
+      process.env.OPENCLAW_STATE_DIR = root;
+      resetTaskRegistryForTests();
+      const ownerKey = "agent:main:webchat:overflow";
+      for (let index = 0; index < 20; index += 1) {
+        enqueueSystemEvent(`pending ${index}`, { sessionKey: ownerKey });
+      }
+      const task = createAcpTaskRecord({
+        ownerKey,
+        runId: "run-terminal-overflow",
+        status: "succeeded",
+        terminalSummary: "Task completed",
+        startedAt: 100,
+      });
+      const result = await maybeDeliverTaskTerminalUpdate(task.taskId);
+      expect(result?.deliveryStatus).toBe("failed");
+      expect(getTaskById(task.taskId)?.deliveryStatus).toBe("failed");
+      expect(peekSystemEvents(ownerKey)).toEqual(
+        Array.from({ length: 20 }, (_, index) => `pending ${index}`),
+      );
+      expect(hoisted.sendMessageMock).not.toHaveBeenCalled();
+    });
+  });
+
   it("keeps delegated ACP completion queued when the transport does not declare thread delivery", async () => {
     await withTaskRegistryTempDir(async (root) => {
       process.env.OPENCLAW_STATE_DIR = root;
@@ -2116,10 +2153,15 @@ describe("task-registry", () => {
       );
       expect(peekSystemEvents("agent:main:main")).toEqual([
         "Background task blocked: ACP background task (run run-deli). Writable session or apply_patch authorization required.",
-        "Task needs follow-up: ACP background task (run run-deli). Writable session or apply_patch authorization required.",
       ]);
-      await flushHeartbeatWakeRequests();
-      expectHeartbeatWake("background-task-blocked", "agent:main:main");
+      expect(await loadPendingSessionDeliveries()).toEqual([
+        expect.objectContaining({
+          kind: "systemEvent",
+          sessionKey: "agent:main:main",
+          text: expect.stringContaining("Task needs follow-up:"),
+          retryCount: 0,
+        }),
+      ]);
     });
   });
 
@@ -2175,11 +2217,16 @@ describe("task-registry", () => {
       );
       expect(peekSystemEvents("agent:main:main")).toEqual([
         "Background task blocked: ACP background task (run run-sess). Writable session or apply_patch authorization required.",
-        "Task needs follow-up: ACP background task (run run-sess). Writable session or apply_patch authorization required.",
       ]);
       expect(hoisted.sendMessageMock).not.toHaveBeenCalled();
-      await flushHeartbeatWakeRequests();
-      expectHeartbeatWake("background-task-blocked", "agent:main:main");
+      expect(await loadPendingSessionDeliveries()).toEqual([
+        expect.objectContaining({
+          kind: "systemEvent",
+          sessionKey: "agent:main:main",
+          text: expect.stringContaining("Task needs follow-up:"),
+          retryCount: 0,
+        }),
+      ]);
     });
   });
 
@@ -2252,11 +2299,118 @@ describe("task-registry", () => {
             "Background task blocked: ACP background task (run run-bloc). Writable session or apply_patch authorization required.",
         }),
       );
-      expect(peekSystemEvents("agent:main:main")).toEqual([
-        "Task needs follow-up: ACP background task (run run-bloc). Writable session or apply_patch authorization required.",
+      expect(peekSystemEvents("agent:main:main")).toEqual([]);
+      expect(await loadPendingSessionDeliveries()).toEqual([
+        expect.objectContaining({
+          kind: "systemEvent",
+          sessionKey: "agent:main:main",
+          text: expect.stringContaining("Task needs follow-up:"),
+          retryCount: 0,
+        }),
       ]);
-      await flushHeartbeatWakeRequests();
-      expectHeartbeatWake("background-task-blocked", "agent:main:main");
+    });
+  });
+
+  it.each([
+    { path: "direct", fill: 20, expectedStatus: "delivered", sends: 1 },
+    { path: "session", fill: 19, expectedStatus: "session_queued", sends: 0 },
+  ])(
+    "durably retries a blocked $path follow-up without repeating the primary",
+    async ({ path, fill, expectedStatus, sends }) => {
+      await withTaskRegistryTempDir(async () => {
+        resetTaskRegistryMemoryForTest();
+        const sessionKey = "agent:main:main";
+        for (let index = 0; index < fill; index += 1) {
+          enqueueSystemEvent(`pending ${index}`, { sessionKey });
+        }
+        const deliver = vi.fn(async (entry: sessionDeliveryQueue.QueuedSessionDelivery) => {
+          if (entry.kind !== "systemEvent") {
+            throw new Error("expected follow-up event");
+          }
+          enqueueSystemEventEntry(entry.text, {
+            sessionKey: entry.sessionKey,
+            deliveryContext: entry.deliveryContext,
+          });
+        });
+        const onSettled = vi.fn();
+        const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        const stop = startSessionDeliveryRuntime({ deliver, onSettled, log: logger });
+        try {
+          const task = createAcpTaskRecord({
+            ...(path === "direct" ? { requesterOrigin: NOTIFYCHAT_ORIGIN } : {}),
+            runId: `run-blocked-${path}-overflow`,
+            status: "succeeded",
+            terminalOutcome: "blocked",
+            terminalSummary: "Needs permission to continue.",
+          });
+          await waitForAssertion(() =>
+            expect(requireTaskById(task.taskId).deliveryStatus).toBe(expectedStatus),
+          );
+          await vi.waitFor(
+            async () => expect((await loadPendingSessionDeliveries())[0]?.retryCount).toBe(1),
+            { interval: 1 },
+          );
+          expect(hoisted.sendMessageMock).toHaveBeenCalledTimes(sends);
+          expect(peekSystemEvents(sessionKey)).toHaveLength(20);
+          const pending = await loadPendingSessionDeliveries();
+          expect(pending).toHaveLength(1);
+          const receipt = pending[0]!;
+          expect(receipt).toMatchObject({
+            kind: "systemEvent",
+            idempotencyKey: `task:${task.taskId}:blocked-followup`,
+            lastError: expect.stringContaining("System event queue is full"),
+          });
+          expect(onSettled).not.toHaveBeenCalled();
+          stop();
+          drainSystemEvents(sessionKey);
+          await drainPendingSessionDeliveries({
+            drainKey: receipt.id,
+            logLabel: "task-followup-test",
+            log: logger,
+            deliver,
+            onSettled,
+            selectEntry: (entry) => ({ match: entry.id === receipt.id, bypassBackoff: true }),
+          });
+          expect(await loadPendingSessionDeliveries()).toEqual([]);
+          expect(peekSystemEvents(sessionKey)).toEqual([
+            expect.stringContaining("Task needs follow-up:"),
+          ]);
+          expect(onSettled).toHaveBeenCalledWith(
+            expect.objectContaining({ id: receipt.id }),
+            "recovered",
+          );
+          await maybeDeliverTaskTerminalUpdate(task.taskId);
+          expect(hoisted.sendMessageMock).toHaveBeenCalledTimes(sends);
+          expect(peekSystemEvents(sessionKey)).toHaveLength(1);
+        } finally {
+          stop();
+        }
+      });
+    },
+  );
+
+  it("does not send the primary when its blocked follow-up cannot be persisted", async () => {
+    await withTaskRegistryTempDir(async () => {
+      resetTaskRegistryMemoryForTest();
+      const persist = vi
+        .spyOn(sessionDeliveryQueue, "enqueueSessionDelivery")
+        .mockRejectedValueOnce(new Error("queue write failed"));
+      try {
+        const task = createAcpTaskRecord({
+          requesterOrigin: NOTIFYCHAT_ORIGIN,
+          runId: "run-blocked-persist-failure",
+          status: "succeeded",
+          terminalOutcome: "blocked",
+          terminalSummary: "Needs permission.",
+        });
+        await waitForAssertion(() =>
+          expect(requireTaskById(task.taskId).deliveryStatus).toBe("failed"),
+        );
+        expect(hoisted.sendMessageMock).not.toHaveBeenCalled();
+        expect(await loadPendingSessionDeliveries()).toEqual([]);
+      } finally {
+        persist.mockRestore();
+      }
     });
   });
 

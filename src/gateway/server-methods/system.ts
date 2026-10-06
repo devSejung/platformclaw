@@ -34,7 +34,8 @@ import { setHeartbeatsEnabled } from "../../infra/heartbeat-runner.js";
 import { requestHeartbeat } from "../../infra/heartbeat-wake.js";
 import { getMachineDisplayName } from "../../infra/machine-name.js";
 import { resolveRuntimeOsLabel } from "../../infra/os-summary.js";
-import { enqueueSystemEvent, isSystemEventContextChanged } from "../../infra/system-events.js";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
+import { enqueueSystemEventEntry, isSystemEventContextChanged } from "../../infra/system-events.js";
 import { listSystemPresence, updateSystemPresence } from "../../infra/system-presence.js";
 import { normalizeAgentId, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { getGatewayProcessInstanceId } from "../process-instance.js";
@@ -221,84 +222,101 @@ export const systemHandlers: GatewayRequestHandlers = {
       : typeof params.lastInputSeconds === "number" && Number.isFinite(params.lastInputSeconds)
         ? params.lastInputSeconds
         : undefined;
-    const presenceUpdate = updateSystemPresence({
-      text,
-      deviceId,
-      instanceId,
-      host,
-      ip,
-      mode,
-      version,
-      platform,
-      deviceFamily,
-      modelIdentifier,
-      lastInputSeconds,
-      reason,
-      roles,
-      scopes,
-      tags,
-    });
-    if (isNodePresenceLine) {
-      // Node presence heartbeats are noisy; only enqueue user-visible system
-      // events when routing context or meaningful node metadata changes.
-      const next = presenceUpdate.next;
-      const changed = new Set(presenceUpdate.changedKeys);
-      const reasonValue = next.reason ?? reason;
-      const normalizedReason = normalizeLowercaseStringOrEmpty(reasonValue);
-      const ignoreReason =
-        normalizedReason.startsWith("periodic") ||
-        normalizedReason === "heartbeat" ||
-        normalizedReason === "connect" ||
-        normalizedReason === "launch" ||
-        normalizedReason === "instances-refresh";
-      const hostChanged = changed.has("host");
-      const ipChanged = changed.has("ip");
-      const versionChanged = changed.has("version");
-      const modeChanged = changed.has("mode");
-      const reasonChanged = changed.has("reason") && !ignoreReason;
-      const hasChanges = hostChanged || ipChanged || versionChanged || modeChanged || reasonChanged;
-      if (hasChanges) {
-        const contextChanged = isSystemEventContextChanged(sessionKey, presenceUpdate.key);
-        const parts: string[] = [];
-        // Re-state node identity only when the line would otherwise lose
-        // routing context or the host/IP changed.
-        if (contextChanged || hostChanged || ipChanged) {
-          const hostLabel = normalizeOptionalString(next.host) ?? "Unknown";
-          const ipLabel = normalizeOptionalString(next.ip);
-          parts.push(`Node: ${hostLabel}${ipLabel ? ` (${ipLabel})` : ""}`);
-        }
-        if (versionChanged) {
-          parts.push(`app ${normalizeOptionalString(next.version) ?? "unknown"}`);
-        }
-        if (modeChanged) {
-          parts.push(`mode ${normalizeOptionalString(next.mode) ?? "unknown"}`);
-        }
-        if (reasonChanged) {
-          parts.push(`reason ${normalizeOptionalString(reasonValue) ?? "event"}`);
-        }
-        const deltaText = parts.join(" · ");
-        if (deltaText) {
-          enqueueSystemEvent(deltaText, {
-            sessionKey,
-            contextKey: presenceUpdate.key,
-          });
-        }
+    try {
+      updateSystemPresence(
+        {
+          text,
+          deviceId,
+          instanceId,
+          host,
+          ip,
+          mode,
+          version,
+          platform,
+          deviceFamily,
+          modelIdentifier,
+          lastInputSeconds,
+          reason,
+          roles,
+          scopes,
+          tags,
+        },
+        (presenceUpdate) => {
+          if (!isNodePresenceLine) {
+            enqueueSystemEventEntry(text, { sessionKey });
+            return;
+          }
+          // Node presence heartbeats are noisy; only enqueue user-visible system
+          // events when routing context or meaningful node metadata changes.
+          const next = presenceUpdate.next;
+          const changed = new Set(presenceUpdate.changedKeys);
+          const reasonValue = next.reason ?? reason;
+          const normalizedReason = normalizeLowercaseStringOrEmpty(reasonValue);
+          const ignoreReason =
+            normalizedReason.startsWith("periodic") ||
+            normalizedReason === "heartbeat" ||
+            normalizedReason === "connect" ||
+            normalizedReason === "launch" ||
+            normalizedReason === "instances-refresh";
+          const hostChanged = changed.has("host");
+          const ipChanged = changed.has("ip");
+          const versionChanged = changed.has("version");
+          const modeChanged = changed.has("mode");
+          const reasonChanged = changed.has("reason") && !ignoreReason;
+          const hasChanges =
+            hostChanged || ipChanged || versionChanged || modeChanged || reasonChanged;
+          if (hasChanges) {
+            const contextChanged = isSystemEventContextChanged(sessionKey, presenceUpdate.key);
+            const parts: string[] = [];
+            // Re-state node identity only when the line would otherwise lose
+            // routing context or the host/IP changed.
+            if (contextChanged || hostChanged || ipChanged) {
+              const hostLabel = normalizeOptionalString(next.host) ?? "Unknown";
+              const ipLabel = normalizeOptionalString(next.ip);
+              parts.push(`Node: ${hostLabel}${ipLabel ? ` (${ipLabel})` : ""}`);
+            }
+            if (versionChanged) {
+              parts.push(`app ${normalizeOptionalString(next.version) ?? "unknown"}`);
+            }
+            if (modeChanged) {
+              parts.push(`mode ${normalizeOptionalString(next.mode) ?? "unknown"}`);
+            }
+            if (reasonChanged) {
+              parts.push(`reason ${normalizeOptionalString(reasonValue) ?? "event"}`);
+            }
+            const deltaText = parts.join(" · ");
+            if (deltaText) {
+              enqueueSystemEventEntry(deltaText, {
+                sessionKey,
+                contextKey: presenceUpdate.key,
+              });
+            }
+          }
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof SystemEventQueueFullError)) {
+        throw error;
       }
-    } else {
-      enqueueSystemEvent(text, { sessionKey });
-      if (wake) {
-        // Targeted admin events may need a proactive response. Carry the exact
-        // session through the wake so its delivery context, not main, wins.
-        requestHeartbeat({
-          source: "notifications-event",
-          intent: "immediate",
-          // The dispatcher recognizes "wake" as a payload-bearing run, so an
-          // empty HEARTBEAT.md cannot suppress this queued system event.
-          reason: "wake",
-          sessionKey,
-          heartbeat: { target: "last" },
-        });
-      }
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, error.message, { retryable: true }),
+      );
+      return;
+    }
+    if (wake) {
+      // Targeted admin events may need a proactive response. Carry the exact
+      // session through the wake so its delivery context, not main, wins.
+      requestHeartbeat({
+        source: "notifications-event",
+        intent: "immediate",
+        // The dispatcher recognizes "wake" as a payload-bearing run, so an
+        // empty HEARTBEAT.md cannot suppress this queued system event.
+        reason: "wake",
+        sessionKey,
+        heartbeat: { target: "last" },
+      });
     }
     // Presence changes are observable even when noisy node heartbeat text is
     // suppressed from the transcript-style system event queue.

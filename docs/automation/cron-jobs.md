@@ -540,6 +540,11 @@ Query-string tokens are rejected.
   <Accordion title="POST /hooks/wake">
     Enqueue a system event for the main session:
 
+    Each session holds at most 20 pending events. A full queue returns `503`
+    with `{ ok: false, error }` and preserves previously accepted events.
+    Retry the rejected request after the session processes its pending events.
+    Queue admission does not guarantee delivery or survive a Gateway restart.
+
     ```bash
     curl -X POST http://127.0.0.1:18789/hooks/wake \
       -H 'Authorization: Bearer SECRET' \
@@ -588,6 +593,8 @@ Query-string tokens are rejected.
   </Accordion>
   <Accordion title="Mapped hooks (POST /hooks/<name>)">
     Custom hook names resolve via `hooks.mappings` in config. Mappings can transform arbitrary payloads into `wake` or `agent` actions with templates or code transforms. Mapped `agent` actions use the same 15-second admission and `200`/`400`/`409`/`502`/`503` response contract as `POST /hooks/agent`.
+
+    Mapped `wake` actions use the same queue-full `503` response as `POST /hooks/wake`.
 
     Persistent mapped hooks require a stable mapping `sessionKey` or `hooks.defaultSessionKey`. Template-derived keys retain the request-key opt-in and prefix policy above.
 

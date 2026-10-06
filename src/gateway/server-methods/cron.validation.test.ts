@@ -7,6 +7,7 @@ import type { ChannelPlugin } from "../../channels/plugins/types.public.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { resolveCronJobConfigRevision } from "../../cron/config-revision.js";
 import type { CronDelivery, CronJob } from "../../cron/types.js";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../../plugins/runtime.js";
 import {
   createChannelTestPluginBase,
@@ -3682,6 +3683,23 @@ describe("cron method validation", () => {
   });
 
   describe("wake", () => {
+    it("returns a retryable error when wake event admission is full", async () => {
+      const context = createCronContext();
+      context.cron.wake.mockImplementationOnce(() => {
+        throw new SystemEventQueueFullError(20);
+      });
+      const { respond } = await invokeCron("wake", { mode: "now", text: "retry me" }, { context });
+      expect(respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({
+          code: "UNAVAILABLE",
+          retryable: true,
+          message: new SystemEventQueueFullError(20).message,
+        }),
+      );
+    });
+
     it("forwards sessionKey to context.cron.wake when provided", async () => {
       const { context, respond } = await invokeWake({
         mode: "now",

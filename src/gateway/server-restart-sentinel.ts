@@ -42,7 +42,7 @@ import {
   type SessionDeliveryRecoveryLogger,
   type SessionDeliveryRoute,
 } from "../infra/session-delivery-queue.js";
-import { enqueueSystemEvent } from "../infra/system-events.js";
+import { enqueueSystemEventEntry } from "../infra/system-events.js";
 import { isPendingControlPlaneUpdateRestartSentinel } from "../infra/update-control-plane-sentinel.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { stringifyRouteThreadId } from "../plugin-sdk/channel-route.js";
@@ -110,7 +110,9 @@ function enqueueRestartSentinelWake(
     threadId?: string | number;
   },
 ) {
-  enqueueSystemEvent(message, {
+  // Recovery may settle its durable row only after transient admission succeeds.
+  // Queue pressure must retain the pending row for the existing retry owner.
+  enqueueSystemEventEntry(message, {
     sessionKey,
     ...(deliveryContext ? { deliveryContext } : {}),
   });

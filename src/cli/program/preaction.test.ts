@@ -14,8 +14,10 @@ import {
 
 const DISCORD_REPO_INSTALL_SPEC = repoInstallSpec("discord");
 
-const setVerboseMock = vi.fn();
-const emitCliBannerMock = vi.fn();
+// Static SDK fixtures can load the queue/logger before this test module runs.
+// Initialize mock dependencies before imports, including in shared workers.
+const setVerboseMock = vi.hoisted(() => vi.fn());
+const emitCliBannerMock = vi.hoisted(() => vi.fn());
 type EnsureConfigReadyOptions = {
   allowInvalid?: boolean;
   beforeStateMigrations?: () => Promise<boolean>;
@@ -24,24 +26,24 @@ type EnsureConfigReadyOptions = {
   skipPristineCoreStateMigrations?: boolean;
   skipPristineStartupStateMigrations?: boolean;
 };
-const ensureConfigReadyMock = vi.fn<(_opts: EnsureConfigReadyOptions) => Promise<void>>(
-  async () => {},
+const ensureConfigReadyMock = vi.hoisted(() =>
+  vi.fn<(_opts: EnsureConfigReadyOptions) => Promise<void>>(async () => {}),
 );
-const ensurePluginRegistryLoadedMock = vi.fn();
-const routeLogsToStderrMock = vi.fn();
-const prepareGatewayRunBootstrapMock = vi.fn(async () => true);
-const recheckGatewayRunBootstrapMock = vi.fn(async () => true);
-const reloadTrustedGatewayRunEnvironmentMock = vi.fn(async () => true);
-const wasPreparedGatewayRunCoreStatePristineMock = vi.fn(() => true);
-const wasPreparedGatewayRunStatePristineMock = vi.fn(() => true);
+const ensurePluginRegistryLoadedMock = vi.hoisted(() => vi.fn());
+const routeLogsToStderrMock = vi.hoisted(() => vi.fn());
+const prepareGatewayRunBootstrapMock = vi.hoisted(() => vi.fn(async () => true));
+const recheckGatewayRunBootstrapMock = vi.hoisted(() => vi.fn(async () => true));
+const reloadTrustedGatewayRunEnvironmentMock = vi.hoisted(() => vi.fn(async () => true));
+const wasPreparedGatewayRunCoreStatePristineMock = vi.hoisted(() => vi.fn(() => true));
+const wasPreparedGatewayRunStatePristineMock = vi.hoisted(() => vi.fn(() => true));
 
-const runtimeMock = {
+const runtimeMock = vi.hoisted(() => ({
   log: vi.fn(),
   error: vi.fn(),
   writeStdout: vi.fn(),
   writeJson: vi.fn(),
   exit: vi.fn(),
-};
+}));
 
 vi.mock("../../globals.js", () => ({
   setVerbose: setVerboseMock,

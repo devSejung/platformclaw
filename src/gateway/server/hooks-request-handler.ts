@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
+import { SystemEventQueueFullError } from "../../infra/system-event-queue-error.js";
 import type { createSubsystemLogger } from "../../logging/subsystem.js";
 import { resolveHookExternalContentSource as resolveHookExternalContentSourceFromSession } from "../../security/external-content.js";
 import { safeEqualSecret } from "../../security/secret-equal.js";
@@ -213,6 +214,21 @@ export function createHooksRequestHandler(
     return pending;
   };
 
+  const sendWakeDispatchResult = (
+    res: ServerResponse,
+    value: Parameters<HookDispatchers["dispatchWakeHook"]>[0],
+  ) => {
+    try {
+      dispatchWakeHook(value);
+      sendJson(res, 200, { ok: true, mode: value.mode });
+    } catch (error) {
+      if (!(error instanceof SystemEventQueueFullError)) {
+        throw error;
+      }
+      sendJson(res, 503, { ok: false, error: error.message });
+    }
+  };
+
   const sendAgentDispatchResult = (res: ServerResponse, result: HookAgentDispatchResult) => {
     if (result.ok) {
       sendJson(res, 200, { ok: true, runId: result.runId });
@@ -325,8 +341,7 @@ export function createHooksRequestHandler(
         sendJson(res, 400, { ok: false, error: normalized.error });
         return true;
       }
-      dispatchWakeHook(normalized.value);
-      sendJson(res, 200, { ok: true, mode: normalized.value.mode });
+      sendWakeDispatchResult(res, normalized.value);
       return true;
     }
 
@@ -465,13 +480,12 @@ export function createHooksRequestHandler(
                 }
               }
             }
-            dispatchWakeHook({
+            sendWakeDispatchResult(res, {
               text: action.text,
               mode: action.mode,
               ...(targetAgentId ? { agentId: targetAgentId } : {}),
               ...(dispatchSessionKey ? { sessionKey: dispatchSessionKey } : {}),
             });
-            sendJson(res, 200, { ok: true, mode: action.mode });
             return true;
           }
           const action = mapped.action;
