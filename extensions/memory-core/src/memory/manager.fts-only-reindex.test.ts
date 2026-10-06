@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import { resolveOpenClawAgentSqlitePath } from "openclaw/plugin-sdk/sqlite-runtime";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -127,7 +128,7 @@ describe("memory manager FTS-only reindex", () => {
       params.vectorEnabled === undefined
         ? undefined
         : { vector: { enabled: params.vectorEnabled } };
-    const cfg = {
+    const cfg: OpenClawConfig = {
       // Provider construction is mocked here; avoid cold-loading real plugins during config resolution.
       plugins: { enabled: false },
       memory: {
@@ -139,7 +140,6 @@ describe("memory manager FTS-only reindex", () => {
           ...(params.sources ? { sources: params.sources, rememberAcrossConversations: true } : {}),
           store,
           cache: { enabled: false },
-          sync: { watch: false, onSessionStart: false, onSearch: false },
         },
       },
       agents: {
@@ -148,7 +148,7 @@ describe("memory manager FTS-only reindex", () => {
         },
         list: [{ id: "main", default: true }],
       },
-    } as OpenClawConfig;
+    };
     const result = await getMemorySearchManager({ cfg, agentId: "main" });
     if (!result.manager) {
       throw new Error(result.error ?? "manager missing");
@@ -191,7 +191,7 @@ describe("memory manager FTS-only reindex", () => {
     await memoryManager.sync({ force: true });
     const sourcePath = "sessions/main/deleted.jsonl";
     const observer = new DatabaseSync(indexPath);
-    const releaseQuery = Promise.withResolvers<void>();
+    const releaseQuery = createDeferred<void>();
     try {
       observer
         .prepare(`INSERT INTO memory_index_sources (path, source, hash, mtime, size)

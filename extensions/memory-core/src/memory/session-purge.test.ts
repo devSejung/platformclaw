@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import {
   ensureMemoryIndexSchema,
@@ -103,12 +104,11 @@ describe("session memory purge", () => {
           provider: "none",
           sources: ["memory"],
           rememberAcrossConversations: false,
-          sync: { watch: false, onSessionStart: false, onSearch: false },
         },
       },
     };
-    const nativeEntered = Promise.withResolvers<void>();
-    const releaseNative = Promise.withResolvers<void>();
+    const nativeEntered = createDeferred<void>();
+    const releaseNative = createDeferred<void>();
     let nativeDeleted = false;
     const purge = purgeSessionMemoryBeforeRun(params, async () => {
       nativeEntered.resolve();
@@ -297,8 +297,8 @@ describe("session memory purge", () => {
     const qmdDir = path.join(stateDir, "agents", "main", "qmd");
     const indexPath = path.join(qmdDir, "xdg-cache", "qmd", "index.sqlite");
     await fs.mkdir(qmdDir, { recursive: true });
-    const writerRelease = Promise.withResolvers<void>();
-    const leaseRequested = Promise.withResolvers<void>();
+    const writerRelease = createDeferred<void>();
+    const leaseRequested = createDeferred<void>();
     let held = false;
     const withLease: PluginStateLeaseRunner = async (options, run) => {
       expect(options).toMatchObject({
@@ -373,15 +373,14 @@ describe("session memory purge", () => {
           provider: "none",
           sources: ["memory"],
           rememberAcrossConversations: false,
-          sync: { watch: false, onSessionStart: false, onSearch: false },
         },
       },
     };
     await fs.writeFile(path.join(fixtureRoot, "MEMORY.md"), "retained memory");
     const manager = await MemoryIndexManager.get({ cfg, agentId: "main", purpose: "cli" });
     await manager!.sync({ force: true });
-    const writerEntered = Promise.withResolvers<void>();
-    const releaseWriter = Promise.withResolvers<void>();
+    const writerEntered = createDeferred<void>();
+    const releaseWriter = createDeferred<void>();
     const harness = manager! as unknown as {
       dirty: boolean;
       syncMemoryFiles(): Promise<{ indexItems: never[]; finalize(): void }>;
@@ -402,8 +401,8 @@ describe("session memory purge", () => {
     releaseWriter.resolve();
     await pendingSync;
     writer.mockRestore();
-    const nativeEntered = Promise.withResolvers<void>();
-    const releaseNative = Promise.withResolvers<void>();
+    const nativeEntered = createDeferred<void>();
+    const releaseNative = createDeferred<void>();
     const purge = purgeSessionMemoryBeforeRun(params, async () => {
       nativeEntered.resolve();
       await releaseNative.promise;
@@ -425,16 +424,15 @@ describe("session memory purge", () => {
           provider: "none",
           sources: ["memory"],
           rememberAcrossConversations: false,
-          sync: { watch: false, onSessionStart: false, onSearch: false },
         },
       },
     };
     const manager = await MemoryIndexManager.get({ cfg, agentId: "main", purpose: "cli" });
     expect(manager).not.toBeNull();
-    const writerEntered = Promise.withResolvers<void>();
-    const releaseWriter = Promise.withResolvers<void>();
-    const nativeEntered = Promise.withResolvers<void>();
-    const releaseNative = Promise.withResolvers<void>();
+    const writerEntered = createDeferred<void>();
+    const releaseWriter = createDeferred<void>();
+    const nativeEntered = createDeferred<void>();
+    const releaseNative = createDeferred<void>();
     const db = Reflect.get(manager!, "db") as DatabaseSync;
     const writer = vi
       .spyOn(manager! as unknown as { runSync(): Promise<void> }, "runSync")
