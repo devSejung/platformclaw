@@ -1,0 +1,98 @@
+.vaults__batch {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.vaults__batch p {
+  margin: 0;
+}
+.vaults__batch-pick {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+.vaults__batch-pick > strong {
+  font-size: 16px;
+}
+.vaults__batch [aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+.vaults__batch-summary,
+.vaults__batch-progress,
+.vaults__batch-file {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.vaults__batch-list {
+  display: grid;
+  padding: 0;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.vaults__batch-list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.vaults__batch-list > li + li {
+  border-top: 1px solid var(--border);
+}
+.vaults__batch-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+button.vaults__batch-name {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+button.vaults__batch-name:hover {
+  text-decoration-thickness: 2px;
+}
+button.vaults__batch-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.vaults__batch-preview {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.vaults__batch-preview > summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.vaults__batch-preview pre {
+  margin-bottom: 0;
+  font-size: 12px;
+}
+.vaults__batch-progress progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+@media (max-width: 640px) {
+  .vaults__batch-pick {
+    gap: 8px;
+    padding: 16px;
+  }
+}

@@ -66,7 +66,7 @@ export async function listMemoryWikiGraph(
 
   for (const source of pages) {
     for (const target of source.linkTargets) {
-      const matches = resolveWikiLinkTarget(targetIndex, target);
+      const matches = resolveWikiLinkTarget(targetIndex, target, source.relativePath);
       // A title shared by several documents is unresolved, not a reference to all
       // of them. Explicit paths let the author choose without graph guessing.
       if (matches.length !== 1) {
@@ -89,7 +89,7 @@ export async function listMemoryWikiGraph(
       if (!lookup) {
         continue;
       }
-      const matches = resolveWikiLinkTarget(targetIndex, lookup);
+      const matches = resolveWikiLinkTarget(targetIndex, lookup, source.relativePath);
       if (matches.length !== 1) {
         unresolvedLinkKeys.add(
           `${source.relativePath}\u0000${normalizeComparableWikiTarget(lookup)}`,
@@ -141,10 +141,10 @@ export async function listMemoryWikiGraph(
   for (const page of selectedPages) {
     nodes.push({
       id: page.relativePath,
-      title: page.title,
+      title: page.title.slice(0, 240),
       kind: page.kind,
       snippet: parseWikiMarkdown(page.raw).body.slice(0, 320),
-      ...(page.updatedAt ? { updatedAt: page.updatedAt } : {}),
+      ...(page.updatedAt ? { updatedAt: page.updatedAt.slice(0, 256) } : {}),
     });
   }
 

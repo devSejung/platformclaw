@@ -342,6 +342,26 @@ export function createMarkdownParser(): MarkdownIt {
     }
   });
 
+  markdownParser.core.ruler.after("linkify", "wiki-markdown-links", (state) => {
+    if ((state.env as Partial<MarkdownRenderEnv> | undefined)?.wikiLinks !== true) {
+      return;
+    }
+    for (const block of state.tokens) {
+      for (const token of block.children ?? []) {
+        const href = token.type === "link_open" ? token.attrGet("href") : null;
+        if (
+          href &&
+          token.attrGet("data-wiki-lookup") === null &&
+          !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/iu.test(href) &&
+          !isHostLocalMarkdownFileHref(href)
+        ) {
+          // Preserve authored Wiki paths before generic chat docs-link normalization.
+          token.attrSet("data-wiki-path", href);
+        }
+      }
+    }
+  });
+
   markdownParser.inline.ruler.before("link", "wiki-link", (state, silent) => {
     const env = state.env as Partial<MarkdownRenderEnv> | undefined;
     if (env?.wikiLinks !== true || !state.src.startsWith("[[", state.pos)) {

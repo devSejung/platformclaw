@@ -335,7 +335,7 @@ suite("Shared Knowledge Vault browser experience", () => {
           content: "# Setup guide\nTarget body",
           links: [],
         };
-        const link = "[[guides/Setup%20%23%25.md|Setup guide]]";
+        const link = `[[${type === "personal" ? "/" : ""}guides/Setup%20%23%25.md|Setup guide]]`;
         const saved = {
           ...target,
           id: "source",
@@ -344,7 +344,7 @@ suite("Shared Knowledge Vault browser experience", () => {
           content: "Before " + link + " after",
           links: [
             {
-              target: target.logicalPath,
+              target: `${type === "personal" ? "/" : ""}${target.logicalPath}`,
               documentId: target.id,
               logicalPath: target.logicalPath,
               title: target.title,

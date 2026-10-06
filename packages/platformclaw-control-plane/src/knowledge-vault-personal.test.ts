@@ -6,6 +6,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserGatewayRpc } from "./browser-gateway-contracts.js";
+import type { KnowledgeVaultDocumentImportResult } from "./knowledge-vault-contracts.js";
 import { KnowledgeVaultService } from "./knowledge-vault-service.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 
@@ -83,6 +84,8 @@ async function fixture(saved = true) {
         totalClaims: 1,
         totalQuestions: 1,
         totalContradictions: 0,
+        documents: [item],
+        documentsTruncated: false,
         clusters: [
           {
             key: "concept",
@@ -156,6 +159,208 @@ async function fixture(saved = true) {
   };
 }
 describe("Personal Wiki common adapter", () => {
+  it("lists a thousand documents independently of the graph and still opens omitted sources", async () => {
+    const f = await fixture();
+    const original = f.request.getMockImplementation()!;
+    const documents = Array.from({ length: 1000 }, (_, index) => ({
+      pagePath: `concepts/note-${String(index).padStart(4, "0")}.md`,
+      title: `Note ${index}`,
+      kind: "concept",
+      claimCount: 0,
+      questionCount: 0,
+      contradictionCount: 0,
+      claims: [],
+      questions: [],
+      contradictions: [],
+      snippet: "Imported source",
+    }));
+    const overview = {
+      totalPages: 1001,
+      totalItems: 1001,
+      pageCounts: { entity: 0, concept: 1001, source: 0, synthesis: 0, report: 0 },
+      totalClaims: 0,
+      totalQuestions: 0,
+      totalContradictions: 0,
+      documents,
+      documentsTruncated: true,
+      clusters: [
+        {
+          key: "concept",
+          label: "Concepts",
+          itemCount: 1001,
+          claimCount: 0,
+          questionCount: 0,
+          contradictionCount: 0,
+          items: documents.slice(0, 500),
+        },
+      ],
+    };
+    f.request.mockImplementation(async (method, params) => {
+      if (method === "wiki.overview") {
+        return overview;
+      }
+      if (method === "wiki.graph") {
+        return {
+          nodes: [
+            { id: "index.md", title: "Wiki Index", kind: "index" },
+            ...documents
+              .slice(0, 494)
+              .map((item) => ({ id: item.pagePath, title: item.title, kind: item.kind })),
+          ],
+          edges: [
+            { source: "index.md", target: documents[0]!.pagePath, type: "membership" },
+            { source: documents[0]!.pagePath, target: documents[1]!.pagePath, type: "reference" },
+          ],
+          stats: {
+            totalPages: 1001,
+            totalNodes: 495,
+            totalEdges: 2,
+            unresolvedLinks: 0,
+            truncated: true,
+          },
+        };
+      }
+      return original(method, params);
+    });
+    const snapshot = await f.service.snapshot({ userId: f.user.id, vaultId: f.vaultId });
+    expect(snapshot.vaults[0]!.documentCount).toBe(1001);
+    expect(snapshot.selected).toMatchObject({ documentCount: 1001, documentsTruncated: true });
+    expect(snapshot.selected!.documents).toHaveLength(1000);
+    expect(snapshot.selected!.documents.at(-1)!.logicalPath).toBe(documents.at(-1)!.pagePath);
+    expect(snapshot.selected!.graph.nodeIds).toHaveLength(494);
+    expect(snapshot.selected!.graph.edges).toEqual([
+      { source: documents[0]!.pagePath, target: documents[1]!.pagePath },
+    ]);
+    await expect(
+      f.service.readDocument({ userId: f.user.id, vaultId: f.vaultId, documentId: f.path }),
+    ).resolves.toMatchObject({ id: f.path, sourceContent: f.source });
+    for (const invalid of [
+      { ...overview, documents: [...documents, documents[0]] },
+      { ...overview, documents: [documents[0], documents[0]] },
+      { ...overview, documentsTruncated: false },
+    ]) {
+      f.request.mockImplementation(async (method, params) =>
+        method === "wiki.overview" ? invalid : original(method, params),
+      );
+      await expect(
+        f.service.snapshot({ userId: f.user.id, vaultId: f.vaultId }),
+      ).rejects.toMatchObject({ code: "upstream-result-denied" });
+    }
+  });
+
+  it("keeps batch source bytes, order, identity and partial outcomes without per-file reloads", async () => {
+    const f = await fixture();
+    const importId = "b9314df9-8828-4eee-9231-9667bf4c0f36";
+    const rootPath = `concepts/imports/${importId}`;
+    const documents = [
+      { relativePath: "Spec/A.MD", content: f.source },
+      { relativePath: "Spec/B.markdown", content: "# B\n[A](A.MD)\n" },
+      { relativePath: "Spec/C.md", content: "# C\n" },
+    ];
+    const result: KnowledgeVaultDocumentImportResult = {
+      importId,
+      rootPath,
+      documents: [
+        {
+          relativePath: "Spec/A.MD",
+          path: `${rootPath}/Spec/A.md`,
+          title: "Training",
+          status: "saved",
+          revision: f.revision,
+        },
+        {
+          relativePath: "Spec/B.markdown",
+          path: `${rootPath}/Spec/B.md`,
+          title: "B",
+          status: "unchanged",
+          revision: createHash("sha256").update(documents[1]!.content).digest("hex"),
+        },
+        {
+          relativePath: "Spec/C.md",
+          path: `${rootPath}/Spec/C.md`,
+          status: "failed",
+          error: "conflict",
+        },
+      ],
+      indexesRefreshed: false,
+    };
+    f.request.mockResolvedValueOnce(result);
+    await expect(
+      f.service.importDocuments({ userId: f.user.id, vaultId: f.vaultId, importId, documents }),
+    ).resolves.toEqual(result);
+    expect(f.request).toHaveBeenCalledExactlyOnceWith("wiki.document.import", {
+      agentId: f.binding.agentId,
+      importId,
+      documents,
+    });
+  });
+  it.each(["foreign-path", "changed-source", "missing-outcome", "invalid-failure"])(
+    "rejects an untrusted batch response: %s",
+    async (failure) => {
+      const f = await fixture();
+      const importId = "b9314df9-8828-4eee-9231-9667bf4c0f36";
+      const rootPath = `concepts/imports/${importId}`;
+      const outcome: Record<string, unknown> = {
+        relativePath: "A.md",
+        path: `${rootPath}/A.md`,
+        title: "Training",
+        status: "saved",
+        revision: f.revision,
+      };
+      if (failure === "foreign-path") {
+        outcome.path = "concepts/other.md";
+      }
+      if (failure === "changed-source") {
+        outcome.revision = "f".repeat(64);
+      }
+      if (failure === "invalid-failure") {
+        outcome.status = "failed";
+        outcome.error = "internal path detail";
+      }
+      f.request.mockResolvedValueOnce({
+        importId,
+        rootPath,
+        documents: failure === "missing-outcome" ? [] : [outcome],
+        indexesRefreshed: true,
+      });
+      await expect(
+        f.service.importDocuments({
+          userId: f.user.id,
+          vaultId: f.vaultId,
+          importId,
+          documents: [{ relativePath: "A.md", content: f.source }],
+        }),
+      ).rejects.toMatchObject({ code: "upstream-result-denied" });
+    },
+  );
+  it("rejects foreign Personal identity and oversized batches before contacting the owner", async () => {
+    const f = await fixture();
+    const input = {
+      userId: f.user.id,
+      vaultId: f.vaultId,
+      importId: "b9314df9-8828-4eee-9231-9667bf4c0f36",
+      documents: [{ relativePath: "A.md", content: f.source }],
+    };
+    await expect(
+      f.service.importDocuments({ ...input, vaultId: "personal:other" }),
+    ).rejects.toThrow("unavailable");
+    await expect(
+      f.service.importDocuments({
+        ...input,
+        documents: [{ relativePath: "A.md", content: "가".repeat(400_000) }],
+      }),
+    ).rejects.toThrow("1 MiB");
+    await expect(
+      f.service.importDocuments({
+        ...input,
+        documents: Array.from({ length: 5 }, (_, index) => ({
+          relativePath: `${index}.md`,
+          content: "a".repeat(1024 * 1024),
+        })),
+      }),
+    ).rejects.toThrow("4 MiB");
+    expect(f.request).not.toHaveBeenCalled();
+  });
   it("accepts the source owner's unchanged-save outcome and returns the current revision", async () => {
     const f = await fixture(false);
     await expect(
@@ -191,7 +396,7 @@ describe("Personal Wiki common adapter", () => {
           documentId: f.path,
           title: "Training",
           logicalPath: f.path,
-          link: "[[concepts/Training.md|Training]]",
+          link: "[[/concepts/Training.md|Training]]",
         },
       ],
       hasMore: false,

@@ -119,7 +119,27 @@ function readRespondError(respond: { mock: { calls: Array<Array<unknown>> } }): 
 }
 
 const VAULT_BACKED_GATEWAY_CASES = [
+  ["wiki.archive.manifest", { kind: "attachment" }],
+  [
+    "wiki.archive.read",
+    {
+      path: "_attachments/a.bin",
+      expectedRevision: "a".repeat(64),
+      offset: 0,
+      length: 1,
+    },
+  ],
+  ["wiki.attachment.put", { path: "a.bin", contentBase64: "AA==" }],
+  ["wiki.attachment.delete", { path: "_attachments/a.bin", expectedRevision: "a".repeat(64) }],
   ["wiki.delete", { path: "concepts/a.md", expectedContentHash: "a".repeat(64) }],
+  [
+    "wiki.document.import",
+    {
+      importId: "00000000-0000-4000-8000-000000000001",
+      documents: [{ relativePath: "a.md", content: "# A" }],
+    },
+  ],
+  ["wiki.document.create", { title: "A", content: "# A", filename: "a.md" }],
   ["wiki.document.get", { lookup: "concepts/a.md" }],
   [
     "wiki.document.save",

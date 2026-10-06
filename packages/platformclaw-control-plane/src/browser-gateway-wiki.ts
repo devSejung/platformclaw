@@ -6,12 +6,14 @@ import {
   WIKI_CONTENT_HASH,
 } from "./browser-gateway-wiki-document.js";
 import { projectWikiGraph } from "./browser-gateway-wiki-graph.js";
+import { projectWikiOverview } from "./browser-gateway-wiki-overview.js";
 import {
   count,
   failObject,
   optionalEnum,
   optionalText,
   positiveInteger,
+  projectCompileFailure,
   score,
   stringList,
   text,
@@ -38,20 +40,6 @@ const WIKI_METHODS = new Set([
   "wiki.status",
 ]);
 
-function projectCompileFailure(value: unknown, fail: ProjectionFailure): JsonObject {
-  if (value === undefined) {
-    return {};
-  }
-  const failure = failObject(value, "wiki compile failure", fail);
-  return {
-    compileFailure: {
-      error: text(failure.error, "wiki compile error", fail, 2000).slice(0, 500),
-      failedAt: count(failure.failedAt, "wiki compile failedAt", fail),
-      nextRetryAt: count(failure.nextRetryAt, "wiki compile nextRetryAt", fail),
-      attempts: count(failure.attempts, "wiki compile attempts", fail),
-    },
-  };
-}
 const DREAM_ACTION_METHODS = new Set([
   "doctor.memory.backfillDreamDiary",
   "doctor.memory.dedupeDreamDiary",
@@ -172,66 +160,6 @@ function projectDreaming(rawValue: unknown, fail: ProjectionFailure): JsonObject
     ...(timezone ? { timezone } : {}),
     ...(lastPromotedAt ? { lastPromotedAt } : {}),
   };
-}
-
-function projectWikiOverviewItem(value: unknown, fail: ProjectionFailure): JsonObject {
-  const item = failObject(value, "wiki overview item", fail);
-  const kind = optionalEnum(
-    item.kind,
-    ["entity", "concept", "source", "synthesis", "report"],
-    "kind",
-    fail,
-  );
-  if (!kind) {
-    return fail("Gateway returned invalid wiki overview kind");
-  }
-  return {
-    pagePath: wikiPath(item.pagePath, "wiki page path", fail),
-    title: text(item.title, "wiki title", fail),
-    kind,
-    ...(optionalText(item.id, "wiki id", fail, 1_024) ? { id: item.id } : {}),
-    ...(optionalText(item.updatedAt, "wiki updatedAt", fail, 256)
-      ? { updatedAt: item.updatedAt }
-      : {}),
-    ...(optionalText(item.sourceType, "wiki sourceType", fail, 256)
-      ? { sourceType: item.sourceType }
-      : {}),
-    claimCount: count(item.claimCount, "wiki claimCount", fail),
-    questionCount: count(item.questionCount, "wiki questionCount", fail),
-    contradictionCount: count(item.contradictionCount, "wiki contradictionCount", fail),
-    claims: stringList(item.claims, "wiki claims", fail),
-    questions: stringList(item.questions, "wiki questions", fail),
-    contradictions: stringList(item.contradictions, "wiki contradictions", fail),
-    ...(optionalText(item.snippet, "wiki snippet", fail) ? { snippet: item.snippet } : {}),
-  };
-}
-
-function projectWikiClusters(value: unknown, fail: ProjectionFailure): JsonObject[] {
-  if (!Array.isArray(value) || value.length > 10) {
-    return fail("Gateway returned invalid wiki clusters");
-  }
-  return value.map((raw) => {
-    const cluster = failObject(raw, "wiki cluster", fail);
-    if (!Array.isArray(cluster.items) || cluster.items.length > MAX_ITEMS) {
-      return fail("Gateway returned invalid wiki cluster items");
-    }
-    return {
-      key: text(cluster.key, "wiki cluster key", fail, 256),
-      label: text(cluster.label, "wiki cluster label", fail, 1_024),
-      itemCount: count(cluster.itemCount, "wiki cluster itemCount", fail),
-      claimCount: count(cluster.claimCount, "wiki cluster claimCount", fail),
-      questionCount: count(cluster.questionCount, "wiki cluster questionCount", fail),
-      contradictionCount: count(
-        cluster.contradictionCount,
-        "wiki cluster contradictionCount",
-        fail,
-      ),
-      ...(optionalText(cluster.updatedAt, "wiki cluster updatedAt", fail, 256)
-        ? { updatedAt: cluster.updatedAt }
-        : {}),
-      items: cluster.items.map((item) => projectWikiOverviewItem(item, fail)),
-    };
-  });
 }
 
 function projectImportInsights(value: unknown, fail: ProjectionFailure): JsonObject {
@@ -570,30 +498,7 @@ export function projectBrowserWikiResult(params: {
     return projectImportInsights(params.result, params.fail);
   }
   if (params.method === "wiki.overview") {
-    const payload = failObject(params.result, "wiki overview", params.fail);
-    const pageCounts = failObject(payload.pageCounts, "wiki page counts", params.fail);
-    return {
-      ...projectCompileFailure(payload.compileFailure, params.fail),
-      ...(typeof payload.sourceSyncComplete === "boolean"
-        ? { sourceSyncComplete: payload.sourceSyncComplete }
-        : {}),
-      totalItems: count(payload.totalItems, "wiki totalItems", params.fail),
-      totalPages: count(payload.totalPages, "wiki totalPages", params.fail),
-      pageCounts: Object.fromEntries(
-        ["entity", "concept", "source", "synthesis", "report"].map((key) => [
-          key,
-          count(pageCounts[key], `wiki ${key} count`, params.fail),
-        ]),
-      ),
-      totalClaims: count(payload.totalClaims, "wiki totalClaims", params.fail),
-      totalQuestions: count(payload.totalQuestions, "wiki totalQuestions", params.fail),
-      totalContradictions: count(
-        payload.totalContradictions,
-        "wiki totalContradictions",
-        params.fail,
-      ),
-      clusters: projectWikiClusters(payload.clusters, params.fail),
-    };
+    return projectWikiOverview(params.result, params.fail);
   }
   if (params.method === "wiki.graph") {
     return projectWikiGraph(params.result, params.agentId, params.fail);

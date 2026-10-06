@@ -779,51 +779,93 @@ describe("Shared Knowledge Vault UI", () => {
     );
     expect(request.mock.calls.some(([method]) => method === "wiki.document.update")).toBe(false);
   });
-  it("uses the same reader and editable body for Personal without exposing claims on cards", async () => {
-    const current = wikiHubSnapshot({ selectedId: wikiHubPersonalId });
-    const request = vi.fn(async (method: string) =>
-      method === `${rpc}document.get`
-        ? wikiHubPersonalDocument
-        : method === `${rpc}document.preview`
-          ? { title: "Reviewed personal title", logicalPath: "" }
-          : method === `${rpc}document.save`
-            ? { ...wikiHubPersonalDocument, title: "Reviewed personal title" }
-            : current,
-    );
-    const element = mount(request);
-    await waitForFast(() =>
-      expect(element.querySelectorAll(".wiki-hub__document-card")).toHaveLength(2),
-    );
-    expect(element.textContent).not.toContain("Should each canary");
-    expect(button(element, "Download entire vault ZIP")).toBeDefined();
-    expect(element.querySelector('input[type="file"]')).not.toBeNull();
-    button(element, wikiHubPersonalDocument.title).click();
-    await waitForFast(() => expect(element.querySelector("[data-vault-document]")).not.toBeNull());
-    expect(
-      element.querySelector("[data-vault-document] details:last-child")?.textContent,
-    ).toContain("Should each canary");
-    button(element, "Edit document").click();
-    await waitForFast(() => expect(element.querySelector("[data-vault-editor]")).not.toBeNull());
-    expect(element.querySelector<HTMLTextAreaElement>("[name=content]")!.value).toBe(
-      wikiHubPersonalDocument.editableContent,
-    );
-    expect(element.querySelector("[name=path]")).toBeNull();
-    fill(element, "title", "Reviewed personal title");
-    submit(element.querySelector<HTMLFormElement>("[data-vault-editor]")!);
-    await waitForFast(() =>
-      expect(element.querySelector(".vaults__author-preview")).not.toBeNull(),
-    );
-    submit(element.querySelector<HTMLFormElement>("[data-vault-editor]")!);
-    await waitForFast(() =>
-      expect(request).toHaveBeenCalledWith(`${rpc}document.save`, {
+  it.each([
+    {
+      name: "explicit rename",
+      sourceTitle: wikiHubPersonalDocument.title,
+      title: "Reviewed personal title",
+    },
+    { name: "body-only with bounded title", sourceTitle: "Title".repeat(3400), title: null },
+    {
+      name: "body-only after preview trims the truncated title",
+      sourceTitle: "T".repeat(239) + " original title remainder",
+      title: null,
+    },
+  ])(
+    "uses the Personal reader and editable body without changing unedited metadata: $name",
+    async ({ sourceTitle, title }) => {
+      const content = "# Updated personal body";
+      const sourceContent = `---\ntitle: ${sourceTitle}\n---\n${wikiHubPersonalDocument.editableContent}`;
+      const personalDocument = {
+        ...wikiHubPersonalDocument,
+        title: sourceTitle.slice(0, 240),
+        sourceContent,
+        revision: createHash("sha256").update(sourceContent).digest("hex"),
+      };
+      const previewTitle = (title ?? personalDocument.title).trim();
+      const current = wikiHubSnapshot({ selectedId: wikiHubPersonalId });
+      current.selected!.documents[0] = personalDocument;
+      const request = vi.fn(async (method: string) =>
+        method === `${rpc}document.get`
+          ? personalDocument
+          : method === `${rpc}document.preview`
+            ? { title: previewTitle, logicalPath: "" }
+            : method === `${rpc}document.save`
+              ? {
+                  ...personalDocument,
+                  title: title === null ? personalDocument.title : previewTitle,
+                }
+              : current,
+      );
+      const element = mount(request);
+      await waitForFast(() =>
+        expect(element.querySelectorAll(".wiki-hub__document-card")).toHaveLength(2),
+      );
+      expect(element.textContent).not.toContain("Should each canary");
+      expect(button(element, "Download entire vault ZIP")).toBeDefined();
+      expect(element.querySelector('input[type="file"]')).not.toBeNull();
+      button(element, personalDocument.title).click();
+      await waitForFast(() =>
+        expect(element.querySelector("[data-vault-document]")).not.toBeNull(),
+      );
+      expect(
+        element.querySelector("[data-vault-document] details:last-child")?.textContent,
+      ).toContain("Should each canary");
+      button(element, "Edit document").click();
+      await waitForFast(() => expect(element.querySelector("[data-vault-editor]")).not.toBeNull());
+      expect(element.querySelector<HTMLTextAreaElement>("[name=content]")!.value).toBe(
+        personalDocument.editableContent,
+      );
+      expect(element.querySelector<HTMLInputElement>("[name=title]")!.value).toBe(
+        personalDocument.title,
+      );
+      expect(element.querySelector("[name=path]")).toBeNull();
+      if (title !== null) {
+        fill(element, "title", title);
+      }
+      fill(element, "content", content);
+      submit(element.querySelector<HTMLFormElement>("[data-vault-editor]")!);
+      await waitForFast(() =>
+        expect(element.querySelector(".vaults__author-preview")).not.toBeNull(),
+      );
+      expect(request).toHaveBeenCalledWith(`${rpc}document.preview`, {
         vaultId: wikiHubPersonalId,
-        documentId: wikiHubPersonalDocument.id,
-        expectedRevision: wikiHubPersonalDocument.revision,
-        title: "Reviewed personal title",
-        content: wikiHubPersonalDocument.editableContent,
-      }),
-    );
-  });
+        title: title ?? personalDocument.title,
+        content,
+      });
+      expect(element.querySelector<HTMLInputElement>("[name=title]")!.value).toBe(previewTitle);
+      submit(element.querySelector<HTMLFormElement>("[data-vault-editor]")!);
+      await waitForFast(() =>
+        expect(request).toHaveBeenCalledWith(`${rpc}document.save`, {
+          vaultId: wikiHubPersonalId,
+          documentId: personalDocument.id,
+          expectedRevision: personalDocument.revision,
+          ...(title === null ? {} : { title: previewTitle }),
+          content,
+        }),
+      );
+    },
+  );
   it.each(["personal", "shared"] as const)(
     "deletes %s documents only after confirmation, retains errors and refreshes the list",
     async (kind) => {

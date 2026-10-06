@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { setupBrowserGatewayProxyTest as setup } from "./browser-gateway-proxy.test-harness.js";
 
@@ -392,6 +393,32 @@ describe("BrowserGatewayProxy personal memory wiki", () => {
     await expect(
       proxy.request(token, "wiki.document.get", { agentId: "other", lookup: "concepts/safe.md" }),
     ).rejects.toMatchObject({ code: "cross-agent-denied" });
+  });
+
+  it("accepts bounded imported metadata while preserving the complete original source", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const sourceContent = `\uFEFF---\r\ntitle: ${"T".repeat(17_000)}\r\nsourceType: ${"S".repeat(300)}\r\nupdatedAt: ${"D".repeat(300)}\r\n---\r\n# Body\r\n`;
+    const revision = createHash("sha256").update(sourceContent).digest("hex");
+    const document = {
+      path: "concepts/imports/b9314df9-8828-4eee-9231-9667bf4c0f36/Metadata.md",
+      title: "T".repeat(240),
+      kind: "concept",
+      sourceType: "S".repeat(256),
+      updatedAt: "D".repeat(256),
+      sourceContent,
+      displayContent: "# Body\n",
+      editableContent: "# Body\r\n",
+      editMode: "body",
+      revision,
+    };
+    request.mockResolvedValueOnce(document);
+    await expect(
+      proxy.request(token, "wiki.document.get", { lookup: document.path }),
+    ).resolves.toEqual({ ...document, links: [], linksTruncated: false });
+    expect(request).toHaveBeenCalledExactlyOnceWith("wiki.document.get", {
+      agentId: binding.agentId,
+      lookup: document.path,
+    });
   });
 
   it("pins Wiki saves and requires a path, editable field, and full revision", async () => {

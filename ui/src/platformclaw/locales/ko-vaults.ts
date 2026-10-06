@@ -1,4 +1,62 @@
 export const vaultTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.vault.importHeading": "Markdown 파일을 한 번에 올리세요",
+  "platformClaw.vault.importMarkdownHint":
+    "파일 여러 개 또는 폴더를 선택하세요. 폴더 구조와 문서 간 링크를 함께 유지하며, Markdown 원문은 그대로 저장합니다.",
+  "platformClaw.vault.importChooseFiles": "파일 선택",
+  "platformClaw.vault.importChooseFolder": "폴더 선택",
+  "platformClaw.vault.importAction": "파일 업로드",
+  "platformClaw.vault.importLimits":
+    "UTF-8 .md 또는 .markdown · 파일당 1 MiB, 최대 {count}개·합계 64 MiB. 다른 형식은 제외 목록에 표시합니다. 첨부파일은 따로 올려주세요.",
+  "platformClaw.vault.importFileLimit": "파일은 한 번에 최대 {count}개까지 선택할 수 있습니다.",
+  "platformClaw.vault.importTotalLimit":
+    "선택한 Markdown이 {size}를 초과합니다. 일부 파일을 빼거나 더 작은 폴더를 선택하세요.",
+  "platformClaw.vault.importDocumentLimit": "문서당 1 MiB 한도를 초과했습니다.",
+  "platformClaw.vault.importMarkdownOnly": "제외됨: .md와 .markdown 파일만 가져옵니다.",
+  "platformClaw.vault.importDuplicate":
+    "같은 경로로 저장될 파일이 이미 선택되어 있습니다. 하나를 빼주세요.",
+  "platformClaw.vault.importInvalidPath":
+    "가져올 수 없는 파일명 또는 폴더 경로입니다. 이름을 바꾸거나 선택 목록에서 빼주세요.",
+  "platformClaw.vault.importCryptoUnavailable":
+    "현재 브라우저에서 안전한 업로드 ID를 만들 수 없습니다. Web Crypto를 지원하는 브라우저에서 열어주세요.",
+  "platformClaw.vault.importUnavailable":
+    "현재 연결에서는 파일을 업로드할 수 없습니다. Markdown 가져오기를 지원하는 Gateway에 다시 연결하세요.",
+  "platformClaw.vault.importSelected": "{count}개 선택 · Markdown {size}",
+  "platformClaw.vault.importCounts":
+    "업로드 {saved}개 · 이미 저장됨 {unchanged}개 · 확인 필요 {failed}개 · 제외 {excluded}개",
+  "platformClaw.vault.importFileList": "선택한 파일과 업로드 결과",
+  "platformClaw.vault.importPreviewFile": "{path} 미리보기",
+  "platformClaw.vault.importSourcePreview": "Markdown 원문",
+  "platformClaw.vault.importRemoveFile": "선택 목록에서 {path} 빼기",
+  "platformClaw.vault.importRemove": "빼기",
+  "platformClaw.vault.importReading": "파일을 읽고 확인하는 중…",
+  "platformClaw.vault.importUploading": "파일 업로드 중",
+  "platformClaw.vault.importProgress":
+    "{total}개 중 {completed}개 처리 · 파일을 올리고 링크를 갱신하는 중…",
+  "platformClaw.vault.importUpload": "{count}개 파일 업로드",
+  "platformClaw.vault.importRetry": "미완료 파일 재시도",
+  "platformClaw.vault.importDone": "완료",
+  "platformClaw.vault.importRetryHint":
+    "재시도할 때는 같은 위치에 저장합니다. 확인된 파일은 유지하고, 기존 내용은 덮어쓰지 않습니다.",
+  "platformClaw.vault.importInterrupted":
+    "업로드 응답이 끊겼습니다. 일부 파일은 이미 저장됐을 수 있습니다. 미완료 파일을 재시도하면 중복 없이 확인합니다.",
+  "platformClaw.vault.importUnconfirmed":
+    "서버가 보낸 결과에서 일부 파일의 저장 여부를 확인하지 못했습니다.",
+  "platformClaw.vault.importConflict":
+    "같은 경로에 다른 내용이 있어 저장하지 않았습니다. 기존 문서는 유지됩니다.",
+  "platformClaw.vault.importFailed": "파일을 저장하지 못했습니다. 다시 시도하세요.",
+  "platformClaw.vault.importInvalidMarkdown":
+    "문서 머리말 형식을 확인하세요. 목록에서 뺀 뒤 원본을 수정하고 다시 선택하세요.",
+  "platformClaw.vault.importIndexPending":
+    "문서는 저장했지만 검색·링크 갱신이 필요합니다. 볼트 관리에서 검색·링크 다시 만들기를 실행하세요.",
+  "platformClaw.vault.importDiscard":
+    "아직 업로드가 확인되지 않은 파일이 있습니다. 선택 목록을 유지해 재시도하거나 닫을 수 있습니다. 이미 저장한 파일은 Wiki에 남습니다.",
+  "platformClaw.vault.importStatus.ready": "업로드 준비됨",
+  "platformClaw.vault.importStatus.uploading": "업로드 중…",
+  "platformClaw.vault.importStatus.saved": "업로드 완료",
+  "platformClaw.vault.importStatus.unchanged": "이미 저장됨",
+  "platformClaw.vault.importStatus.uncertain": "저장 확인 전 · 재시도 가능",
+  "platformClaw.vault.headingUnavailable":
+    "문서에서 링크된 제목을 찾지 못했습니다. 아래에서 문서 내용을 확인할 수 있습니다.",
   "platformClaw.vault.linksTruncated":
     "문서 링크 일부만 표시됩니다. 표시 한도를 넘는 링크는 이 화면에서 열 수 없습니다.",
   "platformClaw.vault.insertLink": "문서 링크",
@@ -38,7 +96,7 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.graphCounts": "문서 {nodes}개 · 표시된 링크 {edges}개",
   "platformClaw.vault.graphUnresolved": "대상을 찾지 못한 링크 {count}개",
   "platformClaw.vault.graphTruncated":
-    "표시 한도를 넘어 일부 링크를 생략했습니다. 선이 보이지 않아도 연결이 있을 수 있습니다. 문서를 열면 전체 관계를 확인할 수 있습니다.",
+    "일부 문서 또는 링크가 이 그래프에서 생략됐습니다. 제목·경로 필터는 표시된 문서에만 적용됩니다. 전체 Wiki는 위의 문서 내용 검색으로 찾아보세요.",
   "platformClaw.vault.graphNoMatches":
     "일치하는 문서가 없습니다. 필터를 지우면 전체 문서가 보입니다.",
   "platformClaw.vault.graphNoLinks": "이 방향의 링크가 없습니다.",
@@ -127,6 +185,8 @@ export const vaultTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vault.exportHint":
     "편집자·소유자는 문서·첨부파일·볼트 전체를 다운로드할 수 있습니다.",
   "platformClaw.vault.documents": "문서",
+  "platformClaw.vault.documentsTruncated":
+    "전체 {total}개 중 {loaded}개 문서를 표시합니다. 목록에 없는 문서는 위의 문서 내용 검색으로 찾아보세요.",
   "platformClaw.vault.noDocuments":
     "아직 문서가 없습니다. 지식 추가에서 직접 작성하거나 개인 지식·Markdown을 가져오세요.",
   "platformClaw.vault.newDocument": "문서 작성",

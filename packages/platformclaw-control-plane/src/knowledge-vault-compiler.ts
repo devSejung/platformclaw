@@ -24,12 +24,17 @@ export function createKnowledgeVaultLinkResolver(documents: readonly LinkDocumen
     add(ids, comparableTarget(document.id), document);
     add(titles, comparableTarget(document.title), document);
   }
-  return (target: string): readonly LinkDocument[] =>
-    exact.get(target) ??
-    paths.get(comparableTarget(target)) ??
-    ids.get(comparableTarget(target)) ??
-    titles.get(comparableTarget(target)) ??
-    [];
+  return (target: string): readonly LinkDocument[] => {
+    const rooted = target.startsWith("/");
+    const pathTarget = rooted ? target.replace(/^\/+/, "") : target;
+    return (
+      exact.get(pathTarget) ??
+      paths.get(comparableTarget(pathTarget)) ??
+      (rooted
+        ? []
+        : (ids.get(comparableTarget(target)) ?? titles.get(comparableTarget(target)) ?? []))
+    );
+  };
 }
 
 export function knowledgeVaultPath(value: string): string {
@@ -69,7 +74,8 @@ export function compileKnowledgeVaultDocument(
     { purpose: "graph" },
   )) {
     try {
-      links.add(knowledgeVaultPath(target));
+      knowledgeVaultPath(target.replace(/^\/+/, ""));
+      links.add(target);
     } catch {
       /* Non-document or outside-Wiki references never prevent text indexing. */
     }

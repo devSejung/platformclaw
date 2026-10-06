@@ -393,7 +393,7 @@ async function collectMarkdownFiles(rootDir: string, relativeDir: string): Promi
   return entries
     .filter((entry) => entry.kind === "file" && entry.relativePath.endsWith(".md"))
     .map((entry) => entry.relativePath.split(path.sep).join("/"))
-    .filter((relativePath) => path.basename(relativePath) !== "index.md")
+    .filter((relativePath) => relativePath !== `${relativeDir}/index.md`)
     .toSorted((left, right) => left.localeCompare(right));
 }
 

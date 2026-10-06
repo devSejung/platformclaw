@@ -98,6 +98,29 @@ Markdown needs no special fields or template. The server previews the title
 using a valid YAML string `title`, then the first H1 outside code blocks, then
 the filename. Source-less new documents use `Untitled document`.
 
+In Personal Wiki, **Upload files** accepts several files or a folder. Use
+**Choose files** or **Choose folder**, review the file list and source previews,
+then upload the selection together. Folder selection keeps the paths inside the
+chosen folder; the outer folder name is omitted. Each upload has its own
+destination, so its relative document links stay together without overwriting
+an earlier upload. Unicode filenames use NFC normalization, and Markdown
+extensions are stored as `.md`. The original UTF-8 source, including frontmatter
+and line endings, stays unchanged. Long titles and metadata are shortened only
+for display.
+
+Select up to 1,000 files and 64 MiB of Markdown, with a 1 MiB limit per document.
+Non-Markdown files appear as excluded; use the separate attachment upload for
+images, PDFs and other files. Invalid UTF-8, unsafe paths and duplicate
+destination names appear in the list before upload. A file with malformed
+frontmatter needs correction; valid files in the selection can still be saved.
+
+If a response is interrupted or some files fail, keep the dialog open and choose
+**Retry pending files**. The retry uses the same destination, confirms files
+already saved with identical content, and never overwrites different content.
+Each file shows its outcome. Closing the dialog keeps saved files; a new upload
+starts a new destination. If saving succeeds but indexing fails, the source is
+still stored. Use **Rebuild search and links** in Wiki management to refresh it.
+
 Paths are assigned automatically without overwriting another document. Shared
 Wikis offer an advanced explicit path; an occupied explicit path fails. Personal
 Wiki assigns its path through its source owner and shows the actual path after
@@ -113,8 +136,8 @@ link** searches documents in the current Wiki and inserts the selected full path
 The server requires edit access and returns at most 20 targets per search. A link
 does not grant access to another Wiki or automatically publish private content.
 
-Uploads preserve original bytes when their derived title is accepted. Shared
-display titles are separate metadata. An explicitly changed Personal title is
+Shared uploads preserve original bytes when their derived title is accepted;
+Shared display titles are separate metadata. An explicitly changed Personal title is
 an intentional source metadata edit: its title frontmatter changes while other
 metadata and body remain intact. This is a user write, never compiler rewriting.
 Ordinary edits expose the editable body, preserving existing valid frontmatter.
@@ -172,6 +195,11 @@ server-selected enabled scope; an explicit accessible target also works when
 AI reference is disabled. Browser search can explicitly include all accessible
 Wikis without changing AI-reference settings.
 
+Personal document cards show up to 1,000 authored pages, including plain sources
+and reports. Larger Wikis show the total count and a notice that the list is
+partial. Use Wiki search to find and open documents beyond that list. The graph
+has its own display limit and does not determine which document cards are shown.
+
 Agents pass a returned `vaultId` or an exact user-provided `vaultName`, never
 both. Duplicate names return bounded choices for the user instead of guessing.
 The model does not choose file versus database storage or receive a large Wiki
@@ -201,13 +229,32 @@ backlinks and related navigation. It never rewrites user-authored Markdown or
 invents source claims. Shared compilation uses no LLM.
 
 For example, `[Training](training.md)` creates an outgoing reference and a
-backlink. Both Wikis resolve exact full paths first, then normalized paths
-(case-insensitive, optional `.md`), document IDs, and titles. `[[PHY Training]]`
-can name a unique title; duplicate titles remain unresolved. The document picker
-inserts an escaped full path, including filenames containing spaces or link
-delimiters. Relative Markdown paths, reference-style links and heading anchors
-resolve within the same Wiki. Code examples do not create links. Missing or
-ambiguous links remain visible and
+backlink. Outside Personal uploads, links resolve exact full paths first, then
+normalized paths (case-insensitive, optional `.md`), document IDs, and titles.
+`[[PHY Training]]` can name a unique title; duplicate titles remain unresolved.
+The document picker inserts an escaped full path, including filenames containing
+spaces or link delimiters. In Personal Wiki it adds a leading `/` to preserve the
+selected document when an uploaded folder contains a colliding path. Relative
+Markdown paths, reference-style links and heading anchors resolve within the
+same Wiki. A leading `/` uses only an exact or normalized path from the Wiki root;
+a missing root path never falls back to an imported folder, document ID or title.
+Links such as `[Limits](guides/timing.markdown#limits)` and
+`[[Guides/Timing#Limits]]` open the document at the named heading when it exists.
+
+Within a Personal upload, Wiki paths such as `[[Guides/Timing]]` start at the
+upload's root. A non-rooted target checks exact and normalized paths in that
+upload first, then an existing full path from the Wiki root, then IDs, titles and
+filenames within the upload. This preserves existing full-path links while
+letting an imported path take priority over a colliding Wiki path. Relative paths
+such as `../index.md` keep the selected folder's internal structure, including
+uploaded `index.md` documents. Explicit relative Wiki paths such as
+`[[../index.md]]` resolve from the current document and must stay inside the
+upload's root. Shorthand IDs, titles and filenames do not search other uploads.
+For older files uploaded individually, a relative filename can recover its target
+only when one unambiguous older upload matches. Existing sources are not
+automatically moved or rewritten.
+
+Code examples do not create links. Missing or ambiguous links remain visible and
 do not prevent search. Documents without links still appear in the graph.
 
 A failed compile preserves the source and last successful search index, records

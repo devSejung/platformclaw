@@ -80,10 +80,25 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
   }
 
   private renderGraph(selected: SelectedVault) {
-    const { documents, graph } = selected;
+    const { graph } = selected;
+    const nodeIds = graph.nodeIds ? new Set(graph.nodeIds) : null;
+    const documents = nodeIds
+      ? selected.documents.filter((document) => nodeIds.has(document.id))
+      : selected.documents;
+    const documentIds = new Set(documents.map((document) => document.id));
+    // The authored catalog can extend beyond the bounded graph and omit generated indexes.
+    const documentEdges = graph.edges.filter(
+      (edge) => documentIds.has(edge.source) && documentIds.has(edge.target),
+    );
     if (!documents.length) {
       return html`<p class="vaults__empty" role="status">
-        ${t(selected.vault.canEdit ? "graphEmpty" : "readerEmpty")}
+        ${t(
+          selected.documents.length
+            ? "graphTruncated"
+            : selected.vault.canEdit
+              ? "graphEmpty"
+              : "readerEmpty",
+        )}
       </p>`;
     }
     const query = this.query.trim().toLocaleLowerCase();
@@ -129,7 +144,7 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
       interaction.initialView = { scale, x: interaction.x, y: interaction.y };
     }
     const visibleIds = new Set(nodes.map((doc) => doc.id));
-    const edges = graph.edges.filter(
+    const edges = documentEdges.filter(
       (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target),
     );
     const active = nodes.find((doc) => doc.id === this.activeId);
@@ -139,7 +154,7 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
       this.activeId = id;
     };
     const relationships = (incoming: boolean) => {
-      const related = graph.edges.filter((edge) =>
+      const related = documentEdges.filter((edge) =>
         incoming ? edge.target === active?.id : edge.source === active?.id,
       );
       return html`<section>
@@ -341,14 +356,22 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
       >
         ${this.view === "graph"
           ? this.renderGraph(selected)
-          : renderVaultDocumentList({
+          : html`${selected.documentsTruncated
+              ? html`<p class="callout" role="status" data-vault-documents-truncated>
+                  ${platformClawT("platformClaw.vault.documentsTruncated", {
+                    loaded: String(selected.documents.length),
+                    total: String(selected.documentCount ?? selected.documents.length),
+                  })}
+                </p>`
+              : nothing}
+            ${renderVaultDocumentList({
               documents: selected.documents,
               vaultName: selected.vault.name,
               vaultType: selected.vault.type,
               canEdit: selected.vault.canEdit,
               busy: this.busy,
               onOpen: (id) => this.open(id),
-            })}
+            })}`}
       </div>`;
   }
 }

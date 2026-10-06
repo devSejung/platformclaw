@@ -9,6 +9,7 @@ export const KNOWLEDGE_VAULT_RPC_PARAMS = {
   "platformclaw.vault.document.get": ["vaultId", "documentId"],
   "platformclaw.vault.document.targets": ["vaultId", "query"],
   "platformclaw.vault.document.preview": ["vaultId", "content", "filename", "title", "logicalPath"],
+  "platformclaw.vault.document.import": ["vaultId", "importId", "documents"],
   "platformclaw.vault.document.save": [
     "vaultId",
     "documentId",

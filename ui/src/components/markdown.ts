@@ -76,6 +76,7 @@ const allowedAttrs = [
   "data-file-line",
   "data-file-path",
   "data-wiki-lookup",
+  "data-wiki-path",
   "type",
   "aria-label",
   "role",
@@ -85,10 +86,13 @@ const sanitizeOptions = {
   ALLOWED_ATTR: allowedAttrs,
   ADD_DATA_URI_TAGS: ["img"],
 };
+const wikiSanitizeOptions = { ...sanitizeOptions, ALLOWED_TAGS: [...allowedTags, "h5", "h6"] };
 
 let hooksInstalled = false;
 const MARKDOWN_CHAR_LIMIT = 140_000;
 const MARKDOWN_PARSE_LIMIT = 40_000;
+// Wiki source accepts at most 1 MiB; retain its document links throughout that bound.
+const WIKI_MARKDOWN_CHAR_LIMIT = 1024 * 1024;
 // Covers several message-heavy sessions during rapid switching. Only inputs
 // up to 50k characters enter this 500-entry LRU, keeping memory bounded.
 const MARKDOWN_CACHE_LIMIT = 500;
@@ -449,7 +453,8 @@ function installHooks() {
       return;
     }
 
-    const normalizedHref = normalizeDocsRootHref(href);
+    const wikiLink = node.hasAttribute("data-wiki-path") || node.hasAttribute("data-wiki-lookup");
+    const normalizedHref = wikiLink ? href : normalizeDocsRootHref(href);
     if (normalizedHref !== href) {
       node.setAttribute("href", normalizedHref);
     }
@@ -501,7 +506,9 @@ const markdownParser = createMarkdownParser();
 // wrapper) keeps per-message churn out of the LRU cache.
 function renderSanitizedMarkdown(renderInput: string, renderOptions: MarkdownRenderEnv): string {
   installHooks();
-  const truncated = truncateText(renderInput, MARKDOWN_CHAR_LIMIT);
+  const charLimit = renderOptions.wikiLinks ? WIKI_MARKDOWN_CHAR_LIMIT : MARKDOWN_CHAR_LIMIT;
+  const parseLimit = renderOptions.wikiLinks ? WIKI_MARKDOWN_CHAR_LIMIT : MARKDOWN_PARSE_LIMIT;
+  const truncated = truncateText(renderInput, charLimit);
   const input = appendMarkdownTruncationNotice(truncated);
   if (isMarkdownBlockArtText(truncated.text)) {
     return DOMPurify.sanitize(
@@ -509,7 +516,7 @@ function renderSanitizedMarkdown(renderInput: string, renderOptions: MarkdownRen
       sanitizeOptions,
     );
   }
-  if (truncated.text.length > MARKDOWN_PARSE_LIMIT) {
+  if (truncated.text.length > parseLimit) {
     // Large plain-text replies should stay readable without inheriting the
     // capped code-block chrome, while still preserving whitespace for logs
     // and other structured text that commonly trips the parse guard.
@@ -523,7 +530,10 @@ function renderSanitizedMarkdown(renderInput: string, renderOptions: MarkdownRen
     console.warn("[markdown] md.render failed, falling back to plain text:", err);
     rendered = toEscapedPlainTextHtml(input, renderOptions);
   }
-  return DOMPurify.sanitize(rendered, sanitizeOptions);
+  return DOMPurify.sanitize(
+    rendered,
+    renderOptions.wikiLinks ? wikiSanitizeOptions : sanitizeOptions,
+  );
 }
 
 export function toSanitizedMarkdownHtml(

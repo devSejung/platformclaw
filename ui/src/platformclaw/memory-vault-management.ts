@@ -1,5 +1,8 @@
-import { html, nothing, type TemplateResult } from "lit";
-import type { KnowledgeVaultSnapshot } from "../../../packages/platformclaw-control-plane/src/knowledge-vault-contracts.js";
+import { html, nothing } from "lit";
+import type {
+  KnowledgeVault,
+  KnowledgeVaultSnapshot,
+} from "../../../packages/platformclaw-control-plane/src/knowledge-vault-contracts.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import { platformClawT } from "./i18n.ts";
 import { renderVaultDialog } from "./memory-vault-catalog.ts";
@@ -8,9 +11,76 @@ type SelectedVault = NonNullable<KnowledgeVaultSnapshot["selected"]>;
 type Attachment = SelectedVault["attachments"][number];
 const t = (key: string) => platformClawT(`platformClaw.vault.${key}`);
 const RPC = "platformclaw.vault.";
+const API = "/platformclaw/vaults";
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
 type BinaryRequest = (path: string, init?: RequestInit) => Promise<Response>;
+
+export async function requestVaultBinary(path: string, init?: RequestInit) {
+  const response = await fetch(`${API}${path}`, { credentials: "same-origin", ...init });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `Vault request failed (${response.status})`);
+  }
+  return response;
+}
+
+export function downloadVaultBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export async function importVaultArchive(file: File): Promise<KnowledgeVault> {
+  if (file.size > 32 * 1024 * 1024) {
+    throw new Error(t("tooLarge"));
+  }
+  const response = await requestVaultBinary("/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/zip" },
+    body: file,
+  });
+  return (await response.json()) as KnowledgeVault;
+}
+
+function renderVaultFileInput(options: {
+  label: string;
+  accept: string;
+  disabled: boolean;
+  onSelect: (file: File) => void;
+  small?: boolean;
+}) {
+  return html`<label class=${`btn${options.small ? " btn--sm" : ""} vaults__upload`}
+    >${t(options.label)}<input
+      type="file"
+      accept=${options.accept}
+      ?disabled=${options.disabled}
+      @change=${(event: Event) => {
+        const input = event.currentTarget as HTMLInputElement;
+        const file = input.files?.[0];
+        input.value = "";
+        if (file) {
+          options.onSelect(file);
+        }
+      }}
+  /></label>`;
+}
+
+export function renderVaultArchiveImport(options: {
+  disabled: boolean;
+  onImport: (file: File) => void;
+}) {
+  return html`<p>${t("importHint")}</p>
+    ${renderVaultFileInput({
+      label: "chooseZip",
+      accept: ".zip,application/zip",
+      disabled: options.disabled,
+      onSelect: options.onImport,
+    })}`;
+}
 
 export async function renameVaultLifecycle(options: {
   client: GatewayBrowserClient;
@@ -291,18 +361,15 @@ function formatBytes(bytes: number) {
 export function renderVaultAttachments(options: {
   selected: SelectedVault;
   busy: boolean;
-  renderFileInput: (
-    label: string,
-    accept: string,
-    action: (file: File) => Promise<void>,
-    small?: boolean,
-  ) => TemplateResult;
+  authorOpen: boolean;
+  run: (action: () => Promise<void>) => Promise<void>;
   onUpload: (file: File) => Promise<void>;
   onDownload: (attachment: Attachment) => void;
   onReplace: (attachment: Attachment, file: File) => Promise<void>;
   onDelete: (attachment: Attachment) => void;
 }) {
   const { selected } = options;
+  const fileInputDisabled = options.busy || options.authorOpen;
   return html`<details class="card">
     <summary>${t("attachments")}</summary>
     <p class="vaults__hint">${t("attachmentHint")}</p>
@@ -310,7 +377,12 @@ export function renderVaultAttachments(options: {
       ? html`<p class="callout" role="status">${t("attachmentsTruncated")}</p>`
       : nothing}
     ${selected.vault.canEdit
-      ? options.renderFileInput("uploadAttachment", "", options.onUpload)
+      ? renderVaultFileInput({
+          label: "uploadAttachment",
+          accept: "",
+          disabled: fileInputDisabled,
+          onSelect: (file) => void options.run(() => options.onUpload(file)),
+        })
       : nothing}
     ${selected.attachments.map(
       (attachment) => html`<div class="vaults__member">
@@ -327,12 +399,13 @@ export function renderVaultAttachments(options: {
             ${t("downloadAttachment")}
           </button>
           ${selected.vault.canEdit
-            ? html`${options.renderFileInput(
-                  "replaceAttachment",
-                  "",
-                  (file) => options.onReplace(attachment, file),
-                  true,
-                )}
+            ? html`${renderVaultFileInput({
+                  label: "replaceAttachment",
+                  accept: "",
+                  disabled: fileInputDisabled,
+                  onSelect: (file) => void options.run(() => options.onReplace(attachment, file)),
+                  small: true,
+                })}
                 <button
                   class="btn btn--sm danger"
                   ?disabled=${options.busy}
@@ -357,6 +430,7 @@ export function renderVaultSelectedLayout(options: {
   attachments: unknown;
   onBack: () => void;
   onAddKnowledge: () => void;
+  onUploadDocuments?: () => void;
   onDocumentOpen: (documentId: string) => void;
 }) {
   const { vault } = options.selected;
@@ -373,13 +447,24 @@ export function renderVaultSelectedLayout(options: {
     <div class="vaults__heading">
       <h3>${t("documents")}</h3>
       ${vault.canEdit && options.canAuthor
-        ? html`<button
-            class="btn primary"
-            ?disabled=${options.busy}
-            @click=${options.onAddKnowledge}
-          >
-            ${t("addKnowledge")}
-          </button>`
+        ? html`<div class="vaults__actions">
+            <button
+              class=${options.onUploadDocuments ? "btn" : "btn primary"}
+              ?disabled=${options.busy}
+              @click=${options.onAddKnowledge}
+            >
+              ${t("addKnowledge")}
+            </button>
+            ${options.onUploadDocuments
+              ? html`<button
+                  class="btn primary"
+                  ?disabled=${options.busy}
+                  @click=${options.onUploadDocuments}
+                >
+                  ${t("importAction")}
+                </button>`
+              : nothing}
+          </div>`
         : nothing}
     </div>
     ${options.search}

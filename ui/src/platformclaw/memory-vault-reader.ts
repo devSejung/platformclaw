@@ -24,6 +24,30 @@ export type VaultReaderSelection = {
 };
 const t = (key: string) => platformClawT(`platformClaw.vault.${key}`);
 
+function findVaultHeading(article: Element, fragment: string): HTMLElement | undefined {
+  const target = fragment.toLowerCase();
+  const used = new Set<string>();
+  const headings = [...article.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6")];
+  const slugs = headings.map((heading) => {
+    const base = (heading.textContent ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\p{M}_\s-]/gu, "")
+      .replace(/\s/g, "-");
+    let slug = base;
+    for (let suffix = 1; used.has(slug); suffix++) {
+      slug = `${base}-${suffix}`;
+    }
+    used.add(slug);
+    return slug;
+  });
+  // Markdown uses heading slugs; Wiki links may instead name the full heading.
+  return (
+    headings.find((_heading, index) => slugs[index] === target) ??
+    headings.find((heading) => heading.textContent?.trim().toLowerCase() === target)
+  );
+}
+
 class PlatformClawVaultReader extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property({ type: Boolean }) connected = false;
@@ -37,8 +61,10 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
   @state() private deleting = false;
   @state() private busy = false;
   @state() private error = "";
+  @state() private linkNotice: "unresolvedNotice" | "headingUnavailable" | null = null;
   private request = 0;
   private requestedDocumentId = "";
+  private requestedHeading = "";
 
   protected override updated(changed: PropertyValues) {
     const identityChanged = ["client", "agentId", "selection"].some((key) => changed.has(key));
@@ -46,6 +72,8 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
       this.request++;
       this.document = null;
       this.requestedDocumentId = this.selection.documentId;
+      this.requestedHeading = "";
+      this.linkNotice = null;
       this.vault = null;
       this.editing = this.deleting = false;
       this.error = "";
@@ -56,7 +84,10 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
       this.request++;
       this.busy = false;
       if (this.client && this.connected && (!this.document || !this.vault)) {
-        void this.load(this.requestedDocumentId || this.selection.documentId);
+        void this.load(
+          this.requestedDocumentId || this.selection.documentId,
+          this.requestedHeading,
+        );
       }
     }
   }
@@ -69,14 +100,60 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
     this.request++;
     this.dispatchEvent(new CustomEvent("reader-close", { bubbles: true }));
   }
-  private async load(documentId: string) {
+  private async openDocument(documentId: string, heading = "") {
+    if (documentId !== this.document?.id) {
+      await this.load(documentId, heading);
+      return;
+    }
+    const request = this.request;
+    this.linkNotice = null;
+    await this.updateComplete;
+    if (request === this.request && this.connected && this.isConnected) {
+      this.scrollToHeading(heading);
+    }
+  }
+  private scrollToHeading(fragment: string) {
+    const body = this.querySelector<HTMLElement>(".wiki-hub__preview-body");
+    const article = this.querySelector(".wiki-document__reader");
+    if (!body || !article) {
+      return;
+    }
+    if (!fragment) {
+      body.scrollTop = 0;
+      return;
+    }
+    const heading = findVaultHeading(article, fragment);
+    if (!heading) {
+      this.linkNotice = "headingUnavailable";
+      body.scrollTop = 0;
+      return;
+    }
+    // Scroll only the modal body; native hash navigation can move the underlying app.
+    body.scrollTop += heading.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: true });
+  }
+  private async showUnresolvedLink() {
+    const request = this.request;
+    this.linkNotice = "unresolvedNotice";
+    await this.updateComplete;
+    if (request === this.request) {
+      const body = this.querySelector<HTMLElement>(".wiki-hub__preview-body");
+      if (body) {
+        body.scrollTop = 0;
+      }
+    }
+  }
+  private async load(documentId: string, heading = "") {
     if (!this.client || !this.connected) {
       return;
     }
     const request = ++this.request;
     this.requestedDocumentId = documentId;
+    this.requestedHeading = heading;
     this.busy = true;
     this.error = "";
+    this.linkNotice = null;
     try {
       const [document, snapshot] = await Promise.all([
         this.client!.request<KnowledgeVaultDocument>("platformclaw.vault.document.get", {
@@ -104,6 +181,10 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
     } finally {
       if (request === this.request) {
         this.busy = false;
+        await this.updateComplete;
+        if (request === this.request && this.document?.id === documentId && !this.error) {
+          this.scrollToHeading(heading);
+        }
       }
     }
   }
@@ -203,7 +284,7 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
           : html`<button
               class="btn"
               ?disabled=${!this.connected}
-              @click=${() => void this.load(this.requestedDocumentId)}
+              @click=${() => void this.load(this.requestedDocumentId, this.requestedHeading)}
             >
               ${platformClawT("memoryPage.memories.retry")}
             </button>`,
@@ -235,7 +316,9 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
         this.methods.includes("platformclaw.vault.document.save") &&
         this.methods.includes("platformclaw.vault.document.preview"),
       busy: this.busy || this.refreshing || !this.connected,
-      onOpen: (id) => void this.load(id),
+      linkNotice: this.linkNotice ? t(this.linkNotice) : undefined,
+      onOpen: (id, heading) => void this.openDocument(id, heading),
+      onUnresolvedLink: () => void this.showUnresolvedLink(),
       onEdit: () => (this.editing = true),
       onDownload: () => {
         const document = this.document!;

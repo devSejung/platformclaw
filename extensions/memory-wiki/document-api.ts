@@ -1,5 +1,9 @@
 // Native personal document lifecycle for hosts providing an isolated Wiki runtime.
-export { getMemoryWikiDocument, saveMemoryWikiDocument } from "./src/document-edit.js";
+export {
+  getMemoryWikiDocument,
+  importMemoryWikiDocuments,
+  saveMemoryWikiDocument,
+} from "./src/document-edit.js";
 export { resolveMemoryWikiConfig, type ResolvedMemoryWikiConfig } from "./src/config.js";
 export { compileMemoryWikiVault } from "./src/compile.js";
 export { listMemoryWikiOverview } from "./src/wiki-overview.js";

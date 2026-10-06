@@ -491,6 +491,32 @@ describe("Shared Knowledge Vault boundary", () => {
     );
     expect(read().content).toBe(source.content);
   });
+  it("keeps explicit root links distinct from shorthand titles and IDs through rebuilds", async () => {
+    const { vaults, vault, owner } = await fixture();
+    const save = (logicalPath: string, title: string, content = "Fact") =>
+      vaults.saveDocument({ userId: owner, vaultId: vault.id, logicalPath, title, content });
+    const target = save("spec/target.md", "Target");
+    const titled = save("spec/other.md", "missing.md");
+    const source = save(
+      "notes/source.md",
+      "Source",
+      `[relative](../spec/target.md#details) [root](/spec/target.md#details) [[/spec/target.md]] [missing](/missing.md) [[missing.md]] [[/${target.id}]]`,
+    );
+    const expected = [
+      expect.objectContaining({ target: "spec/target.md", documentId: target.id }),
+      expect.objectContaining({ target: "/spec/target.md", documentId: target.id }),
+      expect.objectContaining({ target: "/missing.md", documentId: null }),
+      expect.objectContaining({ target: "missing.md", documentId: titled.id }),
+      expect.objectContaining({ target: `/${target.id}`, documentId: null }),
+    ];
+    expect(source.links).toHaveLength(expected.length);
+    expect(source.links).toEqual(expect.arrayContaining(expected));
+    vaults.rebuild({ userId: owner, vaultId: vault.id, documentId: source.id });
+    const read = vaults.readDocument({ userId: owner, vaultId: vault.id, documentId: source.id });
+    expect(read.links).toHaveLength(expected.length);
+    expect(read.links).toEqual(expect.arrayContaining(expected));
+    expect(read.content).toBe(source.content);
+  });
   it("retains last-good search on compiler failure and retries after reopening", async () => {
     const { vaults, vault, owner, databasePath } = await fixture();
     const doc = vaults.saveDocument({
