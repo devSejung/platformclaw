@@ -18,6 +18,7 @@ Parameters:
 | `workdir`    | Working directory; omit to use the default cwd.                                                                                                            |
 | `env`        | Extra environment variables for the command.                                                                                                               |
 | `yieldMs`    | Milliseconds to wait before backgrounding (default 10000).                                                                                                 |
+| `required`   | Retain the call until its result is collected; incompatible with `background: true`.                                                                       |
 | `background` | Run in background immediately.                                                                                                                             |
 | `timeout`    | Timeout in seconds (default `tools.exec.timeoutSeconds`); kills the process on expiry. Set `timeout: 0` to disable the exec process timeout for that call. |
 | `pty`        | Run in a pseudo-terminal when available (TTY-required CLIs, coding agents).                                                                                |
@@ -28,6 +29,7 @@ Parameters:
 Behavior:
 
 - Foreground runs return output directly.
+- Set `required: true` when the command result is needed to finish the task. The tool retains ownership through approval and terminal collection instead of returning a running handle. It works with `notifyOnExit=false`; no notification is enabled. It cannot be combined with `background: true`. Existing process, tool, and agent-run deadlines still apply.
 - When backgrounded (explicit or via `yieldMs` timeout), the tool returns `status: "running"` + `sessionId` and a short output tail.
 - Backgrounded and `yieldMs` runs inherit `tools.exec.timeoutSeconds` unless the call passes an explicit `timeout`.
 - Output stays in memory until the session is polled or cleared.

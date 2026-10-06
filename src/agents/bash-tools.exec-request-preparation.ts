@@ -24,6 +24,7 @@ import type { ExecToolDefaults } from "./bash-tools.exec-types.js";
 import { type ExecWorkdirResolution, resolveExecWorkdir } from "./bash-tools.exec-workdir.js";
 import { buildSandboxEnv, coerceEnv } from "./bash-tools.shared.js";
 import type { BashSandboxConfig } from "./bash-tools.shared.js";
+import { ToolInputError } from "./tools/common.js";
 
 export type ExecToolArgs = Record<string, unknown> & {
   command: string;
@@ -31,6 +32,7 @@ export type ExecToolArgs = Record<string, unknown> & {
   env?: Record<string, string>;
   yieldMs?: number;
   background?: boolean;
+  required?: boolean;
   timeout?: number;
   pty?: boolean;
   elevated?: boolean;
@@ -178,8 +180,19 @@ export function createExecRequestPreparation(params: {
   agentId?: string;
   resolveHostForParams: (params: ExecToolArgs) => ExecHost;
 }) {
-  const normalizeParams = (rawArgs: unknown): ExecToolArgs =>
-    stripMalformedXmlArgValueSuffixFromKeys(rawArgs as ExecToolArgs, XML_ARG_VALUE_EXEC_PARAM_KEYS);
+  const normalizeParams = (rawArgs: unknown): ExecToolArgs => {
+    const args = stripMalformedXmlArgValueSuffixFromKeys(
+      rawArgs as ExecToolArgs,
+      XML_ARG_VALUE_EXEC_PARAM_KEYS,
+    );
+    if (args.required !== undefined && typeof args.required !== "boolean") {
+      throw new ToolInputError("exec required must be a boolean");
+    }
+    if (args.required === true && args.background === true) {
+      throw new ToolInputError("required exec cannot be detached with background=true");
+    }
+    return args;
+  };
 
   const prepareParamsWithResolvedExecWorkdir = async (rawArgs: unknown): Promise<ExecToolArgs> => {
     if (typeof rawArgs !== "object" || rawArgs === null || Array.isArray(rawArgs)) {

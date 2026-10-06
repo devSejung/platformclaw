@@ -546,6 +546,8 @@ export class ToolSearchRuntime {
     return describeEntry(findEntry(catalog, id, options, options));
   };
 
+  resolveToolId = (id: string) => findEntry(resolveCatalog(this.ctx), id, { includeMcp: false }).id;
+
   call = async (id: string, input?: unknown, options?: ToolSearchCallOptions) => {
     const catalog = resolveCatalog(this.ctx);
     return await this.callEntry(catalog, findEntry(catalog, id, options, options), input, options);
@@ -649,6 +651,7 @@ export class ToolSearchRuntime {
         this.networkInvocations.set(parentToolCallId, networkInvocation);
       }
       try {
+        signal?.throwIfAborted();
         const result = await executeTool({
           tool: executionTool,
           toolName: entry.name,

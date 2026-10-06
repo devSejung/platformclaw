@@ -3,6 +3,7 @@ import { createCodeModeNamespaceRuntime } from "./code-mode-namespaces.js";
 import { resolveCodeModeConfig, toToolSearchConfig } from "./code-mode-runtime.js";
 import {
   activeRuns,
+  createCodeModeRunOwner,
   disposeAllCodeModeRuns,
   disposeCodeModeRun,
   reserveActiveRunSlot,
@@ -42,6 +43,7 @@ function parkExpiringRun(
   };
 
   storeSnapshotState({
+    owner: createCodeModeRunOwner(ctx, runId),
     runId,
     replayId: "cm_replay_lifecycle",
     pending: [pending],

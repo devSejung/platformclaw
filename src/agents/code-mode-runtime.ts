@@ -332,6 +332,7 @@ export function readCode(args: unknown): {
   code: string;
   language?: CodeModeLanguage;
   restartSafe: boolean;
+  required: boolean;
 } {
   const params = asToolParamsRecord(args);
   const codeParam = params.code;
@@ -355,7 +356,10 @@ export function readCode(args: unknown): {
   if (restartSafe !== undefined && typeof restartSafe !== "boolean") {
     throw new ToolInputError("restartSafe must be a boolean.");
   }
-  return { code, language, restartSafe: restartSafe === true };
+  if (params.required !== undefined && typeof params.required !== "boolean") {
+    throw new ToolInputError("required must be a boolean.");
+  }
+  return { code, language, restartSafe: restartSafe === true, required: params.required === true };
 }
 
 export function readRunId(args: unknown): string {

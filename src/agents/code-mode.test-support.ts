@@ -1,6 +1,7 @@
 import { expect, vi } from "vitest";
 import { setPluginToolMeta } from "../plugins/tools.js";
 import type { CodeModeSkill } from "./code-mode-skills.js";
+import { disposeAllCodeModeRuns } from "./code-mode-state.js";
 import { createCodeModeTools } from "./code-mode.js";
 import {
   createToolSearchCatalogRef,
@@ -128,7 +129,7 @@ function getTestApi(): CodeModeTestApi {
 export const testing = getTestApi();
 
 export function resetCodeModeTestState(): void {
-  testing.activeRuns.clear();
+  disposeAllCodeModeRuns();
   testing.resumingRunIds.clear();
   testing.setTypescriptRuntimeForTest(null);
 }

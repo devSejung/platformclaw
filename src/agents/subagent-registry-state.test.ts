@@ -1,13 +1,16 @@
 // Subagent registry state tests cover hot read caching over the persisted SQLite snapshot.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  adoptRestoredSubagentRun,
   clearSubagentRunsReadCacheForTest,
   getSubagentSessionListRunsSnapshotForRead,
   getSubagentRunsSnapshotForChildSession,
   getSubagentRunsSnapshotForController,
   getSubagentRunsSnapshotForRead,
-  onSubagentRegistryPersisted,
+  observeSubagentRegistryChanges,
   persistSubagentRunsToDisk,
+  persistSubagentRunsToDiskOrThrow,
+  restoreSubagentRunsFromDisk,
 } from "./subagent-registry-state.js";
 import type { SubagentRunReadRecord, SubagentRunRecord } from "./subagent-registry.types.js";
 
@@ -86,6 +89,176 @@ describe("subagent registry state read cache", () => {
 
     expect([...getSubagentRunsSnapshotForRead(new Map()).keys()]).toEqual(["run-second"]);
     expect(mocks.loadSubagentRegistryFromSqlite).toHaveBeenCalledTimes(2);
+  });
+
+  function restoreCollector() {
+    const pending = { ...createRun("restored"), collect: true };
+    mocks.loadSubagentRegistryFromSqlite.mockImplementation(() =>
+      structuredClone(new Map([[pending.runId, pending]])),
+    );
+    const local = new Map<string, SubagentRunRecord>();
+    restoreSubagentRunsFromDisk({ runs: local });
+    const entry = local.get(pending.runId)!;
+    const remote: SubagentRunRecord = {
+      ...pending,
+      collectorCompletion: { status: "done" },
+      execution: { status: "terminal", endedAt: 2, outcome: { status: "ok" } },
+    };
+    mocks.loadSubagentRegistryFromSqlite.mockImplementation(() =>
+      structuredClone(new Map([[remote.runId, remote]])),
+    );
+    return { local, entry, remote };
+  }
+
+  it("observes remote completion after restore and incidental archive backfill", () => {
+    const { local, entry, remote } = restoreCollector();
+    entry.archiveAtMs = 100_000;
+    persistSubagentRunsToDisk(local);
+    expect(
+      getSubagentRunsSnapshotForRead(local).get(entry.runId)?.collectorCompletion,
+    ).toBeUndefined();
+    vi.advanceTimersByTime(500);
+    expect(getSubagentRunsSnapshotForRead(local).get(entry.runId)).toEqual(remote);
+    expect(entry.collectorCompletion).toBeUndefined();
+  });
+
+  it.each(["mutation", "adoption", "replacement", "failed-write"])(
+    "retains local %s authority over an older remote completion",
+    (kind) => {
+      const { local, entry } = restoreCollector();
+      if (kind === "adoption") {
+        adoptRestoredSubagentRun(entry);
+      } else if (kind === "replacement") {
+        local.set(entry.runId, { ...entry, generation: 2 });
+      } else {
+        entry.generation = 2;
+        entry.execution = { status: "running", lifecycleGeneration: "new-owner" };
+        if (kind === "failed-write") {
+          mocks.saveSubagentRegistryChangesToSqlite.mockImplementationOnce(() => {
+            throw new Error("disk unavailable");
+          });
+          persistSubagentRunsToDisk(local, [entry.runId]);
+          vi.advanceTimersByTime(500);
+        }
+      }
+      expect(getSubagentRunsSnapshotForRead(local).get(entry.runId)).toBe(local.get(entry.runId));
+      expect(
+        getSubagentRunsSnapshotForRead(local).get(entry.runId)?.collectorCompletion,
+      ).toBeUndefined();
+    },
+  );
+
+  it("preserves replica provenance after a strict write failure and synchronous rollback", () => {
+    const { local, entry, remote } = restoreCollector();
+    const previousExecution = entry.execution;
+    entry.execution = { status: "terminal", endedAt: 3, outcome: { status: "error" } };
+    mocks.saveSubagentRegistryChangesToSqlite.mockImplementationOnce(() => {
+      throw new Error("disk unavailable");
+    });
+    expect(() => persistSubagentRunsToDiskOrThrow(local, [entry.runId])).toThrow(
+      "disk unavailable",
+    );
+    entry.execution = previousExecution;
+    expect(getSubagentRunsSnapshotForRead(local).get(entry.runId)).toEqual(remote);
+  });
+
+  it("keeps cancellation authoritative despite a failed write and later remote success", () => {
+    const { local, entry } = restoreCollector();
+    entry.collectorCompletion = { status: "killed" };
+    mocks.saveSubagentRegistryChangesToSqlite.mockImplementationOnce(() => {
+      throw new Error("disk unavailable");
+    });
+    persistSubagentRunsToDisk(local, [entry.runId]);
+    vi.advanceTimersByTime(500);
+    expect(
+      getSubagentRunsSnapshotForRead(local).get(entry.runId)?.collectorCompletion?.status,
+    ).toBe("killed");
+  });
+
+  it.each(["revoked", "deleted"])("observes a remote %s replica", (kind) => {
+    const { local, entry, remote } = restoreCollector();
+    remote.swarmWaitOwnerSessionKeys = ["agent:other:main"];
+    mocks.loadSubagentRegistryFromSqlite.mockReturnValue(
+      kind === "deleted" ? new Map() : new Map([[remote.runId, remote]]),
+    );
+    const observed = getSubagentRunsSnapshotForRead(local).get(entry.runId);
+    expect(observed).toEqual(kind === "deleted" ? undefined : remote);
+  });
+
+  it("retains locally revoked wait ownership over remote success", () => {
+    const { local, entry } = restoreCollector();
+    entry.swarmWaitOwnerSessionKeys = ["agent:other:main"];
+    expect(getSubagentRunsSnapshotForRead(local).get(entry.runId)).toBe(entry);
+    expect(
+      getSubagentRunsSnapshotForRead(local).get(entry.runId)?.collectorCompletion,
+    ).toBeUndefined();
+  });
+
+  it("reconciles restored replicas in scoped and projected readers too", () => {
+    const { local, entry, remote } = restoreCollector();
+    mocks.loadSubagentRunsForControllerFromSqlite.mockReturnValue([remote]);
+    mocks.loadSubagentRunsForChildSessionFromSqlite.mockReturnValue([remote]);
+    mocks.loadSubagentSessionListRunsFromSqlite.mockReturnValue(new Map([[remote.runId, remote]]));
+    expect(
+      getSubagentRunsSnapshotForController(local, entry.requesterSessionKey).get(entry.runId),
+    ).toEqual(remote);
+    expect(
+      getSubagentRunsSnapshotForChildSession(local, entry.childSessionKey).get(entry.runId),
+    ).toEqual(remote);
+    expect(
+      getSubagentSessionListRunsSnapshotForRead(local).get(entry.runId)?.execution.endedAt,
+    ).toBe(2);
+  });
+
+  it.each(["terminal", "suppressed", "killed", "recovery"])(
+    "does not demote restored %s local owners",
+    (kind) => {
+      const pending: SubagentRunRecord = { ...createRun("owned-restored"), collect: true };
+      if (kind === "terminal") {
+        pending.execution.status = "terminal";
+      }
+      if (kind === "suppressed") {
+        pending.execution.suppressSessionEffects = true;
+      }
+      if (kind === "killed") {
+        pending.killIntent = { reason: "cancelled", requestedAt: 2 };
+      }
+      if (kind === "recovery") {
+        pending.terminalOwner = "interrupted-recovery";
+      }
+      mocks.loadSubagentRegistryFromSqlite
+        .mockReturnValueOnce(new Map([[pending.runId, pending]]))
+        .mockReturnValue(new Map());
+      const local = new Map<string, SubagentRunRecord>();
+      restoreSubagentRunsFromDisk({ runs: local });
+      expect(getSubagentRunsSnapshotForRead(local).get(pending.runId)).toBe(pending);
+    },
+  );
+
+  it("uses the restored replica when SQLite is unavailable without losing provenance", () => {
+    const { local, entry, remote } = restoreCollector();
+    mocks.loadSubagentRegistryFromSqlite.mockImplementationOnce(() => {
+      throw new Error("disk unavailable");
+    });
+    expect(getSubagentRunsSnapshotForRead(local).get(entry.runId)).toBe(entry);
+    expect(getSubagentRunsSnapshotForRead(local).get(entry.runId)).toEqual(remote);
+  });
+
+  it("does not renew unrelated persisted observations with partial writes", () => {
+    const { local, entry, remote } = restoreCollector();
+    const unrelated = createRun("local-writer");
+    mocks.loadSubagentRegistryFromSqlite.mockReturnValueOnce(
+      new Map([[entry.runId, structuredClone(entry)]]),
+    );
+    expect(
+      getSubagentRunsSnapshotForRead(local).get(entry.runId)?.collectorCompletion,
+    ).toBeUndefined();
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(100);
+      unrelated.task = `write ${i}`;
+      persistSubagentRunsToDisk(new Map([[unrelated.runId, unrelated]]), [unrelated.runId]);
+    }
+    expect(getSubagentRunsSnapshotForRead(local).get(entry.runId)).toEqual(remote);
   });
 
   it("refreshes the local read cache after successful writes", () => {
@@ -217,7 +390,7 @@ describe("subagent registry state read cache", () => {
     mocks.loadSubagentRegistryFromSqlite.mockReturnValue(new Map([[staleRun.runId, staleRun]]));
     expect([...getSubagentRunsSnapshotForRead(new Map()).keys()]).toEqual(["stale"]);
     const listener = vi.fn();
-    const unsubscribe = onSubagentRegistryPersisted(listener);
+    const unsubscribe = observeSubagentRegistryChanges(listener);
     mocks.saveSubagentRegistryToSqlite.mockImplementationOnce(() => {
       throw new Error("disk unavailable");
     });
@@ -227,6 +400,23 @@ describe("subagent registry state read cache", () => {
     expect(listener).toHaveBeenCalledOnce();
     expect([...getSubagentRunsSnapshotForRead(new Map()).keys()]).toEqual(["updated"]);
     unsubscribe();
+  });
+
+  it("observes external snapshots at cache cadence and releases both wake sources", () => {
+    const listener = vi.fn();
+    const unsubscribe = observeSubagentRegistryChanges(listener);
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(499);
+    expect(listener).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(listener).toHaveBeenCalledOnce();
+    persistSubagentRunsToDisk(new Map());
+    expect(listener).toHaveBeenCalledTimes(2);
+    unsubscribe();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(1000);
+    persistSubagentRunsToDisk(new Map());
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 
   it("queries controller rows directly and overlays matching in-memory state", () => {

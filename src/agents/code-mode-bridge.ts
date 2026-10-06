@@ -379,7 +379,45 @@ function runSwarmNoteBridge(params: {
   return { ok: true };
 }
 
+/** Only explicit intent on authorized core bindings can promote a cell's ownership. */
+export function requiresCodeModeCompletion(
+  requests: readonly PendingBridgeRequest[],
+  runtime: ToolSearchRuntime,
+): boolean {
+  return requests.some((request) => {
+    if (
+      (request.method !== "call" && request.method !== "callValue") ||
+      typeof request.args[0] !== "string" ||
+      !isRecord(request.args[1]) ||
+      request.args[1].required !== true
+    ) {
+      return false;
+    }
+    try {
+      const id = runtime.resolveToolId(request.args[0]);
+      return id === "openclaw:core:exec" || id === "openclaw:core:agents_wait";
+    } catch {
+      // Normal bridge dispatch reports unknown/ambiguous calls to the guest.
+      return false;
+    }
+  });
+}
+
+function requiredBridgeInput(id: string, input: unknown, required?: boolean): unknown {
+  if (!required || !isRecord(input)) {
+    return input;
+  }
+  if (id === "openclaw:core:exec" && input.background !== true) {
+    return { ...input, required: true };
+  }
+  if (id === "openclaw:core:agents_wait" && input.timeoutSeconds === undefined) {
+    return { ...input, required: true };
+  }
+  return input;
+}
+
 export async function runBridgeRequest(params: {
+  completionRequired?: boolean;
   runtime: ToolSearchRuntime;
   namespaceRuntime: CodeModeNamespaceRuntime;
   parentToolCallId: string;
@@ -421,13 +459,21 @@ export async function runBridgeRequest(params: {
         if (typeof id !== "string") {
           throw new ToolInputError("call id must be a string.");
         }
-        value = await params.runtime.call(id, values[1] ?? {}, {
-          includeMcp: false,
-          parentToolCallId: params.parentToolCallId,
-          signal: params.signal,
-          onUpdate: params.onUpdate,
-          recoverySurface: "tools",
-        });
+        value = await params.runtime.call(
+          id,
+          requiredBridgeInput(
+            params.completionRequired ? params.runtime.resolveToolId(id) : id,
+            values[1] ?? {},
+            params.completionRequired,
+          ),
+          {
+            includeMcp: false,
+            parentToolCallId: params.parentToolCallId,
+            signal: params.signal,
+            onUpdate: params.onUpdate,
+            recoverySurface: "tools",
+          },
+        );
         break;
       }
       case "callValue": {
@@ -435,13 +481,21 @@ export async function runBridgeRequest(params: {
         if (typeof id !== "string") {
           throw new ToolInputError("callValue id must be a string.");
         }
-        value = await params.runtime.callValue(id, values[1] ?? {}, {
-          includeMcp: false,
-          parentToolCallId: params.parentToolCallId,
-          signal: params.signal,
-          onUpdate: params.onUpdate,
-          recoverySurface: "tools",
-        });
+        value = await params.runtime.callValue(
+          id,
+          requiredBridgeInput(
+            params.completionRequired ? params.runtime.resolveToolId(id) : id,
+            values[1] ?? {},
+            params.completionRequired,
+          ),
+          {
+            includeMcp: false,
+            parentToolCallId: params.parentToolCallId,
+            signal: params.signal,
+            onUpdate: params.onUpdate,
+            recoverySurface: "tools",
+          },
+        );
         break;
       }
       case "nodes": {

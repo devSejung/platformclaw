@@ -10,6 +10,7 @@ import type { ExecElevatedDefaults } from "./bash-tools.exec-types.js";
 /** Full parameter bundle for Node-hosted exec command execution. */
 export type ExecuteNodeHostCommandParams = {
   command: string;
+  required?: boolean;
   toolCallId?: string;
   workdir: string | undefined;
   env: Record<string, string>;
@@ -17,6 +18,7 @@ export type ExecuteNodeHostCommandParams = {
   requestedNode?: string;
   boundNode?: string;
   sessionKey?: string;
+  runId?: string;
   /** Session UUID active when the approval was requested; pins the followup. */
   sessionId?: string;
   /** Session-store template, so the direct/denied followup can detect a rebind. */
@@ -46,4 +48,16 @@ export type ExecuteNodeHostCommandParams = {
   notifySessionKey?: string;
   notifyOnExit?: boolean;
   trustedSafeBinDirs?: ReadonlySet<string>;
+};
+
+export type NodeGatewayDispatchAuthority =
+  | "current-policy"
+  | "human-approval"
+  | "auto-review"
+  | "ask-fallback";
+
+export type NodeGatewayPolicyCheckpoint = {
+  hostSecurity: ExecSecurity;
+  hostAsk: ExecAsk;
+  askFallback: ExecSecurity;
 };

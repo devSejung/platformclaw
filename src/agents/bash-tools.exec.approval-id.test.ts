@@ -8,12 +8,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { onAgentEvent } from "../infra/agent-events.js";
 import {
   loadExecApprovals,
   saveExecApprovals,
   type ExecApprovalsFile,
 } from "../infra/exec-approvals.js";
 import { sendMessage } from "../infra/outbound/message.js";
+import { createDeferred } from "../shared/deferred.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { captureEnv, deleteTestEnvValue, setTestEnvValue } from "../test-utils/env.js";
 import { buildSystemRunPreparePayload } from "../test-utils/system-run-prepare-payload.js";
@@ -99,6 +101,10 @@ vi.mock("../utils/delivery-context.js", () => ({
   },
 }));
 
+const approvalSurfaceState = vi.hoisted(() => ({
+  kind: "enabled" as "enabled" | "disabled" | "unsupported",
+}));
+
 vi.mock("../infra/exec-approval-surface.js", () => ({
   describeNativeExecApprovalClientSetup: () => null,
   listNativeExecApprovalClientLabels: () => [],
@@ -108,7 +114,7 @@ vi.mock("../infra/exec-approval-surface.js", () => ({
   }) => {
     const channel = params.channel ?? undefined;
     return {
-      kind: "enabled",
+      kind: approvalSurfaceState.kind,
       channel,
       channelLabel:
         channel === "tui" ? "terminal UI" : channel === "webchat" ? "Web UI" : "this platform",
@@ -123,6 +129,8 @@ vi.mock("../infra/shell-env.js", () => ({
   getShellPathFromLoginShell: vi.fn(() => null),
   resolveShellEnvFallbackTimeoutMs: vi.fn(() => 0),
 }));
+
+const approvalProcessSpawns = vi.hoisted(() => vi.fn());
 
 vi.mock("../process/supervisor/index.js", () => {
   const stdoutFor = (command: string) => {
@@ -158,6 +166,7 @@ vi.mock("../process/supervisor/index.js", () => {
   return {
     getProcessSupervisor: () => ({
       spawn: async (input: { argv?: string[]; onStdout?: (chunk: string) => void }) => {
+        approvalProcessSpawns(input);
         const command = input.argv?.join(" ") ?? "";
         const stdout = stdoutFor(command);
         if (stdout) {
@@ -417,12 +426,14 @@ describe("exec approvals", () => {
   let envSnapshot: ReturnType<typeof captureEnv> | undefined;
   let tempRoot = "";
   let tempCaseIndex = 0;
+  const eventCleanups: Array<() => void> = [];
 
   beforeAll(async () => {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-exec-approvals-"));
   });
 
   beforeEach(async () => {
+    approvalSurfaceState.kind = "enabled";
     envSnapshot = captureEnv([
       "HOME",
       "USERPROFILE",
@@ -443,6 +454,9 @@ describe("exec approvals", () => {
   });
 
   afterEach(() => {
+    for (const cleanup of eventCleanups.splice(0)) {
+      cleanup();
+    }
     vi.clearAllMocks();
     closeOpenClawStateDatabaseForTest();
     envSnapshot?.restore();
@@ -454,6 +468,165 @@ describe("exec approvals", () => {
       await fs.rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   });
+
+  it.each([
+    ["gateway", "enabled"],
+    ["node", "enabled"],
+    ["gateway", "disabled"],
+    ["node", "unsupported"],
+  ] as const)(
+    "retains required %s approval through terminal output with an %s surface",
+    async (host, kind) => {
+      approvalSurfaceState.kind = kind;
+      const phases: unknown[] = [];
+      eventCleanups.push(
+        onAgentEvent((event) => {
+          if (event.runId === "required-approval-run" && event.stream === "lifecycle") {
+            phases.push(event.data.phase);
+          }
+        }),
+      );
+      const decision = createDeferred<{ decision: string }>();
+      const requested = createDeferred();
+      const invoked: unknown[] = [];
+      vi.mocked(callGatewayTool).mockImplementation(async (method, _opts, params) => {
+        if (method === "exec.approval.request") {
+          return acceptedApprovalResponse(params);
+        }
+        if (method === "exec.approval.waitDecision") {
+          requested.resolve();
+          return await decision.promise;
+        }
+        if (method === "node.invoke") {
+          if ((params as { command: string }).command === "system.run.prepare") {
+            return buildPreparedSystemRunPayload(params);
+          }
+          invoked.push(params);
+          return { payload: { success: true, stdout: "delayed-ok", exitCode: 0 } };
+        }
+        return { ok: true };
+      });
+      const tool = createExecTool({
+        host,
+        runId: "required-approval-run",
+        sessionId: "required-session",
+        ask: "always",
+        security: "full",
+        sessionKey: "agent:main:main",
+        approvalFollowupMode: "direct",
+        approvalRunningNoticeMs: 0,
+        notifyOnExit: false,
+      });
+      let returned = false;
+      const running = tool
+        .execute("required-approval", { command: "printf delayed-ok", required: true })
+        .then((result) => {
+          returned = true;
+          return result;
+        });
+      await requested.promise;
+      expect(returned).toBe(false);
+      expect(approvalProcessSpawns).not.toHaveBeenCalled();
+      expect(invoked).toHaveLength(0);
+      decision.resolve({ decision: "allow-once" });
+      const result = await running;
+      expect(result.details.status).toBe("completed");
+      expect(phases).toEqual(["waiting-approval", "approval-resolved"]);
+      const request = vi
+        .mocked(callGatewayTool)
+        .mock.calls.find(([method]) => method === "exec.approval.request")?.[2];
+      expect(request).toMatchObject({
+        runId: "required-approval-run",
+        sessionId: "required-session",
+        toolCallId: "required-approval",
+      });
+      expect(getResultText(result)).toContain("delayed-ok");
+      expect(approvalProcessSpawns).toHaveBeenCalledTimes(host === "gateway" ? 1 : 0);
+      expect(invoked).toHaveLength(host === "node" ? 1 : 0);
+      expect(vi.mocked(callGatewayTool).mock.calls.some(([method]) => method === "agent")).toBe(
+        false,
+      );
+      expect(sendMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["gateway", "node"] as const)(
+    "does not admit required %s work after cancellation and a late approval",
+    async (host) => {
+      const decision = createDeferred<{ decision: string }>();
+      const requested = createDeferred();
+      const invoked: unknown[] = [];
+      vi.mocked(callGatewayTool).mockImplementation(async (method, _opts, params) => {
+        if (method === "exec.approval.request") {
+          return acceptedApprovalResponse(params);
+        }
+        if (method === "exec.approval.waitDecision") {
+          requested.resolve();
+          return await decision.promise;
+        }
+        if (method === "node.invoke") {
+          if ((params as { command: string }).command === "system.run.prepare") {
+            return buildPreparedSystemRunPayload(params);
+          }
+          invoked.push(params);
+        }
+        return { ok: true };
+      });
+      const tool = createExecTool({
+        host,
+        ask: "always",
+        security: "full",
+        sessionKey: "agent:main:main",
+        approvalRunningNoticeMs: 0,
+      });
+      const controller = new AbortController();
+      const running = tool.execute(
+        "required-cancel",
+        { command: "printf delayed-ok", required: true },
+        controller.signal,
+      );
+      await requested.promise;
+      controller.abort();
+      await expect(running).rejects.toMatchObject({ name: "AbortError" });
+      decision.resolve({ decision: "allow-once" });
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+      expect(invoked).toHaveLength(0);
+      expect(approvalProcessSpawns).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["deny", null] as const)(
+    "returns terminal required gateway denial for approval decision %s",
+    async (decision) => {
+      await writeExecApprovalsConfig({
+        version: 1,
+        defaults: { security: "full", ask: "always", askFallback: "deny" },
+        agents: {},
+      });
+      vi.mocked(callGatewayTool).mockImplementation(async (method, _opts, params) => {
+        if (method === "exec.approval.request") {
+          return acceptedApprovalResponse(params);
+        }
+        if (method === "exec.approval.waitDecision") {
+          return { decision };
+        }
+        return { ok: true };
+      });
+      const result = await createExecTool({
+        host: "gateway",
+        ask: "always",
+        security: "full",
+        approvalRunningNoticeMs: 0,
+      }).execute("required-denied", { command: "printf delayed-ok", required: true });
+      expect(result.details.status).toBe("failed");
+      expect(getResultText(result)).toContain("denied");
+      expect(approvalProcessSpawns).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+    },
+  );
 
   it("reuses approval id as the node runId", async () => {
     let invokeParams: unknown;

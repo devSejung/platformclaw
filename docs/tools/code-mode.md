@@ -406,6 +406,7 @@ type CodeModeExecInput = {
   code?: string;
   command?: string;
   language?: "javascript" | "typescript";
+  required?: boolean;
 };
 ```
 
@@ -886,6 +887,26 @@ bundles show what happened, with the projection identifying the parent
 code-mode tool call and the nested tool id.
 
 Parallel nested calls are allowed up to `maxPendingToolCalls`.
+
+## Required results
+
+Set `required: true` on a cell when its results are needed to finish the task.
+The same tool call retains the continuation while host tools settle, then
+restores it without returning a `waiting` handle or asking the model to poll.
+Completed actions are not replayed. `yield_control` cannot abandon required work.
+
+A required cell collects ordinary shell commands and collector joins. Explicit
+shell `background: true` still detaches a service; an explicit collector
+`timeoutSeconds` still selects a bounded observation. Setting `required: true`
+on a nested core shell or `agents_wait` call also makes the enclosing cell required.
+Other plugins cannot promote a cell merely by accepting an argument named `required`.
+
+Off-VM tool waiting pauses only the unused `timeoutMs` execution allowance.
+Preparation, guest computation, checkpointing, and restoration share the original
+allowance; each settlement does not grant a fresh budget. Process, tool, child,
+and agent-run deadlines continue to apply. Cancellation, catalog replacement,
+and Gateway shutdown end the owner and prevent late results from resuming it.
+Output, memory, pending-call, and active-run limits remain unchanged.
 
 ## Run and snapshot lifecycle
 

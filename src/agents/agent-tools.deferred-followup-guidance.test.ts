@@ -29,7 +29,7 @@ describe("createOpenClawCodingTools deferred follow-up guidance", () => {
 
     expect(exec.toolNames).toEqual(["exec", "process", "cron"]);
     expect(exec.description).toBe(
-      "Run shell now; background continuation supported. Use yieldMs/background, then process for logs/status/input/intervention. Long run: automatic completion wake when enabled and output/failure occurs; otherwise process confirms completion. No sleep/delay loops for reminders/follow-ups; use cron. TTY CLI/UI/coding agent: pty=true.",
+      "Run shell now; background continuation supported. Set required=true when the result is needed to finish the task; retain the call through approval and terminal collection. Do not combine with background=true. Use yieldMs/background, then process for logs/status/input/intervention. Long run: automatic completion wake when enabled and output/failure occurs; otherwise process confirms completion. No sleep/delay loops for reminders/follow-ups; use cron. TTY CLI/UI/coding agent: pty=true.",
     );
     expect(process.description).toBe(
       "Control existing exec: list, poll, log, write, send-keys, submit, paste, kill. poll/log: status, output, quiet success, completion without auto-wake, input hints. Others: input/intervention. No polling as timer/reminder; scheduled follow-up uses cron.",
@@ -42,7 +42,7 @@ describe("createOpenClawCodingTools deferred follow-up guidance", () => {
 
     expect(exec.toolNames).toEqual(["exec", "process"]);
     expect(exec.description).toBe(
-      "Run shell now; background continuation supported. Use yieldMs/background, then process for logs/status/input/intervention. Long run: automatic completion wake when enabled and output/failure occurs; otherwise process confirms completion. TTY CLI/UI/coding agent: pty=true.",
+      "Run shell now; background continuation supported. Set required=true when the result is needed to finish the task; retain the call through approval and terminal collection. Do not combine with background=true. Use yieldMs/background, then process for logs/status/input/intervention. Long run: automatic completion wake when enabled and output/failure occurs; otherwise process confirms completion. TTY CLI/UI/coding agent: pty=true.",
     );
     expect(process.description).toBe(
       "Control existing exec: list, poll, log, write, send-keys, submit, paste, kill. poll/log: status, output, quiet success, completion without auto-wake, input hints. Others: input/intervention.",
