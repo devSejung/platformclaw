@@ -127,7 +127,7 @@ async function requestBrowserSpace(params: {
   }
   await revalidate();
   if (typeof request.spaceId === "string" && !method.endsWith("member.remove")) {
-    store.access(userId, request.spaceId);
+    store.access(userId, request.spaceId, method.endsWith(".people") ? "owner" : "viewer");
   }
   return { handled: true, result } as const;
 }

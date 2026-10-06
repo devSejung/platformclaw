@@ -369,11 +369,18 @@ suite("Team Space rendered browser workflows", () => {
         .toMatchObject({ name: space.name });
       await expect.poll(() => ui.getByRole("heading", { name: space.name }).isVisible()).toBe(true);
       await ui.getByRole("button", { name: "Members and access", exact: true }).click();
-      await ui.getByLabel("Exact employee account ID", { exact: true }).fill(bob.accountId);
-      await ui.getByRole("button", { name: "Find employee", exact: true }).click();
+      const people = ui.getByRole("combobox", { name: "Employee name or account ID" });
+      await people.fill("Bob");
       await ui
-        .getByRole("button", { name: `Invite ${bob.displayName} (${bob.accountId})`, exact: true })
-        .click();
+        .getByRole("option", { name: `Invite ${bob.displayName} (${bob.accountId})`, exact: true })
+        .waitFor();
+      expect((await gateway.getRequests(`${rpc}people`)).at(-1)?.params).toMatchObject({
+        spaceId: space.id,
+        query: "Bob",
+      });
+      await capture(page, "owner-member-search-suggestions");
+      await people.press("ArrowDown");
+      await people.press("Enter");
       const confirmation = ui.getByRole("alertdialog");
       await expect.poll(() => confirmation.textContent()).toContain("only their own agent tabs");
       expect(await confirmation.textContent()).toContain("questions and final answers");
@@ -381,8 +388,9 @@ suite("Team Space rendered browser workflows", () => {
       await capture(page, "owner-invite-confirmation");
       await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
       expect(await gateway.getRequests(`${rpc}member.set`)).toHaveLength(0);
+      await people.fill("bob.syn");
       await ui
-        .getByRole("button", { name: `Invite ${bob.displayName} (${bob.accountId})`, exact: true })
+        .getByRole("option", { name: `Invite ${bob.displayName} (${bob.accountId})`, exact: true })
         .click();
       await gateway.setMethodResponse(`${rpc}get`, { ...snapshot, pages: [] });
       await confirmation.getByRole("button", { name: "Confirm", exact: true }).click();

@@ -828,3 +828,20 @@ platformclaw-space-conversation-history,
   align-self: center;
   margin: 8px;
 }
+
+.pc-space-people {
+  display: grid;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+.pc-space-people .btn {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.pc-space-people [aria-selected="true"] {
+  background: var(--bg-hover);
+  box-shadow: var(--focus-ring);
+}

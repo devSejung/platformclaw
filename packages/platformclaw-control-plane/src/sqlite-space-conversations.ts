@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import {
   ControlPlaneAuthorizationError,
   ControlPlaneConflictError,
@@ -21,6 +22,7 @@ type Database = Pick<
   "platform_users" | "agent_bindings" | "control_audit_events"
 > & {
   collaboration_space_conversations: SpaceConversationRow;
+  collaboration_space_conversation_titles: { conversation_id: string; requested_title: string };
   collaboration_space_members: { space_id: string; user_id: string; role: SpaceRole };
 };
 type RegisteredConversation = Omit<SpaceConversation, "canWrite">;
@@ -80,6 +82,7 @@ export class SqliteSpaceConversationStore {
     spaceId: string,
     params: { pageId: string; title: string; requestId: string },
   ): SpaceConversation {
+    const requestedTitle = params.title;
     this.spaces.page(userId, spaceId, params.pageId, "editor");
     return runImmediateTransaction(this.db, () => {
       this.spaces.page(userId, spaceId, params.pageId, "editor");
@@ -90,8 +93,16 @@ export class SqliteSpaceConversationStore {
       const prior = takeFirstSync(
         this.db,
         this.query
-          .selectFrom("collaboration_space_conversations")
-          .selectAll()
+          .selectFrom("collaboration_space_conversations as conversation")
+          .leftJoin(
+            "collaboration_space_conversation_titles as receipt",
+            "receipt.conversation_id",
+            "conversation.id",
+          )
+          .selectAll("conversation")
+          .select(({ fn }) =>
+            fn.coalesce("receipt.requested_title", "conversation.title").as("requested_title"),
+          )
           .where("owner_id", "=", userId)
           .where("request_id", "=", params.requestId),
       );
@@ -99,7 +110,7 @@ export class SqliteSpaceConversationStore {
         if (
           prior.space_id !== spaceId ||
           prior.page_id !== params.pageId ||
-          prior.title !== params.title
+          prior.requested_title !== requestedTitle
         ) {
           throw new ControlPlaneConflictError(
             "space_changed",
@@ -118,13 +129,30 @@ export class SqliteSpaceConversationStore {
       if (count >= 200) {
         throw new ControlPlaneStateError("Space conversation limit reached");
       }
+      const titles = new Set(
+        executeSync(
+          this.db,
+          this.query
+            .selectFrom("collaboration_space_conversations")
+            .select("title")
+            .where("owner_id", "=", userId)
+            .where("page_id", "=", params.pageId),
+        ).rows.map((row) => row.title),
+      );
+      // Allocate while holding the writer lock so simultaneous requests cannot claim one title.
+      const baseTitle = requestedTitle.trim();
+      let title = baseTitle;
+      for (let number = 2; titles.has(title); number++) {
+        const suffix = String(number);
+        title = truncateUtf16Safe(baseTitle, 240 - suffix.length) + suffix;
+      }
       const id = randomUUID();
       const createdAt = Date.now();
       const row: SpaceConversationRow = {
         id,
         space_id: spaceId,
         page_id: params.pageId,
-        title: params.title,
+        title,
         owner_id: userId,
         owner_name: binding.display_name || binding.account_id,
         agent_id: binding.agent_id,
@@ -134,6 +162,17 @@ export class SqliteSpaceConversationStore {
         created_at: createdAt,
       };
       executeSync(this.db, this.query.insertInto("collaboration_space_conversations").values(row));
+      // An unchanged title is its own receipt. Persist the original only when allocation
+      // changes it, so a lost response can retry without claiming a different display title.
+      if (title !== requestedTitle) {
+        executeSync(
+          this.db,
+          this.query.insertInto("collaboration_space_conversation_titles").values({
+            conversation_id: id,
+            requested_title: requestedTitle,
+          }),
+        );
+      }
       executeSync(
         this.db,
         this.query.insertInto("control_audit_events").values({

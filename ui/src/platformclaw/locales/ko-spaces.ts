@@ -28,7 +28,7 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
     "열람자는 읽을 수 있습니다. 작성하려면 편집자 권한이 필요합니다.",
   "platformClaw.spaces.role": "역할",
   "platformClaw.spaces.remove": "접근 권한 제거",
-  "platformClaw.spaces.account": "직원 계정 ID",
+  "platformClaw.spaces.account": "직원 이름 또는 계정 ID",
   "platformClaw.spaces.findPerson": "직원 찾기",
   "platformClaw.spaces.invite": "초대",
   "platformClaw.spaces.confirmMember": "구성원 변경 확인",
@@ -44,7 +44,8 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.saved": "페이지를 저장했습니다.",
   "platformClaw.spaces.accepted": "메시지를 접수했습니다. 공동 대화가 업데이트됩니다.",
   "platformClaw.spaces.noResults": "일치하는 공유 이슈를 찾지 못했습니다.",
-  "platformClaw.spaces.noPerson": "해당 계정 ID의 활성 직원을 찾지 못했습니다.",
+  "platformClaw.spaces.noPerson":
+    "초대할 수 있는 활성 직원을 찾지 못했습니다. 다른 이름이나 계정 ID로 검색하세요.",
   "platformClaw.spaces.runFailed": "공동 답변 생성에 실패했습니다. 질문을 다시 보내세요.",
   "platformClaw.spaces.indexing": "검색 색인 작업 중입니다. 최근 대화가 누락될 수 있습니다.",
   "platformClaw.spaces.latest": "최신 대화로 돌아가기",

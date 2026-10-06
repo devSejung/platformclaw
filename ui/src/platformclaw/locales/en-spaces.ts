@@ -28,7 +28,7 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.viewerNotice": "Viewers can read; an editor role is needed to contribute.",
   "platformClaw.spaces.role": "Role",
   "platformClaw.spaces.remove": "Remove access",
-  "platformClaw.spaces.account": "Exact employee account ID",
+  "platformClaw.spaces.account": "Employee name or account ID",
   "platformClaw.spaces.findPerson": "Find employee",
   "platformClaw.spaces.invite": "Invite",
   "platformClaw.spaces.confirmMember": "Confirm membership change",
@@ -44,7 +44,8 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.saved": "Page saved.",
   "platformClaw.spaces.accepted": "Message accepted. The shared conversation will update.",
   "platformClaw.spaces.noResults": "No matching shared issue found.",
-  "platformClaw.spaces.noPerson": "No active employee found with that account ID.",
+  "platformClaw.spaces.noPerson":
+    "No matching active employees available to invite. Try another name or account ID.",
   "platformClaw.spaces.runFailed": "The shared answer failed. Retry your question.",
   "platformClaw.spaces.indexing": "Search is still indexing; recent conversations may be missing.",
   "platformClaw.spaces.latest": "Back to latest messages",

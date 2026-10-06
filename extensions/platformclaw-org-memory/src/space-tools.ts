@@ -63,33 +63,64 @@ export function registerSpaceTools(api: OpenClawPluginApi, client: WikiHubMemory
                   bodyLimitBytes?: number;
                   messageOffset?: number;
                 };
-                const result = await client.spaceRead({
-                  agentId: context.agentId!,
-                  operation,
-                  ...(params.query === undefined ? {} : { query: params.query }),
-                  ...(params.spaceId === undefined ? {} : { spaceId: params.spaceId }),
-                  ...(params.pageId === undefined ? {} : { pageId: params.pageId }),
-                  ...(params.conversationId === undefined
-                    ? {}
-                    : { conversationId: params.conversationId }),
-                  ...(params.messageId === undefined ? {} : { messageId: params.messageId }),
-                  ...(params.bodyOffset === undefined ? {} : { bodyOffset: params.bodyOffset }),
-                  ...(params.pageRevision === undefined
-                    ? {}
-                    : { pageRevision: params.pageRevision }),
-                  ...(params.limit === undefined ? {} : { limit: params.limit }),
-                  ...(operation === "search" && params.cursor !== undefined
-                    ? { cursor: params.cursor }
-                    : {}),
-                  ...(operation === "get" && params.bodyLimitBytes !== undefined
-                    ? { bodyLimitBytes: params.bodyLimitBytes }
-                    : {}),
-                  ...(operation === "get" && params.messageOffset !== undefined
-                    ? { messageOffset: params.messageOffset }
-                    : {}),
-                  ...(context.sessionKey ? { sessionKey: context.sessionKey } : {}),
-                  runId: api.runContext.resolveAdmissionId(context),
-                });
+                let result: unknown;
+                try {
+                  result = await client.spaceRead({
+                    agentId: context.agentId!,
+                    operation,
+                    ...(params.query === undefined ? {} : { query: params.query }),
+                    ...(params.spaceId === undefined ? {} : { spaceId: params.spaceId }),
+                    ...(params.pageId === undefined ? {} : { pageId: params.pageId }),
+                    ...(params.conversationId === undefined
+                      ? {}
+                      : { conversationId: params.conversationId }),
+                    ...(params.messageId === undefined ? {} : { messageId: params.messageId }),
+                    ...(params.bodyOffset === undefined ? {} : { bodyOffset: params.bodyOffset }),
+                    ...(params.pageRevision === undefined
+                      ? {}
+                      : { pageRevision: params.pageRevision }),
+                    ...(params.limit === undefined ? {} : { limit: params.limit }),
+                    ...(operation === "search" && params.cursor !== undefined
+                      ? { cursor: params.cursor }
+                      : {}),
+                    ...(operation === "get" && params.bodyLimitBytes !== undefined
+                      ? { bodyLimitBytes: params.bodyLimitBytes }
+                      : {}),
+                    ...(operation === "get" && params.messageOffset !== undefined
+                      ? { messageOffset: params.messageOffset }
+                      : {}),
+                    ...(context.sessionKey ? { sessionKey: context.sessionKey } : {}),
+                    runId: api.runContext.resolveAdmissionId(context),
+                  });
+                } catch (error) {
+                  const failure = asOptionalRecord(asOptionalRecord(error)?.memoryCorpusFailure);
+                  // Only the service's public Space failures may reach the model; transport
+                  // errors can include internal socket paths. Admission hooks still throw.
+                  const details = {
+                    status: "error",
+                    ...(failure &&
+                    ["space-invalid", "space-conflict", "space-forbidden"].includes(
+                      String(failure.code),
+                    ) &&
+                    typeof failure.error === "string" &&
+                    typeof failure.action === "string"
+                      ? {
+                          code: failure.code,
+                          error: failure.error.slice(0, 500),
+                          action: failure.action.slice(0, 500),
+                        }
+                      : {
+                          error: "Space service is unavailable",
+                          action:
+                            "Retry the Space request. If it keeps failing, ask an administrator to check the Space service.",
+                        }),
+                  };
+                  return {
+                    isError: true,
+                    content: [{ type: "text" as const, text: JSON.stringify(details) }],
+                    details,
+                  };
+                }
                 return {
                   content: [{ type: "text" as const, text: JSON.stringify(result) }],
                   details: result,

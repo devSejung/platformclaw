@@ -20,13 +20,19 @@ teams, and a team can use multiple Spaces.
 ## Create a Space and a conversation
 
 1. Open **Spaces** in the sidebar and create a Space.
-2. Open **Members and access**, find an exact employee account ID, and review
-   the confirmed identity before inviting them.
+2. Open **Members and access**, search by part of an employee's name or account
+   ID, and select a matching active employee. Review their name and account ID
+   before confirming the invitation.
 3. Create a page and use child pages to build the folder-style navigation tree.
 4. Select a page and create your own conversation tab. The creation notice
    explains that questions and final answers contribute to shared agent recall.
 5. Work with your personal agent using the usual composer, tools, and approvals.
    Create another tab when you need a separate conversation context.
+
+Conversation names are local to your tabs on the selected page. If a name is
+already used, creation adds the next available number, such as **New conversation2**
+and **New conversation3**. Other employees' names do not reserve yours. Retrying
+the same creation request returns the original conversation and its assigned name.
 
 The left tree groups Spaces, pages, and nested pages. The center contains your
 conversation tabs. **Notes** opens the selected page's shared text; **Members
@@ -103,8 +109,9 @@ may access. Every lookup rechecks current membership; membership in one Space
 never grants another Space's records. Human-facing page search does not expose
 another person's personal session transcript.
 
-Page notes participate in search, including pages with no conversation. Recall
-never inserts all Space sessions into the prompt:
+Page notes participate in search, including pages with no conversation. Use short
+keywords: each keyword must appear in the note's title or body, but they need not
+form one consecutive phrase. Recall never inserts all Space sessions into the prompt:
 
 - Search defaults to at most five excerpts and an 8 KiB serialized UTF-8 response.
   An explicit `limit` can request up to 20 results under a 16 KiB ceiling.
