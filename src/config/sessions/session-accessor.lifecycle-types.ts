@@ -80,6 +80,13 @@ export type DeleteSessionEntryLifecycleParams = {
   archiveTranscript: boolean;
   /** Delete transcript rows without writing an archive artifact. */
   deleteTranscriptWithoutArchive?: boolean;
+  /** Also remove retained transcript artifacts for the proven generation owners. */
+  purgeTranscript?: boolean;
+  /** Holds derived-data writers through purge without coupling persistence to a plugin. */
+  withTranscriptPurge?: (
+    params: { sessionIds: readonly string[]; archiveDirectory: string },
+    run: () => Promise<DeleteSessionEntryLifecycleResult>,
+  ) => Promise<DeleteSessionEntryLifecycleResult>;
   /** Optional exact row guard checked under the storage writer lock. */
   expectedEntry?: SessionEntry;
   /** Optional provider-run identity guard checked under the storage writer lock. */

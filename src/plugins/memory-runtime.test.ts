@@ -34,6 +34,7 @@ import {
   closeActiveMemorySearchManagers,
   getActiveMemorySearchManager,
   resolveActiveMemoryBackendConfig,
+  withActiveMemorySessionPurge,
 } from "./memory-runtime.js";
 import { resetStandaloneMemoryRegistrySlot } from "./memory-runtime.test-support.js";
 import { hasMemoryRuntime } from "./memory-state.js";
@@ -78,6 +79,79 @@ describe("memory runtime handles", () => {
       .mockImplementation((_cfg, agentId: string) =>
         agentId === "research" ? "/workspace/research" : "/workspace/main",
       );
+  });
+
+  it("keeps native deletion inside the plugin purge fence and propagates failures", async () => {
+    const order: string[] = [];
+    const runtime: MemoryPluginRuntime = {
+      ...createRuntime(),
+      async withSessionPurge(_params, run) {
+        order.push("purge-memory");
+        const result = await run();
+        order.push("release-writers");
+        return result;
+      },
+    };
+    mocks.getMemoryRuntime.mockReturnValue(runtime);
+    const params = {
+      cfg: memoryConfig,
+      agentId: "main",
+      sessionKey: "agent:main:target",
+      sessionIds: ["owned"],
+      archiveDirectory: "/tmp/archive",
+    };
+    await expect(
+      withActiveMemorySessionPurge(params, async () => {
+        order.push("delete-native");
+        return "deleted";
+      }),
+    ).resolves.toBe("deleted");
+    expect(order).toEqual(["purge-memory", "delete-native", "release-writers"]);
+    const deletion = vi.fn(async () => "deleted");
+    runtime.withSessionPurge = async () => {
+      throw new Error("owned index unavailable");
+    };
+    await expect(withActiveMemorySessionPurge(params, deletion)).rejects.toThrow(
+      "owned index unavailable",
+    );
+    expect(deletion).not.toHaveBeenCalled();
+  });
+
+  it("refuses purge when an active memory owner lacks the cleanup capability", async () => {
+    mocks.getMemoryRuntime.mockReturnValue(createRuntime());
+    const deletion = vi.fn(async () => "deleted");
+    await expect(
+      withActiveMemorySessionPurge(
+        {
+          cfg: memoryConfig,
+          agentId: "main",
+          sessionKey: "agent:main:target",
+          sessionIds: ["owned"],
+          archiveDirectory: "/tmp/archive",
+        },
+        deletion,
+      ),
+    ).rejects.toThrow("does not support session data purge");
+    expect(deletion).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a disabled memory plugin as proof that retained sources are absent", async () => {
+    const deletion = vi.fn(async () => "deleted");
+    const params = {
+      cfg: { plugins: { enabled: false } },
+      agentId: "main",
+      sessionKey: "agent:main:target",
+      sessionIds: ["retained"],
+      archiveDirectory: "/tmp/archive",
+    };
+    await expect(withActiveMemorySessionPurge(params, deletion)).rejects.toMatchObject({
+      reason: "session-purge-unsupported",
+      backend: "unavailable",
+    });
+    expect(deletion).not.toHaveBeenCalled();
+    await expect(
+      withActiveMemorySessionPurge({ ...params, sessionIds: [] }, deletion),
+    ).resolves.toBe("deleted");
   });
 
   it("loads only the selected memory plugin into a non-activating handle", async () => {

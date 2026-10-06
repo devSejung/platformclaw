@@ -190,6 +190,10 @@ class SessionStartupCatchupHarness extends MemoryManagerSyncOps {
     database?: DatabaseSync,
   ) {
     super();
+    this.settings.store.databasePath = path.join(
+      process.env.OPENCLAW_STATE_DIR!,
+      "startup-index.sqlite",
+    );
     this.sources.add("sessions");
     this.db = database ?? createStartupHarnessDatabase(sourceRows);
   }

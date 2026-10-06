@@ -31,13 +31,23 @@ async function requestBrowserSpace(params: {
   };
   let result: unknown;
   if (method === "platformclaw.spaces.list") {
-    result = store.list(userId);
+    result = store.list(userId, true);
   } else if (method === "platformclaw.spaces.create") {
     result = store.create(userId, field("name", 160), field("requestId"));
     service.changed();
   } else {
     const spaceId = field("spaceId");
-    if (method === "platformclaw.spaces.get") {
+    if (method === "platformclaw.spaces.delete") {
+      result = await service.lifecycle.delete(
+        userId,
+        spaceId,
+        revision(),
+        field("confirmName", 160),
+        revalidate,
+      );
+    } else if (method === "platformclaw.spaces.leave") {
+      result = await service.lifecycle.leave(userId, spaceId, revision());
+    } else if (method === "platformclaw.spaces.get") {
       result = {
         space: store.access(userId, spaceId),
         members: store.members(userId, spaceId),
@@ -90,6 +100,16 @@ async function requestBrowserSpace(params: {
         field("requestId"),
         revalidate,
       );
+    } else if (method === "platformclaw.spaces.conversation.rename") {
+      result = store.renameConversation(
+        userId,
+        spaceId,
+        field("conversationId"),
+        field("title", 240),
+        revision(),
+        field("expectedTitle", 240),
+      );
+      service.changed();
     } else if (method === "platformclaw.spaces.conversation.history") {
       const offset = request.offset;
       if (
@@ -126,7 +146,14 @@ async function requestBrowserSpace(params: {
     }
   }
   await revalidate();
-  if (typeof request.spaceId === "string" && !method.endsWith("member.remove")) {
+  if (
+    typeof request.spaceId === "string" &&
+    ![
+      "platformclaw.spaces.member.remove",
+      "platformclaw.spaces.leave",
+      "platformclaw.spaces.delete",
+    ].includes(method)
+  ) {
     store.access(userId, request.spaceId, method.endsWith(".people") ? "owner" : "viewer");
   }
   return { handled: true, result } as const;

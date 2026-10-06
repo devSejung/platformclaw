@@ -94,4 +94,28 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.draftReplaced": "Saved revision loaded. Reapply your changes before saving.",
   "platformClaw.spaces.refreshDraftHint":
     "Refresh keeps your draft. If the saved revision changed, review it in the editor before retrying.",
+  "platformClaw.spaces.renameConversation": "Rename conversation",
+  "platformClaw.spaces.conversationRenamed": "Conversation renamed.",
+  "platformClaw.spaces.deleteSpace": "Delete Space",
+  "platformClaw.spaces.leaveSpace": "Leave Space",
+  "platformClaw.spaces.deleteSpaceNotice":
+    "This permanently deletes the Space, its pages and identifiable conversation records. All members lose access, and the content is removed from Space lists and Space search. This cannot be undone. Older archives or derived memory without ownership records, shared or unowned attachments, media renditions, separately spawned conversations, downloaded copies and external backups may remain.",
+  "platformClaw.spaces.leaveSpaceNotice":
+    "You will lose access to this Space and its conversations. Your previously shared questions and answers remain available to the remaining members and their Space agents.",
+  "platformClaw.spaces.lastOwnerNotice":
+    "The last owner must make another member an owner before leaving.",
+  "platformClaw.spaces.confirmSpaceName": "Space name to confirm deletion",
+  "platformClaw.spaces.confirmSpaceNameMismatch": "Enter the Space name exactly as shown.",
+  "platformClaw.spaces.spaceDeleted": "Space deleted for all members.",
+  "platformClaw.spaces.spaceLeft": "You left the Space.",
+  "platformClaw.spaces.deletionPending":
+    "Deletion is unfinished. Access is blocked for all members. Retry to finish removing the stored data.",
+  "platformClaw.spaces.retryDeletion": "Retry deletion",
+  "platformClaw.spaces.managementRetryHint":
+    "If the Space changed, cancel and refresh before trying again.",
+  "platformClaw.spaces.leaveRetryHint":
+    "If access was already removed, retry here to finish cleanup before closing. If the Space changed, cancel and refresh.",
+  "platformClaw.spaces.leavePending":
+    "You no longer have access. Some running work still needs to be stopped. Retry leaving to finish cleanup.",
+  "platformClaw.spaces.retryLeaving": "Retry leaving",
 };

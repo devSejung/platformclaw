@@ -25,6 +25,7 @@ import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js
 import { withEnvAsync } from "../test-utils/env.js";
 import {
   insertManagedImageRecord,
+  listManagedImageRecordEntries,
   MANAGED_OUTGOING_ORIGINALS_SUBDIR,
   readManagedImageRecord,
 } from "./managed-image-record-store.js";
@@ -107,6 +108,7 @@ const {
   cleanupManagedOutgoingMediaRecords: cleanupManagedOutgoingImageRecords,
   createManagedOutgoingMediaBlocks: createManagedOutgoingImageBlocks,
   handleManagedOutgoingMediaHttpRequest: handleManagedOutgoingImageHttpRequest,
+  purgeManagedOutgoingMediaForSession,
   resolveManagedOutgoingMediaArtifactDownload: resolveManagedOutgoingImageArtifactDownload,
   resolveManagedImageAttachmentLimits,
 } = await import("./managed-image-attachments.js");
@@ -1909,6 +1911,189 @@ describe("cleanupManagedOutgoingImageRecords", () => {
     closeOpenClawAgentDatabasesForTest();
     closeOpenClawStateDatabaseForTest();
     await fs.rm(stateDir, { recursive: true, force: true });
+  });
+
+  it("purges only the exact session without sweeping unrelated records or orphan files", async () => {
+    const removed = await createFixture(stateDir);
+    const retained = await createFixture(stateDir, {
+      sessionKey: `${removed.sessionKey}:other`,
+      attachmentId: "22222222-2222-4222-8222-222222222222",
+    });
+    const orphanPath = path.join(path.dirname(removed.originalPath), "aged-orphan.png");
+    await fs.writeFile(orphanPath, "unrelated orphan");
+    await fs.utimes(orphanPath, 0, 0);
+
+    await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
+      await purgeManagedOutgoingMediaForSession({
+        sessionKey: removed.sessionKey,
+        agentId: "main",
+      });
+      await purgeManagedOutgoingMediaForSession({
+        sessionKey: removed.sessionKey,
+        agentId: "main",
+      });
+    });
+
+    expect(readManagedImageRecord(removed.attachmentId, stateDir)).toBeNull();
+    await expectPathMissing(removed.originalPath);
+    expect(readManagedImageRecord(retained.attachmentId, stateDir)).not.toBeNull();
+    await expect(fs.access(retained.originalPath)).resolves.toBeUndefined();
+    await expect(fs.access(orphanPath)).resolves.toBeUndefined();
+    expect(readSessionMessagesMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["same path", "directory alias", "file alias"] as const)(
+    "retains an original shared by another session through %s until the last owner is purged",
+    async (alias) => {
+      const fixture = await createFixture(stateDir);
+      const originalRecord = readManagedImageRecord(fixture.attachmentId, stateDir)!;
+      const retainedId = "22222222-2222-4222-8222-222222222222";
+      let original = originalRecord.original;
+      if (alias === "directory alias") {
+        const mediaAlias = path.join(stateDir, "media-alias");
+        await fs.symlink(original.mediaRoot, mediaAlias, "junction");
+        original = { ...original, mediaRoot: mediaAlias };
+      } else if (alias === "file alias") {
+        const mediaId = "shared-alias.png";
+        await fs.symlink(
+          fixture.originalPath,
+          path.join(path.dirname(fixture.originalPath), mediaId),
+        );
+        original = { ...original, mediaId };
+      }
+      insertManagedImageRecord(
+        {
+          ...originalRecord,
+          attachmentId: retainedId,
+          sessionKey: "agent:other:shared",
+          original,
+        },
+        stateDir,
+      );
+      await fs.utimes(fixture.originalPath, 0, 0);
+
+      const removed = await cleanupManagedOutgoingImageRecords({
+        stateDir,
+        sessionKey: fixture.sessionKey,
+        forceDeleteSessionRecords: true,
+      });
+
+      expect(removed).toMatchObject({ deletedRecordCount: 1, deletedFileCount: 0 });
+      expect(readManagedImageRecord(fixture.attachmentId, stateDir)).toBeNull();
+      expect(readManagedImageRecord(retainedId, stateDir)).not.toBeNull();
+      await expect(fs.readFile(fixture.originalPath, "utf8")).resolves.toBe("original-image");
+
+      await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, () =>
+        purgeManagedOutgoingMediaForSession({ sessionKey: "agent:other:shared", agentId: "other" }),
+      );
+
+      expect(listManagedImageRecordEntries({ stateDir })).toEqual([]);
+      if (alias === "file alias") {
+        // Removing the last alias does not grant permission to unlink its target.
+        await expect(fs.readFile(fixture.originalPath, "utf8")).resolves.toBe("original-image");
+        await expectPathMissing(path.join(path.dirname(fixture.originalPath), original.mediaId));
+      } else {
+        await expectPathMissing(fixture.originalPath);
+      }
+    },
+  );
+
+  it("removes the shared original when both owners are purged concurrently", async () => {
+    const fixture = await createFixture(stateDir);
+    insertManagedImageRecord(
+      {
+        ...readManagedImageRecord(fixture.attachmentId, stateDir)!,
+        attachmentId: "22222222-2222-4222-8222-222222222222",
+        sessionKey: "agent:other:shared",
+      },
+      stateDir,
+    );
+
+    await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, () =>
+      Promise.all([
+        purgeManagedOutgoingMediaForSession({ sessionKey: fixture.sessionKey, agentId: "main" }),
+        purgeManagedOutgoingMediaForSession({ sessionKey: "agent:other:shared", agentId: "other" }),
+      ]),
+    );
+
+    expect(listManagedImageRecordEntries({ stateDir })).toEqual([]);
+    await expectPathMissing(fixture.originalPath);
+  });
+
+  it.each(["main", "work"])("isolates global media purge to agent %s", async (agentId) => {
+    getRuntimeConfigMock.mockReturnValue({
+      agents: { list: [{ id: "main" }, { id: "work", default: true }] },
+    });
+    const main = await createFixture(stateDir, { sessionKey: "global", agentId: "main" });
+    const work = await createFixture(stateDir, {
+      sessionKey: "global",
+      agentId: "work",
+      attachmentId: "22222222-2222-4222-8222-222222222222",
+    });
+    const legacy = await createFixture(stateDir, {
+      sessionKey: "global",
+      attachmentId: "33333333-3333-4333-8333-333333333333",
+    });
+
+    await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, () =>
+      purgeManagedOutgoingMediaForSession({ sessionKey: "global", agentId }),
+    );
+
+    for (const [owner, fixture] of [
+      ["main", main],
+      ["work", work],
+      ["work", legacy],
+    ] as const) {
+      if (owner === agentId) {
+        expect(readManagedImageRecord(fixture.attachmentId, stateDir)).toBeNull();
+        await expectPathMissing(fixture.originalPath);
+      } else {
+        expect(readManagedImageRecord(fixture.attachmentId, stateDir)).not.toBeNull();
+        await expect(fs.access(fixture.originalPath)).resolves.toBeUndefined();
+      }
+    }
+  });
+
+  it("fails an incomplete purge and retries its durable removal claim", async () => {
+    const fixture = await createFixture(stateDir);
+    const purge = () =>
+      withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, () =>
+        purgeManagedOutgoingMediaForSession({ sessionKey: fixture.sessionKey, agentId: "main" }),
+      );
+    const rmSpy = vi.spyOn(fs, "rm").mockRejectedValueOnce(new Error("synthetic rm failure"));
+    try {
+      await expect(purge()).rejects.toThrow("Managed outgoing media purge incomplete");
+    } finally {
+      rmSpy.mockRestore();
+    }
+    expect(listManagedImageRecordEntries({ stateDir })).toMatchObject([{ cleanupPending: true }]);
+    await expect(fs.access(fixture.originalPath)).resolves.toBeUndefined();
+
+    await purge();
+
+    expect(listManagedImageRecordEntries({ stateDir })).toEqual([]);
+    await expectPathMissing(fixture.originalPath);
+  });
+
+  it("fails when another owned record is created during purge", async () => {
+    const fixture = await createFixture(stateDir);
+    const remove = fs.rm.bind(fs);
+    const rmSpy = vi.spyOn(fs, "rm").mockImplementationOnce(async (file, options) => {
+      await createFixture(stateDir, {
+        attachmentId: "22222222-2222-4222-8222-222222222222",
+      });
+      await remove(file, options);
+    });
+    try {
+      await expect(
+        withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, () =>
+          purgeManagedOutgoingMediaForSession({ sessionKey: fixture.sessionKey, agentId: "main" }),
+        ),
+      ).rejects.toThrow("Managed outgoing media purge incomplete");
+    } finally {
+      rmSpy.mockRestore();
+    }
+    expect(listManagedImageRecordEntries({ stateDir })).toHaveLength(1);
   });
 
   it("cleans up dereferenced records and original files", async () => {

@@ -5,6 +5,8 @@ export type Space = {
   role: SpaceRole;
   revision: number;
   agentId: string;
+  deleting?: true;
+  leaving?: true;
 };
 export type SpacePage = {
   id: string;
@@ -37,6 +39,8 @@ export type SpaceConversation = {
 export const SPACE_RPC_PARAMS = {
   "platformclaw.spaces.list": [],
   "platformclaw.spaces.create": ["name", "requestId"],
+  "platformclaw.spaces.delete": ["spaceId", "expectedRevision", "confirmName"],
+  "platformclaw.spaces.leave": ["spaceId", "expectedRevision"],
   "platformclaw.spaces.get": ["spaceId"],
   "platformclaw.spaces.people": ["spaceId", "query"],
   "platformclaw.spaces.member.set": ["spaceId", "userId", "role", "expectedRevision"],
@@ -46,6 +50,13 @@ export const SPACE_RPC_PARAMS = {
   "platformclaw.spaces.chat.history": ["spaceId", "pageId", "messageId"],
   "platformclaw.spaces.chat.send": ["spaceId", "pageId", "message", "requestId", "model"],
   "platformclaw.spaces.conversation.create": ["spaceId", "pageId", "title", "requestId"],
+  "platformclaw.spaces.conversation.rename": [
+    "spaceId",
+    "conversationId",
+    "title",
+    "expectedRevision",
+    "expectedTitle",
+  ],
   "platformclaw.spaces.conversation.history": ["spaceId", "conversationId", "messageId", "offset"],
   "platformclaw.spaces.search": ["spaceId", "query"],
 } as const;

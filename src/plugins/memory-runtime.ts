@@ -156,6 +156,37 @@ export async function authorizeActiveMemorySearchHits(
   });
 }
 
+/** Plugin-owned cleanup must finish before the transcript owner discards its retry identities. */
+export async function withActiveMemorySessionPurge<T>(
+  params: Parameters<NonNullable<MemoryPluginRuntime["withSessionPurge"]>>[0],
+  run: () => Promise<T>,
+): Promise<T> {
+  if (params.sessionIds.length === 0) {
+    return await run();
+  }
+  const owner = ensureMemoryRuntime(params);
+  if (!owner) {
+    throw Object.assign(
+      new Error(
+        "Session purge requires its memory cleanup plugin to be available; enable it and retry",
+      ),
+      { reason: "session-purge-unsupported", backend: "unavailable" },
+    );
+  }
+  return await withMemoryRuntimeOwner(owner, async (runtime) => {
+    if (!runtime.withSessionPurge) {
+      throw Object.assign(
+        new Error("The configured memory plugin does not support session data purge"),
+        {
+          reason: "session-purge-unsupported",
+          backend: "unavailable",
+        },
+      );
+    }
+    return await runtime.withSessionPurge(params, run);
+  });
+}
+
 /** Resolves current memory backend config without constructing a manager. */
 export function resolveActiveMemoryBackendConfig(params: { cfg: OpenClawConfig; agentId: string }) {
   const owner = ensureMemoryRuntime(params);

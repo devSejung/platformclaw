@@ -82,6 +82,7 @@ import {
   searchVector,
   type ExactPathSpecificity,
 } from "./manager-search.js";
+import { resolveMemorySourceExistingHash } from "./manager-source-state.js";
 import {
   collectMemoryStatusAggregate,
   resolveInitialMemoryDirty,
@@ -114,6 +115,10 @@ const MEMORY_INDEX_MANAGER_CACHE_KEY = Symbol.for("openclaw.memoryIndexManagerCa
 const MEMORY_INDEX_MANAGER_SCOPE_CLOSES_KEY = Symbol.for("openclaw.memoryIndexManagerScopeCloses");
 const MEMORY_INDEX_MANAGER_GLOBAL_LIFECYCLE_KEY = Symbol.for(
   "openclaw.memoryIndexManagerGlobalLifecycle.v3",
+);
+const TRANSIENT_INDEX_MANAGERS = resolveGlobalSingleton<Map<MemoryIndexManager, string>>(
+  Symbol.for("openclaw.memoryIndexTransientManagers"),
+  () => new Map(),
 );
 const EMBEDDING_PROBE_CACHE_TTL_MS = 30_000;
 const KEYWORD_FALLBACK_SEARCH_TERM_LIMIT = 6;
@@ -161,14 +166,15 @@ async function closeAllMemoryIndexManagersUnlocked(): Promise<void> {
     await Promise.allSettled(pending);
   }
   const entries = Array.from(INDEX_CACHE.entries());
+  const managers = new Set([
+    ...entries.map(([, manager]) => manager),
+    ...TRANSIENT_INDEX_MANAGERS.keys(),
+  ]);
   let firstError: unknown;
   let closeFailed = false;
-  for (const [key, manager] of entries) {
+  for (const manager of managers) {
     try {
       await manager.close();
-      if (INDEX_CACHE.get(key) === manager) {
-        INDEX_CACHE.delete(key);
-      }
     } catch (err) {
       if (!closeFailed) {
         firstError = err;
@@ -251,6 +257,27 @@ export async function closeMemoryIndexManagersForAgent(params: {
   await closeMemoryIndexManagersForScope({
     agentId: normalizeAgentId(params.agentId),
     purpose: "default",
+  });
+}
+
+/** Fence every purpose so transient CLI writers cannot repopulate deleted sessions. */
+export async function withMemoryIndexManagersPaused<T>(
+  agentId: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  return await runMemoryIndexManagerScopeOperation({ agentId }, async () => {
+    await closeMemoryIndexManagersForScopeUnlocked({ agentId, purpose: "default" });
+    for (const [manager, ownerAgentId] of TRANSIENT_INDEX_MANAGERS) {
+      if (ownerAgentId === agentId) {
+        await manager.close();
+      }
+    }
+    for (const key of EMBEDDING_PROBE_CACHE.keys()) {
+      if (key.startsWith(`${agentId}:`)) {
+        EMBEDDING_PROBE_CACHE.delete(key);
+      }
+    }
+    return await run();
   });
 }
 
@@ -341,7 +368,7 @@ function resolveMemoryIndexManagerScopeKey(params: {
 async function runMemoryIndexManagerScopeOperation<T>(
   params: {
     agentId: string;
-    purpose: MemoryIndexManagerPurpose;
+    purpose?: MemoryIndexManagerPurpose;
   },
   operation: () => Promise<T>,
 ): Promise<T> {
@@ -355,19 +382,28 @@ async function runMemoryIndexManagerScopeOperation<T>(
       }
     }
   }
-  const scopeKey = resolveMemoryIndexManagerScopeKey(params);
-  const previousOperation = INDEX_SCOPE_CLOSES.get(scopeKey) ?? Promise.resolve();
-  const result = previousOperation.then(operation, operation);
+  const purposes: MemoryIndexManagerPurpose[] = params.purpose
+    ? [params.purpose]
+    : ["default", "status", "cli"];
+  const scopeKeys = purposes.map((purpose) =>
+    resolveMemoryIndexManagerScopeKey({ agentId: params.agentId, purpose }),
+  );
+  const previousOperations = scopeKeys.map((key) => INDEX_SCOPE_CLOSES.get(key));
+  const result = Promise.all(previousOperations).then(operation, operation);
   const tail = result.then(
     () => undefined,
     () => undefined,
   );
-  INDEX_SCOPE_CLOSES.set(scopeKey, tail);
+  for (const scopeKey of scopeKeys) {
+    INDEX_SCOPE_CLOSES.set(scopeKey, tail);
+  }
   try {
     return await result;
   } finally {
-    if (INDEX_SCOPE_CLOSES.get(scopeKey) === tail) {
-      INDEX_SCOPE_CLOSES.delete(scopeKey);
+    for (const scopeKey of scopeKeys) {
+      if (INDEX_SCOPE_CLOSES.get(scopeKey) === tail) {
+        INDEX_SCOPE_CLOSES.delete(scopeKey);
+      }
     }
   }
 }
@@ -585,6 +621,9 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
             purpose: params.purpose,
             acquireLocalService: params.acquireLocalService,
           });
+          if (transient) {
+            TRANSIENT_INDEX_MANAGERS.set(manager, agentId);
+          }
           // Lightweight dirty-file detection for status mode: check for unindexed
           // session files on disk without triggering a full sync. This runs before
           // any caller reads manager.status(), so the dirty flag is accurate when
@@ -1118,188 +1157,237 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     if (!normalizedQuery) {
       return [];
     }
-    const maxResults = opts?.maxResults ?? this.settings.query.maxResults;
-    const minScore = opts?.minScore ?? this.settings.query.minScore;
-    const hasActiveProject = (opts?.activeProjectKeys?.length ?? 0) > 0;
-    const candidateMaxResults = hasActiveProject
-      ? Math.min(200, Math.max(maxResults, maxResults * 4))
-      : maxResults;
-    const candidateMinScore = hasActiveProject ? minScore / 1.15 : minScore;
-    const results = await this.searchUnranked(normalizedQuery, {
-      ...opts,
-      maxResults: candidateMaxResults,
-      minScore: candidateMinScore,
-    });
-    const ranked = applyProjectRanking(results, opts?.activeProjectKeys);
-    if (ranked.some((result) => !result.sourceVersion)) {
-      throw new Error(
-        "Memory index source version is unavailable. Rebuild the memory index and retry.",
+    return await this.withManagerOperation(async () => {
+      const maxResults = opts?.maxResults ?? this.settings.query.maxResults;
+      const minScore = opts?.minScore ?? this.settings.query.minScore;
+      const hasActiveProject = (opts?.activeProjectKeys?.length ?? 0) > 0;
+      const candidateMaxResults = hasActiveProject
+        ? Math.min(200, Math.max(maxResults, maxResults * 4))
+        : maxResults;
+      const candidateMinScore = hasActiveProject ? minScore / 1.15 : minScore;
+      const results = await this.searchUnranked(normalizedQuery, {
+        ...opts,
+        maxResults: candidateMaxResults,
+        minScore: candidateMinScore,
+      });
+      const ranked = applyProjectRanking(results, opts?.activeProjectKeys);
+      if (ranked.some((result) => !result.sourceVersion)) {
+        throw new Error(
+          "Memory index source version is unavailable. Rebuild the memory index and retry.",
+        );
+      }
+      // Another process can purge or replace a session while query embeddings
+      // are in flight. Never return a captured snippet from that older source.
+      const current = ranked.filter(
+        (entry) =>
+          entry.source !== "sessions" ||
+          resolveMemorySourceExistingHash({
+            db: this.db,
+            source: entry.source,
+            path: entry.path,
+          }) === entry.sourceVersion,
       );
-    }
-    return hasActiveProject
-      ? ranked.filter((entry) => entry.score >= minScore).slice(0, maxResults)
-      : ranked;
+      return hasActiveProject
+        ? current.filter((entry) => entry.score >= minScore).slice(0, maxResults)
+        : current;
+    });
   }
 
   private async searchUnranked(
     normalizedQuery: string,
     opts?: MemoryIndexSearchOptions,
   ): Promise<MemorySearchResult[]> {
-    return await this.withManagerOperation(async () => {
-      opts?.onDebug?.({ backend: "builtin" });
-      if (this.providerRequirement.mode === "required") {
-        await this.ensureProviderInitialized();
-        this.assertRequiredProviderAvailable("search");
-      }
-      let hasIndexedContent = this.hasIndexedContent();
-      if (!hasIndexedContent) {
-        try {
-          // A fresh process can receive its first search before background watch/session
-          // syncs have built the index. Force one synchronous bootstrap so the first
-          // lookup after restart does not fail closed with empty results.
-          await this.syncAdmitted(
-            { reason: "search", force: true },
-            { allowEmbeddingBootstrapFallback: true },
-          );
-        } catch (err) {
-          if (this.providerRequirement.mode === "optional" && this.shouldFallbackOnError(err)) {
-            const failedProvider = this.provider?.id ?? this.settings.provider;
-            await this.retireCurrentProvider().catch((retireErr: unknown) => {
-              const message = redactSensitiveText(formatErrorMessage(retireErr), {
+    opts?.onDebug?.({ backend: "builtin" });
+    if (this.providerRequirement.mode === "required") {
+      await this.ensureProviderInitialized();
+      this.assertRequiredProviderAvailable("search");
+    }
+    let hasIndexedContent = this.hasIndexedContent();
+    if (!hasIndexedContent) {
+      try {
+        // A fresh process can receive its first search before background watch/session
+        // syncs have built the index. Force one synchronous bootstrap so the first
+        // lookup after restart does not fail closed with empty results.
+        await this.syncAdmitted(
+          { reason: "search", force: true },
+          { allowEmbeddingBootstrapFallback: true },
+        );
+      } catch (err) {
+        if (this.providerRequirement.mode === "optional" && this.shouldFallbackOnError(err)) {
+          const failedProvider = this.provider?.id ?? this.settings.provider;
+          await this.retireCurrentProvider().catch((retireErr: unknown) => {
+            const message = redactSensitiveText(formatErrorMessage(retireErr), {
+              mode: "tools",
+            });
+            log.warn(`memory search-bootstrap: failed to retire embedding provider: ${message}`);
+          });
+          this.markEmbeddingBootstrapFailure(err, { provider: failedProvider });
+          await this.syncAdmitted({ reason: "search", force: true }).catch(
+            (fallbackErr: unknown) => {
+              const message = redactSensitiveText(formatErrorMessage(fallbackErr), {
                 mode: "tools",
               });
-              log.warn(`memory search-bootstrap: failed to retire embedding provider: ${message}`);
-            });
-            this.markEmbeddingBootstrapFailure(err, { provider: failedProvider });
-            await this.syncAdmitted({ reason: "search", force: true }).catch(
-              (fallbackErr: unknown) => {
-                const message = redactSensitiveText(formatErrorMessage(fallbackErr), {
-                  mode: "tools",
-                });
-                log.warn(`memory sync failed (search-bootstrap-fallback): ${message}`);
-              },
-            );
-          } else {
-            log.warn(`memory sync failed (search-bootstrap): ${String(err)}`);
-          }
-        }
-        hasIndexedContent = this.hasIndexedContent();
-      }
-      const preflight = resolveMemorySearchPreflight({
-        query: normalizedQuery,
-        hasIndexedContent,
-      });
-      if (!preflight.shouldSearch) {
-        if (this.embeddingBootstrapFailure) {
-          opts?.onDebug?.({
-            backend: "builtin",
-            embeddingBootstrap: this.embeddingBootstrapFailure,
-          });
-        }
-        return [];
-      }
-      const cleaned = preflight.normalizedQuery;
-      const embeddingBootstrapKeywordOnly = await this.ensureEmbeddingProviderForSearch(
-        opts?.onDebug,
-      );
-      void this.warmSession(opts?.sessionKey);
-      await startAsyncSearchSync({
-        enabled: this.settings.sync.onSearch,
-        dirty: this.dirty,
-        sessionsDirty: this.sessionsDirty,
-        sync: async (params) => await this.syncAdmitted(params),
-        onError: (err) => {
-          log.warn(`memory sync failed (search): ${String(err)}`);
-        },
-      });
-      if (
-        !embeddingBootstrapKeywordOnly &&
-        preflight.shouldInitializeProvider &&
-        !this.provider &&
-        (this.providerLifecycle.mode === "pending" ||
-          (this.providerLifecycle.mode === "degraded" &&
-            this.providerLifecycle.providerId !== this.settings.provider))
-      ) {
-        // A failed fallback must yield ownership back to the configured primary.
-        // Reinitialize it before identity validation; leaving the lifecycle pending
-        // makes a valid existing index look mismatched and drops keyword results.
-        this.resetProviderInitializationForRetry();
-        await this.ensureProviderInitialized();
-      }
-      this.assertRequiredProviderAvailable("search");
-      if (
-        !embeddingBootstrapKeywordOnly &&
-        !this.provider &&
-        this.providerLifecycle.mode === "degraded"
-      ) {
-        const activatedFallback = await this.activateFallbackProvider(
-          this.providerLifecycle.reason,
-        ).catch((fallbackErr: unknown) => {
-          log.warn(
-            `memory search: failed to activate fallback provider: ${formatErrorMessage(fallbackErr)}`,
+              log.warn(`memory sync failed (search-bootstrap-fallback): ${message}`);
+            },
           );
-          return false;
+        } else {
+          log.warn(`memory sync failed (search-bootstrap): ${String(err)}`);
+        }
+      }
+      hasIndexedContent = this.hasIndexedContent();
+    }
+    const preflight = resolveMemorySearchPreflight({
+      query: normalizedQuery,
+      hasIndexedContent,
+    });
+    if (!preflight.shouldSearch) {
+      if (this.embeddingBootstrapFailure) {
+        opts?.onDebug?.({
+          backend: "builtin",
+          embeddingBootstrap: this.embeddingBootstrapFailure,
         });
-        if (activatedFallback) {
-          this.refreshIndexIdentityDirty({
+      }
+      return [];
+    }
+    const cleaned = preflight.normalizedQuery;
+    const embeddingBootstrapKeywordOnly = await this.ensureEmbeddingProviderForSearch(
+      opts?.onDebug,
+    );
+    void this.warmSession(opts?.sessionKey);
+    await startAsyncSearchSync({
+      enabled: this.settings.sync.onSearch,
+      dirty: this.dirty,
+      sessionsDirty: this.sessionsDirty,
+      sync: async (params) => await this.syncAdmitted(params),
+      onError: (err) => {
+        log.warn(`memory sync failed (search): ${String(err)}`);
+      },
+    });
+    if (
+      !embeddingBootstrapKeywordOnly &&
+      preflight.shouldInitializeProvider &&
+      !this.provider &&
+      (this.providerLifecycle.mode === "pending" ||
+        (this.providerLifecycle.mode === "degraded" &&
+          this.providerLifecycle.providerId !== this.settings.provider))
+    ) {
+      // A failed fallback must yield ownership back to the configured primary.
+      // Reinitialize it before identity validation; leaving the lifecycle pending
+      // makes a valid existing index look mismatched and drops keyword results.
+      this.resetProviderInitializationForRetry();
+      await this.ensureProviderInitialized();
+    }
+    this.assertRequiredProviderAvailable("search");
+    if (
+      !embeddingBootstrapKeywordOnly &&
+      !this.provider &&
+      this.providerLifecycle.mode === "degraded"
+    ) {
+      const activatedFallback = await this.activateFallbackProvider(
+        this.providerLifecycle.reason,
+      ).catch((fallbackErr: unknown) => {
+        log.warn(
+          `memory search: failed to activate fallback provider: ${formatErrorMessage(fallbackErr)}`,
+        );
+        return false;
+      });
+      if (activatedFallback) {
+        this.refreshIndexIdentityDirty({
+          providerKeyKnown: this.providerInitialized,
+        });
+      }
+    }
+    // lexicalOnly is allowed to search the FTS projection of either a semantic
+    // or FTS-only index without requiring the configured embedding identity.
+    const indexIdentity =
+      embeddingBootstrapKeywordOnly || opts?.lexicalOnly === true
+        ? this.refreshKeywordFallbackIndexIdentity()
+        : this.refreshIndexIdentityDirty({
             providerKeyKnown: this.providerInitialized,
           });
-        }
-      }
-      // lexicalOnly is allowed to search the FTS projection of either a semantic
-      // or FTS-only index without requiring the configured embedding identity.
-      const indexIdentity =
-        embeddingBootstrapKeywordOnly || opts?.lexicalOnly === true
-          ? this.refreshKeywordFallbackIndexIdentity()
-          : this.refreshIndexIdentityDirty({
-              providerKeyKnown: this.providerInitialized,
-            });
-      if (indexIdentity.status !== "valid") {
+    if (indexIdentity.status !== "valid") {
+      return [];
+    }
+    const minScore = opts?.minScore ?? this.settings.query.minScore;
+    const maxResults = opts?.maxResults ?? this.settings.query.maxResults;
+    const searchSources =
+      opts?.sources && opts.sources.length > 0
+        ? uniqueValues(opts.sources).filter((s) => this.sources.has(s))
+        : undefined;
+    if (
+      opts?.sources &&
+      opts.sources.length > 0 &&
+      (!searchSources || searchSources.length === 0)
+    ) {
+      return [];
+    }
+    // The manager may index recall-only transcripts without making them part of
+    // ordinary searches. Trusted recall passes an explicit source override;
+    // every other caller defaults to the configured search corpus.
+    const sourceFilterList = searchSources ?? this.settings.searchSources;
+    const hybrid = this.settings.query.hybrid;
+    const candidates = Math.min(
+      200,
+      Math.max(1, Math.floor(maxResults * hybrid.candidateMultiplier)),
+    );
+
+    // FTS-only mode: no embedding provider available
+    if (embeddingBootstrapKeywordOnly || !this.provider) {
+      this.assertRequiredProviderAvailable("search");
+      if (!this.fts.enabled || !this.fts.available) {
+        log.warn("memory search: no provider and FTS unavailable");
         return [];
       }
-      const minScore = opts?.minScore ?? this.settings.query.minScore;
-      const maxResults = opts?.maxResults ?? this.settings.query.maxResults;
-      const searchSources =
-        opts?.sources && opts.sources.length > 0
-          ? uniqueValues(opts.sources).filter((s) => this.sources.has(s))
-          : undefined;
-      if (
-        opts?.sources &&
-        opts.sources.length > 0 &&
-        (!searchSources || searchSources.length === 0)
-      ) {
+
+      const keywordResults = await this.searchKeywordWithFallback(
+        cleaned,
+        candidates,
+        {
+          boostFallbackRanking: true,
+        },
+        sourceFilterList,
+      ).catch((err: unknown) => {
+        log.warn(`memory search: FTS keyword query failed: ${formatErrorMessage(err)}`);
         return [];
-      }
-      // The manager may index recall-only transcripts without making them part of
-      // ordinary searches. Trusted recall passes an explicit source override;
-      // every other caller defaults to the configured search corpus.
-      const sourceFilterList = searchSources ?? this.settings.searchSources;
-      const hybrid = this.settings.query.hybrid;
-      const candidates = Math.min(
-        200,
-        Math.max(1, Math.floor(maxResults * hybrid.candidateMultiplier)),
-      );
+      });
 
-      // FTS-only mode: no embedding provider available
-      if (embeddingBootstrapKeywordOnly || !this.provider) {
-        this.assertRequiredProviderAvailable("search");
-        if (!this.fts.enabled || !this.fts.available) {
-          log.warn("memory search: no provider and FTS unavailable");
-          return [];
-        }
+      return await this.finalizeKeywordOnlyResults({
+        results: keywordResults,
+        temporalDecay: hybrid.temporalDecay,
+        maxResults,
+        minScore,
+      });
+    }
+    let semanticProvider = this.provider;
+    let semanticProviderRuntime = this.providerRuntime;
+    let vectorProviderIdentity = {
+      model: semanticProvider.model,
+      aliases: this.resolveProviderIndexIdentities()
+        .slice(1)
+        .map((identity) => identity.model),
+    };
 
-        const keywordResults = await this.searchKeywordWithFallback(
-          cleaned,
-          candidates,
-          {
-            boostFallbackRanking: true,
-          },
-          sourceFilterList,
-        ).catch((err: unknown) => {
-          log.warn(`memory search: FTS keyword query failed: ${formatErrorMessage(err)}`);
-          return [];
-        });
-
+    // If FTS isn't available, hybrid mode cannot use keyword search; degrade to vector-only.
+    const loadKeywordResults = async () =>
+      hybrid.enabled && this.fts.enabled && this.fts.available
+        ? await this.searchKeywordWithFallback(
+            cleaned,
+            candidates,
+            { boostFallbackRanking: true },
+            sourceFilterList,
+          ).catch((err: unknown) => {
+            log.warn(`memory search: FTS hybrid keyword query failed: ${formatErrorMessage(err)}`);
+            return [];
+          })
+        : [];
+    let keywordResults: Awaited<ReturnType<typeof loadKeywordResults>> = [];
+    let queryVec: number[];
+    const releaseSemanticProvider = this.acquireProviderUse(semanticProvider);
+    try {
+      keywordResults = await loadKeywordResults();
+      // lexicalOnly is a reply-path contract: no query embedding, no vector
+      // search, no network. Callers accept keyword-only recall quality.
+      if (opts?.lexicalOnly) {
         return await this.finalizeKeywordOnlyResults({
           results: keywordResults,
           temporalDecay: hybrid.temporalDecay,
@@ -1307,187 +1395,145 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
           minScore,
         });
       }
-      let semanticProvider = this.provider;
-      let semanticProviderRuntime = this.providerRuntime;
-      let vectorProviderIdentity = {
-        model: semanticProvider.model,
-        aliases: this.resolveProviderIndexIdentities()
-          .slice(1)
-          .map((identity) => identity.model),
-      };
-
-      // If FTS isn't available, hybrid mode cannot use keyword search; degrade to vector-only.
-      const loadKeywordResults = async () =>
-        hybrid.enabled && this.fts.enabled && this.fts.available
-          ? await this.searchKeywordWithFallback(
-              cleaned,
-              candidates,
-              { boostFallbackRanking: true },
-              sourceFilterList,
-            ).catch((err: unknown) => {
-              log.warn(
-                `memory search: FTS hybrid keyword query failed: ${formatErrorMessage(err)}`,
-              );
-              return [];
-            })
-          : [];
-      let keywordResults: Awaited<ReturnType<typeof loadKeywordResults>> = [];
-      let queryVec: number[];
-      const releaseSemanticProvider = this.acquireProviderUse(semanticProvider);
       try {
-        keywordResults = await loadKeywordResults();
-        // lexicalOnly is a reply-path contract: no query embedding, no vector
-        // search, no network. Callers accept keyword-only recall quality.
-        if (opts?.lexicalOnly) {
+        queryVec = await this.embedQueryWithRetry(
+          cleaned,
+          opts?.signal,
+          semanticProvider,
+          false,
+          semanticProviderRuntime,
+        );
+      } catch (err) {
+        releaseSemanticProvider();
+        this.markLocalEmbeddingProviderDegraded(err);
+        // An aborted caller already stopped waiting; skip fallback-provider
+        // activation so the abandoned search stops instead of re-embedding.
+        if (opts?.signal?.aborted) {
+          throw err;
+        }
+        const message = formatErrorMessage(err);
+        const activatedFallback = this.shouldFallbackOnError(err)
+          ? await this.activateFallbackProvider(message).catch((fallbackErr: unknown) => {
+              log.warn(
+                `memory search: failed to activate fallback provider: ${formatErrorMessage(fallbackErr)}`,
+              );
+              return false;
+            })
+          : false;
+        if (activatedFallback) {
+          if (
+            this.refreshIndexIdentityDirty({
+              providerKeyKnown: this.providerInitialized,
+            }).status !== "valid"
+          ) {
+            return [];
+          }
+          if (!this.provider) {
+            return [];
+          }
+          semanticProvider = this.provider;
+          semanticProviderRuntime = this.providerRuntime;
+          vectorProviderIdentity = {
+            model: semanticProvider.model,
+            aliases: this.resolveProviderIndexIdentities()
+              .slice(1)
+              .map((identity) => identity.model),
+          };
+          const releaseFallbackProvider = this.acquireProviderUse(semanticProvider);
+          try {
+            keywordResults = await loadKeywordResults();
+            queryVec = await this.embedQueryWithRetry(
+              cleaned,
+              opts?.signal,
+              semanticProvider,
+              false,
+              semanticProviderRuntime,
+            );
+          } catch (fallbackErr) {
+            releaseFallbackProvider();
+            this.markLocalEmbeddingProviderDegraded(fallbackErr);
+            throw fallbackErr;
+          } finally {
+            releaseFallbackProvider();
+          }
+        } else if (!this.provider && this.fts.enabled && this.fts.available) {
+          this.assertRequiredProviderAvailable("search");
+          log.warn(`memory search: embeddings unavailable; using keyword-only results: ${message}`);
           return await this.finalizeKeywordOnlyResults({
             results: keywordResults,
             temporalDecay: hybrid.temporalDecay,
             maxResults,
             minScore,
           });
+        } else {
+          throw err;
         }
-        try {
-          queryVec = await this.embedQueryWithRetry(
-            cleaned,
-            opts?.signal,
-            semanticProvider,
-            false,
-            semanticProviderRuntime,
-          );
-        } catch (err) {
-          releaseSemanticProvider();
-          this.markLocalEmbeddingProviderDegraded(err);
-          // An aborted caller already stopped waiting; skip fallback-provider
-          // activation so the abandoned search stops instead of re-embedding.
-          if (opts?.signal?.aborted) {
-            throw err;
-          }
-          const message = formatErrorMessage(err);
-          const activatedFallback = this.shouldFallbackOnError(err)
-            ? await this.activateFallbackProvider(message).catch((fallbackErr: unknown) => {
-                log.warn(
-                  `memory search: failed to activate fallback provider: ${formatErrorMessage(fallbackErr)}`,
-                );
-                return false;
-              })
-            : false;
-          if (activatedFallback) {
-            if (
-              this.refreshIndexIdentityDirty({
-                providerKeyKnown: this.providerInitialized,
-              }).status !== "valid"
-            ) {
-              return [];
-            }
-            if (!this.provider) {
-              return [];
-            }
-            semanticProvider = this.provider;
-            semanticProviderRuntime = this.providerRuntime;
-            vectorProviderIdentity = {
-              model: semanticProvider.model,
-              aliases: this.resolveProviderIndexIdentities()
-                .slice(1)
-                .map((identity) => identity.model),
-            };
-            const releaseFallbackProvider = this.acquireProviderUse(semanticProvider);
-            try {
-              keywordResults = await loadKeywordResults();
-              queryVec = await this.embedQueryWithRetry(
-                cleaned,
-                opts?.signal,
-                semanticProvider,
-                false,
-                semanticProviderRuntime,
-              );
-            } catch (fallbackErr) {
-              releaseFallbackProvider();
-              this.markLocalEmbeddingProviderDegraded(fallbackErr);
-              throw fallbackErr;
-            } finally {
-              releaseFallbackProvider();
-            }
-          } else if (!this.provider && this.fts.enabled && this.fts.available) {
-            this.assertRequiredProviderAvailable("search");
-            log.warn(
-              `memory search: embeddings unavailable; using keyword-only results: ${message}`,
-            );
-            return await this.finalizeKeywordOnlyResults({
-              results: keywordResults,
-              temporalDecay: hybrid.temporalDecay,
-              maxResults,
-              minScore,
-            });
-          } else {
-            throw err;
-          }
-        }
-      } finally {
-        releaseSemanticProvider();
       }
-      const hasVector = queryVec.some((v) => v !== 0);
-      const vectorResults = hasVector
-        ? await this.searchVector(
-            queryVec,
-            candidates,
-            sourceFilterList,
-            vectorProviderIdentity,
-          ).catch((err: unknown) => {
-            log.warn(`memory search: vector query failed: ${formatErrorMessage(err)}`);
-            return [];
-          })
-        : [];
+    } finally {
+      releaseSemanticProvider();
+    }
+    const hasVector = queryVec.some((v) => v !== 0);
+    const vectorResults = hasVector
+      ? await this.searchVector(
+          queryVec,
+          candidates,
+          sourceFilterList,
+          vectorProviderIdentity,
+        ).catch((err: unknown) => {
+          log.warn(`memory search: vector query failed: ${formatErrorMessage(err)}`);
+          return [];
+        })
+      : [];
 
-      if (!hybrid.enabled || !this.fts.enabled || !this.fts.available) {
-        const decayed = await applyTemporalDecayToHybridResults({
-          results: vectorResults,
-          temporalDecay: hybrid.temporalDecay,
-          workspaceDir: this.workspaceDir,
-        });
-        return applyImportanceMultiplier(decayed)
-          .toSorted(
-            (left, right) =>
-              right.score - left.score ||
-              left.path.localeCompare(right.path) ||
-              left.startLine - right.startLine ||
-              left.endLine - right.endLine,
-          )
-          .filter((entry) => entry.score >= minScore)
-          .slice(0, maxResults);
-      }
-
-      const merged = await this.mergeHybridResults({
-        query: cleaned,
-        vector: vectorResults,
-        keyword: keywordResults,
-        vectorWeight: hybrid.vectorWeight,
-        textWeight: hybrid.textWeight,
-        mmr: hybrid.mmr,
+    if (!hybrid.enabled || !this.fts.enabled || !this.fts.available) {
+      const decayed = await applyTemporalDecayToHybridResults({
+        results: vectorResults,
         temporalDecay: hybrid.temporalDecay,
+        workspaceDir: this.workspaceDir,
       });
-      const strict = merged.filter((entry) => entry.score >= minScore);
-      if (strict.length > 0 || keywordResults.length === 0) {
-        return strict.slice(0, maxResults);
-      }
+      return applyImportanceMultiplier(decayed)
+        .toSorted(
+          (left, right) =>
+            right.score - left.score ||
+            left.path.localeCompare(right.path) ||
+            left.startLine - right.startLine ||
+            left.endLine - right.endLine,
+        )
+        .filter((entry) => entry.score >= minScore)
+        .slice(0, maxResults);
+    }
 
-      // Hybrid defaults can produce keyword-only matches below minScore after
-      // BM25 normalization and textWeight scaling. Preserve FTS-backed lexical
-      // hits when they are the only relevant results.
-      const relaxedMinScore = 0;
-      const keywordKeys = new Set(
-        keywordResults.map(
-          (entry) => `${entry.source}:${entry.path}:${entry.startLine}:${entry.endLine}`,
-        ),
-      );
-      return this.selectScoredResults(
-        merged.filter((entry) =>
-          keywordKeys.has(`${entry.source}:${entry.path}:${entry.startLine}:${entry.endLine}`),
-        ),
-        maxResults,
-        minScore,
-        relaxedMinScore,
-      );
+    const merged = await this.mergeHybridResults({
+      query: cleaned,
+      vector: vectorResults,
+      keyword: keywordResults,
+      vectorWeight: hybrid.vectorWeight,
+      textWeight: hybrid.textWeight,
+      mmr: hybrid.mmr,
+      temporalDecay: hybrid.temporalDecay,
     });
+    const strict = merged.filter((entry) => entry.score >= minScore);
+    if (strict.length > 0 || keywordResults.length === 0) {
+      return strict.slice(0, maxResults);
+    }
+
+    // Hybrid defaults can produce keyword-only matches below minScore after
+    // BM25 normalization and textWeight scaling. Preserve FTS-backed lexical
+    // hits when they are the only relevant results.
+    const relaxedMinScore = 0;
+    const keywordKeys = new Set(
+      keywordResults.map(
+        (entry) => `${entry.source}:${entry.path}:${entry.startLine}:${entry.endLine}`,
+      ),
+    );
+    return this.selectScoredResults(
+      merged.filter((entry) =>
+        keywordKeys.has(`${entry.source}:${entry.path}:${entry.startLine}:${entry.endLine}`),
+      ),
+      maxResults,
+      minScore,
+      relaxedMinScore,
+    );
   }
 
   private selectScoredResults<T extends MemorySearchResult & { score: number }>(
@@ -2334,6 +2380,7 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     this.closePromise = closeOperation;
     try {
       await closeOperation;
+      TRANSIENT_INDEX_MANAGERS.delete(this);
     } catch (err) {
       if (this.closePromise === closeOperation) {
         this.closePromise = null;

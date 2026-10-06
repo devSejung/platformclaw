@@ -1,4 +1,7 @@
 // Canonical shared-SQLite store for managed outgoing image metadata.
+import fs from "node:fs";
+import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import type { Insertable, Selectable } from "kysely";
 import {
   executeSqliteQuerySync,
@@ -38,6 +41,32 @@ export type ManagedImageRecord = {
   alt: string;
   original: ManagedImageRecordVariant;
 };
+
+export function resolveManagedImageOriginalPath(record: ManagedImageRecord): string {
+  if (
+    !path.isAbsolute(record.original.mediaRoot) ||
+    record.original.mediaSubdir !== MANAGED_OUTGOING_ORIGINALS_SUBDIR ||
+    !record.original.mediaId ||
+    record.original.mediaId.includes("/") ||
+    record.original.mediaId.includes("\\") ||
+    record.original.mediaId.includes("\0")
+  ) {
+    throw new Error("Managed image record has an unsafe media identity");
+  }
+  return path.join(record.original.mediaRoot, record.original.mediaSubdir, record.original.mediaId);
+}
+
+function canonicalManagedImageOriginal(record: ManagedImageRecord): string {
+  const filePath = resolveManagedImageOriginalPath(record);
+  try {
+    return fs.realpathSync(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return path.resolve(filePath);
+    }
+    throw error;
+  }
+}
 
 export type ManagedImageRecordDatabase = Pick<
   OpenClawStateKyselyDatabase,
@@ -149,8 +178,40 @@ export function listManagedImageRecordEntries(params: {
   }));
 }
 
+function readPendingManagedImageRows(db: DatabaseSync) {
+  return executeSqliteQuerySync(
+    db,
+    getNodeSqliteKysely<ManagedImageRecordDatabase>(db)
+      .selectFrom("managed_outgoing_image_records")
+      .selectAll()
+      .where("cleanup_pending", "=", 1),
+  ).rows;
+}
+
 export function insertManagedImageRecord(record: ManagedImageRecord, stateDir?: string): void {
+  // Plan filesystem identities before the transaction, then validate the durable
+  // cleanup claims in the same commit that would publish a new file reference.
+  const database = openOpenClawStateDatabase(stateDatabaseOptions(stateDir));
+  const pending = readPendingManagedImageRows(database.db).map(managedImageRecordFromRow);
+  const original = canonicalManagedImageOriginal(record);
+  const deletingOriginal = pending.some(
+    (entry) => canonicalManagedImageOriginal(entry) === original,
+  );
+  const planned = new Map(pending.map((entry) => [entry.attachmentId, entry]));
   runOpenClawStateWriteTransaction(({ db }) => {
+    const current = readPendingManagedImageRows(db);
+    if (
+      current.length !== planned.size ||
+      current.some((row) => {
+        const prior = planned.get(row.attachment_id);
+        return !prior || !managedImageRecordsEqual(prior, managedImageRecordFromRow(row));
+      })
+    ) {
+      throw new Error("Managed media cleanup changed; retry publishing the attachment");
+    }
+    if (deletingOriginal) {
+      throw new Error("Cannot reference a managed original while its cleanup is pending");
+    }
     executeSqliteQuerySync(
       db,
       getNodeSqliteKysely<ManagedImageRecordDatabase>(db)
@@ -243,10 +304,11 @@ export function claimManagedImageRecordCleanupIfCurrent(
   }, stateDatabaseOptions(stateDir));
 }
 
-/** Delete a durably claimed row only after its attachment file is gone. */
+/** Retire a claim after unlink, or atomically verify a retained original's surviving owner. */
 export function deleteClaimedManagedImageRecord(
   planned: ManagedImageRecord,
   stateDir?: string,
+  options?: { retainedOriginalOwners: readonly ManagedImageRecord[] },
 ): boolean {
   return runOpenClawStateWriteTransaction(({ db }) => {
     const stateDb = getNodeSqliteKysely<ManagedImageRecordDatabase>(db);
@@ -263,6 +325,38 @@ export function deleteClaimedManagedImageRecord(
       !managedImageRecordsEqual(managedImageRecordFromRow(row), planned)
     ) {
       return false;
+    }
+    if (options) {
+      const owners = options.retainedOriginalOwners.filter(
+        (owner) => owner.attachmentId !== planned.attachmentId,
+      );
+      const currentOwners =
+        owners.length === 0
+          ? []
+          : executeSqliteQuerySync(
+              db,
+              stateDb
+                .selectFrom("managed_outgoing_image_records")
+                .selectAll()
+                .where(
+                  "attachment_id",
+                  "in",
+                  owners.map((owner) => owner.attachmentId),
+                ),
+            ).rows;
+      // Two processes may both have observed the other owner before reaching
+      // this commit. The last surviving claim must remain until its file is removed.
+      if (
+        !currentOwners.some((currentOwner) =>
+          owners.some(
+            (owner) =>
+              owner.attachmentId === currentOwner.attachment_id &&
+              managedImageRecordsEqual(owner, managedImageRecordFromRow(currentOwner)),
+          ),
+        )
+      ) {
+        return false;
+      }
     }
     executeSqliteQuerySync(
       db,

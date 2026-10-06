@@ -70,6 +70,41 @@ export function projectSpaceRecallResult(
     throw new ControlPlaneStateError("Space recall unavailable");
   }
   if (params.operation === "search") {
+    if (raw.ambiguousAuthor === true) {
+      const candidates = Array.isArray(raw.authors) ? raw.authors.filter(isRecord) : [];
+      const authors: Array<Record<string, unknown>> = [];
+      const result = {
+        results: [],
+        indexing: false,
+        count: 0,
+        ambiguousAuthor: true,
+        authors,
+        windowLimited: false,
+        guidance:
+          "Multiple authors match. Ask which person the user means, then repeat the search with their returned authorId. No conversation text has been searched or read. Narrow authorName if the candidate list is incomplete.",
+      };
+      for (const author of candidates.slice(0, 20)) {
+        if (typeof author.authorId !== "string" || typeof author.authorName !== "string") {
+          continue;
+        }
+        authors.push({
+          authorId: author.authorId,
+          authorName: boundedText(author.authorName, 256),
+          ...(typeof author.spaceName === "string"
+            ? { spaceName: boundedText(author.spaceName, 256) }
+            : {}),
+          ...(typeof author.conversationTitle === "string"
+            ? { conversationTitle: boundedText(author.conversationTitle, 400) }
+            : {}),
+        });
+        if (jsonBytes(result) > 8 * 1024) {
+          authors.pop();
+          break;
+        }
+      }
+      result.windowLimited = authors.length < candidates.length;
+      return result;
+    }
     const candidates = Array.isArray(raw.results) ? raw.results.filter(isRecord).slice(0, 20) : [];
     const offset = params.cursor ? Number(params.cursor) : 0;
     const limit = params.limit ?? 5;
@@ -82,8 +117,11 @@ export function projectSpaceRecallResult(
       count: 0,
       moreAvailable: candidates.length > offset,
       windowLimited: candidates.length >= 20 || raw.windowLimited === true,
+      ...(raw.discoveryOnly === true ? { discoveryOnly: true } : {}),
       guidance:
-        "Read a returned source for detail; narrow the query for evidence beyond this bounded candidate window.",
+        raw.discoveryOnly === true
+          ? "These are conversation titles and authors, not evidence of what was discussed. Read a returned conversationId for shared questions and final answers, or add topic keywords with its ownerId as authorId. Narrow the author or Space beyond this bounded candidate window."
+          : "Read a returned source for detail; narrow the query for evidence beyond this bounded candidate window. Empty results, indexing, windowLimited, or truncated are not permission denials; refine the search or report no evidence in the searched window.",
     };
     for (const candidate of candidates.slice(offset, offset + limit)) {
       const snippet =

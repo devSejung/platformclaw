@@ -94,4 +94,28 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
     "저장된 수정본을 불러왔습니다. 변경 내용을 다시 반영한 뒤 저장하세요.",
   "platformClaw.spaces.refreshDraftHint":
     "새로고침해도 작성 중인 내용은 유지됩니다. 저장된 수정본이 변경되었다면 편집기에서 확인한 뒤 다시 시도하세요.",
+  "platformClaw.spaces.renameConversation": "대화 이름 바꾸기",
+  "platformClaw.spaces.conversationRenamed": "대화 이름을 변경했습니다.",
+  "platformClaw.spaces.deleteSpace": "Space 삭제",
+  "platformClaw.spaces.leaveSpace": "Space 나가기",
+  "platformClaw.spaces.deleteSpaceNotice":
+    "Space와 페이지, 소유 관계를 확인할 수 있는 대화 기록을 실제로 삭제합니다. 모든 구성원의 접근이 차단되고 Space 목록과 Space 검색에서 제거됩니다. 되돌릴 수 없습니다. 소유 기록이 없는 이전 보관본·파생 메모리, 공유되거나 소유 관계를 확인할 수 없는 첨부 파일과 미디어 변환본, 별도로 생성된 하위 대화, 내려받은 사본·외부 백업은 남을 수 있습니다.",
+  "platformClaw.spaces.leaveSpaceNotice":
+    "이 Space와 대화에 더 이상 접근할 수 없습니다. 내가 남긴 공유 질문과 답변은 남아 있는 구성원과 Space 에이전트가 계속 참고할 수 있습니다.",
+  "platformClaw.spaces.lastOwnerNotice":
+    "마지막 관리자는 다른 구성원을 관리자로 지정한 뒤 나갈 수 있습니다.",
+  "platformClaw.spaces.confirmSpaceName": "삭제할 Space 이름",
+  "platformClaw.spaces.confirmSpaceNameMismatch": "위에 표시된 Space 이름을 정확히 입력하세요.",
+  "platformClaw.spaces.spaceDeleted": "모든 구성원에게서 Space를 삭제했습니다.",
+  "platformClaw.spaces.spaceLeft": "Space에서 나왔습니다.",
+  "platformClaw.spaces.deletionPending":
+    "삭제가 완료되지 않았습니다. 모든 구성원의 접근은 차단되었습니다. 저장된 데이터 삭제를 완료하려면 다시 시도하세요.",
+  "platformClaw.spaces.retryDeletion": "삭제 다시 시도",
+  "platformClaw.spaces.managementRetryHint":
+    "Space가 변경되었다면 취소한 뒤 새로고침하고 다시 시도하세요.",
+  "platformClaw.spaces.leaveRetryHint":
+    "이미 접근 권한이 제거되었다면 이 창을 닫기 전에 다시 시도하여 정리를 완료하세요. Space가 변경되었다면 취소한 뒤 새로고침하세요.",
+  "platformClaw.spaces.leavePending":
+    "접근 권한이 제거되었습니다. 아직 중지해야 할 작업이 있습니다. 나가기를 다시 시도하여 정리를 완료하세요.",
+  "platformClaw.spaces.retryLeaving": "나가기 다시 시도",
 };

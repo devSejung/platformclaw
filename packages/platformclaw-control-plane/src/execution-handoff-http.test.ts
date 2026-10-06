@@ -667,3 +667,24 @@ it("accepts bounded trusted native-session authorization and rejects incomplete 
     parseSpaceReadRequest({ ...params, targetSessionKey: "x".repeat(1001) }, "person_one"),
   ).toThrow("Invalid Space read");
 });
+
+it.each([{ authorName: "승언" }, { authorId: "author-one", query: "PMIC" }])(
+  "preserves author recall selectors %j",
+  (selector) => {
+    const input = { operation: "search", ...selector };
+    expect(parseSpaceReadRequest(input, "person_one")).toEqual({ agentId: "person_one", ...input });
+  },
+);
+
+it.each([
+  { operation: "get", authorName: "Alice" },
+  { operation: "native", authorId: "author-one", nativeTool: "sessions_history", broad: false },
+  { operation: "search", authorName: "Alice", authorId: "author-one" },
+  { operation: "search", authorName: " " },
+  { operation: "search", authorName: 123 },
+  { operation: "search", authorName: "a".repeat(241) },
+  { operation: "search", authorId: " " },
+  { operation: "search", authorId: "a".repeat(129) },
+])("rejects invalid author recall selectors %j", (input) => {
+  expect(() => parseSpaceReadRequest(input, "person_one")).toThrow("Invalid Space read");
+});

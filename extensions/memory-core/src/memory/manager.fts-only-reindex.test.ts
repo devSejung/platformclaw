@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { closeAllMemorySearchManagers, getMemorySearchManager } from "./index.js";
 import type { MemoryIndexMeta } from "./manager-reindex-state.js";
 import { closeAllMemoryIndexManagers, type MemoryIndexManager } from "./manager.js";
+import { purgeSessionMemoryBeforeRun } from "./session-purge.js";
 import "./test-runtime-mocks.js";
 
 let providerConstructionError: Error | null = null;
@@ -16,6 +17,7 @@ let providerConstructionGate: Promise<void> | null = null;
 let providerAvailable = false;
 let providerEmbeddingError: Error | null = null;
 let providerQueryCalls = 0;
+let providerQueryGate: Promise<void> | null = null;
 const createEmbeddingProviderMock = vi.hoisted(() =>
   vi.fn(async () => {
     await providerConstructionGate;
@@ -36,6 +38,7 @@ const createEmbeddingProviderMock = vi.hoisted(() =>
           },
           embedQuery: async () => {
             providerQueryCalls += 1;
+            await providerQueryGate;
             return [1, 0];
           },
         },
@@ -89,6 +92,7 @@ describe("memory manager FTS-only reindex", () => {
     providerAvailable = false;
     providerEmbeddingError = null;
     providerQueryCalls = 0;
+    providerQueryGate = null;
     workspaceDir = path.join(fixtureRoot, `case-${caseId++}`);
     await fs.mkdir(path.join(workspaceDir, "memory"), { recursive: true });
     await fs.writeFile(path.join(workspaceDir, "MEMORY.md"), "Alpha topic\n\nKeep this note.");
@@ -113,7 +117,11 @@ describe("memory manager FTS-only reindex", () => {
   });
 
   async function createManager(
-    params: { provider?: string; vectorEnabled?: boolean } = {},
+    params: {
+      provider?: string;
+      vectorEnabled?: boolean;
+      sources?: ("memory" | "sessions")[];
+    } = {},
   ): Promise<MemoryIndexManager> {
     const store =
       params.vectorEnabled === undefined
@@ -128,6 +136,7 @@ describe("memory manager FTS-only reindex", () => {
         search: {
           provider: params.provider ?? "auto",
           model: "",
+          ...(params.sources ? { sources: params.sources, rememberAcrossConversations: true } : {}),
           store,
           cache: { enabled: false },
           sync: { watch: false, onSessionStart: false, onSearch: false },
@@ -172,6 +181,58 @@ describe("memory manager FTS-only reindex", () => {
       sources: ["memory"],
     });
   }
+
+  it("drops captured session snippets when another process purges during query embedding", async () => {
+    providerAvailable = true;
+    const memoryManager = await createManager({
+      vectorEnabled: false,
+      sources: ["memory", "sessions"],
+    });
+    await memoryManager.sync({ force: true });
+    const sourcePath = "sessions/main/deleted.jsonl";
+    const observer = new DatabaseSync(indexPath);
+    const releaseQuery = Promise.withResolvers<void>();
+    try {
+      observer
+        .prepare(`INSERT INTO memory_index_sources (path, source, hash, mtime, size)
+        VALUES (?, 'sessions', 'captured-version', 1, 1)`)
+        .run(sourcePath);
+      observer
+        .prepare(`INSERT INTO memory_index_chunks
+        (id, path, source, start_line, end_line, hash, model, text, embedding, updated_at)
+        VALUES ('captured', ?, 'sessions', 1, 1, 'captured-hash', 'mock-embed', 'alpha deleted secret', '[]', 1)`)
+        .run(sourcePath);
+      observer
+        .prepare(`INSERT INTO memory_index_chunks_fts
+        (text, id, path, source, model, start_line, end_line)
+        VALUES ('alpha deleted secret', 'captured', ?, 'sessions', 'mock-embed', 1, 1)`)
+        .run(sourcePath);
+      providerQueryGate = releaseQuery.promise;
+      const pendingSearch = memoryManager.search("alpha", { sources: ["sessions"], minScore: 0 });
+      await vi.waitFor(() => expect(providerQueryCalls).toBe(1));
+      // Bypass this process's manager retirement to model an independently
+      // coordinated writer. The search already holds the old FTS result.
+      await purgeSessionMemoryBeforeRun(
+        {
+          cfg: {},
+          agentId: "main",
+          sessionKey: "agent:main:deleted",
+          sessionIds: ["deleted"],
+          archiveDirectory: path.join(workspaceDir, "state", "agents", "main", "sessions"),
+        },
+        async () => {},
+      );
+      expect(
+        observer.prepare("SELECT id FROM memory_index_chunks WHERE source = 'sessions'").all(),
+      ).toEqual([]);
+      releaseQuery.resolve();
+      await expect(pendingSearch).resolves.toEqual([]);
+    } finally {
+      releaseQuery.resolve();
+      providerQueryGate = null;
+      observer.close();
+    }
+  });
 
   it("preserves indexed chunks across forced reindex in FTS-only mode", async () => {
     const memoryManager = await createManager();

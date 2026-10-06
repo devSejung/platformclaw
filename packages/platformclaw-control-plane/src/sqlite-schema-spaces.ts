@@ -1,6 +1,20 @@
 import type { DatabaseSync } from "node:sqlite";
 import { runImmediateTransaction } from "./kysely-sync.js";
 export const SPACE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS collaboration_space_deletions (
+ space_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES platform_users(id),
+ name TEXT NOT NULL, agent_id TEXT NOT NULL, revision INTEGER NOT NULL,
+ creator_id TEXT NOT NULL REFERENCES platform_users(id), request_id TEXT NOT NULL,
+ owner_ids_json TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('deleting','deleted')), created_at INTEGER NOT NULL,
+ UNIQUE(creator_id,request_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS collaboration_space_departures (
+ space_id TEXT NOT NULL REFERENCES collaboration_spaces(id) ON DELETE CASCADE,
+ user_id TEXT NOT NULL REFERENCES platform_users(id), revision INTEGER NOT NULL,
+ pending INTEGER NOT NULL CHECK(pending IN (0,1)),
+ PRIMARY KEY(space_id,user_id)
+) STRICT;
 CREATE TABLE IF NOT EXISTS collaboration_spaces (
  id TEXT PRIMARY KEY, name TEXT NOT NULL, agent_id TEXT NOT NULL UNIQUE,
  creator_id TEXT NOT NULL REFERENCES platform_users(id), request_id TEXT NOT NULL,

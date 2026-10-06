@@ -16,6 +16,8 @@ export type WikiHubMemoryClient = {
     agentId: string;
     operation: string;
     query?: string;
+    authorName?: string;
+    authorId?: string;
     spaceId?: string;
     pageId?: string;
     conversationId?: string;

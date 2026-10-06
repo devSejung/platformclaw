@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   encodeSessionArchiveContent,
   materializeSessionArchiveForRead,
@@ -88,4 +88,40 @@ describe("archive compression", () => {
     );
     expect(parseUsageCountedSessionIdFromFileName(compressed)).toBe("sess");
   });
+
+  it.each(["deleted", "replaced"] as const)(
+    "removes a late plaintext cache when its source was %s during materialization",
+    (mutation) => {
+      const encoded = encodeSessionArchiveContent("private transcript\n");
+      if (encoded.suffix === "") {
+        return;
+      }
+      const dir = makeTempDir();
+      const archivePath = path.join(
+        dir,
+        `session.jsonl.deleted.2026-07-11T00-00-00.000Z${encoded.suffix}`,
+      );
+      fs.writeFileSync(archivePath, encoded.bytes);
+      const rename = fs.renameSync;
+      let publishedPath: string | undefined;
+      const spy = vi.spyOn(fs, "renameSync").mockImplementation((source, destination) => {
+        publishedPath = String(destination);
+        fs.rmSync(archivePath);
+        if (mutation === "replaced") {
+          fs.writeFileSync(
+            archivePath,
+            encodeSessionArchiveContent("replacement transcript with different bytes\n").bytes,
+          );
+        }
+        rename(source, destination);
+      });
+      try {
+        expect(() => materializeSessionArchiveForRead(archivePath)).toThrow();
+        expect(publishedPath).toBeDefined();
+        expect(fs.existsSync(publishedPath!)).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
 });

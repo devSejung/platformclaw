@@ -180,20 +180,22 @@ describe("memory manager reindex recovery", () => {
     ).toEqual(publishedRows);
   });
 
-  it("rejects a full reindex while another process owns the build lock", async () => {
-    const memoryManager = await openManager(createCfg({ provider: "none", sources: ["memory"] }));
-    const harness = memoryManager as unknown as ReindexHarness;
-    const databasePath = resolveOpenClawAgentSqlitePath({ agentId: "main" });
-    const lock = acquireMemoryReindexLock(databasePath);
+  it.each([false, true])(
+    "rejects sync before corpus reads while another process owns the lock (force=%s)",
+    async (force) => {
+      const memoryManager = await openManager(createCfg({ provider: "none", sources: ["memory"] }));
+      const databasePath = resolveOpenClawAgentSqlitePath({ agentId: "main" });
+      const lock = acquireMemoryReindexLock(databasePath);
 
-    try {
-      await expect(harness.runInPlaceReindex({ reason: "test", force: true })).rejects.toThrow(
-        /another reindex is active/,
-      );
-    } finally {
-      lock.release();
-    }
-  });
+      try {
+        await expect(memoryManager.sync({ reason: "test", force })).rejects.toThrow(
+          /another reindex is active/,
+        );
+      } finally {
+        lock.release();
+      }
+    },
+  );
 
   it("forces source-wide session sync when retrying a failed full reindex", async () => {
     const memoryManager = await openManager(

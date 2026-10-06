@@ -10,3 +10,5 @@ export {
   emitSessionUnboundLifecycleEvent,
   performGatewaySessionReset,
 } from "../session-reset-service.js";
+export { purgeManagedOutgoingMediaForSession } from "../managed-image-attachments.js";
+export { withActiveMemorySessionPurge } from "../../plugins/memory-runtime.js";

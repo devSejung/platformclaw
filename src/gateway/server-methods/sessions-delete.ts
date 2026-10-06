@@ -1,3 +1,4 @@
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 // Destructive session deletion and lifecycle cleanup.
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
@@ -85,10 +86,20 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
     }
 
     const deleteTranscript = typeof p.deleteTranscript === "boolean" ? p.deleteTranscript : true;
+    if (p.purgeTranscript === true && p.deleteTranscript === false) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "Transcript purge cannot preserve the transcript."),
+      );
+      return;
+    }
     const {
       cleanupSessionBeforeMutation,
       emitGatewaySessionEndPluginHook,
       emitSessionUnboundLifecycleEvent,
+      purgeManagedOutgoingMediaForSession,
+      withActiveMemorySessionPurge,
     } = await loadSessionsRuntimeModule();
 
     const initialDeleteEntry = loadSessionEntry(key, {
@@ -328,6 +339,19 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
           respond(false, undefined, mutationCleanupError);
           return undefined;
         }
+        if (p.purgeTranscript === true) {
+          // Keep transcript ownership until durable media cleanup succeeds so retries
+          // cannot acknowledge a half-purged session after losing its owner row.
+          await purgeManagedOutgoingMediaForSession({
+            sessionKey: target.canonicalKey ?? key,
+            agentId: requestedAgentId ?? target.agentId,
+          });
+          handleSessionStateSessionDeleted(
+            target.canonicalKey ?? key,
+            requestedAgentId ?? target.agentId,
+            { requireSuccess: true },
+          );
+        }
         const postCleanupTarget = loadAccessorSessionEntryForGatewayTarget({
           key,
           cfg,
@@ -347,8 +371,26 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
           postCleanupEntry?.incognito === true || isIncognitoSessionKey(target.canonicalKey);
         const deletionParams = {
           agentId: target.agentId,
-          archiveTranscript: incognito ? false : deleteTranscript,
-          deleteTranscriptWithoutArchive: incognito,
+          archiveTranscript: incognito || p.purgeTranscript === true ? false : deleteTranscript,
+          deleteTranscriptWithoutArchive: incognito || p.purgeTranscript === true,
+          purgeTranscript: p.purgeTranscript === true,
+          ...(p.purgeTranscript === true
+            ? {
+                withTranscriptPurge: (
+                  sources: { sessionIds: readonly string[]; archiveDirectory: string },
+                  run: () => ReturnType<typeof deleteSessionEntryLifecycle>,
+                ) =>
+                  withActiveMemorySessionPurge(
+                    {
+                      ...sources,
+                      cfg,
+                      agentId: requestedAgentId ?? target.agentId,
+                      sessionKey: target.canonicalKey,
+                    },
+                    run,
+                  ),
+              }
+            : {}),
           expectedEntry: postCleanupEntry,
           expectedLifecycleRevision,
           expectedSessionId,
@@ -361,18 +403,39 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
         };
         // Catalog and other plugin-owned sessions keep model selection locked,
         // so deletion must use the exact-row owner-validated lifecycle seam.
-        const result =
-          postCleanupEntry && pluginOwnerId && isModelSelectionLocked(postCleanupEntry)
-            ? await rollbackPluginOwnedSessionEntryLifecycle({
-                ...deletionParams,
-                expectedEntry: postCleanupEntry,
-                expectedPluginOwnerId: pluginOwnerId,
-                target: {
-                  canonicalKey: postCleanupTarget.target.canonicalKey,
-                  storeKeys: postCleanupTarget.target.storeKeys,
-                },
-              })
-            : await deleteSessionEntryLifecycle(deletionParams);
+        let result: Awaited<ReturnType<typeof deleteSessionEntryLifecycle>>;
+        try {
+          result =
+            postCleanupEntry && pluginOwnerId && isModelSelectionLocked(postCleanupEntry)
+              ? await rollbackPluginOwnedSessionEntryLifecycle({
+                  ...deletionParams,
+                  expectedEntry: postCleanupEntry,
+                  expectedPluginOwnerId: pluginOwnerId,
+                  target: {
+                    canonicalKey: postCleanupTarget.target.canonicalKey,
+                    storeKeys: postCleanupTarget.target.storeKeys,
+                  },
+                })
+              : await deleteSessionEntryLifecycle(deletionParams);
+        } catch (error) {
+          if (
+            isRecord(error) &&
+            error.reason === "session-purge-unsupported" &&
+            typeof error.backend === "string"
+          ) {
+            respond(
+              false,
+              undefined,
+              errorShape(
+                ErrorCodes.INVALID_REQUEST,
+                "Permanent session cleanup requires administrator support for its data owner.",
+                { details: { reason: "session-purge-unsupported", backend: error.backend } },
+              ),
+            );
+            return undefined;
+          }
+          throw error;
+        }
         if (result.expectedEntryMismatch) {
           respondSessionChanged();
           return undefined;
@@ -410,10 +473,12 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
     if (deleted) {
       // requestedAgentId wins: "global" canonical keys resolve to the default store
       // agent, which would purge the wrong agent's rows for explicit-agent deletes.
-      handleSessionStateSessionDeleted(
-        target.canonicalKey ?? key,
-        requestedAgentId ?? resolveSessionStoreAgentId(cfg, target.canonicalKey ?? key),
-      );
+      if (p.purgeTranscript !== true) {
+        handleSessionStateSessionDeleted(
+          target.canonicalKey ?? key,
+          requestedAgentId ?? resolveSessionStoreAgentId(cfg, target.canonicalKey ?? key),
+        );
+      }
       let worktree: ReturnType<typeof managedWorktrees.findLiveByOwner> = undefined;
       try {
         worktree = managedWorktrees.findLiveByOwner("session", target.canonicalKey);
@@ -437,6 +502,18 @@ export const sessionDeleteHandlers: GatewayRequestHandlers = {
         key: target.canonicalKey,
         deleted,
         archived,
+        ...(p.purgeTranscript === true
+          ? {
+              purged: true,
+              purgeScope: "owned-session-data",
+              retainedData: [
+                "unattributed-archives",
+                "untracked-derived-memory",
+                "unowned-attachments-and-media-renditions",
+                "external-copies",
+              ],
+            }
+          : {}),
         ...(worktreePreserved ? { worktreePreserved } : {}),
       },
       undefined,

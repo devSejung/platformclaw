@@ -1,6 +1,10 @@
 import { html, nothing } from "lit";
 import { property } from "lit/decorators.js";
-import type { SpaceConversation } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
+import type {
+  SpaceConversation,
+  SpacePage,
+} from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
+import type { SpaceMessage } from "../../../packages/platformclaw-control-plane/src/space-service.js";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import type { ChatHistoryPagination } from "../pages/chat/chat-history-pagination.ts";
 import {
@@ -92,6 +96,55 @@ export class SpaceConversationHistoryState {
         this.loading = false;
         this.changed();
       }
+    }
+  }
+}
+
+/** Shared Q&A and read-only personal history share the page selection's access lifetime. */
+export async function loadSpacePageHistory(options: {
+  page: SpacePage;
+  conversation: SpaceConversation | null;
+  anchor: string;
+  older: boolean;
+  history: SpaceConversationHistoryState;
+  request: <T>(method: string, params: Record<string, unknown>) => Promise<T>;
+  isCurrent: () => boolean;
+  onMessages: (messages: SpaceMessage[]) => void;
+  onError: (error: unknown) => void;
+}) {
+  const { page, conversation, history: state, older } = options;
+  // The canonical pane owns writable history, streaming and tool state.
+  if (conversation?.canWrite) {
+    return;
+  }
+  try {
+    if (conversation) {
+      await state.load(
+        (params) =>
+          options.request("conversation.history", {
+            spaceId: page.spaceId,
+            conversationId: conversation.id,
+            ...params,
+          }),
+        older,
+      );
+    } else {
+      const value = await options.request<{ messages: SpaceMessage[] }>("chat.history", {
+        spaceId: page.spaceId,
+        pageId: page.id,
+        ...(options.anchor ? { messageId: options.anchor } : {}),
+      });
+      if (options.isCurrent()) {
+        options.onMessages(value.messages);
+      }
+    }
+  } catch (error) {
+    if (options.isCurrent()) {
+      if (!older) {
+        options.onMessages([]);
+        state.clear();
+      }
+      options.onError(error);
     }
   }
 }

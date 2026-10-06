@@ -32,7 +32,7 @@ import {
   resolveFallbackCurrentProviderId,
   resolveMemoryFallbackProviderRequest,
 } from "./manager-provider-state.js";
-import { acquireMemoryReindexLock, type MemoryReindexLockHandle } from "./manager-reindex-lock.js";
+import { acquireMemoryReindexLock } from "./manager-reindex-lock.js";
 import {
   MEMORY_INDEX_PROVENANCE_VERSION,
   resolveConfiguredScopeHash,
@@ -151,6 +151,19 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
   }
 
   protected async runSync(params?: MemorySyncParams) {
+    const dbPath = resolveUserPath(this.settings.store.databasePath);
+    cleanupAgedMemoryReindexTempFiles(dbPath);
+    // Every writer takes the same coordinator before reading transcript data.
+    // Otherwise an incremental sync in another process can republish a purge.
+    const lock = acquireMemoryReindexLock(dbPath);
+    try {
+      await this.runSyncLocked(params);
+    } finally {
+      lock.release();
+    }
+  }
+
+  private async runSyncLocked(params?: MemorySyncParams) {
     // Guard: if an embedding provider is configured but currently unavailable,
     // abort sync to prevent silently degrading an existing semantic vector index
     // to fts-only and wiping existing semantic vectors.
@@ -505,7 +518,6 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
     const dbPath = resolveUserPath(this.settings.store.databasePath);
     const tempDbPath = `${dbPath}.memory-reindex-${randomUUID()}`;
     const originalDb = this.db;
-    let reindexLock: MemoryReindexLockHandle | undefined;
     let tempDb: DatabaseSync | undefined;
     let tempDbClosed = false;
     const originalRetryState = this.snapshotReindexRetryState();
@@ -536,8 +548,6 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
       this.vectorReady = originalState.vectorReady;
     };
     try {
-      cleanupAgedMemoryReindexTempFiles(dbPath);
-      reindexLock = acquireMemoryReindexLock(dbPath);
       const originalRevision = readMemoryDatabaseRevision(originalDb);
       tempDb = openMemoryDatabaseAtPath(tempDbPath, this.settings.store.vector.enabled);
       this.db = tempDb;
@@ -663,11 +673,6 @@ export abstract class MemoryManagerSyncOps extends MemoryManagerSourceSyncOps {
         removeMemoryDatabaseFiles(tempDbPath);
       } catch (err) {
         log.warn(`failed to remove memory reindex shadow database: ${formatErrorMessage(err)}`);
-      }
-      try {
-        reindexLock?.release();
-      } catch (err) {
-        log.warn(`failed to release memory reindex lock for ${dbPath}: ${formatErrorMessage(err)}`);
       }
     }
   }

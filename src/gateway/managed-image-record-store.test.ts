@@ -21,6 +21,7 @@ import {
   listManagedImageRecordEntries,
   MANAGED_OUTGOING_ORIGINALS_SUBDIR,
   readManagedImageRecord,
+  resolveManagedImageOriginalPath,
   type ManagedImageRecord,
   type ManagedImageRecordDatabase,
 } from "./managed-image-record-store.js";
@@ -163,4 +164,74 @@ describe("managed image record SQLite store", () => {
     expect(deleteClaimedManagedImageRecord(planned, stateDir)).toBe(true);
     expect(listManagedImageRecordEntries({ stateDir })).toEqual([]);
   });
+
+  it("keeps the durable final owner when independent cleanup plans observed each other", async () => {
+    const first = record();
+    first.original.mediaRoot = path.join(stateDir, "media");
+    const second = record({
+      ...first,
+      attachmentId: "22222222-2222-4222-8222-222222222222",
+      sessionKey: "agent:other:shared",
+    });
+    const originalPath = resolveManagedImageOriginalPath(first);
+    await fs.mkdir(path.dirname(originalPath), { recursive: true });
+    await fs.writeFile(originalPath, "shared original");
+    insertManagedImageRecord(first, stateDir);
+    insertManagedImageRecord(second, stateDir);
+    // Independent workers plan before either one retires its metadata. Neither
+    // process-local queues nor an in-memory ownership snapshot can choose the last owner.
+    const firstPlan = [second];
+    const secondPlan = [first];
+    expect(claimManagedImageRecordCleanupIfCurrent(first, stateDir)).toBe(true);
+    expect(claimManagedImageRecordCleanupIfCurrent(second, stateDir)).toBe(true);
+    expect(
+      deleteClaimedManagedImageRecord(first, stateDir, { retainedOriginalOwners: firstPlan }),
+    ).toBe(true);
+    closeOpenClawStateDatabaseForTest();
+    expect(
+      deleteClaimedManagedImageRecord(second, stateDir, { retainedOriginalOwners: secondPlan }),
+    ).toBe(false);
+    expect(listManagedImageRecordEntries({ stateDir })).toEqual([
+      { record: second, cleanupPending: true },
+    ]);
+    await expect(fs.readFile(originalPath, "utf8")).resolves.toBe("shared original");
+    await fs.rm(originalPath);
+    expect(deleteClaimedManagedImageRecord(second, stateDir)).toBe(true);
+    expect(listManagedImageRecordEntries({ stateDir })).toEqual([]);
+  });
+
+  it.each([false, true])(
+    "blocks a new reference to a claimed original (directory alias=%s)",
+    async (alias) => {
+      const first = record();
+      first.original.mediaRoot = path.join(stateDir, "media");
+      const originalPath = resolveManagedImageOriginalPath(first);
+      await fs.mkdir(path.dirname(originalPath), { recursive: true });
+      await fs.writeFile(originalPath, "pending cleanup");
+      insertManagedImageRecord(first, stateDir);
+      expect(claimManagedImageRecordCleanupIfCurrent(first, stateDir)).toBe(true);
+      const original = { ...first.original };
+      if (alias) {
+        const mediaAlias = path.join(stateDir, "alias");
+        await fs.symlink(original.mediaRoot, mediaAlias, "junction");
+        original.mediaRoot = mediaAlias;
+      }
+      const next = record({
+        ...first,
+        attachmentId: "22222222-2222-4222-8222-222222222222",
+        sessionKey: "agent:other:new",
+        original,
+      });
+      expect(() => insertManagedImageRecord(next, stateDir)).toThrow("cleanup is pending");
+      expect(listManagedImageRecordEntries({ stateDir })).toEqual([
+        { record: first, cleanupPending: true },
+      ]);
+      // Fresh UUID-backed publication does not share the file being removed.
+      insertManagedImageRecord(
+        { ...next, original: { ...original, mediaId: "fresh.png" } },
+        stateDir,
+      );
+      expect(listManagedImageRecordEntries({ stateDir })).toHaveLength(2);
+    },
+  );
 });

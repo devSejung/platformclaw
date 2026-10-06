@@ -7,6 +7,7 @@ import {
   MODEL_SELECTION_LOCK_REMOVAL_MESSAGE,
   resolveAgentHarnessSessionStoreEntryError,
 } from "../../sessions/agent-harness-session-key.js";
+import { runExclusiveSessionLifecycleMutation } from "../../sessions/session-lifecycle-admission.js";
 import { emitSessionIdentityMutation } from "../../sessions/session-lifecycle-events.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../../state/openclaw-agent-db.generated.js";
@@ -63,6 +64,7 @@ import {
   kickSessionHistoryDiskBudgetMaintenance,
 } from "./session-history-eviction.js";
 import { buildSessionResetBoundaryPlan } from "./session-reset-boundary-event.js";
+import { purgeOwnedSessionTranscriptArtifacts } from "./session-transcript-purge.js";
 import type { SessionEntry } from "./types.js";
 
 // Single-target lifecycle owner: cleanup, reset, guarded delete, and trusted rollback.
@@ -274,6 +276,12 @@ async function deleteSqliteSessionEntryLifecycleInternal(
 ): Promise<DeleteSessionEntryLifecycleResult> {
   const agentId = params.agentId ?? parseAgentSessionKey(params.target.canonicalKey)?.agentId;
   const resolved = resolveSqliteStoreScope(params.storePath, { agentId });
+  if (
+    params.purgeTranscript &&
+    (params.archiveTranscript || !params.deleteTranscriptWithoutArchive)
+  ) {
+    throw new Error("Transcript purge requires non-archiving transcript deletion");
+  }
   try {
     return await deleteSqliteSessionEntryLifecycleLocked(
       resolved,
@@ -285,11 +293,13 @@ async function deleteSqliteSessionEntryLifecycleInternal(
     // Deletion writes an archive per retained generation before reclaiming
     // rows, so usage can spike well past the budget; force a pass instead of
     // waiting up to the throttle interval (or forever, if the agent idles).
-    kickSessionHistoryDiskBudgetMaintenance({
-      ...(params.agentId ? { agentId: params.agentId } : {}),
-      storePath: params.storePath,
-      force: true,
-    });
+    if (!params.purgeTranscript) {
+      kickSessionHistoryDiskBudgetMaintenance({
+        ...(params.agentId ? { agentId: params.agentId } : {}),
+        storePath: params.storePath,
+        force: true,
+      });
+    }
   }
 }
 
@@ -304,7 +314,24 @@ async function deleteSqliteSessionEntryLifecycleLocked(
     const targetSnapshot = readSqliteLifecycleTargetSnapshot(database, params.target);
     const current = targetSnapshot.primary;
     if (!current) {
+      if (
+        params.purgeTranscript &&
+        readSqliteSessionGenerationIdsForKeys(database, [
+          params.target.canonicalKey,
+          ...params.target.storeKeys,
+        ]).length > 0
+      ) {
+        throw Object.assign(
+          new Error(
+            "Retained session history has no active owner; restore its session before purging",
+          ),
+          { reason: "session-purge-unsupported", backend: "session-store" },
+        );
+      }
       return null;
+    }
+    if (params.purgeTranscript && !shouldDeleteSqliteSessionEntryLifecycle(current.entry, params)) {
+      return { expectedEntryMismatch: true as const };
     }
     if (current.entry.modelSelectionLocked === true && !allowLockedEntryRemoval) {
       throw new Error(MODEL_SELECTION_LOCK_REMOVAL_MESSAGE);
@@ -376,138 +403,204 @@ async function deleteSqliteSessionEntryLifecycleLocked(
   if (!prepared) {
     return { archivedTranscripts: [], deleted: false };
   }
-
-  const historicalArchivedTranscripts: SessionLifecycleArchivedTranscript[] = [];
-  for (const sessionId of prepared.historicalGenerationIds) {
-    const plan = await runExclusiveSqliteSessionWrite(resolved, async () => {
-      const database = openOpenClawAgentDatabase(toDatabaseOptions(resolved));
-      assertSqliteLifecycleTargetSnapshotUnchanged(
-        prepared.targetSnapshot,
-        readSqliteLifecycleTargetSnapshot(database, params.target),
-        "delete session entry",
-      );
-      const referencedAfterDelete = readReferencedSqliteSessionIdsAfterTargetMutation(
-        database,
-        params.target,
-      );
-      if (referencedAfterDelete.has(sessionId)) {
-        return null;
-      }
-      const admissionProtected = collectAdmissionProtectedSessionIds({
-        database,
-        storePath: params.storePath,
-      });
-      if (admissionProtected.has(sessionId)) {
-        throw new Error(
-          `cannot delete session history while work is in flight for ${sessionId}; retry after the run completes`,
-        );
-      }
-      return planSqliteSessionStateDeleteIfUnreferenced({
-        archiveDirectory: prepared.archiveDirectory,
-        archiveTranscript: params.archiveTranscript,
-        database,
-        reason: "deleted",
-        referencedSessionIds: referencedAfterDelete,
-        sessionId,
-      });
-    });
-    if (!plan) {
-      continue;
-    }
-    const materializedGeneration = await materializeSqliteSessionStateDeletePlans([plan]);
-    const archivedGeneration = await runExclusiveSqliteSessionWrite(resolved, async () => {
-      let committed: SessionLifecycleArchivedTranscript[] = [];
-      runOpenClawAgentWriteTransaction((transactionDb) => {
-        assertSqliteLifecycleTargetSnapshotUnchanged(
-          prepared.targetSnapshot,
-          readSqliteLifecycleTargetSnapshot(transactionDb, params.target),
-          "delete session entry",
-        );
-        const fenceAtDelete = collectAdmissionProtectedSessionIds({
-          database: transactionDb,
-          storePath: params.storePath,
-        });
-        if (fenceAtDelete.has(sessionId)) {
-          throw new Error(
-            `cannot delete session history while work is in flight for ${sessionId}; retry after the run completes`,
-          );
-        }
-        committed = deleteMaterializedSqliteSessionStatePlans(
-          transactionDb,
-          materializedGeneration,
-        );
-      }, toDatabaseOptions(resolved));
-      return committed;
-    });
-    // Publish each committed generation immediately: a later archive or
-    // transaction failure aborts the deletion, and observers must still see
-    // the removals that already happened (retry completes the remainder).
-    emitArchivedSqliteTranscriptUpdates(archivedGeneration);
-    historicalArchivedTranscripts.push(...archivedGeneration);
+  if ("expectedEntryMismatch" in prepared) {
+    return { archivedTranscripts: [], deleted: false, expectedEntryMismatch: true };
   }
 
-  // Archive materialization is the expensive phase. It must run between short
-  // writer-lane sections so unrelated writes to this store can keep progressing.
-  const materializedPlans = await materializeSqliteSessionStateDeletePlans(prepared.entryPlans);
-  const result = await runExclusiveSqliteSessionWrite(resolved, async () => {
-    let committed: DeleteSessionEntryLifecycleResult = {
-      archivedTranscripts: [],
-      deleted: false,
-    };
-    runOpenClawAgentWriteTransaction((transactionDb) => {
-      const transactionSnapshot = readSqliteLifecycleTargetSnapshot(transactionDb, params.target);
-      assertSqliteLifecycleTargetSnapshotUnchanged(
-        prepared.targetSnapshot,
-        transactionSnapshot,
-        "delete session entry",
-      );
-      const transactionEntry = transactionSnapshot.primary?.entry;
-      if (!shouldDeleteSqliteSessionEntryLifecycle(transactionEntry, params)) {
-        return;
+  const deletePrepared = async () => {
+    const historicalArchivedTranscripts: SessionLifecycleArchivedTranscript[] = [];
+    for (const sessionId of prepared.historicalGenerationIds) {
+      const deleteGeneration = async () => {
+        const plan = await runExclusiveSqliteSessionWrite(resolved, async () => {
+          const database = openOpenClawAgentDatabase(toDatabaseOptions(resolved));
+          assertSqliteLifecycleTargetSnapshotUnchanged(
+            prepared.targetSnapshot,
+            readSqliteLifecycleTargetSnapshot(database, params.target),
+            "delete session entry",
+          );
+          const referencedAfterDelete = readReferencedSqliteSessionIdsAfterTargetMutation(
+            database,
+            params.target,
+          );
+          if (referencedAfterDelete.has(sessionId)) {
+            return null;
+          }
+          const admissionProtected = collectAdmissionProtectedSessionIds({
+            database,
+            storePath: params.storePath,
+          });
+          if (admissionProtected.has(sessionId)) {
+            throw new Error(
+              `cannot delete session history while work is in flight for ${sessionId}; retry after the run completes`,
+            );
+          }
+          return planSqliteSessionStateDeleteIfUnreferenced({
+            archiveDirectory: prepared.archiveDirectory,
+            archiveTranscript: params.archiveTranscript,
+            database,
+            reason: "deleted",
+            referencedSessionIds: referencedAfterDelete,
+            sessionId,
+          });
+        });
+        if (!plan) {
+          return;
+        }
+        const materializedGeneration = await materializeSqliteSessionStateDeletePlans([plan]);
+        const archivedGeneration = await runExclusiveSqliteSessionWrite(resolved, async () => {
+          let committed: SessionLifecycleArchivedTranscript[] = [];
+          if (params.purgeTranscript) {
+            const database = openOpenClawAgentDatabase(toDatabaseOptions(resolved));
+            assertSqliteLifecycleTargetSnapshotUnchanged(
+              prepared.targetSnapshot,
+              readSqliteLifecycleTargetSnapshot(database, params.target),
+              "purge session history",
+            );
+            if (
+              !readReferencedSqliteSessionIdsAfterTargetMutation(database, params.target).has(
+                sessionId,
+              )
+            ) {
+              purgeOwnedSessionTranscriptArtifacts(prepared.archiveDirectory, [sessionId]);
+            }
+          }
+          runOpenClawAgentWriteTransaction((transactionDb) => {
+            assertSqliteLifecycleTargetSnapshotUnchanged(
+              prepared.targetSnapshot,
+              readSqliteLifecycleTargetSnapshot(transactionDb, params.target),
+              "delete session entry",
+            );
+            const fenceAtDelete = collectAdmissionProtectedSessionIds({
+              database: transactionDb,
+              storePath: params.storePath,
+            });
+            if (fenceAtDelete.has(sessionId)) {
+              throw new Error(
+                `cannot delete session history while work is in flight for ${sessionId}; retry after the run completes`,
+              );
+            }
+            committed = deleteMaterializedSqliteSessionStatePlans(
+              transactionDb,
+              materializedGeneration,
+            );
+          }, toDatabaseOptions(resolved));
+          return committed;
+        });
+        // Publish each committed generation immediately: a later archive or
+        // transaction failure aborts the deletion, and observers must still see
+        // the removals that already happened (retry completes the remainder).
+        emitArchivedSqliteTranscriptUpdates(archivedGeneration);
+        historicalArchivedTranscripts.push(...archivedGeneration);
+      };
+      if (params.purgeTranscript) {
+        // A budget eviction may be materializing this generation's cold copy.
+        // Wait for that owner before unlinking, otherwise it can recreate the archive afterward.
+        await runExclusiveSessionLifecycleMutation({
+          scope: params.storePath,
+          identities: [sessionId],
+          run: deleteGeneration,
+        });
+      } else {
+        await deleteGeneration();
       }
-      const archivedTranscripts = deleteMaterializedSqliteSessionStatePlans(
-        transactionDb,
-        materializedPlans,
-        undefined,
-        new Set([
+    }
+
+    // Archive materialization is the expensive phase. It must run between short
+    // writer-lane sections so unrelated writes to this store can keep progressing.
+    const materializedPlans = await materializeSqliteSessionStateDeletePlans(prepared.entryPlans);
+    const result = await runExclusiveSqliteSessionWrite(resolved, async () => {
+      let committed: DeleteSessionEntryLifecycleResult = {
+        archivedTranscripts: [],
+        deleted: false,
+      };
+      if (params.purgeTranscript) {
+        const database = openOpenClawAgentDatabase(toDatabaseOptions(resolved));
+        assertSqliteLifecycleTargetSnapshotUnchanged(
+          prepared.targetSnapshot,
+          readSqliteLifecycleTargetSnapshot(database, params.target),
+          "purge session entry",
+        );
+        const referenced = readReferencedSqliteSessionIdsAfterTargetMutation(
+          database,
+          params.target,
+        );
+        purgeOwnedSessionTranscriptArtifacts(
+          prepared.archiveDirectory,
+          prepared.entryPlans
+            .filter((plan) => !referenced.has(plan.sessionId))
+            .map((plan) => plan.sessionId),
+        );
+      }
+      runOpenClawAgentWriteTransaction((transactionDb) => {
+        const transactionSnapshot = readSqliteLifecycleTargetSnapshot(transactionDb, params.target);
+        assertSqliteLifecycleTargetSnapshotUnchanged(
+          prepared.targetSnapshot,
+          transactionSnapshot,
+          "delete session entry",
+        );
+        const transactionEntry = transactionSnapshot.primary?.entry;
+        if (!shouldDeleteSqliteSessionEntryLifecycle(transactionEntry, params)) {
+          return;
+        }
+        const archivedTranscripts = deleteMaterializedSqliteSessionStatePlans(
+          transactionDb,
+          materializedPlans,
+          undefined,
+          new Set([
+            params.target.canonicalKey,
+            ...params.target.storeKeys,
+            ...transactionSnapshot.rows.map((row) => row.sessionKey),
+          ]),
+        );
+        deleteSqliteLifecycleTargetRows(transactionDb, params.target);
+        deleteSessionBoardRows(transactionDb, [
           params.target.canonicalKey,
           ...params.target.storeKeys,
           ...transactionSnapshot.rows.map((row) => row.sessionKey),
-        ]),
-      );
-      deleteSqliteLifecycleTargetRows(transactionDb, params.target);
-      deleteSessionBoardRows(transactionDb, [
-        params.target.canonicalKey,
-        ...params.target.storeKeys,
-        ...transactionSnapshot.rows.map((row) => row.sessionKey),
-      ]);
-      committed = {
-        archivedTranscripts,
-        deleted: true,
-        deletedEntry: cloneSessionEntry(prepared.current.entry),
-        ...(prepared.current.entry.sessionId
-          ? { deletedSessionId: prepared.current.entry.sessionId }
-          : {}),
-      };
-    }, toDatabaseOptions(resolved));
-    return committed;
-  });
-  if (result.deleted) {
-    emitSessionIdentityMutation({
-      kind: "delete",
-      previous: {
-        ...(prepared.current.entry.sessionId
-          ? { sessionId: prepared.current.entry.sessionId }
-          : {}),
-        sessionKeys: prepared.targetSnapshot.rows.map((row) => row.sessionKey),
-      },
+        ]);
+        committed = {
+          archivedTranscripts,
+          deleted: true,
+          deletedEntry: cloneSessionEntry(prepared.current.entry),
+          ...(prepared.current.entry.sessionId
+            ? { deletedSessionId: prepared.current.entry.sessionId }
+            : {}),
+        };
+      }, toDatabaseOptions(resolved));
+      return committed;
     });
+    if (result.deleted) {
+      emitSessionIdentityMutation({
+        kind: "delete",
+        previous: {
+          ...(prepared.current.entry.sessionId
+            ? { sessionId: prepared.current.entry.sessionId }
+            : {}),
+          sessionKeys: prepared.targetSnapshot.rows.map((row) => row.sessionKey),
+        },
+      });
+    }
+    emitArchivedSqliteTranscriptUpdates(result.archivedTranscripts);
+    // Historical generations were emitted per commit above; merge them into
+    // the result after the final emit so callers still see every archive.
+    result.archivedTranscripts.push(...historicalArchivedTranscripts);
+    return result;
+  };
+  if (params.purgeTranscript && params.withTranscriptPurge) {
+    const database = openOpenClawAgentDatabase(toDatabaseOptions(resolved));
+    const referenced = readReferencedSqliteSessionIdsAfterTargetMutation(database, params.target);
+    const sessionIds = [
+      ...new Set([
+        ...prepared.entryPlans.map((plan) => plan.sessionId),
+        ...prepared.historicalGenerationIds,
+      ]),
+    ].filter((sessionId) => !referenced.has(sessionId));
+    return await params.withTranscriptPurge(
+      { sessionIds, archiveDirectory: prepared.archiveDirectory },
+      deletePrepared,
+    );
   }
-  emitArchivedSqliteTranscriptUpdates(result.archivedTranscripts);
-  // Historical generations were emitted per commit above; merge them into
-  // the result after the final emit so callers still see every archive.
-  result.archivedTranscripts.push(...historicalArchivedTranscripts);
-  return result;
+  return await deletePrepared();
 }
 
 /** Deletes one persisted session entry using SQLite session rows. */
