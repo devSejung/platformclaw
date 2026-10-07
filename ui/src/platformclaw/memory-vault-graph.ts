@@ -16,8 +16,10 @@ import {
 } from "../components/svg-graph-interaction.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { platformClawT } from "./i18n.ts";
-import { renderVaultDocumentList, renderVaultIndexStatus } from "./memory-vault-document.ts";
+import type { VaultDocumentContext } from "./memory-vault-document-actions.ts";
 import "./memory-vault-graph.css";
+import "./memory-vault-document-actions.ts";
+import { renderVaultIndexStatus } from "./memory-vault-document.ts";
 
 type SelectedVault = NonNullable<KnowledgeVaultSnapshot["selected"]>;
 const t = (key: string) => platformClawT(`platformClaw.vault.${key}`);
@@ -27,6 +29,7 @@ const HEIGHT = 560;
 class PlatformClawVaultDocuments extends OpenClawLightDomElement {
   @property({ attribute: false }) selected: SelectedVault | null = null;
   @property({ type: Boolean }) busy = false;
+  @property({ attribute: false }) documentContext: VaultDocumentContext | null = null;
   @state() private view: "documents" | "graph" = "documents";
   @state() private query = "";
   @state() private activeId = "";
@@ -356,22 +359,11 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
       >
         ${this.view === "graph"
           ? this.renderGraph(selected)
-          : html`${selected.documentsTruncated
-              ? html`<p class="callout" role="status" data-vault-documents-truncated>
-                  ${platformClawT("platformClaw.vault.documentsTruncated", {
-                    loaded: String(selected.documents.length),
-                    total: String(selected.documentCount ?? selected.documents.length),
-                  })}
-                </p>`
-              : nothing}
-            ${renderVaultDocumentList({
-              documents: selected.documents,
-              vaultName: selected.vault.name,
-              vaultType: selected.vault.type,
-              canEdit: selected.vault.canEdit,
-              busy: this.busy,
-              onOpen: (id) => this.open(id),
-            })}`}
+          : html`<platformclaw-vault-document-actions
+              .selected=${selected}
+              .busy=${this.busy}
+              .context=${this.documentContext}
+            ></platformclaw-vault-document-actions>`}
       </div>`;
   }
 }

@@ -128,6 +128,35 @@ export async function requestBrowserKnowledgeVault(params: {
           importId: field("importId", 36),
           documents,
         });
+      } else if (method === "platformclaw.vault.document.publish") {
+        if (
+          !Array.isArray(request.documents) ||
+          request.documents.length === 0 ||
+          request.documents.length > KNOWLEDGE_VAULT_LIMITS.publishDocuments
+        ) {
+          throw new ControlPlaneStateError("Publish between 1 and 100 documents per batch");
+        }
+        const documents = request.documents.map((document) => {
+          if (
+            !isRecord(document) ||
+            Object.keys(document).some((key) => key !== "documentId" && key !== "expectedRevision")
+          ) {
+            throw new ControlPlaneStateError(
+              "Each publication requires documentId and expectedRevision only",
+            );
+          }
+          return {
+            documentId: stringField(document, "documentId"),
+            expectedRevision: stringField(document, "expectedRevision", 64),
+          };
+        });
+        result = await service.publishDocuments({
+          userId,
+          vaultId,
+          targetVaultId: field("targetVaultId"),
+          publishId: field("publishId", 36),
+          documents,
+        });
       } else if (method === "platformclaw.vault.document.delete") {
         if (
           !(

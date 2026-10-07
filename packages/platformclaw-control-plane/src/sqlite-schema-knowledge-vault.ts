@@ -70,6 +70,14 @@ CREATE TABLE IF NOT EXISTS knowledge_vault_chunks (
   ordinal INTEGER NOT NULL, content TEXT NOT NULL, title TEXT NOT NULL,
   revision INTEGER NOT NULL, PRIMARY KEY (document_id,ordinal)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS knowledge_vault_document_publications (
+  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+  publish_id TEXT NOT NULL, source_vault_id TEXT NOT NULL, source_document_id TEXT NOT NULL,
+  source_revision TEXT NOT NULL,
+  target_vault_id TEXT NOT NULL REFERENCES knowledge_vaults(id) ON DELETE CASCADE,
+  target_document_id TEXT NOT NULL, target_path TEXT NOT NULL,
+  PRIMARY KEY (user_id,publish_id,source_document_id)
+) STRICT;
 CREATE TABLE IF NOT EXISTS knowledge_vault_links (
   document_id TEXT NOT NULL REFERENCES knowledge_vault_documents(id) ON DELETE CASCADE,
   target_path TEXT NOT NULL, target_document_id TEXT REFERENCES knowledge_vault_documents(id),
@@ -178,6 +186,16 @@ export type KnowledgeVaultDatabase = Pick<
   };
   knowledge_vault_selections: { user_id: string; revision: number };
   knowledge_vault_documents: KnowledgeVaultDocumentRow;
+  knowledge_vault_document_publications: {
+    user_id: string;
+    publish_id: string;
+    source_vault_id: string;
+    source_document_id: string;
+    source_revision: string;
+    target_vault_id: string;
+    target_document_id: string;
+    target_path: string;
+  };
   knowledge_vault_chunks: {
     document_id: string;
     ordinal: number;

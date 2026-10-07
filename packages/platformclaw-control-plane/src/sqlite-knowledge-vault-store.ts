@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { formatWikiDocumentLink } from "@openclaw/markdown-core";
 import { sql } from "kysely";
-import { ControlPlaneConflictError } from "./contracts.js";
+import { ControlPlaneAuthorizationError, ControlPlaneConflictError } from "./contracts.js";
 import {
   effectiveWikiRoles,
   reconcileWikiAccess,
@@ -36,6 +36,11 @@ import {
 } from "./kysely-sync.js";
 import { SqliteKnowledgeVaultAttachmentStore } from "./sqlite-knowledge-vault-attachments.js";
 import { requireKnowledgeVaultText } from "./sqlite-knowledge-vault-core.js";
+import {
+  findKnowledgeVaultPublication,
+  recordKnowledgeVaultPublication,
+  type KnowledgeVaultPublication,
+} from "./sqlite-knowledge-vault-publication.js";
 
 export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultAttachmentStore {
   constructor(
@@ -45,10 +50,63 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultAttachmentSto
     super(db);
   }
   saveDocument(params: KnowledgeVaultDocumentInput): KnowledgeVaultDocument {
+    return this.writeDocument(params).document;
+  }
+
+  private publicationAccess(params: KnowledgeVaultPublication): void {
+    this.access(params.userId, params.targetVaultId, "edit");
+    if (`personal:${this.personalAgentForUser(params.userId)}` !== params.sourceVaultId) {
+      throw new ControlPlaneAuthorizationError("Personal Wiki is unavailable");
+    }
+  }
+
+  publishedDocument(params: KnowledgeVaultPublication): KnowledgeVaultDocument | undefined {
+    this.publicationAccess(params);
+    return runReadTransaction(this.db, () => {
+      this.publicationAccess(params);
+      const documentId = findKnowledgeVaultPublication(this.db, params);
+      return documentId
+        ? this.readDocument({ userId: params.userId, vaultId: params.targetVaultId, documentId })
+        : undefined;
+    });
+  }
+
+  publishDocument(params: KnowledgeVaultPublication & { title: string; content: string }) {
+    return this.writeDocument(
+      {
+        userId: params.userId,
+        vaultId: params.targetVaultId,
+        logicalPath: params.logicalPath,
+        title: params.title,
+        content: params.content,
+      },
+      params,
+    );
+  }
+
+  private writeDocument(
+    params: KnowledgeVaultDocumentInput,
+    publication?: KnowledgeVaultPublication,
+  ) {
     this.access(params.userId, params.vaultId, "edit");
-    const id = params.documentId ?? randomUUID();
+    let id = params.documentId ?? randomUUID();
+    let status: "published" | "unchanged" = "published";
     runImmediateTransaction(this.db, () => {
       this.access(params.userId, params.vaultId, "edit");
+      if (publication) {
+        this.publicationAccess(publication);
+        const existingId = findKnowledgeVaultPublication(this.db, publication);
+        if (existingId) {
+          id = existingId;
+          status = "unchanged";
+          return;
+        }
+        if (
+          createHash("sha256").update(params.content).digest("hex") !== publication.expectedRevision
+        ) {
+          throw new ControlPlaneConflictError("knowledge_vault_changed", "Personal source changed");
+        }
+      }
       const prior = params.documentId ? this.document(params.vaultId, id) : undefined;
       if (prior && prior.revision !== params.expectedRevision) {
         throw new ControlPlaneConflictError(
@@ -112,9 +170,14 @@ export class SqliteKnowledgeVaultStore extends SqliteKnowledgeVaultAttachmentSto
           .set({ updated_at: now })
           .where("id", "=", params.vaultId),
       );
+      if (publication) {
+        recordKnowledgeVaultPublication(this.db, publication, id);
+      }
     });
-    this.compileDocument(id);
-    return this.readDocument({ ...params, documentId: id });
+    if (status === "published") {
+      this.compileDocument(id);
+    }
+    return { status, document: this.readDocument({ ...params, documentId: id }) };
   }
 
   deleteDocument(params: {

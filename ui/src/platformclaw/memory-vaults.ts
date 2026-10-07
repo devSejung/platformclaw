@@ -20,7 +20,6 @@ import {
   renderVaultSearch,
   type VaultCatalogTab,
 } from "./memory-vault-catalog.ts";
-import "./memory-vault-reader.ts";
 import "./memory-vault-recovery.ts";
 import { renderVaultCreateForm } from "./memory-vault-forms.ts";
 import {
@@ -42,7 +41,7 @@ import {
   requestVaultBinary,
   uploadAttachment,
 } from "./memory-vault-management.ts";
-import type { VaultReaderSelection } from "./memory-vault-reader.ts";
+import { renderVaultReaderDialog, type VaultReaderSelection } from "./memory-vault-reader.ts";
 import type { VaultUploadSummary } from "./memory-vault-upload.ts";
 
 const t = (key: string) => platformClawT(`platformClaw.vault.${key}`);
@@ -82,7 +81,8 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   @state() private recoveryVault: KnowledgeVaultCatalogEntry | null = null;
   @state() private publishLookup: string | null = null;
   private epoch = 0;
-  private importRefreshPending = false;
+  private documentRefreshPending = false;
+  private snapshotRevision = 0;
 
   override connectedCallback() {
     super.connectedCallback();
@@ -90,7 +90,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
   }
   override disconnectedCallback() {
     this.epoch++;
-    this.importRefreshPending = false;
+    this.documentRefreshPending = false;
     super.disconnectedCallback();
   }
   protected override updated(changed: PropertyValues) {
@@ -118,7 +118,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     }
     if (["client", "connected", "agentId", "methodAdvertised"].some((key) => changed.has(key))) {
       this.epoch++;
-      this.importRefreshPending = false;
+      this.documentRefreshPending = false;
       this.busy = false;
       if (!this.connected) {
         this.creating =
@@ -182,29 +182,33 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     } finally {
       if (epoch === this.epoch) {
         this.busy = false;
-        if (this.importRefreshPending) {
-          this.refreshAfterImport();
+        if (this.documentRefreshPending) {
+          this.refreshDocuments();
         }
       }
     }
   }
-  private refreshAfterImport() {
+  private refreshDocuments() {
+    // Mutation notifications invalidate snapshots started before the write completed.
+    // The trailing refresh below remains responsible for replacing stale document cards.
+    this.snapshotRevision++;
     // Several uploads can finish while one catalog request is still in flight.
     // Keep one trailing refresh so its response includes the latest completion.
-    this.importRefreshPending = true;
+    this.documentRefreshPending = true;
     if (!this.available || this.busy) {
       return;
     }
-    this.importRefreshPending = false;
+    this.documentRefreshPending = false;
     void this.run(() => this.readSnapshot(), false);
   }
   private async readSnapshot(id = this.selectedId) {
     const epoch = this.epoch;
+    const revision = this.snapshotRevision;
     const response = await this.client!.request<KnowledgeVaultSnapshot>(
       `${RPC}snapshot`,
       id ? { vaultId: id } : {},
     );
-    if (epoch !== this.epoch) {
+    if (epoch !== this.epoch || revision !== this.snapshotRevision) {
       return;
     }
     this.snapshot = response;
@@ -303,8 +307,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
       },
     });
   }
-  private saved(event: CustomEvent<VaultAuthorSaved>, open = true) {
-    const result = event.detail;
+  private saved(result: VaultAuthorSaved, open = true) {
     this.authorOpen = false;
     this.publishLookup = null;
     if (open) {
@@ -332,7 +335,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
             this.authorOpen = false;
             this.publishLookup = null;
           }}
-          @author-saved=${(event: CustomEvent<VaultAuthorSaved>) => this.saved(event)}
+          @author-saved=${(event: CustomEvent<VaultAuthorSaved>) => this.saved(event.detail)}
           @author-imported=${(event: CustomEvent<VaultUploadSummary>) => {
             const { saved, unchanged, failed, excluded } = event.detail;
             this.message = platformClawT("platformClaw.vault.importCounts", {
@@ -341,30 +344,27 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
               failed: String(failed),
               excluded: String(excluded),
             });
-            this.refreshAfterImport();
+            this.refreshDocuments();
           }}
         ></platformclaw-vault-author>`
       : nothing;
   }
   private renderDocument() {
-    return this.reader && !this.publishLookup
-      ? html`<platformclaw-vault-reader
-          .client=${this.client}
-          .connected=${this.connected}
-          .refreshing=${this.busy}
-          .agentId=${this.agentId}
-          .methods=${this.methods}
-          .selection=${this.reader}
-          @reader-deleted=${() => {
-            this.reader = null;
-            this.message = t("documentDeleted");
-            void this.run(() => this.readSnapshot(), false);
-          }}
-          @reader-publish=${(event: CustomEvent<string>) => (this.publishLookup = event.detail)}
-          @reader-close=${() => (this.reader = null)}
-          @reader-saved=${(event: CustomEvent<VaultAuthorSaved>) => this.saved(event, false)}
-        ></platformclaw-vault-reader>`
-      : nothing;
+    return renderVaultReaderDialog({
+      context: this,
+      selection: this.publishLookup ? null : this.reader,
+      refreshing: this.busy,
+      onDeleted: (indexesRefreshed) => {
+        this.reader = null;
+        this.message = t(
+          indexesRefreshed === false ? "documentBulkDeleteIndexWarning" : "documentDeleted",
+        );
+        this.refreshDocuments();
+      },
+      onPublish: (lookup) => (this.publishLookup = lookup),
+      onClose: () => (this.reader = null),
+      onSaved: (value) => this.saved(value, false),
+    });
   }
   private renderMembers() {
     return this.selected?.vault.canManageMembers
@@ -561,6 +561,12 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
             }
           : undefined,
       onDocumentOpen: (documentId) => this.openDocument(documentId),
+      documentContext: {
+        client: this.client,
+        connected: this.connected,
+        agentId: this.agentId,
+        methods: this.methods,
+      },
     });
   }
   private renderImport() {
@@ -633,7 +639,7 @@ class PlatformClawMemoryVaults extends OpenClawLightDomElement {
     ) {
       return html`<p role="status">${t("unavailable")}</p>`;
     }
-    return html`<div class="vaults">
+    return html`<div class="vaults" @vault-documents-changed=${() => this.refreshDocuments()}>
       ${!this.connected
         ? html`<p role="status">${platformClawT("memoryPage.memories.offline")}</p>`
         : nothing}

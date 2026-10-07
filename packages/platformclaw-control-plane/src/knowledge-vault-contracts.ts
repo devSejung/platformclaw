@@ -155,6 +155,7 @@ export type KnowledgeVaultDocument = KnowledgeVaultDocumentSummary & {
   editableContent?: string;
   editMode?: "body" | "notes" | null;
   readOnlyReason?: string | null;
+  canDelete?: boolean;
   links: KnowledgeVaultLink[];
   linksTruncated?: boolean;
   backlinks: KnowledgeVaultLink[];
@@ -221,12 +222,40 @@ export type KnowledgeVaultDocumentImportResult = {
   indexesRefreshed: boolean;
 };
 
+export type KnowledgeVaultDocumentPublishInput = {
+  userId: string;
+  vaultId: string;
+  targetVaultId: string;
+  publishId: string;
+  documents: Array<{ documentId: string; expectedRevision: string }>;
+};
+
+export type KnowledgeVaultDocumentPublishResult = {
+  publishId: string;
+  targetVaultId: string;
+  rootPath: string;
+  documents: Array<
+    { sourceDocumentId: string } & (
+      | {
+          status: "published" | "unchanged";
+          documentId: string;
+          logicalPath: string;
+          revision: number;
+          compile: KnowledgeVaultCompile;
+        }
+      | { status: "failed"; error: "conflict" | "unavailable" | "invalid" | "forbidden" }
+    )
+  >;
+};
+
 export const KNOWLEDGE_VAULT_LIMITS = {
   connections: 256,
   documentBytes: 1024 * 1024,
   importDocuments: 100,
   // Even sixfold JSON escaping stays below the existing 25 MiB Gateway frame limit.
   importBytes: 4 * 1024 * 1024,
+  publishDocuments: 100,
+  publishBytes: 4 * 1024 * 1024,
   attachmentBytes: 8 * 1024 * 1024,
   archiveBytes: 32 * 1024 * 1024,
   expandedBytes: 64 * 1024 * 1024,

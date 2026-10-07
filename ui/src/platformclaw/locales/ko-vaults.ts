@@ -1,4 +1,95 @@
 export const vaultTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.vault.bulkPublishReading": "전체 원문 {total}개 중 {completed}개 불러옴",
+  "platformClaw.vault.selectLoadedDocuments": "불러온 문서 선택",
+  "platformClaw.vault.deselectLoadedDocuments": "불러온 문서 선택 해제",
+  "platformClaw.vault.selectedDocumentCount": "불러온 문서 {loaded}개 중 {selected}개 선택",
+  "platformClaw.vault.clearDocumentSelection": "선택 해제",
+  "platformClaw.vault.publishSelectedDocuments": "선택한 문서를 공유 볼트에 게시",
+  "platformClaw.vault.deleteSelectedDocuments": "선택한 문서 삭제",
+  "platformClaw.vault.documentSelectionHint":
+    "이 목록에 불러온 문서만 선택됩니다. 다른 문서나 볼트는 선택하지 않습니다.",
+  "platformClaw.vault.selectDocument": "{title} 선택",
+  "platformClaw.vault.selectDocumentLabel": "문서 선택",
+  "platformClaw.vault.documentBulkDeleteTitle": "선택한 문서 삭제",
+  "platformClaw.vault.documentBulkDeleteHint":
+    "이 위키에서 문서 {count}개를 영구 삭제할까요? 되돌릴 수 없습니다. 확인한 버전만 삭제하며, 다른 문서와 공유 사본, 대화 기록은 유지됩니다.",
+  "platformClaw.vault.documentBulkDeletePersonalHint":
+    "개인 위키 문서를 삭제해도 외부 원본은 유지됩니다. 가져온 문서는 기존 삭제·재동기화 정책을 따릅니다.",
+  "platformClaw.vault.documentBulkDeletePreparing": "확인할 최신 문서를 불러오는 중…",
+  "platformClaw.vault.documentBulkDeleteWillDelete": "확인 후 삭제할 문서",
+  "platformClaw.vault.documentBulkDeleteConfirm": "확인한 문서 {count}개 삭제",
+  "platformClaw.vault.documentBulkDeleteNoEligible":
+    "선택한 문서 중 삭제할 수 있는 문서가 없습니다.",
+  "platformClaw.vault.documentBulkDeleteEditRequired": "편집 권한이 필요합니다.",
+  "platformClaw.vault.documentBulkDeleteGeneratedExcluded": "제외됨: 삭제할 수 없는 문서입니다.",
+  "platformClaw.vault.documentBulkDeleteInvalidDocument": "문서 응답을 확인할 수 없습니다.",
+  "platformClaw.vault.documentBulkDeleteReadFailed":
+    "최신 문서를 불러오지 못해 삭제 대상에서 제외했습니다.",
+  "platformClaw.vault.documentBulkDeleteDeleted": "삭제됨",
+  "platformClaw.vault.documentBulkDeleteFailed": "거부됨: 삭제되지 않음",
+  "platformClaw.vault.documentBulkDeleteUnconfirmed": "삭제 여부 확인 불가",
+  "platformClaw.vault.documentBulkDeleteUnconfirmedHint":
+    "응답이 끊겨 문서가 이미 삭제되었을 수 있습니다. 남은 문서를 확인한 후 다시 삭제해 주세요.",
+  "platformClaw.vault.documentBulkDeleteNotAttempted": "시도하지 않음",
+  "platformClaw.vault.documentBulkDeletePending": "삭제 중…",
+  "platformClaw.vault.documentBulkDeleteStop": "현재 문서 처리 후 중지",
+  "platformClaw.vault.documentBulkDeleteStopped":
+    "중지했습니다. 완료된 삭제는 유지되며, 추가 문서는 삭제하지 않습니다.",
+  "platformClaw.vault.documentBulkDeleteSessionChanged":
+    "연결, 계정 또는 볼트가 변경되었습니다. 창을 닫고 문서를 다시 확인해 주세요.",
+  "platformClaw.vault.documentBulkDeleteFailureStopped":
+    "오류로 중지했습니다. 남은 문서는 삭제를 시도하지 않았습니다.",
+  "platformClaw.vault.documentBulkDeleteIndexWarning":
+    "문서는 삭제했지만 검색과 링크를 갱신해야 합니다. 볼트 관리에서 검색과 링크를 다시 구성해 주세요.",
+  "platformClaw.vault.bulkPublishTitle": "선택한 문서 사본 게시",
+  "platformClaw.vault.bulkPublishHint":
+    "선택한 문서만 복사하고 개인 원본은 유지합니다. 연결된 다른 문서나 첨부파일은 포함하지 않습니다.",
+  "platformClaw.vault.bulkPublishSelectionLimit": "문서를 1~{count}개 선택하세요.",
+  "platformClaw.vault.bulkPublishInvalidSelection": "접근 가능한 내 개인 위키의 문서를 선택하세요.",
+  "platformClaw.vault.bulkPublishReview": "선택한 원문과 공유 대상을 확인했습니다.",
+  "platformClaw.vault.bulkPublishDestination": "게시할 공유 볼트",
+  "platformClaw.vault.bulkPublishDestinationHint":
+    "이 공유 위키에 접근할 수 있는 사람들에게 사본이 공개됩니다.",
+  "platformClaw.vault.bulkPublishDestinationUnavailable":
+    "이 대상에 더 이상 편집 권한이 없습니다. 다시 시도하기 전에 접근 권한을 확인하세요.",
+  "platformClaw.vault.bulkPublishConfirm": "문서 사본 {count}개 게시",
+  "platformClaw.vault.bulkPublishRetry": "미완료 사본 다시 시도",
+  "platformClaw.vault.bulkPublishCounts":
+    "게시 {published}개 · 이미 게시됨 {unchanged}개 · 실패 {failed}개 · 확인 불가 {uncertain}개 · 대기 {pending}개",
+  "platformClaw.vault.bulkPublishProgress": "문서 {total}개 중 {completed}개 처리",
+  "platformClaw.vault.bulkPublishCancel": "현재 묶음 처리 후 중지",
+  "platformClaw.vault.bulkPublishStopping": "현재 묶음을 처리한 후 중지합니다…",
+  "platformClaw.vault.bulkPublishCancelled":
+    "중지했습니다. 완료된 사본은 유지하고 남은 문서는 게시하지 않습니다.",
+  "platformClaw.vault.bulkPublishInterrupted":
+    "일부 결과를 확인하지 못했습니다. 이미 사본이 있을 수 있으니 같은 대상에 이 창에서 다시 시도해 안전하게 확인하세요.",
+  "platformClaw.vault.bulkPublishUnconfirmed":
+    "응답에서 선택한 모든 문서의 결과를 확인하지 못했습니다.",
+  "platformClaw.vault.bulkPublishRetryHint":
+    "이 창에서는 같은 사본 식별자를 유지해 안전하게 다시 시도합니다. 기존 사본은 덮어쓰지 않습니다.",
+  "platformClaw.vault.bulkPublishLeaveWarning":
+    "미완료 또는 확인되지 않은 사본이 있습니다. 창을 닫으면 안전한 재시도 정보를 잃습니다. 다시 게시하기 전에 공유 위키를 확인하세요.",
+  "platformClaw.vault.bulkPublishLeave": "닫기",
+  "platformClaw.vault.bulkPublishReload": "선택한 원문 다시 불러오기",
+  "platformClaw.vault.bulkPublishConflict":
+    "원문 또는 대상이 변경되었습니다. 창을 닫고 실패한 문서만 다시 선택해 확인하세요. 기존 사본은 덮어쓰지 않았습니다.",
+  "platformClaw.vault.bulkPublishForbidden":
+    "접근할 수 없습니다. 권한을 확인한 후 다시 시도하세요.",
+  "platformClaw.vault.bulkPublishInvalid":
+    "복사할 수 없는 문서입니다. 원문과 경로를 확인한 뒤 실패한 문서만 다시 선택하세요.",
+  "platformClaw.vault.bulkPublishFailed": "게시하지 못했습니다. 이 사본을 다시 시도하세요.",
+  "platformClaw.vault.bulkPublishIndexPending":
+    "사본은 저장했지만 검색과 링크는 아직 갱신 중입니다.",
+  "platformClaw.vault.bulkPublishStatus.loading": "전체 원문 불러오는 중",
+  "platformClaw.vault.bulkPublishStatus.ready": "확인 대기",
+  "platformClaw.vault.bulkPublishStatus.publishing": "게시 중",
+  "platformClaw.vault.bulkPublishStatus.uncertain": "확인 불가",
+  "platformClaw.vault.bulkPublishStatus.published": "게시됨",
+  "platformClaw.vault.bulkPublishStatus.unchanged": "이미 게시됨",
+  "platformClaw.vault.bulkPublishCryptoUnavailable":
+    "이 브라우저에서는 안전한 사본 식별자를 만들 수 없습니다. Web Crypto를 지원하는 브라우저에서 열어주세요.",
+  "platformClaw.vault.bulkPublishTotalLimit":
+    "선택한 원문이 {size}를 초과합니다. 창을 닫고 문서 수를 줄여주세요.",
   "platformClaw.vault.importHeading": "Markdown 파일을 한 번에 올리세요",
   "platformClaw.vault.importMarkdownHint":
     "파일 여러 개 또는 폴더를 선택하세요. 폴더 구조와 문서 간 링크를 함께 유지하며, Markdown 원문은 그대로 저장합니다.",

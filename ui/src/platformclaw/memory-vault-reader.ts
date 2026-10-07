@@ -1,5 +1,5 @@
 import { formatErrorMessage } from "@openclaw/normalization-core";
-import { html, type PropertyValues } from "lit";
+import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import type {
   KnowledgeVault,
@@ -196,7 +196,11 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
     this.busy = true;
     this.error = "";
     try {
-      await this.client.request("platformclaw.vault.document.delete", {
+      const result = await this.client.request<{
+        deleted: boolean;
+        documentId: string;
+        indexesRefreshed?: boolean;
+      }>("platformclaw.vault.document.delete", {
         vaultId: this.document.vaultId,
         documentId: this.document.id,
         expectedRevision: this.document.revision,
@@ -207,7 +211,11 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
       this.dispatchEvent(
         new CustomEvent("reader-deleted", {
           bubbles: true,
-          detail: { vaultId: this.document.vaultId, documentId: this.document.id },
+          detail: {
+            vaultId: this.document.vaultId,
+            documentId: this.document.id,
+            indexesRefreshed: result?.indexesRefreshed,
+          },
         }),
       );
       this.close();
@@ -295,7 +303,9 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
       vaultName: this.vault.name,
       vaultType: this.vault.type,
       onDelete:
-        this.vault.canEdit && this.methods.includes("platformclaw.vault.document.delete")
+        this.vault.canEdit &&
+        this.document.canDelete !== false &&
+        this.methods.includes("platformclaw.vault.document.delete")
           ? () => {
               this.deleting = true;
             }
@@ -339,4 +349,36 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
 }
 if (!customElements.get("platformclaw-vault-reader")) {
   customElements.define("platformclaw-vault-reader", PlatformClawVaultReader);
+}
+
+export function renderVaultReaderDialog(options: {
+  context: {
+    client: GatewayBrowserClient | null;
+    connected: boolean;
+    agentId: string | null;
+    methods: readonly string[];
+  };
+  selection: VaultReaderSelection | null;
+  refreshing: boolean;
+  onDeleted: (indexesRefreshed?: boolean) => void;
+  onPublish: (lookup: string) => void;
+  onClose: () => void;
+  onSaved: (value: VaultAuthorSaved) => void;
+}) {
+  const context = options.context;
+  return options.selection
+    ? html`<platformclaw-vault-reader
+        .client=${context.client}
+        .connected=${context.connected}
+        .agentId=${context.agentId}
+        .methods=${context.methods}
+        .refreshing=${options.refreshing}
+        .selection=${options.selection}
+        @reader-deleted=${(event: CustomEvent<{ indexesRefreshed?: boolean }>) =>
+          options.onDeleted(event.detail.indexesRefreshed)}
+        @reader-publish=${(event: CustomEvent<string>) => options.onPublish(event.detail)}
+        @reader-close=${options.onClose}
+        @reader-saved=${(event: CustomEvent<VaultAuthorSaved>) => options.onSaved(event.detail)}
+      ></platformclaw-vault-reader>`
+    : nothing;
 }
