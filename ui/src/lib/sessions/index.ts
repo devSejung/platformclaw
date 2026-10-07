@@ -82,7 +82,10 @@ function isSessionStateEvent(event: GatewayEventFrame): boolean {
   return event.event === "sessions.changed" || event.event === "session.message";
 }
 
-export function createSessionCapability(gateway: SessionGateway): SessionCapability {
+export function createSessionCapability(
+  gateway: SessionGateway,
+  catalog: { includeInCatalog?: (sessionKey: string) => boolean } = {},
+): SessionCapability {
   let state: SessionState = {
     result: null,
     agentId: null,
@@ -229,6 +232,9 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     defaults?: SessionsListResult["defaults"],
     options?: SessionReconcileOptions,
   ): boolean => {
+    if (row && catalog.includeInCatalog?.(row.key) === false) {
+      return false;
+    }
     const result = swarmActivity.decorate(
       reconcileSessionHistory(state.result, row, defaults, options),
     );
@@ -259,6 +265,11 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     options?: SessionReconcileOptions,
   ): SessionChangedResult => {
     const base = reconcileSessionChanged(state.result, payload, options);
+    // Embedded panes still need their event metadata, but must not publish
+    // product-owned conversations into the ordinary discovery catalog.
+    if (base.key && catalog.includeInCatalog?.(base.key) === false) {
+      return { ...base, result: state.result };
+    }
     const result = swarmActivity.decorate(base.result);
     const reconciled =
       result === base.result
@@ -358,6 +369,10 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
     if (!isSessionStateEvent(event)) {
       return;
     }
+    const eventInfo = readSessionChangedEvent(event.payload);
+    if (eventInfo && catalog.includeInCatalog?.(eventInfo.key) === false) {
+      return;
+    }
     swarmActivity.observe(event.payload);
     const decoratedResult = swarmActivity.decorate(state.result);
     if (decoratedResult !== state.result) {
@@ -367,7 +382,6 @@ export function createSessionCapability(gateway: SessionGateway): SessionCapabil
       resultAgentId: state.agentId,
       archivedFilter: roster.lastOptions().archivedFilter,
     });
-    const eventInfo = readSessionChangedEvent(event.payload);
     const eventReason = (event.payload as { reason?: unknown } | null)?.reason;
     const payloadAgentId = (event.payload as { agentId?: unknown } | null)?.agentId;
     if (eventReason === "groups") {

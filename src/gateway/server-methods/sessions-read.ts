@@ -234,6 +234,7 @@ export const sessionReadHandlers: GatewayRequestHandlers = {
     const p = params as SessionsListParams;
     const cfg = context.getRuntimeConfig();
     const configuredAgentsOnly = p.configuredAgentsOnly === true;
+    const excludedPrefixes = p.excludeSessionKeyPrefixes?.map((prefix) => prefix.toLowerCase());
     const run = () =>
       measureDiagnosticsTimelineSpan(
         "gateway.sessions.list",
@@ -295,9 +296,11 @@ export const sessionReadHandlers: GatewayRequestHandlers = {
           const { durableStorePath, listStore, modelCatalog, storePath } = loaded;
           const visibilityFilter = createSessionListEntryFilter({ client });
           const entryFilter =
-            visibilityFilter || options.excludedKeys?.size
+            visibilityFilter || options.excludedKeys?.size || excludedPrefixes?.length
               ? (key: string, entry: SessionEntry) =>
-                  !options.excludedKeys?.has(key) && (visibilityFilter?.(key, entry) ?? true)
+                  !options.excludedKeys?.has(key) &&
+                  !excludedPrefixes?.some((prefix) => key.toLowerCase().startsWith(prefix)) &&
+                  (visibilityFilter?.(key, entry) ?? true)
               : undefined;
           const result = await measureDiagnosticsTimelineSpan(
             "gateway.sessions.list.rows",

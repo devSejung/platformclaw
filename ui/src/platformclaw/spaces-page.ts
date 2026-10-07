@@ -1,6 +1,6 @@
 import { consume } from "@lit/context";
-import { html, nothing, type PropertyValues } from "lit";
-import { state } from "lit/decorators.js";
+import { nothing, type PropertyValues } from "lit";
+import { property, state } from "lit/decorators.js";
 import type {
   Space,
   SpacePage,
@@ -15,7 +15,13 @@ import {
   renderSpaceConversation,
   loadSpacePageHistory,
   SpaceConversationHistoryState,
+  scrollSpacePageHistory,
 } from "./space-conversation-history.ts";
+import {
+  spaceSelectionUrl,
+  replaceSpaceSelection,
+  spaceRouteMatchesSelection,
+} from "./space-conversation-route.ts";
 import {
   requestSpaceGateway,
   spaceGatewayErrorMessage,
@@ -37,6 +43,7 @@ import {
 import "./spaces.css";
 const t = (key: string) => platformClawT(`platformClaw.spaces.${key}`);
 export class PlatformClawSpacesPage extends OpenClawLightDomElement {
+  @property({ attribute: false }) routeSearch: string | undefined;
   @consume({ context: applicationContext, subscribe: true }) private context!: ApplicationContext;
   private readonly management = new SpaceManagementState(() => this.requestUpdate());
   @state() private spaces: Space[] = [];
@@ -87,18 +94,26 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     super.disconnectedCallback();
   }
   protected override updated(changed: PropertyValues) {
-    if (changed.has("messages") || changed.has("page")) {
-      const history = this.querySelector<HTMLElement>(".pc-space-history");
-      if (this.historyAnchor) {
-        this.querySelector<HTMLElement>('[data-source="true"]')?.scrollIntoView?.({
-          block: "center",
-        });
-      } else if (history && this.followConversation) {
-        history.scrollTop = history.scrollHeight;
-      }
-    }
+    scrollSpacePageHistory(this, changed, this.historyAnchor, this.followConversation);
     if (!this.context?.gateway) {
       return;
+    }
+    const routeChanged =
+      changed.has("routeSearch") &&
+      !spaceRouteMatchesSelection(
+        this.routeSearch,
+        this.snapshot?.space.id,
+        this.page?.id,
+        this.conversation?.id,
+        this.historyAnchor,
+      );
+    if (routeChanged) {
+      // Back/forward must retire the old selection even while disconnected;
+      // reconnect may otherwise prefer its stale snapshot over the new URL.
+      this.epoch++;
+      this.historyEpoch++;
+      this.loading = false;
+      this.clearSensitive();
     }
     const gateway = this.context.gateway;
     const reconnected = !this.gatewayConnected && gateway.snapshot.phase === "connected";
@@ -137,6 +152,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       }
     } else if (reconnected) {
       void this.refresh(true);
+    } else if (routeChanged && this.gatewayConnected) {
+      void this.refresh();
     }
     if (gateway.snapshot.phase !== "connected") {
       this.management.clear();
@@ -218,7 +235,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.pendingMember = null;
     const epoch = ++this.epoch;
     const priorPage = this.snapshot?.space.id === id ? this.page?.id : undefined;
-    const priorConversation = this.conversation?.id;
+    const priorConversation = this.snapshot?.space.id === id ? this.conversation?.id : undefined;
+    const url = spaceSelectionUrl({ spaceId: id });
     this.historyEpoch++;
     // Stop the personal pane immediately while an ACL invalidation is revalidated.
     this.conversation = null;
@@ -230,7 +248,6 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       this.management.clear();
       this.error = "";
       this.editor.clear();
-      this.pendingMember = null;
       this.notesOpen = false;
       this.membersOpen = false;
     }
@@ -243,7 +260,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       }
       this.management.revalidate(snapshot.space, snapshot.conversations);
       this.snapshot = snapshot;
-      const pageId = priorPage ?? new URL(location.href).searchParams.get("page");
+      const pageId = priorPage ?? url.searchParams.get("page");
       this.page = snapshot.pages.find((page) => page.id === pageId) ?? null;
       if (
         snapshot.space.role === "viewer" ||
@@ -251,8 +268,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       ) {
         this.editor.clear();
       }
+      replaceSpaceSelection(this.context, url);
       if (this.page) {
-        const url = new URL(location.href);
         this.historyAnchor = url.searchParams.get("message") ?? "";
         this.expandedPages = expandSpacePageAncestors(
           this.expandedPages,
@@ -283,6 +300,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       return;
     }
     this.management.clear();
+    this.epoch++;
+    this.loading = false;
     this.page = page;
     this.expandedPages = expandSpacePageAncestors(
       this.expandedPages,
@@ -300,29 +319,22 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.historyAnchor = messageId;
     this.messages = [];
     this.hits = [];
-    const url = new URL(location.href);
-    url.searchParams.set("space", page.spaceId);
-    url.searchParams.set("page", page.id);
-    url.searchParams.set("conversation", this.conversation?.id ?? "shared");
-    if (messageId) {
-      url.searchParams.set("message", messageId);
-    } else {
-      url.searchParams.delete("message");
-    }
-    history.replaceState(null, "", url);
+    replaceSpaceSelection(
+      this.context,
+      spaceSelectionUrl({ page, conversation: this.conversation, messageId }),
+    );
     void this.loadHistory();
   }
   private selectConversation(conversation: SpaceConversation | null) {
     this.management.clear();
+    this.epoch++;
+    this.loading = false;
     this.historyEpoch++;
     this.conversation = conversation;
     this.conversationHistory.clear();
     this.messages = [];
     this.historyAnchor = "";
-    const url = new URL(location.href);
-    url.searchParams.set("conversation", conversation?.id ?? "shared");
-    url.searchParams.delete("message");
-    history.replaceState(null, "", url);
+    replaceSpaceSelection(this.context, spaceSelectionUrl({ conversation }));
     void this.loadHistory();
   }
   private scheduleHistory() {
@@ -556,10 +568,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
             url.searchParams.get("space") === action.space.id
           ) {
             this.clearSensitive();
-            for (const key of ["space", "page", "conversation", "message"]) {
-              url.searchParams.delete(key);
-            }
-            history.replaceState(null, "", url);
+            replaceSpaceSelection(this.context, spaceSelectionUrl({ spaceId: null }));
           }
           this.notice = t(action.kind === "delete" ? "spaceDeleted" : "spaceLeft");
         }
@@ -694,12 +703,4 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
 }
 if (!customElements.get("platformclaw-spaces-page")) {
   customElements.define("platformclaw-spaces-page", PlatformClawSpacesPage);
-}
-
-export async function loadSpacePage() {
-  await loadPlatformClawLocale();
-  return {
-    header: false,
-    render: () => html`<platformclaw-spaces-page></platformclaw-spaces-page>`,
-  };
 }

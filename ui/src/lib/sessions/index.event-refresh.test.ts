@@ -36,29 +36,82 @@ function sessionChangedEvent(key: string): GatewayEventFrame {
   };
 }
 
-function createHarness(request: GatewayBrowserClient["request"]) {
+function createHarness(
+  request: GatewayBrowserClient["request"],
+  includeInCatalog?: (sessionKey: string) => boolean,
+) {
   const client = { request } as GatewayBrowserClient;
   let eventListener: ((event: GatewayEventFrame) => void) | undefined;
-  const sessions = createSessionCapability({
-    snapshot: {
-      client,
-      phase: "connected",
-      sessionKey: "agent:main:main",
-      assistantAgentId: "main",
-      hello: null,
+  const sessions = createSessionCapability(
+    {
+      snapshot: {
+        client,
+        phase: "connected",
+        sessionKey: "agent:main:main",
+        assistantAgentId: "main",
+        hello: null,
+      },
+      subscribe: () => () => undefined,
+      subscribeEvents(listener) {
+        eventListener = listener;
+        return () => {
+          eventListener = undefined;
+        };
+      },
     },
-    subscribe: () => () => undefined,
-    subscribeEvents(listener) {
-      eventListener = listener;
-      return () => {
-        eventListener = undefined;
-      };
-    },
-  });
+    { includeInCatalog },
+  );
   return { sessions, emitEvent: (event: GatewayEventFrame) => eventListener?.(event) };
 }
 
 describe("event-driven session list refresh", () => {
+  it("keeps embedded session snapshots out of discovery while preserving native pane events", async () => {
+    const hidden = "agent:main:embedded:12345678-90ab-cdef-1234-567890abcdef";
+    const ordinary = { key: "agent:main:main", kind: "direct" as const, updatedAt: 1 };
+    const canonical = {
+      ...sessionsResult(1, [ordinary]),
+      totalCount: 3,
+      hasMore: true,
+      nextOffset: 1,
+    };
+    const request = vi.fn(async () => canonical);
+    const { sessions, emitEvent } = createHarness(
+      request as unknown as GatewayBrowserClient["request"],
+      (key) => key !== hidden,
+    );
+    await sessions.refresh({ force: true });
+    const before = sessions.state.result;
+    const hiddenRow = {
+      key: hidden,
+      kind: "direct" as const,
+      updatedAt: 2,
+      sessionId: "embedded",
+      status: "running" as const,
+    };
+    expect(sessions.reconcile(hiddenRow, canonical.defaults)).toBe(false);
+    for (const event of ["sessions.changed", "session.message"]) {
+      const payload = { sessionKey: hidden, reason: "send", session: hiddenRow };
+      emitEvent({ type: "event", event, payload });
+      expect(sessions.reconcileChanged(payload)).toMatchObject({
+        applied: true,
+        row: hiddenRow,
+        result: before,
+      });
+    }
+    expect(sessions.state.result).toBe(before);
+    expect(sessions.state.result).toMatchObject({
+      count: 1,
+      totalCount: 3,
+      hasMore: true,
+      nextOffset: 1,
+      sessions: [ordinary],
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(sessions.reconcile({ ...ordinary, updatedAt: 3 })).toBe(true);
+    expect(sessions.state.result?.sessions).toEqual([{ ...ordinary, updatedAt: 3 }]);
+    sessions.dispose();
+  });
+
   it("retains every loaded page when a session event replaces the canonical list", async () => {
     vi.useFakeTimers();
     const rows = Array.from({ length: 120 }, (_, index) => ({

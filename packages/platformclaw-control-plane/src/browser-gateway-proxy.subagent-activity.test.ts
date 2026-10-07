@@ -140,7 +140,7 @@ describe("browser subagent activity evidence", () => {
     }
   });
 
-  it("rechecks Space access when membership is revoked between snapshots", async () => {
+  it("separates Space lineage discovery from native access across membership revocation", async () => {
     const f = await createSpaceTestFixture();
     f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "owner", 1);
     const child = f.store.spaces.createConversation(f.alice.user.id, f.space.id, {
@@ -156,19 +156,24 @@ describe("browser subagent activity evidence", () => {
       hasActiveSubagentRun: true,
     };
     const event = { event: "sessions.changed", payload: { sessionKey: key, ...raw } };
+    const native = { key, childSessions: [child.sessionKey], hasActiveSubagentRun: true };
+    f.request.mockResolvedValueOnce({ session: raw });
+    await expect(f.proxy.request(f.alice.token, "sessions.describe", { key })).resolves.toEqual({
+      session: native,
+    });
+    const personal = { sessionKey: key, key, childSessions: [], hasActiveSubagentRun: false };
     await expect(f.proxy.filterEvent(f.alice.token, event)).resolves.toEqual({
       event: "sessions.changed",
-      payload: {
-        sessionKey: key,
-        key,
-        childSessions: [child.sessionKey],
-        hasActiveSubagentRun: true,
-      },
+      payload: personal,
     });
     f.store.spaces.setMember(f.bob.user.id, f.space.id, f.alice.user.id, null, 2);
     await expect(f.proxy.filterEvent(f.alice.token, event)).resolves.toEqual({
       event: "sessions.changed",
-      payload: { sessionKey: key, key, childSessions: [], hasActiveSubagentRun: false },
+      payload: personal,
+    });
+    f.request.mockResolvedValueOnce({ session: raw });
+    await expect(f.proxy.request(f.alice.token, "sessions.describe", { key })).resolves.toEqual({
+      session: { key, childSessions: [], hasActiveSubagentRun: false },
     });
   });
 });

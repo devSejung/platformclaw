@@ -53,6 +53,7 @@ describe("BrowserGatewayProxy session lifecycle", () => {
       includeGlobal: false,
       includeUnknown: false,
       configuredAgentsOnly: true,
+      excludeSessionKeyPrefixes: [`agent:${binding.agentId}:space-session:`],
     });
     await expect(proxy.request(token, "sessions.describe", { key })).resolves.toEqual({
       session: projectedSession,

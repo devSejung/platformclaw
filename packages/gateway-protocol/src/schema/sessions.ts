@@ -334,6 +334,8 @@ export const SessionsListParamsSchema = closedObject({
   /** Maximum rows to return; omitted Gateway RPC calls use a bounded default. */
   limit: Type.Optional(Type.Integer({ minimum: 1 })),
   offset: Type.Optional(Type.Integer({ minimum: 0 })),
+  /** Exclude case-insensitive key prefixes before pagination, counts, and preview enrichment. */
+  excludeSessionKeyPrefixes: Type.Optional(Type.Array(NonEmptyString, { maxItems: 100 })),
   activeMinutes: Type.Optional(Type.Integer({ minimum: 1 })),
   /** Require a real user/channel interaction; excludes synthetic isolated heartbeat rows. */
   requireLastInteraction: Type.Optional(Type.Boolean()),

@@ -141,7 +141,10 @@ class ActivityPage extends OpenClawLightDomElement {
       return entries;
     }
     const event = parseActivityEvent(payload, receivedAt);
-    if (!event) {
+    if (
+      !event ||
+      this.context.sessionCatalogFilter?.(event.sessionKey ?? this.sessionKey) === false
+    ) {
       return entries;
     }
     if (

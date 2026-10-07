@@ -1,3 +1,17 @@
+export function isSpaceConversationSession(key: string): boolean {
+  return /^agent:[^:]+:space-session:/iu.test(key);
+}
+
+export function spaceConversationSessionPrefix(agentId: string): string {
+  return `agent:${agentId}:space-session:`;
+}
+
+export type SpaceConversationRoute = {
+  spaceId: string;
+  pageId: string;
+  conversationId: string;
+};
+
 export type SpaceRole = "viewer" | "editor" | "owner";
 export type Space = {
   id: string;
@@ -49,6 +63,7 @@ export const SPACE_RPC_PARAMS = {
   "platformclaw.spaces.page.save": ["spaceId", "pageId", "title", "body", "expectedRevision"],
   "platformclaw.spaces.chat.history": ["spaceId", "pageId", "messageId"],
   "platformclaw.spaces.chat.send": ["spaceId", "pageId", "message", "requestId", "model"],
+  "platformclaw.spaces.conversation.resolve": ["sessionKey", "agentId", "shortId"],
   "platformclaw.spaces.conversation.create": ["spaceId", "pageId", "title", "requestId"],
   "platformclaw.spaces.conversation.rename": [
     "spaceId",

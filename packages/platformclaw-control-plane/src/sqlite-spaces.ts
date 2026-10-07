@@ -510,6 +510,10 @@ export class SqliteSpaceStore {
     this.ensure();
     return this.conversationStore.bySession(userId, sessionKey, write);
   }
+  conversationForShortId(userId: string, agentId: string, shortId: string) {
+    this.ensure();
+    return this.conversationStore.byShortId(userId, agentId, shortId);
+  }
   registeredConversation(sessionKey: string) {
     this.ensure();
     return this.conversationStore.registered(sessionKey);

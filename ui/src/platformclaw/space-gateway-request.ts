@@ -5,7 +5,7 @@ import type { SpaceSnapshot } from "./spaces-view.ts";
 
 /** A response must still belong to the connected browser identity that requested it. */
 export async function requestSpaceGateway<T>(
-  context: () => ApplicationContext,
+  context: () => Pick<ApplicationContext, "gateway">,
   method: string,
   params: Record<string, unknown>,
 ): Promise<T> {

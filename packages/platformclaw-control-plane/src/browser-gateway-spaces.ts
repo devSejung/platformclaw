@@ -29,6 +29,13 @@ async function requestBrowserSpace(params: {
     }
     return value as number;
   };
+  if (method === "platformclaw.spaces.conversation.resolve") {
+    await revalidate();
+    return {
+      handled: true,
+      result: service.conversations.resolveRoute(userId, access.binding.agentId, request),
+    } as const;
+  }
   let result: unknown;
   if (method === "platformclaw.spaces.list") {
     result = store.list(userId, true);

@@ -253,6 +253,8 @@ export type ApplicationBootstrapOptions = {
   /** Product embedders may replace an enabled route without exposing unrelated routes. */
   readonly routeOverrides?: Readonly<Partial<Record<RouteId, ApplicationRouteOverride>>>;
   readonly sessionPathBuilderReady?: Promise<void>;
+  /** Keep embedded conversations out of the shared session discovery catalog. */
+  readonly sessionCatalogFilter?: (sessionKey: string) => boolean;
   readonly gateway?: {
     readonly url: string;
     readonly browserDeviceAuth?: boolean;
@@ -403,7 +405,9 @@ export function bootstrapApplication(
       password: startup.password ?? "",
     },
   });
-  const sessions = createSessionCapability(gateway);
+  const sessions = createSessionCapability(gateway, {
+    includeInCatalog: options.sessionCatalogFilter,
+  });
   const workboard = createWorkboardCapability();
   const runtimeConfig = createRuntimeConfigCapability(gateway);
   const overlays = createApplicationOverlays(gateway, {
@@ -524,6 +528,7 @@ export function bootstrapApplication(
   const context: ApplicationContext<RouteId> = {
     basePath,
     accessMode: options.accessMode ?? "operator",
+    sessionCatalogFilter: options.sessionCatalogFilter,
     isRouteEnabled: (routeId) => enabledRouteIds.includes(routeId),
     gateway,
     agents,

@@ -2,10 +2,15 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { BrowserGatewayEvent, BrowserGatewayRpc } from "./browser-gateway-contracts.js";
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
-import type { SpaceConversation } from "./space-contracts.js";
-import type { SqliteSpaceStore } from "./sqlite-spaces.js";
+import {
+  isSpaceConversationSession,
+  type SpaceConversation,
+  type SpaceConversationRoute,
+} from "./space-contracts.js";
+import { spaceText, type SqliteSpaceStore } from "./sqlite-spaces.js";
 
 const READ_METHODS = new Set([
+  "platformclaw.spaces.conversation.resolve",
   "chat.history",
   "chat.startup",
   "chat.message.get",
@@ -33,10 +38,6 @@ const HISTORY_REPLACING_METHODS = new Set([
   "sessions.branches.switch",
   "sessions.compaction.restore",
 ]);
-
-export function isSpaceConversationSession(key: string): boolean {
-  return /^agent:[^:]+:space-session:/iu.test(key);
-}
 
 /** Agent recall contains questions/final answers, never a tool/approval capability. */
 function projectSpaceConversationMessages(
@@ -398,6 +399,44 @@ export class SpaceConversationService {
       ownerName: conversation.ownerName,
       // Peer sessions are agent-readable evidence, not human navigation targets.
       link: `/platformclaw/app/spaces?space=${encodeURIComponent(space.id)}&page=${encodeURIComponent(page.id)}`,
+    };
+  }
+
+  resolveRoute(
+    userId: string,
+    agentId: string,
+    params: Record<string, unknown>,
+  ): SpaceConversationRoute | null {
+    if (params.agentId !== undefined && params.agentId !== agentId) {
+      throw new ControlPlaneAuthorizationError("Space conversation unavailable");
+    }
+    if ((params.sessionKey === undefined) === (params.shortId === undefined)) {
+      throw new ControlPlaneStateError("Provide one conversation session key or short id");
+    }
+    let conversation: SpaceConversation | null;
+    if (params.sessionKey !== undefined) {
+      const key = spaceText(params.sessionKey, "session key", 512).trim();
+      if (!this.spaces.registeredConversation(key) && !isSpaceConversationSession(key)) {
+        return null;
+      }
+      conversation = this.spaces.conversationForSession(userId, key);
+    } else {
+      const shortId = spaceText(params.shortId, "short id", 32);
+      if (!/^[0-9a-f]{8,32}$/iu.test(shortId)) {
+        throw new ControlPlaneStateError("Invalid conversation short id");
+      }
+      conversation = this.spaces.conversationForShortId(userId, agentId, shortId.toLowerCase());
+    }
+    if (!conversation) {
+      return null;
+    }
+    if (conversation.agentId !== agentId) {
+      throw new ControlPlaneAuthorizationError("Space conversation unavailable");
+    }
+    return {
+      spaceId: conversation.spaceId,
+      pageId: conversation.pageId,
+      conversationId: conversation.id,
     };
   }
 

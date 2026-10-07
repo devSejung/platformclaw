@@ -14,6 +14,7 @@ import {
   projectBrowserSessionPayloadForAccess,
 } from "./browser-gateway-ownership.js";
 import { browserTaskEventBelongsToAccess } from "./browser-gateway-task-policy.js";
+import { isSpaceConversationSession } from "./space-contracts.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -69,6 +70,13 @@ export class BrowserGatewaySpaceAccess {
     );
     // The outer authentication await can outlive the local Space handler's ACL check.
     // Recheck at this final boundary before returning any Space content to a stale tab.
+    if (method === "platformclaw.spaces.conversation.resolve" && isRecord(params)) {
+      return service.conversations.resolveRoute(
+        access.user.id,
+        access.binding.agentId,
+        params,
+      ) as T;
+    }
     if (method === "platformclaw.spaces.list") {
       return service.spaces.list(access.user.id, true) as T;
     }
@@ -109,21 +117,44 @@ export class BrowserGatewaySpaceAccess {
     this.options.spaceService?.conversations.assertNativeRequest(access.user.id, method, params);
   }
 
-  filterResult(access: BrowserGatewayAccess, method: string, result: unknown): unknown {
-    if (method !== "sessions.list" || !isRecord(result) || !Array.isArray(result.sessions)) {
-      return result;
-    }
+  private isPersonalSession(sessionKey: string): boolean {
+    return (
+      !isSpaceConversationSession(sessionKey) &&
+      !this.options.spaceService?.spaces.registeredConversation(sessionKey)
+    );
+  }
+
+  prepareSessionSearch(access: BrowserGatewayAccess, params: JsonObject): JsonObject {
     return {
-      ...result,
-      sessions: result.sessions.filter((session) => {
-        const key =
-          session && typeof session === "object" ? (session as JsonObject).key : undefined;
-        return (
-          typeof key !== "string" ||
-          this.options.spaceService?.conversations.canAccessNative(access.user.id, key) !== false
-        );
-      }),
+      ...params,
+      agentId: access.binding.agentId,
+      sessionKeys: (params.sessionKeys as string[])
+        .map((key) => key.trim())
+        .filter((key) => this.isPersonalSession(key)),
     };
+  }
+
+  projectSessionSearch(
+    access: BrowserGatewayAccess,
+    prepared: JsonObject,
+    result: unknown,
+  ): JsonObject {
+    const payload = asObject(result, "sessions.search result");
+    const results = Array.isArray(payload.results) ? payload.results : [];
+    const requestedKeys = new Set(prepared.sessionKeys as string[]);
+    if (
+      results.some(
+        (entry) =>
+          !this.payloadBelongsToAccess(access, entry) ||
+          !requestedKeys.has((entry as JsonObject).sessionKey as string),
+      )
+    ) {
+      throw new BrowserGatewayProxyError(
+        "upstream-result-denied",
+        "Gateway returned a search result outside the browser binding",
+      );
+    }
+    return payload;
   }
 
   async filterEvent(
@@ -146,6 +177,14 @@ export class BrowserGatewaySpaceAccess {
     if (spaceEvent !== undefined) {
       return spaceEvent;
     }
+    const eventKey = isRecord(event.payload)
+      ? (event.payload.sessionKey ?? event.payload.key)
+      : undefined;
+    // Space panes need native lifecycle and cursorless transcript invalidations.
+    // Only ordinary-root catalog updates should hide Space lineage metadata.
+    const personalCatalog =
+      event.event === "sessions.changed" &&
+      (typeof eventKey !== "string" || this.isPersonalSession(eventKey.trim()));
     return liveCapabilities.filterEvent({
       agentId: access.binding.agentId,
       event,
@@ -154,7 +193,8 @@ export class BrowserGatewaySpaceAccess {
         browserTaskEventBelongsToAccess(this.taskAccess(access), payload),
       eventPayloadBelongsToAccess: (payload) =>
         browserEventPayloadBelongsToAccess(this.taskAccess(access), payload),
-      projectSessionPayloadForAccess: (payload) => this.projectSessionPayload(access, payload),
+      projectSessionPayloadForAccess: (payload) =>
+        this.projectSessionPayload(access, payload, personalCatalog),
     });
   }
 
@@ -173,7 +213,21 @@ export class BrowserGatewaySpaceAccess {
     return browserPayloadBelongsToAccess(this.taskAccess(access), payload);
   }
 
-  projectSessionPayload(access: BrowserGatewayAccess, payload: unknown): JsonObject | null {
-    return projectBrowserSessionPayloadForAccess(this.taskAccess(access), payload);
+  projectSessionPayload(
+    access: BrowserGatewayAccess,
+    payload: unknown,
+    personalCatalog = false,
+  ): JsonObject | null {
+    const ownership = this.taskAccess(access);
+    return projectBrowserSessionPayloadForAccess(
+      personalCatalog
+        ? {
+            ...ownership,
+            resolveAgentIdFromSessionKey: (key) =>
+              this.isPersonalSession(key) ? ownership.resolveAgentIdFromSessionKey(key) : null,
+          }
+        : ownership,
+      payload,
+    );
   }
 }

@@ -115,6 +115,7 @@ describe("BrowserGatewayProxy", () => {
       includeGlobal: false,
       includeUnknown: false,
       configuredAgentsOnly: true,
+      excludeSessionKeyPrefixes: [`agent:${binding.agentId}:space-session:`],
     });
   });
 

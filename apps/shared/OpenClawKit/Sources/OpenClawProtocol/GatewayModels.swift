@@ -4079,6 +4079,7 @@ public struct SecretsResolveResult: Codable, Sendable {
 public struct SessionsListParams: Codable, Sendable {
     public let limit: Int?
     public let offset: Int?
+    public let excludesessionkeyprefixes: [String]?
     public let activeminutes: Int?
     public let requirelastinteraction: Bool?
     public let sortby: AnyCodable?
@@ -4098,6 +4099,7 @@ public struct SessionsListParams: Codable, Sendable {
     public init(
         limit: Int? = nil,
         offset: Int? = nil,
+        excludesessionkeyprefixes: [String]? = nil,
         activeminutes: Int? = nil,
         requirelastinteraction: Bool? = nil,
         sortby: AnyCodable? = nil,
@@ -4116,6 +4118,7 @@ public struct SessionsListParams: Codable, Sendable {
     {
         self.limit = limit
         self.offset = offset
+        self.excludesessionkeyprefixes = excludesessionkeyprefixes
         self.activeminutes = activeminutes
         self.requirelastinteraction = requirelastinteraction
         self.sortby = sortby
@@ -4136,6 +4139,7 @@ public struct SessionsListParams: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case limit
         case offset
+        case excludesessionkeyprefixes = "excludeSessionKeyPrefixes"
         case activeminutes = "activeMinutes"
         case requirelastinteraction = "requireLastInteraction"
         case sortby = "sortBy"
