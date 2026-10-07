@@ -134,8 +134,8 @@ suite.define(() => {
       await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/spaces");
       expect(new URL(page.url()).searchParams.get("conversation")).toBe(conversation.id);
       await page
-        .locator("platformclaw-spaces-page openclaw-chat-pane")
-        .getByText("Space transcript ready.")
+        .locator("platformclaw-spaces-page openclaw-chat-pane .chat-thread-inner")
+        .getByText("Space transcript ready.", { exact: true })
         .waitFor();
       expect(
         (await gateway.getRequests("chat.history")).every(
@@ -145,13 +145,17 @@ suite.define(() => {
       ).toBe(true);
 
       await page
-        .locator(`.sidebar-recent-session[data-session-key="${personalKey}"] a`)
-        .first()
+        .locator(
+          `.sidebar-recent-session[data-session-key="${personalKey}"] > a.sidebar-recent-session__link`,
+        )
         .click();
       await expect
         .poll(() => new URL(page.url()).pathname)
         .toBe(`/platformclaw/app/chat/${agentId}/personal-thread`);
-      await page.getByText("Personal transcript ready.", { exact: true }).waitFor();
+      await page
+        .locator("openclaw-chat-page .chat-thread-inner")
+        .getByText("Personal transcript ready.", { exact: true })
+        .waitFor();
       // A browser back to the old URL must not return to standalone Space chat.
       await page.goBack();
       await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/spaces");
@@ -177,8 +181,9 @@ suite.define(() => {
       const url = `${suite.server.baseUrl}platformclaw/app/spaces?space=${space.id}&page=${issue.id}&conversation=${conversation.id}`;
       await page.goto(url);
       const pane = page.locator("platformclaw-spaces-page openclaw-chat-pane");
+      const transcript = pane.locator(".chat-thread-inner");
       await expect.poll(() => pane.count()).toBe(1);
-      await pane.getByText("Space transcript ready.").waitFor();
+      await transcript.getByText("Space transcript ready.", { exact: true }).waitFor();
       await expect
         .poll(() =>
           page.locator(`.sidebar-recent-session[data-session-key="${personalKey}"]`).count(),
@@ -203,7 +208,7 @@ suite.define(() => {
         runId: (send.params as { idempotencyKey: string }).idempotencyKey,
         text: "Space event delivered.",
       });
-      await pane.getByText("Space event delivered.").waitFor();
+      await transcript.getByText("Space event delivered.", { exact: true }).waitFor();
       expect(
         await page.locator(`.sidebar-recent-session[data-session-key="${spaceKey}"]`).count(),
       ).toBe(0);
@@ -211,18 +216,22 @@ suite.define(() => {
         await page.screenshot({ path: path.join(proofDir, "space-embedded.png"), fullPage: true });
       }
       await page.reload();
-      await pane.getByText("Space transcript ready.").waitFor();
+      await transcript.getByText("Space transcript ready.", { exact: true }).waitFor();
       expect(
         await page.locator(`.sidebar-recent-session[data-session-key="${spaceKey}"]`).count(),
       ).toBe(0);
       await page
-        .locator(`.sidebar-recent-session[data-session-key="${personalKey}"] a`)
-        .first()
+        .locator(
+          `.sidebar-recent-session[data-session-key="${personalKey}"] > a.sidebar-recent-session__link`,
+        )
         .click();
       await expect
         .poll(() => new URL(page.url()).pathname)
         .toBe(`/platformclaw/app/chat/${agentId}/personal-thread`);
-      await page.getByText("Personal transcript ready.", { exact: true }).waitFor();
+      await page
+        .locator("openclaw-chat-page .chat-thread-inner")
+        .getByText("Personal transcript ready.", { exact: true })
+        .waitFor();
       expect(await page.locator("platformclaw-spaces-page").count()).toBe(0);
       if (capture) {
         await page.screenshot({
