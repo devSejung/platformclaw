@@ -57,7 +57,7 @@ function canPublish(entry: PublishEntry): entry is ReadyEntry {
   );
 }
 
-export class PlatformClawVaultDocumentBulkPublish extends OpenClawLightDomElement {
+class PlatformClawVaultDocumentBulkPublish extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property({ type: Boolean }) connected = false;
   @property({ attribute: false }) methods: readonly string[] = [];
@@ -696,4 +696,10 @@ if (!customElements.get("platformclaw-vault-document-bulk-publish")) {
     "platformclaw-vault-document-bulk-publish",
     PlatformClawVaultDocumentBulkPublish,
   );
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "platformclaw-vault-document-bulk-publish": PlatformClawVaultDocumentBulkPublish;
+  }
 }

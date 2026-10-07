@@ -18,7 +18,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const t = (key: string, params?: Record<string, string>) =>
   platformClawT(`platformClaw.vault.${key}`, params);
 
-export type VaultDocumentBulkDeleteItem = {
+type VaultDocumentBulkDeleteItem = {
   documentId: string;
   title: string;
   logicalPath: string;

@@ -11,7 +11,9 @@ import { GatewayBrowserClient } from "../api/gateway.ts";
 import { i18n } from "../i18n/index.ts";
 import { waitForFast } from "../test-helpers/wait-for.ts";
 import { loadPlatformClawLocale } from "./i18n.ts";
-import { PlatformClawVaultDocumentBulkPublish } from "./memory-vault-document-bulk-publish.ts";
+import "./memory-vault-document-bulk-publish.ts";
+type PlatformClawVaultDocumentBulkPublish =
+  HTMLElementTagNameMap["platformclaw-vault-document-bulk-publish"];
 
 const RPC = "platformclaw.vault.";
 const PUBLISH = `${RPC}document.publish`;

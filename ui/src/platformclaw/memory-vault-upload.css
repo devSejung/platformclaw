@@ -82,6 +82,9 @@ button.vaults__batch-name:focus-visible {
   cursor: pointer;
   overflow-wrap: anywhere;
 }
+.vaults__batch-preview > .vaults__hint {
+  overflow-wrap: anywhere;
+}
 .vaults__batch-preview pre {
   margin-bottom: 0;
   font-size: 12px;

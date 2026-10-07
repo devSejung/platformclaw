@@ -271,6 +271,8 @@ suite("Wiki document selection through the built Control UI", () => {
           })
           .click();
         const dialog = hub.locator("platformclaw-vault-document-bulk-publish");
+        // The native top-layer dialog has geometry; its light-DOM owner does not.
+        const modal = dialog.getByRole("dialog");
         await expect.poll(() => dialog.locator("[data-publish-status=ready]").count()).toBe(2);
         const destination = dialog.locator("[data-publish-destination]");
         const reviewed = dialog.locator("[data-publish-reviewed]");
@@ -301,6 +303,11 @@ suite("Wiki document selection through the built Control UI", () => {
         await expect.poll(() => submit.isEnabled()).toBe(true);
         expect(await gateway.getRequests(PUBLISH)).toEqual([]);
         expect(await gateway.getRequests(DELETE)).toEqual([]);
+        expect(
+          await dialog
+            .locator(".vaults__batch-preview > .vaults__hint")
+            .evaluate((element) => element.scrollWidth <= element.clientWidth),
+        ).toBe(true);
         await screenshot(page, `${viewport.name}-source-review`);
 
         await gateway.deferNext(PUBLISH);
@@ -317,8 +324,11 @@ suite("Wiki document selection through the built Control UI", () => {
           })),
         });
         const appUrl = page.url();
+        expect(await modal.isVisible()).toBe(true);
+        expect(await modal.getAttribute("open")).not.toBeNull();
         await page.keyboard.press("Escape");
-        expect(await dialog.isVisible()).toBe(true);
+        expect(await modal.isVisible()).toBe(true);
+        expect(await modal.getAttribute("open")).not.toBeNull();
         expect(page.url()).toBe(appUrl);
         expect(await submit.isDisabled()).toBe(true);
         expect(await destination.isDisabled()).toBe(true);
@@ -328,7 +338,7 @@ suite("Wiki document selection through the built Control UI", () => {
             exact: true,
           })
           .click();
-        expect(await dialog.isVisible()).toBe(true);
+        expect(await modal.isVisible()).toBe(true);
         await gateway.resolveDeferred(
           PUBLISH,
           publicationResult(first, (id) => (id === documents[0]!.id ? "published" : "failed")),
@@ -399,6 +409,7 @@ suite("Wiki document selection through the built Control UI", () => {
           exact: true,
         });
         const dialog = hub.locator("platformclaw-vault-document-bulk-delete");
+        const modal = dialog.getByRole("dialog");
         await openDelete.click();
         await expect.poll(() => dialog.locator("[data-delete-status=ready]").count()).toBe(2);
         expect(await dialog.locator("[data-delete-status=excluded]").textContent()).toContain(
@@ -431,8 +442,11 @@ suite("Wiki document selection through the built Control UI", () => {
           expectedRevision: documents[0]!.revision,
         });
         const appUrl = page.url();
+        expect(await modal.isVisible()).toBe(true);
+        expect(await modal.getAttribute("open")).not.toBeNull();
         await page.keyboard.press("Escape");
-        expect(await dialog.isVisible()).toBe(true);
+        expect(await modal.isVisible()).toBe(true);
+        expect(await modal.getAttribute("open")).not.toBeNull();
         expect(page.url()).toBe(appUrl);
         expect(await dialog.locator(".vaults__heading button").isDisabled()).toBe(true);
         await dialog
@@ -441,7 +455,7 @@ suite("Wiki document selection through the built Control UI", () => {
             exact: true,
           })
           .click();
-        expect(await dialog.isVisible()).toBe(true);
+        expect(await modal.isVisible()).toBe(true);
         await gateway.setMethodResponse(`${RPC}snapshot`, snapshots(documents.slice(1)));
         await gateway.resolveDeferred(DELETE, {
           deleted: true,

@@ -7,6 +7,10 @@ import type {
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { platformClawT } from "./i18n.ts";
+import type {
+  VaultDocumentBulkDeleteResult,
+  VaultDocumentsBulkDeleted,
+} from "./memory-vault-document-bulk-delete.ts";
 import type { VaultDocumentPublishSummary } from "./memory-vault-document-bulk-publish.ts";
 import "./memory-vault-document-bulk-delete.ts";
 import "./memory-vault-document-bulk-publish.ts";
@@ -18,12 +22,6 @@ export type VaultDocumentContext = {
   connected: boolean;
   agentId: string | null;
   methods: readonly string[];
-};
-type DeletedDocuments = {
-  client: GatewayBrowserClient;
-  agentId: string | null;
-  vaultId: string;
-  documentIds: string[];
 };
 const t = (key: string, params?: Record<string, string>) =>
   platformClawT(`platformClaw.vault.${key}`, params);
@@ -65,7 +63,7 @@ class PlatformClawVaultDocumentActions extends OpenClawLightDomElement {
       new CustomEvent("vault-documents-changed", { bubbles: true, composed: true }),
     );
   }
-  private deletedDocuments(event: CustomEvent<DeletedDocuments>) {
+  private deletedDocuments(event: CustomEvent<VaultDocumentsBulkDeleted>) {
     const detail = event.detail;
     if (
       detail.client !== this.context?.client ||
@@ -200,9 +198,10 @@ class PlatformClawVaultDocumentActions extends OpenClawLightDomElement {
           @document-bulk-busy=${(event: CustomEvent<boolean>) => {
             this.acting = event.detail;
           }}
-          @document-bulk-deleted=${(event: CustomEvent<DeletedDocuments>) =>
+          @document-bulk-deleted=${(event: CustomEvent<VaultDocumentsBulkDeleted>) =>
             this.deletedDocuments(event)}
-          @document-bulk-delete-result=${() => this.changed()}
+          @document-bulk-delete-result=${(_event: CustomEvent<VaultDocumentBulkDeleteResult>) =>
+            this.changed()}
           @document-bulk-close=${() => this.close()}
         ></platformclaw-vault-document-bulk-delete>`
       : nothing}
