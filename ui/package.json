@@ -20,7 +20,7 @@
     "@lit/context": "1.1.6",
     "@lit/task": "1.0.3",
     "@modelcontextprotocol/ext-apps": "1.7.5",
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "@noble/ed25519": "3.1.0",
     "@openclaw/gateway-client": "workspace:*",
     "@openclaw/libterminal": "0.3.2",

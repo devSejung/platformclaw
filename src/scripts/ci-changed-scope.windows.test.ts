@@ -77,13 +77,13 @@ describe("detectChangedScope Windows routing", () => {
     }
   });
 
-  it("routes exec script preflight changes and Windows-only coverage to Windows", () => {
-    for (const preflightPath of [
-      "src/agents/bash-tools.exec-script-preflight.ts",
-      "src/agents/bash-tools.exec-script-target.ts",
-      "src/agents/bash-tools.exec.script-preflight.test.ts",
+  it("routes exec script execution changes and Windows-only coverage to Windows", () => {
+    for (const execPath of [
+      "src/agents/bash-tools.exec-run.ts",
+      "src/agents/bash-tools.exec-workdir.ts",
+      "src/agents/bash-tools.exec.script-execution.test.ts",
     ]) {
-      expect(detectChangedScope([preflightPath]), preflightPath).toMatchObject({
+      expect(detectChangedScope([execPath]), execPath).toMatchObject({
         runNode: true,
         runWindows: true,
       });

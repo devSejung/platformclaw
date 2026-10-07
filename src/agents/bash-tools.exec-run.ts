@@ -41,10 +41,6 @@ import {
   execSchema,
 } from "./bash-tools.exec-runtime.js";
 import {
-  shouldSkipExecScriptPreflight,
-  validateScriptFileForShellBleed,
-} from "./bash-tools.exec-script-preflight.js";
-import {
   buildExecForegroundResult,
   createExecHostResolver,
   resolveExecReviewerDefaults,
@@ -333,7 +329,6 @@ export function createExecTool(
       }
       await rejectUnsafeExecControlShellCommand(params.command);
       let workdir: string | undefined;
-      let scriptPreflightCwd: string | null = null;
       let containerWorkdir = sandbox?.containerWorkdir;
       let discardPreparedSandboxWorkdir: (() => void) | null = null;
       const workdirResolution =
@@ -356,7 +351,6 @@ export function createExecTool(
       if (workdirResolution.kind === "sandbox") {
         workdir = workdirResolution.hostCwd;
         containerWorkdir = workdirResolution.containerCwd;
-        scriptPreflightCwd = workdirResolution.scriptPreflightCwd;
         if (sandbox?.discardPreparedWorkdir && sandbox.workdirValidation === "backend") {
           const preparedContainerWorkdir = containerWorkdir;
           discardPreparedSandboxWorkdir = () => {
@@ -365,7 +359,6 @@ export function createExecTool(
         }
       } else if (workdirResolution.kind === "local") {
         workdir = workdirResolution.hostCwd;
-        scriptPreflightCwd = workdirResolution.hostCwd;
       } else {
         workdir = workdirResolution.remoteCwd;
       }
@@ -509,15 +502,8 @@ export function createExecTool(
         effectiveTimeout = explicitTimeoutSec ?? defaultTimeoutSec;
         const usePty = params.pty === true && !sandbox;
 
-        // Preflight: catch a common model failure mode (shell syntax leaking into Python/JS sources)
-        // before we execute and burn tokens in cron loops.
-        if (scriptPreflightCwd && !shouldSkipExecScriptPreflight({ host, security, ask })) {
-          await validateScriptFileForShellBleed({
-            command: params.command,
-            workdir: scriptPreflightCwd,
-          });
-        }
-
+        // The selected shell and interpreter own command expansion and source diagnostics.
+        // Host approval above and sandbox routing below own execution authorization.
         signal?.throwIfAborted();
         run = await runExecProcess({
           command: params.command,

@@ -157,7 +157,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: workspaceDir,
         containerCwd: "/workspace",
-        scriptPreflightCwd: workspaceDir,
       });
     });
   });
@@ -265,7 +264,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: srcDir,
         containerCwd: "/workspace/src",
-        scriptPreflightCwd: srcDir,
       });
     });
   });
@@ -288,7 +286,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: projectDir,
         containerCwd: "/sandbox-root/project",
-        scriptPreflightCwd: projectDir,
       });
     });
   });
@@ -321,7 +318,6 @@ describe("resolveExecWorkdir", () => {
           kind: "sandbox",
           hostCwd: skillDir,
           containerCwd: "/workspace/.openclaw/sandbox-skills/skills/test-repro-skill",
-          scriptPreflightCwd: skillDir,
         });
       });
     });
@@ -351,7 +347,6 @@ describe("resolveExecWorkdir", () => {
           kind: "sandbox",
           hostCwd: toolsDir,
           containerCwd: "/workspace/.openclaw/sandbox-skills/skills/test-repro-skill/tools",
-          scriptPreflightCwd: toolsDir,
         });
       });
     });
@@ -389,7 +384,6 @@ describe("resolveExecWorkdir", () => {
             kind: "sandbox",
             hostCwd: skillDir,
             containerCwd: "/workspace/.openclaw/sandbox-skills/skills/demo",
-            scriptPreflightCwd: skillDir,
           });
         });
       });
@@ -417,7 +411,6 @@ describe("resolveExecWorkdir", () => {
           kind: "sandbox",
           hostCwd: skillsMountDir,
           containerCwd: "/workspace/.openclaw/sandbox-skills/skills",
-          scriptPreflightCwd: skillsMountDir,
         });
       });
     });
@@ -477,7 +470,6 @@ describe("resolveExecWorkdir", () => {
           kind: "sandbox",
           hostCwd: srcDir,
           containerCwd: "/workspace/src",
-          scriptPreflightCwd: srcDir,
         });
 
         // Container root still works
@@ -499,7 +491,6 @@ describe("resolveExecWorkdir", () => {
           kind: "sandbox",
           hostCwd: workspaceDir,
           containerCwd: "/workspace",
-          scriptPreflightCwd: workspaceDir,
         });
       });
     });
@@ -596,7 +587,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: workspaceDir,
         containerCwd: "/remote/workspace/generated",
-        scriptPreflightCwd: null,
       });
     });
   });
@@ -615,7 +605,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: workspaceDir,
         containerCwd: "/remote/workspace/generated",
-        scriptPreflightCwd: null,
       });
     });
   });
@@ -637,7 +626,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: workspaceDir,
         containerCwd: "/agent/project",
-        scriptPreflightCwd: null,
       });
       expect(validateWorkdir).toHaveBeenCalledWith("/agent/project");
     });
@@ -655,7 +643,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: workspaceDir,
         containerCwd: "/remote/workspace/remote-only",
-        scriptPreflightCwd: null,
       });
     });
   });
@@ -676,7 +663,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: localDir,
         containerCwd: "/remote/workspace/src",
-        scriptPreflightCwd: localDir,
       });
       expect(validateWorkdir).toHaveBeenCalledWith("/remote/workspace/src");
     });
@@ -716,7 +702,6 @@ describe("resolveExecWorkdir", () => {
           kind: "sandbox",
           hostCwd: mountedSkillDir,
           containerCwd: `${containerRoot}/test-skill`,
-          scriptPreflightCwd: mountedSkillDir,
         });
         expect(validateWorkdir).toHaveBeenCalledWith(`${containerRoot}/test-skill`);
       });
@@ -749,7 +734,6 @@ describe("resolveExecWorkdir", () => {
           kind: "sandbox",
           hostCwd: mountedSkillDir,
           containerCwd: `${containerRoot}/test-skill`,
-          scriptPreflightCwd: mountedSkillDir,
         });
       });
     });
@@ -771,7 +755,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: workspaceDir,
         containerCwd: "/remote/workspace/build",
-        scriptPreflightCwd: null,
       });
       expect(validateWorkdir).toHaveBeenCalledWith("/remote/workspace/build");
     });
@@ -791,7 +774,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: workspaceDir,
         containerCwd: "/generated",
-        scriptPreflightCwd: null,
       });
     });
   });
@@ -811,7 +793,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: localDir,
         containerCwd: "/remote/workspace/src",
-        scriptPreflightCwd: localDir,
       });
     });
   });
@@ -834,7 +815,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: workspaceDir,
         containerCwd: missingRemoteDir,
-        scriptPreflightCwd: null,
       });
       expect(validateWorkdir).toHaveBeenCalledWith(missingRemoteDir);
     });
@@ -857,7 +837,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: workspaceDir,
         containerCwd: "/remote/workspace/generated",
-        scriptPreflightCwd: null,
       });
       expect(validateWorkdir).toHaveBeenCalledWith("/remote/workspace/generated");
     });
@@ -900,7 +879,6 @@ describe("resolveExecWorkdir", () => {
         kind: "sandbox",
         hostCwd: localDir,
         containerCwd: `${workspaceDir}/src`,
-        scriptPreflightCwd: localDir,
       });
     });
   });
