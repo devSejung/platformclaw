@@ -9,7 +9,9 @@ import { PLATFORMCLAW_WEB_DESCRIPTOR } from "./web-contract.ts";
 
 const suite = createChatFlowE2eSuite();
 const agentId = "personal-alice";
-const personalKey = `agent:${agentId}:main`;
+const mainKey = `agent:${agentId}:main`;
+// Main lives behind Home; the ordinary thread list intentionally omits it.
+const personalKey = `agent:${agentId}:personal-thread`;
 const spaceKey = `agent:${agentId}:space-session:00000000-0000-4000-8000-000000000001`;
 const space = { id: "space-one", name: "Synthetic project", role: "owner", revision: 1 };
 const issue = {
@@ -75,10 +77,28 @@ async function installDocument(page: Page) {
 
 async function installScenario(page: Page) {
   await installDocument(page);
+  const historyResponses = {
+    cases: [
+      {
+        match: { sessionKey: spaceKey },
+        response: {
+          messages: [{ role: "assistant", content: "Space transcript ready." }],
+          sessionInfo: spaceRow,
+        },
+      },
+      {
+        match: { sessionKey: personalKey },
+        response: {
+          messages: [{ role: "assistant", content: "Personal transcript ready." }],
+          sessionInfo: personalRow,
+        },
+      },
+    ],
+  };
   return installMockGateway(page, {
     basePath: "/platformclaw/app",
     defaultAgentId: agentId,
-    sessionKey: personalKey,
+    sessionKey: mainKey,
     featureMethods: [...PLATFORMCLAW_WEB_GATEWAY_METHODS],
     historyMessages: [{ role: "assistant", content: "Synthetic conversation ready." }],
     methodResponses: {
@@ -97,14 +117,8 @@ async function installScenario(page: Page) {
         pageId: issue.id,
         conversationId: conversation.id,
       },
-      "chat.history": {
-        messages: [{ role: "assistant", content: "Space transcript ready." }],
-        sessionInfo: spaceRow,
-      },
-      "chat.startup": {
-        messages: [{ role: "assistant", content: "Space transcript ready." }],
-        sessionInfo: spaceRow,
-      },
+      "chat.history": historyResponses,
+      "chat.startup": historyResponses,
     },
   });
 }
@@ -134,7 +148,10 @@ suite.define(() => {
         .locator(`.sidebar-recent-session[data-session-key="${personalKey}"] a`)
         .first()
         .click();
-      await expect.poll(() => new URL(page.url()).pathname.includes("/chat/")).toBe(true);
+      await expect
+        .poll(() => new URL(page.url()).pathname)
+        .toBe(`/platformclaw/app/chat/${agentId}/personal-thread`);
+      await page.getByText("Personal transcript ready.", { exact: true }).waitFor();
       // A browser back to the old URL must not return to standalone Space chat.
       await page.goBack();
       await expect.poll(() => new URL(page.url()).pathname).toBe("/platformclaw/app/spaces");
@@ -202,7 +219,10 @@ suite.define(() => {
         .locator(`.sidebar-recent-session[data-session-key="${personalKey}"] a`)
         .first()
         .click();
-      await expect.poll(() => new URL(page.url()).pathname.includes("/chat/")).toBe(true);
+      await expect
+        .poll(() => new URL(page.url()).pathname)
+        .toBe(`/platformclaw/app/chat/${agentId}/personal-thread`);
+      await page.getByText("Personal transcript ready.", { exact: true }).waitFor();
       expect(await page.locator("platformclaw-spaces-page").count()).toBe(0);
       if (capture) {
         await page.screenshot({
