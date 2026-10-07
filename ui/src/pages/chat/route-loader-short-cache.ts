@@ -13,6 +13,11 @@ import {
 } from "../../lib/sessions/route-navigation.ts";
 import { normalizeAgentId, parseAgentSessionKey } from "../../lib/sessions/session-key.ts";
 
+export type ChatRouteContext = Pick<
+  ApplicationContext,
+  "basePath" | "gateway" | "agents" | "agentSelection" | "sessions"
+>;
+
 const SESSION_UUID_SUFFIX_RE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/iu;
 
 export function sessionKeyUuid(sessionKey: string): string | null {
@@ -76,7 +81,7 @@ export function requireShortSessionResolution(
 }
 
 export function findCachedShortSession(
-  context: ApplicationContext,
+  context: Pick<ApplicationContext, "gateway" | "agents" | "agentSelection" | "sessions">,
   location: RouteLocation,
   target: Extract<SessionPathTarget, { kind: "short" }>,
 ): CachedShortSession | undefined {

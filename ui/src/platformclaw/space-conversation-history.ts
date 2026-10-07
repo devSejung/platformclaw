@@ -1,4 +1,4 @@
-import { html, nothing } from "lit";
+import { html, nothing, type PropertyValues } from "lit";
 import { property } from "lit/decorators.js";
 import type {
   SpaceConversation,
@@ -18,6 +18,24 @@ import {
   resetChatThreadSessionPresentationState,
 } from "../pages/chat/components/chat-thread.ts";
 import { platformClawT } from "./i18n.ts";
+
+/** Keep shared history aligned with its selected deep-link anchor or live tail. */
+export function scrollSpacePageHistory(
+  host: HTMLElement,
+  changed: PropertyValues,
+  anchor: string,
+  follow: boolean,
+): void {
+  if (!changed.has("messages") && !changed.has("page")) {
+    return;
+  }
+  const history = host.querySelector<HTMLElement>(".pc-space-history");
+  if (anchor) {
+    host.querySelector<HTMLElement>('[data-source="true"]')?.scrollIntoView?.({ block: "center" });
+  } else if (history && follow) {
+    history.scrollTop = history.scrollHeight;
+  }
+}
 
 /** Bounded, explicitly requested pages of one authorized read-only transcript. */
 export class SpaceConversationHistoryState {

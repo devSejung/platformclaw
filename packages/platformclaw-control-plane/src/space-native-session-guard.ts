@@ -6,7 +6,7 @@ import { normalizeAgentId } from "@openclaw/normalization-core/agent-id";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { BrowserGatewayRpc } from "./browser-gateway-contracts.js";
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
-import { isSpaceConversationSession } from "./space-conversation-service.js";
+import { isSpaceConversationSession } from "./space-contracts.js";
 import type { SqliteSpaceStore } from "./sqlite-spaces.js";
 
 export type SpaceNativeSessionRequest = {

@@ -12,7 +12,11 @@ import {
   runImmediateTransaction,
   takeFirstSync,
 } from "./kysely-sync.js";
-import type { SpaceConversation, SpaceRole } from "./space-contracts.js";
+import {
+  spaceConversationSessionPrefix,
+  type SpaceConversation,
+  type SpaceRole,
+} from "./space-contracts.js";
 import type { SpaceConversationRow } from "./sqlite-schema-spaces.js";
 import type { SqliteSpaceStore } from "./sqlite-spaces.js";
 import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
@@ -166,7 +170,7 @@ export class SqliteSpaceConversationStore {
         owner_name: binding.display_name || binding.account_id,
         agent_id: binding.agent_id,
         // Only this writer may register the reserved namespace. Existing private keys are never adopted.
-        session_key: `agent:${binding.agent_id}:space-session:${id}`,
+        session_key: `${spaceConversationSessionPrefix(binding.agent_id)}${id}`,
         request_id: params.requestId,
         created_at: createdAt,
       };
@@ -326,6 +330,24 @@ export class SqliteSpaceConversationStore {
         .where("session_key", "=", sessionKey),
     );
     return row ? projectConversation(row) : undefined;
+  }
+  byShortId(userId: string, agentId: string, shortId: string): SpaceConversation | null {
+    const rows = executeSync(
+      this.db,
+      this.query
+        .selectFrom("collaboration_space_conversations")
+        .select("session_key")
+        .where("owner_id", "=", userId)
+        .where("agent_id", "=", agentId)
+        .where((eb) =>
+          eb(eb.fn<string>("replace", ["id", eb.val("-"), eb.val("")]), "like", `${shortId}%`),
+        )
+        .limit(2),
+    ).rows;
+    if (rows.length > 1) {
+      throw new ControlPlaneStateError("Conversation link is ambiguous; open it through Spaces");
+    }
+    return rows[0] ? this.bySession(userId, rows[0].session_key) : null;
   }
   owned(spaceId: string, userId: string): RegisteredConversation[] {
     return executeSync(

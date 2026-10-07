@@ -43,6 +43,8 @@ export function setupSpacePageTests() {
 }
 type Element = HTMLElement & {
   context: unknown;
+  routeSearch: string | undefined;
+  requestUpdate: () => void;
   updateComplete: Promise<unknown>;
   selectSpace: (id: string) => Promise<void>;
   selectPage: (page: unknown) => void;
@@ -95,7 +97,12 @@ export async function mount(role = "owner", conversations: SpaceConversation[] =
     },
   };
   const element = document.createElement("platformclaw-spaces-page") as Element;
-  element.context = { gateway };
+  element.context = {
+    gateway,
+    replace: (_route: string, options: { search: string; hash: string }) => {
+      history.replaceState(null, "", `${location.pathname}${options.search}${options.hash}`);
+    },
+  };
   document.body.append(element);
   roots.push(element);
   await element.updateComplete;

@@ -18,6 +18,7 @@ import {
 } from "./browser-gateway-contracts.js";
 import { BrowserGatewaySpaceAccess } from "./browser-gateway-space-access.js";
 import { BrowserSpaceGateway } from "./browser-gateway-spaces.js";
+import { spaceConversationSessionPrefix } from "./space-contracts.js";
 export * from "./browser-gateway-contracts.js";
 import {
   preflightCronMutation,
@@ -268,6 +269,11 @@ export class BrowserGatewayProxy {
     if (spaceResult.handled) {
       return spaceResult.result as T;
     }
+    // Stale browser catalogs may still supply Space keys. An empty discovery scope
+    // must not become an unscoped native search after those keys are removed.
+    if (method === "sessions.search" && (prepared.sessionKeys as string[]).length === 0) {
+      return { results: [] } as T;
+    }
     const localResult = await requestBrowserGatewayLocal(
       this.options,
       access,
@@ -420,6 +426,7 @@ export class BrowserGatewayProxy {
         includeGlobal: false,
         includeUnknown: false,
         configuredAgentsOnly: true,
+        excludeSessionKeyPrefixes: [spaceConversationSessionPrefix(access.binding.agentId)],
       };
     }
     if (method === "sessions.search") {
@@ -430,7 +437,7 @@ export class BrowserGatewayProxy {
         "sessionKeys",
         true,
       );
-      return { ...params, agentId: access.binding.agentId };
+      return this.spaceAccess.prepareSessionSearch(access, params);
     }
     if (method === "sessions.preview") {
       this.assertions.sessionKeyArray(access.binding.agentId, params.keys, "keys", true);
@@ -542,13 +549,12 @@ export class BrowserGatewayProxy {
     access: BrowserGatewayAccess,
     method: string,
     prepared: JsonObject,
-    upstreamResult: unknown,
+    result: unknown,
     executionTarget?: "platform_server" | "assigned_vm",
   ): unknown {
     const fail = (message: string): never => {
       throw new BrowserGatewayProxyError("upstream-result-denied", message);
     };
-    const result = this.spaceAccess.filterResult(access, method, upstreamResult);
     if (method.startsWith("cron.")) {
       return projectCronResult(this.browserCronContext(access), method, result);
     }
@@ -563,7 +569,7 @@ export class BrowserGatewayProxy {
       assertOwnedResultSessionKey: (value) =>
         this.assertions.ownedResultSessionKey(access.binding.agentId, value),
       projectSessionPayloadForAccess: (value) =>
-        this.spaceAccess.projectSessionPayload(access, value),
+        this.spaceAccess.projectSessionPayload(access, value, method === "sessions.list"),
       fail,
     });
     if (sessionResult !== undefined) {
@@ -668,15 +674,7 @@ export class BrowserGatewayProxy {
         : { ok: false, unavailableReason: payload.unavailableReason };
     }
     if (method === "sessions.search") {
-      const payload = asObject(result, "sessions.search result");
-      const results = Array.isArray(payload.results) ? payload.results : [];
-      if (results.some((entry) => !this.spaceAccess.payloadBelongsToAccess(access, entry))) {
-        throw new BrowserGatewayProxyError(
-          "upstream-result-denied",
-          "Gateway returned a search result outside the browser binding",
-        );
-      }
-      return payload;
+      return this.spaceAccess.projectSessionSearch(access, prepared, result);
     }
     if (method === "sessions.preview") {
       const payload = asObject(result, "sessions.preview result");

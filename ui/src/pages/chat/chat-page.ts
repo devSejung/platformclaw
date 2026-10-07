@@ -38,6 +38,7 @@ import {
   closePane,
   findPane,
   insertPane,
+  normalizeChatSplitLayout,
   panesOf,
   resizeColumns,
   resizePanes,
@@ -86,7 +87,9 @@ export class ChatPage extends OpenClawLightDomElement {
 
   override connectedCallback() {
     super.connectedCallback();
-    this.layout = loadSettings().chatSplitLayout;
+    // Persisted panes predate product navigation separation; remove those owned
+    // by another surface before creating panes or subscribing to their presence.
+    this.persistLayout(loadSettings().chatSplitLayout);
     this.mediaQuery = window.matchMedia("(max-width: 1099px)");
     this.narrow = this.mediaQuery.matches;
     this.mediaQuery.addEventListener("change", this.handleViewportChange);
@@ -381,8 +384,9 @@ export class ChatPage extends OpenClawLightDomElement {
   }
 
   private persistLayout(layout: ChatSplitLayout | undefined) {
-    this.layout = layout;
-    patchSettings({ chatSplitLayout: layout });
+    const filter = this.context?.sessionCatalogFilter;
+    this.layout = filter ? normalizeChatSplitLayout(layout, filter) : layout;
+    patchSettings({ chatSplitLayout: this.layout });
   }
 
   private updateRoute(sessionKey: string, replace = false, face = this.data.face ?? "chat") {

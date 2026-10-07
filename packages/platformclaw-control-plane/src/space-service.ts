@@ -6,11 +6,8 @@ import {
   ControlPlaneConflictError,
   ControlPlaneStateError,
 } from "./contracts.js";
-import type { Space, SpacePage } from "./space-contracts.js";
-import {
-  SpaceConversationService,
-  isSpaceConversationSession,
-} from "./space-conversation-service.js";
+import { isSpaceConversationSession, type Space, type SpacePage } from "./space-contracts.js";
+import { SpaceConversationService } from "./space-conversation-service.js";
 import { SpaceLifecycleService } from "./space-lifecycle-service.js";
 import {
   SpaceNativeSessionGuard,

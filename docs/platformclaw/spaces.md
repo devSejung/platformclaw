@@ -29,6 +29,12 @@ teams, and a team can use multiple Spaces.
 5. Work with your personal agent using the usual composer, tools, and approvals.
    Create another tab when you need a separate conversation context.
 
+Space conversations open only inside **Spaces**. They do not appear in the
+ordinary personal conversation sidebar, session search, or recent conversation
+updates. Existing chat links open the owning Space, page, and conversation when
+you still have access; an unavailable or ambiguous link does not open a private
+chat instead. Saved personal split views no longer restore Space conversations.
+
 Conversation names are local to your tabs on the selected page. If a name is
 already used, creation adds the next available number, such as **New conversation2**
 and **New conversation3**. Other employees' names do not reserve yours. Retrying

@@ -95,6 +95,8 @@ export type ApplicationInitialUserMessageHandoff = {
 export type ApplicationContext<TRouteId extends string = string> = {
   readonly basePath: string;
   readonly accessMode?: ApplicationAccessMode;
+  /** Product-owned conversations can remain accessible outside the personal chat catalog. */
+  readonly sessionCatalogFilter?: (sessionKey: string) => boolean;
   /** Canonical route availability resolved by the product bootstrap. */
   readonly isRouteEnabled?: (routeId: TRouteId) => boolean;
   readonly gateway: ApplicationGateway;

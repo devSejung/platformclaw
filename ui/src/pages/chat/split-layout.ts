@@ -308,7 +308,10 @@ function uniqueId(value: unknown, used: Set<string>, next: () => string): string
   return generated;
 }
 
-export function normalizeChatSplitLayout(value: unknown): ChatSplitLayout | undefined {
+export function normalizeChatSplitLayout(
+  value: unknown,
+  includeSession?: (sessionKey: string) => boolean,
+): ChatSplitLayout | undefined {
   if (!isRecord(value) || !Array.isArray(value.columns)) {
     return undefined;
   }
@@ -344,7 +347,7 @@ export function normalizeChatSplitLayout(value: unknown): ChatSplitLayout | unde
         continue;
       }
       const sessionKey = rawPane.sessionKey.trim();
-      if (!sessionKey) {
+      if (!sessionKey || includeSession?.(sessionKey) === false) {
         continue;
       }
       panes.push({

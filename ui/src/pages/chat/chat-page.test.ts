@@ -21,7 +21,7 @@ import type {
   NativeGatewaysCapability,
   NativeGatewaysSnapshot,
 } from "../../app/native-gateways.runtime.ts";
-import { loadSettings } from "../../app/settings.ts";
+import { loadSettings, patchSettings } from "../../app/settings.ts";
 import { UI_COMMAND_EVENT } from "../../components/panel-toggle-contract.ts";
 import {
   buildCatalogSessionKey,
@@ -238,26 +238,36 @@ describe("chat page split layout host", () => {
     expect(setAgent).toHaveBeenCalledWith("research");
   });
 
-  it("renders one chrome-free active pane in classic mode", async () => {
-    const page = new ChatPage();
-    setNavigationContext(page);
-    page.data = { sessionKey: "main", draft: "hello" };
-    document.body.append(page);
-    await page.updateComplete;
+  it.each([false, true])(
+    "renders classic mode with saved product pane=%s",
+    async (savedProductPane) => {
+      const page = new ChatPage();
+      const { context, request } = setViewerPresenceContext(page);
+      if (savedProductPane) {
+        const hidden = "agent:main:space-session:00000000-0000-4000-8000-000000000001";
+        Object.assign(context, { sessionCatalogFilter: (key: string) => key !== hidden });
+        const layout = createSplitLayout("main");
+        layout.columns[1]!.panes[0]!.sessionKey = hidden;
+        patchSettings({ chatSplitLayout: layout });
+      }
+      page.data = { sessionKey: "main", draft: "hello" };
+      document.body.append(page);
+      await page.updateComplete;
 
-    const panes = page.querySelectorAll<RenderedPane>("openclaw-chat-pane");
-    expect(panes).toHaveLength(1);
-    expect(itemAt(panes, 0, "rendered pane").paneId).toBe("p1");
-    expect(itemAt(panes, 0, "rendered pane").sessionKey).toBe("main");
-    expect(itemAt(panes, 0, "rendered pane").active).toBe(true);
-    expect(itemAt(panes, 0, "rendered pane").mergedChrome).toBe(false);
-    expect(itemAt(panes, 0, "rendered pane").classList.contains("chat-split-view__pane")).toBe(
-      false,
-    );
-    expect(page.querySelector("resizable-divider")).toBeNull();
-    // The always-on pane header owns the classic split-view opener.
-    expect(typeof itemAt(panes, 0, "rendered pane").onOpenSplitView).toBe("function");
-  });
+      const panes = page.querySelectorAll<RenderedPane>("openclaw-chat-pane");
+      expect(panes).toHaveLength(1);
+      expect(itemAt(panes, 0, "rendered pane").paneId).toBe("p1");
+      expect(itemAt(panes, 0, "rendered pane").sessionKey).toBe("main");
+      expect(itemAt(panes, 0, "rendered pane").active).toBe(true);
+      expect(itemAt(panes, 0, "rendered pane").mergedChrome).toBe(false);
+      expect(page.querySelector(".chat-split-view__pane")).toBeNull();
+      expect(page.querySelector("resizable-divider")).toBeNull();
+      // The always-on pane header owns the classic split-view opener.
+      expect(typeof itemAt(panes, 0, "rendered pane").onOpenSplitView).toBe("function");
+      expect(JSON.stringify(request.mock.calls)).not.toContain("space-session:");
+      expect(loadSettings().chatSplitLayout).toBeUndefined();
+    },
+  );
 
   it("hands route-owned focus to the final page across pane replacement", async () => {
     const sourcePage = new ChatPage();

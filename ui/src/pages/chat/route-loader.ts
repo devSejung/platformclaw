@@ -6,7 +6,6 @@ import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import { INTERNAL_SESSION_PATH_PARAM } from "../../app-route-paths.ts";
 import { pathForSession } from "../../app-session-path-builder.ts";
 import { sessionRefFromPath, type SessionPathTarget } from "../../app-session-route-paths.ts";
-import type { ApplicationContext } from "../../app/context.ts";
 import { waitForGatewayClient } from "../../app/gateway-readiness.ts";
 import type { BoardFace } from "../../lib/board/settings.ts";
 import {
@@ -38,6 +37,7 @@ import {
   requireShortSessionResolution,
   sessionKeyUuid,
   type ShortSessionResolution as SessionReferenceResolution,
+  type ChatRouteContext,
 } from "./route-loader-short-cache.ts";
 
 const SESSION_REF_SEARCH_LIMIT = 20;
@@ -132,7 +132,7 @@ function uniqueShortIdPrefix(
 // sessionReferenceMatches still applies the exact rule per row, so a loose needle only
 // widens the candidate set; too narrow a needle loses the session entirely.
 function exactGlobalAliasAgentId(
-  context: ApplicationContext,
+  context: ChatRouteContext,
   search: SessionReferenceSearch,
 ): string | null {
   if (search.kind !== "exact") {
@@ -148,7 +148,7 @@ function exactGlobalAliasAgentId(
 }
 
 function sessionReferenceSearchText(
-  context: ApplicationContext,
+  context: ChatRouteContext,
   search: SessionReferenceSearch,
 ): string {
   if (search.kind === "exact") {
@@ -175,7 +175,7 @@ function sessionReferenceSearchText(
 }
 
 function sessionReferenceMatches(
-  context: ApplicationContext,
+  context: ChatRouteContext,
   result: SessionsListResult,
   search: SessionReferenceSearch,
 ): GatewaySessionRow[] {
@@ -207,7 +207,7 @@ function sessionReferenceMatches(
 // same prefix under the same slug, so settling here would be the guess the bounded search
 // exists to avoid.
 async function querySessionReference(
-  context: ApplicationContext,
+  context: ChatRouteContext,
   search: SessionReferenceSearch,
   signal: AbortSignal,
 ): Promise<SessionReferenceResolution | null> {
@@ -259,7 +259,7 @@ async function querySessionReference(
 }
 
 async function querySessionReferencePages(
-  context: ApplicationContext,
+  context: ChatRouteContext,
   search: SessionReferenceSearch,
   signal: AbortSignal,
 ): Promise<SessionReferenceResolution | null> {
@@ -326,14 +326,14 @@ function preferredFace(row: Pick<GatewaySessionRow, "boardFace">): BoardFace {
   return row.boardFace === "dashboard" ? "dashboard" : "chat";
 }
 
-function configuredMainKey(context: ApplicationContext): string {
+function configuredMainKey(context: ChatRouteContext): string {
   return resolveUiConfiguredMainKey({
     agentsList: context.agents.state.agentsList,
     hello: context.gateway.snapshot.hello,
   });
 }
 
-function hasConfiguredMainKey(context: ApplicationContext): boolean {
+function hasConfiguredMainKey(context: ChatRouteContext): boolean {
   return Boolean(
     context.agents.state.agentsList?.mainKey?.trim() ||
     (context.gateway.snapshot.phase === "connected" && context.gateway.snapshot.hello),
@@ -341,7 +341,7 @@ function hasConfiguredMainKey(context: ApplicationContext): boolean {
 }
 
 function canonicalMainLocation(
-  context: ApplicationContext,
+  context: ChatRouteContext,
   location: RouteLocation,
   face: BoardFace,
   sessionKey: string,
@@ -362,7 +362,7 @@ function canonicalMainLocation(
 }
 
 function canonicalSessionLocation(params: {
-  context: ApplicationContext;
+  context: ChatRouteContext;
   location: RouteLocation;
   face: BoardFace;
   row: GatewaySessionRow;
@@ -384,7 +384,7 @@ function canonicalSessionLocation(params: {
   return changed ? { ...location, pathname } : null;
 }
 
-function targetFromLocation(context: ApplicationContext, location: RouteLocation) {
+function targetFromLocation(context: ChatRouteContext, location: RouteLocation) {
   const mainKey = configuredMainKey(context);
   const direct = sessionRefFromPath(location.pathname, context.basePath, mainKey);
   if (direct) {
@@ -407,7 +407,7 @@ function targetFromLocation(context: ApplicationContext, location: RouteLocation
 }
 
 function mainSessionKey(
-  context: ApplicationContext,
+  context: ChatRouteContext,
   target: Extract<SessionPathTarget, { kind: "main" }>,
 ): string {
   return buildAgentMainSessionKey({
@@ -417,7 +417,7 @@ function mainSessionKey(
 }
 
 function candidatesForResolution(
-  context: ApplicationContext,
+  context: ChatRouteContext,
   face: BoardFace,
   resolution: Extract<SessionReferenceResolution, { kind: "ambiguous" }>,
   location: RouteLocation,
@@ -454,7 +454,7 @@ function candidatesForResolution(
 }
 
 function resolvedSessionRouteData(params: {
-  context: ApplicationContext;
+  context: ChatRouteContext;
   location: RouteLocation;
   face: BoardFace;
   row: GatewaySessionRow;
@@ -486,7 +486,7 @@ function resolvedSessionRouteData(params: {
 }
 
 function resolvedMainSessionRouteData(params: {
-  context: ApplicationContext;
+  context: ChatRouteContext;
   location: RouteLocation;
   face: BoardFace;
   row: GatewaySessionRow;
@@ -523,7 +523,7 @@ function resolvedMainSessionRouteData(params: {
 }
 
 export async function loadChatRoute(
-  context: ApplicationContext,
+  context: ChatRouteContext,
   location: RouteLocation,
   face: BoardFace,
   signal: AbortSignal,
