@@ -3,7 +3,10 @@ import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
 } from "../../packages/normalization-core/src/string-coerce.js";
-import { normalizeTrimmedStringList } from "../../packages/normalization-core/src/string-normalization.js";
+import {
+  normalizeTrimmedStringList,
+  normalizeUniqueTrimmedStringList,
+} from "../../packages/normalization-core/src/string-normalization.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { callGateway as defaultCallGateway } from "../gateway/call.js";
 import { resolveAgentIdFromSessionKey } from "../routing/session-key.js";
@@ -82,6 +85,102 @@ export type SessionVisibilityRow = {
   spawnedBy?: string;
   parentSessionKey?: string;
 };
+
+const SESSION_TOOL_VISIBILITY_RESTRICTIONS_PARAM = "__openclawSessionVisibilityRestrictions";
+
+export type SessionToolVisibilityRestrictions = {
+  denyKeySubstrings: string[];
+};
+
+function normalizeSessionVisibilityRestrictionList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? normalizeUniqueTrimmedStringList(value)
+        .filter((entry) => entry.length <= 256)
+        .slice(0, 100)
+    : [];
+}
+
+/** Add deny-only session restrictions to params rewritten by a before_tool_call policy. */
+export function withSessionToolVisibilityRestrictions(
+  params: Record<string, unknown>,
+  restrictions: { denyKeySubstrings?: readonly string[] },
+): Record<string, unknown> {
+  const existing = readSessionToolVisibilityRestrictions(params);
+  const denyKeySubstrings = normalizeSessionVisibilityRestrictionList([
+    ...(restrictions.denyKeySubstrings ?? []),
+    ...existing.denyKeySubstrings,
+  ]);
+  return denyKeySubstrings.length === 0
+    ? params
+    : { ...params, [SESSION_TOOL_VISIBILITY_RESTRICTIONS_PARAM]: { denyKeySubstrings } };
+}
+
+/** Read host-only restrictions after before_tool_call has finalized execution params. */
+export function readSessionToolVisibilityRestrictions(
+  params: Record<string, unknown>,
+): SessionToolVisibilityRestrictions {
+  const raw = params[SESSION_TOOL_VISIBILITY_RESTRICTIONS_PARAM];
+  const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
+  return {
+    denyKeySubstrings: normalizeSessionVisibilityRestrictionList(record?.denyKeySubstrings),
+  };
+}
+
+export function sessionVisibilityRowDeniedByRestrictions(
+  row: SessionVisibilityRow,
+  restrictions: SessionToolVisibilityRestrictions,
+): boolean {
+  if (restrictions.denyKeySubstrings.length === 0) {
+    return false;
+  }
+  const values = [row.key, row.ownerSessionKey, row.spawnedBy, row.parentSessionKey]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+  return restrictions.denyKeySubstrings.some((substring) => {
+    const needle = substring.toLowerCase();
+    return needle.length > 0 && values.some((value) => value.includes(needle));
+  });
+}
+
+/** Resolve deny-only restrictions transitively through session lineage. */
+export function resolveDeniedSessionVisibilityKeys(
+  rows: readonly SessionVisibilityRow[],
+  restrictions: SessionToolVisibilityRestrictions,
+  seedDenied: Iterable<string> = [],
+): Set<string> {
+  const byKey = new Map<string, SessionVisibilityRow>();
+  for (const row of rows) {
+    const key = normalizeOptionalString(row.key);
+    if (!key) {
+      continue;
+    }
+    const existing = byKey.get(key);
+    byKey.set(key, { ...existing, ...row, key });
+  }
+  const denied = new Set(normalizeTrimmedStringList([...seedDenied]));
+  for (const row of byKey.values()) {
+    if (sessionVisibilityRowDeniedByRestrictions(row, restrictions)) {
+      denied.add(row.key);
+    }
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of byKey.values()) {
+      if (denied.has(row.key)) {
+        continue;
+      }
+      const parentKeys = [row.ownerSessionKey, row.spawnedBy, row.parentSessionKey].filter(
+        (value): value is string => typeof value === "string" && Boolean(value.trim()),
+      );
+      if (parentKeys.some((key) => denied.has(key.trim()))) {
+        denied.add(row.key);
+        changed = true;
+      }
+    }
+  }
+  return denied;
+}
 
 /** List sessions spawned by the requester through the gateway session list method. */
 export async function listSpawnedSessionKeys(params: {

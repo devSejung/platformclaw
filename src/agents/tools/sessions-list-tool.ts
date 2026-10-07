@@ -15,6 +15,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { callGateway } from "../../gateway/call.js";
 import { readSessionTitleFieldsFromTranscriptAsync } from "../../gateway/session-transcript-title-reader.js";
 import { deriveSessionTitle } from "../../gateway/session-utils.js";
+import { readSessionToolVisibilityRestrictions } from "../../plugin-sdk/session-visibility.js";
 import { isIncognitoSessionKey, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { getSessionStateVersions } from "../../sessions/session-state-events.js";
 import { resolveDefaultAgentId } from "../agent-scope-config.js";
@@ -45,6 +46,7 @@ import {
   resolveEffectiveSessionToolsVisibility,
   resolveInternalSessionKey,
   resolveSandboxedSessionToolContext,
+  resolveSessionVisibilityRestrictionDenials,
   type GatewaySessionListRow,
   type SessionListRow,
   type SessionRunStatus,
@@ -136,6 +138,20 @@ function readSessionRunStatus(value: unknown): SessionRunStatus | undefined {
     : undefined;
 }
 
+function sessionVisibilityCandidate(entry: GatewaySessionListRow) {
+  return {
+    key: typeof entry.key === "string" ? entry.key : "",
+    agentId: typeof entry.agentId === "string" ? entry.agentId : undefined,
+    ownerSessionKey:
+      typeof (entry as { ownerSessionKey?: unknown }).ownerSessionKey === "string"
+        ? (entry as { ownerSessionKey?: string }).ownerSessionKey
+        : undefined,
+    spawnedBy: typeof entry.spawnedBy === "string" ? entry.spawnedBy : undefined,
+    parentSessionKey:
+      typeof entry.parentSessionKey === "string" ? entry.parentSessionKey : undefined,
+  };
+}
+
 /** Creates the sessions-list tool with gateway-backed listing and local transcript enrichment. */
 export function createSessionsListTool(opts?: {
   agentSessionKey?: string;
@@ -152,6 +168,7 @@ export function createSessionsListTool(opts?: {
     outputSchema: SessionsListOutputSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
+      const visibilityRestrictions = readSessionToolVisibilityRestrictions(params);
       const cfg = opts?.config ?? getRuntimeConfig();
       const { mainKey, alias, requesterInternalKey, restrictToSpawned } =
         resolveSandboxedSessionToolContext({
@@ -210,8 +227,51 @@ export function createSessionsListTool(opts?: {
         (entry) => !entry || typeof entry !== "object" || !isIncognitoSessionKey(entry.key),
       );
       const defaultAgentId = resolveDefaultAgentId(cfg);
+      const storePath = typeof list?.path === "string" ? list.path : undefined;
+      const visibilityGuard = createSessionVisibilityRowChecker({
+        action: "list",
+        defaultAgentId,
+        requesterSessionKey: effectiveRequesterKey,
+        visibility,
+        a2aPolicy,
+      });
+      const childReferenceKeys = new Set<string>();
+      const visibleCandidates = sessions.flatMap((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return [];
+        }
+        const candidate = sessionVisibilityCandidate(entry);
+        if (!candidate.key || !visibilityGuard.check(candidate).allowed) {
+          return [];
+        }
+        const childCandidates = Array.isArray(entry.childSessions)
+          ? entry.childSessions.flatMap((value) =>
+              typeof value === "string" && value && !isIncognitoSessionKey(value)
+                ? (childReferenceKeys.add(value), [{ key: value }])
+                : [],
+            )
+          : [];
+        return [candidate, ...childCandidates];
+      });
+      const deniedSessionKeys = await resolveSessionVisibilityRestrictionDenials({
+        candidates: visibleCandidates,
+        restrictions: visibilityRestrictions,
+        gatewayCall,
+        hydrateKeys: childReferenceKeys,
+      });
+      const visibleSessions = sessions.filter((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return false;
+        }
+        const candidate = sessionVisibilityCandidate(entry);
+        return (
+          candidate.key &&
+          !deniedSessionKeys.has(candidate.key) &&
+          visibilityGuard.check(candidate).allowed
+        );
+      });
       const stateVersions = getSessionStateVersions(
-        sessions.flatMap((entry) => {
+        visibleSessions.flatMap((entry) => {
           if (!entry || typeof entry !== "object" || typeof entry.key !== "string") {
             return [];
           }
@@ -221,22 +281,12 @@ export function createSessionsListTool(opts?: {
             try {
               stateAgentId = resolveAgentIdFromSessionKey(entry.key, defaultAgentId);
             } catch {
-              // Malformed rows remain subject to the fail-closed visibility checker below,
-              // but cannot participate in agent state-version lookup.
               return [];
             }
           }
           return [{ sessionKey: entry.key, agentId: stateAgentId }];
         }),
       );
-      const storePath = typeof list?.path === "string" ? list.path : undefined;
-      const visibilityGuard = createSessionVisibilityRowChecker({
-        action: "list",
-        defaultAgentId,
-        requesterSessionKey: effectiveRequesterKey,
-        visibility,
-        a2aPolicy,
-      });
       const rows: SessionListRow[] = [];
       const historyTargets: Array<{ row: SessionListRow; resolvedKey: string }> = [];
       const titleTargets: Array<{
@@ -248,7 +298,7 @@ export function createSessionsListTool(opts?: {
         agentId: string;
       }> = [];
 
-      for (const entry of sessions) {
+      for (const entry of visibleSessions) {
         if (!entry || typeof entry !== "object") {
           continue;
         }
@@ -256,21 +306,6 @@ export function createSessionsListTool(opts?: {
         if (!key) {
           continue;
         }
-        const access = visibilityGuard.check({
-          key,
-          agentId: typeof entry.agentId === "string" ? entry.agentId : undefined,
-          ownerSessionKey:
-            typeof (entry as { ownerSessionKey?: unknown }).ownerSessionKey === "string"
-              ? (entry as { ownerSessionKey?: string }).ownerSessionKey
-              : undefined,
-          spawnedBy: typeof entry.spawnedBy === "string" ? entry.spawnedBy : undefined,
-          parentSessionKey:
-            typeof entry.parentSessionKey === "string" ? entry.parentSessionKey : undefined,
-        });
-        if (!access.allowed) {
-          continue;
-        }
-
         // Gateway listings include pseudo/global rows for UI callers. The tool only exposes real
         // sessions and the explicit global session when the requester is already global.
         if (key === "unknown") {
@@ -346,7 +381,9 @@ export function createSessionsListTool(opts?: {
           ? entry.childSessions
               .filter(
                 (value): value is string =>
-                  typeof value === "string" && !isIncognitoSessionKey(value),
+                  typeof value === "string" &&
+                  !isIncognitoSessionKey(value) &&
+                  !deniedSessionKeys.has(value),
               )
               .map((value) =>
                 resolveDisplaySessionKey({
