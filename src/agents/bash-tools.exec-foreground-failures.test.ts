@@ -486,28 +486,6 @@ describe("exec foreground failures", () => {
     }
   });
 
-  it("does not preflight remote-only backend workdirs from the local workspace root", async () => {
-    const workspaceDir = tempDirs.make("openclaw-sandbox-workdir-");
-    fs.writeFileSync(path.join(workspaceDir, "script.py"), "print($TOKEN)\n");
-    const { buildExecSpec, tool, validateWorkdir } = createBackendSandboxTool({ workspaceDir });
-    mockSuccessfulSpawn();
-
-    try {
-      const result = await tool.execute("call-remote-only-script", {
-        command: "python script.py",
-        workdir: "/remote/workspace/generated",
-      });
-
-      expect(result.details.status).toBe("completed");
-      expect(validateWorkdir).toHaveBeenCalledWith("/remote/workspace/generated");
-      expect(buildExecSpec).toHaveBeenCalledOnce();
-      expect(buildExecSpec.mock.calls[0]?.[0]?.workdir).toBe("/remote/workspace/generated");
-      expect(supervisorMock.spawn).toHaveBeenCalledOnce();
-    } finally {
-      fs.rmSync(workspaceDir, { recursive: true, force: true });
-    }
-  });
-
   it("uses the mapped host cwd for existing relative backend-validated sandbox workdirs", async () => {
     const workspaceDir = tempDirs.make("openclaw-sandbox-workdir-");
     const srcDir = path.join(workspaceDir, "src");

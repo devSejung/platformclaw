@@ -1,6 +1,6 @@
 /**
  * Internal exec workdir resolver.
- * Owns cwd selection and validation before exec approval, hooks, preflight, or
+ * Owns cwd selection and validation before exec approval, hooks, or
  * process launch can observe an invalid selected working directory.
  */
 import fs from "node:fs/promises";
@@ -13,7 +13,7 @@ import { assertSandboxPath } from "./sandbox-paths.js";
 
 export type ExecWorkdirResolution =
   | { kind: "local"; hostCwd: string }
-  | { kind: "sandbox"; hostCwd: string; containerCwd: string; scriptPreflightCwd: string | null }
+  | { kind: "sandbox"; hostCwd: string; containerCwd: string }
   | { kind: "node"; remoteCwd?: string }
   | { kind: "unavailable"; requestedCwd: string };
 
@@ -25,7 +25,6 @@ type NormalizedWorkdirInput =
 type SandboxWorkdir = {
   hostCwd: string;
   containerCwd: string;
-  scriptPreflightCwd: string | null;
 };
 
 type BackendHostWorkdirCandidate = {
@@ -234,7 +233,6 @@ async function mapExistingHostPath(params: {
     workdir: {
       hostCwd: resolved.resolved,
       containerCwd: joinContainerWorkdir(params.containerRoot, relative),
-      scriptPreflightCwd: resolved.resolved,
     },
   };
 }
@@ -248,7 +246,6 @@ async function validateBackendWorkdir(params: {
     ? {
         hostCwd: params.workdir.hostCwd,
         containerCwd,
-        scriptPreflightCwd: params.workdir.scriptPreflightCwd,
       }
     : null;
 }
@@ -321,7 +318,6 @@ async function resolveBackendValidatedSandboxWorkdir(params: {
         workdir: {
           hostCwd: workspaceHostCwd,
           containerCwd: joinContainerWorkdir(hostCandidate.containerRoot, mappedWorkdir.relative),
-          scriptPreflightCwd: null,
         },
         sandbox: params.sandbox,
       });
@@ -336,7 +332,6 @@ async function resolveBackendValidatedSandboxWorkdir(params: {
       workdir: {
         hostCwd: workspaceHostCwd,
         containerCwd,
-        scriptPreflightCwd: null,
       },
       sandbox: params.sandbox,
     });
@@ -370,7 +365,7 @@ async function resolveHostValidatedSandboxWorkdir(params: {
       ? resolved.relative.split(path.sep).join(path.posix.sep)
       : "";
     const containerCwd = joinContainerWorkdir(containerRoot, relative);
-    return { hostCwd: resolved.resolved, containerCwd, scriptPreflightCwd: resolved.resolved };
+    return { hostCwd: resolved.resolved, containerCwd };
   } catch {
     return null;
   }
@@ -433,7 +428,6 @@ export async function resolveExecWorkdir(params: {
           kind: "sandbox",
           hostCwd: resolved.hostCwd,
           containerCwd: resolved.containerCwd,
-          scriptPreflightCwd: resolved.scriptPreflightCwd,
         }
       : unavailable(requestedCwd);
   }

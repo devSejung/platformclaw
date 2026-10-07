@@ -277,9 +277,9 @@ describe("package scripts", () => {
     expect(script).toContain("extensions/mxc/test/sandbox-policy-loader.test.ts");
   });
 
-  it("runs Windows-only exec script preflight coverage in Windows CI", () => {
+  it("runs exec script execution coverage in Windows CI", () => {
     expect(readPackageJson().scripts["test:windows:ci"]).toContain(
-      "src/agents/bash-tools.exec.script-preflight.test.ts",
+      "src/agents/bash-tools.exec.script-execution.test.ts",
     );
   });
 
