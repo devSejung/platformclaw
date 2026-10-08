@@ -1,11 +1,20 @@
 import { nothing, render } from "lit";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n/index.ts";
 import { renderChatRunErrorNotice } from "./chat-view-notices.ts";
 
 const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+let container: HTMLDivElement;
+
+beforeEach(() => {
+  // Lit retains marker ownership on its container across the shared test DOM.
+  container = document.createElement("div");
+  document.body.append(container);
+});
+
 afterEach(() => {
-  render(nothing, document.body);
+  render(nothing, container);
+  container.remove();
   if (clipboardDescriptor) {
     Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
   } else {
@@ -23,17 +32,17 @@ describe("chat run error recovery", () => {
     const onRefresh = vi.fn();
     render(
       renderChatRunErrorNotice({ runError: { summary: error }, connected: true, onRefresh }),
-      document.body,
+      container,
     );
-    const details = document.querySelector<HTMLDetailsElement>("details")!;
+    const details = container.querySelector<HTMLDetailsElement>("details")!;
     expect(details.open).toBe(false);
     expect(details.querySelector("strong")?.textContent).toBe(error.split("\n")[0]);
-    expect(document.querySelector(".chat-run-error__diagnostic")?.textContent).toBe(error);
+    expect(container.querySelector(".chat-run-error__diagnostic")?.textContent).toBe(error);
     details.open = true;
     expect(details.querySelector("pre")?.getAttribute("tabindex")).toBe("0");
-    document.querySelector<HTMLButtonElement>(`[aria-label="${t("chat.copyError")}"]`)!.click();
+    container.querySelector<HTMLButtonElement>(`[aria-label="${t("chat.copyError")}"]`)!.click();
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(error));
-    document.querySelector<HTMLButtonElement>(".chat-run-error__refresh")!.click();
+    container.querySelector<HTMLButtonElement>(".chat-run-error__refresh")!.click();
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
@@ -45,11 +54,11 @@ describe("chat run error recovery", () => {
         connected: false,
         onRefresh: vi.fn(),
       }),
-      document.body,
+      container,
     );
-    expect(document.querySelector("strong")!.textContent!.length).toBeLessThan(error.length);
-    expect(document.querySelector("pre")?.textContent).toBe(error);
-    expect(document.querySelector<HTMLButtonElement>(".chat-run-error__refresh")?.disabled).toBe(
+    expect(container.querySelector("strong")!.textContent!.length).toBeLessThan(error.length);
+    expect(container.querySelector("pre")?.textContent).toBe(error);
+    expect(container.querySelector<HTMLButtonElement>(".chat-run-error__refresh")?.disabled).toBe(
       true,
     );
   });
@@ -57,13 +66,13 @@ describe("chat run error recovery", () => {
   it("keeps a short error visible without requiring disclosure", () => {
     render(
       renderChatRunErrorNotice({ runError: { summary: "Gateway disconnected" }, connected: true }),
-      document.body,
+      container,
     );
-    expect(document.querySelector("details")).toBeNull();
-    expect(document.querySelector(".chat-run-error__summary")?.textContent).toBe(
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.querySelector(".chat-run-error__summary")?.textContent).toBe(
       "Gateway disconnected",
     );
-    expect(document.querySelector(`[aria-label="${t("chat.copyError")}"]`)).not.toBeNull();
-    expect(document.querySelector(".chat-run-error__refresh")).toBeNull();
+    expect(container.querySelector(`[aria-label="${t("chat.copyError")}"]`)).not.toBeNull();
+    expect(container.querySelector(".chat-run-error__refresh")).toBeNull();
   });
 });
