@@ -347,7 +347,8 @@ suite("Wiki document selection through the built Control UI", () => {
         await expect.poll(() => dialog.locator("[data-publish-status=failed]").count()).toBe(1);
         await screenshot(page, `${viewport.name}-publish-partial`);
         await dialog
-          .getByRole("button", { name: ko ? "문서 닫기" : "Close document", exact: true })
+          .locator(".vaults__actions")
+          .getByRole("button", { name: ko ? "대화상자 닫기" : "Close dialog", exact: true })
           .click();
         const keepEditing = dialog.getByRole("button", {
           name: ko ? "계속 편집" : "Keep editing",
@@ -373,7 +374,8 @@ suite("Wiki document selection through the built Control UI", () => {
         expect(await submit.isDisabled()).toBe(true);
         await screenshot(page, `${viewport.name}-publish-retried`);
         await dialog
-          .getByRole("button", { name: ko ? "문서 닫기" : "Close document", exact: true })
+          .locator(".vaults__actions")
+          .getByRole("button", { name: ko ? "대화상자 닫기" : "Close dialog", exact: true })
           .click();
         await expect.poll(() => dialog.count()).toBe(0);
         expect(await actions.locator("[data-document-select]").count()).toBe(3);
