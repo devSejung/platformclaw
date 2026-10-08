@@ -1,6 +1,10 @@
 // Builds plugin API objects from config, registries, and runtime helpers.
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { attachPluginApiFacades, type OpenClawPluginApiWithoutFacades } from "./api-facades.js";
+import {
+  attachPluginApiFacades,
+  type OpenClawPluginApiWithoutFacades,
+  type PluginApiFacadeHandlers,
+} from "./api-facades.js";
 import type { PluginRuntime } from "./runtime/types.js";
 import type { OpenClawPluginApi, PluginLogger } from "./types.js";
 
@@ -18,75 +22,77 @@ type BuildPluginApiParams = {
   logger: PluginLogger;
   resolvePath: (input: string) => string;
   resolveAdmissionId?: OpenClawPluginApi["runContext"]["resolveAdmissionId"];
-  handlers?: Partial<
-    Pick<
-      OpenClawPluginApi,
-      | "registerTool"
-      | "registerHook"
-      | "registerHttpRoute"
-      | "registerHostedMediaResolver"
-      | "registerMcpServerConnectionResolver"
-      | "registerChannel"
-      | "registerGatewayMethod"
-      | "registerSessionCatalog"
-      | "registerCli"
-      | "registerReload"
-      | "registerNodeHostCommand"
-      | "registerNodeInvokePolicy"
-      | "registerSecurityAuditCollector"
-      | "registerService"
-      | "registerGatewayDiscoveryService"
-      | "registerCliBackend"
-      | "registerTextTransforms"
-      | "registerConfigMigration"
-      | "registerMigrationProvider"
-      | "registerAutoEnableProbe"
-      | "registerProvider"
-      | "registerWorkerProvider"
-      | "registerModelCatalogProvider"
-      | "registerEmbeddingProvider"
-      | "registerSpeechProvider"
-      | "registerRealtimeTranscriptionProvider"
-      | "registerRealtimeVoiceProvider"
-      | "registerMediaUnderstandingProvider"
-      | "registerTranscriptSourceProvider"
-      | "registerImageGenerationProvider"
-      | "registerVideoGenerationProvider"
-      | "registerMusicGenerationProvider"
-      | "registerWebFetchProvider"
-      | "registerWebSearchProvider"
-      | "registerInteractiveHandler"
-      | "onConversationBindingResolved"
-      | "registerCommand"
-      | "registerContextEngine"
-      | "registerCompactionProvider"
-      | "registerAgentHarness"
-      | "registerCodexAppServerExtensionFactory"
-      | "registerAgentToolResultMiddleware"
-      | "registerSessionExtension"
-      | "enqueueNextTurnInjection"
-      | "registerTrustedToolPolicy"
-      | "registerToolMetadata"
-      | "registerControlUiDescriptor"
-      | "registerRuntimeLifecycle"
-      | "registerAgentEventSubscription"
-      | "emitAgentEvent"
-      | "setRunContext"
-      | "getRunContext"
-      | "clearRunContext"
-      | "registerSessionSchedulerJob"
-      | "registerSessionAction"
-      | "sendSessionAttachment"
-      | "scheduleSessionTurn"
-      | "unscheduleSessionTurnsByTag"
-      | "registerDetachedTaskRuntime"
-      | "registerMemoryCapability"
-      | "registerMemoryPromptSupplement"
-      | "registerMemoryPromptPreparation"
-      | "registerMemoryCorpusSupplement"
-      | "on"
-    >
-  >;
+  // plugin-test-runtime exports this builder; keep its existing flat handler inputs.
+  handlers?: PluginApiFacadeHandlers &
+    Partial<
+      Pick<
+        OpenClawPluginApi,
+        | "registerTool"
+        | "registerHook"
+        | "registerHttpRoute"
+        | "registerHostedMediaResolver"
+        | "registerMcpServerConnectionResolver"
+        | "registerChannel"
+        | "registerGatewayMethod"
+        | "registerSessionCatalog"
+        | "registerCli"
+        | "registerReload"
+        | "registerNodeHostCommand"
+        | "registerNodeInvokePolicy"
+        | "registerSecurityAuditCollector"
+        | "registerService"
+        | "registerGatewayDiscoveryService"
+        | "registerCliBackend"
+        | "registerTextTransforms"
+        | "registerConfigMigration"
+        | "registerMigrationProvider"
+        | "registerAutoEnableProbe"
+        | "registerProvider"
+        | "registerWorkerProvider"
+        | "registerModelCatalogProvider"
+        | "registerEmbeddingProvider"
+        | "registerSpeechProvider"
+        | "registerRealtimeTranscriptionProvider"
+        | "registerRealtimeVoiceProvider"
+        | "registerMediaUnderstandingProvider"
+        | "registerTranscriptSourceProvider"
+        | "registerImageGenerationProvider"
+        | "registerVideoGenerationProvider"
+        | "registerMusicGenerationProvider"
+        | "registerWebFetchProvider"
+        | "registerWebSearchProvider"
+        | "registerInteractiveHandler"
+        | "onConversationBindingResolved"
+        | "registerCommand"
+        | "registerContextEngine"
+        | "registerCompactionProvider"
+        | "registerAgentHarness"
+        | "registerCodexAppServerExtensionFactory"
+        | "registerAgentToolResultMiddleware"
+        | "registerSessionExtension"
+        | "enqueueNextTurnInjection"
+        | "registerTrustedToolPolicy"
+        | "registerToolMetadata"
+        | "registerControlUiDescriptor"
+        | "registerRuntimeLifecycle"
+        | "registerAgentEventSubscription"
+        | "emitAgentEvent"
+        | "setRunContext"
+        | "getRunContext"
+        | "clearRunContext"
+        | "registerSessionSchedulerJob"
+        | "registerSessionAction"
+        | "sendSessionAttachment"
+        | "scheduleSessionTurn"
+        | "unscheduleSessionTurnsByTag"
+        | "registerDetachedTaskRuntime"
+        | "registerMemoryCapability"
+        | "registerMemoryPromptSupplement"
+        | "registerMemoryPromptPreparation"
+        | "registerMemoryCorpusSupplement"
+        | "on"
+      >
+    >;
 };
 
 const noopRegisterTool: OpenClawPluginApi["registerTool"] = () => {};
@@ -184,6 +190,7 @@ const noopOn: OpenClawPluginApi["on"] = () => {};
 
 export function buildPluginApi(params: BuildPluginApiParams): OpenClawPluginApi {
   const handlers = params.handlers ?? {};
+  const { session, agent, runContext, lifecycle } = handlers;
   const registerCli = handlers.registerCli ?? noopRegisterCli;
   const api: OpenClawPluginApiWithoutFacades = {
     id: params.id,
@@ -261,26 +268,54 @@ export function buildPluginApi(params: BuildPluginApiParams): OpenClawPluginApi 
       handlers.registerCodexAppServerExtensionFactory ?? noopRegisterCodexAppServerExtensionFactory,
     registerAgentToolResultMiddleware:
       handlers.registerAgentToolResultMiddleware ?? noopRegisterAgentToolResultMiddleware,
-    registerSessionExtension: handlers.registerSessionExtension ?? noopRegisterSessionExtension,
-    enqueueNextTurnInjection: handlers.enqueueNextTurnInjection ?? noopEnqueueNextTurnInjection,
+    // Project host-owned grouped handlers onto the supported flat surface once.
+    // Facades still observe later flat overrides and the registration lifecycle guard.
+    registerSessionExtension:
+      session?.state?.registerSessionExtension ??
+      handlers.registerSessionExtension ??
+      noopRegisterSessionExtension,
+    enqueueNextTurnInjection:
+      session?.workflow?.enqueueNextTurnInjection ??
+      handlers.enqueueNextTurnInjection ??
+      noopEnqueueNextTurnInjection,
     registerTrustedToolPolicy: handlers.registerTrustedToolPolicy ?? noopRegisterTrustedToolPolicy,
     registerToolMetadata: handlers.registerToolMetadata ?? noopRegisterToolMetadata,
     registerControlUiDescriptor:
-      handlers.registerControlUiDescriptor ?? noopRegisterControlUiDescriptor,
-    registerRuntimeLifecycle: handlers.registerRuntimeLifecycle ?? noopRegisterRuntimeLifecycle,
+      session?.controls?.registerControlUiDescriptor ??
+      handlers.registerControlUiDescriptor ??
+      noopRegisterControlUiDescriptor,
+    registerRuntimeLifecycle:
+      lifecycle?.registerRuntimeLifecycle ??
+      handlers.registerRuntimeLifecycle ??
+      noopRegisterRuntimeLifecycle,
     registerAgentEventSubscription:
-      handlers.registerAgentEventSubscription ?? noopRegisterAgentEventSubscription,
-    emitAgentEvent: handlers.emitAgentEvent ?? noopEmitAgentEvent,
-    setRunContext: handlers.setRunContext ?? noopSetRunContext,
-    getRunContext: handlers.getRunContext ?? noopGetRunContext,
-    clearRunContext: handlers.clearRunContext ?? noopClearRunContext,
+      agent?.events?.registerAgentEventSubscription ??
+      handlers.registerAgentEventSubscription ??
+      noopRegisterAgentEventSubscription,
+    emitAgentEvent: agent?.events?.emitAgentEvent ?? handlers.emitAgentEvent ?? noopEmitAgentEvent,
+    setRunContext: runContext?.setRunContext ?? handlers.setRunContext ?? noopSetRunContext,
+    getRunContext: runContext?.getRunContext ?? handlers.getRunContext ?? noopGetRunContext,
+    clearRunContext: runContext?.clearRunContext ?? handlers.clearRunContext ?? noopClearRunContext,
     registerSessionSchedulerJob:
-      handlers.registerSessionSchedulerJob ?? noopRegisterSessionSchedulerJob,
-    registerSessionAction: handlers.registerSessionAction ?? noopRegisterSessionAction,
-    sendSessionAttachment: handlers.sendSessionAttachment ?? noopSendSessionAttachment,
-    scheduleSessionTurn: handlers.scheduleSessionTurn ?? noopScheduleSessionTurn,
+      session?.workflow?.registerSessionSchedulerJob ??
+      handlers.registerSessionSchedulerJob ??
+      noopRegisterSessionSchedulerJob,
+    registerSessionAction:
+      session?.controls?.registerSessionAction ??
+      handlers.registerSessionAction ??
+      noopRegisterSessionAction,
+    sendSessionAttachment:
+      session?.workflow?.sendSessionAttachment ??
+      handlers.sendSessionAttachment ??
+      noopSendSessionAttachment,
+    scheduleSessionTurn:
+      session?.workflow?.scheduleSessionTurn ??
+      handlers.scheduleSessionTurn ??
+      noopScheduleSessionTurn,
     unscheduleSessionTurnsByTag:
-      handlers.unscheduleSessionTurnsByTag ?? noopUnscheduleSessionTurnsByTag,
+      session?.workflow?.unscheduleSessionTurnsByTag ??
+      handlers.unscheduleSessionTurnsByTag ??
+      noopUnscheduleSessionTurnsByTag,
     registerDetachedTaskRuntime:
       handlers.registerDetachedTaskRuntime ?? noopRegisterDetachedTaskRuntime,
     registerMemoryCapability: handlers.registerMemoryCapability ?? noopRegisterMemoryCapability,
