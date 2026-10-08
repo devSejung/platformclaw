@@ -102,6 +102,7 @@ describe("projectPlatformClawBrowserHello", () => {
         "platformclaw.vault.connection.set",
         "platformclaw.vault.create",
         "platformclaw.vault.document.get",
+        "platformclaw.vault.document.publish",
         "platformclaw.vault.document.preview",
         "platformclaw.vault.document.save",
         "platformclaw.vault.member.set",

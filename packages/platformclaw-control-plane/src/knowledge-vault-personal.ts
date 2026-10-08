@@ -207,6 +207,7 @@ export class PersonalKnowledgeVault {
         : {}),
       editMode:
         document.editMode === "body" || document.editMode === "notes" ? document.editMode : null,
+      ...(typeof document.canDelete === "boolean" ? { canDelete: document.canDelete } : {}),
       ...(typeof document.readOnlyReason === "string"
         ? { readOnlyReason: document.readOnlyReason }
         : {}),
@@ -409,11 +410,17 @@ export class PersonalKnowledgeVault {
     ) {
       throw new ControlPlaneStateError("Read the Personal document before deleting");
     }
-    await this.request(agentId, "wiki.delete", {
-      path: personalWikiPagePath(params.documentId, fail),
-      expectedContentHash: params.expectedRevision,
-    });
-    return { deleted: true, documentId: params.documentId };
+    const result = record(
+      await this.request(agentId, "wiki.delete", {
+        path: personalWikiPagePath(params.documentId, fail),
+        expectedContentHash: params.expectedRevision,
+      }),
+    );
+    return {
+      deleted: true,
+      documentId: params.documentId,
+      indexesRefreshed: result.indexesRefreshed === true,
+    };
   }
   async rebuild(userId: string, vaultId: string) {
     const agentId = this.agent(userId, vaultId);

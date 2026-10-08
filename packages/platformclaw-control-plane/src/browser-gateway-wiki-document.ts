@@ -83,6 +83,9 @@ export function projectWikiDocumentResult(params: {
     "wiki read-only reason",
     params.fail,
   );
+  if (item.canDelete !== undefined && typeof item.canDelete !== "boolean") {
+    return params.fail("Gateway returned invalid Wiki deletion capability");
+  }
   const result: JsonObject = {
     path: wikiPath(item.path, "wiki document path", params.fail),
     title: text(item.title, "wiki document title", params.fail),
@@ -100,6 +103,7 @@ export function projectWikiDocumentResult(params: {
       MAX_WIKI_CONTENT_CHARS,
     ),
     editMode: editMode ?? null,
+    ...(typeof item.canDelete === "boolean" ? { canDelete: item.canDelete } : {}),
     ...(readOnlyReason ? { readOnlyReason } : {}),
   };
   if (editMode) {

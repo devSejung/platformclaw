@@ -300,3 +300,10 @@
   font-size: 12px;
   color: var(--muted);
 }
+
+.vaults__document-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+}

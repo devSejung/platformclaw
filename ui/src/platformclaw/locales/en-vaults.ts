@@ -1,4 +1,99 @@
 export const vaultTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.vault.bulkPublishReading": "Loaded {completed} of {total} full sources",
+  "platformClaw.vault.selectLoadedDocuments": "Select loaded documents",
+  "platformClaw.vault.deselectLoadedDocuments": "Deselect loaded documents",
+  "platformClaw.vault.selectedDocumentCount": "Selected {selected} of {loaded} loaded documents",
+  "platformClaw.vault.clearDocumentSelection": "Clear selection",
+  "platformClaw.vault.publishSelectedDocuments": "Publish selected to Shared vault",
+  "platformClaw.vault.deleteSelectedDocuments": "Delete selected documents",
+  "platformClaw.vault.documentSelectionHint":
+    "Selection applies only to the documents loaded in this list. Other documents and vaults are not selected.",
+  "platformClaw.vault.selectDocument": "Select {title}",
+  "platformClaw.vault.selectDocumentLabel": "Select document",
+  "platformClaw.vault.documentBulkDeleteTitle": "Delete selected documents",
+  "platformClaw.vault.documentBulkDeleteHint":
+    "Permanently delete these {count} documents from this Wiki? This cannot be undone. Only the reviewed revisions will be deleted. Other documents, published copies, and conversation history remain.",
+  "platformClaw.vault.documentBulkDeletePersonalHint":
+    "Deleting a Personal Wiki page keeps its external source. Imported pages follow the existing deletion and resynchronization policy.",
+  "platformClaw.vault.documentBulkDeletePreparing": "Loading current documents for review…",
+  "platformClaw.vault.documentBulkDeleteWillDelete": "Ready for confirmed deletion",
+  "platformClaw.vault.documentBulkDeleteConfirm": "Delete {count} reviewed documents",
+  "platformClaw.vault.documentBulkDeleteNoEligible":
+    "No selected documents are available for deletion.",
+  "platformClaw.vault.documentBulkDeleteEditRequired": "Edit permission is required.",
+  "platformClaw.vault.documentBulkDeleteGeneratedExcluded":
+    "Excluded: this document cannot be deleted.",
+  "platformClaw.vault.documentBulkDeleteInvalidDocument":
+    "The document response could not be verified.",
+  "platformClaw.vault.documentBulkDeleteReadFailed":
+    "Could not load the current document. It was not selected for deletion.",
+  "platformClaw.vault.documentBulkDeleteDeleted": "Deleted",
+  "platformClaw.vault.documentBulkDeleteFailed": "Rejected; not deleted",
+  "platformClaw.vault.documentBulkDeleteUnconfirmed": "Deletion not confirmed",
+  "platformClaw.vault.documentBulkDeleteUnconfirmedHint":
+    "The response was interrupted. This document may already be deleted. Check the remaining documents before starting another deletion.",
+  "platformClaw.vault.documentBulkDeleteNotAttempted": "Not attempted",
+  "platformClaw.vault.documentBulkDeletePending": "Deleting…",
+  "platformClaw.vault.documentBulkDeleteStop": "Stop after current document",
+  "platformClaw.vault.documentBulkDeleteStopped":
+    "Stopped. Completed deletions remain; no further documents will be deleted.",
+  "platformClaw.vault.documentBulkDeleteSessionChanged":
+    "Connection, account, or vault changed. Close and review the documents again.",
+  "platformClaw.vault.documentBulkDeleteFailureStopped":
+    "Stopped after an error. Remaining documents were not attempted.",
+  "platformClaw.vault.documentBulkDeleteIndexWarning":
+    "Deleted, but search and links still need refreshing. Rebuild search and links in vault management.",
+  "platformClaw.vault.bulkPublishTitle": "Publish selected copies",
+  "platformClaw.vault.bulkPublishHint":
+    "Only the selected documents are copied. Personal originals are preserved. Linked documents and attachments are not included.",
+  "platformClaw.vault.bulkPublishSelectionLimit": "Select 1–{count} documents.",
+  "platformClaw.vault.bulkPublishInvalidSelection":
+    "Select documents from your own readable Personal Wiki.",
+  "platformClaw.vault.bulkPublishReview":
+    "I reviewed these selected sources and the Shared destination.",
+  "platformClaw.vault.bulkPublishDestination": "Shared destination",
+  "platformClaw.vault.bulkPublishDestinationHint":
+    "Copies will be visible to people with access to this Shared Wiki.",
+  "platformClaw.vault.bulkPublishDestinationUnavailable":
+    "This destination is no longer editable. Check access before retrying.",
+  "platformClaw.vault.bulkPublishConfirm": "Publish {count} copies",
+  "platformClaw.vault.bulkPublishRetry": "Retry pending copies",
+  "platformClaw.vault.bulkPublishCounts":
+    "{published} published · {unchanged} already published · {failed} failed · {uncertain} unconfirmed · {pending} pending",
+  "platformClaw.vault.bulkPublishProgress": "Publishing {completed} of {total} documents",
+  "platformClaw.vault.bulkPublishCancel": "Cancel after current batch",
+  "platformClaw.vault.bulkPublishStopping": "Stopping after the current batch…",
+  "platformClaw.vault.bulkPublishCancelled":
+    "Stopped. Completed copies are preserved; remaining documents were not published.",
+  "platformClaw.vault.bulkPublishInterrupted":
+    "Some results are unconfirmed. Copies may already exist. Retry here with the same destination to check safely.",
+  "platformClaw.vault.bulkPublishUnconfirmed":
+    "The response did not confirm every selected document.",
+  "platformClaw.vault.bulkPublishRetryHint":
+    "This review keeps one copy identity for safe retries. Existing copies are never overwritten.",
+  "platformClaw.vault.bulkPublishLeaveWarning":
+    "Unfinished or unconfirmed copies remain. Closing loses this safe-retry session. Check the Shared Wiki before publishing these documents again.",
+  "platformClaw.vault.bulkPublishLeave": "Close anyway",
+  "platformClaw.vault.bulkPublishReload": "Reload selected sources",
+  "platformClaw.vault.bulkPublishConflict":
+    "Source or destination changed. Close and select only the remaining failed documents for another review; existing copies were not overwritten.",
+  "platformClaw.vault.bulkPublishForbidden":
+    "Access is unavailable. Check permissions before trying again.",
+  "platformClaw.vault.bulkPublishInvalid":
+    "This document cannot be copied. Review its source and path, then select only the remaining failed documents.",
+  "platformClaw.vault.bulkPublishFailed": "Could not publish. Retry this copy.",
+  "platformClaw.vault.bulkPublishIndexPending":
+    "The copy was saved, but search and links are still updating.",
+  "platformClaw.vault.bulkPublishStatus.loading": "Loading full source",
+  "platformClaw.vault.bulkPublishStatus.ready": "Ready for review",
+  "platformClaw.vault.bulkPublishStatus.publishing": "Publishing",
+  "platformClaw.vault.bulkPublishStatus.uncertain": "Unconfirmed",
+  "platformClaw.vault.bulkPublishStatus.published": "Published",
+  "platformClaw.vault.bulkPublishStatus.unchanged": "Already published",
+  "platformClaw.vault.bulkPublishCryptoUnavailable":
+    "This browser cannot generate a secure copy ID. Open the page in a browser with Web Crypto support.",
+  "platformClaw.vault.bulkPublishTotalLimit":
+    "Selected sources exceed {size}. Close and select fewer documents.",
   "platformClaw.vault.importHeading": "Add Markdown files together",
   "platformClaw.vault.importMarkdownHint":
     "Choose several files or a folder. Folder paths and document links stay together, and the original Markdown content is preserved.",

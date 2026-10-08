@@ -19,6 +19,34 @@ import { createMemoryWikiTestHarness } from "./test-helpers.js";
 const { createVault } = createMemoryWikiTestHarness();
 
 describe("personal Wiki document editing", () => {
+  it("reports deletion capability independently of editing for authored reports and large pages", async () => {
+    const { rootDir, config } = await createVault({ initialize: true });
+    const personal = {
+      ...config,
+      agentId: "main",
+      vault: { ...config.vault, scope: "agent" as const },
+    };
+    await fs.writeFile(
+      path.join(rootDir, "reports/authored.md"),
+      "---\npageType: report\ntitle: Authored\n---\n# Authored\nBody\n",
+    );
+    await fs.writeFile(
+      path.join(rootDir, "concepts/large.md"),
+      "# Large\n" + "a".repeat(260 * 1024),
+    );
+    expect(
+      await getMemoryWikiDocument({ config: personal, lookup: "reports/authored.md" }),
+    ).toMatchObject({ editMode: null, canDelete: true });
+    expect(
+      await getMemoryWikiDocument({ config: personal, lookup: "concepts/large.md" }),
+    ).toMatchObject({ readOnlyReason: "page-too-large", canDelete: true });
+    expect(await getMemoryWikiDocument({ config: personal, lookup: "index.md" })).toMatchObject({
+      canDelete: false,
+    });
+    expect(await getMemoryWikiDocument({ config, lookup: "reports/authored.md" })).toMatchObject({
+      canDelete: false,
+    });
+  });
   it("returns canonical per-reference navigation without guessing ambiguous titles", async () => {
     const { rootDir, config } = await createVault({ initialize: true });
     await fs.writeFile(

@@ -6,6 +6,7 @@ import type {
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import { platformClawT } from "./i18n.ts";
 import { renderVaultDialog } from "./memory-vault-catalog.ts";
+import type { VaultDocumentContext } from "./memory-vault-document-actions.ts";
 
 type SelectedVault = NonNullable<KnowledgeVaultSnapshot["selected"]>;
 type Attachment = SelectedVault["attachments"][number];
@@ -432,6 +433,7 @@ export function renderVaultSelectedLayout(options: {
   onAddKnowledge: () => void;
   onUploadDocuments?: () => void;
   onDocumentOpen: (documentId: string) => void;
+  documentContext?: VaultDocumentContext;
 }) {
   const { vault } = options.selected;
   return html`<section class="vaults__selected">
@@ -470,6 +472,7 @@ export function renderVaultSelectedLayout(options: {
     ${options.search}
     <platformclaw-vault-documents
       .selected=${options.selected}
+      .documentContext=${options.documentContext ?? null}
       .busy=${options.busy || options.authorOpen}
       @vault-document-open=${(event: CustomEvent<string>) => options.onDocumentOpen(event.detail)}
     ></platformclaw-vault-documents>

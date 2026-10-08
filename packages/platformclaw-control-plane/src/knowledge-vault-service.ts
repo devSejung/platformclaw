@@ -1,11 +1,5 @@
-import { createHash } from "node:crypto";
 import { formatWikiDocumentLink } from "@openclaw/markdown-core";
-import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { BrowserGatewayProxyError, type BrowserGatewayRpc } from "./browser-gateway-contracts.js";
-import {
-  personalWikiPagePath,
-  projectWikiDocumentResult,
-} from "./browser-gateway-wiki-document.js";
+import type { BrowserGatewayRpc } from "./browser-gateway-contracts.js";
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
 import {
   KNOWLEDGE_VAULT_LIMITS,
@@ -15,12 +9,17 @@ import {
   type KnowledgeVaultSnapshot,
   type KnowledgeVaultDocumentInput,
   type KnowledgeVaultDocumentImportInput,
+  type KnowledgeVaultDocumentPublishInput,
 } from "./knowledge-vault-contracts.js";
 import {
   operateSharedWiki,
   type KnowledgeVaultWikiOperation,
 } from "./knowledge-vault-operations.js";
 import { PersonalKnowledgeVault } from "./knowledge-vault-personal.js";
+import {
+  publishKnowledgeVaultDocuments,
+  readPersonalPublicationSource,
+} from "./knowledge-vault-publication.js";
 import type { SqliteControlPlaneStore } from "./sqlite-store.js";
 
 /** Owns employee identity and corpus routing; callers never select a storage backend. */
@@ -178,6 +177,9 @@ export class KnowledgeVaultService {
       throw new ControlPlaneStateError("Batch document upload requires Personal Wiki");
     }
     return this.personal.importDocuments(params);
+  }
+  publishDocuments(params: KnowledgeVaultDocumentPublishInput) {
+    return publishKnowledgeVaultDocuments(this.store.vaults, this.gateway, params);
   }
   async rebuild(params: { userId: string; vaultId: string; documentId?: string }) {
     if (params.vaultId.startsWith("personal:")) {
@@ -342,39 +344,16 @@ export class KnowledgeVaultService {
         "Editor permission required in the destination vault",
       );
     }
-    const fail = (message: string): never => {
-      throw new BrowserGatewayProxyError("upstream-result-denied", message);
-    };
-    const lookup = personalWikiPagePath(params.lookup, fail);
-    const request = { agentId: params.agentId, lookup };
-    const raw = await this.gateway.request("wiki.document.get", request);
-    const document = projectWikiDocumentResult({
-      method: "wiki.document.get",
-      request,
-      result: raw,
-      agentId: params.agentId,
-      fail,
-    });
-    if (
-      !isRecord(document) ||
-      typeof document.sourceContent !== "string" ||
-      document.path !== lookup
-    ) {
-      throw new ControlPlaneStateError("Personal document unavailable; reload before publishing");
-    }
-    // Publication is an explicit copy of the reviewed source, never a compiler side effect.
-    const revision = createHash("sha256").update(document.sourceContent).digest("hex");
-    if (revision !== params.expectedRevision) {
-      throw new ControlPlaneStateError(
-        "Personal document changed; reload and review before publishing",
-      );
+    const document = await readPersonalPublicationSource(this.gateway, params);
+    if (this.store.vaults.personalAgentForUser(params.userId) !== params.agentId) {
+      throw new ControlPlaneAuthorizationError("Personal Wiki is unavailable");
     }
     return this.store.vaults.saveDocument({
       userId: params.userId,
       vaultId: params.targetVaultId,
-      title: params.title ?? String(document.title),
+      title: params.title ?? document.title,
       logicalPath: params.path,
-      content: params.content ?? document.sourceContent,
+      content: params.content ?? document.content,
     });
   }
 }

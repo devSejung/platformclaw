@@ -470,6 +470,26 @@ describe("Personal Wiki common adapter", () => {
       expectedContentHash: f.revision,
     });
   });
+  it.each([true, false])(
+    "retains source-owner deletion outcome when indexesRefreshed is %s",
+    async (indexesRefreshed) => {
+      const f = await fixture();
+      f.request.mockResolvedValueOnce({
+        agentId: f.binding.agentId,
+        path: f.path,
+        deleted: true,
+        indexesRefreshed,
+      });
+      await expect(
+        f.service.deleteDocument({
+          userId: f.user.id,
+          vaultId: f.vaultId,
+          documentId: f.path,
+          expectedRevision: f.revision,
+        }),
+      ).resolves.toEqual({ deleted: true, documentId: f.path, indexesRefreshed });
+    },
+  );
   it("exports original Markdown and binary attachments in importable ZIP, while enabled choice persists", async () => {
     const f = await fixture();
     const zip = await JSZip.loadAsync(

@@ -204,6 +204,7 @@ export function renderVaultDocumentList(options: {
   canEdit: boolean;
   busy: boolean;
   onOpen: (id: string) => void;
+  selection?: { ids: ReadonlySet<string>; onChange: (id: string, checked: boolean) => void };
 }) {
   const t = (key: string) => platformClawT(`platformClaw.vault.${key}`);
   return html`
@@ -218,6 +219,25 @@ export function renderVaultDocumentList(options: {
               modal: true,
               disabled: options.busy,
               onOpen: () => options.onOpen(document.id),
+              actions: options.selection
+                ? html`<label class="vaults__document-select">
+                    <input
+                      type="checkbox"
+                      data-document-select=${document.id}
+                      aria-label=${platformClawT("platformClaw.vault.selectDocument", {
+                        title: document.title,
+                      })}
+                      .checked=${options.selection.ids.has(document.id)}
+                      ?disabled=${options.busy}
+                      @change=${(event: Event) =>
+                        options.selection!.onChange(
+                          document.id,
+                          (event.target as HTMLInputElement).checked,
+                        )}
+                    />
+                    ${t("selectDocumentLabel")}
+                  </label>`
+                : nothing,
               status:
                 document.compile.status !== "ready"
                   ? html`<span class="settings-row__desc" role="status"

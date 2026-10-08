@@ -1529,6 +1529,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Upload Wiki document bulk browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: wiki-document-bulk-browser-proof-${{ github.event.pull_request.head.sha || github.sha }}-${{ matrix.shard }}
+          path: .artifacts/control-ui-e2e/wiki-document-bulk/
+          if-no-files-found: ignore
+          retention-days: 7
+
   control-ui-i18n:
     permissions:
       contents: read

@@ -44,6 +44,7 @@ type MemoryWikiDocument = {
   displayContent: string;
   sourceContent: string;
   editMode: MemoryWikiEditMode | null;
+  canDelete: boolean;
   readOnlyReason?: "generated-report" | "source-managed" | "page-too-large" | "shared-vault";
   editableContent?: string;
   revision?: string;
@@ -411,6 +412,7 @@ export async function getMemoryWikiDocument(params: {
       sourceContent: index.content,
       revision: revision(index.content),
       editMode: null,
+      canDelete: false,
       readOnlyReason: "generated-report" as const,
     };
   }
@@ -451,6 +453,13 @@ export async function getMemoryWikiDocument(params: {
     sourceContent: page.raw,
     revision: revision(page.raw),
     editMode: classification.editMode,
+    // Deletion is independent of body-editability: source-managed and large authored pages
+    // remain deletable, while compiler-owned navigation follows the canonical page policy.
+    canDelete:
+      params.config.vault.scope === "agent" &&
+      Boolean(params.config.agentId) &&
+      !isGeneratedMemoryWikiPage(page.relativePath) &&
+      Buffer.byteLength(page.raw, "utf8") <= 1024 * 1024,
     ...(classification.readOnlyReason ? { readOnlyReason: classification.readOnlyReason } : {}),
     ...(classification.editMode
       ? {

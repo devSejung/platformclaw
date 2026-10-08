@@ -9,7 +9,7 @@ title: "Memory Wiki rollout"
 
 # Wiki Hub
 
-Open **Settings > Memory > Wiki Hub**. Personal and Shared Wikis use the same
+Open **Memory > Wiki Hub**. Personal and Shared Wikis use the same
 catalog, document cards, reader/editor dialog, search and graph. **Memory** remains
 the separate durable recall surface; **Dreaming** remains personal consolidation.
 Organization directory management stays under **Settings > Organization**.
@@ -158,6 +158,46 @@ Shared Wiki. Publication checks the original Personal source revision again.
 It preserves the private original and copies only the explicitly reviewed
 Markdown; attachments and linked documents are not silently shared. Later edits
 do not synchronize. There is no organization knowledge review/approval workflow.
+
+### Select several documents
+
+Open a Wiki and use the checkboxes in **Documents**. **Select loaded documents**
+selects only the current list, not every document in a larger Wiki, graph nodes,
+or whole vaults. The selected and loaded counts stay visible. Changing accounts
+or opening a different Wiki clears the selection.
+
+In Personal Wiki, choose **Publish selected to Shared vault**, select an editable
+Shared Wiki, and review the full sources and destination before confirming.
+Only selected Markdown is copied; originals, unselected linked documents, and
+attachments stay private. The review accepts up to 1,000 documents and 64 MiB,
+with a 1 MiB document limit. Requests are split into bounded batches.
+
+Copies retain their original hierarchy beneath a unique publication folder.
+Relative links among selected documents can therefore remain together. Rooted
+links, links to unselected documents, and other unresolved references may need
+manual correction; publication does not rewrite source text or fetch more pages.
+
+Each document shows its own result. Keep the dialog open to retry pending or
+unconfirmed copies with the same destination and publication identity. Confirmed
+copies are not duplicated, overwritten, or recreated after deletion. A changed
+source or destination produces a conflict requiring another review. Closing the
+dialog loses its retry session; inspect the Shared Wiki before starting again.
+A saved copy with an indexing warning remains saved: rebuild search and links
+rather than publishing it again.
+
+**Delete selected documents** is available where you have edit access. It loads
+fresh document revisions, lists the reviewed titles and paths, and requires
+explicit confirmation of permanent deletion. Compiler-owned pages are excluded;
+read-only editing status alone does not prevent deletion of an authored page.
+Other documents, independent Shared copies, and conversation history remain.
+
+Deletion proceeds one document at a time. Stopping preserves completed deletions
+and prevents further requests after the current one finishes. Changed revisions
+and permission failures remain visible. An interrupted response is unconfirmed,
+not proof that deletion failed; check remaining documents before a new attempt.
+If Personal deletion succeeds but search refresh fails, the result says so and
+points to **Rebuild search and links**. Neither operation is an all-or-nothing
+transaction across the complete selection.
 
 ### Attachments and archives
 
