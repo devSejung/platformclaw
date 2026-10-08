@@ -1,12 +1,12 @@
 ---
 name: openclaw-debugging
-description: Debug OpenClaw model, provider, tool-surface, code-mode, streaming, and live/Crabbox behavior by choosing the right logs, probes, and proof path before changing code.
+description: Debug OpenClaw model, provider, tool-surface, code-mode, streaming, stored-session, and live behavior with targeted logs and evidence before changing code.
 ---
 
 # OpenClaw Debugging
 
 Use this skill when OpenClaw behavior differs between local tests, live models,
-providers, code mode, Tool Search, Crabbox, or CI, and the next move should be a
+providers, code mode, Tool Search, stored sessions, or CI, and the next move should be a
 debug signal rather than a guess.
 
 ## Read First
@@ -15,7 +15,8 @@ debug signal rather than a guess.
 - `docs/reference/test.md` for local test commands.
 - `docs/tools/code-mode.md` for code-mode exec/wait and tool catalog rules.
 - Use `$openclaw-testing` for choosing test lanes.
-- Use `$crabbox` for broad, Docker, package, Linux, live-key, or CI-parity proof.
+- Follow root `AGENTS.md` and host constraints for proof routing. Do not probe
+  backends declared unavailable; use local Linux Docker for permitted Linux proof.
 
 ## Default Loop
 
@@ -77,6 +78,13 @@ openclaw logs --follow
   before saying live proof is blocked. Env checks are presence-only; never print
   secrets.
 
+## Session Evidence
+
+When a report references a conversation, read
+[references/session-evidence.md](references/session-evidence.md) before fetching
+stored messages, sender attribution, or attachments. Scope access to authorized
+data; a read-only query and an export have different side effects.
+
 ## Code Pointers
 
 - Model payload + Responses stream:
@@ -100,7 +108,8 @@ openclaw logs --follow
 - Worker/dist/lazy import/package surface: targeted tests plus `pnpm build`.
 - Live provider/model behavior: same provider/model with debug flags and a real
   key if available.
-- Docker/package/Linux/CI-parity: `$crabbox`.
+- Docker/package/Linux/CI-parity: local Linux Docker under the current host
+  constraints; follow root policy for other proof runners.
 - CI failure: exact SHA, relevant job only, logs only after failure/completion.
 
 ## Output Habit
