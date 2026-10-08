@@ -10,7 +10,7 @@ import { resolveProviderIdForAuth } from "../../agents/provider-auth-aliases.js"
 import { createAgentRunRestartAbortError } from "../../agents/run-termination.js";
 import { dispatchInboundMessageWithProjectedDispatcher } from "../../auto-reply/dispatch.js";
 import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
-import { clearAgentRunContext } from "../../infra/agent-run-registry.js";
+import { clearAgentRunContext, registerAgentRunContext } from "../../infra/agent-run-registry.js";
 import {
   emitDiagnosticsTimelineEvent,
   measureDiagnosticsTimelineSpan,
@@ -87,7 +87,6 @@ export async function handleChatSend(
     sessionRoutingChanged,
     selectedAgent,
     requestedSessionId,
-    backingSessionId,
     agentId,
     activeRunScopeKey,
     expectedLeafEntryId,
@@ -308,7 +307,7 @@ export async function handleChatSend(
       context,
       clientRunId,
       sessionKey,
-      sessionId: backingSessionId ?? clientRunId,
+      sessionId: admittedSessionId,
       agentId: selectedAgent.agentId,
       controller: activeRunAbort.controller,
       lifecycleGeneration,
@@ -410,8 +409,28 @@ export async function handleChatSend(
                     : {}),
                 resumeRequestedSession: reconnectResumeRequested,
                 onSessionPrepared: (binding) => {
-                  if (binding.sessionKey === sessionKey) {
+                  const active = context.chatAbortControllers.get(clientRunId);
+                  const queued = context.chatQueuedTurns.get(clientRunId);
+                  if (
+                    binding.sessionKey === sessionKey &&
+                    lifecycleGeneration === getAgentEventLifecycleGeneration() &&
+                    !activeRunAbort.controller.signal.aborted &&
+                    (!active || active === activeRunAbort.entry) &&
+                    (!queued || queued.controller === activeRunAbort.controller) &&
+                    (active !== undefined || queued !== undefined)
+                  ) {
                     userTurn.setAcceptedSessionId(binding.sessionId);
+                    // The original run/controller remains the cancellation owner
+                    // after verified compaction changes its transcript identity.
+                    if (active) {
+                      active.sessionId = binding.sessionId;
+                      registerAgentRunContext(clientRunId, {
+                        sessionKey,
+                        sessionId: binding.sessionId,
+                        lifecycleGeneration,
+                      });
+                    }
+                    queuedFollowup.setSessionId(binding.sessionId);
                   }
                 },
                 abortSignal: activeRunAbort.controller.signal,

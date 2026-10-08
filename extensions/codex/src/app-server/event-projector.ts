@@ -664,7 +664,11 @@ export class CodexAppServerEventProjector {
         this.isCurrentTurnSnapshotItem(item) &&
         !this.completedItemIds.has(item.id)
       ) {
-        await this.handleItemCompleted({ item });
+        // ContextCompaction's wire shape contains only type/id. Rebuild that
+        // shape rather than passing the snapshot type's open-ended metadata.
+        await this.handleItemCompleted({
+          item: { type: "contextCompaction", id: item.id },
+        });
       }
       this.diagnostics.warnUnknownItemStatus(item);
       this.assistantProjection.recordSnapshotItem(item);

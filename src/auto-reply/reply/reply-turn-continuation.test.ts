@@ -1,5 +1,5 @@
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   captureSessionDatabaseIdentity,
   loadSessionEntry,
@@ -11,7 +11,12 @@ import { createDispatchReplyOperationCoordinator } from "./dispatch-from-config.
 import { DispatchSessionRefreshRequiredError } from "./dispatch-session-refresh-error.js";
 import { finalizeInboundContext } from "./inbound-context.js";
 import type { ReplyDispatcher } from "./reply-dispatcher.types.js";
-import { type ReplyOperation, replyRunRegistry } from "./reply-run-registry.js";
+import {
+  captureReplyRunAdmissionSource,
+  type ReplyOperation,
+  replyRunRegistry,
+  runAfterReplyOperationClear,
+} from "./reply-run-registry.js";
 import { testing } from "./reply-run-registry.test-support.js";
 import { admitReplyTurn } from "./reply-turn-admission.js";
 import { initSessionState } from "./session.js";
@@ -70,6 +75,74 @@ function dispatcher(): ReplyDispatcher {
 afterEach(() => testing.resetReplyRunRegistry());
 
 describe("owned compaction continuation", () => {
+  it.each(["lane", "store"] as const)(
+    "does not carry source UUID lineage across target %s adoption",
+    async (boundary) => {
+      await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+        const sourceStore = state.statePath("sessions.json");
+        const targetStore = boundary === "store" ? state.statePath("target.sqlite") : sourceStore;
+        const targetKey = boundary === "lane" ? "agent:main:target-lane" : sessionKey;
+        await seed(sourceStore);
+        const operation = await own(sourceStore);
+        await rotate(operation, sourceStore, "source-compacted");
+        await replaceSessionEntry(
+          { sessionKey: targetKey, storePath: targetStore },
+          { sessionId: "target-current", updatedAt: Date.now() },
+        );
+        const adopted = await admitReplyTurn({
+          sessionKey: targetKey,
+          sessionId: operation.sessionId,
+          expectedSessionId: "target-current",
+          storePath: targetStore,
+          adoptOperation: operation,
+          kind: "visible",
+          resetTriggered: false,
+        });
+        expect(adopted.status).toBe("owned");
+        await replaceSessionEntry(
+          { sessionKey: targetKey, storePath: targetStore },
+          { sessionId: "target-compacted", updatedAt: Date.now() },
+        );
+        operation.updateSessionId("target-compacted");
+        expect(operation.hasOwnedSessionId(initialSessionId)).toBe(true);
+        expect(captureReplyRunAdmissionSource(operation).sessionIds).toEqual(
+          new Set(["target-current", "target-compacted"]),
+        );
+        operation.complete();
+        await expect(
+          admitReplyTurn({
+            sessionKey: targetKey,
+            sessionId: initialSessionId,
+            expectedSessionId: initialSessionId,
+            expectedActiveOperations: [operation],
+            storePath: targetStore,
+            kind: "visible",
+            resetTriggered: false,
+          }),
+        ).rejects.toBeInstanceOf(DispatchSessionRefreshRequiredError);
+      });
+    },
+  );
+
+  it("keeps earlier after-clear cleanup in its store when a foreign visible owner rotates", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+      const storePath = state.statePath("sessions.json");
+      const foreignStore = state.statePath("foreign.sqlite");
+      await seed(storePath);
+      await seed(foreignStore, "foreign-current");
+      const first = await own(storePath);
+      const delivery = deferred();
+      const afterClear = vi.fn();
+      runAfterReplyOperationClear(first, afterClear);
+      first.completeWithAfterClearBarrier(delivery.promise);
+      const foreign = await own(foreignStore, "foreign-current");
+      await rotate(foreign, foreignStore, "foreign-compacted");
+      foreign.complete();
+      delivery.resolve();
+      await vi.waitFor(() => expect(afterClear).toHaveBeenCalledWith(initialSessionId));
+    });
+  });
+
   it.each(["completed", "active", "successive"] as const)(
     "carries the admitted identity through dispatch and real session initialization: %s",
     async (scenario) => {
@@ -271,7 +344,7 @@ describe("owned compaction continuation", () => {
       closeOpenClawAgentDatabaseByPath(sqlitePath);
       expect(logical.isCurrent()).toBe(false);
       const reopened = captureSessionDatabaseIdentity({ sessionKey, storePath });
-      expect(reopened.identity).not.toBe(logical.identity);
+      expect(reopened.identity === logical.identity).toBe(false);
       expect(reopened.isCurrent()).toBe(true);
     });
   });

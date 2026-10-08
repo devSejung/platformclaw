@@ -1,5 +1,6 @@
 import { nothing, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { t } from "../../i18n/index.ts";
 import { renderChatRunErrorNotice } from "./chat-view-notices.ts";
 
 const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
@@ -30,7 +31,7 @@ describe("chat run error recovery", () => {
     expect(document.querySelector(".chat-run-error__diagnostic")?.textContent).toBe(error);
     details.open = true;
     expect(details.querySelector("pre")?.getAttribute("tabindex")).toBe("0");
-    document.querySelector<HTMLButtonElement>('[aria-label="Copy error"]')!.click();
+    document.querySelector<HTMLButtonElement>(`[aria-label="${t("chat.copyError")}"]`)!.click();
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(error));
     document.querySelector<HTMLButtonElement>(".chat-run-error__refresh")!.click();
     expect(onRefresh).toHaveBeenCalledOnce();
@@ -62,7 +63,7 @@ describe("chat run error recovery", () => {
     expect(document.querySelector(".chat-run-error__summary")?.textContent).toBe(
       "Gateway disconnected",
     );
-    expect(document.querySelector('[aria-label="Copy error"]')).not.toBeNull();
+    expect(document.querySelector(`[aria-label="${t("chat.copyError")}"]`)).not.toBeNull();
     expect(document.querySelector(".chat-run-error__refresh")).toBeNull();
   });
 });

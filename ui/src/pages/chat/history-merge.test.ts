@@ -35,7 +35,14 @@ function projectLiveMessage(owner: object, message: unknown, scope: SessionProje
 }
 
 describe("pane-owned canonical session projection", () => {
-  it("publishes a compacted leaf and its matching marker before retiring live compaction", () => {
+  it.each([
+    { name: "leaf", next: { activeLeafEntryId: "compacted-leaf" } },
+    { name: "backing session", next: { sessionId: "compacted-session" } },
+    {
+      name: "backing session and leaf",
+      next: { sessionId: "compacted-session", activeLeafEntryId: "compacted-leaf" },
+    },
+  ])("adopts matching compaction history through $name rotation", ({ next }) => {
     const compactionStatus: CompactionStatus = {
       phase: "complete",
       runId: "run-1",
@@ -48,7 +55,13 @@ describe("pane-owned canonical session projection", () => {
       chatMessages: [] as unknown[],
       compactionStatus: compactionStatus as CompactionStatus | null,
     };
-    const scope = { sessionKey: "main", sessionId: "session-1", activeLeafEntryId: "old-leaf" };
+    const scope = {
+      sessionKey: "main",
+      sessionId: "session-1",
+      agentId: "main",
+      lifecycleRevision: 1,
+      activeLeafEntryId: "old-leaf",
+    };
     getChatSessionProjection(owner, [], scope);
     const marker = {
       role: "system",
@@ -58,12 +71,56 @@ describe("pane-owned canonical session projection", () => {
       owner,
       { type: "snapshotLoaded", messages: [marker] },
       {
-        scope: { ...scope, activeLeafEntryId: "compacted-leaf" },
+        scope: { ...scope, ...next },
         messages: [],
       },
     );
     expect(owner.compactionStatus).toBe(compactionStatus);
     expect(owner.chatMessages).toEqual([marker]);
+  });
+
+  it.each([
+    { name: "session key", next: { sessionKey: "other-chat" } },
+    { name: "agent", next: { agentId: "other-agent" } },
+    { name: "lifecycle", next: { lifecycleRevision: 2 } },
+  ])("clears compaction across $name changes despite a matching marker", ({ next }) => {
+    const owner = {
+      sessionKey: "main",
+      chatMessages: [] as unknown[],
+      compactionStatus: {
+        phase: "complete",
+        runId: "run-1",
+        itemId: "compact-1",
+        startedAt: 1_000,
+        completedAt: 2_000,
+      } as CompactionStatus | null,
+    };
+    const scope = {
+      sessionKey: "main",
+      sessionId: "session-1",
+      agentId: "main",
+      lifecycleRevision: 1,
+      activeLeafEntryId: "old-leaf",
+    };
+    getChatSessionProjection(owner, [], scope);
+    const marker = {
+      role: "system",
+      __openclaw: { kind: "compaction", id: "compacted-leaf", runId: "run-1", itemId: "compact-1" },
+    };
+    reduceChatSessionProjection(
+      owner,
+      { type: "snapshotLoaded", messages: [marker] },
+      {
+        scope: {
+          ...scope,
+          ...next,
+          sessionId: "compacted-session",
+          activeLeafEntryId: "compacted-leaf",
+        },
+        messages: [],
+      },
+    );
+    expect(owner.compactionStatus).toBeNull();
   });
 
   it.each([
@@ -93,18 +150,35 @@ describe("pane-owned canonical session projection", () => {
     expect(owner.compactionStatus).toBeNull();
   });
 
-  it("clears completed compaction on explicit reset even when the transcript is already empty", () => {
+  it.each([
+    { name: "an empty transcript", messages: [] },
+    {
+      name: "a matching persisted marker",
+      messages: [
+        {
+          role: "system",
+          __openclaw: {
+            kind: "compaction",
+            id: "compacted-leaf",
+            runId: "run-1",
+            itemId: "compact-1",
+          },
+        },
+      ],
+    },
+  ])("clears completed compaction on explicit reset with $name", ({ messages }) => {
     const owner = {
       sessionKey: "main",
-      chatMessages: [],
+      chatMessages: messages,
       compactionStatus: {
         phase: "complete",
         runId: "run-1",
+        itemId: "compact-1",
         startedAt: 1_000,
         completedAt: 2_000,
       } as CompactionStatus | null,
     };
-    getChatSessionProjection(owner, [], { sessionKey: "main" });
+    getChatSessionProjection(owner, messages, { sessionKey: "main" });
     reduceChatSessionProjection(owner, { type: "sessionReset" });
     expect(owner.compactionStatus).toBeNull();
   });

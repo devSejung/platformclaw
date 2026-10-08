@@ -264,6 +264,8 @@ type ReplyRunWaiter = {
 type ReplyRunFollowupAdmissionBarrier = {
   settled: Promise<void>;
   sources: ReplyRunAdmissionSource[];
+  /** Cleanup follows the latest same-store visible turn; lineage proof stays in sources. */
+  cleanupSource: ReplyRunAdmissionSource;
 };
 
 export type ReplyRunAdmissionSource = {
@@ -274,6 +276,12 @@ export type ReplyRunAdmissionSource = {
   databaseIdentity?: SessionDatabaseIdentity;
 };
 
+type ReplyOperationAdmissionBinding = {
+  databaseIdentity: SessionDatabaseIdentity;
+  sessionKey: string;
+  excludedSessionIds: Set<string>;
+};
+
 type ReplyRunState = {
   activeRunsByKey: Map<string, ReplyOperation>;
   activeSessionIdsByKey: Map<string, string>;
@@ -282,7 +290,7 @@ type ReplyRunState = {
   waitersByKey: Map<string, Set<ReplyRunWaiter>>;
   followupAdmissionBarriersByKey: Map<string, ReplyRunFollowupAdmissionBarrier>;
   evictOperationByOperation?: WeakMap<ReplyOperation, () => void>;
-  databaseIdentityByOperation?: WeakMap<ReplyOperation, SessionDatabaseIdentity>;
+  admissionBindingByOperation?: WeakMap<ReplyOperation, ReplyOperationAdmissionBinding>;
 };
 
 const REPLY_RUN_STATE_KEY = Symbol.for("openclaw.replyRunRegistry");
@@ -300,9 +308,9 @@ replyRunState.followupAdmissionBarriersByKey ??= new Map();
 const evictReplyOperationByOperation =
   replyRunState.evictOperationByOperation ??
   (replyRunState.evictOperationByOperation = new WeakMap<ReplyOperation, () => void>());
-const databaseIdentityByOperation = (replyRunState.databaseIdentityByOperation ??= new WeakMap<
+const admissionBindingByOperation = (replyRunState.admissionBindingByOperation ??= new WeakMap<
   ReplyOperation,
-  SessionDatabaseIdentity
+  ReplyOperationAdmissionBinding
 >());
 
 /** Only reply admission may bind an operation to the session store it actually owns. */
@@ -310,16 +318,39 @@ export function bindReplyOperationDatabaseIdentity(
   operation: ReplyOperation,
   databaseIdentity: SessionDatabaseIdentity,
 ): void {
-  databaseIdentityByOperation.set(operation, databaseIdentity);
+  const previous = admissionBindingByOperation.get(operation);
+  if (
+    !previous ||
+    previous.sessionKey !== operation.key ||
+    previous.databaseIdentity.identity !== databaseIdentity.identity ||
+    !previous.databaseIdentity.isCurrent()
+  ) {
+    // Native command adoption retains lifetime IDs for cancellation, but IDs
+    // owned in its source lane/store cannot prove target-session compaction.
+    const excludedSessionIds = operation.captureOwnedSessionIds();
+    excludedSessionIds.delete(operation.sessionId);
+    admissionBindingByOperation.set(operation, {
+      databaseIdentity,
+      sessionKey: operation.key,
+      excludedSessionIds,
+    });
+  }
+  updateFollowupAdmissionSources(operation);
 }
 
 export function captureReplyRunAdmissionSource(operation: ReplyOperation): ReplyRunAdmissionSource {
+  const binding = admissionBindingByOperation.get(operation);
+  const matchesLane = !binding || binding.sessionKey === operation.key;
+  const sessionIds = matchesLane ? operation.captureOwnedSessionIds() : new Set<string>();
+  for (const excluded of binding?.excludedSessionIds ?? []) {
+    sessionIds.delete(excluded);
+  }
   return {
     operation,
     sessionKey: operation.key,
     sessionId: operation.sessionId,
-    sessionIds: operation.captureOwnedSessionIds(),
-    databaseIdentity: databaseIdentityByOperation.get(operation),
+    sessionIds,
+    databaseIdentity: matchesLane ? binding?.databaseIdentity : undefined,
   };
 }
 
@@ -565,6 +596,7 @@ function registerFollowupAdmissionBarrier(
   const entry = {
     settled,
     sources: [...(previousEntry?.sources ?? []), captureReplyRunAdmissionSource(operation)],
+    cleanupSource: captureReplyRunAdmissionSource(operation),
   };
   barriersByKey.set(sessionKey, entry);
   void settled.then(() => {
@@ -582,6 +614,15 @@ function updateFollowupAdmissionSources(operation: ReplyOperation): void {
     // queue barrier. Retain its owner proof too, instead of just its new UUID.
     const index = barrier.sources.findIndex((source) => source.operation === operation);
     const source = captureReplyRunAdmissionSource(operation);
+    const cleanup = barrier.cleanupSource;
+    if (
+      source.sessionKey === cleanup.sessionKey &&
+      source.databaseIdentity?.identity === cleanup.databaseIdentity?.identity &&
+      (source.databaseIdentity?.isCurrent() ?? true) &&
+      source.operation.lifecycleGeneration === cleanup.operation.lifecycleGeneration
+    ) {
+      barrier.cleanupSource = source;
+    }
     if (index === -1) {
       barrier.sources.push(source);
     } else {
@@ -722,7 +763,7 @@ export function createReplyOperation(params: {
       return;
     }
     void registeredBarrier.settled.then(() =>
-      flushReplyOperationAfterClear(operation, registeredBarrier.sessionId),
+      flushReplyOperationAfterClear(operation, registeredBarrier.cleanupSource.sessionId),
     );
   };
 

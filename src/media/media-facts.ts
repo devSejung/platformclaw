@@ -6,39 +6,27 @@ import {
   normalizeMimeType,
 } from "@openclaw/media-core/mime";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import {
+  isGenericBinaryMediaContentType,
+  isMeaningfulMediaFact,
+  type MediaFact,
+  type MediaFactInput,
+  normalizeMediaFact,
+  normalizeMediaFacts,
+  readPersistedMediaFactInputs,
+} from "./media-facts-normalize.js";
 import type { PromptImageOrderEntry } from "./prompt-image-order.js";
 
-/** One ordered runtime attachment; array position is its alignment identity. */
-export type MediaFact = {
-  path?: string;
-  url?: string;
-  contentType?: string;
-  kind?: MediaKind;
-  fileName?: string;
-  sizeBytes?: number;
-  durationMs?: number;
-  width?: number;
-  height?: number;
-  transcribed?: boolean;
-  messageId?: string;
-  workspaceDir?: string;
-  /** Internal proof that this exact fact was covered by a legacy staged projection. */
-  staged?: boolean;
-  // Declared field, not a symbol: suppression must survive every fact copy or
-  // reprojection boundary; described images otherwise rehydrate or count failed.
-  // Structured persistence may retain it; legacy Media* projections never emit it.
-  hydrationSuppressed?: boolean;
-};
-
-export type MediaFactInput = {
-  [Key in keyof MediaFact]?: MediaFact[Key] | null;
-};
+export {
+  isGenericBinaryMediaContentType,
+  isMeaningfulMediaFact,
+  type MediaFact,
+  type MediaFactInput,
+  normalizeMediaFacts,
+  readPersistedMediaFacts,
+} from "./media-facts-normalize.js";
 
 const RUNTIME_PROMPT_MEDIA_FACTS = Symbol.for("openclaw.runtimePromptMediaFacts");
-
-function normalizeNonNegativeNumber(value: number | null | undefined): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
 
 /** Attaches facts to a runtime prompt message without changing serialized/model-visible bytes. */
 export function attachRuntimePromptMediaFacts<T extends object>(
@@ -60,21 +48,6 @@ export function attachRuntimePromptMediaFacts<T extends object>(
 export function readRuntimePromptMediaFacts(message: object): MediaFact[] | undefined {
   const media = (message as Record<PropertyKey, unknown>)[RUNTIME_PROMPT_MEDIA_FACTS];
   return Array.isArray(media) ? (media as MediaFact[]) : undefined;
-}
-
-/** Reads the canonical persisted media envelope without consulting legacy top-level fields. */
-export function readPersistedMediaFacts(message: object): MediaFact[] | undefined {
-  const media = readPersistedMediaFactInputs(message);
-  return media ? normalizeMediaFacts(media) : undefined;
-}
-
-function readPersistedMediaFactInputs(message: object): MediaFactInput[] | undefined {
-  const metadata = (message as Record<string, unknown>)["__openclaw"];
-  const media =
-    metadata && typeof metadata === "object" && !Array.isArray(metadata)
-      ? (metadata as Record<string, unknown>).media
-      : undefined;
-  return Array.isArray(media) ? (media as MediaFactInput[]) : undefined;
 }
 
 const LEGACY_MEDIA_CONTEXT_KEYS = [
@@ -279,15 +252,6 @@ export function readRuntimePromptImageOrder(message: object): PromptImageOrderEn
   return Array.isArray(imageOrder) ? (imageOrder as PromptImageOrderEntry[]) : undefined;
 }
 
-/** Returns whether a declared MIME only describes otherwise unclassified binary bytes. */
-export function isGenericBinaryMediaContentType(contentType?: string | null): boolean {
-  const normalizedContentType = normalizeMimeType(contentType);
-  return (
-    normalizedContentType === "application/octet-stream" ||
-    normalizedContentType === "binary/octet-stream"
-  );
-}
-
 /** Returns whether a fact can produce native image input. */
 export function isImageMediaFact(fact: MediaFactInput): boolean {
   if (fact.kind && fact.kind !== "unknown") {
@@ -314,17 +278,6 @@ export function isImageMediaFact(fact: MediaFactInput): boolean {
   return extension === ".tif" || extension === ".tiff";
 }
 
-type MediaFactDefaults<TInput extends MediaFactInput = MediaFactInput> = {
-  kind?: MediaKind;
-  messageId?: string;
-  workspaceDir?: string;
-  transcribed?: (media: TInput, index: number) => boolean;
-};
-
-function normalizePositiveInteger(value: number | null | undefined): number | undefined {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
-}
-
 export type MediaFactLegacyProjection = {
   /** @deprecated Use `media[0]?.path`. */
   MediaPath?: string;
@@ -348,38 +301,6 @@ type MediaFactSource = MediaFactLegacyProjection & {
   MediaWorkspaceDir?: string | null;
 };
 
-function normalizeMediaFact<TInput extends MediaFactInput>(
-  media: TInput,
-  index: number,
-  defaults: MediaFactDefaults<TInput> = {},
-): MediaFact {
-  const workspaceDir = normalizeOptionalString(media.workspaceDir) ?? defaults.workspaceDir;
-  const contentType = normalizeOptionalString(media.contentType);
-  const durationMs = normalizePositiveInteger(media.durationMs);
-  const width = normalizePositiveInteger(media.width);
-  const height = normalizePositiveInteger(media.height);
-  const normalized: MediaFact = {
-    path: normalizeOptionalString(media.path),
-    url: normalizeOptionalString(media.url),
-    contentType,
-    kind:
-      media.kind ??
-      defaults.kind ??
-      (isGenericBinaryMediaContentType(contentType) ? undefined : kindFromMime(contentType)),
-    fileName: normalizeOptionalString(media.fileName),
-    sizeBytes: normalizeNonNegativeNumber(media.sizeBytes),
-    ...(durationMs ? { durationMs } : {}),
-    ...(width ? { width } : {}),
-    ...(height ? { height } : {}),
-    transcribed: media.transcribed === true || defaults.transcribed?.(media, index) === true,
-    messageId: normalizeOptionalString(media.messageId) ?? defaults.messageId,
-    ...(workspaceDir ? { workspaceDir } : {}),
-    ...(media.staged === true ? { staged: true } : {}),
-    ...(media.hydrationSuppressed === true ? { hydrationSuppressed: true } : {}),
-  };
-  return normalized;
-}
-
 /** True when every path-bearing canonical fact has explicit staging proof. */
 export function hasStagedMediaFacts(media: readonly MediaFactInput[] | null | undefined): boolean {
   const stageable = normalizeMediaFacts(media).filter((fact) =>
@@ -390,27 +311,6 @@ export function hasStagedMediaFacts(media: readonly MediaFactInput[] | null | un
     stageable.every(
       (fact) => Boolean(normalizeOptionalString(fact.workspaceDir)) || fact.staged === true,
     )
-  );
-}
-
-export function normalizeMediaFacts<TInput extends MediaFactInput>(
-  media: readonly TInput[] | null | undefined,
-  defaults: MediaFactDefaults<TInput> = {},
-): MediaFact[] {
-  return Array.isArray(media)
-    ? media.map((entry, index) => normalizeMediaFact(entry, index, defaults))
-    : [];
-}
-
-// Empty slots exist only to keep legacy parallel-array positions aligned;
-// presence/counting sites must ignore them or blank projections ({MediaPaths: [""]})
-// route media-less messages into inbound-media handling.
-export function isMeaningfulMediaFact(fact: MediaFact): boolean {
-  return Boolean(
-    fact.path?.trim() ||
-    fact.url?.trim() ||
-    fact.contentType ||
-    (fact.kind && fact.kind !== "unknown"),
   );
 }
 

@@ -57,6 +57,7 @@ describe("employee compaction boundary", () => {
       const values = params as { sessionKey?: string; key?: string; agentId?: string };
       if (method === "sessions.compact") {
         return {
+          ok: true,
           key: values.key,
           compacted: true,
           result: { tokensBefore: 900_000, tokensAfter: 24_700 },
@@ -98,12 +99,13 @@ describe("employee compaction boundary", () => {
       for (const event of events) {
         await Promise.all(browsers.map(({ forward }) => forward(event)));
       }
-      expect(browsers[index].frames).toEqual(
+      expect(browsers[index]!.frames).toEqual(
         events.map((event, seq) => ({ ...event, seq: seq + 1 })),
       );
       await expect(
         f.proxy.request(actor.token, "sessions.compact", { key: sessionKey }),
       ).resolves.toEqual({
+        ok: true,
         compacted: true,
         result: { tokensBefore: 900_000, tokensAfter: 24_700 },
       });
@@ -126,7 +128,7 @@ describe("employee compaction boundary", () => {
           },
         ]);
       }
-      const peer = actors[1 - index];
+      const peer = actors[1 - index]!;
       await expect(
         f.proxy.request(peer.token, "chat.history", { sessionKey }),
       ).rejects.toMatchObject({ code: "cross-agent-denied" });

@@ -38,6 +38,9 @@ import {
   abortReplyRunBySessionId,
   isReplyRunActiveForSessionId,
   isReplyRunStreamingForSessionId,
+  replyRunRegistry,
+  type ReplyOperation,
+  runAfterReplyOperationClear,
   resolveActiveReplyRunThreadId,
   resolveActiveReplyRunSessionId,
   waitForReplyRunEndBySessionId,
@@ -49,7 +52,12 @@ import {
 } from "./routed-delivery-thread.js";
 import { drainFormattedSystemEvents } from "./session-system-events.js";
 
-export async function prepareReplyRunAdmission(context: PreparedReplyRunContext) {
+export async function prepareReplyRunAdmission(
+  context: PreparedReplyRunContext,
+  expectedTargetReplyOperation: ReplyOperation | undefined = replyRunRegistry.get(
+    context.params.sessionKey,
+  ),
+) {
   const {
     params,
     traceRunPhase,
@@ -298,7 +306,7 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
     providedReplyOperation.result === null &&
     providedReplyOperation.phase === "queued" &&
     candidateSessionId === providedReplyOperation.sessionId;
-  const sessionIdFinal = sessionId ?? providedReplyOperation?.sessionId ?? crypto.randomUUID();
+  let sessionIdFinal = sessionId ?? providedReplyOperation?.sessionId ?? crypto.randomUUID();
   const sessionFilePathOptions = resolveSessionFilePathOptions({ agentId, storePath });
   const resolvePreparedSessionState = (): {
     sessionEntry: SessionEntry | undefined;
@@ -489,19 +497,36 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
       // queue policy below sees the target-keyed owner and steers/queues this
       // turn instead of running it concurrently.
       waitForActive: false,
+      retainLifecycleAdmissionOnActive: true,
+      onLifecycleInterrupt: () => providedReplyOperation.abortForRestart(),
       adoptOperation: providedReplyOperation,
+      expectedActiveOperations: expectedTargetReplyOperation ? [expectedTargetReplyOperation] : [],
     });
     if (adoption.status === "skipped" && adoption.reason === "aborted") {
       typing.cleanup();
       return { kind: "reply", reply: undefined } as const;
     }
-    if (
-      adoption.status === "owned" &&
-      sessionId !== undefined &&
-      sessionId !== providedReplyOperation.sessionId
-    ) {
-      providedReplyOperation.updateSessionId(sessionId);
+    if (adoption.status === "skipped" && adoption.lifecycleAdmission) {
+      // Queue resolution still mutates the target. Keep its fence with the
+      // source reservation until that dispatch actually releases ownership.
+      const targetAdmission = adoption.lifecycleAdmission;
+      runAfterReplyOperationClear(providedReplyOperation, () => targetAdmission.release());
     }
+    if (adoption.sessionEntry) {
+      // Admission owns the new generation. Carry that exact entry through the
+      // handle and prepared runtime state; stale init must never rebind it back.
+      sessionEntry = adoption.sessionEntry;
+      sessionEntryHandle?.adoptCurrent(sessionEntry);
+      if (sessionStore && sessionKey) {
+        sessionStore[sessionKey] = sessionEntry;
+      }
+    }
+    if (adoption.status === "owned") {
+      sessionIdFinal = adoption.operation.sessionId;
+    } else if (adoption.sessionEntry) {
+      sessionIdFinal = adoption.sessionEntry.sessionId;
+    }
+    preparedSessionState = resolvePreparedSessionState();
   }
   const { activeSessionId, isActive, isStreaming } = resolveQueueBusyState();
   const activeRunAcceptsCurrentThread = resolveActiveRunAcceptsCurrentThread({ isActive });

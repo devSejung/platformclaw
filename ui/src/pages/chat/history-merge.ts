@@ -118,11 +118,11 @@ export function setChatSessionProjection(owner: object, projection: SessionProje
   if (current) {
     const changed = changedProjectionScope(current, projection.scope);
     const status = statusOwner.compactionStatus;
-    // A compacted marker advances the active leaf. Keep its live identity through
-    // that handoff, but never carry transient status into another session or branch.
+    // Compaction may rotate its backing session UUID and active leaf. Its exact
+    // persisted marker preserves the live row within the same session lifecycle.
     if (
       changed.length > 0 &&
-      (changed.some((key) => key !== "activeLeafEntryId") ||
+      (changed.some((key) => key !== "sessionId" && key !== "activeLeafEntryId") ||
         !status ||
         !projection.messages.some((message) => matchesCompactionOperation(message, status)))
     ) {

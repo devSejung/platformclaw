@@ -26,6 +26,7 @@ export function createChatSendFollowupLifecycle(params: {
 }) {
   let state: "none" | "queued" | "settled" = "none";
   let release: (() => void) | undefined;
+  let sessionId = params.sessionId;
   const { context, clientRunId, sessionKey, agentId, controller } = params;
   const lifecycle: TurnAdoptionLifecycle = {
     admission: "cancel-only",
@@ -42,7 +43,7 @@ export function createChatSendFollowupLifecycle(params: {
         chatQueuedTurns: context.chatQueuedTurns,
         runId: clientRunId,
         controller,
-        sessionId: params.sessionId,
+        sessionId,
         sessionKey,
         agentId,
         ownerConnId: params.ownerConnId,
@@ -98,6 +99,18 @@ export function createChatSendFollowupLifecycle(params: {
   };
   return {
     lifecycle,
+    setSessionId: (nextSessionId: string) => {
+      if (params.lifecycleGeneration !== getAgentEventLifecycleGeneration()) {
+        return;
+      }
+      sessionId = nextSessionId;
+      const queued = context.chatQueuedTurns.get(clientRunId);
+      // A deferred callback may outlive its run ID. Rebind only its own cancel
+      // entry so session-scoped abort follows compaction without touching reuse.
+      if (queued?.controller === controller && queued.sessionKey === sessionKey) {
+        queued.sessionId = sessionId;
+      }
+    },
     isEnqueued: () => state !== "none",
     isSettled: () => state === "settled",
   };

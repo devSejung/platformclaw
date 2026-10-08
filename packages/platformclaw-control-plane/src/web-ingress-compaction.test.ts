@@ -153,7 +153,11 @@ describe("authenticated compaction WebSocket ingress", () => {
       for (const response of compacted) {
         expect(response).toMatchObject({
           ok: true,
-          payload: { compacted: true, result: { tokensBefore: 900_000, tokensAfter: 24_700 } },
+          payload: {
+            ok: true,
+            compacted: true,
+            result: { tokensBefore: 900_000, tokensAfter: 24_700 },
+          },
         });
       }
       // Per-connection event chains process this barrier after every compaction event.

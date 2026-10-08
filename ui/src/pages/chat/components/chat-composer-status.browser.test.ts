@@ -3,8 +3,11 @@ import { nothing, render } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import "../../../components/tooltip.ts";
+import { t } from "../../../i18n/index.ts";
 import { buildCompactionDividerItem } from "../chat-progress.ts";
 import { buildCachedChatItems, resetChatThreadState } from "../chat-thread.ts";
+import { getChatSessionProjection, reduceChatSessionProjection } from "../history-merge.ts";
+import type { CompactionStatus } from "../tool-stream.ts";
 import { renderFallbackIndicator } from "./chat-composer-status.ts";
 import { renderChatDivider } from "./chat-divider.ts";
 import baseStyles from "../../../styles/base.css?inline";
@@ -120,7 +123,7 @@ describe.runIf(browserMode)("inline compaction motion", () => {
     }
   });
 
-  it("retains the same keyed DOM row when history adopts live completion", () => {
+  it("retains the keyed DOM row when matching compaction history rotates session and leaf", () => {
     const status = {
       phase: "active" as const,
       runId: "run-1",
@@ -139,6 +142,19 @@ describe.runIf(browserMode)("inline compaction motion", () => {
       showToolCalls: true,
       compactionStatus: status,
     };
+    const owner = {
+      sessionKey: input.sessionKey,
+      chatMessages: [] as unknown[],
+      compactionStatus: status as CompactionStatus | null,
+    };
+    const scope = {
+      sessionKey: input.sessionKey,
+      sessionId: "session-before-compaction",
+      agentId: "main",
+      lifecycleRevision: 1,
+      activeLeafEntryId: "leaf-before-compaction",
+    };
+    getChatSessionProjection(owner, [], scope);
     const paint = (props: Parameters<typeof buildCachedChatItems>[0]) =>
       render(
         repeat(
@@ -152,7 +168,8 @@ describe.runIf(browserMode)("inline compaction motion", () => {
     const row = container.querySelector(".chat-compaction")!;
     const glyph = row.querySelector(".chat-compaction__glyph")!;
     expect(row.querySelector('[role="status"]')?.getAttribute("aria-live")).toBe("polite");
-    paint({ ...input, compactionStatus: { ...status, phase: "complete", completedAt: 2_000 } });
+    owner.compactionStatus = { ...status, phase: "complete", completedAt: 2_000 };
+    paint({ ...input, compactionStatus: owner.compactionStatus });
     const messages = [
       {
         role: "system",
@@ -167,14 +184,32 @@ describe.runIf(browserMode)("inline compaction motion", () => {
         },
       },
     ];
-    paint({ ...input, messages });
-    paint({ ...input, messages, compactionStatus: null });
+    reduceChatSessionProjection(
+      owner,
+      { type: "snapshotLoaded", messages },
+      {
+        scope: {
+          ...scope,
+          sessionId: "session-after-compaction",
+          activeLeafEntryId: "entry-1",
+        },
+        messages: [],
+      },
+    );
+    expect(owner.compactionStatus).toMatchObject({
+      phase: "complete",
+      runId: "run-1",
+      itemId: "compact-1",
+    });
+    paint({ ...input, messages: owner.chatMessages, compactionStatus: owner.compactionStatus });
+    expect(container.querySelector(".chat-compaction")).toBe(row);
+    paint({ ...input, messages: owner.chatMessages, compactionStatus: null });
     expect(container.querySelectorAll(".chat-compaction")).toHaveLength(1);
     expect(container.querySelector(".chat-compaction")).toBe(row);
     expect(row.querySelector(".chat-compaction__glyph")).toBe(glyph);
     expect(row.classList.contains("chat-compaction--complete")).toBe(true);
-    expect(row.textContent).toContain("Context compacted");
-    expect(row.textContent).toContain("saved 15k tokens");
+    expect(row.textContent).toContain(t("chat.composer.contextCompacted"));
+    expect(row.textContent).toContain(t("chat.compaction.savedTokens", { count: "15k" }));
     expect(row.querySelector(".chat-divider__description")).toBeNull();
     expect(container.querySelector(".compaction-indicator--active")).toBeNull();
   });

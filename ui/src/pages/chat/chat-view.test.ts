@@ -106,11 +106,11 @@ const buildChatItemsMock = vi.fn(
         {
           kind: "divider",
           key: "divider:compaction:test",
-          label: "Context compacted",
+          label: t("chat.composer.contextCompacted"),
           compaction: "complete",
           action: {
             kind: "session-checkpoints",
-            label: "Open checkpoints",
+            label: t("chat.compaction.openCheckpoints"),
           },
           timestamp: 1,
         },
@@ -869,7 +869,7 @@ describe("chat run error", () => {
     expect(alert.getAttribute("role")).toBe("alert");
     expect(summary.textContent?.trim()).toBe("Error: gateway disconnected");
     expect(alert.querySelector(".chat-run-error__icon svg")).not.toBeNull();
-    expect(alert.querySelector('[aria-label="Copy error"]')).not.toBeNull();
+    expect(alert.querySelector(`[aria-label="${t("chat.copyError")}"]`)).not.toBeNull();
     alert.querySelector<HTMLButtonElement>(".chat-run-error__refresh")!.click();
     expect(onRefresh).toHaveBeenCalledOnce();
     expect(alert.nextElementSibling?.classList.contains("agent-chat__composer-shell")).toBe(true);
@@ -884,10 +884,12 @@ describe("chat compaction divider", () => {
       onOpenSessionCheckpoints,
     });
 
-    expect(container.querySelector(".chat-divider__title")?.textContent).toBe("Context compacted");
+    expect(container.querySelector(".chat-divider__title")?.textContent).toBe(
+      t("chat.composer.contextCompacted"),
+    );
     expect(container.querySelector(".chat-divider__description")).toBeNull();
     const button = container.querySelector<HTMLButtonElement>(".chat-divider__action");
-    expect(button?.textContent?.trim()).toBe("Open checkpoints");
+    expect(button?.textContent?.trim()).toBe(t("chat.compaction.openCheckpoints"));
 
     expect(button).toBeInstanceOf(HTMLButtonElement);
     button!.click();

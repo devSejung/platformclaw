@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { SessionsListResult } from "../../api/types.ts";
+import { t } from "../../i18n/index.ts";
 import { isSessionRunActive } from "../../lib/session-run-state.ts";
 import {
   CHAT_RUN_STATUS_TOAST_DURATION_MS,
@@ -79,7 +80,7 @@ describe("handleAbortChat", () => {
     expect(hasAbortableSessionRun(host)).toBe(true);
     await handleAbortChat(host, { preserveDraft: true });
 
-    expect(host.chatError).toBe("Not connected. Try again after reconnecting.");
+    expect(host.chatError).toBe(t("chat.questions.disconnected"));
     expect(host.lastError).toBe(host.chatError);
     expect(host.chatMessage).toBe("keep this draft");
     expect(host.pendingAbort).toBeUndefined();

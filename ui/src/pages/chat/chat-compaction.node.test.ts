@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { t } from "../../i18n/index.ts";
 import type { ChatItem } from "../../lib/chat/chat-types.ts";
 import { buildCachedChatItems, resetChatThreadState } from "./chat-thread.ts";
 import {
@@ -59,7 +60,10 @@ describe("one compaction transcript row", () => {
   it("adopts persisted history through retry and completion without changing the live row key", () => {
     const input = props({ compactionStatus: active, runWorking: true });
     const started = dividers(input)[0]!;
-    expect(started).toMatchObject({ compaction: "active", label: "Compacting context..." });
+    expect(started).toMatchObject({
+      compaction: "active",
+      label: t("chat.composer.compactingContext"),
+    });
     expect(buildCachedChatItems(input).some((item) => item.kind === "reading-indicator")).toBe(
       false,
     );
@@ -77,7 +81,7 @@ describe("one compaction transcript row", () => {
     expect(adopted[0]).toMatchObject({
       key: started.key,
       compaction: "complete",
-      metric: "saved 15k tokens",
+      metric: t("chat.compaction.savedTokens", { count: "15k" }),
       action: { kind: "session-checkpoints" },
     });
     const refreshed = dividers({ ...input, messages: history, compactionStatus: null });
