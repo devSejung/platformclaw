@@ -52,18 +52,51 @@ function createTool(params: {
       if (request.method === "sessions.describe") {
         throw new Error("ancestry checks must not use transcript-capable sessions.describe");
       }
+      if (request.method === "sessions.resolve") {
+        const resolveParams = request.params as
+          | { key?: unknown; agentId?: unknown; includeLineage?: unknown }
+          | undefined;
+        const key = typeof resolveParams?.key === "string" ? resolveParams.key : undefined;
+        if (!key) {
+          return { ok: false } as T;
+        }
+        const agentId = typeof resolveParams?.agentId === "string" ? resolveParams.agentId : "";
+        const scopedDescriptionKey = `${agentId}\0${key}`;
+        const description = Object.hasOwn(params.descriptions ?? {}, scopedDescriptionKey)
+          ? params.descriptions?.[scopedDescriptionKey]
+          : Object.hasOwn(params.descriptions ?? {}, key)
+            ? params.descriptions?.[key]
+            : undefined;
+        const row = results.find((candidate) => candidate.sessionKey === key);
+        if (description === null || (!description && !row && key !== "main")) {
+          return { ok: false } as T;
+        }
+        const source = description ?? row ?? {};
+        return {
+          ok: true,
+          key,
+          ...(resolveParams?.includeLineage === true
+            ? {
+                lineage: {
+                  ...(typeof source.spawnedBy === "string" ? { spawnedBy: source.spawnedBy } : {}),
+                  ...(typeof source.spawnedByAgentId === "string"
+                    ? { spawnedByAgentId: source.spawnedByAgentId }
+                    : {}),
+                  ...(typeof source.parentSessionKey === "string"
+                    ? { parentSessionKey: source.parentSessionKey }
+                    : {}),
+                  ...(typeof source.parentSessionAgentId === "string"
+                    ? { parentSessionAgentId: source.parentSessionAgentId }
+                    : {}),
+                },
+              }
+            : {}),
+        } as T;
+      }
       if (request.method === "sessions.list") {
         const listParams = request.params as
           | { agentId?: unknown; spawnedBy?: unknown; search?: unknown }
           | undefined;
-        const search = listParams?.search;
-        if (typeof search === "string" && Object.hasOwn(params.descriptions ?? {}, search)) {
-          const description = params.descriptions?.[search];
-          return {
-            sessions: description ? [{ key: search, ...description }] : [],
-            hasMore: false,
-          } as T;
-        }
         const spawnedBy = listParams?.spawnedBy;
         const agentId = listParams?.agentId;
         return {
@@ -293,6 +326,146 @@ describe("sessions_search tool", () => {
       results: [expect.objectContaining({ messageId: "ordinary-child" })],
     });
     expect(requests.filter((request) => request.method === "sessions.search")).toHaveLength(1);
+  });
+
+  it("keeps an ordinary Cron run that presentation listings intentionally hide", async () => {
+    const requests: CallGatewayRequest[] = [];
+    const cronRun = "agent:main:cron:nightly:run:run-1";
+    const tool = createTool({
+      requests,
+      config: { tools: { sessions: { visibility: "all" } } },
+      descriptions: { [cronRun]: {} },
+      results: [hit({ sessionKey: cronRun, messageId: "cron-result" })],
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { query: "text", sessionKey: cronRun },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await tool.execute("ordinary-cron-run", args);
+
+    expect(result.details).toMatchObject({
+      results: [expect.objectContaining({ messageId: "cron-result", sessionKey: cronRun })],
+    });
+    expect(
+      requests.some(
+        (request) =>
+          request.method === "sessions.resolve" &&
+          (request.params as { key?: unknown; includeLineage?: unknown }).key === cronRun &&
+          (request.params as { includeLineage?: unknown }).includeLineage === true,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps same-name bare parent ancestry isolated by owning agent", async () => {
+    const requests: CallGatewayRequest[] = [];
+    const restrictedChild = "agent:aa:subagent:restricted";
+    const safeChild = "agent:zz:subagent:safe";
+    const spaceRoot = "agent:aa:space-session:11111111-1111-1111-1111-111111111111";
+    const tool = createTool({
+      requests,
+      agentId: "zz",
+      agentSessionKey: "agent:zz:main",
+      config: {
+        tools: { sessions: { visibility: "all" }, agentToAgent: { enabled: true } },
+      },
+      descriptions: {
+        [`aa\0global`]: { parentSessionKey: spaceRoot },
+        [`zz\0global`]: {},
+      },
+      results: [
+        hit({
+          sessionKey: restrictedChild,
+          agentId: "aa",
+          parentSessionKey: "global",
+          parentSessionAgentId: "aa",
+          messageId: "blocked",
+        }),
+        hit({
+          sessionKey: safeChild,
+          agentId: "zz",
+          parentSessionKey: "global",
+          parentSessionAgentId: "zz",
+          messageId: "safe",
+        }),
+        hit({ sessionKey: "global", agentId: "zz", messageId: "zz-global" }),
+      ],
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { query: "text" },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await tool.execute("owner-qualified-global", args);
+
+    expect(JSON.stringify(result.details)).not.toContain("blocked");
+    expect(result.details).toMatchObject({
+      results: expect.arrayContaining([expect.objectContaining({ messageId: "safe" })]),
+    });
+    expect(
+      requests.some(
+        (request) =>
+          request.method === "sessions.resolve" &&
+          (request.params as { key?: unknown; agentId?: unknown }).key === "global" &&
+          (request.params as { agentId?: unknown }).agentId === "aa",
+      ),
+    ).toBe(true);
+    expect(
+      requests
+        .filter((request) => request.method === "sessions.search")
+        .flatMap((request) => (request.params as { sessionKeys?: string[] }).sessionKeys ?? []),
+    ).not.toContain(restrictedChild);
+  });
+
+  it("keeps cross-agent bare parent ancestry on the requester store", async () => {
+    const requests: CallGatewayRequest[] = [];
+    const child = "agent:worker:subagent:child";
+    const tool = createTool({
+      requests,
+      agentId: "worker",
+      agentSessionKey: "agent:worker:main",
+      config: {
+        tools: { sessions: { visibility: "all" }, agentToAgent: { enabled: true } },
+      },
+      descriptions: {
+        [`main\0global`]: {},
+      },
+      results: [
+        hit({
+          sessionKey: child,
+          agentId: "worker",
+          parentSessionKey: "global",
+          parentSessionAgentId: "main",
+          messageId: "cross-agent-child",
+        }),
+      ],
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { query: "text" },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await tool.execute("cross-agent-global-parent", args);
+
+    expect(result.details).toMatchObject({
+      results: [expect.objectContaining({ messageId: "cross-agent-child" })],
+    });
+    expect(
+      requests.some(
+        (request) =>
+          request.method === "sessions.resolve" &&
+          (request.params as { key?: unknown; agentId?: unknown }).key === "global" &&
+          (request.params as { agentId?: unknown }).agentId === "main",
+      ),
+    ).toBe(true);
+    expect(
+      requests.some(
+        (request) =>
+          request.method === "sessions.resolve" &&
+          (request.params as { key?: unknown; agentId?: unknown }).key === "global" &&
+          (request.params as { agentId?: unknown }).agentId === "worker",
+      ),
+    ).toBe(false);
   });
 
   it("never searches or returns incognito sessions", async () => {

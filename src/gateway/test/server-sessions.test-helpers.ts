@@ -11,6 +11,8 @@ import type { InternalSessionEntry as SessionEntry } from "../../config/sessions
 import type { InternalHookEvent } from "../../hooks/internal-hooks.js";
 import { resetSystemEventsForTest } from "../../infra/system-events.js";
 import { createLazyRuntimeModule } from "../../shared/lazy-runtime.js";
+import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
+import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import type { GatewayRequestContext } from "../server-methods/types.js";
 import type { GatewayServerHarness } from "../server.e2e-ws-harness.js";
 import { embeddedRunMock, agentDiscoveryMock, testState } from "../test-helpers.runtime-state.js";
@@ -101,12 +103,8 @@ export async function loadSeededTranscriptEvents(params: {
   storePath: string;
 }): Promise<unknown[]> {
   const { loadTranscriptEvents } = await getSessionAccessorModule();
-  return await loadTranscriptEvents({
-    agentId: params.agentId,
-    sessionId: params.sessionId,
-    sessionKey: params.sessionKey,
-    storePath: params.storePath,
-  });
+  const { agentId, sessionId, sessionKey, storePath } = params;
+  return await loadTranscriptEvents({ agentId, sessionId, sessionKey, storePath });
 }
 
 export function createDeferred<T>() {
@@ -338,6 +336,9 @@ function createGatewaySessionsTestHarness(startServer: boolean) {
 
   afterAll(async () => {
     await harness?.close();
+    // Agent close releases shared-state leases before Windows can remove the fixture.
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
     if (sharedSessionStoreDir) {
       await fs.rm(sharedSessionStoreDir, { recursive: true, force: true });
     }

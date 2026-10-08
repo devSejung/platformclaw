@@ -46,6 +46,7 @@ import {
   resolveEffectiveSessionToolsVisibility,
   resolveInternalSessionKey,
   resolveSandboxedSessionToolContext,
+  sessionVisibilityRestrictionIdentity,
   resolveSessionVisibilityRestrictionDenials,
   type GatewaySessionListRow,
   type SessionListRow,
@@ -203,31 +204,7 @@ export function createSessionsListTool(opts?: {
       const gatewayCall = opts?.callGateway ?? callGateway;
       const a2aPolicy = createAgentToAgentPolicy(cfg);
       const hydrateTranscriptFieldsAfterFiltering = includeDerivedTitles || includeLastMessage;
-
-      const list = await gatewayCall<{ sessions: Array<GatewaySessionListRow>; path: string }>({
-        method: "sessions.list",
-        params: {
-          limit,
-          activeMinutes,
-          label,
-          agentId,
-          search,
-          archived,
-          includeDerivedTitles: false,
-          includeLastMessage: false,
-          includeGlobal: !restrictToSpawned,
-          includeUnknown: !restrictToSpawned,
-          spawnedBy: restrictToSpawned ? effectiveRequesterKey : undefined,
-        },
-      });
-
-      // Cross-session tool output is copied into durable transcripts, so exposing
-      // incognito rows here would defeat their process-only lifetime.
-      const sessions = (Array.isArray(list?.sessions) ? list.sessions : []).filter(
-        (entry) => !entry || typeof entry !== "object" || !isIncognitoSessionKey(entry.key),
-      );
       const defaultAgentId = resolveDefaultAgentId(cfg);
-      const storePath = typeof list?.path === "string" ? list.path : undefined;
       const visibilityGuard = createSessionVisibilityRowChecker({
         action: "list",
         defaultAgentId,
@@ -235,41 +212,128 @@ export function createSessionsListTool(opts?: {
         visibility,
         a2aPolicy,
       });
-      const childReferenceKeys = new Set<string>();
-      const visibleCandidates = sessions.flatMap((entry) => {
-        if (!entry || typeof entry !== "object") {
-          return [];
-        }
-        const candidate = sessionVisibilityCandidate(entry);
-        if (!candidate.key || !visibilityGuard.check(candidate).allowed) {
-          return [];
-        }
-        const childCandidates = Array.isArray(entry.childSessions)
-          ? entry.childSessions.flatMap((value) =>
-              typeof value === "string" && value && !isIncognitoSessionKey(value)
-                ? (childReferenceKeys.add(value), [{ key: value }])
-                : [],
-            )
-          : [];
-        return [candidate, ...childCandidates];
-      });
-      const deniedSessionKeys = await resolveSessionVisibilityRestrictionDenials({
-        candidates: visibleCandidates,
-        restrictions: visibilityRestrictions,
-        gatewayCall,
-        hydrateKeys: childReferenceKeys,
-      });
-      const visibleSessions = sessions.filter((entry) => {
-        if (!entry || typeof entry !== "object") {
-          return false;
-        }
-        const candidate = sessionVisibilityCandidate(entry);
-        return (
-          candidate.key &&
-          !deniedSessionKeys.has(candidate.key) &&
-          visibilityGuard.check(candidate).allowed
+      type SessionListGatewayResult = {
+        sessions?: Array<GatewaySessionListRow>;
+        path?: string;
+        limitApplied?: number;
+        hasMore?: boolean;
+        nextOffset?: number | null;
+      };
+      const fetchListPage = async (offset?: number, pageLimit = limit) =>
+        await gatewayCall<SessionListGatewayResult>({
+          method: "sessions.list",
+          params: {
+            limit: pageLimit,
+            ...(offset === undefined ? {} : { offset }),
+            activeMinutes,
+            label,
+            agentId,
+            search,
+            archived,
+            includeDerivedTitles: false,
+            includeLastMessage: false,
+            includeGlobal: !restrictToSpawned,
+            includeUnknown: !restrictToSpawned,
+            spawnedBy: restrictToSpawned ? effectiveRequesterKey : undefined,
+          },
+        });
+      const hasVisibilityRestrictions =
+        (visibilityRestrictions.denyKeyPatterns?.length ?? 0) > 0 ||
+        visibilityRestrictions.denyKeySubstrings.length > 0;
+      const deniedSessionKeys = new Set<string>();
+      const filterListPage = async (page: SessionListGatewayResult) => {
+        // Cross-session tool output is copied into durable transcripts, so exposing
+        // incognito rows here would defeat their process-only lifetime.
+        const sessions = (Array.isArray(page.sessions) ? page.sessions : []).filter(
+          (entry) => !entry || typeof entry !== "object" || !isIncognitoSessionKey(entry.key),
         );
-      });
+        const childReferenceKeys = new Set<string>();
+        const visibleCandidates = sessions.flatMap((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return [];
+          }
+          const candidate = sessionVisibilityCandidate(entry);
+          if (!candidate.key || !visibilityGuard.check(candidate).allowed) {
+            return [];
+          }
+          const childCandidates = Array.isArray(entry.childSessions)
+            ? entry.childSessions.flatMap((value) =>
+                typeof value === "string" && value && !isIncognitoSessionKey(value)
+                  ? (childReferenceKeys.add(value),
+                    [
+                      {
+                        key: value,
+                        ...(candidate.agentId ? { agentId: candidate.agentId } : {}),
+                      },
+                    ])
+                  : [],
+              )
+            : [];
+          return [candidate, ...childCandidates];
+        });
+        const denied = await resolveSessionVisibilityRestrictionDenials({
+          candidates: visibleCandidates,
+          restrictions: visibilityRestrictions,
+          gatewayCall,
+          hydrateKeys: childReferenceKeys,
+        });
+        for (const identity of denied) {
+          deniedSessionKeys.add(identity);
+        }
+        return sessions.filter((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return false;
+          }
+          const candidate = sessionVisibilityCandidate(entry);
+          return (
+            candidate.key &&
+            !denied.has(sessionVisibilityRestrictionIdentity(candidate)) &&
+            visibilityGuard.check(candidate).allowed
+          );
+        });
+      };
+
+      const firstList = await fetchListPage();
+      const storePath = typeof firstList.path === "string" ? firstList.path : undefined;
+      const firstVisible = await filterListPage(firstList);
+      const targetVisibleLimit =
+        limit ??
+        (typeof firstList.limitApplied === "number"
+          ? firstList.limitApplied
+          : Array.isArray(firstList.sessions)
+            ? firstList.sessions.length
+            : 0);
+      const visibleSessions: GatewaySessionListRow[] = [];
+      const visibleSessionKeys = new Set<string>();
+      const appendVisible = (entries: readonly GatewaySessionListRow[]) => {
+        for (const entry of entries) {
+          const key = typeof entry?.key === "string" ? entry.key : "";
+          if (!key || visibleSessionKeys.has(key)) {
+            continue;
+          }
+          visibleSessionKeys.add(key);
+          visibleSessions.push(entry);
+        }
+      };
+      appendVisible(firstVisible);
+      let hasMore = firstList.hasMore === true;
+      let nextOffset = typeof firstList.nextOffset === "number" ? firstList.nextOffset : undefined;
+      const refillPageLimit = Math.max(targetVisibleLimit, 50);
+      if (hasVisibilityRestrictions) {
+        while (visibleSessions.length < targetVisibleLimit && hasMore && nextOffset !== undefined) {
+          const page = await fetchListPage(nextOffset, refillPageLimit);
+          appendVisible(await filterListPage(page));
+          hasMore = page.hasMore === true;
+          const followingOffset =
+            typeof page.nextOffset === "number" && page.nextOffset > nextOffset
+              ? page.nextOffset
+              : undefined;
+          nextOffset = followingOffset;
+        }
+      }
+      if (targetVisibleLimit > 0 && visibleSessions.length > targetVisibleLimit) {
+        visibleSessions.length = targetVisibleLimit;
+      }
       const stateVersions = getSessionStateVersions(
         visibleSessions.flatMap((entry) => {
           if (!entry || typeof entry !== "object" || typeof entry.key !== "string") {
@@ -383,7 +447,12 @@ export function createSessionsListTool(opts?: {
                 (value): value is string =>
                   typeof value === "string" &&
                   !isIncognitoSessionKey(value) &&
-                  !deniedSessionKeys.has(value),
+                  !deniedSessionKeys.has(
+                    sessionVisibilityRestrictionIdentity({
+                      key: value,
+                      ...(typeof entry.agentId === "string" ? { agentId: entry.agentId } : {}),
+                    }),
+                  ),
               )
               .map((value) =>
                 resolveDisplaySessionKey({

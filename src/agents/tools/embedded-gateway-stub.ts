@@ -223,7 +223,7 @@ async function handleSessionsResolve(params: Record<string, unknown>) {
   if ("missing" in resolved) {
     return { ok: false };
   }
-  return { ok: true, key: resolved.key };
+  return resolved;
 }
 
 async function handleSessionsSearch(params: Record<string, unknown>) {

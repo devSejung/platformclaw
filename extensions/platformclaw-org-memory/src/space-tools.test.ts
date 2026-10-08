@@ -242,7 +242,7 @@ describe("Space recall tools", () => {
     const on = vi.fn();
     const canonical = "agent:person-a:space-session:11111111-1111-1111-1111-111111111111";
     const spaceRead = vi.fn(
-      async (): Promise<{ sessionKey?: string }> => ({ sessionKey: canonical }),
+      async (): Promise<{ sessionKey?: string; agentId?: string }> => ({ sessionKey: canonical }),
     );
     let config = {};
     registerSpaceTools(
@@ -283,6 +283,7 @@ describe("Space recall tools", () => {
     const list = await hook({ toolName: "sessions_list", params: {} }, context);
     expect(spaceRead).not.toHaveBeenCalled();
     expect(readSessionToolVisibilityRestrictions(list.params)).toEqual({
+      denyKeyPatterns: ["agent:space-*-*-*-*-*:space:*"],
       denyKeySubstrings: [":space-session:"],
     });
     const listWithForgedSessionKey = await hook(
@@ -291,12 +292,14 @@ describe("Space recall tools", () => {
     );
     expect(spaceRead).not.toHaveBeenCalled();
     expect(readSessionToolVisibilityRestrictions(listWithForgedSessionKey.params)).toEqual({
+      denyKeyPatterns: ["agent:space-*-*-*-*-*:space:*"],
       denyKeySubstrings: [":space-session:"],
     });
     config = { tools: { sessions: { visibility: "agent" } } };
     const search = await hook({ toolName: "sessions_search", params: { query: "trace" } }, context);
     expect(spaceRead).not.toHaveBeenCalled();
     expect(readSessionToolVisibilityRestrictions(search.params)).toEqual({
+      denyKeyPatterns: ["agent:space-*-*-*-*-*:space:*"],
       denyKeySubstrings: [":space-session:"],
     });
     const descendant = "agent:person-a:subagent:child";
@@ -314,8 +317,26 @@ describe("Space recall tools", () => {
       broad: false,
     });
     expect(readSessionToolVisibilityRestrictions(exactSearch.params)).toEqual({
+      denyKeyPatterns: ["agent:space-*-*-*-*-*:space:*"],
       denyKeySubstrings: [":space-session:"],
     });
+    spaceRead.mockResolvedValueOnce({ sessionKey: "global", agentId: "person-a" });
+    const exactHistory = await hook(
+      { toolName: "sessions_history", params: { sessionKey: "global", includeTools: true } },
+      context,
+    );
+    expect(exactHistory).toEqual({
+      params: { sessionKey: "global", includeTools: true, agentId: "person-a" },
+    });
+    spaceRead.mockResolvedValueOnce({ sessionKey: "global" });
+    const defaultHistory = await hook(
+      {
+        toolName: "sessions_history",
+        params: { sessionKey: "agent:person-a:main", agentId: "person-b", includeTools: true },
+      },
+      context,
+    );
+    expect(defaultHistory).toEqual({ params: { sessionKey: "global", includeTools: true } });
   });
   it("uses trusted current-session identity and blocks native reads when authorization fails", async () => {
     const on = vi.fn();

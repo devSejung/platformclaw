@@ -428,6 +428,8 @@ export const SessionsResolveParamsSchema = closedObject({
   spawnedBy: Type.Optional(NonEmptyString),
   includeGlobal: Type.Optional(Type.Boolean()),
   includeUnknown: Type.Optional(Type.Boolean()),
+  /** Include metadata-only parent/spawn lineage for internal visibility checks. */
+  includeLineage: Type.Optional(Type.Boolean()),
   /** Return a successful `{ ok: false }` response when the selector does not match a session. */
   allowMissing: Type.Optional(Type.Boolean()),
 });

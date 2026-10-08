@@ -4694,6 +4694,7 @@ public struct SessionsResolveParams: Codable, Sendable {
     public let spawnedby: String?
     public let includeglobal: Bool?
     public let includeunknown: Bool?
+    public let includelineage: Bool?
     public let allowmissing: Bool?
 
     public init(
@@ -4704,6 +4705,7 @@ public struct SessionsResolveParams: Codable, Sendable {
         spawnedby: String? = nil,
         includeglobal: Bool? = nil,
         includeunknown: Bool? = nil,
+        includelineage: Bool? = nil,
         allowmissing: Bool? = nil)
     {
         self.key = key
@@ -4713,6 +4715,7 @@ public struct SessionsResolveParams: Codable, Sendable {
         self.spawnedby = spawnedby
         self.includeglobal = includeglobal
         self.includeunknown = includeunknown
+        self.includelineage = includelineage
         self.allowmissing = allowmissing
     }
 
@@ -4724,6 +4727,7 @@ public struct SessionsResolveParams: Codable, Sendable {
         case spawnedby = "spawnedBy"
         case includeglobal = "includeGlobal"
         case includeunknown = "includeUnknown"
+        case includelineage = "includeLineage"
         case allowmissing = "allowMissing"
     }
 }

@@ -5,6 +5,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ErrorCodes } from "../../packages/gateway-protocol/src/index.js";
 import { writeAcpSessionMetaForMigration } from "../acp/runtime/session-meta.js";
+import {
+  addSubagentRunForTests,
+  resetSubagentRegistryForTests,
+} from "../agents/subagent-registry.test-helpers.js";
 import { resolveStorePath, type SessionEntry } from "../config/sessions.js";
 import { replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -117,6 +121,100 @@ describe("resolveSessionKeyFromResolveParams store canonicalization", () => {
           message: "No session found with label: shared-label",
         },
       });
+    });
+  });
+
+  it("keeps exact global-key lineage scoped to the requested agent store", async () => {
+    await withStateDirEnv("openclaw-sessions-resolve-global-scope-", async () => {
+      const cfg: OpenClawConfig = {
+        agents: { list: [{ id: "main", default: true }, { id: "work" }] },
+      };
+      await seedSessionStore(resolveStorePath(cfg.session?.store, { agentId: "main" }), {
+        global: {
+          sessionId: "sess-main-global",
+          updatedAt: freshUpdatedAt(),
+          parentSessionKey: "agent:main:main",
+        },
+      });
+      await seedSessionStore(resolveStorePath(cfg.session?.store, { agentId: "work" }), {
+        global: {
+          sessionId: "sess-work-global",
+          updatedAt: freshUpdatedAt(),
+          parentSessionKey: "agent:work:main",
+        },
+      });
+
+      await expect(
+        resolveSessionKeyFromResolveParams({
+          cfg,
+          p: { key: "global", agentId: "work", includeLineage: true },
+        }),
+      ).resolves.toEqual({
+        ok: true,
+        key: "global",
+        lineage: {
+          parentSessionKey: "agent:work:main",
+          parentSessionAgentId: "work",
+        },
+      });
+    });
+  });
+
+  it("uses persisted requester agent provenance for cross-agent bare parents", async () => {
+    await withStateDirEnv("openclaw-sessions-resolve-cross-agent-lineage-", async () => {
+      resetSubagentRegistryForTests({ persist: false });
+      try {
+        const cfg: OpenClawConfig = {
+          agents: { list: [{ id: "main", default: true }, { id: "worker" }] },
+        };
+        const child = "agent:worker:subagent:child";
+        await seedSessionStore(resolveStorePath(cfg.session?.store, { agentId: "main" }), {
+          global: {
+            sessionId: "sess-main-global",
+            updatedAt: freshUpdatedAt(),
+          },
+        });
+        await seedSessionStore(resolveStorePath(cfg.session?.store, { agentId: "worker" }), {
+          [child]: {
+            sessionId: "sess-worker-child",
+            updatedAt: freshUpdatedAt(),
+            spawnedBy: "global",
+            parentSessionKey: "global",
+          },
+          global: {
+            sessionId: "sess-worker-global",
+            updatedAt: freshUpdatedAt(),
+          },
+        });
+        addSubagentRunForTests({
+          runId: "run-cross-agent-lineage",
+          childSessionKey: child,
+          requesterSessionKey: "global",
+          requesterDisplayKey: "main",
+          requesterAgentId: "main",
+          task: "cross-agent lineage",
+          cleanup: "keep",
+          createdAt: freshUpdatedAt(),
+        });
+
+        await expect(
+          resolveSessionKeyFromResolveParams({
+            cfg,
+            p: { key: child, agentId: "worker", includeLineage: true },
+          }),
+        ).resolves.toEqual({
+          ok: true,
+          key: child,
+          lineage: {
+            spawnedBy: "global",
+            spawnedByAgentId: "main",
+            parentSessionKey: "global",
+            parentSessionAgentId: "main",
+          },
+        });
+      } finally {
+        resetSubagentRegistryForTests({ persist: false });
+      }
     });
   });
 

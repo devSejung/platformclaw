@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { cleanupTempDirs, makeTempDir } from "../../../test/helpers/temp-dir.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import type { CallGatewayOptions } from "../../gateway/call.js";
 import {
   createAgentToAgentPolicy,
   createSessionVisibilityGuard,
@@ -17,7 +18,10 @@ import {
   registerSessionStateWatch,
 } from "../../sessions/session-state-events.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
-import { resolveSandboxedSessionToolContext } from "./sessions-access.js";
+import {
+  resolveSandboxedSessionToolContext,
+  resolveSessionVisibilityRestrictionDenials,
+} from "./sessions-access.js";
 import { testing as sessionsResolutionTesting } from "./sessions-resolution.test-support.js";
 
 describe("resolveSessionToolsVisibility", () => {
@@ -91,6 +95,105 @@ describe("sandbox session-tools context", () => {
 
     expect(context.restrictToSpawned).toBe(false);
     expect(context.requesterInternalKey).toBe("agent:main:subagent:abc");
+  });
+});
+
+describe("session visibility restriction ancestry", () => {
+  it("fails closed when hydrated bare parent ownership is still unavailable", async () => {
+    const child = "agent:worker:subagent:child";
+    const denied = await resolveSessionVisibilityRestrictionDenials({
+      candidates: [{ key: child }],
+      restrictions: { denyKeySubstrings: [":space-session:"] },
+      hydrateKeys: [child],
+      gatewayCall: async <T = Record<string, unknown>>(request: CallGatewayOptions): Promise<T> => {
+        expect(request.method).toBe("sessions.resolve");
+        expect(request.params).toEqual(
+          expect.objectContaining({ key: child, includeLineage: true }),
+        );
+        return {
+          ok: true,
+          key: child,
+          lineage: { parentSessionKey: "global" },
+        } as T;
+      },
+    });
+
+    expect(denied.has(child)).toBe(true);
+  });
+
+  it("preserves non-default agent scope across bare parent keys", async () => {
+    const child = "agent:work:subagent:child";
+    const requests: Array<{ method?: string; params?: Record<string, unknown> }> = [];
+    const denied = await resolveSessionVisibilityRestrictionDenials({
+      candidates: [{ key: child }],
+      restrictions: { denyKeySubstrings: [":space-session:"] },
+      hydrateKeys: [child],
+      gatewayCall: async <T = Record<string, unknown>>(request: CallGatewayOptions): Promise<T> => {
+        requests.push(request as { method?: string; params?: Record<string, unknown> });
+        const params = (request.params ?? {}) as Record<string, unknown>;
+        if (request.method !== "sessions.resolve") {
+          return {} as T;
+        }
+        if (params.key === child) {
+          return {
+            ok: true,
+            key: child,
+            lineage: { parentSessionKey: "global", parentSessionAgentId: "work" },
+          } as T;
+        }
+        if (params.key === "global" && params.agentId === "work") {
+          return { ok: true, key: "global", lineage: {} } as T;
+        }
+        return { ok: false } as T;
+      },
+    });
+
+    expect(denied).toEqual(new Set());
+    expect(
+      requests.some(
+        (request) => request.params?.key === "global" && request.params?.agentId === "work",
+      ),
+    ).toBe(true);
+  });
+
+  it("uses authoritative requester ownership for cross-agent bare parents", async () => {
+    const child = "agent:worker:subagent:child";
+    const requests: Array<{ method?: string; params?: Record<string, unknown> }> = [];
+    const denied = await resolveSessionVisibilityRestrictionDenials({
+      candidates: [{ key: child }],
+      restrictions: { denyKeySubstrings: [":space-session:"] },
+      hydrateKeys: [child],
+      gatewayCall: async <T = Record<string, unknown>>(request: CallGatewayOptions): Promise<T> => {
+        requests.push(request as { method?: string; params?: Record<string, unknown> });
+        const params = (request.params ?? {}) as Record<string, unknown>;
+        if (request.method !== "sessions.resolve") {
+          return {} as T;
+        }
+        if (params.key === child) {
+          return {
+            ok: true,
+            key: child,
+            lineage: { parentSessionKey: "global", parentSessionAgentId: "main" },
+          } as T;
+        }
+        if (params.key === "global" && params.agentId === "main") {
+          return { ok: true, key: "global", lineage: {} } as T;
+        }
+        return { ok: false } as T;
+      },
+    });
+
+    expect(denied).toEqual(new Set());
+    expect(
+      requests.some(
+        (request) => request.params?.key === "global" && request.params?.agentId === "main",
+      ),
+    ).toBe(true);
+    expect(
+      requests.some(
+        (request) => request.params?.key === "global" && request.params?.agentId === "worker",
+      ),
+    ).toBe(false);
   });
 });
 

@@ -208,6 +208,8 @@ export function registerSpaceTools(api: OpenClawPluginApi, client: WikiHubMemory
     const requestedKey = string(params.sessionKey);
     const restrictedSessionParams = () =>
       withSessionToolVisibilityRestrictions(params, {
+        // Legacy shared-Space page sessions run under reserved space-<uuid> agents.
+        denyKeyPatterns: ["agent:space-*-*-*-*-*:space:*"],
         denyKeySubstrings: [":space-session:"],
       });
     const unscopedQuery =
@@ -285,7 +287,9 @@ export function registerSpaceTools(api: OpenClawPluginApi, client: WikiHubMemory
     if (
       !response ||
       (response.sessionKey !== undefined &&
-        (typeof response.sessionKey !== "string" || !response.sessionKey))
+        (typeof response.sessionKey !== "string" || !response.sessionKey)) ||
+      (response.agentId !== undefined &&
+        (typeof response.agentId !== "string" || !response.agentId.trim()))
     ) {
       throw new Error("Native session authorization unavailable; retry");
     }
@@ -295,6 +299,12 @@ export function registerSpaceTools(api: OpenClawPluginApi, client: WikiHubMemory
     }
     if (typeof response.sessionKey === "string") {
       const authorized: Record<string, unknown> = { ...params, sessionKey: response.sessionKey };
+      if (event.toolName === "sessions_history") {
+        delete authorized.agentId;
+        if (typeof response.agentId === "string") {
+          authorized.agentId = response.agentId;
+        }
+      }
       if (event.toolName === "sessions_send") {
         delete authorized.label;
         delete authorized.agentId;
@@ -303,6 +313,7 @@ export function registerSpaceTools(api: OpenClawPluginApi, client: WikiHubMemory
         params:
           event.toolName === "sessions_search"
             ? withSessionToolVisibilityRestrictions(authorized, {
+                denyKeyPatterns: ["agent:space-*-*-*-*-*:space:*"],
                 denyKeySubstrings: [":space-session:"],
               })
             : authorized,

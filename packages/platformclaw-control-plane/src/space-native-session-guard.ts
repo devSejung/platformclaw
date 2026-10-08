@@ -4,6 +4,7 @@ import {
 } from "@openclaw/gateway-protocol/client-info";
 import { normalizeAgentId } from "@openclaw/normalization-core/agent-id";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
 import type { BrowserGatewayRpc } from "./browser-gateway-contracts.js";
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
 import { isSpaceConversationSession } from "./space-contracts.js";
@@ -18,6 +19,11 @@ export type SpaceNativeSessionRequest = {
   targetAgentId?: string;
   nativeAction?: string;
   broad: boolean;
+};
+
+type ResolvedNativeSessionTarget = {
+  key: string;
+  agentId?: string;
 };
 
 const NATIVE_SESSION_TOOLS = new Set([
@@ -48,6 +54,12 @@ function isNativeSessionKey(value: string): boolean {
     value.includes(":channel:")
   );
 }
+
+function isLegacySpaceSessionKey(value: string): boolean {
+  return /^agent:space-[a-f0-9-]{36}:space:[a-f0-9-]{36}$/u.test(value);
+}
+
+const MAX_SPACE_SESSION_ANCESTRY_DEPTH = 32;
 
 /** Native tools retain their policy except where they would bypass a registered Space boundary. */
 export class SpaceNativeSessionGuard {
@@ -92,7 +104,162 @@ export class SpaceNativeSessionGuard {
     return result.key.trim();
   }
 
-  private async resolveTarget(params: SpaceNativeSessionRequest): Promise<string> {
+  private bareSessionAgentId(
+    params: SpaceNativeSessionRequest,
+    historyAgentId?: string,
+  ): string | undefined {
+    switch (params.nativeTool) {
+      case "sessions_history":
+        return historyAgentId;
+      case "sessions_search":
+        return normalizeAgentId(params.agentId);
+      case "session_status":
+        // Status derives bare-key ownership from its caller key, not the hook agent override.
+        return parseAgentSessionKey(params.sessionKey)?.agentId;
+      default:
+        // Sends and mutations dispatch only a key, so bare keys use the default store.
+        return undefined;
+    }
+  }
+
+  private targetAgentScope(params: SpaceNativeSessionRequest, target: string): string | undefined {
+    if (parseAgentSessionKey(target)?.agentId) {
+      return undefined;
+    }
+    return this.bareSessionAgentId(
+      params,
+      normalizeAgentId(params.targetAgentId ?? params.agentId),
+    );
+  }
+
+  private resolvedTarget(
+    params: SpaceNativeSessionRequest,
+    key: string,
+    agentId?: string,
+  ): ResolvedNativeSessionTarget {
+    const targetAgentId = this.bareSessionAgentId(params, agentId);
+    return {
+      key,
+      ...(!parseAgentSessionKey(key)?.agentId && targetAgentId ? { agentId: targetAgentId } : {}),
+    };
+  }
+
+  private async resolveLineage(
+    sessionKey: string,
+    agentId?: string,
+  ): Promise<
+    | {
+        key: string;
+        parentSessionKey?: string;
+        parentSessionAgentId?: string;
+        spawnedBy?: string;
+        spawnedByAgentId?: string;
+      }
+    | undefined
+  > {
+    let result: unknown;
+    try {
+      result = await this.gateway.request("sessions.resolve", {
+        key: sessionKey,
+        allowMissing: true,
+        includeLineage: true,
+        ...(agentId ? { agentId } : {}),
+      });
+    } catch {
+      throw new ControlPlaneStateError("Session ancestry unavailable; retry");
+    }
+    if (!isRecord(result) || typeof result.ok !== "boolean") {
+      throw new ControlPlaneStateError("Session ancestry unavailable; retry");
+    }
+    if (!result.ok) {
+      return undefined;
+    }
+    if (typeof result.key !== "string") {
+      throw new ControlPlaneStateError("Session ancestry unavailable; retry");
+    }
+    const key = result.key.trim();
+    if (!key) {
+      throw new ControlPlaneStateError("Session ancestry unavailable; retry");
+    }
+    const lineage = isRecord(result.lineage) ? result.lineage : {};
+    return {
+      key,
+      ...(typeof lineage.parentSessionKey === "string" && lineage.parentSessionKey.trim()
+        ? { parentSessionKey: lineage.parentSessionKey.trim() }
+        : {}),
+      ...(typeof lineage.parentSessionAgentId === "string" && lineage.parentSessionAgentId.trim()
+        ? { parentSessionAgentId: normalizeAgentId(lineage.parentSessionAgentId) }
+        : {}),
+      ...(typeof lineage.spawnedBy === "string" && lineage.spawnedBy.trim()
+        ? { spawnedBy: lineage.spawnedBy.trim() }
+        : {}),
+      ...(typeof lineage.spawnedByAgentId === "string" && lineage.spawnedByAgentId.trim()
+        ? { spawnedByAgentId: normalizeAgentId(lineage.spawnedByAgentId) }
+        : {}),
+    };
+  }
+
+  private async assertNotSpaceDescendant(
+    sessionKey: string,
+    fallbackAgentId: string | undefined,
+    allowMissingTarget = false,
+  ): Promise<void> {
+    const pending: Array<{ key: string; depth: number; agentId?: string }> = [
+      {
+        key: sessionKey,
+        depth: 0,
+        agentId: parseAgentSessionKey(sessionKey)?.agentId ?? fallbackAgentId,
+      },
+    ];
+    const seen = new Set<string>();
+    while (pending.length > 0) {
+      const current = pending.shift()!;
+      const identity = parseAgentSessionKey(current.key)?.agentId
+        ? current.key
+        : `${current.agentId ?? ""}\0${current.key}`;
+      if (seen.has(identity)) {
+        continue;
+      }
+      seen.add(identity);
+      if (current.depth >= MAX_SPACE_SESSION_ANCESTRY_DEPTH) {
+        throw new ControlPlaneStateError("Session ancestry is too deep; retry with Space recall");
+      }
+      const lineage = await this.resolveLineage(current.key, current.agentId);
+      if (!lineage) {
+        if (current.depth === 0 && allowMissingTarget) {
+          return;
+        }
+        throw new ControlPlaneStateError("Session ancestry unavailable; retry");
+      }
+      const parents = [
+        [lineage.parentSessionKey, lineage.parentSessionAgentId] as const,
+        [lineage.spawnedBy, lineage.spawnedByAgentId] as const,
+      ];
+      for (const [parent, referenceAgentId] of parents) {
+        if (!parent || parent === current.key) {
+          continue;
+        }
+        if (isSpaceConversationSession(parent) || isLegacySpaceSessionKey(parent)) {
+          throw new ControlPlaneAuthorizationError(
+            "Space descendant raw sessions are private; use Space recall for shared Q&A",
+          );
+        }
+        const parentAgentId = parseAgentSessionKey(parent)?.agentId ?? referenceAgentId;
+        if (!parentAgentId && !parseAgentSessionKey(parent)) {
+          throw new ControlPlaneStateError("Session ancestry owner unavailable; retry");
+        }
+        pending.push({
+          key: parent,
+          depth: current.depth + 1,
+          agentId: parentAgentId,
+        });
+      }
+    }
+  }
+
+  private async resolveTarget(
+    params: SpaceNativeSessionRequest,
+  ): Promise<ResolvedNativeSessionTarget> {
     let target = params.targetSessionKey?.trim();
     if (target && CURRENT_CLIENT_ALIASES.has(normalizeGatewayClientId(target) ?? "")) {
       target = params.sessionKey;
@@ -101,12 +268,15 @@ export class SpaceNativeSessionGuard {
       target = params.sessionKey;
     }
     if (!target && params.targetLabel) {
+      const targetAgentId = params.targetAgentId
+        ? normalizeAgentId(params.targetAgentId)
+        : undefined;
       const key = await this.resolve({
         label: params.targetLabel,
-        ...(params.targetAgentId ? { agentId: params.targetAgentId } : {}),
+        ...(targetAgentId ? { agentId: targetAgentId } : {}),
       });
       if (key) {
-        return key;
+        return this.resolvedTarget(params, key, targetAgentId);
       }
     } else {
       if (!target) {
@@ -116,9 +286,13 @@ export class SpaceNativeSessionGuard {
             : params.sessionKey;
       }
       if (target) {
-        const key = await this.resolve({ key: target });
+        const targetAgentId = this.targetAgentScope(params, target);
+        const key = await this.resolve({
+          key: target,
+          ...(targetAgentId ? { agentId: targetAgentId } : {}),
+        });
         if (key) {
-          return key;
+          return this.resolvedTarget(params, key, targetAgentId);
         }
         // Native sends may create an absent exact agent key (agent-session-prepare).
         // Only proven absence is allowed; reserved Space keys can never be minted here.
@@ -128,16 +302,19 @@ export class SpaceNativeSessionGuard {
           !isSpaceConversationSession(target) &&
           !this.spaces.registeredConversation(target)
         ) {
-          return target;
+          return { key: target };
         }
         if (!isNativeSessionKey(target)) {
+          // Native ID lookup spans agents unless the caller explicitly selects one.
+          const explicitAgentId = params.targetAgentId;
           const byId = await this.resolve({
             sessionId: target,
             includeGlobal: true,
             includeUnknown: true,
+            ...(explicitAgentId ? { agentId: explicitAgentId } : {}),
           });
           if (byId) {
-            return byId;
+            return this.resolvedTarget(params, byId, explicitAgentId);
           }
         }
       }
@@ -145,7 +322,9 @@ export class SpaceNativeSessionGuard {
     throw new ControlPlaneStateError("Session target unavailable; use an exact session key");
   }
 
-  async authorize(input: SpaceNativeSessionRequest): Promise<{ sessionKey?: string }> {
+  async authorize(
+    input: SpaceNativeSessionRequest,
+  ): Promise<{ sessionKey?: string; agentId?: string }> {
     // Native selection canonicalizes agent ids; check the same identity before dispatch.
     const params =
       input.targetAgentId === undefined
@@ -183,16 +362,27 @@ export class SpaceNativeSessionGuard {
     if (params.nativeTool === "sessions" && params.nativeAction?.startsWith("group_")) {
       return {};
     }
-    const sessionKey = await this.resolveTarget(params);
+    const target = await this.resolveTarget(params);
+    const sessionKey = target.key;
     if (this.caller(params) !== userId) {
       throw new ControlPlaneAuthorizationError("Session caller changed; retry");
+    }
+    if (isLegacySpaceSessionKey(sessionKey)) {
+      throw new ControlPlaneAuthorizationError(
+        "Legacy Space raw sessions are private; use Space recall for shared Q&A",
+      );
     }
     const registered = this.spaces.registeredConversation(sessionKey);
     if (!registered) {
       if (isSpaceConversationSession(sessionKey)) {
         throw new ControlPlaneAuthorizationError("Space conversation unavailable");
       }
-      return { sessionKey };
+      await this.assertNotSpaceDescendant(
+        sessionKey,
+        target.agentId,
+        params.nativeTool === "sessions_send",
+      );
+      return { sessionKey, ...(target.agentId ? { agentId: target.agentId } : {}) };
     }
     if (!userId) {
       throw new ControlPlaneAuthorizationError("Space conversation unavailable");
@@ -215,6 +405,6 @@ export class SpaceNativeSessionGuard {
         "Shared conversation history is retained; create a new conversation instead",
       );
     }
-    return { sessionKey };
+    return { sessionKey, ...(target.agentId ? { agentId: target.agentId } : {}) };
   }
 }
