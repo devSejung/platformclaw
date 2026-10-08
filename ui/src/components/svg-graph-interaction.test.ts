@@ -6,7 +6,6 @@ import {
   endSvgGraphPointer,
   fitSvgGraphView,
   getSvgForceGraphInteraction,
-  getSvgGraphInteraction,
   handleSvgGraphWheel,
   moveSvgGraphPointer,
   renderSvgGraphControls,
@@ -40,6 +39,15 @@ function wheel(currentTarget: EventTarget, deltaY: number) {
 }
 
 type ForceInteraction = ReturnType<typeof getSvgForceGraphInteraction>;
+
+function geometryInteraction(positions: ReadonlyMap<string, { x: number; y: number }>) {
+  const interaction = getSvgForceGraphInteraction({}, [], [], 960, 600);
+  // Coordinate conversion and edge geometry tests use a stationary layout.
+  interaction.layout = undefined;
+  interaction.positions = new Map([...positions].map(([id, point]) => [id, { ...point }]));
+  interaction.initialPositions = new Map([...positions].map(([id, point]) => [id, { ...point }]));
+  return interaction;
+}
 
 function forceCoordinates(interaction: ForceInteraction) {
   return new Map([...interaction.positions].map(([id, point]) => [id, { x: point.x, y: point.y }]));
@@ -262,7 +270,7 @@ describe("SVG graph interaction", () => {
       },
     );
     try {
-      const interaction = getSvgGraphInteraction({}, new Map([["one", { x: 20, y: 30 }]]));
+      const interaction = geometryInteraction(new Map([["one", { x: 20, y: 30 }]]));
       interaction.scale = 2;
       startSvgGraphPointer(pointer(node, { clientX: 10, clientY: 10 }), interaction, "one");
       moveSvgGraphPointer(pointer(svg, { clientX: 40, clientY: 30 }), interaction);
@@ -286,7 +294,7 @@ describe("SVG graph interaction", () => {
     });
     Object.assign(svg, { getScreenCTM: () => null });
     svg.append(viewport);
-    const interaction = getSvgGraphInteraction({}, new Map([["one", { x: 20, y: 30 }]]));
+    const interaction = geometryInteraction(new Map([["one", { x: 20, y: 30 }]]));
     interaction.positions.set("one", { x: 1600, y: 850 });
     fitSvgGraphView(svg, interaction);
     expect(interaction.scale).toBeCloseTo(896 / 4000);
@@ -312,8 +320,7 @@ describe("SVG graph interaction", () => {
       svg.append(edge);
       return edge;
     });
-    const interaction = getSvgGraphInteraction(
-      {},
+    const interaction = geometryInteraction(
       new Map([
         ["one", { x: 10, y: 20 }],
         ["two", { x: 100, y: 20 }],
@@ -334,7 +341,7 @@ describe("SVG graph interaction", () => {
     viewport.append(node);
     svg.append(viewport);
     document.body.append(svg);
-    const interaction = getSvgGraphInteraction({}, new Map([["one", { x: 10, y: 20 }]]));
+    const interaction = geometryInteraction(new Map([["one", { x: 10, y: 20 }]]));
 
     for (let index = 0; index < 20; index += 1) {
       handleSvgGraphWheel(wheel(svg, -1), interaction);

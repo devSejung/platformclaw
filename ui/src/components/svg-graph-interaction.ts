@@ -47,7 +47,7 @@ const MIN_SCALE = 0.4;
 const MAX_SCALE = 3;
 const DRAG_THRESHOLD = 4;
 
-export function getSvgGraphInteraction(
+function getSvgGraphInteraction(
   key: object,
   positions: ReadonlyMap<string, SvgGraphPoint>,
 ): SvgGraphInteraction {
