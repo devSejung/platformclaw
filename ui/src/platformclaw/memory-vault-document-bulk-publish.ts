@@ -136,6 +136,11 @@ class PlatformClawVaultDocumentBulkPublish extends OpenClawLightDomElement {
     } else if (changed.has("connected") && this.available && !this.entries.length) {
       void this.prepare();
     }
+    // Option removal/remounting can reset native selection after property bindings run.
+    const destination = this.querySelector<HTMLSelectElement>("[data-publish-destination]");
+    if (destination) {
+      destination.value = this.targetVaultId;
+    }
     if (changed.has("phase")) {
       this.dispatchEvent(
         new CustomEvent("document-publish-busy", {

@@ -357,6 +357,8 @@ suite("Wiki document selection through the built Control UI", () => {
         await keepEditing.waitFor();
         expect(await gateway.getRequests(PUBLISH)).toHaveLength(1);
         await keepEditing.click();
+        expect(await destination.inputValue()).toBe(targetVaultId);
+        expect(await destination.isDisabled()).toBe(true);
 
         const readsBeforeRetry = await gateway.getRequests(GET);
         await gateway.deferNext(PUBLISH);
@@ -372,6 +374,7 @@ suite("Wiki document selection through the built Control UI", () => {
         await expect.poll(() => dialog.locator("[data-publish-status=unchanged]").count()).toBe(1);
         expect(await dialog.locator("[data-publish-status=published]").count()).toBe(1);
         expect(await submit.isDisabled()).toBe(true);
+        expect(await destination.inputValue()).toBe(targetVaultId);
         await screenshot(page, `${viewport.name}-publish-retried`);
         await dialog
           .locator(".vaults__actions")
