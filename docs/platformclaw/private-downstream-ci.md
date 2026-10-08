@@ -64,20 +64,40 @@ Repository policy, documentation, deployment, workflow, and genuine
 upstream-path gates remain separate workflow checks. Security and architecture
 coverage therefore remains visible and mandatory.
 
-## Vendored autoreview
+## Shared autoreview
 
-The development review tool at `.agents/skills/autoreview/` is a complete copy of
-`openclaw/agent-skills` `skills/autoreview/` at
-`d5cbe626989195044e97545b3acb7c99b06a6103`. Its 21 canonical files are
-compared by Git blob and mode when refreshed. The repository-owned
-`CLAUDE.md -> AGENTS.md` symlink is the sole extra file.
+The development review tool uses one shared installation from
+`openclaw/agent-skills`. PlatformClaw keeps only the canonical Markdown
+entrypoint at `.agents/skills/autoreview/SKILL.md`; the implementation,
+instructions, and tests stay in the shared repository. This migration was
+verified against `7e733069bc6d4e4e77adddb4fb4fcaca5a15e021`.
 
-PlatformClaw CI selects a Python 3.12 test step when that directory changes.
-It runs the copied helper's core and boundary suites, syntax and frontmatter
-checks, and the shell launcher check without reviewer credentials or model calls.
-For local validation, run `.agents/skills/autoreview/scripts/autoreview_test.py` and every
-`test_*.py` module under `.agents/skills/autoreview/tests/` with Python 3.12 or
-newer, using `.agents` as `PYTHONPATH`. The workflow contains the exact commands.
+Reuse or clone `https://github.com/openclaw/agent-skills`, then run from that
+checkout:
+
+```bash
+python3 scripts/install-skills autoreview
+```
+
+The default installation links `~/.agents/skills/autoreview` to the source
+checkout. On Windows, use `python`; add `--mode copy` when symlinks are
+unavailable. Run the installed helper from the PlatformClaw checkout so Git
+target selection uses the repository being reviewed:
+
+```bash
+python3 "$HOME/.agents/skills/autoreview/scripts/autoreview" --mode branch --base origin/main
+```
+
+Read the complete installed skill and its required references before reviewing.
+PlatformClaw's repository review and parallel-validation requirements still
+apply. Speed selection is opt-in; this setup does not enable fast or ultrafast.
+
+Finish active reviews before updating the shared checkout. Symlink installations
+use that update immediately; refresh copy installations with
+`python3 scripts/install-skills --mode copy --force autoreview`.
+The canonical repository owns the helper's Python and isolation test suites.
+PlatformClaw CI continues to validate this repository's policy, workflow,
+planner, documentation, and changed-surface contracts.
 
 The canonical helper does not run an external secret scanner. Its reviewer can
 report suspected credentials only after review input has been sent. Keep any

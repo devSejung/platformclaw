@@ -13,7 +13,6 @@ export type PlatformClawChangePlan = {
   needs_knox_checks: boolean;
   needs_planner_tests: boolean;
   needs_workflow_checks: boolean;
-  needs_autoreview_python_checks: boolean;
   needs_ui_checks: boolean;
   needs_deployment_checks: boolean;
   needs_changed_surface_checks: boolean;

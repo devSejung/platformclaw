@@ -145,7 +145,6 @@ describe("oxlint config", () => {
       "dist/",
       "dist-runtime/",
       "docs/_layouts/",
-      ".agents/skills/autoreview/tests/fixtures/**",
       "test/fixtures/oxlint-boundary-guards/**",
       "**/a2ui.bundle.js",
       "extensions/browser/chrome-extension/modules/copilot-runtime.js",

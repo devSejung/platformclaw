@@ -6,8 +6,10 @@ dependency metadata.
 
 ## OpenClaw agent-skills / autoreview
 
-The vendored `.agents/skills/autoreview/` development tool comes from
-`openclaw/agent-skills` at `d5cbe626989195044e97545b3acb7c99b06a6103`.
+The `.agents/skills/autoreview/SKILL.md` entrypoint comes from
+`openclaw/agent-skills` at `7e733069bc6d4e4e77adddb4fb4fcaca5a15e021`.
+The review implementation and its tests are installed separately from that
+canonical repository.
 
 - Upstream: https://github.com/openclaw/agent-skills
 - License: MIT

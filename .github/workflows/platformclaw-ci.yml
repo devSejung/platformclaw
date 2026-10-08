@@ -52,36 +52,6 @@ jobs:
         if: steps.plan.outputs.needs_dependencies == 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Setup Python for autoreview
-        if: steps.plan.outputs.needs_autoreview_python_checks == 'true'
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.12"
-
-      - name: Validate vendored autoreview
-        if: steps.plan.outputs.needs_autoreview_python_checks == 'true'
-        env:
-          PYTHONPATH: .agents
-          PYTHONDONTWRITEBYTECODE: "1"
-        run: |
-          python -m pip install PyYAML==6.0.3 Pillow==12.3.0
-          python .agents/skills/autoreview/scripts/autoreview_test.py
-          python -m unittest $(find .agents/skills/autoreview/tests -maxdepth 1 -name 'test_*.py' -printf 'skills.autoreview.tests.%f\n' | sed 's/\.py$//')
-          python - <<'PY'
-          import ast
-          from pathlib import Path
-          import yaml
-
-          root = Path('.agents/skills/autoreview')
-          for path in [root / 'scripts/autoreview', *(root.rglob('*.py'))]:
-              ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
-          frontmatter = (root / 'SKILL.md').read_text(encoding='utf-8').split('---', 2)
-          assert len(frontmatter) == 3
-          assert yaml.safe_load(frontmatter[1])['name'] == 'autoreview'
-          assert (root / 'references/diagnostics-and-results.md').is_file()
-          PY
-          bash -n .agents/skills/autoreview/scripts/test-review-harness
-
       - name: Check PlatformClaw docs inventory
         if: steps.plan.outputs.needs_docs_checks == 'true'
         run: node scripts/docs-list.js
