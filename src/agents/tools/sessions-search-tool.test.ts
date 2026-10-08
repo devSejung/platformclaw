@@ -2,7 +2,10 @@
 import { Value } from "typebox/value";
 import { afterEach, describe, expect, it } from "vitest";
 import type { callGateway as gatewayCall } from "../../gateway/call.js";
-import { sessionVisibilityGatewayTesting } from "../../plugin-sdk/session-visibility.js";
+import {
+  sessionVisibilityGatewayTesting,
+  withSessionToolVisibilityRestrictions,
+} from "../../plugin-sdk/session-visibility.js";
 import { compactToolOutputHint } from "../tool-schema-hints.js";
 import { createSessionsSearchTool } from "./sessions-search-tool.js";
 
@@ -23,6 +26,7 @@ function hit(overrides: Record<string, unknown> = {}) {
 
 function createTool(params: {
   results?: Array<Record<string, unknown>>;
+  descriptions?: Record<string, Record<string, unknown> | null>;
   config?: Record<string, unknown>;
   agentId?: string;
   agentSessionKey?: string;
@@ -45,8 +49,21 @@ function createTool(params: {
     callGateway: async <T = Record<string, unknown>>(request: CallGatewayRequest): Promise<T> => {
       params.requests?.push(request);
       const results = params.results ?? [];
+      if (request.method === "sessions.describe") {
+        throw new Error("ancestry checks must not use transcript-capable sessions.describe");
+      }
       if (request.method === "sessions.list") {
-        const listParams = request.params as { agentId?: unknown; spawnedBy?: unknown } | undefined;
+        const listParams = request.params as
+          | { agentId?: unknown; spawnedBy?: unknown; search?: unknown }
+          | undefined;
+        const search = listParams?.search;
+        if (typeof search === "string" && Object.hasOwn(params.descriptions ?? {}, search)) {
+          const description = params.descriptions?.[search];
+          return {
+            sessions: description ? [{ key: search, ...description }] : [],
+            hasMore: false,
+          } as T;
+        }
         const spawnedBy = listParams?.spawnedBy;
         const agentId = listParams?.agentId;
         return {
@@ -160,6 +177,122 @@ describe("sessions_search tool", () => {
       agentId: "main",
       sessionKeys: ["agent:main:other", "main"],
     });
+  });
+
+  it("never sends hook-restricted Space sessions to transcript search", async () => {
+    const requests: CallGatewayRequest[] = [];
+    const hidden = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    const tool = createTool({
+      requests,
+      config: { tools: { sessions: { visibility: "all" } } },
+      results: [
+        hit({ sessionKey: "agent:main:visible", messageId: "visible" }),
+        hit({ sessionKey: hidden, messageId: "hidden" }),
+      ],
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { query: "text" },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await tool.execute("restricted", args);
+
+    expect(result.details).toMatchObject({
+      results: [expect.objectContaining({ messageId: "visible" })],
+    });
+    expect(
+      requests
+        .filter((request) => request.method === "sessions.search")
+        .flatMap((request) => (request.params as { sessionKeys?: string[] }).sessionKeys ?? []),
+    ).not.toContain(hidden);
+  });
+
+  it("follows stored ancestry so Space grandchildren never reach transcript search", async () => {
+    const requests: CallGatewayRequest[] = [];
+    const root = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    const child = "agent:main:subagent:child";
+    const grandchild = "agent:main:subagent:grandchild";
+    const tool = createTool({
+      requests,
+      config: { tools: { sessions: { visibility: "all" } } },
+      descriptions: {
+        [child]: { key: child, parentSessionKey: root, spawnedBy: root },
+      },
+      results: [
+        hit({ sessionKey: "agent:main:visible", messageId: "visible" }),
+        hit({
+          sessionKey: grandchild,
+          messageId: "space-grandchild",
+          parentSessionKey: child,
+          spawnedBy: child,
+        }),
+      ],
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { query: "text" },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await tool.execute("restricted-grandchild", args);
+
+    expect(JSON.stringify(result.details)).not.toContain("space-grandchild");
+    expect(
+      requests
+        .filter((request) => request.method === "sessions.search")
+        .flatMap((request) => (request.params as { sessionKeys?: string[] }).sessionKeys ?? []),
+    ).not.toContain(grandchild);
+  });
+
+  it("blocks an explicit Space descendant before transcript search", async () => {
+    const requests: CallGatewayRequest[] = [];
+    const root = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    const child = "agent:main:subagent:child";
+    const grandchild = "agent:main:subagent:grandchild";
+    const tool = createTool({
+      requests,
+      config: { tools: { sessions: { visibility: "all" } } },
+      descriptions: {
+        [grandchild]: { key: grandchild, parentSessionKey: child, spawnedBy: child },
+        [child]: { key: child, parentSessionKey: root, spawnedBy: root },
+      },
+      results: [hit({ sessionKey: grandchild, messageId: "space-grandchild" })],
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { query: "text", sessionKey: grandchild },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await tool.execute("restricted-explicit-grandchild", args);
+
+    expect(result.details).toMatchObject({ status: "forbidden" });
+    expect(requests.filter((request) => request.method === "sessions.search")).toHaveLength(0);
+  });
+
+  it("keeps an ordinary explicit child when its hidden parent is ordinary", async () => {
+    const requests: CallGatewayRequest[] = [];
+    const parent = "agent:main:subagent:ordinary-parent";
+    const child = "agent:main:subagent:ordinary-child";
+    const tool = createTool({
+      requests,
+      config: { tools: { sessions: { visibility: "all" } } },
+      descriptions: {
+        [child]: { key: child, parentSessionKey: parent, spawnedBy: parent },
+        [parent]: { key: parent, parentSessionKey: "agent:main:main" },
+        "agent:main:main": { key: "agent:main:main" },
+      },
+      results: [hit({ sessionKey: child, messageId: "ordinary-child" })],
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { query: "text", sessionKey: child },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await tool.execute("ordinary-explicit-child", args);
+
+    expect(result.details).toMatchObject({
+      results: [expect.objectContaining({ messageId: "ordinary-child" })],
+    });
+    expect(requests.filter((request) => request.method === "sessions.search")).toHaveLength(1);
   });
 
   it("never searches or returns incognito sessions", async () => {

@@ -3,6 +3,7 @@
 import { Value } from "typebox/value";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { withSessionToolVisibilityRestrictions } from "../../plugin-sdk/session-visibility.js";
 import { compactToolOutputHint } from "../tool-schema-hints.js";
 import { createSessionsListTool } from "./sessions-list-tool.js";
 
@@ -116,6 +117,238 @@ describe("sessions-list-tool", () => {
 
     expect(getSessionsListDetails(result).sessions?.map((session) => session.key)).toEqual([
       "agent:main:dashboard:visible",
+    ]);
+  });
+
+  it("applies hook-injected visibility restrictions before transcript hydration", async () => {
+    const hidden = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    mocks.gatewayCall.mockImplementation(async (request: { method?: string; params?: unknown }) => {
+      if (request.method === "sessions.list") {
+        return {
+          path: "/tmp/sessions.json",
+          sessions: [
+            { key: "agent:main:visible", kind: "other", sessionId: "visible" },
+            { key: hidden, kind: "other", sessionId: "hidden" },
+          ],
+        };
+      }
+      if (request.method === "chat.history") {
+        expect((request.params as { sessionKey?: string }).sessionKey).not.toBe(hidden);
+        return { messages: [] };
+      }
+      return {};
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { messageLimit: 1 },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await createSessionsListTool({ config: VALID_CONFIG }).execute(
+      "restricted",
+      args,
+    );
+
+    expect(getSessionsListDetails(result).sessions?.map((session) => session.key)).toEqual([
+      "agent:main:visible",
+    ]);
+  });
+
+  it("follows stored ancestry so Space grandchildren never reach transcript hydration", async () => {
+    const root = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    const child = "agent:main:subagent:child";
+    const grandchild = "agent:main:subagent:grandchild";
+    mocks.gatewayCall.mockImplementation(async (request: { method?: string; params?: unknown }) => {
+      if (request.method === "sessions.describe") {
+        throw new Error("ancestry checks must not use transcript-capable sessions.describe");
+      }
+      if (request.method === "sessions.list") {
+        const search = (request.params as { search?: unknown } | undefined)?.search;
+        if (search === child) {
+          return {
+            path: "/tmp/sessions.json",
+            sessions: [{ key: child, parentSessionKey: root, spawnedBy: root }],
+          };
+        }
+        return {
+          path: "/tmp/sessions.json",
+          sessions: [
+            { key: "agent:main:visible", kind: "other", sessionId: "visible" },
+            {
+              key: grandchild,
+              kind: "other",
+              sessionId: "space-grandchild",
+              parentSessionKey: child,
+              spawnedBy: child,
+            },
+          ],
+        };
+      }
+      if (request.method === "chat.history") {
+        expect((request.params as { sessionKey?: string }).sessionKey).not.toBe(grandchild);
+        return { messages: [] };
+      }
+      return {};
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { messageLimit: 1 },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await createSessionsListTool({ config: VALID_CONFIG }).execute(
+      "restricted-grandchild",
+      args,
+    );
+
+    expect(getSessionsListDetails(result).sessions?.map((session) => session.key)).toEqual([
+      "agent:main:visible",
+    ]);
+  });
+
+  it("removes an off-page Space child link from an ordinary listed parent", async () => {
+    const root = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    const parent = "agent:main:main";
+    mocks.gatewayCall.mockImplementation(async (request: { method?: string; params?: unknown }) => {
+      if (request.method === "sessions.list") {
+        const search = (request.params as { search?: unknown } | undefined)?.search;
+        if (search === root) {
+          return {
+            path: "/tmp/sessions.json",
+            sessions: [{ key: root }],
+          };
+        }
+        return {
+          path: "/tmp/sessions.json",
+          sessions: [
+            {
+              key: parent,
+              kind: "main",
+              sessionId: "ordinary-parent",
+              childSessions: [root],
+            },
+          ],
+        };
+      }
+      return {};
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      {},
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await createSessionsListTool({ config: VALID_CONFIG }).execute(
+      "off-page-space-child",
+      args,
+    );
+
+    expect(getSessionsListDetails(result).sessions).toEqual([
+      expect.objectContaining({ key: "agent:main:main", childSessions: [] }),
+    ]);
+  });
+
+  it("preserves authoritative Space ancestry when a child also appears under a live controller", async () => {
+    const root = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    const child = "agent:main:subagent:controlled-child";
+    const controller = "agent:main:dashboard:controller";
+    mocks.gatewayCall.mockImplementation(async (request: { method?: string; params?: unknown }) => {
+      if (request.method === "sessions.describe") {
+        throw new Error("ancestry checks must not use transcript-capable sessions.describe");
+      }
+      if (request.method === "sessions.list") {
+        const search = (request.params as { search?: unknown } | undefined)?.search;
+        if (search === child) {
+          return {
+            path: "/tmp/sessions.json",
+            sessions: [
+              { key: child, parentSessionKey: root, spawnedBy: controller, sessionId: "child" },
+            ],
+          };
+        }
+        return {
+          path: "/tmp/sessions.json",
+          sessions: [
+            {
+              key: child,
+              kind: "other",
+              sessionId: "child",
+              parentSessionKey: root,
+              spawnedBy: controller,
+            },
+            {
+              key: controller,
+              kind: "other",
+              sessionId: "controller",
+              childSessions: [child],
+            },
+          ],
+        };
+      }
+      if (request.method === "chat.history") {
+        expect((request.params as { sessionKey?: string }).sessionKey).not.toBe(child);
+        return { messages: [] };
+      }
+      return {};
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { messageLimit: 1 },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await createSessionsListTool({ config: VALID_CONFIG }).execute(
+      "controller-navigation-split",
+      args,
+    );
+
+    expect(getSessionsListDetails(result).sessions?.map((session) => session.key)).toEqual([
+      controller,
+    ]);
+    expect(getSessionsListDetails(result).sessions?.[0]?.childSessions).toEqual([]);
+  });
+
+  it("hydrates an off-page child reference before keeping its raw session link", async () => {
+    const root = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    const child = "agent:main:subagent:off-page-child";
+    const controller = "agent:main:dashboard:controller";
+    const ancestryRequests: string[] = [];
+    mocks.gatewayCall.mockImplementation(async (request: { method?: string; params?: unknown }) => {
+      if (request.method === "sessions.describe") {
+        throw new Error("ancestry checks must not use transcript-capable sessions.describe");
+      }
+      if (request.method === "sessions.list") {
+        const search = (request.params as { search?: unknown } | undefined)?.search;
+        if (search === child) {
+          ancestryRequests.push(child);
+          return {
+            path: "/tmp/sessions.json",
+            sessions: [{ key: child, parentSessionKey: root, spawnedBy: controller }],
+          };
+        }
+        return {
+          path: "/tmp/sessions.json",
+          sessions: [
+            {
+              key: controller,
+              kind: "other",
+              sessionId: "controller",
+              childSessions: [child],
+            },
+          ],
+        };
+      }
+      return {};
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      {},
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await createSessionsListTool({ config: VALID_CONFIG }).execute(
+      "off-page-descendant",
+      args,
+    );
+
+    expect(ancestryRequests).toEqual([child]);
+    expect(getSessionsListDetails(result).sessions).toEqual([
+      expect.objectContaining({ key: controller, childSessions: [] }),
     ]);
   });
 

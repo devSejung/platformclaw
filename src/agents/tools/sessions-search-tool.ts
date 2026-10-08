@@ -5,6 +5,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { callGateway } from "../../gateway/call.js";
 import { jsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
 import { redactToolPayloadText } from "../../logging/redact.js";
+import { readSessionToolVisibilityRestrictions } from "../../plugin-sdk/session-visibility.js";
 import {
   agentSessionKeysMatchByRequestKey,
   isIncognitoSessionKey,
@@ -28,6 +29,7 @@ import {
   resolveEffectiveSessionToolsVisibility,
   resolveSandboxedSessionToolContext,
   resolveSessionReference,
+  resolveSessionVisibilityRestrictionDenials,
   resolveVisibleSessionReference,
 } from "./sessions-helpers.js";
 
@@ -181,17 +183,12 @@ async function listVisibleSearchSessions(params: {
     parseAgentSessionKey(candidate.key)
       ? candidate.key
       : `${candidate.agentId ?? ""}\0${candidate.key}`;
-  if (
-    params.rowGuard.check({
-      key: params.effectiveRequesterKey,
-      ...(params.effectiveRequesterAgentId ? { agentId: params.effectiveRequesterAgentId } : {}),
-    }).allowed
-  ) {
-    const requesterCandidate = {
-      key: params.effectiveRequesterKey,
-      access: "row",
-      ...(params.effectiveRequesterAgentId ? { agentId: params.effectiveRequesterAgentId } : {}),
-    } satisfies SearchSessionCandidate;
+  const requesterCandidate = {
+    key: params.effectiveRequesterKey,
+    access: "direct" as const,
+    ...(params.effectiveRequesterAgentId ? { agentId: params.effectiveRequesterAgentId } : {}),
+  } satisfies SearchSessionCandidate;
+  if (params.rowGuard.check(requesterCandidate).allowed) {
     candidates.set(candidateId(requesterCandidate), requesterCandidate);
   }
   const listPages = async (agentId?: string) => {
@@ -335,6 +332,7 @@ export function createSessionsSearchTool(opts?: {
     outputSchema: SessionsSearchOutputSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
+      const visibilityRestrictions = readSessionToolVisibilityRestrictions(params);
       const query = readStringParam(params, "query")?.trim() ?? "";
       if (!query) {
         throw new ToolInputError("query must not be empty");
@@ -435,11 +433,29 @@ export function createSessionsSearchTool(opts?: {
         // Search excerpts are re-persisted in the caller transcript; incognito
         // sessions therefore stay absent even when the caller could otherwise see them.
         .filter((candidate) => !isIncognitoSessionKey(candidate.key));
+      const deniedSessionKeys = await resolveSessionVisibilityRestrictionDenials({
+        candidates: searchSessions,
+        restrictions: visibilityRestrictions,
+        gatewayCall,
+        hydrateKeys: searchSessions
+          .filter((candidate) => candidate.access === "direct")
+          .map((candidate) => candidate.key),
+      });
+      if (sessionKey && deniedSessionKeys.has(sessionKey)) {
+        return jsonResult({
+          status: "forbidden",
+          error:
+            "Session ancestry is restricted or could not be verified. Retry the native session search; for shared Space work, use Space search instead.",
+        });
+      }
+      const readableSearchSessions = searchSessions.filter(
+        (candidate) => !deniedSessionKeys.has(candidate.key),
+      );
       const visibleHits: SanitizedSearchHit[] = [];
       let indexing = false;
       let backendTruncated = false;
       const sessionsByAgent = new Map<string, SearchSessionCandidate[]>();
-      for (const candidate of searchSessions) {
+      for (const candidate of readableSearchSessions) {
         const agentId = resolveSessionAgentId({
           sessionKey: candidate.key,
           config: cfg,

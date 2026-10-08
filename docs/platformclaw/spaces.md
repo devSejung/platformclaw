@@ -121,9 +121,13 @@ events, raw tool inputs or outputs, reasoning, attachments, or approval payloads
 Native session tools also check registered Space targets, including aliases and
 session IDs, before exposing raw history or mutating a session. Expanding the
 operator's native session visibility does not grant raw peer Space access.
-When a widened unscoped native list/search could include inaccessible Space
-records, it fails with guidance to choose an exact permitted target or use Space
-Q&A recall; unrelated native targets keep the existing deployment policy.
+Unscoped `sessions_list` and `sessions_search` keep the deployment's normal
+native visibility policy. Before transcript-derived titles, previews, messages,
+or search reads occur, PlatformClaw removes Space conversation raw-session
+candidates and their visible lineage. Ordinary personal sessions remain governed
+by the normal native visibility policy. Shared questions and final answers remain
+available through `space_search` and `space_get`; those projected Q&A records do
+not grant access to the source Space session.
 Cross-personal-agent spawning does not grant access to another employee's VM.
 
 Only questions and final assistant text are eligible for agent recall. Interrupted

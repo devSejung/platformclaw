@@ -3,7 +3,76 @@ import {
   createAgentToAgentPolicy,
   createSessionVisibilityChecker,
   createSessionVisibilityRowChecker,
+  readSessionToolVisibilityRestrictions,
+  resolveDeniedSessionVisibilityKeys,
+  sessionVisibilityRowDeniedByRestrictions,
+  withSessionToolVisibilityRestrictions,
 } from "./session-visibility.js";
+
+describe("session tool visibility restrictions", () => {
+  it("merges deny-only hook restrictions without changing ordinary params", () => {
+    const params = withSessionToolVisibilityRestrictions(
+      { query: "trace" },
+      { denyKeySubstrings: [":space-session:", " :space-session: "] },
+    );
+
+    expect(params.query).toBe("trace");
+    expect(readSessionToolVisibilityRestrictions(params)).toEqual({
+      denyKeySubstrings: [":space-session:"],
+    });
+  });
+
+  it("matches both session keys and lineage metadata case-insensitively", () => {
+    const restrictions = { denyKeySubstrings: [":SPACE-SESSION:"] };
+
+    expect(
+      sessionVisibilityRowDeniedByRestrictions(
+        { key: "agent:main:child", parentSessionKey: "agent:main:space-session:root" },
+        restrictions,
+      ),
+    ).toBe(true);
+    expect(
+      sessionVisibilityRowDeniedByRestrictions({ key: "agent:main:ordinary" }, restrictions),
+    ).toBe(false);
+  });
+
+  it("keeps host restrictions ahead of a capped caller-supplied deny list", () => {
+    const callerDeny = Array.from({ length: 100 }, (_, index) => `caller-${index}`);
+    const params = withSessionToolVisibilityRestrictions(
+      {
+        __openclawSessionVisibilityRestrictions: { denyKeySubstrings: callerDeny },
+      },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const restrictions = readSessionToolVisibilityRestrictions(params);
+    expect(restrictions.denyKeySubstrings).toHaveLength(100);
+    expect(restrictions.denyKeySubstrings[0]).toBe(":space-session:");
+    expect(
+      sessionVisibilityRowDeniedByRestrictions(
+        { key: "agent:person:space-session:private" },
+        restrictions,
+      ),
+    ).toBe(true);
+  });
+
+  it("propagates a denied Space root through child and grandchild lineage", () => {
+    const root = "agent:person:space-session:root";
+    const child = "agent:person:subagent:child";
+    const grandchild = "agent:person:subagent:grandchild";
+    const denied = resolveDeniedSessionVisibilityKeys(
+      [
+        { key: root },
+        { key: child, parentSessionKey: root },
+        { key: grandchild, parentSessionKey: child },
+        { key: "agent:person:ordinary" },
+      ],
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    expect(denied).toEqual(new Set([root, child, grandchild]));
+  });
+});
 
 describe("scoped session access providers", () => {
   it.each([

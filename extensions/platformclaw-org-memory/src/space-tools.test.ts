@@ -1,4 +1,5 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import { readSessionToolVisibilityRestrictions } from "openclaw/plugin-sdk/session-visibility";
 import { describe, expect, it, vi } from "vitest";
 import type { WikiHubMemoryClient } from "./client.js";
 import { registerSpaceTools } from "./space-tools.js";
@@ -277,26 +278,43 @@ describe("Space recall tools", () => {
       broad: false,
     });
     expect(allowed).toEqual({ params: { sessionKey: canonical, message: "Continue" } });
+    spaceRead.mockClear();
     config = { tools: { sessions: { visibility: "all" }, agentToAgent: { enabled: true } } };
-    spaceRead.mockResolvedValueOnce({});
-    await hook({ toolName: "sessions_list", params: {} }, context);
-    expect(spaceRead).toHaveBeenLastCalledWith({
-      agentId: "person-a",
-      sessionKey: context.sessionKey,
-      operation: "native",
-      nativeTool: "sessions_list",
-      broad: true,
+    const list = await hook({ toolName: "sessions_list", params: {} }, context);
+    expect(spaceRead).not.toHaveBeenCalled();
+    expect(readSessionToolVisibilityRestrictions(list.params)).toEqual({
+      denyKeySubstrings: [":space-session:"],
+    });
+    const listWithForgedSessionKey = await hook(
+      { toolName: "sessions_list", params: { sessionKey: "agent:person-a:main" } },
+      context,
+    );
+    expect(spaceRead).not.toHaveBeenCalled();
+    expect(readSessionToolVisibilityRestrictions(listWithForgedSessionKey.params)).toEqual({
+      denyKeySubstrings: [":space-session:"],
     });
     config = { tools: { sessions: { visibility: "agent" } } };
-    spaceRead.mockResolvedValueOnce({});
-    await hook({ toolName: "sessions_search", params: { query: "trace" } }, context);
+    const search = await hook({ toolName: "sessions_search", params: { query: "trace" } }, context);
+    expect(spaceRead).not.toHaveBeenCalled();
+    expect(readSessionToolVisibilityRestrictions(search.params)).toEqual({
+      denyKeySubstrings: [":space-session:"],
+    });
+    const descendant = "agent:person-a:subagent:child";
+    spaceRead.mockResolvedValueOnce({ sessionKey: descendant });
+    const exactSearch = await hook(
+      { toolName: "sessions_search", params: { query: "trace", sessionKey: descendant } },
+      context,
+    );
     expect(spaceRead).toHaveBeenLastCalledWith({
       agentId: "person-a",
       sessionKey: context.sessionKey,
       operation: "native",
       nativeTool: "sessions_search",
-      targetAgentId: "person-a",
-      broad: true,
+      targetSessionKey: descendant,
+      broad: false,
+    });
+    expect(readSessionToolVisibilityRestrictions(exactSearch.params)).toEqual({
+      denyKeySubstrings: [":space-session:"],
     });
   });
   it("uses trusted current-session identity and blocks native reads when authorization fails", async () => {
@@ -327,19 +345,31 @@ describe("Space recall tools", () => {
       nativeAction: "patch",
       broad: false,
     });
-    spaceRead.mockRejectedValueOnce(new Error("Space conversation unavailable"));
-    await expect(
-      hook(
+    spaceRead.mockRejectedValueOnce(
+      Object.assign(new Error("Space conversation unavailable"), {
+        memoryCorpusFailure: {
+          code: "space-forbidden",
+          error: "Another member's raw Space session is private",
+          action: "Use space_search for shared Q&A.",
+        },
+      }),
+    );
+    expect(
+      await hook(
         {
           toolName: "sessions_history",
           params: { sessionKey: "opaque-peer-id", includeTools: true },
         },
         context,
       ),
-    ).rejects.toThrow("Space conversation unavailable");
-    await expect(hook({ toolName: "sessions_history", params: {} }, {})).rejects.toThrow(
-      "Session owner unavailable",
-    );
+    ).toEqual({
+      block: true,
+      blockReason: "Another member's raw Space session is private Use space_search for shared Q&A.",
+    });
+    expect(await hook({ toolName: "sessions_history", params: {} }, {})).toEqual({
+      block: true,
+      blockReason: "Session owner unavailable; retry in an authenticated personal session",
+    });
   });
   it.each([
     {
