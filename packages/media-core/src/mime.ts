@@ -1,9 +1,7 @@
 // Media Core module implements mime behavior.
 import path from "node:path";
-import { mediaKindFromMime, normalizeMimeType } from "./constants.js";
+import { type MediaKind, mediaKindFromMime } from "./constants.js";
 import { extnameFromAnyPath } from "./file-name.js";
-
-export { kindFromMime, normalizeMimeType } from "./constants.js";
 
 /** Maximum byte prefix passed to dependency MIME sniffers for bounded memory/CPU work. */
 export const FILE_TYPE_SNIFF_MAX_BYTES = 1024 * 1024;
@@ -149,6 +147,18 @@ const ZIP_CONTAINER_MIMES = new Set([
 
 function isZipContainerMime(mime: string): boolean {
   return mime.endsWith("+zip") || ZIP_CONTAINER_MIMES.has(mime);
+}
+
+/** Normalizes MIME strings by dropping parameters, lowercasing, and folding APNG to PNG. */
+export function normalizeMimeType(mime?: string | null): string | undefined {
+  if (!mime) {
+    return undefined;
+  }
+  const cleaned = mime.split(";")[0]?.trim().toLowerCase();
+  if (cleaned === "image/apng") {
+    return "image/png";
+  }
+  return cleaned || undefined;
 }
 
 /** Returns the bounded buffer prefix used for dependency MIME sniffing. */
@@ -300,4 +310,9 @@ export function imageMimeFromFormat(format?: string | null): string | undefined 
     default:
       return undefined;
   }
+}
+
+/** Normalizes a MIME string before classifying it into a media family. */
+export function kindFromMime(mime?: string | null): MediaKind | undefined {
+  return mediaKindFromMime(normalizeMimeType(mime));
 }
