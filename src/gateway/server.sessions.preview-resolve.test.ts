@@ -89,6 +89,55 @@ test("sessions.resolve can probe a missing selector without returning an RPC err
   expect(resolved.payload).toEqual({ ok: false });
 });
 
+test("sessions.resolve returns metadata-only lineage for Cron runs hidden from sessions.list", async () => {
+  await createSessionStoreDir();
+  const cronRun = "agent:main:cron:nightly:run:run-1";
+  await writeSessionStore({
+    entries: {
+      [cronRun]: {
+        sessionId: "sess-cron-run",
+        updatedAt: Date.now(),
+        spawnedBy: "agent:main:main",
+        parentSessionKey: "agent:main:main",
+      },
+    },
+  });
+
+  const { ws } = await openClient();
+  const listed = await rpcReq<{ sessions: Array<{ key: string }> }>(ws, "sessions.list", {
+    search: cronRun,
+    archived: "all",
+  });
+  expect(listed.ok).toBe(true);
+  expect(listed.payload?.sessions).toEqual([]);
+
+  const resolved = await rpcReq<{
+    ok: true;
+    key: string;
+    lineage: {
+      spawnedBy?: string;
+      spawnedByAgentId?: string;
+      parentSessionKey?: string;
+      parentSessionAgentId?: string;
+    };
+  }>(ws, "sessions.resolve", {
+    key: cronRun,
+    includeLineage: true,
+  });
+
+  expect(resolved.ok).toBe(true);
+  expect(resolved.payload).toEqual({
+    ok: true,
+    key: cronRun,
+    lineage: {
+      spawnedBy: "agent:main:main",
+      spawnedByAgentId: "main",
+      parentSessionKey: "agent:main:main",
+      parentSessionAgentId: "main",
+    },
+  });
+});
+
 test("sessions.resolve by key respects spawnedBy visibility filters", async () => {
   await createSessionStoreDir();
   const now = Date.now();

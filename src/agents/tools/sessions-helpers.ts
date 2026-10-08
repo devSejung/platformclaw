@@ -7,6 +7,7 @@ export {
   createAgentToAgentPolicy,
   createSessionVisibilityGuard,
   createSessionVisibilityRowChecker,
+  sessionVisibilityRestrictionIdentity,
   resolveSessionVisibilityRestrictionDenials,
   resolveEffectiveSessionToolsVisibility,
   resolveSandboxedSessionToolContext,

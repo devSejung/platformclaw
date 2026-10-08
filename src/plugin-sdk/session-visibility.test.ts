@@ -18,6 +18,7 @@ describe("session tool visibility restrictions", () => {
 
     expect(params.query).toBe("trace");
     expect(readSessionToolVisibilityRestrictions(params)).toEqual({
+      denyKeyPatterns: [],
       denyKeySubstrings: [":space-session:"],
     });
   });
@@ -33,6 +34,28 @@ describe("session tool visibility restrictions", () => {
     ).toBe(true);
     expect(
       sessionVisibilityRowDeniedByRestrictions({ key: "agent:main:ordinary" }, restrictions),
+    ).toBe(false);
+  });
+
+  it("matches legacy dedicated Space-agent keys by bounded glob", () => {
+    const restrictions = {
+      denyKeyPatterns: ["agent:space-*-*-*-*-*:space:*"],
+      denyKeySubstrings: [":space-session:"],
+    };
+
+    expect(
+      sessionVisibilityRowDeniedByRestrictions(
+        {
+          key: "agent:space-11111111-1111-4111-8111-111111111111:space:page",
+        },
+        restrictions,
+      ),
+    ).toBe(true);
+    expect(
+      sessionVisibilityRowDeniedByRestrictions({ key: "agent:space-helper:main" }, restrictions),
+    ).toBe(false);
+    expect(
+      sessionVisibilityRowDeniedByRestrictions({ key: "agent:ordinary:space:page" }, restrictions),
     ).toBe(false);
   });
 

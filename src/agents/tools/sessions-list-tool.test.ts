@@ -153,22 +153,125 @@ describe("sessions-list-tool", () => {
     ]);
   });
 
-  it("follows stored ancestry so Space grandchildren never reach transcript hydration", async () => {
-    const root = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+  it("refills a limited listing after restricted Space rows consume the gateway page", async () => {
+    const hidden = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    const ordinary = "agent:main:ordinary";
+    const listRequests: Array<Record<string, unknown>> = [];
+    mocks.gatewayCall.mockImplementation(async (request: { method?: string; params?: unknown }) => {
+      if (request.method !== "sessions.list") {
+        return {};
+      }
+      const requestParams = (request.params ?? {}) as Record<string, unknown>;
+      listRequests.push(requestParams);
+      if (requestParams.offset === 1) {
+        return {
+          path: "/tmp/sessions.json",
+          sessions: [{ key: ordinary, kind: "other", sessionId: "ordinary" }],
+          limitApplied: 50,
+          hasMore: false,
+          nextOffset: null,
+        };
+      }
+      return {
+        path: "/tmp/sessions.json",
+        sessions: [{ key: hidden, kind: "other", sessionId: "hidden" }],
+        limitApplied: 1,
+        hasMore: true,
+        nextOffset: 1,
+      };
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { limit: 1 },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await createSessionsListTool({ config: VALID_CONFIG }).execute("refill", args);
+
+    expect(getSessionsListDetails(result).sessions?.map((session) => session.key)).toEqual([
+      ordinary,
+    ]);
+    expect(listRequests).toEqual([
+      expect.objectContaining({ limit: 1 }),
+      expect.objectContaining({ limit: 50, offset: 1 }),
+    ]);
+  });
+
+  it("deduplicates visible rows when activity ordering shifts between refill pages", async () => {
+    const hidden = "agent:main:space-session:11111111-1111-1111-1111-111111111111";
+    const first = "agent:main:ordinary-a";
+    const second = "agent:main:ordinary-b";
+    const third = "agent:main:ordinary-c";
+    mocks.gatewayCall.mockImplementation(async (request: { method?: string; params?: unknown }) => {
+      if (request.method !== "sessions.list") {
+        return {};
+      }
+      const offset = (request.params as { offset?: unknown } | undefined)?.offset;
+      if (offset === 2) {
+        return {
+          path: "/tmp/sessions.json",
+          sessions: [
+            { key: first, kind: "other", sessionId: "a" },
+            { key: third, kind: "other", sessionId: "c" },
+          ],
+          limitApplied: 50,
+          hasMore: false,
+          nextOffset: null,
+        };
+      }
+      return {
+        path: "/tmp/sessions.json",
+        sessions: [
+          { key: hidden, kind: "other", sessionId: "hidden" },
+          { key: first, kind: "other", sessionId: "a" },
+        ],
+        limitApplied: 2,
+        hasMore: true,
+        nextOffset: 2,
+      };
+    });
+    const args = withSessionToolVisibilityRestrictions(
+      { limit: 2 },
+      { denyKeySubstrings: [":space-session:"] },
+    );
+
+    const result = await createSessionsListTool({ config: VALID_CONFIG }).execute(
+      "refill-reorder",
+      args,
+    );
+
+    expect(getSessionsListDetails(result).sessions?.map((session) => session.key)).toEqual([
+      first,
+      third,
+    ]);
+    expect(JSON.stringify(result.details)).not.toContain(second);
+  });
+
+  it.each([
+    {
+      kind: "Space",
+      root: "agent:main:space-session:11111111-1111-1111-1111-111111111111",
+      visible: false,
+    },
+    { kind: "ordinary", root: "agent:main:main", visible: true },
+  ])("follows stored $kind ancestry before transcript hydration", async ({ root, visible }) => {
     const child = "agent:main:subagent:child";
     const grandchild = "agent:main:subagent:grandchild";
     mocks.gatewayCall.mockImplementation(async (request: { method?: string; params?: unknown }) => {
       if (request.method === "sessions.describe") {
         throw new Error("ancestry checks must not use transcript-capable sessions.describe");
       }
-      if (request.method === "sessions.list") {
-        const search = (request.params as { search?: unknown } | undefined)?.search;
-        if (search === child) {
-          return {
-            path: "/tmp/sessions.json",
-            sessions: [{ key: child, parentSessionKey: root, spawnedBy: root }],
-          };
+      if (request.method === "sessions.resolve") {
+        const params = request.params as { key?: string; includeLineage?: boolean };
+        expect(params.includeLineage).toBe(true);
+        if (params.key === child) {
+          return { ok: true, key: child, lineage: { parentSessionKey: root, spawnedBy: root } };
         }
+        if (params.key === root) {
+          return { ok: true, key: root, lineage: {} };
+        }
+        return { ok: false };
+      }
+      if (request.method === "sessions.list") {
         return {
           path: "/tmp/sessions.json",
           sessions: [
@@ -176,7 +279,7 @@ describe("sessions-list-tool", () => {
             {
               key: grandchild,
               kind: "other",
-              sessionId: "space-grandchild",
+              sessionId: "grandchild",
               parentSessionKey: child,
               spawnedBy: child,
             },
@@ -184,7 +287,9 @@ describe("sessions-list-tool", () => {
         };
       }
       if (request.method === "chat.history") {
-        expect((request.params as { sessionKey?: string }).sessionKey).not.toBe(grandchild);
+        if (!visible) {
+          expect((request.params as { sessionKey?: string }).sessionKey).not.toBe(grandchild);
+        }
         return { messages: [] };
       }
       return {};
@@ -201,7 +306,14 @@ describe("sessions-list-tool", () => {
 
     expect(getSessionsListDetails(result).sessions?.map((session) => session.key)).toEqual([
       "agent:main:visible",
+      ...(visible ? [grandchild] : []),
     ]);
+    expect(mocks.gatewayCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "sessions.resolve",
+        params: expect.objectContaining({ key: child, includeLineage: true }),
+      }),
+    );
   });
 
   it("removes an off-page Space child link from an ordinary listed parent", async () => {
@@ -209,13 +321,6 @@ describe("sessions-list-tool", () => {
     const parent = "agent:main:main";
     mocks.gatewayCall.mockImplementation(async (request: { method?: string; params?: unknown }) => {
       if (request.method === "sessions.list") {
-        const search = (request.params as { search?: unknown } | undefined)?.search;
-        if (search === root) {
-          return {
-            path: "/tmp/sessions.json",
-            sessions: [{ key: root }],
-          };
-        }
         return {
           path: "/tmp/sessions.json",
           sessions: [
@@ -254,15 +359,6 @@ describe("sessions-list-tool", () => {
         throw new Error("ancestry checks must not use transcript-capable sessions.describe");
       }
       if (request.method === "sessions.list") {
-        const search = (request.params as { search?: unknown } | undefined)?.search;
-        if (search === child) {
-          return {
-            path: "/tmp/sessions.json",
-            sessions: [
-              { key: child, parentSessionKey: root, spawnedBy: controller, sessionId: "child" },
-            ],
-          };
-        }
         return {
           path: "/tmp/sessions.json",
           sessions: [
@@ -313,15 +409,19 @@ describe("sessions-list-tool", () => {
       if (request.method === "sessions.describe") {
         throw new Error("ancestry checks must not use transcript-capable sessions.describe");
       }
-      if (request.method === "sessions.list") {
-        const search = (request.params as { search?: unknown } | undefined)?.search;
-        if (search === child) {
+      if (request.method === "sessions.resolve") {
+        const key = (request.params as { key?: unknown } | undefined)?.key;
+        if (key === child) {
           ancestryRequests.push(child);
           return {
-            path: "/tmp/sessions.json",
-            sessions: [{ key: child, parentSessionKey: root, spawnedBy: controller }],
+            ok: true,
+            key: child,
+            lineage: { parentSessionKey: root, spawnedBy: controller },
           };
         }
+        return { ok: false };
+      }
+      if (request.method === "sessions.list") {
         return {
           path: "/tmp/sessions.json",
           sessions: [

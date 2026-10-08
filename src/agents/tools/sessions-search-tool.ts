@@ -29,6 +29,7 @@ import {
   resolveEffectiveSessionToolsVisibility,
   resolveSandboxedSessionToolContext,
   resolveSessionReference,
+  sessionVisibilityRestrictionIdentity,
   resolveSessionVisibilityRestrictionDenials,
   resolveVisibleSessionReference,
 } from "./sessions-helpers.js";
@@ -441,7 +442,11 @@ export function createSessionsSearchTool(opts?: {
           .filter((candidate) => candidate.access === "direct")
           .map((candidate) => candidate.key),
       });
-      if (sessionKey && deniedSessionKeys.has(sessionKey)) {
+      const explicitCandidate = sessionKey ? searchSessions[0] : undefined;
+      if (
+        explicitCandidate &&
+        deniedSessionKeys.has(sessionVisibilityRestrictionIdentity(explicitCandidate))
+      ) {
         return jsonResult({
           status: "forbidden",
           error:
@@ -449,7 +454,7 @@ export function createSessionsSearchTool(opts?: {
         });
       }
       const readableSearchSessions = searchSessions.filter(
-        (candidate) => !deniedSessionKeys.has(candidate.key),
+        (candidate) => !deniedSessionKeys.has(sessionVisibilityRestrictionIdentity(candidate)),
       );
       const visibleHits: SanitizedSearchHit[] = [];
       let indexing = false;

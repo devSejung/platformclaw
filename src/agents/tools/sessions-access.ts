@@ -3,12 +3,13 @@
  *
  * Adds OpenClaw session-key alias normalization and sandbox requester scoping over SDK visibility contracts.
  */
+import { normalizeAgentId } from "@openclaw/normalization-core/agent-id";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { callGateway } from "../../gateway/call.js";
 import {
-  resolveDeniedSessionVisibilityKeys,
   resolveSandboxSessionToolsVisibility,
+  sessionVisibilityRowDeniedByRestrictions,
   type SessionToolVisibilityRestrictions,
   type SessionVisibilityRow,
 } from "../../plugin-sdk/session-visibility.js";
@@ -26,6 +27,76 @@ type GatewayCaller = typeof callGateway;
 const SESSION_VISIBILITY_ANCESTRY_DEPTH = 32;
 const SESSION_VISIBILITY_DESCRIBE_BATCH = 16;
 
+export function sessionVisibilityRestrictionIdentity(
+  row: Pick<SessionVisibilityRow, "key" | "agentId">,
+): string {
+  const key = normalizeOptionalString(row.key) ?? "";
+  if (!key) {
+    return "";
+  }
+  const parsed = parseAgentSessionKey(key);
+  if (parsed?.agentId) {
+    return key;
+  }
+  const agentId = row.agentId ? normalizeAgentId(row.agentId) : "";
+  return `${agentId}\0${key}`;
+}
+
+function lineageReferenceRow(parent: string, referenceAgentId?: string): SessionVisibilityRow {
+  const parsedAgentId = parseAgentSessionKey(parent)?.agentId;
+  return {
+    key: parent,
+    ...(parsedAgentId
+      ? { agentId: parsedAgentId }
+      : referenceAgentId
+        ? { agentId: referenceAgentId }
+        : {}),
+  };
+}
+
+function lineageReferences(row: SessionVisibilityRow) {
+  return [
+    [row.ownerSessionKey, row.ownerAgentId] as const,
+    [row.spawnedBy, row.spawnedByAgentId] as const,
+    [row.parentSessionKey, row.parentSessionAgentId] as const,
+  ];
+}
+
+function resolveDeniedVisibilityIdentities(
+  rows: ReadonlyMap<string, SessionVisibilityRow>,
+  restrictions: SessionToolVisibilityRestrictions,
+  seedDenied: Iterable<string> = [],
+): Set<string> {
+  const denied = new Set(seedDenied);
+  for (const [identity, row] of rows) {
+    if (sessionVisibilityRowDeniedByRestrictions(row, restrictions)) {
+      denied.add(identity);
+    }
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [identity, row] of rows) {
+      if (denied.has(identity)) {
+        continue;
+      }
+      const parentIdentities = lineageReferences(row)
+        .flatMap(([raw, referenceAgentId]) => {
+          const parent = normalizeOptionalString(raw);
+          return parent
+            ? [sessionVisibilityRestrictionIdentity(lineageReferenceRow(parent, referenceAgentId))]
+            : [];
+        })
+        .filter(Boolean);
+      if (parentIdentities.some((parentIdentity) => denied.has(parentIdentity))) {
+        denied.add(identity);
+        changed = true;
+      }
+    }
+  }
+  return denied;
+}
+
 function mergeVisibilityRow(
   rows: Map<string, SessionVisibilityRow>,
   row: SessionVisibilityRow,
@@ -34,33 +105,40 @@ function mergeVisibilityRow(
   if (!key) {
     return;
   }
-  rows.set(key, { ...rows.get(key), ...row, key });
+  const normalizedRow = { ...row, key };
+  const identity = sessionVisibilityRestrictionIdentity(normalizedRow);
+  rows.set(identity, { ...rows.get(identity), ...normalizedRow });
 }
 
-function listedVisibilityRow(value: unknown, key: string): SessionVisibilityRow | undefined {
+function resolvedVisibilityRow(
+  value: unknown,
+  key: string,
+  agentId?: string,
+): SessionVisibilityRow | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
   }
-  const sessions = (value as { sessions?: unknown }).sessions;
-  if (!Array.isArray(sessions)) {
+  const result = value as Record<string, unknown>;
+  if (result.ok !== true || typeof result.key !== "string") {
     return undefined;
   }
-  const row = sessions.find(
-    (entry): entry is Record<string, unknown> =>
-      Boolean(entry) &&
-      typeof entry === "object" &&
-      typeof (entry as { key?: unknown }).key === "string" &&
-      (entry as { key: string }).key === key,
-  );
-  if (!row) {
-    return undefined;
-  }
+  const lineage =
+    result.lineage && typeof result.lineage === "object"
+      ? (result.lineage as Record<string, unknown>)
+      : {};
   return {
     key,
-    ...(typeof row.agentId === "string" ? { agentId: row.agentId } : {}),
-    ...(typeof row.ownerSessionKey === "string" ? { ownerSessionKey: row.ownerSessionKey } : {}),
-    ...(typeof row.spawnedBy === "string" ? { spawnedBy: row.spawnedBy } : {}),
-    ...(typeof row.parentSessionKey === "string" ? { parentSessionKey: row.parentSessionKey } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(typeof lineage.spawnedBy === "string" ? { spawnedBy: lineage.spawnedBy } : {}),
+    ...(typeof lineage.spawnedByAgentId === "string"
+      ? { spawnedByAgentId: lineage.spawnedByAgentId }
+      : {}),
+    ...(typeof lineage.parentSessionKey === "string"
+      ? { parentSessionKey: lineage.parentSessionKey }
+      : {}),
+    ...(typeof lineage.parentSessionAgentId === "string"
+      ? { parentSessionAgentId: lineage.parentSessionAgentId }
+      : {}),
   };
 }
 
@@ -71,7 +149,11 @@ export async function resolveSessionVisibilityRestrictionDenials(params: {
   gatewayCall: GatewayCaller;
   hydrateKeys?: Iterable<string>;
 }): Promise<Set<string>> {
-  if (params.restrictions.denyKeySubstrings.length === 0 || params.candidates.length === 0) {
+  if (
+    ((params.restrictions.denyKeyPatterns?.length ?? 0) === 0 &&
+      params.restrictions.denyKeySubstrings.length === 0) ||
+    params.candidates.length === 0
+  ) {
     return new Set();
   }
   const rows = new Map<string, SessionVisibilityRow>();
@@ -88,78 +170,109 @@ export async function resolveSessionVisibilityRestrictionDenials(params: {
   );
 
   for (let depth = 0; depth < SESSION_VISIBILITY_ANCESTRY_DEPTH; depth += 1) {
-    const denied = resolveDeniedSessionVisibilityKeys(
-      [...rows.values()],
-      params.restrictions,
-      forcedDenied,
-    );
-    const toDescribe = new Set<string>();
+    const denied = resolveDeniedVisibilityIdentities(rows, params.restrictions, forcedDenied);
+    const toDescribe = new Map<string, { key: string; agentId?: string }>();
     for (const key of explicitHydration) {
-      if (!hydrated.has(key) && !denied.has(key)) {
-        toDescribe.add(key);
+      let matched = false;
+      for (const [identity, row] of rows) {
+        if (row.key !== key) {
+          continue;
+        }
+        matched = true;
+        if (!hydrated.has(identity) && !denied.has(identity)) {
+          toDescribe.set(identity, { key, ...(row.agentId ? { agentId: row.agentId } : {}) });
+        }
+      }
+      if (!matched) {
+        const agentId = parseAgentSessionKey(key)?.agentId;
+        const identity = sessionVisibilityRestrictionIdentity({ key, agentId });
+        if (!hydrated.has(identity) && !denied.has(identity)) {
+          toDescribe.set(identity, { key, ...(agentId ? { agentId } : {}) });
+        }
       }
     }
-    for (const row of rows.values()) {
-      if (denied.has(row.key)) {
+    for (const [identity, row] of rows) {
+      if (denied.has(identity)) {
         continue;
       }
-      for (const raw of [row.ownerSessionKey, row.spawnedBy, row.parentSessionKey]) {
+      for (const [raw, referenceAgentId] of lineageReferences(row)) {
         const parent = normalizeOptionalString(raw);
-        if (parent && !rows.has(parent) && !hydrated.has(parent) && !forcedDenied.has(parent)) {
-          toDescribe.add(parent);
+        if (!parent) {
+          continue;
+        }
+        const parsedAgentId = parseAgentSessionKey(parent)?.agentId;
+        if (!parsedAgentId && !referenceAgentId) {
+          if (!hydrated.has(identity)) {
+            toDescribe.set(identity, {
+              key: row.key,
+              ...(row.agentId ? { agentId: row.agentId } : {}),
+            });
+          } else {
+            forcedDenied.add(sessionVisibilityRestrictionIdentity({ key: parent }));
+          }
+          continue;
+        }
+        const parentRow = lineageReferenceRow(parent, referenceAgentId);
+        const parentIdentity = sessionVisibilityRestrictionIdentity(parentRow);
+        if (
+          parentIdentity &&
+          !rows.has(parentIdentity) &&
+          !hydrated.has(parentIdentity) &&
+          !forcedDenied.has(parentIdentity)
+        ) {
+          toDescribe.set(parentIdentity, {
+            key: parent,
+            ...(parentRow.agentId ? { agentId: parentRow.agentId } : {}),
+          });
         }
       }
     }
     if (toDescribe.size === 0) {
-      return denied;
+      return resolveDeniedVisibilityIdentities(rows, params.restrictions, forcedDenied);
     }
     if (depth === SESSION_VISIBILITY_ANCESTRY_DEPTH - 1) {
-      for (const key of toDescribe) {
-        forcedDenied.add(key);
+      for (const identity of toDescribe.keys()) {
+        forcedDenied.add(identity);
       }
-      return resolveDeniedSessionVisibilityKeys(
-        [...rows.values()],
-        params.restrictions,
-        forcedDenied,
-      );
+      return resolveDeniedVisibilityIdentities(rows, params.restrictions, forcedDenied);
     }
 
-    const keys = [...toDescribe];
-    for (let offset = 0; offset < keys.length; offset += SESSION_VISIBILITY_DESCRIBE_BATCH) {
-      const batch = keys.slice(offset, offset + SESSION_VISIBILITY_DESCRIBE_BATCH);
+    const descriptions = [...toDescribe.entries()];
+    for (
+      let offset = 0;
+      offset < descriptions.length;
+      offset += SESSION_VISIBILITY_DESCRIBE_BATCH
+    ) {
+      const batch = descriptions.slice(offset, offset + SESSION_VISIBILITY_DESCRIBE_BATCH);
       await Promise.all(
-        batch.map(async (key) => {
-          hydrated.add(key);
+        batch.map(async ([identity, descriptor]) => {
+          hydrated.add(identity);
           try {
-            const agentId = parseAgentSessionKey(key)?.agentId;
-            const listed = await params.gatewayCall<unknown>({
-              method: "sessions.list",
+            const { key, agentId } = descriptor;
+            const resolved = await params.gatewayCall<unknown>({
+              method: "sessions.resolve",
               params: {
-                search: key,
-                limit: 20,
-                archived: "all",
-                includeGlobal: true,
-                includeUnknown: true,
-                includeDerivedTitles: false,
-                includeLastMessage: false,
+                key,
+                allowMissing: true,
+                includeLineage: true,
                 ...(agentId ? { agentId } : {}),
               },
             });
-            const row = listedVisibilityRow(listed, key);
+            const row = resolvedVisibilityRow(resolved, key, agentId);
             if (row) {
               mergeVisibilityRow(rows, row);
             } else {
-              forcedDenied.add(key);
+              forcedDenied.add(identity);
             }
           } catch {
-            forcedDenied.add(key);
+            forcedDenied.add(identity);
           }
         }),
       );
     }
   }
 
-  return resolveDeniedSessionVisibilityKeys([...rows.values()], params.restrictions, forcedDenied);
+  return resolveDeniedVisibilityIdentities(rows, params.restrictions, forcedDenied);
 }
 
 /** Resolves the requester context used to filter sandboxed session-tool access. */

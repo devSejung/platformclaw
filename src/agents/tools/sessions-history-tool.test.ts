@@ -12,7 +12,12 @@ import {
 } from "../../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { callGateway as gatewayCall } from "../../gateway/call.js";
-import { createSessionVisibilityChecker } from "../../plugin-sdk/session-visibility.js";
+import {
+  createSessionVisibilityChecker,
+  sessionVisibilityGatewayTesting,
+} from "../../plugin-sdk/session-visibility.js";
+import { closeOpenClawAgentDatabasesForTest } from "../../state/openclaw-agent-db.js";
+import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
 import { deleteTestEnvValue, setTestEnvValue } from "../../test-utils/env.js";
 import { compactToolOutputHint } from "../tool-schema-hints.js";
 
@@ -114,6 +119,9 @@ describe("sessions_history redaction", () => {
   });
 
   afterAll(() => {
+    // Agent close releases shared-state leases before Windows can remove the fixture.
+    closeOpenClawAgentDatabasesForTest();
+    closeOpenClawStateDatabaseForTest();
     if (previousConfigPath === undefined) {
       deleteTestEnvValue("OPENCLAW_CONFIG_PATH");
     } else {
@@ -138,6 +146,95 @@ describe("sessions_history redaction", () => {
       '{ bytes: number; contentRedacted: boolean; contentTruncated: boolean; droppedMessages: boolean; messages: Array<unknown>; sessionKey: string; truncated: boolean; hasMore?: boolean; nextOffset?: number; offset?: number; totalMessages?: number } | { error: string; status: "error" | "forbidden" }',
     );
   });
+
+  it("pins hidden agent scope when reading a bare global session", async () => {
+    const requests: CallGatewayRequest[] = [];
+    const tool = createSessionsHistoryTool({
+      agentSessionKey: "agent:work:main",
+      config: {
+        agents: { list: [{ id: "main", default: true }, { id: "work" }] },
+        tools: { sessions: { visibility: "agent" } },
+      },
+      callGateway: async <T = Record<string, unknown>>(request: CallGatewayRequest): Promise<T> => {
+        requests.push(request);
+        if (request.method === "chat.history") {
+          return { messages: [{ role: "assistant", content: "work global" }] } as T;
+        }
+        return {} as T;
+      },
+    });
+
+    const result = await tool.execute("scoped-global", {
+      sessionKey: "global",
+      agentId: "work",
+    });
+
+    expect(readHistoryDetails(result)).toMatchObject({ sessionKey: "global" });
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        method: "chat.history",
+        params: expect.objectContaining({ sessionKey: "global", agentId: "work" }),
+      }),
+    );
+  });
+
+  it("does not let hidden agent scope override a canonical history target's owner", async () => {
+    const requests: CallGatewayRequest[] = [];
+    const tool = createSessionsHistoryTool({
+      agentSessionKey: "agent:main:main",
+      config: { tools: { sessions: { visibility: "agent" } } },
+      callGateway: async <T = Record<string, unknown>>(request: CallGatewayRequest): Promise<T> => {
+        requests.push(request);
+        return { messages: [{ role: "assistant", content: "private peer transcript" }] } as T;
+      },
+    });
+
+    const result = await tool.execute("forged-owner", {
+      sessionKey: "agent:other:private",
+      agentId: "main",
+    });
+
+    expect(result.details).toMatchObject({ status: "forbidden" });
+    expect(requests).toEqual([]);
+  });
+
+  it.each(["main", "worker"])(
+    "preserves owned child history with matching extra agentId=%s",
+    async (agentId) => {
+      const requesterSessionKey = "agent:main:main";
+      const child = `agent:${agentId}:subagent:owned-child`;
+      const requests: CallGatewayRequest[] = [];
+      const call = async <T = Record<string, unknown>>(request: CallGatewayRequest): Promise<T> => {
+        requests.push(request);
+        if (request.method === "sessions.list") {
+          expect(request.params).toEqual(
+            expect.objectContaining({ spawnedBy: requesterSessionKey }),
+          );
+          return { sessions: [{ key: child }] } as T;
+        }
+        return { messages: [{ role: "assistant", content: "owned child" }] } as T;
+      };
+      sessionVisibilityGatewayTesting.setCallGatewayForListSpawned(call);
+      try {
+        const tool = createSessionsHistoryTool({
+          agentSessionKey: requesterSessionKey,
+          config: { tools: { sessions: { visibility: "tree" } } },
+          callGateway: call,
+        });
+
+        const result = await tool.execute("owned-child", { sessionKey: child, agentId });
+
+        expect(result.details).toMatchObject({
+          sessionKey: child,
+          messages: [{ role: "assistant", content: "owned child" }],
+        });
+        const history = requests.find((request) => request.method === "chat.history");
+        expect(history?.params).not.toHaveProperty("agentId");
+      } finally {
+        sessionVisibilityGatewayTesting.setCallGatewayForListSpawned();
+      }
+    },
+  );
 
   it("redacts recalled session text even when log redaction is disabled", async () => {
     // Recalled transcript content is model-visible, so it is always redacted
@@ -436,154 +533,175 @@ describe("sessions_history redaction", () => {
     });
   });
 
-  it("honors a scoped incarnation grant through the sandbox visibility clamp", async () => {
-    const requesterSessionKey = "agent:main:clickclack:discussion-proof";
-    const targetSessionKey = "agent:main:main";
-    const expectedSessionId = "main-session-incarnation";
-    const storePath = await writeSessionStore("scoped-grant.json", {
-      [targetSessionKey]: { sessionId: expectedSessionId, updatedAt: 1 },
-    });
-    const requests: CallGatewayRequest[] = [];
-    const unregister = createSessionVisibilityChecker.registerScopedAccessProvider((request) =>
-      request.requesterSessionKey === requesterSessionKey &&
-      request.targetSessionKey === targetSessionKey
-        ? { expectedSessionId }
-        : undefined,
-    );
-    try {
-      const tool = createSessionsHistoryTool({
-        agentSessionKey: requesterSessionKey,
-        sandboxed: true,
-        config: {
-          session: { store: storePath },
-          tools: { sessions: { visibility: "self" } },
-          agents: { defaults: { sandbox: { sessionToolsVisibility: "spawned" } } },
-        } as OpenClawConfig,
-        callGateway: async <T = Record<string, unknown>>(
-          request: CallGatewayRequest,
-        ): Promise<T> => {
-          requests.push(request);
-          if (request.method === "sessions.resolve") {
-            return { key: targetSessionKey } as T;
-          }
-          return { messages: [{ role: "assistant", content: "visible" }] } as T;
-        },
+  it.each([
+    { targetSessionKey: "agent:main:main", agentId: undefined },
+    { targetSessionKey: "agent:main:main", agentId: "main" },
+    { targetSessionKey: "global", agentId: "main" },
+  ])(
+    "honors a scoped incarnation grant for $targetSessionKey with agentId=$agentId",
+    async ({ targetSessionKey, agentId }) => {
+      const requesterSessionKey = "agent:main:clickclack:discussion-proof";
+      const expectedSessionId = "main-session-incarnation";
+      const storePath = await writeSessionStore("scoped-grant.json", {
+        [targetSessionKey]: { sessionId: expectedSessionId, updatedAt: 1 },
       });
+      const requests: CallGatewayRequest[] = [];
+      const unregister = createSessionVisibilityChecker.registerScopedAccessProvider((request) =>
+        request.requesterSessionKey === requesterSessionKey &&
+        request.targetSessionKey === targetSessionKey
+          ? { expectedSessionId }
+          : undefined,
+      );
+      try {
+        const tool = createSessionsHistoryTool({
+          agentSessionKey: requesterSessionKey,
+          sandboxed: true,
+          config: {
+            session: { store: storePath },
+            tools: { sessions: { visibility: "self" } },
+            agents: { defaults: { sandbox: { sessionToolsVisibility: "spawned" } } },
+          } as OpenClawConfig,
+          callGateway: async <T = Record<string, unknown>>(
+            request: CallGatewayRequest,
+          ): Promise<T> => {
+            requests.push(request);
+            if (request.method === "sessions.resolve") {
+              return { key: targetSessionKey } as T;
+            }
+            return { messages: [{ role: "assistant", content: "visible" }] } as T;
+          },
+        });
 
-      const result = await tool.execute("scoped-grant", { sessionKey: targetSessionKey });
+        const result = await tool.execute("scoped-grant", {
+          sessionKey: targetSessionKey,
+          agentId,
+        });
 
-      expect(result.details).toMatchObject({
-        sessionKey: targetSessionKey,
-        messages: [{ role: "assistant", content: "visible" }],
+        expect(result.details).toMatchObject({
+          sessionKey: targetSessionKey,
+          messages: [{ role: "assistant", content: "visible" }],
+        });
+        expect(requests.map((request) => request.method)).toEqual(["chat.history"]);
+      } finally {
+        unregister();
+      }
+    },
+  );
+
+  it.each([
+    { targetSessionKey: "agent:main:main", agentId: undefined },
+    { targetSessionKey: "agent:main:main", agentId: "main" },
+    { targetSessionKey: "global", agentId: "main" },
+  ])(
+    "rejects a changed scoped incarnation for $targetSessionKey with agentId=$agentId",
+    async ({ targetSessionKey, agentId }) => {
+      const requesterSessionKey = "agent:main:clickclack:discussion-race";
+      const expectedSessionId = "old-incarnation";
+      const storePath = await writeSessionStore("scoped-grant-race.json", {
+        [targetSessionKey]: { sessionId: expectedSessionId, updatedAt: 1 },
       });
-      expect(requests.map((request) => request.method)).toEqual(["chat.history"]);
-    } finally {
-      unregister();
-    }
-  });
-
-  it("rejects a scoped grant when the target incarnation changes before the read", async () => {
-    const requesterSessionKey = "agent:main:clickclack:discussion-race";
-    const targetSessionKey = "agent:main:main";
-    const expectedSessionId = "old-incarnation";
-    const storePath = await writeSessionStore("scoped-grant-race.json", {
-      [targetSessionKey]: { sessionId: expectedSessionId, updatedAt: 1 },
-    });
-    let grantChecks = 0;
-    const requests: CallGatewayRequest[] = [];
-    const unregister = createSessionVisibilityChecker.registerScopedAccessProvider((request) => {
-      if (
-        request.requesterSessionKey !== requesterSessionKey ||
-        request.targetSessionKey !== targetSessionKey
-      ) {
-        return undefined;
-      }
-      grantChecks += 1;
-      if (grantChecks === 2) {
-        replaceSessionEntrySync(
-          { storePath, sessionKey: targetSessionKey },
-          { sessionId: "replacement-incarnation", updatedAt: 2 },
-        );
-      }
-      return { expectedSessionId };
-    });
-    try {
-      const tool = createSessionsHistoryTool({
-        agentSessionKey: requesterSessionKey,
-        sandboxed: true,
-        config: {
-          session: { store: storePath },
-          tools: { sessions: { visibility: "self" } },
-          agents: { defaults: { sandbox: { sessionToolsVisibility: "spawned" } } },
-        } as OpenClawConfig,
-        callGateway: async <T = Record<string, unknown>>(
-          request: CallGatewayRequest,
-        ): Promise<T> => {
-          requests.push(request);
-          if (request.method === "sessions.resolve") {
-            return { key: targetSessionKey } as T;
-          }
-          return { messages: [] } as T;
-        },
+      let grantChecks = 0;
+      const requests: CallGatewayRequest[] = [];
+      const unregister = createSessionVisibilityChecker.registerScopedAccessProvider((request) => {
+        if (
+          request.requesterSessionKey !== requesterSessionKey ||
+          request.targetSessionKey !== targetSessionKey
+        ) {
+          return undefined;
+        }
+        grantChecks += 1;
+        if (grantChecks === 2) {
+          replaceSessionEntrySync(
+            { storePath, sessionKey: targetSessionKey },
+            { sessionId: "replacement-incarnation", updatedAt: 2 },
+          );
+        }
+        return { expectedSessionId };
       });
+      try {
+        const tool = createSessionsHistoryTool({
+          agentSessionKey: requesterSessionKey,
+          sandboxed: true,
+          config: {
+            session: { store: storePath },
+            tools: { sessions: { visibility: "self" } },
+            agents: { defaults: { sandbox: { sessionToolsVisibility: "spawned" } } },
+          } as OpenClawConfig,
+          callGateway: async <T = Record<string, unknown>>(
+            request: CallGatewayRequest,
+          ): Promise<T> => {
+            requests.push(request);
+            if (request.method === "sessions.resolve") {
+              return { key: targetSessionKey } as T;
+            }
+            return { messages: [] } as T;
+          },
+        });
 
-      await expect(
-        tool.execute("scoped-grant-race", { sessionKey: targetSessionKey }),
-      ).rejects.toThrow(`Session "${targetSessionKey}" changed after access was granted.`);
-      expect(requests).toEqual([]);
-    } finally {
-      unregister();
-    }
-  });
+        await expect(
+          tool.execute("scoped-grant-race", { sessionKey: targetSessionKey, agentId }),
+        ).rejects.toThrow(`Session "${targetSessionKey}" changed after access was granted.`);
+        expect(requests).toEqual([]);
+      } finally {
+        unregister();
+      }
+    },
+  );
 
-  it("rejects a scoped grant when the target is archived before the read", async () => {
-    const requesterSessionKey = "agent:main:clickclack:discussion-archive-race";
-    const targetSessionKey = "agent:main:main";
-    const expectedSessionId = "main-incarnation";
-    const storePath = await writeSessionStore("scoped-grant-archive-race.json", {
-      [targetSessionKey]: { sessionId: expectedSessionId, updatedAt: 1 },
-    });
-    let grantChecks = 0;
-    const requests: CallGatewayRequest[] = [];
-    const unregister = createSessionVisibilityChecker.registerScopedAccessProvider((request) => {
-      if (
-        request.requesterSessionKey !== requesterSessionKey ||
-        request.targetSessionKey !== targetSessionKey
-      ) {
-        return undefined;
-      }
-      grantChecks += 1;
-      if (grantChecks === 2) {
-        replaceSessionEntrySync(
-          { storePath, sessionKey: targetSessionKey },
-          { sessionId: expectedSessionId, updatedAt: 2, archivedAt: 2 },
-        );
-      }
-      return { expectedSessionId };
-    });
-    try {
-      const tool = createSessionsHistoryTool({
-        agentSessionKey: requesterSessionKey,
-        sandboxed: true,
-        config: {
-          session: { store: storePath },
-          tools: { sessions: { visibility: "self" } },
-          agents: { defaults: { sandbox: { sessionToolsVisibility: "spawned" } } },
-        } as OpenClawConfig,
-        callGateway: async <T = Record<string, unknown>>(
-          request: CallGatewayRequest,
-        ): Promise<T> => {
-          requests.push(request);
-          return { messages: [] } as T;
-        },
+  it.each([
+    { targetSessionKey: "agent:main:main", agentId: undefined },
+    { targetSessionKey: "agent:main:main", agentId: "main" },
+    { targetSessionKey: "global", agentId: "main" },
+  ])(
+    "rejects an archived scoped incarnation for $targetSessionKey with agentId=$agentId",
+    async ({ targetSessionKey, agentId }) => {
+      const requesterSessionKey = "agent:main:clickclack:discussion-archive-race";
+      const expectedSessionId = "main-incarnation";
+      const storePath = await writeSessionStore("scoped-grant-archive-race.json", {
+        [targetSessionKey]: { sessionId: expectedSessionId, updatedAt: 1 },
       });
+      let grantChecks = 0;
+      const requests: CallGatewayRequest[] = [];
+      const unregister = createSessionVisibilityChecker.registerScopedAccessProvider((request) => {
+        if (
+          request.requesterSessionKey !== requesterSessionKey ||
+          request.targetSessionKey !== targetSessionKey
+        ) {
+          return undefined;
+        }
+        grantChecks += 1;
+        if (grantChecks === 2) {
+          replaceSessionEntrySync(
+            { storePath, sessionKey: targetSessionKey },
+            { sessionId: expectedSessionId, updatedAt: 2, archivedAt: 2 },
+          );
+        }
+        return { expectedSessionId };
+      });
+      try {
+        const tool = createSessionsHistoryTool({
+          agentSessionKey: requesterSessionKey,
+          sandboxed: true,
+          config: {
+            session: { store: storePath },
+            tools: { sessions: { visibility: "self" } },
+            agents: { defaults: { sandbox: { sessionToolsVisibility: "spawned" } } },
+          } as OpenClawConfig,
+          callGateway: async <T = Record<string, unknown>>(
+            request: CallGatewayRequest,
+          ): Promise<T> => {
+            requests.push(request);
+            return { messages: [] } as T;
+          },
+        });
 
-      await expect(
-        tool.execute("scoped-grant-archive-race", { sessionKey: targetSessionKey }),
-      ).rejects.toThrow(`Session "${targetSessionKey}" changed after access was granted.`);
-      expect(requests).toEqual([]);
-    } finally {
-      unregister();
-    }
-  });
+        await expect(
+          tool.execute("scoped-grant-archive-race", { sessionKey: targetSessionKey, agentId }),
+        ).rejects.toThrow(`Session "${targetSessionKey}" changed after access was granted.`);
+        expect(requests).toEqual([]);
+      } finally {
+        unregister();
+      }
+    },
+  );
 });

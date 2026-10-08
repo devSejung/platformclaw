@@ -4,6 +4,7 @@
  * Reads bounded, redacted session transcript history after session visibility filtering.
  */
 import { estimateBase64DecodedBytes } from "@openclaw/media-core/base64";
+import { normalizeAgentId } from "@openclaw/normalization-core/agent-id";
 import { readStringValue } from "@openclaw/normalization-core/string-coerce";
 import { Type } from "typebox";
 import { getRuntimeConfig } from "../../config/config.js";
@@ -12,6 +13,7 @@ import { callGateway } from "../../gateway/call.js";
 import { capArrayByJsonBytes } from "../../gateway/session-transcript-readers.js";
 import { jsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
 import { redactToolPayloadText } from "../../logging/redact.js";
+import { parseAgentSessionKey } from "../../routing/session-key.js";
 import { truncateUtf16Safe } from "../../utils.js";
 import { resolveDefaultAgentId } from "../agent-scope-config.js";
 import { optionalPositiveIntegerSchema } from "../schema/typebox.js";
@@ -31,6 +33,7 @@ import {
 import { runWithScopedSessionAccess } from "./scoped-session-access.js";
 import {
   createSessionVisibilityGuard,
+  createSessionVisibilityRowChecker,
   createAgentToAgentPolicy,
   resolveEffectiveSessionToolsVisibility,
   resolveSessionReference,
@@ -425,20 +428,34 @@ export function createSessionsHistoryTool(opts?: {
       // From here on, use the canonical key (sessionId inputs already resolved).
       const resolvedKey = visibleSession.key;
       const displayKey = visibleSession.displayKey;
+      // Canonical keys own their agent identity; hidden scope only selects bare-key stores.
+      const targetAgentId = parseAgentSessionKey(resolvedKey)
+        ? undefined
+        : readStringParam(params, "agentId");
 
       const a2aPolicy = createAgentToAgentPolicy(cfg);
       const visibility = resolveEffectiveSessionToolsVisibility({
         cfg,
         sandboxed: opts?.sandboxed === true,
       });
+      const defaultAgentId = resolveDefaultAgentId(cfg);
       const visibilityGuard = await createSessionVisibilityGuard({
         action: "history",
-        defaultAgentId: resolveDefaultAgentId(cfg),
+        defaultAgentId,
         requesterSessionKey: effectiveRequesterKey,
         visibility,
         a2aPolicy,
       });
-      const access = visibilityGuard.check(resolvedKey);
+      const access =
+        targetAgentId && normalizeAgentId(targetAgentId) !== defaultAgentId
+          ? createSessionVisibilityRowChecker({
+              action: "history",
+              defaultAgentId,
+              requesterSessionKey: effectiveRequesterKey,
+              visibility,
+              a2aPolicy,
+            }).check({ key: resolvedKey, agentId: targetAgentId })
+          : visibilityGuard.check(resolvedKey);
       if (!access.allowed) {
         return jsonResult({
           status: access.status,
@@ -461,6 +478,7 @@ export function createSessionsHistoryTool(opts?: {
         cfg,
         expectedSessionId: access.expectedSessionId,
         targetSessionKey: resolvedKey,
+        ...(targetAgentId ? { targetAgentId } : {}),
         run: async () =>
           await gatewayCall<{
             messages: Array<unknown>;
@@ -472,6 +490,7 @@ export function createSessionsHistoryTool(opts?: {
             method: "chat.history",
             params: {
               sessionKey: resolvedKey,
+              ...(targetAgentId ? { agentId: targetAgentId } : {}),
               limit,
               ...(offset !== undefined ? { offset } : {}),
               ...(messageId ? { messageId } : {}),

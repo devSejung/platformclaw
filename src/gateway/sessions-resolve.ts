@@ -8,8 +8,10 @@ import {
   errorShape,
   type SessionsResolveParams,
 } from "../../packages/gateway-protocol/src/index.js";
+import { getSessionDisplaySubagentRunByChildSessionKey } from "../agents/subagent-registry-read.js";
 import type { SessionEntry } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { parseAgentSessionKey } from "../routing/session-key.js";
 import { resolveSessionIdMatchSelection } from "../sessions/session-id-resolution.js";
 import { parseSessionLabel } from "../sessions/session-label.js";
 import {
@@ -21,9 +23,63 @@ import {
 } from "./session-utils.js";
 
 export type SessionsResolveResult =
-  | { ok: true; key: string }
+  | {
+      ok: true;
+      key: string;
+      lineage?: {
+        spawnedBy?: string;
+        spawnedByAgentId?: string;
+        parentSessionKey?: string;
+        parentSessionAgentId?: string;
+      };
+    }
   | { ok: true; missing: true }
   | { ok: false; error: ErrorShape };
+
+function resolvedSessionResult(
+  p: SessionsResolveParams,
+  key: string,
+  entry?: SessionEntry,
+  sessionAgentId?: string,
+): SessionsResolveResult {
+  if (p.includeLineage !== true) {
+    return { ok: true, key };
+  }
+  const run = getSessionDisplaySubagentRunByChildSessionKey(key);
+  const requesterAgentId = normalizeOptionalString(run?.requesterAgentId);
+  const requesterSessionKey = normalizeOptionalString(run?.requesterSessionKey);
+  const controllerSessionKey = normalizeOptionalString(run?.controllerSessionKey);
+  const spawnedBy = normalizeOptionalString(entry?.spawnedBy);
+  const parentSessionKey = normalizeOptionalString(entry?.parentSessionKey);
+  const lineageAgentId = (reference: string | undefined) => {
+    if (!reference) {
+      return undefined;
+    }
+    const parsedAgentId = parseAgentSessionKey(reference)?.agentId;
+    if (parsedAgentId) {
+      return parsedAgentId;
+    }
+    if (
+      requesterAgentId &&
+      (reference === requesterSessionKey || reference === controllerSessionKey)
+    ) {
+      return requesterAgentId;
+    }
+    return sessionAgentId;
+  };
+  const spawnedByAgentId = lineageAgentId(spawnedBy);
+  const parentSessionAgentId = lineageAgentId(parentSessionKey);
+  return {
+    ok: true,
+    key,
+    lineage: {
+      ...(spawnedBy ? { spawnedBy } : {}),
+      ...(spawnedByAgentId ? { spawnedByAgentId } : {}),
+      ...(parentSessionKey ? { parentSessionKey } : {}),
+      ...(parentSessionAgentId ? { parentSessionAgentId } : {}),
+    },
+  };
+}
 
 function resolveSessionVisibilityFilterOptions(p: SessionsResolveParams) {
   return {
@@ -128,7 +184,12 @@ export async function resolveSessionKeyFromResolveParams(params: {
   }
 
   if (hasKey) {
-    const target = resolveGatewaySessionStoreTargetWithStore({ cfg, key, clone: false });
+    const target = resolveGatewaySessionStoreTargetWithStore({
+      cfg,
+      key,
+      clone: false,
+      ...(p.agentId ? { agentId: p.agentId } : {}),
+    });
     const store = target.store;
     if (store[target.canonicalKey]) {
       if (
@@ -150,7 +211,12 @@ export async function resolveSessionKeyFromResolveParams(params: {
       if (agentCheck) {
         return agentCheck;
       }
-      return { ok: true, key: target.canonicalKey };
+      return resolvedSessionResult(
+        p,
+        target.canonicalKey,
+        store[target.canonicalKey],
+        target.agentId,
+      );
     }
     return noSessionFoundResult({ p, message: `No session found: ${key}` });
   }
@@ -183,7 +249,12 @@ export async function resolveSessionKeyFromResolveParams(params: {
     if (agentCheckSessionId) {
       return agentCheckSessionId;
     }
-    return { ok: true, key: selection.sessionKey };
+    return resolvedSessionResult(
+      p,
+      selection.sessionKey,
+      selectedEntry,
+      parseAgentSessionKey(selection.sessionKey)?.agentId ?? normalizeOptionalString(p.agentId),
+    );
   }
 
   const parsedLabel = parseSessionLabel(p.label);
@@ -231,8 +302,10 @@ export async function resolveSessionKeyFromResolveParams(params: {
   if (agentCheckLabel) {
     return agentCheckLabel;
   }
-  return {
-    ok: true,
-    key: labelKey,
-  };
+  return resolvedSessionResult(
+    p,
+    labelKey,
+    store[labelKey],
+    parseAgentSessionKey(labelKey)?.agentId ?? normalizeOptionalString(p.agentId),
+  );
 }

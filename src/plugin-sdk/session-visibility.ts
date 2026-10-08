@@ -82,13 +82,17 @@ export type SessionVisibilityRow = {
   key: string;
   agentId?: string;
   ownerSessionKey?: string;
+  ownerAgentId?: string;
   spawnedBy?: string;
+  spawnedByAgentId?: string;
   parentSessionKey?: string;
+  parentSessionAgentId?: string;
 };
 
 const SESSION_TOOL_VISIBILITY_RESTRICTIONS_PARAM = "__openclawSessionVisibilityRestrictions";
 
 export type SessionToolVisibilityRestrictions = {
+  denyKeyPatterns?: string[];
   denyKeySubstrings: string[];
 };
 
@@ -103,16 +107,23 @@ function normalizeSessionVisibilityRestrictionList(value: unknown): string[] {
 /** Add deny-only session restrictions to params rewritten by a before_tool_call policy. */
 export function withSessionToolVisibilityRestrictions(
   params: Record<string, unknown>,
-  restrictions: { denyKeySubstrings?: readonly string[] },
+  restrictions: { denyKeyPatterns?: readonly string[]; denyKeySubstrings?: readonly string[] },
 ): Record<string, unknown> {
   const existing = readSessionToolVisibilityRestrictions(params);
+  const denyKeyPatterns = normalizeSessionVisibilityRestrictionList([
+    ...(restrictions.denyKeyPatterns ?? []),
+    ...(existing.denyKeyPatterns ?? []),
+  ]);
   const denyKeySubstrings = normalizeSessionVisibilityRestrictionList([
     ...(restrictions.denyKeySubstrings ?? []),
     ...existing.denyKeySubstrings,
   ]);
-  return denyKeySubstrings.length === 0
+  return denyKeyPatterns.length === 0 && denyKeySubstrings.length === 0
     ? params
-    : { ...params, [SESSION_TOOL_VISIBILITY_RESTRICTIONS_PARAM]: { denyKeySubstrings } };
+    : {
+        ...params,
+        [SESSION_TOOL_VISIBILITY_RESTRICTIONS_PARAM]: { denyKeyPatterns, denyKeySubstrings },
+      };
 }
 
 /** Read host-only restrictions after before_tool_call has finalized execution params. */
@@ -122,6 +133,7 @@ export function readSessionToolVisibilityRestrictions(
   const raw = params[SESSION_TOOL_VISIBILITY_RESTRICTIONS_PARAM];
   const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
   return {
+    denyKeyPatterns: normalizeSessionVisibilityRestrictionList(record?.denyKeyPatterns),
     denyKeySubstrings: normalizeSessionVisibilityRestrictionList(record?.denyKeySubstrings),
   };
 }
@@ -130,12 +142,31 @@ export function sessionVisibilityRowDeniedByRestrictions(
   row: SessionVisibilityRow,
   restrictions: SessionToolVisibilityRestrictions,
 ): boolean {
-  if (restrictions.denyKeySubstrings.length === 0) {
+  const denyKeyPatterns = restrictions.denyKeyPatterns ?? [];
+  if (denyKeyPatterns.length === 0 && restrictions.denyKeySubstrings.length === 0) {
     return false;
   }
   const values = [row.key, row.ownerSessionKey, row.spawnedBy, row.parentSessionKey]
     .filter((value): value is string => typeof value === "string")
     .map((value) => value.toLowerCase());
+  const patternDenied = denyKeyPatterns.some((pattern) => {
+    const compiled = compileAgentAllowPattern(pattern.toLowerCase());
+    return values.some((value) => {
+      if (compiled.kind === "all") {
+        return true;
+      }
+      if (compiled.kind === "deny") {
+        return false;
+      }
+      if (compiled.kind === "exact") {
+        return value === compiled.value;
+      }
+      return matchesCompiledWildcard(compiled, value);
+    });
+  });
+  if (patternDenied) {
+    return true;
+  }
   return restrictions.denyKeySubstrings.some((substring) => {
     const needle = substring.toLowerCase();
     return needle.length > 0 && values.some((value) => value.includes(needle));
