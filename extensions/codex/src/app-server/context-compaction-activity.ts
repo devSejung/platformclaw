@@ -1,12 +1,85 @@
 import {
   embeddedAgentLog,
   formatErrorMessage,
+  runAgentHarnessAfterCompactionHook,
+  runAgentHarnessBeforeCompactionHook,
+  type AgentMessage,
   type EmbeddedRunAttemptParams,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import {
   appendSessionTranscriptMessageByIdentityStrict,
   publishSessionTranscriptUpdateByIdentity,
 } from "openclaw/plugin-sdk/session-transcript-runtime";
+
+export function createCodexContextCompactionActivity(
+  params: EmbeddedRunAttemptParams,
+  threadId: string,
+  turnId: string,
+  callbacks: {
+    emitAgentEvent: (
+      event: Parameters<NonNullable<EmbeddedRunAttemptParams["onAgentEvent"]>>[0],
+    ) => void;
+    readMirroredSessionMessages: () => Promise<AgentMessage[]>;
+    nextTranscriptTimestamp: () => number;
+    onContextCompacted: () => void;
+  },
+) {
+  // Hooks read the current run attribution at their boundary, not construction.
+  const hookContext = () => ({
+    runId: params.runId,
+    agentId: params.agentId,
+    sessionKey: params.sessionKey,
+    sessionId: params.sessionId,
+    workspaceDir: params.workspaceDir,
+    messageProvider: params.messageProvider ?? undefined,
+    trigger: params.trigger,
+    channelId: params.messageChannel ?? params.messageProvider ?? undefined,
+  });
+  const emit = (itemId: string, phase: "start" | "end") =>
+    callbacks.emitAgentEvent({
+      stream: "compaction",
+      data: {
+        phase,
+        backend: "codex-app-server",
+        ...(phase === "end" ? { completed: true } : {}),
+        threadId,
+        turnId,
+        itemId,
+      },
+    });
+  return {
+    async started(itemId: string): Promise<void> {
+      await runAgentHarnessBeforeCompactionHook({
+        sessionFile: params.sessionFile,
+        messages: await callbacks.readMirroredSessionMessages(),
+        ctx: hookContext(),
+      });
+      emit(itemId, "start");
+    },
+    async completed(itemId: string): Promise<void> {
+      // Native context invalidation precedes the durable marker. After-hooks
+      // and live completion must observe the persisted boundary.
+      callbacks.onContextCompacted();
+      await persistCodexContextCompactionActivity({
+        sessionTarget: params.sessionTarget,
+        config: params.config,
+        cwd: params.workspaceDir,
+        runId: params.runId,
+        threadId,
+        turnId,
+        itemId,
+        timestamp: callbacks.nextTranscriptTimestamp(),
+      });
+      await runAgentHarnessAfterCompactionHook({
+        sessionFile: params.sessionFile,
+        messages: await callbacks.readMirroredSessionMessages(),
+        compactedCount: -1,
+        ctx: hookContext(),
+      });
+      emit(itemId, "end");
+    },
+  };
+}
 
 /** Native Codex owns history; this bounded display-only record preserves its completed boundary. */
 export async function persistCodexContextCompactionActivity(params: {

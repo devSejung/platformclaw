@@ -257,7 +257,7 @@ describe("rewriteTranscriptEntriesInSessionManager", () => {
       }
       expect(compaction.firstKeptEntryId).toBe(keptAssistant.id);
       expect(compaction.firstKeptEntryId).not.toBe(keptAssistantEntryId);
-      expect(compaction.__openclaw).toEqual(identity);
+      expect(compaction["__openclaw"]).toEqual(identity);
     },
   );
 

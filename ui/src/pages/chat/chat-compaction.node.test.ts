@@ -132,7 +132,7 @@ describe("one compaction transcript row", () => {
 
   it("never adopts an unrelated or uncorrelated history marker", () => {
     const unrelated = persisted();
-    unrelated.__openclaw.runId = "older-run";
+    unrelated["__openclaw"].runId = "older-run";
     expect(dividers(props({ messages: [unrelated], compactionStatus: active }))).toHaveLength(2);
     const uncorrelated = { ...persisted(), __openclaw: { kind: "compaction", id: "old-entry" } };
     expect(dividers(props({ messages: [uncorrelated], compactionStatus: active }))).toHaveLength(2);

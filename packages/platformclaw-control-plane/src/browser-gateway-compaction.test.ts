@@ -99,9 +99,13 @@ describe("employee compaction boundary", () => {
       for (const event of events) {
         await Promise.all(browsers.map(({ forward }) => forward(event)));
       }
-      expect(browsers[index]!.frames).toEqual(
-        events.map((event, seq) => ({ ...event, seq: seq + 1 })),
-      );
+      const expectedFrames = events.map((event, seq) => ({
+        type: event.type,
+        event: event.event,
+        payload: event.payload,
+        seq: seq + 1,
+      }));
+      expect(browsers[index]!.frames).toEqual(expectedFrames);
       await expect(
         f.proxy.request(actor.token, "sessions.compact", { key: sessionKey }),
       ).resolves.toEqual({

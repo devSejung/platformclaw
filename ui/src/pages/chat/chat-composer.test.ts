@@ -7,11 +7,13 @@ import type { QuestionPrompt } from "../../app/question-prompt.ts";
 import { loadSettings, patchSettings } from "../../app/settings.ts";
 import { icons } from "../../components/icons.ts";
 import { i18n, t } from "../../i18n/index.ts";
+import { captureI18nStateForTesting } from "../../i18n/lib/translate.test-support.ts";
 import { renderChatComposer, resetChatComposerState } from "./components/chat-composer.ts";
 import * as realtimeTalkInput from "./realtime-talk-input.ts";
 
 const discoverRealtimeTalkInputsMock = vi.fn();
 const openRealtimeTalkInputMock = vi.fn();
+let restoreI18nState: () => Promise<void>;
 
 type ComposerProps = Parameters<typeof renderChatComposer>[0];
 
@@ -149,7 +151,9 @@ function dictationPointerDown(pointerId: number): PointerEvent {
   return event as PointerEvent;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  restoreI18nState = captureI18nStateForTesting();
+  await i18n.setLocale("en");
   // ESM imports remain live when the composer was cached by another test file.
   // Patch the shared dependencies instead of clearing isolate:false's registry.
   vi.spyOn(realtimeTalkInput, "discoverRealtimeTalkInputs").mockImplementation(
@@ -168,7 +172,7 @@ afterEach(async () => {
   document.body.replaceChildren();
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  await i18n.setLocale("en");
+  await restoreI18nState();
   vi.restoreAllMocks();
 });
 
@@ -1024,6 +1028,11 @@ describe("renderChatComposer status", () => {
 
     expect(container.querySelectorAll(".context-usage__plan-header")).toHaveLength(1);
     expect(container.querySelector(".context-usage__plan-badge")?.textContent).toBe("Max (20x)");
+    const usd = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+    });
     expect(
       [...container.querySelectorAll(".context-usage__limit")].map((row) =>
         row.textContent?.replace(/\s+/g, " ").trim(),
@@ -1032,7 +1041,7 @@ describe("renderChatComposer status", () => {
       "5-hour limit Resets 2h 22%",
       "Weekly · all models 25%",
       "Fable 92%",
-      "Usage credits $157.85 of $400.00",
+      `Usage credits ${usd.format(157.85)} of ${usd.format(400)}`.replace(/\s+/g, " "),
     ]);
     expect(container.querySelector(".context-usage__stats")).not.toBeNull();
     expect(container.querySelector(".context-usage__stats--cost")).toBeNull();

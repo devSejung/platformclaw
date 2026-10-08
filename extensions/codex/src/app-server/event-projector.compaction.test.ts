@@ -1,4 +1,7 @@
-import { upsertSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
+import {
+  loadTranscriptEventsSync,
+  upsertSessionEntry,
+} from "openclaw/plugin-sdk/session-store-runtime";
 import { readSessionTranscriptEvents } from "openclaw/plugin-sdk/session-transcript-runtime";
 import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach } from "vitest";
@@ -7,9 +10,11 @@ import {
   buildEmptyToolTelemetry,
   createParams,
   createProjector,
+  createMockPluginRegistry,
   describe,
   expect,
   forCurrentTurn,
+  initializeGlobalHookRunner,
   it,
   path,
   registerCodexEventProjectorTestLifecycle,
@@ -37,6 +42,68 @@ async function createPersistedParams() {
 }
 
 describe("Codex compaction transcript identity", () => {
+  it("persists after context invalidation and waits for the after-hook before live completion", async () => {
+    const params = await createPersistedParams();
+    const order: string[] = [];
+    let beforePersistence: unknown[] | undefined;
+    let afterHookEntries: unknown[] | undefined;
+    let releaseAfterHook: () => void = () => {};
+    const afterHookGate = new Promise<void>((resolve) => {
+      releaseAfterHook = resolve;
+    });
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([
+        {
+          hookName: "after_compaction",
+          handler: async () => {
+            afterHookEntries = await readSessionTranscriptEvents(params.sessionTarget);
+            order.push("after-hook");
+            await afterHookGate;
+            order.push("after-hook-complete");
+          },
+        },
+      ]),
+    );
+    const projector = await createProjector(
+      {
+        ...params,
+        onAgentEvent: (event) => {
+          if (event.stream === "compaction" && event.data.phase === "end") {
+            order.push("live-end");
+          }
+        },
+      },
+      {
+        onContextCompacted: () => {
+          beforePersistence = loadTranscriptEventsSync(params.sessionTarget);
+          order.push("context-invalidated");
+        },
+      },
+    );
+    const item = { type: "contextCompaction", id: "ordered-compaction" };
+    await projector.handleNotification(forCurrentTurn("item/started", { item }));
+    const completed = projector.handleNotification(forCurrentTurn("item/completed", { item }));
+    try {
+      await vi.waitFor(() => expect(afterHookEntries).toBeDefined());
+      expect(beforePersistence).toEqual([]);
+      expect(afterHookEntries).toMatchObject([
+        { type: "session", id: params.sessionId },
+        {
+          type: "message",
+          message: {
+            customType: "openclaw.context-compaction",
+            __openclaw: { runId: params.runId, itemId: item.id },
+          },
+        },
+      ]);
+      expect(order).toEqual(["context-invalidated", "after-hook"]);
+    } finally {
+      releaseAfterHook();
+      await completed;
+    }
+    expect(order).toEqual(["context-invalidated", "after-hook", "after-hook-complete", "live-end"]);
+  });
+
   it("persists repeated completed items once and correlates lifecycle with history", async () => {
     const params = await createPersistedParams();
     const onAgentEvent = vi.fn();

@@ -235,7 +235,9 @@ describe("maybeCompactCodexAppServerSession", () => {
       }),
     ).resolves.toMatchObject({ ok: true, compacted: true });
     expect(await readSessionTranscriptEvents(sessionTarget)).toMatchObject([
+      { type: "session", id: sessionTarget.sessionId },
       {
+        type: "message",
         message: {
           role: "custom",
           customType: "openclaw.context-compaction",

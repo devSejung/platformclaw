@@ -3,8 +3,6 @@ import {
   classifyAgentHarnessTerminalOutcome,
   embeddedAgentLog,
   emitAgentEvent as emitGlobalAgentEvent,
-  runAgentHarnessAfterCompactionHook,
-  runAgentHarnessBeforeCompactionHook,
   type BeforeToolCallFailureDisposition,
   type EmbeddedRunAttemptParams,
   type HeartbeatToolResponse,
@@ -13,7 +11,7 @@ import {
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { attemptTerminal, type AttemptFailureSource } from "./attempt-terminal.js";
 import type { EmbeddedRunAttemptResult } from "./attempt-terminal.js";
-import { persistCodexContextCompactionActivity } from "./context-compaction-activity.js";
+import { createCodexContextCompactionActivity } from "./context-compaction-activity.js";
 import { CodexAssistantProjection } from "./event-projector-assistant.js";
 import { CodexProjectionDiagnostics } from "./event-projector-diagnostics.js";
 import { CodexEventProjection } from "./event-projector-events.js";
@@ -90,6 +88,9 @@ export class CodexAppServerEventProjector {
   private readonly nativeToolLifecycleProjector: CodexNativeToolLifecycleProjector;
   private readonly toolProgressProjection: CodexToolProgressProjection;
   private readonly toolTranscriptProjection: CodexToolTranscriptProjection;
+  private readonly contextCompactionActivity: ReturnType<
+    typeof createCodexContextCompactionActivity
+  >;
   private completedTurn: CodexTurn | undefined;
   private promptError: unknown;
   private promptErrorSource: AttemptFailureSource | null = null;
@@ -132,6 +133,18 @@ export class CodexAppServerEventProjector {
         nativePostToolUseRelayEnabled: options.nativePostToolUseRelayEnabled,
         prepareNativeMcpAppResultDetails: options.prepareNativeMcpAppResultDetails,
         trajectoryRecorder: options.trajectoryRecorder,
+      },
+    );
+    this.contextCompactionActivity = createCodexContextCompactionActivity(
+      params,
+      threadId,
+      turnId,
+      {
+        emitAgentEvent: (event) => this.emitAgentEvent(event),
+        readMirroredSessionMessages: () =>
+          this.toolTranscriptProjection.readMirroredSessionMessages(),
+        nextTranscriptTimestamp: () => this.nextTranscriptTimestamp(),
+        onContextCompacted: () => this.options.onContextCompacted?.(),
       },
     );
     this.eventProjection = new CodexEventProjection(
@@ -514,30 +527,7 @@ export class CodexAppServerEventProjector {
     this.recordNativeToolOutcome(item);
     if (item?.type === "contextCompaction" && itemId) {
       this.activeCompactionItemIds.add(itemId);
-      await runAgentHarnessBeforeCompactionHook({
-        sessionFile: this.params.sessionFile,
-        messages: await this.toolTranscriptProjection.readMirroredSessionMessages(),
-        ctx: {
-          runId: this.params.runId,
-          agentId: this.params.agentId,
-          sessionKey: this.params.sessionKey,
-          sessionId: this.params.sessionId,
-          workspaceDir: this.params.workspaceDir,
-          messageProvider: this.params.messageProvider ?? undefined,
-          trigger: this.params.trigger,
-          channelId: this.params.messageChannel ?? this.params.messageProvider ?? undefined,
-        },
-      });
-      this.emitAgentEvent({
-        stream: "compaction",
-        data: {
-          phase: "start",
-          backend: "codex-app-server",
-          threadId: this.threadId,
-          turnId: this.turnId,
-          itemId,
-        },
-      });
+      await this.contextCompactionActivity.started(itemId);
     }
     this.toolProgressProjection.recordToolMeta(item);
     this.eventProjection.emitStandardItemEvent({ phase: "start", item });
@@ -569,43 +559,7 @@ export class CodexAppServerEventProjector {
     if (item?.type === "contextCompaction" && itemId) {
       this.activeCompactionItemIds.delete(itemId);
       this.completedCompactionCount += 1;
-      this.options.onContextCompacted?.();
-      await persistCodexContextCompactionActivity({
-        sessionTarget: this.params.sessionTarget,
-        config: this.params.config,
-        cwd: this.params.workspaceDir,
-        runId: this.params.runId,
-        threadId: this.threadId,
-        turnId: this.turnId,
-        itemId,
-        timestamp: this.nextTranscriptTimestamp(),
-      });
-      await runAgentHarnessAfterCompactionHook({
-        sessionFile: this.params.sessionFile,
-        messages: await this.toolTranscriptProjection.readMirroredSessionMessages(),
-        compactedCount: -1,
-        ctx: {
-          runId: this.params.runId,
-          agentId: this.params.agentId,
-          sessionKey: this.params.sessionKey,
-          sessionId: this.params.sessionId,
-          workspaceDir: this.params.workspaceDir,
-          messageProvider: this.params.messageProvider ?? undefined,
-          trigger: this.params.trigger,
-          channelId: this.params.messageChannel ?? this.params.messageProvider ?? undefined,
-        },
-      });
-      this.emitAgentEvent({
-        stream: "compaction",
-        data: {
-          phase: "end",
-          backend: "codex-app-server",
-          completed: true,
-          threadId: this.threadId,
-          turnId: this.turnId,
-          itemId,
-        },
-      });
+      await this.contextCompactionActivity.completed(itemId);
     }
     this.toolProgressProjection.recordToolMeta(item);
     this.toolProgressProjection.rememberCommandAggregateOutputEcho(item);

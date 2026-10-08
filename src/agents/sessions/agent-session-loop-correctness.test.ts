@@ -121,10 +121,10 @@ describe("AgentSession loop correctness", () => {
           .getBranch()
           .filter((entry) => entry.type === "compaction");
         expect(compactions).toHaveLength(2);
-        const itemIds = compactions.map((entry) => entry.__openclaw?.itemId);
+        const itemIds = compactions.map((entry) => entry["__openclaw"]?.itemId);
         expect(itemIds).toEqual([expect.any(String), expect.any(String)]);
         expect(new Set(itemIds).size).toBe(2);
-        expect(compactions.map((entry) => entry.__openclaw?.runId)).toEqual([runId, runId]);
+        expect(compactions.map((entry) => entry["__openclaw"]?.runId)).toEqual([runId, runId]);
         const events = onAgentEvent.mock.calls
           .map(([event]) => event)
           .filter((event) => event.stream === "compaction");
