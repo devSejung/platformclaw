@@ -73,6 +73,56 @@ beforeEach(async () => {
 afterEach(() => document.body.replaceChildren());
 
 describe("Memory Hub Shared document graph", () => {
+  it("highlights only direct neighbors, restores click selection after hover, and expands their titles", async () => {
+    const selected = fixture();
+    const fullTitle = "다음 담당자에게 넘길 작업의 맥락과 검증 근거를 보존하는 긴 제목 문서";
+    selected.documents[1]!.title = fullTitle;
+    const element = await mount(selected);
+    const node = (id: string) =>
+      element.querySelector<SVGGElement>(`[data-svg-graph-node="${id}"]`)!;
+    const state = (id: string) => node(id).dataset.svgGraphState;
+    const label = () => node("Beta").querySelector("text")!;
+    expect([state("Alpha"), state("Beta"), state("Orphan")]).toEqual(["idle", "idle", "idle"]);
+    expect(node("Alpha").querySelector("circle")!.getAttribute("r")).toBe("4");
+    expect(label().textContent).toContain("…");
+    node("Alpha").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await element.updateComplete;
+    expect([state("Alpha"), state("Beta"), state("Orphan")]).toEqual([
+      "active",
+      "neighbor",
+      "muted",
+    ]);
+    expect(label().textContent).toBe(fullTitle);
+    expect(label().querySelectorAll("tspan").length).toBeGreaterThan(1);
+    expect(
+      [...element.querySelectorAll<SVGLineElement>("line")].map(
+        (edge) => edge.dataset.svgGraphState,
+      ),
+    ).toEqual(["active", "active"]);
+    node("Orphan").dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+    expect([state("Alpha"), state("Beta"), state("Orphan")]).toEqual(["muted", "muted", "active"]);
+    node("Orphan").dispatchEvent(new MouseEvent("pointerout", { bubbles: true }));
+    expect([state("Alpha"), state("Beta"), state("Orphan")]).toEqual([
+      "active",
+      "neighbor",
+      "muted",
+    ]);
+    node("Beta").dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    expect(state("Beta")).toBe("active");
+    node("Beta").dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    expect(state("Alpha")).toBe("active");
+    const picker = element.querySelector<HTMLSelectElement>("select")!;
+    picker.value = "";
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+    await element.updateComplete;
+    const controls = element.querySelectorAll<HTMLButtonElement>(".svg-graph-controls button");
+    controls[0]!.click();
+    controls[0]!.click();
+    expect(label().textContent).toBe(fullTitle);
+    controls[2]!.click();
+    expect(label().textContent).toContain("…");
+  });
+
   it("shows directed reciprocal edges, searchable orphan documents and explicit document navigation", async () => {
     const element = await mount();
     const opened = vi.fn();

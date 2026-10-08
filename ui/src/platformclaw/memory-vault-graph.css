@@ -21,7 +21,7 @@
 .vault-graph__canvas {
   min-width: 0;
   overflow: hidden;
-  background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
@@ -50,6 +50,10 @@
   fill: var(--text);
   font-size: 14px;
   font-family: inherit;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 4px;
+  stroke-linejoin: round;
 }
 .vault-graph__node[aria-pressed="true"] circle,
 .vault-graph__node:focus-visible circle {
@@ -66,7 +70,18 @@
 .vault-graph__inspector label,
 .vault-graph__inspector section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
+}
+.vault-graph__inspector select {
+  width: 100%;
+  min-width: 0;
+}
+.vault-graph__inspector .btn {
+  min-width: 0;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 .vault-graph__inspector h4 {
   margin: 0;

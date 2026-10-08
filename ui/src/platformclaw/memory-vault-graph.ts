@@ -5,12 +5,13 @@ import { renderHubTabs } from "../components/hub-tabs.ts";
 import {
   endSvgGraphPointer,
   fitSvgGraphView,
-  getSvgGraphInteraction,
+  getSvgForceGraphInteraction,
   handleSvgGraphWheel,
   moveSvgGraphPointer,
   renderSvgGraphControls,
   shouldActivateSvgGraphNode,
   startSvgGraphPointer,
+  svgGraphCanvas,
   svgGraphEdgeCoordinates,
   svgGraphTransform,
 } from "../components/svg-graph-interaction.ts";
@@ -36,10 +37,6 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
   @state() private canvasWidth = WIDTH;
   private observedCanvas: Element | null = null;
   private resizeObserver: ResizeObserver | null = null;
-  private layoutSnapshot: SelectedVault["graph"] | null = null;
-  private layoutWidth = 0;
-  private layoutQuery = "";
-  private layoutKey = {};
 
   override disconnectedCallback() {
     this.resizeObserver?.disconnect();
@@ -109,47 +106,11 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
       .filter((doc) => `${doc.title} ${doc.logicalPath}`.toLocaleLowerCase().includes(query))
       .toSorted((a, b) => a.logicalPath.localeCompare(b.logicalPath));
     const width = this.canvasWidth;
-    const columns = Math.max(1, Math.ceil(Math.sqrt(nodes.length)));
-    // Keep a two-dimensional layout on phones too: one column makes unrelated
-    // edges overlap and appear to pass through intermediate documents.
-    const columnGap = width < 500 ? 160 : 360;
-    const rows = Math.ceil(nodes.length / columns);
-    const positions = new Map(
-      nodes.map((doc, index) => [
-        doc.id,
-        {
-          x: width / 2 + ((index % columns) - (columns - 1) / 2) * columnGap,
-          y: HEIGHT / 2 + (Math.floor(index / columns) - (rows - 1) / 2) * 170,
-        },
-      ]),
-    );
-    // One live layout per viewport/filter snapshot. Filtering also fits isolated results;
-    // otherwise a match could remain tiny or outside the old dense graph's viewport.
-    const fresh =
-      this.layoutSnapshot !== graph || this.layoutWidth !== width || this.layoutQuery !== query;
-    if (fresh) {
-      this.layoutSnapshot = graph;
-      this.layoutWidth = width;
-      this.layoutQuery = query;
-      this.layoutKey = {};
-    }
-    const interaction = getSvgGraphInteraction(this.layoutKey, positions);
-    if (fresh) {
-      const scale = Math.min(
-        1,
-        Math.max(1, width - 32) / ((columns - 1) * columnGap + 230),
-        (HEIGHT - 64) / (Math.max(0, rows - 1) * 170 + 70),
-      );
-      interaction.scale = scale;
-      interaction.minimumScale = Math.min(0.4, scale);
-      interaction.x = (width / 2) * (1 - scale);
-      interaction.y = (HEIGHT / 2) * (1 - scale);
-      interaction.initialView = { scale, x: interaction.x, y: interaction.y };
-    }
     const visibleIds = new Set(nodes.map((doc) => doc.id));
     const edges = documentEdges.filter(
       (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target),
     );
+    const interaction = getSvgForceGraphInteraction(graph, nodes, edges, width, HEIGHT);
     const active = nodes.find((doc) => doc.id === this.activeId);
     const indexed = documents.filter((doc) => doc.compile.status !== "ready");
     const edgesByPair = new Set(edges.map((edge) => `${edge.source}\0${edge.target}`));
@@ -232,6 +193,7 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
         <div class="vault-graph__canvas">
           ${!nodes.length ? html`<p role="status">${t("graphNoMatches")}</p>` : nothing}
           <svg
+            ${svgGraphCanvas(interaction)}
             viewBox="0 0 ${width} ${HEIGHT}"
             aria-label=${t("graph")}
             @wheel=${(event: WheelEvent) => handleSvgGraphWheel(event, interaction)}
@@ -252,10 +214,10 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
                 id="vault-graph-arrow"
                 markerUnits="userSpaceOnUse"
                 viewBox="0 0 10 10"
-                refX="26"
+                refX="15"
                 refY="5"
-                markerWidth="10"
-                markerHeight="10"
+                markerWidth="7"
+                markerHeight="7"
                 orient="auto"
               >
                 <path d="M 0 0 L 10 5 L 0 10 z"></path>
@@ -291,7 +253,7 @@ class PlatformClawVaultDocuments extends OpenClawLightDomElement {
                     }
                   }}>
                   ${edgesByPair.has(`${doc.id}\0${doc.id}`) ? svg`<path class="vault-graph__self" data-vault-self-link=${doc.id} d="M -7 -7 C -55 -65 55 -65 7 -7" marker-end="url(#vault-graph-arrow)"></path>` : nothing}
-                  <circle r="10"></circle><text y="30" text-anchor="middle">${doc.title.length > 16 ? doc.title.slice(0, 15) + "…" : doc.title}</text><title>${doc.title} · ${doc.logicalPath}</title>
+                  <circle r="4"></circle><text y="30" text-anchor="middle" data-svg-graph-label=${doc.title} data-svg-graph-short-label=${doc.title.length > 16 ? doc.title.slice(0, 15) + "…" : doc.title}></text><title>${doc.title} · ${doc.logicalPath}</title>
                 </g>`;
               })}
             </g>
