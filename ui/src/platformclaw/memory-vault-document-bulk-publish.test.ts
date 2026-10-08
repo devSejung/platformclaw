@@ -151,6 +151,9 @@ function button(element: Element, name: string) {
 function submit(element: Element) {
   return element.querySelector<HTMLButtonElement>("[data-publish-submit]")!;
 }
+function destination(element: Element) {
+  return element.querySelector<HTMLSelectElement>("[data-publish-destination]")!;
+}
 async function approve(element: PlatformClawVaultDocumentBulkPublish, target?: string) {
   if (target) {
     const select = element.querySelector<HTMLSelectElement>("[data-publish-destination]")!;
@@ -202,6 +205,7 @@ describe("selected Personal document publication", () => {
       shared.id,
       "synthetic-other",
     ]);
+    expect(destination(element).value).toBe("");
     expect(submit(element).disabled).toBe(true);
     expect(publishes(f)).toHaveLength(0);
     button(element, "Synthetic 2").click();
@@ -292,7 +296,7 @@ describe("selected Personal document publication", () => {
     expect(publishes(f)[1]!.publishId).toBe(publishes(f)[0]!.publishId);
   });
 
-  it("preserves exact pins on a disconnected unknown retry and ignores the late original result", async () => {
+  it("preserves the visible destination and exact pins through leave confirmation and disconnected retry", async () => {
     const f = fixture();
     let resolve!: (result: KnowledgeVaultDocumentPublishResult) => void;
     const first = new Promise<KnowledgeVaultDocumentPublishResult>((done) => {
@@ -322,11 +326,19 @@ describe("selected Personal document publication", () => {
     await element.updateComplete;
     expect(escape.defaultPrevented).toBe(true);
     expect(close).not.toHaveBeenCalled();
+    expect(destination(element).value).toBe(shared.id);
+    button(element, "Close dialog").click();
+    await element.updateComplete;
+    button(element, "Keep editing").click();
+    await element.updateComplete;
+    expect(destination(element).value).toBe(shared.id);
+    expect(destination(element).disabled).toBe(true);
     submit(element).click();
     await waitForFast(() =>
       expect(element.querySelectorAll('[data-publish-status="unchanged"]')).toHaveLength(2),
     );
     expect(publishes(f)[1]).toEqual(publishes(f)[0]);
+    expect(destination(element).value).toBe(shared.id);
     resolve(published(publishes(f)[0]!));
     await first;
     await element.updateComplete;
@@ -549,6 +561,14 @@ describe("selected Personal document publication", () => {
     expect(element.querySelector<HTMLSelectElement>("[data-publish-destination]")!.disabled).toBe(
       true,
     );
+    expect(destination(element).value).toBe(shared.id);
+    expect(destination(element).selectedOptions[0]?.textContent?.trim()).toBe(shared.name);
+    button(element, "Close dialog").click();
+    await element.updateComplete;
+    button(element, "Keep editing").click();
+    await element.updateComplete;
+    expect(destination(element).value).toBe(shared.id);
+    expect(destination(element).disabled).toBe(true);
     f.context.snapshot = { ...f.context.snapshot, vaults: [personal, shared] };
     f.context.publish = async (params) => published(params, "unchanged");
     submit(element).click();
@@ -556,6 +576,7 @@ describe("selected Personal document publication", () => {
       expect(element.querySelectorAll('[data-publish-status="unchanged"]')).toHaveLength(2),
     );
     expect(publishes(f)[1]).toEqual(publishes(f)[0]);
+    expect(destination(element).value).toBe(shared.id);
   });
   it.each(["snapshot", "document.get", "document.publish"])(
     "bounds %s on a ticking real Gateway socket and never automatically retries",
