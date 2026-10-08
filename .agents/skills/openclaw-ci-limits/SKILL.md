@@ -193,10 +193,11 @@ git diff --check
 If `pnpm docs:list` tries to reconcile dependencies in a linked Codex worktree,
 stop and use `node scripts/docs-list.js`.
 
-For a PR before requesting maintainer approval:
+For a PR before requesting maintainer approval, follow the
+[shared review setup](../autoreview/SKILL.md):
 
 ```bash
-.agents/skills/autoreview/scripts/autoreview --mode branch --base origin/main
+python3 "$HOME/.agents/skills/autoreview/scripts/autoreview" --mode branch --base origin/main
 ghx pr checks <pr> -R openclaw/openclaw --watch --interval 15
 ```
 

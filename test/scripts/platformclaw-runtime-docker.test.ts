@@ -1534,10 +1534,10 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
   });
 
   it("accepts only isolated read-only managed Spaces during deployment validation", () => {
-    const root = "/managed/spaces";
+    const root = path.resolve("managed", "spaces");
     const id = "space-00000000-0000-0000-0000-000000000001";
     const agent = {
-      workspace: `${root}/${id}`,
+      workspace: path.join(root, id),
       contextInjection: "never",
       skills: [],
       memory: { search: { enabled: false } },
