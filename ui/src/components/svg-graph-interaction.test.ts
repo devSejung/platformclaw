@@ -1,16 +1,18 @@
 /* @vitest-environment jsdom */
 
-import { render } from "lit";
+import { html, nothing, render, svg as litSvg } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import {
   endSvgGraphPointer,
   fitSvgGraphView,
+  getSvgForceGraphInteraction,
   getSvgGraphInteraction,
   handleSvgGraphWheel,
   moveSvgGraphPointer,
   renderSvgGraphControls,
   shouldActivateSvgGraphNode,
   startSvgGraphPointer,
+  svgGraphCanvas,
 } from "./svg-graph-interaction.ts";
 
 function pointer(currentTarget: EventTarget, overrides: Partial<PointerEvent>) {
@@ -37,7 +39,211 @@ function wheel(currentTarget: EventTarget, deltaY: number) {
   } as unknown as WheelEvent;
 }
 
+type ForceInteraction = ReturnType<typeof getSvgForceGraphInteraction>;
+
+function forceCoordinates(interaction: ForceInteraction) {
+  return new Map([...interaction.positions].map(([id, point]) => [id, { x: point.x, y: point.y }]));
+}
+
+function installFrameScheduler() {
+  let nextId = 0;
+  const pending = new Map<number, FrameRequestCallback>();
+  const request = vi.fn((callback: FrameRequestCallback) => {
+    pending.set(++nextId, callback);
+    return nextId;
+  });
+  const cancel = vi.fn((id: number) => pending.delete(id));
+  vi.stubGlobal("requestAnimationFrame", request);
+  vi.stubGlobal("cancelAnimationFrame", cancel);
+  vi.stubGlobal("matchMedia", () => ({ matches: false }));
+  vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+  return {
+    pending,
+    request,
+    cancel,
+    advance() {
+      const callbacks = [...pending.values()];
+      pending.clear();
+      for (const callback of callbacks) {
+        callback(0);
+      }
+    },
+  };
+}
+
+function renderForceCanvas(container: HTMLElement, interaction: ForceInteraction) {
+  render(
+    html`<svg viewBox="0 0 960 600" ${svgGraphCanvas(interaction)}>
+        <g data-svg-graph-viewport>
+          ${interaction.positions.has("two")
+            ? litSvg`<line data-svg-graph-source="one" data-svg-graph-target="two"></line>`
+            : nothing}
+          ${[...interaction.positions.keys()].map(
+            (id) =>
+              litSvg`<g data-svg-graph-node=${id} role="button" tabindex="0"><circle r="10"></circle><text>${id}</text></g>`,
+          )}
+        </g>
+      </svg>
+      ${renderSvgGraphControls({
+        label: "Graph controls",
+        zoomIn: "Zoom in",
+        zoomOut: "Zoom out",
+        reset: "Reset",
+        svg: () => container.querySelector("svg"),
+        interaction,
+      })}`,
+    container,
+  );
+}
+
+function mountForceCanvas(interaction: ForceInteraction) {
+  const container = document.createElement("div");
+  document.body.append(container);
+  renderForceCanvas(container, interaction);
+  const canvas = container.querySelector<SVGSVGElement>("svg")!;
+  const captures = new Set<number>();
+  const releaseCapture = vi.fn((id: number) => captures.delete(id));
+  Object.assign(canvas, {
+    getClientRects: () => [new DOMRect(0, 0, 960, 600)],
+    getScreenCTM: () => null,
+    setPointerCapture: (id: number) => captures.add(id),
+    hasPointerCapture: (id: number) => captures.has(id),
+    releasePointerCapture: releaseCapture,
+  });
+  return { container, canvas, captures, releaseCapture };
+}
+
 describe("SVG graph interaction", () => {
+  it("starts neighbor animation only after a real drag and restores force coordinates through reset", async () => {
+    const frames = installFrameScheduler();
+    const interaction = getSvgForceGraphInteraction(
+      {},
+      ["one", "two", "three"].map((id) => ({ id })),
+      [{ source: "one", target: "two" }],
+      960,
+      600,
+    );
+    const { container, canvas, captures } = mountForceCanvas(interaction);
+    try {
+      await Promise.resolve();
+      const node = canvas.querySelector<SVGGElement>('[data-svg-graph-node="one"]')!;
+      const neighbor = canvas.querySelector<SVGGElement>('[data-svg-graph-node="two"]')!;
+      const initial = forceCoordinates(interaction);
+      const initialView = { scale: interaction.scale, x: interaction.x, y: interaction.y };
+      const neighborTransform = neighbor.getAttribute("transform");
+      startSvgGraphPointer(pointer(node, { clientX: 10, clientY: 10 }), interaction, "one");
+      moveSvgGraphPointer(pointer(canvas, { clientX: 12, clientY: 11 }), interaction);
+      expect(forceCoordinates(interaction)).toEqual(initial);
+      expect(frames.request).not.toHaveBeenCalled();
+      expect(endSvgGraphPointer(pointer(canvas, {}), interaction)).toBe("one");
+      expect(shouldActivateSvgGraphNode(interaction, "one")).toBe(false);
+
+      startSvgGraphPointer(pointer(node, { clientX: 10, clientY: 10 }), interaction, "one");
+      moveSvgGraphPointer(pointer(canvas, { clientX: 230, clientY: -130 }), interaction);
+      expect(frames.pending.size).toBe(1);
+      const pinned = forceCoordinates(interaction).get("one")!;
+      for (let index = 0; index < 12; index += 1) {
+        frames.advance();
+      }
+      expect(forceCoordinates(interaction).get("one")).toEqual(pinned);
+      expect(neighbor.getAttribute("transform")).not.toBe(neighborTransform);
+      expect(Number(canvas.querySelector("line")!.getAttribute("x2"))).toBe(
+        interaction.positions.get("two")!.x,
+      );
+      expect(endSvgGraphPointer(pointer(canvas, {}), interaction)).toBeNull();
+      frames.advance();
+      expect(forceCoordinates(interaction).get("one")).not.toEqual(pinned);
+      for (let index = 0; index < 128 && frames.pending.size; index += 1) {
+        frames.advance();
+      }
+      expect(frames.pending.size).toBe(0);
+      expect(captures.size).toBe(0);
+
+      startSvgGraphPointer(pointer(node, {}), interaction, "one");
+      moveSvgGraphPointer(pointer(canvas, { clientX: 100, clientY: 60 }), interaction);
+      const cancelled = forceCoordinates(interaction).get("one")!;
+      expect(frames.pending.size).toBe(1);
+      endSvgGraphPointer(pointer(canvas, {}), interaction, false);
+      expect(frames.pending.size).toBe(0);
+      expect(interaction.drag).toBeNull();
+      expect(captures.size).toBe(0);
+      interaction.layout!.tick();
+      expect(forceCoordinates(interaction).get("one")).not.toEqual(cancelled);
+
+      handleSvgGraphWheel(wheel(canvas, -1), interaction);
+      startSvgGraphPointer(pointer(canvas, {}), interaction, null);
+      moveSvgGraphPointer(pointer(canvas, { clientX: 50, clientY: 20 }), interaction);
+      endSvgGraphPointer(pointer(canvas, {}), interaction);
+      const reset = container.querySelectorAll<HTMLButtonElement>("button")[2]!;
+      reset.click();
+      expect(forceCoordinates(interaction)).toEqual(initial);
+      expect({ scale: interaction.scale, x: interaction.x, y: interaction.y }).toEqual(initialView);
+      interaction.positions.get("one")!.x += 500;
+      reset.click();
+      expect(forceCoordinates(interaction)).toEqual(initial);
+      expect(frames.pending.size).toBe(0);
+      expect(canvas.classList.contains("svg-graph-canvas--dragging")).toBe(false);
+    } finally {
+      render(nothing, container);
+      container.remove();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("cancels frames and releases pins and capture when filters replace the layout or Lit removes the canvas", async () => {
+    const frames = installFrameScheduler();
+    const key = {};
+    const original = getSvgForceGraphInteraction(
+      key,
+      [{ id: "one" }, { id: "two" }],
+      [{ source: "one", target: "two" }],
+      960,
+      600,
+    );
+    const { container, canvas, captures, releaseCapture } = mountForceCanvas(original);
+    try {
+      await Promise.resolve();
+      const node = canvas.querySelector<SVGGElement>('[data-svg-graph-node="one"]')!;
+      startSvgGraphPointer(pointer(node, {}), original, "one");
+      moveSvgGraphPointer(pointer(canvas, { clientX: 180, clientY: 60 }), original);
+      const pinned = forceCoordinates(original).get("one")!;
+      expect(frames.pending.size).toBe(1);
+      expect(captures.has(1)).toBe(true);
+      const filtered = getSvgForceGraphInteraction(key, [{ id: "one" }], [], 960, 600);
+      expect(frames.pending.size).toBe(0);
+      expect(captures.size).toBe(0);
+      expect(original.drag).toBeNull();
+      original.layout!.tick();
+      expect(forceCoordinates(original).get("one")).not.toEqual(pinned);
+      renderForceCanvas(container, filtered);
+      await Promise.resolve();
+      expect(original.canvas).toBeUndefined();
+      expect(filtered.canvas).toBe(canvas);
+      expect(canvas.querySelectorAll("[data-svg-graph-node]")).toHaveLength(1);
+
+      startSvgGraphPointer(pointer(node, {}), filtered, "one");
+      moveSvgGraphPointer(pointer(canvas, { clientX: 180, clientY: 60 }), filtered);
+      const removed = forceCoordinates(filtered).get("one")!;
+      expect(frames.pending.size).toBe(1);
+      render(nothing, container);
+      await Promise.resolve();
+      expect(frames.pending.size).toBe(0);
+      expect(captures.size).toBe(0);
+      expect(releaseCapture).toHaveBeenCalledTimes(2);
+      expect(filtered.drag).toBeNull();
+      expect(filtered.canvas).toBeUndefined();
+      expect(canvas.classList.contains("svg-graph-canvas--dragging")).toBe(false);
+      filtered.layout!.tick();
+      expect(forceCoordinates(filtered).get("one")).not.toEqual(removed);
+    } finally {
+      render(nothing, container);
+      container.remove();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("moves nodes and the view in SVG coordinates at a responsive display scale", () => {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     const node = document.createElementNS("http://www.w3.org/2000/svg", "g");

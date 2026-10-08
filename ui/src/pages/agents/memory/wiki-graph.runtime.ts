@@ -2,25 +2,19 @@
 import { html, nothing, svg } from "lit";
 import {
   endSvgGraphPointer,
-  getSvgGraphInteraction,
+  getSvgForceGraphInteraction,
   handleSvgGraphWheel,
   moveSvgGraphPointer,
   renderSvgGraphControls,
   shouldActivateSvgGraphNode,
   startSvgGraphPointer,
+  svgGraphCanvas,
   svgGraphTransform,
 } from "../../../components/svg-graph-interaction.ts";
 import type { WikiGraphRendererProps } from "./view.ts";
 
 const WIDTH = 960;
 const HEIGHT = 600;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-
-type PositionedNode = WikiGraphRendererProps["graph"] extends infer Graph
-  ? Graph extends { nodes: Array<infer Node> }
-    ? Node & { x: number; y: number; degree: number }
-    : never
-  : never;
 
 type DirectoryFilter = { directories: string[]; selected: Set<string>; nodeId: string | null };
 const directoryFilters = new WeakMap<object, DirectoryFilter>();
@@ -52,51 +46,6 @@ function getDirectoryFilter(graph: NonNullable<WikiGraphRendererProps["graph"]>)
 
 function truncateLabel(value: string): string {
   return value.length <= 34 ? value : `${value.slice(0, 33)}…`;
-}
-
-function positionNodes(
-  graph: Pick<NonNullable<WikiGraphRendererProps["graph"]>, "nodes" | "edges">,
-): PositionedNode[] {
-  const degree = new Map<string, number>();
-  for (const edge of graph.edges) {
-    degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1);
-    degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1);
-  }
-  const sorted = graph.nodes.toSorted(
-    (left, right) =>
-      (degree.get(right.id) ?? 0) - (degree.get(left.id) ?? 0) ||
-      (left.id < right.id ? -1 : left.id > right.id ? 1 : 0),
-  );
-  if (sorted.length === 1) {
-    const node = sorted[0]!;
-    return [
-      {
-        id: node.id,
-        title: node.title,
-        kind: node.kind,
-        updatedAt: node.updatedAt,
-        x: WIDTH / 2,
-        y: HEIGHT / 2,
-        degree: degree.get(node.id) ?? 0,
-      },
-    ];
-  }
-  const positionedNodes: PositionedNode[] = [];
-  for (const [index, node] of sorted.entries()) {
-    const progress = Math.sqrt((index + 1) / Math.max(1, sorted.length));
-    const radius = 36 + progress * Math.min(WIDTH, HEIGHT) * 0.4;
-    const angle = index * GOLDEN_ANGLE - Math.PI / 2;
-    positionedNodes.push({
-      id: node.id,
-      title: node.title,
-      kind: node.kind,
-      updatedAt: node.updatedAt,
-      x: WIDTH / 2 + Math.cos(angle) * radius,
-      y: HEIGHT / 2 + Math.sin(angle) * radius,
-      degree: degree.get(node.id) ?? 0,
-    });
-  }
-  return positionedNodes;
 }
 
 function renderState(
@@ -141,17 +90,21 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
       (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target),
     ),
   };
-  const nodes = positionNodes(visibleGraph);
-  const positions = new Map(nodes.map((node) => [node.id, node] as const));
-  const interaction = getSvgGraphInteraction(props.graph, positions);
+  const nodes = visibleGraph.nodes;
+  const interaction = getSvgForceGraphInteraction(
+    props.graph,
+    nodes,
+    visibleGraph.edges,
+    WIDTH,
+    HEIGHT,
+  );
   const positioned = nodes.map((node) => {
-    const point = interaction.positions.get(node.id) ?? node;
+    const point = interaction.positions.get(node.id)!;
     return {
       id: node.id,
       title: node.title,
       kind: node.kind,
       updatedAt: node.updatedAt,
-      degree: node.degree,
       x: point.x,
       y: point.y,
     };
@@ -166,7 +119,6 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
   const connections = visibleGraph.edges.filter(
     (edge) => edge.source === filter.nodeId || edge.target === filter.nodeId,
   );
-  const neighbors = new Set(connections.flatMap((edge) => [edge.source, edge.target]));
   const selectNode = (id: string) => {
     filter.nodeId = id || null;
     props.onChange();
@@ -307,6 +259,7 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
         </aside>
         <div class="memory-wiki-graph__canvas">
           <svg
+            ${svgGraphCanvas(interaction)}
             viewBox="0 0 ${WIDTH} ${HEIGHT}"
             aria-label=${t("dreaming.wiki.graphView")}
             @wheel=${(event: WheelEvent) => handleSvgGraphWheel(event, interaction)}
@@ -328,7 +281,7 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
                   const source = renderedPositions.get(edge.source);
                   const target = renderedPositions.get(edge.target);
                   return source && target
-                    ? svg`<line data-active=${!selectedNode || edge.source === filter.nodeId || edge.target === filter.nodeId} data-edge-type=${edge.type} data-edge-kind=${edge.kind ?? ""} data-svg-graph-source=${edge.source} data-svg-graph-target=${edge.target} x1=${source.x} y1=${source.y} x2=${target.x} y2=${target.y}></line>`
+                    ? svg`<line data-edge-type=${edge.type} data-edge-kind=${edge.kind ?? ""} data-svg-graph-source=${edge.source} data-svg-graph-target=${edge.target} x1=${source.x} y1=${source.y} x2=${target.x} y2=${target.y}></line>`
                     : nothing;
                 })}
               </g>
@@ -342,7 +295,6 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
                   tabindex="0"
                   aria-label=${node.title}
                   aria-pressed=${String(filter.nodeId === node.id)}
-                  data-active=${!selectedNode || filter.nodeId === node.id || neighbors.has(node.id)}
                   data-wiki-node=${node.id}
                   @contextmenu=${
                     props.wikiActions
@@ -364,8 +316,8 @@ export function renderWikiGraph(props: WikiGraphRendererProps) {
                     }
                   }}
                 >
-                  <circle r=${Math.min(11, 6 + Math.sqrt(node.degree + 1))}></circle>
-                  <text x="13" y="4">${truncateLabel(node.title)}</text>
+                  <circle r="4"></circle>
+                  <text x="13" y="4" data-svg-graph-label=${node.title} data-svg-graph-short-label=${truncateLabel(node.title)}></text>
                   <title>${node.title} · ${node.kind}</title>
                 </g>
               `,

@@ -1,0 +1,55 @@
+.svg-graph-canvas [data-svg-graph-source][data-svg-graph-state] {
+  stroke: color-mix(in srgb, var(--text) 28%, var(--panel));
+  stroke-width: 1;
+  opacity: 0.4;
+}
+.svg-graph-canvas [data-svg-graph-source][data-svg-graph-state="idle"],
+.svg-graph-canvas [data-svg-graph-source][data-svg-graph-state="muted"] {
+  marker-end: none;
+}
+.svg-graph-canvas [data-svg-graph-source][data-svg-graph-state="active"] {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  opacity: 0.95;
+}
+.svg-graph-canvas [data-svg-graph-source][data-svg-graph-state="muted"] {
+  opacity: 0.06;
+}
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state] {
+  opacity: 1;
+}
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state] circle {
+  fill: color-mix(in srgb, var(--text) 56%, var(--panel));
+  stroke: var(--panel);
+  stroke-width: 1;
+  transform: none;
+  filter: none;
+}
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state="active"] circle {
+  fill: var(--accent);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state="neighbor"] circle {
+  fill: var(--accent);
+}
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state="muted"] {
+  opacity: 0.15;
+}
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state] text {
+  font-size: 12px;
+  font-weight: 400;
+  fill: var(--muted);
+}
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state="active"] text,
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state="neighbor"] text {
+  font-weight: 500;
+  fill: var(--text);
+}
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state="idle"] [data-vault-self-link],
+.svg-graph-canvas [data-svg-graph-node][data-svg-graph-state="muted"] [data-vault-self-link] {
+  stroke: var(--muted);
+  stroke-width: 1;
+  opacity: 0.4;
+  marker-end: none;
+}
