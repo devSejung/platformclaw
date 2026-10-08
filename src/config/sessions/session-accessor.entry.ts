@@ -4,11 +4,15 @@ import {
   resolveSessionStoreKey,
 } from "../../gateway/session-store-key.js";
 import { isIncognitoSessionKey, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
-import { resolveIncognitoOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.js";
+import {
+  openOpenClawAgentDatabase,
+  resolveIncognitoOpenClawAgentSqlitePath,
+} from "../../state/openclaw-agent-db.js";
 import type { OpenClawConfig } from "../types.openclaw.js";
 import { resolveAgentMainSessionKey } from "./main-session.js";
 import { resolveStorePath } from "./paths.js";
 import { clearPluginOwnedSessionState } from "./plugin-host-cleanup.js";
+import { resolveSqliteScope, toDatabaseOptions } from "./session-accessor.sqlite-scope.js";
 import {
   countSqliteSessionEntryRowsReadOnly as countSessionEntryRowsReadOnly,
   copySqliteSessionOwnedStateForCanonicalRepair as copySessionOwnedStateForCanonicalRepair,
@@ -102,6 +106,17 @@ export function resolveSessionEntrySelection(
 
 export function resolveAccessStorePath(scope: SessionAccessScope): string {
   return resolveSessionStorePathForScope(scope);
+}
+
+/**
+ * Retain the canonical accessor's owner and incarnation, without filesystem polling.
+ * Independently opened symlink aliases deliberately cannot prove shared ownership.
+ */
+export function captureSessionDatabaseIdentity(
+  scope: SessionAccessScope,
+): import("./session-accessor.types.js").SessionDatabaseIdentity {
+  const database = openOpenClawAgentDatabase(toDatabaseOptions(resolveSqliteScope(scope)));
+  return { identity: database.db, isCurrent: () => database.db.isOpen };
 }
 
 function isStorePathTemplate(store?: string): boolean {

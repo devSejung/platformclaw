@@ -88,6 +88,7 @@ export type ChatPageHost = ChatHost &
     toolStreamOrder: string[];
     toolStreamSyncTimer: number | null;
     compactionStatus: CompactionStatus | null;
+    compactionClearTimer?: number | null;
     fallbackStatus: FallbackStatus | null;
     planStatus: PlanStatus | null;
     observerDigest: SessionObserverDigest | null;

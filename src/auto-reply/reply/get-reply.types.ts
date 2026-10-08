@@ -16,6 +16,8 @@ export type ReplySessionBinding = {
 };
 
 type InternalReplySessionOptions = {
+  /** Predecessor observed before attachment preparation can rotate the session. */
+  expectedActiveReplyOperation?: ReplyOperation;
   expectedExistingSessionId?: string;
   onDeliberateSilentTerminalReply?: () => void;
   onPendingContinuation?: () => void;

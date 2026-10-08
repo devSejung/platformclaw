@@ -23,6 +23,8 @@ import { normalizeOptionalString } from "../../lib/string-coerce.ts";
 import {
   buildCompactionDividerItem,
   clearWorkingProgress,
+  isContextCompactionMessage,
+  matchesCompactionOperation,
   resolveWorkingProgress,
   shouldRenderQueuedSendInThread,
 } from "./chat-progress.ts";
@@ -63,13 +65,14 @@ import {
   resolveMatchingLiveToolIdentity,
   type LiveToolStreamRef,
 } from "./tool-stream-identity.ts";
-import type { PlanStatus } from "./tool-stream.ts";
+import type { CompactionStatus, PlanStatus } from "./tool-stream.ts";
 import { queuedSendThreadMessage } from "./user-message-content.ts";
 
 export type BuildChatItemsProps = {
   paneId: string;
   sessionKey: string;
   runId?: string | null;
+  compactionStatus?: CompactionStatus | null;
   /** Invalidates cached display copy when the active UI language changes. */
   locale?: string;
   messages: unknown[];
@@ -206,6 +209,11 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
   });
   const searchFiltering = props.searchOpen === true && Boolean(props.searchQuery?.trim());
   const persistedCanvasIdentities = new Set<string>();
+  const compaction = props.compactionStatus;
+  const compactionKey = compaction
+    ? `divider:compaction:live:${compaction.runId}:${compaction.itemId ?? "manual"}`
+    : undefined;
+  let hasPersistedCompaction = false;
   const searchVisibleCanvasKeys = new Set<string>();
   for (const message of history) {
     const source = extractChatMessagePreview(message);
@@ -222,14 +230,25 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
   for (let i = 0; i < history.length; i++) {
     const msg = history[i];
     const itemKey = historyKeys[i] ?? messageKey(msg, i);
-    const normalized = safeNormalizeMessage(msg);
-    if (!normalized) {
+    const raw = asRecord(msg) ?? {};
+    const marker = asRecord(raw["__openclaw"]);
+    if (marker?.kind === "compaction" || isContextCompactionMessage(msg)) {
+      const matchesLive = compaction != null && matchesCompactionOperation(msg, compaction);
+      const divider = buildCompactionDividerItem(
+        marker ?? {},
+        rawMessageTimestamp(msg) ?? Date.now(),
+        i,
+      );
+      items.push({
+        ...divider,
+        compactionId: divider.key,
+        ...(matchesLive && compactionKey ? { key: compactionKey } : {}),
+      });
+      hasPersistedCompaction ||= matchesLive;
       continue;
     }
-    const raw = asRecord(msg) ?? {};
-    const marker = raw["__openclaw"] as Record<string, unknown> | undefined;
-    if (marker && marker.kind === "compaction") {
-      items.push(buildCompactionDividerItem(marker, normalized.timestamp ?? Date.now(), i));
+    const normalized = safeNormalizeMessage(msg);
+    if (!normalized) {
       continue;
     }
 
@@ -297,6 +316,18 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
   // the stable rows themselves, so optimistic user bubbles stay after the
   // preceding assistant reply even when client and Gateway clocks disagree.
   const timestampedProjectionItems: ChatItem[] = [];
+  if (compaction && compactionKey && !hasPersistedCompaction) {
+    const timestamp = compaction.startedAt ?? compaction.completedAt ?? Date.now();
+    timestampedProjectionItems.push({
+      ...buildCompactionDividerItem(
+        {},
+        timestamp,
+        0,
+        compaction.phase === "complete" ? "complete" : "active",
+      ),
+      key: compactionKey,
+    });
+  }
   const appendQueuedSend = (queued: ChatQueueItem, beforeMessage?: unknown) => {
     if (!shouldRenderQueuedSendInThread(queued)) {
       return;
@@ -540,11 +571,14 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
   // catches up.
   const hasEmptyLiveStream = props.stream !== null && props.stream.trim().length === 0;
   const showWorkingIndicator =
-    (props.runWorking === true && !initialHistoryLoad) ||
-    hasEmptyLiveStream ||
-    queuedSends.some(
-      (item) => item.sendState === "sending" && shouldRenderQueuedSendInThread(item),
-    );
+    // A persisted marker proves compaction finished even while its run retries.
+    // Keep the model's remaining work visible after that row becomes complete.
+    (hasPersistedCompaction || !compaction || compaction.phase === "complete") &&
+    ((props.runWorking === true && !initialHistoryLoad) ||
+      hasEmptyLiveStream ||
+      queuedSends.some(
+        (item) => item.sendState === "sending" && shouldRenderQueuedSendInThread(item),
+      ));
   if (props.runWorking !== true && props.stream === null && !showWorkingIndicator) {
     clearWorkingProgress(props.sessionKey);
   }

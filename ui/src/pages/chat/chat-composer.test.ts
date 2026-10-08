@@ -836,7 +836,7 @@ describe("renderChatComposer status", () => {
     expect(view.container.querySelector(".agent-chat__run-status--interrupted")).toBeNull();
   });
 
-  it("renders fresh compaction and fallback status", () => {
+  it("leaves compaction to the transcript and preserves fallback status", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000);
     const { container } = renderComposer({
       compactionStatus: {
@@ -852,9 +852,7 @@ describe("renderChatComposer status", () => {
         occurredAt: 900,
       },
     });
-    expect(container.querySelector(".compaction-indicator--active")?.textContent?.trim()).toBe(
-      "Compacting context...",
-    );
+    expect(container.querySelector(".compaction-indicator--active")).toBeNull();
     expect(container.querySelector(".compaction-indicator--fallback")?.textContent?.trim()).toBe(
       "Fallback active: deepinfra/moonshotai/Kimi-K2.5",
     );

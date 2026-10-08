@@ -343,6 +343,14 @@ function activityEventIdentity(payload: AgentEventPayload): string | null {
     const toolCallId = toTrimmedString(payload.data?.toolCallId);
     return toolCallId ? `tool:${payload.runId}:${toolCallId}` : null;
   }
+  if (
+    payload.stream === "compaction" ||
+    (payload.stream === "lifecycle" &&
+      (payload.data?.phase === "end" || payload.data?.phase === "error"))
+  ) {
+    // A delayed item or retry completion must not replace a newer compaction in this run.
+    return `compaction:${payload.runId}`;
+  }
   if (payload.stream === "item" && payload.data?.kind === "preamble") {
     const itemId =
       toTrimmedString(payload.data?.itemId) ?? toTrimmedString(payload.data?.id) ?? "latest";
@@ -369,6 +377,7 @@ function acceptActivityEvent(host: ToolStreamHost, payload: AgentEventPayload): 
 export type CompactionStatus = {
   phase: "active" | "retrying" | "complete";
   runId: string | null;
+  itemId?: string;
   startedAt: number | null;
   completedAt: number | null;
 };
@@ -503,7 +512,6 @@ type CompactionHost = ToolStreamHost & {
   fallbackClearTimer?: number | null;
 };
 
-const COMPACTION_TOAST_DURATION_MS = 5000;
 const COMPACTION_ACTIVE_STALE_TIMEOUT_MS = 5 * 60_000;
 const FALLBACK_TOAST_DURATION_MS = 8000;
 
@@ -516,7 +524,7 @@ function clearCompactionTimer(host: CompactionHost) {
 
 function scheduleCompactionClear(
   host: CompactionHost,
-  delayMs = COMPACTION_TOAST_DURATION_MS,
+  delayMs: number,
   expected?: { phase?: CompactionStatus["phase"]; runId?: string | null },
 ) {
   host.compactionClearTimer = window.setTimeout(() => {
@@ -533,14 +541,27 @@ function scheduleCompactionClear(
   }, delayMs);
 }
 
-function setCompactionComplete(host: CompactionHost, runId: string) {
+function setCompactionStatus(
+  host: CompactionHost,
+  runId: string,
+  phase: CompactionStatus["phase"],
+  itemId?: string,
+) {
+  const previous = host.compactionStatus;
+  const sameOperation =
+    previous?.runId === runId && (!itemId || !previous.itemId || previous.itemId === itemId);
+  const currentItemId = itemId ?? (sameOperation ? previous?.itemId : undefined);
+  clearCompactionTimer(host);
   host.compactionStatus = {
-    phase: "complete",
+    phase,
     runId,
-    startedAt: host.compactionStatus?.startedAt ?? null,
-    completedAt: Date.now(),
+    ...(currentItemId ? { itemId: currentItemId } : {}),
+    startedAt: sameOperation ? previous.startedAt : Date.now(),
+    completedAt: phase === "complete" ? Date.now() : null,
   };
-  scheduleCompactionClear(host, COMPACTION_TOAST_DURATION_MS, { phase: "complete", runId });
+  if (phase !== "complete") {
+    scheduleCompactionClear(host, COMPACTION_ACTIVE_STALE_TIMEOUT_MS, { phase, runId });
+  }
 }
 
 export function handleSessionOperationEvent(
@@ -560,17 +581,7 @@ export function handleSessionOperationEvent(
   const compactionHost = host as CompactionHost;
 
   if (payload.phase === "start") {
-    clearCompactionTimer(compactionHost);
-    compactionHost.compactionStatus = {
-      phase: "active",
-      runId: operationId,
-      startedAt: Date.now(),
-      completedAt: null,
-    };
-    scheduleCompactionClear(compactionHost, COMPACTION_ACTIVE_STALE_TIMEOUT_MS, {
-      phase: "active",
-      runId: operationId,
-    });
+    setCompactionStatus(compactionHost, operationId, "active");
     return;
   }
 
@@ -585,7 +596,7 @@ export function handleSessionOperationEvent(
   }
   clearCompactionTimer(compactionHost);
   if (payload.completed === true) {
-    setCompactionComplete(compactionHost, operationId);
+    setCompactionStatus(compactionHost, operationId, "complete");
     return;
   }
   compactionHost.compactionStatus = null;
@@ -595,40 +606,23 @@ function handleCompactionEvent(host: CompactionHost, payload: AgentEventPayload)
   const data = payload.data ?? {};
   const phase = typeof data.phase === "string" ? data.phase : "";
   const completed = data.completed === true;
+  const itemId = toTrimmedString(data.itemId) ?? undefined;
 
   clearCompactionTimer(host);
 
   if (phase === "start") {
-    host.compactionStatus = {
-      phase: "active",
-      runId: payload.runId,
-      startedAt: Date.now(),
-      completedAt: null,
-    };
-    scheduleCompactionClear(host, COMPACTION_ACTIVE_STALE_TIMEOUT_MS, {
-      phase: "active",
-      runId: payload.runId,
-    });
+    setCompactionStatus(host, payload.runId, "active", itemId);
     return;
   }
   if (phase === "end") {
     if (data.willRetry === true && completed) {
       // Compaction already succeeded, but the run is still retrying.
       // Keep that distinct state until the matching lifecycle end arrives.
-      host.compactionStatus = {
-        phase: "retrying",
-        runId: payload.runId,
-        startedAt: host.compactionStatus?.startedAt ?? Date.now(),
-        completedAt: null,
-      };
-      scheduleCompactionClear(host, COMPACTION_ACTIVE_STALE_TIMEOUT_MS, {
-        phase: "retrying",
-        runId: payload.runId,
-      });
+      setCompactionStatus(host, payload.runId, "retrying", itemId);
       return;
     }
     if (completed) {
-      setCompactionComplete(host, payload.runId);
+      setCompactionStatus(host, payload.runId, "complete", itemId);
       return;
     }
     host.compactionStatus = null;
@@ -655,7 +649,7 @@ function handleLifecycleCompactionEvent(host: CompactionHost, payload: AgentEven
     return;
   }
 
-  setCompactionComplete(host, payload.runId);
+  setCompactionStatus(host, payload.runId, "complete");
 }
 
 function resolveAcceptedSession(

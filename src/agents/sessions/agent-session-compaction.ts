@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { isContextOverflow } from "@openclaw/ai/internal/runtime";
 import { InvalidSummaryOutputError } from "../../../packages/agent-core/src/harness/types.js";
 import type { AssistantMessage, Model } from "../../llm/types.js";
@@ -59,12 +60,14 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
     this.disconnectFromAgent();
     await this.abort();
     this.compactionAbortController = new AbortController();
-    this.emit({ type: "compaction_start", reason: "manual" });
+    const itemId = randomUUID();
+    this.emit({ type: "compaction_start", reason: "manual", itemId });
 
     try {
       const settings = this.settingsManager.getCompactionSettings();
       const outcome = await this.runCompactionWork({
         customInstructions,
+        itemId,
         mode: "manual",
         summaryOutputPolicy,
         settings,
@@ -77,6 +80,7 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
       this.emit({
         type: "compaction_end",
         reason: "manual",
+        itemId,
         result: outcome.result,
         aborted: false,
         willRetry: false,
@@ -90,6 +94,7 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
       this.emit({
         type: "compaction_end",
         reason: "manual",
+        itemId,
         result: undefined,
         aborted,
         willRetry: false,
@@ -140,6 +145,7 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
   }
 
   private async runCompactionWork(options: {
+    itemId: string;
     settings: ReturnType<SettingsManager["getCompactionSettings"]>;
     signal: AbortSignal;
     customInstructions?: string;
@@ -237,19 +243,20 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
       return { status: "aborted" };
     }
 
-    this.sessionManager.appendCompaction(
+    const entryId = this.sessionManager.appendCompaction(
       compactionResult.summary,
       compactionResult.firstKeptEntryId,
       compactionResult.tokensBefore,
       compactionResult.details,
       fromExtension,
+      { itemId: options.itemId },
     );
     const newEntries = this.sessionManager.getEntries();
     const sessionContext = this.sessionManager.buildSessionContext();
     this.agent.state.messages = sessionContext.messages;
 
     const savedCompactionEntry = newEntries.find(
-      (e) => e.type === "compaction" && e.summary === compactionResult.summary,
+      (e) => e.type === "compaction" && e.id === entryId,
     ) as CompactionEntry | undefined;
 
     if (this.currentExtensionRunner && savedCompactionEntry) {
@@ -388,12 +395,14 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
   ): Promise<boolean> {
     const settings = this.settingsManager.getCompactionSettings();
 
-    this.emit({ type: "compaction_start", reason });
+    const itemId = randomUUID();
+    this.emit({ type: "compaction_start", reason, itemId });
     this.autoCompactionAbortController = new AbortController();
 
     try {
       const outcome = await this.runCompactionWork({
         mode: "auto",
+        itemId,
         summaryOutputPolicy: "retry-invalid-once",
         settings,
         signal: this.autoCompactionAbortController.signal,
@@ -402,6 +411,7 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
         this.emit({
           type: "compaction_end",
           reason,
+          itemId,
           result: undefined,
           aborted: false,
           willRetry: false,
@@ -412,6 +422,7 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
         this.emit({
           type: "compaction_end",
           reason,
+          itemId,
           result: undefined,
           aborted: true,
           willRetry: false,
@@ -421,6 +432,7 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
       this.emit({
         type: "compaction_end",
         reason,
+        itemId,
         result: outcome.result,
         aborted: false,
         willRetry,
@@ -446,6 +458,7 @@ export abstract class AgentSessionCompaction extends AgentSessionInspection {
       this.emit({
         type: "compaction_end",
         reason,
+        itemId,
         result: undefined,
         aborted: false,
         willRetry: false,

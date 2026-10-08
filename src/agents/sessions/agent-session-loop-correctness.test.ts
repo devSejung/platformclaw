@@ -7,7 +7,9 @@ import type {
 } from "openclaw/plugin-sdk/llm";
 import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
+import { subscribeEmbeddedAgentSession } from "../embedded-agent-subscribe.js";
 import type { AgentTool } from "../runtime/index.js";
+import { guardSessionManager } from "../session-tool-result-guard-wrapper.js";
 import { agentSessionAutomaticCompaction } from "./agent-session-compaction.js";
 import {
   createAssistant,
@@ -82,6 +84,63 @@ function appendHistory(sessionManager: SessionManager, assistant: AssistantMessa
 registerAgentSessionLoopTestLifecycle();
 
 describe("AgentSession loop correctness", () => {
+  it.each(["manual", "automatic"])(
+    "correlates repeated %s compactions through events and persisted boundaries",
+    async (mode) => {
+      const runId = "run-correlation";
+      const sessionManager = guardSessionManager(SessionManager.inMemory(), { runId });
+      appendHistory(sessionManager, createAssistant(testModel, [{ type: "text", text: "answer" }]));
+      let requests = 0;
+      streamMocks.streamSimple.mockImplementation((model: Model) =>
+        createAssistantResultStream(
+          ++requests % 2 === 1
+            ? createOverflowAssistant(model)
+            : createAssistant(model, [{ type: "text", text: "complete retry" }]),
+        ),
+      );
+      const { session } = await createTestSession({
+        sessionManager,
+        settingsManager: createAutoCompactionSettings(),
+        resourceLoader: createResourceLoader(createCompactionHandlers()),
+      });
+      const onAgentEvent = vi.fn();
+      const subscription = subscribeEmbeddedAgentSession({ session, runId, onAgentEvent });
+      try {
+        for (const prompt of ["first long request", "second long request"]) {
+          if (mode === "manual") {
+            appendHistory(
+              sessionManager,
+              createAssistant(testModel, [{ type: "text", text: prompt }]),
+            );
+            await session.compact();
+          } else {
+            await session.prompt(prompt);
+          }
+        }
+        const compactions = sessionManager
+          .getBranch()
+          .filter((entry) => entry.type === "compaction");
+        expect(compactions).toHaveLength(2);
+        const itemIds = compactions.map((entry) => entry.__openclaw?.itemId);
+        expect(itemIds).toEqual([expect.any(String), expect.any(String)]);
+        expect(new Set(itemIds).size).toBe(2);
+        expect(compactions.map((entry) => entry.__openclaw?.runId)).toEqual([runId, runId]);
+        const events = onAgentEvent.mock.calls
+          .map(([event]) => event)
+          .filter((event) => event.stream === "compaction");
+        expect(events.map(({ data }) => ({ phase: data.phase, itemId: data.itemId }))).toEqual(
+          itemIds.flatMap((itemId) => [
+            { phase: "start", itemId },
+            { phase: "end", itemId },
+          ]),
+        );
+        expect(subscription.getCompactionCount()).toBe(2);
+      } finally {
+        subscription.unsubscribe();
+      }
+    },
+  );
+
   it("carries the canonical assistant entry id through ordered terminal listeners", async () => {
     const assistant = createAssistant(testModel, [{ type: "text", text: "same answer" }]);
     const sessionManager = SessionManager.inMemory();

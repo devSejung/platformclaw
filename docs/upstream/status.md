@@ -10,6 +10,19 @@
 
 ### PlatformClaw downstream policy repairs
 
+- The 2026-10-09 compaction port selectively adopts upstream PRs #135988
+  (`40fcb8392a12`), #136169 (`107b259db213`), #157169 (`1f322ea64e41`), and
+  #152958 (`1d697aa9660c`), plus the native Codex transcript prerequisite
+  `a5bac03e514d`. This is a downstream-native backport, not a full ancestry sync.
+  Embedded and native runtimes correlate one live and persisted activity by run
+  and item identity. The Control UI retains checkpoint actions and the savings
+  metrics already adopted from #106921; it does not adopt #154131 checkpoint
+  retirement. Pending sends continue after context preparation only when the
+  same canonical session database incarnation and connected operation lineage
+  prove ownership. Browser ownership, Spaces membership revocation, sender
+  attribution, and transcript privacy remain enforced by the Control Plane.
+  No SQLite schema version, Gateway protocol version, or operator configuration
+  changes are required.
 - PlatformClaw product branding is a downstream presentation and managed-config
   overlay. The Control UI reads a bounded host descriptor, the Web host rewrites
   only exact upstream bootstrap assets, and the managed admin plugin appends one

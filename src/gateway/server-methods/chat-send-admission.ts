@@ -5,6 +5,7 @@ import { createAgentRunRestartAbortError } from "../../agents/run-termination.js
 import {
   isReplyRunAbortableForSignal,
   replyRunRegistry,
+  type ReplyOperation,
 } from "../../auto-reply/reply/reply-run-registry.js";
 import { resolveSessionWorkStartError } from "../../config/sessions.js";
 import { SESSION_ROUTING_CHANGED_ERROR_REASON } from "../../config/sessions/main-session.js";
@@ -128,6 +129,7 @@ export async function admitChatSend(params: {
     }
   };
   let admittedSessionId = backingSessionId ?? clientRunId;
+  let expectedActiveReplyOperation: ReplyOperation | undefined;
   let gatewayWorkAdmission: Awaited<ReturnType<typeof beginSessionWorkAdmission>> | undefined;
   let admittedRunAbort: ReturnType<typeof registerChatAbortController> | undefined;
   let restartSafeAdmission: ReturnType<typeof resolveRestartSafeChatAdmission>;
@@ -270,6 +272,9 @@ export async function admitChatSend(params: {
       return;
     }
     admittedSessionId = latestEntry?.sessionId ?? backingSessionId ?? clientRunId;
+    // Attachments may outlive compaction and its registry slot. Keep the owner
+    // observed under admission so dispatch can prove that UUID transition.
+    expectedActiveReplyOperation = replyRunRegistry.get(sessionKey);
     restartSafeAdmission = resolveRestartSafeChatAdmission({
       agentId,
       cfg: latestSession.cfg,
@@ -476,6 +481,7 @@ export async function admitChatSend(params: {
     value: {
       activeRunAbort,
       admittedSessionId,
+      expectedActiveReplyOperation,
       chatSendTraceAttributes,
       cleanupAdmittedRun,
       finishAbortedChatSend,

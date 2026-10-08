@@ -636,6 +636,21 @@ describe("executeSlashCommand directives", () => {
     });
   });
 
+  it("refreshes successful compaction without adding a duplicate success message", async () => {
+    const request = vi.fn(async () => ({
+      ok: true,
+      compacted: true,
+      result: { tokensBefore: 20_000, tokensAfter: 5_000 },
+    }));
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "main",
+      "compact",
+      "",
+    );
+    expect(result).toEqual({ action: "refresh" });
+  });
+
   it("surfaces terminal compaction failures instead of reporting a skip", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "sessions.compact") {

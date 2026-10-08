@@ -177,6 +177,7 @@ export function createPageState(
     chatStreamSegments: [],
     chatRunStatus: null,
     compactionStatus: null,
+    compactionClearTimer: null as number | null,
     fallbackStatus: null,
     planStatus: null,
     observerDigest: null,

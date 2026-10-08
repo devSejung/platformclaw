@@ -20,6 +20,7 @@ type CompactionStartEvent =
   | {
       type: "compaction_start";
       reason?: unknown;
+      itemId?: string;
     };
 
 type CompactionEndEvent =
@@ -27,6 +28,7 @@ type CompactionEndEvent =
   | {
       type: "compaction_end";
       reason?: unknown;
+      itemId?: string;
       willRetry?: unknown;
       result?: unknown;
       aborted?: unknown;
@@ -46,7 +48,9 @@ function compactionLogKind(reason: CompactionReason): string {
 
 function emitCompactionAgentEvent(
   ctx: EmbeddedAgentSubscribeContext,
-  data: { phase: "start" } | { phase: "end"; willRetry: boolean; completed: boolean },
+  data:
+    | { phase: "start"; itemId?: string }
+    | { phase: "end"; itemId?: string; willRetry: boolean; completed: boolean },
 ): void {
   const event = { stream: "compaction" as const, data };
   emitAgentEvent({ runId: ctx.params.runId, ...event });
@@ -102,7 +106,7 @@ export function handleCompactionStart(
     reason,
     consoleMessage: `embedded run ${kind} start: runId=${ctx.params.runId} reason=${reason}`,
   });
-  emitCompactionAgentEvent(ctx, { phase: "start" });
+  emitCompactionAgentEvent(ctx, { phase: "start", ...(evt.itemId ? { itemId: evt.itemId } : {}) });
 
   // Hooks are fire-and-forget so compaction state updates and liveness pauses
   // cannot be delayed by plugin work.
@@ -187,7 +191,12 @@ export function handleCompactionEnd(ctx: EmbeddedAgentSubscribeContext, evt: Com
       consoleMessage: `embedded run ${kind} incomplete: runId=${ctx.params.runId} reason=${reason} aborted=${wasAborted} willRetry=${willRetry}`,
     });
   }
-  emitCompactionAgentEvent(ctx, { phase: "end", willRetry, completed });
+  emitCompactionAgentEvent(ctx, {
+    phase: "end",
+    ...(evt.itemId ? { itemId: evt.itemId } : {}),
+    willRetry,
+    completed,
+  });
 
   // after_compaction runs only once the run will not retry, matching the visible
   // post-compaction session state plugin authors observe.

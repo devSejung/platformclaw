@@ -53,6 +53,15 @@ export function createDispatchReplyOperationCoordinator(params: {
   let preDispatchLifecycleAbortController: AbortController | undefined;
   let dispatchLifecycleAbortController: AbortController | undefined;
   let preDispatchLifecycleInterrupted = false;
+  let admittedExpectedSessionId: string | undefined;
+  const expectedActiveOperations = [
+    params.replyOptions?.expectedActiveReplyOperation,
+    params.initialDispatchReplyOperation,
+  ].filter((operation): operation is ReplyOperation => operation !== undefined);
+  const resolveExpectedSessionId = () =>
+    admittedExpectedSessionId ??
+    params.replyOptions?.expectedExistingSessionId ??
+    params.resolveOperationExpectedSessionId();
   const dispatchLifecycleWork = new Set<Promise<void>>();
 
   const trackDispatchLifecycleWork = (work: Promise<unknown>) => {
@@ -179,11 +188,6 @@ export function createDispatchReplyOperationCoordinator(params: {
       replyTurnKind === "visible" &&
       params.replyOptions?.turnAdoptionLifecycle !== undefined &&
       activeReplyOperation !== undefined;
-    if (allowGatewayQueueResolution) {
-      // Gateway turns need to reach getReplyFromConfig while the owner is active;
-      // that layer applies the session's steer/followup/collect/drop policy.
-      return { status: "ready" };
-    }
     const allowSlackRoutedThreadBypass =
       phase === "dispatch" &&
       shouldLetSlackRoutedThreadBypassBusyReplyOperation({
@@ -192,7 +196,9 @@ export function createDispatchReplyOperationCoordinator(params: {
         routeThreadId: params.routeThreadId,
       });
     const lifecycleOnlyAbortController =
-      allowActivePreDispatch || allowSlackRoutedThreadBypass ? new AbortController() : undefined;
+      allowActivePreDispatch || allowGatewayQueueResolution || allowSlackRoutedThreadBypass
+        ? new AbortController()
+        : undefined;
     const onLifecycleInterrupt = () => {
       preDispatchLifecycleInterrupted = true;
       lifecycleOnlyAbortController?.abort();
@@ -200,16 +206,18 @@ export function createDispatchReplyOperationCoordinator(params: {
     let admission = await admitReplyTurn({
       sessionKey: params.dispatchOperationSessionKey,
       sessionId: operationSessionId,
-      expectedSessionId: params.resolveOperationExpectedSessionId(),
-      expectedActiveOperation: params.initialDispatchReplyOperation,
+      expectedSessionId: resolveExpectedSessionId(),
+      expectedActiveOperations,
       storePath: params.operationSessionStoreEntry.storePath,
       kind: replyTurnKind,
       resetTriggered: false,
       routeThreadId: params.routeThreadId,
       originatingLeafEntryId: params.replyOptions?.turnAdoptionLifecycle?.originatingLeafEntryId,
       upstreamAbortSignal: params.replyOptions?.abortSignal,
-      waitForActive: !allowActivePreDispatch && !allowSlackRoutedThreadBypass,
-      retainLifecycleAdmissionOnActive: allowActivePreDispatch || allowSlackRoutedThreadBypass,
+      waitForActive:
+        !allowActivePreDispatch && !allowGatewayQueueResolution && !allowSlackRoutedThreadBypass,
+      retainLifecycleAdmissionOnActive:
+        allowActivePreDispatch || allowGatewayQueueResolution || allowSlackRoutedThreadBypass,
       onLifecycleInterrupt,
       onReplyAdmissionWaitChange: params.replyOptions?.onReplyAdmissionWaitChange,
     });
@@ -248,8 +256,8 @@ export function createDispatchReplyOperationCoordinator(params: {
         admission = await admitReplyTurn({
           sessionKey: params.dispatchOperationSessionKey,
           sessionId: operationSessionId,
-          expectedSessionId: params.resolveOperationExpectedSessionId(),
-          expectedActiveOperation: params.initialDispatchReplyOperation,
+          expectedSessionId: resolveExpectedSessionId(),
+          expectedActiveOperations,
           storePath: params.operationSessionStoreEntry.storePath,
           kind: replyTurnKind,
           resetTriggered: false,
@@ -257,15 +265,28 @@ export function createDispatchReplyOperationCoordinator(params: {
           originatingLeafEntryId:
             params.replyOptions?.turnAdoptionLifecycle?.originatingLeafEntryId,
           upstreamAbortSignal: params.replyOptions?.abortSignal,
-          waitForActive: !allowActivePreDispatch && !allowSlackRoutedThreadBypass,
-          retainLifecycleAdmissionOnActive: allowActivePreDispatch || allowSlackRoutedThreadBypass,
+          waitForActive:
+            !allowActivePreDispatch &&
+            !allowGatewayQueueResolution &&
+            !allowSlackRoutedThreadBypass,
+          retainLifecycleAdmissionOnActive:
+            allowActivePreDispatch || allowGatewayQueueResolution || allowSlackRoutedThreadBypass,
           onLifecycleInterrupt,
           onReplyAdmissionWaitChange: params.replyOptions?.onReplyAdmissionWaitChange,
         });
       }
     }
     if (admission.status === "skipped") {
+      if (allowGatewayQueueResolution && admission.reason === "active-run") {
+        // Queue policy still owns steering, but it must receive the identity
+        // revalidated after hooks and any intervening compaction.
+        admittedExpectedSessionId = admission.sessionEntry?.sessionId ?? admittedExpectedSessionId;
+        preDispatchLifecycleAdmission = admission.lifecycleAdmission;
+        dispatchLifecycleAbortController = lifecycleOnlyAbortController;
+        return { status: "ready" };
+      }
       if (allowActivePreDispatch && admission.reason === "active-run") {
+        admittedExpectedSessionId = admission.sessionEntry?.sessionId ?? admittedExpectedSessionId;
         preDispatchAbortOperation = admission.activeOperation;
         preDispatchLifecycleAdmission = admission.lifecycleAdmission;
         preDispatchLifecycleAbortController = lifecycleOnlyAbortController;
@@ -308,6 +329,7 @@ export function createDispatchReplyOperationCoordinator(params: {
       admission.operation.markTerminalRecovery();
     }
     dispatchReplyOperation = admission.operation;
+    admittedExpectedSessionId = admission.operation.sessionId;
     dispatchReplyOperation.retainFailureUntilComplete();
     dispatchAbortOperation = admission.operation;
     return { status: "ready" };
@@ -380,17 +402,23 @@ export function createDispatchReplyOperationCoordinator(params: {
   };
   const getReplyOptions = () => {
     const abortSignal = getDispatchAbortSignal();
+    // Initialization must consume the identity admitted after compaction,
+    // rather than rejecting the original caller snapshot a second time.
+    const expectedExistingSessionId = params.replyOptions?.expectedExistingSessionId
+      ? (dispatchReplyOperation?.sessionId ?? admittedExpectedSessionId)
+      : undefined;
     const onAgentRunStart = params.messageAuditTerminal
       ? (runId: string) => {
           params.messageAuditTerminal?.observeRunId(runId);
           params.replyOptions?.onAgentRunStart?.(runId);
         }
       : undefined;
-    if (!abortSignal && !onAgentRunStart) {
+    if (!abortSignal && !onAgentRunStart && !expectedExistingSessionId) {
       return params.replyOptions;
     }
     return {
       ...params.replyOptions,
+      ...(expectedExistingSessionId ? { expectedExistingSessionId } : {}),
       ...(abortSignal
         ? {
             abortSignal,

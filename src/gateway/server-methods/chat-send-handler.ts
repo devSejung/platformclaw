@@ -97,6 +97,7 @@ export async function handleChatSend(
   const {
     activeRunAbort,
     admittedSessionId,
+    expectedActiveReplyOperation,
     chatSendTraceAttributes,
     cleanupAdmittedRun,
     finishAbortedChatSend,
@@ -398,6 +399,7 @@ export async function handleChatSend(
                   ? { taskSuggestionDeliveryMode: "gateway" as const }
                   : {}),
                 requestedSessionId,
+                expectedActiveReplyOperation,
                 ...(restartSafeAdmission
                   ? {
                       expectedExistingSessionId: admittedSessionId,

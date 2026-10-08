@@ -67,3 +67,40 @@ describe("convertToLlm runtime-context carrier marking", () => {
     expect((message as { runtimeContextCarrier?: boolean }).runtimeContextCarrier).toBeUndefined();
   });
 });
+
+describe("display-only custom activity", () => {
+  it("retains visible transcript records while excluding them from model messages", () => {
+    const activity = {
+      ...createCustomMessage(
+        "activity",
+        "Display-only event",
+        true,
+        { itemId: "item-1" },
+        "2026-05-30T17:00:00.000Z",
+      ),
+      excludeFromContext: true,
+    };
+    const note = createCustomMessage(
+      "note",
+      "Model-visible note",
+      false,
+      undefined,
+      "2026-05-30T17:00:01.000Z",
+    );
+    const transcript = [activity, note];
+
+    expect(convertToLlm(transcript)).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "Model-visible note" }],
+        timestamp: note.timestamp,
+      },
+    ]);
+    expect(transcript).toEqual([activity, note]);
+    expect(transcript[0]).toMatchObject({
+      display: true,
+      excludeFromContext: true,
+      details: { itemId: "item-1" },
+    });
+  });
+});

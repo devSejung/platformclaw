@@ -10,6 +10,7 @@ import {
   sessionToolOverrideNames,
 } from "../../../lib/sessions/tool-overrides.ts";
 import { detectTextDirection } from "../../../lib/text-direction.ts";
+import { renderChatRunErrorNotice } from "../chat-view-notices.ts";
 import type { ComposerDictationController } from "../composer-dictation.ts";
 import {
   handleChatAttachmentPaste,
@@ -31,7 +32,6 @@ import { renderSlashMenu } from "./chat-composer-slash-menu.ts";
 import { commitComposerDraft } from "./chat-composer-state.ts";
 import {
   renderChatRunStatusIndicator,
-  renderCompactionIndicator,
   renderFallbackIndicator,
   type ComposerRunStatus,
 } from "./chat-composer-status.ts";
@@ -148,14 +148,7 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
       onQueueSteer: props.connected && canCompose ? props.onQueueSteer : undefined,
       onQueueRemove: props.onQueueRemove,
     })}
-    ${props.runError
-      ? html`
-          <div class="chat-run-error" role="alert">
-            <span class="chat-run-error__icon" aria-hidden="true">${icons.alertTriangle}</span>
-            <span class="chat-run-error__summary">${props.runError.summary}</span>
-          </div>
-        `
-      : nothing}
+    ${renderChatRunErrorNotice(props)}
     <div class="agent-chat__composer-shell">
       ${questionPanelProps
         ? html`
@@ -259,7 +252,6 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
                 variant: "bar",
               })}
               ${renderFallbackIndicator(props.fallbackStatus)}
-              ${renderCompactionIndicator(props.compactionStatus)}
               ${renderChatGoal(state, activeSession?.goal, {
                 canAct: props.connected && canCompose,
                 onGoalCommand: props.onGoalCommand,

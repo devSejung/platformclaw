@@ -274,6 +274,39 @@ describe("reconcileChatRunLifecycle yielded parent", () => {
 });
 
 describe("reconcileChatRunLifecycle indicators", () => {
+  it("preserves completed compaction when its run terminates", () => {
+    const compactionStatus = {
+      phase: "complete" as const,
+      runId: "r1",
+      itemId: "compact-1",
+      startedAt: 1_000,
+      completedAt: 2_000,
+    };
+    const host = makeHost({ chatRunId: "r1", compactionStatus });
+    reconcileChatRunLifecycle(host, { outcome: "done", runId: "r1", clearLocalRun: true });
+    expect(host.compactionStatus).toBe(compactionStatus);
+  });
+
+  it("clears an unfinished compaction only when its owning run terminates", () => {
+    const compactionStatus = {
+      phase: "active" as const,
+      runId: "r1",
+      itemId: "compact-1",
+      startedAt: 1_000,
+      completedAt: null,
+    };
+    const host = makeHost({ chatRunId: "r1", compactionStatus });
+    reconcileChatRunLifecycle(host, {
+      outcome: "done",
+      runId: "r2",
+      clearIndicators: true,
+      clearLocalRun: false,
+    });
+    expect(host.compactionStatus).toBe(compactionStatus);
+    reconcileChatRunLifecycle(host, { outcome: "done", runId: "r1", clearLocalRun: true });
+    expect(host.compactionStatus).toBeNull();
+  });
+
   it("clears plan status on terminal run end", () => {
     const host = makeHost({
       chatRunId: "r1",

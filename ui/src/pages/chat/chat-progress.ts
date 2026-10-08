@@ -1,6 +1,23 @@
+import { asNullableRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { t } from "../../i18n/index.ts";
 import type { ChatItem, ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { formatCompactTokenCount } from "../../lib/format.ts";
+import type { CompactionStatus } from "./tool-stream.ts";
+
+export function isContextCompactionMessage(message: unknown): boolean {
+  const record = asRecord(message);
+  return record?.role === "custom" && record.customType === "openclaw.context-compaction";
+}
+
+export function matchesCompactionOperation(message: unknown, status: CompactionStatus): boolean {
+  const marker = asRecord(asRecord(message)?.["__openclaw"]);
+  return Boolean(
+    (marker?.kind === "compaction" || isContextCompactionMessage(message)) &&
+    status.runId &&
+    marker?.runId === status.runId &&
+    (!status.itemId || marker.itemId === status.itemId),
+  );
+}
 
 type WorkingProgress = {
   key: string;
@@ -18,6 +35,7 @@ export function buildCompactionDividerItem(
   marker: Record<string, unknown>,
   timestamp: number,
   index: number,
+  phase: "active" | "complete" = "complete",
 ): Extract<ChatItem, { kind: "divider" }> {
   const tokensBefore = marker.tokensBefore;
   const tokensAfter = marker.tokensAfter;
@@ -35,7 +53,10 @@ export function buildCompactionDividerItem(
       typeof marker.id === "string"
         ? `divider:compaction:${marker.id}`
         : `divider:compaction:${timestamp}:${index}`,
-    label: t("chat.compaction.label"),
+    label: t(
+      phase === "active" ? "chat.composer.compactingContext" : "chat.composer.contextCompacted",
+    ),
+    compaction: phase,
     ...(tokensSaved === null
       ? {}
       : {
@@ -43,8 +64,14 @@ export function buildCompactionDividerItem(
             count: formatCompactTokenCount(tokensSaved),
           }),
         }),
-    description: t("chat.compaction.description"),
-    action: { kind: "session-checkpoints", label: t("chat.compaction.openCheckpoints") },
+    ...(phase === "complete" && marker.kind === "compaction"
+      ? {
+          action: {
+            kind: "session-checkpoints" as const,
+            label: t("chat.compaction.openCheckpoints"),
+          },
+        }
+      : {}),
     timestamp,
   };
 }

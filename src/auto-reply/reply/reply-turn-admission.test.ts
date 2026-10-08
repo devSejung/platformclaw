@@ -54,6 +54,18 @@ function admitTestReplyTurn(
   return admitReplyTurn({ kind: "visible", resetTriggered: false, ...overrides });
 }
 
+async function createAdmittedTestOperation(params: {
+  sessionKey: string;
+  sessionId: string;
+  storePath: string;
+}) {
+  const admission = await admitTestReplyTurn(params);
+  if (admission.status !== "owned") {
+    throw new Error("fixture requires a store-owned reply operation");
+  }
+  return admission.operation;
+}
+
 function createDeferred() {
   let resolve = () => {};
   const promise = new Promise<void>((resolvePromise) => {
@@ -951,10 +963,7 @@ describe("reply turn admission", () => {
     const storePath = createSessionStore({
       [sessionKey]: { sessionId, updatedAt: Date.now() },
     });
-    const active = createTestReplyOperation({
-      sessionKey,
-      sessionId,
-    });
+    const active = await createAdmittedTestOperation({ sessionKey, sessionId, storePath });
     active.setPhase("preflight_compacting");
 
     const admitted = admitTestReplyTurn({
@@ -989,10 +998,7 @@ describe("reply turn admission", () => {
     const storePath = createSessionStore({
       [sessionKey]: { sessionId, updatedAt: Date.now() },
     });
-    const active = createTestReplyOperation({
-      sessionKey,
-      sessionId,
-    });
+    const active = await createAdmittedTestOperation({ sessionKey, sessionId, storePath });
     active.setPhase("preflight_compacting");
     active.updateSessionId(nextSessionId);
     await replaceSessionEntry({ sessionKey, storePath }, {
@@ -1005,7 +1011,7 @@ describe("reply turn admission", () => {
       sessionKey,
       sessionId,
       expectedSessionId: sessionId,
-      expectedActiveOperation: active,
+      expectedActiveOperations: [active],
       storePath,
     });
 
@@ -1023,10 +1029,7 @@ describe("reply turn admission", () => {
     const storePath = createSessionStore({
       [sessionKey]: { sessionId, updatedAt: Date.now() },
     });
-    const active = createTestReplyOperation({
-      sessionKey,
-      sessionId,
-    });
+    const active = await createAdmittedTestOperation({ sessionKey, sessionId, storePath });
     active.setPhase("preflight_compacting");
     active.updateSessionId(nextSessionId);
     await replaceSessionEntry({ sessionKey, storePath }, {
@@ -1094,10 +1097,7 @@ describe("reply turn admission", () => {
     const storePath = createSessionStore({
       [sessionKey]: { sessionId, updatedAt: Date.now() },
     });
-    const active = createTestReplyOperation({
-      sessionKey,
-      sessionId,
-    });
+    const active = await createAdmittedTestOperation({ sessionKey, sessionId, storePath });
     active.setPhase("preflight_compacting");
     active.updateSessionId(nextSessionId);
     await replaceSessionEntry({ sessionKey, storePath }, {
@@ -1105,12 +1105,13 @@ describe("reply turn admission", () => {
       updatedAt: Date.now(),
     } as SessionEntry);
     finish(active);
+    active.complete();
 
     const result = await admitTestReplyTurn({
       sessionKey,
       sessionId,
       expectedSessionId: sessionId,
-      expectedActiveOperation: active,
+      expectedActiveOperations: [active],
       storePath,
     });
 

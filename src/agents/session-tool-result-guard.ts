@@ -577,6 +577,7 @@ export function installSessionToolResultGuard(
   opts?: {
     /** Optional session key for transcript update broadcasts. */
     sessionKey?: string;
+    runId?: string;
     /** Optional agent id for selected-global transcript update broadcasts. */
     agentId?: string;
     /**
@@ -630,6 +631,7 @@ export function installSessionToolResultGuard(
   clearPendingToolResults: () => void;
   clearNextUserMessagePersistenceSuppression: () => void;
   getPendingIds: () => string[];
+  setTranscriptRunId: (runId: string | undefined) => void;
 } {
   const originalAppend = getRawSessionAppendMessage(sessionManager);
   setRawSessionAppendMessage(sessionManager, originalAppend);
@@ -654,6 +656,7 @@ export function installSessionToolResultGuard(
   const redactionConfig = opts?.redactLoggingConfig;
   const maxToolResultChars = resolveMaxToolResultChars(opts);
   const transcriptSeqByEntryId: TranscriptSeqByEntryId = new Map();
+  let transcriptRunId = opts?.runId;
   let suppressNextUserMessagePersistence = opts?.suppressNextUserMessagePersistence === true;
 
   const appendMessageAndCacheTranscriptSeq = (
@@ -690,6 +693,8 @@ export function installSessionToolResultGuard(
   const guardedAppendCompaction = ((
     ...args: Parameters<SessionManager["appendCompaction"]>
   ): string => {
+    // Replay supplies recorded identity; new boundaries inherit the owning run.
+    args[5] = { runId: transcriptRunId, ...args[5] };
     const append = () => originalAppendCompaction(...args);
     return opts?.withCompactionPersistence
       ? opts.withCompactionPersistence(append, isExpectedCompactionAppend)
@@ -931,6 +936,9 @@ export function installSessionToolResultGuard(
       suppressNextUserMessagePersistence = false;
     },
     getPendingIds: pendingState.getPendingIds,
+    setTranscriptRunId: (runId) => {
+      transcriptRunId = runId;
+    },
   };
 }
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

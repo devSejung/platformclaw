@@ -6,6 +6,9 @@ import {
   embeddedAgentLog,
   type HarnessContextEngine as ContextEngine,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { upsertSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
+import { readSessionTranscriptEvents } from "openclaw/plugin-sdk/session-transcript-runtime";
+import { closeOpenClawAgentDatabasesForTest } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   consumeCodexAppServerLiveThread,
@@ -182,6 +185,7 @@ describe("maybeCompactCodexAppServerSession", () => {
 
   afterEach(async () => {
     resetCodexAppServerClientFactoryForTest();
+    closeOpenClawAgentDatabasesForTest();
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
@@ -206,6 +210,40 @@ describe("maybeCompactCodexAppServerSession", () => {
     expect(details.signal).toBe("thread/compact/start");
     expect(details.pending).toBe(false);
     expect(details.completed).toBe(true);
+  });
+
+  it("persists manual native completion under its gateway operation identity", async () => {
+    const fake = createFakeCodexClient();
+    setCodexAppServerClientFactoryForTest(async () => fake.client);
+    const sessionFile = await writeTestBinding();
+    const sessionTarget = {
+      agentId: "main",
+      sessionId: "session-1",
+      sessionKey: "agent:main:session-1",
+      storePath: path.join(tempDir, "agents", "main", "agent", "openclaw-agent.sqlite"),
+    };
+    await upsertSessionEntry({ ...sessionTarget, entry: { sessionId: "session-1", updatedAt: 1 } });
+    await expect(
+      maybeCompactCodexAppServerSession({
+        sessionId: "session-1",
+        sessionKey: sessionTarget.sessionKey,
+        sessionTarget,
+        sessionFile,
+        runId: "gateway-compact-operation",
+        workspaceDir: tempDir,
+        trigger: "manual",
+      }),
+    ).resolves.toMatchObject({ ok: true, compacted: true });
+    expect(await readSessionTranscriptEvents(sessionTarget)).toMatchObject([
+      {
+        message: {
+          role: "custom",
+          customType: "openclaw.context-compaction",
+          __openclaw: { runId: "gateway-compact-operation", itemId: "compact-item-1" },
+          details: { threadId: "thread-1", turnId: "compact-turn-1" },
+        },
+      },
+    ]);
   });
 
   it("resubscribes an evicted session before compacting without displacing its sibling", async () => {

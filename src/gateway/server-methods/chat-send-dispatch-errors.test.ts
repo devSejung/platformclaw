@@ -1,10 +1,69 @@
 import { describe, expect, it, vi } from "vitest";
+import { DispatchSessionRefreshRequiredError } from "../../auto-reply/reply/dispatch-session-refresh-error.js";
 import { onAgentRuntimeEvent } from "../../infra/agent-events.js";
 import { abortChatRunById, registerChatAbortController } from "../chat-abort.js";
 import { createChatRunState } from "../server-chat-state.js";
 import { createChatSendDispatchErrorLifecycle } from "./chat-send-dispatch-errors.js";
 
 describe("createChatSendDispatchErrorLifecycle", () => {
+  it("publishes Refresh guidance and preserves the session-change diagnostic", async () => {
+    const broadcast = vi.fn();
+    const dedupe = new Map();
+    const lifecycle = createChatSendDispatchErrorLifecycle({
+      admission: {
+        activeRunAbort: {
+          cleanup: vi.fn(),
+          controller: new AbortController(),
+          entry: undefined,
+          registered: true,
+        } as never,
+        cleanupAdmittedRun: vi.fn(),
+        lifecycleGeneration: "test-generation",
+        restartSafeAdmission: undefined,
+      },
+      context: {
+        agentRunSeq: new Map(),
+        broadcast,
+        chatRunState: createChatRunState(),
+        dedupe,
+        getRuntimeConfig: () => ({}),
+        logGateway: { warn: vi.fn() },
+        nodeSendToSession: vi.fn(),
+        removeChatRun: vi.fn(),
+      } as never,
+      isQueuedFollowupEnqueued: () => false,
+      persistUserTurnTranscript: vi.fn(),
+      session: {
+        agentId: "main",
+        backingSessionId: "before-reset",
+        cfg: {},
+        clientRunId: "refresh-required",
+        now: 1,
+        rawSessionKey: "agent:main:main",
+        sessionKey: "agent:main:main",
+      },
+      terminalizeRestartSafeAdmission: vi.fn(),
+      userTurnRecorder: { hasPersisted: () => false, isBlocked: () => false },
+    });
+    await lifecycle.handleError(
+      new DispatchSessionRefreshRequiredError(
+        new Error("session rebound for sessionKey: agent:main:main"),
+      ),
+    );
+    const summary =
+      "Your message didn't run because the conversation changed. Refresh the conversation, then send it again." +
+      "\n\nDispatchSessionRefreshRequiredError: session rebound for sessionKey: agent:main:main";
+    expect(dedupe.get("chat:refresh-required")).toMatchObject({
+      ok: false,
+      payload: { runId: "refresh-required", status: "error", summary },
+    });
+    expect(broadcast).toHaveBeenCalledWith(
+      "chat",
+      expect.objectContaining({ runId: "refresh-required", state: "error", errorMessage: summary }),
+      { sessionKeys: ["agent:main:main"] },
+    );
+  });
+
   it("retains queued admission despite later dispatch failure", async () => {
     const broadcast = vi.fn();
     const cleanupAdmittedRun = vi.fn();

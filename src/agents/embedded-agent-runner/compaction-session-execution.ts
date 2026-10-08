@@ -137,6 +137,7 @@ export async function executePreparedCompactionSession(runtime: PreparedCompacti
       const transcriptPolicy = runtimePlan.transcript.resolvePolicy(runtimePlanModelContext);
       const sessionManager = guardSessionManager(SessionManager.open(sessionTarget), {
         agentId: sessionAgentId,
+        runId: params.runId,
         sessionKey: params.sessionKey,
         config: params.config,
         contextWindowTokens: contextTokenBudget,

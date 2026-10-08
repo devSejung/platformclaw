@@ -53,6 +53,12 @@ export type SessionAccessScope = {
   storePath?: string;
 };
 
+/** Opaque identity of one process-held session database incarnation. */
+export type SessionDatabaseIdentity = {
+  readonly identity: object;
+  isCurrent(): boolean;
+};
+
 export type LogicalSessionAccessScope = {
   /** Runtime config whose session store rules define the logical session owner. */
   cfg: OpenClawConfig;

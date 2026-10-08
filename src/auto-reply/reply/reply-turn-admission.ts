@@ -8,7 +8,11 @@ import {
 } from "../../agents/main-session-recovery-store.js";
 // Decides whether an inbound turn may start, queue, or abort a reply run.
 import { resolveSessionWorkStartError } from "../../config/sessions/lifecycle.js";
-import { loadSessionEntry } from "../../config/sessions/session-accessor.js";
+import {
+  captureSessionDatabaseIdentity,
+  loadSessionEntry,
+  type SessionDatabaseIdentity,
+} from "../../config/sessions/session-accessor.js";
 import type { InternalSessionEntry, SessionEntry } from "../../config/sessions/types.js";
 import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
 import { formatErrorMessage } from "../../infra/errors.js";
@@ -21,9 +25,12 @@ import {
   beginSessionWorkAdmission,
   type SessionWorkAdmissionLease,
 } from "../../sessions/session-lifecycle-admission.js";
+import { DispatchSessionRefreshRequiredError } from "./dispatch-session-refresh-error.js";
 import {
+  bindReplyOperationDatabaseIdentity,
   createReplyOperation,
   expireStaleReplyOperation,
+  hasReplyRunFollowupAdmissionBarrier,
   isReplyRunEvidenceStale,
   REPLY_RUN_IDLE_SETTLE_TIMEOUT_MS,
   REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS,
@@ -35,6 +42,7 @@ import {
   type ReplyOperation,
   waitForReplyRunFollowupAdmission,
 } from "./reply-run-registry.js";
+import { createReplyTurnRotationEvidence } from "./reply-turn-rotation.js";
 
 /** Kinds of turns that compete for one reply run slot per session. */
 type ReplyTurnKind = "visible" | "heartbeat" | "queued_followup";
@@ -47,6 +55,7 @@ type ReplyTurnAdmission =
       reason: "active-run" | "aborted" | "lifecycle-invalidated";
       activeOperation?: ReplyOperation;
       lifecycleAdmission?: SessionWorkAdmissionLease;
+      sessionEntry?: SessionEntry;
     };
 
 class QueuedFollowupLifecycleInvalidatedError extends Error {}
@@ -74,11 +83,16 @@ export async function runWithReplyOperationLifecycleAdmission<T>(
   return admission ? await admission.run(run) : await run();
 }
 
-function rejectLifecycleInvalidatedWork(params: { kind: ReplyTurnKind; message: string }): never {
+function rejectLifecycleInvalidatedWork(params: {
+  kind: ReplyTurnKind;
+  message: string;
+  transientSessionChange?: boolean;
+}): never {
   if (params.kind === "queued_followup") {
     throw new QueuedFollowupLifecycleInvalidatedError(params.message);
   }
-  throw new Error(params.message);
+  const error = new Error(params.message);
+  throw params.transientSessionChange ? new DispatchSessionRefreshRequiredError(error) : error;
 }
 
 function isAbortSignalAborted(signal: AbortSignal | undefined): boolean {
@@ -118,7 +132,7 @@ type ReplyTurnAdmissionParams = {
   sessionKey: string;
   sessionId: string;
   expectedSessionId?: string;
-  expectedActiveOperation?: ReplyOperation;
+  expectedActiveOperations?: readonly ReplyOperation[];
   storePath?: string;
   kind: ReplyTurnKind;
   resetTriggered: boolean;
@@ -168,6 +182,13 @@ async function admitReplyTurnWithWaitSignal(
 ): Promise<ReplyTurnAdmission> {
   let sessionId = params.sessionId;
   let expectedSessionId = params.expectedSessionId;
+  let admittedDatabaseIdentity: SessionDatabaseIdentity | undefined;
+  const lifecycleGeneration = getAgentEventLifecycleGeneration();
+  const rotationEvidence = createReplyTurnRotationEvidence({
+    sessionKey: params.sessionKey,
+    expectedActiveOperations: params.expectedActiveOperations,
+    activeAtAdmission: replyRunRegistry.get(params.sessionKey),
+  });
   const waitTimeoutMs =
     params.waitTimeoutMs ??
     (params.kind === "queued_followup" ? REPLY_RUN_IDLE_SETTLE_TIMEOUT_MS : undefined);
@@ -176,9 +197,22 @@ async function admitReplyTurnWithWaitSignal(
       return { status: "skipped", reason: "aborted" };
     }
     try {
+      if (lifecycleGeneration !== getAgentEventLifecycleGeneration()) {
+        rejectLifecycleInvalidatedWork({
+          kind: params.kind,
+          message: `Session "${params.sessionKey}" changed while starting work. Retry.`,
+          transientSessionChange: true,
+        });
+      }
+      if (params.kind !== "visible" && hasReplyRunFollowupAdmissionBarrier(params.sessionKey)) {
+        // Retain the completed owner's evidence before validating the store;
+        // compaction may already have replaced the queued turn's initial UUID.
+        throw new ReplyRunFollowupAdmissionBlockedError(params.sessionKey);
+      }
       const storePath = params.storePath;
       let operation: ReplyOperation | undefined;
       let admittedSessionEntry: InternalSessionEntry | undefined;
+      let databaseIdentity: SessionDatabaseIdentity | undefined;
       let recoveryOwnerLease: MainSessionRecoveryOwnerLease | undefined;
       let interruptedBeforeOperation = false;
       const admission = storePath
@@ -192,6 +226,22 @@ async function admitReplyTurnWithWaitSignal(
               params.onLifecycleInterrupt?.();
             },
             assertAllowed: () => {
+              databaseIdentity = captureSessionDatabaseIdentity({
+                storePath,
+                sessionKey: params.sessionKey,
+              });
+              if (
+                admittedDatabaseIdentity &&
+                (admittedDatabaseIdentity.identity !== databaseIdentity.identity ||
+                  !admittedDatabaseIdentity.isCurrent())
+              ) {
+                rejectLifecycleInvalidatedWork({
+                  kind: params.kind,
+                  message: `Session "${params.sessionKey}" changed while starting work. Retry.`,
+                  transientSessionChange: true,
+                });
+              }
+              admittedDatabaseIdentity = databaseIdentity;
               const currentEntry = loadSessionEntry({
                 storePath,
                 sessionKey: params.sessionKey,
@@ -202,31 +252,15 @@ async function admitReplyTurnWithWaitSignal(
                 rejectLifecycleInvalidatedWork({
                   kind: params.kind,
                   message: `Session "${params.sessionKey}" was deleted while starting work. Retry.`,
+                  transientSessionChange: true,
                 });
               }
-              const registeredOperation = replyRunRegistry.get(params.sessionKey);
-              const rotationOperation = [registeredOperation, params.expectedActiveOperation].find(
-                (candidate) => {
-                  if (
-                    !candidate ||
-                    !expectedSessionId ||
-                    currentEntry?.sessionId !== candidate.sessionId ||
-                    !candidate.hasOwnedSessionId(expectedSessionId)
-                  ) {
-                    return false;
-                  }
-                  if (
-                    candidate.result?.kind === "aborted" &&
-                    candidate.result.code === "aborted_for_restart"
-                  ) {
-                    return false;
-                  }
-                  return candidate === registeredOperation || candidate.result !== null;
-                },
-              );
-              const activeOperationRotatedExpectedSession = Boolean(
-                rotationOperation && currentEntry?.sessionId === rotationOperation.sessionId,
-              );
+              const activeOperationRotatedExpectedSession =
+                rotationEvidence.hasExpectedSessionRotation({
+                  expectedSessionId,
+                  sessionId: currentEntry?.sessionId,
+                  databaseIdentity,
+                });
               if (
                 expectedSessionId &&
                 currentEntry?.sessionId !== expectedSessionId &&
@@ -235,6 +269,7 @@ async function admitReplyTurnWithWaitSignal(
                 rejectLifecycleInvalidatedWork({
                   kind: params.kind,
                   message: `Session "${params.sessionKey}" changed while starting work. Retry.`,
+                  transientSessionChange: true,
                 });
               }
               if (activeOperationRotatedExpectedSession) {
@@ -275,6 +310,7 @@ async function admitReplyTurnWithWaitSignal(
             rejectLifecycleInvalidatedWork({
               kind: params.kind,
               message: `Session "${params.sessionKey}" changed while starting work. Retry.`,
+              transientSessionChange: true,
             });
           }
           recoveryOwnerLease = ownerClaim.kind === "claimed" ? ownerClaim.lease : undefined;
@@ -283,6 +319,7 @@ async function admitReplyTurnWithWaitSignal(
           rejectLifecycleInvalidatedWork({
             kind: params.kind,
             message: `Session "${params.sessionKey}" changed while starting work. Retry.`,
+            transientSessionChange: true,
           });
         }
         if (params.adoptOperation) {
@@ -290,6 +327,7 @@ async function admitReplyTurnWithWaitSignal(
           // so the reservation must move rather than be recreated. Throws
           // ReplyRunAlreadyActiveError into the shared busy handling below.
           params.adoptOperation.updateSessionKey(params.sessionKey);
+          params.adoptOperation.updateSessionId(sessionId);
           operation = params.adoptOperation;
         } else {
           operation = createReplyOperation({
@@ -320,6 +358,7 @@ async function admitReplyTurnWithWaitSignal(
             reason: "active-run",
             activeOperation: replyRunRegistry.get(params.sessionKey),
             lifecycleAdmission: admission,
+            ...(admittedSessionEntry ? { sessionEntry: admittedSessionEntry } : {}),
           };
         }
         admission?.release();
@@ -327,6 +366,9 @@ async function admitReplyTurnWithWaitSignal(
         throw error;
       }
       if (admission) {
+        if (databaseIdentity) {
+          bindReplyOperationDatabaseIdentity(operation, databaseIdentity);
+        }
         // The lifecycle fence follows hooks, media work, agent execution, and
         // final delivery. Reset/delete interrupts the operation and waits until
         // its actual owner clears it before mutating the persisted session.
@@ -373,9 +415,13 @@ async function admitReplyTurnWithWaitSignal(
             reason: isAbortSignalAborted(params.upstreamAbortSignal) ? "aborted" : "active-run",
           };
         }
-        sessionId = followupAdmission.sessionId ?? sessionId;
-        if (expectedSessionId && followupAdmission.sessionId) {
-          expectedSessionId = followupAdmission.sessionId;
+        rotationEvidence.recordBarrierSources(followupAdmission.sources);
+        if (!params.storePath) {
+          const rotation = rotationEvidence.takeStorelessRotation(expectedSessionId);
+          sessionId = rotation?.sessionId ?? sessionId;
+          if (expectedSessionId && rotation) {
+            expectedSessionId = rotation.sessionId;
+          }
         }
         continue;
       }
@@ -416,17 +462,13 @@ async function admitReplyTurnWithWaitSignal(
         };
       }
       if (activeOperation) {
-        sessionId = activeOperation.sessionId;
-        // In-lane compaction may rotate the active operation's persisted ID.
-        // Lifecycle reset aborts use a distinct result and must stay invalidated.
-        if (
-          expectedSessionId &&
-          !(
-            activeOperation.result?.kind === "aborted" &&
-            activeOperation.result.code === "aborted_for_restart"
-          )
-        ) {
-          expectedSessionId = activeOperation.sessionId;
+        rotationEvidence.recordCompletedOperation(activeOperation);
+        if (!params.storePath) {
+          const rotation = rotationEvidence.takeStorelessRotation(expectedSessionId);
+          sessionId = rotation?.sessionId ?? sessionId;
+          if (expectedSessionId && rotation) {
+            expectedSessionId = rotation.sessionId;
+          }
         }
       }
     }

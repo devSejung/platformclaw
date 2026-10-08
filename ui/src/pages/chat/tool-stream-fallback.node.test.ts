@@ -12,24 +12,17 @@ import {
   type FallbackStatus,
 } from "./tool-stream.ts";
 
-function expectCompactionCompleteAndAutoClears(host: ReturnType<typeof createHost>) {
+function expectPersistentCompactionComplete(host: ReturnType<typeof createHost>) {
   expect(host.compactionStatus).toEqual({
     phase: "complete",
     runId: "run-1",
     startedAt: TOOL_STREAM_TEST_NOW,
     completedAt: TOOL_STREAM_TEST_NOW,
   });
-  const clearTimer = host.compactionClearTimer as unknown as {
-    hasRef?: unknown;
-    ref?: unknown;
-    unref?: unknown;
-  };
-  expect(typeof clearTimer.hasRef).toBe("function");
-  expect(typeof clearTimer.ref).toBe("function");
-  expect(typeof clearTimer.unref).toBe("function");
-
+  expect(host.compactionClearTimer).toBeNull();
+  const completed = host.compactionStatus;
   vi.advanceTimersByTime(5_000);
-  expect(host.compactionStatus).toBeNull();
+  expect(host.compactionStatus).toBe(completed);
   expect(host.compactionClearTimer).toBeNull();
 }
 
@@ -627,7 +620,7 @@ describe("app-tool-stream fallback lifecycle handling", () => {
 
     handleAgentEvent(host, agentEvent("run-1", 4, "lifecycle", { phase: "end" }));
 
-    expectCompactionCompleteAndAutoClears(host);
+    expectPersistentCompactionComplete(host);
 
     vi.useRealTimers();
   });
@@ -857,7 +850,7 @@ describe("app-tool-stream fallback lifecycle handling", () => {
 
     handleAgentEvent(host, agentEvent("run-1", 3, "lifecycle", { phase: "error", error: "boom" }));
 
-    expectCompactionCompleteAndAutoClears(host);
+    expectPersistentCompactionComplete(host);
 
     vi.useRealTimers();
   });

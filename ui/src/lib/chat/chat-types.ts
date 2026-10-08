@@ -68,6 +68,8 @@ export type ChatItem =
       kind: "divider";
       key: string;
       label: string;
+      compaction?: "active" | "complete";
+      compactionId?: string;
       metric?: string;
       description?: string;
       action?: { kind: "session-checkpoints"; label: string };

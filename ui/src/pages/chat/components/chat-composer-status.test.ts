@@ -2,7 +2,9 @@ import { render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../../i18n/index.ts";
 import { captureI18nStateForTesting } from "../../../i18n/lib/translate.test-support.ts";
-import { renderCompactionIndicator, renderFallbackIndicator } from "./chat-composer-status.ts";
+import { buildCompactionDividerItem } from "../chat-progress.ts";
+import { renderFallbackIndicator } from "./chat-composer-status.ts";
+import { renderChatDivider } from "./chat-divider.ts";
 
 describe("chat composer status localization", () => {
   let restoreI18nState: () => Promise<void>;
@@ -20,16 +22,8 @@ describe("chat composer status localization", () => {
   });
 
   it("renders translated compaction and fallback status", () => {
-    render(
-      renderCompactionIndicator({
-        phase: "active",
-        runId: "run-1",
-        startedAt: 1_000,
-        completedAt: null,
-      }),
-      document.body,
-    );
-    expect(document.querySelector(".compaction-indicator")?.textContent?.trim()).toBe(
+    render(renderChatDivider(buildCompactionDividerItem({}, 1_000, 0, "active")), document.body);
+    expect(document.querySelector(".chat-divider__title")?.textContent?.trim()).toBe(
       "Kontext wird komprimiert...",
     );
 

@@ -23,6 +23,7 @@ import { readCodexNotificationItem } from "./attempt-notifications.js";
 import { resolveCodexBindingAppServerConnection } from "./binding-connection.js";
 import { consumeCodexAppServerLiveThread } from "./client-runtime.js";
 import { CodexAppServerRpcError, type CodexAppServerClient } from "./client.js";
+import { persistCodexContextCompactionActivity } from "./context-compaction-activity.js";
 import {
   readCodexNotificationThreadId,
   readCodexNotificationTurnId,
@@ -57,7 +58,9 @@ type CodexAppServerCompactOptions = {
   nativeInterruptGraceMs?: number;
 };
 
-type CodexNativeCompactionCompletion = { completed: true } | { completed: false; reason: string };
+type CodexNativeCompactionCompletion =
+  | { completed: true; turnId: string; itemId: string }
+  | { completed: false; reason: string };
 
 function watchCodexNativeCompactionCompletion(params: {
   client: CodexAppServerClient;
@@ -138,8 +141,8 @@ function watchCodexNativeCompactionCompletion(params: {
         // This exact InvalidRequest proves the target turn was already terminal.
         if (isCodexAlreadyTerminalInterruptError(error)) {
           finish(
-            compactionItemCompleted
-              ? { completed: true }
+            compactionItemCompleted && compactionTurnId && compactionItemId
+              ? { completed: true, turnId: compactionTurnId, itemId: compactionItemId }
               : {
                   completed: false,
                   reason:
@@ -257,7 +260,7 @@ function watchCodexNativeCompactionCompletion(params: {
       });
       return;
     }
-    finish({ completed: true });
+    finish({ completed: true, turnId: compactionTurnId, itemId: compactionItemId });
   });
   removeCloseHandler = params.client.addCloseHandler(() => {
     retireUnconfirmed("codex app-server closed before native compaction completed");
@@ -728,6 +731,16 @@ async function compactCodexNativeThread(
           if (!completion.completed) {
             throw new Error(completion.reason);
           }
+          await persistCodexContextCompactionActivity({
+            sessionTarget: params.sessionTarget,
+            config: params.config,
+            cwd: params.workspaceDir,
+            runId: params.runId,
+            threadId: binding.threadId,
+            turnId: completion.turnId,
+            itemId: completion.itemId,
+            timestamp: Date.now(),
+          });
           embeddedAgentLog.info("completed codex app-server compaction", {
             sessionId: params.sessionId,
             threadId: binding.threadId,

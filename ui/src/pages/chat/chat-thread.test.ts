@@ -3564,7 +3564,7 @@ describe("buildCachedChatItems", () => {
     expect(preview.title).toBe("Streamed demo");
   });
 
-  it("explains compaction boundaries and exposes the checkpoint action", () => {
+  it("keeps completed compaction concise and preserves the checkpoint action", () => {
     const items = buildCachedChatItems(
       createProps({
         messages: [
@@ -3583,10 +3583,9 @@ describe("buildCachedChatItems", () => {
     expect(items).toHaveLength(1);
     const divider = requireRecord(items[0]);
     expect(divider.kind).toBe("divider");
-    expect(divider.label).toBe("Compacted history");
-    expect(divider.description).toBe(
-      "The compacted transcript is preserved as a checkpoint. Open thread checkpoints to branch or restore from that compacted view.",
-    );
+    expect(divider.label).toBe("Context compacted");
+    expect(divider.compaction).toBe("complete");
+    expect(divider.description).toBeUndefined();
     const action = requireRecord(divider.action);
     expect(action.kind).toBe("session-checkpoints");
     expect(action.label).toBe("Open checkpoints");
@@ -3612,7 +3611,7 @@ describe("buildCachedChatItems", () => {
 
     expect(items[0]).toMatchObject({
       kind: "divider",
-      label: "Compacted history",
+      label: "Context compacted",
       metric: "saved 875.3k tokens",
     });
   });

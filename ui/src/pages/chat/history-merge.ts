@@ -6,8 +6,39 @@ import {
   type SessionProjectionScope,
   type SessionProjectionState,
 } from "@openclaw/gateway-client/browser";
+import { matchesCompactionOperation } from "./chat-progress.ts";
+import type { CompactionStatus } from "./tool-stream.ts";
 
 const chatSessionProjections = new WeakMap<object, SessionProjectionState>();
+const projectionScopeKeys = [
+  "sessionKey",
+  "sessionId",
+  "agentId",
+  "lifecycleRevision",
+  "activeLeafEntryId",
+] as const;
+
+function changedProjectionScope(current: SessionProjectionState, scope: SessionProjectionScope) {
+  return projectionScopeKeys.filter(
+    (key) =>
+      Object.hasOwn(scope, key) &&
+      current.scope[key] !== undefined &&
+      current.scope[key] !== scope[key],
+  );
+}
+
+type CompactionProjectionOwner = {
+  compactionStatus?: CompactionStatus | null;
+  compactionClearTimer?: number | null;
+};
+
+export function resetChatCompactionProjection(owner: CompactionProjectionOwner): void {
+  if (owner.compactionClearTimer != null) {
+    clearTimeout(owner.compactionClearTimer);
+    owner.compactionClearTimer = null;
+  }
+  owner.compactionStatus = null;
+}
 
 type ChatSessionProjectionOwner = {
   sessionKey: string;
@@ -53,26 +84,14 @@ export function getChatSessionProjection(
   scope: SessionProjectionScope = {},
 ): SessionProjectionState {
   const current = chatSessionProjections.get(owner);
-  const scopeChanged =
-    current !== undefined &&
-    (
-      ["sessionKey", "sessionId", "agentId", "lifecycleRevision", "activeLeafEntryId"] as const
-    ).some((key) => {
-      if (!Object.hasOwn(scope, key)) {
-        return false;
-      }
-      const previous = current.scope[key];
-      return previous !== undefined && previous !== scope[key];
-    });
+  const scopeChanged = current !== undefined && changedProjectionScope(current, scope).length > 0;
   if (!current || scopeChanged) {
     const projection = createSessionProjection(scope, messages);
-    chatSessionProjections.set(owner, projection);
+    setChatSessionProjection(owner, projection);
     return projection;
   }
 
-  const bindsScope = (
-    ["sessionKey", "sessionId", "agentId", "lifecycleRevision", "activeLeafEntryId"] as const
-  ).some(
+  const bindsScope = projectionScopeKeys.some(
     (key) =>
       Object.hasOwn(scope, key) && current.scope[key] === undefined && scope[key] !== undefined,
   );
@@ -94,6 +113,22 @@ export function getChatSessionProjection(
 }
 
 export function setChatSessionProjection(owner: object, projection: SessionProjectionState): void {
+  const current = chatSessionProjections.get(owner);
+  const statusOwner = owner as CompactionProjectionOwner;
+  if (current) {
+    const changed = changedProjectionScope(current, projection.scope);
+    const status = statusOwner.compactionStatus;
+    // A compacted marker advances the active leaf. Keep its live identity through
+    // that handoff, but never carry transient status into another session or branch.
+    if (
+      changed.length > 0 &&
+      (changed.some((key) => key !== "activeLeafEntryId") ||
+        !status ||
+        !projection.messages.some((message) => matchesCompactionOperation(message, status)))
+    ) {
+      resetChatCompactionProjection(statusOwner);
+    }
+  }
   chatSessionProjections.set(owner, projection);
 }
 
@@ -107,9 +142,18 @@ export function reduceChatSessionProjection(
   } = {},
 ): SessionProjectionState {
   const scope = options.scope ?? readChatSessionProjectionScope(owner);
-  const current = getChatSessionProjection(owner, options.messages ?? owner.chatMessages, scope);
+  const previous = chatSessionProjections.get(owner);
+  // A history snapshot can advance the compacted leaf. Publish its marker and
+  // scope together so an intermediate empty projection cannot retire the live row.
+  const current =
+    previous && changedProjectionScope(previous, scope).length > 0
+      ? createSessionProjection(scope, options.messages ?? owner.chatMessages)
+      : getChatSessionProjection(owner, options.messages ?? owner.chatMessages, scope);
   const projection = reduceSessionProjection(current, { ...event, scope });
-  if (projection !== current) {
+  if (event.type === "sessionReset") {
+    resetChatCompactionProjection(owner as CompactionProjectionOwner);
+  }
+  if (projection !== current || current !== previous) {
     setChatSessionProjection(owner, projection);
     owner.chatMessages = [...projection.messages];
   }

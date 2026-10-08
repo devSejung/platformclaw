@@ -7,6 +7,7 @@ import {
   resolveIntegerOption,
   resolveNonNegativeIntegerOption,
 } from "@openclaw/normalization-core/number-coercion";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import {
   deriveSessionTotalTokens,
@@ -883,6 +884,7 @@ function parsedSessionEntryToMessage(parsed: unknown, seq: number): unknown {
   // Compaction entries are not "message" records, but they're useful context for debugging.
   // Emit a lightweight synthetic message that the Web UI can render as a divider.
   if (entry.type === "compaction") {
+    const identity = isRecord(entry.__openclaw) ? entry.__openclaw : undefined;
     const ts = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
     const timestamp = Number.isFinite(ts) ? ts : Date.now();
     return {
@@ -892,6 +894,8 @@ function parsedSessionEntryToMessage(parsed: unknown, seq: number): unknown {
       __openclaw: {
         kind: "compaction",
         id: typeof entry.id === "string" ? entry.id : undefined,
+        ...(typeof identity?.runId === "string" ? { runId: identity.runId } : {}),
+        ...(typeof identity?.itemId === "string" ? { itemId: identity.itemId } : {}),
         seq,
       },
     };

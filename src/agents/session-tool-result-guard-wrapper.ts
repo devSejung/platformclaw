@@ -35,6 +35,8 @@ type GuardedSessionManager = SessionManager & {
   clearPendingToolResults?: () => void;
   /** Persist the next user message when an earlier canonical entry was removed. */
   clearNextUserMessagePersistenceSuppression?: () => void;
+  /** Reused managers must record new boundaries under their current owning run. */
+  setTranscriptRunId?: (runId: string | undefined) => void;
 };
 
 /**
@@ -45,6 +47,7 @@ export function guardSessionManager(
   sessionManager: SessionManager,
   opts?: {
     agentId?: string;
+    runId?: string;
     sessionKey?: string;
     config?: OpenClawConfig;
     contextWindowTokens?: number;
@@ -85,6 +88,7 @@ export function guardSessionManager(
   },
 ): GuardedSessionManager {
   if (typeof (sessionManager as GuardedSessionManager).flushPendingToolResults === "function") {
+    (sessionManager as GuardedSessionManager).setTranscriptRunId?.(opts?.runId);
     return sessionManager as GuardedSessionManager;
   }
 
@@ -171,6 +175,7 @@ export function guardSessionManager(
   const guard = installSessionToolResultGuard(sessionManager, {
     sessionKey: opts?.sessionKey,
     agentId: opts?.agentId,
+    runId: opts?.runId,
     transformMessageForPersistence: (message) => {
       queuedUserTurnTranscriptRecorder = undefined;
       const withProvenance = applyInputProvenanceToUserMessage(message, opts?.inputProvenance);
@@ -235,6 +240,7 @@ export function guardSessionManager(
   });
   (sessionManager as GuardedSessionManager).flushPendingToolResults = guard.flushPendingToolResults;
   (sessionManager as GuardedSessionManager).clearPendingToolResults = guard.clearPendingToolResults;
+  (sessionManager as GuardedSessionManager).setTranscriptRunId = guard.setTranscriptRunId;
   (sessionManager as GuardedSessionManager).clearNextUserMessagePersistenceSuppression =
     guard.clearNextUserMessagePersistenceSuppression;
   return sessionManager as GuardedSessionManager;
