@@ -206,22 +206,20 @@ describe("PlatformClaw VM administration", () => {
     });
   });
 
-  it("submits VM-specific PATH and build variables", async () => {
+  it.each([0, 1])("submits VM-specific PATH and build variables for host %i", async (index) => {
     const snapshot = {
       ...SNAPSHOT,
-      hosts: [
-        {
-          id: "vm-one",
-          endpointId: "endpoint-one",
-          label: "Development VM",
-          targetAddress: "192.0.2.10",
-          status: "active" as const,
-          executionEnvironment: {
-            pathPrepend: ["/opt/old/bin"],
-            variables: { OLD_PREFIX: "/opt/old/bin/prefix-" },
-          },
+      hosts: [0, 1].map((hostIndex) => ({
+        id: `vm-${hostIndex}`,
+        endpointId: "endpoint-one",
+        label: `Development VM ${hostIndex}`,
+        targetAddress: `192.0.2.${10 + hostIndex}`,
+        status: "active" as const,
+        executionEnvironment: {
+          pathPrepend: ["/opt/old/bin"],
+          variables: { OLD_PREFIX: "/opt/old/bin/prefix-" },
         },
-      ],
+      })),
     };
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot));
     mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
@@ -233,9 +231,9 @@ describe("PlatformClaw VM administration", () => {
         element.shadowRoot?.querySelector("form[data-action='update-host-execution-environment']"),
       ).not.toBeNull(),
     );
-    const form = element.shadowRoot?.querySelector<HTMLFormElement>(
+    const form = element.shadowRoot?.querySelectorAll<HTMLFormElement>(
       "form[data-action='update-host-execution-environment']",
-    );
+    )[index];
     if (!form) {
       throw new Error("VM environment form is missing");
     }
@@ -248,7 +246,7 @@ describe("PlatformClaw VM administration", () => {
 
     expect(parseRequestBody(fetchImpl.mock.calls[1]?.[1])).toEqual({
       action: "update-host-execution-environment",
-      vmHostId: "vm-one",
+      vmHostId: `vm-${index}`,
       executionEnvironment: {
         pathPrepend: ["/opt/clang/bin", "/opt/gcc/bin"],
         variables: {
@@ -257,6 +255,65 @@ describe("PlatformClaw VM administration", () => {
         },
       },
     });
+  });
+
+  it("submits edits for the second disabled host after a rerender", async () => {
+    const snapshot = {
+      ...SNAPSHOT,
+      endpoints: [
+        {
+          id: "endpoint-one",
+          label: "Access",
+          host: "example.test",
+          port: 22,
+          adDomain: "example.test",
+          status: "active",
+        },
+      ],
+      hosts: [0, 1].map((index) => ({
+        id: `vm-${index}`,
+        endpointId: "endpoint-one",
+        label: `VM ${index}`,
+        targetAddress: `192.0.2.${10 + index}`,
+        status: "disabled",
+      })),
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot));
+    mountPlatformClawVmAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+    const root = document.querySelector("platformclaw-vm-administration")!.shadowRoot!;
+    await vi.waitFor(() => expect(root.querySelector("[data-open]")).not.toBeNull());
+    root.querySelector<HTMLButtonElement>("[data-open]")!.click();
+    for (const label of ["Updated VM", "Updated again"]) {
+      await vi.waitFor(() =>
+        expect(root.querySelectorAll("form[data-action='update-host']")).toHaveLength(2),
+      );
+      await vi.waitFor(() =>
+        expect(
+          root
+            .querySelectorAll<HTMLFormElement>("form[data-action='update-host']")[1]!
+            .querySelector<HTMLButtonElement>("button")!.disabled,
+        ).toBe(false),
+      );
+      const form = root.querySelectorAll<HTMLFormElement>("form[data-action='update-host']")[1]!;
+      (form.elements.namedItem("label") as HTMLInputElement).value = label;
+      form.requestSubmit();
+      await vi.waitFor(() =>
+        expect(fetchImpl).toHaveBeenLastCalledWith(
+          "/platformclaw/api/admin/vm",
+          expect.objectContaining({
+            method: "POST",
+            body: JSON.stringify({
+              action: "update-host",
+              vmHostId: "vm-1",
+              endpointId: "endpoint-one",
+              label,
+              targetAddress: "192.0.2.11",
+            }),
+          }),
+        ),
+      );
+    }
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   it("does not reopen after Escape while administration refresh is pending", async () => {
