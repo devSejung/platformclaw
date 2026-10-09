@@ -1,5 +1,23 @@
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
-import type { HeartbeatEventPayload } from "./heartbeat-events.js";
+
+type HeartbeatIndicatorType = "ok" | "alert" | "error";
+
+export type HeartbeatEventPayload = {
+  ts: number;
+  status: "sent" | "ok-empty" | "ok-token" | "skipped" | "failed";
+  to?: string;
+  accountId?: string;
+  preview?: string;
+  durationMs?: number;
+  hasMedia?: boolean;
+  reason?: string;
+  /** The channel this heartbeat was sent to. */
+  channel?: string;
+  /** Whether the message was silently suppressed (showOk: false). */
+  silent?: boolean;
+  /** Indicator type for UI status display. */
+  indicatorType?: HeartbeatIndicatorType;
+};
 
 type HeartbeatEventState = {
   lastHeartbeat: HeartbeatEventPayload | null;

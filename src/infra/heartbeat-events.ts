@@ -1,29 +1,15 @@
 // Stores and broadcasts heartbeat status events for UI surfaces.
 import { notifyListeners, registerListener } from "../shared/listeners.js";
-import { heartbeatEventState as state } from "./heartbeat-events-state.js";
+import {
+  type HeartbeatEventPayload,
+  heartbeatEventState as state,
+} from "./heartbeat-events-state.js";
 
-type HeartbeatIndicatorType = "ok" | "alert" | "error";
-
-export type HeartbeatEventPayload = {
-  ts: number;
-  status: "sent" | "ok-empty" | "ok-token" | "skipped" | "failed";
-  to?: string;
-  accountId?: string;
-  preview?: string;
-  durationMs?: number;
-  hasMedia?: boolean;
-  reason?: string;
-  /** The channel this heartbeat was sent to. */
-  channel?: string;
-  /** Whether the message was silently suppressed (showOk: false). */
-  silent?: boolean;
-  /** Indicator type for UI status display. */
-  indicatorType?: HeartbeatIndicatorType;
-};
+export type { HeartbeatEventPayload } from "./heartbeat-events-state.js";
 
 export function resolveIndicatorType(
   status: HeartbeatEventPayload["status"],
-): HeartbeatIndicatorType | undefined {
+): HeartbeatEventPayload["indicatorType"] {
   switch (status) {
     case "ok-empty":
     case "ok-token":
