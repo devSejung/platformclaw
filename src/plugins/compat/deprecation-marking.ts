@@ -171,7 +171,6 @@ export const DEPRECATION_MARKING_COMPAT_RECORDS = [
       "reduceInteractiveReply",
       "@openclaw/discord buildDiscordInteractiveComponents",
       "@openclaw/slack buildSlackInteractiveBlocks",
-      "@openclaw/telegram buildTelegramInteractiveButtons",
     ],
     diagnostics: [
       "TypeScript @deprecated annotations naming MessagePresentation replacements",
@@ -183,7 +182,7 @@ export const DEPRECATION_MARKING_COMPAT_RECORDS = [
       "src/plugins/compat/registry.test.ts",
     ],
     releaseNote:
-      "Legacy interactive reply values and channel-specific rendering bridges remain available while producers migrate to MessagePresentation.",
+      "Legacy interactive replies remain supported through presentation conversion. Discord and Slack retain their published renderer adapters; Telegram no longer owns a separate private legacy renderer.",
   },
   {
     code: "plugin-sdk-focused-compat-aliases",
@@ -306,13 +305,11 @@ export const DEPRECATION_MARKING_COMPAT_RECORDS = [
     deprecated: MARKING_DATE,
     warningStarts: MARKING_DATE,
     removeAfter: DEFAULT_REMOVE_AFTER,
-    replacement: "canonical memory cache/FTS tables and getRuntimeConfig or caller-provided config",
+    replacement: "canonical memory cache/FTS tables with migration of existing custom-table data",
     docsPath: "/plugins/sdk-migration#compatibility-policy",
     surfaces: [
       "@openclaw/memory-host-sdk ensureMemoryIndexSchema.embeddingCacheTable",
       "@openclaw/memory-host-sdk ensureMemoryIndexSchema.ftsTable",
-      "@openclaw/memory-host-sdk/runtime-core loadConfig",
-      "@openclaw/memory-host-sdk/host/openclaw-runtime loadConfig",
     ],
     diagnostics: [
       "TypeScript @deprecated annotations on memory-host SDK compatibility fields",
@@ -323,7 +320,7 @@ export const DEPRECATION_MARKING_COMPAT_RECORDS = [
       "src/plugins/compat/registry.test.ts",
     ],
     releaseNote:
-      "Memory-host cache-table overrides and runtime config reload aliases remain available while callers migrate to canonical tables and prepared config.",
+      "Memory-host cache-table overrides remain supported while existing data migrates to canonical tables. Unused private runtime config reload aliases have been removed.",
   },
   {
     code: "plugin-runtime-api-compat-aliases",

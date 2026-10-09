@@ -96,10 +96,20 @@ surface while its stated reader or migration condition remains unmet.
 | `plugin-sdk-focused-compat-aliases`       | Prove every enumerated alias has no bundled or published reader.                                        | 2026-10-01    |
 | `agent-harness-terminal-result-aliases`   | Move harnesses to `terminal` and `visibleReplies`, then prove the legacy result fields are unread.      | 2026-10-01    |
 | `official-plugin-export-aliases`          | Move users of Google Meet testing, channel presentation, and Discord timeout exports to canonical APIs. | 2026-10-01    |
-| `memory-host-compatibility-aliases`       | Use canonical memory tables and prepared runtime config everywhere.                                     | 2026-10-01    |
+| `memory-host-compatibility-aliases`       | Use canonical memory tables while preserving existing custom-table data during migration.               | 2026-10-01    |
 | `plugin-runtime-api-compat-aliases`       | Move flat plugin registration/runtime calls to their namespaced or focused replacements.                | 2026-10-01    |
 | `plugin-provider-manifest-compat-aliases` | Move kind/setup/catalog ownership to manifests and model-catalog registration.                          | 2026-10-01    |
 | `deprecated-session-store-beta5-api`      | End the v2026.7.x whole-store upgrade window, including package-root aliases.                           | 2026-10-12    |
+
+Discord and Slack retain their published legacy renderer exports as conversion
+adapters to the canonical presentation renderers. Bundled channel callers use
+presentation rendering after converting legacy payloads; Telegram no longer
+owns a separate private legacy renderer. Legacy payload fields remain supported
+until the producer and reader removal conditions above are satisfied.
+
+The private memory-host package no longer re-exports `loadConfig`. Memory
+callers use prepared config or `getRuntimeConfig`. Custom cache and FTS table
+overrides remain supported to preserve existing data.
 
 `pnpm plugins:boundary-report` reports `removal-pending` records separately
 from deprecated records. A due `removal-pending` record remains blocked until

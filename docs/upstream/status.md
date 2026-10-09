@@ -10,6 +10,14 @@
 
 ### PlatformClaw downstream policy repairs
 
+- The follow-up channel renderer cleanup selectively adopts upstream Discord
+  `0a79ae5fd04`, Slack `ec091478fc3`, and Telegram `15e9bea3cbb`. Bundled
+  consumers convert legacy interactive payloads into the canonical presentation
+  renderer. Published Discord and Slack adapters remain supported; Telegram's
+  private duplicate renderer is removed. Compatibility dates and gates stay
+  unchanged pending the remaining producer and published-reader migrations.
+  It also adopts only the unused private memory-host `loadConfig` export removal
+  from `9bcf9e97cff0`, preserving custom cache/FTS table overrides and their data.
 - The 2026-10-09 compaction port selectively adopts upstream PRs #135988
   (`40fcb8392a12`), #136169 (`107b259db213`), #157169 (`1f322ea64e41`), and
   #152958 (`1d697aa9660c`), plus the native Codex transcript prerequisite

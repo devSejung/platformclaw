@@ -60,6 +60,12 @@ const loadDiscordSharedInteractive = createLazyRuntimeModule(
   () => import("./shared-interactive.js"),
 );
 
+// Plain and prepared native sends must not eagerly load portable rendering helpers.
+const loadLegacyInteractiveReplyToPresentation = createLazyRuntimeNamedExport(
+  () => import("openclaw/plugin-sdk/interactive-runtime"),
+  "legacyInteractiveReplyToPresentation",
+);
+
 function addPayloadTextFallback(
   spec: DiscordComponentMessageSpec,
   payload: Pick<OutboundPayload, "text">,
@@ -183,8 +189,9 @@ export async function resolveDiscordComponentSpec(
   if (!payload.interactive) {
     return undefined;
   }
-  const interactiveSpec = (await loadDiscordSharedInteractive()).buildDiscordInteractiveComponents(
-    payload.interactive,
+  const toPresentation = await loadLegacyInteractiveReplyToPresentation();
+  const interactiveSpec = (await loadDiscordSharedInteractive()).buildDiscordPresentationComponents(
+    toPresentation(payload.interactive),
   );
   return interactiveSpec ? addPayloadTextFallback(interactiveSpec, payload) : undefined;
 }
