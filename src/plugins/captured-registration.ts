@@ -310,8 +310,55 @@ export function createCapturedPluginRegistration(params?: {
         registerMigrationProvider(provider: MigrationProviderPlugin) {
           migrationProviders.push(provider);
         },
-        registerSessionExtension(extension: PluginSessionExtensionRegistration) {
-          sessionExtensions.push(extension);
+        session: {
+          state: {
+            registerSessionExtension(extension: PluginSessionExtensionRegistration) {
+              sessionExtensions.push(extension);
+            },
+          },
+          workflow: {
+            registerSessionSchedulerJob(job: PluginSessionSchedulerJobRegistration) {
+              sessionSchedulerJobs.push(job);
+              return {
+                id: job.id,
+                pluginId,
+                sessionKey: job.sessionKey,
+                kind: job.kind,
+              };
+            },
+            sendSessionAttachment: async () => ({ ok: false, error: "captured registration" }),
+            scheduleSessionTurn: async (schedule) => {
+              capturedSessionTurnCount += 1;
+              return {
+                id: `captured-session-turn-${capturedSessionTurnCount}`,
+                pluginId,
+                sessionKey: schedule.sessionKey,
+                kind: "session-turn",
+              };
+            },
+            unscheduleSessionTurnsByTag: async () => ({ removed: 0, failed: 0 }),
+          },
+          controls: {
+            registerSessionAction(action: PluginSessionActionRegistration) {
+              sessionActions.push(action);
+            },
+            registerControlUiDescriptor(descriptor: PluginControlUiDescriptor) {
+              controlUiDescriptors.push(descriptor);
+            },
+          },
+        },
+        agent: {
+          events: {
+            registerAgentEventSubscription(subscription: PluginAgentEventSubscriptionRegistration) {
+              agentEventSubscriptions.push(subscription);
+            },
+            emitAgentEvent: () => ({ emitted: false, reason: "captured registration" }),
+          },
+        },
+        lifecycle: {
+          registerRuntimeLifecycle(lifecycle: PluginRuntimeLifecycleRegistration) {
+            runtimeLifecycles.push(lifecycle);
+          },
         },
         registerTrustedToolPolicy(policy: PluginTrustedToolPolicyRegistration) {
           const matcher = normalizePluginToolMatcher(policy.matcher);
@@ -320,39 +367,6 @@ export function createCapturedPluginRegistration(params?: {
         registerToolMetadata(metadata: PluginToolMetadataRegistration) {
           toolMetadata.push(metadata);
         },
-        registerControlUiDescriptor(descriptor: PluginControlUiDescriptor) {
-          controlUiDescriptors.push(descriptor);
-        },
-        registerRuntimeLifecycle(lifecycle: PluginRuntimeLifecycleRegistration) {
-          runtimeLifecycles.push(lifecycle);
-        },
-        registerAgentEventSubscription(subscription: PluginAgentEventSubscriptionRegistration) {
-          agentEventSubscriptions.push(subscription);
-        },
-        emitAgentEvent: () => ({ emitted: false, reason: "captured registration" }),
-        registerSessionSchedulerJob(job: PluginSessionSchedulerJobRegistration) {
-          sessionSchedulerJobs.push(job);
-          return {
-            id: job.id,
-            pluginId,
-            sessionKey: job.sessionKey,
-            kind: job.kind,
-          };
-        },
-        registerSessionAction(action: PluginSessionActionRegistration) {
-          sessionActions.push(action);
-        },
-        sendSessionAttachment: async () => ({ ok: false, error: "captured registration" }),
-        scheduleSessionTurn: async (schedule) => {
-          capturedSessionTurnCount += 1;
-          return {
-            id: `captured-session-turn-${capturedSessionTurnCount}`,
-            pluginId,
-            sessionKey: schedule.sessionKey,
-            kind: "session-turn",
-          };
-        },
-        unscheduleSessionTurnsByTag: async () => ({ removed: 0, failed: 0 }),
         registerTool(tool) {
           if (typeof tool !== "function") {
             tools.push(tool);

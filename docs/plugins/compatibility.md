@@ -119,6 +119,32 @@ cleared; the existing `--fail-on-eligible-compat` gate continues to apply only
 to dated `deprecated` records. Reader references are surface-token matches for
 triage; use the published-artifact sweep before authorizing removal.
 
+### Internal migrations with supported compatibility
+
+Move host implementations and bundled consumers to canonical contracts before
+removing public adapters. The API builder accepts grouped session, agent event,
+run-context, and lifecycle handlers so registration and capture implementations
+do not need to define their behavior through deprecated flat method names.
+The builder still exposes the supported flat methods, and the public facades
+continue to observe method replacements and registration lifecycle guards.
+
+Use an existing focused SDK contract or injected runtime capability when it has
+the same owner and behavior. Do not route a caller through an unrelated health
+or memory facade just because it happens to re-export the required helper.
+Type-only consumers can move to focused contract entrypoints without removing
+the old public type export.
+
+An internal migration does not establish that a compatibility record can be
+removed. Check actual published package imports and the package's declared
+`openclaw.compat.pluginApi` range against the host version. A newer source-tree
+package version or the npm `latest` tag alone does not prove that a compatible
+replacement has been published. Official runtime exports also remain relevant
+when their SDK entrypoint has been demoted from the public type surface.
+
+The strict `--fail-on-eligible-compat` check uses the status and removal date;
+moving internal consumers does not clear a due record. Keep that failure visible
+until the record's migration and supported-reader conditions are satisfied.
+
 ### Channel prompt-context identifier aliases
 
 New channel plugins should use `MsgContext.ChannelPromptContext`,
