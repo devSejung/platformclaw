@@ -4,9 +4,9 @@ import {
   emitHeartbeatEvent,
   getLastHeartbeatEvent,
   onHeartbeatEvent,
-  resetHeartbeatEventsForTest,
   resolveIndicatorType,
 } from "./heartbeat-events.js";
+import { resetHeartbeatEventsForTest } from "./heartbeat-events.test-support.js";
 
 type HeartbeatEventsModule = typeof import("./heartbeat-events.js");
 
@@ -72,7 +72,7 @@ describe("heartbeat events", () => {
     const first = await importHeartbeatEventsModule(`first-${Date.now()}`);
     const second = await importHeartbeatEventsModule(`second-${Date.now()}`);
 
-    first.resetHeartbeatEventsForTest();
+    resetHeartbeatEventsForTest();
 
     const seen: string[] = [];
     const stop = first.onHeartbeatEvent((evt) => {
@@ -89,6 +89,6 @@ describe("heartbeat events", () => {
     expect(seen).toEqual(["ok-token"]);
 
     stop();
-    first.resetHeartbeatEventsForTest();
+    resetHeartbeatEventsForTest();
   });
 });

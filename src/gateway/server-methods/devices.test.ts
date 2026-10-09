@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   onInternalDiagnosticEvent,
   resetDiagnosticEventsForTest,
-  type DiagnosticSecurityEvent,
+  type DiagnosticEventPayload,
 } from "../../infra/diagnostic-events.js";
 import { drainNodePendingWork, enqueueNodePendingWork } from "../node-pending-work.js";
 import {
@@ -21,6 +21,8 @@ import {
 } from "../node-wake-state.test-support.js";
 import { deviceHandlers } from "./devices.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
+
+type DiagnosticSecurityEvent = Extract<DiagnosticEventPayload, { type: "security.event" }>;
 
 const {
   approveDevicePairingMock,

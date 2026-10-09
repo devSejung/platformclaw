@@ -28,7 +28,6 @@ const fastModeEnv = vi.hoisted(() => {
 });
 
 const hookRunnerMocks = vi.hoisted(() => ({
-  runSubagentSpawning: vi.fn(async () => undefined),
   runSubagentSpawned: vi.fn(async () => {}),
   runSubagentProgress: vi.fn(async () => {}),
   runSubagentEnded: vi.fn(async () => {}),
@@ -184,7 +183,6 @@ describe("openclaw-tools: subagents (sessions_spawn lifecycle)", () => {
       },
     });
     resetSubagentRegistryForTests({ persist: false });
-    hookRunnerMocks.runSubagentSpawning.mockClear();
     hookRunnerMocks.runSubagentSpawned.mockClear();
     hookRunnerMocks.runSubagentProgress.mockClear();
     hookRunnerMocks.runSubagentEnded.mockClear();
@@ -193,7 +191,6 @@ describe("openclaw-tools: subagents (sessions_spawn lifecycle)", () => {
         hookName === "subagent_spawned" ||
         hookName === "subagent_progress" ||
         hookName === "subagent_ended",
-      runSubagentSpawning: hookRunnerMocks.runSubagentSpawning,
       runSubagentSpawned: hookRunnerMocks.runSubagentSpawned,
       runSubagentProgress: hookRunnerMocks.runSubagentProgress,
       runSubagentEnded: hookRunnerMocks.runSubagentEnded,

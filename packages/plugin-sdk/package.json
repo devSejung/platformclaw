@@ -80,10 +80,6 @@
       "types": "./dist/src/plugin-sdk/core.d.ts",
       "default": "./src/core.ts"
     },
-    "./config-runtime": {
-      "types": "./dist/src/plugin-sdk/config-runtime.d.ts",
-      "default": "./src/config-runtime.ts"
-    },
     "./plugin-config-runtime": {
       "types": "./dist/src/plugin-sdk/plugin-config-runtime.d.ts",
       "default": "./src/plugin-config-runtime.ts"
@@ -199,10 +195,6 @@
     "./runtime-env": {
       "types": "./dist/src/plugin-sdk/runtime-env.d.ts",
       "default": "./src/runtime-env.ts"
-    },
-    "./infra-runtime": {
-      "types": "./dist/src/plugin-sdk/infra-runtime.d.ts",
-      "default": "./src/infra-runtime.ts"
     },
     "./security-runtime": {
       "types": "./dist/src/plugin-sdk/security-runtime.d.ts",

@@ -35,7 +35,7 @@ function parseEnvFlags(raw?: string): ParsedEnvFlags {
 }
 
 /** Resolves enabled diagnostic flags from config plus `OPENCLAW_DIAGNOSTICS` overrides. */
-export function resolveDiagnosticFlags(
+function resolveDiagnosticFlags(
   cfg?: OpenClawConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
@@ -48,7 +48,7 @@ export function resolveDiagnosticFlags(
 }
 
 /** Matches one diagnostic flag against exact, wildcard, and namespace-enabled flags. */
-export function matchesDiagnosticFlag(flag: string, enabledFlags: string[]): boolean {
+function matchesDiagnosticFlag(flag: string, enabledFlags: string[]): boolean {
   const target = normalizeLowercaseStringOrEmpty(flag);
   if (!target) {
     return false;

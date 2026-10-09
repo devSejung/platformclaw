@@ -4,10 +4,37 @@ import { withTestTimeout } from "../../test/helpers/promise.js";
 import { createRuntimeChannel } from "../plugins/runtime/runtime-channel.js";
 import { startChannelApprovalHandlerBootstrap } from "./approval-handler-bootstrap.js";
 import { createApprovalNativeRuntimeAdapterStubs } from "./approval-handler.test-helpers.js";
-import { ExecApprovalChannelRuntimeTerminalStartError } from "./exec-approval-channel-runtime.js";
+import {
+  createExecApprovalChannelRuntime,
+  isExecApprovalChannelRuntimeTerminalStartError,
+} from "./exec-approval-channel-runtime.js";
 
-const { createChannelApprovalHandlerFromCapability } = vi.hoisted(() => ({
+const {
+  createChannelApprovalHandlerFromCapability,
+  createOperatorApprovalsGatewayClient,
+  startGatewayClientWhenEventLoopReady,
+} = vi.hoisted(() => ({
   createChannelApprovalHandlerFromCapability: vi.fn(),
+  createOperatorApprovalsGatewayClient:
+    vi.fn<
+      (
+        params: Parameters<
+          typeof import("../gateway/operator-approvals-client.js").createOperatorApprovalsGatewayClient
+        >[0],
+      ) => Promise<Pick<import("../gateway/client.js").GatewayClient, "start" | "stop" | "request">>
+    >(),
+  startGatewayClientWhenEventLoopReady:
+    vi.fn<
+      typeof import("../gateway/client-start-readiness.js").startGatewayClientWhenEventLoopReady
+    >(),
+}));
+
+vi.mock("../gateway/operator-approvals-client.js", () => ({
+  createOperatorApprovalsGatewayClient,
+}));
+
+vi.mock("../gateway/client-start-readiness.js", () => ({
+  startGatewayClientWhenEventLoopReady,
 }));
 
 vi.mock("./approval-handler-runtime.js", async () => {
@@ -23,6 +50,11 @@ vi.mock("./approval-handler-runtime.js", async () => {
 describe("startChannelApprovalHandlerBootstrap", () => {
   beforeEach(() => {
     createChannelApprovalHandlerFromCapability.mockReset();
+    createOperatorApprovalsGatewayClient.mockReset();
+    startGatewayClientWhenEventLoopReady.mockReset().mockImplementation(async (client) => {
+      client.start();
+      return { ready: true, elapsedMs: 0, maxDriftMs: 0, checks: 2, aborted: false };
+    });
     vi.useRealTimers();
   });
 
@@ -277,13 +309,27 @@ describe("startChannelApprovalHandlerBootstrap", () => {
   it("does not retry terminal native approval startup failures", async () => {
     vi.useFakeTimers();
     const channelRuntime = createRuntimeChannel();
-    const terminalError = new ExecApprovalChannelRuntimeTerminalStartError({
-      code: 1008,
-      reason: "pairing required",
-      detailCode: "PAIRING_REQUIRED",
+    createOperatorApprovalsGatewayClient.mockImplementationOnce(async (params) => ({
+      start: () =>
+        params.onReconnectPaused?.({
+          code: 1008,
+          reason: "pairing required",
+          detailCode: "PAIRING_REQUIRED",
+        }),
+      stop: vi.fn(),
+      request: vi.fn(),
+    }));
+    const runtime = createExecApprovalChannelRuntime({
+      label: "test/exec-approvals",
+      clientDisplayName: "Test Exec Approvals",
+      cfg: {},
+      isConfigured: () => true,
+      shouldHandle: () => true,
+      deliverRequested: async () => [],
+      finalizeResolved: async () => undefined,
     });
-    const start = vi.fn().mockRejectedValue(terminalError);
-    const stop = vi.fn().mockResolvedValue(undefined);
+    const start = vi.fn(runtime.start);
+    const stop = vi.fn(runtime.stop);
     const logger = {
       error: vi.fn(),
       warn: vi.fn(),
@@ -306,6 +352,8 @@ describe("startChannelApprovalHandlerBootstrap", () => {
     expect(createChannelApprovalHandlerFromCapability).toHaveBeenCalledTimes(1);
     expect(start).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledTimes(1);
+    const terminalError = await start.mock.results[0]?.value?.catch((error: unknown) => error);
+    expect(isExecApprovalChannelRuntimeTerminalStartError(terminalError)).toBe(true);
     expect(logger.error).toHaveBeenCalledWith(
       `native approval handler disabled: ${String(terminalError)}`,
     );

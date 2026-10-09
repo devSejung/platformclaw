@@ -1,5 +1,5 @@
 // Plugin Boundary Report tests cover plugin boundary report script behavior.
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createPluginBoundaryReport,
   type PluginBoundaryReportResult,
@@ -21,17 +21,25 @@ describe("plugin-boundary-report", () => {
   let summaryResult: PluginBoundaryReportResult;
 
   beforeAll(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-09T00:00:00Z"));
     summaryResult = createPluginBoundaryReport([
       "--summary",
       "--json",
       "--fail-on-cross-owner",
       "--fail-on-unclassified-unused-reserved",
+      "--fail-on-eligible-compat",
     ]);
+  });
+
+  afterAll(() => {
+    vi.useRealTimers();
   });
 
   it("emits compact CI-safe summary JSON", () => {
     const summary = JSON.parse(summaryResult.stdout) as {
       compat?: {
+        eligibleForRemovalCount?: unknown;
         removalPendingCount?: unknown;
         removalPendingDueCount?: unknown;
         removalPending?: Array<{
@@ -54,9 +62,11 @@ describe("plugin-boundary-report", () => {
 
     expect(summaryResult.exitCode).toBe(0);
     expect(summaryResult.stderr).toBe("");
-    expect(summary.compat?.removalPendingCount).toBe(12);
+    expect(summary.compat?.eligibleForRemovalCount).toBe(0);
+    expect(summary.compat?.removalPendingCount).toBe(24);
     expect(summary.compat?.removalPendingDueCount).toEqual(expect.any(Number));
     expect(summary.compat?.removalPending?.map((record) => record.code)).toEqual([
+      "sdk-untrusted-context-identifier-aliases",
       "plugin-sdk-channel-logging-subpath",
       "plugin-sdk-channel-secret-runtime-subpath",
       "plugin-sdk-channel-streaming-subpath",
@@ -68,6 +78,17 @@ describe("plugin-boundary-report", () => {
       "plugin-sdk-memory-host-core-public-demotion",
       "plugin-sdk-text-runtime-subpath",
       "plugin-sdk-zod-subpath",
+      "agent-harness-terminal-result-aliases",
+      "message-presentation-legacy-bridges",
+      "official-plugin-export-aliases",
+      "plugin-sdk-channel-setup-input-fields",
+      "plugin-runtime-api-compat-aliases",
+      "plugin-provider-manifest-compat-aliases",
+      "plugin-sdk-provider-owned-helper-shims",
+      "media-legacy-projection",
+      "memory-host-compatibility-aliases",
+      "plugin-sdk-broad-runtime-barrels",
+      "plugin-sdk-focused-compat-aliases",
       "plugin-sdk-plugin-config-runtime-public-demotion",
     ]);
     for (const record of summary.compat?.removalPending ?? []) {
@@ -97,9 +118,32 @@ describe("plugin-boundary-report", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("removalPending=12");
+    expect(result.stdout).toContain("removalPending=24");
     expect(result.stdout).not.toContain("agent-harness-sdk-alias");
     expect(result.stdout).toMatch(/blocker=.*retain the public/iu);
     expect(result.stdout).toMatch(/readerRefs=\d+ readers=/u);
+  });
+
+  it("still fails CI when an unconditional deprecated window expires", () => {
+    vi.setSystemTime(new Date("2026-10-13T00:00:00Z"));
+    try {
+      const result = createPluginBoundaryReport([
+        "--summary",
+        "--json",
+        "--fail-on-eligible-compat",
+      ]);
+      const summary = JSON.parse(result.stdout) as {
+        compat: { eligibleForRemoval: Array<{ code: string }>; removalPendingCount: number };
+      };
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("1 compatibility record(s) are due for removal");
+      expect(summary.compat.eligibleForRemoval.map((record) => record.code)).toEqual([
+        "deprecated-session-store-beta5-api",
+      ]);
+      expect(summary.compat.removalPendingCount).toBe(24);
+    } finally {
+      vi.setSystemTime(new Date("2026-10-09T00:00:00Z"));
+    }
   });
 });

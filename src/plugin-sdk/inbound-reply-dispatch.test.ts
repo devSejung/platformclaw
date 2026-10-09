@@ -16,19 +16,19 @@ vi.mock("../channels/turn/kernel.js", async (importOriginal) => {
 });
 
 import {
-  createChannelMessageReplyPipeline,
-  createReplyPrefixOptions as createChannelMessageReplyPrefixOptions,
-  createReplyPrefixContext as createChannelMessageReplyPrefixContext,
-  createTypingCallbacks as createChannelMessageTypingCallbacks,
-  resolveChannelMessageSourceReplyDeliveryMode,
-} from "./channel-message.js";
-import {
   createChannelReplyPipeline,
   createReplyPrefixContext,
   createReplyPrefixOptions,
   createTypingCallbacks,
   resolveChannelSourceReplyDeliveryMode,
-} from "./channel-reply-pipeline.js";
+} from "../channels/message/reply-pipeline.js";
+import {
+  createChannelMessageReplyPipeline,
+  createReplyPrefixOptions as createChannelMessageReplyPrefixOptions,
+  createReplyPrefixContext as createChannelMessageReplyPrefixContext,
+  createTypingCallbacks as createChannelMessageTypingCallbacks,
+  resolveChannelMessageSourceReplyDeliveryMode,
+} from "./channel-outbound.js";
 import {
   hasFinalInboundReplyDispatch,
   hasVisibleInboundReplyDispatch,
@@ -307,7 +307,7 @@ describe("recordInboundSessionAndDispatchReply", () => {
     });
   });
 
-  it("keeps channel-message pipeline names aligned with focused helpers", () => {
+  it("keeps focused outbound pipeline helpers aligned with their canonical owner", () => {
     expect(createChannelMessageReplyPipeline).toBe(createChannelReplyPipeline);
     expect(resolveChannelMessageSourceReplyDeliveryMode).toBe(
       resolveChannelSourceReplyDeliveryMode,

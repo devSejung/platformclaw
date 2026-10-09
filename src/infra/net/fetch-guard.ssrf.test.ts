@@ -5,12 +5,10 @@ import {
   fetchConfiguredLocalOriginWithSsrFGuard,
   fetchWithSsrFGuard,
   GUARDED_FETCH_MODE,
-  retainSafeHeadersForCrossOriginRedirectHeaders,
 } from "./fetch-guard.js";
-import {
-  ensureGlobalUndiciStreamTimeouts,
-  resetGlobalUndiciStreamTimeoutsForTests,
-} from "./undici-global-dispatcher.js";
+import { retainSafeHeadersForCrossOriginRedirect } from "./redirect-headers.js";
+import { ensureGlobalUndiciDispatcherStreamTimeouts } from "./undici-global-dispatcher.js";
+import { resetGlobalUndiciStreamTimeoutsForTests } from "./undici-global-dispatcher.test-support.js";
 
 const TEST_UNDICI_RUNTIME_DEPS_KEY = "__OPENCLAW_TEST_UNDICI_RUNTIME_DEPS__";
 
@@ -1372,8 +1370,8 @@ describe("fetchWithSsrFGuard hardening", () => {
     await result.release();
   });
 
-  it("keeps the exported redirect-header helper functional", () => {
-    const headers = retainSafeHeadersForCrossOriginRedirectHeaders({
+  it("keeps the canonical redirect-header helper functional", () => {
+    const headers = retainSafeHeadersForCrossOriginRedirect({
       Authorization: "Bearer secret",
       Cookie: "session=abc",
       Accept: "application/json",
@@ -2106,13 +2104,22 @@ describe("fetchWithSsrFGuard hardening", () => {
 
   it("inherits the configured global stream timeout for guarded direct dispatchers", async () => {
     try {
-      ensureGlobalUndiciStreamTimeouts({ timeoutMs: 1_900_000 });
+      let currentDispatcher: unknown = { constructor: { name: "Agent" } };
+      const setGlobalDispatcher = vi.fn((dispatcher: unknown) => {
+        currentDispatcher = dispatcher;
+      });
       (globalThis as Record<string, unknown>)[TEST_UNDICI_RUNTIME_DEPS_KEY] = {
         Agent: agentCtor,
         EnvHttpProxyAgent: envHttpProxyAgentCtor,
         ProxyAgent: proxyAgentCtor,
         fetch: vi.fn(async () => okResponse()),
+        getGlobalDispatcher: () => currentDispatcher,
+        setGlobalDispatcher,
       };
+      ensureGlobalUndiciDispatcherStreamTimeouts({ timeoutMs: 1_900_000 });
+      expect(setGlobalDispatcher).toHaveBeenCalledTimes(1);
+      expect(agentCtor).toHaveBeenCalledTimes(1);
+      agentCtor.mockClear();
       const fetchImpl = vi.fn(async () => okResponse());
 
       const result = await fetchWithSsrFGuard({

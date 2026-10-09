@@ -8,11 +8,13 @@ import { describe, expect, it } from "vitest";
 import {
   onInternalDiagnosticEvent,
   resetDiagnosticEventsForTest,
-  type DiagnosticSecurityEvent,
+  type DiagnosticEventPayload,
 } from "../infra/diagnostic-events.js";
 import { collectMinimalProfileOverrideFindings } from "./audit-extra.sync.js";
 import { runSecurityAudit } from "./audit.js";
 import { collectSecurityAuditFindings } from "./audit.test-support.js";
+
+type DiagnosticSecurityEvent = Extract<DiagnosticEventPayload, { type: "security.event" }>;
 
 const execFileAsync = promisify(execFile);
 

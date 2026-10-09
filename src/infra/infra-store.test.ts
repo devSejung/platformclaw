@@ -4,11 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withTempDir } from "../test-utils/temp-dir.js";
-import {
-  getChannelActivity,
-  recordChannelActivity,
-  resetChannelActivityForTest,
-} from "./channel-activity.js";
 import { createDedupeCache } from "./dedupe.js";
 import {
   emitDiagnosticEvent,
@@ -212,8 +207,12 @@ describe("infra store", () => {
   });
 
   describe("channel activity", () => {
-    beforeEach(() => {
-      resetChannelActivityForTest();
+    let getChannelActivity: typeof import("./channel-activity.js").getChannelActivity;
+    let recordChannelActivity: typeof import("./channel-activity.js").recordChannelActivity;
+
+    beforeEach(async () => {
+      vi.resetModules();
+      ({ getChannelActivity, recordChannelActivity } = await import("./channel-activity.js"));
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-01-08T00:00:00Z"));
     });

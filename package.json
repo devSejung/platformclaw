@@ -199,7 +199,6 @@
     "!dist/plugin-sdk/ssrf-runtime-internal.js",
     "!dist/plugin-sdk/ssrf-runtime-internal.d.ts",
     "!dist/plugin-sdk/string-normalization-runtime.d.ts",
-    "!dist/plugin-sdk/system-event-runtime.d.ts",
     "!dist/plugin-sdk/talk-config-runtime.d.ts",
     "!dist/plugin-sdk/target-resolver-runtime.d.ts",
     "!dist/plugin-sdk/test-env.js",
@@ -490,10 +489,6 @@
       "types": "./dist/plugin-sdk/question-gateway-runtime.d.ts",
       "default": "./dist/plugin-sdk/question-gateway-runtime.js"
     },
-    "./plugin-sdk/config-runtime": {
-      "types": "./dist/plugin-sdk/config-runtime.d.ts",
-      "default": "./dist/plugin-sdk/config-runtime.js"
-    },
     "./plugin-sdk/config-contracts": {
       "types": "./dist/plugin-sdk/config-contracts.d.ts",
       "default": "./dist/plugin-sdk/config-contracts.js"
@@ -550,10 +545,6 @@
       "types": "./dist/plugin-sdk/inbound-event-delivery.d.ts",
       "default": "./dist/plugin-sdk/inbound-event-delivery.js"
     },
-    "./plugin-sdk/channel-reply-pipeline": {
-      "types": "./dist/plugin-sdk/channel-reply-pipeline.d.ts",
-      "default": "./dist/plugin-sdk/channel-reply-pipeline.js"
-    },
     "./plugin-sdk/interactive-runtime": {
       "types": "./dist/plugin-sdk/interactive-runtime.d.ts",
       "default": "./dist/plugin-sdk/interactive-runtime.js"
@@ -599,6 +590,7 @@
       "default": "./dist/plugin-sdk/secure-random-runtime.js"
     },
     "./plugin-sdk/system-event-runtime": {
+      "types": "./dist/plugin-sdk/system-event-runtime.d.ts",
       "default": "./dist/plugin-sdk/system-event-runtime.js"
     },
     "./plugin-sdk/transport-ready-runtime": {
@@ -606,10 +598,6 @@
     },
     "./plugin-sdk/exec-approvals-runtime": {
       "default": "./dist/plugin-sdk/exec-approvals-runtime.js"
-    },
-    "./plugin-sdk/infra-runtime": {
-      "types": "./dist/plugin-sdk/infra-runtime.d.ts",
-      "default": "./dist/plugin-sdk/infra-runtime.js"
     },
     "./plugin-sdk/runtime-config-snapshot": {
       "types": "./dist/plugin-sdk/runtime-config-snapshot.d.ts",
@@ -984,17 +972,9 @@
     "./plugin-sdk/channel-mention-gating": {
       "default": "./dist/plugin-sdk/channel-mention-gating.js"
     },
-    "./plugin-sdk/channel-lifecycle": {
-      "types": "./dist/plugin-sdk/channel-lifecycle.d.ts",
-      "default": "./dist/plugin-sdk/channel-lifecycle.js"
-    },
     "./plugin-sdk/channel-ingress-runtime": {
       "types": "./dist/plugin-sdk/channel-ingress-runtime.d.ts",
       "default": "./dist/plugin-sdk/channel-ingress-runtime.js"
-    },
-    "./plugin-sdk/channel-message": {
-      "types": "./dist/plugin-sdk/channel-message.d.ts",
-      "default": "./dist/plugin-sdk/channel-message.js"
     },
     "./plugin-sdk/channel-outbound": {
       "types": "./dist/plugin-sdk/channel-outbound.d.ts",
@@ -1147,10 +1127,6 @@
     "./plugin-sdk/media-understanding-runtime": {
       "types": "./dist/plugin-sdk/media-understanding-runtime.d.ts",
       "default": "./dist/plugin-sdk/media-understanding-runtime.js"
-    },
-    "./plugin-sdk/messaging-targets": {
-      "types": "./dist/plugin-sdk/messaging-targets.d.ts",
-      "default": "./dist/plugin-sdk/messaging-targets.js"
     },
     "./plugin-sdk/request-url": {
       "default": "./dist/plugin-sdk/request-url.js"

@@ -7,7 +7,7 @@ import { ErrorCodes, PROTOCOL_VERSION } from "../../../../packages/gateway-proto
 import {
   onInternalDiagnosticEvent,
   resetDiagnosticEventsForTest,
-  type DiagnosticSecurityEvent,
+  type DiagnosticEventPayload,
 } from "../../../infra/diagnostic-events.js";
 import {
   getActiveDiagnosticTraceContext,
@@ -23,6 +23,8 @@ import { getOperatorApprovalRuntimeToken } from "../../operator-approval-runtime
 import { handleGatewayRequest } from "../../server-methods.js";
 import type { GatewayRequestContext } from "../../server-methods/types.js";
 import { GatewayNodeLifecycleDispatchTracker } from "./node-lifecycle-dispatch.js";
+
+type DiagnosticSecurityEvent = Extract<DiagnosticEventPayload, { type: "security.event" }>;
 
 const {
   buildGatewaySnapshotMock,

@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  DEFAULT_PLUGIN_APPROVAL_TIMEOUT_MS,
-  PLUGIN_APPROVAL_DETAIL_MAX_LENGTH,
-} from "../../infra/plugin-approvals.js";
+import { DEFAULT_PLUGIN_APPROVAL_TIMEOUT_MS } from "../../infra/plugin-approvals.js";
 import { callGatewayTool } from "../tools/gateway.js";
 import {
   requestClaudeNativeToolApproval,
   resolveClaudeNativeToolApprovalPlan,
 } from "./claude-live-tool-approval.js";
+
+const PLUGIN_APPROVAL_DETAIL_MAX_LENGTH = 16_384;
 
 vi.mock("../tools/gateway.js", () => ({
   callGatewayTool: vi.fn(),

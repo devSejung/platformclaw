@@ -16,12 +16,11 @@ import {
   evaluateShellAllowlistWithAuthorization,
   requiresExecApproval,
   resolveAllowAlwaysPersistenceDecision,
-  resolveAllowAlwaysPatterns,
   resolveSafeBins,
 } from "./exec-approvals.js";
 import { buildHashedArgPatternFromArgv, matchAllowlist } from "./exec-command-resolution.js";
 
-describe("resolveAllowAlwaysPatterns", () => {
+describe("allow-always pattern persistence", () => {
   async function resolvePersistedPatterns(params: {
     command: string;
     dir: string;
@@ -219,7 +218,7 @@ describe("resolveAllowAlwaysPatterns", () => {
 
   it("returns direct executable paths for non-shell segments", () => {
     const exe = path.join("/tmp", "openclaw-tool");
-    const patterns = resolveAllowAlwaysPatterns({
+    const patterns = resolveAllowAlwaysPatternEntries({
       segments: [
         {
           raw: exe,
@@ -233,13 +232,13 @@ describe("resolveAllowAlwaysPatterns", () => {
           }),
         },
       ],
-    });
+    }).map(({ pattern }) => pattern);
     expect(patterns).toEqual([exe]);
   });
 
   it("does not persist interpreter-like executables for allow-always", () => {
     const awk = path.join("/tmp", "awk");
-    const patterns = resolveAllowAlwaysPatterns({
+    const patterns = resolveAllowAlwaysPatternEntries({
       segments: [
         {
           raw: `${awk} '{print $1}' data.csv`,
@@ -253,12 +252,12 @@ describe("resolveAllowAlwaysPatterns", () => {
           }),
         },
       ],
-    });
+    }).map(({ pattern }) => pattern);
     expect(patterns).toStrictEqual([]);
   });
 
   it("persists allow-always executable patterns with the trust realpath", () => {
-    const patterns = resolveAllowAlwaysPatterns({
+    const patterns = resolveAllowAlwaysPatternEntries({
       segments: [
         {
           raw: "rg -n needle",
@@ -273,7 +272,7 @@ describe("resolveAllowAlwaysPatterns", () => {
           }),
         },
       ],
-    });
+    }).map(({ pattern }) => pattern);
 
     expect(patterns).toEqual(["/opt/homebrew/Cellar/ripgrep/14.1.1/bin/rg"]);
   });
@@ -390,12 +389,12 @@ describe("resolveAllowAlwaysPatterns", () => {
         env: makePathEnv(dir),
       });
 
-      const patterns = resolveAllowAlwaysPatterns({
+      const patterns = resolveAllowAlwaysPatternEntries({
         segments: analysis.segments,
         cwd: dir,
         env: makePathEnv(dir),
         platform: process.platform,
-      });
+      }).map(({ pattern }) => pattern);
 
       expect(patterns).toStrictEqual([]);
     },
@@ -869,7 +868,7 @@ $0 \\"$1\\"" touch {marker}`,
   });
 
   it("does not persist broad shell binaries when no inner command can be derived", () => {
-    const patterns = resolveAllowAlwaysPatterns({
+    const patterns = resolveAllowAlwaysPatternEntries({
       segments: [
         {
           raw: "/bin/zsh -s",
@@ -884,7 +883,7 @@ $0 \\"$1\\"" touch {marker}`,
         },
       ],
       platform: process.platform,
-    });
+    }).map(({ pattern }) => pattern);
     expect(patterns).toStrictEqual([]);
   });
 
@@ -893,7 +892,7 @@ $0 \\"$1\\"" touch {marker}`,
       return;
     }
     const dir = makeTempDir();
-    const patterns = resolveAllowAlwaysPatterns({
+    const patterns = resolveAllowAlwaysPatternEntries({
       segments: [
         {
           raw: "/usr/local/bin/zsh -c whoami",
@@ -910,7 +909,7 @@ $0 \\"$1\\"" touch {marker}`,
       cwd: dir,
       env: makePathEnv(dir),
       platform: process.platform,
-    });
+    }).map(({ pattern }) => pattern);
     expect(patterns).toStrictEqual([]);
   });
 
@@ -973,7 +972,7 @@ $0 \\"$1\\"" touch {marker}`,
     }
     const dir = makeTempDir();
     const busybox = makeExecutable(dir, "busybox");
-    const patterns = resolveAllowAlwaysPatterns({
+    const patterns = resolveAllowAlwaysPatternEntries({
       segments: [
         {
           raw: `${busybox} sed -n 1p`,
@@ -990,12 +989,12 @@ $0 \\"$1\\"" touch {marker}`,
       cwd: dir,
       env: makePathEnv(dir),
       platform: process.platform,
-    });
+    }).map(({ pattern }) => pattern);
     expect(patterns).toStrictEqual([]);
   });
 
   it("fails closed for unresolved dispatch wrappers", () => {
-    const patterns = resolveAllowAlwaysPatterns({
+    const patterns = resolveAllowAlwaysPatternEntries({
       segments: [
         {
           raw: "sudo /bin/zsh -lc whoami",
@@ -1010,7 +1009,7 @@ $0 \\"$1\\"" touch {marker}`,
         },
       ],
       platform: process.platform,
-    });
+    }).map(({ pattern }) => pattern);
     expect(patterns).toStrictEqual([]);
   });
 

@@ -11,12 +11,9 @@ import { parseStrictNonNegativeInteger } from "./parse-finite-number.js";
 export { readChunkWithIdleTimeout } from "./http-response-body-timeout.js";
 
 export const DEFAULT_WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
-export const DEFAULT_WEBHOOK_BODY_TIMEOUT_MS = 30_000;
+const DEFAULT_WEBHOOK_BODY_TIMEOUT_MS = 30_000;
 
-export type RequestBodyLimitErrorCode =
-  | "PAYLOAD_TOO_LARGE"
-  | "REQUEST_BODY_TIMEOUT"
-  | "CONNECTION_CLOSED";
+type RequestBodyLimitErrorCode = "PAYLOAD_TOO_LARGE" | "REQUEST_BODY_TIMEOUT" | "CONNECTION_CLOSED";
 
 type RequestBodyLimitErrorInit = {
   code: RequestBodyLimitErrorCode;
@@ -41,7 +38,7 @@ const DEFAULT_RESPONSE_MESSAGE: Record<RequestBodyLimitErrorCode, string> = {
   CONNECTION_CLOSED: "Connection closed",
 };
 
-export class RequestBodyLimitError extends Error {
+class RequestBodyLimitError extends Error {
   readonly code: RequestBodyLimitErrorCode;
   readonly statusCode: number;
 
@@ -83,7 +80,7 @@ function parseContentLengthHeader(req: IncomingMessage): number | null {
   return parsed;
 }
 
-export type ReadRequestBodyOptions = {
+type ReadRequestBodyOptions = {
   maxBytes: number;
   timeoutMs?: number;
   encoding?: BufferEncoding;
@@ -113,9 +110,6 @@ function resolveRequestBodyLimitValues(options: {
       : resolveTimerTimeoutMs(options.timeoutMs, DEFAULT_WEBHOOK_BODY_TIMEOUT_MS);
   return { maxBytes, timeoutMs };
 }
-
-export const testApi = { resolveRequestBodyLimitValues };
-export { testApi as __test__ };
 
 function advanceRequestBodyChunk(
   chunk: Buffer | string,
@@ -425,11 +419,11 @@ export async function readRequestBodyWithLimit(
   });
 }
 
-export type ReadJsonBodyResult =
+type ReadJsonBodyResult =
   | { ok: true; value: unknown }
   | { ok: false; error: string; code: RequestBodyLimitErrorCode | "INVALID_JSON" };
 
-export type ReadJsonBodyOptions = ReadRequestBodyOptions & {
+type ReadJsonBodyOptions = ReadRequestBodyOptions & {
   emptyObjectOnEmpty?: boolean;
 };
 
@@ -467,13 +461,13 @@ export async function readJsonBodyWithLimit(
   }
 }
 
-export type RequestBodyLimitGuard = {
+type RequestBodyLimitGuard = {
   dispose: () => void;
   isTripped: () => boolean;
   code: () => RequestBodyLimitErrorCode | null;
 };
 
-export type RequestBodyLimitGuardOptions = {
+type RequestBodyLimitGuardOptions = {
   maxBytes: number;
   timeoutMs?: number;
   responseFormat?: "json" | "text";

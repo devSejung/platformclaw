@@ -131,7 +131,7 @@ watermark is not built (see Open questions).
 `src/channels/message/live.ts` models preview/edit/finalize as one lifecycle:
 `createLiveMessageState`, `markLiveMessagePreviewUpdated`,
 `markLiveMessageFinalized`, `markLiveMessageCancelled`, and
-`deliverFinalizableLivePreviewAdapter` (build a final edit from a draft, apply
+`deliverWithFinalizableLivePreviewAdapter` (build a final edit from a draft, apply
 it, and fall back to a normal send when the edit is not possible or fails).
 `LiveMessageState.phase` is `idle | previewing | finalizing | finalized |
 cancelled`; `canFinalizeInPlace` gates whether a preview can become the final
@@ -151,9 +151,10 @@ a restart.
 The refactor absorbed or deprecated: `reply-runtime`, `reply-dispatch-runtime`,
 `reply-reference`, `reply-chunking`, `reply-payload` helpers exposed as public
 API, `inbound-reply-dispatch`, `channel-reply-pipeline`, and most public uses
-of the old outbound facade. `src/plugin-sdk/channel-message.ts` is now a
-`@deprecated` re-export barrel pointing at `channel-outbound` /
-`channel-inbound`; `channel.turn` runtime aliases were removed and the old
+of the old outbound facade. The deprecated `channel-message`,
+`channel-reply-pipeline`, and `channel-lifecycle` facades have since been removed;
+their supported operations live in `channel-outbound` and `channel-inbound`.
+`channel.turn` runtime aliases were removed and the old
 `/plugins/sdk-channel-turn` doc page redirects to
 [Channel inbound API](/plugins/sdk-channel-inbound). New plugin code should
 target `channel-outbound` and `channel-inbound` directly.

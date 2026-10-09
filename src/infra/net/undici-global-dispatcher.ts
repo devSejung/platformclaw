@@ -288,37 +288,6 @@ function applyGlobalDispatcherStreamTimeouts(params: {
   }
 }
 
-/**
- * Records the stream timeout bridge and applies it only when the current global
- * dispatcher already uses env or managed proxy routing.
- */
-export function ensureGlobalUndiciStreamTimeouts(opts?: { timeoutMs?: number }): void {
-  const timeoutMs = resolveStreamTimeoutMs(opts);
-  if (timeoutMs === null) {
-    return;
-  }
-  globalUndiciStreamTimeoutMs = timeoutMs;
-  if (!hasEnvHttpProxyAgentConfigured()) {
-    lastAppliedTimeoutKey = null;
-    return;
-  }
-  const runtime = loadUndiciGlobalDispatcherDeps();
-  const current = resolveCurrentDispatcherInfo(runtime);
-  if (current === null) {
-    return;
-  }
-  if (current.kind !== "env-proxy" && current.kind !== "proxyline-managed") {
-    return;
-  }
-
-  applyGlobalDispatcherStreamTimeouts({
-    runtime,
-    dispatcher: current.dispatcher,
-    kind: current.kind,
-    timeoutMs,
-  });
-}
-
 /** Forces timeout/family policy onto the current supported global dispatcher. */
 export function ensureGlobalUndiciDispatcherStreamTimeouts(opts?: { timeoutMs?: number }): void {
   const timeoutMs = resolveStreamTimeoutMs(opts);
@@ -339,11 +308,15 @@ export function ensureGlobalUndiciDispatcherStreamTimeouts(opts?: { timeoutMs?: 
   });
 }
 
-/** Clears module-level dispatcher bookkeeping between isolated tests. */
-export function resetGlobalUndiciStreamTimeoutsForTests(): void {
-  lastAppliedTimeoutKey = null;
-  lastAppliedProxyBootstrapKey = null;
-  globalUndiciStreamTimeoutMs = undefined;
+if (process.env.VITEST || process.env.NODE_ENV === "test") {
+  // Tests reset the bookkeeping in place so fetch-guard's live timeout binding stays coherent.
+  (globalThis as Record<PropertyKey, unknown>)[Symbol.for("openclaw.undiciDispatcherTestApi")] = {
+    reset(): void {
+      lastAppliedTimeoutKey = null;
+      lastAppliedProxyBootstrapKey = null;
+      globalUndiciStreamTimeoutMs = undefined;
+    },
+  };
 }
 
 /**

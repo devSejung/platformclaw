@@ -71,8 +71,7 @@ describe("scripts/check-deprecated-api-usage", () => {
     );
 
     for (const facade of [
-      "src/plugin-sdk/channel-message",
-      "src/plugin-sdk/channel-reply-pipeline",
+      "src/plugin-sdk/inbound-envelope",
       "src/plugin-sdk/inbound-reply-dispatch",
       "src/channels/message/inbound-reply-dispatch",
     ]) {
@@ -93,26 +92,30 @@ describe("scripts/check-deprecated-api-usage", () => {
   it("flags internal facade imports across static, relative, scoped, and dynamic forms", () => {
     const result = runFacadeImportRule({
       "src/channels/probe.ts": [
-        'import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";',
+        'import { runChannelInboundEvent } from "openclaw/plugin-sdk/inbound-reply-dispatch";',
         'export { runChannelInboundEvent } from "./message/inbound-reply-dispatch.js";',
-        'const facade = await import ("../plugin-sdk/channel-message.js", { with: {} });',
+        'const facade = await import ("../plugin-sdk/inbound-envelope.js", { with: {} });',
+        'import { runChannelInboundEvent as scopedRun } from "@openclaw/plugin-sdk/inbound-reply-dispatch";',
       ].join("\n"),
     });
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(
-      "src/channels/probe.ts:1: openclaw/plugin-sdk/channel-reply-pipeline",
+      "src/channels/probe.ts:1: openclaw/plugin-sdk/inbound-reply-dispatch",
     );
     expect(result.stderr).toContain("src/channels/probe.ts:2: ./message/inbound-reply-dispatch.js");
-    expect(result.stderr).toContain("src/channels/probe.ts:3: ../plugin-sdk/channel-message.js");
+    expect(result.stderr).toContain("src/channels/probe.ts:3: ../plugin-sdk/inbound-envelope.js");
+    expect(result.stderr).toContain(
+      "src/channels/probe.ts:4: @openclaw/plugin-sdk/inbound-reply-dispatch",
+    );
   });
 
   it("allows canonical compat re-exports and test files", () => {
     const result = runFacadeImportRule({
       "src/plugin-sdk/channel-inbound.ts":
         'export { runChannelInboundEvent } from "../channels/message/inbound-reply-dispatch.js";',
-      "src/plugin-sdk/channel-message.test.ts":
-        'const mod = await import("openclaw/plugin-sdk/channel-message");',
+      "src/plugin-sdk/inbound-envelope.test.ts":
+        'const mod = await import("openclaw/plugin-sdk/inbound-envelope");',
     });
 
     expect(result.stderr).toBe("");

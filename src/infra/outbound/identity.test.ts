@@ -15,11 +15,10 @@ vi.mock("../../agents/identity-avatar.js", () => ({
 
 type IdentityModule = typeof import("./identity.js");
 
-let normalizeOutboundIdentity: IdentityModule["normalizeOutboundIdentity"];
 let resolveAgentOutboundIdentity: IdentityModule["resolveAgentOutboundIdentity"];
 
 beforeAll(async () => {
-  ({ normalizeOutboundIdentity, resolveAgentOutboundIdentity } = await import("./identity.js"));
+  ({ resolveAgentOutboundIdentity } = await import("./identity.js"));
 });
 
 beforeEach(() => {
@@ -27,7 +26,7 @@ beforeEach(() => {
   resolveAgentAvatarMock.mockReset();
 });
 
-describe("normalizeOutboundIdentity", () => {
+describe("configured outbound identity normalization", () => {
   it.each([
     {
       input: {
@@ -52,7 +51,9 @@ describe("normalizeOutboundIdentity", () => {
       expected: undefined,
     },
   ])("normalizes outbound identity for %j", ({ input, expected }) => {
-    expect(normalizeOutboundIdentity(input)).toEqual(expected);
+    resolveAgentIdentityMock.mockReturnValueOnce(input);
+    resolveAgentAvatarMock.mockReturnValueOnce({ kind: "remote", url: input.avatarUrl });
+    expect(resolveAgentOutboundIdentity({}, "main")).toEqual(expected);
   });
 });
 

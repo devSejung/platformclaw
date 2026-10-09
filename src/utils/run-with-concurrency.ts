@@ -1,10 +1,10 @@
 import pLimit from "p-limit";
 
 /** Controls whether the worker pool keeps scheduling after a task failure. */
-export type ConcurrencyErrorMode = "continue" | "stop";
+type ConcurrencyErrorMode = "continue" | "stop";
 
 /** Options for running a fixed list of promise factories through a bounded worker pool. */
-export type RunTasksWithConcurrencyOptions<T> = {
+type RunTasksWithConcurrencyOptions<T> = {
   /** Task factories are started lazily so the helper can enforce `limit`. */
   tasks: Array<() => Promise<T>>;
   /** Maximum number of tasks allowed to run at the same time; clamped to at least one. */
@@ -16,7 +16,7 @@ export type RunTasksWithConcurrencyOptions<T> = {
 };
 
 /** Ordered task results plus aggregate error state for callers that keep partial success. */
-export type RunTasksWithConcurrencyResult<T> = {
+type RunTasksWithConcurrencyResult<T> = {
   /** Results are written at their original task indexes; failed or unscheduled indexes stay empty. */
   results: T[];
   /** First task error observed by the worker pool, if any. */

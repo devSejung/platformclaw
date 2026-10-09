@@ -7,8 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import { resolveNpmRunner } from "../../../scripts/npm-runner.mjs";
 import { createPnpmRunnerSpawnSpec } from "../../../scripts/pnpm-runner.mjs";
-import { type FileLockOptions, withFileLock } from "../../../src/infra/file-lock.js";
 import { getWindowsSystem32ExePath } from "../../../src/infra/windows-install-roots.js";
+import { type FileLockOptions, withFileLock } from "../../../src/plugin-sdk/file-lock.js";
 import { createNodeEvalArgs } from "../../../src/test-utils/node-process.js";
 
 type CommandResult = {

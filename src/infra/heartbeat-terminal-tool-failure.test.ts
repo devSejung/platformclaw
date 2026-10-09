@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getLastHeartbeatEvent, resetHeartbeatEventsForTest } from "./heartbeat-events.js";
+import { getLastHeartbeatEvent } from "./heartbeat-events.js";
+import { resetHeartbeatEventsForTest } from "./heartbeat-events.test-support.js";
 import { handleHeartbeatTerminalToolFailure } from "./heartbeat-terminal-tool-failure.js";
 
 describe("handleHeartbeatTerminalToolFailure", () => {

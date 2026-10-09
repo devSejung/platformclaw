@@ -1,4 +1,5 @@
 import {
+  legacyInteractiveReplyToPresentation,
   normalizeMessagePresentation,
   renderMessagePresentationFallbackText,
   type MessagePresentation,
@@ -13,7 +14,6 @@ import {
 import { buildSlackBlocksFallbackText, renderSlackBlockFallbackText } from "./blocks-fallback.js";
 import { parseSlackBlocksInput, SLACK_MAX_BLOCKS } from "./blocks-input.js";
 import {
-  buildSlackInteractiveBlocks,
   buildSlackPresentationBlocks,
   canRenderSlackPresentation,
   resolveSlackBlockOffsets,
@@ -468,8 +468,8 @@ export function resolveSlackReplyBlockResolution(
   }
   const renderedPresentationBlocks = readAllNativeBlocks(segments).slice(presentationBlockOffset);
 
-  const interactiveBlocks = buildSlackInteractiveBlocks(
-    payload.interactive,
+  const interactiveBlocks = buildSlackPresentationBlocks(
+    payload.interactive ? legacyInteractiveReplyToPresentation(payload.interactive) : undefined,
     resolveSlackBlockOffsets(readAllNativeBlocks(segments)),
   );
   // Compare final Slack rows, not source payloads: fallbacks and transport

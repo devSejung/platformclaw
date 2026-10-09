@@ -23,9 +23,6 @@ import type { MatrixQaCanaryArtifact, MatrixQaScenarioExecution } from "./scenar
 
 type MatrixQaThreadScenarioResult = Awaited<ReturnType<typeof runThreadScenario>>;
 
-const MATRIX_SUBAGENT_THREAD_HOOK_ERROR_RE =
-  /thread=true is unavailable because no channel plugin registered subagent_spawning hooks/i;
-
 function assertMatrixQaInReplyTarget(params: {
   actualEventId?: string;
   expectedEventId: string;
@@ -57,10 +54,10 @@ function buildMatrixQaThreadArtifacts(result: MatrixQaThreadScenarioResult) {
   };
 }
 
-function failIfMatrixSubagentThreadHookError(event: MatrixQaObservedEvent) {
+function failIfMatrixSubagentThreadSpawnError(event: MatrixQaObservedEvent) {
   const body = event.body ?? "";
-  if (MATRIX_SUBAGENT_THREAD_HOOK_ERROR_RE.test(body)) {
-    throw new Error(`Matrix subagent thread spawn hit missing hook error: ${body || "<empty>"}`);
+  if (/only available on channels that expose thread bindings/i.test(body)) {
+    throw new Error(`Matrix subagent thread binding unavailable: ${body || "<empty>"}`);
   }
   if (/\bsessions_spawn failed:/i.test(body)) {
     throw new Error(`Matrix subagent thread spawn failed: ${body || "<empty>"}`);
@@ -297,7 +294,7 @@ export async function runSubagentThreadSpawnScenario(context: MatrixQaScenarioCo
   const introPromise = client.waitForRoomEvent({
     observedEvents: context.observedEvents,
     predicate: (event) => {
-      failIfMatrixSubagentThreadHookError(event);
+      failIfMatrixSubagentThreadSpawnError(event);
       return (
         event.roomId === context.roomId &&
         event.sender === context.sutUserId &&
@@ -320,7 +317,7 @@ export async function runSubagentThreadSpawnScenario(context: MatrixQaScenarioCo
   const completion = await client.waitForRoomEvent({
     observedEvents: context.observedEvents,
     predicate: (event) => {
-      failIfMatrixSubagentThreadHookError(event);
+      failIfMatrixSubagentThreadSpawnError(event);
       return (
         event.roomId === context.roomId &&
         event.sender === context.sutUserId &&

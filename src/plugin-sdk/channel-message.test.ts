@@ -3,37 +3,25 @@
  */
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { defineChannelMessageAdapter as defineCoreChannelMessageAdapter } from "../channels/message/index.js";
+import * as replyPipeline from "../channels/message/reply-pipeline.js";
 import {
   defineChannelMessageAdapter,
   type ChannelMessageDurableFinalAdapter,
 } from "./channel-outbound.js";
 
 describe("defineChannelMessageAdapter", () => {
-  const loadPluginSdkSubpaths = async () =>
-    await Promise.all([
-      import("openclaw/plugin-sdk/channel-outbound"),
-      import("openclaw/plugin-sdk/channel-message"),
-      import("openclaw/plugin-sdk/channel-reply-pipeline"),
-    ] as const);
-  let pluginSdkSubpaths: Awaited<ReturnType<typeof loadPluginSdkSubpaths>>;
+  let channelOutbound: typeof import("openclaw/plugin-sdk/channel-outbound");
 
   beforeAll(async () => {
-    pluginSdkSubpaths = await loadPluginSdkSubpaths();
+    channelOutbound = await import("openclaw/plugin-sdk/channel-outbound");
   });
 
-  it("keeps channel plugin SDK subpaths aligned", async () => {
-    const [channelOutbound, channelMessage, channelReplyPipeline] = pluginSdkSubpaths;
-
+  it("exports focused outbound helpers from their canonical owners", () => {
     expect(channelOutbound.createChannelMessageReplyPipeline).toBe(
-      channelReplyPipeline.createChannelReplyPipeline,
+      replyPipeline.createChannelReplyPipeline,
     );
-    expect(channelMessage.createChannelMessageReplyPipeline).toBe(
-      channelOutbound.createChannelMessageReplyPipeline,
-    );
-    expect(channelMessage.createReplyPrefixOptions).toBe(
-      channelReplyPipeline.createReplyPrefixOptions,
-    );
-    expect(channelMessage.createTypingCallbacks).toBe(channelReplyPipeline.createTypingCallbacks);
+    expect(channelOutbound.createReplyPrefixOptions).toBe(replyPipeline.createReplyPrefixOptions);
+    expect(channelOutbound.createTypingCallbacks).toBe(replyPipeline.createTypingCallbacks);
     expect(channelOutbound.defineChannelMessageAdapter).toBe(defineCoreChannelMessageAdapter);
   });
 

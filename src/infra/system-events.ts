@@ -240,31 +240,6 @@ function resetQueueState(key: string, entry: SessionQueue) {
   entry.lastContextKey = null;
 }
 
-export function consumeSystemEventEntries(
-  sessionKey: string,
-  consumedEntries: readonly SystemEvent[],
-): SystemEvent[] {
-  const key = requireSessionKey(sessionKey);
-  const entry = getSessionQueue(key);
-  if (!entry || entry.queue.length === 0 || consumedEntries.length === 0) {
-    return [];
-  }
-  if (
-    consumedEntries.length > entry.queue.length ||
-    !consumedEntries.every((event, index) =>
-      areSystemEventsEqual(expectDefined(entry.queue[index], "queue entry at index"), event),
-    )
-  ) {
-    // A keyed replacement may remove one inspected entry while a prompt is in flight.
-    // Consume the unchanged inspected entries so unrelated work is not replayed,
-    // while leaving the replacement and all newly queued entries intact.
-    return consumeSelectedSystemEventEntries(key, consumedEntries);
-  }
-  const removed = entry.queue.splice(0, consumedEntries.length).map(cloneSystemEvent);
-  resetQueueState(key, entry);
-  return removed;
-}
-
 export function consumeSelectedSystemEventEntries(
   sessionKey: string,
   consumedEntries: readonly SystemEvent[],
@@ -276,6 +251,8 @@ export function consumeSelectedSystemEventEntries(
   }
   const removed: SystemEvent[] = [];
   for (const consumed of consumedEntries) {
+    // Consume only the inspected snapshot. Keyed replacements and later
+    // admissions must remain queued for their own delivery.
     const index = entry.queue.findIndex((event) => areSystemEventsEqual(event, consumed));
     if (index === -1) {
       continue;

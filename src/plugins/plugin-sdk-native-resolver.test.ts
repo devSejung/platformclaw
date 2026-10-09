@@ -34,7 +34,6 @@ function writeFakeOpenClawPackage(root: string): { distRoot: string; loaderModul
     exports: {
       "./cli-entry": "./dist/cli-entry.js",
       "./plugin-sdk/agent-runtime": "./dist/plugin-sdk/agent-runtime.js",
-      "./plugin-sdk/channel-message": "./dist/plugin-sdk/channel-message.js",
       "./plugin-sdk/channel-outbound": "./dist/plugin-sdk/channel-outbound.js",
       "./plugin-sdk/source-only": "./dist/plugin-sdk/source-only.js",
     },
@@ -46,11 +45,6 @@ function writeFakeOpenClawPackage(root: string): { distRoot: string; loaderModul
   fs.writeFileSync(
     path.join(pluginSdkDir, "agent-runtime.js"),
     "export const agentRuntimeSource = import.meta.url;\n",
-    "utf8",
-  );
-  fs.writeFileSync(
-    path.join(pluginSdkDir, "channel-message.js"),
-    ['export * from "./channel-outbound.js";', ""].join("\n"),
     "utf8",
   );
   fs.writeFileSync(

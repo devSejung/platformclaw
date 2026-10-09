@@ -211,7 +211,6 @@ const rules = [
       "src/channels/message/inbound-reply-dispatch.ts",
       "src/infra/outbound/deliver-runtime.ts",
       "src/infra/outbound/deliver.ts",
-      "src/plugin-sdk/channel-message.ts",
       "src/plugin-sdk/inbound-reply-dispatch.ts",
     ],
     message: "use sendDurableMessageBatch or deliverInboundReplyWithMessageSendContext",

@@ -8,7 +8,6 @@ import { resolveMainSessionKey } from "../config/sessions/main-session.js";
 import { isCronSystemEvent } from "./heartbeat-events-filter.js";
 import {
   consumeSelectedSystemEventEntries,
-  consumeSystemEventEntries,
   drainSystemEventEntries,
   enqueueSystemEvent,
   hasSystemEvents,
@@ -127,7 +126,7 @@ describe("system events (session routing)", () => {
       replace: true,
     });
 
-    expect(consumeSystemEventEntries(key, inspected).map((event) => event.text)).toEqual([
+    expect(consumeSelectedSystemEventEntries(key, inspected).map((event) => event.text)).toEqual([
       "Exec completed",
     ]);
     expect(peekSystemEvents(key)).toEqual(["Voice roster 1"]);
@@ -180,7 +179,9 @@ describe("system events (session routing)", () => {
     const inspected = peekSystemEventEntries(key);
     enqueueSystemEvent("second", { sessionKey: key, contextKey: "cron:second" });
 
-    expect(consumeSystemEventEntries(key, inspected).map((entry) => entry.text)).toEqual(["first"]);
+    expect(consumeSelectedSystemEventEntries(key, inspected).map((entry) => entry.text)).toEqual([
+      "first",
+    ]);
     expect(peekSystemEvents(key)).toEqual(["second"]);
   });
 
@@ -214,7 +215,9 @@ describe("system events (session routing)", () => {
       "inspected delivery context",
     ).threadId = "42";
 
-    expect(consumeSystemEventEntries(key, inspected).map((entry) => entry.text)).toEqual(["first"]);
+    expect(consumeSelectedSystemEventEntries(key, inspected).map((entry) => entry.text)).toEqual([
+      "first",
+    ]);
     expect(peekSystemEvents(key)).toStrictEqual([]);
   });
 
@@ -449,7 +452,7 @@ describe("system events (session routing)", () => {
     enqueueSystemEvent("unkeyed followup", { sessionKey: key });
     const inspected = peekSystemEventEntries(key).slice(0, 1);
 
-    expect(consumeSystemEventEntries(key, inspected).map((entry) => entry.text)).toEqual([
+    expect(consumeSelectedSystemEventEntries(key, inspected).map((entry) => entry.text)).toEqual([
       "startup",
     ]);
     expect(isSystemEventContextChanged(key, "build:123")).toBe(false);
@@ -473,7 +476,7 @@ describe("system events (session routing)", () => {
     enqueueSystemEvent("Build completed", { sessionKey: key, contextKey: "build:123" });
     const inspected = peekSystemEventEntries(key);
 
-    expect(consumeSystemEventEntries(key, inspected).map((entry) => entry.text)).toEqual([
+    expect(consumeSelectedSystemEventEntries(key, inspected).map((entry) => entry.text)).toEqual([
       "Build completed",
     ]);
     expect(

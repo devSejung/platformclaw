@@ -6,7 +6,7 @@
 import type { LiveMessageState, MessageReceipt, RenderedMessageBatch } from "./types.js";
 
 /** Mutable draft preview handle used before a live message is finalized or discarded. */
-export type LivePreviewFinalizerDraft<TId> = {
+type LivePreviewFinalizerDraft<TId> = {
   flush: () => Promise<void>;
   id: () => TId | undefined;
   seal?: () => Promise<void>;
@@ -15,7 +15,7 @@ export type LivePreviewFinalizerDraft<TId> = {
 };
 
 /** Outcome kind returned after attempting to finalize or fall back from a live preview. */
-export type LivePreviewFinalizerResultKind =
+type LivePreviewFinalizerResultKind =
   | "normal-delivered"
   | "normal-skipped"
   | "preview-finalized"
@@ -114,7 +114,7 @@ export function createPreviewMessageReceipt(params: {
 }
 
 /** Finalizes a live preview in place when possible, otherwise falls back to normal delivery. */
-export async function deliverFinalizableLivePreview<TPayload, TId, TEdit>(params: {
+async function deliverFinalizableLivePreview<TPayload, TId, TEdit>(params: {
   kind: "tool" | "block" | "final";
   payload: TPayload;
   liveState?: LiveMessageState<TPayload>;

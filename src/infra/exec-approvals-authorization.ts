@@ -11,11 +11,7 @@ import type { AllowAlwaysPersistenceDecision } from "./exec-approvals-contracts.
 import type { ExecApprovalsFile, ExecAsk, ExecSecurity } from "./exec-approvals-core.js";
 import { maxAsk, minSecurity } from "./exec-approvals-policy.js";
 import { resolveExecApprovalsFromFileInternal } from "./exec-approvals-resolver.js";
-import {
-  replaceExecApprovalsSnapshot,
-  updateExecApprovals,
-  updateExecApprovalsSync,
-} from "./exec-approvals-store.js";
+import { updateExecApprovals } from "./exec-approvals-store.js";
 import type { ExecAllowlistEntry } from "./exec-approvals.types.js";
 import { isGeneratedHashedArgPattern } from "./exec-command-resolution.js";
 
@@ -130,64 +126,6 @@ function assertCurrentUsageAuthorization(params: {
   if (params.authorization.requireAutoAllowSkills && !current.agent.autoAllowSkills) {
     throw new Error("Exec approval changed before execution");
   }
-}
-
-export function recordAllowlistUse(
-  approvals: ExecApprovalsFile,
-  agentId: string | undefined,
-  entry: ExecAllowlistEntry,
-  command: string,
-  resolvedPath?: string,
-): void {
-  recordAllowlistMatchesUse({
-    approvals,
-    agentId,
-    matches: [entry],
-    command,
-    resolvedPath,
-  });
-}
-
-export function recordAllowlistMatchesUse(params: {
-  approvals: ExecApprovalsFile;
-  agentId: string | undefined;
-  matches: readonly ExecAllowlistEntry[];
-  command: string;
-  resolvedPath?: string;
-  authorization?: ExecApprovalUsageAuthorization;
-}): void {
-  if (params.matches.length === 0 && !params.authorization) {
-    return;
-  }
-  const snapshot = updateExecApprovalsSync({
-    update: (file) => applyRecordedAllowlistUse({ ...params, file }),
-  });
-  if (snapshot) {
-    replaceExecApprovalsSnapshot(params.approvals, snapshot.file);
-  }
-}
-
-function applyRecordedAllowlistUse(params: {
-  file: ExecApprovalsFile;
-  agentId: string | undefined;
-  matches: readonly ExecAllowlistEntry[];
-  command: string;
-  resolvedPath?: string;
-  authorization?: ExecApprovalUsageAuthorization;
-}): ExecApprovalsFile | null {
-  const keys = new Set(
-    params.matches.filter((entry) => entry.pattern).map(buildAllowlistEntryMatchKey),
-  );
-  if (params.authorization) {
-    assertCurrentUsageAuthorization({
-      file: params.file,
-      agentId: params.agentId,
-      command: params.command,
-      matchKeys: keys,
-      authorization: params.authorization,
-    });
-  }
-  return applyRecordedAllowlistMetadata(params);
 }
 
 function applyRecordedAllowlistMetadata(params: {

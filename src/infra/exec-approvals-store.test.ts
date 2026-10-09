@@ -22,16 +22,17 @@ import {
   writeExecApprovalsConfigRow,
 } from "./exec-approvals-sqlite.js";
 import {
-  ensureExecApprovals,
+  ensureExecApprovalsSnapshot,
   loadExecApprovals,
   readExecApprovalsSnapshot,
-  restoreExecApprovalsSnapshot,
   restoreExecApprovalsSnapshotLocked,
-  saveExecApprovals,
   updateExecApprovals,
   withAgentExecApprovalsRemoved,
 } from "./exec-approvals-store.js";
-import { testing as execApprovalsStoreTesting } from "./exec-approvals-store.test-support.js";
+import {
+  saveExecApprovals,
+  testing as execApprovalsStoreTesting,
+} from "./exec-approvals-store.test-support.js";
 import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "./kysely-sync.js";
 import { runSqliteImmediateTransactionSync } from "./sqlite-transaction.js";
 
@@ -168,9 +169,9 @@ describe("exec approvals SQLite store", () => {
     expect(updated?.file.defaults?.security).toBe("full");
   });
 
-  it("mints one socket token and reuses it on later initialization", () => {
-    const first = ensureExecApprovals();
-    const second = ensureExecApprovals();
+  it("mints one socket token and reuses it on later initialization", async () => {
+    const first = (await ensureExecApprovalsSnapshot()).file;
+    const second = (await ensureExecApprovalsSnapshot()).file;
     expect(first.socket?.token).toMatch(/^[A-Za-z0-9_-]+$/u);
     expect(first.socket?.token).toBe(second.socket?.token);
     expect(first.socket?.path).toBe(second.socket?.path);
@@ -347,7 +348,7 @@ describe("exec approvals SQLite store", () => {
       throw new Error("missing newer snapshot");
     }
     expect(await restoreExecApprovalsSnapshotLocked(original, original.hash)).toBe(false);
-    restoreExecApprovalsSnapshot(original);
+    expect(await restoreExecApprovalsSnapshotLocked(original, newer.hash)).toBe(true);
     expect(loadExecApprovals().defaults?.security).toBe("allowlist");
   });
 

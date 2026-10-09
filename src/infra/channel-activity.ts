@@ -2,7 +2,7 @@
 import type { ChannelId } from "../channels/plugins/channel-id.types.js";
 
 /** Direction of the last observed activity for a channel/account pair. */
-export type ChannelDirection = "inbound" | "outbound";
+type ChannelDirection = "inbound" | "outbound";
 
 type ActivityEntry = {
   inboundAt: number | null;
@@ -57,9 +57,4 @@ export function getChannelActivity(params: {
       outboundAt: null,
     }
   );
-}
-
-/** Clears all tracked channel activity; test-only helper. */
-export function resetChannelActivityForTest() {
-  activity.clear();
 }

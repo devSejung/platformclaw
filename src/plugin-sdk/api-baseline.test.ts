@@ -21,7 +21,7 @@ const TEST_ENTRYPOINTS = [
   "approval-gateway-runtime",
   "channel-policy",
   "core",
-  "infra-runtime",
+  "system-event-runtime",
   "provider-auth",
   "provider-catalog-live-runtime",
   "provider-oauth-runtime",
@@ -155,10 +155,12 @@ describe("Plugin SDK API baseline", () => {
             exportSurface.exportName === exportName && exportSurface.declaration !== null,
         )?.declaration;
 
-    expect(rendered.baseline.modules.find((entry) => entry.entrypoint === "infra-runtime")).toEqual(
+    expect(
+      rendered.baseline.modules.find((entry) => entry.entrypoint === "system-event-runtime"),
+    ).toEqual(
       expect.objectContaining({
         category: null,
-        importSpecifier: "openclaw/plugin-sdk/infra-runtime",
+        importSpecifier: "openclaw/plugin-sdk/system-event-runtime",
       }),
     );
     expect(findDeclaration("OAuthProviderInterface")).toContain("readonly id: OAuthProviderId;");

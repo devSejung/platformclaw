@@ -1,5 +1,5 @@
 // Covers WSL detection from platform and release files.
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { captureEnv, deleteTestEnvValue, setTestEnvValue } from "../test-utils/env.js";
 import { mockProcessPlatform } from "../test-utils/vitest-spies.js";
 
@@ -27,10 +27,8 @@ vi.mock("node:fs/promises", async () => {
 });
 
 let isWSLEnv: typeof import("./wsl.js").isWSLEnv;
-let isWSLSync: typeof import("./wsl.js").isWSLSync;
 let isWSL2Sync: typeof import("./wsl.js").isWSL2Sync;
 let isWSL: typeof import("./wsl.js").isWSL;
-let resetWSLStateForTests: typeof import("./wsl.js").resetWSLStateForTests;
 
 function setPlatform(platform: NodeJS.Platform): void {
   mockProcessPlatform(platform);
@@ -39,11 +37,7 @@ function setPlatform(platform: NodeJS.Platform): void {
 describe("wsl detection", () => {
   let envSnapshot: ReturnType<typeof captureEnv>;
 
-  beforeAll(async () => {
-    ({ isWSLEnv, isWSLSync, isWSL2Sync, isWSL, resetWSLStateForTests } = await import("./wsl.js"));
-  });
-
-  beforeEach(() => {
+  beforeEach(async () => {
     envSnapshot = captureEnv(["WSL_INTEROP", "WSL_DISTRO_NAME", "WSLENV"]);
     deleteTestEnvValue("WSL_INTEROP");
     deleteTestEnvValue("WSL_DISTRO_NAME");
@@ -51,12 +45,12 @@ describe("wsl detection", () => {
     readFileSyncMock.mockReset();
     readFileMock.mockReset();
     setPlatform("linux");
-    resetWSLStateForTests();
+    vi.resetModules();
+    ({ isWSLEnv, isWSL2Sync, isWSL } = await import("./wsl.js"));
   });
 
   afterEach(() => {
     envSnapshot.restore();
-    resetWSLStateForTests();
     vi.restoreAllMocks();
   });
 
@@ -74,9 +68,9 @@ describe("wsl detection", () => {
     expect(isWSLEnv({})).toBe(false);
   });
 
-  it("reads /proc/version for sync WSL detection when env vars are absent", () => {
-    readFileSyncMock.mockReturnValueOnce("Linux version 6.6.0-1-microsoft-standard-WSL2");
-    expect(isWSLSync()).toBe(true);
+  it("reads /proc/version for sync WSL2 detection when env vars are absent", () => {
+    readFileSyncMock.mockReturnValue("Linux version 6.6.0-1-microsoft-standard-WSL2");
+    expect(isWSL2Sync()).toBe(true);
     expect(readFileSyncMock).toHaveBeenCalledWith("/proc/version", "utf8");
   });
 
@@ -84,7 +78,7 @@ describe("wsl detection", () => {
     readFileSyncMock.mockImplementationOnce(() => {
       throw new Error("ENOENT");
     });
-    expect(isWSLSync()).toBe(false);
+    expect(isWSL2Sync()).toBe(false);
   });
 
   it.each(["Linux version 6.6.0-1-microsoft-standard-WSL2", "Linux version 6.6.0-1-wsl2"])(
@@ -104,12 +98,11 @@ describe("wsl detection", () => {
 
   it("returns false for sync detection on non-linux platforms", () => {
     setPlatform("darwin");
-    expect(isWSLSync()).toBe(false);
     expect(isWSL2Sync()).toBe(false);
     expect(readFileSyncMock).not.toHaveBeenCalled();
   });
 
-  it("caches async WSL detection until reset", async () => {
+  it("caches async WSL detection within each module instance", async () => {
     readFileMock.mockResolvedValue("6.6.0-1-microsoft-standard-WSL2");
 
     await expect(isWSL()).resolves.toBe(true);
@@ -117,8 +110,9 @@ describe("wsl detection", () => {
 
     expect(readFileMock).toHaveBeenCalledTimes(1);
 
-    resetWSLStateForTests();
-    await expect(isWSL()).resolves.toBe(true);
+    vi.resetModules();
+    const { isWSL: freshIsWSL } = await import("./wsl.js");
+    await expect(freshIsWSL()).resolves.toBe(true);
     expect(readFileMock).toHaveBeenCalledTimes(2);
   });
 

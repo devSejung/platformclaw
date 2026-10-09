@@ -6,7 +6,6 @@ import type { WebInboundMessage } from "./inbound/types.js";
 import {
   nextMessageId,
   inboundMessage,
-  expectDeprecatedAdmissionAliases,
   installStreamsInboundMessageHooks,
 } from "./monitor-inbox.streams-inbound-messages.test-support.js";
 import {
@@ -24,9 +23,9 @@ describe("web monitor inbox delivery and dedupe", () => {
 
   it("delivery coordinator streams inbound messages", async () => {
     const onMessage = vi.fn(async (msg) => {
-      await msg.sendComposing();
-      await msg.reply("flat reply works");
-      await msg.sendMedia({ text: "flat media works" });
+      await msg.platform.sendComposing();
+      await msg.platform.reply("nested reply works");
+      await msg.platform.sendMedia({ text: "nested media works" });
     });
 
     const { listener, sock } = await startInboxMonitor(onMessage as InboxOnMessage);
@@ -60,7 +59,10 @@ describe("web monitor inbox delivery and dedupe", () => {
         decision: "allow",
       },
     });
-    expectDeprecatedAdmissionAliases(inbound);
+    for (const alias of ["id", "body", "from", "accountId", "accessControlPassed", "reply"]) {
+      expect(inbound).not.toHaveProperty(alias);
+    }
+    expect(inbound.payload).not.toHaveProperty("untrustedStructuredContext");
     expect(sock.readMessages).toHaveBeenCalledWith([
       {
         remoteJid: "999@s.whatsapp.net",
@@ -72,10 +74,10 @@ describe("web monitor inbox delivery and dedupe", () => {
     expect(sock.sendPresenceUpdate).toHaveBeenCalledWith("available");
     expect(sock.sendPresenceUpdate).toHaveBeenCalledWith("composing", "999@s.whatsapp.net");
     expect(sock.sendMessage).toHaveBeenNthCalledWith(1, "999@s.whatsapp.net", {
-      text: "flat reply works",
+      text: "nested reply works",
     });
     expect(sock.sendMessage).toHaveBeenNthCalledWith(2, "999@s.whatsapp.net", {
-      text: "flat media works",
+      text: "nested media works",
     });
 
     await listener.close();

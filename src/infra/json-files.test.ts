@@ -1,13 +1,13 @@
 // Covers durable JSON read/write helpers, parse failures, and atomic update behavior.
 import fsPromises from "node:fs/promises";
 import path from "node:path";
+import type { JsonFileReadError } from "@openclaw/fs-safe/json";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withTempDir } from "../test-helpers/temp-dir.js";
 import {
-  JsonFileReadError,
   createAsyncLock,
   readDurableJsonFile,
-  readJsonFile,
+  tryReadJson,
   writeJsonAtomic,
   writeTextAtomic,
 } from "./json-files.js";
@@ -48,7 +48,7 @@ describe("json file helpers", () => {
     },
   ])("$name", async ({ setup, expected }) => {
     await withTempDir({ prefix: "openclaw-json-files-" }, async (base) => {
-      await expect(readJsonFile(await setup(base))).resolves.toEqual(expected);
+      await expect(tryReadJson(await setup(base))).resolves.toEqual(expected);
     });
   });
 

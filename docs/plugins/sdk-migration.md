@@ -20,12 +20,11 @@ from a single entry point:
 - **`openclaw/plugin-sdk`** and **`openclaw/plugin-sdk/compat`** - re-exported
   dozens of helpers while the focused SDK was being built. Both roots are now
   removed; import a documented subpath instead.
-- **`openclaw/plugin-sdk/infra-runtime`** - a broad barrel mixing system
+- **`openclaw/plugin-sdk/infra-runtime`** - a removed broad barrel mixing system
   events, heartbeat state, delivery queues, fetch/proxy helpers, file helpers,
   approval types, and unrelated utilities.
-- **`openclaw/plugin-sdk/config-runtime`** - a broad config barrel retained
-  only for its later compatibility window; direct runtime load/write helpers
-  have been removed.
+- **`openclaw/plugin-sdk/config-runtime`** - a removed broad config barrel.
+  Use focused config contracts, snapshots, and mutation helpers.
 - **`openclaw/extension-api`** - a removed bridge that gave plugins direct
   access to host-side helpers like the embedded agent runner.
 - **`api.registerEmbeddedExtensionFactory(...)`** - a removed embedded-runner-only
@@ -34,8 +33,10 @@ from a single entry point:
   to middleware](#how-to-migrate)).
 
 The root SDK, compat barrel, extension bridge, and embedded extension factory
-have been removed. `infra-runtime` and `config-runtime` remain only for their
-separately recorded later windows; new plugins should use focused subpaths.
+have been removed. `infra-runtime`, `config-runtime`, `channel-lifecycle`,
+`channel-message`, and `channel-reply-pipeline` were also removed under the
+SDK-owner September 30 breaking-release decision (upstream `e649be315d75`).
+Import their focused replacements before upgrading.
 
 <Warning>
   Plugins importing the removed root, compat, or extension surfaces no longer
@@ -109,18 +110,20 @@ existing plugins should not break during ordinary minor releases.
 The dated compatibility registry also tracks shipped annotations that do not
 belong to one legacy subpath. These records use 2026-10-01 as the earliest
 review date; removal still requires the reader condition in the final column.
+These October families are `removal-pending` while migrations remain
+unverified; their original dates are unchanged.
 
-| Compatibility code                        | Replacement                                                                                    | Removal condition                                                                            |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `plugin-sdk-broad-runtime-barrels`        | Focused capability subpaths                                                                    | No bundled or published imports of the seven enumerated broad barrels remain.                |
-| `plugin-sdk-provider-owned-helper-shims`  | Provider-local auth/model/replay/OAuth/stream APIs                                             | Every enumerated helper is migrated in official providers and absent from published plugins. |
-| `message-presentation-legacy-bridges`     | `MessagePresentation` and channel presentation renderers                                       | Producers and official channel packages no longer emit or read legacy interactive replies.   |
-| `plugin-sdk-focused-compat-aliases`       | The focused replacement named by each `@deprecated` annotation                                 | Every enumerated alias has zero bundled and published readers.                               |
-| `agent-harness-terminal-result-aliases`   | `AgentHarnessAttemptResult.terminal` and `visibleReplies`                                      | Harness plugins no longer read legacy terminal booleans or `sourceVisibleReplies`.           |
-| `official-plugin-export-aliases`          | Canonical Google Meet testing, presentation renderers, and host-owned Discord timeout behavior | Minimum supported official plugin packages no longer import the aliases.                     |
-| `memory-host-compatibility-aliases`       | Canonical memory tables and prepared runtime config                                            | Memory integrations no longer pass table overrides or call legacy `loadConfig`.              |
-| `plugin-runtime-api-compat-aliases`       | Namespaced plugin APIs and focused runtime methods                                             | All enumerated flat API/runtime aliases have no readers.                                     |
-| `plugin-provider-manifest-compat-aliases` | Manifest-owned kind/setup metadata and model catalog registration                              | Providers no longer publish runtime kind or legacy catalog hooks.                            |
+| Compatibility code                        | Replacement                                                                                    | Removal condition                                                                                                                         |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `plugin-sdk-broad-runtime-barrels`        | Focused capability subpaths                                                                    | No bundled or published imports of the seven enumerated broad barrels remain.                                                             |
+| `plugin-sdk-provider-owned-helper-shims`  | Provider-local auth/model/replay/OAuth/stream APIs                                             | Every enumerated helper is migrated in official providers and absent from published plugins.                                              |
+| `message-presentation-legacy-bridges`     | `MessagePresentation` and channel presentation renderers                                       | Producers and official channel packages no longer emit or read legacy interactive replies.                                                |
+| `plugin-sdk-focused-compat-aliases`       | The focused replacement named by each `@deprecated` annotation                                 | Every enumerated alias has zero bundled and published readers.                                                                            |
+| `agent-harness-terminal-result-aliases`   | `AgentHarnessAttemptResult.terminal` and `visibleReplies`                                      | Harness plugins no longer read legacy terminal booleans or `sourceVisibleReplies`.                                                        |
+| `official-plugin-export-aliases`          | Canonical Google Meet testing, presentation renderers, and host-owned Discord timeout behavior | Minimum supported official plugin packages no longer import the aliases.                                                                  |
+| `memory-host-compatibility-aliases`       | Canonical memory tables and prepared runtime config                                            | Existing custom-table data is migrated and integrations use canonical tables; unused private `loadConfig` re-exports are already removed. |
+| `plugin-runtime-api-compat-aliases`       | Namespaced plugin APIs and focused runtime methods                                             | All enumerated flat API/runtime aliases have no readers.                                                                                  |
+| `plugin-provider-manifest-compat-aliases` | Manifest-owned kind/setup metadata and model catalog registration                              | Providers no longer publish runtime kind or legacy catalog hooks.                                                                         |
 
 ### Published channel setup compatibility
 
@@ -135,7 +138,9 @@ Those exports remain available as deprecated runtime compatibility adapters.
 New and republished plugins should own their config schemas and setup policy
 locally, using generic primitives from `channel-config-schema` and
 `setup-runtime`. The compatibility exports can be removed only after the
-minimum supported published package versions no longer import them.
+minimum supported published package versions no longer import them. Their
+owner restored this reader gate without a fixed removal date (upstream
+`fc425351d6b3`); the earlier August 30 deadline does not authorize deletion.
 
 ### Channel setup input field compatibility
 
@@ -207,7 +212,8 @@ The `media-legacy-projection` compatibility record covers the old parallel
 media fields, payload builders, hook metadata aliases, and media template
 names. Its approved `removeAfter` date is **2026-10-01** (two release trains
 after the facts-first replacements shipped). Removal additionally requires a
-clean published-plugin artifact sweep at that time; migrate before the date.
+clean published-plugin artifact sweep. The record is `removal-pending`, with
+the original date preserved until that proof is complete.
 
 For channel ingress, replace singular/plural `MediaPath`, `MediaUrl`,
 `MediaType`, `MediaPaths`, `MediaUrls`, `MediaTypes`,
@@ -280,8 +286,11 @@ For local media read policy, import `getAgentScopedMediaLocalRoots(...)` or
     must receive config from their boundary, and long-lived runtime modules
     allow zero ambient `loadConfig()` calls.
 
-    New plugin code should avoid the broad `openclaw/plugin-sdk/config-runtime`
-    barrel. Use the narrow subpath for the job:
+    The broad `openclaw/plugin-sdk/config-runtime` barrel has been removed.
+    Use typed public or injected config contracts for third-party plugins. The
+    table also names private-local host surfaces for official plugins; those
+    JavaScript-only exports are not typed third-party APIs. Keep unsupported
+    operations plugin-owned or request a focused public contract.
 
     | Need | Import |
     | --- | --- |
@@ -297,9 +306,7 @@ For local media read policy, import `getAgentScopedMediaLocalRoots(...)` or
     | Model/session overrides | `openclaw/plugin-sdk/model-session-runtime` |
 
     Bundled plugins and their tests are scanner-guarded against the broad
-    barrel so imports and mocks stay local to the behavior they need. The
-    barrel still exists for external compatibility, but new code should not
-    depend on it.
+    retired barrel so imports and mocks stay local to the behavior they need.
 
   </Step>
 
@@ -408,10 +415,30 @@ For local media read policy, import `getAgentScopedMediaLocalRoots(...)` or
     } from "openclaw/plugin-sdk/compat";
 
     // After (modern focused imports)
-    import { createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-reply-pipeline";
+    import { createChannelMessageReplyPipeline as createChannelReplyPipeline } from "openclaw/plugin-sdk/channel-outbound";
     import { createPluginRuntimeStore } from "openclaw/plugin-sdk/runtime-store";
     import { resolveControlCommandGate } from "openclaw/plugin-sdk/command-auth";
     ```
+
+    The removed channel facades require symbol-specific mappings:
+
+    | Removed import | Focused replacement |
+    | --- | --- |
+    | `channel-reply-pipeline` `createChannelReplyPipeline` | `channel-outbound` `createChannelMessageReplyPipeline` |
+    | `channel-reply-pipeline` `resolveChannelSourceReplyDeliveryMode` | `channel-outbound` `resolveChannelMessageSourceReplyDeliveryMode` |
+    | Reply prefix, typing, pipeline option and result types | Same names from `channel-outbound` |
+    | `channel-lifecycle` run queue, passive lifecycle, draft controls, watchdog and state-machine helpers/types | Same names from `channel-outbound` |
+    | `deliverFinalizableDraftPreview` | Adapt callbacks to `defineFinalizableLivePreviewAdapter` and `deliverWithFinalizableLivePreviewAdapter` |
+    | `channel-message` outbound helpers/types | Same names from `channel-outbound` |
+    | `hasFinalChannelTurnDispatch` | `channel-inbound` `hasFinalInboundReplyDispatch` |
+    | `hasVisibleChannelTurnDispatch` | `channel-inbound` `hasVisibleInboundReplyDispatch` |
+    | `resolveChannelTurnDispatchCounts` | `channel-inbound` `resolveInboundReplyDispatchCounts` |
+
+    Live preview delivery now returns an object with `kind` and optional
+    `liveState`, rather than the legacy string. Its `preview-retained` kind
+    replaces the removed wrapper's `normal-skipped` projection. The legacy
+    `DraftPreviewFinalizerDraft` and `DraftPreviewFinalizerResult` names are
+    removed; adapt caller-defined types to the focused live-preview contracts.
 
     For host-side helpers, use the injected plugin runtime instead of
     importing directly:
@@ -440,9 +467,13 @@ For local media read policy, import `getAgentScopedMediaLocalRoots(...)` or
   </Step>
 
   <Step title="Replace broad infra-runtime imports">
-    `openclaw/plugin-sdk/infra-runtime` still exists for external
-    compatibility, but new code should import the focused surface it actually
-    needs:
+    `openclaw/plugin-sdk/infra-runtime` has been removed. Import the focused
+    surface each capability needs. Private-local rows are JavaScript-only host
+    surfaces for official plugins, not typed third-party APIs. Third-party
+    producers use `api.runtime.system.enqueueSystemEvent`, heartbeat requests
+    use `api.runtime.system.requestHeartbeat`, and activity uses
+    `api.runtime.channel.activity`. Adapt other unsupported operations in the
+    plugin or request a focused public contract.
 
     | Need | Import |
     | --- | --- |
@@ -489,10 +520,9 @@ For local media read policy, import `getAgentScopedMediaLocalRoots(...)` or
     consistently across native approvals, reply suppression, inbound dedupe,
     cron delivery, and session routing.
 
-    Do not add new uses of `ChannelMessagingAdapter.parseExplicitTarget` or
-    `resolveChannelRouteTargetWithParser(...)` from
-    `plugin-sdk/channel-route` - those are deprecated and remain only for older
-    plugins. New channel plugins should use
+    `ChannelMessagingAdapter.parseExplicitTarget` and
+    `resolveChannelRouteTargetWithParser(...)` from `plugin-sdk/channel-route`
+    have been removed. Channel plugins use
     `messaging.targetResolver.resolveTarget(...)` for target-id normalization
     and directory-miss fallback,
     `messaging.inferTargetChatType(...)` when core needs an early peer kind,
@@ -687,9 +717,8 @@ timeline for current status.
 
     `subagent_spawning`, `PluginHookSubagentSpawningEvent`,
     `PluginHookSubagentSpawningResult`, and
-    `SubagentLifecycleHookRunner.runSubagentSpawning(...)` remain only as
-    deprecated compatibility surfaces while external plugins migrate, removed
-    after 2026-08-30.
+    `SubagentLifecycleHookRunner.runSubagentSpawning(...)` have been removed
+    after their August compatibility window.
 
   </Accordion>
 
@@ -1022,26 +1051,27 @@ apps own device capture/playback UX.
 
 ## Removal timeline
 
-| When                                        | What happens                                                                                                                              |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| **Now**                                     | Warning-capable deprecated surfaces emit runtime warnings; repository guards reject deprecated SDK imports from core and bundled plugins. |
-| **Pending owner decision**                  | Date-less records remain deprecated and ineligible for removal until their owner publishes a `removeAfter` date.                          |
-| **Each compat record's `removeAfter` date** | That specific surface is eligible for removal; `pnpm plugins:boundary-report --fail-on-eligible-compat` fails CI once the date passes.    |
-| **Next major release**                      | Dated surfaces may be removed only after their `removeAfter` date; date-less records still require owner approval and a published date.   |
+| When                                        | What happens                                                                                                                                                          |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Now**                                     | Warning-capable deprecated surfaces emit runtime warnings; repository guards reject deprecated SDK imports from core and bundled plugins.                             |
+| **Pending owner decision**                  | Date-less records remain deprecated and ineligible for removal until their owner publishes a `removeAfter` date.                                                      |
+| **Each compat record's `removeAfter` date** | Dated `deprecated` records fail CI once the date passes. `removal-pending` records retain their dates and blockers until their separate migration conditions are met. |
+| **Next major release**                      | Dated surfaces may be removed only after their `removeAfter` date; date-less records still require owner approval and a published date.                               |
 
-The remaining public SDK subpaths below have registry-backed removal windows.
+The public SDK subpaths below have registry-backed review windows or recorded
+retirement decisions. Pending dates alone do not authorize deletion.
 The July 30 rows were removed after their early maintainer-authorized sweep:
 unused subpaths were deleted, earlier compatibility aliases were deleted, and
 bundled-only modules were demoted to private-local build mappings.
 
-| `removeAfter` | Tier                               | SDK subpaths                                                                                                                                                                        |
-| ------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `2026-08-15`  | Earlier compatibility deprecations | `agent-config-primitives`, `channel-logging`, `channel-secret-runtime`, `channel-streaming`, `group-access`, `inbound-reply-dispatch`, `matrix`, `text-runtime`, `zod`              |
-| `2026-09-01`  | Earlier compatibility deprecations | `channel-lifecycle`, `channel-message`, `channel-reply-pipeline`, `config-runtime`, `infra-runtime`                                                                                 |
-| `2026-10-01`  | Media legacy projection            | `agent-media-payload`, plus the non-subpath `MsgContext Media*` fields, channel inbound media payload builders, `buildMediaPayload`, hook media aliases, and `{{Media*}}` templates |
+| `removeAfter` | Tier                                | SDK subpaths                                                                                                                                                                        |
+| ------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `2026-09-30`  | Pending downstream owner migrations | `agent-config-primitives`, `channel-logging`, `channel-secret-runtime`, `channel-streaming`, `group-access`, `inbound-reply-dispatch`, `matrix`, `text-runtime`, `zod`              |
+| `2026-09-30`  | Removed by SDK-owner decision       | `channel-lifecycle`, `channel-message`, `channel-reply-pipeline`, `config-runtime`, `infra-runtime`                                                                                 |
+| `2026-10-01`  | Pending media reader migration      | `agent-media-payload`, plus the non-subpath `MsgContext Media*` fields, channel inbound media payload builders, `buildMediaPayload`, hook media aliases, and `{{Media*}}` templates |
 
-All core plugins have already migrated. External plugins should migrate
-before the next major release. Run `pnpm plugins:boundary-report` to see which
+Bundled consumers use the focused replacements for retired surfaces. External
+plugins importing those surfaces must migrate before upgrading. Run `pnpm plugins:boundary-report` to see which
 compat records are due soonest for the surfaces your plugin uses.
 
 ## Related

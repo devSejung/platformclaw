@@ -959,9 +959,9 @@ describe("scripts/test-projects changed-target routing", () => {
     );
   });
 
-  it("routes channel reply pipeline SDK changes through SDK and channel delivery regressions", () => {
+  it("routes channel outbound SDK changes through SDK and channel delivery regressions", () => {
     expectChangedTargets(
-      ["src/plugin-sdk/channel-reply-pipeline.ts"],
+      ["src/plugin-sdk/channel-outbound.ts"],
       [
         "src/plugins/contracts/plugin-sdk-subpaths.test.ts",
         "src/auto-reply/reply/dispatch-acp.test.ts",

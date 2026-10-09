@@ -15,19 +15,13 @@ vi.mock("node:crypto", () => ({
 }));
 
 let generateSecureFraction: typeof import("./secure-random.js").generateSecureFraction;
-let generateSecureHex: typeof import("./secure-random.js").generateSecureHex;
 let generateSecureInt: typeof import("./secure-random.js").generateSecureInt;
 let generateSecureToken: typeof import("./secure-random.js").generateSecureToken;
 let generateSecureUuid: typeof import("./secure-random.js").generateSecureUuid;
 
 beforeAll(async () => {
-  ({
-    generateSecureFraction,
-    generateSecureHex,
-    generateSecureInt,
-    generateSecureToken,
-    generateSecureUuid,
-  } = await import("./secure-random.js"));
+  ({ generateSecureFraction, generateSecureInt, generateSecureToken, generateSecureUuid } =
+    await import("./secure-random.js"));
 });
 
 beforeEach(() => {
@@ -71,13 +65,6 @@ describe("secure-random", () => {
     expect(cryptoMocks.randomBytes).toHaveBeenCalledWith(expectedBytes);
     expect(token).toBe(expectedToken);
     expect(token).toMatch(/^[A-Za-z0-9_-]*$/);
-  });
-
-  it("generates secure hex strings", () => {
-    cryptoMocks.randomBytes.mockClear();
-
-    expect(generateSecureHex(4)).toBe(Buffer.alloc(4, 0xab).toString("hex"));
-    expect(cryptoMocks.randomBytes).toHaveBeenCalledWith(4);
   });
 
   it("maps random bytes into a unit interval fraction", () => {

@@ -9,6 +9,7 @@ import { parseExecApprovalData } from "./approval-custom-id.js";
 import { buildDiscordActivityCustomId } from "./component-custom-id.js";
 import { buildDiscordComponentMessage } from "./components.js";
 import { parseCustomId } from "./internal/discord.js";
+import { resolveDiscordComponentSpec } from "./outbound-components.js";
 import {
   buildDiscordInteractiveComponents,
   buildDiscordPresentationComponents,
@@ -94,6 +95,61 @@ describe("buildDiscordInteractiveComponents", () => {
           type: "actions",
           buttons: [{ label: "Docs", style: "link", url: "https://example.com/docs" }],
         },
+      ],
+    });
+  });
+
+  it.each([
+    {
+      name: "approval",
+      action: {
+        type: "approval" as const,
+        approvalId: "approval-1",
+        approvalKind: "exec" as const,
+        decision: "allow-once" as const,
+      },
+      expected: {
+        internalCustomId: "execapproval:kind=exec;id=approval-1;action=allow-once",
+      },
+    },
+    {
+      name: "callback",
+      action: { type: "callback" as const, value: "plugin:opaque|value" },
+      expected: { callbackData: "plugin:opaque|value", callbackDataKind: "callback" },
+    },
+    {
+      name: "command",
+      action: { type: "command" as const, command: "/codex inspect" },
+      expected: { callbackData: "/codex inspect", callbackDataKind: "command" },
+    },
+    {
+      name: "question",
+      action: {
+        type: "question" as const,
+        questionId: "ask_0123456789abcdef0123456789abcdef",
+        optionValue: "Production",
+      },
+      expected: { internalCustomId: "ocq:id=ask_0123456789abcdef0123456789abcdef;i=1" },
+    },
+  ])("preserves typed $name authority through the legacy renderer", ({ action, expected }) => {
+    expect(
+      buildDiscordInteractiveComponents({
+        blocks: [
+          {
+            type: "buttons",
+            buttons: [
+              {
+                label: "Unavailable",
+                action: { type: "web-app", widgetId: "invalid" },
+              },
+              { label: "Continue", action },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      blocks: [
+        { type: "actions", buttons: [{ label: "Continue", style: "secondary", ...expected }] },
       ],
     });
   });
@@ -686,5 +742,59 @@ describe("buildDiscordInteractiveComponents", () => {
         ],
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("resolveDiscordComponentSpec legacy boundary", () => {
+  it("keeps prepared components without reading lower-priority legacy input", async () => {
+    const components = { text: "Prepared", blocks: [{ type: "text" as const, text: "Native" }] };
+
+    expect(
+      await resolveDiscordComponentSpec({
+        text: "Fallback",
+        channelData: { discord: { presentationComponents: components } },
+        get interactive(): never {
+          throw new Error("unexpected legacy input read");
+        },
+      }),
+    ).toBe(components);
+  });
+
+  it("preserves typed legacy choice positions and labels when adding payload text", async () => {
+    const questionId = "ask_0123456789abcdef0123456789abcdef";
+
+    expect(
+      await resolveDiscordComponentSpec({
+        text: "Caption",
+        interactive: {
+          blocks: [
+            {
+              type: "buttons",
+              buttons: [
+                { label: "Unavailable", action: { type: "web-app", widgetId: "invalid" } },
+                {
+                  label: " Production ",
+                  action: { type: "question", questionId, optionValue: "Production" },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      text: "Caption",
+      blocks: [
+        {
+          type: "actions",
+          buttons: [
+            {
+              label: " Production ",
+              style: "secondary",
+              internalCustomId: `ocq:id=${questionId};i=1`,
+            },
+          ],
+        },
+      ],
+    });
   });
 });

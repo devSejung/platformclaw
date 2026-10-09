@@ -47,7 +47,7 @@ function escapeInvisibles(text: string, options?: { preserveLineBreaks?: boolean
 }
 
 /** Sanitized approval text plus size-cap status for callers that need UI affordances. */
-export type SanitizedExecApprovalDisplayText = {
+type SanitizedExecApprovalDisplayText = {
   /** Redacted, spoof-resistant command or warning text safe for an approval prompt. */
   text: string;
   /** True when sanitized output exceeded the display cap and was shortened. */

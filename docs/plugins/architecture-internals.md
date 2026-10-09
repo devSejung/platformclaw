@@ -700,13 +700,16 @@ Runtime and config helpers live under matching focused `*-runtime` subpaths
 `text-runtime`, `runtime-store`, `system-event-runtime`, `heartbeat-runtime`,
 `channel-activity-runtime`, etc.). Prefer `config-contracts`,
 `plugin-config-runtime`, `runtime-config-snapshot`, and `config-mutation`
-instead of the broad `config-runtime` compatibility barrel.
+instead of the removed broad `config-runtime` barrel. Private-local subpaths
+remain JavaScript-only host contracts for official plugins; third-party plugins
+use typed public APIs, injected runtime capabilities, or plugin-owned behavior.
 
 <Info>
-`openclaw/plugin-sdk/channel-lifecycle`, small channel helper facades,
-`openclaw/plugin-sdk/config-runtime`, and `openclaw/plugin-sdk/infra-runtime`
-are deprecated compatibility shims for older plugins. New code should import
-narrower generic primitives instead.
+`openclaw/plugin-sdk/channel-lifecycle`, `openclaw/plugin-sdk/channel-message`,
+`openclaw/plugin-sdk/channel-reply-pipeline`, `openclaw/plugin-sdk/config-runtime`,
+and `openclaw/plugin-sdk/infra-runtime` have been removed. Migrate each operation
+to its focused public contract or injected runtime capability; see the
+[SDK migration guide](/plugins/sdk-migration).
 </Info>
 
 Repo-internal entry points (per bundled plugin package root):

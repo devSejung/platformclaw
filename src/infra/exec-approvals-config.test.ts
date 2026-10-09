@@ -1,22 +1,22 @@
 // Covers exec approval config normalization and safe-bin policy.
 import { describe, expect, it } from "vitest";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
-import { makeTempDir } from "./exec-approvals-test-helpers.js";
+import { saveExecApprovals } from "./exec-approvals-store.test-support.js";
+import { makeMockCommandResolution, makeTempDir } from "./exec-approvals-test-helpers.js";
 import {
-  isSafeBinUsage,
+  evaluateExecAllowlist,
   matchAllowlist,
   normalizeExecApprovals,
-  normalizeSafeBins,
-  resolveExecApprovals,
+  resolveSafeBins,
+  resolveExecApprovalsLocked,
   resolveExecApprovalsFromFile,
-  saveExecApprovals,
   type ExecApprovalsAgent,
   type ExecAllowlistEntry,
   type ExecApprovalsFile,
 } from "./exec-approvals.js";
 
 describe("exec approvals wildcard agent", () => {
-  it("merges wildcard allowlist entries with agent entries", () => {
+  it("merges wildcard allowlist entries with agent entries", async () => {
     const dir = makeTempDir();
     const prevOpenClawHome = process.env.OPENCLAW_HOME;
 
@@ -30,7 +30,7 @@ describe("exec approvals wildcard agent", () => {
         },
       });
 
-      const resolved = resolveExecApprovals("main");
+      const resolved = await resolveExecApprovalsLocked("main");
       expect(resolved.allowlist.map((entry) => entry.pattern)).toEqual([
         "/bin/hostname",
         "/usr/bin/uname",
@@ -47,10 +47,6 @@ describe("exec approvals wildcard agent", () => {
 });
 
 describe("exec approvals node host allowlist check", () => {
-  // These tests verify the allowlist satisfaction logic used by the node host path
-  // The node host checks: matchAllowlist() || isSafeBinUsage() for each command segment
-  // Using hardcoded resolution objects for cross-platform compatibility
-
   it.each([
     {
       resolution: {
@@ -96,12 +92,21 @@ describe("exec approvals node host allowlist check", () => {
       resolvedPath: "/usr/local/bin/unknown-tool",
       executableName: "unknown-tool",
     };
-    const safe = isSafeBinUsage({
-      argv: ["unknown-tool", "--help"],
-      resolution,
-      safeBins: normalizeSafeBins(["jq", "curl"]),
+    const result = evaluateExecAllowlist({
+      analysis: {
+        ok: true,
+        segments: [
+          {
+            raw: "unknown-tool --help",
+            argv: ["unknown-tool", "--help"],
+            resolution: makeMockCommandResolution({ execution: resolution }),
+          },
+        ],
+      },
+      allowlist: [],
+      safeBins: resolveSafeBins(["jq", "curl"]),
     });
-    expect(safe).toBe(false);
+    expect(result.allowlistSatisfied).toBe(false);
   });
 
   it("satisfies via safeBins even when not in allowlist", () => {
@@ -116,17 +121,26 @@ describe("exec approvals node host allowlist check", () => {
     expect(match).toBeNull();
 
     // But is a safe bin with non-file args
-    const safe = isSafeBinUsage({
-      argv: ["head", "-n", "1"],
-      resolution,
-      safeBins: normalizeSafeBins(["head"]),
+    const result = evaluateExecAllowlist({
+      analysis: {
+        ok: true,
+        segments: [
+          {
+            raw: "head -n 1",
+            argv: ["head", "-n", "1"],
+            resolution: makeMockCommandResolution({ execution: resolution }),
+          },
+        ],
+      },
+      allowlist: entries,
+      safeBins: resolveSafeBins(["head"]),
     });
     // Safe bins are disabled on Windows (PowerShell parsing/expansion differences).
     if (process.platform === "win32") {
-      expect(safe).toBe(false);
+      expect(result.allowlistSatisfied).toBe(false);
       return;
     }
-    expect(safe).toBe(true);
+    expect(result.allowlistSatisfied).toBe(true);
   });
 });
 

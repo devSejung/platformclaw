@@ -1,17 +1,27 @@
 // Tests HTTP body reading and size-limit handling.
 import { EventEmitter } from "node:events";
 import type { IncomingMessage } from "node:http";
+import { setTimeout as setNodeTimeout } from "node:timers";
 import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockServerResponse } from "../test-utils/mock-http-response.js";
 import {
   installRequestBodyLimitGuard,
-  RequestBodyLimitError,
-  type RequestBodyLimitErrorCode,
+  isRequestBodyLimitError,
   readJsonBodyWithLimit,
   readRequestBodyWithLimit,
-  testApi,
+  requestBodyErrorToText,
 } from "./http-body.js";
+
+vi.mock("node:timers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:timers")>();
+  return { ...actual, setTimeout: vi.fn(actual.setTimeout) };
+});
+
+afterAll(() => {
+  vi.doUnmock("node:timers");
+  vi.resetModules();
+});
 
 type MockIncomingMessage = IncomingMessage & {
   destroyed?: boolean;
@@ -28,7 +38,7 @@ async function waitForMicrotaskTurn(): Promise<void> {
 async function expectRequestBodyLimitError(
   promise: Promise<unknown>,
   expected: {
-    code: RequestBodyLimitErrorCode;
+    code: Parameters<typeof requestBodyErrorToText>[0];
     message: string;
     statusCode: number;
   },
@@ -36,8 +46,8 @@ async function expectRequestBodyLimitError(
   try {
     await promise;
   } catch (error) {
-    expect(error).toBeInstanceOf(RequestBodyLimitError);
-    if (!(error instanceof RequestBodyLimitError)) {
+    expect(isRequestBodyLimitError(error)).toBe(true);
+    if (!isRequestBodyLimitError(error)) {
       throw error;
     }
     expect({
@@ -260,15 +270,22 @@ describe("http body limits", () => {
   });
 
   it("does not overflow oversized request body timeouts into immediate failures", async () => {
-    expect(
-      testApi.resolveRequestBodyLimitValues({
-        maxBytes: 128,
-        timeoutMs: Number.MAX_SAFE_INTEGER,
-      }),
-    ).toEqual({
+    const req = createMockRequest({ emitEnd: false });
+    vi.mocked(setNodeTimeout).mockClear();
+    const promise = readRequestBodyWithLimit(req, {
       maxBytes: 128,
-      timeoutMs: MAX_TIMER_TIMEOUT_MS,
+      timeoutMs: Number.MAX_SAFE_INTEGER,
     });
+    try {
+      expect(setNodeTimeout).toHaveBeenCalledWith(expect.any(Function), MAX_TIMER_TIMEOUT_MS);
+      req.emit("data", Buffer.from("body"));
+      req.emit("end");
+      await expect(promise).resolves.toBe("body");
+      expect(req.destroyed).toBe(false);
+      expect(req.listenerCount("data")).toBe(0);
+    } finally {
+      req.emit("end");
+    }
   });
 
   it("guard clamps invalid maxBytes to one byte", async () => {

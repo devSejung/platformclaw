@@ -28,14 +28,14 @@ let clearRuntimeAuthProfileStoreSnapshots: typeof import("./auth-profiles.js").c
 let ensureAuthProfileStore: typeof import("./auth-profiles.js").ensureAuthProfileStore;
 let loadPersistedAuthProfileStore: typeof import("./auth-profiles/persisted.js").loadPersistedAuthProfileStore;
 let resolveApiKeyForProfile: typeof import("./auth-profiles.js").resolveApiKeyForProfile;
-let resetFileLockStateForTest: typeof import("../infra/file-lock.js").resetFileLockStateForTest;
+let resetFileLockStateForTest: typeof import("../plugin-sdk/file-lock.js").resetFileLockStateForTest;
 
 describe("auth-profiles (chutes)", () => {
   beforeAll(async () => {
     ({ clearRuntimeAuthProfileStoreSnapshots, ensureAuthProfileStore, resolveApiKeyForProfile } =
       await import("./auth-profiles.js"));
     ({ loadPersistedAuthProfileStore } = await import("./auth-profiles/persisted.js"));
-    ({ resetFileLockStateForTest } = await import("../infra/file-lock.js"));
+    ({ resetFileLockStateForTest } = await import("../plugin-sdk/file-lock.js"));
   });
 
   beforeEach(() => {

@@ -204,7 +204,6 @@ For `sessions.create` calls with `parentSessionKey` and `emitCommandHooks: true`
 
 - `subagent_spawned` / `subagent_ended` - observe subagent launch and completion.
 - `subagent_delivery_target` - compatibility hook for completion delivery when no core session binding can project a route.
-- `subagent_spawning` - deprecated compatibility hook. Core now prepares `thread: true` subagent bindings through channel session-binding adapters before `subagent_spawned` fires.
 - `subagent_spawned` includes `resolvedModel` and `resolvedProvider` when OpenClaw has resolved the child session's native model before launch.
 - `subagent_ended` carries `targetSessionKey` (identity - matches `subagent_spawned.childSessionKey`), `targetKind` (`"subagent"` or `"acp"`), `reason`, optional `outcome` (`"ok"`, `"error"`, `"timeout"`, `"killed"`, `"reset"`, or `"deleted"`), optional `error`, `runId`, `endedAt`, `accountId`, and `sendFarewell`. It does **not** include `agentId` or `childSessionKey`; use `targetSessionKey` to correlate with the matching `subagent_spawned` event.
 
@@ -1044,12 +1043,10 @@ before the next major release:
   handlers. Read `BodyForAgent` and the structured user-context blocks
   instead of parsing flat envelope text. See
   [Plaintext channel envelopes → BodyForAgent](/plugins/sdk-migration#active-deprecations).
-- **`subagent_spawning`** remains for compatibility with older plugins, but
-  new plugins should not return thread routing from it. Core prepares
-  `thread: true` subagent bindings through channel session-binding adapters
-  before `subagent_spawned` fires.
-- **`deactivate`** remains as a deprecated cleanup compatibility alias until
-  after 2026-08-16. New plugins should use `gateway_stop`.
+- **`subagent_spawning`** has been removed. Core prepares `thread: true`
+  subagent bindings through channel session-binding adapters before
+  `subagent_spawned` fires; use that hook for post-launch observation.
+- **`deactivate`** has been removed. Use `gateway_stop` for cleanup.
 - **`onResolution` in `before_tool_call`** now uses the typed
   `PluginApprovalResolution` union (`allow-once` / `allow-always` / `deny` /
   `timeout` / `cancelled`) instead of a free-form `string`.

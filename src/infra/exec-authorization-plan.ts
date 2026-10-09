@@ -8,7 +8,6 @@ import type {
 } from "./command-explainer/types.js";
 import { isDispatchWrapperExecutable } from "./dispatch-wrapper-resolution.js";
 import {
-  type ExecCommandAnalysis,
   type ExecCommandSegment,
   resolveCommandResolutionFromArgv,
   type ShellChainOperator,
@@ -108,8 +107,6 @@ const UNANALYZABLE_RISKS = new Set<CommandRisk["kind"]>([
   "function-definition",
 ]);
 
-const POWERSHELL_NAMES = new Set(["powershell", "pwsh"]);
-const WINDOWS_CMD_NAMES = new Set(["cmd", "cmd.exe"]);
 const POSITIONAL_CARRIER_BLOCKED_EXECUTABLES = new Set(["find", "xargs"]);
 const SHELL_WRAPPER_PRELUDE_REASON = "shell-env-assignment";
 const UNSUPPORTED_DIRECT_SHELL_TOPOLOGY_SHAPES = new Set<CommandExplanation["shapes"][number]>([
@@ -668,17 +665,6 @@ function wrapperPayloadPlan(params: {
   return groups.length > 0 ? applyWrapperPayloadPersistenceBoundary({ wrapper, groups }) : null;
 }
 
-function dialectForArgv(argv: readonly string[]): ExecAuthorizationDialect {
-  const executable = normalizeExecutableToken(argv[0] ?? "");
-  if (POWERSHELL_NAMES.has(executable)) {
-    return "powershell";
-  }
-  if (WINDOWS_CMD_NAMES.has(executable)) {
-    return "windows-cmd";
-  }
-  return "argv";
-}
-
 function unanalyzablePlan(params: {
   dialect: ExecAuthorizationDialect;
   command: string;
@@ -798,124 +784,4 @@ export async function planShellAuthorization(params: {
   }
 }
 
-export async function planExecAuthorization(params: {
-  analysis: ExecCommandAnalysis;
-  command?: string;
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-  platform?: string | null;
-}): Promise<ExecAuthorizationPlan> {
-  const command =
-    params.command ??
-    params.analysis.segments
-      .map((segment) => segment.raw)
-      .join(params.analysis.chains ? " && " : " | ");
-  if (!params.analysis.ok) {
-    return unanalyzablePlan({
-      dialect: "argv",
-      command,
-      reason: params.analysis.reason ?? "unable to parse command",
-    });
-  }
-
-  const argv = params.analysis.segments[0]?.argv ?? [];
-  const dialect = dialectForArgv(argv);
-  if (dialect !== "argv") {
-    return unanalyzablePlan({
-      dialect,
-      command,
-      reason: "non-POSIX command wrapper",
-    });
-  }
-
-  if (params.analysis.segments.length === 1) {
-    const wrapperSegment = params.analysis.segments[0];
-    const inlineCommand = extractBindableShellWrapperInlineCommand(argv);
-    if (inlineCommand && wrapperSegment && canUseWrapperShellInvocation(wrapperSegment)) {
-      const shellPlan = await planShellAuthorization({
-        command: inlineCommand,
-        cwd: params.cwd,
-        env: params.env,
-        platform: params.platform,
-      });
-      if (shellPlan.ok) {
-        const nestedSegments = shellPlan.groups.flatMap((group) =>
-          group.candidates.map((candidate) => candidate.sourceSegment),
-        );
-        if (wrapperSegment && canUseReusableWrapperPayloadCandidates(nestedSegments)) {
-          const persistNestedPayloads = !isUnresolvedPathScopedExecutable(wrapperSegment);
-          const groups = shellPlan.groups.map((group) => ({
-            ...group,
-            candidates: group.candidates.map((candidate) => {
-              const transport: ExecAuthorizationTransport = {
-                kind: "shell-wrapper",
-                wrapperSegment,
-                wrapperArgv: wrapperSegment.argv,
-                wrapperPrefix: "",
-                inlineCommand,
-              };
-              return {
-                ...candidate,
-                transport,
-                allowAlways: persistNestedPayloads ? candidate.allowAlways : false,
-              };
-            }),
-          }));
-          return {
-            ok: true,
-            dialect: "argv",
-            originalCommand: command,
-            groups,
-            operators: shellPlan.operators,
-          };
-        }
-      }
-    }
-  }
-
-  const steps = params.analysis.segments.map((segment, index) => ({
-    step: {
-      context: "top-level" as const,
-      executable: segment.argv[0] ?? "",
-      argv: segment.argv,
-      text: segment.raw,
-      span: {
-        startIndex: index,
-        endIndex: index + segment.raw.length,
-        startPosition: { row: 0, column: index },
-        endPosition: { row: 0, column: index + segment.raw.length },
-      },
-      executableSpan: {
-        startIndex: index,
-        endIndex: index + (segment.argv[0]?.length ?? 0),
-        startPosition: { row: 0, column: index },
-        endPosition: { row: 0, column: index + (segment.argv[0]?.length ?? 0) },
-      },
-    },
-    segment:
-      segment.resolution === null
-        ? commandSegmentFromArgv(
-            segment.argv,
-            {
-              cwd: params.cwd,
-              env: params.env,
-              platform: normalizePlanningPlatform(params.platform),
-            },
-            segment.sourceArgv,
-          )
-        : segment,
-  }));
-  const groups = groupsFromSteps({
-    steps,
-    transport: { kind: "direct" },
-    risks: [],
-  });
-  return {
-    ok: true,
-    dialect: "argv",
-    originalCommand: command,
-    groups,
-    operators: [],
-  };
-}
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

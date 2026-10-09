@@ -1,6 +1,6 @@
 // Covers exec approval allowlist evaluation.
 import { describe, expect, it } from "vitest";
-import { normalizeSafeBins } from "./exec-approvals-allowlist.js";
+import { resolveSafeBins } from "./exec-approvals-allowlist.js";
 import {
   makeMockCommandResolution,
   makeMockExecutableResolution,
@@ -82,7 +82,7 @@ describe("exec approvals allowlist evaluation", () => {
     const result = evaluateExecAllowlist({
       analysis,
       allowlist: [],
-      safeBins: normalizeSafeBins(["head"]),
+      safeBins: resolveSafeBins(["head"]),
       cwd: "/tmp",
     });
     // Safe bins are disabled on Windows (PowerShell parsing/expansion differences).
@@ -256,7 +256,7 @@ describe("exec approvals allowlist evaluation", () => {
     const result = evaluateExecAllowlist({
       analysis,
       allowlist: [{ pattern: "/usr/bin/tool" }],
-      safeBins: normalizeSafeBins(["head"]),
+      safeBins: resolveSafeBins(["head"]),
       cwd: "/tmp",
     });
     if (process.platform === "win32") {

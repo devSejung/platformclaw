@@ -5,13 +5,12 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, test } from "vitest";
 import type { WebSocket } from "ws";
 import { appendTranscriptMessageSync } from "../../config/sessions/session-accessor.js";
-import {
-  onDiagnosticEvent,
-  type DiagnosticPayloadLargeEvent,
-} from "../../infra/diagnostic-events.js";
+import { onDiagnosticEvent, type DiagnosticEventPayload } from "../../infra/diagnostic-events.js";
 import { getMaxChatHistoryMessagesBytes } from "../server-constants.js";
 import { installGatewayTestHooks, rpcReq, testState, writeSessionStore } from "../test-helpers.js";
 import { installConnectedControlUiServerSuite } from "../test-with-server.js";
+
+type DiagnosticPayloadLargeEvent = Extract<DiagnosticEventPayload, { type: "payload.large" }>;
 
 installGatewayTestHooks({ scope: "suite" });
 

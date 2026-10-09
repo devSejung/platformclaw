@@ -661,7 +661,7 @@ describe("check-openclaw-package-tarball", () => {
       ["dist/index.js"],
       {
         "dist/index.js":
-          'const shim = new URL("./capability-runtime-vitest-shims/config-runtime.ts", import.meta.url);\n',
+          'const shim = new URL("./capability-runtime-vitest-shims/media-runtime.ts", import.meta.url);\n',
       },
       (tarball) => {
         const result = spawnSync("node", [CHECK_SCRIPT, tarball], { encoding: "utf8" });

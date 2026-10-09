@@ -11,7 +11,7 @@ import {
 import {
   onInternalDiagnosticEvent,
   resetDiagnosticEventsForTest,
-  type DiagnosticSecurityEvent,
+  type DiagnosticEventPayload,
 } from "../../infra/diagnostic-events.js";
 import {
   captureNodePairingGeneration,
@@ -37,6 +37,8 @@ import {
 } from "../node-wake-state.test-support.js";
 import { nodeHandlers } from "./nodes.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
+
+type DiagnosticSecurityEvent = Extract<DiagnosticEventPayload, { type: "security.event" }>;
 
 const createdStates: OpenClawTestState[] = [];
 const pairingGenerationHooks = vi.hoisted(() => ({

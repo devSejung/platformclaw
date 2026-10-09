@@ -38,11 +38,7 @@ export {
 // CLI/runtime/config helpers.
 export { parseDurationMs } from "../../../../src/cli/parse-duration.js";
 export { parseNonNegativeByteSize } from "../../../../src/config/byte-size.js";
-export {
-  getRuntimeConfig,
-  /** @deprecated Use getRuntimeConfig(), or pass the already loaded config through the call path. */
-  loadConfig,
-} from "../../../../src/config/config.js";
+export { getRuntimeConfig } from "../../../../src/config/config.js";
 export type { OpenClawConfig } from "../../../../src/config/config.js";
 export { resolveStateDir } from "../../../../src/config/paths.js";
 export {
