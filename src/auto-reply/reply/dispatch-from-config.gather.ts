@@ -253,14 +253,7 @@ export async function gatherDispatchRequest(
           storePath: sessionStoreEntry.storePath,
         }
       : undefined;
-  let preparedOperationSessionBinding: ReplySessionBinding | undefined =
-    operationSessionStoreEntry.sessionKey && operationSessionStoreEntry.entry?.sessionId
-      ? {
-          sessionKey: operationSessionStoreEntry.sessionKey,
-          sessionId: operationSessionStoreEntry.entry.sessionId,
-          storePath: operationSessionStoreEntry.storePath,
-        }
-      : undefined;
+  let preparedOperationSessionBinding: ReplySessionBinding | undefined;
   const sessionKeysMatch = (left?: string, right?: string) =>
     Boolean(
       left &&
@@ -276,8 +269,7 @@ export async function gatherDispatchRequest(
     }
     params.replyOptions?.onSessionPrepared?.(binding);
   };
-  const resolveOperationExpectedSessionId = () =>
-    preparedOperationSessionBinding?.sessionId ?? operationSessionStoreEntry.entry?.sessionId;
+  const resolvePreparedOperationSessionId = () => preparedOperationSessionBinding?.sessionId;
   const resolvePreparedTranscriptBinding = (mirrorSessionKey?: string) => {
     if (
       !preparedSessionBinding ||
@@ -331,7 +323,7 @@ export async function gatherDispatchRequest(
     messageAuditTerminal,
     operationSessionStoreEntry,
     replyOptions: params.replyOptions,
-    resolveOperationExpectedSessionId,
+    resolvePreparedOperationSessionId,
     routeThreadId,
   });
   const {

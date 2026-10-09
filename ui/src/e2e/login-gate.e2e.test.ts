@@ -81,7 +81,10 @@ describeControlUiE2e("Control UI responsive login gate E2E", () => {
   });
 
   it("shows a protocol mismatch without reconnecting", async () => {
-    const context = await browser.newContext({ viewport: { height: 900, width: 1280 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 900, width: 1280 },
+    });
     const page = await context.newPage();
     await page.clock.install();
     const gateway = await installMockGateway(page, { deferredMethods: ["connect"] });
@@ -111,6 +114,7 @@ describeControlUiE2e("Control UI responsive login gate E2E", () => {
     const context = await browser.newContext({
       hasTouch: true,
       isMobile: true,
+      locale: "en-US",
       viewport: { height: 500, width: 375 },
     });
     const page = await context.newPage();
@@ -183,7 +187,10 @@ describeControlUiE2e("Control UI responsive login gate E2E", () => {
   });
 
   it("keeps failure recovery visible while generic help stays collapsed", async () => {
-    const context = await browser.newContext({ viewport: { height: 900, width: 1280 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 900, width: 1280 },
+    });
     const page = await context.newPage();
 
     try {
@@ -207,6 +214,7 @@ describeControlUiE2e("Control UI responsive login gate E2E", () => {
     const context = await browser.newContext({
       hasTouch: true,
       isMobile: true,
+      locale: "en-US",
       viewport: { height: 500, width: 375 },
     });
     const page = await context.newPage();

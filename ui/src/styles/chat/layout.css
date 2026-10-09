@@ -5218,7 +5218,11 @@ openclaw-chat-video-player {
     margin: 6px 4px 0;
   }
 
-  .agent-chat__composer-shell:has(.agent-chat__composer-combobox > :is(textarea, input):focus) {
+  /* A visible diagnostic keeps the safe-area gap across every focus state;
+     changing it mid-tap redirects Copy/Refresh to the notice. */
+  .agent-chat__composer-shell:has(.agent-chat__composer-combobox > :is(textarea, input):focus):not(
+    .chat-run-error + .agent-chat__composer-shell
+  ) {
     margin-bottom: 0;
   }
 
@@ -5236,10 +5240,6 @@ openclaw-chat-video-player {
 @media (display-mode: standalone) and (max-width: 768px) {
   .agent-chat__composer-shell {
     margin-bottom: calc(14px + max(var(--safe-area-bottom), 34px));
-  }
-
-  .agent-chat__composer-shell:has(.agent-chat__composer-combobox > :is(textarea, input):focus) {
-    margin-bottom: 0;
   }
 }
 

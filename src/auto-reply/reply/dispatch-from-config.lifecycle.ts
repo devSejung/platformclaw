@@ -43,7 +43,7 @@ export function createDispatchReplyOperationCoordinator(params: {
     storePath?: string;
   };
   replyOptions?: DispatchFromConfigParams["replyOptions"];
-  resolveOperationExpectedSessionId: () => string | undefined;
+  resolvePreparedOperationSessionId: () => string | undefined;
   routeThreadId?: string | number;
 }) {
   let dispatchReplyOperation: ReplyOperation | undefined;
@@ -58,10 +58,13 @@ export function createDispatchReplyOperationCoordinator(params: {
     params.replyOptions?.expectedActiveReplyOperation,
     params.initialDispatchReplyOperation,
   ].filter((operation): operation is ReplyOperation => operation !== undefined);
+  // Preparation can rotate a borrowed lane in-band. Its reported binding must
+  // supersede admission's earlier UUID without promoting an initial store snapshot.
   const resolveExpectedSessionId = () =>
+    params.resolvePreparedOperationSessionId() ??
     admittedExpectedSessionId ??
     params.replyOptions?.expectedExistingSessionId ??
-    params.resolveOperationExpectedSessionId();
+    params.operationSessionStoreEntry.entry?.sessionId;
   const dispatchLifecycleWork = new Set<Promise<void>>();
 
   const trackDispatchLifecycleWork = (work: Promise<unknown>) => {

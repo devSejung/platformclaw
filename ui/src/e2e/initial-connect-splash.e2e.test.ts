@@ -29,6 +29,7 @@ async function createPage(): Promise<Page> {
     await mkdir(artifactDir, { recursive: true });
   }
   const context = await browser.newContext({
+    locale: "en-US",
     viewport,
     ...(artifactDir ? { recordVideo: { dir: artifactDir, size: viewport } } : {}),
   });

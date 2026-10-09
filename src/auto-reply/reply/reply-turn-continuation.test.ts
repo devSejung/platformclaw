@@ -181,7 +181,7 @@ describe("owned compaction continuation", () => {
             expectedExistingSessionId: initialSessionId,
             expectedActiveReplyOperation: predecessor,
           },
-          resolveOperationExpectedSessionId: () => initialSessionId,
+          resolvePreparedOperationSessionId: () => undefined,
         });
         let expected = compactedSessionId;
         if (successor) {

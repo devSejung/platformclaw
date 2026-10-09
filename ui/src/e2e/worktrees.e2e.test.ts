@@ -49,7 +49,7 @@ describeControlUiE2e("Control UI Worktrees mocked Gateway E2E", () => {
   });
 
   it("keeps a restore failure visible after the automatic list refresh succeeds", async () => {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ locale: "en-US" });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       deferredMethods: ["worktrees.restore"],

@@ -1612,6 +1612,12 @@ describe("dispatchReplyFromConfig", () => {
       cfg: automaticGroupReplyConfig,
       dispatcher,
       fastAbortResolver: async () => {
+        // Reset commits the new row before admitting its replacement operation;
+        // changing only the registry would leave the old session authoritative.
+        sessionStoreMocks.currentEntry = {
+          sessionId: "fresh-rotated-session",
+          updatedAt: Date.now(),
+        };
         freshOperation = createReplyOperation({
           sessionKey,
           sessionId: "fresh-rotated-session",
@@ -1624,6 +1630,7 @@ describe("dispatchReplyFromConfig", () => {
       formatAbortReplyTextResolver: () => "aborted",
       replyResolver,
     });
+    const rejectedTurn = expect(turn).rejects.toThrow(/changed while starting work/i);
 
     // Let the visible turn run its admission/force-clear path. With the bug it
     // would force-fail the rotated op here, mistaking a valid in-flight reply for
@@ -1641,7 +1648,7 @@ describe("dispatchReplyFromConfig", () => {
     expect(replyResolver).not.toHaveBeenCalled();
 
     freshOperation?.complete();
-    await expect(turn).rejects.toThrow(/changed while starting work/i);
+    await rejectedTurn;
     expect(replyResolver).not.toHaveBeenCalled();
     expect(replyRunRegistry.isActive(sessionKey)).toBe(false);
   });
