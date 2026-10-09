@@ -5,6 +5,7 @@ import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { AssistantMessage, UserMessage } from "openclaw/plugin-sdk/llm";
 import { afterAll, beforeAll, beforeEach, expect, vi } from "vitest";
 import type { InternalSessionEntry as SessionEntry } from "../../config/sessions.js";
@@ -723,6 +724,7 @@ export async function directSessionReq<TPayload = unknown>(
       loadGatewayModelCatalog,
       readPreparedGatewayModelCatalog: loadGatewayModelCatalog,
       getRuntimeConfig,
+      logGateway: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       ...opts?.context,
     } as never,
     client: opts?.client ?? null,
@@ -735,17 +737,14 @@ export async function directSessionReq<TPayload = unknown>(
 }
 
 export function isInternalHookEvent(value: unknown): value is InternalHookEvent {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as Record<string, unknown>;
   return (
-    typeof candidate.type === "string" &&
-    typeof candidate.action === "string" &&
-    typeof candidate.sessionKey === "string" &&
-    Array.isArray(candidate.messages) &&
-    typeof candidate.context === "object" &&
-    candidate.context !== null
+    isRecord(value) &&
+    typeof value.type === "string" &&
+    typeof value.action === "string" &&
+    typeof value.sessionKey === "string" &&
+    Array.isArray(value.messages) &&
+    typeof value.context === "object" &&
+    value.context !== null
   );
 }
 

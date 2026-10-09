@@ -1,10 +1,14 @@
 import type { AddressInfo } from "node:net";
-import { GatewayClientRequestError } from "@openclaw/gateway-client";
+import {
+  GatewayClientRequestError,
+  GatewayClientRequestTimeoutError,
+} from "@openclaw/gateway-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import type { BrowserOrganizationService } from "./browser-organization-http.js";
+import { ControlPlaneAuthorizationError } from "./contracts.js";
 import { SPACE_RPC_METHODS } from "./space-contracts.js";
 import {
   PlatformClawWebIngressServer,
@@ -88,6 +92,7 @@ describe("PlatformClawWebIngressServer", () => {
     websocket = undefined;
     await server?.close();
     server = undefined;
+    vi.restoreAllMocks();
   });
 
   it("routes mounted assistant media before the application document fallback", async () => {
@@ -156,6 +161,7 @@ describe("PlatformClawWebIngressServer", () => {
   });
 
   it("speaks the Gateway wire protocol while enforcing browser session ownership", async () => {
+    const diagnostics = vi.spyOn(console, "error").mockImplementation(() => {});
     const gateway = new FakeGateway();
     const { policy, registerBrowserConnection, releaseBrowserConnection, request, revoke } =
       createPolicy();
@@ -347,6 +353,50 @@ describe("PlatformClawWebIngressServer", () => {
         retryAfterMs: 250,
       },
     });
+
+    for (const [kind, error, code] of [
+      [
+        "timeout",
+        new GatewayClientRequestTimeoutError({
+          method: "sessions.compact",
+          timeoutMs: 30_000,
+          requestSent: true,
+        }),
+        "UNAVAILABLE",
+      ],
+      ["authorization", new ControlPlaneAuthorizationError("private Space resource"), "FORBIDDEN"],
+      ["internal", new Error("private provider credential"), "UNAVAILABLE"],
+    ] as const) {
+      request.mockRejectedValueOnce(error);
+      websocket.send(
+        JSON.stringify({ type: "req", id: kind, method: "sessions.compact", params: {} }),
+      );
+      const frame = await nextFrame((incoming) => isRecord(incoming) && incoming.id === kind);
+      expect(frame).toMatchObject({
+        ok: false,
+        error: {
+          code,
+          details: {
+            errorKind: kind,
+            requestDisposition: "outcome-unknown",
+            method: "sessions.compact",
+            requestId: expect.any(String),
+          },
+        },
+      });
+      const publicError = (frame as { error: { message: string; details: { requestId: string } } })
+        .error;
+      expect(publicError.message).not.toContain("private");
+      expect(diagnostics).toHaveBeenLastCalledWith(
+        "PlatformClaw browser Gateway request failed",
+        expect.objectContaining({
+          requestId: publicError.details.requestId,
+          method: "sessions.compact",
+          code,
+          errorKind: kind,
+        }),
+      );
+    }
 
     revoke();
     const closed = new Promise<number>((resolve) => {

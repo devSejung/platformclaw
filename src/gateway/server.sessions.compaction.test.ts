@@ -895,6 +895,126 @@ test("sessions.compact records terminal Codex native compaction", async () => {
   ws.close();
 });
 
+test.each(["throws", "failure", "skip"] as const)(
+  "sessions.compact reports a correlated runtime %s outcome without confusing skips with failures",
+  async (outcome) => {
+    const { storePath } = await createSessionStoreDir();
+    const sessionId = `sess-compact-${outcome}`;
+    await seedSessionEntry({
+      entry: sessionStoreEntry(sessionId),
+      sessionKey: "agent:main:main",
+      storePath,
+    });
+    await seedTranscriptRows({
+      sessionId,
+      sessionKey: "agent:main:main",
+      storePath,
+      totalLines: 3,
+    });
+    const secret = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const reason = `Compaction provider unavailable Authorization: Bearer ${secret}\n${"x".repeat(800)}`;
+    if (outcome === "throws") {
+      embeddedRunMock.compactEmbeddedAgentSession.mockRejectedValueOnce(new Error(reason));
+    } else {
+      embeddedRunMock.compactEmbeddedAgentSession.mockResolvedValueOnce({
+        ok: outcome === "skip",
+        compacted: false,
+        reason: outcome === "skip" ? "Already compacted" : reason,
+      });
+    }
+
+    const { ws } = await openClient();
+    try {
+      await rpcReq(ws, "sessions.subscribe", {});
+      const start = onceMessage(ws, (message) => isCompactOperationEvent(message, "start"));
+      const end = onceMessage(ws, (message) => isCompactOperationEvent(message, "end"));
+      const response = await rpcReq<{
+        ok: boolean;
+        compacted: boolean;
+        reason?: string;
+        operationId?: string;
+        stage?: string;
+      }>(ws, "sessions.compact", { key: "main" });
+      const startPayload = (await start).payload as { operationId: string };
+      const endPayload = (await end).payload as {
+        operationId: string;
+        completed: boolean;
+        failed: boolean;
+        reason: string;
+      };
+      expect(endPayload).toMatchObject({
+        operationId: startPayload.operationId,
+        completed: false,
+        failed: outcome !== "skip",
+      });
+      expect(response.ok).toBe(outcome !== "throws");
+      if (outcome === "throws") {
+        expect(response.error).toMatchObject({
+          code: "UNAVAILABLE",
+          details: { operationId: startPayload.operationId, stage: "runtime" },
+          message: endPayload.reason,
+        });
+      } else {
+        expect(response.payload).toMatchObject({
+          ok: outcome === "skip",
+          compacted: false,
+          operationId: startPayload.operationId,
+          stage: "runtime",
+          reason: endPayload.reason,
+        });
+      }
+      expect(endPayload.reason).toContain(outcome === "skip" ? "Already compacted" : "unavailable");
+      expect(endPayload.reason).not.toContain(secret);
+      expect(endPayload.reason.length).toBeLessThanOrEqual(512);
+      expect(
+        loadSessionEntry({ sessionKey: "agent:main:main", storePath })?.compactionCount,
+      ).toBeUndefined();
+    } finally {
+      ws.close();
+    }
+  },
+);
+
+test.each(["initial", "tree-preflight"] as const)(
+  "sessions.compact reports a %s transcript read failure instead of a successful no-op",
+  async (failurePoint) => {
+    const { storePath } = await createSessionStoreDir();
+    const sessionId = "sess-compact-read-failure";
+    await seedSessionEntry({
+      entry: sessionStoreEntry(sessionId),
+      sessionKey: "agent:main:main",
+      storePath,
+    });
+    await seedTranscriptRows({
+      sessionId,
+      sessionKey: "agent:main:main",
+      storePath,
+      totalLines: 3,
+    });
+    const { ws } = await openClient();
+    const accessor = await import("../config/sessions/session-accessor.js");
+    const readTranscript = accessor.loadTranscriptEvents;
+    const readFailure = vi.spyOn(accessor, "loadTranscriptEvents");
+    if (failurePoint === "tree-preflight") {
+      readFailure.mockImplementationOnce(readTranscript);
+    }
+    readFailure.mockRejectedValueOnce(new Error("Compaction transcript unavailable"));
+    try {
+      const response = await rpcReq(ws, "sessions.compact", { key: "main" });
+      expect(response.ok).toBe(false);
+      expect(response.error).toMatchObject({
+        code: "UNAVAILABLE",
+        message: "Compaction transcript unavailable",
+        details: { operationId: expect.any(String), stage: "preflight" },
+      });
+      expect(embeddedRunMock.compactEmbeddedAgentSession).not.toHaveBeenCalled();
+    } finally {
+      readFailure.mockRestore();
+      ws.close();
+    }
+  },
+);
+
 test("sessions.compact emits a terminal operation event when persistence fails", async () => {
   const { storePath } = await createSessionStoreDir();
   const sessionId = "sess-compact-write-failure";
@@ -926,7 +1046,7 @@ test("sessions.compact emits a terminal operation event when persistence fails",
   const startEventPromise = onceMessage(ws, (message) => isCompactOperationEvent(message, "start"));
   const endEventPromise = onceMessage(ws, (message) => isCompactOperationEvent(message, "end"));
   const compactResult = rpcReq(ws, "sessions.compact", { key: "main" });
-  await startEventPromise;
+  const startEvent = await startEventPromise;
   const terminalResult = {
     ok: true as const,
     compacted: true as const,
@@ -947,11 +1067,20 @@ test("sessions.compact emits a terminal operation event when persistence fails",
   const response = await compactResult;
   expect(response.ok).toBe(false);
   expect(response.error?.code).toBe("UNAVAILABLE");
+  expect(response.error).toMatchObject({
+    message: "forced persistence projection failure",
+    details: {
+      operationId: (startEvent.payload as { operationId: string }).operationId,
+      stage: "terminal-persist",
+    },
+  });
   expect((await endEventPromise).payload).toMatchObject({
     operation: "compact",
     phase: "end",
     sessionKey: "agent:main:main",
     completed: false,
+    failed: true,
+    reason: "forced persistence projection failure",
   });
   ws.close();
 });

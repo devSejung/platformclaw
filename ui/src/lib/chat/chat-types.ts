@@ -68,7 +68,7 @@ export type ChatItem =
       kind: "divider";
       key: string;
       label: string;
-      compaction?: "active" | "complete";
+      compaction?: "active" | "complete" | "failed" | "aborted";
       compactionId?: string;
       metric?: string;
       description?: string;

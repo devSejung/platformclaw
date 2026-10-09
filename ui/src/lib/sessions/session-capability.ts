@@ -98,6 +98,8 @@ export type SessionCompactResult = {
   ok?: boolean;
   compacted?: boolean;
   reason?: string;
+  operationId?: string;
+  stage?: "preflight" | "runtime" | "terminal-persist";
   result?: { tokensBefore?: number; tokensAfter?: number };
 };
 

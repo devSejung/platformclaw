@@ -6,6 +6,7 @@
 import { emitAgentEvent } from "../infra/agent-events.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { recordSessionCompacted } from "../sessions/session-state-events.js";
+import { formatCompactionFailureReason } from "./compaction-diagnostics.js";
 import { stripStaleAssistantUsageBeforeLatestCompaction } from "./compaction-usage.js";
 import { runBestEffortCallback } from "./embedded-agent-subscribe.callback.js";
 import type { EmbeddedAgentSubscribeContext } from "./embedded-agent-subscribe.handlers.types.js";
@@ -32,6 +33,7 @@ type CompactionEndEvent =
       willRetry?: unknown;
       result?: unknown;
       aborted?: unknown;
+      errorMessage?: string;
     };
 
 // Unknown reasons come from external runtimes or older sessions. Treat them as
@@ -50,7 +52,15 @@ function emitCompactionAgentEvent(
   ctx: EmbeddedAgentSubscribeContext,
   data:
     | { phase: "start"; itemId?: string }
-    | { phase: "end"; itemId?: string; willRetry: boolean; completed: boolean },
+    | {
+        phase: "end";
+        itemId?: string;
+        willRetry: boolean;
+        completed: boolean;
+        failed: boolean;
+        aborted: boolean;
+        reason?: string;
+      },
 ): void {
   const event = { stream: "compaction" as const, data };
   emitAgentEvent({ runId: ctx.params.runId, ...event });
@@ -86,7 +96,12 @@ function runBestEffortCompactionHook(
           context,
         );
   void hook.catch((err: unknown) => {
-    ctx.log.warn(`${hookName} hook failed: ${String(err)}`);
+    ctx.log.warn(`${hookName} hook failed`, {
+      runId: ctx.params.runId,
+      sessionId: ctx.params.sessionId,
+      stage: hookName,
+      reason: formatCompactionFailureReason(err),
+    });
   });
 }
 
@@ -125,6 +140,10 @@ export function handleCompactionEnd(ctx: EmbeddedAgentSubscribeContext, evt: Com
   const hasResult = evt.result != null;
   const wasAborted = Boolean(evt.aborted);
   const completed = hasResult && !wasAborted;
+  const failureReason =
+    !completed && evt.errorMessage !== undefined
+      ? formatCompactionFailureReason(evt.errorMessage)
+      : undefined;
   if (completed) {
     ctx.incrementCompactionCount();
     const tokensAfter =
@@ -158,7 +177,12 @@ export function handleCompactionEnd(ctx: EmbeddedAgentSubscribeContext, evt: Com
         }),
       )
       .catch((err: unknown) => {
-        ctx.log.warn(`late compaction count reconcile failed: ${String(err)}`);
+        ctx.log.warn("late compaction count reconcile failed", {
+          runId: ctx.params.runId,
+          sessionId: ctx.params.sessionId,
+          stage: "terminal-persist",
+          reason: formatCompactionFailureReason(err),
+        });
       });
   }
   if (willRetry) {
@@ -181,14 +205,22 @@ export function handleCompactionEnd(ctx: EmbeddedAgentSubscribeContext, evt: Com
     }
   }
   if (!completed) {
-    ctx.log.info(`embedded run ${kind} incomplete`, {
+    const failed = Boolean(failureReason) && !wasAborted;
+    const outcome = failed ? "failed" : "incomplete";
+    const log = failed ? ctx.log.warn : ctx.log.info;
+    log(`embedded run ${kind} ${outcome}`, {
       event: "embedded_run_compaction_end",
       runId: ctx.params.runId,
+      sessionId: ctx.params.sessionId,
+      itemId: evt.itemId,
+      stage: "runtime",
       reason,
+      failureReason,
       completed: false,
+      failed,
       willRetry,
       aborted: wasAborted,
-      consoleMessage: `embedded run ${kind} incomplete: runId=${ctx.params.runId} reason=${reason} aborted=${wasAborted} willRetry=${willRetry}`,
+      consoleMessage: `embedded run ${kind} ${outcome}: runId=${ctx.params.runId} reason=${reason} aborted=${wasAborted} willRetry=${willRetry}${failureReason ? ` error=${failureReason}` : ""}`,
     });
   }
   emitCompactionAgentEvent(ctx, {
@@ -196,6 +228,9 @@ export function handleCompactionEnd(ctx: EmbeddedAgentSubscribeContext, evt: Com
     ...(evt.itemId ? { itemId: evt.itemId } : {}),
     willRetry,
     completed,
+    failed: Boolean(failureReason) && !wasAborted,
+    aborted: wasAborted,
+    ...(failureReason ? { reason: failureReason } : {}),
   });
 
   // after_compaction runs only once the run will not retry, matching the visible

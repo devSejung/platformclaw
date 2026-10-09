@@ -4880,6 +4880,7 @@ public struct SessionOperationEvent: Codable, Sendable {
     public let agentid: String?
     public let ts: Int
     public let completed: Bool?
+    public let failed: Bool?
     public let reason: String?
 
     public init(
@@ -4890,6 +4891,7 @@ public struct SessionOperationEvent: Codable, Sendable {
         agentid: String? = nil,
         ts: Int,
         completed: Bool? = nil,
+        failed: Bool? = nil,
         reason: String? = nil)
     {
         self.operationid = operationid
@@ -4899,6 +4901,7 @@ public struct SessionOperationEvent: Codable, Sendable {
         self.agentid = agentid
         self.ts = ts
         self.completed = completed
+        self.failed = failed
         self.reason = reason
     }
 
@@ -4910,6 +4913,7 @@ public struct SessionOperationEvent: Codable, Sendable {
         case agentid = "agentId"
         case ts
         case completed
+        case failed
         case reason
     }
 }

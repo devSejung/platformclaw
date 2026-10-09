@@ -592,7 +592,7 @@ export class CodexAppServerEventProjector {
       });
       this.promptError = usageLimitMessage
         ? createCodexUsageLimitPromptError(usageLimitMessage)
-        : (turn.error?.message ?? "codex app-server turn failed");
+        : (turn.error?.message ?? this.promptError ?? "codex app-server turn failed");
       this.promptErrorSource = "prompt";
     }
     const turnItems = turn.items ?? [];
@@ -664,11 +664,16 @@ export class CodexAppServerEventProjector {
 
   private finishIncompleteCompactions(): void {
     // Failed/interrupted turns may omit item/completed. They cannot leave progress active.
+    if (this.activeCompactionItemIds.size === 0) {
+      return;
+    }
+    const aborted = this.aborted || this.completedTurn?.status === "interrupted";
+    const failed = Boolean(this.promptError) || !aborted;
+    const reason =
+      this.promptError ??
+      (aborted ? "Compaction interrupted" : "Compaction ended without a completed item");
     for (const itemId of this.activeCompactionItemIds) {
-      this.emitAgentEvent({
-        stream: "compaction",
-        data: { phase: "end", itemId, completed: false, willRetry: false },
-      });
+      this.contextCompactionActivity.incomplete(itemId, { aborted, failed, reason });
     }
     this.activeCompactionItemIds.clear();
   }

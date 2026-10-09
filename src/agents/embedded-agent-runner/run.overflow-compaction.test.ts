@@ -3,6 +3,7 @@ import { OPENCLAW_EMBEDDED_CONTEXT_ENGINE_HOST } from "../../context-engine/host
 import { buildContextEngineRuntimeSettings } from "../../context-engine/runtime-settings.js";
 import type { ContextEngine } from "../../context-engine/types.js";
 import type { AgentRuntimeAuthPlan } from "../runtime-plan/types.js";
+import { log } from "./logger.js";
 import {
   compactEmbeddedRunForRecovery,
   createEmbeddedRunCompactionRuntime,
@@ -53,6 +54,84 @@ function makeContextEngine(compact = vi.fn()): ContextEngine {
 }
 
 describe("compactEmbeddedRunForRecovery", () => {
+  it.each(["overflow", "timeout_recovery"] as const)(
+    "records bounded %s failures at the compaction owner and preserves rejection",
+    async (trigger) => {
+      const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+      const secret = "abcdefghijklmnopqrstuvwxyz0123456789";
+      const error = new Error(
+        `Provider unavailable Authorization: Bearer ${secret}\n${"x".repeat(800)}`,
+      );
+      const compact = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce({
+        ok: false,
+        compacted: false,
+        reason: error.message,
+      });
+      const input: Parameters<typeof compactEmbeddedRunForRecovery>[0] = {
+        runParams: baseRunParams,
+        state: createEmbeddedRunContextRecoveryState(),
+        contextEngine: makeContextEngine(compact),
+        genericCompactionRecoveryAllowed: true,
+        attempt: makeAttempt(),
+        runtimeAuthPlan: {
+          authProfileProviderForAuth: "openai",
+          providerForAuth: "openai",
+        },
+        resolvedSessionKey: baseRunParams.sessionKey,
+        sessionAgentId: "main",
+        agentDir: "/tmp/agent",
+        workspaceDir: "/tmp/workspace",
+        provider: "openai",
+        modelId: "gpt-5.5",
+        harnessRuntime: "openclaw",
+        thinkLevel: "medium",
+        authProfileIdSource: "user",
+        resolveContextEnginePluginId: () => undefined,
+        buildRuntimeSettings: ({ tokenBudget, degradedReason }) =>
+          buildContextEngineRuntimeSettings({
+            contextEngineHost: OPENCLAW_EMBEDDED_CONTEXT_ENGINE_HOST,
+            promptTokenBudget: tokenBudget,
+            degradedReason,
+          }),
+        onCompactionHookMessages: vi.fn(async () => {}),
+        runOwnsCompactionBeforeHook: vi.fn(async () => {}),
+        runOwnsCompactionAfterHook: vi.fn(async () => {}),
+        adoptCompactionTranscript: vi.fn(async () => undefined),
+        getActiveSession: () => ({ id: "session-1", file: baseRunParams.sessionFile }),
+        armPostCompactionGuard: vi.fn(),
+      };
+      const recovery = {
+        tokenBudget: 200_000,
+        trigger,
+        diagId: "diag-failure",
+        attempt: 1,
+        maxAttempts: 3,
+      };
+      try {
+        await expect(compactEmbeddedRunForRecovery(input, recovery)).rejects.toBe(error);
+        const failure = await compactEmbeddedRunForRecovery(input, recovery);
+        expect(failure.result).toMatchObject({ ok: false, compacted: false });
+        expect(failure.result.reason).toContain("Provider unavailable");
+        expect(failure.result.reason).not.toContain(secret);
+        expect(failure.result.reason?.length).toBeLessThanOrEqual(512);
+        expect(warn).toHaveBeenCalledTimes(2);
+        for (const [, metadata] of warn.mock.calls) {
+          expect(metadata).toMatchObject({
+            runId: "run-1",
+            sessionId: "session-1",
+            stage: "runtime",
+            trigger,
+            diagId: "diag-failure",
+            reason: failure.result.reason,
+          });
+          expect(JSON.stringify(metadata)).not.toContain(secret);
+        }
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
+
   it("carries locked model, auth, fallback, cache, and overflow facts into compaction", async () => {
     const compact = vi.fn(async () => ({
       ok: true as const,

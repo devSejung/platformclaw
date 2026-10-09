@@ -5,7 +5,7 @@ import {
 } from "@openclaw/gateway-protocol/frame-guards";
 import { RetrySupervisor, sleepWithAbort } from "@openclaw/retry";
 import { GatewayEventListeners } from "./event-listeners.js";
-import type { GatewayPendingRequest } from "./pending-request.js";
+import { interruptPendingRequest, type GatewayPendingRequest } from "./pending-request.js";
 import {
   GatewayProtocolRequestError,
   type GatewayProtocolRequestOptions,
@@ -226,7 +226,6 @@ export class GatewayProtocolClient<TPlan> {
       options?.timeoutMs === null ? undefined : (options?.timeoutMs ?? this.opts.requestTimeoutMs);
     return new Promise<T>((resolve, reject) => {
       let timeout: ReturnType<typeof setTimeout> | undefined;
-      let requestSent = false;
       const pending: GatewayPendingRequest = {
         resolve: (value) => resolve(value as T),
         reject,
@@ -234,6 +233,7 @@ export class GatewayProtocolClient<TPlan> {
         acceptedNotified: false,
         onAccepted: options?.onAccepted,
         unbounded: timeoutMs === undefined,
+        requestSent: false,
         method,
         startedAtMs: this.nowMs(),
       };
@@ -269,7 +269,7 @@ export class GatewayProtocolClient<TPlan> {
           options?.signal?.removeEventListener("abort", onAbort);
           this.finishRequestTiming(id, pending, false, "CLIENT_TIMEOUT");
           reject(
-            this.opts.createRequestTimeoutError?.(method, timeoutMs, requestSent) ??
+            this.opts.createRequestTimeoutError?.(method, timeoutMs, pending.requestSent) ??
               new Error(`gateway request timed out after ${timeoutMs}ms: ${method}`),
           );
         }, timeoutMs);
@@ -279,7 +279,7 @@ export class GatewayProtocolClient<TPlan> {
       this.pending.set(id, pending);
       try {
         socket.send(JSON.stringify({ type: "req", id, method, params }));
-        requestSent = true;
+        pending.requestSent = true;
         this.invoke("sent", () => options?.onSent?.());
       } catch (error) {
         this.pending.delete(id);
@@ -664,7 +664,7 @@ export class GatewayProtocolClient<TPlan> {
     for (const [id, pending] of this.pending) {
       this.finishRequestTiming(id, pending, false, "CLIENT_CLOSED");
       pending.cleanup?.();
-      pending.reject(error);
+      interruptPendingRequest(pending, error);
     }
     this.pending.clear();
   }

@@ -115,13 +115,26 @@
   transform: scale(0.75);
 }
 
-.chat-compaction--complete .chat-compaction__line {
+.chat-compaction--complete .chat-compaction__line,
+.chat-compaction--failed .chat-compaction__line,
+.chat-compaction--aborted .chat-compaction__line {
   visibility: hidden;
 }
 
-.chat-compaction--complete .chat-compaction__glyph svg {
+.chat-compaction--complete .chat-compaction__glyph svg,
+.chat-compaction--failed .chat-compaction__glyph svg,
+.chat-compaction--aborted .chat-compaction__glyph svg {
   opacity: 1;
   transform: scale(1);
+}
+
+.chat-compaction--failed .chat-compaction__glyph svg {
+  color: var(--danger);
+}
+
+.chat-compaction .chat-divider__description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @media (prefers-reduced-motion: no-preference) {

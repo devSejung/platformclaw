@@ -22,7 +22,7 @@ export function renderChatDivider(
         class="chat-divider__rule"
         role=${item.compaction ? "status" : "separator"}
         aria-live=${item.compaction ? "polite" : nothing}
-        aria-label=${item.metric ? `${item.label}, ${item.metric}` : item.label}
+        aria-label=${[item.label, item.metric, item.description].filter(Boolean).join(", ")}
       >
         <span class="chat-divider__line"></span>
         <span class="chat-divider__label">
@@ -33,7 +33,11 @@ export function renderChatDivider(
                 <span class="chat-compaction__line"></span>
                 <span class="chat-compaction__line"></span>
                 <span class="chat-compaction__line"></span>
-                ${icons.check}
+                ${item.compaction === "failed"
+                  ? icons.alertTriangle
+                  : item.compaction === "aborted"
+                    ? icons.x
+                    : icons.check}
               </span>`
             : nothing}
           <span class="chat-divider__title">${item.label}</span>

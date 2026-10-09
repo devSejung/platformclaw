@@ -4,6 +4,7 @@ import type { ContextEngine } from "../../../context-engine/types.js";
 import { formatErrorMessage } from "../../../infra/errors.js";
 import type { AssistantMessage } from "../../../llm/types.js";
 import { projectAgentRunAttemptTerminal } from "../../agent-run-terminal-outcome.js";
+import { formatCompactionFailureReason } from "../../compaction-diagnostics.js";
 import {
   extractObservedOverflowTokenCount,
   isCompactionFailureError,
@@ -163,6 +164,7 @@ export async function recoverEmbeddedRunOverflow(
     );
     let compactResult: CompactResult;
     let previousSessionId: string | undefined;
+    let compactionReturned = false;
     await input.runOwnsCompactionBeforeHook("overflow recovery");
     try {
       const compaction = await compactEmbeddedRunForRecovery(input, {
@@ -174,6 +176,7 @@ export async function recoverEmbeddedRunOverflow(
         currentTokenCount: overflowTokenCountForCompaction,
       });
       compactResult = compaction.result;
+      compactionReturned = true;
       if (compactResult.ok && compactResult.compacted) {
         previousSessionId = await input.adoptCompactionTranscript(compactResult);
         const sessionAfterCompaction = input.getActiveSession();
@@ -191,10 +194,20 @@ export async function recoverEmbeddedRunOverflow(
         });
       }
     } catch (compactErr) {
-      log.warn(
-        `contextEngine.compact() threw during overflow recovery for ${input.provider}/${input.modelId}: ${String(compactErr)}`,
-      );
-      compactResult = { ok: false, compacted: false, reason: String(compactErr) };
+      if (compactionReturned) {
+        log.warn("overflow compaction follow-through failed", {
+          runId: runParams.runId,
+          sessionId: activeSession.id,
+          stage: "terminal-persist",
+          diagId: overflowDiagId,
+          reason: formatCompactionFailureReason(compactErr),
+        });
+      }
+      compactResult = {
+        ok: false,
+        compacted: false,
+        reason: formatCompactionFailureReason(compactErr),
+      };
     }
     await input.runOwnsCompactionAfterHook("overflow recovery", compactResult, previousSessionId);
 
@@ -260,9 +273,6 @@ export async function recoverEmbeddedRunOverflow(
       }
       return { action: "retry" };
     }
-    log.warn(
-      `auto-compaction failed for ${input.provider}/${input.modelId}: ${compactResult.reason ?? "nothing to compact"}`,
-    );
   }
 
   if (!input.state.toolResultTruncationAttempted) {

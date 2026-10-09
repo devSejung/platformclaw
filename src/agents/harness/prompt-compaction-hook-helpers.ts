@@ -9,6 +9,7 @@ import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import type { PluginHookBeforePromptBuildResult } from "../../plugins/types.js";
 import { joinPresentTextSegments } from "../../shared/text/join-segments.js";
 import type { BootstrapContextRunKind } from "../bootstrap-mode.js";
+import { formatCompactionFailureReason } from "../compaction-diagnostics.js";
 import { wrapPluginSystemContextSection } from "../hook-system-context-boundary.js";
 import type { AgentMessage } from "../runtime/index.js";
 import { buildAgentHookContext, type AgentHarnessHookContext } from "./hook-context.js";
@@ -148,7 +149,12 @@ export async function runAgentHarnessBeforeCompactionHook(params: {
       buildAgentHookContext(params.ctx),
     );
   } catch (error) {
-    log.warn(`before_compaction hook failed: ${String(error)}`);
+    log.warn("before_compaction hook failed", {
+      runId: params.ctx.runId,
+      sessionId: params.ctx.sessionId,
+      stage: "before_compaction",
+      reason: formatCompactionFailureReason(error),
+    });
   }
 }
 
@@ -173,6 +179,11 @@ export async function runAgentHarnessAfterCompactionHook(params: {
       buildAgentHookContext(params.ctx),
     );
   } catch (error) {
-    log.warn(`after_compaction hook failed: ${String(error)}`);
+    log.warn("after_compaction hook failed", {
+      runId: params.ctx.runId,
+      sessionId: params.ctx.sessionId,
+      stage: "after_compaction",
+      reason: formatCompactionFailureReason(error),
+    });
   }
 }

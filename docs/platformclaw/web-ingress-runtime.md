@@ -190,6 +190,29 @@ hello frame shapes. Browser event sequence numbers are regenerated after
 filtering so dropped operator events do not create false sequence gaps in the
 Control UI.
 
+## Compaction diagnostics
+
+Employee Control UI `/compact` requests wait for the private Gateway's final
+response. They do not expire at the ordinary 30-second RPC deadline. Explicit
+caller deadlines still apply, and the Gateway runtime owns compaction safety
+timeouts and cancellation.
+
+Manual failures show the public reason, error code, request ID, operation ID,
+and stage when available. Match the request ID with the Control process's
+`PlatformClaw browser Gateway request failed` log. Match the operation ID with
+Gateway `session compaction` logs; `preflight`, `runtime`, and `terminal-persist`
+distinguish admission or transcript reads, summarization, and terminal writes.
+Automatic failures and interruptions retain a visible result after run cleanup
+and include a safe reason and run ID when available. Gateway runtime logs carry
+the matching run, session, and compaction item identifiers.
+
+A lost connection, sent-request timeout, or authorization change can leave the
+operation's result unconfirmed. Reconnect and refresh the session history before
+retrying; losing the response does not cancel server work. Public diagnostics
+redact credentials and bound reasons. Control logs exclude request parameters
+and raw private exceptions, retaining bounded source locations and recognized
+cause codes for investigation.
+
 ## Test employee authentication
 
 Start the repository mock on a loopback-only random port:

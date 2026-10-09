@@ -216,7 +216,7 @@ describe("recoverEmbeddedRunTimeout", () => {
     expect(input.state.timeoutCompactionAttempts).toBe(1);
     expect(input.runOwnsCompactionAfterHook).toHaveBeenCalledWith(
       "timeout recovery",
-      expect.objectContaining({ compacted: false, reason: "Error: engine crashed" }),
+      expect.objectContaining({ compacted: false, reason: "engine crashed" }),
       undefined,
     );
   });

@@ -386,9 +386,23 @@ describe("subscribeEmbeddedAgentSession", () => {
 
       const expected = [
         { phase: "start", itemId: "compaction-first" },
-        { phase: "end", itemId: "compaction-first", willRetry: true, completed: true },
+        {
+          phase: "end",
+          itemId: "compaction-first",
+          willRetry: true,
+          completed: true,
+          failed: false,
+          aborted: false,
+        },
         { phase: "start", itemId: "compaction-second" },
-        { phase: "end", itemId: "compaction-second", willRetry: false, completed: false },
+        {
+          phase: "end",
+          itemId: "compaction-second",
+          willRetry: false,
+          completed: false,
+          failed: false,
+          aborted: true,
+        },
       ];
       expect(events).toEqual(expected);
       expect(onCallback.mock.calls.map(([event]) => event)).toEqual(
