@@ -259,6 +259,65 @@ describe("one-shot CLI exit", () => {
     expect(exit).toHaveBeenCalledWith(0);
   });
 
+  it.each(["stdout", "stderr", "both"] as const)(
+    "finishes a completed command when %s drain callbacks never settle",
+    async (missing) => {
+      vi.useFakeTimers();
+      const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
+      for (const name of ["stdout", "stderr"] as const) {
+        vi.spyOn(process[name], "write").mockImplementation(((...args: unknown[]) => {
+          if (missing !== "both" && missing !== name) {
+            args.find((arg): arg is () => void => typeof arg === "function")?.();
+          }
+          return true;
+        }) as typeof process.stdout.write);
+      }
+      try {
+        requestExitAfterOneShotOutput(defaultRuntime, 5);
+        await runCliWithExitFinalization({
+          run: successfulRun,
+          onError: ignoreError,
+          env: {},
+          execArgv: [],
+          platform: "linux",
+          markers: {},
+        });
+        await vi.advanceTimersByTimeAsync(4_999);
+        expect(exit).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(exit).toHaveBeenCalledExactlyOnceWith(5);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("cancels the drain deadline after both stream callbacks settle", async () => {
+    vi.useFakeTimers();
+    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
+    for (const stream of [process.stdout, process.stderr]) {
+      vi.spyOn(stream, "write").mockImplementation(((...args: unknown[]) => {
+        args.find((arg): arg is () => void => typeof arg === "function")?.();
+        return true;
+      }) as typeof process.stdout.write);
+    }
+    try {
+      requestExitAfterOneShotOutput(defaultRuntime, 7);
+      await runCliWithExitFinalization({
+        run: successfulRun,
+        onError: ignoreError,
+        env: {},
+        execArgv: [],
+        platform: "linux",
+        markers: {},
+      });
+      await vi.runAllTimersAsync();
+      expect(exit).toHaveBeenCalledExactlyOnceWith(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("drains large piped stdout before a requested nonzero exit", () => {
     const env = { ...process.env };
     delete env.VITEST;

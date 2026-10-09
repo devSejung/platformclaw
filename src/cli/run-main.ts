@@ -1648,10 +1648,14 @@ async function runCliWithPreparedOutputMode(
     }
   } finally {
     uninstallGatewayRunRuntimeHooks?.();
-    await stopStartedProxy();
-    await disposeCliAgentHarnesses();
-    await closeCliMcpLoopbackServer();
-    await closeCliMemoryManagers();
+    await startupTrace.measure("cleanup-proxy", stopStartedProxy, { timeline: false });
+    await startupTrace.measure("cleanup-agent-harnesses", disposeCliAgentHarnesses, {
+      timeline: false,
+    });
+    await startupTrace.measure("cleanup-mcp-loopback", closeCliMcpLoopbackServer, {
+      timeline: false,
+    });
+    await startupTrace.measure("cleanup-memory", closeCliMemoryManagers, { timeline: false });
     pauseNonTtyStdinForCliExit();
   }
 }

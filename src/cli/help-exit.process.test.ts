@@ -130,6 +130,7 @@ async function runCliProcess(params: {
   useDefaultConfigPaths?: boolean;
   forbidTlsImport?: boolean;
   keepAlive?: boolean;
+  dropDrainCallbacks?: boolean;
   failRunMainImport?: boolean;
   unsupportedRuntime?: boolean;
   allowRespawn?: boolean;
@@ -143,6 +144,19 @@ async function runCliProcess(params: {
     params.loggingViaInclude,
     params.loggingViaRootInclude,
   );
+  if (params.dropDrainCallbacks) {
+    await fs.appendFile(
+      fixture.keepAlivePath,
+      `for (const stream of [process.stdout, process.stderr]) {
+  const write = stream.write;
+  stream.write = function(chunk, ...args) {
+    if (chunk === "") return true;
+    return write.call(this, chunk, ...args);
+  };
+}
+`,
+    );
+  }
   if (params.stateEnv) {
     const lines = Object.entries(params.stateEnv(fixture.stateDir)).map(
       ([key, value]) => `${key}=${value}`,
@@ -155,7 +169,9 @@ async function runCliProcess(params: {
       ...(params.forbidTlsImport
         ? ["--import", pathToFileURL(fixture.tlsImportGuardPath).href]
         : []),
-      ...(params.keepAlive ? ["--import", pathToFileURL(fixture.keepAlivePath).href] : []),
+      ...(params.keepAlive || params.dropDrainCallbacks
+        ? ["--import", pathToFileURL(fixture.keepAlivePath).href]
+        : []),
       ...(params.failRunMainImport
         ? ["--import", pathToFileURL(fixture.failRunMainImportPath).href]
         : []),
@@ -278,7 +294,7 @@ describe("CLI help process exit", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Usage: openclaw backup [options] [command]");
   });
-  it("flushes explicitly requested entry traces on precomputed help", async () => {
+  it("flushes explicitly requested entry traces on gateway help", async () => {
     const result = await runCliProcess({
       args: ["gateway", "--help"],
       config: { logging: { consoleStyle: "json", level: "silent" } },
@@ -293,6 +309,26 @@ describe("CLI help process exit", () => {
         }),
       ]),
     );
+  });
+
+  it("exits after Commander gateway help when output drain callbacks are lost", async () => {
+    const result = await runCliProcess({
+      args: ["gateway", "--help"],
+      config: { logging: { consoleStyle: "json", level: "silent" } },
+      // Exercise the full finalizer even if a build has populated help metadata.
+      env: {
+        OPENCLAW_GATEWAY_STARTUP_TRACE: "1",
+        OPENCLAW_DISABLE_CLI_STARTUP_HELP_FAST_PATH: "1",
+      },
+      dropDrainCallbacks: true,
+    });
+    expect(result.stdout).toContain("Usage: openclaw gateway [options] [command]");
+    const messages = parseJsonLines(result.stderr).map((line) => line.message);
+    for (const phase of ["proxy", "agent-harnesses", "mcp-loopback", "memory"]) {
+      expect(messages).toContainEqual(
+        expect.stringContaining(`startup trace: cli.main.cleanup-${phase}`),
+      );
+    }
   });
 
   it.each(LAZY_GROUP_HELP_CASES)(
