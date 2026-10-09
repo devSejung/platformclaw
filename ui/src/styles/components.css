@@ -1647,60 +1647,6 @@ openclaw-session-owner-chip {
   overflow-wrap: anywhere;
 }
 
-/* Compaction indicator */
-.compaction-indicator {
-  align-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  line-height: 1.2;
-  padding: 6px 14px;
-  margin-bottom: 8px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  background: var(--panel-strong);
-  color: var(--text);
-  white-space: nowrap;
-  user-select: none;
-  animation: fade-in 0.2s var(--ease-out);
-}
-
-.compaction-indicator svg {
-  width: 16px;
-  height: 16px;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 1.5px;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  flex-shrink: 0;
-}
-
-.compaction-indicator--active {
-  color: var(--info);
-  border-color: rgba(59, 130, 246, 0.35);
-}
-
-.compaction-indicator--active svg {
-  animation: compaction-spin 1s linear infinite;
-}
-
-.compaction-indicator--complete {
-  color: var(--ok);
-  border-color: rgba(34, 197, 94, 0.35);
-}
-
-.compaction-indicator--fallback {
-  color: #d97706;
-  border-color: rgba(217, 119, 6, 0.35);
-}
-
-.compaction-indicator--fallback-cleared {
-  color: var(--ok);
-  border-color: rgba(34, 197, 94, 0.35);
-}
-
 @keyframes compaction-spin {
   to {
     transform: rotate(360deg);

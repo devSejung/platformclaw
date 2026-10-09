@@ -80,6 +80,7 @@ function createReplyOperation(): TestReplyOperation {
     result: null,
     recordActivity: vi.fn(),
     hasOwnedSessionId: vi.fn((sessionId: string) => sessionId === "session"),
+    captureOwnedSessionIds: vi.fn(() => new Set(["session"])),
     setPhase: vi.fn<ReplyOperation["setPhase"]>(),
     updateSessionId: vi.fn<ReplyOperation["updateSessionId"]>(),
     updateSessionKey: vi.fn<ReplyOperation["updateSessionKey"]>(),

@@ -21,7 +21,6 @@ export function itemKind(
     case "webSearch":
       return "search";
     case "reasoning":
-    case "contextCompaction":
       return "analysis";
     default:
       return undefined;

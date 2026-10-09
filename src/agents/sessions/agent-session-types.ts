@@ -32,11 +32,12 @@ export type AgentSessionEvent =
       assistantEntryId?: string;
     }
   | { type: "queue_update"; steering: readonly string[]; followUp: readonly string[] }
-  | { type: "compaction_start"; reason: "manual" | "threshold" | "overflow" }
+  | { type: "compaction_start"; reason: "manual" | "threshold" | "overflow"; itemId?: string }
   | { type: "session_info_changed"; name: string | undefined }
   | { type: "thinking_level_changed"; level: ThinkingLevel }
   | {
       type: "compaction_end";
+      itemId?: string;
       reason: "manual" | "threshold" | "overflow";
       result: CompactionResult | undefined;
       aborted: boolean;

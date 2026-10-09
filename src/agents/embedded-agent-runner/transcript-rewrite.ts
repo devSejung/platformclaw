@@ -65,6 +65,8 @@ function appendBranchEntry(params: {
       entry.tokensBefore,
       entry.details,
       entry.fromHook,
+      // Replayed boundaries must not inherit the maintenance run's identity.
+      { runId: entry["__openclaw"]?.runId, ...entry["__openclaw"] },
     );
   }
   if (entry.type === "reset") {

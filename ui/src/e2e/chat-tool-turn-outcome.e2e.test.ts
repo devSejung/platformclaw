@@ -62,7 +62,10 @@ describeControlUiE2e("Control UI autonomous tool-turn outcomes", () => {
   });
 
   it("keeps an earlier autonomous failure visible after a later turn recovers", async () => {
-    const context = await browser.newContext({ viewport: { height: 800, width: 1200 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 800, width: 1200 },
+    });
     const page = await context.newPage();
     const sessionKey = "agent:main:dashboard:tool-turn-outcome";
     await installMockGateway(page, {
@@ -105,7 +108,10 @@ describeControlUiE2e("Control UI autonomous tool-turn outcomes", () => {
   });
 
   it("pairs a canonical parallel batch and renders per-file patch sections", async () => {
-    const context = await browser.newContext({ viewport: { height: 900, width: 1200 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 900, width: 1200 },
+    });
     const page = await context.newPage();
     await installMockGateway(page, {
       historyMessages: [
@@ -192,7 +198,10 @@ describeControlUiE2e("Control UI autonomous tool-turn outcomes", () => {
   });
 
   it("keeps a message-only turn visible with its first message line", async () => {
-    const context = await browser.newContext({ viewport: { height: 800, width: 1200 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 800, width: 1200 },
+    });
     const page = await context.newPage();
     const message = "Hello Molty, first claw-to-claw hello.";
     await installMockGateway(page, {
@@ -243,7 +252,10 @@ describeControlUiE2e("Control UI autonomous tool-turn outcomes", () => {
   });
 
   it("sweeps a text wave over the active tool row and stops it on the result", async () => {
-    const context = await browser.newContext({ viewport: { height: 800, width: 1200 } });
+    const context = await browser.newContext({
+      locale: "en-US",
+      viewport: { height: 800, width: 1200 },
+    });
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       historyMessages: [

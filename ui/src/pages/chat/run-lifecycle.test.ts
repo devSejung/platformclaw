@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { SessionsListResult } from "../../api/types.ts";
+import { t } from "../../i18n/index.ts";
 import { isSessionRunActive } from "../../lib/session-run-state.ts";
 import {
   CHAT_RUN_STATUS_TOAST_DURATION_MS,
@@ -79,7 +80,7 @@ describe("handleAbortChat", () => {
     expect(hasAbortableSessionRun(host)).toBe(true);
     await handleAbortChat(host, { preserveDraft: true });
 
-    expect(host.chatError).toBe("Not connected. Try again after reconnecting.");
+    expect(host.chatError).toBe(t("chat.questions.disconnected"));
     expect(host.lastError).toBe(host.chatError);
     expect(host.chatMessage).toBe("keep this draft");
     expect(host.pendingAbort).toBeUndefined();
@@ -274,6 +275,39 @@ describe("reconcileChatRunLifecycle yielded parent", () => {
 });
 
 describe("reconcileChatRunLifecycle indicators", () => {
+  it("preserves completed compaction when its run terminates", () => {
+    const compactionStatus = {
+      phase: "complete" as const,
+      runId: "r1",
+      itemId: "compact-1",
+      startedAt: 1_000,
+      completedAt: 2_000,
+    };
+    const host = makeHost({ chatRunId: "r1", compactionStatus });
+    reconcileChatRunLifecycle(host, { outcome: "done", runId: "r1", clearLocalRun: true });
+    expect(host.compactionStatus).toBe(compactionStatus);
+  });
+
+  it("clears an unfinished compaction only when its owning run terminates", () => {
+    const compactionStatus = {
+      phase: "active" as const,
+      runId: "r1",
+      itemId: "compact-1",
+      startedAt: 1_000,
+      completedAt: null,
+    };
+    const host = makeHost({ chatRunId: "r1", compactionStatus });
+    reconcileChatRunLifecycle(host, {
+      outcome: "done",
+      runId: "r2",
+      clearIndicators: true,
+      clearLocalRun: false,
+    });
+    expect(host.compactionStatus).toBe(compactionStatus);
+    reconcileChatRunLifecycle(host, { outcome: "done", runId: "r1", clearLocalRun: true });
+    expect(host.compactionStatus).toBeNull();
+  });
+
   it("clears plan status on terminal run end", () => {
     const host = makeHost({
       chatRunId: "r1",

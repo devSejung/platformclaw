@@ -352,36 +352,53 @@ describe("subscribeEmbeddedAgentSession", () => {
     expect(subscription.getCompactionCount()).toBe(0);
   });
 
-  it("emits compaction events on the agent event bus", () => {
-    const { emit } = createSubscribedSessionHarness({
-      runId: "run-compaction",
+  it("preserves compaction identities on the event bus and run callback", () => {
+    const onCallback =
+      vi.fn<NonNullable<Parameters<typeof subscribeEmbeddedAgentSession>[0]["onAgentEvent"]>>();
+    const { emit, subscription } = createSubscribedSessionHarness({
+      runId: "run-compaction-identity",
+      onAgentEvent: onCallback,
     });
-    const events: Array<{ phase: string; willRetry?: boolean }> = [];
+    const events: Array<Record<string, unknown>> = [];
     const stop = onAgentEvent((evt) => {
-      if (evt.runId !== "run-compaction") {
-        return;
+      if (evt.runId === "run-compaction-identity" && evt.stream === "compaction") {
+        events.push(evt.data);
       }
-      if (evt.stream !== "compaction") {
-        return;
-      }
-      const phase = typeof evt.data?.phase === "string" ? evt.data.phase : "";
-      events.push({
-        phase,
-        willRetry: typeof evt.data?.willRetry === "boolean" ? evt.data.willRetry : undefined,
-      });
     });
 
-    emit({ type: "compaction_start" });
-    emit({ type: "compaction_end", willRetry: true });
-    emit({ type: "compaction_end", willRetry: false });
+    try {
+      emit({ type: "compaction_start", itemId: "compaction-first", reason: "overflow" });
+      emit({
+        type: "compaction_end",
+        itemId: "compaction-first",
+        reason: "overflow",
+        willRetry: true,
+        result: { summary: "Retained context", tokensAfter: 123 },
+      });
+      emit({ type: "compaction_start", itemId: "compaction-second", reason: "manual" });
+      emit({
+        type: "compaction_end",
+        itemId: "compaction-second",
+        reason: "manual",
+        willRetry: false,
+        aborted: true,
+      });
 
-    stop();
-
-    expect(events).toEqual([
-      { phase: "start" },
-      { phase: "end", willRetry: true },
-      { phase: "end", willRetry: false },
-    ]);
+      const expected = [
+        { phase: "start", itemId: "compaction-first" },
+        { phase: "end", itemId: "compaction-first", willRetry: true, completed: true },
+        { phase: "start", itemId: "compaction-second" },
+        { phase: "end", itemId: "compaction-second", willRetry: false, completed: false },
+      ];
+      expect(events).toEqual(expected);
+      expect(onCallback.mock.calls.map(([event]) => event)).toEqual(
+        expected.map((data) => ({ stream: "compaction", data })),
+      );
+      expect(subscription.getCompactionCount()).toBe(1);
+    } finally {
+      stop();
+      subscription.unsubscribe();
+    }
   });
 
   it("rejects compaction wait with AbortError when unsubscribed", async () => {

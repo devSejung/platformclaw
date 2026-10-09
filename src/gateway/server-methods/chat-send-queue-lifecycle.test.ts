@@ -39,6 +39,44 @@ function fixture() {
 afterEach(() => resetAgentEventsForTest());
 
 describe("chat followup lifecycle", () => {
+  it("rebinds deferred cancellation to the admitted compaction identity", () => {
+    const f = fixture();
+    f.queue.setSessionId("first-compaction");
+    f.queue.lifecycle.onDeferred?.();
+    expect(f.context.chatQueuedTurns.get("request")?.sessionId).toBe("first-compaction");
+    f.queue.setSessionId("second-compaction");
+    expect(f.context.chatQueuedTurns.get("request")).toMatchObject({
+      controller: f.controller,
+      sessionId: "second-compaction",
+    });
+    f.queue.lifecycle.onSettled?.();
+  });
+
+  it.each(["generation", "replacement"] as const)(
+    "does not rebind a newer %s cancellation owner",
+    (kind) => {
+      const f = fixture();
+      f.queue.lifecycle.onDeferred?.();
+      if (kind === "generation") {
+        rotateAgentEventLifecycleGeneration();
+      } else {
+        f.controller.abort();
+        registerQueuedChatTurn({
+          chatQueuedTurns: f.context.chatQueuedTurns,
+          runId: "request",
+          controller: new AbortController(),
+          sessionId: "replacement",
+          sessionKey: "agent:team:issue",
+        });
+      }
+      f.queue.setSessionId("stale-compaction");
+      expect(f.context.chatQueuedTurns.get("request")?.sessionId).toBe(
+        kind === "generation" ? "session" : "replacement",
+      );
+      f.queue.lifecycle.onSettled?.();
+    },
+  );
+
   it("keeps the original native cancel identity until settlement and publishes it once", () => {
     const f = fixture();
     expect(f.queue.lifecycle.onDeferred?.()).toBe(true);

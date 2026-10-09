@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import {
   chatThreadDistanceFromBottom,
   createChatFlowE2eSuite,
+  expectRequestCountStable,
   installMockGateway,
   pauseVirtualClock,
   requireRecord,
@@ -135,13 +136,21 @@ suite.define(() => {
   });
 
   it.each([
-    { label: "desktop", viewport: { height: 900, width: 1280 } },
-    { label: "mobile", viewport: { height: 844, width: 390 } },
+    { label: "desktop", initialFocus: "composer", viewport: { height: 900, width: 1280 } },
+    { label: "mobile", initialFocus: "composer", viewport: { height: 844, width: 390 } },
+    {
+      label: "mobile from transcript",
+      initialFocus: "transcript",
+      viewport: { height: 844, width: 390 },
+    },
   ])(
     "keeps streamed text visible when a chat error terminates the turn on $label",
-    async ({ viewport }) => {
+    async ({ viewport, initialFocus }) => {
       const context = await suite.newBrowserContext({
+        hasTouch: viewport.width < 480,
+        isMobile: viewport.width < 480,
         locale: "en-US",
+        permissions: ["clipboard-read", "clipboard-write"],
         serviceWorkers: "block",
         viewport,
       });
@@ -150,6 +159,9 @@ suite.define(() => {
 
       try {
         await page.goto(`${suite.server.baseUrl}chat`);
+        if (initialFocus === "transcript") {
+          await page.addStyleTag({ content: ":root { --safe-area-bottom: 34px !important; }" });
+        }
 
         const prompt = "stream before terminal error";
         await page.locator(".agent-chat__composer-combobox textarea").fill(prompt);
@@ -195,8 +207,55 @@ suite.define(() => {
           .getByText(partialText)
           .waitFor({ timeout: 10_000 });
         const alert = page.locator(".chat-run-error");
-        await alert.getByText(errorText).waitFor({ timeout: 10_000 });
-        expect(await alert.locator("button").count()).toBe(0);
+        await alert.waitFor({ timeout: 10_000 });
+        const details = alert.locator("details");
+        const summary = alert.locator("summary");
+        const diagnostic = alert.getByLabel("Error details", { exact: true });
+        expect(await summary.locator("strong").textContent()).toBe(`${errorText.slice(0, 119)}…`);
+        expect(await details.getAttribute("open")).toBeNull();
+        expect(await diagnostic.isVisible()).toBe(false);
+        const copy = alert.getByRole("button", { name: "Copy error", exact: true });
+        expect(await copy.count()).toBe(1);
+        if (initialFocus === "transcript") {
+          await page.locator(".chat-thread-inner").getByText(partialText, { exact: true }).tap();
+          expect(
+            await page.locator("textarea").evaluate((input) => document.activeElement === input),
+          ).toBe(false);
+        }
+        const copyBounds = await copy.boundingBox();
+        if (viewport.width < 480) {
+          await copy.tap();
+        } else {
+          await copy.click();
+        }
+        await expect
+          .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+          .toBe(errorText);
+        const copiedBounds = await summary.getByRole("button").boundingBox();
+        expect(copyBounds).not.toBeNull();
+        expect(copiedBounds).not.toBeNull();
+        expect(Math.abs((copyBounds?.y ?? 0) - (copiedBounds?.y ?? 0))).toBeLessThanOrEqual(1.5);
+        expect(await details.getAttribute("open")).toBeNull();
+        await summary.focus();
+        await summary.press("Enter");
+        await diagnostic.waitFor({ timeout: 10_000 });
+        expect(await diagnostic.textContent()).toBe(errorText);
+        await page.evaluate(() => navigator.clipboard.writeText("Before expanded copy."));
+        await summary.getByRole("button").press("Enter");
+        await expect
+          .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+          .toBe(errorText);
+        expect(await details.getAttribute("open")).not.toBeNull();
+        await summary.press("Space");
+        await diagnostic.waitFor({ state: "hidden" });
+        expect(await alert.locator("button").count()).toBe(2);
+        expect(await alert.getByRole("button", { name: "Refresh", exact: true }).count()).toBe(1);
+        expect(await alert.getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
+        expect(await alert.getByRole("button", { name: "Dismiss error" }).count()).toBe(0);
+        await expectRequestCountStable(gateway, "chat.send", 1);
+        expect(
+          await page.locator(".chat-thread-inner").getByText(partialText, { exact: true }).count(),
+        ).toBe(1);
         expect(await page.locator(".chat-thread-inner").getByText(errorText).count()).toBe(0);
         expect(
           await alert.evaluate((element) =>
@@ -212,10 +271,126 @@ suite.define(() => {
         expect(Math.abs((alertBox?.x ?? 0) - (composerBox?.x ?? 0))).toBeLessThan(1);
         expect(Math.abs((alertBox?.width ?? 0) - (composerBox?.width ?? 0))).toBeLessThan(1);
 
+        if (initialFocus === "transcript") {
+          // Headless Chromium cannot toggle installed-app display mode. Apply
+          // the exact shipped standalone rules, as the login-gate suite does.
+          await page.evaluate(() => {
+            const rules = Array.from(document.styleSheets)
+              .flatMap((sheet) => Array.from(sheet.cssRules))
+              .filter(
+                (rule): rule is CSSMediaRule =>
+                  rule instanceof CSSMediaRule &&
+                  rule.conditionText.includes("display-mode: standalone"),
+              )
+              .flatMap((rule) => Array.from(rule.cssRules))
+              .filter(
+                (rule): rule is CSSStyleRule =>
+                  rule instanceof CSSStyleRule &&
+                  rule.selectorText.includes(".agent-chat__composer-shell"),
+              );
+            if (rules.length === 0) {
+              throw new Error("Missing standalone composer spacing rules");
+            }
+            const standalone = document.createElement("style");
+            standalone.textContent = rules.map((rule) => rule.cssText).join("\n");
+            document.head.append(standalone);
+          });
+        }
+
         await page.locator(".agent-chat__composer-combobox textarea").fill("retry after error");
         await page.getByRole("button", { name: "Send message" }).click();
-        await waitForRequests(gateway, "chat.send", 2);
+        const requests = await waitForRequests(gateway, "chat.send", 2);
         await alert.waitFor({ state: "detached", timeout: 10_000 });
+
+        // A separately rejected retry must retain its input; refreshing must not
+        // submit that input again or replace a newer composer draft.
+        const retryParams = requireRecord(requests[1]?.params);
+        const retryRunId = requireString(retryParams.idempotencyKey, "retry send idempotency key");
+        const recovery =
+          "Your message didn't run because the conversation changed. Refresh the conversation, then send it again.";
+        const refreshError = `${recovery}\n\nDispatchSessionRefreshRequiredError: Session "main" changed while starting work. Retry.`;
+        const refreshedText = "Current conversation loaded after refresh.";
+        // This partial stream has no persisted row. Authoritative history has
+        // canonical identities; refresh must retain the local partial once.
+        await gateway.setHistoryMessages([
+          {
+            role: "user",
+            content: prompt,
+            __openclaw: { id: "first-user", seq: 1, idempotencyKey: `${runId}:user` },
+          },
+          {
+            role: "user",
+            content: "retry after error",
+            __openclaw: { id: "retry-user", seq: 2, idempotencyKey: `${retryRunId}:user` },
+          },
+          {
+            role: "assistant",
+            content: refreshedText,
+            __openclaw: { id: "refreshed-reply", seq: 3 },
+          },
+        ]);
+        await gateway.emitGatewayEvent("chat", {
+          errorMessage: refreshError,
+          runId: retryRunId,
+          sessionKey: "main",
+          state: "error",
+        });
+        await alert.waitFor({ timeout: 10_000 });
+        expect(await summary.locator("strong").textContent()).toBe(`Error: ${recovery}`);
+        if (initialFocus === "transcript") {
+          const input = page.locator(".agent-chat__composer-combobox textarea");
+          await input.focus();
+          expect(await input.evaluate((element) => document.activeElement === element)).toBe(true);
+          expect(
+            await page
+              .locator(".agent-chat__composer-shell")
+              .evaluate((element) => getComputedStyle(element).marginBottom),
+          ).toBe("48px");
+          await alert.getByRole("button", { name: "Copy error", exact: true }).tap();
+          await expect
+            .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+            .toBe(`Error: ${refreshError}`);
+        }
+        await summary.press("Enter");
+        await diagnostic.waitFor({ timeout: 10_000 });
+        expect(await diagnostic.textContent()).toBe(`Error: ${refreshError}`);
+        await alert.getByRole("button", { name: "Copy error", exact: true }).click();
+        await expect
+          .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+          .toBe(`Error: ${refreshError}`);
+        expect(await details.getAttribute("open")).not.toBeNull();
+        await summary.press("Space");
+        await diagnostic.waitFor({ state: "hidden" });
+        const input = page.locator(".agent-chat__composer-combobox textarea");
+        await input.fill("A newer draft stays here");
+        if (initialFocus === "transcript") {
+          await page.locator(".chat-thread-inner").getByText(partialText, { exact: true }).tap();
+          expect(await input.evaluate((element) => document.activeElement === element)).toBe(false);
+        }
+        const historyCount = (await gateway.getRequests("chat.history")).length;
+        const refresh = alert.getByRole("button", { name: "Refresh", exact: true });
+        if (viewport.width < 480) {
+          await refresh.tap();
+        } else {
+          await refresh.click();
+        }
+        await waitForRequests(gateway, "chat.history", historyCount + 1);
+        await page.getByText(refreshedText, { exact: true }).waitFor({ timeout: 10_000 });
+        expect(await summary.locator("strong").textContent()).toBe(`Error: ${recovery}`);
+        expect(await input.inputValue()).toBe("A newer draft stays here");
+        expect(
+          await page.locator(".chat-thread-inner").getByText(prompt, { exact: true }).count(),
+        ).toBe(1);
+        expect(
+          await page.locator(".chat-thread-inner").getByText(partialText, { exact: true }).count(),
+        ).toBe(1);
+        expect(
+          await page
+            .locator(".chat-thread-inner")
+            .getByText("retry after error", { exact: true })
+            .count(),
+        ).toBe(1);
+        await expectRequestCountStable(gateway, "chat.send", 2);
       } finally {
         await suite.closeBrowserContext(context);
       }

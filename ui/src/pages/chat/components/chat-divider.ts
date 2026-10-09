@@ -11,40 +11,55 @@ export function renderChatDivider(
   onOpenSessionCheckpoints?: () => void | Promise<void>,
 ) {
   return html`
-    <div class="chat-divider" data-chat-row-key=${item.key} data-ts=${String(item.timestamp)}>
+    <div
+      class="chat-divider ${item.compaction
+        ? `chat-compaction chat-compaction--${item.compaction}`
+        : ""}"
+      data-chat-row-key=${item.key}
+      data-ts=${String(item.timestamp)}
+    >
       <div
         class="chat-divider__rule"
-        role="separator"
+        role=${item.compaction ? "status" : "separator"}
+        aria-live=${item.compaction ? "polite" : nothing}
         aria-label=${item.metric ? `${item.label}, ${item.metric}` : item.label}
       >
         <span class="chat-divider__line"></span>
         <span class="chat-divider__label">
-          <span>${item.label}</span>
+          ${item.compaction
+            ? html`<span class="chat-compaction__glyph" aria-hidden="true">
+                <span class="chat-compaction__line"></span>
+                <span class="chat-compaction__line"></span>
+                <span class="chat-compaction__line"></span>
+                <span class="chat-compaction__line"></span>
+                <span class="chat-compaction__line"></span>
+                ${icons.check}
+              </span>`
+            : nothing}
+          <span class="chat-divider__title">${item.label}</span>
           ${item.metric
             ? html`
                 <span class="chat-divider__separator" aria-hidden="true">·</span>
                 <span class="chat-divider__metric">${item.metric}</span>
               `
             : nothing}
+          ${item.action?.kind === "session-checkpoints" && onOpenSessionCheckpoints
+            ? html`<button
+                type="button"
+                class="btn btn--subtle btn--sm chat-divider__action"
+                @click=${() => onOpenSessionCheckpoints()}
+              >
+                ${item.action.label}
+              </button>`
+            : nothing}
         </span>
         <span class="chat-divider__line"></span>
       </div>
-      ${item.description || item.action
+      ${item.description
         ? html`
             <div class="chat-divider__details">
               ${item.description
                 ? html`<span class="chat-divider__description">${item.description}</span>`
-                : nothing}
-              ${item.action?.kind === "session-checkpoints" && onOpenSessionCheckpoints
-                ? html`
-                    <button
-                      type="button"
-                      class="btn btn--subtle btn--sm chat-divider__action"
-                      @click=${() => onOpenSessionCheckpoints()}
-                    >
-                      ${item.action.label}
-                    </button>
-                  `
                 : nothing}
             </div>
           `

@@ -1,7 +1,8 @@
 // @vitest-environment node
 // Control UI tests cover format behavior.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { i18n } from "../i18n/index.ts";
+import { captureI18nStateForTesting } from "../i18n/lib/translate.test-support.ts";
 import {
   clampText,
   formatDateTimeMs,
@@ -19,11 +20,18 @@ import {
 } from "./format.ts";
 import { stripThinkingTags } from "./strip-thinking-tags.ts";
 
-describe("formatAgo", () => {
-  afterEach(async () => {
-    await i18n.setLocale("en");
-  });
+let restoreI18nState: () => Promise<void>;
 
+beforeEach(async () => {
+  restoreI18nState = captureI18nStateForTesting();
+  await i18n.setLocale("en");
+});
+
+afterEach(async () => {
+  await restoreI18nState();
+});
+
+describe("formatAgo", () => {
   it("formats timestamps less than 60s in the future", () => {
     expect(formatRelativeTimestamp(Date.now() + 30_000)).toMatch(/^in (29|30)s$/);
   });
@@ -82,7 +90,6 @@ describe("formatTimeAgo", () => {
   it("localizes its invalid-duration fallback", async () => {
     await i18n.setLocale("fr");
     expect(formatTimeAgo(null)).not.toBe("unknown");
-    await i18n.setLocale("en");
   });
 });
 

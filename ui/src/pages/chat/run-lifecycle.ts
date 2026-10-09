@@ -340,9 +340,12 @@ function clearRunIndicators(host: RunLifecycleHost, runId?: string | null) {
   if (!runId || host.chatRunStartup?.runId === runId) {
     host.chatRunStartup = null;
   }
-  clearTimer(host.compactionClearTimer);
-  host.compactionClearTimer = null;
-  if (host.compactionStatus) {
+  if (
+    (!runId || host.compactionStatus?.runId === runId) &&
+    host.compactionStatus?.phase !== "complete"
+  ) {
+    clearTimer(host.compactionClearTimer);
+    host.compactionClearTimer = null;
     host.compactionStatus = null;
   }
   clearTimer(host.fallbackClearTimer);
@@ -355,8 +358,8 @@ function clearRunIndicators(host: RunLifecycleHost, runId?: string | null) {
       host.waitingApprovalStatuses?.delete(approvalId);
     }
   }
-  // Plan checklists are run-owned (unlike the transient compaction/fallback
-  // toasts): a terminal reconcile for another run must not clear them.
+  // Plan checklists are run-owned: another run's terminal reconcile must not
+  // clear the active checklist.
   const planOwner = host.planStatus?.runId;
   if (host.planStatus && (!runId || !planOwner || planOwner === runId)) {
     host.planStatus = null;

@@ -1,5 +1,6 @@
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
+import { DispatchSessionRefreshRequiredError } from "../../auto-reply/reply/dispatch-session-refresh-error.js";
 import { clearAgentRunContext } from "../../infra/agent-run-registry.js";
 import { retainGatewayRootWorkAdmissionContinuation } from "../../process/gateway-work-admission.js";
 import type { UserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
@@ -58,7 +59,11 @@ export function createChatSendDispatchErrorLifecycle(params: {
   let persistDispatchErrorUserTurn: (() => Promise<void>) | undefined;
 
   const handleError = async (err: unknown) => {
-    const errorMessage = String(err);
+    const errorMessage =
+      err instanceof DispatchSessionRefreshRequiredError
+        ? "Your message didn't run because the conversation changed. Refresh the conversation, then send it again." +
+          `\n\n${String(err)}`
+        : String(err);
     const queuedFollowupEnqueued = isQueuedFollowupEnqueued();
     if (queuedFollowupEnqueued) {
       if (params.isQueuedFollowupSettled?.()) {

@@ -282,7 +282,7 @@ function handleSessionsChangedEvent(state: ChatPageHost, payload: unknown) {
     state.selectedChatSessionArchived = event.archived;
   }
   const result = reconcileSessionEvent(state, payload);
-  if (resetsSelectedSession) {
+  if (resetsSelectedSession || (matchesChat && source?.reason === "compact")) {
     void loadChatHistory(state).finally(() => state.requestUpdate?.());
     return;
   }

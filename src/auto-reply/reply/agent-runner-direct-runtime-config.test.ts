@@ -143,6 +143,7 @@ function createReplyOperation(): ReplyOperation {
     }),
     updateSessionKey: vi.fn(),
     hasOwnedSessionId: vi.fn(() => false),
+    captureOwnedSessionIds: vi.fn(() => new Set<string>()),
     attachBackend: vi.fn(),
     detachBackend: vi.fn(),
     retainFailureUntilComplete: vi.fn(),

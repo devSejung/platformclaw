@@ -14,6 +14,7 @@ import {
   type ChatComposerPersistResult,
   type StoredChatOutboxScope,
 } from "./composer-persistence.ts";
+import { resetChatCompactionProjection } from "./history-merge.ts";
 import type { AfterCommitEffect, RenderLifecycle } from "./render-lifecycle.ts";
 import { cancelChatScroll, scheduleCommittedChatScroll } from "./scroll.ts";
 
@@ -36,6 +37,7 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
   private previousChatMessages: unknown[] = [];
   private previousChatToolMessages: Record<string, unknown>[] = [];
   private previousChatStream: string | null = null;
+  private previousCompactionStatus: ChatPageHost["compactionStatus"] = null;
   private previousRealtimeConversation: ChatPageHost["realtimeTalkConversation"] = [];
   private scrollAfterUpdate = false;
   private scrollContentChangedAfterUpdate = false;
@@ -90,6 +92,7 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
     this.previousChatMessages = state.chatMessages;
     this.previousChatToolMessages = state.chatToolMessages;
     this.previousChatStream = state.chatStream;
+    this.previousCompactionStatus = state.compactionStatus;
     this.previousRealtimeConversation = state.realtimeTalkConversation;
     const renderLifecycle = state.renderLifecycle;
     state.requestUpdate = () => renderLifecycle.invalidate();
@@ -235,6 +238,7 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
       this.previousChatToolMessages !== state.chatToolMessages ||
       this.previousRealtimeConversation !== state.realtimeTalkConversation;
     const streamChanged = this.previousChatStream !== state.chatStream;
+    const compactionChanged = this.previousCompactionStatus !== state.compactionStatus;
     const loadingChanged = this.previousChatLoading !== state.chatLoading;
     const loadFinished = this.previousChatLoading && !state.chatLoading;
     const streamStarted = this.previousChatStream == null && typeof state.chatStream === "string";
@@ -242,12 +246,13 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
     this.previousChatMessages = state.chatMessages;
     this.previousChatToolMessages = state.chatToolMessages;
     this.previousChatStream = state.chatStream;
+    this.previousCompactionStatus = state.compactionStatus;
     this.previousRealtimeConversation = state.realtimeTalkConversation;
-    if (!messagesChanged && !streamChanged && !loadingChanged) {
+    if (!messagesChanged && !streamChanged && !loadingChanged && !compactionChanged) {
       return;
     }
     this.scrollAfterUpdate = true;
-    this.scrollContentChangedAfterUpdate ||= messagesChanged || streamChanged;
+    this.scrollContentChangedAfterUpdate ||= messagesChanged || streamChanged || compactionChanged;
     this.forceScrollAfterUpdate ||= loadFinished || streamStarted || !state.chatHasAutoScrolled;
   }
 
@@ -372,6 +377,7 @@ export class ChatStateController<TState extends ChatPageHost> implements Reactiv
       clearSessionWorkspaceTimers(state);
       stopChatRealtimeTalk(state);
       state.resetToolStream?.();
+      resetChatCompactionProjection(state);
     }
   }
 

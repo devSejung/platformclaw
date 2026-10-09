@@ -43,6 +43,33 @@ afterEach(() => {
 });
 
 describe("guardSessionManager transcript updates", () => {
+  it("persists each compaction identity under the current owning run across reload", async () => {
+    const { sessionManager, target } = await openPersistedSessionManager();
+    for (const runId of ["run-first", "run-second"]) {
+      const guarded = guardSessionManager(sessionManager, { runId });
+      const keptId = guarded.appendMessage({ role: "user", content: runId, timestamp: 1 });
+      guarded.appendCompaction("summary", keptId, 100, { source: "hook" }, true, {
+        itemId: `compaction-${runId}`,
+      });
+    }
+    expect(
+      SessionManager.open(target)
+        .getBranch()
+        .filter((entry) => entry.type === "compaction"),
+    ).toMatchObject([
+      {
+        __openclaw: { runId: "run-first", itemId: "compaction-run-first" },
+        details: { source: "hook" },
+        fromHook: true,
+      },
+      {
+        __openclaw: { runId: "run-second", itemId: "compaction-run-second" },
+        details: { source: "hook" },
+        fromHook: true,
+      },
+    ]);
+  });
+
   it.each(["active", "side", "setup-metadata"] as const)(
     "adopts an ingress-persisted %s-branch user without broadcasting a duplicate",
     (branch) => {

@@ -98,6 +98,7 @@ import type {
 } from "../templating.js";
 import { resolveEffectiveResetTargetSessionKey } from "./acp-reset-target.js";
 import { resolveConversationBindingContextFromMessage } from "./conversation-binding-input.js";
+import { DispatchSessionRefreshRequiredError } from "./dispatch-session-refresh-error.js";
 import { normalizeInboundTextNewlines } from "./inbound-text.js";
 import { replyRunRegistry } from "./reply-run-registry.js";
 import { isResetAuthorizedForContext } from "./reset-authorization.js";
@@ -627,7 +628,9 @@ async function initSessionStateAttemptLocked(
     ? undefined
     : params.expectedExistingSessionId?.trim() || undefined;
   if (expectedExistingSessionId && entry?.sessionId !== expectedExistingSessionId) {
-    throw new Error(`session rebound for sessionKey: ${sessionKey}`);
+    throw new DispatchSessionRefreshRequiredError(
+      new Error(`session rebound for sessionKey: ${sessionKey}`),
+    );
   }
   const pinExpectedExistingSession =
     params.pinExpectedExistingSession === true && expectedExistingSessionId !== undefined;

@@ -729,6 +729,9 @@ test("sessions.compact without maxLines runs embedded manual compaction for chec
   });
   expect(startPayload.operationId).toBeTruthy();
   expect(endPayload.operationId).toBe(startPayload.operationId);
+  expect(embeddedRunMock.compactEmbeddedAgentSession.mock.calls[0]?.[0]).toMatchObject({
+    runId: startPayload.operationId,
+  });
   expect(typeof startPayload.ts).toBe("number");
   expect(typeof endPayload.ts).toBe("number");
   expect(embeddedRunMock.compactEmbeddedAgentSession).toHaveBeenCalledTimes(1);

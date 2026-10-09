@@ -33,6 +33,7 @@ You will see:
 - `embedded run auto-compaction start` / `complete` in normal Gateway logs.
 - `🧹 Auto-compaction complete` in verbose mode.
 - `/status` showing `🧹 Compactions: <count>`.
+- In Control UI, one animated transcript marker that becomes a persistent completed row, including saved tokens when reported.
 
 <Info>
 Before compacting, OpenClaw automatically reminds the agent to save important notes to [memory](/concepts/memory) files. This prevents context loss.

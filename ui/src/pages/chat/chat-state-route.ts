@@ -37,6 +37,7 @@ import {
   type ChatComposerDraftRetry,
   type StoredChatOutboxScope,
 } from "./composer-persistence.ts";
+import { resetChatCompactionProjection } from "./history-merge.ts";
 import { admitInitialTurnHandoff, admitInitialUserMessageHandoff } from "./initial-turn-handoff.ts";
 import { reconcileChatRunLifecycle } from "./run-lifecycle.ts";
 import {
@@ -214,6 +215,7 @@ export function resetChatStateForRouteSession(
   state.lastError = null;
   state.chatError = null;
   state.chatRunError = null;
+  resetChatCompactionProjection(state);
   state.chatAvatarUrl = null;
   state.chatAvatarSource = null;
   state.chatAvatarStatus = null;

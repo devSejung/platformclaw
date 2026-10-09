@@ -3,8 +3,6 @@ import {
   classifyAgentHarnessTerminalOutcome,
   embeddedAgentLog,
   emitAgentEvent as emitGlobalAgentEvent,
-  runAgentHarnessAfterCompactionHook,
-  runAgentHarnessBeforeCompactionHook,
   type BeforeToolCallFailureDisposition,
   type EmbeddedRunAttemptParams,
   type HeartbeatToolResponse,
@@ -13,6 +11,7 @@ import {
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { attemptTerminal, type AttemptFailureSource } from "./attempt-terminal.js";
 import type { EmbeddedRunAttemptResult } from "./attempt-terminal.js";
+import { createCodexContextCompactionActivity } from "./context-compaction-activity.js";
 import { CodexAssistantProjection } from "./event-projector-assistant.js";
 import { CodexProjectionDiagnostics } from "./event-projector-diagnostics.js";
 import { CodexEventProjection } from "./event-projector-events.js";
@@ -89,6 +88,9 @@ export class CodexAppServerEventProjector {
   private readonly nativeToolLifecycleProjector: CodexNativeToolLifecycleProjector;
   private readonly toolProgressProjection: CodexToolProgressProjection;
   private readonly toolTranscriptProjection: CodexToolTranscriptProjection;
+  private readonly contextCompactionActivity: ReturnType<
+    typeof createCodexContextCompactionActivity
+  >;
   private completedTurn: CodexTurn | undefined;
   private promptError: unknown;
   private promptErrorSource: AttemptFailureSource | null = null;
@@ -131,6 +133,18 @@ export class CodexAppServerEventProjector {
         nativePostToolUseRelayEnabled: options.nativePostToolUseRelayEnabled,
         prepareNativeMcpAppResultDetails: options.prepareNativeMcpAppResultDetails,
         trajectoryRecorder: options.trajectoryRecorder,
+      },
+    );
+    this.contextCompactionActivity = createCodexContextCompactionActivity(
+      params,
+      threadId,
+      turnId,
+      {
+        emitAgentEvent: (event) => this.emitAgentEvent(event),
+        readMirroredSessionMessages: () =>
+          this.toolTranscriptProjection.readMirroredSessionMessages(),
+        nextTranscriptTimestamp: () => this.nextTranscriptTimestamp(),
+        onContextCompacted: () => this.options.onContextCompacted?.(),
       },
     );
     this.eventProjection = new CodexEventProjection(
@@ -321,6 +335,7 @@ export class CodexAppServerEventProjector {
     // Result construction runs after the notification queue drains. Close any
     // tool lacking a terminal item so audit consumers never retain an open action.
     this.nativeToolLifecycleProjector.finalizeActive();
+    this.finishIncompleteCompactions();
     const assistantTexts = this.assistantProjection.collectAssistantTexts();
     const commentaryMessages = this.assistantProjection.collectCommentaryMessages();
     const reasoningText = this.reasoningProjection.reasoningText();
@@ -498,6 +513,13 @@ export class CodexAppServerEventProjector {
   private async handleItemStarted(params: JsonObject): Promise<void> {
     const item = readItem(params.item);
     const itemId = item?.id ?? readString(params, "itemId");
+    if (
+      item?.type === "contextCompaction" &&
+      itemId &&
+      (this.activeCompactionItemIds.has(itemId) || this.completedItemIds.has(itemId))
+    ) {
+      return;
+    }
     this.assistantProjection.recordItemStarted(item, itemId);
     if (itemId) {
       this.activeItemIds.add(itemId);
@@ -505,30 +527,7 @@ export class CodexAppServerEventProjector {
     this.recordNativeToolOutcome(item);
     if (item?.type === "contextCompaction" && itemId) {
       this.activeCompactionItemIds.add(itemId);
-      await runAgentHarnessBeforeCompactionHook({
-        sessionFile: this.params.sessionFile,
-        messages: await this.toolTranscriptProjection.readMirroredSessionMessages(),
-        ctx: {
-          runId: this.params.runId,
-          agentId: this.params.agentId,
-          sessionKey: this.params.sessionKey,
-          sessionId: this.params.sessionId,
-          workspaceDir: this.params.workspaceDir,
-          messageProvider: this.params.messageProvider ?? undefined,
-          trigger: this.params.trigger,
-          channelId: this.params.messageChannel ?? this.params.messageProvider ?? undefined,
-        },
-      });
-      this.emitAgentEvent({
-        stream: "compaction",
-        data: {
-          phase: "start",
-          backend: "codex-app-server",
-          threadId: this.threadId,
-          turnId: this.turnId,
-          itemId,
-        },
-      });
+      await this.contextCompactionActivity.started(itemId);
     }
     this.toolProgressProjection.recordToolMeta(item);
     this.eventProjection.emitStandardItemEvent({ phase: "start", item });
@@ -543,6 +542,9 @@ export class CodexAppServerEventProjector {
 
   private async handleItemCompleted(params: JsonObject): Promise<void> {
     const item = readItem(params.item);
+    if (item?.type === "contextCompaction" && this.completedItemIds.has(item.id)) {
+      return;
+    }
     this.diagnostics.warnUnknownItemStatus(item);
     this.recordNativeToolOutcome(item);
     this.clearTerminalPresentationForNativeItem(item);
@@ -557,33 +559,7 @@ export class CodexAppServerEventProjector {
     if (item?.type === "contextCompaction" && itemId) {
       this.activeCompactionItemIds.delete(itemId);
       this.completedCompactionCount += 1;
-      this.options.onContextCompacted?.();
-      await runAgentHarnessAfterCompactionHook({
-        sessionFile: this.params.sessionFile,
-        messages: await this.toolTranscriptProjection.readMirroredSessionMessages(),
-        compactedCount: -1,
-        ctx: {
-          runId: this.params.runId,
-          agentId: this.params.agentId,
-          sessionKey: this.params.sessionKey,
-          sessionId: this.params.sessionId,
-          workspaceDir: this.params.workspaceDir,
-          messageProvider: this.params.messageProvider ?? undefined,
-          trigger: this.params.trigger,
-          channelId: this.params.messageChannel ?? this.params.messageProvider ?? undefined,
-        },
-      });
-      this.emitAgentEvent({
-        stream: "compaction",
-        data: {
-          phase: "end",
-          backend: "codex-app-server",
-          completed: true,
-          threadId: this.threadId,
-          turnId: this.turnId,
-          itemId,
-        },
-      });
+      await this.contextCompactionActivity.completed(itemId);
     }
     this.toolProgressProjection.recordToolMeta(item);
     this.toolProgressProjection.rememberCommandAggregateOutputEcho(item);
@@ -636,6 +612,18 @@ export class CodexAppServerEventProjector {
       }
     }
     for (const item of turnItems) {
+      if (
+        item.type === "contextCompaction" &&
+        turn.status === "completed" &&
+        this.isCurrentTurnSnapshotItem(item) &&
+        !this.completedItemIds.has(item.id)
+      ) {
+        // ContextCompaction's wire shape contains only type/id. Rebuild that
+        // shape rather than passing the snapshot type's open-ended metadata.
+        await this.handleItemCompleted({
+          item: { type: "contextCompaction", id: item.id },
+        });
+      }
       this.diagnostics.warnUnknownItemStatus(item);
       this.assistantProjection.recordSnapshotItem(item);
       this.reasoningProjection.recordItem(item);
@@ -650,7 +638,7 @@ export class CodexAppServerEventProjector {
       this.toolProgressProjection.emitToolResultOutput(item);
     }
     this.assistantProjection.finalizeAnswerCandidate(turn);
-    this.activeCompactionItemIds.clear();
+    this.finishIncompleteCompactions();
     await this.reasoningProjection.maybeEndReasoning();
   }
 
@@ -672,6 +660,17 @@ export class CodexAppServerEventProjector {
     this.eventProjection.emitStandardItemEvent({ phase: "end", item });
     await this.eventProjection.emitNormalizedToolItemEvent({ phase: "result", item });
     this.completedItemIds.add(item.id);
+  }
+
+  private finishIncompleteCompactions(): void {
+    // Failed/interrupted turns may omit item/completed. They cannot leave progress active.
+    for (const itemId of this.activeCompactionItemIds) {
+      this.emitAgentEvent({
+        stream: "compaction",
+        data: { phase: "end", itemId, completed: false, willRetry: false },
+      });
+    }
+    this.activeCompactionItemIds.clear();
   }
 
   private isCurrentTurnSnapshotItem(item: CodexThreadItem): boolean {

@@ -276,6 +276,7 @@ describe("readSessionMessages", () => {
       JSON.stringify({
         type: "compaction",
         id: "comp-1",
+        __openclaw: { runId: "run-1", itemId: "compact-item-1" },
         timestamp: "2026-02-07T00:00:00.000Z",
         summary: "Compacted history",
         firstKeptEntryId: "x",
@@ -293,13 +294,15 @@ describe("readSessionMessages", () => {
     const marker = out[1] as {
       role: string;
       content?: Array<{ text?: string }>;
-      __openclaw?: { kind?: string; id?: string };
+      __openclaw?: { kind?: string; id?: string; runId?: string; itemId?: string };
       timestamp?: number;
     };
     expect(marker.role).toBe("system");
     expect(marker.content?.[0]?.text).toBe("Compaction");
     expect(marker["__openclaw"]?.kind).toBe("compaction");
     expect(marker["__openclaw"]?.id).toBe("comp-1");
+    expect(marker["__openclaw"]?.runId).toBe("run-1");
+    expect(marker["__openclaw"]?.itemId).toBe("compact-item-1");
     expect(typeof marker.timestamp).toBe("number");
   });
 

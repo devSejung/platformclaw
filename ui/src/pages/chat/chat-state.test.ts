@@ -1005,6 +1005,13 @@ describe("ChatStateController render lifecycle", () => {
     state.realtimeTalkVideoCapable = true;
     state.realtimeTalkVideoPending = true;
     state.realtimeTalkCameraError = true;
+    state.compactionStatus = {
+      phase: "active",
+      runId: "run-1",
+      startedAt: 1_000,
+      completedAt: null,
+    };
+    state.compactionClearTimer = window.setTimeout(() => {}, 60_000);
     controller.attach(state);
 
     controller.hostDisconnected();
@@ -1020,6 +1027,8 @@ describe("ChatStateController render lifecycle", () => {
     expect(state.realtimeTalkVideoCapable).toBe(false);
     expect(state.realtimeTalkVideoPending).toBe(false);
     expect(state.realtimeTalkCameraError).toBe(false);
+    expect(state.compactionStatus).toBeNull();
+    expect(state.compactionClearTimer).toBeNull();
   });
 
   it("aborts attachment reads when a pane adopts a different session", () => {
@@ -1439,6 +1448,19 @@ describe("route composer fallback", () => {
     } as unknown as ChatPageHost;
     return { resetChatInputHistoryNavigation, resetChatScroll, state };
   }
+
+  it("retires completed compaction before an offline route switch can render another session", () => {
+    const { state } = createRouteState("");
+    state.connected = false;
+    state.compactionStatus = {
+      phase: "complete",
+      runId: "run-1",
+      startedAt: 1_000,
+      completedAt: 2_000,
+    };
+    resetChatStateForRouteSession(state, "agent:main:second");
+    expect(state.compactionStatus).toBeNull();
+  });
 
   it("releases the active image lightbox on a route switch", () => {
     const { state } = createRouteState("");

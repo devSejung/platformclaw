@@ -402,8 +402,46 @@ openclaw-chat-page {
 }
 
 .chat-run-error__summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.chat-run-error__content {
+  flex: 1;
+  min-width: 0;
+}
+
+span.chat-run-error__content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-run-error__diagnostic {
+  max-height: 16rem;
+  overflow: auto;
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.chat-run-error__refresh {
+  flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .chat-run-error {
+    flex-wrap: wrap;
+  }
+
+  .chat-run-error__refresh {
+    margin-left: 24px;
+  }
 }
 
 .chat-virtual-sizer {
@@ -5180,7 +5218,11 @@ openclaw-chat-video-player {
     margin: 6px 4px 0;
   }
 
-  .agent-chat__composer-shell:has(.agent-chat__composer-combobox > :is(textarea, input):focus) {
+  /* A visible diagnostic keeps the safe-area gap across every focus state;
+     changing it mid-tap redirects Copy/Refresh to the notice. */
+  .agent-chat__composer-shell:has(.agent-chat__composer-combobox > :is(textarea, input):focus):not(
+    .chat-run-error + .agent-chat__composer-shell
+  ) {
     margin-bottom: 0;
   }
 
@@ -5198,10 +5240,6 @@ openclaw-chat-video-player {
 @media (display-mode: standalone) and (max-width: 768px) {
   .agent-chat__composer-shell {
     margin-bottom: calc(14px + max(var(--safe-area-bottom), 34px));
-  }
-
-  .agent-chat__composer-shell:has(.agent-chat__composer-combobox > :is(textarea, input):focus) {
-    margin-bottom: 0;
   }
 }
 

@@ -106,12 +106,11 @@ const buildChatItemsMock = vi.fn(
         {
           kind: "divider",
           key: "divider:compaction:test",
-          label: "Compacted history",
-          description:
-            "The compacted transcript is preserved as a checkpoint. Open thread checkpoints to branch or restore from that compacted view.",
+          label: t("chat.composer.contextCompacted"),
+          compaction: "complete",
           action: {
             kind: "session-checkpoints",
-            label: "Open checkpoints",
+            label: t("chat.compaction.openCheckpoints"),
           },
           timestamp: 1,
         },
@@ -858,9 +857,11 @@ describe("inline approval card", () => {
 });
 
 describe("chat run error", () => {
-  it("renders a non-interactive alert immediately above the composer", () => {
+  it("renders a copyable error and refresh action immediately above the composer", () => {
+    const onRefresh = vi.fn();
     const container = renderChatView({
       runError: { summary: "Error: gateway disconnected" },
+      onRefresh,
     });
 
     const alert = requireElement(container, ".chat-run-error", "chat run error");
@@ -868,27 +869,27 @@ describe("chat run error", () => {
     expect(alert.getAttribute("role")).toBe("alert");
     expect(summary.textContent?.trim()).toBe("Error: gateway disconnected");
     expect(alert.querySelector(".chat-run-error__icon svg")).not.toBeNull();
-    expect(alert.querySelector("button")).toBeNull();
+    expect(alert.querySelector(`[aria-label="${t("chat.copyError")}"]`)).not.toBeNull();
+    alert.querySelector<HTMLButtonElement>(".chat-run-error__refresh")!.click();
+    expect(onRefresh).toHaveBeenCalledOnce();
     expect(alert.nextElementSibling?.classList.contains("agent-chat__composer-shell")).toBe(true);
   });
 });
 
 describe("chat compaction divider", () => {
-  it("renders checkpoint recovery copy and action", () => {
+  it("renders concise completion with the checkpoint action", () => {
     const onOpenSessionCheckpoints = vi.fn();
     const container = renderChatView({
       messages: [{ __testDivider: true }],
       onOpenSessionCheckpoints,
     });
 
-    expect(container.querySelector(".chat-divider__label > span")?.textContent).toBe(
-      "Compacted history",
+    expect(container.querySelector(".chat-divider__title")?.textContent).toBe(
+      t("chat.composer.contextCompacted"),
     );
-    expect(container.querySelector(".chat-divider__description")?.textContent?.trim()).toBe(
-      "The compacted transcript is preserved as a checkpoint. Open thread checkpoints to branch or restore from that compacted view.",
-    );
+    expect(container.querySelector(".chat-divider__description")).toBeNull();
     const button = container.querySelector<HTMLButtonElement>(".chat-divider__action");
-    expect(button?.textContent?.trim()).toBe("Open checkpoints");
+    expect(button?.textContent?.trim()).toBe(t("chat.compaction.openCheckpoints"));
 
     expect(button).toBeInstanceOf(HTMLButtonElement);
     button!.click();

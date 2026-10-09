@@ -24,6 +24,7 @@ type GatewaySessionCompactionParams = {
   agentId: string;
   cfg: OpenClawConfig;
   entry: SessionEntry;
+  runId?: string;
   sessionId: string;
   sessionKey: string;
   sessionStoreKey: string;
@@ -93,6 +94,7 @@ export async function runGatewaySessionCompaction(
     }) ?? resolveAgentWorkspaceDir(params.cfg, params.agentId);
 
   return await compactEmbeddedAgentSession({
+    runId: params.runId,
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
     agentId: params.agentId,

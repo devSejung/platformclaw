@@ -468,6 +468,7 @@ export function createMockReplyOperation(options?: { abortSignal?: AbortSignal }
       startedAtMs: Date.now(),
       lastActivityAtMs: Date.now(),
       hasOwnedSessionId: vi.fn((sessionId: string) => sessionId === "session"),
+      captureOwnedSessionIds: vi.fn(() => new Set(["session"])),
       recordActivity: vi.fn(),
       setPhase: vi.fn(),
       markWaitingForDeferredMaintenance: vi.fn(),

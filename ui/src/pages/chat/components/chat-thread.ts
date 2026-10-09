@@ -77,7 +77,7 @@ import {
   type ChatSessionScrollPosition,
 } from "../scroll.ts";
 import { getOrCreateSessionCacheValue } from "../session-cache.ts";
-import type { PlanStatus } from "../tool-stream.ts";
+import type { CompactionStatus, PlanStatus } from "../tool-stream.ts";
 import { getToolTitlesVersion } from "../tool-titles.ts";
 import { renderBackgroundTasksStatusRow } from "./chat-background-tasks-status.ts";
 import type { BackgroundTasksProps } from "./chat-background-tasks.ts";
@@ -113,6 +113,7 @@ type ChatThreadState = {
 };
 
 type ChatThreadProps = {
+  compactionStatus?: CompactionStatus | null;
   paneId: string;
   sessionKey: string;
   boardProvider?: BoardProvider;
@@ -1466,6 +1467,7 @@ function renderChatThreadContents(
     paneId: props.paneId,
     sessionKey: props.sessionKey,
     runId: props.runId === undefined ? (activeSession?.activeRunIds?.[0] ?? null) : props.runId,
+    compactionStatus: props.compactionStatus,
     locale,
     messages: props.messages,
     toolMessages: props.toolMessages,

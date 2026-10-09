@@ -387,6 +387,7 @@ export const sessionCompactHandlers: GatewayRequestHandlers = {
             result = await runGatewaySessionCompaction({
               cfg,
               entry: latestEntry,
+              runId: operationId,
               agentId: target.agentId,
               sessionId,
               sessionKey: target.canonicalKey,

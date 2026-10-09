@@ -141,6 +141,7 @@ export function createEmbeddedAgentSessionEventHandler(ctx: EmbeddedAgentSubscri
           handleCompactionStart(ctx, {
             type: "compaction_start",
             reason: evt.reason,
+            itemId: typeof evt.itemId === "string" ? evt.itemId : undefined,
           });
         });
         return;
@@ -149,6 +150,7 @@ export function createEmbeddedAgentSessionEventHandler(ctx: EmbeddedAgentSubscri
           handleCompactionEnd(ctx, {
             type: "compaction_end",
             reason: evt.reason,
+            itemId: typeof evt.itemId === "string" ? evt.itemId : undefined,
             willRetry: evt.willRetry,
             result: evt.result,
             aborted: evt.aborted,

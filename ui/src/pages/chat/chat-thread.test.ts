@@ -3,6 +3,7 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
 import { markInboundContextLabel } from "../../../../src/auto-reply/reply/inbound-context-marker.js";
+import { t } from "../../i18n/index.ts";
 import type { MessageGroup } from "../../lib/chat/chat-types.ts";
 import * as toolCards from "../../lib/chat/tool-cards.ts";
 import {
@@ -3564,7 +3565,7 @@ describe("buildCachedChatItems", () => {
     expect(preview.title).toBe("Streamed demo");
   });
 
-  it("explains compaction boundaries and exposes the checkpoint action", () => {
+  it("keeps completed compaction concise and preserves the checkpoint action", () => {
     const items = buildCachedChatItems(
       createProps({
         messages: [
@@ -3583,13 +3584,12 @@ describe("buildCachedChatItems", () => {
     expect(items).toHaveLength(1);
     const divider = requireRecord(items[0]);
     expect(divider.kind).toBe("divider");
-    expect(divider.label).toBe("Compacted history");
-    expect(divider.description).toBe(
-      "The compacted transcript is preserved as a checkpoint. Open thread checkpoints to branch or restore from that compacted view.",
-    );
+    expect(divider.label).toBe(t("chat.composer.contextCompacted"));
+    expect(divider.compaction).toBe("complete");
+    expect(divider.description).toBeUndefined();
     const action = requireRecord(divider.action);
     expect(action.kind).toBe("session-checkpoints");
-    expect(action.label).toBe("Open checkpoints");
+    expect(action.label).toBe(t("chat.compaction.openCheckpoints"));
   });
 
   it("shows the token savings recorded on a compaction boundary", () => {
@@ -3612,8 +3612,8 @@ describe("buildCachedChatItems", () => {
 
     expect(items[0]).toMatchObject({
       kind: "divider",
-      label: "Compacted history",
-      metric: "saved 875.3k tokens",
+      label: t("chat.composer.contextCompacted"),
+      metric: t("chat.compaction.savedTokens", { count: "875.3k" }),
     });
   });
 });

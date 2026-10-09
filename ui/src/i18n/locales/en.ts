@@ -4921,6 +4921,8 @@ export const en: TranslationMap = {
   },
   chat: {
     disconnected: "Disconnected from gateway.",
+    errorDetails: "Error details",
+    copyError: "Copy error",
     sendErrors: {
       activeLeafChanged: "The thread switched branches — review and resend.",
     },
@@ -5231,10 +5233,7 @@ export const en: TranslationMap = {
         "Local versions were kept for these paths; other cloud changes were applied.",
     },
     compaction: {
-      label: "Compacted history",
       savedTokens: "saved {count} tokens",
-      description:
-        "The compacted transcript is preserved as a checkpoint. Open thread checkpoints to branch or restore from that compacted view.",
       openCheckpoints: "Open checkpoints",
     },
     progressLabels: {
