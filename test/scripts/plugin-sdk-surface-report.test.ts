@@ -132,8 +132,8 @@ describe("plugin SDK surface report", () => {
     expect(readDefaultPublicSurfaceBudgets()).toEqual(readCurrentPublicSurfaceCounts());
   });
 
-  it("keeps approval store internals out of the deprecated infra barrel", () => {
-    const source = fs.readFileSync("src/plugin-sdk/infra-runtime.ts", "utf8");
+  it("keeps approval store internals out of the focused approval runtime", () => {
+    const source = fs.readFileSync("src/plugin-sdk/exec-approvals-runtime.ts", "utf8");
     expect(source).not.toMatch(/export\s+(?:type\s+)?\*\s+from\s+["'][^"']*exec-approvals/u);
 
     for (const internalName of [

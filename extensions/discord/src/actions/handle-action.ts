@@ -10,6 +10,7 @@ import { resolveReactionMessageId } from "openclaw/plugin-sdk/channel-actions";
 import type { ChannelMessageActionContext } from "openclaw/plugin-sdk/channel-contract";
 import {
   adaptMessagePresentationForChannel,
+  legacyInteractiveReplyToPresentation,
   normalizeLegacyInteractiveReply,
   normalizeMessagePresentation,
   renderMessagePresentationFallbackText,
@@ -25,10 +26,7 @@ import {
   DISCORD_PRESENTATION_CAPABILITIES,
   isDiscordComponentSpecWithinMessageLimit,
 } from "../outbound-components.js";
-import {
-  buildDiscordInteractiveComponents,
-  buildDiscordPresentationComponents,
-} from "../shared-interactive.js";
+import { buildDiscordPresentationComponents } from "../shared-interactive.js";
 import { parseDiscordTarget, resolveDiscordChannelId } from "../targets.js";
 import { tryHandleDiscordMessageActionGuildAdmin } from "./handle-action.guild-admin.js";
 import type { DiscordMessagingActionOptions } from "./runtime.messaging.shared.js";
@@ -212,11 +210,16 @@ export async function handleDiscordMessageAction(
     const presentationFellBack = Boolean(
       generatedPresentationComponents && !presentationComponents,
     );
-    const rawComponents = presentationFellBack
+    let rawComponents = presentationFellBack
       ? undefined
-      : (params.components ??
-        presentationComponents ??
-        buildDiscordInteractiveComponents(normalizeLegacyInteractiveReply(params.interactive)));
+      : (params.components ?? presentationComponents);
+    // An overflowing presentation owns text fallback; legacy controls must not replace it.
+    if (!presentationFellBack && rawComponents == null) {
+      const interactive = normalizeLegacyInteractiveReply(params.interactive);
+      rawComponents = buildDiscordPresentationComponents(
+        interactive ? legacyInteractiveReplyToPresentation(interactive) : undefined,
+      );
+    }
     const hasComponents =
       Boolean(rawComponents) &&
       (typeof rawComponents === "function" || typeof rawComponents === "object");

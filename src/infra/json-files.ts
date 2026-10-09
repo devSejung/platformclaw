@@ -8,19 +8,13 @@ type WriteTextAtomicBeforeRename = (params: {
 }) => Promise<void>;
 
 export {
-  JsonFileReadError,
   readJson,
-  readJson as readJsonFileStrict,
   readJsonIfExists,
   readJsonIfExists as readDurableJsonFile,
-  readJsonSync,
   readRootJsonObjectSync,
-  readRootJsonSync,
   readRootStructuredFileSync,
   tryReadJson,
-  tryReadJson as readJsonFile,
   tryReadJsonSync,
-  tryReadJsonSync as readJsonFileSync,
   writeJson,
   writeJson as writeJsonAtomic,
   writeJsonSync,
@@ -28,7 +22,7 @@ export {
 
 export { createAsyncLock } from "@openclaw/fs-safe/advanced";
 
-export type WriteTextAtomicOptions = {
+type WriteTextAtomicOptions = {
   mode?: number;
   dirMode?: number;
   trailingNewline?: boolean;

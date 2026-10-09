@@ -43,12 +43,9 @@ export const PLUGIN_COMPAT_RECORDS = [
   },
   {
     code: "legacy-subagent-spawning-hook",
-    status: "deprecated",
+    status: "removed",
     owner: "sdk",
     introduced: "2026-05-30",
-    deprecated: "2026-05-30",
-    warningStarts: "2026-05-30",
-    removeAfter: "2026-08-30",
     replacement:
       "`subagent_spawned` for post-launch observation; core session-binding adapters for thread routing",
     docsPath: "/plugins/hooks#upcoming-deprecations",
@@ -58,10 +55,10 @@ export const PLUGIN_COMPAT_RECORDS = [
       "PluginHookSubagentSpawningResult",
       "SubagentLifecycleHookRunner.runSubagentSpawning",
     ],
-    diagnostics: ["plugin runtime compatibility warning"],
-    tests: ["src/plugins/loader.test.ts", "src/plugins/compat/registry.test.ts"],
+    diagnostics: ["plugin compatibility registry and migration guide"],
+    tests: ["src/plugins/compat/registry.test.ts"],
     releaseNote:
-      '`api.on("subagent_spawning", ...)` remains wired only for older plugins; core now owns thread-bound subagent routing.',
+      '`api.on("subagent_spawning", ...)` was removed; core now owns thread-bound subagent routing, and `subagent_spawned` remains available for observation.',
   },
   {
     code: "hook-only-plugin-shape",
@@ -196,12 +193,9 @@ export const PLUGIN_COMPAT_RECORDS = [
   },
   {
     code: "whatsapp-web-inbound-flat-message-aliases",
-    status: "deprecated",
+    status: "removed",
     owner: "channel",
     introduced: "2026-05-30",
-    deprecated: "2026-05-30",
-    warningStarts: "2026-05-30",
-    removeAfter: "2026-08-30",
     replacement:
       "WhatsApp `WebInboundCallbackMessage` nested contexts: `event`, `payload`, `quote`, `group`, and `platform`",
     docsPath: "/plugins/compatibility",
@@ -210,19 +204,16 @@ export const PLUGIN_COMPAT_RECORDS = [
       "WhatsApp monitorWebInbox onMessage callback",
       "WhatsApp monitorWebChannel listenerFactory injected messages",
     ],
-    diagnostics: ["TypeScript deprecated WebInboundMessage flat field annotations"],
+    diagnostics: ["plugin compatibility registry and compatibility guide"],
     tests: ["src/plugins/compat/registry.test.ts"],
     releaseNote:
-      "WhatsApp WebInboundMessage flat fields remain wired as deprecated aliases while callbacks migrate to nested inbound contexts.",
+      "WhatsApp WebInboundMessage flat fields were removed; callbacks now receive only nested inbound contexts.",
   },
   {
     code: "whatsapp-web-inbound-admission-top-level-fields",
-    status: "deprecated",
+    status: "removed",
     owner: "channel",
     introduced: "2026-06-14",
-    deprecated: "2026-06-14",
-    warningStarts: "2026-06-14",
-    removeAfter: "2026-08-30",
     replacement:
       "WhatsApp `WebInboundMessage.admission` fields: `conversation.id`, `accountId`, `ingress.decision`, and `conversation.kind`",
     docsPath: "/plugins/compatibility",
@@ -231,21 +222,21 @@ export const PLUGIN_COMPAT_RECORDS = [
       "WhatsApp monitorWebInbox onMessage callback",
       "WhatsApp monitorWebChannel listenerFactory injected messages",
     ],
-    diagnostics: ["TypeScript deprecated WebInboundMessage admission field annotations"],
+    diagnostics: ["plugin compatibility registry and compatibility guide"],
     tests: ["src/plugins/compat/registry.test.ts"],
     releaseNote:
-      "WhatsApp WebInboundMessage top-level admission fields remain available while callbacks migrate to the admission envelope.",
+      "WhatsApp WebInboundMessage top-level admission fields were removed; callbacks now read the canonical admission envelope.",
   },
   {
     code: "sdk-untrusted-context-identifier-aliases",
-    status: "deprecated",
+    status: "removal-pending",
     owner: "sdk",
     introduced: "2026-07-22",
     deprecated: "2026-07-22",
     warningStarts: "2026-07-22",
     removeAfter: "2026-09-08",
     replacement:
-      "`MsgContext.ChannelPromptContext`, `MsgContext.ChannelStructuredContext`, `ChannelStructuredContextEntry`, `SupplementalContextFacts.channelStructuredContext`, and `buildChannelMetadata`",
+      "`MsgContext.ChannelPromptContext`, `MsgContext.ChannelStructuredContext`, `ChannelStructuredContextEntry`, `SupplementalContextFacts.channelStructuredContext`, and `buildChannelMetadata`; retain the aliases until migration of published plugin readers is verified and explicit breaking-release approval is granted",
     docsPath: "/plugins/compatibility",
     surfaces: [
       "openclaw/plugin-sdk reply-runtime MsgContext.UntrustedContext and UntrustedStructuredContext",
@@ -279,12 +270,9 @@ export const PLUGIN_COMPAT_RECORDS = [
   },
   {
     code: "channel-explicit-target-parser",
-    status: "deprecated",
+    status: "removed",
     owner: "sdk",
     introduced: "2026-04-28",
-    deprecated: "2026-05-23",
-    warningStarts: "2026-05-23",
-    removeAfter: "2026-08-23",
     replacement:
       "`messaging.targetResolver` for target normalization and `messaging.resolveOutboundSessionRoute` for session/thread identity",
     docsPath: "/plugins/sdk-migration",
@@ -299,16 +287,16 @@ export const PLUGIN_COMPAT_RECORDS = [
       "src/channels/plugins/contracts/test-helpers/surface-contract-suite.ts",
       "src/plugins/compat/registry.test.ts",
     ],
+    releaseNote:
+      "The deprecated channel explicit-target parser was removed; plugins must normalize targets with `messaging.targetResolver` and project session identity with `messaging.resolveOutboundSessionRoute`.",
   },
   {
     code: "channel-messaging-targets-subpath",
-    status: "deprecated",
+    status: "removed",
     owner: "sdk",
     introduced: "2026-04-28",
-    deprecated: "2026-05-23",
-    warningStarts: "2026-05-23",
-    removeAfter: "2026-08-23",
-    replacement: "`openclaw/plugin-sdk/channel-targets`",
+    replacement:
+      "plugin-owned target parsing and `messaging.targetResolver`; official plugins may use the JavaScript-only private `openclaw/plugin-sdk/channel-targets` host surface",
     docsPath: "/plugins/sdk-migration",
     surfaces: ["openclaw/plugin-sdk/messaging-targets"],
     diagnostics: ["plugin SDK compatibility warning"],
@@ -316,6 +304,8 @@ export const PLUGIN_COMPAT_RECORDS = [
       "src/plugins/compat/registry.test.ts",
       "src/plugins/contracts/plugin-sdk-subpaths.test.ts",
     ],
+    releaseNote:
+      "The deprecated `openclaw/plugin-sdk/messaging-targets` subpath was removed; third-party plugins keep target parsing plugin-owned, while official plugins may use the private channel-targets host surface.",
   },
   {
     code: "bundled-plugin-allowlist",
@@ -468,9 +458,8 @@ export const PLUGIN_COMPAT_RECORDS = [
     introduced: "2026-07-23",
     deprecated: "2026-07-23",
     warningStarts: "2026-07-23",
-    removeAfter: "2026-08-30",
     replacement:
-      "plugin-owned config schemas plus generic `openclaw/plugin-sdk/channel-config-schema` and `openclaw/plugin-sdk/setup-runtime` primitives",
+      "retain until supported published packages migrate to plugin-owned config schemas plus generic `openclaw/plugin-sdk/channel-config-schema` and `openclaw/plugin-sdk/setup-runtime` primitives",
     docsPath: "/plugins/sdk-migration#published-channel-setup-compatibility",
     surfaces: [
       "openclaw/plugin-sdk/bundled-channel-config-schema SlackConfigSchema",

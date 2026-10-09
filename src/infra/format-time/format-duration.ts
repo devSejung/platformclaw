@@ -3,12 +3,12 @@
 import prettyMilliseconds from "pretty-ms";
 import { formatSingleUnitDuration } from "./format-duration-internal.js";
 
-export type FormatDurationSecondsOptions = {
+type FormatDurationSecondsOptions = {
   decimals?: number;
   unit?: "s" | "seconds";
 };
 
-export type FormatDurationCompactOptions = {
+type FormatDurationCompactOptions = {
   /** Add space between units: "2m 5s" instead of "2m5s". Default: false */
   spaced?: boolean;
 };

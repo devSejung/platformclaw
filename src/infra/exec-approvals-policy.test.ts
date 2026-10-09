@@ -21,7 +21,6 @@ let maxAsk: typeof import("./exec-approvals.js").maxAsk;
 let minSecurity: typeof import("./exec-approvals.js").minSecurity;
 let requireValidExecTarget: typeof import("./exec-approvals.js").requireValidExecTarget;
 let normalizeExecAsk: typeof import("./exec-approvals.js").normalizeExecAsk;
-let normalizeExecHost: typeof import("./exec-approvals.js").normalizeExecHost;
 let normalizeExecMode: typeof import("./exec-approvals.js").normalizeExecMode;
 let normalizeExecTarget: typeof import("./exec-approvals.js").normalizeExecTarget;
 let normalizeExecSecurity: typeof import("./exec-approvals.js").normalizeExecSecurity;
@@ -48,7 +47,6 @@ async function loadActualExecApprovalModules(): Promise<void> {
   minSecurity = execApprovals.minSecurity;
   requireValidExecTarget = execApprovals.requireValidExecTarget;
   normalizeExecAsk = execApprovals.normalizeExecAsk;
-  normalizeExecHost = execApprovals.normalizeExecHost;
   normalizeExecMode = execApprovals.normalizeExecMode;
   normalizeExecTarget = execApprovals.normalizeExecTarget;
   normalizeExecSecurity = execApprovals.normalizeExecSecurity;
@@ -115,15 +113,6 @@ function expectMalformedAgentAskUsesDefaults(agentAsk: unknown): void {
 describe("exec approvals policy helpers", () => {
   beforeEach(async () => {
     await loadActualExecApprovalModules();
-  });
-
-  it.each([
-    { raw: " gateway ", expected: "gateway" },
-    { raw: "NODE", expected: "node" },
-    { raw: "", expected: null },
-    { raw: "ssh", expected: null },
-  ])("normalizes exec host value %j", ({ raw, expected }) => {
-    expect(normalizeExecHost(raw)).toBe(expected);
   });
 
   it.each([

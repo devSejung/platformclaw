@@ -1,19 +1,16 @@
-/**
- * Exec approval id routing tests.
- * Covers approval registration ids, follow-up idempotency, and approved
- * node/gateway invocation behavior.
- */
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { onAgentEvent } from "../infra/agent-events.js";
-import {
-  loadExecApprovals,
-  saveExecApprovals,
-  type ExecApprovalsFile,
-} from "../infra/exec-approvals.js";
+/**
+ * Exec approval id routing tests.
+ * Covers approval registration ids, follow-up idempotency, and approved
+ * node/gateway invocation behavior.
+ */
+import { saveExecApprovals } from "../infra/exec-approvals-store.test-support.js";
+import { loadExecApprovals, type ExecApprovalsFile } from "../infra/exec-approvals.js";
 import { sendMessage } from "../infra/outbound/message.js";
 import { createDeferred } from "../shared/deferred.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";

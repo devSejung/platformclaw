@@ -81,7 +81,7 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
 function expectFields(value: unknown, expected: Record<string, unknown>, label = "object"): void {
   const record = requireRecord(value, label);
   for (const [key, expectedValue] of Object.entries(expected)) {
-    expect(record[key], `${label}.${key}`).toEqual(expectedValue);
+    expect(record[key], `${label}.${key}: ${JSON.stringify(record)}`).toEqual(expectedValue);
   }
 }
 
@@ -348,6 +348,16 @@ describe("sessions_spawn subagent lifecycle hooks", () => {
     );
 
     expect(hookRunnerMocks.runSubagentSpawned).toHaveBeenCalledTimes(1);
+    const agentStartCallIndex = getGatewayRequests().findIndex(
+      (request) => request.method === "agent",
+    );
+    expect(agentStartCallIndex).toBeGreaterThanOrEqual(0);
+    expect(bindingMocks.bind.mock.invocationCallOrder[0]).toBeLessThan(
+      hoisted.callGatewayMock.mock.invocationCallOrder[agentStartCallIndex] ?? 0,
+    );
+    expect(bindingMocks.bind.mock.invocationCallOrder[0]).toBeLessThan(
+      hookRunnerMocks.runSubagentSpawned.mock.invocationCallOrder[0] ?? 0,
+    );
     const [event, ctx] = requireSpawnedHookCall();
     expectFields(
       event,

@@ -30,14 +30,6 @@ export const BANNED_INTERNAL_PLUGIN_SDK_FACADE_MODULES = [
   // Reply facades: canonical seams are openclaw/plugin-sdk/channel-inbound and
   // openclaw/plugin-sdk/channel-outbound (defineChannelMessageAdapter family).
   {
-    modulePath: "src/plugin-sdk/channel-message",
-    canonical: "openclaw/plugin-sdk/channel-outbound",
-  },
-  {
-    modulePath: "src/plugin-sdk/channel-reply-pipeline",
-    canonical: "openclaw/plugin-sdk/channel-outbound",
-  },
-  {
     modulePath: "src/plugin-sdk/inbound-reply-dispatch",
     canonical: "openclaw/plugin-sdk/channel-inbound",
   },

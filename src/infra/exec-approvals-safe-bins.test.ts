@@ -11,12 +11,35 @@ import {
 import {
   evaluateExecAllowlist,
   evaluateShellAllowlistWithAuthorization,
-  isSafeBinUsage,
-  normalizeSafeBins,
   resolveSafeBins,
 } from "./exec-approvals.js";
 import { resolveSafeBinProfiles } from "./exec-safe-bin-policy.js";
 import { getTrustedSafeBinDirs } from "./exec-safe-bin-trust.js";
+
+function evaluateSafeBinApproval(
+  params: {
+    argv: string[];
+    resolution: Parameters<typeof makeMockCommandResolution>[0]["execution"];
+  } & Pick<
+    Parameters<typeof evaluateExecAllowlist>[0],
+    "safeBins" | "platform" | "trustedSafeBinDirs" | "safeBinProfiles"
+  >,
+): boolean {
+  return evaluateExecAllowlist({
+    ...params,
+    allowlist: [],
+    analysis: {
+      ok: true,
+      segments: [
+        {
+          raw: params.argv.join(" "),
+          argv: params.argv,
+          resolution: makeMockCommandResolution({ execution: params.resolution }),
+        },
+      ],
+    },
+  }).allowlistSatisfied;
+}
 
 describe("exec approvals safe bins", () => {
   type SafeBinCase = {
@@ -390,17 +413,19 @@ describe("exec approvals safe bins", () => {
     testCase.setup?.(cwd);
     const executableName = testCase.executableName ?? "jq";
     const rawExecutable = testCase.rawExecutable ?? executableName;
-    const ok = isSafeBinUsage({
+    const ok = evaluateSafeBinApproval({
       argv: testCase.argv,
       resolution: {
         rawExecutable,
         resolvedPath: testCase.resolvedPath,
+        resolvedRealPath: testCase.resolvedPath,
         executableName,
       },
-      safeBins: normalizeSafeBins(testCase.safeBins ?? [executableName]),
+      safeBins: resolveSafeBins(testCase.safeBins ?? [executableName]),
       safeBinProfiles: testCase.safeBinProfiles,
-      // This table isolates argv policy. Dedicated cases below exercise real path trust.
-      isTrustedSafeBinPathFn: () => testCase.trusted ?? true,
+      trustedSafeBinDirs: new Set(
+        testCase.trusted === false ? [] : [path.dirname(testCase.resolvedPath)],
+      ),
     });
     expect(ok).toBe(testCase.expected);
   });
@@ -409,14 +434,14 @@ describe("exec approvals safe bins", () => {
     if (process.platform === "win32") {
       return;
     }
-    const ok = isSafeBinUsage({
+    const ok = evaluateSafeBinApproval({
       argv: ["head", "-n", "1"],
       resolution: {
         rawExecutable: "head",
         resolvedPath: "/custom/bin/head",
         executableName: "head",
       },
-      safeBins: normalizeSafeBins(["head"]),
+      safeBins: resolveSafeBins(["head"]),
       trustedSafeBinDirs: new Set(["/custom/bin"]),
     });
     expect(ok).toBe(true);
@@ -433,18 +458,18 @@ describe("exec approvals safe bins", () => {
       executableName: "head",
     };
     expect(
-      isSafeBinUsage({
+      evaluateSafeBinApproval({
         argv: ["head", "-n", "1"],
         resolution,
-        safeBins: normalizeSafeBins(["head"]),
+        safeBins: resolveSafeBins(["head"]),
         trustedSafeBinDirs: new Set(["/opt/homebrew/bin"]),
       }),
     ).toBe(false);
     expect(
-      isSafeBinUsage({
+      evaluateSafeBinApproval({
         argv: ["head", "-n", "1"],
         resolution,
-        safeBins: normalizeSafeBins(["head"]),
+        safeBins: resolveSafeBins(["head"]),
         trustedSafeBinDirs: getTrustedSafeBinDirs({
           extraDirs: ["/opt/homebrew/Cellar/coreutils/9.5/bin"],
           refresh: true,
@@ -452,30 +477,30 @@ describe("exec approvals safe bins", () => {
       }),
     ).toBe(true);
     expect(
-      isSafeBinUsage({
+      evaluateSafeBinApproval({
         argv: ["head", "-n", "1"],
         resolution,
-        safeBins: normalizeSafeBins(["head"]),
+        safeBins: resolveSafeBins(["head"]),
         trustedSafeBinDirs: new Set(["/tmp/other-bin"]),
       }),
     ).toBe(false);
   });
 
   it("supports injected platform for deterministic safe-bin checks", () => {
-    const ok = isSafeBinUsage({
+    const ok = evaluateSafeBinApproval({
       argv: ["head", "-n", "1"],
       resolution: {
         rawExecutable: "head",
         resolvedPath: "/usr/bin/head",
         executableName: "head",
       },
-      safeBins: normalizeSafeBins(["head"]),
+      safeBins: resolveSafeBins(["head"]),
       platform: "win32",
     });
     expect(ok).toBe(false);
   });
 
-  it("supports injected trusted path checker for deterministic callers", () => {
+  it("requires explicit trusted dirs for custom executable paths", () => {
     if (process.platform === "win32") {
       return;
     }
@@ -486,18 +511,18 @@ describe("exec approvals safe bins", () => {
         resolvedPath: "/tmp/custom/head",
         executableName: "head",
       },
-      safeBins: normalizeSafeBins(["head"]),
+      safeBins: resolveSafeBins(["head"]),
     };
     expect(
-      isSafeBinUsage({
+      evaluateSafeBinApproval({
         ...baseParams,
-        isTrustedSafeBinPathFn: () => true,
+        trustedSafeBinDirs: new Set(["/tmp/custom"]),
       }),
     ).toBe(true);
     expect(
-      isSafeBinUsage({
+      evaluateSafeBinApproval({
         ...baseParams,
-        isTrustedSafeBinPathFn: () => false,
+        trustedSafeBinDirs: new Set(),
       }),
     ).toBe(false);
   });
@@ -516,7 +541,7 @@ describe("exec approvals safe bins", () => {
     const result = await evaluateShellAllowlistWithAuthorization({
       command: "python3 -c \"print('owned')\"",
       allowlist: [],
-      safeBins: normalizeSafeBins(["python3"]),
+      safeBins: resolveSafeBins(["python3"]),
       cwd: "/tmp",
     });
     expect(result.analysisOk).toBe(true);
@@ -532,25 +557,25 @@ describe("exec approvals safe bins", () => {
         maxPositional: 1,
       },
     });
-    const allow = isSafeBinUsage({
+    const allow = evaluateSafeBinApproval({
       argv: ["echo", "hello"],
       resolution: {
         rawExecutable: "echo",
         resolvedPath: "/opt/openclaw-test/bin/echo",
         executableName: "echo",
       },
-      safeBins: normalizeSafeBins(["echo"]),
+      safeBins: resolveSafeBins(["echo"]),
       safeBinProfiles,
       trustedSafeBinDirs: new Set(["/opt/openclaw-test/bin"]),
     });
-    const deny = isSafeBinUsage({
+    const deny = evaluateSafeBinApproval({
       argv: ["echo", "hello", "world"],
       resolution: {
         rawExecutable: "echo",
         resolvedPath: "/opt/openclaw-test/bin/echo",
         executableName: "echo",
       },
-      safeBins: normalizeSafeBins(["echo"]),
+      safeBins: resolveSafeBins(["echo"]),
       safeBinProfiles,
       trustedSafeBinDirs: new Set(["/opt/openclaw-test/bin"]),
     });
@@ -569,18 +594,18 @@ describe("exec approvals safe bins", () => {
       resolvedPath: "/usr/bin/sort",
       executableName: "sort",
     };
-    const safeBins = normalizeSafeBins(["sort"]);
-    const existing = isSafeBinUsage({
+    const safeBins = resolveSafeBins(["sort"]);
+    const existing = evaluateSafeBinApproval({
       argv: ["sort", "-o", "existing.txt"],
       resolution,
       safeBins,
     });
-    const missing = isSafeBinUsage({
+    const missing = evaluateSafeBinApproval({
       argv: ["sort", "-o", "missing.txt"],
       resolution,
       safeBins,
     });
-    const longFlag = isSafeBinUsage({
+    const longFlag = evaluateSafeBinApproval({
       argv: ["sort", "--output=missing.txt"],
       resolution,
       safeBins,
@@ -613,7 +638,7 @@ describe("exec approvals safe bins", () => {
     const denied = evaluateExecAllowlist({
       analysis,
       allowlist: [],
-      safeBins: normalizeSafeBins(["head"]),
+      safeBins: resolveSafeBins(["head"]),
       trustedSafeBinDirs: new Set(["/usr/bin"]),
       cwd: "/tmp",
     });
@@ -622,7 +647,7 @@ describe("exec approvals safe bins", () => {
     const allowed = evaluateExecAllowlist({
       analysis,
       allowlist: [],
-      safeBins: normalizeSafeBins(["head"]),
+      safeBins: resolveSafeBins(["head"]),
       trustedSafeBinDirs: new Set(["/custom/bin"]),
       cwd: "/tmp",
     });
@@ -643,7 +668,7 @@ describe("exec approvals safe bins", () => {
     const result = await evaluateShellAllowlistWithAuthorization({
       command: "head -n 1",
       allowlist: [],
-      safeBins: normalizeSafeBins(["head"]),
+      safeBins: resolveSafeBins(["head"]),
       env: makePathEnv(fakeDir),
       cwd: tmp,
     });
@@ -660,7 +685,7 @@ describe("exec approvals safe bins", () => {
     const result = await evaluateShellAllowlistWithAuthorization({
       command: "env -S 'sh -c \"echo pwned\"' tr",
       allowlist: [{ pattern: "/usr/bin/tr" }],
-      safeBins: normalizeSafeBins(["tr"]),
+      safeBins: resolveSafeBins(["tr"]),
       cwd: "/tmp",
       platform: process.platform,
     });

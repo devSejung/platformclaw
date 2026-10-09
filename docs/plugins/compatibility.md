@@ -56,11 +56,12 @@ that introduces its replacement. Migration sequence:
 6. Wait through the announced migration window.
 7. Remove only with explicit breaking-release approval.
 
-Deprecated records must include a warning start date, replacement, docs
-link, and a final removal date no more than three months after the warning
-starts. Do not add a deprecated compatibility path with an open-ended
-removal window unless maintainers explicitly decide it is permanent
-compatibility and mark it `active` instead.
+Deprecated records include a warning start date, replacement, and docs link.
+An unconditional removal window ends no more than three months after warnings
+start. A named SDK-owner decision may instead retain a shipped contract until
+minimum supported published readers migrate, without setting a final date.
+Conditional elapsed windows use `removal-pending`, preserving the original date
+and explicit blocker; permanent supported contracts use `active`.
 
 ## Current compatibility areas
 
@@ -71,10 +72,7 @@ separately tracked so supported upgrade paths can still repair old config.
 The remaining dated compatibility areas are:
 
 - the August and September SDK subpath windows listed in the migration guide
-- the `api.on("subagent_spawning", ...)` hook alias
 - the beta.5 session-store bridge
-- WhatsApp inbound callback aliases described below
-- explicit channel target parsing and `openclaw/plugin-sdk/messaging-targets`
 - the shipped agent-harness SDK aliases, whose removal is pending a new
   externally documented migration decision
 - the October 2026 SDK annotation families listed below
@@ -85,7 +83,10 @@ and the generated channel-config fallback.
 
 The annotation-only compatibility audit added these dated records. Their
 `removeAfter` date is an earliest review date, not permission to remove a
-surface while its stated reader or migration condition remains unmet.
+surface while its stated reader or migration condition remains unmet. The ten
+October 1 annotation families are `removal-pending`, with their original dates
+and removal conditions preserved in the review queue. This does not claim
+completed migration of published readers.
 
 | Compatibility code                        | Removal condition                                                                                       | `removeAfter` |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------- |
@@ -96,10 +97,20 @@ surface while its stated reader or migration condition remains unmet.
 | `plugin-sdk-focused-compat-aliases`       | Prove every enumerated alias has no bundled or published reader.                                        | 2026-10-01    |
 | `agent-harness-terminal-result-aliases`   | Move harnesses to `terminal` and `visibleReplies`, then prove the legacy result fields are unread.      | 2026-10-01    |
 | `official-plugin-export-aliases`          | Move users of Google Meet testing, channel presentation, and Discord timeout exports to canonical APIs. | 2026-10-01    |
-| `memory-host-compatibility-aliases`       | Use canonical memory tables and prepared runtime config everywhere.                                     | 2026-10-01    |
+| `memory-host-compatibility-aliases`       | Use canonical memory tables while preserving existing custom-table data during migration.               | 2026-10-01    |
 | `plugin-runtime-api-compat-aliases`       | Move flat plugin registration/runtime calls to their namespaced or focused replacements.                | 2026-10-01    |
 | `plugin-provider-manifest-compat-aliases` | Move kind/setup/catalog ownership to manifests and model-catalog registration.                          | 2026-10-01    |
 | `deprecated-session-store-beta5-api`      | End the v2026.7.x whole-store upgrade window, including package-root aliases.                           | 2026-10-12    |
+
+Discord and Slack retain their published legacy renderer exports as conversion
+adapters to the canonical presentation renderers. Bundled channel callers use
+presentation rendering after converting legacy payloads; Telegram no longer
+owns a separate private legacy renderer. Legacy payload fields remain supported
+until the producer and reader removal conditions above are satisfied.
+
+The private memory-host package no longer re-exports `loadConfig`. Memory
+callers use prepared config or `getRuntimeConfig`. Custom cache and FTS table
+overrides remain supported to preserve existing data.
 
 `pnpm plugins:boundary-report` reports `removal-pending` records separately
 from deprecated records. A due `removal-pending` record remains blocked until
@@ -115,58 +126,42 @@ New channel plugins should use `MsgContext.ChannelPromptContext`,
 `SupplementalContextFacts.channelStructuredContext`. The older
 `UntrustedContext`, `UntrustedStructuredContext`,
 `UntrustedStructuredContextEntry`, and supplemental `untrustedContext` names
-remain as deprecated SDK aliases until 2026-09-08 (registry record
-`sdk-untrusted-context-identifier-aliases`). Inbound finalization folds those
+remain as deprecated SDK aliases. Their 2026-09-08 review date is unchanged,
+but `sdk-untrusted-context-identifier-aliases` is `removal-pending` until
+published-reader migration is verified and explicit breaking-release approval
+is granted. Inbound finalization folds those
 deprecated fields into the channel-named fields and removes the old keys from
 runtime context.
 
 The security runtime similarly exports `buildChannelMetadata`; the deprecated
-`buildUntrustedChannelMetadata` alias remains available on the same schedule.
+`buildUntrustedChannelMetadata` alias remains available under the same pending
+removal conditions.
 
-### WhatsApp inbound callback flat aliases
+### Retired channel compatibility surfaces
 
-WhatsApp runtime callbacks deliver `WebInboundMessage`: the canonical
-nested `event`, `payload`, `quote`, `group`, and `platform` contexts plus
-deprecated flat aliases for the shipped callback fields. New callback code
-should read the nested contexts. Code that constructs clean nested callback
-messages can use `WebInboundCallbackMessage`; compatibility listeners that
-still inject old flat test or plugin messages should use
-`LegacyFlatWebInboundMessage` or `WebInboundMessageInput`.
+The `subagent_spawning` hook, explicit channel target parser, and
+`openclaw/plugin-sdk/messaging-targets` have been removed. Use
+`subagent_spawned` for observation, channel session-binding adapters for thread
+routing, and `messaging.targetResolver` for normalization. Third-party plugins
+keep transport-specific parsing plugin-owned. The JavaScript-only private
+`openclaw/plugin-sdk/channel-targets` host surface remains available for official
+plugins; it is not a typed third-party replacement.
 
-The flat aliases remain available until **2026-08-30**; that window applies
-only to flat alias access, not to the nested shape, which is the canonical
-runtime contract. Each flat alias's TypeScript `@deprecated` annotation
-names its exact nested replacement. Common examples:
+WhatsApp `WebInboundMessage` callbacks now require the canonical nested
+`event`, `payload`, `platform`, and `admission` contexts. Optional quote and group
+data use the nested `quote` and `group` contexts.
+`LegacyFlatWebInboundMessage`, `WebInboundMessageInput`, flat callback aliases,
+and top-level admission aliases have been removed. Read conversation identity
+from `admission.conversation.id`, account identity from `admission.accountId`,
+conversation kind from `admission.conversation.kind`, and the access decision
+from `admission.ingress.decision`.
 
-- `id`, `timestamp`, and `isBatched` move under `event`.
-- `body`, `mediaPath`, `mediaType`, `mediaFileName`, `mediaUrl`, `location`,
-  and `channelStructuredContext` move under `payload`.
-- `to`, `chatId`, sender/self fields, `sendComposing`, `reply(...)`, and
-  `sendMedia(...)` move under `platform`.
-- `replyTo*` fields move under `quote`; group subject/participant/mention
-  fields move under `group`.
-
-`payload.channelStructuredContext` is extracted from inbound provider
-payloads. Plugins should inspect `label`, `source`, and `type` before
-treating its `payload` as authoritative.
-
-### WhatsApp inbound admission fields
-
-Accepted WhatsApp callback messages carry `admission`, a public-safe
-envelope for the access-control decision that admitted the message. New
-callback code should read admission facts from `msg.admission` instead of
-the older top-level admission fields.
-
-The top-level fields remain available until **2026-08-30**. Each field's
-TypeScript `@deprecated` annotation names its replacement:
-
-- `from` and `conversationId` move to `admission.conversation.id`.
-- `accountId` moves to `admission.accountId`.
-- `accessControlPassed` is a derived compatibility view of
-  `admission.ingress.decision === "allow"`; on messages that already carry
-  `admission`, writing the legacy boolean does not rewrite the ingress
-  graph.
-- `chatType` moves to `admission.conversation.kind`.
+The five broad SDK facades retired under the September 30 SDK-owner decision
+are `channel-lifecycle`, `channel-message`, `channel-reply-pipeline`,
+`config-runtime`, and `infra-runtime`. Their migration mappings are in the
+[SDK migration guide](/plugins/sdk-migration). Published channel setup schemas
+and helpers used through `2026.7.1` remain supported; their owner restored a
+reader-based removal gate without a fixed date.
 
 ## Plugin inspector package
 

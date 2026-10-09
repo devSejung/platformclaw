@@ -7,8 +7,10 @@ import { redactSensitiveUrlLikeString } from "@openclaw/net-policy/redact-sensit
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
-import type { DiagnosticSecurityEvent } from "../infra/diagnostic-events.js";
+import type { DiagnosticEventPayload } from "../infra/diagnostic-events.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
+
+type DiagnosticSecurityEvent = Extract<DiagnosticEventPayload, { type: "security.event" }>;
 
 const runCommandWithTimeoutMock = vi.fn();
 const installPluginFromInstalledPackageDirMock = vi.fn();

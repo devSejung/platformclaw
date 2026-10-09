@@ -34,7 +34,7 @@ vi.mock("../logging/subsystem.js", () => ({
 }));
 
 let createExecApprovalChannelRuntime: typeof import("./exec-approval-channel-runtime.js").createExecApprovalChannelRuntime;
-let ExecApprovalChannelRuntimeTerminalStartError: typeof import("./exec-approval-channel-runtime.js").ExecApprovalChannelRuntimeTerminalStartError;
+let isExecApprovalChannelRuntimeTerminalStartError: typeof import("./exec-approval-channel-runtime.js").isExecApprovalChannelRuntimeTerminalStartError;
 
 type GatewayEventClientParams = { onEvent?: (evt: { event: string; payload: unknown }) => void };
 
@@ -181,7 +181,7 @@ afterEach(() => {
 });
 
 beforeAll(async () => {
-  ({ createExecApprovalChannelRuntime, ExecApprovalChannelRuntimeTerminalStartError } =
+  ({ createExecApprovalChannelRuntime, isExecApprovalChannelRuntimeTerminalStartError } =
     await import("./exec-approval-channel-runtime.js"));
 });
 
@@ -532,8 +532,13 @@ describe("createExecApprovalChannelRuntime", () => {
       caught = error;
     });
 
-    expect(caught).toBeInstanceOf(ExecApprovalChannelRuntimeTerminalStartError);
-    expect((caught as { detailCode?: string }).detailCode).toBe("PAIRING_REQUIRED");
+    expect(isExecApprovalChannelRuntimeTerminalStartError(caught)).toBe(true);
+    if (!isExecApprovalChannelRuntimeTerminalStartError(caught)) {
+      throw new Error("expected terminal approval runtime startup failure");
+    }
+    expect(caught.name).toBe("ExecApprovalChannelRuntimeTerminalStartError");
+    expect(caught.detailCode).toBe("PAIRING_REQUIRED");
+    expect(caught.cause).toBe(authError);
 
     expect(mockGatewayClientStarts).toHaveBeenCalledTimes(1);
     expect(mockGatewayClientStops).toHaveBeenCalledTimes(1);

@@ -4,7 +4,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { GatewayMessageChannel } from "../utils/message-channel.js";
 
 /** Resolved heartbeat presentation toggles after defaults/channel/account precedence. */
-export type ResolvedHeartbeatVisibility = {
+type ResolvedHeartbeatVisibility = {
   /** Whether successful heartbeat content should be sent as visible chat text. */
   showOk: boolean;
   /** Whether warning/error heartbeat content should be sent as visible chat text. */

@@ -220,7 +220,7 @@ function normalizeHostnameSet(values?: string[]): Set<string> {
   return new Set(normalizePolicyHostnames(values));
 }
 
-export function normalizeHostnameAllowlist(values?: string[]): string[] {
+function normalizeHostnameAllowlist(values?: string[]): string[] {
   return normalizePolicyHostnames(values).filter((value) => value !== "*" && value !== "*.");
 }
 
@@ -268,7 +268,7 @@ function resolveIpv6SpecialUseBlockOptions(policy?: SsrFPolicy): Ipv6SpecialUseB
   };
 }
 
-export function isHostnameAllowedByPattern(hostname: string, pattern: string): boolean {
+function isHostnameAllowedByPattern(hostname: string, pattern: string): boolean {
   if (pattern.startsWith("*.")) {
     const suffix = pattern.slice(2);
     if (!suffix || hostname === suffix) {
@@ -335,14 +335,6 @@ export function isPrivateIpAddress(address: string, policy?: SsrFPolicy): boolea
     return true;
   }
   return false;
-}
-
-export function isBlockedHostname(hostname: string): boolean {
-  const normalized = normalizeHostname(hostname);
-  if (!normalized) {
-    return false;
-  }
-  return isBlockedHostnameNormalized(normalized);
 }
 
 function isBlockedHostnameNormalized(normalized: string): boolean {
@@ -548,13 +540,13 @@ export function createPinnedLookup(params: {
   }) as typeof dnsLookupCb;
 }
 
-export type PinnedHostname = {
+type PinnedHostname = {
   hostname: string;
   addresses: string[];
   lookup: typeof dnsLookupCb;
 };
 
-export type PinnedHostnameOverride = {
+type PinnedHostnameOverride = {
   hostname: string;
   addresses: string[];
 };
@@ -776,11 +768,4 @@ export async function closeDispatcher(dispatcher?: Dispatcher | null): Promise<v
   } catch {
     // ignore dispatcher cleanup errors
   }
-}
-
-export async function assertPublicHostname(
-  hostname: string,
-  lookupFn: LookupFn = dnsLookup,
-): Promise<void> {
-  await resolvePinnedHostname(hostname, lookupFn);
 }

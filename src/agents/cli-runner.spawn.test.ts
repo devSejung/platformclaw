@@ -21,7 +21,6 @@ import {
   setDiagnosticsEnabledForProcess,
   waitForDiagnosticEventsDrained,
 } from "../infra/diagnostic-events.js";
-import { PLUGIN_APPROVAL_DETAIL_MAX_LENGTH } from "../infra/plugin-approvals.js";
 import {
   getDiagnosticSessionActivitySnapshot,
   resetDiagnosticRunActivityForTest,
@@ -88,6 +87,8 @@ import { setCliRunnerPrepareTestDeps } from "./cli-runner/prepare.test-support.j
 import type { PreparedCliRunContext } from "./cli-runner/types.js";
 import { createClaudeApiErrorFixture } from "./test-helpers/claude-api-error-fixture.js";
 import { callGatewayTool } from "./tools/gateway.js";
+
+const PLUGIN_APPROVAL_DETAIL_MAX_LENGTH = 16_384;
 
 // Gateway unit coverage owns quiet-admission timing. These spawn cases only
 // need to drain calls already in flight, so skip the repeated 250 ms quiet window.

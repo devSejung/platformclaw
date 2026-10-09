@@ -5,13 +5,13 @@ import type { RuntimeEnv } from "../runtime.js";
 import { sleepWithAbort } from "./backoff.js";
 
 /** Result returned by one transport readiness probe attempt. */
-export type TransportReadyResult = {
+type TransportReadyResult = {
   ok: boolean;
   error?: string | null;
 };
 
 /** Parameters for polling a channel transport until it can accept runtime work. */
-export type WaitForTransportReadyParams = {
+type WaitForTransportReadyParams = {
   label: string;
   timeoutMs: number;
   logAfterMs?: number;

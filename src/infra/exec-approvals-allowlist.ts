@@ -35,7 +35,6 @@ import {
 import type { ExecAllowlistEntry } from "./exec-approvals.types.js";
 import {
   canUseReusableWrapperPayloadCandidates,
-  planExecAuthorization,
   planShellAuthorization,
   type ExecAuthorizationCandidate,
   type ExecAuthorizationPlan,
@@ -111,7 +110,7 @@ async function explainShellPolicySegments(params: {
   }
 }
 
-export function normalizeSafeBins(entries?: readonly string[]): Set<string> {
+function normalizeSafeBins(entries?: readonly string[]): Set<string> {
   if (!Array.isArray(entries)) {
     return new Set();
   }
@@ -128,14 +127,13 @@ export function resolveSafeBins(entries?: readonly string[] | null): Set<string>
   return normalizeSafeBins(entries ?? []);
 }
 
-export function isSafeBinUsage(params: {
+function isSafeBinUsage(params: {
   argv: string[];
   resolution: ExecutableResolution | null;
   safeBins: Set<string>;
   platform?: string | null;
   trustedSafeBinDirs?: ReadonlySet<string>;
   safeBinProfiles?: Readonly<Record<string, SafeBinProfile>>;
-  isTrustedSafeBinPathFn?: typeof isTrustedSafeBinPath;
 }): boolean {
   // Windows host exec uses PowerShell, which has different parsing/expansion rules.
   // Keep safeBins conservative there (require explicit allowlist entries).
@@ -158,9 +156,8 @@ export function isSafeBinUsage(params: {
   if (!trustPath) {
     return false;
   }
-  const isTrustedPath = params.isTrustedSafeBinPathFn ?? isTrustedSafeBinPath;
   if (
-    !isTrustedPath({
+    !isTrustedSafeBinPath({
       resolvedPath: trustPath,
       trustedDirs: params.trustedSafeBinDirs,
     })
@@ -180,7 +177,7 @@ function isPathScopedExecutableToken(token: string): boolean {
   return token.includes("/") || token.includes("\\");
 }
 
-export type ExecAllowlistEvaluation = {
+type ExecAllowlistEvaluation = {
   allowlistSatisfied: boolean;
   allowlistMatches: ExecAllowlistEntry[];
   segmentAllowlistEntries: Array<ExecAllowlistEntry | null>;
@@ -961,7 +958,7 @@ export function evaluateExecAllowlist(
   };
 }
 
-export type ExecAllowlistAnalysis = {
+type ExecAllowlistAnalysis = {
   analysisOk: boolean;
   allowlistSatisfied: boolean;
   allowlistMatches: ExecAllowlistEntry[];
@@ -1440,20 +1437,10 @@ export function resolveAllowAlwaysPatternEntries(params: {
   return patterns;
 }
 
-export function resolveAllowAlwaysPatterns(params: {
-  segments: ExecCommandSegment[];
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-  platform?: string | null;
-  strictInlineEval?: boolean;
-}): string[] {
-  return resolveAllowAlwaysPatternEntries(params).map((pattern) => pattern.pattern);
-}
-
 /**
  * Evaluates allowlist for shell commands (including &&, ||, ;) and returns analysis metadata.
  */
-export function evaluateShellAllowlist(
+function evaluateShellAllowlist(
   params: {
     command: string;
     env?: NodeJS.ProcessEnv;
@@ -1547,48 +1534,4 @@ export async function evaluateShellAllowlistWithAuthorization(
   return evaluateShellAllowlist(params);
 }
 
-export async function evaluateExecAllowlistWithAuthorization(
-  params: {
-    analysis: ExecCommandAnalysis;
-    command?: string;
-  } & ExecAllowlistContext,
-): Promise<
-  ExecAllowlistEvaluation & {
-    segments?: ExecCommandSegment[];
-    authorizationPlan?: ExecAuthorizationPlan;
-  }
-> {
-  if (isWindowsPlatform(params.platform)) {
-    return evaluateExecAllowlist(params);
-  }
-  const authorizationPlan = await planExecAuthorization({
-    analysis: params.analysis,
-    command: params.command,
-    cwd: params.cwd,
-    env: params.env,
-    platform: params.platform,
-  });
-  if (!authorizationPlan.ok) {
-    return {
-      allowlistSatisfied: false,
-      allowlistMatches: [],
-      segmentAllowlistEntries: [],
-      segmentSatisfiedBy: [],
-      segments: params.analysis.segments,
-      authorizationPlan,
-    };
-  }
-  const result = evaluateAuthorizationPlan({
-    plan: authorizationPlan,
-    context: pickExecAllowlistContext(params),
-  });
-  return {
-    allowlistSatisfied: result.allowlistSatisfied,
-    allowlistMatches: result.allowlistMatches,
-    segmentAllowlistEntries: result.segmentAllowlistEntries,
-    segmentSatisfiedBy: result.segmentSatisfiedBy,
-    segments: result.segments,
-    authorizationPlan,
-  };
-}
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

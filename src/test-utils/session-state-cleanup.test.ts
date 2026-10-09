@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetSessionWriteLockStateForTest } from "../agents/session-write-lock.test-support.js";
 import { clearSessionStoreCacheForTest } from "../config/sessions/store-writer-state.js";
 import { runExclusiveSessionStoreWrite } from "../config/sessions/store-writer.js";
-import { resetFileLockStateForTest } from "../infra/file-lock.js";
+import { resetFileLockStateForTest } from "../plugin-sdk/file-lock.js";
 import { createDeferred } from "./deferred.js";
 import {
   cleanupSessionStateForTest,

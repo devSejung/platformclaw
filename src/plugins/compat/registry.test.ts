@@ -1,29 +1,14 @@
 // Plugin compatibility registry tests cover compatibility metadata loading and validation.
 import fs from "node:fs";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { listGitTrackedFiles } from "../../test-utils/repo-files.js";
 import { listPluginCompatRecords, type PluginCompatCode } from "./registry.js";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/u;
-const sourceRootsForDeprecatedCallGuard = [
-  "src",
-  "extensions",
-  "packages",
-  "test",
-  "scripts",
-] as const;
-const deprecatedTargetParserCallPattern =
-  /\.parseExplicitTarget\?\.\s*\(|parseExplicitTargetFor(?:Channel|LoadedChannel)\s*\(|resolveRouteTargetFor(?:Channel|LoadedChannel)\s*\(/u;
-const deprecatedTargetParserCompatFiles = new Set([
-  "src/auto-reply/reply/group-id.ts",
-  "src/channels/plugins/target-parsing-loaded.ts",
-  "src/infra/outbound/outbound-session.ts",
-  "src/infra/outbound/outbound-session.test-helpers.ts",
-  "src/plugins/compat/registry.test.ts",
-]);
 const removalDatePendingCompatCodes = new Set<PluginCompatCode>([
   "plugin-sdk-tool-plugin-public-demotion",
   "agent-harness-sdk-alias",
+  "plugin-sdk-shipped-channel-setup-exports",
 ]);
 const platformClawUpstreamSyncBlockedCompatCodes = new Set<PluginCompatCode>([
   "plugin-sdk-channel-streaming-subpath",
@@ -52,11 +37,11 @@ const deprecationMarkingSurfaceCounts: Record<(typeof deprecationMarkingCodes)[n
   "plugin-sdk-channel-setup-input-fields": 22,
   "plugin-sdk-broad-runtime-barrels": 12,
   "plugin-sdk-provider-owned-helper-shims": 35,
-  "message-presentation-legacy-bridges": 21,
+  "message-presentation-legacy-bridges": 20,
   "plugin-sdk-focused-compat-aliases": 23,
   "agent-harness-terminal-result-aliases": 10,
   "official-plugin-export-aliases": 7,
-  "memory-host-compatibility-aliases": 4,
+  "memory-host-compatibility-aliases": 2,
   "plugin-runtime-api-compat-aliases": 27,
   "plugin-provider-manifest-compat-aliases": 9,
 };
@@ -67,21 +52,25 @@ function expectNonEmptyStringList(values: readonly string[], label: string) {
   }
 }
 
-function listTrackedSourceFiles(): string[] {
-  const files = listGitTrackedFiles({ pathspecs: sourceRootsForDeprecatedCallGuard });
-  if (!files) {
-    throw new Error("unable to list tracked source files for the deprecated-call guard");
-  }
-  return files.filter((file) => /\.(?:ts|tsx|mts|cts)$/u.test(file));
-}
-
 describe("plugin compatibility registry", () => {
-  let deprecatedTargetParserOffenders: string[] = [];
-
-  beforeAll(() => {
-    deprecatedTargetParserOffenders = listTrackedSourceFiles()
-      .filter((file) => !deprecatedTargetParserCompatFiles.has(file))
-      .filter((file) => deprecatedTargetParserCallPattern.test(fs.readFileSync(file, "utf8")));
+  it("does not reintroduce retired target parser calls", () => {
+    const files = listGitTrackedFiles({
+      pathspecs: ["src", "extensions", "packages", "test", "scripts"],
+    });
+    if (!files) {
+      throw new Error("unable to list tracked source files for the retirement guard");
+    }
+    // Keep the guard itself in the scan without mistaking its pattern for a call.
+    const parserName = "parseExplicitTarget";
+    const routeName = "resolveRouteTarget";
+    const retiredCallPattern = new RegExp(
+      String.raw`\.${parserName}(?:\?\.)?\s*\(|${parserName}For(?:Channel|LoadedChannel)\s*\(|${routeName}For(?:Channel|LoadedChannel)\s*\(`,
+      "u",
+    );
+    const offenders = files
+      .filter((file) => /\.(?:ts|tsx|mts|cts)$/u.test(file))
+      .filter((file) => retiredCallPattern.test(fs.readFileSync(file, "utf8")));
+    expect(offenders).toEqual([]);
   });
 
   it("keeps every record actionable", () => {
@@ -152,7 +141,7 @@ describe("plugin compatibility registry", () => {
     }
   });
 
-  it("tracks the deprecation-marking families through the approved window", () => {
+  it("keeps elapsed annotation windows pending their reader migrations", () => {
     const records = new Map(listPluginCompatRecords().map((record) => [record.code, record]));
 
     expect(deprecationMarkingCodes.map((code) => records.get(code)?.code)).toEqual(
@@ -160,13 +149,24 @@ describe("plugin compatibility registry", () => {
     );
     for (const code of deprecationMarkingCodes) {
       expect(records.get(code)).toMatchObject({
-        status: "deprecated",
+        status: "removal-pending",
         deprecated: "2026-07-25",
         warningStarts: "2026-07-25",
         removeAfter: "2026-10-01",
       });
+      expect(records.get(code)?.replacement, code).toMatch(/retain (?:each field )?until/u);
       expect(records.get(code)?.surfaces, code).toHaveLength(deprecationMarkingSurfaceCounts[code]);
     }
+    expect(records.get("media-legacy-projection")).toMatchObject({
+      status: "removal-pending",
+      removeAfter: "2026-10-01",
+      replacement: expect.stringContaining("clean published-plugin artifact sweep"),
+    });
+    expect(records.get("sdk-untrusted-context-identifier-aliases")).toMatchObject({
+      status: "removal-pending",
+      removeAfter: "2026-09-08",
+      replacement: expect.stringContaining("explicit breaking-release approval"),
+    });
     expect(records.get("plugin-sdk-broad-runtime-barrels")?.surfaces).toEqual(
       expect.arrayContaining([
         "openclaw/plugin-sdk/agent-runtime",
@@ -213,9 +213,5 @@ describe("plugin compatibility registry", () => {
       replacement: "`api.registerEmbeddingProvider(...)` and `contracts.embeddingProviders`",
     });
     expect(record?.removeAfter).toBeUndefined();
-  });
-
-  it("keeps deprecated explicit target parser calls inside compatibility shims", () => {
-    expect(deprecatedTargetParserOffenders).toEqual([]);
   });
 });

@@ -494,7 +494,7 @@ describe("runCronIsolatedAgentTurn telegram forum-topic direct delivery", () => 
                     : { ok: false, error: new Error("target is required") },
               },
               messaging: {
-                parseExplicitTarget: ({ raw }) => ({ to: raw.trim() }),
+                normalizeTarget: (raw) => raw.trim(),
               },
             }),
             source: "test",

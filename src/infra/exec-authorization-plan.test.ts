@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeArgvCommand } from "./exec-approvals-analysis.js";
-import { planExecAuthorization, planShellAuthorization } from "./exec-authorization-plan.js";
+import { planShellAuthorization } from "./exec-authorization-plan.js";
 
 function plannedArgv(plan: Awaited<ReturnType<typeof planShellAuthorization>>): string[][] {
   return plan.ok
@@ -210,10 +209,9 @@ describe("exec authorization planner", () => {
     });
   });
 
-  it("falls back to the wrapper command when argv inline payloads use line continuations", async () => {
+  it("falls back to the wrapper command when inline payloads use line continuations", async () => {
     const inlineCommand = ["git \\", "status"].join("\n");
-    const analysis = analyzeArgvCommand({ argv: ["/bin/sh", "-c", inlineCommand] });
-    const plan = await planExecAuthorization({ analysis });
+    const plan = await planShellAuthorization({ command: `/bin/sh -c '${inlineCommand}'` });
 
     expect(plan.ok).toBe(true);
     expect(plan.groups).toEqual([
@@ -324,9 +322,8 @@ describe("exec authorization planner", () => {
     });
   });
 
-  it("plans argv shell wrappers through the same candidate contract", async () => {
-    const analysis = analyzeArgvCommand({ argv: ["sh", "-c", "whoami && ls"] });
-    const plan = await planExecAuthorization({ analysis });
+  it("plans shell wrapper chains through the same candidate contract", async () => {
+    const plan = await planShellAuthorization({ command: "sh -c 'whoami && ls'" });
 
     expect(plan.ok).toBe(true);
     expect(plannedArgv(plan)).toEqual([["whoami"], ["ls"]]);
@@ -336,29 +333,18 @@ describe("exec authorization planner", () => {
     ).toEqual(["shell-wrapper", "shell-wrapper"]);
   });
 
-  it("does not treat PowerShell wrappers as POSIX shell payloads", async () => {
-    const analysis = analyzeArgvCommand({ argv: ["pwsh", "-Command", "Get-ChildItem"] });
-    const plan = await planExecAuthorization({ analysis });
+  it.each(["pwsh -Command Get-ChildItem", "cmd /c dir"])(
+    "does not plan Windows host commands as POSIX shell payloads: %s",
+    async (command) => {
+      const plan = await planShellAuthorization({ command, platform: "win32" });
 
-    expect(plan).toEqual(
-      expect.objectContaining({
-        ok: false,
-        dialect: "powershell",
-        reason: "non-POSIX command wrapper",
-      }),
-    );
-  });
-
-  it("does not treat Windows cmd wrappers as POSIX shell payloads", async () => {
-    const analysis = analyzeArgvCommand({ argv: ["cmd", "/c", "dir"] });
-    const plan = await planExecAuthorization({ analysis });
-
-    expect(plan).toEqual(
-      expect.objectContaining({
-        ok: false,
-        dialect: "windows-cmd",
-        reason: "non-POSIX command wrapper",
-      }),
-    );
-  });
+      expect(plan).toEqual(
+        expect.objectContaining({
+          ok: false,
+          dialect: "windows-cmd",
+          reason: "non-POSIX shell command",
+        }),
+      );
+    },
+  );
 });

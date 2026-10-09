@@ -7,7 +7,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   onInternalDiagnosticEvent,
   resetDiagnosticEventsForTest,
-  type DiagnosticSecurityEvent,
+  type DiagnosticEventPayload,
 } from "../infra/diagnostic-events.js";
 import { safePathSegmentHashed } from "../infra/install-safe-path.js";
 import { resolveOpenClawPackageRootSync } from "../infra/openclaw-root.js";
@@ -35,6 +35,8 @@ import {
   createBundleInstallFixtureFactory,
   createDualFormatInstallFixtureFactory,
 } from "./test-helpers/install-fixtures.js";
+
+type DiagnosticSecurityEvent = Extract<DiagnosticEventPayload, { type: "security.event" }>;
 
 type InstallPluginFromDirParams = Omit<Parameters<typeof installPluginFromPath>[0], "path"> & {
   dirPath: string;

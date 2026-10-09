@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearConfigCache, clearRuntimeConfigSnapshot } from "../config/config.js";
 import { clearSessionStoreCacheForTest } from "../config/sessions/store-writer-state.js";
 import { resetAgentEventsForTest } from "../infra/agent-events.js";
-import { PROXY_ENV_KEYS } from "../infra/net/proxy-env.js";
+import { hasProxyEnvConfigured } from "../infra/net/proxy-env.js";
 import { captureEnv, deleteTestEnvValue, setTestEnvValue } from "../test-utils/env.js";
 import { startGatewayServer } from "./server.js";
 import { getFreeGatewayPort } from "./test-helpers.e2e.js";
@@ -25,7 +25,7 @@ const NETWORK_GATEWAY_ENV_KEYS = [
   "OPENCLAW_SKIP_PROVIDERS",
   "OPENCLAW_BUNDLED_PLUGINS_DIR",
   "OPENCLAW_TEST_MINIMAL_GATEWAY",
-  ...PROXY_ENV_KEYS,
+  "HTTPS_PROXY",
   "NO_PROXY",
   "no_proxy",
 ] as const;
@@ -61,7 +61,12 @@ describe("gateway network runtime", () => {
   });
 
   it("bootstraps env proxy dispatching when the gateway starts directly", async () => {
-    const envSnapshot = captureEnv([...NETWORK_GATEWAY_ENV_KEYS]);
+    // Probe names with a nonblank value so blank lowercase proxy shadows are also captured.
+    const proxyEnvKeys = Object.keys(process.env).filter((key) =>
+      hasProxyEnvConfigured({ [key]: "http://proxy.test" }),
+    );
+    const envKeys = [...new Set([...NETWORK_GATEWAY_ENV_KEYS, ...proxyEnvKeys])];
+    const envSnapshot = captureEnv(envKeys);
     const originalDispatcher = getGlobalDispatcher();
     const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-proxy-home-"));
     let server: Awaited<ReturnType<typeof startGatewayServer>> | undefined;
@@ -69,7 +74,7 @@ describe("gateway network runtime", () => {
     try {
       const testDispatcher = new Agent();
       setGlobalDispatcher(testDispatcher);
-      for (const key of NETWORK_GATEWAY_ENV_KEYS) {
+      for (const key of envKeys) {
         deleteTestEnvValue(key);
       }
       process.env.HTTPS_PROXY = "http://127.0.0.1:9";

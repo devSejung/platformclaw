@@ -3,9 +3,6 @@ import { flattenMarkdownDetails } from "./markdown-details.js";
 // conservative subset of model-produced HTML into channel-friendly text.
 import { stripInternalRuntimeScaffolding } from "./protocol-scaffolding.js";
 
-// Retained for the deprecated plugin-sdk/infra-runtime compatibility barrel.
-export { stripInternalRuntimeScaffolding };
-
 const HTML_TAG_RE = /<\/?[a-z][a-z0-9_-]*\b[^>]*>/gi;
 
 // Quoted attribute values may contain `>`; normalize convertible openers without leaking attribute text.

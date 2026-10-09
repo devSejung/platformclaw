@@ -12,7 +12,7 @@ import { onAgentEvent } from "../infra/agent-events.js";
 import {
   onInternalDiagnosticEvent,
   resetDiagnosticEventsForTest,
-  type DiagnosticSecurityEvent,
+  type DiagnosticEventPayload,
 } from "../infra/diagnostic-events.js";
 import type {
   ExecAllowlistEntry,
@@ -44,6 +44,8 @@ import type {
   ExecApprovalFollowupFactory,
   ExecApprovalFollowupOutcome,
 } from "./bash-tools.exec-types.js";
+
+type DiagnosticSecurityEvent = Extract<DiagnosticEventPayload, { type: "security.event" }>;
 
 type StrictInlineEvalBoundary =
   typeof import("./bash-tools.exec-host-shared.js").enforceStrictInlineEvalApprovalBoundary;
@@ -207,7 +209,6 @@ vi.mock("../infra/exec-approvals.js", async (importOriginal) => ({
   requiresExecApproval: requiresExecApprovalMock,
   commitExecAuthorizationLocked: commitExecAuthorizationMock,
   resolveApprovalAuditTrustPath: vi.fn(() => null),
-  resolveAllowAlwaysPatterns: vi.fn(() => []),
   resolveExecApprovalAllowedDecisions: resolveExecApprovalAllowedDecisionsMock,
   resolveExecApprovalUnavailableDecisions: resolveExecApprovalUnavailableDecisionsMock,
 }));

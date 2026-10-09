@@ -10,6 +10,22 @@
 
 ### PlatformClaw downstream policy repairs
 
+- The 2026-10-09 CI repair selectively ports the remaining hook, target, and
+  WhatsApp alias retirements from `6aa27d6ecd8f`, plus the September 30
+  SDK-owner facade retirement decision in `e649be315d75`. It also adopts the
+  conditional lifecycle corrections in `ec1fb60ba61c` and `c7cb45dfd5db`, and
+  the supported channel setup reader gate from `fc425351d6b3`. Pending
+  migrations remain visible with dates and blockers; the expired-deprecation
+  CI gate remains enabled. Supported published channel setup adapters, media
+  readers, memory custom-table data, and harness aliases are retained.
+- The follow-up channel renderer cleanup selectively adopts upstream Discord
+  `0a79ae5fd04`, Slack `ec091478fc3`, and Telegram `15e9bea3cbb`. Bundled
+  consumers convert legacy interactive payloads into the canonical presentation
+  renderer. Published Discord and Slack adapters remain supported; Telegram's
+  private duplicate renderer is removed. Conditional compatibility families
+  retain their original review dates and explicit migration blockers.
+  It also adopts only the unused private memory-host `loadConfig` export removal
+  from `9bcf9e97cff0`, preserving custom cache/FTS table overrides and their data.
 - The 2026-10-09 compaction port selectively adopts upstream PRs #135988
   (`40fcb8392a12`), #136169 (`107b259db213`), #157169 (`1f322ea64e41`), and
   #152958 (`1d697aa9660c`), plus the native Codex transcript prerequisite

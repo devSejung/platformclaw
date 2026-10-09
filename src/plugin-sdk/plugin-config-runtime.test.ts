@@ -1,28 +1,12 @@
 /**
- * Tests config runtime exports and snapshot/cache behavior exposed through the SDK.
+ * Tests plugin configuration resolution through the focused SDK runtime.
  */
 import { describe, expect, it } from "vitest";
+import type { OpenClawConfig } from "./config-contracts.js";
 import {
-  getSessionEntry,
-  listSessionEntries,
-  readSessionUpdatedAt,
   resolveLivePluginConfigObject,
   resolvePluginConfigObject,
-  type OpenClawConfig,
-} from "./config-runtime.js";
-import {
-  getSessionEntry as getSessionStoreEntry,
-  listSessionEntries as listSessionStoreEntries,
-  readSessionUpdatedAt as readSessionStoreUpdatedAt,
-} from "./session-store-runtime.js";
-
-describe("config-runtime session read exports", () => {
-  it("re-exports the session-store runtime seam wrappers", () => {
-    expect(getSessionEntry).toBe(getSessionStoreEntry);
-    expect(listSessionEntries).toBe(listSessionStoreEntries);
-    expect(readSessionUpdatedAt).toBe(readSessionStoreUpdatedAt);
-  });
-});
+} from "./plugin-config-runtime.js";
 
 describe("resolvePluginConfigObject", () => {
   it("returns the plugin config object for a configured plugin entry", () => {

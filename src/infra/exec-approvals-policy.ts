@@ -126,12 +126,12 @@ export function maxAsk(a: ExecAsk, b: ExecAsk): ExecAsk {
   return order[a] >= order[b] ? a : b;
 }
 
-export const DEFAULT_EXEC_APPROVAL_DECISIONS = [
+const DEFAULT_EXEC_APPROVAL_DECISIONS = [
   "allow-once",
   "allow-always",
   "deny",
 ] as const satisfies readonly ExecApprovalDecision[];
-export const OPTIONAL_EXEC_APPROVAL_DECISIONS = [
+const OPTIONAL_EXEC_APPROVAL_DECISIONS = [
   "allow-always",
 ] as const satisfies readonly ExecApprovalDecision[];
 const OPTIONAL_EXEC_APPROVAL_DECISION_SET: ReadonlySet<string> = new Set(
@@ -199,11 +199,4 @@ export function resolveExecApprovalRequestAllowedDecisions(params?: {
   return policyDecisions.filter(
     (decision) => !isOptionalExecApprovalDecision(decision) || !unavailableDecisions.has(decision),
   );
-}
-
-export function isExecApprovalDecisionAllowed(params: {
-  decision: ExecApprovalDecision;
-  ask?: string | null;
-}): boolean {
-  return resolveExecApprovalAllowedDecisions({ ask: params.ask }).includes(params.decision);
 }

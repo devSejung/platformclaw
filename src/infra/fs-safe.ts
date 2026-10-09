@@ -13,27 +13,19 @@ import {
 
 export { FsSafeError, type FsSafeErrorCode } from "@openclaw/fs-safe/errors";
 export {
-  assertAbsolutePathInput,
   canonicalPathFromExistingAncestor,
   findExistingAncestor,
   resolveAbsolutePathForRead,
   resolveAbsolutePathForWrite,
-  type AbsolutePathSymlinkPolicy,
-  type EnsureAbsoluteDirectoryOptions,
-  type EnsureAbsoluteDirectoryResult,
-  type ResolvedAbsolutePath,
-  type ResolvedWritableAbsolutePath,
 } from "@openclaw/fs-safe/advanced";
 export { isPathInside } from "@openclaw/fs-safe/path";
 export { pathExists, pathExistsSync } from "@openclaw/fs-safe/advanced";
-export { movePathToTrash, type MovePathToTrashOptions } from "@openclaw/fs-safe/advanced";
+export { movePathToTrash } from "@openclaw/fs-safe/advanced";
 export { readLocalFileFromRoots, resolveLocalPathFromRootsSync } from "@openclaw/fs-safe/advanced";
 export {
   appendRegularFile,
-  appendRegularFileSync,
   readRegularFile,
   readRegularFileSync,
-  resolveRegularFileAppendFlags,
   statRegularFile,
   statRegularFileSync,
 } from "@openclaw/fs-safe/advanced";
@@ -44,30 +36,19 @@ export {
   type OpenResult,
   type ReadResult,
 } from "@openclaw/fs-safe/root";
-export { sanitizeUntrustedFileName } from "./fs-safe-advanced.js";
-export {
-  readSecureFile,
-  type SecureFileReadOptions,
-  type SecureFileReadResult,
-} from "@openclaw/fs-safe/secure-file";
-export {
-  walkDirectory,
-  walkDirectorySync,
-  type WalkDirectoryEntry,
-  type WalkDirectoryOptions,
-  type WalkDirectoryResult,
-} from "@openclaw/fs-safe/walk";
+export { readSecureFile } from "@openclaw/fs-safe/secure-file";
+export { walkDirectory, walkDirectorySync } from "@openclaw/fs-safe/walk";
 export { withTimeout } from "@openclaw/fs-safe/advanced";
 
-// The broad Plugin SDK infra barrel re-exports this facade. Keep fs-safe 0.5's
-// new Root.walk capability core-only until a dedicated plugin contract is approved.
+// Focused SDK file-access/security helpers expose this root contract. Keep
+// fs-safe 0.5's new walk capability core-only until that plugin API is approved.
 export type Root = Omit<FsSafeRoot, "walk">;
 
 export async function root(rootDir: string, defaults?: RootDefaults): Promise<Root> {
   return await fsSafeRoot(rootDir, defaults);
 }
 
-export type ExternalFileWriteOptions = {
+type ExternalFileWriteOptions = {
   rootDir: string;
   path: string;
   write: (tempPath: string) => Promise<void>;
@@ -75,7 +56,7 @@ export type ExternalFileWriteOptions = {
   tempPrefix?: string;
 };
 
-export type ExternalFileWriteResult = {
+type ExternalFileWriteResult = {
   path: string;
 };
 

@@ -106,28 +106,6 @@ type ExecApprovalsUpdate = {
   update: (file: ExecApprovalsFile) => ExecApprovalsFile | null;
 };
 
-export function replaceExecApprovalsSnapshot(
-  target: ExecApprovalsFile,
-  source: ExecApprovalsFile,
-): void {
-  target.version = source.version;
-  if (source.socket === undefined) {
-    delete target.socket;
-  } else {
-    target.socket = source.socket;
-  }
-  if (source.defaults === undefined) {
-    delete target.defaults;
-  } else {
-    target.defaults = source.defaults;
-  }
-  if (source.agents === undefined) {
-    delete target.agents;
-  } else {
-    target.agents = source.agents;
-  }
-}
-
 type InternalExecApprovalsUpdate = ExecApprovalsUpdate & {
   allowDeletedAgentRemoval?: string;
   allowDeletedAgentRestore?: string;
@@ -201,14 +179,6 @@ function updateExecApprovalsInTransaction(
     {},
     { operationLabel: "exec-approvals.update" },
   );
-}
-
-export function updateExecApprovalsSync(params: ExecApprovalsUpdate): ExecApprovalsSnapshot | null {
-  return updateExecApprovalsInTransaction(params);
-}
-
-export function saveExecApprovals(file: ExecApprovalsFile): void {
-  updateExecApprovalsSync({ update: () => file });
 }
 
 export async function updateExecApprovals(
@@ -293,29 +263,6 @@ export async function withAgentExecApprovalsRemoved<T>(
   }
 }
 
-function restoreExecApprovalsSnapshotInTransaction(
-  snapshot: ExecApprovalsSnapshot,
-  leaseOwner?: ExecApprovalsMutationLeaseOwner,
-): void {
-  runOpenClawStateWriteTransaction(
-    ({ db }) => {
-      if (!snapshot.exists) {
-        deleteExecApprovalsConfigRow(db, leaseOwner);
-        return;
-      }
-      const raw = snapshot.raw ?? serializeExecApprovals(snapshot.file);
-      writeExecApprovalsConfigRow({ db, file: snapshot.file, raw, leaseOwner });
-    },
-    {},
-    { operationLabel: "exec-approvals.restore" },
-  );
-}
-
-export function restoreExecApprovalsSnapshot(snapshot: ExecApprovalsSnapshot): void {
-  assertNoPendingLegacyExecApprovals();
-  restoreExecApprovalsSnapshotInTransaction(snapshot);
-}
-
 export async function restoreExecApprovalsSnapshotLocked(
   snapshot: ExecApprovalsSnapshot,
   baseHash: string,
@@ -371,13 +318,10 @@ export async function ensureExecApprovalsSnapshot(): Promise<ExecApprovalsSnapsh
   );
 }
 
-export function ensureExecApprovals(): ExecApprovalsFile {
-  return requireInitializedExecApprovals(
-    updateExecApprovalsInTransaction({ update: ensureExecApprovalsSocket }),
-  ).file;
-}
-
 const testing = {
+  // Fixtures use the production transaction so CAS and deletion fences remain
+  // covered without publishing a separate synchronous mutation API.
+  updateExecApprovalsInTransaction,
   reset(): void {
     resetExecApprovalsMigrationGateForTest();
     lastWarnAt = undefined;

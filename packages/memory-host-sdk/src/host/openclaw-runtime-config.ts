@@ -3,7 +3,6 @@
 export {
   getRuntimeConfig,
   hasConfiguredSecretInput,
-  loadConfig,
   normalizeResolvedSecretInputString,
   parseDurationMs,
   parseNonNegativeByteSize,

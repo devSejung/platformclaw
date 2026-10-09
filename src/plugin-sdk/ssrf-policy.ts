@@ -14,7 +14,7 @@ import type {
   ChannelDoctorConfigMutation,
   ChannelDoctorLegacyConfigRule,
 } from "./channel-contract.js";
-import type { OpenClawConfig } from "./config-runtime.js";
+import type { OpenClawConfig } from "./config-contracts.js";
 
 export { isPrivateIpAddress, mergeSsrFPolicies };
 export type { SsrFPolicy };

@@ -44,7 +44,7 @@ function resolveDispatcherTimeoutMs(fromParams: number | undefined): number | un
   if (fromParams !== undefined) {
     return fromParams;
   }
-  // Fall back to module-level bridge set by ensureGlobalUndiciStreamTimeouts
+  // Fall back to the bridge set by ensureGlobalUndiciDispatcherStreamTimeouts
   // (avoids reading Undici's non-public `.options` field)
   if (globalUndiciStreamTimeoutMs !== undefined) {
     return globalUndiciStreamTimeoutMs;
@@ -309,12 +309,6 @@ function isAmbientGlobalFetch(params: {
   );
 }
 
-export function retainSafeHeadersForCrossOriginRedirectHeaders(
-  headers?: HeadersInit,
-): Record<string, string> | undefined {
-  return retainSafeRedirectHeaders(headers);
-}
-
 async function captureGuardedFetchExchange(params: {
   url: string;
   method: string;
@@ -458,8 +452,6 @@ function rewriteRedirectInitForCrossOrigin(params: {
     headers: dropBodyHeaders(init.headers),
   };
 }
-
-export { fetchWithRuntimeDispatcher } from "./runtime-fetch.js";
 
 export async function fetchWithSsrFGuard(params: GuardedFetchOptions): Promise<GuardedFetchResult> {
   const { managedProxyBypass: _ignoredManagedProxyBypass, ...publicParams } =

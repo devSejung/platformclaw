@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { makeExecutable, makePathEnv, makeTempDir } from "./exec-approvals-test-helpers.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
+import { makeExecutable, makePathEnv } from "./exec-approvals-test-helpers.js";
 import { planShellAuthorization } from "./exec-authorization-plan.js";
 import { buildAuthorizedShellCommandFromPlan } from "./exec-authorization-render.js";
 
 const POSIX_ENV = { PATH: "/usr/bin:/bin" };
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 function renderOk(result: ReturnType<typeof buildAuthorizedShellCommandFromPlan>): string {
   expect(result).toEqual(expect.objectContaining({ ok: true }));
@@ -90,9 +92,11 @@ describe("exec authorization renderer", () => {
   });
 
   it("renders dispatch-wrapper safe-bin commands without quote-all argv rendering", async () => {
+    const dir = fs.realpathSync(tempDirs.make("openclaw-exec-authorization-"));
+    const executable = makeExecutable(dir, "rg");
     const plan = await planShellAuthorization({
       command: "env rg -n needle",
-      env: POSIX_ENV,
+      env: makePathEnv(dir),
     });
 
     const command = renderOk(
@@ -103,7 +107,7 @@ describe("exec authorization renderer", () => {
       }),
     );
 
-    expect(command).toBe("rg -n needle");
+    expect(command).toBe(`${executable} -n needle`);
   });
 
   it("renders shell-wrapper payloads by preserving wrapper transport", async () => {
@@ -256,7 +260,10 @@ describe("exec authorization renderer", () => {
   });
 
   it("fails closed when shell-wrapper safe-bin rewrites would need outer quote escaping", async () => {
-    const dir = path.join(makeTempDir(), "safe bin dir");
+    const dir = path.join(
+      fs.realpathSync(tempDirs.make("openclaw-exec-authorization-")),
+      "safe bin dir",
+    );
     fs.mkdirSync(dir);
     makeExecutable(dir, "head");
     const plan = await planShellAuthorization({

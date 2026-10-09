@@ -24,7 +24,6 @@ import type { PluginApprovalRequest, PluginApprovalResolved } from "./plugin-app
 export type {
   ExecApprovalChannelRuntime,
   ExecApprovalChannelRuntimeAdapter,
-  ExecApprovalChannelRuntimeEventKind,
 } from "./exec-approval-channel-runtime.types.js";
 
 type ApprovalRequestEvent = ExecApprovalRequest | PluginApprovalRequest;
@@ -42,7 +41,7 @@ type ApprovalReplayClient = {
 };
 
 /** Error raised when the gateway pauses approval reconnects after a terminal startup failure. */
-export class ExecApprovalChannelRuntimeTerminalStartError extends Error {
+class ExecApprovalChannelRuntimeTerminalStartError extends Error {
   readonly detailCode: string | null;
 
   constructor(info: GatewayReconnectPausedInfo, cause?: unknown) {

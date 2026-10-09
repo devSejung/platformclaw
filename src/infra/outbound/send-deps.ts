@@ -28,7 +28,7 @@ export function resolveLegacyOutboundSendDepKeys(channelId: string): string[] {
 /**
  * Extra historical keys to try after the normalized channel-derived keys.
  */
-export type ResolveOutboundSendDepOptions = {
+type ResolveOutboundSendDepOptions = {
   legacyKeys?: readonly string[];
 };
 

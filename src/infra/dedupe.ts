@@ -15,13 +15,10 @@ export type DedupeCache = {
 };
 
 /** Dedupe cache bounds; ttlMs <= 0 disables expiry, maxSize <= 0 disables storage. */
-export type DedupeCacheOptions = {
+type DedupeCacheOptions = {
   ttlMs: number;
   maxSize: number;
 };
-
-/** @deprecated Use resolveNonNegativeIntegerOption for new internal numeric option normalization. */
-export { resolveNonNegativeIntegerOption as resolveDedupeNonNegativeInteger };
 
 /** Creates a bounded in-memory dedupe cache with optional TTL expiry. */
 export function createDedupeCache(options: DedupeCacheOptions): DedupeCache {

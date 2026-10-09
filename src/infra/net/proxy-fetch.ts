@@ -12,7 +12,7 @@ import { withUndiciErrorDiagnostics } from "./undici-error-diagnostics.js";
 import { loadUndiciRuntimeDeps } from "./undici-runtime.js";
 
 /** Non-enumerable marker used to recover the explicit proxy URL from proxy fetch wrappers. */
-export const PROXY_FETCH_PROXY_URL = Symbol.for("openclaw.proxyFetch.proxyUrl");
+const PROXY_FETCH_PROXY_URL = Symbol.for("openclaw.proxyFetch.proxyUrl");
 type ProxyFetchWithMetadata = typeof fetch & {
   [PROXY_FETCH_PROXY_URL]?: string;
 };

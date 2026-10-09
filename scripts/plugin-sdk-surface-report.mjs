@@ -104,13 +104,9 @@ const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
   "approval-gateway-runtime": 1,
   "approval-handler-runtime": 1,
   "approval-reply-runtime": 0,
-  "config-runtime": 115,
   "config-contracts": 0,
   "inbound-reply-dispatch": 24,
-  "channel-reply-pipeline": 12,
   "interactive-runtime": 11,
-  // +3: canonical incognito classifier projected through deprecated compatibility barrels.
-  "infra-runtime": 596,
   "ssrf-policy": 1,
   "ssrf-runtime": 1,
   // +1: deprecated agent media projection re-export during the media migration window.
@@ -131,10 +127,6 @@ const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
   // +4: deprecated media projection type, builder, and turn aliases.
   "channel-inbound": 18,
   "channel-logging": 4,
-  "channel-lifecycle": 23,
-  // +1: shared ingress error factory projected through the deprecated message barrel.
-  // +1: shared ingress retention defaults projected through the deprecated message barrel.
-  "channel-message": 131,
   "channel-pairing": 0,
   "channel-policy": 7,
   "channel-send-result": 1,
@@ -145,7 +137,6 @@ const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
   "setup-runtime": 2,
   "group-access": 13,
   "reply-history": 6,
-  "messaging-targets": 12,
   "provider-auth": 19,
   "telegram-account": 3,
   zod: 282,
@@ -164,7 +155,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: pinned secret reads and first-writer-wins creation.
       // +2: restore the documented session-catalog and tool-results plugin contracts.
       // +1: focused inbound-event delivery correlation for channel plugins.
-      149,
+      // -5: six retired facades replaced by the focused system-event runtime.
+      144,
       env,
     ),
     publicExports: readPluginSdkSurfaceBudgetEnv(
@@ -221,7 +213,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: bounded external-content sanitizer for plugin-owned untrusted projections.
       // +1: auth-profile preservation decision for native model pickers.
       // -3: expired Pi SDK aliases and the memory embedding registrar removed.
-      4828,
+      // -854: retired facade and hook exports, with focused replacements retained.
+      3974,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -270,7 +263,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: bounded external-content sanitizer for plugin-owned untrusted projections.
       // +1: auth-profile preservation decision for native model pickers.
       // -1: expired memory embedding registrar removed.
-      2907,
+      // -524: retired callable facade exports with canonical owners retained.
+      2383,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
@@ -282,13 +276,15 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: flushLogger projected through the deprecated text-runtime barrel.
       // +1: shared ingress error factory projected through channel-message.
       // +1: shared ingress retention defaults projected through channel-message.
-      1703,
+      // -892: retired deprecated facades and spawning hook types.
+      811,
       env,
     ),
     publicWildcardReexports: readPluginSdkSurfaceBudgetEnv(
       "OPENCLAW_PLUGIN_SDK_MAX_PUBLIC_WILDCARD_REEXPORTS",
       // -1: text-runtime now names its global-singleton exports explicitly.
-      81,
+      // -53: wildcard forwarding removed with the retired facades.
+      28,
       env,
     ),
   };

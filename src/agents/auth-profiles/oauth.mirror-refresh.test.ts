@@ -7,7 +7,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetFileLockStateForTest } from "../../infra/file-lock.js";
+import { resetFileLockStateForTest } from "../../plugin-sdk/file-lock.js";
 import { captureEnv } from "../../test-utils/env.js";
 import { testing as externalAuthTesting } from "./external-auth.test-support.js";
 import "./oauth-file-lock-passthrough.test-support.js";

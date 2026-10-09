@@ -33,7 +33,7 @@ vi.mock("../wsl.js", () => ({
   isWSL2Sync: isWSL2SyncMock,
 }));
 
-import type { PinnedHostname } from "./ssrf.js";
+type PinnedHostname = Parameters<typeof import("./ssrf.js").createPinnedDispatcher>[0];
 
 let createPinnedDispatcher: typeof import("./ssrf.js").createPinnedDispatcher;
 

@@ -16,7 +16,6 @@ import {
   resetDiagnosticEventsForTest,
   type DiagnosticEventPayload,
   type DiagnosticEventPrivateData,
-  type DiagnosticToolLoopEvent,
 } from "../infra/diagnostic-events.js";
 import { MAX_PLUGIN_APPROVAL_TIMEOUT_MS } from "../infra/plugin-approvals.js";
 import {
@@ -50,6 +49,8 @@ import { createOpenClawCodingTools } from "./agent-tools.js";
 import { createWriteTool } from "./sessions/index.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { callGatewayTool } from "./tools/gateway.js";
+
+type DiagnosticToolLoopEvent = Extract<DiagnosticEventPayload, { type: "tool.loop" }>;
 
 const CRITICAL_THRESHOLD = 20;
 const GLOBAL_CIRCUIT_BREAKER_THRESHOLD = 30;

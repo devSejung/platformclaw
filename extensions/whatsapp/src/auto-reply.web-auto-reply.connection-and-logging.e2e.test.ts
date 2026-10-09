@@ -6,7 +6,7 @@ import path from "node:path";
 import { escapeRegExp, formatEnvelopeTimestamp } from "openclaw/plugin-sdk/channel-test-helpers";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { getChildLogger, setLoggerOverride } from "openclaw/plugin-sdk/runtime-env";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { getActiveWebListener } from "./active-listener.js";
 import { WhatsAppAuthUnstableError, resolveWebCredsPath } from "./auth-store.js";
 import { resolveOAuthDir } from "./auth-store.runtime.js";
@@ -29,11 +29,8 @@ import {
 } from "./auto-reply/deliver-reply.js";
 import { buildInboundLine } from "./auto-reply/monitor/message-line.js";
 import type { WebChannelStatus } from "./auto-reply/types.js";
-import {
-  createTestLegacyFlatWebInboundMessage,
-  createTestWebInboundMessage,
-} from "./inbound/test-message.test-helper.js";
-import type { WebInboundMessageInput } from "./inbound/types.js";
+import { createTestWebInboundMessage } from "./inbound/test-message.test-helper.js";
+import type { WebInboundCallbackMessage } from "./inbound/types.js";
 import { waitForWaConnection } from "./session.js";
 
 type DrainSelectionEntry = {
@@ -863,23 +860,22 @@ describe("web auto-reply connection", () => {
     expect(capture.getLastOptions()?.debounceMs).toBe(250);
   });
 
-  it("normalizes legacy flat listener messages and rejects partial nested input", async () => {
+  it("keeps canonical listener debounce and admission boundaries", async () => {
     const capture = createWebListenerFactoryCapture();
     const { sendMedia, sendComposing, reply } = createWebInboundDeliverySpies();
     const resolver = vi.fn().mockResolvedValue(undefined);
 
     await monitorWebChannel(false, capture.listenerFactory as never, false, resolver);
     const onMessage = requireOnMessage(capture.getOnMessage());
-    const msg = createTestLegacyFlatWebInboundMessage({
-      from: "+1",
-      conversationId: "+1",
-      chatId: "+1",
-      to: "+2",
-      accessControlPassed: false,
-      reply,
+    const blocked = createTestWebInboundMessage({
+      platform: { sendComposing, reply, sendMedia },
+      admission: {
+        ingress: { admission: "drop", decision: "block", reasonCode: "no_policy_match" },
+        senderAccess: { allowed: false, decision: "block", reasonCode: "no_policy_match" },
+      },
     });
 
-    expect(capture.getLastOptions()?.shouldDebounce?.(msg)).toBe(true);
+    expect(capture.getLastOptions()?.shouldDebounce?.(blocked)).toBe(true);
     expect(
       capture
         .getLastOptions()
@@ -892,40 +888,25 @@ describe("web auto-reply connection", () => {
             body: "/stop\n\n[whatsapp attachment unavailable]",
             commandBody: "/stop",
           },
-          platform: { sendComposing, reply, sendMedia },
         }),
       ),
     ).toBe(false);
-    await onMessage(msg);
 
+    await onMessage(blocked);
     expect(resolver).not.toHaveBeenCalled();
     expect(reply).not.toHaveBeenCalled();
-    await expect(
-      onMessage({
-        event: { id: "canonical-no-admission" },
-        payload: { body: "canonical" },
-        platform: {
-          chatJid: "+3",
-          recipientJid: "+4",
-          sendComposing,
-          reply,
-          sendMedia,
-        },
-        from: "+3",
-        conversationId: "+3",
-        accountId: "default",
-        chatType: "direct",
-      }),
-    ).rejects.toThrow(/missing admission facts/);
 
+    const missingAdmission = {
+      event: { id: "canonical-no-admission" },
+      payload: { body: "canonical" },
+      platform: blocked.platform,
+    };
+    expectTypeOf(missingAdmission).not.toMatchTypeOf<WebInboundCallbackMessage>();
+    await expect(onMessage(missingAdmission as WebInboundCallbackMessage)).rejects.toThrow(
+      "WhatsApp inbound message is missing admission facts",
+    );
+    expect(resolver).not.toHaveBeenCalled();
     expect(reply).not.toHaveBeenCalled();
-    await expect(
-      onMessage({
-        ...msg,
-        id: "partial-msg",
-        payload: { body: "partial nested" },
-      } as unknown as WebInboundMessageInput),
-    ).rejects.toThrow(/legacy flat or canonical nested/);
   });
 
   it("raises the process listener budget before opening the web listener", async () => {

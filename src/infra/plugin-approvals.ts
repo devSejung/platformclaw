@@ -5,7 +5,7 @@ import type { ExecApprovalDecision } from "./exec-approvals.js";
 // Plugin approval types and renderers mirror exec approval decisions while
 // keeping plugin-facing request text and action metadata separate.
 /** Button/action metadata shown with a plugin approval request. */
-export type PluginApprovalActionView = {
+type PluginApprovalActionView = {
   kind?: "command" | "decision";
   label: string;
   command: string;
@@ -53,9 +53,9 @@ export const DEFAULT_PLUGIN_APPROVAL_TIMEOUT_MS = 120_000;
 export const MAX_PLUGIN_APPROVAL_TIMEOUT_MS = 600_000;
 export const PLUGIN_APPROVAL_TITLE_MAX_LENGTH = 80;
 export const PLUGIN_APPROVAL_DESCRIPTION_MAX_LENGTH = 512;
-export const PLUGIN_APPROVAL_DETAIL_MAX_LENGTH = 16_384;
+const PLUGIN_APPROVAL_DETAIL_MAX_LENGTH = 16_384;
 const PLUGIN_APPROVAL_DETAIL_TRUNCATION_SUFFIX = "…[truncated]";
-export const DEFAULT_PLUGIN_APPROVAL_DECISIONS = [
+const DEFAULT_PLUGIN_APPROVAL_DECISIONS = [
   "allow-once",
   "allow-always",
   "deny",

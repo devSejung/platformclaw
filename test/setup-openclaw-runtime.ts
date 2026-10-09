@@ -26,11 +26,11 @@ type WorkerPluginRuntimeHelpers = {
 };
 type WorkerCleanupHelpers = {
   clearSessionStoreCacheForTest: typeof import("../src/config/sessions/store-writer-state.js").clearSessionStoreCacheForTest;
-  drainFileLockStateForTest: typeof import("../src/infra/file-lock.js").drainFileLockStateForTest;
+  drainFileLockStateForTest: typeof import("../src/plugin-sdk/file-lock.js").drainFileLockStateForTest;
   drainSessionStoreWriterQueuesForTest: typeof import("../src/config/sessions/store-writer-state.js").drainSessionStoreWriterQueuesForTest;
   drainSessionWriteLockStateForTest: typeof import("../src/agents/session-write-lock.js").drainSessionWriteLockStateForTest;
   resetContextWindowCacheForTest: typeof import("../src/agents/context-runtime-state.js").resetContextWindowCacheForTest;
-  resetFileLockStateForTest: typeof import("../src/infra/file-lock.js").resetFileLockStateForTest;
+  resetFileLockStateForTest: typeof import("../src/plugin-sdk/file-lock.js").resetFileLockStateForTest;
   resetModelsJsonReadyCacheForTest: typeof import("../src/agents/models-config-state.test-support.js").resetModelsJsonReadyCacheForTest;
   resetPreparedModelRuntimeSnapshotsForTest: typeof import("../src/agents/prepared-model-runtime.test-support.js").resetPreparedModelRuntimeSnapshotsForTest;
   resetSessionWriteLockStateForTest: typeof import("../src/agents/session-write-lock.test-support.js").resetSessionWriteLockStateForTest;
@@ -99,7 +99,9 @@ function loadWorkerCleanupHelpers(): Promise<WorkerCleanupHelpers> {
       vi.importActual<typeof import("../src/config/sessions/store-writer-state.js")>(
         "../src/config/sessions/store-writer-state.js",
       ),
-      vi.importActual<typeof import("../src/infra/file-lock.js")>("../src/infra/file-lock.js"),
+      vi.importActual<typeof import("../src/plugin-sdk/file-lock.js")>(
+        "../src/plugin-sdk/file-lock.js",
+      ),
     ]);
     return {
       clearSessionStoreCacheForTest: sessionStoreWriterState.clearSessionStoreCacheForTest,

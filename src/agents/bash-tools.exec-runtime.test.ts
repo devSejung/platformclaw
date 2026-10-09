@@ -10,7 +10,6 @@ import {
   onInternalDiagnosticEvent,
   resetDiagnosticEventsForTest,
   type DiagnosticEventMetadata,
-  type DiagnosticExecProcessCompletedEvent,
   type DiagnosticEventPayload,
 } from "../infra/diagnostic-events.js";
 import type { GatewayActiveWorkInspectors } from "../infra/gateway-active-work.js";
@@ -18,6 +17,11 @@ import type { ManagedRun } from "../process/supervisor/index.js";
 import type { RunExit, SpawnInput } from "../process/supervisor/types.js";
 import { MAX_SAFE_TIMEOUT_DELAY_MS } from "../utils/timer-delay.js";
 import type { BashSandboxConfig } from "./bash-tools.shared.js";
+
+type DiagnosticExecProcessCompletedEvent = Extract<
+  DiagnosticEventPayload,
+  { type: "exec.process.completed" }
+>;
 
 const requestHeartbeatMock = vi.hoisted(() => vi.fn());
 const enqueueSystemEventMock = vi.hoisted(() => vi.fn());

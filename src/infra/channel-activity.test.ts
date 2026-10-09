@@ -1,14 +1,16 @@
 // Covers channel activity recording and lookup.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  getChannelActivity,
-  recordChannelActivity,
-  resetChannelActivityForTest,
-} from "./channel-activity.js";
+let getChannelActivity: typeof import("./channel-activity.js").getChannelActivity;
+let recordChannelActivity: typeof import("./channel-activity.js").recordChannelActivity;
+
+async function loadChannelActivity(): Promise<void> {
+  vi.resetModules();
+  ({ getChannelActivity, recordChannelActivity } = await import("./channel-activity.js"));
+}
 
 describe("channel activity", () => {
-  beforeEach(() => {
-    resetChannelActivityForTest();
+  beforeEach(async () => {
+    await loadChannelActivity();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-08T00:00:00Z"));
   });
@@ -85,9 +87,9 @@ describe("channel activity", () => {
     });
   });
 
-  it("reset clears previously recorded activity", () => {
+  it("fresh module state starts without previously recorded activity", async () => {
     recordChannelActivity({ channel: "line", direction: "outbound", at: 7 });
-    resetChannelActivityForTest();
+    await loadChannelActivity();
 
     expect(getChannelActivity({ channel: "line" })).toEqual({
       inboundAt: null,

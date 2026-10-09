@@ -1,7 +1,8 @@
 // Canonical durable approval presentation safety tests.
 import { describe, expect, it } from "vitest";
 import { buildApprovalPresentation } from "./approval-presentation.js";
-import { PLUGIN_APPROVAL_DETAIL_MAX_LENGTH } from "./plugin-approvals.js";
+
+const PLUGIN_APPROVAL_DETAIL_MAX_LENGTH = 16_384;
 
 const allowedDecisions = ["allow-once", "deny"] as const;
 

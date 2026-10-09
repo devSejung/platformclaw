@@ -7,7 +7,8 @@ import type { CommitmentRecord } from "../commitments/types.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { captureEnv, setTestEnvValue } from "../test-utils/env.js";
-import { getLastHeartbeatEvent, resetHeartbeatEventsForTest } from "./heartbeat-events.js";
+import { getLastHeartbeatEvent } from "./heartbeat-events.js";
+import { resetHeartbeatEventsForTest } from "./heartbeat-events.test-support.js";
 import { resolveHeartbeatRunScope } from "./heartbeat-run-scope.js";
 import {
   runHeartbeatOnce,

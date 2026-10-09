@@ -11,7 +11,7 @@ type SecureDirStat = {
 };
 
 /** Injectable filesystem/platform hooks for resolving the preferred temp root in tests. */
-export type ResolvePreferredOpenClawTmpDirOptions = {
+type ResolvePreferredOpenClawTmpDirOptions = {
   accessSync?: (path: string, mode?: number) => void;
   chmodSync?: (path: string, mode: number) => void;
   getuid?: () => number | undefined;

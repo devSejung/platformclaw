@@ -1490,7 +1490,7 @@ ${channelPluginSource({
     ).toBe(true);
   });
 
-  it("warns when plugins register deprecated subagent_spawning typed hooks", () => {
+  it("ignores removed subagent_spawning hooks with a visible diagnostic", () => {
     useNoBundledPlugins();
     const plugin = writePlugin({
       id: "legacy-subagent-spawning-hook",
@@ -1510,13 +1510,12 @@ ${channelPluginSource({
     expect(
       registry.plugins.find((entry) => entry.id === "legacy-subagent-spawning-hook")?.status,
     ).toBe("loaded");
-    expect(registry.typedHooks.map((entry) => entry.hookName)).toEqual(["subagent_spawning"]);
+    expect(registry.typedHooks).toEqual([]);
     expect(
       registry.diagnostics.some(
         (diag) =>
           diag.pluginId === "legacy-subagent-spawning-hook" &&
-          diag.message ===
-            'typed hook "subagent_spawning" is deprecated (legacy-subagent-spawning-hook); Core prepares thread-bound subagent bindings through channel session-binding adapters before `subagent_spawned` fires. Use `subagent_spawned` for observation; core session bindings for routing. This compatibility hook will be removed after 2026-08-30.',
+          diag.message === 'unknown typed hook "subagent_spawning" ignored',
       ),
     ).toBe(true);
   });
