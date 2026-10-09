@@ -115,6 +115,38 @@ describe("PlatformClawGatewayRuntimeClient", () => {
     await vi.waitFor(() => expect(backend.getHello()?.server.connId).toBe("replacement"));
   });
 
+  it("preserves request options while letting compaction use its server-owned deadline", async () => {
+    let configured: GatewayClientOptions | undefined;
+    const request = vi.fn(async () => ({ subscribed: true }));
+    const backend = new PlatformClawGatewayRuntimeClient({
+      client: { url: "ws://127.0.0.1:18789" },
+      createClient: (options) => {
+        configured = options;
+        return { start: vi.fn(), stop: vi.fn(), request };
+      },
+    });
+    configured?.onHelloOk?.(hello());
+    await vi.waitFor(() => expect(backend.getHello()).not.toBeNull());
+    const params = { key: "agent:employee:main" };
+    const signal = new AbortController().signal;
+    const onSent = vi.fn();
+    const callbacks = { signal, onSent };
+    await backend.request("sessions.compact", params, callbacks);
+    expect(request).toHaveBeenLastCalledWith("sessions.compact", params, {
+      ...callbacks,
+      timeoutMs: null,
+    });
+    for (const method of ["sessions.compact", "status"]) {
+      for (const timeoutMs of [0, 1_000, null]) {
+        const options = { ...callbacks, timeoutMs };
+        await backend.request(method, params, options);
+        expect(request).toHaveBeenLastCalledWith(method, params, options);
+      }
+    }
+    await backend.request("status", params, callbacks);
+    expect(request).toHaveBeenLastCalledWith("status", params, callbacks);
+  });
+
   it("recovers readiness after a transient session subscription failure", async () => {
     vi.useFakeTimers();
     try {

@@ -328,6 +328,90 @@ describe("compaction lifecycle logging", () => {
 });
 
 describe("handleCompactionEnd", () => {
+  it.each(["threshold", "overflow", "manual"] as const)(
+    "preserves a safe bounded %s failure reason and its item identity",
+    (reason) => {
+      const ctx = createCompactionContext({
+        storePath: "unused",
+        sessionKey: "main",
+        initialCount: 0,
+      });
+      const onAgentEvent = vi.fn();
+      ctx.params.onAgentEvent = onAgentEvent;
+      const secret = "abcdefghijklmnopqrstuvwxyz0123456789";
+      handleCompactionEnd(ctx, {
+        type: "compaction_end",
+        reason,
+        itemId: "failed-item",
+        result: undefined,
+        aborted: false,
+        willRetry: false,
+        errorMessage: `\u001b[31mProvider rejected Authorization: Bearer ${secret}\n${"x".repeat(800)}`,
+      });
+
+      expect(onAgentEvent).toHaveBeenCalledWith({
+        stream: "compaction",
+        data: {
+          phase: "end",
+          itemId: "failed-item",
+          completed: false,
+          failed: true,
+          aborted: false,
+          willRetry: false,
+          reason: expect.any(String),
+        },
+      });
+      const safeReason = onAgentEvent.mock.calls[0]![0].data.reason as string;
+      expect(safeReason).toContain("Provider rejected");
+      expect(safeReason).not.toContain(secret);
+      expect(safeReason).not.toContain("\u001b");
+      expect(safeReason.length).toBeLessThanOrEqual(512);
+      expect(ctx.log.warn).toHaveBeenCalledWith(
+        expect.stringContaining("failed"),
+        expect.objectContaining({
+          runId: "run-test",
+          sessionId: "session-1",
+          itemId: "failed-item",
+          stage: "runtime",
+          failureReason: safeReason,
+        }),
+      );
+      expect(ctx.getCompactionCount()).toBe(0);
+      expect(ctx.maybeResolveCompactionWait).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([false, true])("keeps a non-failure end distinct when aborted=%s", (aborted) => {
+    const ctx = createCompactionContext({
+      storePath: "unused",
+      sessionKey: "main",
+      initialCount: 0,
+    });
+    const onAgentEvent = vi.fn();
+    ctx.params.onAgentEvent = onAgentEvent;
+    handleCompactionEnd(ctx, {
+      type: "compaction_end",
+      reason: "threshold",
+      result: undefined,
+      aborted,
+      willRetry: false,
+      ...(aborted ? { errorMessage: "Compaction cancelled" } : {}),
+    });
+    expect(onAgentEvent).toHaveBeenCalledWith({
+      stream: "compaction",
+      data: {
+        phase: "end",
+        completed: false,
+        failed: false,
+        aborted,
+        willRetry: false,
+        ...(aborted ? { reason: "Compaction cancelled" } : {}),
+      },
+    });
+    expect(ctx.log.warn).not.toHaveBeenCalled();
+    expect(ctx.getCompactionCount()).toBe(0);
+  });
+
   it("reconciles the session store after a successful compaction end event", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-compaction-handler-"));
     const storePath = path.join(tmp, "sessions.json");

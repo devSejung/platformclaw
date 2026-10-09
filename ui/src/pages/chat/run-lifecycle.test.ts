@@ -288,6 +288,23 @@ describe("reconcileChatRunLifecycle indicators", () => {
     expect(host.compactionStatus).toBe(compactionStatus);
   });
 
+  it.each(["failed", "aborted"] as const)(
+    "preserves the %s compaction outcome when its model run terminates",
+    (phase) => {
+      const compactionStatus = {
+        phase,
+        runId: "r1",
+        itemId: "compact-1",
+        reason: "Summarization could not complete.",
+        startedAt: 1_000,
+        completedAt: 2_000,
+      };
+      const host = makeHost({ chatRunId: "r1", compactionStatus });
+      reconcileChatRunLifecycle(host, { outcome: "interrupted", runId: "r1", clearLocalRun: true });
+      expect(host.compactionStatus).toBe(compactionStatus);
+    },
+  );
+
   it("clears an unfinished compaction only when its owning run terminates", () => {
     const compactionStatus = {
       phase: "active" as const,

@@ -23,6 +23,7 @@ import { formatConnectError } from "./connect-error.ts";
 import { resetChatInputHistoryNavigation, type ChatInputHistoryState } from "./input-history.ts";
 // Control UI chat module implements run lifecycle behavior.
 import {
+  isCompactionInProgress,
   resetToolStream,
   type CompactionStatus,
   type FallbackStatus,
@@ -340,9 +341,11 @@ function clearRunIndicators(host: RunLifecycleHost, runId?: string | null) {
   if (!runId || host.chatRunStartup?.runId === runId) {
     host.chatRunStartup = null;
   }
+  // Completed, failed and interrupted compactions own a visible terminal result;
+  // finishing their model run must not erase the outcome before it can be read.
   if (
     (!runId || host.compactionStatus?.runId === runId) &&
-    host.compactionStatus?.phase !== "complete"
+    (!host.compactionStatus || isCompactionInProgress(host.compactionStatus))
   ) {
     clearTimer(host.compactionClearTimer);
     host.compactionClearTimer = null;

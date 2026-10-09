@@ -1,7 +1,9 @@
 import { asNullableRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { t } from "../../i18n/index.ts";
+import { redactToolDetail } from "../../lib/browser-redact.ts";
 import type { ChatItem, ChatQueueItem } from "../../lib/chat/chat-types.ts";
-import { formatCompactTokenCount } from "../../lib/format.ts";
+import { formatCompactTokenCount, truncateText } from "../../lib/format.ts";
+import { formatGatewayDiagnosticId } from "../../lib/gateway-errors.ts";
 import type { CompactionStatus } from "./tool-stream.ts";
 
 export function isContextCompactionMessage(message: unknown): boolean {
@@ -35,11 +37,12 @@ export function buildCompactionDividerItem(
   marker: Record<string, unknown>,
   timestamp: number,
   index: number,
-  phase: "active" | "complete" = "complete",
+  phase: NonNullable<Extract<ChatItem, { kind: "divider" }>["compaction"]> = "complete",
 ): Extract<ChatItem, { kind: "divider" }> {
   const tokensBefore = marker.tokensBefore;
   const tokensAfter = marker.tokensAfter;
   const tokensSaved =
+    phase === "complete" &&
     typeof tokensBefore === "number" &&
     Number.isFinite(tokensBefore) &&
     typeof tokensAfter === "number" &&
@@ -47,6 +50,17 @@ export function buildCompactionDividerItem(
     tokensBefore > tokensAfter
       ? Math.floor(tokensBefore - tokensAfter)
       : null;
+  const failed = phase === "failed" || phase === "aborted";
+  const reason =
+    failed && typeof marker.reason === "string"
+      ? truncateText(redactToolDetail(marker.reason.trim()), 2_000).text
+      : null;
+  const correlation = failed
+    ? formatGatewayDiagnosticId(
+        marker.operationId ?? marker.runId,
+        marker.operationId ? "operation" : "run",
+      )
+    : null;
   return {
     kind: "divider",
     key:
@@ -54,9 +68,20 @@ export function buildCompactionDividerItem(
         ? `divider:compaction:${marker.id}`
         : `divider:compaction:${timestamp}:${index}`,
     label: t(
-      phase === "active" ? "chat.composer.compactingContext" : "chat.composer.contextCompacted",
+      phase === "active"
+        ? "chat.composer.compactingContext"
+        : phase === "complete"
+          ? "chat.composer.contextCompacted"
+          : `chat.compaction.${phase}`,
     ),
     compaction: phase,
+    ...(failed
+      ? {
+          description: [reason, correlation, t("chat.compaction.checkBeforeRetry")]
+            .filter(Boolean)
+            .join("\n\n"),
+        }
+      : {}),
     ...(tokensSaved === null
       ? {}
       : {

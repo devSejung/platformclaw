@@ -1,15 +1,16 @@
 import {
   embeddedAgentLog,
-  formatErrorMessage,
   runAgentHarnessAfterCompactionHook,
   runAgentHarnessBeforeCompactionHook,
   type AgentMessage,
   type EmbeddedRunAttemptParams,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { redactIdentifier } from "openclaw/plugin-sdk/logging-core";
 import {
   appendSessionTranscriptMessageByIdentityStrict,
   publishSessionTranscriptUpdateByIdentity,
 } from "openclaw/plugin-sdk/session-transcript-runtime";
+import { formatCodexCompactionFailureReason } from "./event-projector-diagnostics.js";
 
 export function createCodexContextCompactionActivity(
   params: EmbeddedRunAttemptParams,
@@ -35,19 +36,50 @@ export function createCodexContextCompactionActivity(
     trigger: params.trigger,
     channelId: params.messageChannel ?? params.messageProvider ?? undefined,
   });
-  const emit = (itemId: string, phase: "start" | "end") =>
+  const emit = (
+    itemId: string,
+    phase: "start" | "end",
+    outcome?: {
+      completed: boolean;
+      willRetry: boolean;
+      aborted: boolean;
+      failed: boolean;
+      reason: string;
+    },
+  ) =>
     callbacks.emitAgentEvent({
       stream: "compaction",
       data: {
         phase,
         backend: "codex-app-server",
-        ...(phase === "end" ? { completed: true } : {}),
+        ...(phase === "end" ? (outcome ?? { completed: true }) : {}),
         threadId,
         turnId,
         itemId,
       },
     });
   return {
+    incomplete(
+      itemId: string,
+      outcome: { aborted: boolean; failed: boolean; reason: unknown },
+    ): void {
+      const reason = formatCodexCompactionFailureReason(outcome.reason);
+      const log = outcome.failed ? embeddedAgentLog.warn : embeddedAgentLog.info;
+      log("codex context compaction incomplete", {
+        event: "codex_compaction_end",
+        runId: params.runId,
+        sessionId: params.sessionId,
+        itemId,
+        backend: "codex-app-server",
+        threadId: redactIdentifier(threadId),
+        turnId,
+        stage: "runtime",
+        aborted: outcome.aborted,
+        failed: outcome.failed,
+        reason,
+      });
+      emit(itemId, "end", { completed: false, willRetry: false, ...outcome, reason });
+    },
     async started(itemId: string): Promise<void> {
       await runAgentHarnessBeforeCompactionHook({
         sessionFile: params.sessionFile,
@@ -144,8 +176,13 @@ export async function persistCodexContextCompactionActivity(params: {
     });
   } catch (error) {
     embeddedAgentLog.warn("failed to persist codex context compaction activity", {
-      error: formatErrorMessage(error),
+      runId: params.runId,
+      sessionId: target.sessionId,
       itemId: params.itemId,
+      threadId: redactIdentifier(params.threadId),
+      turnId: params.turnId,
+      stage: "terminal-persist",
+      reason: formatCodexCompactionFailureReason(error),
     });
   }
 }

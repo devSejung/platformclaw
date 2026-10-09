@@ -183,6 +183,7 @@ async function invokeSessionMutation({
       getSessionEventSubscriberConnIds: () => subscribedConnIds,
       loadGatewayModelCatalog: async () => ({ providers: [] }),
       getRuntimeConfig,
+      logGateway: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       ...context,
     } as never,
     client: null,

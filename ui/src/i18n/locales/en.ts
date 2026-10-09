@@ -3,6 +3,17 @@ import type { TranslationMap } from "../lib/types.ts";
 import * as agentEn from "./en-agents.ts";
 
 export const en: TranslationMap = {
+  gatewayErrors: {
+    requestFailed: "Gateway request failed.",
+    code: "Gateway code: {code}",
+    requestId: "Request ID: {id}",
+    operationId: "Operation ID: {id}",
+    runId: "Run ID: {id}",
+    stage: "Stage: {stage}",
+    outcomeUnknown:
+      "The request may still be running. Refresh the conversation to check its result before trying again. Share the request ID with your administrator if the result remains unclear.",
+    requestNotStarted: "The request did not start.",
+  },
   common: {
     health: "Health",
     ok: "OK",
@@ -4961,6 +4972,7 @@ export const en: TranslationMap = {
       compaction: {
         failed: "Compaction failed.",
         failedWithReason: "Compaction failed: {reason}",
+        unconfirmedWithReason: "Compaction result could not be confirmed: {reason}",
         tokenSummary: " ({before} -> {after} tokens)",
         succeeded: "Context compacted successfully",
         skipped: "Compaction skipped.",
@@ -5235,6 +5247,10 @@ export const en: TranslationMap = {
     compaction: {
       savedTokens: "saved {count} tokens",
       openCheckpoints: "Open checkpoints",
+      failed: "Compaction failed",
+      aborted: "Compaction interrupted",
+      checkBeforeRetry:
+        "Refresh the conversation to check its state before trying compaction again.",
     },
     progressLabels: {
       shelling: "Shelling",

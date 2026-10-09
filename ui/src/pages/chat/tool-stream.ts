@@ -32,6 +32,8 @@ type SessionOperationEventPayload = {
   ts?: number;
   completed?: boolean;
   reason?: string;
+  aborted?: boolean;
+  failed?: boolean;
 };
 
 export type ToolStreamEntry = {
@@ -375,12 +377,18 @@ function acceptActivityEvent(host: ToolStreamHost, payload: AgentEventPayload): 
 }
 
 export type CompactionStatus = {
-  phase: "active" | "retrying" | "complete";
+  phase: "active" | "retrying" | "complete" | "failed" | "aborted";
   runId: string | null;
   itemId?: string;
+  operationId?: string;
+  reason?: string;
   startedAt: number | null;
   completedAt: number | null;
 };
+
+export function isCompactionInProgress(status?: Pick<CompactionStatus, "phase"> | null): boolean {
+  return status?.phase === "active" || status?.phase === "retrying";
+}
 
 export type FallbackStatus = {
   phase?: "active" | "cleared";
@@ -546,6 +554,7 @@ function setCompactionStatus(
   runId: string,
   phase: CompactionStatus["phase"],
   itemId?: string,
+  failure?: { reason?: string; operationId?: string },
 ) {
   const previous = host.compactionStatus;
   const sameOperation =
@@ -556,10 +565,11 @@ function setCompactionStatus(
     phase,
     runId,
     ...(currentItemId ? { itemId: currentItemId } : {}),
+    ...failure,
     startedAt: sameOperation ? previous.startedAt : Date.now(),
-    completedAt: phase === "complete" ? Date.now() : null,
+    completedAt: isCompactionInProgress({ phase }) ? null : Date.now(),
   };
-  if (phase !== "complete") {
+  if (isCompactionInProgress({ phase })) {
     scheduleCompactionClear(host, COMPACTION_ACTIVE_STALE_TIMEOUT_MS, { phase, runId });
   }
 }
@@ -599,6 +609,17 @@ export function handleSessionOperationEvent(
     setCompactionStatus(compactionHost, operationId, "complete");
     return;
   }
+  const reason = toTrimmedString(payload.reason) ?? undefined;
+  if (payload.aborted === true || payload.failed === true) {
+    setCompactionStatus(
+      compactionHost,
+      operationId,
+      payload.failed === true ? "failed" : "aborted",
+      undefined,
+      { reason, operationId },
+    );
+    return;
+  }
   compactionHost.compactionStatus = null;
 }
 
@@ -623,6 +644,14 @@ function handleCompactionEvent(host: CompactionHost, payload: AgentEventPayload)
     }
     if (completed) {
       setCompactionStatus(host, payload.runId, "complete", itemId);
+      return;
+    }
+    const reason = toTrimmedString(data.reason) ?? undefined;
+    // The runtime records failure separately from completed:false no-op reasons.
+    // Timeout aborts failed; ordinary interruptions did not.
+    const failed = data.failed === true;
+    if (data.aborted === true || failed) {
+      setCompactionStatus(host, payload.runId, failed ? "failed" : "aborted", itemId, { reason });
       return;
     }
     host.compactionStatus = null;

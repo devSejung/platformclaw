@@ -58,27 +58,22 @@ export async function preflightGatewaySessionCompaction(
   if (!usesLegacyOpenClawCompaction(params)) {
     return undefined;
   }
-  try {
-    const transcriptEvents = await loadTranscriptEvents({
-      agentId: params.agentId,
-      sessionId: params.sessionId,
-      sessionKey: params.sessionStoreKey,
-      storePath: params.storePath,
-    });
-    const tree = scanSessionTranscriptTree(transcriptEvents);
-    const branch = selectSessionTranscriptTreePathNodes(tree, tree.leafId)
-      .map((node) => node.entry)
-      .filter(isCanonicalSessionTranscriptEntry) as unknown as AgentSessionEntry[];
-    const preflight = preflightManualSessionCompaction(branch, {
-      enabled: true,
-      reserveTokens: 0,
-      keepRecentTokens: 0,
-    });
-    return preflight.compactable ? undefined : { reason: preflight.reason };
-  } catch {
-    // Preserve the existing compaction error path for malformed or unavailable transcripts.
-    return undefined;
-  }
+  const transcriptEvents = await loadTranscriptEvents({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    sessionKey: params.sessionStoreKey,
+    storePath: params.storePath,
+  });
+  const tree = scanSessionTranscriptTree(transcriptEvents);
+  const branch = selectSessionTranscriptTreePathNodes(tree, tree.leafId)
+    .map((node) => node.entry)
+    .filter(isCanonicalSessionTranscriptEntry) as unknown as AgentSessionEntry[];
+  const preflight = preflightManualSessionCompaction(branch, {
+    enabled: true,
+    reserveTokens: 0,
+    keepRecentTokens: 0,
+  });
+  return preflight.compactable ? undefined : { reason: preflight.reason };
 }
 
 export async function runGatewaySessionCompaction(

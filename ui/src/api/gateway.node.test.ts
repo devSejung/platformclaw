@@ -7,6 +7,8 @@ import {
   PROTOCOL_VERSION,
 } from "@openclaw/gateway-client/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { t } from "../i18n/index.ts";
+import { formatGatewayRequestFailure } from "../lib/gateway-errors.ts";
 import {
   loadDeviceAuthToken as loadScopedDeviceAuthToken,
   storeDeviceAuthToken as storeScopedDeviceAuthToken,
@@ -747,6 +749,44 @@ describe("GatewayBrowserClient", () => {
     client.forceReconnect("terminal liveness timeout");
     expect(ws.lastClose).toEqual({ code: 4000, reason: "terminal liveness timeout" });
   });
+
+  it.each(["disconnect", "accepted-disconnect", "stop"] as const)(
+    "preserves unknown compaction outcomes after %s without replaying the mutation",
+    async (terminal) => {
+      const client = new GatewayBrowserClient({ url: DEFAULT_GATEWAY_URL });
+      try {
+        const { ws, connectFrame } = await startConnect(client);
+        ws.emitMessage({
+          type: "res",
+          id: connectFrame.id,
+          ok: true,
+          payload: { type: "hello-ok", protocol: 4, auth: { role: "operator", scopes: [] } },
+        });
+        const request = client.request("sessions.compact", {}, { expectFinal: true });
+        const outcome = request.catch((error: unknown) => error);
+        const frame = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string };
+        if (terminal === "accepted-disconnect") {
+          ws.emitMessage({ type: "res", id: frame.id, ok: true, payload: { status: "accepted" } });
+        }
+        if (terminal === "stop") {
+          client.stop();
+        } else {
+          ws.emitClose(1012, "service restart");
+        }
+        const error = await outcome;
+        expect(error).toMatchObject({ details: { requestDisposition: "outcome-unknown" } });
+        expect(formatGatewayRequestFailure(error)).toMatchObject({
+          outcomeUnknown: true,
+          message: expect.stringContaining(t("gatewayErrors.outcomeUnknown")),
+        });
+        expect(
+          ws.sent.filter((sent) => JSON.parse(sent).method === "sessions.compact"),
+        ).toHaveLength(1);
+      } finally {
+        client.stop();
+      }
+    },
+  );
 
   it("reconnects a silently stalled socket using its advertised Gateway heartbeat", async () => {
     useNodeFakeTimers();

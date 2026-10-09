@@ -134,6 +134,7 @@ export const SessionOperationEventSchema = closedObject({
   agentId: Type.Optional(NonEmptyString),
   ts: Type.Integer({ minimum: 0 }),
   completed: Type.Optional(Type.Boolean()),
+  failed: Type.Optional(Type.Boolean()),
   reason: Type.Optional(Type.String()),
 });
 

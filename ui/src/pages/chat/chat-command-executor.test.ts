@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import { GatewayRequestError, type GatewayBrowserClient } from "../../api/gateway.ts";
 import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/gateway.ts";
 import { t } from "../../i18n/index.ts";
@@ -676,6 +676,95 @@ describe("executeSlashCommand directives", () => {
       }),
       failed: true,
     });
+  });
+
+  it("shows safe operation correlation for a failed business result in a successful RPC response", async () => {
+    const operationId = "5d551778-c8b7-4d98-b8dc-82dbcc224842";
+    const request = vi.fn().mockResolvedValue({
+      ok: false,
+      compacted: false,
+      reason: "Summarization could not complete.",
+      operationId,
+      stage: "runtime",
+      internalResult: { token: "employee-secret", path: "/private/session" },
+    });
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "main",
+      "compact",
+      "",
+    );
+    expect(result).toEqual({
+      failed: true,
+      content: t("chat.commandResults.compaction.failedWithReason", {
+        reason: [
+          "Summarization could not complete.",
+          t("gatewayErrors.operationId", { id: operationId }),
+          t("gatewayErrors.stage", { stage: "runtime" }),
+        ].join("\n\n"),
+      }),
+    });
+    expect(request).toHaveBeenCalledExactlyOnceWith("sessions.compact", { key: "main" });
+  });
+
+  it("shows an unconfirmed compaction with safe correlation and refresh guidance without retrying", async () => {
+    const requestId = "84bff23c-5e53-41a6-ae02-b0d8c0d82586";
+    const request = vi.fn().mockRejectedValue(
+      new GatewayRequestError({
+        code: "UNAVAILABLE",
+        message: "The Gateway did not confirm the request in time.",
+        details: {
+          requestId,
+          method: "sessions.compact",
+          errorKind: "timeout",
+          requestDisposition: "outcome-unknown",
+          privateDetails: "employee-secret",
+        },
+      }),
+    );
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "main",
+      "compact",
+      "",
+    );
+    expect(result).toEqual({
+      failed: true,
+      content: t("chat.commandResults.compaction.unconfirmedWithReason", {
+        reason: [
+          "The Gateway did not confirm the request in time.",
+          t("gatewayErrors.code", { code: "UNAVAILABLE" }),
+          t("gatewayErrors.requestId", { id: requestId }),
+          t("gatewayErrors.outcomeUnknown"),
+        ].join("\n\n"),
+      }),
+    });
+    expect(request).toHaveBeenCalledExactlyOnceWith("sessions.compact", { key: "main" });
+  });
+
+  it("keeps an explicit compaction rejection distinct from an unknown outcome", async () => {
+    const request = vi.fn().mockRejectedValue({
+      code: "FORBIDDEN",
+      message: "Compaction is not allowed for this session.",
+      details: { requestDisposition: "rejected-before-dispatch" },
+    });
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "main",
+      "compact",
+      "",
+    );
+    expect(result).toEqual({
+      failed: true,
+      content: t("chat.commandResults.compaction.failedWithReason", {
+        reason: [
+          "Compaction is not allowed for this session.",
+          t("gatewayErrors.code", { code: "FORBIDDEN" }),
+          t("gatewayErrors.requestNotStarted"),
+        ].join("\n\n"),
+      }),
+    });
+    expect(request).toHaveBeenCalledExactlyOnceWith("sessions.compact", { key: "main" });
   });
 
   it("uses the local model catalog to qualify raw /model overrides when the patch response omits provider", async () => {

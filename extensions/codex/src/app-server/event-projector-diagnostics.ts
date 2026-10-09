@@ -1,5 +1,6 @@
-import { embeddedAgentLog } from "openclaw/plugin-sdk/agent-harness-runtime";
-import { redactSensitiveText } from "openclaw/plugin-sdk/logging-core";
+import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
+import { embeddedAgentLog, formatErrorMessage } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { redactSensitiveText, redactToolPayloadText } from "openclaw/plugin-sdk/logging-core";
 import { sanitizeTerminalText } from "openclaw/plugin-sdk/text-chunking";
 import { unknownItemStatus } from "./event-projector-items.js";
 import {
@@ -10,6 +11,15 @@ import type { CodexServerNotification, CodexThreadItem, JsonObject } from "./pro
 
 export function redactCodexEventKind(method: string): string {
   return redactSensitiveText(sanitizeTerminalText(method));
+}
+
+export function formatCodexCompactionFailureReason(error: unknown): string {
+  return (
+    truncateUtf16Safe(
+      sanitizeTerminalText(redactToolPayloadText(formatErrorMessage(error))).trim(),
+      512,
+    ) || "Compaction failed"
+  );
 }
 
 export class CodexProjectionDiagnostics {

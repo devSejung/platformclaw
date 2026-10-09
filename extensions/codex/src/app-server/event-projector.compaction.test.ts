@@ -13,6 +13,7 @@ import {
   createMockPluginRegistry,
   describe,
   expect,
+  embeddedAgentLog,
   forCurrentTurn,
   initializeGlobalHookRunner,
   it,
@@ -200,11 +201,87 @@ describe("Codex compaction transcript identity", () => {
       expect(projector.isCompacting()).toBe(false);
       expect(onAgentEvent).toHaveBeenCalledWith({
         stream: "compaction",
-        data: { phase: "end", itemId: "unfinished", completed: false, willRetry: false },
+        data: {
+          phase: "end",
+          itemId: "unfinished",
+          completed: false,
+          willRetry: false,
+          failed: status === "failed",
+          aborted: status === "interrupted",
+          reason: status === "failed" ? "codex app-server turn failed" : "Compaction interrupted",
+          backend: "codex-app-server",
+          threadId: "thread-1",
+          turnId: "turn-1",
+        },
       });
       expect(await readSessionTranscriptEvents(params.sessionTarget)).toEqual([]);
     },
   );
+
+  it("retains a safe provider failure and emits its terminal end only once", async () => {
+    const params = await createPersistedParams();
+    const onAgentEvent = vi.fn();
+    const warn = vi.spyOn(embeddedAgentLog, "warn");
+    const projector = await createProjector({ ...params, onAgentEvent });
+    await projector.handleNotification(
+      forCurrentTurn("item/started", { item: { type: "contextCompaction", id: "failed-secret" } }),
+    );
+    const secret = "abcdefghijklmnopqrstuvwxyz0123456789";
+    await projector.handleNotification(
+      forCurrentTurn("error", {
+        error: {
+          message: `Provider unavailable Authorization: Bearer ${secret}\n${"x".repeat(800)}`,
+        },
+        willRetry: false,
+      }),
+    );
+    await projector.handleNotification(turnWithStatus("failed"));
+    projector.buildResult(buildEmptyToolTelemetry());
+    projector.buildResult(buildEmptyToolTelemetry());
+    const ends = onAgentEvent.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.stream === "compaction" && event.data.phase === "end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0].data).toMatchObject({ failed: true, aborted: false, itemId: "failed-secret" });
+    expect(ends[0].data.reason).toContain("Provider unavailable");
+    expect(ends[0].data.reason).not.toContain(secret);
+    expect(ends[0].data.reason.length).toBeLessThanOrEqual(512);
+    expect(warn).toHaveBeenCalledWith(
+      "codex context compaction incomplete",
+      expect.objectContaining({
+        runId: params.runId,
+        sessionId: params.sessionId,
+        itemId: "failed-secret",
+        stage: "runtime",
+        failed: true,
+        reason: ends[0].data.reason,
+      }),
+    );
+    expect(await readSessionTranscriptEvents(params.sessionTarget)).toEqual([]);
+  });
+
+  it("closes timed-out compaction without recording a success or losing its failure reason", async () => {
+    const params = await createPersistedParams();
+    const onAgentEvent = vi.fn();
+    const projector = await createProjector({ ...params, onAgentEvent });
+    await projector.handleNotification(
+      forCurrentTurn("item/started", { item: { type: "contextCompaction", id: "timed-out" } }),
+    );
+    projector.markTimedOut();
+    const result = projector.buildResult(buildEmptyToolTelemetry());
+    expect(onAgentEvent).toHaveBeenCalledWith({
+      stream: "compaction",
+      data: expect.objectContaining({
+        itemId: "timed-out",
+        completed: false,
+        failed: true,
+        aborted: true,
+        reason: "codex app-server attempt timed out",
+      }),
+    });
+    expect(result.compactionCount).toBeUndefined();
+    expect(await readSessionTranscriptEvents(params.sessionTarget)).toEqual([]);
+  });
 
   it("does not append completed native activity after the target session is replaced", async () => {
     const params = await createPersistedParams();

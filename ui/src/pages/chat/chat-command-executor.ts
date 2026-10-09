@@ -33,6 +33,7 @@ import {
   resolveThinkingLevelInput,
 } from "../../lib/chat/thinking.ts";
 import { formatCompactTokenCount } from "../../lib/format.ts";
+import { formatGatewayRequestFailure } from "../../lib/gateway-errors.ts";
 import { readSessionMethodAccess } from "../../lib/session-method-access.ts";
 import { isSessionRunActive } from "../../lib/session-run-state.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
@@ -221,10 +222,14 @@ async function executeCompact(
     const result = await context.sessions.compact(sessionKey, options);
     if (result?.ok !== true) {
       const reason = typeof result?.reason === "string" ? result.reason.trim() : "";
+      const failure = formatGatewayRequestFailure({
+        message: reason || t("chat.commandResults.compaction.failed"),
+        details: result,
+      });
       return {
         content: reason
-          ? t("chat.commandResults.compaction.failedWithReason", { reason })
-          : t("chat.commandResults.compaction.failed"),
+          ? t("chat.commandResults.compaction.failedWithReason", { reason: failure.message })
+          : failure.message,
         failed: true,
       };
     }
@@ -243,8 +248,14 @@ async function executeCompact(
     }
     return { content: t("chat.commandResults.compaction.skipped"), action: "refresh" };
   } catch (err) {
+    const failure = formatGatewayRequestFailure(err);
     return {
-      content: t("chat.commandResults.compaction.failedWithReason", { reason: String(err) }),
+      content: t(
+        failure.outcomeUnknown
+          ? "chat.commandResults.compaction.unconfirmedWithReason"
+          : "chat.commandResults.compaction.failedWithReason",
+        { reason: failure.message },
+      ),
       failed: true,
     };
   }

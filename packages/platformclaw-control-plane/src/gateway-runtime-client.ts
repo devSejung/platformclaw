@@ -201,8 +201,15 @@ export class PlatformClawGatewayRuntimeClient implements PlatformClawGatewayBack
     if (!this.hello) {
       throw new Error("private Gateway connection is unavailable");
     }
-    return (await (options
-      ? this.client.request(method, params, options)
+    // Compaction replies after its server-owned model work and persistence finish.
+    // A normal RPC deadline would report failure while that mutation keeps running;
+    // retain an explicit caller deadline, otherwise wait for the terminal response.
+    const requestOptions =
+      method === "sessions.compact" && options?.timeoutMs === undefined
+        ? { ...options, timeoutMs: null }
+        : options;
+    return (await (requestOptions
+      ? this.client.request(method, params, requestOptions)
       : this.client.request(method, params))) as T;
   }
 

@@ -6,6 +6,7 @@ import {
 } from "../../../context-engine/types.js";
 import { resolveProcessToolScopeKey } from "../../agent-tools.js";
 import { listActiveProcessSessionReferences } from "../../bash-process-references.js";
+import { formatCompactionFailureReason } from "../../compaction-diagnostics.js";
 import { buildEmbeddedCompactionRuntimeContext } from "../compaction-runtime-context.js";
 import {
   compactContextEngineWithSafetyTimeout,
@@ -144,32 +145,57 @@ export async function compactEmbeddedRunForRecovery(
     tokenBudget: recovery.tokenBudget,
     ...(recovery.trigger === "overflow" ? { degradedReason: "context_overflow" } : {}),
   });
-  const result = await compactContextEngineWithSafetyTimeout(
-    input.contextEngine,
-    {
-      sessionId: activeSession.id,
-      sessionKey: input.resolvedSessionKey,
-      agentId: input.sessionAgentId,
-      sessionTarget: buildContextEngineCompactionSessionTarget({
-        agentId: input.sessionAgentId,
-        config: runParams.config,
-        sessionFile: activeSession.file,
+  const diagnosticContext = {
+    runId: runParams.runId,
+    sessionId: activeSession.id,
+    stage: "runtime",
+    trigger: recovery.trigger,
+    diagId: recovery.diagId,
+    attempt: recovery.attempt,
+  };
+  let result: CompactionResult;
+  try {
+    result = await compactContextEngineWithSafetyTimeout(
+      input.contextEngine,
+      {
         sessionId: activeSession.id,
         sessionKey: input.resolvedSessionKey,
-        sessionTarget: activeSession.target,
-      }),
-      tokenBudget: recovery.tokenBudget,
-      ...(recovery.currentTokenCount !== undefined
-        ? { currentTokenCount: recovery.currentTokenCount }
-        : {}),
-      force: true,
-      compactionTarget: "budget",
-      runtimeContext,
-      runtimeSettings,
-    },
-    resolveCompactionTimeoutMs(runParams.config),
-    runParams.abortSignal,
-  );
+        agentId: input.sessionAgentId,
+        sessionTarget: buildContextEngineCompactionSessionTarget({
+          agentId: input.sessionAgentId,
+          config: runParams.config,
+          sessionFile: activeSession.file,
+          sessionId: activeSession.id,
+          sessionKey: input.resolvedSessionKey,
+          sessionTarget: activeSession.target,
+        }),
+        tokenBudget: recovery.tokenBudget,
+        ...(recovery.currentTokenCount !== undefined
+          ? { currentTokenCount: recovery.currentTokenCount }
+          : {}),
+        force: true,
+        compactionTarget: "budget",
+        runtimeContext,
+        runtimeSettings,
+      },
+      resolveCompactionTimeoutMs(runParams.config),
+      runParams.abortSignal,
+    );
+  } catch (error) {
+    const aborted = runParams.abortSignal?.aborted === true;
+    const logOutcome = aborted ? log.info : log.warn;
+    logOutcome("context engine recovery compaction failed", {
+      ...diagnosticContext,
+      aborted,
+      reason: formatCompactionFailureReason(error),
+    });
+    throw error;
+  }
+  if (!result.ok) {
+    const reason = formatCompactionFailureReason(result.reason ?? "Compaction failed");
+    log.warn("context engine recovery compaction failed", { ...diagnosticContext, reason });
+    result = { ...result, reason };
+  }
   return { result, runtimeContext, runtimeSettings };
 }
 
@@ -239,7 +265,13 @@ export function createEmbeddedRunCompactionRuntime(input: {
         resolveActiveHookContext(),
       );
     } catch (error) {
-      log.warn(`before_compaction hook failed during ${reason}: ${String(error)}`);
+      log.warn("before_compaction hook failed", {
+        runId: params.runId,
+        sessionId: sessionPromptState.sessionId,
+        stage: "before_compaction",
+        trigger: reason,
+        reason: formatCompactionFailureReason(error),
+      });
     }
   };
   const runOwnsCompactionAfterHook = async (
@@ -269,7 +301,13 @@ export function createEmbeddedRunCompactionRuntime(input: {
         resolveActiveHookContext(),
       );
     } catch (error) {
-      log.warn(`after_compaction hook failed during ${reason}: ${String(error)}`);
+      log.warn("after_compaction hook failed", {
+        runId: params.runId,
+        sessionId: sessionPromptState.sessionId,
+        stage: "after_compaction",
+        trigger: reason,
+        reason: formatCompactionFailureReason(error),
+      });
     }
   };
 

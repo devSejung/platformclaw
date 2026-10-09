@@ -245,16 +245,41 @@ describe("recoverEmbeddedRunOverflow", () => {
   });
 
   it("surfaces context overflow when compaction fails", async () => {
+    const compactFailure = { ok: false, compacted: false, reason: "nothing to compact" };
     mocks.compact.mockResolvedValueOnce({
-      result: { ok: false, compacted: false, reason: "nothing to compact" },
+      result: compactFailure,
       runtimeContext: {},
       runtimeSettings: {},
     });
+    const input = makeInput();
 
-    const result = await recoverEmbeddedRunOverflow(makeInput());
+    const result = await recoverEmbeddedRunOverflow(input);
 
-    expect(result).toMatchObject({ action: "surface", kind: "context_overflow" });
-    expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining("auto-compaction failed"));
+    expect(result).toMatchObject({
+      action: "surface",
+      kind: "context_overflow",
+      userText: expect.stringContaining("/reset (or /new)"),
+    });
+    expect(mocks.compact).toHaveBeenCalledOnce();
+    expect(input.runOwnsCompactionAfterHook).toHaveBeenCalledWith(
+      "overflow recovery",
+      compactFailure,
+      undefined,
+    );
+    expect(input.state).toMatchObject({ overflowCompactionAttempts: 1, autoCompactionCount: 0 });
+    expect(input.armPostCompactionGuard).not.toHaveBeenCalled();
+    expect(input.prepareCurrentTranscriptRetry).not.toHaveBeenCalled();
+    expect(input.prepareCompactedTranscriptRetry).not.toHaveBeenCalled();
+    // Detailed failure logging is covered at the real compact owner.
+    // This mock leaves recovery responsible for its correlated blocked outcome.
+    const diagId = mocks.compact.mock.calls[0]?.[1]?.diagId;
+    expect(diagId).toEqual(expect.any(String));
+    expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining(`diagId=${diagId}`));
+    expect(mocks.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "livenessState=blocked suggestedAction=reset_or_new kind=context_overflow",
+      ),
+    );
   });
 
   it("falls back to append-only tool-result truncation after failed compaction", async () => {

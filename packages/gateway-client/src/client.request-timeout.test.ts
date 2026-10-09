@@ -34,3 +34,22 @@ test("reports that a timed-out request crossed the transport send boundary", asy
     requestSent: true,
   });
 });
+
+test("stopping a sent Node request does not claim that the remote operation failed", async () => {
+  const client = new GatewayClient({});
+  const socket: GatewayProtocolSocket = { isOpen: () => true, send: vi.fn(), close: vi.fn() };
+  Object.assign(
+    (client as unknown as { protocol: { socket: GatewayProtocolSocket | null } }).protocol,
+    { socket },
+  );
+  const request = client.request("sessions.compact", {}, { timeoutMs: null });
+  const outcome = request.catch((error: unknown) => error);
+
+  client.stop();
+
+  expect(await outcome).toMatchObject({
+    message: "gateway client stopped",
+    details: { requestDisposition: "outcome-unknown" },
+    cause: new Error("gateway client stopped"),
+  });
+});

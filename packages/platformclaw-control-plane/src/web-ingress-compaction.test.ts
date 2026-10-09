@@ -193,6 +193,47 @@ describe("authenticated compaction WebSocket ingress", () => {
           },
         ]);
       }
+      for (const actor of actors) {
+        const sessionKey = `agent:${actor.binding.agentId}:main`;
+        for (const data of [
+          { phase: "start", itemId: "auto-compact" },
+          {
+            phase: "end",
+            itemId: "auto-compact",
+            completed: false,
+            failed: true,
+            aborted: false,
+            willRetry: false,
+            reason: "Summarization provider unavailable",
+          },
+        ]) {
+          gateway.emit({
+            type: "event",
+            event: "agent",
+            payload: {
+              sessionKey,
+              runId: `auto-${actor.binding.agentId}`,
+              stream: "compaction",
+              data,
+            },
+          });
+        }
+      }
+      gateway.emit({ type: "event", event: "tick", payload: {} });
+      await Promise.all(clients.map((client) => client.flushEvents()));
+      for (const client of clients) {
+        const automatic = client.received
+          .filter((frame) => isRecord(frame) && frame.event === "agent")
+          .slice(2);
+        expect(automatic).toHaveLength(2);
+        expect(automatic[1]).toMatchObject({
+          payload: {
+            sessionKey: `agent:${client.actor.binding.agentId}:main`,
+            runId: `auto-${client.actor.binding.agentId}`,
+            data: { phase: "end", failed: true, reason: "Summarization provider unavailable" },
+          },
+        });
+      }
       const callsBeforeForeignRequests = f.request.mock.calls.length;
       for (let index = 0; index < clients.length; index += 1) {
         const client = clients[index]!;
@@ -207,6 +248,18 @@ describe("authenticated compaction WebSocket ingress", () => {
           ).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
         }
       }
+      expect(f.request).toHaveBeenCalledTimes(callsBeforeForeignRequests);
+      expect(
+        await clients[0]!.call("sessions.compact", {
+          key: `agent:${f.alice.binding.agentId}:space-session:unregistered`,
+        }),
+      ).toMatchObject({
+        ok: false,
+        error: {
+          code: "FORBIDDEN",
+          details: { errorKind: "authorization", requestId: expect.any(String) },
+        },
+      });
       expect(f.request).toHaveBeenCalledTimes(callsBeforeForeignRequests);
       await Promise.all(
         clients.map(

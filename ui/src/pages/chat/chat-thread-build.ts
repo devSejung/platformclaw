@@ -65,7 +65,7 @@ import {
   resolveMatchingLiveToolIdentity,
   type LiveToolStreamRef,
 } from "./tool-stream-identity.ts";
-import type { CompactionStatus, PlanStatus } from "./tool-stream.ts";
+import { isCompactionInProgress, type CompactionStatus, type PlanStatus } from "./tool-stream.ts";
 import { queuedSendThreadMessage } from "./user-message-content.ts";
 
 export type BuildChatItemsProps = {
@@ -320,10 +320,14 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
     const timestamp = compaction.startedAt ?? compaction.completedAt ?? Date.now();
     timestampedProjectionItems.push({
       ...buildCompactionDividerItem(
-        {},
+        {
+          runId: compaction.runId,
+          operationId: compaction.operationId,
+          reason: compaction.reason,
+        },
         timestamp,
         0,
-        compaction.phase === "complete" ? "complete" : "active",
+        compaction.phase === "retrying" ? "active" : compaction.phase,
       ),
       key: compactionKey,
     });
@@ -571,9 +575,9 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
   // catches up.
   const hasEmptyLiveStream = props.stream !== null && props.stream.trim().length === 0;
   const showWorkingIndicator =
-    // A persisted marker proves compaction finished even while its run retries.
-    // Keep the model's remaining work visible after that row becomes complete.
-    (hasPersistedCompaction || !compaction || compaction.phase === "complete") &&
+    // A persisted marker or terminal compaction result ends compacting work.
+    // Keep the model's remaining work visible if its run continues or retries.
+    (hasPersistedCompaction || !isCompactionInProgress(compaction)) &&
     ((props.runWorking === true && !initialHistoryLoad) ||
       hasEmptyLiveStream ||
       queuedSends.some(

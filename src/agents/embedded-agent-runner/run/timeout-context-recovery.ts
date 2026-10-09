@@ -1,3 +1,4 @@
+import { formatCompactionFailureReason } from "../../compaction-diagnostics.js";
 import { deriveContextPromptTokens, normalizeUsage } from "../../usage.js";
 import { runPostCompactionSideEffects } from "../compaction-hooks.js";
 import { log } from "../logger.js";
@@ -67,13 +68,10 @@ export async function recoverEmbeddedRunTimeout(
       maxAttempts: MAX_TIMEOUT_COMPACTION_ATTEMPTS,
     }));
   } catch (compactErr) {
-    log.warn(
-      `[timeout-compaction] contextEngine.compact() threw during timeout recovery for ${input.provider}/${input.modelId}: ${String(compactErr)}`,
-    );
     timeoutCompactResult = {
       ok: false,
       compacted: false,
-      reason: String(compactErr),
+      reason: formatCompactionFailureReason(compactErr),
     };
   }
 

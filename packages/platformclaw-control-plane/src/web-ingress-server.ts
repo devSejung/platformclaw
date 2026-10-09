@@ -1,12 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
-import { GatewayClientRequestError } from "@openclaw/gateway-client";
 import {
   MIN_CLIENT_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   type ConnectParams,
-  type ErrorShape,
   type EventFrame,
   type RequestFrame,
   type ResponseFrame,
@@ -20,6 +18,7 @@ import {
 } from "./browser-auth-http.js";
 import { handlePlatformClawExecCredentialRequest } from "./browser-exec-credentials-http.js";
 import { handlePlatformClawEmployeeExecutionRequest } from "./browser-execution-http.js";
+import { reportBrowserGatewayRequestFailure } from "./browser-gateway-errors.js";
 import {
   createBrowserGatewayEventForwarder,
   createBrowserGatewayEventSender,
@@ -94,51 +93,6 @@ function rejectUpgrade(socket: Duplex, statusCode: number, statusText: string): 
   }
 }
 
-function proxyErrorShape(error: unknown): ErrorShape {
-  // Private Gateway request errors are already protocol-safe client responses.
-  // Preserve their admission result so the browser can distinguish rejection from transport loss.
-  if (error instanceof GatewayClientRequestError) {
-    return {
-      code: error.gatewayCode,
-      message: error.message,
-      ...(error.details !== undefined ? { details: error.details } : {}),
-      ...(error.retryable ? { retryable: true } : {}),
-      ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
-    };
-  }
-  if (!(error instanceof BrowserGatewayProxyError)) {
-    return { code: "UNAVAILABLE", message: "Gateway request failed", retryable: true };
-  }
-  switch (error.code) {
-    case "unauthenticated":
-      return browserProxyErrorShape("UNAUTHENTICATED", error);
-    case "agent-unavailable":
-      return browserProxyErrorShape("UNAVAILABLE", error, true);
-    case "invalid-params":
-      return browserProxyErrorShape("INVALID_REQUEST", error);
-    case "method-not-allowed":
-    case "cross-agent-denied":
-    case "upstream-result-denied":
-      return browserProxyErrorShape("FORBIDDEN", error);
-  }
-  return { code: "UNAVAILABLE", message: "Gateway request failed", retryable: true };
-}
-
-function browserProxyErrorShape(
-  code: string,
-  error: BrowserGatewayProxyError,
-  retryable = false,
-): ErrorShape {
-  return {
-    code,
-    message: error.message,
-    ...(retryable ? { retryable: true } : {}),
-    ...(error.requestDisposition
-      ? { details: { requestDisposition: error.requestDisposition } }
-      : {}),
-  };
-}
-
 function decodeTextFrame(data: RawData): string {
   if (Buffer.isBuffer(data)) {
     return data.toString("utf8");
@@ -159,8 +113,12 @@ function rawDataByteLength(data: RawData): number {
   return data.reduce((total, chunk) => total + chunk.byteLength, 0);
 }
 
-function responseError(id: string, error: unknown): ResponseFrame {
-  return { type: "res", id, ok: false, error: proxyErrorShape(error) };
+function responseError(
+  id: string,
+  error: unknown,
+  context = { method: "connect", elapsedMs: 0 },
+): ResponseFrame {
+  return { type: "res", id, ok: false, error: reportBrowserGatewayRequestFailure(error, context) };
 }
 
 function responseOk(id: string, payload: unknown): ResponseFrame {
@@ -602,6 +560,7 @@ export class PlatformClawWebIngressServer {
     };
 
     const handleRequest = async (frame: RequestFrame): Promise<void> => {
+      const startedAt = Date.now();
       if (!connected) {
         await handleConnect(frame);
         return;
@@ -627,7 +586,12 @@ export class PlatformClawWebIngressServer {
         });
         send(responseOk(frame.id, payload));
       } catch (error) {
-        send(responseError(frame.id, error));
+        send(
+          responseError(frame.id, error, {
+            method: frame.method,
+            elapsedMs: Date.now() - startedAt,
+          }),
+        );
         if (error instanceof BrowserGatewayProxyError && error.code === "unauthenticated") {
           closeUnauthorized();
         }
