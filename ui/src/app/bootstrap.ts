@@ -233,6 +233,8 @@ type ApplicationSettingsNavigationMode = "inline" | "takeover";
 export type ApplicationShellSession = {
   readonly primaryLabel: string;
   readonly secondaryLabel?: string;
+  /** Stable product account and server scope for local cosmetic preferences. */
+  readonly localPreferenceScope?: string;
   /** Product-specific controls rendered inside the stable account footer. */
   readonly renderFooterAccessory?: () => unknown;
   /** Product-owned, nonblocking content rendered above the active route. */

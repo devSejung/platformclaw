@@ -149,9 +149,8 @@ export class SqliteControlPlaneStore
         const streak = this.requireBaseballHomeRunStreakRow(params.userId);
         const isHomeRun = params.outcome === "home_run";
         const totalHomers = current.total_homers + (isHomeRun ? 1 : 0);
-        const awardedGold =
-          (isHomeRun || params.outcome === "hit" ? 1 : 0) +
-          (isHomeRun && totalHomers % 5 === 0 ? 5 : 0);
+        const homeRunBonusGold: 0 | 5 = isHomeRun && totalHomers % 5 === 0 ? 5 : 0;
+        const awardedGold = (isHomeRun ? 5 : params.outcome === "hit" ? 3 : 0) + homeRunBonusGold;
         const bestDistanceM =
           distanceM === undefined
             ? current.best_distance_m
@@ -188,6 +187,7 @@ export class SqliteControlPlaneStore
         }
         return {
           awardedGold,
+          homeRunBonusGold,
           progress: this.readBaseballProgress(params.userId),
         };
       },

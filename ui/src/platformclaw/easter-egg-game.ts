@@ -9,13 +9,29 @@ import {
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import "../styles/platformclaw-easter-egg.css";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
+import { BaseballCelebration } from "./easter-egg-celebration.ts";
 import { PausableGameClock } from "./easter-egg-clock.ts";
 import {
+  createBaseballRequestId,
+  focusBaseballShop,
+  isBaseballInteractiveTarget,
+  isBaseballSwingZone,
+  handleBaseballKeydown,
+} from "./easter-egg-controls.ts";
+import {
+  cacheBaseballFieldElements,
   layoutBaseballStaticField,
   renderBaseballProjectile,
   resolveBaseballFieldLayout,
   setBaseballWorldPosition,
 } from "./easter-egg-layout.ts";
+import {
+  BASEBALL_DEFAULT_SETTINGS,
+  isBaseballTeamId,
+  loadBaseballSettings,
+  saveBaseballSettings,
+  type BaseballSettings,
+} from "./easter-egg-settings.ts";
 import {
   BASEBALL_WORLD,
   advanceBattedBall,
@@ -29,6 +45,7 @@ import {
 import { classifyTimingDelta, formatTimingFeedback } from "./easter-egg-timing.ts";
 import { BASEBALL_TRAIL_POINTS, renderBaseballGame } from "./easter-egg-view.ts";
 import { PLATFORMCLAW_EASTER_EGG_EVENT } from "./easter-egg.ts";
+import { platformClawT as t } from "./i18n.ts";
 
 const BETWEEN_ROUNDS_MS = 650;
 const MIN_WINDUP_DELAY_MS = 520;
@@ -48,25 +65,9 @@ type PendingMutation = {
   onSuccess?: () => void;
 };
 
-function isInteractiveTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    Boolean(
-      target.closest(
-        "input, textarea, select, button, a, [contenteditable], [role='button'], [role='link'], [role='menuitem'], [role='option'], [role='combobox'], [role='dialog']",
-      ),
-    )
-  );
-}
-
-function createRequestId(random: () => number): string {
-  return (
-    globalThis.crypto?.randomUUID?.() ?? `baseball-${Date.now()}-${random().toString(36).slice(2)}`
-  );
-}
-
 class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
+  @property({ attribute: false }) preferenceScope: string | null = null;
   /** Test seams; production retains Math.random and performance.now. */
   @property({ attribute: false }) random: () => number = Math.random;
   @property({ attribute: false }) now: () => number = () => performance.now();
@@ -88,8 +89,12 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   @state() private leaderboardStatus = "";
   @state() private persistenceStatus = "";
   @state() private persistenceBusy = false;
+  @state() private settings: BaseballSettings = { ...BASEBALL_DEFAULT_SETTINGS };
+  @state() private settingsStatus = "";
+  @state() private awardedGold: number | null = null;
 
   private animationFrame = 0;
+  private readonly celebration = new BaseballCelebration(this);
   private playSequence = 0;
   private clientEpoch = 0;
   private leaderboardRequest = 0;
@@ -101,15 +106,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   private pointerId: number | null = null;
   private pendingMutation: PendingMutation | null = null;
   private readonly clock = new PausableGameClock<TimerKey>(() => this.now());
-  private arenaElement: HTMLElement | null = null;
-  private playerElement: HTMLElement | null = null;
-  private scoreElement: HTMLElement | null = null;
-  private pitcherElement: HTMLElement | null = null;
-  private outfielderElement: HTMLElement | null = null;
-  private fenceElement: HTMLElement | null = null;
-  private leaderboardElement: HTMLElement | null = null;
-  private projectileElement: HTMLElement | null = null;
-  private trailElements: HTMLElement[] = [];
+  private field = cacheBaseballFieldElements(this);
   private trail: BaseballPoint[] = [];
 
   private readonly handleTrigger = (): void => {
@@ -143,9 +140,20 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     super.disconnectedCallback();
   }
 
+  override willUpdate(changed: Map<PropertyKey, unknown>): void {
+    if (changed.has("preferenceScope")) {
+      if (this.active && changed.get("preferenceScope") !== undefined) {
+        this.finishGame();
+      }
+      this.settings = loadBaseballSettings(this.preferenceScope);
+      this.settingsStatus = "";
+    }
+  }
+
   override updated(changed: Map<PropertyKey, unknown>): void {
     if (changed.has("client")) {
       this.clientEpoch += 1;
+      this.celebration.reset();
       this.pendingMutation = null;
       this.persistenceBusy = false;
       this.progress = null;
@@ -159,7 +167,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     if (!this.active) {
       return;
     }
-    this.cacheElements();
+    this.field = cacheBaseballFieldElements(this);
     this.layoutStaticField();
     this.renderProjectile();
   }
@@ -183,6 +191,10 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       leaderboardStatus: this.leaderboardStatus,
       persistenceStatus: this.persistenceStatus,
       persistenceBusy: this.persistenceBusy,
+      settings: this.settings,
+      settingsStatus: this.settingsStatus,
+      awardedGold: this.awardedGold,
+      bonusVisible: this.celebration.visible,
       pendingMutationMethod: this.pendingMutation?.method ?? null,
       roundBatId: this.roundBatId,
       pitchSpeedKph: this.pitch?.speedKph ?? null,
@@ -192,6 +204,16 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       onRetryLoad: this.retryLoad,
       onCloseShop: this.closeShop,
       onSelectBat: (batId, owned) => void this.selectBat(batId, owned),
+      onSelectTeam: (teamId) => {
+        if (isBaseballTeamId(teamId)) {
+          this.updateSettings({ ...this.settings, teamId });
+        }
+      },
+      onOpacity: (opacity) => {
+        if (Number.isInteger(opacity) && opacity >= 30 && opacity <= 100 && opacity % 5 === 0) {
+          this.updateSettings({ ...this.settings, opacity });
+        }
+      },
       onStopEvent: this.stopEvent,
     });
   }
@@ -208,6 +230,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     this.result = "";
     this.lastDistance = null;
     this.leaderboard = null;
+    this.awardedGold = null;
     this.leaderboardStatus = "";
     this.persistenceStatus = this.client ? "진행도 불러오는 중" : "진행 저장 불가";
     await this.updateComplete;
@@ -270,6 +293,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       return;
     }
     this.clearTimer("pitch");
+    this.celebration.hide();
     this.clearTimer("follow");
     this.clearTimer("batter");
     this.clearTimer("feedback");
@@ -322,10 +346,10 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       advanceBattedBall(this.battedBall, deltaMs);
       this.pushTrail(this.battedBall.ball);
       setBaseballWorldPosition(
-        this.outfielderElement,
+        this.field.outfielder,
         this.battedBall.outfielder.x,
         0,
-        resolveBaseballFieldLayout(this, this.arenaElement),
+        resolveBaseballFieldLayout(this, this.field.arena),
       );
       if (this.battedBall.result) {
         const { kind, distanceM } = this.battedBall.result;
@@ -346,7 +370,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       !this.active ||
       this.phase !== "pitch" ||
       !this.pitch ||
-      isInteractiveTarget(event.target)
+      isBaseballInteractiveTarget(event.target)
     ) {
       return;
     }
@@ -406,7 +430,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     void this.runMutation({
       method: BASEBALL_RPC.plateAppearance,
       params: {
-        requestId: createRequestId(this.random),
+        requestId: createBaseballRequestId(this.random),
         outcome,
         ...(outcome === "hit" || outcome === "home_run" ? { distanceM } : {}),
       },
@@ -421,7 +445,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     }
     await this.runMutation({
       method: owned ? BASEBALL_RPC.equipBat : BASEBALL_RPC.purchaseBat,
-      params: { requestId: createRequestId(this.random), batId },
+      params: { requestId: createBaseballRequestId(this.random), batId },
       label: owned ? "배트 장착 실패" : "배트 구매 실패",
     });
   }
@@ -439,10 +463,11 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     this.persistenceBusy = true;
     this.persistenceStatus = "저장 중";
     try {
-      const response = await client.request<{ progress: BaseballProgress }>(
-        mutation.method,
-        mutation.params,
-      );
+      const response = await client.request<{
+        progress: BaseballProgress;
+        awardedGold?: number;
+        homeRunBonusGold?: 0 | 5;
+      }>(mutation.method, mutation.params);
       if (!this.isCurrentRequest(client, epoch, sequence)) {
         return;
       }
@@ -454,6 +479,16 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       this.persistenceStatus = "";
       mutation.onSuccess?.();
       if (mutation.method === BASEBALL_RPC.plateAppearance) {
+        if (typeof mutation.params.requestId === "string") {
+          this.celebration.confirm(
+            mutation.params.requestId,
+            response.homeRunBonusGold,
+            !this.isPaused(),
+          );
+        }
+        if (typeof response.awardedGold === "number" && Number.isFinite(response.awardedGold)) {
+          this.awardedGold = response.awardedGold;
+        }
         void this.loadLeaderboard(sequence);
       }
     } catch {
@@ -494,12 +529,20 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     }
   };
 
+  private updateSettings(settings: BaseballSettings): void {
+    this.settings = settings;
+    this.settingsStatus = saveBaseballSettings(this.preferenceScope, settings)
+      ? t("platformClaw.baseball.saved")
+      : t("platformClaw.baseball.unsaved");
+  }
+
   private readonly openShop = (event: Event): void => {
     event.preventDefault();
     event.stopPropagation();
     if (!this.shopOpen) {
       this.shopOpen = true;
       this.pauseGameTime();
+      void this.updateComplete.then(() => focusBaseballShop(this));
     }
   };
 
@@ -510,13 +553,12 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       this.shopOpen = false;
       this.resumeGameTime();
       void this.updateComplete.then(() =>
-        this.querySelector<HTMLElement>('[role="application"]')?.focus(),
+        this.querySelector<HTMLElement>(".platformclaw-easter-egg__shop-trigger")?.focus(),
       );
     }
   };
 
   private readonly stopEvent = (event: Event): void => {
-    event.preventDefault();
     event.stopPropagation();
   };
 
@@ -524,28 +566,22 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     if (!this.active) {
       return;
     }
-    if (event.key === "Escape" && this.shopOpen) {
-      this.closeShop(event);
-      return;
-    }
-    if (isInteractiveTarget(event.target)) {
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      this.finishGame();
-    } else if (event.code === "Space" && !event.repeat && !event.defaultPrevented) {
-      this.swing(event);
-    }
+    handleBaseballKeydown(
+      this,
+      event,
+      this.shopOpen,
+      this.closeShop,
+      () => this.finishGame(),
+      (input) => this.swing(input),
+    );
   };
 
   private readonly handleGlobalPointerDown = (event: PointerEvent): void => {
     if (
       !this.active ||
       this.shopOpen ||
-      isInteractiveTarget(event.target) ||
-      !this.isSwingZone(event)
+      isBaseballInteractiveTarget(event.target) ||
+      !isBaseballSwingZone(event, this.field.player)
     ) {
       return;
     }
@@ -557,7 +593,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
       return;
     }
     this.pointerId = null;
-    if (!this.shopOpen && this.isSwingZone(event)) {
+    if (!this.shopOpen && isBaseballSwingZone(event, this.field.player)) {
       this.swing(event);
     }
   };
@@ -586,14 +622,6 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     }
   };
 
-  private isSwingZone(event: PointerEvent): boolean {
-    if (event.clientY < window.innerHeight * 0.7) {
-      return false;
-    }
-    const rect = this.playerElement?.getBoundingClientRect();
-    return Boolean(rect && event.clientX >= rect.left - 96 && event.clientX <= rect.right + 96);
-  }
-
   private isCurrentRequest(client: GatewayBrowserClient, epoch: number, sequence: number): boolean {
     return this.client === client && this.clientEpoch === epoch && this.playSequence === sequence;
   }
@@ -616,6 +644,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   }
 
   private pauseGameTime(): void {
+    this.celebration.hide();
     this.stopAnimationLoop();
     this.clock.pause();
   }
@@ -640,37 +669,17 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
     }
   }
 
-  private cacheElements(): void {
-    this.arenaElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__arena");
-    this.playerElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__player");
-    this.scoreElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__score");
-    this.pitcherElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__target");
-    this.outfielderElement = this.querySelector<HTMLElement>(
-      ".platformclaw-easter-egg__outfielder",
-    );
-    this.fenceElement = this.querySelector<HTMLElement>(".platformclaw-easter-egg__fence");
-    this.leaderboardElement = this.querySelector<HTMLElement>(
-      ".platformclaw-easter-egg__leaderboards",
-    );
-    this.projectileElement = this.querySelector<HTMLElement>(
-      ".platformclaw-easter-egg__projectile",
-    );
-    this.trailElements = Array.from(
-      this.querySelectorAll<HTMLElement>(".platformclaw-easter-egg__trail-dot"),
-    );
-  }
-
   private layoutStaticField(): void {
     layoutBaseballStaticField({
-      arena: this.arenaElement,
-      fence: this.fenceElement,
+      arena: this.field.arena,
+      fence: this.field.fence,
       host: this,
-      leaderboard: this.leaderboardElement,
-      outfielder: this.outfielderElement,
+      leaderboard: this.field.leaderboard,
+      outfielder: this.field.outfielder,
       outfielderX: this.battedBall?.outfielder.x ?? 55,
-      pitcher: this.pitcherElement,
-      player: this.playerElement,
-      score: this.scoreElement,
+      pitcher: this.field.pitcher,
+      player: this.field.player,
+      score: this.field.score,
     });
   }
 
@@ -690,13 +699,13 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
 
   private renderProjectile(): void {
     renderBaseballProjectile({
-      arena: this.arenaElement,
+      arena: this.field.arena,
       host: this,
       pitchProjection: this.phase === "pitch",
       point: this.currentBallPoint(),
-      projectile: this.projectileElement,
+      projectile: this.field.projectile,
       trail: this.trail,
-      trailElements: this.trailElements,
+      trailElements: this.field.trails,
       trailPointLimit: BASEBALL_TRAIL_POINTS,
     });
   }
@@ -714,6 +723,7 @@ class PlatformClawEasterEgg extends OpenClawLightDomContentsElement {
   }
 
   private resetRuntime(): void {
+    this.celebration.reset();
     this.stopAnimationLoop();
     this.clock.clearAll();
     this.pointerId = null;

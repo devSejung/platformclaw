@@ -1,4 +1,5 @@
 import { html, nothing } from "lit";
+import { styleMap } from "lit/directives/style-map.js";
 import {
   BASEBALL_BATS,
   BASEBALL_RPC,
@@ -7,6 +8,8 @@ import {
   type BaseballLeaderboardEntry,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import { BASEBALL_TEAMS, type BaseballSettings } from "./easter-egg-settings.ts";
+import { platformClawT as t } from "./i18n.ts";
 
 const BASEBALL_BAT_NAMES: Record<BaseballBatId, string> = {
   wood: "나무",
@@ -38,6 +41,10 @@ export function renderBaseballGame(params: {
   leaderboardStatus: string;
   persistenceStatus: string;
   persistenceBusy: boolean;
+  settings: BaseballSettings;
+  settingsStatus: string;
+  awardedGold: number | null;
+  bonusVisible: boolean;
   pendingMutationMethod: string | null;
   roundBatId: BaseballBatId;
   pitchSpeedKph: number | null;
@@ -47,12 +54,29 @@ export function renderBaseballGame(params: {
   onRetryLoad: () => void;
   onCloseShop: (event: Event) => void;
   onSelectBat: (batId: BaseballBatId, owned: boolean) => void;
+  onSelectTeam: (teamId: string) => void;
+  onOpacity: (opacity: number) => void;
   onStopEvent: (event: Event) => void;
 }) {
   if (!params.active) {
     return nothing;
   }
   const equipped = params.progress?.equippedBatId ?? "wood";
+  const team =
+    BASEBALL_TEAMS.find((entry) => entry.id === params.settings.teamId) ?? BASEBALL_TEAMS[0];
+  const saveStatus = html`${params.persistenceStatus
+    ? html`<div class="platformclaw-easter-egg__save-status" role="status">
+        <span>${params.persistenceStatus}</span>
+        ${params.pendingMutationMethod
+          ? html`<button type="button" @click=${params.onRetry}>재시도</button>
+              ${params.pendingMutationMethod === BASEBALL_RPC.plateAppearance
+                ? nothing
+                : html`<button type="button" @click=${params.onCancel}>취소</button>`}`
+          : !params.progress && !params.persistenceBusy
+            ? html`<button type="button" @click=${params.onRetryLoad}>다시 불러오기</button>`
+            : nothing}
+      </div>`
+    : nothing}`;
   return html`<div
     class="platformclaw-easter-egg ${params.shopOpen ? "platformclaw-easter-egg--shop-open" : ""}"
     role="application"
@@ -63,85 +87,106 @@ export function renderBaseballGame(params: {
     data-best=${params.progress?.bestDistanceM ?? 0}
     data-bat-id=${params.roundBatId}
     data-pitch-state=${params.phase}
+    data-team-id=${team.id}
+    style=${styleMap({
+      "--baseball-opacity": String(params.settings.opacity / 100),
+      "--baseball-team-color": team.color || undefined,
+    })}
   >
-    <div class="platformclaw-easter-egg__score" aria-live="polite">
-      <span>안타 ${params.hits}</span><span>홈런 ${params.homeRuns}</span>
-    </div>
-    <div class="platformclaw-easter-egg__hud" aria-live="polite">
-      <span>연속 홈런 ${params.streak}</span
-      ><span>최고 ${params.progress?.bestDistanceM ?? 0}m</span>
-      <span>골드 ${params.progress?.gold ?? 0}</span>
-      <span>${params.pitchSpeedKph === null ? "" : `${Math.round(params.pitchSpeedKph)}km/h`}</span>
-    </div>
-    ${params.persistenceStatus
-      ? html`<div class="platformclaw-easter-egg__save-status" role="status">
-          <span>${params.persistenceStatus}</span>
-          ${params.pendingMutationMethod
-            ? html`<button type="button" @click=${params.onRetry}>재시도</button>
-                ${params.pendingMutationMethod === BASEBALL_RPC.plateAppearance
-                  ? nothing
-                  : html`<button type="button" @click=${params.onCancel}>취소</button>`}`
-            : !params.progress && !params.persistenceBusy
-              ? html`<button type="button" @click=${params.onRetryLoad}>다시 불러오기</button>`
-              : nothing}
-        </div>`
-      : nothing}
-    <div
-      class="platformclaw-easter-egg__result platformclaw-easter-egg__feedback ${params.feedbackVisible
-        ? ""
-        : "platformclaw-easter-egg__feedback--faded"}"
-      aria-live="assertive"
-    >
-      ${params.result}
-    </div>
-    ${params.lastDistance === null
-      ? nothing
-      : html`<div
-          class="platformclaw-easter-egg__distance platformclaw-easter-egg__feedback ${params.feedbackVisible
-            ? ""
-            : "platformclaw-easter-egg__feedback--faded"}"
-        >
-          ${params.lastDistance}m
-        </div>`}
-    <div class="platformclaw-easter-egg__arena">
-      ${renderBaseballLeaderboards(
-        params.leaderboard,
-        params.leaderboardStatus,
-        equipped,
-        params.onOpenShop,
-      )}
-      <div class="platformclaw-easter-egg__trail" aria-hidden="true">
-        ${Array.from(
-          { length: BASEBALL_TRAIL_POINTS },
-          (_, index) => html`<span
-            class="platformclaw-easter-egg__trail-dot"
-            data-trail-index=${index}
-          ></span>`,
-        )}
+    ${!params.shopOpen ? saveStatus : nothing}
+    <div class="platformclaw-easter-egg__scene">
+      ${params.bonusVisible
+        ? html`<div class="platformclaw-easter-egg__bonus" role="status">
+            <strong>${t("platformClaw.baseball.bonus")}</strong>
+            <span class="platformclaw-easter-egg__sparks" aria-hidden="true">
+              ${Array.from(
+                { length: 8 },
+                (_, index) =>
+                  html`<i style=${styleMap({ "--spark-angle": `${index * 45}deg` })}></i>`,
+              )}
+            </span>
+          </div>`
+        : nothing}
+      <div class="platformclaw-easter-egg__score" aria-live="polite">
+        <span>안타 ${params.hits}</span><span>홈런 ${params.homeRuns}</span>
       </div>
-      <div
-        class="platformclaw-easter-egg__player platformclaw-easter-egg__player--${params.playerState}"
-        aria-hidden="true"
-      >
-        ${renderBaseballStickman("batter")}<span class="platformclaw-easter-egg__bat"></span
-        ><span class="platformclaw-easter-egg__figure-label">타자</span>
-      </div>
-      <div
-        class="platformclaw-easter-egg__target platformclaw-easter-egg__target--${params.pitcherState}"
-        aria-hidden="true"
-      >
-        ${renderBaseballStickman("pitcher")}<span class="platformclaw-easter-egg__figure-label"
-          >투수</span
+      <div class="platformclaw-easter-egg__hud" aria-live="polite">
+        <span>연속 홈런 ${params.streak}</span
+        ><span>최고 ${params.progress?.bestDistanceM ?? 0}m</span>
+        <span>골드 ${params.progress?.gold ?? 0}</span>
+        ${params.awardedGold === null
+          ? nothing
+          : html`<span
+              >${t("platformClaw.baseball.reward", { gold: String(params.awardedGold) })}</span
+            >`}
+        <span
+          >${params.pitchSpeedKph === null ? "" : `${Math.round(params.pitchSpeedKph)}km/h`}</span
         >
       </div>
-      <div class="platformclaw-easter-egg__outfielder" aria-hidden="true">
-        ${renderBaseballStickman("outfielder")}
+      <div
+        class="platformclaw-easter-egg__result platformclaw-easter-egg__feedback ${params.feedbackVisible
+          ? ""
+          : "platformclaw-easter-egg__feedback--faded"}"
+        aria-live="assertive"
+      >
+        ${params.result}
       </div>
-      <div class="platformclaw-easter-egg__fence" aria-hidden="true"></div>
-      <span class="platformclaw-easter-egg__projectile" aria-hidden="true"></span>
+      ${params.lastDistance === null
+        ? nothing
+        : html`<div
+            class="platformclaw-easter-egg__distance platformclaw-easter-egg__feedback ${params.feedbackVisible
+              ? ""
+              : "platformclaw-easter-egg__feedback--faded"}"
+          >
+            ${params.lastDistance}m
+          </div>`}
+      <div class="platformclaw-easter-egg__arena">
+        <div class="platformclaw-easter-egg__trail" aria-hidden="true">
+          ${Array.from(
+            { length: BASEBALL_TRAIL_POINTS },
+            (_, index) => html`<span
+              class="platformclaw-easter-egg__trail-dot"
+              data-trail-index=${index}
+            ></span>`,
+          )}
+        </div>
+        <div
+          class="platformclaw-easter-egg__player platformclaw-easter-egg__player--${params.playerState}"
+          aria-hidden="true"
+        >
+          ${renderBaseballStickman("batter")}<span class="platformclaw-easter-egg__bat"></span
+          ><span class="platformclaw-easter-egg__figure-label"
+            >${team.id === "neutral" ? "타자" : team.name}</span
+          >
+        </div>
+        <div
+          class="platformclaw-easter-egg__target platformclaw-easter-egg__target--${params.pitcherState}"
+          aria-hidden="true"
+        >
+          ${renderBaseballStickman("pitcher")}<span class="platformclaw-easter-egg__figure-label"
+            >투수</span
+          >
+        </div>
+        <div class="platformclaw-easter-egg__outfielder" aria-hidden="true">
+          ${renderBaseballStickman("outfielder")}
+        </div>
+        <div class="platformclaw-easter-egg__fence" aria-hidden="true"></div>
+        <span class="platformclaw-easter-egg__projectile" aria-hidden="true"></span>
+      </div>
     </div>
+    ${renderBaseballLeaderboards(
+      params.leaderboard,
+      params.leaderboardStatus,
+      equipped,
+      params.onOpenShop,
+    )}
     ${params.shopOpen
       ? renderBaseballShop({
+          settings: params.settings,
+          settingsStatus: params.settingsStatus,
+          saveStatus,
+          onSelectTeam: params.onSelectTeam,
+          onOpacity: params.onOpacity,
           progress: params.progress,
           busy: params.persistenceBusy,
           pending: Boolean(params.pendingMutationMethod),
@@ -161,7 +206,7 @@ function renderBaseballLeaderboards(
 ) {
   return html`<div class="platformclaw-easter-egg__leaderboards" aria-label="야구 랭킹">
     <button class="platformclaw-easter-egg__shop-trigger" type="button" @click=${onOpenShop}>
-      ${BASEBALL_BAT_NAMES[equipped]} 배트 · 상점
+      ${BASEBALL_BAT_NAMES[equipped]} 배트 · ${t("platformClaw.baseball.settingsTitle")}
     </button>
     ${status
       ? html`<span class="platformclaw-easter-egg__leaderboard-status" role="status"
@@ -218,6 +263,11 @@ function renderBaseballStickman(role: "batter" | "pitcher" | "outfielder") {
 }
 
 function renderBaseballShop(params: {
+  settings: BaseballSettings;
+  settingsStatus: string;
+  saveStatus: unknown;
+  onSelectTeam: (teamId: string) => void;
+  onOpacity: (opacity: number) => void;
   progress: BaseballProgress | null;
   busy: boolean;
   pending: boolean;
@@ -239,8 +289,53 @@ function renderBaseballShop(params: {
       aria-label="배트 상점"
     >
       <header>
-        <strong>배트 상점</strong><button type="button" @click=${params.onClose}>닫기</button>
+        <strong>${t("platformClaw.baseball.settingsTitle")}</strong
+        ><button type="button" @click=${params.onClose}>닫기</button>
       </header>
+      ${params.saveStatus}
+      <div class="platformclaw-easter-egg__settings">
+        <label for="baseball-team">${t("platformClaw.baseball.team")}</label>
+        <select
+          id="baseball-team"
+          .value=${params.settings.teamId}
+          @change=${(event: Event) =>
+            params.onSelectTeam((event.target as HTMLSelectElement).value)}
+        >
+          ${BASEBALL_TEAMS.map(
+            (team) =>
+              html`<option value=${team.id} ?selected=${team.id === params.settings.teamId}>
+                ${team.name}
+              </option>`,
+          )}
+        </select>
+        <small>${t("platformClaw.baseball.cosmetic")}</small>
+        <label for="baseball-opacity"
+          >${t("platformClaw.baseball.opacity", { value: String(params.settings.opacity) })}</label
+        >
+        <input
+          id="baseball-opacity"
+          type="range"
+          min="30"
+          max="100"
+          step="5"
+          .value=${String(params.settings.opacity)}
+          aria-valuetext=${`${params.settings.opacity}%`}
+          @input=${(event: Event) =>
+            params.onOpacity(Number((event.target as HTMLInputElement).value))}
+        />
+        <button type="button" @click=${() => params.onOpacity(100)}>
+          ${t("platformClaw.baseball.restore")}
+        </button>
+        <small>${t("platformClaw.baseball.opacityHelp")}</small>
+        <span role="status">${params.settingsStatus}</span>
+      </div>
+      <p>${t("platformClaw.baseball.rules")}</p>
+      <p>${t("platformClaw.baseball.streakRule")}</p>
+      <p>
+        ${t("platformClaw.baseball.nextBonus", {
+          count: String(5 - ((params.progress?.totalHomers ?? 0) % 5)),
+        })}
+      </p>
       <p>골드 ${params.progress?.gold ?? 0} · 장착은 다음 타석부터 적용</p>
       <div class="platformclaw-easter-egg__shop-list">
         ${BASEBALL_BATS.map((bat) => {

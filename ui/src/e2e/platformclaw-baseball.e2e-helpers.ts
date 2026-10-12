@@ -1,4 +1,29 @@
 import type { Locator, Page } from "playwright";
+import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
+
+export function baseballSession(accountId: string, agentId: string) {
+  return {
+    authenticated: true,
+    user: { accountId, displayName: accountId, department: "Synthetic lab", globalRole: "member" },
+    agent: { agentId, state: "active" },
+    session: { idleExpiresAt: Date.now() + 60_000, absoluteExpiresAt: Date.now() + 120_000 },
+  };
+}
+
+export async function installBaseballDocument(page: Page, baseUrl: string): Promise<void> {
+  const response = await page.request.get(baseUrl);
+  const source = await response.text();
+  await page.route("**/platformclaw/app/**", (route) =>
+    route.fulfill({
+      body: source.replace(
+        "</head>",
+        `<meta name="platformclaw-web-descriptor" content='${JSON.stringify({ ...PLATFORMCLAW_WEB_DESCRIPTOR, vocEnabled: true })}'></head>`,
+      ),
+      headers: response.headers(),
+      status: response.status(),
+    }),
+  );
+}
 
 export async function denseSessionOverlapCounts(page: Page): Promise<number[]> {
   await page.locator(".sidebar-shell__body").evaluate((body) => {
