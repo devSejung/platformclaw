@@ -121,6 +121,34 @@ not belong in that environment file; only paths to owner-readable files do.
 Keep the SSH credential master key stable and back it up with the Control DB.
 Keep the Gateway service identity stable across restarts.
 
+### Gateway heap ceiling
+
+Set the Gateway's V8 old-space ceiling in `deployment.env`:
+
+```dotenv
+PLATFORMCLAW_GATEWAY_MAX_OLD_SPACE_SIZE=8192
+```
+
+The value is a positive integer in MiB. Missing or empty values use the Compose
+default of 8192; zero, negative, whitespace, and nonnumeric values fail startup.
+The wrapper gives the deployment file priority over the caller's shell, and
+image updates and rollbacks preserve custom values. Deployment preflight rejects
+invalid values before an image update changes references or stops services.
+The Gateway launcher appends
+the heap flag to existing container `NODE_OPTIONS`, so its last heap flag wins.
+Other Compose services keep their own settings. A running Gateway adopts the
+setting on its next operator-approved restart or image rollout.
+
+This limits old space, not total V8 heap, RSS, or container memory. Budget native
+allocations and other services separately. An 8192 MiB setting measured locally
+on Node 24 produced an 8.1875 GiB total V8 heap limit. It does not establish that a
+memory leak or GC pause has been fixed. The independent 3 GiB RSS critical
+diagnostic remains active even with this larger heap ceiling.
+
+Compose config shows the numeric setting; a separate `docker compose exec ...
+node` command does not inherit the launcher's computed options. Verify the
+Gateway process itself when checking its effective `NODE_OPTIONS` and heap limit.
+
 Set `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL` to the employee-auth ADSSO base or
 login endpoint. Install the PlatformClaw 1.0 handoff signing secret at the path
 named by `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE`; the deployment

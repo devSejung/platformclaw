@@ -109,6 +109,29 @@ PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL=https://<employee-auth-host>/adsso
 PLATFORMCLAW_TZ=Asia/Seoul
 ```
 
+Gateway의 V8 old-space 상한은 `deployment.env`에서 설정한다.
+
+```dotenv
+PLATFORMCLAW_GATEWAY_MAX_OLD_SPACE_SIZE=8192
+```
+
+단위는 MiB이며 양의 정수만 허용한다. 키가 없거나 빈 값이면 Compose 기본값
+8192를 사용한다. 0·음수·공백·비숫자는 시작 시 거절한다. wrapper는 shell의 같은
+변수보다 env 파일을 우선하고, image update/rollback은 사용자 지정 값을 보존한다.
+배포 사전 검증은 image 참조를 변경하거나 서비스를 중단하기 전에 잘못된 값을 거부한다.
+Gateway launcher는 기존 컨테이너 `NODE_OPTIONS` 뒤에 heap 옵션을 추가하므로
+마지막 heap 옵션이 적용된다. 다른 Compose 서비스 설정은 유지된다. 실행 중인
+Gateway는 운영자가 승인한 다음 재시작 또는 image rollout부터 값을 적용한다.
+
+이 값은 old space 상한이며 전체 V8 heap·RSS·컨테이너 메모리 제한과 다르다.
+native 할당과 다른 서비스의 메모리는 별도로 확보한다. 로컬 Node 24에서
+8192MiB 설정의 전체 V8 heap limit은 8.1875GiB로 측정됐다. 상한 확대만으로 누수나
+GC 정지가 해결됐다고 판단하지 않는다. 별도의 RSS critical 임계값 3GiB도 유지된다.
+
+Compose config에는 숫자 설정만 표시된다. 별도 `docker compose exec ... node`는
+launcher가 계산한 옵션을 상속하지 않으므로 실제 Gateway 프로세스의
+`NODE_OPTIONS`와 유효 heap limit으로 적용 여부를 확인한다.
+
 secret 경로는 `~/platformclaw/secrets`를 가리킨다. `init`은 경로만 기록하며, 첫
 새 설치의 첫 `up`은 PlatformClaw이 소유하는 Gateway/Knox/execution 계열의 누락 secret을
 생성한다. 외부 시스템 credential은 자동 생성하지 않는다. 예를 들어 private S3 가이드의

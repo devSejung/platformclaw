@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+gateway_heap_mb="${PLATFORMCLAW_GATEWAY_MAX_OLD_SPACE_SIZE:-}"
+if [[ -n "$gateway_heap_mb" ]]; then
+  if [[ ! "$gateway_heap_mb" =~ ^[1-9][0-9]*$ ]]; then
+    echo "PLATFORMCLAW_GATEWAY_MAX_OLD_SPACE_SIZE must be a positive integer in MiB" >&2
+    exit 1
+  fi
+  # Preserve image/runtime Node options; the final heap flag selects this deployment's ceiling.
+  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=$gateway_heap_mb"
+fi
+
 config_path="${OPENCLAW_CONFIG_PATH:-${HOME:-/home/node}/.openclaw/openclaw.json}"
 export OPENCLAW_CONFIG_PATH="$config_path"
 template_path="/etc/platformclaw/openclaw.initial.json"

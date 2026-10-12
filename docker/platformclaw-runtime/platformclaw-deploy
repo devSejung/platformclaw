@@ -854,6 +854,12 @@ validate_deployment_env() {
   local key
   local value
   local invalid=()
+  value="$(read_env_value PLATFORMCLAW_GATEWAY_MAX_OLD_SPACE_SIZE)"
+  if [[ -n "$value" && ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "PLATFORMCLAW_GATEWAY_MAX_OLD_SPACE_SIZE must be a positive integer in MiB" >&2
+    exit 1
+  fi
+
   for key in PLATFORMCLAW_IMAGE PLATFORMCLAW_SANDBOX_IMAGE PLATFORMCLAW_PUBLIC_ORIGIN \
     PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL \
     PLATFORMCLAW_EMPLOYEE_AUTH_CA_FILE PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_SECRET_FILE \
