@@ -225,7 +225,7 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     await bonus.waitFor();
     const requests = await gateway.getRequests(BASEBALL_RPC.plateAppearance);
     expect(requests).toHaveLength(2);
-    expect(requests[1].params).toEqual(requests[0].params);
+    expect(requests[1]!.params).toEqual(requests[0]!.params);
     expect(await bonus.textContent()).toContain("누적 5홈런 보너스 +5G");
     expect(await bonus.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
     expect(await bonus.locator("..").evaluate((element) => getComputedStyle(element).opacity)).toBe(
@@ -245,7 +245,7 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
         params,
         label: "synthetic replay",
       });
-    }, requests[0].params);
+    }, requests[0]!.params);
     await page.clock.runFor(20);
     expect(await bonus.count()).toBe(0);
     await page.emulateMedia({ reducedMotion: "reduce" });

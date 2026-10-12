@@ -15,7 +15,7 @@ export const BASEBALL_TEAMS = [
   { id: "hanwha", name: "한화 이글스", color: "#e87932" },
 ] as const;
 
-export type BaseballTeamId = (typeof BASEBALL_TEAMS)[number]["id"];
+type BaseballTeamId = (typeof BASEBALL_TEAMS)[number]["id"];
 export type BaseballSettings = { teamId: BaseballTeamId; opacity: number };
 export const BASEBALL_DEFAULT_SETTINGS: BaseballSettings = { teamId: "neutral", opacity: 100 };
 

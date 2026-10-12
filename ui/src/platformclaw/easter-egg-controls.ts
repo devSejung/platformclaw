@@ -58,7 +58,7 @@ export function handleBaseballKeydown(
   }
 }
 
-export function trapBaseballShopFocus(host: HTMLElement, event: KeyboardEvent): void {
+function trapBaseballShopFocus(host: HTMLElement, event: KeyboardEvent): void {
   if (event.key !== "Tab") {
     return;
   }
