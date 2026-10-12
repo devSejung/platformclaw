@@ -178,6 +178,10 @@ export class PlatformClawControlUiAdapter {
     const shellSession: ApplicationShellSession = {
       primaryLabel: identity.displayName,
       secondaryLabel: identity.department || identity.accountId,
+      localPreferenceScope: JSON.stringify([
+        normalizeGatewayTokenScope(websocketUrl(this.location, this.descriptor.gatewayPath)),
+        identity.accountId,
+      ]),
       renderFooterAccessory: () =>
         until(
           quickActions,

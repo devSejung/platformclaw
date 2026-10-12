@@ -104,6 +104,10 @@ describe("PlatformClawControlUiAdapter", () => {
       shellSession: {
         primaryLabel: "Jung Seungon",
         secondaryLabel: "Platform",
+        localPreferenceScope: JSON.stringify([
+          "wss://platformclaw.example/platformclaw/gateway",
+          "person.one",
+        ]),
       },
     });
     expect(options.routeOverrides?.organization).toBeDefined();

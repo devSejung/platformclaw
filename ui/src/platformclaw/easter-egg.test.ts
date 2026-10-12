@@ -4,8 +4,15 @@ import {
   type BaseballLeaderboard,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import { i18n } from "../i18n/index.ts";
+import {
+  BASEBALL_TEAMS,
+  loadBaseballSettings,
+  saveBaseballSettings,
+} from "./easter-egg-settings.ts";
 import { classifyTimingDelta, formatTimingFeedback } from "./easter-egg-timing.ts";
 import { PLATFORMCLAW_EASTER_EGG_EVENT, recordPlatformClawEasterEggClick } from "./easter-egg.ts";
+import { loadAllPlatformClawLocales } from "./i18n.ts";
 import "./easter-egg-game.ts";
 
 type EasterEggElement = HTMLElement & {
@@ -188,7 +195,7 @@ describe("PlatformClaw easter egg", () => {
     expect(egg.textContent).toContain("2. Person A (나)");
     expect(egg.textContent).toContain("연속 홈런 TOP 5");
     expect(
-      egg.querySelector(".platformclaw-easter-egg__arena > .platformclaw-easter-egg__leaderboards"),
+      egg.querySelector(".platformclaw-easter-egg > .platformclaw-easter-egg__leaderboards"),
     ).not.toBeNull();
 
     (egg.querySelector(".platformclaw-easter-egg__shop-trigger") as HTMLButtonElement).click();
@@ -374,5 +381,213 @@ describe("PlatformClaw easter egg", () => {
     await flush(egg);
     expect(egg.textContent).toContain("골드 7");
     expect(egg.textContent).not.toContain("골드 999");
+  });
+});
+
+type SettingsEgg = EasterEggElement & { preferenceScope: string | null };
+
+const savedProgress: BaseballProgress = {
+  gold: 1234,
+  ownedBatIds: ["wood", "titanium", "diamond"],
+  equippedBatId: "diamond",
+  totalHomers: 9,
+  bestDistanceM: 147,
+  currentHomeRunStreak: 0,
+  bestHomeRunStreak: 4,
+  revision: 42,
+};
+const scopeA = JSON.stringify(["wss://synthetic.test/platformclaw/gateway", "account-a"]);
+const scopeB = JSON.stringify(["wss://synthetic.test/platformclaw/gateway", "account-b"]);
+let storage: { getItem: ReturnType<typeof vi.fn>; setItem: ReturnType<typeof vi.fn> };
+
+async function openSettingsGame(scope = scopeA) {
+  const egg = document.createElement("platformclaw-easter-egg") as SettingsEgg;
+  const request = vi.fn(async (method: string) => {
+    if (method === BASEBALL_RPC.progress) {
+      return { ...savedProgress };
+    }
+    if (method === BASEBALL_RPC.leaderboard) {
+      return { distance: [], homeRunStreak: [] };
+    }
+    throw new Error(`unexpected mutation: ${method}`);
+  });
+  egg.client = { request: async <T>(method: string) => (await request(method)) as T };
+  egg.preferenceScope = scope;
+  document.body.append(egg);
+  await egg.updateComplete;
+  window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+  await flush(egg);
+  egg.querySelector<HTMLButtonElement>(".platformclaw-easter-egg__shop-trigger")!.click();
+  await flush(egg);
+  return { egg, request };
+}
+
+function change(egg: SettingsEgg, selector: string, value: string, event: string): void {
+  const input = egg.querySelector<HTMLInputElement | HTMLSelectElement>(selector)!;
+  input.value = value;
+  input.dispatchEvent(new Event(event, { bubbles: true }));
+}
+
+describe("baseball local cosmetic settings", () => {
+  beforeEach(async () => {
+    await loadAllPlatformClawLocales();
+    await i18n.setLocale("ko");
+    const values = new Map<string, string>();
+    storage = {
+      getItem: vi.fn((key: string) => values.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => values.set(key, value)),
+    };
+    vi.stubGlobal("localStorage", storage);
+  });
+  afterEach(async () => {
+    document.body.replaceChildren();
+    vi.unstubAllGlobals();
+    await i18n.setLocale("en");
+  });
+
+  it("restores each account and server independently and rejects corrupt or invisible settings", () => {
+    const otherServer = JSON.stringify([
+      "wss://other.synthetic.test/platformclaw/gateway",
+      "account-a",
+    ]);
+    expect(saveBaseballSettings(scopeA, { teamId: "hanwha", opacity: 30 })).toBe(true);
+    expect(loadBaseballSettings(scopeA)).toEqual({ teamId: "hanwha", opacity: 30 });
+    expect(loadBaseballSettings(scopeB)).toEqual({ teamId: "neutral", opacity: 100 });
+    expect(loadBaseballSettings(otherServer)).toEqual({ teamId: "neutral", opacity: 100 });
+    for (const value of [
+      "{",
+      "null",
+      '{"teamId":"unknown","opacity":0}',
+      '{"opacity":31}',
+      '{"opacity":"30"}',
+    ]) {
+      storage.getItem.mockReturnValueOnce(value);
+      expect(loadBaseballSettings(scopeA)).toEqual({ teamId: "neutral", opacity: 100 });
+    }
+    expect(saveBaseballSettings(null, { teamId: "kia", opacity: 30 })).toBe(false);
+  });
+
+  it("offers all ten clubs for free, changes the batter appearance, and keeps server progress intact", async () => {
+    const { egg, request } = await openSettingsGame();
+    const select = egg.querySelector<HTMLSelectElement>("#baseball-team")!;
+    expect(Array.from(select.options, (option) => option.text)).toEqual([
+      "기본",
+      "KIA 타이거즈",
+      "KT 위즈",
+      "LG 트윈스",
+      "NC 다이노스",
+      "SSG 랜더스",
+      "두산 베어스",
+      "롯데 자이언츠",
+      "삼성 라이온즈",
+      "키움 히어로즈",
+      "한화 이글스",
+    ]);
+    for (const team of BASEBALL_TEAMS.slice(1)) {
+      change(egg, "#baseball-team", team.id, "change");
+      await flush(egg);
+      const game = egg.querySelector<HTMLElement>('[role="application"]')!;
+      expect(game.dataset.teamId).toBe(team.id);
+      expect(game.style.getPropertyValue("--baseball-team-color")).toBe(team.color);
+      expect(game.dataset.batId).toBe("diamond");
+      expect(egg.querySelector(".platformclaw-easter-egg__player")!.textContent).toContain(
+        team.name,
+      );
+    }
+    expect(egg.textContent).toContain("골드 1234");
+    expect(egg.textContent).toContain("다음 누적 보너스까지 1홈런");
+    expect(
+      request.mock.calls.every(([method]) =>
+        [BASEBALL_RPC.progress, BASEBALL_RPC.leaderboard].includes(
+          method as typeof BASEBALL_RPC.progress,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("saves opacity, restores it on reopening, and recovers without changing the team", async () => {
+    const first = await openSettingsGame();
+    change(first.egg, "#baseball-team", "lg", "change");
+    change(first.egg, "#baseball-opacity", "30", "input");
+    await flush(first.egg);
+    expect(first.egg.querySelector<HTMLInputElement>("#baseball-opacity")!.min).toBe("30");
+    expect(loadBaseballSettings(scopeA)).toEqual({ teamId: "lg", opacity: 30 });
+    first.egg.remove();
+    const { egg } = await openSettingsGame();
+    expect(egg.querySelector<HTMLInputElement>("#baseball-opacity")!.value).toBe("30");
+    expect(egg.querySelector<HTMLSelectElement>("#baseball-team")!.value).toBe("lg");
+    Array.from(egg.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "100%로 복구")!
+      .click();
+    await flush(egg);
+    expect(loadBaseballSettings(scopeA)).toEqual({ teamId: "lg", opacity: 100 });
+  });
+
+  it("closes the old account game and ignores late old progress after account switching", async () => {
+    const { egg } = await openSettingsGame();
+    change(egg, "#baseball-team", "kia", "change");
+    await flush(egg);
+    let release!: (value: BaseballProgress) => void;
+    const pending = new Promise<BaseballProgress>((resolve) => {
+      release = resolve;
+    });
+    egg.client = { request: async <T>() => pending as Promise<T> };
+    await flush(egg);
+    egg.preferenceScope = scopeB;
+    await flush(egg);
+    release({ ...savedProgress, gold: 9999 });
+    await flush(egg);
+    expect(egg.querySelector('[role="application"]')).toBeNull();
+    egg.client = {
+      request: async <T>(method: string) =>
+        (method === BASEBALL_RPC.progress
+          ? savedProgress
+          : { distance: [], homeRunStreak: [] }) as T,
+    };
+    await flush(egg);
+    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await flush(egg);
+    expect(egg.querySelector<HTMLElement>('[role="application"]')!.dataset.teamId).toBe("neutral");
+    expect(egg.textContent).not.toContain("9999");
+    expect(loadBaseballSettings(scopeA).teamId).toBe("kia");
+  });
+
+  it("keeps controls usable when storage fails and traps focus while the game is paused", async () => {
+    storage.setItem.mockImplementation(() => {
+      throw new Error("quota");
+    });
+    const { egg } = await openSettingsGame();
+    const dialog = egg.querySelector<HTMLElement>('[role="dialog"]')!;
+    const close = dialog.querySelector<HTMLButtonElement>("button")!;
+    expect(document.activeElement).toBe(close);
+    close.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }),
+    );
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(close);
+    const input = egg.querySelector<HTMLInputElement>("#baseball-opacity")!;
+    input.focus();
+    const pointer = new Event("pointerdown", { bubbles: true, cancelable: true });
+    expect(input.dispatchEvent(pointer)).toBe(true);
+    change(egg, "#baseball-opacity", "30", "input");
+    await flush(egg);
+    expect(egg.textContent).toContain("이번 실행에만 적용");
+    expect(
+      egg
+        .querySelector<HTMLElement>('[role="application"]')!
+        .style.getPropertyValue("--baseball-opacity"),
+    ).toBe("0.3");
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await flush(egg);
+    expect(document.activeElement).toBe(
+      egg.querySelector(".platformclaw-easter-egg__shop-trigger"),
+    );
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await flush(egg);
+    expect(egg.querySelector('[role="application"]')).toBeNull();
   });
 });

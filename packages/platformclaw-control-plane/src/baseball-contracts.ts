@@ -77,6 +77,8 @@ export type BaseballPlateAppearanceRequest = {
 
 export type BaseballPlateAppearanceResult = {
   awardedGold: number;
+  /** Absent on receipts issued before the cumulative-bonus celebration was added. */
+  homeRunBonusGold?: 0 | 5;
   progress: BaseballProgress;
 };
 

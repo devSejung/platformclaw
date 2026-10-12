@@ -1,4 +1,5 @@
 import type { TranslationMap } from "../../i18n/index.ts";
+import { baseballTranslations } from "./ko-baseball.ts";
 import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
 import { spaceTranslations } from "./ko-spaces.ts";
@@ -59,6 +60,7 @@ export const nativeTranslations = {
 } satisfies TranslationMap;
 
 export const translations: Readonly<Record<string, string>> = {
+  ...baseballTranslations,
   ...vaultTranslations,
   ...spaceTranslations,
   "configView.appearance.terminalTextSize": "터미널 텍스트 크기",

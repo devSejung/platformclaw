@@ -22,6 +22,51 @@ platformclaw-easter-egg {
   pointer-events: auto;
 }
 
+.platformclaw-easter-egg__scene {
+  position: absolute;
+  inset: 0;
+  opacity: var(--baseball-opacity, 1);
+  pointer-events: none;
+}
+
+.platformclaw-easter-egg__bonus {
+  position: absolute;
+  bottom: 270px;
+  left: var(--platformclaw-baseball-ui-left, 8px);
+  z-index: 12;
+  max-width: calc(100vw - 16px);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.platformclaw-easter-egg__sparks {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  pointer-events: none;
+}
+
+.platformclaw-easter-egg__sparks i {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--baseball-team-color, #d6aa35);
+  animation: platformclaw-baseball-bonus 500ms ease-out both;
+}
+
+@keyframes platformclaw-baseball-bonus {
+  from {
+    transform: rotate(var(--spark-angle)) translateX(8px);
+    opacity: 1;
+  }
+  to {
+    transform: rotate(var(--spark-angle)) translateX(40px);
+    opacity: 0;
+  }
+}
+
 .platformclaw-easter-egg__hud,
 .platformclaw-easter-egg__result,
 .platformclaw-easter-egg__distance,
@@ -88,6 +133,7 @@ platformclaw-easter-egg {
 .platformclaw-easter-egg__leaderboards section {
   min-width: 0;
   overflow: hidden;
+  opacity: calc(0.72 * var(--baseball-opacity, 1));
 }
 
 .platformclaw-easter-egg__leaderboards ol {
@@ -293,7 +339,19 @@ platformclaw-easter-egg {
   font-size: 9px;
   font-weight: 700;
   line-height: 1.1;
+}
+
+.platformclaw-easter-egg__figure-label,
+.platformclaw-easter-egg__score {
   opacity: 0.72;
+}
+
+.platformclaw-easter-egg__player .platformclaw-easter-egg__figure-head {
+  fill: var(--baseball-team-color, currentcolor);
+}
+
+.platformclaw-easter-egg__player .platformclaw-easter-egg__figure-torso {
+  stroke: var(--baseball-team-color, currentcolor);
 }
 
 .platformclaw-easter-egg__figure-label {
@@ -373,6 +431,7 @@ platformclaw-easter-egg {
 }
 
 .platformclaw-easter-egg__shop {
+  box-sizing: border-box;
   width: min(360px, calc(100vw - 24px));
   max-height: min(520px, calc(100vh - 32px));
   overflow: auto;
@@ -382,6 +441,42 @@ platformclaw-easter-egg {
   color: var(--text);
   background: var(--bg);
   box-shadow: 0 16px 48px color-mix(in srgb, #000 24%, transparent);
+  touch-action: pan-y;
+}
+
+.platformclaw-easter-egg__shop .platformclaw-easter-egg__save-status {
+  position: static;
+  flex-wrap: wrap;
+  margin-block: 8px;
+}
+
+.platformclaw-easter-egg__settings {
+  display: grid;
+  gap: 8px;
+  margin-block: 12px;
+  font-size: 12px;
+}
+
+.platformclaw-easter-egg__settings select,
+.platformclaw-easter-egg__settings input {
+  width: 100%;
+  min-width: 0;
+}
+
+.platformclaw-easter-egg__settings select,
+.platformclaw-easter-egg__settings button {
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--bg-elevated);
+  font: inherit;
+}
+
+.platformclaw-easter-egg__settings small {
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .platformclaw-easter-egg__shop header,
@@ -536,6 +631,7 @@ platformclaw-easter-egg {
   .platformclaw-easter-egg__result,
   .platformclaw-easter-egg__distance,
   .platformclaw-easter-egg__save-status,
+  .platformclaw-easter-egg__bonus,
   .platformclaw-easter-egg__leaderboards {
     left: 5px;
   }
@@ -562,6 +658,9 @@ platformclaw-easter-egg {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .platformclaw-easter-egg__sparks {
+    display: none;
+  }
   .platformclaw-easter-egg__player *,
   .platformclaw-easter-egg__target *,
   .platformclaw-easter-egg__feedback {

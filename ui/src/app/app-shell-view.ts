@@ -499,6 +499,7 @@ export function renderApplicationShell(host: ShellViewHost) {
       ></openclaw-custodian-panel>
       <platformclaw-easter-egg
         .client=${gatewayConnected ? gatewaySnapshot.client : null}
+        .preferenceScope=${runtime.shellSession?.localPreferenceScope ?? null}
       ></platformclaw-easter-egg>
       ${isOptionalElementDefined(host.execApprovalElement)
         ? html`<openclaw-exec-approval

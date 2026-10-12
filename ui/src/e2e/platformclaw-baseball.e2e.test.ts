@@ -8,7 +8,6 @@ import {
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
-import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import {
   canRunPlaywrightChromium,
   installMockGateway,
@@ -51,38 +50,6 @@ const leaderboard = (overrides: Partial<BaseballLeaderboard> = {}): BaseballLead
   homeRunStreak: [],
   ...overrides,
 });
-
-function session(accountId: string, agentId: string) {
-  return {
-    authenticated: true,
-    user: {
-      accountId,
-      displayName: accountId,
-      department: "Platform Lab",
-      globalRole: "member",
-    },
-    agent: { agentId, state: "active" },
-    session: {
-      idleExpiresAt: Date.now() + 60_000,
-      absoluteExpiresAt: Date.now() + 120_000,
-    },
-  };
-}
-
-async function installPlatformClawDocument(page: Page): Promise<void> {
-  const response = await page.request.get(server.baseUrl);
-  const source = await response.text();
-  await page.route("**/platformclaw/app/**", (route) =>
-    route.fulfill({
-      body: source.replace(
-        "</head>",
-        `<meta name="platformclaw-web-descriptor" content='${JSON.stringify({ ...PLATFORMCLAW_WEB_DESCRIPTOR, vocEnabled: true })}'></head>`,
-      ),
-      headers: response.headers(),
-      status: response.status(),
-    }),
-  );
-}
 
 async function openGame(page: Page): Promise<void> {
   const brand = page.locator("openclaw-app-topbar .topbar-brand");
@@ -183,9 +150,9 @@ async function newAccountPage(
   });
   contexts.add(context);
   const page = await context.newPage();
-  await installPlatformClawDocument(page);
+  await baseballProof.installBaseballDocument(page, server.baseUrl);
   await page.route("**/platformclaw/api/auth/session", (route) =>
-    route.fulfill({ json: session(accountId, agentId), status: 200 }),
+    route.fulfill({ json: baseballProof.baseballSession(accountId, agentId), status: 200 }),
   );
   const gateway = await installMockGateway(page, {
     basePath: "/platformclaw/app",
@@ -268,7 +235,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       .poll(() => distanceBoard.getByText("1. person.a (나)", { exact: true }).isVisible())
       .toBe(true);
     await expect.poll(() => streakBoard.isVisible()).toBe(true);
-    const initialShop = game.getByRole("button", { name: "나무 배트 · 상점" });
+    const initialShop = game.getByRole("button", { name: "나무 배트 · 상점·설정" });
     const initialShopBounds = await initialShop.boundingBox();
     expect(initialShopBounds).not.toBeNull();
     expect(initialShopBounds!.x).toBeGreaterThanOrEqual(0);
@@ -295,7 +262,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(equip.params).toMatchObject({ batId: "silver" });
     await expect.poll(() => game.getByText("골드 0", { exact: true }).isVisible()).toBe(true);
     await expect
-      .poll(() => game.getByRole("button", { name: "실버 배트 · 상점" }).isVisible())
+      .poll(() => game.getByRole("button", { name: "실버 배트 · 상점·설정" }).isVisible())
       .toBe(true);
     await capture(accountA.page, "01-equipped-silver.png");
 
@@ -311,7 +278,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       .toBe(2);
     const reopened = accountA.page.locator('platformclaw-easter-egg [role="application"]');
     await expect
-      .poll(() => reopened.getByRole("button", { name: "실버 배트 · 상점" }).isVisible())
+      .poll(() => reopened.getByRole("button", { name: "실버 배트 · 상점·설정" }).isVisible())
       .toBe(true);
     await expect
       .poll(() => reopened.getByText("최고 138m", { exact: true }).isVisible())
@@ -337,7 +304,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect((await accountB.gateway.waitForRequest(BASEBALL_RPC.progress)).params).toEqual({});
     const gameB = accountB.page.locator('platformclaw-easter-egg [role="application"]');
     await expect
-      .poll(() => gameB.getByRole("button", { name: "나무 배트 · 상점" }).isVisible())
+      .poll(() => gameB.getByRole("button", { name: "나무 배트 · 상점·설정" }).isVisible())
       .toBe(true);
     await expect.poll(() => gameB.getByText("최고 0m", { exact: true }).isVisible()).toBe(true);
     expect(await gameB.getByText("최고 138m", { exact: true }).count()).toBe(0);
@@ -384,7 +351,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     const plateAppearancesBeforeShop = (
       await account.gateway.getRequests(BASEBALL_RPC.plateAppearance)
     ).length;
-    await game.getByRole("button", { name: "나무 배트 · 상점" }).click();
+    await game.getByRole("button", { name: "나무 배트 · 상점·설정" }).click();
     const shopDialog = game.getByRole("dialog", { name: "배트 상점" });
     await shopDialog.waitFor();
     await account.page.waitForTimeout(250);
@@ -643,7 +610,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(geometry.boardPaint.fontSize).toBe(geometry.labelPaint.fontSize);
     expect(geometry.boardPaint.fontWeight).toBe(geometry.labelPaint.fontWeight);
     expect(geometry.boardPaint.lineHeight).toBe(geometry.labelPaint.lineHeight);
-    expect(geometry.boardPaint.opacity).toBe(geometry.labelPaint.opacity);
+    expect(geometry.boardPaint.opacity).toBe("1");
     expect(geometry.scorePaint).toEqual(geometry.labelPaint);
 
     await capture(account.page, "visual-1280-desktop.png");
@@ -657,8 +624,8 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
         [BASEBALL_RPC.progress]: progress(),
         [BASEBALL_RPC.leaderboard]: leaderboard(),
         [BASEBALL_RPC.plateAppearance]: {
-          awardedGold: 1,
-          progress: progress({ gold: 1, revision: 1 }),
+          awardedGold: 3,
+          progress: progress({ gold: 3, revision: 1 }),
         },
       },
       { height: 800, width: 1280 },
@@ -830,6 +797,9 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(descent.y).toBeGreaterThan(midflight.y + 20);
     const plateAppearance = await account.gateway.waitForRequest(BASEBALL_RPC.plateAppearance);
     expect(plateAppearance.params).toMatchObject({ outcome: "hit" });
-    await expect.poll(() => game.getByText("골드 1", { exact: true }).isVisible()).toBe(true);
+    await expect
+      .poll(() => game.getByText("직전 보상 +3G", { exact: true }).isVisible())
+      .toBe(true);
+    await expect.poll(() => game.getByText("골드 3", { exact: true }).isVisible()).toBe(true);
   });
 });

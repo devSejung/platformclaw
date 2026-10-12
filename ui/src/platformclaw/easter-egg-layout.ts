@@ -1,5 +1,21 @@
 import { BASEBALL_WORLD, type BaseballPoint } from "./easter-egg-simulation.ts";
 
+export function cacheBaseballFieldElements(host: HTMLElement) {
+  const find = (part: string) =>
+    host.querySelector<HTMLElement>(`.platformclaw-easter-egg__${part}`);
+  return {
+    arena: find("arena"),
+    player: find("player"),
+    score: find("score"),
+    pitcher: find("target"),
+    outfielder: find("outfielder"),
+    fence: find("fence"),
+    leaderboard: find("leaderboards"),
+    projectile: find("projectile"),
+    trails: Array.from(host.querySelectorAll<HTMLElement>(".platformclaw-easter-egg__trail-dot")),
+  };
+}
+
 const BASELINE_OFFSET_PX = 138;
 
 type BaseballFieldLayout = {
@@ -51,12 +67,16 @@ export function resolveBaseballFieldLayout(
   const accessoryBounds = quickActions
     ?.closest<HTMLElement>(".sidebar-account-footer__accessory")
     ?.getBoundingClientRect();
+  const accessoryTop =
+    accessoryBounds && accessoryBounds.width > 0 && accessoryBounds.height > 0
+      ? accessoryBounds.top
+      : height;
   const originX = clamp(contentLeft * (58 / 258), 48, 58);
   const scale = Math.max(2.4, (width - originX - 24) / (BASEBALL_WORLD.fenceX + 4));
   const pitcherX = contentLeft > 0 ? contentLeft - 38 : originX + 92;
   return {
     originX,
-    groundY: Math.min(height - BASELINE_OFFSET_PX, (accessoryBounds?.top ?? height) - 8),
+    groundY: Math.min(height - BASELINE_OFFSET_PX, accessoryTop - 8),
     height,
     pitchScale: (pitcherX - originX) / BASEBALL_WORLD.pitcherX,
     scale,
