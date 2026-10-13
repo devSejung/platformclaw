@@ -124,6 +124,41 @@ describe("opt-in durable arrival ordering", () => {
     },
   );
 
+  it.each([
+    ["1.0", 2],
+    [String(Number.MAX_SAFE_INTEGER - 1), Number.MAX_SAFE_INTEGER],
+  ])("preserves integral JSON sequence %s through the safe-integer boundary", async (raw, next) => {
+    const stateDir = tempDirs.make("ingress-sequence-boundary-");
+    const queue = queueAt(stateDir);
+    await queue.enqueue("prior", "prior", options);
+    const { db } = openOpenClawStateDatabase({
+      env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+    });
+    const kysely = getNodeSqliteKysely<Pick<DB, "channel_ingress_events">>(db);
+    executeSqliteQuerySync(
+      db,
+      kysely
+        .updateTable("channel_ingress_events")
+        .set({ metadata_json: `{"__openclawIngress":{"sequence":${raw}}}` })
+        .where("event_id", "=", "prior"),
+    );
+    const admitted = await queue.enqueue("next", "next", options);
+    expect(admitted.record).toMatchObject({ metadata: { __openclawIngress: { sequence: next } } });
+    expect((await queue.listPending({ orderBy: "admission" })).map((row) => row.id)).toEqual([
+      "prior",
+      "next",
+    ]);
+    if (next === Number.MAX_SAFE_INTEGER) {
+      await expect(queue.enqueue("overflow", "overflow", options)).rejects.toThrow(
+        "Ingress admission sequence exhausted",
+      );
+      expect((await queue.listPending({ orderBy: "admission" })).map((row) => row.id)).toEqual([
+        "prior",
+        "next",
+      ]);
+    }
+  });
+
   it("uses the same guarded order before pagination and claim scan limits", async () => {
     const stateDir = tempDirs.make("ingress-cursor-");
     const queue = queueAt(stateDir);

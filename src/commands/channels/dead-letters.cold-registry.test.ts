@@ -4,12 +4,14 @@ import path from "node:path";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createChannelIngressQueue } from "../../channels/message/ingress-queue.js";
+import { importBundledChannelContractArtifact } from "../../channels/plugins/contracts/test-helpers/runtime-artifacts.js";
 import { getChannelPlugin, getLoadedChannelPlugin } from "../../channels/plugins/index.js";
 import type { ChannelPlugin } from "../../channels/plugins/types.plugin.js";
 import { registerChannelsCli } from "../../cli/channels-cli.js";
 import { resolveCliCommandPathPolicy } from "../../cli/command-path-policy.js";
 import { getActivePluginRegistry, setActivePluginRegistry } from "../../plugins/runtime.js";
-import type { OpenClawPluginApi } from "../../plugins/types.js";
+import * as pluginRuntimeBoundary from "../../plugins/runtime/runtime-plugin-boundary.js";
+import type { OpenClawPluginApi, OpenClawPluginDefinition } from "../../plugins/types.js";
 import { defaultRuntime } from "../../runtime.js";
 import * as stateDatabase from "../../state/openclaw-state-db.js";
 import { createTestRegistry } from "../../test-utils/channel-plugins.js";
@@ -179,13 +181,25 @@ describe("dead-letter CLI actual channel registration", () => {
           expect(policy.pluginRegistry.scope).toBe("configured-channels");
           expect(getLoadedChannelPlugin("knox")).toBeUndefined();
           if (mode === "real entry registration") {
-            const { default: entry } = await inPhase(
-              trace,
-              "registry:entry-import",
-              () => import("../../../extensions/knox/index.js"),
+            const resolveArtifact = vi.spyOn(
+              pluginRuntimeBoundary,
+              "resolvePluginRuntimeModulePath",
             );
+            const { default: entry } = await inPhase(trace, "registry:entry-import", () =>
+              importBundledChannelContractArtifact<{ default: OpenClawPluginDefinition }>(
+                "knox",
+                "index.js",
+              ),
+            );
+            expect(resolveArtifact).toHaveReturnedWith(
+              path.resolve(import.meta.dirname, "../../../extensions/knox/index.ts"),
+            );
+            const register = entry.register;
+            if (!register) {
+              throw new Error("Knox plugin entry registration is missing");
+            }
             await inPhase(trace, "registry:entry-register", () =>
-              entry.register({
+              register({
                 registrationMode: "discovery",
                 runtime: { config: { current: () => ({}) } },
                 registerChannel: ({ plugin }: { plugin: ChannelPlugin }) => {

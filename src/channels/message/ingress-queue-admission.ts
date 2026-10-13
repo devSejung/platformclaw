@@ -1,19 +1,55 @@
 import type { DatabaseSync } from "node:sqlite";
-import { sql } from "kysely";
+import { expressionBuilder } from "kysely";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
 import type { DB } from "../../state/openclaw-state-db.generated.js";
 
 // Core-reserved metadata; opt-in queues keep their other metadata fields intact.
 const ADMISSION_PATH = "$.__openclawIngress.sequence";
-export const ingressAdmissionSequenceSql = sql<number>`case
-  when json_valid(metadata_json) then case
-    when json_type(metadata_json, ${ADMISSION_PATH}) in ('integer', 'real')
-      and json_extract(metadata_json, ${ADMISSION_PATH}) between 1 and ${Number.MAX_SAFE_INTEGER}
-      and json_extract(metadata_json, ${ADMISSION_PATH}) = cast(json_extract(metadata_json, ${ADMISSION_PATH}) as integer)
-    then json_extract(metadata_json, ${ADMISSION_PATH}) else 0 end
-  else 0 end`;
-export const ingressAdmissionLegacyTimeSql = sql<number>`case
-  when ${ingressAdmissionSequenceSql} = 0 then received_at else 0 end`;
+const admissionExpression = expressionBuilder<
+  Pick<DB, "channel_ingress_events">,
+  "channel_ingress_events"
+>();
+const metadataSequence = admissionExpression.fn<number | null>("json_extract", [
+  "metadata_json",
+  admissionExpression.val(ADMISSION_PATH),
+]);
+export const ingressAdmissionSequenceSql = admissionExpression
+  .case()
+  .when(admissionExpression.fn<number>("json_valid", ["metadata_json"]), "=", 1)
+  .then(
+    admissionExpression
+      .case()
+      .when(
+        admissionExpression.and([
+          admissionExpression(
+            admissionExpression.fn<string | null>("json_type", [
+              "metadata_json",
+              admissionExpression.val(ADMISSION_PATH),
+            ]),
+            "in",
+            ["integer", "real"],
+          ),
+          admissionExpression(metadataSequence, ">=", 1),
+          admissionExpression(metadataSequence, "<=", Number.MAX_SAFE_INTEGER),
+          admissionExpression(
+            metadataSequence,
+            "=",
+            admissionExpression.cast<number>(metadataSequence, "integer"),
+          ),
+        ]),
+      )
+      .then(metadataSequence.$notNull())
+      .else(0)
+      .end(),
+  )
+  .else(0)
+  .end();
+export const ingressAdmissionLegacyTimeSql = admissionExpression
+  .case()
+  .when(ingressAdmissionSequenceSql, "=", 0)
+  .then(admissionExpression.ref("received_at"))
+  .else(0)
+  .end();
 
 export function readIngressAdmissionAheadCount(metadata: unknown): number | undefined {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
@@ -65,7 +101,9 @@ export function prepareIngressAdmission(params: {
       db,
       kysely
         .selectFrom("channel_ingress_events")
-        .select(sql<number>`coalesce(max(${ingressAdmissionSequenceSql}), 0)`.as("sequence"))
+        .select((eb) =>
+          eb.fn.coalesce(eb.fn.max(ingressAdmissionSequenceSql), eb.val(0)).as("sequence"),
+        )
         .where("queue_name", "=", queueName)
         .where("status", "in", ["pending", "claimed", "failed"]),
     ).rows[0]?.sequence ?? 0;

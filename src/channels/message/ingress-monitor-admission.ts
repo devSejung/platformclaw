@@ -13,7 +13,7 @@ export function ensureIngressQueueAvailable(getQueue: () => unknown): void {
 }
 
 /** Admission and claiming share one FIFO lock; append retry order stays in the monitor. */
-export function createIngressAdmissionClaimLock() {
+function createIngressAdmissionClaimLock() {
   let locked = false;
   const waiters: Array<() => void> = [];
   return <T>(task: () => Promise<T>): Promise<T> => {

@@ -5,7 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { sql, type Selectable } from "kysely";
+import type { Selectable } from "kysely";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
@@ -715,16 +715,15 @@ export function createChannelIngressQueue<
       let pageQuery = kysely
         .selectFrom("channel_ingress_events")
         .selectAll()
-        .select(
-          (listOptions?.orderBy === "admission" ? ingressAdmissionSequenceSql : sql<number>`0`).as(
+        .select((eb) =>
+          (listOptions?.orderBy === "admission" ? ingressAdmissionSequenceSql : eb.val(0)).as(
             "admission_sequence",
           ),
         )
-        .select(
-          (listOptions?.orderBy === "admission"
-            ? ingressAdmissionLegacyTimeSql
-            : sql<number>`0`
-          ).as("admission_legacy_time"),
+        .select((eb) =>
+          (listOptions?.orderBy === "admission" ? ingressAdmissionLegacyTimeSql : eb.val(0)).as(
+            "admission_legacy_time",
+          ),
         )
         .where("queue_name", "=", queueName)
         .where("status", "=", "pending");

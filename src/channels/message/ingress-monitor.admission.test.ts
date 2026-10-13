@@ -4,13 +4,13 @@ import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js"
 import type { TurnAdoptionLifecycle } from "../../auto-reply/get-reply-options.types.js";
 import { completeFollowupRunLifecycle } from "../../auto-reply/reply/queue/types.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { resolveBundledFacadeModuleLocation } from "../../plugin-sdk/facade-resolution-shared.js";
 import { withPluginHttpRouteRegistry } from "../../plugins/http-registry.js";
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
+import * as pluginRuntimeBoundary from "../../plugins/runtime/runtime-plugin-boundary.js";
 import type { PluginRuntime } from "../../plugins/runtime/types.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
-import { loadBundledPluginPublicSurface } from "../../test-utils/bundled-plugin-public-surface.js";
 import { buildChannelInboundEventContext } from "../inbound-event/context.js";
+import { importBundledChannelContractArtifact } from "../plugins/contracts/test-helpers/runtime-artifacts.js";
 import type { ChannelPlugin } from "../plugins/types.js";
 import type { ChannelInboundTurnPlan } from "./inbound-reply-dispatch.js";
 import { createChannelIngressMonitor } from "./ingress-monitor.js";
@@ -114,21 +114,14 @@ describe("sequenced admission notification", () => {
   it("retries an abandoned Knox followup without sending a contradictory terminal error", async () => {
     const sourceRoot = fileURLToPath(new URL("../../../extensions", import.meta.url));
     vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", sourceRoot);
-    expect(
-      resolveBundledFacadeModuleLocation({
-        currentModulePath: fileURLToPath(
-          new URL("../../plugin-sdk/facade-loader.ts", import.meta.url),
-        ),
-        packageRoot: fileURLToPath(new URL("../../../", import.meta.url)),
-        bundledPluginsDir: sourceRoot,
-        dirName: "knox",
-        artifactBasename: "api.js",
-      })?.modulePath,
-    ).toBe(fileURLToPath(new URL("../../../extensions/knox/api.ts", import.meta.url)));
-    const { knoxPlugin, setKnoxRuntime } = await loadBundledPluginPublicSurface<{
+    const resolveArtifact = vi.spyOn(pluginRuntimeBoundary, "resolvePluginRuntimeModulePath");
+    const { knoxPlugin, setKnoxRuntime } = await importBundledChannelContractArtifact<{
       knoxPlugin: ChannelPlugin;
       setKnoxRuntime: (runtime: PluginRuntime) => void;
-    }>({ pluginId: "knox", artifactBasename: "api.js" });
+    }>("knox", "api.js");
+    expect(resolveArtifact).toHaveReturnedWith(
+      fileURLToPath(new URL("../../../extensions/knox/api.ts", import.meta.url)),
+    );
     const startAccount = knoxPlugin.gateway?.startAccount;
     if (!startAccount) {
       throw new Error("Knox gateway surface is missing");
