@@ -131,6 +131,7 @@ async function runCliProcess(params: {
   forbidTlsImport?: boolean;
   keepAlive?: boolean;
   dropDrainCallbacks?: boolean;
+  diagnoseExit?: boolean;
   failRunMainImport?: boolean;
   unsupportedRuntime?: boolean;
   allowRespawn?: boolean;
@@ -144,6 +145,51 @@ async function runCliProcess(params: {
     params.loggingViaInclude,
     params.loggingViaRootInclude,
   );
+  const exitDiagnosticPath = path.join(fixture.root, "exit-diagnostic.mjs");
+  if (params.diagnoseExit) {
+    // Synchronous JSONL markers observe shutdown without keeping the child alive.
+    await fs.writeFile(
+      exitDiagnosticPath,
+      `import { writeSync } from "node:fs";
+const mark = (event) => {
+  try {
+    writeSync(2, JSON.stringify({
+      cliExitDiagnostic: event,
+      resourceTypes: process.getActiveResourcesInfo(),
+    }) + "\\n");
+  } catch {
+    // Observing a closed stderr must not change the original shutdown behavior.
+  }
+};
+for (const name of ["stdout", "stderr"]) {
+  const stream = process[name];
+  const write = stream.write;
+  stream.write = function(chunk, ...args) {
+    if (chunk === "") {
+      mark(name + ".empty-write");
+      const index = args.length - 1;
+      const callback = args[index];
+      if (typeof callback === "function") {
+        args[index] = function(...callbackArgs) {
+          mark(name + ".empty-callback");
+          return Reflect.apply(callback, this, callbackArgs);
+        };
+      }
+    }
+    return Reflect.apply(write, this, [chunk, ...args]);
+  };
+}
+const exit = process.exit;
+process.exit = function(...args) {
+  mark("process.exit");
+  return Reflect.apply(exit, this, args);
+};
+process.on("beforeExit", () => mark("beforeExit"));
+process.on("exit", () => mark("exit"));
+mark("preload");
+`,
+    );
+  }
   if (params.dropDrainCallbacks) {
     await fs.appendFile(
       fixture.keepAlivePath,
@@ -166,6 +212,7 @@ async function runCliProcess(params: {
   const child = spawn(
     process.execPath,
     [
+      ...(params.diagnoseExit ? ["--import", pathToFileURL(exitDiagnosticPath).href] : []),
       ...(params.forbidTlsImport
         ? ["--import", pathToFileURL(fixture.tlsImportGuardPath).href]
         : []),
@@ -296,6 +343,7 @@ describe("CLI help process exit", () => {
   });
   it("flushes explicitly requested entry traces on gateway help", async () => {
     const result = await runCliProcess({
+      diagnoseExit: true,
       args: ["gateway", "--help"],
       config: { logging: { consoleStyle: "json", level: "silent" } },
       env: { OPENCLAW_GATEWAY_STARTUP_TRACE: "1" },
