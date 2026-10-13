@@ -397,7 +397,7 @@ reporter metadata. The file is a bounded regular JSON secret with this shape:
   "components": ["PlatformClaw"],
   "coworkerField": "customfield_12345",
   "defaultCoworkers": ["voc.watcher"],
-  "authorization": "<REDACTED_CREDENTIAL_001>"
+  "authorization": "Bearer <deployment-secret>"
 }
 ```
 

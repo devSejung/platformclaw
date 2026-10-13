@@ -1,9 +1,8 @@
 import path from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
-import { configureFsSafeNative } from "@openclaw/fs-safe/config";
-import { FsSafeError } from "@openclaw/fs-safe/errors";
-import { root, type Root } from "@openclaw/fs-safe/root";
 import { MAX_TERMINAL_UPLOAD_BYTES } from "../../../packages/gateway-protocol/src/schema/terminal-constants.js";
+import { requireFsSafeNativeInWorker } from "../../infra/fs-safe-native-worker.js";
+import { FsSafeError, root, type Root } from "../../infra/fs-safe.js";
 import {
   MAX_SESSION_UPLOAD_NAME_BYTES,
   verifySessionUploadFolder,
@@ -25,7 +24,7 @@ let started = false;
 
 // This module is loaded only in a Worker with its own module state and copied
 // environment. Main-process fs-safe policy remains unchanged.
-configureFsSafeNative({ mode: "require" });
+requireFsSafeNativeInWorker();
 
 function report(message: SessionUploadWorkerMessage): void {
   // Node MessagePort is not the browser Window API and has no targetOrigin.

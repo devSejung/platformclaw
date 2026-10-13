@@ -1,8 +1,8 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
-import type { FsSafeErrorCode } from "@openclaw/fs-safe/errors";
 import { MAX_TERMINAL_UPLOAD_BYTES } from "../../../packages/gateway-protocol/src/schema/terminal-constants.js";
+import type { FsSafeErrorCode } from "../../infra/fs-safe.js";
 import type {
   SessionUploadOutcome,
   SessionUploadWorkerMessage,
@@ -49,7 +49,7 @@ function resolveSessionUploadWorkerUrl(): URL {
   );
 }
 
-export type SessionFileUploadLease = {
+type SessionFileUploadLease = {
   run(params: {
     target: SessionUploadWorkerTarget;
     bytes: Uint8Array;
@@ -132,9 +132,8 @@ export function acquireSessionFileUploadLease(): SessionFileUploadLease | undefi
             return;
           }
           try {
-            // Node Worker.postMessage has no browser targetOrigin argument.
-            // oxlint-disable-next-line unicorn/require-post-message-target-origin
-            worker.postMessage({ type: "cancel" } satisfies SessionUploadWorkerRequest);
+            // Node Worker cancellation transfers no ArrayBuffers.
+            worker.postMessage({ type: "cancel" } satisfies SessionUploadWorkerRequest, []);
           } catch {
             /* Worker failure/exit still owns slot release. */
           }

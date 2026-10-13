@@ -10,10 +10,9 @@ import { root } from "@openclaw/fs-safe/root";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_TERMINAL_UPLOAD_BYTES } from "../../../packages/gateway-protocol/src/schema/terminal-constants.js";
 import type { SessionUploadWorkerTarget } from "./sessions-files-upload-target.js";
-import {
-  acquireSessionFileUploadLease,
-  type SessionFileUploadLease,
-} from "./sessions-files-upload-worker.js";
+import { acquireSessionFileUploadLease } from "./sessions-files-upload-worker.js";
+
+type SessionFileUploadLease = NonNullable<ReturnType<typeof acquireSessionFileUploadLease>>;
 
 const hoisted = vi.hoisted(() => ({ createWorker: vi.fn() }));
 vi.mock("node:worker_threads", async () => {
@@ -138,7 +137,7 @@ describe("workspace upload Worker lifecycle", { timeout: 10_000 }, () => {
     const worker = workers[0]!;
     worker.emit("message", { type: "ready" });
     await rejection;
-    expect(worker.postMessage.mock.calls).toEqual([[{ type: "cancel" }]]);
+    expect(worker.postMessage.mock.calls).toEqual([[{ type: "cancel" }, []]]);
   });
 
   it("does not send bytes when the authority callback synchronously aborts", async () => {
@@ -152,7 +151,7 @@ describe("workspace upload Worker lifecycle", { timeout: 10_000 }, () => {
     const worker = workers[0]!;
     worker.emit("message", { type: "ready" });
     await rejection;
-    expect(worker.postMessage.mock.calls).toEqual([[{ type: "cancel" }]]);
+    expect(worker.postMessage.mock.calls).toEqual([[{ type: "cancel" }, []]]);
   });
 
   it.each([false, true])(

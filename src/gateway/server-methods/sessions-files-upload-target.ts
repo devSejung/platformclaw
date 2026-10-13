@@ -1,11 +1,10 @@
-import { FsSafeError, type FsSafeErrorCode } from "@openclaw/fs-safe/errors";
-import type { Root } from "@openclaw/fs-safe/root";
+import { FsSafeError, type FsSafeErrorCode, type Root } from "../../infra/fs-safe.js";
 
 // fs-safe 0.5.3 creates a private temporary basename with 49 extra UTF-8
 // bytes. Leave that room beneath Linux's 255-byte component limit.
 export const MAX_SESSION_UPLOAD_NAME_BYTES = 206;
 
-export type SessionUploadRootIdentity = { rootReal: string; dev: number; ino: number };
+type SessionUploadRootIdentity = { rootReal: string; dev: number; ino: number };
 
 export type SessionUploadWorkerTarget = {
   rootReal: string;
