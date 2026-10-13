@@ -2,7 +2,7 @@ import { waitUntilAbort } from "openclaw/plugin-sdk/channel-outbound";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { registerPluginHttpRoute } from "openclaw/plugin-sdk/webhook-ingress";
 import { resolveKnoxAccount } from "./accounts.js";
-import { dispatchKnoxInbound } from "./inbound.js";
+import { dispatchKnoxInbound, sendKnoxQueuedNotice } from "./inbound.js";
 import { createKnoxIngress } from "./ingress.js";
 import { createKnoxWebhookHandler } from "./webhook-handler.js";
 
@@ -27,6 +27,9 @@ export async function startKnoxGatewayAccount(ctx: {
     accountId: account.accountId,
     abortSignal: ctx.abortSignal,
     log: (message) => ctx.log?.error?.(message),
+    notifyQueued: async (message, context) => {
+      await sendKnoxQueuedNotice({ account, message, ...context });
+    },
     dispatch: async (message, lifecycle) => {
       await dispatchKnoxInbound({ account, message, lifecycle, log: ctx.log });
     },

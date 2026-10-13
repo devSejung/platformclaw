@@ -49,6 +49,48 @@ function isGatewayDrainingError(error: unknown): boolean {
   return false;
 }
 
+/** Best-effort waiting notice; the durable request never waits for this acknowledgement. */
+export async function sendKnoxQueuedNotice(params: {
+  account: ResolvedKnoxAccount;
+  message: KnoxInboundMessage;
+  aheadCount: number;
+  abortSignal: AbortSignal;
+}): Promise<void> {
+  if (params.abortSignal.aborted || params.aheadCount < 1) {
+    return;
+  }
+  const routing = await new KnoxRoutingClient({
+    url: params.account.controlPlaneUrl,
+    token: params.account.serviceToken,
+  }).resolve({
+    accountId: params.account.accountId,
+    conversationType: params.message.conversation.type,
+    conversationId: params.message.conversation.conversationId,
+    knoxUserId: params.message.sender.knoxUserId,
+  });
+  // Dispatch/stop can win while the control-plane lookup is pending.
+  if (params.abortSignal.aborted || routing.status !== "resolved") {
+    return;
+  }
+  await sendKnoxOutbound({
+    context: {
+      account: params.account,
+      inbound: params.message,
+      agentId: routing.agentId,
+      sessionKey: routing.sessionKey,
+      runId: `knox:${params.message.messageId}`,
+      ...(params.message.conversation.type === "dm"
+        ? { executionTarget: requireDmExecutionTarget(routing.executionTarget) }
+        : {}),
+    },
+    status: "progress",
+    final: false,
+    text: `앞선 요청 ${params.aheadCount}건 처리 후 이어서 진행합니다.`,
+    requestId: `queued:${params.message.messageId}`,
+    abortSignal: params.abortSignal,
+  });
+}
+
 export async function dispatchKnoxInbound(params: {
   account: ResolvedKnoxAccount;
   message: KnoxInboundMessage;
@@ -161,30 +203,63 @@ export async function dispatchKnoxInbound(params: {
   let finalOrdinal = 0;
   let turnFinished = false;
   let progressTask: Promise<void> | undefined;
-  const progressTimer = setTimeout(() => {
-    if (turnFinished) {
+  let progressTimer: ReturnType<typeof setTimeout> | undefined;
+  let adopted = false;
+  let deferred = false;
+  let abandoned = false;
+  let settleDeferredTurn = () => {};
+  const deferredTurn = new Promise<void>((resolve) => {
+    settleDeferredTurn = resolve;
+  });
+  const abandonDeferredWait = () => settleDeferredTurn();
+  params.lifecycle.abortSignal.addEventListener("abort", abandonDeferredWait, { once: true });
+  const startProgressTimer = () => {
+    // Waiting and processing are distinct phases; adoption starts this delay.
+    if (adopted || turnFinished || params.lifecycle.abortSignal.aborted) {
       return;
     }
-    progressTask = sendKnoxOutbound({
-      context: outboundContext,
-      status: "progress",
-      text: "Processing your request...",
-      final: false,
-      requestId: `progress:${params.message.messageId}`,
-    })
-      .then(() => undefined)
-      .catch((error: unknown) =>
-        params.log?.warn?.(`Knox progress delivery failed: ${String(error)}`),
-      );
-  }, params.account.progressDelayMs);
-  progressTimer.unref?.();
+    adopted = true;
+    progressTimer = setTimeout(() => {
+      if (turnFinished || params.lifecycle.abortSignal.aborted) {
+        return;
+      }
+      progressTask = sendKnoxOutbound({
+        context: outboundContext,
+        status: "progress",
+        text: "요청을 처리 중입니다.",
+        final: false,
+        requestId: `progress:${params.message.messageId}`,
+      })
+        .then(() => undefined)
+        .catch((error: unknown) =>
+          params.log?.warn?.(`Knox progress delivery failed: ${String(error)}`),
+        );
+    }, params.account.progressDelayMs);
+    progressTimer.unref?.();
+  };
 
   try {
-    await runtime.channel.inbound.run({
+    const turnAdoptionLifecycle: KnoxIngressLifecycle & { onSettled: () => void } = {
+      ...params.lifecycle,
+      onAdopted: async () => {
+        await params.lifecycle.onAdopted();
+        startProgressTimer();
+      },
+      onDeferred: () => {
+        deferred = true;
+        params.lifecycle.onDeferred();
+      },
+      onAbandoned: () => {
+        abandoned = true;
+        return params.lifecycle.onAbandoned();
+      },
+      onSettled: settleDeferredTurn,
+    };
+    const result = await runtime.channel.inbound.run({
       channel: "knox",
       accountId: params.account.accountId,
       raw: params.message,
-      turnAdoptionLifecycle: params.lifecycle,
+      turnAdoptionLifecycle,
       adapter: {
         ingest: (message) => ({
           id: message.eventId,
@@ -229,6 +304,17 @@ export async function dispatchKnoxInbound(params: {
         }),
       },
     });
+    // Followup dispatch returns at enqueue; its lifecycle ends after delivery or abandonment.
+    if (deferred && !params.lifecycle.abortSignal.aborted) {
+      await deferredTurn;
+    }
+    if (
+      abandoned ||
+      !result.dispatched ||
+      result.dispatchResult.noVisibleReplyFallbackEligible !== true
+    ) {
+      return;
+    }
   } catch (error) {
     turnFinished = true;
     clearTimeout(progressTimer);
@@ -255,11 +341,13 @@ export async function dispatchKnoxInbound(params: {
     });
     return;
   } finally {
+    params.lifecycle.abortSignal.removeEventListener("abort", abandonDeferredWait);
     turnFinished = true;
     clearTimeout(progressTimer);
+    // Keep the ingress lane until any started progress delivery has also settled.
+    await progressTask;
   }
   if (!finalSent) {
-    await progressTask;
     await sendKnoxOutbound({
       context: outboundContext,
       status: "error",

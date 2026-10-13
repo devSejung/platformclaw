@@ -67,6 +67,12 @@ function installRuntime(run: ReturnType<typeof vi.fn>) {
   return { buildContext, run };
 }
 
+const emptyResult = {
+  admission: { kind: "dispatch" },
+  dispatched: true,
+  dispatchResult: { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } },
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   resolveRouting.mockResolvedValue({
@@ -84,7 +90,7 @@ describe("dispatchKnoxInbound", () => {
       ...message,
       message: { type: "text", text: "Knox envelope\n@PlatformClaw /compact\n" },
     };
-    const runtime = installRuntime(vi.fn().mockResolvedValue(undefined));
+    const runtime = installRuntime(vi.fn().mockResolvedValue(emptyResult));
 
     await dispatchKnoxInbound({ account, message: commandMessage, lifecycle });
 
@@ -106,7 +112,7 @@ describe("dispatchKnoxInbound", () => {
   });
 
   it("grants owner authority to linked DMs and every isolated-room participant", async () => {
-    const dmRuntime = installRuntime(vi.fn().mockResolvedValue(undefined));
+    const dmRuntime = installRuntime(vi.fn().mockResolvedValue(emptyResult));
     await dispatchKnoxInbound({ account, message, lifecycle });
 
     expect(dmRuntime.buildContext).toHaveBeenCalledWith(
@@ -118,7 +124,7 @@ describe("dispatchKnoxInbound", () => {
       }),
     );
 
-    const roomRuntime = installRuntime(vi.fn().mockResolvedValue(undefined));
+    const roomRuntime = installRuntime(vi.fn().mockResolvedValue(emptyResult));
     const roomMessage: KnoxInboundMessage = {
       ...message,
       conversation: {

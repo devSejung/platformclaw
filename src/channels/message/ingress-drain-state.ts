@@ -27,6 +27,7 @@ export type ActiveHandlerState<TPayload, TMetadata> = {
   startedAt: number;
   phase: "dispatching" | "deferred" | "adopted" | "settled";
   occupiesLane: boolean;
+  deliverySettled: boolean;
   task: Promise<void>;
   stallTimer?: ReturnType<typeof setTimeout>;
   claimRefreshTimer?: ReturnType<typeof setInterval>;
@@ -42,6 +43,38 @@ export function activeClaimKey<TPayload, TMetadata>(
   claim: ChannelIngressQueueClaim<TPayload, TMetadata>,
 ): string {
   return `${claim.id}\0${claim.claim.token}`;
+}
+
+export function clearIngressStallTimer<TPayload, TMetadata>(
+  state: ActiveHandlerState<TPayload, TMetadata>,
+): void {
+  if (state.stallTimer) {
+    clearTimeout(state.stallTimer);
+    state.stallTimer = undefined;
+  }
+}
+
+export function clearIngressClaimRefresh<TPayload, TMetadata>(
+  state: ActiveHandlerState<TPayload, TMetadata>,
+): void {
+  if (state.claimRefreshTimer) {
+    clearInterval(state.claimRefreshTimer);
+    state.claimRefreshTimer = undefined;
+  }
+}
+
+export function removeActiveIngressHandler<TPayload, TMetadata>(
+  state: ActiveHandlerState<TPayload, TMetadata>,
+  activeByClaim: Map<string, ActiveHandlerState<TPayload, TMetadata>>,
+  laneOwnerByKey: Map<string, ActiveHandlerState<TPayload, TMetadata>>,
+): void {
+  clearIngressStallTimer(state);
+  clearIngressClaimRefresh(state);
+  activeByClaim.delete(activeClaimKey(state.claim));
+  if (laneOwnerByKey.get(state.laneKey) === state) {
+    laneOwnerByKey.delete(state.laneKey);
+  }
+  state.occupiesLane = false;
 }
 
 export function resolveLaneKey<TPayload, TMetadata>(

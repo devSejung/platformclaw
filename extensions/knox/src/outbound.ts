@@ -35,6 +35,7 @@ export async function sendKnoxOutbound(params: {
   final: boolean;
   requestId?: string;
   fetchImpl?: typeof globalThis.fetch;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   if (!params.text.trim()) {
     throw new KnoxOutboundError("Knox outbound text is empty", false);
@@ -52,7 +53,9 @@ export async function sendKnoxOutbound(params: {
         Authorization: `Bearer ${account.serviceToken}`,
         "Content-Type": "application/json",
       },
-      signal: AbortSignal.timeout(10_000),
+      signal: params.abortSignal
+        ? AbortSignal.any([params.abortSignal, AbortSignal.timeout(10_000)])
+        : AbortSignal.timeout(10_000),
       body: JSON.stringify({
         messageId: inbound.messageId,
         conversationId: inbound.conversation.conversationId,

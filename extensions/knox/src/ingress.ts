@@ -23,6 +23,10 @@ export function createKnoxIngress(options: {
   accountId: string;
   queue?: ChannelIngressQueue<StoredKnoxIngress>;
   dispatch: (message: KnoxInboundMessage, lifecycle: KnoxIngressLifecycle) => Promise<void>;
+  notifyQueued?: (
+    message: KnoxInboundMessage,
+    context: { aheadCount: number; abortSignal: AbortSignal },
+  ) => Promise<void>;
   log?: (message: string) => void;
   abortSignal?: AbortSignal;
 }) {
@@ -44,6 +48,7 @@ export function createKnoxIngress(options: {
       (() =>
         getKnoxRuntime().state.openChannelIngressQueue<StoredKnoxIngress>({
           accountId: options.accountId,
+          sequencedAdmission: true,
         })),
     inspect,
     payload: {
@@ -75,9 +80,32 @@ export function createKnoxIngress(options: {
     deliver: async (message, lifecycle) =>
       await runDetachedWebhookWork(async () => await options.dispatch(message, lifecycle)),
     pollIntervalMs: 500,
+    sequencedAdmission: true,
+    onQueued: options.notifyQueued
+      ? async (message, context) => {
+          if (
+            resolveKnoxCommandText(message.message.text).trim().split(/\s+/u)[0]?.toLowerCase() ===
+            "/stop"
+          ) {
+            return;
+          }
+          await runDetachedWebhookWork(async () => {
+            try {
+              if (!context.abortSignal.aborted) {
+                await options.notifyQueued?.(message, context);
+              }
+            } catch (error) {
+              if (!context.abortSignal.aborted) {
+                throw error;
+              }
+            }
+          });
+        }
+      : undefined,
     retention: "standard",
     drain: {
-      orderBy: "received",
+      orderBy: "admission",
+      adoptedLaneOccupancy: "hold",
       startLimit: 8,
       resolveNonRetryableFailure: (error) =>
         error instanceof KnoxIngressPermanentError

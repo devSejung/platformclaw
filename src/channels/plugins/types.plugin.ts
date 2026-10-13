@@ -61,6 +61,10 @@ export type ChannelPlugin<ResolvedAccount = any, Probe = unknown, Audit = unknow
   id: ChannelId;
   meta: ChannelMeta;
   capabilities: ChannelCapabilities;
+  /** Durable transport queue policy, shared by ingress and operator recovery. */
+  ingressQueue?: {
+    orderBy: "received" | "id" | "admission";
+  };
   defaults?: {
     queue?: {
       debounceMs?: number;
