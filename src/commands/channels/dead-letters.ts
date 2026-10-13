@@ -2,6 +2,7 @@
 import { sanitizeTerminalText } from "../../../packages/terminal-core/src/safe-text.js";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { createChannelIngressQueue } from "../../channels/message/ingress-queue.js";
+import { getChannelPlugin } from "../../channels/plugins/index.js";
 import { formatDurationHuman } from "../../infra/format-time/format-duration.js";
 import { parseStrictPositiveInteger } from "../../infra/parse-finite-number.js";
 import { defaultRuntime, type RuntimeEnv, writeRuntimeJson } from "../../runtime.js";
@@ -65,7 +66,12 @@ export async function channelsDeadLettersResubmitCommand(
   runtime: RuntimeEnv = defaultRuntime,
 ): Promise<void> {
   const { channelId, accountId } = resolveScope(options);
-  const queue = createChannelIngressQueue({ channelId, accountId });
+  const queue = createChannelIngressQueue({
+    channelId,
+    accountId,
+    // Use the selected channel's policy even though this opener bypasses ingress.
+    sequencedAdmission: getChannelPlugin(channelId)?.ingressQueue?.orderBy === "admission",
+  });
   if (!queue.resubmit) {
     throw new Error("This runtime does not support channel ingress dead-letter resubmission.");
   }

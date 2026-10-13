@@ -114,6 +114,7 @@ const messageAdapter = defineChannelMessageAdapter({
 export const knoxPlugin: ChannelPlugin<ResolvedKnoxAccount> = createChatChannelPlugin({
   base: {
     id: CHANNEL_ID,
+    ingressQueue: { orderBy: "admission" },
     meta: {
       id: CHANNEL_ID,
       label: "Knox Teams",

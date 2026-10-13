@@ -5,7 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { Selectable } from "kysely";
+import { sql, type Selectable } from "kysely";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
@@ -19,6 +19,13 @@ import {
   openOpenClawStateDatabase,
   runOpenClawStateWriteTransaction,
 } from "../../state/openclaw-state-db.js";
+import {
+  ingressAdmissionLegacyTimeSql,
+  ingressAdmissionSequenceSql,
+  prepareIngressAdmission,
+  readIngressAdmissionAheadCount,
+  readIngressUserMetadata,
+} from "./ingress-queue-admission.js";
 
 /** Pending or retryable inbound channel event stored in the durable ingress queue. */
 export type ChannelIngressQueueRecord<TPayload, TMetadata = unknown> = {
@@ -31,6 +38,8 @@ export type ChannelIngressQueueRecord<TPayload, TMetadata = unknown> = {
   receivedAt: number;
   updatedAt: number;
   laneKey?: string;
+  /** Commit-time count for opt-in sequenced admission, including active delivery. */
+  admissionAheadCount?: number;
   attempts: number;
   lastAttemptAt?: number;
   lastError?: string;
@@ -185,11 +194,13 @@ export type ChannelIngressQueue<TPayload, TMetadata = unknown, TCompletedMetadat
       metadata?: TMetadata;
       receivedAt?: number;
       laneKey?: string;
+      /** Opt in to persistent arrival order for this enqueue. */
+      admission?: { activeEventIds?: Iterable<string> };
     },
   ): Promise<ChannelIngressQueueEnqueueResult<TPayload, TMetadata, TCompletedMetadata>>;
   listPending(options?: {
     limit?: number | "all";
-    orderBy?: "received" | "id";
+    orderBy?: "received" | "id" | "admission";
   }): Promise<Array<ChannelIngressQueueRecord<TPayload, TMetadata>>>;
   listClaims(): Promise<Array<ChannelIngressQueueClaim<TPayload, TMetadata>>>;
   /** Additive SDK seam; optional so existing external queue test doubles remain compatible. */
@@ -200,7 +211,7 @@ export type ChannelIngressQueue<TPayload, TMetadata = unknown, TCompletedMetadat
     ownerId?: string;
     blockedLaneKeys?: Iterable<string>;
     staleMs?: number;
-    orderBy?: "received" | "id";
+    orderBy?: "received" | "id" | "admission";
     scanLimit?: number;
     candidateIds?: Iterable<string>;
     deriveLaneKey?: (record: ChannelIngressQueueRecord<TPayload, TMetadata>) => string | undefined;
@@ -259,6 +270,8 @@ export type CreateChannelIngressQueueOptions = {
   accountId?: string;
   stateDir?: string;
   now?: () => number;
+  /** Opt in at the queue boundary, including legacy failed-event resubmission. */
+  sequencedAdmission?: boolean;
 };
 
 type ChannelIngressDatabase = Pick<OpenClawStateKyselyDatabase, "channel_ingress_events">;
@@ -325,7 +338,12 @@ function baseRecord<TPayload, TMetadata>(
     accountId: row.account_id,
     queueName: row.queue_name,
     payload: payloadResult.value as TPayload,
-    ...(metaResult === null || !metaResult.ok ? {} : { metadata: metaResult.value as TMetadata }),
+    ...(metaResult === null || !metaResult.ok
+      ? {}
+      : { metadata: readIngressUserMetadata(metaResult.value) as TMetadata }),
+    ...(metaResult?.ok && readIngressAdmissionAheadCount(metaResult.value) !== undefined
+      ? { admissionAheadCount: readIngressAdmissionAheadCount(metaResult.value) }
+      : {}),
     receivedAt: row.received_at,
     updatedAt: row.updated_at,
     ...(row.lane_key === null ? {} : { laneKey: row.lane_key }),
@@ -399,7 +417,9 @@ function failedRecord<TPayload, TMetadata>(
     ...(payloadResult.ok && row.payload_json !== "null"
       ? { payload: payloadResult.value as TPayload }
       : {}),
-    ...(metadataResult?.ok ? { metadata: metadataResult.value as TMetadata } : {}),
+    ...(metadataResult?.ok
+      ? { metadata: readIngressUserMetadata(metadataResult.value) as TMetadata }
+      : {}),
     receivedAt: row.received_at,
     updatedAt: row.updated_at,
     ...(row.lane_key === null ? {} : { laneKey: row.lane_key }),
@@ -591,6 +611,18 @@ export function createChannelIngressQueue<
     return runOpenClawStateWriteTransaction(
       (tx) => {
         const kysely = getChannelIngressKysely(tx.db);
+        const admission =
+          (options.sequencedAdmission || enqueueOptions?.admission) &&
+          !selectRow(tx.db, queueName, eventId)
+            ? prepareIngressAdmission({
+                db: tx.db,
+                queueName,
+                eventId,
+                laneKey: enqueueOptions?.laneKey,
+                metadata: enqueueOptions?.metadata,
+                activeEventIds: enqueueOptions?.admission?.activeEventIds,
+              })
+            : undefined;
         const insert = executeSqliteQuerySync(
           tx.db,
           kysely
@@ -604,9 +636,10 @@ export function createChannelIngressQueue<
               lane_key: enqueueOptions?.laneKey ?? null,
               payload_json: JSON.stringify(payload),
               metadata_json:
-                enqueueOptions?.metadata === undefined
+                admission?.metadataJson ??
+                (enqueueOptions?.metadata === undefined
                   ? null
-                  : JSON.stringify(enqueueOptions.metadata),
+                  : JSON.stringify(enqueueOptions.metadata)),
               received_at: receivedAt,
               updated_at: updatedAt,
               attempts: 0,
@@ -675,11 +708,24 @@ export function createChannelIngressQueue<
     const kysely = getChannelIngressKysely(db);
     const limit = normalizeLimit(listOptions?.limit);
     const records: Array<ChannelIngressQueueRecord<TPayload, TMetadata>> = [];
-    let lastRow: ChannelIngressRow | undefined;
+    let lastRow:
+      | (ChannelIngressRow & { admission_sequence: number; admission_legacy_time: number })
+      | undefined;
     while (records.length < limit) {
       let pageQuery = kysely
         .selectFrom("channel_ingress_events")
         .selectAll()
+        .select(
+          (listOptions?.orderBy === "admission" ? ingressAdmissionSequenceSql : sql<number>`0`).as(
+            "admission_sequence",
+          ),
+        )
+        .select(
+          (listOptions?.orderBy === "admission"
+            ? ingressAdmissionLegacyTimeSql
+            : sql<number>`0`
+          ).as("admission_legacy_time"),
+        )
         .where("queue_name", "=", queueName)
         .where("status", "=", "pending");
       if (lastRow) {
@@ -687,20 +733,41 @@ export function createChannelIngressQueue<
         pageQuery =
           listOptions?.orderBy === "id"
             ? pageQuery.where("event_id", ">", cursor.event_id)
-            : pageQuery.where((eb) =>
-                eb.or([
-                  eb("received_at", ">", cursor.received_at),
-                  eb.and([
-                    eb("received_at", "=", cursor.received_at),
-                    eb("event_id", ">", cursor.event_id),
+            : listOptions?.orderBy === "admission"
+              ? pageQuery.where((eb) =>
+                  eb.or([
+                    eb(ingressAdmissionSequenceSql, ">", cursor.admission_sequence),
+                    eb.and([
+                      eb(ingressAdmissionSequenceSql, "=", cursor.admission_sequence),
+                      eb.or([
+                        eb(ingressAdmissionLegacyTimeSql, ">", cursor.admission_legacy_time),
+                        eb.and([
+                          eb(ingressAdmissionLegacyTimeSql, "=", cursor.admission_legacy_time),
+                          eb("event_id", ">", cursor.event_id),
+                        ]),
+                      ]),
+                    ]),
                   ]),
-                ]),
-              );
+                )
+              : pageQuery.where((eb) =>
+                  eb.or([
+                    eb("received_at", ">", cursor.received_at),
+                    eb.and([
+                      eb("received_at", "=", cursor.received_at),
+                      eb("event_id", ">", cursor.event_id),
+                    ]),
+                  ]),
+                );
       }
       const orderedQuery =
         listOptions?.orderBy === "id"
           ? pageQuery.orderBy("event_id", "asc")
-          : pageQuery.orderBy("received_at", "asc").orderBy("event_id", "asc");
+          : listOptions?.orderBy === "admission"
+            ? pageQuery
+                .orderBy(ingressAdmissionSequenceSql, "asc")
+                .orderBy(ingressAdmissionLegacyTimeSql, "asc")
+                .orderBy("event_id", "asc")
+            : pageQuery.orderBy("received_at", "asc").orderBy("event_id", "asc");
       const rows = executeSqliteQuerySync(db, orderedQuery.limit(LIST_PENDING_BATCH_SIZE)).rows;
       for (const row of rows) {
         const record = baseRecord<TPayload, TMetadata>(row);
@@ -842,7 +909,12 @@ export function createChannelIngressQueue<
         let orderedSelect =
           claimOptions?.orderBy === "id"
             ? select.orderBy("event_id", "asc")
-            : select.orderBy("received_at", "asc").orderBy("event_id", "asc");
+            : claimOptions?.orderBy === "admission"
+              ? select
+                  .orderBy(ingressAdmissionSequenceSql, "asc")
+                  .orderBy(ingressAdmissionLegacyTimeSql, "asc")
+                  .orderBy("event_id", "asc")
+              : select.orderBy("received_at", "asc").orderBy("event_id", "asc");
         orderedSelect = orderedSelect.limit(normalizeScanLimit(claimOptions?.scanLimit));
         const transitionAt = now();
         let corruptReconciliations = 0;
@@ -1273,12 +1345,32 @@ export function createChannelIngressQueue<
         if (row.payload_json === "null" || !parseFailedPayload(row.payload_json).ok) {
           return { kind: "unrecoverable", record: previous };
         }
+        const sequence =
+          executeSqliteQuerySync(
+            tx.db,
+            getChannelIngressKysely(tx.db)
+              .selectFrom("channel_ingress_events")
+              .select(ingressAdmissionSequenceSql.as("sequence"))
+              .where("queue_name", "=", queueName)
+              .where("event_id", "=", eventId),
+          ).rows[0]?.sequence ?? 0;
+        const admission =
+          options.sequencedAdmission || sequence > 0
+            ? prepareIngressAdmission({
+                db: tx.db,
+                queueName,
+                eventId,
+                laneKey: row.lane_key ?? undefined,
+                metadata: previous.metadata,
+              })
+            : undefined;
         const result = executeSqliteQuerySync(
           tx.db,
           getChannelIngressKysely(tx.db)
             .updateTable("channel_ingress_events")
             .set({
               status: "pending",
+              ...(admission ? { metadata_json: admission.metadataJson } : {}),
               payload_json:
                 row.payload_json === FAILED_NULL_PAYLOAD_SENTINEL ? "null" : row.payload_json,
               received_at: resubmittedAt,
