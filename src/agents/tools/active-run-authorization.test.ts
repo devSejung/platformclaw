@@ -9,10 +9,7 @@ import {
   retainQueuedAgentRunContext,
   rotateAgentRunRegistryLifecycleGeneration,
 } from "../../infra/agent-run-registry.js";
-import {
-  resolveActiveAgentRunAuthorization,
-  type ActiveAgentRunAuthorization,
-} from "../../infra/agent-tool-invocation.js";
+import { resolveActiveAgentRunAuthorization } from "../../infra/agent-tool-invocation.js";
 import type { AnyAgentTool } from "./common.js";
 import {
   withGatewayToolCallerIdentity,
@@ -66,7 +63,7 @@ describe("active tool run authorization", () => {
     await withGatewayToolCallerIdentity(context, () => {
       expect(resolveActiveAgentRunAuthorization(context)).toBeUndefined();
     });
-    let authorization: ActiveAgentRunAuthorization | undefined;
+    let authorization: ReturnType<typeof resolveActiveAgentRunAuthorization>;
     await duringTool(() => {
       authorization = resolveActiveAgentRunAuthorization(context);
       expect(authorization).toMatchObject({
@@ -180,7 +177,7 @@ describe("active tool run authorization", () => {
     startRun();
     vi.resetModules();
     const reloaded = await import("../../infra/agent-tool-invocation.js");
-    let authorization: ActiveAgentRunAuthorization | undefined;
+    let authorization: ReturnType<typeof resolveActiveAgentRunAuthorization>;
     await duringTool(() => {
       authorization = reloaded.resolveActiveAgentRunAuthorization(context);
       expect(authorization?.isActive()).toBe(true);

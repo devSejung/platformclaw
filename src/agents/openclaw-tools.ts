@@ -726,10 +726,7 @@ export function createOpenClawTools(
   options?.recordToolPrepStage?.("openclaw-tools:core-tool-list");
   let allTools = tools;
   if (!options?.disablePluginTools) {
-    const existingToolNames = new Set<string>();
-    for (const tool of tools) {
-      existingToolNames.add(tool.name);
-    }
+    const existingToolNames = new Set(tools.map((tool) => tool.name));
     allTools = [
       ...tools,
       ...resolveOpenClawPluginToolsForOptions({

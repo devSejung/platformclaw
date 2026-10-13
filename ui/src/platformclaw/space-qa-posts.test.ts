@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { SpaceQaPostsState, type SpaceQaPost } from "./space-qa-posts.ts";
+import { SpaceQaPostsState } from "./space-qa-posts.ts";
+type SpaceQaPost = SpaceQaPostsState["posts"][number];
 
 const page = { spaceId: "team", id: "issue" };
 const post: SpaceQaPost = {

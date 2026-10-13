@@ -1,4 +1,4 @@
-import { html, nothing, type TemplateResult } from "lit";
+import { html, nothing, type LitElement, type TemplateResult } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type {
   Space,
@@ -12,6 +12,15 @@ import { renderHubTabs } from "../components/hub-tabs.ts";
 import { icons } from "../components/icons.ts";
 import { toSanitizedMarkdownHtml } from "../components/markdown.ts";
 import { platformClawT } from "./i18n.ts";
+import {
+  renderSpaceConversation,
+  type SpaceConversationHistoryState,
+} from "./space-conversation-history.ts";
+import { renderSpaceManagementDialog, type SpaceManagementState } from "./space-management.ts";
+import { renderSpaceMembers } from "./space-members-view.ts";
+import { renderSpaceNotes } from "./space-notes-view.ts";
+import type { SpacePeopleSearch } from "./space-people-search.ts";
+import { renderSpaceQaPosts, type SpaceQaPostsState } from "./space-qa-posts.ts";
 const t = (key: string) => platformClawT(`platformClaw.spaces.${key}`);
 export type SpaceSnapshot = {
   space: Space;
@@ -21,6 +30,7 @@ export type SpaceSnapshot = {
   currentUserId: string;
 };
 export type SpaceSearchHit = {
+  kind?: "notes" | "qa-post";
   spaceId: string;
   pageId: string;
   pageTitle: string;
@@ -48,19 +58,38 @@ type SpacesViewProps = {
   editor: SpaceEditor | null;
   panel: "members" | null;
   sharedTab: "qa" | "notes";
-  qaView: TemplateResult;
+  qaPosts: SpaceQaPostsState;
+  postAnchor: string;
+  request: Parameters<typeof renderSpaceQaPosts>[0]["request"];
   navigationOpen: boolean;
   conversation: SpaceConversation | null;
-  conversationView: TemplateResult | typeof nothing;
+  conversationHistory: SpaceConversationHistoryState;
+  onLoadOlder: () => void;
+  onCreateConversation: () => Promise<string | null>;
+  onSessionChange: (key: string) => void;
   expandedPages: ReadonlySet<string>;
   query: string;
   hits: SpaceSearchHit[];
-  membersView: TemplateResult | typeof nothing;
-  managementDialog: TemplateResult | typeof nothing;
+  canManageMembers: boolean;
+  membersBusy: boolean;
+  peopleSearch: SpacePeopleSearch;
+  pendingMember: Parameters<typeof renderSpaceMembers>[0]["pending"];
+  onAccount: (value: string, immediate?: boolean) => void;
+  onPendingMember: Parameters<typeof renderSpaceMembers>[0]["onPending"];
+  onConfirmMember: () => void;
+  onLeaveSpace: () => void;
+  onDeleteSpace: () => void;
+  management: SpaceManagementState;
+  onSubmitManagement: (title: string) => void;
   onRenameConversation: () => void;
   onRetrySpace: (space: Space) => void;
   onSelectSpace: (id: string) => void;
-  onSelectPage: (page: SpacePage, messageId?: string, postId?: string) => void;
+  onSelectPage: (
+    page: SpacePage,
+    messageId?: string,
+    postId?: string,
+    tab?: "qa" | "notes",
+  ) => void;
   onCreate: (kind: "space" | "page" | "conversation", parentId?: string) => void;
   onSelectConversation: (conversation: SpaceConversation | null) => void;
   onSelectNotes: () => void;
@@ -74,12 +103,27 @@ type SpacesViewProps = {
   onEdit: () => void;
   onCancel: () => void;
   onUseSavedRevision: (page: SpacePage) => void;
-  onHistoryScroll: (event: Event) => void;
+  onFollowConversation: (follow: boolean) => void;
   onSave: () => void;
   onTitle: (value: string) => void;
   onBody: (value: string) => void;
   onLatest: () => void;
 };
+
+/** Restore focus after this page's next render without moving controller state into the view. */
+export function focusSpaceViewTarget(host: LitElement, selector: string): void {
+  void host.updateComplete.then(() => host.querySelector<HTMLElement>(selector)?.focus());
+}
+
+export function toggleSpacePageExpansion(expandedPages: ReadonlySet<string>, id: string) {
+  const expanded = new Set(expandedPages);
+  if (expanded.has(id)) {
+    expanded.delete(id);
+  } else {
+    expanded.add(id);
+  }
+  return expanded;
+}
 
 export function expandSpacePageAncestors(
   expandedPages: ReadonlySet<string>,
@@ -189,7 +233,12 @@ function renderSidebar(p: SpacesViewProps) {
                 @click=${() => {
                   const page = p.snapshot?.pages.find((item) => item.id === hit.pageId);
                   if (page) {
-                    p.onSelectPage(page, hit.messageId, hit.postId);
+                    p.onSelectPage(
+                      page,
+                      hit.messageId,
+                      hit.postId,
+                      hit.kind === "notes" ? "notes" : undefined,
+                    );
                   }
                 }}
               >
@@ -282,7 +331,10 @@ function renderConversation(p: SpacesViewProps) {
       class="pc-space-history"
       tabindex="0"
       aria-label=${t("conversation")}
-      @scroll=${p.onHistoryScroll}
+      @scroll=${(event: Event) => {
+        const target = event.currentTarget as HTMLElement;
+        p.onFollowConversation(target.scrollHeight - target.scrollTop - target.clientHeight < 96);
+      }}
     >
       <div class="pc-space-message-column">
         ${p.historyAnchor
@@ -300,7 +352,12 @@ function renderConversation(p: SpacesViewProps) {
                 <p>${t("conversationHint")}</p>
               </div>`}
         </section>
-        ${p.qaView}
+        ${renderSpaceQaPosts({
+          state: p.qaPosts,
+          anchor: p.postAnchor,
+          page: p.page,
+          request: p.request,
+        })}
       </div>
     </div>
     <div class="pc-space-composer-dock">
@@ -418,39 +475,23 @@ function renderPanel(p: SpacesViewProps) {
         ${icons.x}
       </button>
     </div>
-    <div class="pc-space-panel-content">${p.editor ? renderEditor(p) : p.membersView}</div>
+    <div class="pc-space-panel-content">
+      ${p.editor
+        ? renderEditor(p)
+        : renderSpaceMembers({
+            owner: p.canManageMembers,
+            members: p.snapshot?.members ?? [],
+            busy: p.membersBusy,
+            search: p.peopleSearch,
+            pending: p.pendingMember,
+            onAccount: p.onAccount,
+            onPending: p.onPendingMember,
+            onConfirm: p.onConfirmMember,
+            onLeave: p.onLeaveSpace,
+            onDelete: p.onDeleteSpace,
+          })}
+    </div>
   </aside>`;
-}
-
-function renderNotes(p: SpacesViewProps) {
-  return p.page
-    ? html`<section class="pc-space-history" aria-label=${t("notes")}>
-        <div class="pc-space-message-column pc-space-notes">
-          <h3>${p.page.title}</h3>
-          <p class="pc-space-panel-hint">${t("sharedNotesNotice")}</p>
-          <p class="pc-space-note-meta">
-            ${t("revision")} ${p.page.revision} · ${new Date(p.page.updatedAt).toLocaleDateString()}
-          </p>
-          <div class="markdown-content">
-            ${p.page.body
-              ? unsafeHTML(toSanitizedMarkdownHtml(p.page.body, { codeBlockChrome: "none" }))
-              : html`<p class="pc-space-panel-hint">${t("emptyNotes")}</p>`}
-          </div>
-          ${p.snapshot?.space.role !== "viewer"
-            ? html`<div class="pc-space-note-actions">
-                <button class="btn" @click=${p.onEdit}>${icons.penLine}${t("edit")}</button>
-                <button
-                  class="pc-space-text-button"
-                  ?disabled=${p.busy}
-                  @click=${() => p.onCreate("page", p.page!.id)}
-                >
-                  ${icons.plus}${t("createChild")}
-                </button>
-              </div>`
-            : nothing}
-        </div>
-      </section>`
-    : nothing;
 }
 
 function renderConversationTabs(p: SpacesViewProps) {
@@ -599,9 +640,23 @@ export function renderSpacesView(p: SpacesViewProps) {
               aria-labelledby=${`pc-space-conversations-tab-${p.conversation?.id ?? (p.sharedTab === "notes" ? "notes" : "shared")}`}
             >
               ${p.conversation
-                ? p.conversationView
+                ? renderSpaceConversation({
+                    conversation: p.conversation,
+                    messages: p.conversationHistory.messages,
+                    loading: p.loading || p.conversationHistory.loading,
+                    hasMore: p.conversationHistory.pagination.hasMore,
+                    onLoadOlder: p.onLoadOlder,
+                    onCreate: p.onCreateConversation,
+                    onSessionChange: p.onSessionChange,
+                  })
                 : p.sharedTab === "notes"
-                  ? renderNotes(p)
+                  ? renderSpaceNotes({
+                      page: p.page,
+                      canEdit: p.snapshot?.space.role !== "viewer",
+                      busy: p.busy,
+                      onEdit: p.onEdit,
+                      onCreateChild: () => p.onCreate("page", p.page!.id),
+                    })
                   : renderConversation(p)}
             </section>`
         : html`<section class="pc-space-welcome">
@@ -628,6 +683,7 @@ export function renderSpacesView(p: SpacesViewProps) {
             <span class="pc-space-privacy-hint">${t("intro")}</span>
           </section>`}
     </div>
-    ${hasPanel ? renderPanel(p) : nothing} ${p.managementDialog}
+    ${hasPanel ? renderPanel(p) : nothing}
+    ${renderSpaceManagementDialog({ state: p.management, onSubmit: p.onSubmitManagement })}
   </main>`;
 }

@@ -29,7 +29,7 @@ const proofState = globalThis as typeof globalThis & { [PROOFS_KEY]?: Map<string
 const proofs = (proofState[PROOFS_KEY] ??= new Map<string, Proof>());
 
 /** Transport contract: fixed field order, exact strings, absent target selectors are null. */
-export function hashSpaceRunOperation(payload: SpaceRunOperationPayload): string {
+function hashSpaceRunOperation(payload: SpaceRunOperationPayload): string {
   const fields =
     payload.operation === "qa.append"
       ? [payload.body]

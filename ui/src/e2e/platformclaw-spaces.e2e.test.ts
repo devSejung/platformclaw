@@ -80,7 +80,9 @@ suite("Team Space rendered browser workflows", () => {
       await gateway.setMethodResponse(`${rpc}get`, { ...snapshot, pages: [issue] });
       await ui.getByRole("button", { name: "Save", exact: true }).click();
       await expect
-        .poll(() => ui.getByRole("heading", { name: issue.title }).isVisible())
+        .poll(() =>
+          ui.getByRole("heading", { name: issue.title, level: 1, exact: true }).isVisible(),
+        )
         .toBe(true);
       expect((await gateway.getRequests(`${rpc}page.create`)).at(-1)?.params).not.toHaveProperty(
         "parentId",
@@ -168,15 +170,18 @@ suite("Team Space rendered browser workflows", () => {
         await expect
           .poll(() => page.locator("html").getAttribute("lang"))
           .toBe(copy.locale === "ko-KR" ? "ko" : "en");
-        await ui.getByRole("heading", { name: fixture.issue.title, exact: true }).waitFor();
+        await ui
+          .getByRole("heading", { name: fixture.issue.title, level: 1, exact: true })
+          .waitFor();
         await ui.getByRole("button", { name: copy.newConversation, exact: true }).click();
         await ui.getByLabel(copy.titleLabel, { exact: true }).fill(fixture.conversation.title);
-        await expect
-          .poll(() => ui.locator(".pc-space-panel-hint").textContent())
-          .toContain(copy.sharingPrivate);
-        expect(await ui.locator(".pc-space-panel-hint").textContent()).toContain(
-          copy.sharingPublic,
-        );
+        const creationPanel = ui.getByRole("complementary", {
+          name: copy.newConversation,
+          exact: true,
+        });
+        const sharingNotice = creationPanel.getByRole("paragraph");
+        await expect.poll(() => sharingNotice.textContent()).toContain(copy.sharingPrivate);
+        expect(await sharingNotice.textContent()).toContain(copy.sharingPublic);
         await capture(page, `${copy.prefix}-conversation-sharing-notice`);
         await gateway.setMethodResponse(`${rpc}get`, {
           ...snapshot,

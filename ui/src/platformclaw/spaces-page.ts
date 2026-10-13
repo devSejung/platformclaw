@@ -1,5 +1,5 @@
 import { consume } from "@lit/context";
-import { nothing, type PropertyValues } from "lit";
+import type { PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import type {
   Space,
@@ -12,8 +12,8 @@ import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT } from "./i18n.ts";
 import {
-  renderSpaceConversation,
   loadSpacePageHistory,
+  clearSpacePageHistory,
   SpaceConversationHistoryState,
   scrollSpacePageHistory,
 } from "./space-conversation-history.ts";
@@ -28,16 +28,17 @@ import {
   normalizeSpaceSnapshot,
   upsertSpaceConversation,
 } from "./space-gateway-request.ts";
-import { renderSpaceManagementDialog, SpaceManagementState } from "./space-management.ts";
-import { renderSpaceMembers } from "./space-members-view.ts";
+import { SpaceManagementState } from "./space-management.ts";
 import { SpacePageEditor } from "./space-page-editor.ts";
 import { SpacePeopleSearch } from "./space-people-search.ts";
-import { renderSpaceQaPosts, SpaceQaPostsState } from "./space-qa-posts.ts";
+import { SpaceQaPostsState } from "./space-qa-posts.ts";
 import "../styles/chat.css";
 import "../pages/chat/chat-pane.ts";
 import {
   renderSpacesView,
   expandSpacePageAncestors,
+  focusSpaceViewTarget,
+  toggleSpacePageExpansion,
   type SpaceSnapshot,
   type SpaceSearchHit,
 } from "./spaces-view.ts";
@@ -90,8 +91,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.management.clear();
     this.epoch++;
     this.historyEpoch++;
-    this.conversationHistory.clear();
-    this.qaPosts.clear();
+    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
     this.unsubscribe?.();
     this.unsubscribeState?.();
     clearTimeout(this.historyTimer);
@@ -185,8 +185,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.page = null;
     this.messages = [];
     this.conversation = null;
-    this.conversationHistory.clear();
-    this.qaPosts.clear();
+    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
     this.hits = [];
     this.query = "";
     this.historyAnchor = "";
@@ -243,8 +242,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.historyEpoch++;
     // Stop the personal pane immediately while an ACL invalidation is revalidated.
     this.conversation = null;
-    this.conversationHistory.clear();
-    this.qaPosts.clear();
+    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
     this.messages = [];
     this.snapshot = null;
     this.page = null;
@@ -317,8 +315,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       page,
       this.snapshot?.pages ?? [],
     );
-    this.conversationHistory.clear();
-    this.qaPosts.clear();
+    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
     this.sharedTab = tab;
     this.postAnchor = postId;
     this.conversation =
@@ -353,8 +350,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.conversation = conversation;
     this.sharedTab = tab;
     this.postAnchor = "";
-    this.conversationHistory.clear();
-    this.qaPosts.clear();
+    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
     this.messages = [];
     this.historyAnchor = "";
     replaceSpaceSelection(
@@ -424,17 +420,13 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.navigationOpen = this.membersOpen = false;
     this.editor.open(kind, parentId);
     this.notice = "";
-    void this.updateComplete.then(() =>
-      this.querySelector<HTMLInputElement>("[data-title]")?.focus(),
-    );
+    focusSpaceViewTarget(this, "[data-title]");
   }
   private cancelEdit() {
     this.editor.clear();
     this.pendingMember = null;
     this.notice = "";
-    void this.updateComplete.then(() =>
-      this.querySelector<HTMLButtonElement>("[data-new-page]")?.focus(),
-    );
+    focusSpaceViewTarget(this, "[data-new-page]");
   }
   private save() {
     if (this.editor.creating === "conversation") {
@@ -504,15 +496,11 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     return this.snapshot?.space.role === "owner" && !this.loading && this.gatewayConnected;
   }
   private findPerson(query: string, immediate = false) {
-    const space = this.snapshot?.space;
     this.pendingMember = null;
-    if (!space || !this.canManageMembers) {
-      this.peopleSearch.clear();
-      return;
-    }
-    this.peopleSearch.search(
+    this.peopleSearch.searchSpace(
+      this.canManageMembers ? this.snapshot?.space : undefined,
       query,
-      (search) => this.rpc("people", { spaceId: space.id, query: search }),
+      (spaceId, search) => this.rpc("people", { spaceId, query: search }),
       immediate,
     );
   }
@@ -546,9 +534,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     }
     this.navigationOpen = false;
     if (!wasOpen) {
-      void this.updateComplete.then(() =>
-        this.querySelector<HTMLButtonElement>(".pc-space-panel-header button")?.focus(),
-      );
+      focusSpaceViewTarget(this, ".pc-space-panel-header button");
     }
   }
   private closePanel() {
@@ -559,11 +545,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     }
     this.membersOpen = false;
     this.pendingMember = null;
-    void this.updateComplete.then(() =>
-      this.querySelector<HTMLButtonElement>(
-        members ? ".pc-space-members-trigger" : 'wa-tab[panel="notes"]',
-      )?.focus(),
-    );
+    focusSpaceViewTarget(this, members ? ".pc-space-members-trigger" : 'wa-tab[panel="notes"]');
   }
   private openManagement(kind: "rename" | "delete" | "leave", space = this.snapshot?.space) {
     this.management.openFor(kind, {
@@ -629,61 +611,46 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       historyAnchor: this.historyAnchor,
       loading: this.loading,
       busy: this.busy || this.management.busy,
-      managementDialog: renderSpaceManagementDialog({
-        state: this.management,
-        onSubmit: (title) => void this.submitManagement(title),
-      }),
+      management: this.management,
+      onSubmitManagement: (title) => void this.submitManagement(title),
       onRenameConversation: () => this.openManagement("rename"),
       onRetrySpace: (space) => this.openManagement(space.deleting ? "delete" : "leave", space),
       navigationOpen: this.navigationOpen,
       panel: this.membersOpen ? "members" : null,
       sharedTab: this.sharedTab,
-      qaView: renderSpaceQaPosts({
-        state: this.qaPosts,
-        anchor: this.postAnchor,
-        page: this.page,
-        request: (method, params) => this.rpc(method, params),
-      }),
+      qaPosts: this.qaPosts,
+      postAnchor: this.postAnchor,
+      request: (method, params) => this.rpc(method, params),
       editor: this.editor.view,
       conversation: this.conversation,
-      conversationView: renderSpaceConversation({
-        conversation: this.conversation,
-        messages: this.conversationHistory.messages,
-        loading: this.loading || this.conversationHistory.loading,
-        hasMore: this.conversationHistory.pagination.hasMore,
-        onLoadOlder: () => void this.loadHistory(true),
-        onCreate: () => this.createConversation(),
-        onSessionChange: (key) => {
-          const next = this.snapshot?.conversations.find(
-            (item) => item.sessionKey === key && item.pageId === this.page?.id,
-          );
-          if (next && next.id !== this.conversation?.id) {
-            this.selectConversation(next);
-          }
-        },
-      }),
+      conversationHistory: this.conversationHistory,
+      onLoadOlder: () => void this.loadHistory(true),
+      onCreateConversation: () => this.createConversation(),
+      onSessionChange: (key) => {
+        const next = this.snapshot?.conversations.find(
+          (item) => item.sessionKey === key && item.pageId === this.page?.id,
+        );
+        if (next && next.id !== this.conversation?.id) {
+          this.selectConversation(next);
+        }
+      },
       expandedPages: this.expandedPages,
       query: this.query,
       hits: this.hits,
-      membersView: this.membersOpen
-        ? renderSpaceMembers({
-            owner: this.canManageMembers,
-            members: this.snapshot?.members ?? [],
-            busy: this.busy || this.management.busy || this.loading || !this.gatewayConnected,
-            search: this.peopleSearch,
-            pending: this.pendingMember,
-            onAccount: (value, immediate) => this.findPerson(value, immediate),
-            onPending: (value) => {
-              this.pendingMember = value;
-              this.peopleSearch.clear();
-            },
-            onConfirm: () => this.changeMember(),
-            onLeave: () => this.openManagement("leave"),
-            onDelete: () => this.openManagement("delete"),
-          })
-        : nothing,
+      canManageMembers: this.canManageMembers,
+      membersBusy: this.busy || this.management.busy || this.loading || !this.gatewayConnected,
+      peopleSearch: this.peopleSearch,
+      pendingMember: this.pendingMember,
+      onAccount: (value, immediate) => this.findPerson(value, immediate),
+      onPendingMember: (value) => {
+        this.pendingMember = value;
+        this.peopleSearch.clear();
+      },
+      onConfirmMember: () => this.changeMember(),
+      onLeaveSpace: () => this.openManagement("leave"),
+      onDeleteSpace: () => this.openManagement("delete"),
       onSelectSpace: (id) => void this.selectSpace(id),
-      onSelectPage: (page, messageId, postId) => this.selectPage(page, messageId, postId),
+      onSelectPage: (page, messageId, postId, tab) => this.selectPage(page, messageId, postId, tab),
       onCreate: (kind, parentId) => this.openCreate(kind, parentId),
       onRefresh: () => void this.refresh(this.editor.active),
       onSearch: () => this.search(),
@@ -693,13 +660,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       onSelectConversation: (conversation) => this.selectConversation(conversation),
       onSelectNotes: () => this.selectConversation(null, "notes"),
       onTogglePage: (id) => {
-        const expanded = new Set(this.expandedPages);
-        if (expanded.has(id)) {
-          expanded.delete(id);
-        } else {
-          expanded.add(id);
-        }
-        this.expandedPages = expanded;
+        this.expandedPages = toggleSpacePageExpansion(this.expandedPages, id);
       },
       onPanel: () => this.togglePanel(),
       onClosePanel: () => this.closePanel(),
@@ -731,9 +692,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
         this.followConversation = true;
         void this.loadHistory();
       },
-      onHistoryScroll: (event) => {
-        const target = event.currentTarget as HTMLElement;
-        this.followConversation = target.scrollHeight - target.scrollTop - target.clientHeight < 96;
+      onFollowConversation: (follow) => {
+        this.followConversation = follow;
       },
     });
   }

@@ -19,7 +19,7 @@ const activeToolInvocation = resolveGlobalSingleton<AsyncLocalStorage<AgentToolI
 );
 
 /** Host-sealed authority; its liveness callback never crosses a transport boundary. */
-export type ActiveAgentRunAuthorization = Readonly<{
+type ActiveAgentRunAuthorization = Readonly<{
   agentId: string;
   sessionKey: string;
   runtimeRunId: string;

@@ -4,7 +4,7 @@ import { toSanitizedMarkdownHtml } from "../components/markdown.ts";
 import { platformClawT } from "./i18n.ts";
 import { spaceGatewayErrorMessage } from "./space-gateway-request.ts";
 
-export type SpaceQaPost = {
+type SpaceQaPost = {
   id: string;
   spaceId: string;
   pageId: string;
@@ -39,7 +39,9 @@ export class SpaceQaPostsState {
     this.nextCursor = null;
     this.loading = false;
     this.error = "";
-    if (hadContent) this.changed();
+    if (hadContent) {
+      this.changed();
+    }
   }
   async load(
     page: PageScope,
@@ -74,7 +76,9 @@ export class SpaceQaPostsState {
         older ? this.posts.map((post) => [post.id, post]) : [],
       );
       for (const post of result.posts) {
-        if (!unique.has(post.id)) unique.set(post.id, post);
+        if (!unique.has(post.id)) {
+          unique.set(post.id, post);
+        }
       }
       if (anchored) {
         unique.set(anchored.post.id, anchored.post);
@@ -82,7 +86,9 @@ export class SpaceQaPostsState {
       this.posts = [...unique.values()];
       this.nextCursor = result.nextCursor;
     } catch (error) {
-      if (epoch === this.epoch && isCurrent()) this.error = spaceGatewayErrorMessage(error);
+      if (epoch === this.epoch && isCurrent()) {
+        this.error = spaceGatewayErrorMessage(error);
+      }
     } finally {
       if (epoch === this.epoch) {
         this.loading = false;
@@ -125,7 +131,9 @@ export class SpaceQaPostsState {
           : item,
       );
     } catch (error) {
-      if (epoch === this.epoch) this.error = spaceGatewayErrorMessage(error);
+      if (epoch === this.epoch) {
+        this.error = spaceGatewayErrorMessage(error);
+      }
     } finally {
       if (epoch === this.epoch) {
         this.loading = false;
@@ -148,8 +156,8 @@ export function renderSpaceQaPosts(props: {
     ${state.error ? html`<p class="pc-space-error" role="alert">${state.error}</p>` : nothing}
     ${state.loading ? html`<p role="status">${t("loading")}</p>` : nothing}
     ${state.posts.length
-      ? [...state.posts]
-          .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+      ? state.posts
+          .toSorted((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
           .map(
             (post) => html`<article
               class="pc-space-message pc-space-qa-post"
@@ -171,7 +179,9 @@ export function renderSpaceQaPosts(props: {
                     class="pc-space-text-button"
                     ?disabled=${state.loading}
                     @click=${() => {
-                      if (props.page) void state.readMore(props.page, post, props.request);
+                      if (props.page) {
+                        void state.readMore(props.page, post, props.request);
+                      }
                     }}
                   >
                     ${t("qaReadMore")}
@@ -185,7 +195,9 @@ export function renderSpaceQaPosts(props: {
           class="btn"
           ?disabled=${state.loading}
           @click=${() => {
-            if (props.page) void state.load(props.page, props.request, () => true, "", true);
+            if (props.page) {
+              void state.load(props.page, props.request, () => true, "", true);
+            }
           }}
         >
           ${t("qaLoadOlder")}

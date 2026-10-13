@@ -25,7 +25,15 @@ describe("Space keyword recall", () => {
       });
       expect(search).toMatchObject({
         count: 1,
-        results: [{ pageId: page.id, bodyOffset: 900, pageRevision: page.revision }],
+        results: [
+          {
+            kind: "notes",
+            pageId: page.id,
+            bodyOffset: 900,
+            pageRevision: page.revision,
+            link: `/platformclaw/app/spaces?space=${f.space.id}&page=${page.id}&tab=notes`,
+          },
+        ],
       });
       const [hit] = search.results as Array<{
         bodyOffset: number;
@@ -78,7 +86,16 @@ describe("Space keyword recall", () => {
         f.space.id,
         async () => {},
       ),
-    ).toMatchObject({ results: [{ pageId: page.id, snippet: page.body }] });
+    ).toMatchObject({
+      results: [
+        {
+          kind: "notes",
+          pageId: page.id,
+          snippet: page.body,
+          link: `/platformclaw/app/spaces?space=${f.space.id}&page=${page.id}&tab=notes`,
+        },
+      ],
+    });
   });
 
   it("keeps note matches inaccessible before authorization and after membership removal", async () => {

@@ -32,6 +32,19 @@ export class SpacePeopleSearch {
     this.changed();
   }
 
+  searchSpace(
+    space: { id: string } | undefined,
+    query: string,
+    request: (spaceId: string, query: string) => Promise<SpacePerson[]>,
+    immediate = false,
+  ) {
+    if (!space) {
+      this.clear();
+      return;
+    }
+    this.search(query, (search) => request(space.id, search), immediate);
+  }
+
   search(query: string, request: (query: string) => Promise<SpacePerson[]>, immediate = false) {
     // Invalidate immediately, before debounce: old responses must never repopulate new queries.
     this.clear();

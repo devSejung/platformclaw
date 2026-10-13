@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
 import { loadPlatformClawLocale } from "./i18n.ts";
-import type { SpaceQaPost } from "./space-qa-posts.ts";
+import type { SpaceQaPostsState } from "./space-qa-posts.ts";
 import {
   mount,
   page,
@@ -9,6 +9,8 @@ import {
   setupSpacePageTests,
   space,
 } from "./spaces-page.test-support.ts";
+
+type SpaceQaPost = SpaceQaPostsState["posts"][number];
 
 setupSpacePageTests();
 const post: SpaceQaPost = {
@@ -27,6 +29,92 @@ const post: SpaceQaPost = {
 };
 
 describe("issue shared tabs", () => {
+  it("opens the explicit search source without changing ordinary page selection", async () => {
+    const own = {
+      id: "own-conversation",
+      spaceId: space.id,
+      pageId: page.id,
+      title: "Own investigation",
+      ownerId: "alice",
+      ownerName: "Alice",
+      agentId: "personal-alice",
+      sessionKey: "agent:personal-alice:space-session:00000000-0000-4000-8000-000000000004",
+      createdAt: 100,
+      canWrite: false,
+    };
+    const { element, request } = await mount("owner", [own]);
+    const original = request.getMockImplementation()!;
+    for (const source of [
+      { kind: "notes", tab: "notes" },
+      { kind: "qa-post", postId: post.id, tab: "qa" },
+      { messageId: "m1", tab: "qa" },
+      { tab: "personal" },
+    ]) {
+      const { tab, ...hit } = source;
+      request.mockImplementation(async (method, params) => {
+        if (method.endsWith(".search")) {
+          return {
+            results: [
+              {
+                ...hit,
+                spaceId: space.id,
+                pageId: page.id,
+                pageTitle: page.title,
+                snippet: "Found source",
+                link: `/spaces?space=${space.id}&page=${page.id}&tab=${tab}`,
+              },
+            ],
+          };
+        }
+        return method.endsWith("qa.get") ? { revision: 1, post } : original(method, params);
+      });
+      const search = element.querySelector<HTMLInputElement>("#pc-spaces-search")!;
+      expect(search).not.toBeNull();
+      search.value = "source";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      element
+        .querySelector(".pc-space-search")!
+        .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await vi.waitFor(() =>
+        expect(element.querySelector(".pc-space-results button")).not.toBeNull(),
+      );
+      element.querySelector<HTMLButtonElement>(".pc-space-results button")!.click();
+      await element.updateComplete;
+      const route = new URL(location.href).searchParams;
+      expect(Boolean(element.querySelector(".pc-space-notes"))).toBe(source.tab === "notes");
+      expect(route.get("post")).toBe(source.postId ?? null);
+      expect(route.get("message")).toBe(source.messageId ?? null);
+      if (source.tab === "notes") {
+        expect(route.get("tab")).toBe("notes");
+        expect(route.has("conversation")).toBe(false);
+        expect(element.querySelector(".pc-space-notes")?.textContent).toContain(page.body);
+      } else if (source.tab === "personal") {
+        expect(route.get("conversation")).toBe(own.id);
+      } else {
+        expect(element.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
+          "Shared Q&A",
+        );
+      }
+      if (source.postId) {
+        await vi.waitFor(() =>
+          expect(element.querySelector(`[id="post-${post.id}"]`)?.getAttribute("data-source")).toBe(
+            "true",
+          ),
+        );
+      }
+      element
+        .querySelector<HTMLButtonElement>(`.pc-space-tree-item[title="${page.title}"]`)!
+        .click();
+      await element.updateComplete;
+      expect(new URL(location.href).searchParams.get("conversation")).toBe(own.id);
+      expect(element.querySelector(".pc-space-notes")).toBeNull();
+      expect(element.querySelector("openclaw-chat-pane")).toBeNull();
+    }
+    expect(request.mock.calls.some(([method]) => /(?:send|create|abort)$/.test(method))).toBe(
+      false,
+    );
+  });
+
   it.each(["owner", "editor", "viewer"])(
     "shows shared notes directly to %s without executing",
     async (role) => {

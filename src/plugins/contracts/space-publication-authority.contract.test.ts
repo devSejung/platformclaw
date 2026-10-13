@@ -3,8 +3,6 @@ import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import spacePlugin from "../../../extensions/platformclaw-org-memory/index.js";
-import spaceManifest from "../../../extensions/platformclaw-org-memory/openclaw.plugin.json" with { type: "json" };
 import { ControlPlaneAuthorizationError } from "../../../packages/platformclaw-control-plane/src/contracts.js";
 import { PlatformClawExecutionHandoffServer } from "../../../packages/platformclaw-control-plane/src/execution-handoff-http.js";
 import { createSpaceTestFixture } from "../../../packages/platformclaw-control-plane/src/spaces.test-fixtures.js";
@@ -23,16 +21,40 @@ import type {
 } from "../../gateway/server-methods/types.js";
 import { emitAgentEvent, resetAgentEventsForTest } from "../../infra/agent-events.js";
 import { registerAgentRunContext } from "../../infra/agent-run-registry.js";
+import { findBundledPluginMetadataById } from "../bundled-plugin-metadata.js";
+import type { OpenClawPluginDefinition } from "../plugin-definition.types.js";
 import * as metadataSource from "../plugin-metadata-snapshot.js";
+import { loadBundledPluginPublicArtifactModuleSync } from "../public-surface-loader.js";
 import { createEmptyPluginRegistry } from "../registry-empty.js";
 import { createPluginRegistry } from "../registry.js";
 import { setActivePluginRegistry } from "../runtime.js";
 import type { PluginRuntime } from "../runtime/types.js";
 import { createPluginRecord } from "../status.test-helpers.js";
 
+function loadSpacePluginContract() {
+  const metadata = findBundledPluginMetadataById("platformclaw-org-memory", {
+    includeChannelConfigs: false,
+    includeSyntheticChannelConfigs: false,
+  });
+  if (!metadata) {
+    throw new Error("Missing bundled Space plugin metadata");
+  }
+  const loaded = loadBundledPluginPublicArtifactModuleSync<{ default: OpenClawPluginDefinition }>({
+    dirName: metadata.dirName,
+    artifactBasename: metadata.source.built,
+  });
+  const register = loaded.default.register;
+  if (!register) {
+    throw new Error("Bundled Space plugin has no registration entry");
+  }
+  return { spaceManifest: metadata.manifest, register };
+}
+
 const servers: PlatformClawExecutionHandoffServer[] = [];
 afterEach(async () => {
-  for (const server of servers.splice(0)) await server.close();
+  for (const server of servers.splice(0)) {
+    await server.close();
+  }
   setActivePluginRegistry(createEmptyPluginRegistry());
   resetAgentEventsForTest();
   vi.unstubAllEnvs();
@@ -42,6 +64,7 @@ afterEach(async () => {
 async function assembledFixture(
   options: { started?: boolean; scopes?: string[]; cancelAtVerifier?: boolean } = {},
 ) {
+  const { spaceManifest, register } = loadSpacePluginContract();
   const f = await createSpaceTestFixture();
   const workspaceDir = dirname(f.databasePath);
   f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "viewer", f.space.revision);
@@ -58,8 +81,9 @@ async function assembledFixture(
     sessionKey: conversation.sessionKey,
     admissionRunId,
   });
-  if (options.started !== false)
+  if (options.started !== false) {
     emitAgentEvent({ runId, stream: "lifecycle", data: { phase: "start", startedAt: Date.now() } });
+  }
 
   const config: OpenClawConfig = {
     agents: { defaults: { workspace: workspaceDir }, list: [{ id: f.alice.binding.agentId }] },
@@ -93,7 +117,7 @@ async function assembledFixture(
   writeFileSync(tokenFile, token);
   vi.stubEnv("PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS", broker);
   vi.stubEnv("PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE", tokenFile);
-  await spacePlugin.register(api);
+  register(api);
   expect(
     registry.registry.diagnostics.filter((diagnostic) => diagnostic.level === "error"),
   ).toEqual([]);
@@ -157,9 +181,12 @@ async function assembledFixture(
   expect(notes).toBeDefined();
   const scopes = options.scopes ?? ["operator.admin"];
   f.request.mockImplementation(async (method, params) => {
-    if (method !== "platformclaw.spaces.run.authorize")
+    if (method !== "platformclaw.spaces.run.authorize") {
       throw new Error(`Unexpected execution/model/session request: ${method}`);
-    if (options.cancelAtVerifier) controller.abort();
+    }
+    if (options.cancelAtVerifier) {
+      controller.abort();
+    }
     let responded = false;
     let payload: unknown;
     let failure: string | undefined;
@@ -180,10 +207,14 @@ async function assembledFixture(
       respond(ok, value, error) {
         responded = true;
         payload = value;
-        if (!ok) failure = error?.message ?? "Proof rejected";
+        if (!ok) {
+          failure = error?.message ?? "Proof rejected";
+        }
       },
     });
-    if (!responded || failure) throw new Error(failure ?? "Proof response unavailable");
+    if (!responded || failure) {
+      throw new Error(failure ?? "Proof response unavailable");
+    }
     return payload;
   });
   const mutation = vi.spyOn(f.service, "agentMutation");
@@ -209,6 +240,15 @@ const request = {
   body: "Synthetic cross-boundary Q&A",
 };
 describe("assembled shared Space publication authority", () => {
+  it("loads the declared bundled entry and manifest through the public plugin boundary", () => {
+    const { spaceManifest, register } = loadSpacePluginContract();
+    expect(spaceManifest.id).toBe("platformclaw-org-memory");
+    expect(spaceManifest.contracts).toMatchObject({
+      tools: expect.arrayContaining(["space_qa_append", "space_note_update"]),
+    });
+    expect(register).toBeTypeOf("function");
+  });
+
   it("derives the host actor through proof verification, real HTTP and SQLite, then replays and reads as another member", async () => {
     const f = await assembledFixture();
     const saved = await f.qa.execute("call-one", request);

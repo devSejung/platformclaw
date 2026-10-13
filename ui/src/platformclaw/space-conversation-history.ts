@@ -119,6 +119,15 @@ export class SpaceConversationHistoryState {
   }
 }
 
+/** Retire both shared and personal read generations when their page/access lifetime ends. */
+export function clearSpacePageHistory(
+  history: SpaceConversationHistoryState,
+  sharedPosts: SpaceQaPostsState,
+) {
+  history.clear();
+  sharedPosts.clear();
+}
+
 /** Shared Q&A and read-only personal history share the page selection's access lifetime. */
 export async function loadSpacePageHistory(options: {
   page: SpacePage;

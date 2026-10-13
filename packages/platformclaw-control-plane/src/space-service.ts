@@ -2,6 +2,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { BrowserGatewayRpc, BrowserGatewayEvent } from "./browser-gateway-contracts.js";
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
+import { spaceContentLink } from "./space-content-contracts.js";
 import { mutateSpaceContent } from "./space-content-service.js";
 import { isSpaceConversationSession, type Space, type SpacePage } from "./space-contracts.js";
 import { SpaceConversationService } from "./space-conversation-service.js";
@@ -166,7 +167,15 @@ export class SpaceService {
         ? truncateUtf16Safe(page.body, Math.max(0, match - 120)).length
         : 0;
       const snippet = hasBodyMatch ? page.body.slice(bodyOffset) : page.title;
-      return [{ ...source(page, snippet), bodyOffset, pageRevision: page.revision }];
+      return [
+        {
+          ...source(page, snippet),
+          kind: "notes" as const,
+          link: spaceContentLink(space.id, page.id),
+          bodyOffset,
+          pageRevision: page.revision,
+        },
+      ];
     });
     const conversations = raw.results.flatMap((hit) => {
       if (!isRecord(hit) || typeof hit.sessionKey !== "string" || typeof hit.snippet !== "string") {

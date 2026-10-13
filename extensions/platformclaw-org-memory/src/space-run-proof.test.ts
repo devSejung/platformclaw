@@ -1,11 +1,6 @@
-import { createHash } from "node:crypto";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  hashSpaceRunOperation,
-  registerSpaceRunProofs,
-  type SpaceRunOperationPayload,
-} from "./space-run-proof.js";
+import { registerSpaceRunProofs, type SpaceRunOperationPayload } from "./space-run-proof.js";
 
 type Handler = Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
 type Cleanup = Parameters<OpenClawPluginApi["lifecycle"]["registerRuntimeLifecycle"]>[0];
@@ -18,6 +13,7 @@ const payload: SpaceRunOperationPayload = {
   requestId: "request",
   body: "Question\nAnswer",
 };
+const DEFAULT_PAYLOAD_HASH = "9f150fe61481d8710ad791b6e5972878b2c4e3888a34b05b31c12404dc50a38d";
 const cleanups: Cleanup[] = [];
 
 function fixture(register = registerSpaceRunProofs) {
@@ -52,11 +48,7 @@ function fixture(register = registerSpaceRunProofs) {
     },
   } as unknown as OpenClawPluginApi;
   const issuer = register(api);
-  const verify = async (
-    proofId: string,
-    payloadHash = hashSpaceRunOperation(payload),
-    extra = {},
-  ) => {
+  const verify = async (proofId: string, payloadHash = DEFAULT_PAYLOAD_HASH, extra = {}) => {
     const respond = vi.fn();
     await handler!({
       req: { type: "req", id: "space-proof", method: "platformclaw.spaces.run.authorize" },
@@ -104,9 +96,9 @@ describe("Space operation proof", () => {
     const proofId = issuer.issue({}, payload);
     for (const response of [
       await verify("a".repeat(43)),
-      await verify(proofId, hashSpaceRunOperation({ ...payload, body: "changed" })),
-      await verify(proofId, hashSpaceRunOperation(payload), { agentId: "personal-bob" }),
-      await verify(proofId, hashSpaceRunOperation(payload), { runId: "known-active-run" }),
+      await verify(proofId, "ed9a9bd9e9f20cd2e95fa1d638e71250291ac3c53eae6d987083ab75c78e32d5"),
+      await verify(proofId, DEFAULT_PAYLOAD_HASH, { agentId: "personal-bob" }),
+      await verify(proofId, DEFAULT_PAYLOAD_HASH, { runId: "known-active-run" }),
     ]) {
       expect(response).toHaveBeenCalledWith(
         false,
@@ -198,45 +190,39 @@ describe("Space operation proof", () => {
   });
 
   it.each([
-    payload,
+    { input: payload, expectedHash: DEFAULT_PAYLOAD_HASH },
     {
-      operation: "note.append",
-      spaceId: "space",
-      pageId: "page",
-      expectedRevision: 2,
-      requestId: "append",
-      text: '\u0000"한글😀',
+      input: {
+        operation: "note.append",
+        spaceId: "space",
+        pageId: "page",
+        expectedRevision: 2,
+        requestId: "append",
+        text: '\u0000"한글😀',
+      },
+      expectedHash: "95307c9053df8d3bc86afe269c54209f03fa50b4bc030f7a452463d96e89149a",
     },
     {
-      operation: "note.replace",
-      expectedRevision: 3,
-      requestId: "replace",
-      oldText: "old",
-      newText: "",
+      input: {
+        operation: "note.replace",
+        expectedRevision: 3,
+        requestId: "replace",
+        oldText: "old",
+        newText: "",
+      },
+      expectedHash: "221f8a0d691be76b840c23216122cdbe08345afd5979f5034923ad54832e2573",
     },
-  ] satisfies SpaceRunOperationPayload[])(
-    "uses the fixed-order cross-service hash contract for $operation",
-    (input) => {
-      const fields =
-        input.operation === "qa.append"
-          ? [input.body]
-          : input.operation === "note.append"
-            ? [input.text]
-            : [input.oldText, input.newText];
-      const expected = createHash("sha256")
-        .update(
-          JSON.stringify([
-            input.operation,
-            input.spaceId ?? null,
-            input.pageId ?? null,
-            input.expectedRevision,
-            input.requestId,
-            fields,
-          ]),
-          "utf8",
-        )
-        .digest("hex");
-      expect(hashSpaceRunOperation(input)).toBe(expected);
+  ] satisfies Array<{ input: SpaceRunOperationPayload; expectedHash: string }>)(
+    "verifies the fixed-order cross-service hash contract for $input.operation",
+    async ({ input, expectedHash }) => {
+      const { issuer, verify } = fixture();
+      const proofId = issuer.issue({}, input);
+      expect(await verify(proofId, expectedHash)).toHaveBeenCalledWith(true, {
+        agentId: "personal-alice",
+        sessionKey: "agent:personal-alice:space-session:issue",
+        runtimeRunId: "runtime",
+        admissionRunId: "ingress",
+      });
     },
   );
 });
