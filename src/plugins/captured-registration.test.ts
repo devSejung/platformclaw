@@ -184,49 +184,53 @@ describe("captured plugin registration", () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 
-  it("returns synthetic scheduled-turn ids independent of human-readable names", async () => {
-    let scheduleSessionTurn: OpenClawPluginApi["scheduleSessionTurn"] | undefined;
-    let registerSessionSchedulerJob: OpenClawPluginApi["registerSessionSchedulerJob"] | undefined;
-    const captured = capturePluginRegistration({
-      id: "captured-custom-plugin",
-      name: "Captured Custom Plugin",
-      register(api) {
-        registerSessionSchedulerJob = api.session.workflow.registerSessionSchedulerJob;
-        scheduleSessionTurn = api.session.workflow.scheduleSessionTurn;
-      },
-    });
+  it.each(["flat", "grouped"] as const)(
+    "returns synthetic scheduled-turn ids through the %s API",
+    async (shape) => {
+      let scheduleSessionTurn: OpenClawPluginApi["scheduleSessionTurn"] | undefined;
+      let registerSessionSchedulerJob: OpenClawPluginApi["registerSessionSchedulerJob"] | undefined;
+      const captured = capturePluginRegistration({
+        id: "captured-custom-plugin",
+        name: "Captured Custom Plugin",
+        register(api) {
+          const workflow = shape === "flat" ? api : api.session.workflow;
+          registerSessionSchedulerJob = workflow.registerSessionSchedulerJob;
+          scheduleSessionTurn = workflow.scheduleSessionTurn;
+        },
+      });
 
-    expect(
-      registerSessionSchedulerJob?.({
+      expect(
+        registerSessionSchedulerJob?.({
+          id: "captured-job",
+          sessionKey: "agent:main:main",
+          kind: "session-turn",
+        }),
+      ).toEqual({
         id: "captured-job",
+        pluginId: "captured-custom-plugin",
         sessionKey: "agent:main:main",
         kind: "session-turn",
-      }),
-    ).toEqual({
-      id: "captured-job",
-      pluginId: "captured-custom-plugin",
-      sessionKey: "agent:main:main",
-      kind: "session-turn",
-    });
-    await expect(
-      scheduleSessionTurn?.({
-        sessionKey: "agent:main:main",
-        message: "wake",
-        delayMs: 1_000,
-        name: "human-readable-name",
-      }),
-    ).resolves.toEqual({
-      id: "captured-session-turn-1",
-      pluginId: "captured-custom-plugin",
-      sessionKey: "agent:main:main",
-      kind: "session-turn",
-    });
-    expect(captured.sessionSchedulerJobs).toEqual([
-      {
-        id: "captured-job",
+      });
+      await expect(
+        scheduleSessionTurn?.({
+          sessionKey: "agent:main:main",
+          message: "wake",
+          delayMs: 1_000,
+          name: "human-readable-name",
+        }),
+      ).resolves.toEqual({
+        id: "captured-session-turn-1",
+        pluginId: "captured-custom-plugin",
         sessionKey: "agent:main:main",
         kind: "session-turn",
-      },
-    ]);
-  });
+      });
+      expect(captured.sessionSchedulerJobs).toEqual([
+        {
+          id: "captured-job",
+          sessionKey: "agent:main:main",
+          kind: "session-turn",
+        },
+      ]);
+    },
+  );
 });

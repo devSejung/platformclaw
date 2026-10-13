@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveAgentWorkspaceDir } from "openclaw/plugin-sdk/agent-runtime";
 import type { GatewayRequestHandlerOptions } from "openclaw/plugin-sdk/gateway-runtime";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +10,8 @@ describe("Space agent provisioning", () => {
   it("creates a credential-free restricted entry without copying personal defaults", async () => {
     const root = await mkdtemp(join(tmpdir(), "space-agent-"));
     try {
+      const agentId = "space-12345678-1234-1234-1234-123456789abc";
+      const workspace = join(root, "main", "spaces", agentId);
       const draft = {
         agents: {
           defaults: { workspace: join(root, "main"), skills: ["private-skill"] },
@@ -21,14 +24,21 @@ describe("Space agent provisioning", () => {
       const respond = vi.fn();
       await ensureSpaceAgent(
         {
-          params: { agentId: "space-12345678-1234-1234-1234-123456789abc" },
+          params: { agentId },
           respond,
           context: { getRuntimeConfig: () => draft },
         } as unknown as GatewayRequestHandlerOptions,
-        { runtime: { config: { mutateConfigFile } } } as unknown as OpenClawPluginApi,
+        {
+          runtime: {
+            agent: { resolveAgentWorkspaceDir },
+            config: { mutateConfigFile },
+          },
+        } as unknown as OpenClawPluginApi,
       );
       expect(draft.agents.list[0]).toMatchObject({ id: "employee", tools: { allow: ["exec"] } });
       expect(draft.agents.list[1]).toMatchObject({
+        id: agentId,
+        workspace,
         contextInjection: "never",
         skills: [],
         memory: { search: { enabled: false } },
@@ -38,11 +48,8 @@ describe("Space agent provisioning", () => {
           elevated: { enabled: false },
         },
       });
-      expect(respond).toHaveBeenCalledWith(
-        true,
-        { agentId: "space-12345678-1234-1234-1234-123456789abc", ready: true },
-        undefined,
-      );
+      expect(respond).toHaveBeenCalledWith(true, { agentId, ready: true }, undefined);
+      expect((await stat(workspace)).isDirectory()).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

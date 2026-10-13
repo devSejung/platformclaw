@@ -7,6 +7,15 @@ type PluginApiFacadeFields = Pick<
 >;
 /** Plugin API shape without nested facade namespaces attached. */
 export type OpenClawPluginApiWithoutFacades = Omit<OpenClawPluginApi, keyof PluginApiFacadeFields>;
+/** Canonical grouped handlers supplied by host API implementations. */
+export type PluginApiFacadeHandlers = {
+  session?: {
+    [K in keyof OpenClawPluginApi["session"]]?: Partial<OpenClawPluginApi["session"][K]>;
+  };
+  agent?: { events?: Partial<OpenClawPluginApi["agent"]["events"]> };
+  lifecycle?: Partial<OpenClawPluginApi["lifecycle"]>;
+  runContext?: Partial<Omit<OpenClawPluginApi["runContext"], "resolveAdmissionId">>;
+};
 type PluginApiFacadeSource = Pick<
   OpenClawPluginApi,
   | "clearRunContext"

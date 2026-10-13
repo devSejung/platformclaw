@@ -1,6 +1,5 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { resolveAgentWorkspaceDir } from "openclaw/plugin-sdk/agent-runtime";
 import {
   ErrorCodes,
   errorShape,
@@ -25,7 +24,9 @@ export async function ensureSpaceAgent(
     return;
   }
   // The managed deployment root is inferred from the trusted default workspace, never browser input.
-  const base = path.dirname(resolveAgentWorkspaceDir(options.context.getRuntimeConfig(), "main"));
+  const base = path.dirname(
+    api.runtime.agent.resolveAgentWorkspaceDir(options.context.getRuntimeConfig(), "main"),
+  );
   const workspace = path.join(base, "spaces", agentId);
   await mkdir(workspace, { recursive: true, mode: 0o700 });
   await api.runtime.config.mutateConfigFile({

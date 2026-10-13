@@ -259,122 +259,141 @@ export function createPluginApiFactory(
               registerAgentToolResultMiddleware: (handler, options) => {
                 registerAgentToolResultMiddleware(record, handler, options, params.hookPolicy);
               },
-              registerSessionExtension: (extension) => registerSessionExtension(record, extension),
-              enqueueNextTurnInjection: (injection) => {
-                if (params.hookPolicy?.allowPromptInjection === false) {
-                  pushDiagnostic({
-                    level: "warn",
+              session: {
+                state: {
+                  registerSessionExtension: (extension) =>
+                    registerSessionExtension(record, extension),
+                },
+                workflow: {
+                  enqueueNextTurnInjection: (injection) => {
+                    if (params.hookPolicy?.allowPromptInjection === false) {
+                      pushDiagnostic({
+                        level: "warn",
+                        pluginId: record.id,
+                        source: record.source,
+                        message: `next-turn injection blocked by plugins.entries.${record.id}.hooks.allowPromptInjection=false`,
+                      });
+                      return Promise.resolve({
+                        enqueued: false,
+                        id: "",
+                        sessionKey: injection.sessionKey,
+                      });
+                    }
+                    return enqueuePluginNextTurnInjection({
+                      cfg: registryParams.runtime.config.current() as OpenClawConfig,
+                      pluginId: record.id,
+                      pluginName: record.name,
+                      injection,
+                    });
+                  },
+                  registerSessionSchedulerJob: (job) => registerSessionSchedulerJob(record, job),
+                  sendSessionAttachment: async (attachment) => {
+                    if (registryParams.activateGlobalSideEffects === false) {
+                      return { ok: false, error: "global side effects disabled" };
+                    }
+                    try {
+                      if (!isLoadedRecordInLiveRegistry()) {
+                        return { ok: false, error: "plugin is not loaded" };
+                      }
+                      const runtimeConfig =
+                        (registryParams.runtime.config?.current?.() as
+                          | OpenClawConfig
+                          | undefined) ?? params.config;
+                      return await sendPluginSessionAttachment({
+                        ...attachment,
+                        config: runtimeConfig,
+                        origin: record.origin,
+                      });
+                    } catch (error) {
+                      return {
+                        ok: false,
+                        error: `attachment delivery setup failed: ${formatErrorMessage(error)}`,
+                      };
+                    }
+                  },
+                  scheduleSessionTurn: async (schedule) => {
+                    if (registryParams.activateGlobalSideEffects === false) {
+                      return undefined;
+                    }
+                    await Promise.resolve();
+                    return schedulePluginSessionTurn({
+                      pluginId: record.id,
+                      pluginName: record.name,
+                      origin: record.origin,
+                      schedule,
+                      cron: getHostCronService(),
+                      shouldCommit: isLoadedRecordInLiveRegistry,
+                      ownerRegistry: registry,
+                    });
+                  },
+                  unscheduleSessionTurnsByTag: async (request) => {
+                    if (registryParams.activateGlobalSideEffects === false) {
+                      return { removed: 0, failed: 0 };
+                    }
+                    await Promise.resolve();
+                    if (!isLoadedRecordInLiveRegistry()) {
+                      return { removed: 0, failed: 0 };
+                    }
+                    return unschedulePluginSessionTurnsByTag({
+                      pluginId: record.id,
+                      origin: record.origin,
+                      cron: getHostCronService(),
+                      request,
+                    });
+                  },
+                },
+                controls: {
+                  registerSessionAction: (action) => registerSessionAction(record, action),
+                  registerControlUiDescriptor: (descriptor) =>
+                    registerControlUiDescriptor(record, descriptor),
+                },
+              },
+              agent: {
+                events: {
+                  registerAgentEventSubscription: (subscription) =>
+                    registerAgentEventSubscription(record, subscription),
+                  emitAgentEvent: (event) => {
+                    if (registryParams.activateGlobalSideEffects === false) {
+                      return { emitted: false, reason: "global side effects disabled" };
+                    }
+                    if (!shouldCommitWorkflowSideEffect()) {
+                      return { emitted: false, reason: "plugin is not loaded" };
+                    }
+                    return emitPluginAgentEvent({
+                      pluginId: record.id,
+                      pluginName: record.name,
+                      origin: record.origin,
+                      event,
+                    });
+                  },
+                },
+              },
+              runContext: {
+                setRunContext: (patch) =>
+                  shouldAccessRunContext()
+                    ? setPluginRunContext({ pluginId: record.id, patch })
+                    : false,
+                getRunContext: (get) =>
+                  shouldAccessRunContext()
+                    ? getPluginRunContext({ pluginId: record.id, get })
+                    : undefined,
+                clearRunContext: (paramsLocal) => {
+                  if (!shouldAccessRunContext()) {
+                    return;
+                  }
+                  clearPluginRunContext({
                     pluginId: record.id,
-                    source: record.source,
-                    message: `next-turn injection blocked by plugins.entries.${record.id}.hooks.allowPromptInjection=false`,
+                    runId: paramsLocal.runId,
+                    namespace: paramsLocal.namespace,
                   });
-                  return Promise.resolve({
-                    enqueued: false,
-                    id: "",
-                    sessionKey: injection.sessionKey,
-                  });
-                }
-                return enqueuePluginNextTurnInjection({
-                  cfg: registryParams.runtime.config.current() as OpenClawConfig,
-                  pluginId: record.id,
-                  pluginName: record.name,
-                  injection,
-                });
+                },
+              },
+              lifecycle: {
+                registerRuntimeLifecycle: (lifecycle) =>
+                  registerRuntimeLifecycle(record, lifecycle),
               },
               registerTrustedToolPolicy: (policy) => registerTrustedToolPolicy(record, policy),
               registerToolMetadata: (metadata) => registerToolMetadata(record, metadata),
-              registerControlUiDescriptor: (descriptor) =>
-                registerControlUiDescriptor(record, descriptor),
-              registerRuntimeLifecycle: (lifecycle) => registerRuntimeLifecycle(record, lifecycle),
-              registerAgentEventSubscription: (subscription) =>
-                registerAgentEventSubscription(record, subscription),
-              emitAgentEvent: (event) => {
-                if (registryParams.activateGlobalSideEffects === false) {
-                  return { emitted: false, reason: "global side effects disabled" };
-                }
-                if (!shouldCommitWorkflowSideEffect()) {
-                  return { emitted: false, reason: "plugin is not loaded" };
-                }
-                return emitPluginAgentEvent({
-                  pluginId: record.id,
-                  pluginName: record.name,
-                  origin: record.origin,
-                  event,
-                });
-              },
-              setRunContext: (patch) =>
-                shouldAccessRunContext()
-                  ? setPluginRunContext({ pluginId: record.id, patch })
-                  : false,
-              getRunContext: (get) =>
-                shouldAccessRunContext()
-                  ? getPluginRunContext({ pluginId: record.id, get })
-                  : undefined,
-              clearRunContext: (paramsLocal) => {
-                if (!shouldAccessRunContext()) {
-                  return;
-                }
-                clearPluginRunContext({
-                  pluginId: record.id,
-                  runId: paramsLocal.runId,
-                  namespace: paramsLocal.namespace,
-                });
-              },
-              registerSessionSchedulerJob: (job) => registerSessionSchedulerJob(record, job),
-              registerSessionAction: (action) => registerSessionAction(record, action),
-              sendSessionAttachment: async (attachment) => {
-                if (registryParams.activateGlobalSideEffects === false) {
-                  return { ok: false, error: "global side effects disabled" };
-                }
-                try {
-                  if (!isLoadedRecordInLiveRegistry()) {
-                    return { ok: false, error: "plugin is not loaded" };
-                  }
-                  const runtimeConfig =
-                    (registryParams.runtime.config?.current?.() as OpenClawConfig | undefined) ??
-                    params.config;
-                  return await sendPluginSessionAttachment({
-                    ...attachment,
-                    config: runtimeConfig,
-                    origin: record.origin,
-                  });
-                } catch (error) {
-                  return {
-                    ok: false,
-                    error: `attachment delivery setup failed: ${formatErrorMessage(error)}`,
-                  };
-                }
-              },
-              scheduleSessionTurn: async (schedule) => {
-                if (registryParams.activateGlobalSideEffects === false) {
-                  return undefined;
-                }
-                await Promise.resolve();
-                return schedulePluginSessionTurn({
-                  pluginId: record.id,
-                  pluginName: record.name,
-                  origin: record.origin,
-                  schedule,
-                  cron: getHostCronService(),
-                  shouldCommit: isLoadedRecordInLiveRegistry,
-                  ownerRegistry: registry,
-                });
-              },
-              unscheduleSessionTurnsByTag: async (request) => {
-                if (registryParams.activateGlobalSideEffects === false) {
-                  return { removed: 0, failed: 0 };
-                }
-                await Promise.resolve();
-                if (!isLoadedRecordInLiveRegistry()) {
-                  return { removed: 0, failed: 0 };
-                }
-                return unschedulePluginSessionTurnsByTag({
-                  pluginId: record.id,
-                  origin: record.origin,
-                  cron: getHostCronService(),
-                  request,
-                });
-              },
               registerMemoryCapability: (capability) =>
                 registerMemoryCapability(record, capability),
               registerMemoryPromptSupplement: (builder) =>

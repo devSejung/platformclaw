@@ -9,7 +9,10 @@ import { createEmptyPluginRegistry } from "./registry-empty.js";
 import type { PluginRuntime } from "./runtime/types.js";
 import type { OpenClawPluginApi } from "./types.js";
 
-function captureRegisteredPluginApi(handlers: Parameters<typeof buildPluginApi>[0]["handlers"]) {
+function captureRegisteredPluginApi(
+  handlers: Parameters<typeof buildPluginApi>[0]["handlers"],
+  onRegister?: (api: OpenClawPluginApi) => void,
+) {
   const api = buildPluginApi({
     id: "late-call-fixture",
     name: "Late Call Fixture",
@@ -25,6 +28,7 @@ function captureRegisteredPluginApi(handlers: Parameters<typeof buildPluginApi>[
   runPluginRegisterSyncInRegistry(
     (pluginApi) => {
       captured = pluginApi;
+      onRegister?.(pluginApi);
     },
     api,
     createEmptyPluginRegistry(),
@@ -33,20 +37,30 @@ function captureRegisteredPluginApi(handlers: Parameters<typeof buildPluginApi>[
   return expectDefined(captured, "captured plugin api");
 }
 
-describe("plugin api lifecycle", () => {
+describe.each(["flat", "grouped"] as const)("%s plugin api lifecycle", (shape) => {
   it("keeps both next-turn injection APIs callable after registration", async () => {
     const enqueueNextTurnInjection = vi.fn(async (injection) => ({
       enqueued: true,
       id: `injection-${injection.text}`,
       sessionKey: injection.sessionKey,
     }));
-    const api = captureRegisteredPluginApi({ enqueueNextTurnInjection });
+    const handlers =
+      shape === "flat"
+        ? { enqueueNextTurnInjection }
+        : { session: { workflow: { enqueueNextTurnInjection } } };
+    let detached: Pick<OpenClawPluginApi, "enqueueNextTurnInjection"> | undefined;
+    const api = captureRegisteredPluginApi(handlers, (pluginApi) => {
+      detached = { enqueueNextTurnInjection: pluginApi.enqueueNextTurnInjection };
+    });
 
     const groupedResult = await api.session.workflow.enqueueNextTurnInjection({
       sessionKey: "agent:main:main",
       text: "grouped",
     });
-    const flatResult = await api.enqueueNextTurnInjection({
+    const flatResult = await expectDefined(
+      detached,
+      "detached plugin api",
+    ).enqueueNextTurnInjection({
       sessionKey: "agent:main:main",
       text: "flat",
     });
@@ -66,14 +80,26 @@ describe("plugin api lifecycle", () => {
 
   it("blocks registration-phase methods after registration", () => {
     const registerSessionExtension = vi.fn();
-    const api = captureRegisteredPluginApi({ registerSessionExtension });
-
-    const result = api.session.state.registerSessionExtension({
+    const handlers =
+      shape === "flat"
+        ? { registerSessionExtension }
+        : { session: { state: { registerSessionExtension } } };
+    const extension = {
       namespace: "workflow",
       description: "workflow",
+    };
+    let cached: OpenClawPluginApi["session"]["state"] | undefined;
+    const api = captureRegisteredPluginApi(handlers, (pluginApi) => {
+      pluginApi.session.state.registerSessionExtension(extension);
+      cached = pluginApi.session.state;
     });
+    expect(registerSessionExtension).toHaveBeenCalledExactlyOnceWith(extension);
 
-    expect(result).toBeUndefined();
-    expect(registerSessionExtension).not.toHaveBeenCalled();
+    expect(api.session.state.registerSessionExtension(extension)).toBeUndefined();
+    expect(api.registerSessionExtension(extension)).toBeUndefined();
+    expect(
+      expectDefined(cached, "cached session API").registerSessionExtension(extension),
+    ).toBeUndefined();
+    expect(registerSessionExtension).toHaveBeenCalledExactlyOnceWith(extension);
   });
 });
