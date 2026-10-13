@@ -72,6 +72,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "sessions.describe",
   "sessions.files.get",
   "sessions.files.list",
+  "sessions.files.upload",
   "sessions.fork",
   "sessions.list",
   "sessions.messages.subscribe",
@@ -310,6 +311,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["sessions.describe", new Set(["key", "includeDerivedTitles", "includeLastMessage"])],
   ["sessions.files.get", new Set(["sessionKey", "path", "agentId"])],
   ["sessions.files.list", new Set(["sessionKey", "path", "search", "agentId"])],
+  ["sessions.files.upload", new Set(["sessionKey", "path", "name", "contentBase64", "agentId"])],
   ["sessions.fork", new Set(["sessionKey", "entryId", "agentId"])],
   [
     "sessions.list",
@@ -541,6 +543,7 @@ export const PLATFORMCLAW_WEB_SESSION_KEY_METHODS = new Map<string, string>([
   ["sessions.describe", "key"],
   ["sessions.files.get", "sessionKey"],
   ["sessions.files.list", "sessionKey"],
+  ["sessions.files.upload", "sessionKey"],
   ["sessions.fork", "sessionKey"],
   ["sessions.messages.subscribe", "key"],
   ["sessions.messages.unsubscribe", "key"],

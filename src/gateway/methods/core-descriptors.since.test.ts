@@ -28,6 +28,7 @@ const CURRENT_TRAIN_METHODS = [
   "terminal.list",
   "terminal.text",
   "terminal.upload",
+  "sessions.files.upload",
   "worktrees.list",
   "worktrees.branches",
   "worktrees.create",

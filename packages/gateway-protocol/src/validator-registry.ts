@@ -181,6 +181,7 @@ export const validateSessionsResolveParams = compile(S.SessionsResolveParamsSche
 export const validateSessionsFilesListParams = compile(S.SessionsFilesListParamsSchema);
 export const validateSessionsFilesGetParams = compile(S.SessionsFilesGetParamsSchema);
 export const validateSessionsFilesSetParams = compile(S.SessionsFilesSetParamsSchema);
+export const validateSessionsFilesUploadParams = compile(S.SessionsFilesUploadParamsSchema);
 export const validateSessionsFilesRevealParams = compile(S.SessionsFilesRevealParamsSchema);
 export const validateSessionsDiffParams = compile(S.SessionsDiffParamsSchema);
 export const validateSessionsCompanionAskParams = compile(S.SessionsCompanionAskParamsSchema);

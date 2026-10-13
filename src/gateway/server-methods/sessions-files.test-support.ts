@@ -9,6 +9,7 @@ type SessionFilesMethod =
   | "sessions.files.list"
   | "sessions.files.get"
   | "sessions.files.set"
+  | "sessions.files.upload"
   | "sessions.files.reveal";
 
 type ResponderCall = { ok: boolean; payload?: unknown; error?: unknown };

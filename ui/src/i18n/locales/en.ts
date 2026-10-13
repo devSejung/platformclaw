@@ -5894,6 +5894,24 @@ export const en: TranslationMap = {
       unavailable: "This discussion cannot be embedded.",
     },
     workspaceFiles: {
+      upload: "Upload workspace files",
+      uploadHint:
+        "Upload to this folder · up to 16 MiB per file · existing files are never replaced",
+      uploadProgress: "Uploading {current} of {total}",
+      uploadComplete: "Uploaded {count} workspace files",
+      uploadFailed: "Workspace upload failed",
+      uploadUnconfirmed: "Workspace upload needs confirmation",
+      uploadUnconfirmedHint:
+        "The current file may already be saved or still processing. Refresh this folder and check the file before uploading it again. Existing files are never replaced.",
+      uploadDestination: "Folder: {path}",
+      uploadCompletedCount: "Confirmed saved: {count} of {total} files",
+      uploadTooLarge: "File exceeds the 16 MiB workspace upload limit: {file}",
+      uploadDuplicate:
+        "A file with this name already exists. Rename the local file and select it again. The existing file was kept.",
+      stopUpload: "Stop remaining uploads",
+      uploadStopped: "Remaining uploads stopped",
+      uploadStoppedHint:
+        "Saved files are kept. A file already being processed may still be saved; refresh the folder to check.",
       label: "Thread workspace",
       expand: "Expand thread workspace",
       collapse: "Collapse thread workspace",

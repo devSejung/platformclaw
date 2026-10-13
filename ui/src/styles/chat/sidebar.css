@@ -445,6 +445,7 @@ openclaw-chat-sidebar-region,
 }
 
 .chat-workspace-rail__terminal,
+.chat-workspace-rail__upload,
 .chat-workspace-rail__refresh,
 .chat-workspace-rail__dock,
 .chat-workspace-rail__collapse-toggle {
@@ -501,6 +502,7 @@ openclaw-chat-sidebar-region,
 }
 
 .chat-workspace-rail__terminal svg,
+.chat-workspace-rail__upload svg,
 .chat-workspace-rail__refresh svg,
 .chat-workspace-rail__dock svg,
 .chat-workspace-rail__collapse-toggle svg,
@@ -543,6 +545,32 @@ openclaw-chat-sidebar-region,
 
 .chat-workspace-rail__state--error {
   color: var(--danger);
+}
+
+.chat-workspace-upload {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--control-ui-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.chat-workspace-upload--failed {
+  color: var(--danger);
+}
+
+.chat-workspace-upload progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.chat-workspace-upload .btn {
+  align-self: flex-start;
 }
 
 .chat-workspace-rail__scroll {

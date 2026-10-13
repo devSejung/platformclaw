@@ -18,12 +18,10 @@ import {
   validateSessionsFilesListParams,
   validateSessionsFilesSetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
-import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { resolveToCwd as resolveSessionToolPathToCwd } from "../../agents/sessions/tools/path-utils.js";
 import { runGit } from "../../agents/worktrees/git.js";
 import { FsSafeError } from "../../infra/fs-safe.js";
 import { pruneMapToMaxSize } from "../../infra/map-size.js";
-import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import {
   readSessionTranscriptVisibleMessageDelta,
   resolveTranscriptReadTarget,
@@ -31,7 +29,6 @@ import {
   toTranscriptReadScope,
   type SessionTranscriptReadScope,
 } from "../session-transcript-readers.js";
-import { loadSessionEntryReadOnly } from "../session-utils.js";
 import {
   execOpenPath,
   formatOpenPathError,
@@ -39,6 +36,11 @@ import {
   resolveOpenPathCommand,
   sanitizePathForLog,
 } from "./open-path.js";
+import { isSessionFilePathInsideRoot, loadSessionFileRoot } from "./sessions-file-root.js";
+import {
+  isSessionFileUploadAllowed,
+  sessionsFilesUploadHandlers,
+} from "./sessions-files-upload.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
 import {
@@ -319,14 +321,6 @@ function toDisplayPath(root: string, resolved: string): string {
   return relative.split(path.sep).join("/");
 }
 
-function isInsideRoot(root: string, candidate: string): boolean {
-  const relative = path.relative(root, candidate);
-  return (
-    relative === "" ||
-    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
-  );
-}
-
 function resolveTouchedFilePath(params: {
   root: string | undefined;
   fileRoot: string | undefined;
@@ -337,25 +331,10 @@ function resolveTouchedFilePath(params: {
   }
   const base = params.fileRoot ?? params.root;
   const resolved = resolveSessionToolPathToCwd(params.filePath, base);
-  if (!isInsideRoot(params.root, resolved)) {
+  if (!isSessionFilePathInsideRoot(params.root, resolved)) {
     return undefined;
   }
   return resolved;
-}
-
-function resolveFileRoot(params: {
-  root: string | undefined;
-  spawnedCwd: string | undefined;
-}): string | undefined {
-  if (!params.root) {
-    return undefined;
-  }
-  if (!params.spawnedCwd) {
-    return params.root;
-  }
-  const resolvedCwd = path.resolve(params.spawnedCwd);
-  const resolvedRoot = path.resolve(params.root);
-  return isInsideRoot(resolvedRoot, resolvedCwd) ? params.spawnedCwd : params.root;
 }
 
 function relevanceForKind(kind: FileKind): SessionFileRelevance {
@@ -523,36 +502,6 @@ async function toSessionFileEntry(
   const mimeType = await detectMime({ buffer: prefix.buffer });
   applyOversizedFileMetadata(entry, prefix.buffer, mimeType);
   return entry;
-}
-
-function loadSessionFileRoot(params: { sessionKey: string; agentId?: string }) {
-  const loaded = loadSessionEntryReadOnly(params.sessionKey, { agentId: params.agentId });
-  if (!loaded.entry?.sessionId) {
-    return { ...loaded, agentId: undefined, root: undefined, fileRoot: undefined };
-  }
-  const agentId = normalizeAgentId(
-    parseAgentSessionKey(loaded.canonicalKey)?.agentId ??
-      params.agentId ??
-      parseAgentSessionKey(params.sessionKey)?.agentId ??
-      resolveDefaultAgentId(loaded.cfg),
-  );
-  const spawnedCwd = normalizePathValue(loaded.entry.spawnedCwd);
-  const spawnedWorkspaceDir = normalizePathValue(loaded.entry.spawnedWorkspaceDir);
-  const configuredWorkspaceDir =
-    spawnedCwd || spawnedWorkspaceDir
-      ? undefined
-      : normalizePathValue(resolveAgentWorkspaceDir(loaded.cfg, agentId));
-  // Keep this cwd precedence aligned with sessions.diff so the advertised
-  // checkout state cannot disagree with the panel's fallback result.
-  const diffCwd = spawnedCwd ?? spawnedWorkspaceDir ?? configuredWorkspaceDir;
-  const root = spawnedWorkspaceDir ?? spawnedCwd ?? configuredWorkspaceDir;
-  return {
-    ...loaded,
-    agentId,
-    root,
-    fileRoot: resolveFileRoot({ root, spawnedCwd }),
-    diffCwd,
-  };
 }
 
 function resolveSessionFileCandidates(params: {
@@ -855,7 +804,8 @@ function respondSessionFileUnsafe(respond: RespondFn, filePath: string) {
 
 /** Gateway handlers for session files and workspace browsing. */
 export const sessionsFilesHandlers: GatewayRequestHandlers = {
-  "sessions.files.list": async ({ params, respond }) => {
+  ...sessionsFilesUploadHandlers,
+  "sessions.files.list": async ({ params, respond, context }) => {
     if (
       !assertValidParams(params, validateSessionsFilesListParams, "sessions.files.list", respond)
     ) {
@@ -864,6 +814,7 @@ export const sessionsFilesHandlers: GatewayRequestHandlers = {
     const result = await buildListResult(params);
     respond(true, {
       sessionKey: params.sessionKey,
+      uploadAllowed: await isSessionFileUploadAllowed(params, context),
       ...result,
     });
   },

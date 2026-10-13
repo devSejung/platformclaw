@@ -391,6 +391,7 @@ type SessionWorkspaceArtifactEntry = {
 
 export type SessionWorkspaceListResult = {
   sessionKey: string;
+  uploadAllowed?: boolean;
   root?: string;
   gitCheckout?: boolean;
   files: SessionWorkspaceFileEntry[];

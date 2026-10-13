@@ -12,6 +12,12 @@ import { SessionToolOverridesSchema } from "./sessions-row.js";
 
 export { SessionsCreateParamsSchema };
 export {
+  SessionsFilesUploadParamsSchema,
+  SessionsFilesUploadResultSchema,
+  type SessionsFilesUploadParams,
+  type SessionsFilesUploadResult,
+} from "./sessions-files-upload.js";
+export {
   SessionCreatedActorSchema,
   SessionRowSchema,
   SessionToolOverridesSchema,
@@ -237,6 +243,7 @@ export const SessionsFilesListParamsSchema = closedObject({
 export const SessionsFilesListResultSchema = closedObject({
   sessionKey: NonEmptyString,
   root: Type.Optional(NonEmptyString),
+  uploadAllowed: Type.Optional(Type.Boolean()),
   /** Whether the session workspace directory is inside a git checkout; absent when the workspace root is unknown or the gateway predates the field. */
   gitCheckout: Type.Optional(Type.Boolean()),
   files: Type.Array(SessionFileEntrySchema),

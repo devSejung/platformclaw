@@ -677,6 +677,25 @@ const configs = [
     },
     false,
   ),
+  nodeBuildConfig(
+    {
+      name: TSDOWN_UNIFIED_CONFIG_GROUP,
+      entry: {
+        "gateway/server-methods/sessions-files-upload.worker":
+          "src/gateway/server-methods/sessions-files-upload.worker.ts",
+      },
+      // The public native loader resolves its binary relative to the installed
+      // package. Keep this isolated entry external without changing the main
+      // Gateway's bundled fs-safe defaults or relocating private package assets.
+      deps: {
+        neverBundle: (id) =>
+          shouldNeverBundleDependency(id) ||
+          id === "@openclaw/fs-safe" ||
+          id.startsWith("@openclaw/fs-safe/"),
+      },
+    },
+    false,
+  ),
   ...(TSDOWN_DECLARATIONS
     ? buildUnifiedDeclarationPartitions(unifiedDistEntries).map(({ name, sources }) =>
         nodeBuildConfig(

@@ -35,6 +35,25 @@ export const nativeTranslations = {
     },
   },
   chat: {
+    workspaceFiles: {
+      upload: "작업 공간 파일 업로드",
+      uploadHint: "현재 폴더에 업로드 · 파일당 최대 16 MiB · 기존 파일은 덮어쓰지 않습니다",
+      uploadProgress: "{total}개 중 {current}번째 업로드 중",
+      uploadComplete: "작업 공간에 파일 {count}개를 업로드했습니다",
+      uploadFailed: "작업 공간 업로드 실패",
+      uploadUnconfirmed: "작업 공간 업로드 결과 확인 필요",
+      uploadUnconfirmedHint:
+        "현재 파일은 이미 저장되었거나 처리 중일 수 있습니다. 다시 업로드하기 전에 이 폴더를 새로고침하고 파일을 확인하세요. 기존 파일은 덮어쓰지 않습니다.",
+      uploadDestination: "저장 폴더: {path}",
+      uploadCompletedCount: "저장 확인: {total}개 중 {count}개",
+      uploadTooLarge: "작업 공간 업로드 제한 16 MiB를 초과했습니다: {file}",
+      uploadDuplicate:
+        "같은 이름의 파일이 있습니다. 로컬 파일 이름을 바꾼 뒤 다시 선택하세요. 기존 파일은 보존했습니다.",
+      stopUpload: "남은 업로드 중지",
+      uploadStopped: "남은 업로드를 중지했습니다",
+      uploadStoppedHint:
+        "저장된 파일은 유지됩니다. 처리 중이던 파일은 저장될 수 있으니 폴더를 새로고침해 확인하세요.",
+    },
     waitingOnSubagents: "하위 에이전트 작업 대기 중",
     yieldWaiting: "작업을 맡기고 대기 중",
     yieldResumed: "재개됨",
