@@ -56,6 +56,18 @@ async function openLogin(
   const identifier = page.locator('input[name="identifier"]');
   await identifier.waitFor();
   await expect.poll(() => identifier.isEnabled()).toBe(true);
+  const notice = page.getByRole("complementary", { name: "보안 안내 / Security notice" });
+  expect(await notice.isVisible()).toBe(true);
+  expect(await notice.locator('p[lang="ko"]').isVisible()).toBe(true);
+  expect(await notice.locator('p[lang="en"]').isVisible()).toBe(true);
+  const noticeBox = await notice.boundingBox();
+  const cardBox = await page.locator(".login-card").boundingBox();
+  expect(noticeBox).not.toBeNull();
+  expect(cardBox).not.toBeNull();
+  expect(noticeBox!.y + noticeBox!.height).toBeLessThanOrEqual(cardBox!.y);
+  expect(noticeBox!.x).toBeGreaterThanOrEqual(0);
+  expect(noticeBox!.x + noticeBox!.width).toBeLessThanOrEqual(viewport.width);
+
   return { context, page };
 }
 
@@ -144,6 +156,7 @@ describeE2e("PlatformClaw login", () => {
     { name: "desktop-light", mode: "light", width: 1920, height: 1080 },
     { name: "desktop-dark", mode: "dark", width: 1440, height: 900 },
     { name: "mobile", mode: "light", width: 390, height: 844 },
+    { name: "mobile-dark", mode: "dark", width: 320, height: 568 },
     { name: "landscape", mode: "dark", width: 844, height: 390 },
   ] as const)(
     "keeps the optional video guide secondary and accessible on $name",

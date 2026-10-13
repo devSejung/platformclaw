@@ -14,6 +14,20 @@
   </head>
   <body>
     <main class="login-page" data-platformclaw-login>
+      <aside class="login-security-notice" aria-labelledby="login-security-title">
+        <h2 id="login-security-title">보안 안내 <span lang="en">/ Security notice</span></h2>
+        <p lang="ko">
+          기본 대화는 사내 LLM으로 처리되며, 외부 AI 서비스로 전송되지 않습니다.<br />
+          단, ACP로 사외 Claude를 사용하면 입력 내용이 외부로 전송될 수 있습니다. 사용 전 Claude
+          설정과 사내 보안 정책을 반드시 확인해 주세요.
+        </p>
+        <p lang="en">
+          Regular conversations are processed by our internal LLM and are not sent to external AI
+          services.<br />
+          However, when using external Claude via ACP, your input may be sent outside the company.
+          Be sure to check your Claude settings and your company’s security policy before use.
+        </p>
+      </aside>
       <section class="login-hero" data-login-hero aria-hidden="true"></section>
 
       <div class="login-access">

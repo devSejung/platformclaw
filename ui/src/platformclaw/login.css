@@ -60,6 +60,33 @@ input {
   gap: 2rem;
 }
 
+.login-security-notice {
+  min-width: 0;
+  padding: 1rem 1.25rem;
+  order: -2;
+  grid-column: 1 / -1;
+  border: 1px solid var(--login-hairline);
+  border-inline-start: 3px solid var(--login-primary);
+  border-radius: 0.75rem;
+  color: var(--login-body);
+  background: var(--login-surface);
+  overflow-wrap: anywhere;
+}
+
+.login-security-notice h2 {
+  margin: 0;
+  color: var(--login-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.login-security-notice p {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.65;
+}
+
 .login-hero {
   min-width: 0;
 }
@@ -524,7 +551,7 @@ button:focus-visible {
     width: min(100% - 2rem, 31rem);
     padding: 2.5rem 0;
     grid-template-columns: 1fr;
-    gap: 0;
+    gap: 1.5rem;
   }
 
   .login-hero {
