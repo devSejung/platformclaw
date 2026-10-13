@@ -205,6 +205,44 @@ history, so normal runtime compaction remains important. The existing automatic
 compaction path and the owner's **Compact** action remain available. Source links
 open the shared page and do not grant access to someone else's session.
 
+## Save shared Q&A and edit Notes
+
+Each issue has fixed **Shared Q&A** and **Shared Notes** tabs beside personal
+conversation tabs. Notes is one shared page body, visible to all current Space
+members regardless of who edited it. It is not a collection of personal files.
+
+In your personal Space conversation, ask your agent to save a Q&A summary in
+**Shared Q&A**. The `space_qa_append` tool adds a separate post with your name,
+the timestamp, and agent attribution. Posting does not start another model,
+create a session, or run another member's tools. Earlier shared discussion stays
+in the same tab as preserved history. Searchable questions and final answers
+from personal Space conversations do not automatically become saved posts.
+
+Ask the agent to change **Shared Notes** with `space_note_update`. It can append
+exact text or replace one unique `oldText` occurrence with `newText`. It preserves
+unseen surrounding text; there is no full-body replacement fallback. Page reads
+may be truncated, so the agent must read the relevant window and its revision
+before patching. Empty or ambiguous replacement anchors are rejected.
+
+Both tools require current editor access and an active personal Space execution.
+Targets default to the current issue. An explicitly selected page must belong to
+the same Space and is checked again before saving. Each input text is limited to
+8 KiB UTF-8; Notes retains its existing 32,000-character page limit.
+
+Q&A has its own collection revision, returned as `sharedQaRevision` in Space
+context. Notes uses the page revision. Pass the appropriate revision as
+`expectedRevision`. On conflict, read again and use a new request; never overwrite
+from a stale or incomplete read. Repeating the same `requestId` and exact payload
+after an uncertain response returns the committed receipt without another write.
+Current authority is rechecked even for receipt replay. Success returns a saved
+location link, revision, and receipt rather than the previous shared body.
+
+`space_search` includes saved posts. Read them with `space_get` using `view: "qa"`
+and a returned `postId`, or omit `postId` to list a bounded page. Use the returned
+`qaCursor`/`nextCursor` for older posts and `nextBodyOffset` as `bodyOffset` to
+continue an immutable post's text. These source links open the Q&A tab; Notes
+links open the Notes tab. All reads still require current membership.
+
 ## Existing shared discussions
 
 Earlier page-level shared Q&A remains available as historical discussion under

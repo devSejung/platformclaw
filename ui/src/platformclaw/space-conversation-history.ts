@@ -18,6 +18,7 @@ import {
   resetChatThreadSessionPresentationState,
 } from "../pages/chat/components/chat-thread.ts";
 import { platformClawT } from "./i18n.ts";
+import type { SpaceQaPostsState } from "./space-qa-posts.ts";
 
 /** Keep shared history aligned with its selected deep-link anchor or live tail. */
 export function scrollSpacePageHistory(
@@ -26,7 +27,7 @@ export function scrollSpacePageHistory(
   anchor: string,
   follow: boolean,
 ): void {
-  if (!changed.has("messages") && !changed.has("page")) {
+  if (!changed.has("messages") && !changed.has("page") && !changed.has("qaPosts")) {
     return;
   }
   const history = host.querySelector<HTMLElement>(".pc-space-history");
@@ -125,6 +126,7 @@ export async function loadSpacePageHistory(options: {
   anchor: string;
   older: boolean;
   history: SpaceConversationHistoryState;
+  sharedPosts?: { state: SpaceQaPostsState; anchor: string };
   request: <T>(method: string, params: Record<string, unknown>) => Promise<T>;
   isCurrent: () => boolean;
   onMessages: (messages: SpaceMessage[]) => void;
@@ -154,6 +156,14 @@ export async function loadSpacePageHistory(options: {
       });
       if (options.isCurrent()) {
         options.onMessages(value.messages);
+        if (options.sharedPosts) {
+          await options.sharedPosts.state.load(
+            page,
+            options.request,
+            options.isCurrent,
+            options.sharedPosts.anchor,
+          );
+        }
       }
     }
   } catch (error) {

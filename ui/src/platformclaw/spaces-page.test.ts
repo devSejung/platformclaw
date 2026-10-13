@@ -8,6 +8,7 @@ import {
   mount,
   page,
   setupSpacePageTests,
+  selectNotes,
   space,
 } from "./spaces-page.test-support.ts";
 setupSpacePageTests();
@@ -72,7 +73,7 @@ describe("Space issue page UX", () => {
       const personalTab = group.querySelector<HTMLElement>('wa-tab[panel="own-conversation"]')!;
       const sharedTab = group.querySelector<HTMLElement>('wa-tab[panel="shared"]')!;
       const panel = element.querySelector('[role="tabpanel"]')!;
-      expect(group.querySelectorAll("wa-tab")).toHaveLength(2);
+      expect(group.querySelectorAll("wa-tab")).toHaveLength(3);
       expect(personalTab.getAttribute("aria-controls")).toBe(panel.id);
       expect(panel.getAttribute("aria-labelledby")).toBe(personalTab.id);
       expect(personalTab.textContent).toContain("Read-only");
@@ -100,7 +101,7 @@ describe("Space issue page UX", () => {
       expect(element.querySelector("openclaw-chat-pane")).toBeNull();
       expect(element.querySelector("platformclaw-space-conversation-history")).toBeNull();
       expect(panel.getAttribute("aria-labelledby")).toBe(sharedTab.id);
-      expect(new URL(location.href).searchParams.get("conversation")).toBe("shared");
+      expect(new URL(location.href).searchParams.get("tab")).toBe("qa");
 
       personalTab.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
       await element.updateComplete;
@@ -118,7 +119,7 @@ describe("Space issue page UX", () => {
         );
         sharedTab.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
         await element.updateComplete;
-        expect(new URL(location.href).searchParams.get("conversation")).toBe(own.id);
+        expect(new URL(location.href).searchParams.get("tab")).toBe("notes");
         button(element, "Cancel").click();
         await element.updateComplete;
         expect(group.querySelector("wa-tab[disabled]")).toBeNull();
@@ -374,22 +375,23 @@ describe("Space issue page UX", () => {
     expect(element.querySelector(".pc-space-message-body img")).toBeNull();
     expect(element.querySelector(".pc-space-message-body button")).toBeNull();
   });
-  it("opens notes and members beside the conversation and returns focus when dismissed", async () => {
+  it("opens shared notes directly in the issue tabs and keeps membership in its panel", async () => {
     const { element } = await mount();
     expect(element.querySelector(".pc-space-conversation")).not.toBeNull();
     expect(element.querySelector(".pc-space-conversation textarea")).toBeNull();
     expect(element.querySelector(".pc-space-panel")).toBeNull();
     expect(element.textContent).not.toContain("Shared notes");
-    button(element, "Notes").click();
-    await element.updateComplete;
-    expect(element.querySelector(".pc-space-panel")?.textContent).toContain("Shared notes");
-    expect(element.querySelector(".pc-space-conversation")).not.toBeNull();
+    await selectNotes(element);
+    expect(element.querySelector(".pc-space-panel")).toBeNull();
+    expect(element.querySelector(".pc-space-notes")?.textContent).toContain("Shared notes");
+    expect(element.querySelector(".pc-space-conversation")).toBeNull();
+    expect(new URL(location.href).searchParams.get("tab")).toBe("notes");
     button(element, "Members and access").click();
     await element.updateComplete;
     expect(element.querySelector(".pc-space-panel")?.textContent).toContain(
       "Employee name or account ID",
     );
-    expect(element.querySelector(".pc-space-notes")).toBeNull();
+    expect(element.querySelector(".pc-space-notes")).not.toBeNull();
     button(element, "Close panel").click();
     await element.updateComplete;
     expect(element.querySelector(".pc-space-panel")).toBeNull();
@@ -406,12 +408,12 @@ describe("Space issue page UX", () => {
       .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await element.updateComplete;
     expect(element.querySelector(".pc-space-panel")).toBeNull();
-    expect(element.querySelector(".pc-space-conversation")).not.toBeNull();
+    expect(element.querySelector(".pc-space-notes")).not.toBeNull();
     expect(request.mock.calls.some(([method]) => method.endsWith("page.save"))).toBe(false);
   });
   it("shows per-issue shared context and cancels page edits without mutation", async () => {
     const { element, request } = await mount();
-    expect(element.textContent).toContain("Earlier shared Q&A is read-only");
+    expect(element.textContent).toContain("explicitly saved");
     expect(element.querySelector(".pc-space-panel")).toBeNull();
     await beginEdit(element);
     input(element, "Title", "Unsaved");
@@ -770,8 +772,7 @@ describe("Space issue page UX", () => {
   it("offers a root issue even when another issue is selected", async () => {
     const { element } = await mount();
     expect(button(element, "New issue page")).toBeDefined();
-    button(element, "Notes").click();
-    await element.updateComplete;
+    await selectNotes(element);
     expect(button(element, "New child issue")).toBeDefined();
   });
 });

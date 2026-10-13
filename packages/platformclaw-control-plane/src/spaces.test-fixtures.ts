@@ -100,5 +100,17 @@ export async function createSpaceTestFixture(runtimeReady = true) {
     "fixture-history",
     "existing shared question",
   );
-  return { store, service, proxy, request, alice, bob, carol, space, page, auth };
+  return {
+    store,
+    service,
+    proxy,
+    request,
+    alice,
+    bob,
+    carol,
+    space,
+    page,
+    auth,
+    databasePath: join(root, "control.sqlite"),
+  };
 }

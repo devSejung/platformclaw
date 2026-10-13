@@ -1,5 +1,7 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { createWikiHubMemoryClient } from "./src/client.js";
+import { registerSpaceMutationTools } from "./src/space-mutation-tools.js";
+import { registerSpaceRunProofs } from "./src/space-run-proof.js";
 import { registerSpaceTools } from "./src/space-tools.js";
 import { createWikiHubCorpusSupplement } from "./src/supplement.js";
 import { createVaultTurnScopeController } from "./src/turn-scope.js";
@@ -28,6 +30,7 @@ export default definePluginEntry({
     }
     if (client) {
       registerSpaceTools(api, client);
+      registerSpaceMutationTools(api, client, registerSpaceRunProofs(api));
     }
     const turnScope = client ? createVaultTurnScopeController(api, client) : undefined;
     if (turnScope) {

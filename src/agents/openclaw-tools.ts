@@ -113,6 +113,8 @@ export function createOpenClawTools(
     runSessionKey?: string;
     agentChannel?: GatewayMessageChannel;
     runId?: string;
+    /** Host-owned cancellation for the current actual tool invocation. */
+    abortSignal?: AbortSignal;
     agentAccountId?: string;
     /** Trusted account used only for Gateway authorization; delivery keeps agentAccountId. */
     gatewayCallerAccountId?: string;

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { request } from "node:http";
 import path from "node:path";
 import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type { SpaceRunOperationPayload } from "./space-run-proof.js";
 
 const SEARCH_PATH = "/platformclaw/internal/memory/vaults/search";
 const GET_PATH = "/platformclaw/internal/memory/vaults/get";
@@ -12,6 +13,7 @@ const MAX_RESPONSE_BYTES = 256 * 1024;
 export type VaultTurnScope = { revision: number; vaultIds: string[]; personalEnabled: boolean };
 
 export type WikiHubMemoryClient = {
+  spaceMutation(params: SpaceRunOperationPayload & { proofId: string }): Promise<unknown>;
   spaceRead(params: {
     agentId: string;
     operation: string;
@@ -36,6 +38,9 @@ export type WikiHubMemoryClient = {
     targetAgentId?: string;
     nativeAction?: string;
     broad?: boolean;
+    view?: "page" | "qa";
+    postId?: string;
+    qaCursor?: string;
   }): Promise<unknown>;
   wiki(
     params: import("openclaw/plugin-sdk/memory-core-host-runtime-core").MemoryWikiOperation & {
@@ -180,6 +185,15 @@ export function createWikiHubMemoryClient(env: NodeJS.ProcessEnv): WikiHubMemory
   }
   const socketPath = handoffAddress(broker);
   return {
+    spaceMutation: async (params) =>
+      await call(
+        socketPath,
+        token,
+        params.operation === "qa.append"
+          ? "/platformclaw/internal/spaces/qa/append"
+          : "/platformclaw/internal/spaces/notes/patch",
+        params,
+      ),
     spaceRead: async (params) =>
       await call(socketPath, token, "/platformclaw/internal/spaces/read", params),
     wiki: async (params) => await call(socketPath, token, WIKI_PATH, params),

@@ -17,6 +17,8 @@ type AgentRunContext = {
   lifecycleGeneration?: string;
   /** Producer-owned start captured from this run's accepted lifecycle event. */
   lifecycleStartedAt?: number;
+  /** Accepted terminal lifecycle; retained context is no longer execution authority. */
+  lifecycleEnded?: boolean;
   verboseLevel?: VerboseLevel;
   isHeartbeat?: boolean;
   /** Whether control UI clients should receive chat/agent updates for this run. */
@@ -260,6 +262,22 @@ export function claimAgentRunContext(
 /** Returns the currently registered context for a run, if it has not been cleared or swept. */
 export function getAgentRunContext(runId: string): AgentRunContext | undefined {
   return getAgentRunRegistryState().contexts.get(runId);
+}
+
+/** A registered or queued context alone cannot authorize a tool-side mutation. */
+export function getActiveAgentRunContext(runId: string): AgentRunContext | undefined {
+  const state = getAgentRunRegistryState();
+  const context = state.contexts.get(runId);
+  const owners = state.owners.get(runId);
+  return context &&
+    context.lifecycleGeneration === state.lifecycleGeneration &&
+    Number.isFinite(context.lifecycleStartedAt) &&
+    context.lifecycleEnded !== true &&
+    (state.queuedRunContextLeases?.get(context) ?? 0) === 0 &&
+    (!owners ||
+      (owners.lifecycleGeneration === state.lifecycleGeneration && !owners.clearRequested))
+    ? context
+    : undefined;
 }
 
 /** Resolve ingress authorization without exposing one run's lineage to another session/agent. */

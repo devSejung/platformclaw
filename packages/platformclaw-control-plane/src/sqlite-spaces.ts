@@ -13,6 +13,7 @@ import {
 } from "./kysely-sync.js";
 import type { Space, SpacePage, SpaceRole } from "./space-contracts.js";
 import { ensureSpaceSchema, type SpaceRow, type SpacePageRow } from "./sqlite-schema-spaces.js";
+import { SqliteSpaceContentStore } from "./sqlite-space-content.js";
 import { SqliteSpaceConversationStore } from "./sqlite-space-conversations.js";
 import { SqliteSpaceLifecycleStore } from "./sqlite-space-lifecycle.js";
 import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
@@ -43,6 +44,7 @@ export function spaceText(value: unknown, label: string, max: number, empty = fa
 }
 const rank = { viewer: 1, editor: 2, owner: 3 };
 export class SqliteSpaceStore {
+  readonly content: SqliteSpaceContentStore;
   private readonly query = createSyncKysely<Database>();
   private readonly conversationStore: SqliteSpaceConversationStore;
   private readonly lifecycle: SqliteSpaceLifecycleStore;
@@ -50,6 +52,7 @@ export class SqliteSpaceStore {
   constructor(private readonly db: DatabaseSync) {
     this.conversationStore = new SqliteSpaceConversationStore(db, this);
     this.lifecycle = new SqliteSpaceLifecycleStore(db, this);
+    this.content = new SqliteSpaceContentStore(db, this);
   }
   private ensure() {
     if (!this.ready) {

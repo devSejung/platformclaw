@@ -53,17 +53,25 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.openNavigation": "Browse Spaces and conversations",
   "platformClaw.spaces.closeNavigation": "Back to conversation",
   "platformClaw.spaces.searchResults": "Search results",
-  "platformClaw.spaces.notes": "Notes",
+  "platformClaw.spaces.notes": "Shared Notes",
   "platformClaw.spaces.closePanel": "Close panel",
   "platformClaw.spaces.startConversation": "Earlier shared Q&A",
   "platformClaw.spaces.conversationHint":
-    "Earlier shared questions and answers appear here. Start a new conversation with your own agent to continue.",
+    "Earlier shared questions and answers are preserved here. Ask your own agent to save a Q&A summary for this issue.",
   "platformClaw.spaces.sharedConversation": "Shared with your Space",
   "platformClaw.spaces.spaceHint":
     "Bring the right people together around a project. You can invite members after creating it.",
   "platformClaw.spaces.notesHint":
     "Keep the brief, decisions, and useful context alongside this conversation.",
   "platformClaw.spaces.emptyNotes": "Add a brief or capture the decisions that matter.",
+  "platformClaw.spaces.sharedNotesNotice":
+    "All Space members can read this issue's notes. Editors and owners can update them.",
+  "platformClaw.spaces.qaPosts": "Saved Q&A",
+  "platformClaw.spaces.emptyQaPosts": "Ask your agent to save a shareable Q&A summary here.",
+  "platformClaw.spaces.agentOnBehalf": "Saved by their agent",
+  "platformClaw.spaces.qaReadMore": "Read more of this post",
+  "platformClaw.spaces.qaLoadOlder": "Load older posts",
+  "platformClaw.spaces.qaReadChanged": "The post changed while reading. Refresh before continuing.",
   "platformClaw.spaces.choosePage":
     "Choose a page to open your conversations or create a page for your team.",
   "platformClaw.spaces.startIssue": "Start an issue",
@@ -77,7 +85,7 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.readOnly": "Read-only",
   "platformClaw.spaces.legacyConversation": "Shared Q&A",
   "platformClaw.spaces.legacyNotice":
-    "Earlier shared Q&A is read-only. Start your own conversation to continue.",
+    "Saved Q&A posts are shared here; earlier shared conversations stay read-only. Your own conversation's questions and final answers are searchable shared context, but appear here only when explicitly saved. Tool activity, execution and approvals stay private.",
   "platformClaw.spaces.conversationSharingNotice":
     "Only you can open this conversation. Questions and final answers become shared context that agents in this Space may recall in their replies. Tool calls, execution access and chats outside this Space stay private.",
   "platformClaw.spaces.ownerConversationNotice":

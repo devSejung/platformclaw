@@ -28,6 +28,26 @@ register(api) {
 
 `api.runtime.version` is the current OpenClaw product version, sourced from the shared version resolver so plugins see the same value the CLI reports.
 
+## Active tool execution authority
+
+Inside an agent tool's actual `execute` callback,
+`api.runContext.resolveActiveAuthorization(context)` returns a process-local
+authorization handle for the matching current run, agent, and session, or
+`undefined` when that authority is unavailable. The handle contains `agentId`,
+`sessionKey`, `runtimeRunId`, `admissionRunId`, and `isActive()`.
+
+The host verifies the current lifecycle, accepted run ownership, and active tool
+invocation. Queued, canceled, completed, or retired work cannot acquire a handle.
+The handle becomes inactive when the tool finishes, its abort signal fires, or
+the owning run is retired or replaced. A callback may retain the handle only
+while checking `isActive()` before its side effect.
+
+The handle and its liveness function must remain in the host process. An external
+service needs a private operation-bound proof verified by the host plus its own
+current authorization checks. Never serialize the callback or accept actor IDs
+from model arguments as authority. `resolveAdmissionId` remains an identity
+resolver for existing callers; its fallback is not an authorization proof.
+
 ACP stdio providers registered through `openclaw/plugin-sdk/acp-runtime-backend`
 may advertise `AcpProcessTransportProvider.maxConcurrentSessions`, a positive
 integer capacity shared by an execution owner across the provider's supported

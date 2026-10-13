@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveAgentRunAdmissionId } from "../infra/agent-run-registry.js";
+import { resolveActiveAgentRunAuthorization } from "../infra/agent-tool-invocation.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { resolveUserPath } from "../utils.js";
 import { emitPluginAgentEvent } from "./agent-event-emission.js";
@@ -193,6 +194,27 @@ export function createPluginApiFactory(
         registryParams.activateGlobalSideEffects !== false && shouldCommitWorkflowSideEffect()
           ? resolveAgentRunAdmissionId(context)
           : undefined,
+      resolveActiveAuthorization: (context) => {
+        const authorization =
+          shouldAccessRunContext() && registry.plugins.includes(record)
+            ? resolveActiveAgentRunAuthorization(context)
+            : undefined;
+        if (!authorization) {
+          return undefined;
+        }
+        // Verification runs outside the issuing discovery registry's async scope.
+        // Keep the sealed owner live, but reject retired or rolled-back registries.
+        return Object.freeze({
+          ...authorization,
+          isActive: () =>
+            sideEffectGuard.active &&
+            !isPluginRegistryRetired(registry) &&
+            registry.plugins.includes(record) &&
+            record.enabled &&
+            record.status === "loaded" &&
+            authorization.isActive(),
+        });
+      },
       handlers: {
         ...(registrationCapabilities.capabilityHandlers
           ? {

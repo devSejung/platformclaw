@@ -55,6 +55,33 @@ CREATE TABLE IF NOT EXISTS collaboration_space_conversation_titles (
  conversation_id TEXT PRIMARY KEY REFERENCES collaboration_space_conversations(id) ON DELETE CASCADE,
  requested_title TEXT NOT NULL
 ) STRICT;
+CREATE TABLE IF NOT EXISTS collaboration_space_qa_heads (
+ page_id TEXT PRIMARY KEY REFERENCES collaboration_space_pages(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL CHECK(revision >= 1)
+) STRICT;
+CREATE TABLE IF NOT EXISTS collaboration_space_qa_posts (
+ id TEXT PRIMARY KEY,
+ space_id TEXT NOT NULL REFERENCES collaboration_spaces(id) ON DELETE CASCADE,
+ page_id TEXT NOT NULL REFERENCES collaboration_space_pages(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL CHECK(revision >= 2), body TEXT NOT NULL,
+ actor_user_id TEXT NOT NULL REFERENCES platform_users(id), author_name TEXT NOT NULL,
+ agent_id TEXT NOT NULL,
+ source_conversation_id TEXT REFERENCES collaboration_space_conversations(id) ON DELETE SET NULL,
+ created_at INTEGER NOT NULL, UNIQUE(page_id,revision)
+) STRICT;
+CREATE INDEX IF NOT EXISTS collaboration_space_qa_posts_space_author
+ ON collaboration_space_qa_posts(space_id,actor_user_id,created_at,id);
+CREATE TABLE IF NOT EXISTS collaboration_space_mutation_receipts (
+ id TEXT PRIMARY KEY, actor_user_id TEXT NOT NULL REFERENCES platform_users(id),
+ request_id TEXT NOT NULL, operation TEXT NOT NULL CHECK(operation IN ('qa.append','note.append','note.replace')),
+ space_id TEXT NOT NULL REFERENCES collaboration_spaces(id) ON DELETE CASCADE,
+ page_id TEXT NOT NULL REFERENCES collaboration_space_pages(id) ON DELETE CASCADE,
+ source_conversation_id TEXT NOT NULL, agent_id TEXT NOT NULL, session_key TEXT NOT NULL,
+ runtime_run_id TEXT NOT NULL, admission_run_id TEXT NOT NULL, payload_hash TEXT NOT NULL,
+ previous_revision INTEGER NOT NULL, revision INTEGER NOT NULL,
+ post_id TEXT REFERENCES collaboration_space_qa_posts(id) ON DELETE CASCADE,
+ created_at INTEGER NOT NULL, UNIQUE(actor_user_id,request_id)
+) STRICT;
 `;
 export function ensureSpaceSchema(db: DatabaseSync) {
   const ensure = () => db.exec(SPACE_SCHEMA);
