@@ -2,7 +2,6 @@ import { html, nothing, type LitElement, type TemplateResult } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import type {
   Space,
-  SpaceMember,
   SpacePage,
   SpaceConversation,
 } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
@@ -16,19 +15,13 @@ import {
   renderSpaceConversation,
   type SpaceConversationHistoryState,
 } from "./space-conversation-history.ts";
+import type { SpaceSnapshot } from "./space-gateway-request.ts";
 import { renderSpaceManagementDialog, type SpaceManagementState } from "./space-management.ts";
 import { renderSpaceMembers } from "./space-members-view.ts";
 import { renderSpaceNotes } from "./space-notes-view.ts";
 import type { SpacePeopleSearch } from "./space-people-search.ts";
 import { renderSpaceQaPosts, type SpaceQaPostsState } from "./space-qa-posts.ts";
 const t = (key: string) => platformClawT(`platformClaw.spaces.${key}`);
-export type SpaceSnapshot = {
-  space: Space;
-  pages: SpacePage[];
-  members: SpaceMember[];
-  conversations: SpaceConversation[];
-  currentUserId: string;
-};
 export type SpaceSearchHit = {
   kind?: "notes" | "qa-post";
   spaceId: string;

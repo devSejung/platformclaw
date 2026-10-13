@@ -27,6 +27,7 @@ import {
   spaceGatewayErrorMessage,
   normalizeSpaceSnapshot,
   upsertSpaceConversation,
+  type SpaceSnapshot,
 } from "./space-gateway-request.ts";
 import { SpaceManagementState } from "./space-management.ts";
 import { SpacePageEditor } from "./space-page-editor.ts";
@@ -39,7 +40,6 @@ import {
   expandSpacePageAncestors,
   focusSpaceViewTarget,
   toggleSpacePageExpansion,
-  type SpaceSnapshot,
   type SpaceSearchHit,
 } from "./spaces-view.ts";
 import "./spaces.css";
