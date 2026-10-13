@@ -1,22 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import loginHtml from "../../platformclaw-login.html?raw";
 import { PlatformClawLoginController } from "./login.ts";
 import { PLATFORMCLAW_LOGIN_API_PATH, PLATFORMCLAW_SESSION_API_PATH } from "./web-contract.ts";
 
 const fixtureValue = "fixture";
 
 function fixture(): HTMLElement {
-  const root = document.createElement("main");
-  root.innerHTML = `
-    <section data-login-hero></section>
-    <div data-login-mascot></div>
-    <form data-login-form novalidate>
-      <label>아이디<input name="identifier" required disabled></label>
-      <label>비밀번호<input name="password" type="password" required disabled></label>
-      <p data-login-error role="alert" hidden></p>
-      <button type="submit" disabled>세션 확인 중…</button>
-    </form>
-    <a data-login-adsso href="/employee/auth/adsso">ADSSO 로그인</a>
-    <p data-login-status></p>`;
+  const page = new DOMParser().parseFromString(loginHtml, "text/html");
+  const root = page.querySelector<HTMLElement>("[data-platformclaw-login]");
+  if (!root) {
+    throw new Error("Login page missing");
+  }
   document.body.append(root);
   return root;
 }
@@ -55,6 +49,28 @@ describe("PlatformClawLoginController", () => {
   afterEach(() => {
     document.body.replaceChildren();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps both security notices before sign-in while session bootstrap is pending", () => {
+    const root = fixture();
+    const notice = root.querySelector(".login-security-notice");
+    const form = root.querySelector("form");
+    expect(notice?.querySelector('[lang="ko"]')?.textContent).toContain("사내 LLM");
+    expect(notice?.querySelector('p[lang="en"]')?.textContent).toMatch(
+      /external Claude\s+via ACP/u,
+    );
+    expect(notice?.querySelector('p[lang="en"]')?.textContent).toContain(
+      "Regular conversations are processed by our internal LLM",
+    );
+    expect(notice?.querySelector('p[lang="ko"]')?.textContent).toContain("반드시 확인해 주세요");
+    expect(notice?.querySelector('p[lang="en"]')?.textContent).toMatch(/Be sure to check/u);
+    expect(notice?.querySelectorAll("p > br")).toHaveLength(2);
+    expect(notice?.querySelector("button, input, a")).toBeNull();
+    expect(notice?.hasAttribute("hidden")).toBe(false);
+    expect(
+      notice && form && notice.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(root.querySelector<HTMLInputElement>('input[name="identifier"]')?.disabled).toBe(true);
   });
 
   it("checks the opaque session before enabling sign-in", async () => {
@@ -107,6 +123,7 @@ describe("PlatformClawLoginController", () => {
     );
     expect(root.querySelector<HTMLInputElement>('input[name="password"]')?.value).toBe("");
     expect(navigate).not.toHaveBeenCalled();
+    expect(root.querySelector(".login-security-notice")?.hasAttribute("hidden")).toBe(false);
   });
 
   it("enters the sanitized application return route", async () => {
