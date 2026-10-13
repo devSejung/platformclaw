@@ -5,11 +5,7 @@ import {
   type GatewayBrowserClient,
   type GatewayHelloOk,
 } from "../../../api/gateway.ts";
-import type {
-  ArtifactDownloadResult,
-  SessionWorkspaceGetResult,
-  SessionWorkspaceListResult,
-} from "../../../api/types.ts";
+import type { ArtifactDownloadResult, SessionWorkspaceListResult } from "../../../api/types.ts";
 import { hasOperatorAdminAccess } from "../../../app/operator-access.ts";
 import {
   normalizeChatWorkspaceDock,
@@ -28,6 +24,7 @@ import { t } from "../../../i18n/index.ts";
 import { copyToClipboard } from "../../../lib/clipboard.ts";
 import { formatByteSize } from "../../../lib/format.ts";
 import { isGatewayMethodAdvertised } from "../../../lib/gateway-methods.ts";
+import { readSessionMethodAccess } from "../../../lib/session-method-access.ts";
 import {
   scopedAgentParamsForSession,
   type SessionCapability,
@@ -41,6 +38,15 @@ import {
 import { normalizeOptionalString } from "../../../lib/string-coerce.ts";
 import { resolvePlatformClawBranding } from "../../../platformclaw/branding.ts";
 import { platformClawProductT } from "../../../platformclaw/i18n.ts";
+import {
+  artifactSidebarContent,
+  unsupportedFileSidebarContent,
+} from "./chat-session-workspace-preview.ts";
+import {
+  SessionWorkspaceUploadController,
+  renderWorkspaceUploadAction,
+  renderWorkspaceUploadNotice,
+} from "./chat-session-workspace-upload.ts";
 import { hasUniformLineEndings, type SidebarContent } from "./chat-sidebar.ts";
 
 export type SessionWorkspaceProps = {
@@ -71,6 +77,8 @@ export type SessionWorkspaceProps = {
   /** Opens the session diff panel; absent when the gateway lacks sessions.diff. */
   onOpenDiff?: () => void;
   diffNotGit?: boolean;
+  upload?: SessionWorkspaceUploadController;
+  uploadAllowed?: boolean;
 };
 
 type SessionWorkspaceState = {
@@ -89,6 +97,7 @@ type SessionWorkspaceState = {
   pendingReload: boolean;
   requestId: number;
   sessionKey: string;
+  upload?: SessionWorkspaceUploadController;
 };
 
 type OpenRequest = {
@@ -145,6 +154,7 @@ function clearWorkspaceSearchTimer(workspace: SessionWorkspaceState | undefined)
 
 export function clearSessionWorkspaceTimers(state: SessionWorkspaceHost) {
   clearWorkspaceSearchTimer(state.sessionWorkspaceState);
+  state.sessionWorkspaceState?.upload?.dispose();
 }
 
 function getWorkspaceState(state: SessionWorkspaceHost): SessionWorkspaceState {
@@ -155,6 +165,7 @@ function getWorkspaceState(state: SessionWorkspaceHost): SessionWorkspaceState {
     return current;
   }
   clearWorkspaceSearchTimer(current);
+  current?.upload?.dispose();
   const next: SessionWorkspaceState = {
     activeId: null,
     agentId,
@@ -206,56 +217,6 @@ const SESSION_FILE_IMAGE_MIME_TYPES = new Set([
   "image/webp",
 ]);
 
-function formatMarkdownCodeSpan(value: string): string {
-  // Markdown finds block boundaries before inline spans, so filenames must
-  // stay on one logical line even when the Gateway returns hostile metadata.
-  const singleLineValue = value.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
-  const longestBacktickRun = Math.max(
-    0,
-    ...(singleLineValue.match(/`+/g)?.map((run) => run.length) ?? []),
-  );
-  const delimiter = "`".repeat(longestBacktickRun + 1);
-  const hasBoundarySpaces = singleLineValue.startsWith(" ") && singleLineValue.endsWith(" ");
-  const isOnlySpaces = /^ +$/.test(singleLineValue);
-  const padding =
-    singleLineValue.startsWith("`") ||
-    singleLineValue.endsWith("`") ||
-    (hasBoundarySpaces && !isOnlySpaces)
-      ? " "
-      : "";
-  return `${delimiter}${padding}${singleLineValue}${padding}${delimiter}`;
-}
-
-function formatFileUpdatedAt(updatedAtMs: number | undefined): string | null {
-  if (typeof updatedAtMs !== "number") {
-    return null;
-  }
-  const updatedAt = new Date(updatedAtMs);
-  return Number.isNaN(updatedAt.getTime()) ? null : updatedAt.toISOString();
-}
-
-function unsupportedFileSidebarContent(
-  file: SessionWorkspaceGetResult["file"],
-  fallbackPath: string,
-): SidebarContent {
-  const filePath = file.workspacePath || file.path || fallbackPath;
-  const updatedAt = formatFileUpdatedAt(file.updatedAtMs);
-  const lines = [
-    "This file is not previewable inline.",
-    "",
-    `- Path: ${formatMarkdownCodeSpan(filePath)}`,
-    file.mimeType ? `- Type: ${formatMarkdownCodeSpan(file.mimeType)}` : null,
-    typeof file.size === "number" ? `- Size: ${file.size.toLocaleString()} bytes` : null,
-    updatedAt ? `- Updated: ${updatedAt}` : null,
-  ].filter((line): line is string => line !== null);
-  const content = lines.join("\n");
-  return {
-    kind: "markdown",
-    content,
-    rawText: content,
-  };
-}
-
 function workspaceBrowserFilePath(root: string | undefined, filePath: string): string {
   if (!root) {
     return filePath;
@@ -264,45 +225,6 @@ function workspaceBrowserFilePath(root: string | undefined, filePath: string): s
   const base = root.replace(/[\\/]+$/, "");
   const relative = filePath.replace(/^[\\/]+/, "").replaceAll(/[\\/]/g, separator);
   return base ? `${base}${separator}${relative}` : `${separator}${relative}`;
-}
-
-function artifactSidebarContent(params: {
-  data?: string;
-  encoding?: string;
-  mimeType: string;
-  title: string;
-  url?: string;
-}): SidebarContent {
-  const { data, encoding, mimeType, title, url } = params;
-  if (encoding === "base64" && data && mimeType.startsWith("image/")) {
-    return {
-      kind: "image",
-      title,
-      src: `data:${mimeType};base64,${data}`,
-      mimeType,
-      rawText: url ?? null,
-    };
-  }
-  if (
-    encoding === "base64" &&
-    data &&
-    (mimeType === "application/json" || mimeType.startsWith("text/"))
-  ) {
-    const bytes = Uint8Array.from(globalThis.atob(data), (char) => char.charCodeAt(0));
-    const decoded = new TextDecoder().decode(bytes);
-    const language = mimeType === "application/json" ? "json" : "";
-    return {
-      kind: "markdown",
-      content: `# ${title}\n\n\`\`\`${language}\n${decoded}\n\`\`\``,
-      rawText: decoded,
-    };
-  }
-  if (url) {
-    const content = `# ${title}\n\n[Open artifact](${url})`;
-    return { kind: "markdown", content, rawText: content };
-  }
-  const content = `# ${title}\n\nArtifact download is not previewable in the sidebar.`;
-  return { kind: "markdown", content, rawText: content };
 }
 
 function loadWorkspace(
@@ -356,6 +278,9 @@ function loadWorkspace(
         sessionKey,
         ...(files?.root ? { root: files.root } : {}),
         ...(typeof files?.gitCheckout === "boolean" ? { gitCheckout: files.gitCheckout } : {}),
+        ...(typeof files?.uploadAllowed === "boolean"
+          ? { uploadAllowed: files.uploadAllowed }
+          : {}),
         files: fileItems,
         ...(files?.browser ? { browser: files.browser } : {}),
         artifacts: artifactItems,
@@ -748,6 +673,33 @@ export function createSessionWorkspaceProps(
 ): SessionWorkspaceProps {
   state.sessionWorkspaceDraftScope = options?.draftScope;
   const workspace = getWorkspaceState(state);
+  workspace.upload ??= new SessionWorkspaceUploadController({
+    capture: () =>
+      workspaceUploadAllowed(state, workspace) && state.client && workspace.list?.browser
+        ? {
+            client: state.client,
+            sessionKey: workspace.sessionKey,
+            agentId: workspace.agentId,
+            path: workspace.list.browser.path,
+          }
+        : null,
+    isCurrent: (target) =>
+      state.sessionWorkspaceState === workspace &&
+      state.sessionKey === target.sessionKey &&
+      paneSessionAgentId(state) === target.agentId &&
+      state.client === target.client &&
+      state.connected &&
+      workspace.browserPath === target.path &&
+      !workspace.browserSearch &&
+      workspace.list?.uploadAllowed !== false,
+    refresh: () => {
+      if (state.sessionWorkspaceState === workspace) {
+        loadWorkspace(state, workspace, true);
+      }
+    },
+    requestUpdate: () => requestUpdate(state),
+  });
+  workspace.upload.sync();
   if (
     // The collapsed header still renders the diff action, so load its checkout
     // capability eagerly instead of waiting for the file rail to open.
@@ -771,6 +723,8 @@ export function createSessionWorkspaceProps(
     narrowLayout: options?.narrowLayout === true,
     dockDragging: workspace.dockDragging,
     dockDragZone: workspace.dockDragZone,
+    upload: workspace.upload,
+    uploadAllowed: workspaceUploadAllowed(state, workspace),
     onToggleCollapsed: () => toggleSessionWorkspace(state),
     onSetDock: (dock) => setSessionWorkspaceDock(state, dock),
     onDockDragStart: (event) => startSessionWorkspaceDockDrag(state, event),
@@ -826,6 +780,29 @@ export function createSessionWorkspaceProps(
         ? () => state.handleOpenSidebar(buildSessionDiffSidebarContent(state))
         : undefined,
   };
+}
+
+function workspaceUploadAllowed(state: SessionWorkspaceHost, workspace: SessionWorkspaceState) {
+  return (
+    state.sessionWorkspaceState === workspace &&
+    state.sessionKey === workspace.sessionKey &&
+    paneSessionAgentId(state) === workspace.agentId &&
+    workspace.list?.uploadAllowed === true &&
+    Boolean(workspace.list.browser) &&
+    workspace.list.browser?.path === workspace.browserPath &&
+    !workspace.loading &&
+    !workspace.browserSearch &&
+    !workspace.list.browser?.search &&
+    isGatewayMethodAdvertised(state, "sessions.files.upload") === true &&
+    readSessionMethodAccess(
+      {
+        client: state.client,
+        hello: state.hello,
+        phase: state.connected ? "connected" : "offline",
+      },
+      { method: "sessions.files.upload", requiredScope: "operator.admin" },
+    ).allowed
+  );
 }
 
 /** Sidebar payload whose loader refetches sessions.diff for the pane's session. */
@@ -1312,6 +1289,9 @@ export function renderSessionWorkspaceRail(
           <strong>${t("chat.workspaceFiles.files")}</strong>
         </div>
         <div class="chat-workspace-rail__actions">
+          ${sessionWorkspace.uploadAllowed
+            ? renderWorkspaceUploadAction(sessionWorkspace.upload)
+            : nothing}
           ${diffButton} ${terminalButton} ${browserButton} ${custodianButton}
           ${sessionWorkspace.narrowLayout
             ? nothing
@@ -1368,7 +1348,7 @@ export function renderSessionWorkspaceRail(
             </openclaw-tooltip>
           `
         : nothing}
-      ${renderSessionSummary()}
+      ${renderSessionSummary()} ${renderWorkspaceUploadNotice(sessionWorkspace.upload)}
       ${sessionWorkspace.error
         ? html`<div class="chat-workspace-rail__state chat-workspace-rail__state--error">
             ${sessionWorkspace.error}

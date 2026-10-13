@@ -7065,6 +7065,7 @@ public struct SessionsFilesListParams: Codable, Sendable {
 public struct SessionsFilesListResult: Codable, Sendable {
     public let sessionkey: String
     public let root: String?
+    public let uploadallowed: Bool?
     public let gitcheckout: Bool?
     public let files: [SessionFileEntry]
     public let browser: SessionFileBrowserResult?
@@ -7072,12 +7073,14 @@ public struct SessionsFilesListResult: Codable, Sendable {
     public init(
         sessionkey: String,
         root: String? = nil,
+        uploadallowed: Bool? = nil,
         gitcheckout: Bool? = nil,
         files: [SessionFileEntry],
         browser: SessionFileBrowserResult? = nil)
     {
         self.sessionkey = sessionkey
         self.root = root
+        self.uploadallowed = uploadallowed
         self.gitcheckout = gitcheckout
         self.files = files
         self.browser = browser
@@ -7086,6 +7089,7 @@ public struct SessionsFilesListResult: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case sessionkey = "sessionKey"
         case root
+        case uploadallowed = "uploadAllowed"
         case gitcheckout = "gitCheckout"
         case files
         case browser
@@ -7225,6 +7229,58 @@ public struct SessionsFilesSetResult: Codable, Sendable {
         case sessionkey = "sessionKey"
         case root
         case file
+    }
+}
+
+public struct SessionsFilesUploadParams: Codable, Sendable {
+    public let sessionkey: String
+    public let agentid: String?
+    public let path: String
+    public let name: String
+    public let contentbase64: String
+
+    public init(
+        sessionkey: String,
+        agentid: String? = nil,
+        path: String,
+        name: String,
+        contentbase64: String)
+    {
+        self.sessionkey = sessionkey
+        self.agentid = agentid
+        self.path = path
+        self.name = name
+        self.contentbase64 = contentbase64
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case agentid = "agentId"
+        case path
+        case name
+        case contentbase64 = "contentBase64"
+    }
+}
+
+public struct SessionsFilesUploadResult: Codable, Sendable {
+    public let sessionkey: String
+    public let path: String
+    public let size: Int
+
+    public init(
+        sessionkey: String,
+        path: String,
+        size: Int)
+    {
+        self.sessionkey = sessionkey
+        self.path = path
+        self.size = size
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case path
+        case size
     }
 }
 

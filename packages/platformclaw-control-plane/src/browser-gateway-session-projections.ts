@@ -1,9 +1,15 @@
+import {
+  MAX_TERMINAL_UPLOAD_BYTES,
+  terminalUploadDecodedSize,
+} from "../../gateway-protocol/src/schema/terminal-constants.js";
+
 type JsonObject = Record<string, unknown>;
 
 type ProjectBrowserSessionResultParams = {
   method: string;
   prepared: JsonObject;
   result: unknown;
+  canUploadFiles?: boolean;
   assertOwnedResultSessionKey(value: unknown): void;
   projectSessionPayloadForAccess(value: unknown): JsonObject | null;
   fail(message: string): never;
@@ -270,6 +276,9 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
     return {
       sessionKey: payload.sessionKey,
       ...(typeof payload.gitCheckout === "boolean" ? { gitCheckout: payload.gitCheckout } : {}),
+      ...(typeof payload.uploadAllowed === "boolean"
+        ? { uploadAllowed: input.canUploadFiles === true && payload.uploadAllowed }
+        : {}),
       files: payload.files.map((file) =>
         projectObjectKeys(asObject(file, "session file entry", fail), SESSION_FILE_KEYS),
       ),
@@ -301,6 +310,32 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
         asObject(payload.file, "session file entry", fail),
         SESSION_FILE_KEYS,
       ),
+    };
+  }
+  if (input.method === "sessions.files.upload") {
+    const payload = asObject(input.result, "workspace upload result", fail);
+    input.assertOwnedResultSessionKey(payload.sessionKey);
+    const folder = input.prepared.path;
+    const name = input.prepared.name;
+    if (typeof folder !== "string" || typeof name !== "string") {
+      return input.fail("Gateway returned a workspace upload for an invalid request path");
+    }
+    const expectedPath = folder ? `${folder}/${name}` : name;
+    if (payload.sessionKey !== input.prepared.sessionKey || payload.path !== expectedPath) {
+      return input.fail("Gateway returned a different workspace upload than requested");
+    }
+    const size = requireNonNegativeInteger(payload.size, "workspace upload size", fail);
+    const expectedSize =
+      typeof input.prepared.contentBase64 === "string"
+        ? terminalUploadDecodedSize(input.prepared.contentBase64)
+        : undefined;
+    if (size > MAX_TERMINAL_UPLOAD_BYTES || size !== expectedSize) {
+      return input.fail("Gateway returned a different workspace upload size than requested");
+    }
+    return {
+      sessionKey: payload.sessionKey,
+      path: payload.path,
+      size,
     };
   }
   if (input.method === "artifacts.list") {

@@ -293,6 +293,53 @@ describe("session sharing policy", () => {
     ).toBeNull();
   });
 
+  it("applies workspace uploads to the authorized session instance and participation boundary", async () => {
+    await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      const sessionKey = "agent:main:upload-read-only";
+      await upsertSessionEntry(
+        { agentId: "main", sessionKey },
+        {
+          sessionId: "upload-original",
+          updatedAt: 1,
+          visibility: "read-only",
+          createdActor: { type: "human", id: "owner" },
+        },
+      );
+      const context = { chatAbortControllers: new Map(), getRuntimeConfig: () => ({}) } as never;
+      expect(
+        resolveSessionMutationAuthorization({
+          client: client({ user: "viewer" }),
+          method: "sessions.files.upload",
+          requestParams: { sessionKey },
+          context,
+        }).error,
+      ).toMatchObject({ details: { code: "SESSION_PARTICIPATION_REQUIRED" } });
+      expect(
+        resolveSessionMutationAuthorization({
+          client: client({ user: "owner" }),
+          method: "sessions.files.upload",
+          requestParams: {},
+          context,
+        }).error,
+      ).toMatchObject({ details: { code: "SESSION_MUTATION_TARGET_REQUIRED" } });
+      const authorized = resolveSessionMutationAuthorization({
+        client: client({ user: "owner" }),
+        method: "sessions.files.upload",
+        requestParams: { sessionKey },
+        context,
+      });
+      expect(authorized.error).toBeNull();
+      expect(authorized.authorization).toBeDefined();
+      await upsertSessionEntry(
+        { agentId: "main", sessionKey },
+        { sessionId: "upload-replaced", updatedAt: 2 },
+      );
+      expect(() => authorized.authorization!.assertCurrent()).toThrow(
+        "session changed before sessions.files.upload",
+      );
+    });
+  });
+
   it("fails closed for scoped events whose session row was deleted", () => {
     expect(
       canReceiveSessionEvent({

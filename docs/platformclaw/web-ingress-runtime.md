@@ -55,12 +55,43 @@ sessions owned by that personal Agent; rewind cannot select another employee's
 session. Unsupported Control UI actions are hidden through projected method
 advertisement instead of being rendered as dead controls.
 
-The Session Files rail exposes only `sessions.files.list` and
-`sessions.files.get`. The proxy pins the personal Agent, validates the session
-key, and returns relative browser paths without the Gateway workspace root or
-other host-absolute paths. `sessions.files.set`, `sessions.files.reveal`, and
-`sessions.diff` remain blocked. This read-only Session Files surface is
-separate from the Agent page's bounded Core Files editor.
+The Session Files rail exposes `sessions.files.list`, `sessions.files.get`,
+and `sessions.files.upload`. **Upload files** sends selected local files to
+the currently browsed folder of the Basic workspace; assigned-VM workspaces
+cannot use this action. Each file is limited to 16 MiB, its name to 206 UTF-8
+bytes to leave room for native temporary creation, and is created without
+overwriting an existing name. The UI shows file-count progress, completion,
+and failures, with retry available for temporary failures whose outcome is
+known. A lost response is marked **Workspace upload needs confirmation**:
+refresh the folder before selecting the file again, since it may already be
+saved or still processing. **Stop upload** stops the remaining queue; a
+request already sent may still finish, and completed uploads are not rolled
+back. This workspace upload is separate
+from composer attachments. The proxy pins the personal Agent, validates the
+owned session and Basic execution target, and returns relative paths without
+the Gateway workspace root or other host-absolute paths. `sessions.files.set`,
+`sessions.files.reveal`, and `sessions.diff` remain blocked; the Agent page's
+bounded Core Files editor remains a separate surface.
+
+Uploads require the packaged `fs-safe` native helper in an isolated Worker;
+unavailable helpers fail before writing. At most two uploads are admitted at
+once, with no server-side queue. The Gateway checks the current session and
+permission again before transferring bytes, and the Worker verifies the
+workspace and selected folder identities before accepting bytes. The folder's
+canonical path must match its requested lexical path inside the workspace.
+The Worker keeps that prepared folder Root and creates only the validated
+basename there; native creation compares the opened root descriptor with the
+Root's original identity before creating its temporary file. Worker success requires both
+the native write confirmation and a normal exit. A timeout after dispatch
+leaves the result uncertain and retains the admission slot until the Worker
+finishes its own cleanup and exits. The Gateway does not forcibly terminate
+native writes or fall back to pathname-based creation. This boundary assumes
+the managed Basic sandbox's restricted workspace mounts; an unrestricted
+host process that can move the original pinned directory inode outside its mount
+is outside that sandbox boundary. Identity observations do not freeze directory
+names or make separate admission checks atomic against arbitrary same-UID
+namespace changes. The helper's platform guarantees also apply: Linux native
+resolution is kernel-atomic, while macOS and Windows are best-effort.
 
 The Settings > Memory > Memory view searches personal long-term memory,
 Personal Wiki, and authorized organization knowledge together. Personal files
@@ -366,7 +397,7 @@ reporter metadata. The file is a bounded regular JSON secret with this shape:
   "components": ["PlatformClaw"],
   "coworkerField": "customfield_12345",
   "defaultCoworkers": ["voc.watcher"],
-  "authorization": "Bearer <deployment-secret>"
+  "authorization": "<REDACTED_CREDENTIAL_001>"
 }
 ```
 

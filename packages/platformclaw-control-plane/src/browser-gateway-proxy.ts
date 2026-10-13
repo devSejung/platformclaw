@@ -52,7 +52,8 @@ export {
 } from "./browser-gateway-policy.js";
 import {
   prepareBrowserSelfServiceRequest,
-  resolveBrowserSkillExecutionTarget,
+  rejectBrowserGatewayPreflight,
+  resolveBrowserExecutionTarget,
 } from "./browser-gateway-self-service-policy.js";
 import {
   isConfiguredBrowserModel,
@@ -161,13 +162,7 @@ export class BrowserGatewayProxy {
     let prepared: JsonObject;
     let initialCommandSuppressed = true;
     try {
-      executionTarget = await resolveBrowserSkillExecutionTarget({
-        method,
-        load: () => this.options.store.getPersonalExecutionProfile(access.binding.agentId),
-        deny: (message) => {
-          throw new BrowserGatewayProxyError("method-not-allowed", message);
-        },
-      });
+      executionTarget = await resolveBrowserExecutionTarget(this.options, access, method);
       prepared = this.prepareRequest(access, method, params);
       if (method === "sessions.observer.visibility") {
         if (!context?.connectionId) {
@@ -221,11 +216,7 @@ export class BrowserGatewayProxy {
       this.spaceAccess.assertRequest(access, method, prepared);
       validateAdmission?.();
     } catch (error) {
-      if (error instanceof BrowserGatewayProxyError) {
-        await auditBrowserGatewayDenied(this.options, access, method, error.code);
-        throw new BrowserGatewayProxyError(error.code, error.message, "rejected-before-dispatch");
-      }
-      throw error;
+      return await rejectBrowserGatewayPreflight(this.options, access, method, error);
     }
     if (method === "sessions.create") {
       try {
@@ -295,6 +286,16 @@ export class BrowserGatewayProxy {
     });
     if (specialResult.handled) {
       return specialResult.result as T;
+    }
+    if (method === "sessions.files.upload") {
+      try {
+        // Recheck the active target after every async preflight, just before dispatch.
+        executionTarget = await resolveBrowserExecutionTarget(this.options, access, method);
+        this.spaceAccess.assertRequest(access, method, prepared);
+        validateAdmission?.();
+      } catch (error) {
+        return await rejectBrowserGatewayPreflight(this.options, access, method, error);
+      }
     }
     validateAdmission?.();
     const result = await requestBrowserGatewayUpstream({
@@ -503,9 +504,6 @@ export class BrowserGatewayProxy {
       }
       return params;
     }
-    if (method === "sessions.subscribe") {
-      return params;
-    }
     if (this.terminals.handles(method)) {
       return method === "terminal.open" ? { ...params, agentId: access.binding.agentId } : params;
     }
@@ -566,6 +564,10 @@ export class BrowserGatewayProxy {
       method,
       prepared,
       result,
+      canUploadFiles:
+        executionTarget === "platform_server" &&
+        typeof prepared.sessionKey === "string" &&
+        this.spaceAccess.allowsAgentSession(access.binding.agentId, prepared.sessionKey, true),
       assertOwnedResultSessionKey: (value) =>
         this.assertions.ownedResultSessionKey(access.binding.agentId, value),
       projectSessionPayloadForAccess: (value) =>

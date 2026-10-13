@@ -165,6 +165,8 @@ export {
   SessionsFilesGetResultSchema,
   SessionsFilesSetParamsSchema,
   SessionsFilesSetResultSchema,
+  SessionsFilesUploadParamsSchema,
+  SessionsFilesUploadResultSchema,
   SessionsFilesListParamsSchema,
   SessionsFilesListResultSchema,
   SessionsFilesRevealParamsSchema,

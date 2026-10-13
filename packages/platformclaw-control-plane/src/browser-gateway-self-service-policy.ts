@@ -1,4 +1,10 @@
 import { isBaseballRpcMethod } from "./baseball-contracts.js";
+import { auditBrowserGatewayDenied } from "./browser-gateway-access.js";
+import {
+  BrowserGatewayProxyError,
+  type BrowserGatewayAccess,
+  type BrowserGatewayProxyOptions,
+} from "./browser-gateway-contracts.js";
 import { isKnowledgeVaultRpc } from "./browser-gateway-vault-policy.js";
 import { SPACE_RPC_PARAMS } from "./space-contracts.js";
 
@@ -16,6 +22,7 @@ type PrepareBrowserSelfServiceRequestParams = {
 type SkillExecutionTarget = "platform_server" | "assigned_vm";
 
 const PASSTHROUGH_METHODS = new Set([
+  "sessions.subscribe",
   "plugins.search",
   "plugins.install",
   "plugins.setEnabled",
@@ -43,23 +50,49 @@ const VM_SKILL_WORKSHOP_METHODS = new Set([
   "skills.proposals.requestRevision",
 ]);
 
-export async function resolveBrowserSkillExecutionTarget(input: {
-  method: string;
-  load(): Promise<{ activeTarget: SkillExecutionTarget } | null | undefined>;
-  deny(message: string): never;
-}): Promise<SkillExecutionTarget | undefined> {
-  if (!input.method.startsWith("skills.")) {
+export async function resolveBrowserExecutionTarget(
+  options: Pick<BrowserGatewayProxyOptions, "store">,
+  access: BrowserGatewayAccess,
+  method: string,
+): Promise<SkillExecutionTarget | undefined> {
+  const workspaceFiles = method === "sessions.files.list" || method === "sessions.files.upload";
+  if (!method.startsWith("skills.") && !workspaceFiles) {
     return undefined;
   }
-  const target = (await input.load())?.activeTarget ?? "platform_server";
+  const target =
+    (await options.store.getPersonalExecutionProfile(access.binding.agentId))?.activeTarget ??
+    "platform_server";
+  if (target === "assigned_vm" && method === "sessions.files.upload") {
+    throw new BrowserGatewayProxyError(
+      "method-not-allowed",
+      "File upload is available only in the Basic workspace",
+    );
+  }
   if (
+    !workspaceFiles &&
     target === "assigned_vm" &&
-    !VM_READ_ONLY_SKILL_METHODS.has(input.method) &&
-    !VM_SKILL_WORKSHOP_METHODS.has(input.method)
+    !VM_READ_ONLY_SKILL_METHODS.has(method) &&
+    !VM_SKILL_WORKSHOP_METHODS.has(method)
   ) {
-    return input.deny("Skill installation is available only in the Basic workspace");
+    throw new BrowserGatewayProxyError(
+      "method-not-allowed",
+      "Skill installation is available only in the Basic workspace",
+    );
   }
   return target;
+}
+
+export async function rejectBrowserGatewayPreflight(
+  options: Pick<BrowserGatewayProxyOptions, "auditWriter" | "now">,
+  access: BrowserGatewayAccess,
+  method: string,
+  error: unknown,
+): Promise<never> {
+  if (error instanceof BrowserGatewayProxyError) {
+    await auditBrowserGatewayDenied(options, access, method, error.code);
+    throw new BrowserGatewayProxyError(error.code, error.message, "rejected-before-dispatch");
+  }
+  throw error;
 }
 
 export function prepareBrowserSelfServiceRequest(
