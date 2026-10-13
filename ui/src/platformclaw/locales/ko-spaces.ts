@@ -53,16 +53,26 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.openNavigation": "Space와 대화 찾아보기",
   "platformClaw.spaces.closeNavigation": "대화로 돌아가기",
   "platformClaw.spaces.searchResults": "검색 결과",
-  "platformClaw.spaces.notes": "노트",
+  "platformClaw.spaces.notes": "공유 노트",
   "platformClaw.spaces.closePanel": "패널 닫기",
   "platformClaw.spaces.startConversation": "기존 공동 Q&A",
   "platformClaw.spaces.conversationHint":
-    "기존 공동 질문과 답변이 여기에 표시됩니다. 내 에이전트와 새 대화를 시작해 이어가세요.",
+    "기존 공동 질문과 답변은 여기에 보존됩니다. 내 에이전트에게 이 이슈의 Q&A 정리를 저장해 달라고 요청하세요.",
   "platformClaw.spaces.sharedConversation": "Space 구성원과 공유",
   "platformClaw.spaces.spaceHint":
     "프로젝트를 함께할 공간을 만드세요. 만든 뒤 구성원을 초대할 수 있어요.",
   "platformClaw.spaces.notesHint": "이 대화에 필요한 배경, 결정 사항, 참고할 내용을 정리하세요.",
   "platformClaw.spaces.emptyNotes": "배경 설명이나 기억할 결정 사항을 남겨 보세요.",
+  "platformClaw.spaces.sharedNotesNotice":
+    "이 이슈의 노트는 모든 Space 구성원이 볼 수 있습니다. 편집자와 관리자가 수정할 수 있습니다.",
+  "platformClaw.spaces.qaPosts": "저장한 Q&A",
+  "platformClaw.spaces.emptyQaPosts":
+    "에이전트에게 공유할 Q&A 정리를 여기에 저장해 달라고 요청하세요.",
+  "platformClaw.spaces.agentOnBehalf": "에이전트가 대신 저장",
+  "platformClaw.spaces.qaReadMore": "이 게시물 더 읽기",
+  "platformClaw.spaces.qaLoadOlder": "이전 게시물 불러오기",
+  "platformClaw.spaces.qaReadChanged":
+    "읽는 동안 게시물이 변경되었습니다. 새로고침한 뒤 계속하세요.",
   "platformClaw.spaces.choosePage":
     "페이지를 선택해 내 대화를 열거나 팀과 함께할 페이지를 만드세요.",
   "platformClaw.spaces.startIssue": "이슈 시작하기",
@@ -74,9 +84,9 @@ export const spaceTranslations: Readonly<Record<string, string>> = {
   "platformClaw.spaces.createConversation": "대화 만들기",
   "platformClaw.spaces.yourConversation": "내 개인 에이전트",
   "platformClaw.spaces.readOnly": "읽기 전용",
-  "platformClaw.spaces.legacyConversation": "기존 공동 Q&A",
+  "platformClaw.spaces.legacyConversation": "공동 Q&A",
   "platformClaw.spaces.legacyNotice":
-    "기존 공동 Q&A는 읽기 전용입니다. 계속하려면 내 대화를 시작하세요.",
+    "여기에 저장한 Q&A 게시물은 구성원에게 공유되며, 이전 공동 대화는 읽기 전용으로 보존됩니다. 내 대화의 질문·최종 답변은 검색 맥락으로 공유되고, 명시적으로 저장한 내용만 여기에 표시됩니다. 도구 활동·실행·승인은 개인 대화에 남습니다.",
   "platformClaw.spaces.conversationSharingNotice":
     "이 대화는 본인만 열어볼 수 있습니다. 질문과 최종 답변은 같은 Space의 에이전트가 답변에 참고할 공용 맥락으로 쓰입니다. 도구 호출·실행 권한과 Space 밖 대화는 공유되지 않습니다.",
   "platformClaw.spaces.ownerConversationNotice":

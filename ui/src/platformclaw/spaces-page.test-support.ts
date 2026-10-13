@@ -54,6 +54,9 @@ export async function mount(role = "owner", conversations: SpaceConversation[] =
   const listeners = new Set<(event: { event: string; payload?: unknown }) => void>();
   const request = vi.fn(
     async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
+      if (method.endsWith("qa.list")) {
+        return { revision: 0, posts: [], nextCursor: null };
+      }
       if (method.endsWith(".list")) {
         return [{ ...space, role }];
       }
@@ -130,14 +133,19 @@ export function button(element: HTMLElement, text: string) {
   expect(found, `button ${text}`).toBeDefined();
   return found!;
 }
+export async function selectNotes(element: Element) {
+  element
+    .querySelector<HTMLElement>('wa-tab[panel="notes"]')!
+    .dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true }));
+  await element.updateComplete;
+}
 export async function beginEdit(element: Element) {
   if (
     ![...element.querySelectorAll("button")].some(
       (item) => item.textContent?.trim() === "Edit page",
     )
   ) {
-    button(element, "Notes").click();
-    await element.updateComplete;
+    await selectNotes(element);
   }
   button(element, "Edit page").click();
   await element.updateComplete;

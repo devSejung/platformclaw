@@ -135,6 +135,47 @@ async function requestBrowserSpace(params: {
           ...(offset === undefined ? {} : { offset: offset as number }),
         },
       );
+    } else if (method === "platformclaw.spaces.qa.list") {
+      if (
+        request.limit !== undefined &&
+        (!Number.isSafeInteger(request.limit) ||
+          (request.limit as number) < 1 ||
+          (request.limit as number) > 20)
+      ) {
+        throw new BrowserGatewayProxyError("invalid-params", "Invalid shared Q&A page size");
+      }
+      result = store.content.listQa(
+        userId,
+        spaceId,
+        field("pageId"),
+        request.cursor === undefined ? undefined : field("cursor", 512),
+        request.limit as number | undefined,
+      );
+    } else if (method === "platformclaw.spaces.qa.get") {
+      const pageId = field("pageId");
+      if (
+        (request.bodyOffset !== undefined &&
+          (!Number.isSafeInteger(request.bodyOffset) ||
+            (request.bodyOffset as number) < 0 ||
+            (request.bodyOffset as number) > 8192)) ||
+        (request.bodyLimitBytes !== undefined &&
+          (!Number.isSafeInteger(request.bodyLimitBytes) ||
+            (request.bodyLimitBytes as number) < 64 ||
+            (request.bodyLimitBytes as number) > 8000))
+      ) {
+        throw new BrowserGatewayProxyError("invalid-params", "Invalid shared Q&A text window");
+      }
+      result = {
+        revision: store.content.qaRevision(userId, spaceId, pageId),
+        post: store.content.getQa(
+          userId,
+          spaceId,
+          pageId,
+          field("postId"),
+          request.bodyOffset as number | undefined,
+          request.bodyLimitBytes as number | undefined,
+        ),
+      };
     } else if (method === "platformclaw.spaces.chat.history") {
       result = await service.history(
         userId,

@@ -293,6 +293,7 @@ export async function setup(
       [`${rpc}create`]: fixture.space,
       [`${rpc}page.create`]: fixture.issue,
       [`${rpc}chat.history`]: { messages: fixture.messages },
+      [`${rpc}qa.list`]: { revision: 0, posts: [], nextCursor: null },
       [`${rpc}conversation.create`]: fixture.conversation,
       [`${rpc}conversation.history`]: {
         messages: fixture.nativeMessages,

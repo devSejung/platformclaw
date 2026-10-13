@@ -120,6 +120,9 @@ describe("Space recall tools", () => {
       properties: {
         spaceId: { type: "string", maxLength: 128 },
         pageId: { type: "string", maxLength: 128 },
+        view: { type: "string", enum: ["page", "qa"] },
+        postId: { type: "string", minLength: 1, maxLength: 128 },
+        qaCursor: { type: "string", maxLength: 512 },
         conversationId: { type: "string", maxLength: 128 },
         messageId: { type: "string", maxLength: 256 },
         bodyOffset: { type: "integer", minimum: 0, maximum: 32000 },

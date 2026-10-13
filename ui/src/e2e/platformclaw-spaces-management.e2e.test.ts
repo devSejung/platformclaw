@@ -35,7 +35,7 @@ suite("Space management browser workflows", () => {
       title: "제목",
       cancel: "취소",
       save: "저장",
-      shared: "기존 공동 Q&A",
+      shared: "공동 Q&A",
       renamed: "C형 보드 타이밍 검토 결과",
     },
   ])("renames an owned conversation safely in $locale at $width px", async (copy) => {

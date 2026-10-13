@@ -344,6 +344,18 @@ platformclaw-spaces-page {
   margin-bottom: 10px;
   font-size: 12px;
 }
+.pc-space-qa-post .pc-space-message-meta {
+  flex-wrap: wrap;
+}
+.pc-space-qa-posts h2,
+.pc-space-message-column > section > h2 {
+  margin: 0 0 24px;
+  color: var(--text-strong);
+  font-size: 16px;
+}
+.pc-space-qa-posts {
+  margin-bottom: 36px;
+}
 .pc-space-message-meta strong {
   font-weight: 600;
   color: var(--text-strong);

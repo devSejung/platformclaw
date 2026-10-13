@@ -80,12 +80,14 @@ suite("Team Space rendered browser workflows", () => {
       await gateway.setMethodResponse(`${rpc}get`, { ...snapshot, pages: [issue] });
       await ui.getByRole("button", { name: "Save", exact: true }).click();
       await expect
-        .poll(() => ui.getByRole("heading", { name: issue.title }).isVisible())
+        .poll(() =>
+          ui.getByRole("heading", { name: issue.title, level: 1, exact: true }).isVisible(),
+        )
         .toBe(true);
       expect((await gateway.getRequests(`${rpc}page.create`)).at(-1)?.params).not.toHaveProperty(
         "parentId",
       );
-      await ui.getByRole("button", { name: "Notes", exact: true }).click();
+      await ui.getByRole("tab", { name: "Shared Notes", exact: true }).click();
       await ui.getByRole("button", { name: "New child issue", exact: true }).click();
       await ui.getByLabel("Title", { exact: true }).fill(child.title);
       await ui.getByLabel("Issue description / notes", { exact: true }).fill(child.body);
@@ -96,6 +98,26 @@ suite("Team Space rendered browser workflows", () => {
       await expect
         .poll(async () => (await gateway.getRequests(`${rpc}page.create`)).at(-1)?.params)
         .toMatchObject({ parentId: issue.id, title: child.title });
+      await gateway.setMethodResponse(`${rpc}qa.list`, {
+        revision: 1,
+        posts: [
+          {
+            id: "qa-synthetic",
+            spaceId: space.id,
+            pageId: issue.id,
+            revision: 1,
+            body: "**Reviewed Q&A summary**: compare the cold-start conditions.",
+            authorId: bob.userId,
+            authorName: bob.displayName,
+            agentId: "personal-bob",
+            createdAt: issue.updatedAt + 2000,
+            bodyOffset: 0,
+            nextBodyOffset: null,
+            truncated: false,
+          },
+        ],
+        nextCursor: null,
+      });
       await ui.getByRole("button", { name: issue.title, exact: true }).click();
       await ui.getByRole("tab", { name: "Shared Q&A", exact: true }).click();
       await expect.poll(() => ui.locator("#message-message-a").isVisible()).toBe(true);
@@ -106,6 +128,15 @@ suite("Team Space rendered browser workflows", () => {
         .scrollIntoViewIfNeeded();
       await capture(page, "owner-shared-conversation");
       expect(await ui.locator("#message-message-a").textContent()).toContain(alice.displayName);
+      await expect
+        .poll(() => ui.locator("#post-qa-synthetic").textContent())
+        .toContain(bob.displayName);
+      expect(await ui.locator("#post-qa-synthetic").textContent()).toContain(
+        "Saved by their agent",
+      );
+      expect(await ui.locator("#post-qa-synthetic strong").allTextContents()).toContain(
+        "Reviewed Q&A summary",
+      );
       await ui
         .getByRole("searchbox", { name: "Search shared issues", exact: true })
         .fill("board revision");
@@ -139,15 +170,18 @@ suite("Team Space rendered browser workflows", () => {
         await expect
           .poll(() => page.locator("html").getAttribute("lang"))
           .toBe(copy.locale === "ko-KR" ? "ko" : "en");
-        await ui.getByRole("heading", { name: fixture.issue.title, exact: true }).waitFor();
+        await ui
+          .getByRole("heading", { name: fixture.issue.title, level: 1, exact: true })
+          .waitFor();
         await ui.getByRole("button", { name: copy.newConversation, exact: true }).click();
         await ui.getByLabel(copy.titleLabel, { exact: true }).fill(fixture.conversation.title);
-        await expect
-          .poll(() => ui.locator(".pc-space-panel-hint").textContent())
-          .toContain(copy.sharingPrivate);
-        expect(await ui.locator(".pc-space-panel-hint").textContent()).toContain(
-          copy.sharingPublic,
-        );
+        const creationPanel = ui.getByRole("complementary", {
+          name: copy.newConversation,
+          exact: true,
+        });
+        const sharingNotice = creationPanel.getByRole("paragraph");
+        await expect.poll(() => sharingNotice.textContent()).toContain(copy.sharingPrivate);
+        expect(await sharingNotice.textContent()).toContain(copy.sharingPublic);
         await capture(page, `${copy.prefix}-conversation-sharing-notice`);
         await gateway.setMethodResponse(`${rpc}get`, {
           ...snapshot,
@@ -389,10 +423,10 @@ suite("Team Space rendered browser workflows", () => {
       const ui = page.locator("platformclaw-spaces-page");
       await expect.poll(() => ui.locator("#message-message-a").isVisible()).toBe(true);
       expect(await ui.getByRole("button", { name: "Send to Space", exact: true }).count()).toBe(0);
-      await ui.getByRole("button", { name: "Notes", exact: true }).click();
+      await ui.getByRole("tab", { name: "Shared Notes", exact: true }).click();
       expect(await ui.getByRole("button", { name: "Edit page", exact: true }).count()).toBe(0);
+      await expect.poll(() => ui.locator(".pc-space-notes").textContent()).toContain(issue.body);
       await capture(page, "viewer-read-only");
-      await ui.getByRole("button", { name: "Close panel", exact: true }).click();
       await gateway.setMethodResponse(`${rpc}list`, []);
       await gateway.emitGatewayEvent("platformclaw.spaces.invalidated", {});
       await expect.poll(() => ui.textContent()).not.toContain(messages[0].text);
@@ -411,12 +445,12 @@ suite("Team Space rendered browser workflows", () => {
       );
       const ui = page.locator("platformclaw-spaces-page");
       await expect.poll(() => ui.locator("#message-message-a").isVisible()).toBe(true);
-      await ui.getByRole("button", { name: "Notes", exact: true }).click();
+      await ui.getByRole("tab", { name: "Shared Notes", exact: true }).click();
       await ui.getByRole("button", { name: "Edit page", exact: true }).click();
       await ui.getByLabel("Title", { exact: true }).fill("Uncommitted edit");
       await ui.getByRole("button", { name: "Cancel", exact: true }).click();
       expect(await gateway.getRequests(`${rpc}page.save`)).toHaveLength(0);
-      await ui.getByRole("button", { name: "Close panel", exact: true }).click();
+      await ui.getByRole("tab", { name: "Shared Q&A", exact: true }).click();
       await ui
         .getByRole("button", { name: "Browse Spaces and conversations", exact: true })
         .click();

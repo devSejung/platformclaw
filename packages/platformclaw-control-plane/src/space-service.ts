@@ -1,11 +1,9 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { BrowserGatewayRpc, BrowserGatewayEvent } from "./browser-gateway-contracts.js";
-import {
-  ControlPlaneAuthorizationError,
-  ControlPlaneConflictError,
-  ControlPlaneStateError,
-} from "./contracts.js";
+import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
+import { spaceContentLink } from "./space-content-contracts.js";
+import { mutateSpaceContent } from "./space-content-service.js";
 import { isSpaceConversationSession, type Space, type SpacePage } from "./space-contracts.js";
 import { SpaceConversationService } from "./space-conversation-service.js";
 import { SpaceLifecycleService } from "./space-lifecycle-service.js";
@@ -14,7 +12,8 @@ import {
   type SpaceNativeSessionRequest,
 } from "./space-native-session-guard.js";
 import {
-  assertSpaceTextOffset,
+  projectSpaceMessages,
+  projectSpacePage,
   projectSpaceRecallResult,
   validateSpaceRecallWindow,
   type SpaceRecallWindow,
@@ -42,87 +41,12 @@ type SpaceAgentReadParams = SpaceRecallWindow &
     bodyOffset?: number;
     pageRevision?: number;
     conversationId?: string;
+    view?: "page" | "qa";
+    postId?: string;
+    qaCursor?: string;
   };
 
-export type SpaceMessage = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  timestamp: number | null;
-  authorId: string | null;
-  authorName: string | null;
-};
-function projectSpaceMessages(value: unknown): SpaceMessage[] {
-  if (!isRecord(value) || !Array.isArray(value.messages)) {
-    throw new ControlPlaneStateError("Conversation history unavailable");
-  }
-  return value.messages.slice(-100).flatMap((message): SpaceMessage[] => {
-    if (!isRecord(message) || (message.role !== "user" && message.role !== "assistant")) {
-      return [];
-    }
-    const meta = isRecord(message["__openclaw"]) ? message["__openclaw"] : {};
-    const text =
-      typeof message.content === "string"
-        ? message.content
-        : Array.isArray(message.content)
-          ? message.content
-              .flatMap((block) =>
-                isRecord(block) && block.type === "text" && typeof block.text === "string"
-                  ? [block.text]
-                  : [],
-              )
-              .join("\n")
-          : "";
-    if (!text || typeof meta.id !== "string") {
-      return [];
-    }
-    return [
-      {
-        id: meta.id,
-        role: message.role,
-        text: truncateUtf16Safe(text, 16000),
-        timestamp:
-          typeof message.timestamp === "number" && Number.isFinite(message.timestamp)
-            ? message.timestamp
-            : null,
-        authorId:
-          message.role === "user" && typeof meta.senderProfileId === "string"
-            ? meta.senderProfileId
-            : null,
-        authorName:
-          message.role === "user" &&
-          typeof meta.senderProfileId === "string" &&
-          typeof meta.senderName === "string"
-            ? meta.senderName
-            : null,
-      },
-    ];
-  });
-}
-
-function projectSpacePage(
-  page: SpacePage,
-  params: { bodyOffset?: number; pageRevision?: number } = {},
-) {
-  const bodyOffset = params.bodyOffset ?? 0;
-  if (params.pageRevision !== undefined && params.pageRevision !== page.revision) {
-    throw new ControlPlaneConflictError(
-      "space_changed",
-      "Page changed; read from bodyOffset 0 before continuing",
-    );
-  }
-  if (bodyOffset > 0 && params.pageRevision === undefined) {
-    throw new ControlPlaneStateError("A continuation requires the returned page revision");
-  }
-  if (!Number.isSafeInteger(bodyOffset) || bodyOffset < 0 || bodyOffset > page.body.length) {
-    throw new ControlPlaneStateError("Invalid page offset; read from bodyOffset 0");
-  }
-  assertSpaceTextOffset(page.body, bodyOffset);
-  const body = truncateUtf16Safe(page.body.slice(bodyOffset), 8000);
-  const nextBodyOffset =
-    bodyOffset + body.length < page.body.length ? bodyOffset + body.length : null;
-  return { ...page, body, bodyOffset, nextBodyOffset, truncated: nextBodyOffset !== null };
-}
+export type { SpaceMessage } from "./space-recall-projection.js";
 
 /** Space is the authority; Gateway sessions own transcript storage and run scheduling. */
 export class SpaceService {
@@ -161,6 +85,11 @@ export class SpaceService {
   private key(agentId: string, pageId: string) {
     return `agent:${agentId}:space:${pageId}`;
   }
+  async agentMutation(input: Parameters<typeof mutateSpaceContent>[2]) {
+    const result = await mutateSpaceContent(this.store, this.gateway, input);
+    this.changed();
+    return result;
+  }
   async history(
     userId: string,
     spaceId: string,
@@ -189,6 +118,7 @@ export class SpaceService {
     query: string,
     revalidate: () => Promise<void>,
     budget = { remaining: SPACE_SEARCH_LOOKUP_LIMIT },
+    userId?: string,
   ) {
     const keys = new Map(
       pages
@@ -237,7 +167,15 @@ export class SpaceService {
         ? truncateUtf16Safe(page.body, Math.max(0, match - 120)).length
         : 0;
       const snippet = hasBodyMatch ? page.body.slice(bodyOffset) : page.title;
-      return [{ ...source(page, snippet), bodyOffset, pageRevision: page.revision }];
+      return [
+        {
+          ...source(page, snippet),
+          kind: "notes" as const,
+          link: spaceContentLink(space.id, page.id),
+          bodyOffset,
+          pageRevision: page.revision,
+        },
+      ];
     });
     const conversations = raw.results.flatMap((hit) => {
       if (!isRecord(hit) || typeof hit.sessionKey !== "string" || typeof hit.snippet !== "string") {
@@ -248,7 +186,10 @@ export class SpaceService {
         ? [source(page, hit.snippet, typeof hit.messageId === "string" ? hit.messageId : undefined)]
         : [];
     });
-    const results = [...notes, ...conversations];
+    // The shared budget limits Gateway history lookups. Local posts, like
+    // Notes, stay within the bounded Space scope without spending that budget.
+    const posts = userId ? this.spaces.content.searchQa(userId, space.id, query) : [];
+    const results = [...notes, ...posts, ...conversations];
     return {
       results: results.slice(0, 20),
       indexing: raw.indexing === true,
@@ -286,6 +227,7 @@ export class SpaceService {
             this.spaces.access(userId, space.id);
           },
           budget,
+          userId,
         ),
       );
       if (includePersonalConversations) {
@@ -410,7 +352,13 @@ export class SpaceService {
         spaceText(params.authorId, "author id", 128);
       }
     }
-    return projectSpaceRecallResult(await this.readAgentScope(params), params);
+    const result = await this.readAgentScope(params);
+    return params.operation === "get" &&
+      params.view === "qa" &&
+      (("post" in result && isRecord(result.post)) ||
+        ("posts" in result && Array.isArray(result.posts)))
+      ? result
+      : projectSpaceRecallResult(result, params);
   }
 
   private async searchAuthor(
@@ -434,6 +382,12 @@ export class SpaceService {
       { authorId: string; authorName: string; spaceName: string; conversationTitle: string }
     >();
     const name = params.authorName?.trim().toLowerCase();
+    const authorSpaces = new Map<string, Set<string>>();
+    const rememberSpace = (authorId: string, matchingSpaceId: string) => {
+      const matches = authorSpaces.get(authorId) ?? new Set<string>();
+      matches.add(matchingSpaceId);
+      authorSpaces.set(authorId, matches);
+    };
     for (const space of spaces) {
       for (const conversation of this.spaces.sharedConversations(userId, space.id)) {
         if (
@@ -441,12 +395,36 @@ export class SpaceService {
             ? conversation.ownerId === params.authorId.trim()
             : conversation.ownerName.toLowerCase().includes(name!)
         ) {
+          rememberSpace(conversation.ownerId, space.id);
           if (!authors.has(conversation.ownerId)) {
             authors.set(conversation.ownerId, {
               authorId: conversation.ownerId,
               authorName: conversation.ownerName,
               spaceName: space.name,
               conversationTitle: conversation.title,
+            });
+          }
+        }
+      }
+      const postAuthors = this.spaces.content.qaAuthors(userId, space.id, params.authorId?.trim());
+      if (params.authorName !== undefined && postAuthors.length > 200) {
+        throw new ControlPlaneStateError(
+          "Shared Q&A author names exceed the discovery window; use an exact returned authorId",
+        );
+      }
+      for (const author of postAuthors) {
+        if (
+          params.authorId !== undefined
+            ? author.id === params.authorId.trim()
+            : author.name.toLowerCase().includes(name!)
+        ) {
+          rememberSpace(author.id, space.id);
+          if (!authors.has(author.id)) {
+            authors.set(author.id, {
+              authorId: author.id,
+              authorName: author.name,
+              spaceName: space.name,
+              conversationTitle: "Shared Q&A",
             });
           }
         }
@@ -475,6 +453,23 @@ export class SpaceService {
     let indexing = false;
     let windowLimited = scope.hasMore;
     for (const space of spaces) {
+      // Identity discovery already located this author's sources. Empty Spaces
+      // must not consume the provider work budget or hide a later source.
+      if (!authorSpaces.get(author.authorId)?.has(space.id)) {
+        continue;
+      }
+      if (budget.remaining <= 0) {
+        windowLimited = true;
+        break;
+      }
+      results.push(
+        ...this.spaces.content
+          .searchQa(userId, space.id, query ?? "", author.authorId)
+          .slice(0, 21 - results.length),
+      );
+      if (results.length >= 21) {
+        break;
+      }
       if (query === undefined) {
         // Identity resolution above scans the whole scope; source expansion only
         // needs the candidate window plus one sentinel to report truncation.
@@ -506,7 +501,9 @@ export class SpaceService {
       results: results.slice(0, 20),
       indexing,
       windowLimited: windowLimited || results.length > 20,
-      ...(query === undefined ? { discoveryOnly: true } : {}),
+      ...(query === undefined && !results.some((item) => item.kind === "qa-post")
+        ? { discoveryOnly: true }
+        : {}),
     };
   }
   private async readAgentScope(params: SpaceAgentReadParams) {
@@ -538,6 +535,7 @@ export class SpaceService {
           spaceName: space.name,
           page: projectSpacePage(this.spaces.page(userId, space.id, registered.pageId)),
           conversation: { id: registered.id, title: registered.title },
+          sharedQaRevision: this.spaces.content.qaRevision(userId, space.id, registered.pageId),
         };
       }
       if (params.operation === "search") {
@@ -560,6 +558,29 @@ export class SpaceService {
       const spaceId = spaceText(params.spaceId, "space id", 128);
       const pageId = spaceText(params.pageId, "page id", 128);
       const page = this.spaces.page(userId, spaceId, pageId);
+      const sharedQaRevision = this.spaces.content.qaRevision(userId, spaceId, pageId);
+      if (params.view === "qa") {
+        return params.postId
+          ? {
+              revision: sharedQaRevision,
+              post: this.spaces.content.getQa(
+                userId,
+                spaceId,
+                pageId,
+                params.postId,
+                params.bodyOffset,
+                params.bodyLimitBytes,
+              ),
+            }
+          : this.spaces.content.listQa(
+              userId,
+              spaceId,
+              pageId,
+              params.qaCursor,
+              params.limit ?? 5,
+              (params.limit ?? 5) > 5 ? 16 * 1024 : 8 * 1024,
+            );
+      }
       if (params.conversationId) {
         const conversation = this.spaces.sharedConversation(userId, spaceId, params.conversationId);
         if (conversation.pageId !== pageId) {
@@ -574,6 +595,7 @@ export class SpaceService {
         );
         return {
           page: projectSpacePage(page, params),
+          sharedQaRevision,
           conversation: {
             id: conversation.id,
             title: conversation.title,
@@ -586,6 +608,7 @@ export class SpaceService {
       const history = await this.history(userId, spaceId, pageId, revalidate, params.messageId);
       return {
         page: projectSpacePage(page, params),
+        sharedQaRevision,
         messages: history.messages,
       };
     }
@@ -596,6 +619,9 @@ export class SpaceService {
     }
     if (params.spaceId && params.spaceId !== sharedId) {
       throw new ControlPlaneAuthorizationError("Space unavailable");
+    }
+    if (params.view === "qa") {
+      throw new ControlPlaneStateError("Saved Q&A post reads require a personal agent");
     }
     this.spaces.assertRun(params.agentId, params.runId);
     const scope = this.spaces.agentScope(params.agentId);

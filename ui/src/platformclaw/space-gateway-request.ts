@@ -1,7 +1,19 @@
-import type { SpaceConversation } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
+import type {
+  Space,
+  SpaceConversation,
+  SpaceMember,
+  SpacePage,
+} from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
 import type { ApplicationContext } from "../app/context.ts";
 import { platformClawT } from "./i18n.ts";
-import type { SpaceSnapshot } from "./spaces-view.ts";
+
+export type SpaceSnapshot = {
+  space: Space;
+  pages: SpacePage[];
+  members: SpaceMember[];
+  conversations: SpaceConversation[];
+  currentUserId: string;
+};
 
 /** A response must still belong to the connected browser identity that requested it. */
 export async function requestSpaceGateway<T>(

@@ -1,6 +1,87 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
-import { ControlPlaneStateError } from "./contracts.js";
+import { ControlPlaneConflictError, ControlPlaneStateError } from "./contracts.js";
+import type { SpacePage } from "./space-contracts.js";
+
+export type SpaceMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  timestamp: number | null;
+  authorId: string | null;
+  authorName: string | null;
+};
+export function projectSpaceMessages(value: unknown): SpaceMessage[] {
+  if (!isRecord(value) || !Array.isArray(value.messages)) {
+    throw new ControlPlaneStateError("Conversation history unavailable");
+  }
+  return value.messages.slice(-100).flatMap((message): SpaceMessage[] => {
+    if (!isRecord(message) || (message.role !== "user" && message.role !== "assistant")) {
+      return [];
+    }
+    const meta = isRecord(message["__openclaw"]) ? message["__openclaw"] : {};
+    const text =
+      typeof message.content === "string"
+        ? message.content
+        : Array.isArray(message.content)
+          ? message.content
+              .flatMap((block) =>
+                isRecord(block) && block.type === "text" && typeof block.text === "string"
+                  ? [block.text]
+                  : [],
+              )
+              .join("\n")
+          : "";
+    if (!text || typeof meta.id !== "string") {
+      return [];
+    }
+    return [
+      {
+        id: meta.id,
+        role: message.role,
+        text: truncateUtf16Safe(text, 16000),
+        timestamp:
+          typeof message.timestamp === "number" && Number.isFinite(message.timestamp)
+            ? message.timestamp
+            : null,
+        authorId:
+          message.role === "user" && typeof meta.senderProfileId === "string"
+            ? meta.senderProfileId
+            : null,
+        authorName:
+          message.role === "user" &&
+          typeof meta.senderProfileId === "string" &&
+          typeof meta.senderName === "string"
+            ? meta.senderName
+            : null,
+      },
+    ];
+  });
+}
+
+export function projectSpacePage(
+  page: SpacePage,
+  params: { bodyOffset?: number; pageRevision?: number } = {},
+) {
+  const bodyOffset = params.bodyOffset ?? 0;
+  if (params.pageRevision !== undefined && params.pageRevision !== page.revision) {
+    throw new ControlPlaneConflictError(
+      "space_changed",
+      "Page changed; read from bodyOffset 0 before continuing",
+    );
+  }
+  if (bodyOffset > 0 && params.pageRevision === undefined) {
+    throw new ControlPlaneStateError("A continuation requires the returned page revision");
+  }
+  if (!Number.isSafeInteger(bodyOffset) || bodyOffset < 0 || bodyOffset > page.body.length) {
+    throw new ControlPlaneStateError("Invalid page offset; read from bodyOffset 0");
+  }
+  assertSpaceTextOffset(page.body, bodyOffset);
+  const body = truncateUtf16Safe(page.body.slice(bodyOffset), 8000);
+  const nextBodyOffset =
+    bodyOffset + body.length < page.body.length ? bodyOffset + body.length : null;
+  return { ...page, body, bodyOffset, nextBodyOffset, truncated: nextBodyOffset !== null };
+}
 
 export type SpaceRecallWindow = {
   operation: string;

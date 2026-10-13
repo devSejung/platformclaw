@@ -1,11 +1,14 @@
 // Ambient trusted caller context for model-mediated Gateway tool calls.
 import { AsyncLocalStorage } from "node:async_hooks";
+import { withActiveAgentToolInvocation } from "../../infra/agent-tool-invocation.js";
 import { copyAgentToolMetadata } from "../agent-tool-metadata.js";
 import type { AnyAgentTool } from "./common.js";
 
 type GatewayToolCallerIdentity = {
   agentId: string;
   sessionKey: string;
+  runId?: string;
+  abortSignal?: AbortSignal;
   /** Host-signed capability for the scheduled run's existing self-management surface. */
   cronSelfManagementJobId?: string;
   // Trusted run context, carried separately from model-authored tool arguments.
@@ -17,6 +20,8 @@ type GatewayToolCallerIdentity = {
 
 type GatewayToolCallerSource = {
   agentSessionKey?: string;
+  runId?: string;
+  abortSignal?: AbortSignal;
   agentChannel?: string;
   currentMessagingTarget?: string;
   currentChannelId?: string;
@@ -70,8 +75,11 @@ export function wrapToolWithGatewayCallerIdentity(
   }
   const wrapped: AnyAgentTool = {
     ...tool,
-    execute: async (...args) =>
-      await withGatewayToolCallerIdentity(identity, async () => await tool.execute?.(...args)),
+    execute: async (...args) => {
+      const execute = () =>
+        withGatewayToolCallerIdentity(identity, async () => await tool.execute?.(...args));
+      return await withActiveAgentToolInvocation(identity, args[2], execute);
+    },
   };
   return copyAgentToolMetadata(tool, wrapped);
 }
@@ -85,6 +93,8 @@ export function createGatewayToolCallerWrapper(
       ? {
           agentId,
           sessionKey: source.agentSessionKey.trim(),
+          runId: source.runId,
+          abortSignal: source.abortSignal,
           turnSourceChannel: source.agentChannel,
           turnSourceTo: source.currentMessagingTarget ?? source.currentChannelId ?? source.agentTo,
           turnSourceAccountId: source.agentAccountId,

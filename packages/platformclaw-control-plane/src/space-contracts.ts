@@ -62,6 +62,8 @@ export const SPACE_RPC_PARAMS = {
   "platformclaw.spaces.page.create": ["spaceId", "parentId", "title", "body", "requestId"],
   "platformclaw.spaces.page.save": ["spaceId", "pageId", "title", "body", "expectedRevision"],
   "platformclaw.spaces.chat.history": ["spaceId", "pageId", "messageId"],
+  "platformclaw.spaces.qa.list": ["spaceId", "pageId", "cursor", "limit"],
+  "platformclaw.spaces.qa.get": ["spaceId", "pageId", "postId", "bodyOffset", "bodyLimitBytes"],
   "platformclaw.spaces.chat.send": ["spaceId", "pageId", "message", "requestId", "model"],
   "platformclaw.spaces.conversation.resolve": ["sessionKey", "agentId", "shortId"],
   "platformclaw.spaces.conversation.create": ["spaceId", "pageId", "title", "requestId"],

@@ -17,6 +17,7 @@ import {
 } from "./knowledge-vault-contracts.js";
 import type { KnowledgeVaultWikiOperation } from "./knowledge-vault-operations.js";
 import type { KnowledgeVaultService } from "./knowledge-vault-service.js";
+import { parseSpaceMutationRequest } from "./space-mutation-request.js";
 import { parseSpaceReadRequest } from "./space-read-request.js";
 import type { SpaceService } from "./space-service.js";
 
@@ -36,6 +37,10 @@ export const PLATFORMCLAW_VAULT_SCOPE_PATH = "/platformclaw/internal/memory/vaul
 export const PLATFORMCLAW_VAULT_WIKI_PATH = "/platformclaw/internal/memory/vaults/wiki";
 
 const SPACE_READ_PATH = "/platformclaw/internal/spaces/read";
+const SPACE_QA_APPEND_PATH = "/platformclaw/internal/spaces/qa/append";
+const SPACE_NOTE_PATCH_PATH = "/platformclaw/internal/spaces/notes/patch";
+const SPACE_MUTATION_PATHS = new Set([SPACE_QA_APPEND_PATH, SPACE_NOTE_PATCH_PATH]);
+const MAX_SPACE_MUTATION_BYTES = 128 * 1024;
 const MAX_REQUEST_BYTES = 4 * 1024;
 // Turn selections travel between trusted services, never in the model's tool schema.
 const MAX_VAULT_SEARCH_BYTES = 144 * 1024;
@@ -44,7 +49,7 @@ type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
   "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
 > & {
-  spaceService?: Pick<SpaceService, "agentRead">;
+  spaceService?: Pick<SpaceService, "agentRead"> & Partial<Pick<SpaceService, "agentMutation">>;
   vaultService?: Pick<KnowledgeVaultService, "search" | "get" | "captureScope" | "wiki">;
   resolveMcpConnection?: (
     agentId: string,
@@ -334,6 +339,7 @@ export class PlatformClawExecutionHandoffServer {
       const pathname = new URL(req.url ?? "/", "http://platformclaw.internal").pathname;
       if (
         pathname !== SPACE_READ_PATH &&
+        !SPACE_MUTATION_PATHS.has(pathname) &&
         pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_GRANT_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH &&
@@ -351,13 +357,27 @@ export class PlatformClawExecutionHandoffServer {
       const body = objectBody(
         await readJson(
           req,
-          pathname === PLATFORMCLAW_VAULT_WIKI_PATH
-            ? 2 * 1024 * 1024
-            : pathname === PLATFORMCLAW_VAULT_SEARCH_PATH
-              ? MAX_VAULT_SEARCH_BYTES
-              : MAX_REQUEST_BYTES,
+          SPACE_MUTATION_PATHS.has(pathname)
+            ? MAX_SPACE_MUTATION_BYTES
+            : pathname === PLATFORMCLAW_VAULT_WIKI_PATH
+              ? 2 * 1024 * 1024
+              : pathname === PLATFORMCLAW_VAULT_SEARCH_PATH
+                ? MAX_VAULT_SEARCH_BYTES
+                : MAX_REQUEST_BYTES,
         ),
       );
+      if (SPACE_MUTATION_PATHS.has(pathname)) {
+        if (!this.service.spaceService?.agentMutation) {
+          sendJson(res, 503, { error: "Spaces unavailable" });
+          return;
+        }
+        const input = parseSpaceMutationRequest(
+          body,
+          pathname === SPACE_QA_APPEND_PATH ? "qa" : "notes",
+        );
+        sendJson(res, 200, await this.service.spaceService.agentMutation(input));
+        return;
+      }
       const agentId = requestAgentId(body);
       if (pathname === SPACE_READ_PATH) {
         if (!this.service.spaceService) {
@@ -599,6 +619,35 @@ export class PlatformClawExecutionHandoffServer {
         );
       }
     } catch (error) {
+      if (SPACE_MUTATION_PATHS.has(req.url?.split("?")[0] ?? "")) {
+        const forbidden = error instanceof ControlPlaneAuthorizationError;
+        const conflict = error instanceof ControlPlaneConflictError;
+        const invalid =
+          error instanceof ControlPlaneStateError ||
+          error instanceof SyntaxError ||
+          (error instanceof Error && error.message === "request too large");
+        sendJson(res, forbidden ? 403 : conflict ? 409 : invalid ? 400 : 503, {
+          code: forbidden
+            ? "space-forbidden"
+            : conflict
+              ? "space-conflict"
+              : invalid
+                ? "space-invalid"
+                : "space-unavailable",
+          error:
+            forbidden || conflict || invalid
+              ? (error as Error).message.slice(0, 500)
+              : "Shared Space save is unavailable",
+          action: forbidden
+            ? "Use your current authorized personal Space conversation and check editor access."
+            : conflict
+              ? "Read the current shared Q&A revision or Notes window, then submit a new request. Do not overwrite on conflict."
+              : invalid
+                ? "Check the bounded mutation fields; Notes replacements require one exact oldText match."
+                : "Retry the same requestId and payload from an active authorized run.",
+        });
+        return;
+      }
       if (error instanceof KnowledgeVaultSearchError) {
         // Only the Vault owner may expose authorized disambiguation choices.
         // Other failures retain the generic response instead of leaking internal errors.

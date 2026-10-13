@@ -13,7 +13,9 @@
   "contracts": {
     "tools": [
       "space_search",
-      "space_get"
+      "space_get",
+      "space_qa_append",
+      "space_note_update"
     ]
   }
 }

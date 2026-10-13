@@ -234,6 +234,10 @@ function enrichAgentEvent(
   }
   let data = event.data;
   if (context && event.stream === "lifecycle") {
+    if (data.phase === "end" || data.phase === "error") {
+      // Terminal context may remain for cleanup, but cannot grant fresh tool authority.
+      context.lifecycleEnded = true;
+    }
     if (data.phase === "start") {
       context.lifecycleStartedAt = data.startedAt as number;
     } else if (

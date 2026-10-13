@@ -30,6 +30,8 @@ export function attachPluginApiFacades<T extends object>(
   api: T & PluginApiFacadeSource & Partial<PluginApiFacadeFields>,
   resolveAdmissionId: OpenClawPluginApi["runContext"]["resolveAdmissionId"] = api.runContext
     ?.resolveAdmissionId ?? (() => undefined),
+  resolveActiveAuthorization: OpenClawPluginApi["runContext"]["resolveActiveAuthorization"] = api
+    .runContext?.resolveActiveAuthorization ?? (() => undefined),
 ): T & PluginApiFacadeFields {
   api.session = {
     state: {
@@ -54,6 +56,7 @@ export function attachPluginApiFacades<T extends object>(
     },
   };
   api.runContext = {
+    resolveActiveAuthorization,
     resolveAdmissionId,
     setRunContext: (...args) => api.setRunContext(...args),
     getRunContext: (...args) => api.getRunContext(...args),

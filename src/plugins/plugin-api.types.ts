@@ -156,6 +156,8 @@ type OpenClawPluginAgentApi = {
 };
 
 type OpenClawPluginRunContextApi = {
+  /** Seal the current host tool invocation; queued, cancelled, terminal and stale runs fail closed. */
+  resolveActiveAuthorization: typeof import("../infra/agent-tool-invocation.js").resolveActiveAgentRunAuthorization;
   /** Stable ingress identity for an individual followup; requires the matching runtime owner. */
   resolveAdmissionId: (context: {
     runId?: string;

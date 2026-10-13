@@ -83,8 +83,15 @@ export async function loadPlatformClawChatRoute(
 
 type SpaceSelectionTarget =
   | { spaceId: string | null }
-  | { page: SpacePage; conversation: SpaceConversation | null; messageId: string }
-  | { conversation: SpaceConversation | null };
+  | {
+      page: SpacePage;
+      conversation: SpaceConversation | null;
+      messageId: string;
+      tab?: "qa" | "notes";
+      postId?: string;
+    }
+  | { conversation: SpaceConversation | null }
+  | { tab: "qa" | "notes"; postId?: string };
 
 /** Parent changes retire descendant selections; same-Space refreshes preserve their deep link. */
 export function spaceSelectionUrl(target: SpaceSelectionTarget): URL {
@@ -92,7 +99,7 @@ export function spaceSelectionUrl(target: SpaceSelectionTarget): URL {
   const search = url.searchParams;
   if ("spaceId" in target) {
     if (target.spaceId === null || search.get("space") !== target.spaceId) {
-      for (const key of ["space", "page", "conversation", "message"]) {
+      for (const key of ["space", "page", "conversation", "message", "tab", "post"]) {
         search.delete(key);
       }
     }
@@ -104,7 +111,17 @@ export function spaceSelectionUrl(target: SpaceSelectionTarget): URL {
       search.set("space", target.page.spaceId);
       search.set("page", target.page.id);
     }
-    search.set("conversation", target.conversation?.id ?? "shared");
+    search.delete("tab");
+    search.delete("post");
+    if ("tab" in target && target.tab) {
+      search.set("tab", target.tab);
+      search.delete("conversation");
+      if (target.tab === "qa" && target.postId) {
+        search.set("post", target.postId);
+      }
+    } else if ("conversation" in target) {
+      search.set("conversation", target.conversation?.id ?? "shared");
+    }
     if ("messageId" in target && target.messageId) {
       search.set("message", target.messageId);
     } else {
@@ -129,6 +146,8 @@ export function spaceRouteMatchesSelection(
   pageId: string | undefined,
   conversationId: string | undefined,
   messageId: string,
+  tab: "qa" | "notes" = "qa",
+  postId = "",
 ): boolean {
   if (search === undefined) {
     return true;
@@ -138,6 +157,8 @@ export function spaceRouteMatchesSelection(
     route.get("space") === (spaceId ?? null) &&
     route.get("page") === (pageId ?? null) &&
     (route.get("conversation") ?? "shared") === (conversationId ?? "shared") &&
-    (route.get("message") ?? "") === messageId
+    (route.get("message") ?? "") === messageId &&
+    (route.get("tab") ?? "qa") === tab &&
+    (route.get("post") ?? "") === postId
   );
 }

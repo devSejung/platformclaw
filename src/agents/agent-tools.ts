@@ -676,6 +676,8 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       ? {
           agentId,
           sessionKey: options.sessionKey.trim(),
+          runId: options.runId,
+          abortSignal: options.abortSignal,
           turnSourceChannel: resolveGatewayMessageChannel(
             options.messageChannel ?? options.messageProvider,
           ),
@@ -770,6 +772,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             allowHostBrowserControl: sandbox ? sandbox.browserAllowHostControl : true,
             agentSessionKey: options?.sessionKey,
             runId: options?.runId,
+            abortSignal: options?.abortSignal,
             runSessionKey: options?.runSessionKey,
             agentChannel: resolveGatewayMessageChannel(
               options?.messageChannel ?? options?.messageProvider,

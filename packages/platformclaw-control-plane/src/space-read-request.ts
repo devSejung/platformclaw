@@ -29,8 +29,25 @@ export function parseSpaceReadRequest(
     "targetAgentId",
     "nativeAction",
     "broad",
+    "view",
+    "postId",
+    "qaCursor",
   ]);
   if (
+    (body.view !== undefined &&
+      (body.operation !== "get" || (body.view !== "page" && body.view !== "qa"))) ||
+    ((body.postId !== undefined || body.qaCursor !== undefined) && body.view !== "qa") ||
+    (body.view === "qa" &&
+      ["conversationId", "messageId", "messageOffset", "pageRevision"].some(
+        (key) => body[key] !== undefined,
+      )) ||
+    (body.postId !== undefined &&
+      (typeof body.postId !== "string" ||
+        !body.postId.trim() ||
+        body.postId.length > 128 ||
+        body.qaCursor !== undefined)) ||
+    (body.qaCursor !== undefined &&
+      (typeof body.qaCursor !== "string" || body.qaCursor.length > 512)) ||
     ((body.authorName !== undefined || body.authorId !== undefined) &&
       (body.operation !== "search" ||
         (body.authorName !== undefined && body.authorId !== undefined))) ||
@@ -94,6 +111,9 @@ export function parseSpaceReadRequest(
   }
   return {
     agentId,
+    ...(body.view === undefined ? {} : { view: body.view as "page" | "qa" }),
+    ...(body.postId === undefined ? {} : { postId: body.postId as string }),
+    ...(body.qaCursor === undefined ? {} : { qaCursor: body.qaCursor as string }),
     operation: body.operation as string,
     ...(body.query === undefined ? {} : { query: body.query as string }),
     ...(body.authorName === undefined ? {} : { authorName: body.authorName as string }),
