@@ -7,6 +7,7 @@ import {
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
+import { BASEBALL_TEAMS } from "../platformclaw/easter-egg-settings.ts";
 import {
   canRunPlaywrightChromium,
   resolvePlaywrightChromiumExecutablePath,
@@ -14,7 +15,11 @@ import {
   installMockGateway,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
-import { baseballSession, installBaseballDocument } from "./platformclaw-baseball.e2e-helpers.ts";
+import {
+  baseballSession,
+  installBaseballDocument,
+  setThemeMode,
+} from "./platformclaw-baseball.e2e-helpers.ts";
 
 const artifactDir = path.join(process.cwd(), ".artifacts/control-ui-e2e/baseball-settings");
 const captureProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
@@ -123,12 +128,43 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     expect(await dialog.getByText("다음 누적 보너스까지 1홈런", { exact: true }).isVisible()).toBe(
       true,
     );
-    await team.selectOption("hanwha");
     const player = page.locator(".platformclaw-easter-egg__player");
+    for (const mode of ["dark", "light"] as const) {
+      await setThemeMode(page, mode);
+      for (const club of BASEBALL_TEAMS.slice(1)) {
+        await team.selectOption(club.id);
+        await expect
+          .poll(() => player.locator(".platformclaw-easter-egg__cap-mark").textContent())
+          .toBe(club.capMark);
+        const cap = player.locator(".platformclaw-easter-egg__cap-crown");
+        const paint = await cap.evaluate((element) => ({
+          namespace: element.namespaceURI,
+          fill: getComputedStyle(element).fill,
+          width: element.getBoundingClientRect().width,
+        }));
+        expect(paint.namespace).toBe("http://www.w3.org/2000/svg");
+        expect(paint.fill).toBe(
+          club.capColor.replace(
+            /^#(..)(..)(..)$/,
+            (_, r, g, b) =>
+              `rgb(${Number.parseInt(r, 16)}, ${Number.parseInt(g, 16)}, ${Number.parseInt(b, 16)})`,
+          ),
+        );
+        expect(paint.width).toBeGreaterThan(10);
+        await dialog.getByRole("button", { name: "닫기" }).click();
+        await capture(page, `team-${club.id}-${mode}.png`);
+        await page.locator(".platformclaw-easter-egg__shop-trigger").click();
+      }
+    }
+    await team.selectOption("neutral");
+    expect(await player.locator(".platformclaw-easter-egg__cap").count()).toBe(0);
+    await team.selectOption("hanwha");
     await expect.poll(() => player.textContent()).toContain("한화 이글스");
     expect(
-      await player.locator("circle").evaluate((element) => getComputedStyle(element).fill),
-    ).toBe("rgb(232, 121, 50)");
+      await player
+        .locator(".platformclaw-easter-egg__figure-torso")
+        .evaluate((element) => getComputedStyle(element).stroke),
+    ).toBe("rgb(252, 78, 0)");
     await opacity.focus();
     await opacity.press("Home");
     await expect.poll(() => opacity.inputValue()).toBe("30");
@@ -247,11 +283,25 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
       "0.3",
     );
     await capture(page, "05-confirmed-bonus-30.png");
-    await page.clock.runFor(550);
-    expect(await bonus.count()).toBe(0);
-    await page.clock.runFor(100);
+    const round = Number(await game.getAttribute("data-round"));
+    const atBatRequests = (await gateway.getRequests(BASEBALL_RPC.beginAtBat)).length;
+    await gateway.deferNext(BASEBALL_RPC.beginAtBat);
+    await page.clock.runFor(650);
+    expect(await bonus.count()).toBe(1);
+    expect(Number(await game.getAttribute("data-round"))).toBe(round + 1);
+    expect(await gateway.getRequests(BASEBALL_RPC.beginAtBat)).toHaveLength(atBatRequests + 1);
     expect(await game.getAttribute("data-pitch-state")).toBe("ready");
+    expect(
+      await bonus
+        .locator("i")
+        .first()
+        .evaluate((element) => getComputedStyle(element).animationDuration),
+    ).toBe("0.9s");
+    await capture(page, "07-bonus-next-round-ready.png");
+    await page.clock.runFor(250);
+    expect(await bonus.count()).toBe(0);
     expect(await game.textContent()).toContain("직전 보상 +10G");
+    await gateway.resolveDeferred(BASEBALL_RPC.beginAtBat);
     await host.evaluate((element, params) => {
       void (
         element as HTMLElement & { runMutation: (mutation: unknown) => Promise<void> }

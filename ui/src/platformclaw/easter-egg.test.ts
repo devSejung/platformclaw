@@ -522,6 +522,11 @@ describe("baseball local cosmetic settings", () => {
       const game = egg.querySelector<HTMLElement>('[role="application"]')!;
       expect(game.dataset.teamId).toBe(team.id);
       expect(game.style.getPropertyValue("--baseball-team-color")).toBe(team.color);
+      expect(game.style.getPropertyValue("--baseball-cap-color")).toBe(team.capColor);
+      expect(egg.querySelector(".platformclaw-easter-egg__cap-mark")?.textContent).toBe(
+        team.capMark,
+      );
+      expect(egg.querySelectorAll(".platformclaw-easter-egg__cap")).toHaveLength(1);
       expect(game.dataset.batId).toBe("diamond");
       expect(egg.querySelector(".platformclaw-easter-egg__player")!.textContent).toContain(
         team.name,

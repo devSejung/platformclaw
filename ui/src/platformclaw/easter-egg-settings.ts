@@ -1,18 +1,89 @@
 import { getSafeLocalStorage } from "../local-storage.ts";
 
-// Team names verified against KBO's official club directory. Colors are cosmetic only.
+// Club-inspired screen colors and compact cap initials, not reproductions of official logos.
+// Cap and jersey colors are separate: e.g. Hanwha wears navy caps with orange marks.
 export const BASEBALL_TEAMS = [
-  { id: "neutral", name: "기본", color: "" },
-  { id: "kia", name: "KIA 타이거즈", color: "#d63e48" },
-  { id: "kt", name: "KT 위즈", color: "#d94651" },
-  { id: "lg", name: "LG 트윈스", color: "#db4273" },
-  { id: "nc", name: "NC 다이노스", color: "#579bce" },
-  { id: "ssg", name: "SSG 랜더스", color: "#da4852" },
-  { id: "doosan", name: "두산 베어스", color: "#6587c6" },
-  { id: "lotte", name: "롯데 자이언츠", color: "#5ca7cf" },
-  { id: "samsung", name: "삼성 라이온즈", color: "#488bdb" },
-  { id: "kiwoom", name: "키움 히어로즈", color: "#ba5c86" },
-  { id: "hanwha", name: "한화 이글스", color: "#e87932" },
+  { id: "neutral", name: "기본", color: "", capColor: "", capMark: "", capMarkColor: "" },
+  {
+    id: "kia",
+    name: "KIA 타이거즈",
+    color: "#EA0029",
+    capColor: "#EA0029",
+    capMark: "T",
+    capMarkColor: "#FFFFFF",
+  },
+  {
+    id: "kt",
+    name: "KT 위즈",
+    color: "#ED2024",
+    capColor: "#111111",
+    capMark: "KW",
+    capMarkColor: "#FFFFFF",
+  },
+  {
+    id: "lg",
+    name: "LG 트윈스",
+    color: "#C30452",
+    capColor: "#111111",
+    capMark: "T",
+    capMarkColor: "#C30452",
+  },
+  {
+    id: "nc",
+    name: "NC 다이노스",
+    color: "#315288",
+    capColor: "#315288",
+    capMark: "NC",
+    capMarkColor: "#FFFFFF",
+  },
+  {
+    id: "ssg",
+    name: "SSG 랜더스",
+    color: "#CE0E2D",
+    capColor: "#CE0E2D",
+    capMark: "L",
+    capMarkColor: "#FFFFFF",
+  },
+  {
+    id: "doosan",
+    name: "두산 베어스",
+    color: "#131230",
+    capColor: "#131230",
+    capMark: "B",
+    capMarkColor: "#FFFFFF",
+  },
+  {
+    id: "lotte",
+    name: "롯데 자이언츠",
+    color: "#D00F31",
+    capColor: "#041E42",
+    capMark: "G",
+    capMarkColor: "#FFFFFF",
+  },
+  {
+    id: "samsung",
+    name: "삼성 라이온즈",
+    color: "#074CA1",
+    capColor: "#074CA1",
+    capMark: "SL",
+    capMarkColor: "#FFFFFF",
+  },
+  {
+    id: "kiwoom",
+    name: "키움 히어로즈",
+    color: "#570514",
+    capColor: "#570514",
+    capMark: "H",
+    capMarkColor: "#FFFFFF",
+  },
+  {
+    id: "hanwha",
+    name: "한화 이글스",
+    color: "#FC4E00",
+    capColor: "#07111F",
+    capMark: "E",
+    capMarkColor: "#FC4E00",
+  },
 ] as const;
 
 type BaseballTeamId = (typeof BASEBALL_TEAMS)[number]["id"];

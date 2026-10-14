@@ -23,7 +23,9 @@ describe("confirmed baseball bonus celebration", () => {
     expect(celebration.visible).toBe(true);
     vi.advanceTimersByTime(500);
     celebration.confirm("fifth-homer", 5, true);
-    vi.advanceTimersByTime(50);
+    vi.advanceTimersByTime(399);
+    expect(celebration.visible).toBe(true);
+    vi.advanceTimersByTime(1);
     expect(celebration.visible).toBe(false);
     celebration.confirm("fifth-homer", 5, true);
     expect(celebration.visible).toBe(false);
