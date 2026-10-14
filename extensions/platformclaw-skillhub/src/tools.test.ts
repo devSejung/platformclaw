@@ -4,7 +4,7 @@ import type {
 } from "openclaw/plugin-sdk/plugin-entry";
 import { describe, expect, it, vi } from "vitest";
 import plugin from "../index.js";
-import type { SkillHubClientRequest } from "./client.js";
+import type { PlatformClawSkillHubClient } from "./client.js";
 import { registerPlatformClawSkillHubTools } from "./tools.js";
 
 const context: OpenClawPluginToolContext = {
@@ -19,7 +19,7 @@ const context: OpenClawPluginToolContext = {
 
 function setup() {
   const registerTool = vi.fn();
-  const request = vi.fn(async (_request: SkillHubClientRequest) => ({
+  const request = vi.fn(async (_request: Parameters<PlatformClawSkillHubClient["request"]>[0]) => ({
     status: 200,
     body: { items: [] },
   }));

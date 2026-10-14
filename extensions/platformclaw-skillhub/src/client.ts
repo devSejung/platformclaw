@@ -87,7 +87,7 @@ export type SkillHubConversation = {
   sessionKey: string;
 };
 
-export type SkillHubClientRequest = {
+type SkillHubClientRequest = {
   accountId: string;
   context: SkillHubConversation;
 } & (
