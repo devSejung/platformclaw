@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { BaseballAtBatStore } from "./baseball-at-bat-store.js";
 import {
   BASEBALL_BATS,
   BASEBALL_DEFAULT_BAT_ID,
@@ -6,6 +7,7 @@ import {
   getBaseballBatDefinition,
   isBaseballBatId,
   type BaseballBatId,
+  type BaseballAtBat,
   type BaseballEquipBatResult,
   type BaseballGameErrorCode,
   type BaseballGameStore,
@@ -34,6 +36,8 @@ import {
   runReadTransaction,
   takeFirstSync,
 } from "./kysely-sync.js";
+import { SqliteGameEconomy } from "./sqlite-game-economy.js";
+import { SqliteHorseRacingStore } from "./sqlite-horse-racing.js";
 import { SqliteKnowledgeVaultStore } from "./sqlite-knowledge-vault-store.js";
 import { ensureBaseballGameSchema } from "./sqlite-schema-baseball.js";
 import { ensureKnowledgeVaultSchema } from "./sqlite-schema-knowledge-vault.js";
@@ -72,6 +76,15 @@ export class SqliteControlPlaneStore
 {
   readonly vaults = new SqliteKnowledgeVaultStore(this.db);
   readonly spaces = new SqliteSpaceStore(this.db);
+  readonly economy = new SqliteGameEconomy(this.db);
+  private readonly baseballAtBats = new BaseballAtBatStore(this.db);
+  readonly racing = new SqliteHorseRacingStore(this.db, {
+    prepare: () => this.ensureBaseballGameSchema(),
+    ensure: (userId) => {
+      this.ensureBaseballProgress(userId);
+    },
+    economy: this.economy,
+  });
   private baseballGameSchemaReady = false;
 
   async loadBaseballProgress(userId: string): Promise<BaseballProgress> {
@@ -131,26 +144,60 @@ export class SqliteControlPlaneStore
     });
   }
 
+  async beginBaseballAtBat(params: {
+    userId: string;
+    requestId: string;
+    now: number;
+  }): Promise<BaseballAtBat> {
+    this.ensureBaseballGameSchema();
+    return runImmediateTransaction(this.db, () => {
+      const progress = this.ensureBaseballProgress(params.userId);
+      return this.baseballAtBats.issue(
+        params.userId,
+        params.requestId,
+        progress.equipped_bat_id as BaseballBatId,
+        params.now,
+      );
+    });
+  }
+
   async rewardBaseballPlateAppearance(params: {
     userId: string;
     requestId: string;
-    outcome: BaseballPlateAppearanceOutcome;
+    outcome?: BaseballPlateAppearanceOutcome;
     distanceM?: number;
+    atBatId?: string;
+    timingDeltaMs?: number | null;
+    now?: number;
   }): Promise<BaseballPlateAppearanceResult> {
-    const distanceM =
+    const trustedDistanceM =
       params.outcome === "home_run" || params.outcome === "hit" ? params.distanceM : undefined;
     return this.runBaseballIdempotentOperation(
       params.userId,
       params.requestId,
       "plate_appearance",
-      { outcome: params.outcome, distanceM: distanceM ?? null },
+      params.atBatId
+        ? { atBatId: params.atBatId, timingDeltaMs: params.timingDeltaMs }
+        : { outcome: params.outcome, distanceM: trustedDistanceM ?? null },
       () => {
+        const resolved = params.atBatId
+          ? this.baseballAtBats.consume(
+              params.userId,
+              params.atBatId,
+              params.timingDeltaMs ?? null,
+              params.now ?? Date.now(),
+            )
+          : { outcome: params.outcome, distanceM: trustedDistanceM };
+        if (!resolved.outcome) {
+          throw new BaseballGameError("invalid_swing", "서버에서 발급한 타석이 필요합니다.");
+        }
+        const { outcome, distanceM } = resolved;
         const current = this.ensureBaseballProgress(params.userId);
         const streak = this.requireBaseballHomeRunStreakRow(params.userId);
-        const isHomeRun = params.outcome === "home_run";
+        const isHomeRun = outcome === "home_run";
         const totalHomers = current.total_homers + (isHomeRun ? 1 : 0);
         const homeRunBonusGold: 0 | 5 = isHomeRun && totalHomers % 5 === 0 ? 5 : 0;
-        const awardedGold = (isHomeRun ? 5 : params.outcome === "hit" ? 3 : 0) + homeRunBonusGold;
+        const awardedGold = (isHomeRun ? 5 : outcome === "hit" ? 3 : 0) + homeRunBonusGold;
         const bestDistanceM =
           distanceM === undefined
             ? current.best_distance_m
@@ -172,12 +219,20 @@ export class SqliteControlPlaneStore
         const changed =
           awardedGold > 0 || bestDistanceM !== current.best_distance_m || streakChanged;
         if (changed) {
+          if (awardedGold > 0) {
+            this.economy.change(
+              params.userId,
+              awardedGold,
+              "baseball_reward",
+              params.requestId,
+              params.now ?? Date.now(),
+            );
+          }
           executeSync(
             this.db,
             this.query
               .updateTable("baseball_game_progress")
               .set({
-                gold: current.gold + awardedGold,
                 total_homers: totalHomers,
                 best_distance_m: bestDistanceM,
                 revision: current.revision + 1,
@@ -239,15 +294,12 @@ export class SqliteControlPlaneStore
             bat_id: bat.id,
           }),
         );
-        executeSync(
-          this.db,
-          this.query
-            .updateTable("baseball_game_progress")
-            .set({
-              gold: current.gold - bat.price,
-              revision: current.revision + 1,
-            })
-            .where("user_id", "=", params.userId),
+        this.economy.change(
+          params.userId,
+          -bat.price,
+          "bat_purchase",
+          params.requestId,
+          Date.now(),
         );
         return {
           batId: bat.id,
@@ -310,6 +362,8 @@ export class SqliteControlPlaneStore
       return;
     }
     ensureBaseballGameSchema(this.db);
+    this.economy.ensureSchema();
+    this.baseballAtBats.ensureSchema();
     this.baseballGameSchemaReady = true;
   }
 

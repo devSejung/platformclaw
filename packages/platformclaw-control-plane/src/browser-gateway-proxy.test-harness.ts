@@ -7,6 +7,7 @@ import type {
   ControlPlaneAuditWriter,
   EnterprisePrincipal,
 } from "./contracts.js";
+import type { HorseRacingStore } from "./horse-racing-contracts.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
 
 export const NOW = 1_000_000;
@@ -37,6 +38,8 @@ export async function setupBrowserGatewayProxyTest(
   options: {
     admin?: boolean;
     baseballStore?: BaseballGameStore;
+    racingStore?: HorseRacingStore;
+    racingNow?: () => number;
     now?: () => number;
   } = {},
 ) {
@@ -102,6 +105,8 @@ export async function setupBrowserGatewayProxyTest(
     authService: service,
     store,
     ...(options.baseballStore ? { baseballStore: options.baseballStore } : {}),
+    ...(options.racingStore ? { racingStore: options.racingStore } : {}),
+    ...(options.racingNow ? { racingNow: options.racingNow } : {}),
     auditWriter,
     gateway: { request },
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,

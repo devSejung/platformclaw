@@ -1,0 +1,171 @@
+.platformclaw-racing__markets {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.platformclaw-racing__bet-flow h3,
+.platformclaw-racing__track h3 {
+  font-size: 12px;
+  margin: 8px 0;
+}
+.platformclaw-racing__track h3 {
+  padding: 0 8px;
+}
+.platformclaw-racing__bet-action {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  padding: 6px 0 10px;
+}
+.platformclaw-racing__bet-action > small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+.platformclaw-racing__selection {
+  flex-wrap: wrap;
+}
+.platformclaw-racing__selection strong {
+  width: auto;
+  padding: 0 7px;
+  font-size: 12px;
+}
+.platformclaw-racing__quick-amounts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.platformclaw-racing__quick-amounts [aria-pressed="true"] {
+  border-color: var(--accent);
+}
+.platformclaw-racing__ranking {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  margin: 0;
+}
+.platformclaw-racing__ranking li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 3px 6px;
+  align-items: center;
+  border-left: 3px solid var(--horse-color);
+  padding-left: 5px;
+}
+.platformclaw-racing__ranking li > b {
+  color: var(--muted);
+  font-size: 11px;
+}
+.platformclaw-racing__ranking strong {
+  color: var(--text);
+  font-size: 12px;
+}
+.platformclaw-racing__ranking progress {
+  grid-column: 2;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border: 0;
+  background: var(--border);
+  accent-color: var(--horse-color);
+}
+.platformclaw-racing__ranking progress::-webkit-progress-bar {
+  background: var(--border);
+}
+.platformclaw-racing__ranking progress::-webkit-progress-value {
+  background: var(--horse-color);
+}
+.platformclaw-racing__ranking progress::-moz-progress-bar {
+  background: var(--horse-color);
+}
+.platformclaw-racing__podium {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  padding: 8px;
+}
+.platformclaw-racing__podium strong {
+  display: grid;
+  text-align: center;
+  gap: 5px;
+  font-size: 11px;
+}
+.platformclaw-racing__podium b {
+  color: var(--accent);
+  font-size: 18px;
+}
+.platformclaw-racing__win {
+  position: fixed;
+  right: 64px;
+  bottom: 70px;
+  z-index: 2147483647;
+  width: 230px;
+  padding: 12px;
+  border: 1px solid var(--ok);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  pointer-events: none;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  animation: platformclaw-racing-win 650ms ease-out;
+}
+.platformclaw-racing__win strong {
+  color: var(--ok);
+  font-size: 16px;
+}
+.platformclaw-racing__win--static {
+  animation: none;
+}
+.platformclaw-racing__win--minimized {
+  width: 140px;
+}
+.platformclaw-racing .platformclaw-racing__horse-card:disabled {
+  opacity: 1;
+}
+.platformclaw-racing__rumor {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.platformclaw-racing-dock--expanded .platformclaw-racing__rumor {
+  -webkit-line-clamp: unset;
+}
+.platformclaw-racing-minimized-feed .platformclaw-racing__track {
+  border: 0;
+  background: transparent;
+  margin-bottom: 10px;
+}
+.platformclaw-racing-minimized-feed .platformclaw-racing__perimeter-help {
+  display: none;
+}
+.platformclaw-racing__live-feed li > span {
+  flex-shrink: 1;
+  overflow-wrap: anywhere;
+}
+@keyframes platformclaw-racing-win {
+  from {
+    transform: translateY(12px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+@media (max-width: 999px) {
+  .platformclaw-racing__win {
+    right: 52px;
+    bottom: 96px;
+    width: min(230px, calc(100vw - 130px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .platformclaw-racing__win {
+    animation: none;
+  }
+}

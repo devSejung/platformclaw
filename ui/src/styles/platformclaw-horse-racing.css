@@ -1,0 +1,655 @@
+/* Company UI stays usable around the dock. Only the panel itself receives pointer input. */
+.platformclaw-racing-dock,
+.platformclaw-racing-pill,
+.platformclaw-games-scrim,
+.platformclaw-games-nav {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  pointer-events: auto;
+}
+.platformclaw-racing-dock {
+  width: 260px;
+  right: 64px;
+  bottom: 64px;
+}
+.platformclaw-racing-dock--expanded {
+  width: 260px;
+}
+.platformclaw-racing,
+.platformclaw-racing-pill,
+.platformclaw-games {
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 14%);
+  font-family: var(--font-body, system-ui, sans-serif);
+}
+.platformclaw-racing {
+  height: calc(100dvh - 128px);
+  overflow: auto;
+  scrollbar-gutter: stable;
+  font-size: 12px;
+}
+
+.platformclaw-racing button,
+.platformclaw-racing-pill button,
+.platformclaw-games button,
+.platformclaw-games-nav button {
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font: inherit;
+  cursor: pointer;
+}
+.platformclaw-racing button:hover:not(:disabled),
+.platformclaw-racing-pill button:hover,
+.platformclaw-games button:hover,
+.platformclaw-games-nav button:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+.platformclaw-racing button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.platformclaw-racing :focus-visible,
+.platformclaw-racing-pill :focus-visible,
+.platformclaw-games :focus-visible,
+.platformclaw-games-nav :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.platformclaw-racing__header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+.platformclaw-racing h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.platformclaw-racing__eyebrow {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 1px;
+  margin: 0 0 7px;
+}
+.platformclaw-racing__schedule,
+.platformclaw-racing__muted,
+.platformclaw-racing__rules {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.platformclaw-racing__schedule {
+  margin: 8px 0 0;
+}
+.platformclaw-racing__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.platformclaw-racing__header-actions button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+}
+.platformclaw-racing__wallet {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  margin-right: 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.platformclaw-racing__ribbon {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 10px;
+}
+.platformclaw-racing__ribbon strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.platformclaw-racing__ribbon b {
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+.platformclaw-racing__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+}
+.platformclaw-racing__layout main,
+.platformclaw-racing__layout aside {
+  min-width: 0;
+}
+
+.platformclaw-racing__track {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.platformclaw-racing__order {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 7px;
+  list-style: none;
+  font-size: 9px;
+}
+.platformclaw-racing__order li {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.platformclaw-racing__order li > span {
+  color: var(--muted);
+}
+.platformclaw-racing__order li > strong {
+  background: var(--bg-elevated);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.platformclaw-racing__pool-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 10px 0;
+}
+.platformclaw-racing__pool-summary strong {
+  color: var(--text);
+  margin-left: 4px;
+  font-weight: 500;
+}
+.platformclaw-racing__horses {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.platformclaw-racing .platformclaw-racing__horse-card {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 4px;
+  padding: 8px;
+  text-align: left;
+  background: var(--bg);
+  font-size: 10px;
+}
+.platformclaw-racing__horse-card > span:not(.platformclaw-racing__number) {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+.platformclaw-racing__horse-card > strong {
+  align-self: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+.platformclaw-racing__horse-card .platformclaw-racing__horse-odds {
+  color: var(--text);
+  font-size: 11px;
+}
+.platformclaw-racing__horse-card[aria-pressed="true"] {
+  border-color: var(--horse-color);
+  box-shadow: inset 0 0 0 1px var(--horse-color);
+}
+.platformclaw-racing__number {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 4px;
+  background: var(--horse-color);
+  color: #101c2b;
+  font-weight: 800;
+}
+.platformclaw-racing__card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.platformclaw-racing__card h3 {
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.platformclaw-racing__markets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.platformclaw-racing__markets [aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+.platformclaw-racing__selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  color: var(--muted);
+  border-block: 1px solid var(--border);
+  padding: 7px 0;
+  margin: 8px 0;
+}
+.platformclaw-racing__selection strong {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  color: var(--text);
+  background: var(--bg-elevated);
+  font-size: 13px;
+  border-radius: 5px;
+}
+.platformclaw-racing__amount {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.platformclaw-racing__amount input {
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  padding: 7px;
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 15px;
+}
+.platformclaw-racing__quick-amounts {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.platformclaw-racing__quick-amounts button {
+  flex: 1;
+  font-size: 11px;
+  padding: 5px;
+}
+.platformclaw-racing__dividend {
+  margin: 12px 0 0;
+  display: grid;
+  gap: 7px;
+}
+.platformclaw-racing__dividend > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.platformclaw-racing__dividend dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.platformclaw-racing__dividend dd {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.platformclaw-racing .platformclaw-racing__submit {
+  width: 100%;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-color: var(--accent);
+  font-weight: 600;
+  padding: 9px;
+}
+.platformclaw-racing .platformclaw-racing__submit:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.platformclaw-racing__message {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--warn);
+  margin-bottom: 0;
+}
+.platformclaw-racing__message:empty {
+  display: none;
+}
+.platformclaw-racing__receipts {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 7px;
+}
+.platformclaw-racing__receipts li {
+  border-left: 2px solid var(--border-strong);
+  background: var(--bg);
+  padding: 8px 10px;
+  font-size: 11px;
+}
+.platformclaw-racing__receipts li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.platformclaw-racing__receipts p {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+.platformclaw-racing__receipts small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.platformclaw-racing__receipts .platformclaw-racing__receipt--win {
+  border-color: var(--ok);
+}
+.platformclaw-racing__receipt--win p {
+  color: var(--ok);
+}
+.platformclaw-racing__fairness {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 10px;
+}
+.platformclaw-racing__fairness summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.platformclaw-racing__fairness label {
+  display: block;
+  margin-top: 8px;
+}
+.platformclaw-racing__fairness code {
+  display: block;
+  word-break: break-all;
+  background: var(--bg);
+  padding: 7px;
+  border-radius: 5px;
+  margin-top: 4px;
+  font-size: 10px;
+}
+.platformclaw-racing__history {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 6px;
+}
+.platformclaw-racing__history button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  font-size: 11px;
+}
+.platformclaw-racing__history button > span {
+  color: var(--muted);
+}
+.platformclaw-racing__settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.platformclaw-racing__settings button {
+  font-size: 10px;
+  padding: 5px 7px;
+}
+.platformclaw-racing__settings [aria-pressed="true"] {
+  border-color: var(--accent);
+}
+.platformclaw-racing__warning {
+  margin: 8px 0;
+  padding: 9px;
+  border-radius: 6px;
+  color: var(--warn);
+  background: var(--bg);
+  font-size: 11px;
+}
+.platformclaw-racing__result {
+  color: var(--text);
+  background: var(--bg-elevated);
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+.platformclaw-racing-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  font-size: 12px;
+}
+.platformclaw-racing-pill button {
+  border-color: transparent;
+  background: transparent;
+}
+.platformclaw-games-scrim {
+  width: min(380px, calc(100vw - 32px));
+}
+.platformclaw-games {
+  position: relative;
+  padding: 22px;
+  box-sizing: border-box;
+}
+.platformclaw-games h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.platformclaw-games > p:not(.platformclaw-racing__eyebrow) {
+  color: var(--muted);
+  font-size: 12px;
+}
+.platformclaw-games .platformclaw-games__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+.platformclaw-games__choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+.platformclaw-games__choices button {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  padding: 14px;
+}
+.platformclaw-games__choices span {
+  font-size: 24px;
+}
+.platformclaw-games__choices strong {
+  font-size: 13px;
+}
+.platformclaw-games__choices small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.platformclaw-games-nav {
+  top: 12px;
+  bottom: auto;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+}
+.platformclaw-games-nav button {
+  font-size: 11px;
+}
+/* Desktop rail is real layout space; removing its lifecycle class restores the shell width. */
+@media (min-width: 1000px) {
+  body.platformclaw-racing-rail .shell {
+    width: calc(100% - 340px);
+  }
+  body.platformclaw-racing-rail--minimized .shell {
+    width: calc(100% - 240px);
+  }
+  .platformclaw-racing-pill {
+    right: 64px;
+    bottom: 64px;
+  }
+}
+@media (min-width: 1280px) {
+  body.platformclaw-racing-rail--expanded .shell {
+    width: calc(100% - 480px);
+  }
+  .platformclaw-racing-dock--expanded {
+    width: 400px;
+  }
+}
+@media (max-width: 999px) {
+  .platformclaw-racing-dock,
+  .platformclaw-racing-dock--expanded {
+    right: 52px;
+    bottom: 52px;
+    width: min(380px, calc(100vw - 104px));
+  }
+  .platformclaw-racing {
+    height: min(650px, calc(100dvh - 104px));
+  }
+  .platformclaw-racing-pill {
+    right: 52px;
+    bottom: 52px;
+  }
+  .platformclaw-racing-minimized-feed {
+    display: none;
+  }
+}
+.platformclaw-racing__perimeter-help {
+  margin: 0;
+  padding: 9px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.platformclaw-racing__gauge {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+}
+.platformclaw-racing__gauge i {
+  display: block;
+  height: 4px;
+  background: var(--bg-elevated);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.platformclaw-racing__gauge b {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+  border-radius: 2px;
+}
+.platformclaw-racing__rumor {
+  font-size: 10px;
+  line-height: 1.5;
+}
+.platformclaw-racing__rumor em {
+  display: block;
+  font-style: normal;
+  font-size: 9px;
+  opacity: 0.8;
+}
+.platformclaw-racing__live-feed {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+.platformclaw-racing__live-feed h3 {
+  font-size: 10px;
+  font-weight: 500;
+  margin: 0 0 7px;
+}
+.platformclaw-racing__live-feed h3 > span {
+  margin-left: 5px;
+}
+.platformclaw-racing__live-feed ol {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 170px;
+  overflow: auto;
+}
+.platformclaw-racing__live-feed li {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+}
+.platformclaw-racing__live-feed strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text);
+}
+.platformclaw-racing__live-feed li > span {
+  flex-shrink: 0;
+}
+.platformclaw-racing__live-feed > p {
+  font-size: 10px;
+  margin: 0;
+}
+.platformclaw-racing-minimized-feed {
+  position: fixed;
+  right: 64px;
+  top: 72px;
+  width: 164px;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+.platformclaw-racing-minimized-feed .platformclaw-racing__live-feed li {
+  display: grid;
+  gap: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .platformclaw-racing-perimeter__legs {
+    animation: none;
+  }
+}
+
+.platformclaw-racing__empty {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}

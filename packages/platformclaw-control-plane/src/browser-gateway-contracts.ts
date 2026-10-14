@@ -7,6 +7,7 @@ import type {
   PlatformUser,
   BrowserSession,
 } from "./contracts.js";
+import type { HorseRacingStore } from "./horse-racing-contracts.js";
 
 export type BrowserGatewayEvent = {
   event: string;
@@ -66,6 +67,8 @@ export type BrowserGatewayProxyOptions = {
   auditWriter: ControlPlaneAuditWriter;
   gateway: BrowserGatewayRpc;
   baseballStore?: BaseballGameStore;
+  racingStore?: HorseRacingStore;
+  racingNow?: () => number;
   spaceService?: import("./space-service.js").SpaceService;
   vaultService?: import("./knowledge-vault-service.js").KnowledgeVaultService;
   buildAgentMainSessionKey(params: { agentId: string }): string;

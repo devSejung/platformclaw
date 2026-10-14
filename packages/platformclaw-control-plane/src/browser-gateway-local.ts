@@ -5,6 +5,7 @@ import type {
   BrowserGatewayProxyErrorCode,
 } from "./browser-gateway-contracts.js";
 import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
+import { requestBrowserHorseRacing } from "./browser-gateway-horse-racing.js";
 import { projectBrowserSelfUser } from "./browser-gateway-self-service-projections.js";
 import { requestBrowserKnowledgeVault } from "./browser-gateway-vault.js";
 import { requestBrowserKnowledgeSearch } from "./browser-knowledge-search.js";
@@ -44,9 +45,20 @@ export async function requestBrowserGatewayLocal(
       userId: access.user.id,
       method,
       request,
+      now: options.now?.() ?? Date.now(),
     });
     if (baseball.handled) {
       return baseball;
+    }
+    const racing = requestBrowserHorseRacing({
+      store: options.racingStore,
+      userId: access.user.id,
+      method,
+      request,
+      now: (options.racingNow ?? options.now ?? Date.now)(),
+    });
+    if (racing.handled) {
+      return racing;
     }
     return { handled: false };
   } catch (error) {

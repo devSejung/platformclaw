@@ -49,6 +49,22 @@ async function flush(element: EasterEggElement): Promise<void> {
   await element.updateComplete;
 }
 
+function atBat(batId: BaseballProgress["equippedBatId"] = "wood", pitchSample = 0) {
+  return {
+    id: "test-at-bat",
+    pitchSample,
+    batId,
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + 120_000,
+  };
+}
+
+async function openBaseball(egg: EasterEggElement): Promise<void> {
+  window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+  await egg.updateComplete;
+  egg.querySelector<HTMLButtonElement>('[data-game-choice="baseball"]')!.click();
+  await flush(egg);
+}
 describe("PlatformClaw easter egg", () => {
   beforeEach(() => {
     document.body.replaceChildren(document.createElement("platformclaw-easter-egg"));
@@ -101,7 +117,7 @@ describe("PlatformClaw easter egg", () => {
 
   it("starts a baseball game, ignores Space in inputs, and closes on Escape", async () => {
     const egg = document.querySelector("platformclaw-easter-egg") as EasterEggElement;
-    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await openBaseball(egg);
     await egg.updateComplete;
     await Promise.resolve();
     await egg.updateComplete;
@@ -170,6 +186,9 @@ describe("PlatformClaw easter egg", () => {
     egg.random = () => 0;
     egg.client = {
       request: async <T>(method: string): Promise<T> => {
+        if (method === BASEBALL_RPC.beginAtBat) {
+          return atBat("wood", egg.random()) as T;
+        }
         if (method === BASEBALL_RPC.progress) {
           return progress({ gold: 50, bestDistanceM: 168, currentHomeRunStreak: 2 }) as T;
         }
@@ -185,7 +204,7 @@ describe("PlatformClaw easter egg", () => {
         throw new Error(`unexpected method: ${method}`);
       },
     };
-    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await openBaseball(egg);
     await flush(egg);
     expect(egg.textContent).toContain("골드 50");
     expect(egg.textContent).toContain("최고 168m");
@@ -223,6 +242,9 @@ describe("PlatformClaw easter egg", () => {
     let purchases = 0;
     egg.client = {
       request: async <T>(method: string, params?: unknown): Promise<T> => {
+        if (method === BASEBALL_RPC.beginAtBat) {
+          return atBat("wood", egg.random()) as T;
+        }
         if (method === BASEBALL_RPC.progress) {
           return progress({ gold: 50 }) as T;
         }
@@ -249,7 +271,7 @@ describe("PlatformClaw easter egg", () => {
         throw new Error(`unexpected method: ${method}`);
       },
     };
-    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await openBaseball(egg);
     await flush(egg);
     (egg.querySelector(".platformclaw-easter-egg__shop-trigger") as HTMLButtonElement).click();
     await egg.updateComplete;
@@ -279,6 +301,9 @@ describe("PlatformClaw easter egg", () => {
     let leaderboardRequests = 0;
     egg.client = {
       request: async <T>(method: string): Promise<T> => {
+        if (method === BASEBALL_RPC.beginAtBat) {
+          return atBat("wood", egg.random()) as T;
+        }
         if (method === BASEBALL_RPC.progress) {
           return progress() as T;
         }
@@ -299,7 +324,7 @@ describe("PlatformClaw easter egg", () => {
     };
     await egg.updateComplete;
 
-    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await openBaseball(egg);
     await flush(egg);
     expect(leaderboardRequests).toBe(1);
 
@@ -326,6 +351,9 @@ describe("PlatformClaw easter egg", () => {
     let leaderboardRequests = 0;
     egg.client = {
       request: async <T>(method: string): Promise<T> => {
+        if (method === BASEBALL_RPC.beginAtBat) {
+          return atBat("wood", egg.random()) as T;
+        }
         if (method === BASEBALL_RPC.progress) {
           return progress() as T;
         }
@@ -346,7 +374,7 @@ describe("PlatformClaw easter egg", () => {
     };
     await egg.updateComplete;
 
-    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await openBaseball(egg);
     await flush(egg);
     await vi.waitFor(() => expect(leaderboardRequests).toBe(1));
     await flush(egg);
@@ -367,14 +395,16 @@ describe("PlatformClaw easter egg", () => {
       releaseFirst = resolve;
     });
     egg.client = { request: async <T>(): Promise<T> => firstProgress as Promise<T> };
-    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await openBaseball(egg);
     await egg.updateComplete;
 
     egg.client = {
       request: async <T>(method: string): Promise<T> =>
-        (method === BASEBALL_RPC.leaderboard
-          ? leaderboard()
-          : progress({ gold: 7, revision: 2 })) as T,
+        (method === BASEBALL_RPC.beginAtBat
+          ? atBat()
+          : method === BASEBALL_RPC.leaderboard
+            ? leaderboard()
+            : progress({ gold: 7, revision: 2 })) as T,
     };
     await flush(egg);
     releaseFirst(progress({ gold: 999, revision: 99 }));
@@ -403,6 +433,9 @@ let storage: { getItem: ReturnType<typeof vi.fn>; setItem: ReturnType<typeof vi.
 async function openSettingsGame(scope = scopeA) {
   const egg = document.createElement("platformclaw-easter-egg") as SettingsEgg;
   const request = vi.fn(async (method: string) => {
+    if (method === BASEBALL_RPC.beginAtBat) {
+      return atBat("diamond", egg.random());
+    }
     if (method === BASEBALL_RPC.progress) {
       return { ...savedProgress };
     }
@@ -415,7 +448,7 @@ async function openSettingsGame(scope = scopeA) {
   egg.preferenceScope = scope;
   document.body.append(egg);
   await egg.updateComplete;
-  window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+  await openBaseball(egg);
   await flush(egg);
   egg.querySelector<HTMLButtonElement>(".platformclaw-easter-egg__shop-trigger")!.click();
   await flush(egg);
@@ -498,7 +531,7 @@ describe("baseball local cosmetic settings", () => {
     expect(egg.textContent).toContain("다음 누적 보너스까지 1홈런");
     expect(
       request.mock.calls.every(([method]) =>
-        [BASEBALL_RPC.progress, BASEBALL_RPC.leaderboard].includes(
+        [BASEBALL_RPC.progress, BASEBALL_RPC.leaderboard, BASEBALL_RPC.beginAtBat].includes(
           method as typeof BASEBALL_RPC.progress,
         ),
       ),
@@ -540,12 +573,14 @@ describe("baseball local cosmetic settings", () => {
     expect(egg.querySelector('[role="application"]')).toBeNull();
     egg.client = {
       request: async <T>(method: string) =>
-        (method === BASEBALL_RPC.progress
-          ? savedProgress
-          : { distance: [], homeRunStreak: [] }) as T,
+        (method === BASEBALL_RPC.beginAtBat
+          ? atBat("diamond")
+          : method === BASEBALL_RPC.progress
+            ? savedProgress
+            : { distance: [], homeRunStreak: [] }) as T,
     };
     await flush(egg);
-    window.dispatchEvent(new Event(PLATFORMCLAW_EASTER_EGG_EVENT));
+    await openBaseball(egg);
     await flush(egg);
     expect(egg.querySelector<HTMLElement>('[role="application"]')!.dataset.teamId).toBe("neutral");
     expect(egg.textContent).not.toContain("9999");

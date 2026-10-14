@@ -54,6 +54,8 @@ import {
 export type PlatformClawWebIngressRuntimeOptions = {
   databasePath: string;
   initialAdminAccountIds: readonly string[];
+  /** Trusted runtime clock injection; production uses wall time. Authentication retains its own clock. */
+  racingNow?: () => number;
   buildAgentMainSessionKey: MainSessionKeyBuilder;
   resolveAgentIdFromSessionKey(sessionKey: string): string | null;
   provisioner: PersonalAgentProvisioner;
@@ -118,6 +120,7 @@ export type PlatformClawWebIngressRuntime = {
 export function createPlatformClawWebIngressRuntime(
   options: PlatformClawWebIngressRuntimeOptions,
 ): PlatformClawWebIngressRuntime {
+  const racingNow = options.racingNow ?? options.employeeAuth?.now ?? Date.now;
   let closeTerminalForAgent = async (_agentId: string, _reason: string): Promise<void> => {};
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
   const auth = createEmployeeBrowserAuthRuntime({
@@ -283,6 +286,8 @@ export function createPlatformClawWebIngressRuntime(
     authService: auth.service,
     store: auth.store,
     baseballStore: auth.store,
+    racingStore: auth.store.racing,
+    racingNow,
     vaultService,
     spaceService,
     auditWriter: auth.store,
@@ -354,6 +359,7 @@ export function createPlatformClawWebIngressRuntime(
   });
   let closed = false;
   let vaultRetryTimer: ReturnType<typeof setInterval> | undefined;
+  let racingTimer: ReturnType<typeof setInterval> | undefined;
   let preparing: Promise<RestartReconciliationSummary> | undefined;
   const prepare = (): Promise<RestartReconciliationSummary> => {
     preparing ??= restartReconciler.reconcile().then(async (summary) => {
@@ -362,6 +368,19 @@ export function createPlatformClawWebIngressRuntime(
         return summary;
       }
       auth.store.vaults.retryFailed();
+      // Deadlines and settlements live in SQLite, so a restart catches up once instead of losing bets.
+      auth.store.racing.advance(racingNow());
+      racingTimer = setInterval(() => {
+        try {
+          auth.store.racing.advance(racingNow());
+        } catch (error) {
+          console.error(
+            "[PlatformClaw racing] schedule processing failed",
+            error instanceof Error ? error.message : "unknown error",
+          );
+        }
+      }, 1_000);
+      racingTimer.unref();
       vaultRetryTimer = setInterval(() => {
         try {
           auth.store.vaults.retryFailed();
@@ -401,6 +420,7 @@ export function createPlatformClawWebIngressRuntime(
       }
       closed = true;
       clearInterval(vaultRetryTimer);
+      clearInterval(racingTimer);
       try {
         await server.close();
       } finally {

@@ -27,6 +27,13 @@ function progress(overrides: Partial<BaseballProgress> = {}): BaseballProgress {
 
 function baseballStore() {
   return {
+    beginBaseballAtBat: vi.fn<BaseballGameStore["beginBaseballAtBat"]>(async () => ({
+      id: "at-bat-1",
+      pitchSample: 0.4,
+      batId: "wood",
+      issuedAt: NOW,
+      expiresAt: NOW + 180_000,
+    })),
     loadBaseballProgress: vi.fn<BaseballGameStore["loadBaseballProgress"]>(async () => progress()),
     loadBaseballLeaderboard: vi.fn<BaseballGameStore["loadBaseballLeaderboard"]>(async () => ({
       distance: [{ displayName: "Person One", value: 140, isCurrentUser: true }],
@@ -69,8 +76,18 @@ describe("BrowserGatewayProxy baseball BFF", () => {
     });
     expect(game.loadBaseballLeaderboard).toHaveBeenCalledWith(user.id);
     await expect(
+      proxy.request(token, BASEBALL_RPC.beginAtBat, { requestId: "begin-1" }),
+    ).resolves.toMatchObject({ id: "at-bat-1", pitchSample: 0.4, batId: "wood" });
+    expect(game.beginBaseballAtBat).toHaveBeenCalledWith({
+      userId: user.id,
+      requestId: "begin-1",
+      now: NOW,
+    });
+    await expect(
       proxy.request(token, BASEBALL_RPC.plateAppearance, {
         requestId: "plate-1",
+        atBatId: "at-bat-1",
+        timingDeltaMs: 0,
         outcome: "home_run",
         distanceM: 130,
       }),
@@ -78,18 +95,23 @@ describe("BrowserGatewayProxy baseball BFF", () => {
     expect(game.rewardBaseballPlateAppearance).toHaveBeenCalledWith({
       userId: user.id,
       requestId: "plate-1",
-      outcome: "home_run",
-      distanceM: 130,
+      atBatId: "at-bat-1",
+      timingDeltaMs: 0,
+      now: NOW,
     });
     await proxy.request(token, BASEBALL_RPC.plateAppearance, {
       requestId: "plate-2",
+      atBatId: "at-bat-2",
+      timingDeltaMs: null,
       outcome: "out",
       distanceM: 999,
     });
     expect(game.rewardBaseballPlateAppearance).toHaveBeenLastCalledWith({
       userId: user.id,
       requestId: "plate-2",
-      outcome: "out",
+      atBatId: "at-bat-2",
+      timingDeltaMs: null,
+      now: NOW,
     });
     await expect(
       proxy.request(token, BASEBALL_RPC.purchaseBat, { requestId: "buy-1", batId: "silver" }),
@@ -121,11 +143,18 @@ describe("BrowserGatewayProxy baseball BFF", () => {
       }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
+      proxy.request(token, BASEBALL_RPC.beginAtBat, {
+        userId: "user-other",
+        requestId: "spoofed-begin",
+      }),
+    ).rejects.toMatchObject({ code: "method-not-allowed" });
+    await expect(
       proxy.request(token, BASEBALL_RPC.leaderboard, { userId: "user-other" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
     expect(game.loadBaseballProgress).not.toHaveBeenCalled();
     expect(game.loadBaseballLeaderboard).not.toHaveBeenCalled();
     expect(game.rewardBaseballPlateAppearance).not.toHaveBeenCalled();
+    expect(game.beginBaseballAtBat).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -151,11 +180,21 @@ describe("BrowserGatewayProxy baseball BFF", () => {
 
     await expect(
       proxy.request(token, BASEBALL_RPC.plateAppearance, {
-        requestId: "bad-outcome",
-        outcome: "HOME_RUN",
+        requestId: "fabricated-home-run",
+        outcome: "home_run",
         distanceM: 130,
       }),
     ).rejects.toMatchObject({ code: "invalid-params" });
+    for (const timingDeltaMs of [undefined, Number.NaN, Number.POSITIVE_INFINITY, 2_001, "0"]) {
+      await expect(
+        proxy.request(token, BASEBALL_RPC.plateAppearance, {
+          requestId: "bad-timing",
+          atBatId: "at-bat-1",
+          timingDeltaMs,
+        }),
+      ).rejects.toMatchObject({ code: "invalid-params" });
+    }
+    expect(game.rewardBaseballPlateAppearance).not.toHaveBeenCalled();
     await expect(
       proxy.request(token, BASEBALL_RPC.purchaseBat, { requestId: "bad-bat", batId: "mythril" }),
     ).rejects.toMatchObject({ code: "invalid-params" });
