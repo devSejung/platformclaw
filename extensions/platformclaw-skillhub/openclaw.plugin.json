@@ -1,8 +1,9 @@
 {
   "id": "platformclaw-skillhub",
   "name": "PlatformClaw SkillHub",
-  "description": "Company SkillHub commands for PlatformClaw.",
+  "description": "Company SkillHub commands and task-based skill tools for PlatformClaw.",
   "activation": { "onStartup": true },
+  "contracts": { "tools": ["skillhub_search", "skillhub_status", "skillhub_install", "skillhub_delete"] },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

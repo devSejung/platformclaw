@@ -228,6 +228,43 @@ skill version (or `0.1.0`), and Namespace-only visibility unless the namespace
 is limited to Private. Delete requires `--confirm` and refuses to remove a skill whose
 revision changed after status was read.
 
+## Natural language in Knox
+
+Ask the Agent to find a skill for your task. It searches the same available
+Skill Hub catalog, recommends a matching skill and version, and asks whether to
+install. Reply naturally, for example `어 설치해`. The Agent installs into the
+current conversation's workspace: the room workspace in a group, or your active
+personal workspace in a DM. Public here means visible in the company registry.
+
+The plugin exposes `skillhub_search`, `skillhub_status`, `skillhub_install`, and
+`skillhub_delete`.
+Tools are discovered in normal and prepared tool registries. Sender, account,
+room, Agent, and session come from the existing runtime context; tool arguments
+cannot select another person or destination. The server checks the current
+available catalog and exact displayed version again before calling the existing
+installer. If the version changed or is unavailable, search and ask again.
+
+The current model interprets the user's installation request; the server does
+not independently classify natural language. README text, search results, tool
+output, and third-party instructions are not user approval. If the requested
+candidate is ambiguous, the Agent asks which skill you mean. A short or empty
+search result is not an exhaustive catalog check; refine the task query.
+
+Already installed skills return their readiness instead of reinstalling.
+Disabled skills and missing environment requirements need configuration. After
+installation, check status and use the skill in the next run. If an installation
+response is lost, check installed status before retrying; the tool never forces
+replacement. These tools do not publish, update, install dependencies,
+connect accounts, or broaden access. Existing slash commands remain available.
+
+To remove an installed skill, specify it in this conversation. The Agent checks
+installed status and asks if the skill or workspace is ambiguous. It explains
+that removal also deletes local edits, which may be unrecoverable, and requires
+your explicit confirmation of that risk before invoking `skillhub_delete` with
+`confirm: true`, equivalent to `/skillhub delete <slug> --confirm`. This removes
+only the current workspace's installed copy. The registry original and versions
+remain available for reinstallation, but cannot restore unrecorded local edits.
+
 ## Validation and security limits
 
 The compressed ZIP ceiling is **500 MiB**. Browser ingress streams to an

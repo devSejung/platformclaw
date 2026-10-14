@@ -100,6 +100,7 @@ async function setup(enabled = true, room = false) {
   clearPluginCommands();
   skillHubPlugin.register({
     registrationMode: "full",
+    registerTool: vi.fn(),
     registerCommand: (command: Parameters<typeof registerPluginCommand>[1]) => {
       expect(registerPluginCommand("platformclaw-skillhub", command)).toMatchObject({ ok: true });
     },
