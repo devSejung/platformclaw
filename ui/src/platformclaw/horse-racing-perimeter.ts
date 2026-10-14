@@ -1,5 +1,38 @@
+import type { HorseRacingSnapshot } from "../../../packages/platformclaw-control-plane/src/horse-racing-contracts.ts";
+
 type HorsePerimeterPoint = { x: number; y: number; angle: 0 | 90 | 180 | 270 };
 const PERIMETER_FACINGS = { 0: "right", 90: "front", 180: "left", 270: "back" } as const;
+
+/** Compare observed travel with the race's normal pace; never infer future speed or hidden form. */
+export function horseRaceBoosts(
+  previous: HorseRacingSnapshot | null,
+  next: HorseRacingSnapshot,
+): ReadonlySet<string> {
+  const race = next.race;
+  const elapsed = previous ? next.serverNow - previous.serverNow : 0;
+  if (
+    !race ||
+    race.status !== "racing" ||
+    previous?.race?.status !== "racing" ||
+    previous.race.id !== race.id ||
+    elapsed <= 0 ||
+    elapsed > 5_000
+  ) {
+    return new Set();
+  }
+  const normalPace = (100 * elapsed) / (race.endsAt - race.startsAt);
+  const before = new Map(previous.race.positions.map((entry) => [entry.horseId, entry.position]));
+  return new Set(
+    race.positions
+      .filter((entry) => {
+        const from = before.get(entry.horseId);
+        return (
+          from !== undefined && entry.position < 100 && entry.position - from > normalPace * 1.2
+        );
+      })
+      .map((entry) => entry.horseId),
+  );
+}
 
 /** Server progress covers three laps. Interpolate progress, then map to the path to avoid corner shortcuts. */
 export function horsePerimeterPoint(

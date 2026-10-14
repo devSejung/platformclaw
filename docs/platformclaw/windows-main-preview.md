@@ -102,7 +102,7 @@ healthy checkout.
 After building the current Control UI, run the isolated racing development harness:
 
 ```sh
-node --import tsx scripts/platformclaw-racing-preview.ts
+pnpm platformclaw:racing-preview
 ```
 
 Stop the harness before rebuilding the Control UI, then start it again after the
@@ -155,6 +155,8 @@ until the terminal record. Exact odds permit probability inference. Private
 condition describes the recorded performance and affects the animation, without
 changing the fixed odds. Rumors add noisy hints; Juki's rumors ignore its hidden
 cold/hot state. These hints do not guarantee a result.
+Fast observed segments display directional speed streaks, a warm glow and quicker
+leg motion. Reduced-motion mode hides these burst effects.
 Betting cannot affect the weighted draw. After settlement, browsers can
 independently verify the revealed seed against both the commitment and finish
 order. Engine or pricing changes cancel and refund unfinished rounds rather than changing

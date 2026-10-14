@@ -107,17 +107,21 @@ describe("upright runner rendering", () => {
           distance = (trackWidth + trackHeight) * 1.5;
           break;
       }
-      positions.set(race.horses[lane].id, (distance / ((trackWidth + trackHeight) * 2) / 3) * 100);
+      positions.set(race.horses[lane]!.id, (distance / ((trackWidth + trackHeight) * 2) / 3) * 100);
     }
     const container = document.createElement("div");
     document.body.append(container);
-    render(renderHorsePerimeter(race, width, height, positions, false, false), container);
+    render(
+      renderHorsePerimeter(race, width, height, positions, false, false, new Set()),
+      container,
+    );
     for (let lane = 0; lane < race.horses.length; lane += 1) {
-      const horse = container.querySelector(`[data-perimeter-horse="${race.horses[lane].id}"]`)!;
+      const runner = race.horses[lane]!;
+      const horse = container.querySelector(`[data-perimeter-horse="${runner.id}"]`)!;
       expect(horse.getAttribute("data-facing")).toBe(expected[lane % 4]);
       expect(horse.getAttribute("transform")).not.toContain("rotate");
-      const label = container.querySelector(`[data-horse-label="${race.horses[lane].id}"]`)!;
-      expect(label.textContent).toContain(race.horses[lane].name);
+      const label = container.querySelector(`[data-horse-label="${runner.id}"]`)!;
+      expect(label.textContent).toContain(runner.name);
       expect(label.getAttribute("transform")).toBeNull();
       expect(label.getAttribute("fill")).toBeNull();
       expect(horse.querySelectorAll("[data-horse-facing]")).toHaveLength(4);
@@ -148,7 +152,7 @@ describe("browser fairness verification", () => {
       await verifyHorseRace({
         ...race,
         horses: [
-          Object.assign({}, race.horses[0], { weight: race.horses[0].weight! + 1 }),
+          Object.assign({}, race.horses[0]!, { weight: race.horses[0]!.weight! + 1 }),
           ...race.horses.slice(1),
         ],
       }),

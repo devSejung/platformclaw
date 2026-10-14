@@ -37,6 +37,41 @@
 .platformclaw-racing-perimeter__horse--backed {
   filter: saturate(75%) drop-shadow(0 0 2px var(--accent));
 }
+.platformclaw-racing-perimeter__boost {
+  display: none;
+}
+.platformclaw-racing-perimeter__horse[data-boosting="true"] {
+  filter: saturate(90%) drop-shadow(0 0 3px #e8ac46);
+}
+.platformclaw-racing-perimeter__horse[data-boosting="true"]
+  > .platformclaw-racing-perimeter__boost {
+  display: inline;
+}
+.platformclaw-racing-perimeter__speed-lines {
+  fill: none;
+  stroke: #e8ac46;
+  stroke-width: 2;
+  stroke-linecap: round;
+  animation: platformclaw-racing-dash 180ms ease-out infinite;
+}
+.platformclaw-racing-perimeter__dust {
+  fill: #c8ab80;
+  opacity: 0.4;
+  animation: platformclaw-racing-dash 300ms ease-out infinite;
+}
+.platformclaw-racing-perimeter__horse[data-boosting="true"] .platformclaw-racing-perimeter__legs {
+  animation-duration: 120ms;
+}
+@keyframes platformclaw-racing-dash {
+  from {
+    opacity: 0.7;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0.1;
+    transform: translateX(-8px);
+  }
+}
 .platformclaw-racing-perimeter__shadow {
   fill: var(--muted);
   opacity: 0.12;
@@ -52,6 +87,11 @@
 }
 .platformclaw-racing-perimeter--paused .platformclaw-racing-perimeter__legs {
   animation: none;
+}
+.platformclaw-racing-perimeter--paused
+  .platformclaw-racing-perimeter__horse[data-boosting="true"]
+  > .platformclaw-racing-perimeter__boost {
+  display: none;
 }
 @keyframes platformclaw-racing-footsteps {
   from {
@@ -73,6 +113,10 @@
   display: inline;
 }
 @media (prefers-reduced-motion: reduce) {
+  .platformclaw-racing-perimeter__horse[data-boosting="true"]
+    > .platformclaw-racing-perimeter__boost {
+    display: none;
+  }
   .platformclaw-racing-perimeter__legs {
     animation: none;
   }

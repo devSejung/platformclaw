@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const BASEBALL_AT_BAT_SCHEMA = `
+const BASEBALL_AT_BAT_SCHEMA = `
 CREATE TABLE IF NOT EXISTS baseball_at_bats (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,

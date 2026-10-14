@@ -1,45 +1,10 @@
 import { html, nothing } from "lit";
-import type {
-  HorseBetMarket,
-  HorseRaceSnapshot,
-  HorseRacingSnapshot,
-} from "../../../packages/platformclaw-control-plane/src/horse-racing-contracts.ts";
+import type { HorseRaceSnapshot } from "../../../packages/platformclaw-control-plane/src/horse-racing-contracts.ts";
 import { i18n } from "../i18n/index.ts";
 import { renderRacingBetting } from "./horse-racing-bet-view.ts";
-import type { RacingWinReaction } from "./horse-racing-celebration.ts";
 import { horseLabel, horseRaceOrder } from "./horse-racing-presentation.ts";
+import type { HorseRacingView } from "./horse-racing-view-contract.ts";
 import { platformClawT as t } from "./i18n.ts";
-
-export type HorseRacingView = {
-  reaction: RacingWinReaction | null;
-  snapshot: HorseRacingSnapshot | null;
-  now: number;
-  market: HorseBetMarket;
-  selection: string[];
-  amount: number;
-  message: string;
-  busy: boolean;
-  stale: boolean;
-  pending: boolean;
-  pendingCancelId: string | null;
-  onCancel: (betId: string) => void;
-  muted: boolean;
-  reducedMotion: boolean;
-  historical: boolean;
-  verification: string;
-  presentation: "compact" | "expanded" | "collapsed";
-  onPresentation: (presentation: "compact" | "expanded" | "collapsed") => void;
-  onVerify: () => void;
-  onExit: (action: "games" | "baseball" | "close") => void;
-  onMarket: (market: HorseBetMarket) => void;
-  onSelect: (id: string) => void;
-  onAmount: (amount: number) => void;
-  onBet: () => void;
-  onRefresh: () => void;
-  onHistory: (id: string | null) => void;
-  onMute: () => void;
-  onMotion: () => void;
-};
 
 function raceTime(timestamp: number): string {
   return new Intl.DateTimeFormat(i18n.getLocale(), {

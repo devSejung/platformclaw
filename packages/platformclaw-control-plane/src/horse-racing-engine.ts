@@ -15,9 +15,9 @@ export {
 // oconsl/websocket-horse-chaos-example@4ccafdcaef1520f40f75149362e7907adcfccf03 (MIT; THIRD_PARTY_NOTICES.md).
 
 export const HORSE_RACE_DURATION_MS = 180_000;
-export const HORSE_RACE_BETTING_WINDOW_MS = 10 * 60_000;
+const HORSE_RACE_BETTING_WINDOW_MS = 10 * 60_000;
 export const HORSE_RACE_LOCK_BEFORE_MS = 60_000;
-export const HORSE_RACE_REST_MS = 10_000;
+const HORSE_RACE_REST_MS = 10_000;
 const KST_OFFSET_MS = 9 * 60 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
 

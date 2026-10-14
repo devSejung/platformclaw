@@ -18,12 +18,8 @@ import "../styles/platformclaw-horse-racing.css";
 import "../styles/platformclaw-horse-racing-perimeter.css";
 import "../styles/platformclaw-horse-racing-betting.css";
 import { HorseRacingCelebration, type RacingWinReaction } from "./horse-racing-celebration.ts";
-import { renderHorsePerimeter } from "./horse-racing-perimeter-view.ts";
-import {
-  horsePerimeterFacing,
-  horsePerimeterPoint,
-  horsePerimeterLabel,
-} from "./horse-racing-perimeter.ts";
+import { paintHorsePerimeter, renderHorsePerimeter } from "./horse-racing-perimeter-view.ts";
+import { horseRaceBoosts } from "./horse-racing-perimeter.ts";
 import { verifyHorseRace } from "./horse-racing-verification.ts";
 import { renderHorseRacing } from "./horse-racing-view.ts";
 import { platformClawT as t } from "./i18n.ts";
@@ -39,7 +35,7 @@ function rejectedRacingMutation(error: unknown): error is GatewayRequestError {
 }
 
 /** One mounted spectator owns its polling; server snapshots alone own money and race positions. */
-export class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
+class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property({ attribute: false }) preferenceScope: string | null = null;
   @state() private snapshot: HorseRacingSnapshot | null = null;
@@ -69,6 +65,7 @@ export class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
   @state() private viewportWidth = window.innerWidth;
   @state() private viewportHeight = window.innerHeight;
   private displayedPositions = new Map<string, number>();
+  private boostedHorses: ReadonlySet<string> = new Set();
   private motionFrame = 0;
   private tween: { startsAt: number; from: Map<string, number>; to: Map<string, number> } | null =
     null;
@@ -190,6 +187,7 @@ export class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
       this.displayedPositions,
       this.stale,
       this.reducedMotion,
+      this.boostedHorses,
     )}${panel}`;
   }
 
@@ -299,6 +297,8 @@ export class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
       this.verification = "";
     }
     this.prepareMotion(snapshot.race);
+    this.boostedHorses =
+      this.stale || this.reducedMotion ? new Set() : horseRaceBoosts(this.snapshot, snapshot);
     const reaction = this.celebration.observe(snapshot, this.viewingRaceId !== null);
     if (reaction) {
       this.reaction = reaction;
@@ -348,6 +348,8 @@ export class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
       this.motionFrame = 0;
     }
     this.tween = null;
+    this.boostedHorses = new Set();
+    this.paintPerimeter();
   }
 
   private prepareMotion(race: HorseRaceSnapshot | null): void {
@@ -387,31 +389,14 @@ export class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
   };
 
   private paintPerimeter(): void {
-    const horses = this.snapshot?.race?.horses;
-    if (!horses) {
-      return;
-    }
-    for (const sprite of this.querySelectorAll<SVGGElement>("[data-perimeter-horse]")) {
-      const id = sprite.dataset.perimeterHorse;
-      const lane = horses.findIndex((horse) => horse.id === id);
-      const point = horsePerimeterPoint(
-        this.viewportWidth,
-        this.viewportHeight,
-        this.displayedPositions.get(id ?? "") ?? 0,
-        lane,
-      );
-      sprite.setAttribute("transform", `translate(${point.x} ${point.y})`);
-      const facing = horsePerimeterFacing(point.angle);
-      if (sprite.dataset.facing !== facing) {
-        sprite.dataset.facing = facing;
-      }
-      const label = this.querySelector<SVGTextElement>(`[data-horse-label="${id}"]`);
-      if (label) {
-        const anchor = horsePerimeterLabel(this.viewportWidth, this.viewportHeight, point, lane);
-        label.setAttribute("x", String(anchor.x));
-        label.setAttribute("y", String(anchor.y));
-      }
-    }
+    paintHorsePerimeter(
+      this,
+      this.snapshot?.race ?? null,
+      this.viewportWidth,
+      this.viewportHeight,
+      this.displayedPositions,
+      this.boostedHorses,
+    );
   }
 
   private readonly onResize = (): void => {

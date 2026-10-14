@@ -30,7 +30,7 @@ export type RacingHorse = {
   winProbability: number;
   rumor: string;
 };
-export type HorseRaceEntrant = Omit<RacingHorse, "condition" | "weight" | "winProbability"> & {
+type HorseRaceEntrant = Omit<RacingHorse, "condition" | "weight" | "winProbability"> & {
   condition: number | null;
   weight: number | null;
   winProbability: number | null;

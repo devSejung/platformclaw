@@ -8,7 +8,7 @@ import {
 } from "../../../packages/platformclaw-control-plane/src/horse-racing-contracts.ts";
 import { quoteHorsePayout } from "../../../packages/platformclaw-control-plane/src/horse-racing-pricing.ts";
 import { horseLabel } from "./horse-racing-presentation.ts";
-import type { HorseRacingView } from "./horse-racing-view.ts";
+import type { HorseRacingView } from "./horse-racing-view-contract.ts";
 import { platformClawT as t } from "./i18n.ts";
 
 export function renderRacingBetting(

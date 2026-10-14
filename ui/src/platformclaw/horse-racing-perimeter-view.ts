@@ -14,6 +14,7 @@ export function renderHorsePerimeter(
   positions: ReadonlyMap<string, number>,
   stale: boolean,
   reducedMotion: boolean,
+  boosted: ReadonlySet<string>,
 ) {
   if (!race || race.status !== "racing") {
     return nothing;
@@ -44,8 +45,13 @@ export function renderHorsePerimeter(
       const label = horsePerimeterLabel(width, height, point, lane);
       return svg`<g data-perimeter-horse=${horse.id}
         class="platformclaw-racing-perimeter__horse ${backed.has(horse.id) ? "platformclaw-racing-perimeter__horse--backed" : ""}"
-        data-facing=${horsePerimeterFacing(point.angle)} transform=${`translate(${point.x} ${point.y})`} style=${styleMap({ "--horse-color": horse.color })}>
+        data-facing=${horsePerimeterFacing(point.angle)} data-boosting=${!stale && !reducedMotion && boosted.has(horse.id)} transform=${`translate(${point.x} ${point.y})`} style=${styleMap({ "--horse-color": horse.color })}>
         <title>${lane + 1}. ${horse.name}</title>
+        <g data-horse-boost=${horse.id} class="platformclaw-racing-perimeter__boost" transform=${`rotate(${point.angle})`}>
+          <path class="platformclaw-racing-perimeter__speed-lines" d="M-24-7h-18M-29 0h-23M-24 7h-14" />
+          <circle class="platformclaw-racing-perimeter__dust" cx="-29" cy="11" r="3" />
+          <circle class="platformclaw-racing-perimeter__dust" cx="-41" cy="7" r="2" />
+        </g>
         <g data-horse-facing="right">${renderHorseSide(lane + 1, false)}</g>
         <g data-horse-facing="left">${renderHorseSide(lane + 1, true)}</g>
         <g data-horse-facing="front" transform="scale(.75)">
@@ -75,6 +81,35 @@ export function renderHorsePerimeter(
       </g><text data-horse-label=${horse.id} class="platformclaw-racing-perimeter__label" x=${label.x} y=${label.y}>${lane + 1} ${horse.name}</text>`;
     })}
   </svg>`;
+}
+
+/** Paint only the spectator SVG between Lit updates; the server still owns every progress value. */
+export function paintHorsePerimeter(
+  root: ParentNode,
+  race: HorseRaceSnapshot | null,
+  width: number,
+  height: number,
+  positions: ReadonlyMap<string, number>,
+  boosted: ReadonlySet<string>,
+): void {
+  if (!race) {
+    return;
+  }
+  for (const sprite of root.querySelectorAll<SVGGElement>("[data-perimeter-horse]")) {
+    const id = sprite.dataset.perimeterHorse ?? "";
+    const lane = race.horses.findIndex((horse) => horse.id === id);
+    const point = horsePerimeterPoint(width, height, positions.get(id) ?? 0, lane);
+    sprite.setAttribute("transform", `translate(${point.x} ${point.y})`);
+    sprite.dataset.facing = horsePerimeterFacing(point.angle);
+    sprite.dataset.boosting = String(boosted.has(id));
+    sprite.querySelector("[data-horse-boost]")?.setAttribute("transform", `rotate(${point.angle})`);
+    const label = root.querySelector<SVGTextElement>(`[data-horse-label="${id}"]`);
+    if (label) {
+      const anchor = horsePerimeterLabel(width, height, point, lane);
+      label.setAttribute("x", String(anchor.x));
+      label.setAttribute("y", String(anchor.y));
+    }
+  }
 }
 
 function renderHorseSide(number: number, left: boolean) {

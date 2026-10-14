@@ -6,26 +6,38 @@ import {
   type HorseRacingSnapshot,
 } from "../../../packages/platformclaw-control-plane/src/horse-racing-contracts.ts";
 import { quoteHorsePayout } from "../../../packages/platformclaw-control-plane/src/horse-racing-pricing.ts";
-import { GatewayRequestError, type GatewayBrowserClient } from "../api/gateway.ts";
+import { GatewayRequestError, GatewayBrowserClient } from "../api/gateway.ts";
 import { i18n } from "../i18n/index.ts";
-import { PlatformClawHorseRacing } from "./horse-racing-game.ts";
+import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
+import "./horse-racing-game.ts";
 import { horsePerimeterPoint } from "./horse-racing-perimeter.ts";
 import { now, snapshot } from "./horse-racing.test-fixtures.ts";
 import { loadAllPlatformClawLocales } from "./i18n.ts";
 
-async function flush(element: PlatformClawHorseRacing) {
+type RacingElement = OpenClawLightDomContentsElement & {
+  client: GatewayBrowserClient | null;
+  preferenceScope: string | null;
+};
+
+async function flush(element: RacingElement) {
   for (let index = 0; index < 4; index += 1) {
     await Promise.resolve();
     await element.updateComplete;
   }
 }
 
+function racingClient(request: (method: string, params?: unknown) => Promise<unknown>) {
+  const client = new GatewayBrowserClient({ url: "ws://localhost" });
+  client.request = async <T>(method: string, params?: unknown) =>
+    (await request(method, params)) as T;
+  return client;
+}
+
 function mount(request: (method: string, params?: unknown) => Promise<unknown>) {
-  const element = document.createElement("platformclaw-horse-racing") as PlatformClawHorseRacing;
-  expect(element.constructor).toBe(PlatformClawHorseRacing);
-  element.client = {
-    request: async <T>(method: string, params?: unknown) => (await request(method, params)) as T,
-  } as GatewayBrowserClient;
+  const element = document.createElement("platformclaw-horse-racing") as RacingElement;
+  expect(element.constructor).toBe(customElements.get("platformclaw-horse-racing"));
+  expect(element).toBeInstanceOf(OpenClawLightDomContentsElement);
+  element.client = racingClient(request);
   element.preferenceScope = "account-a";
   document.body.append(element);
   return element;
@@ -66,12 +78,12 @@ describe("horse racing spectator and wallet UI", () => {
         (entry) => entry.market === "win" && entry.selection[0] === "1",
       )!;
       const receipt = {
-        ...requests[0],
+        ...requests[0]!,
         id: "receipt-1",
         payout: null,
         refunded: false,
         quotedOdds: quote.odds,
-        potentialPayout: quoteHorsePayout(quote, requests[0].amount),
+        potentialPayout: quoteHorsePayout(quote, requests[0]!.amount),
         cancelledAt: null,
       };
       current = {
@@ -146,7 +158,7 @@ describe("horse racing spectator and wallet UI", () => {
     const request = vi.fn(async () => old);
     const element = mount(request);
     await flush(element);
-    element.client = { request: async <T>() => snapshot({ gold: 7 }) as T } as GatewayBrowserClient;
+    element.client = racingClient(async () => snapshot({ gold: 7 }));
     element.preferenceScope = "account-b";
     await flush(element);
     release(snapshot({ gold: 999 }));
@@ -244,7 +256,7 @@ describe("horse racing spectator and wallet UI", () => {
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);
     document.dispatchEvent(new Event("visibilitychange"));
     const replacement = vi.fn(async () => snapshot({ gold: 7 }));
-    element.client = { request: async <T>() => (await replacement()) as T } as GatewayBrowserClient;
+    element.client = racingClient(replacement);
     element.preferenceScope = "new-account";
     element.requestUpdate();
     await flush(element);
@@ -298,9 +310,7 @@ describe("horse racing spectator and wallet UI", () => {
         },
       ],
     };
-    element.client = {
-      request: async <T>() => snapshot({ race: historical }) as T,
-    } as GatewayBrowserClient;
+    element.client = racingClient(async () => snapshot({ race: historical }));
     await flush(element);
     expect(element.textContent).toContain("지급 9G · 순손익 +4G");
     expect(element.textContent).toContain("과거 배당");
@@ -308,7 +318,7 @@ describe("horse racing spectator and wallet UI", () => {
   });
 
   it("rechecks the same cancellation after a lost reply, blocks new bets and removes the live-feed entry", async () => {
-    const quote = snapshot().race!.quotes[0];
+    const quote = snapshot().race!.quotes[0]!;
     const receipt = {
       id: "ticket-1",
       raceId: "race-11",
@@ -450,7 +460,7 @@ describe("horse racing spectator and wallet UI", () => {
 
   it("keeps an authoritative cancellation when its original request fails after polling confirms it", async () => {
     const race = snapshot().race!;
-    const quote = race.quotes[0];
+    const quote = race.quotes[0]!;
     const receipt = {
       id: "delayed-cancel",
       raceId: race.id,
@@ -732,7 +742,7 @@ describe("horse racing spectator and wallet UI", () => {
     await vi.advanceTimersByTimeAsync(7000);
     await flush(element);
     expect(element.querySelector("[data-racing-win]")).toBeNull();
-    element.client = { request: async <T>() => current as T } as GatewayBrowserClient;
+    element.client = racingClient(async () => current);
     element.preferenceScope = "another-account";
     await flush(element);
     expect(element.querySelector("[data-racing-win]")).toBeNull();

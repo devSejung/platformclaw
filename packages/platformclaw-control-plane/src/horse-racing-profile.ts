@@ -1,7 +1,7 @@
 import { HORSE_RACING_JOKER_ID } from "./horse-racing-contracts.js";
 
 type ProfileWeight = { id: string; weight: number };
-export type HorseRaceScenario = {
+type HorseRaceScenario = {
   numerator: bigint;
   denominator: bigint;
   horses: ProfileWeight[];

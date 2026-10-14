@@ -15,7 +15,7 @@ export function createBaseballRequestId(random: () => number): string {
   );
 }
 
-export function isBaseballSwingZone(event: PointerEvent, player: HTMLElement | null): boolean {
+function isBaseballSwingZone(event: PointerEvent, player: HTMLElement | null): boolean {
   if (event.clientY < window.innerHeight * 0.7) {
     return false;
   }
@@ -27,7 +27,7 @@ export function focusBaseballShop(host: HTMLElement): void {
   host.querySelector<HTMLElement>('[role="dialog"] button')?.focus();
 }
 
-export function handleBaseballKeydown(
+function handleBaseballKeydown(
   host: HTMLElement,
   event: KeyboardEvent,
   shopOpen: boolean,
