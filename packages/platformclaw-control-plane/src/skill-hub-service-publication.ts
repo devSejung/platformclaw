@@ -195,6 +195,16 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
         source?: string;
         version?: string;
         revision?: string;
+        eligible?: boolean;
+        disabled?: boolean;
+        modelVisible?: boolean;
+        missing?: {
+          bins: string[];
+          anyBins: string[];
+          env: string[];
+          config: string[];
+          os: string[];
+        };
       }>;
     }>("skills.status", {
       agentId: actor.agentId,
@@ -214,6 +224,10 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
             typeof item.description === "string" ? { description: item.description } : {},
             typeof item.version === "string" ? { version: item.version } : {},
             typeof item.revision === "string" ? { revision: item.revision } : {},
+            typeof item.eligible === "boolean" ? { eligible: item.eligible } : {},
+            typeof item.disabled === "boolean" ? { disabled: item.disabled } : {},
+            typeof item.modelVisible === "boolean" ? { modelVisible: item.modelVisible } : {},
+            item.missing ? { missing: item.missing } : {},
           ),
         ),
     };
@@ -492,6 +506,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       destination: SkillInstallTarget;
       acknowledgedReplacement?: boolean;
       currentRevision?: string;
+      expectedTargetRevision?: number;
     },
   ) {
     const requestKey = JSON.stringify([
@@ -503,6 +518,7 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       params.version,
       params.acknowledgedReplacement === true,
       params.currentRevision ?? null,
+      params.expectedTargetRevision ?? null,
     ]);
     const existing = this.installsInFlight.get(requestKey);
     if (existing) {
@@ -530,9 +546,19 @@ export abstract class SkillHubPublicationService extends SkillHubServiceBase {
       destination: SkillInstallTarget;
       acknowledgedReplacement?: boolean;
       currentRevision?: string;
+      expectedTargetRevision?: number;
     },
   ): Promise<SkillHubInstallResult> {
     const execution = await this.authorizeInstallTarget(actor.agentId, params.destination);
+    if (
+      params.expectedTargetRevision !== undefined &&
+      params.expectedTargetRevision !== execution.targetRevision
+    ) {
+      throw new SkillHubServiceError(
+        "Skill Hub execution target changed; check status and retry.",
+        409,
+      );
+    }
     const namespace = this.authorizeNamespace(params.namespace);
     const slug = safeName(params.slug, "skill slug", SKILL_KEY_PATTERN);
     const version = validVersion(params.version);

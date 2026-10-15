@@ -9,11 +9,110 @@ import {
   safeName,
   SKILL_KEY_PATTERN,
   SkillHubServiceError,
+  validVersion,
   type AuthenticatedWorkspace,
   type SkillHubAudience,
 } from "./skill-hub-service-support.js";
 
 export abstract class SkillHubCommandService extends SkillHubPublicationService {
+  async knoxTool(
+    senderAccountId: string,
+    action: "search" | "status" | "install" | "delete",
+    input: {
+      query?: string;
+      namespace?: string;
+      slug?: string;
+      version?: string;
+      confirm?: boolean;
+    },
+    context: KnoxSkillHubCommandContext,
+  ) {
+    const actor = await resolveKnoxSkillHubWorkspace({
+      store: this.options.store,
+      workspaceRoot: this.workspaceRoot,
+      senderAccountId,
+      context,
+      buildAgentMainSessionKey: this.options.buildAgentMainSessionKey,
+    });
+    const audience = actor.roomBinding ? "room" : "employee";
+    if (action === "delete") {
+      if (input.confirm !== true) {
+        throw new SkillHubServiceError(
+          "Confirm deletion of the installed skill before retrying.",
+          400,
+        );
+      }
+      return await this.uninstall(actor, input.slug ?? "");
+    }
+    if (action === "search") {
+      const result = await this.search(actor.user, input.query ?? "", 5, audience);
+      const execution = await this.resolveExecutionTarget(actor.agentId);
+      return {
+        ...result,
+        agentId: actor.agentId,
+        audience,
+        target: execution.activeTarget,
+        items: result.items
+          .slice(0, 5)
+          .map((item) => Object.assign({}, item, { summary: item.summary.slice(0, 160) })),
+      };
+    }
+    if (action === "status") {
+      const installed = await this.commandInstalled(actor);
+      const slug = input.slug ? safeName(input.slug, "skill slug", SKILL_KEY_PATTERN) : undefined;
+      const items = slug
+        ? installed.items.filter((item) => item.skillKey === slug)
+        : installed.items;
+      return {
+        target: installed.target,
+        items: items
+          .slice(0, 10)
+          .map((item) => Object.assign({}, item, { description: item.description?.slice(0, 160) })),
+        total: items.length,
+        truncated: items.length > 10,
+      };
+    }
+    const namespace = this.authorizeNamespace(input.namespace ?? "");
+    const slug = safeName(input.slug ?? "", "skill slug", SKILL_KEY_PATTERN);
+    const version = validVersion(input.version ?? "");
+    const candidates = await this.search(actor.user, slug, 50, audience);
+    const candidate = candidates.items.find(
+      (item) => item.namespace === namespace && item.slug === slug,
+    );
+    if (!candidate || candidate.latestVersion !== version) {
+      throw new SkillHubServiceError("Skill Hub recommendation changed; search again.", 409);
+    }
+    const installed = await this.commandInstalled(actor);
+    const current = installed.items.find((item) => item.skillKey === slug);
+    // A retried conversational install observes the existing skill instead of forcing replacement.
+    if (current) {
+      return {
+        ok: true,
+        noOp: true,
+        slug,
+        version: current.version ?? null,
+        target: installed.target,
+        readiness: current,
+      };
+    }
+    const versions = await this.adapterCall(() =>
+      this.options.adapter.listVersions(namespace, slug),
+    );
+    if (!versions.some((item) => item.version === version && item.downloadAvailable)) {
+      throw new SkillHubServiceError(
+        "The recommended skill version is unavailable; search again.",
+        409,
+      );
+    }
+    return await this.install(actor, {
+      namespace,
+      slug,
+      version,
+      destination: installed.target,
+      expectedTargetRevision: installed.targetRevision,
+    });
+  }
+
   async knoxCommand(
     senderAccountId: string,
     args: string,
@@ -191,7 +290,11 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
   async commandInstalled(actor: AuthenticatedWorkspace) {
     const execution = await this.resolveExecutionTarget(actor.agentId);
     const workspace = await this.workspaceSkills(actor, execution.activeTarget);
-    return { target: workspace.source, items: workspace.items };
+    return {
+      target: workspace.source,
+      targetRevision: execution.targetRevision,
+      items: workspace.items,
+    };
   }
 
   private async executeCommand(

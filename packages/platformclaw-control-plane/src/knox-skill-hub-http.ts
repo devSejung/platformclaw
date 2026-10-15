@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { JsonBodyReader } from "./browser-auth-http.js";
 import { handlePlatformClawKnoxRoutingRequest } from "./knox-routing-http.js";
 import type { KnoxRoutingService } from "./knox-routing-service.js";
+import type { KnoxSkillHubCommandContext } from "./skill-hub-command-workspace.js";
 import type { SkillHubService } from "./skill-hub-service.js";
 import { SkillHubServiceError } from "./skill-hub-service.js";
 
@@ -56,7 +57,7 @@ async function handlePlatformClawKnoxSkillHubRequest(
   const body = read.value as Record<string, unknown>;
   if (
     typeof body.accountId !== "string" ||
-    typeof body.args !== "string" ||
+    (body.action === undefined && typeof body.args !== "string") ||
     (body.locale !== undefined && body.locale !== "ko" && body.locale !== "en")
   ) {
     send(res, 400, { error: "invalid_request" });
@@ -75,17 +76,75 @@ async function handlePlatformClawKnoxSkillHubRequest(
     send(res, 400, { error: "invalid_command_context" });
     return true;
   }
+  const action = body.action;
+  const input = body.input as Record<string, unknown> | undefined;
+  const allowedFields =
+    action === "search"
+      ? ["query"]
+      : action === "status"
+        ? ["slug"]
+        : action === "delete"
+          ? ["slug", "confirm"]
+          : ["namespace", "slug", "version"];
+  if (
+    action !== undefined &&
+    (typeof action !== "string" ||
+      !["search", "status", "install", "delete"].includes(action) ||
+      body.args !== undefined ||
+      !input ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      Object.entries(input).some(([key, value]) => {
+        if (!allowedFields.includes(key)) {
+          return true;
+        }
+        if (key === "confirm") {
+          return value !== true;
+        }
+        return (
+          typeof value !== "string" ||
+          value.length > (key === "query" ? 1000 : 128) ||
+          (key !== "query" && !value.trim())
+        );
+      }) ||
+      (action === "install" &&
+        allowedFields.some((key) => typeof input[key] !== "string" || !input[key].trim())) ||
+      (action === "delete" &&
+        (typeof input.slug !== "string" || !input.slug.trim() || input.confirm !== true)))
+  ) {
+    send(res, 400, { error: "invalid_tool_request" });
+    return true;
+  }
   try {
+    const commandContext: KnoxSkillHubCommandContext = {
+      accountId: context.accountId as string,
+      conversationType: context.conversationType,
+      conversationId: context.conversationId as string,
+      agentId: context.agentId as string,
+      sessionKey: context.sessionKey as string,
+    };
     send(
       res,
       200,
-      await options.service.knoxCommand(body.accountId, body.args, body.locale ?? "en", {
-        accountId: context.accountId as string,
-        conversationType: context.conversationType,
-        conversationId: context.conversationId as string,
-        agentId: context.agentId as string,
-        sessionKey: context.sessionKey as string,
-      }),
+      action === undefined
+        ? await options.service.knoxCommand(
+            body.accountId,
+            body.args as string,
+            body.locale ?? "en",
+            commandContext,
+          )
+        : await options.service.knoxTool(
+            body.accountId,
+            action as "search" | "status" | "install" | "delete",
+            input as {
+              query?: string;
+              namespace?: string;
+              slug?: string;
+              version?: string;
+              confirm?: boolean;
+            },
+            commandContext,
+          ),
     );
   } catch (error) {
     if (error instanceof SkillHubServiceError) {
