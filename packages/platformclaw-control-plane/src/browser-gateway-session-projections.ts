@@ -1,4 +1,5 @@
 import {
+  isCanonicalTerminalUploadBase64,
   MAX_TERMINAL_UPLOAD_BYTES,
   terminalUploadDecodedSize,
 } from "../../gateway-protocol/src/schema/terminal-constants.js";
@@ -9,7 +10,7 @@ type ProjectBrowserSessionResultParams = {
   method: string;
   prepared: JsonObject;
   result: unknown;
-  canUploadFiles?: boolean;
+  canAccessWorkspaceFiles?: (write: boolean) => boolean;
   assertOwnedResultSessionKey(value: unknown): void;
   projectSessionPayloadForAccess(value: unknown): JsonObject | null;
   fail(message: string): never;
@@ -275,9 +276,10 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
       : undefined;
     return {
       sessionKey: payload.sessionKey,
+      downloadAllowed: input.canAccessWorkspaceFiles?.(false) === true,
       ...(typeof payload.gitCheckout === "boolean" ? { gitCheckout: payload.gitCheckout } : {}),
       ...(typeof payload.uploadAllowed === "boolean"
-        ? { uploadAllowed: input.canUploadFiles === true && payload.uploadAllowed }
+        ? { uploadAllowed: input.canAccessWorkspaceFiles?.(true) === true && payload.uploadAllowed }
         : {}),
       files: payload.files.map((file) =>
         projectObjectKeys(asObject(file, "session file entry", fail), SESSION_FILE_KEYS),
@@ -310,6 +312,55 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
         asObject(payload.file, "session file entry", fail),
         SESSION_FILE_KEYS,
       ),
+    };
+  }
+  if (input.method === "sessions.files.download") {
+    const payload = asObject(input.result, "workspace download result", fail);
+    input.assertOwnedResultSessionKey(payload.sessionKey);
+    const file = asObject(payload.file, "workspace download file", fail);
+    const path = input.prepared.path;
+    if (
+      typeof path !== "string" ||
+      path.startsWith("/") ||
+      /^[a-z]:/iu.test(path) ||
+      path.includes("\\") ||
+      path.includes("\0") ||
+      path.split("/").some((segment) => !segment || segment === "." || segment === "..") ||
+      payload.sessionKey !== input.prepared.sessionKey ||
+      file.path !== path
+    ) {
+      return input.fail("Gateway returned a different workspace file than requested");
+    }
+    const name = requireNonEmptyString(file.name, "workspace download name", fail);
+    if (
+      name === "." ||
+      name === ".." ||
+      /[\\/]/u.test(name) ||
+      name
+        .split("")
+        .some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+    ) {
+      return input.fail("Gateway returned an unsafe workspace download name");
+    }
+    const size = requireNonNegativeInteger(file.size, "workspace download size", fail);
+    const contentBase64 = file.contentBase64;
+    if (
+      size > MAX_TERMINAL_UPLOAD_BYTES ||
+      typeof contentBase64 !== "string" ||
+      !isCanonicalTerminalUploadBase64(contentBase64) ||
+      terminalUploadDecodedSize(contentBase64) !== size
+    ) {
+      return input.fail("Gateway returned an invalid workspace download content");
+    }
+    return {
+      sessionKey: payload.sessionKey,
+      file: {
+        path,
+        name,
+        size,
+        mimeType: requireNonEmptyString(file.mimeType, "workspace download MIME type", fail),
+        contentBase64,
+      },
     };
   }
   if (input.method === "sessions.files.upload") {

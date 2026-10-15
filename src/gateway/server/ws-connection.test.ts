@@ -1,5 +1,6 @@
 // Gateway WebSocket connection tests cover handshake auth, shared sessions, and message-handler attachment.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
 import type { ResolvedGatewayAuth } from "../auth.js";
 import { MAX_BUFFERED_BYTES } from "../server-constants.js";
 import {
@@ -10,6 +11,7 @@ import {
   createResolvedGatewayTokenAuth,
   type GatewayWsTestSocket,
 } from "./ws-connection.test-helpers.js";
+import type { GatewayWsMessageHandlerParams } from "./ws-connection/message-handler-types.js";
 
 const {
   attachGatewayWsMessageHandlerMock,
@@ -387,6 +389,82 @@ describe("attachGatewayWsConnectionHandler", () => {
 
     expect(socket.send).not.toHaveBeenCalled();
     expect(socket.close).toHaveBeenCalledWith(1008, "slow consumer");
+  });
+
+  it("completes an opted-in response only at the socket send callback and removes terminal listeners", async () => {
+    const { socket, passed } = await connectTestWs();
+    const handler = passed as Pick<GatewayWsMessageHandlerParams, "send">;
+    let callback: ((error?: Error) => void) | undefined;
+    socket.send.mockImplementation((_frame: string, onComplete?: (error?: Error) => void) => {
+      callback = onComplete;
+    });
+    const closedListeners = socket.listenerCount("close");
+    const errorListeners = socket.listenerCount("error");
+    const complete = vi.fn();
+    handler.send({ type: "res", id: "download", ok: true }, complete);
+    expect(complete).not.toHaveBeenCalled();
+    expect(socket.listenerCount("close")).toBe(closedListeners + 1);
+    expect(socket.listenerCount("error")).toBe(errorListeners + 1);
+    callback?.();
+    expect(complete).toHaveBeenCalledOnce();
+    expect(complete).toHaveBeenCalledWith(undefined);
+    expect(socket.listenerCount("close")).toBe(closedListeners);
+    expect(socket.listenerCount("error")).toBe(errorListeners);
+    callback?.(new Error("late callback"));
+    expect(complete).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "callback-error",
+    "close",
+    "error",
+    "send-throw",
+    "json-throw",
+    "closed",
+    "closing",
+    "slow-consumer",
+  ])("settles opted-in response completion exactly once on %s", async (failure) => {
+    const { socket, passed } = await connectTestWs();
+    const handler = passed as Pick<GatewayWsMessageHandlerParams, "send">;
+    let callback: ((error?: Error) => void) | undefined;
+    socket.send.mockImplementation((_frame: string, onComplete?: (error?: Error) => void) => {
+      callback = onComplete;
+      if (failure === "send-throw") {
+        throw new Error("synthetic send failure");
+      }
+    });
+    if (failure === "closed") {
+      socket.readyState = WebSocket.CLOSED;
+    }
+    if (failure === "closing") {
+      socket.readyState = WebSocket.CLOSING;
+    }
+    if (failure === "slow-consumer") {
+      socket.bufferedAmount = MAX_BUFFERED_BYTES + 1;
+    }
+    const frame: Record<string, unknown> = { type: "res", id: "download", ok: true };
+    if (failure === "json-throw") {
+      frame.self = frame;
+    }
+    const closedListeners = socket.listenerCount("close");
+    const errorListeners = socket.listenerCount("error");
+    const complete = vi.fn();
+    handler.send(frame, complete);
+    if (failure === "callback-error") {
+      callback?.(new Error("synthetic callback failure"));
+    }
+    if (failure === "close") {
+      socket.emit("close", 1006, Buffer.alloc(0));
+    }
+    if (failure === "error") {
+      socket.emit("error", new Error("synthetic socket error"));
+    }
+    expect(complete).toHaveBeenCalledOnce();
+    expect(complete).toHaveBeenCalledWith(expect.any(Error));
+    expect(socket.listenerCount("close")).toBeLessThanOrEqual(closedListeners);
+    expect(socket.listenerCount("error")).toBeLessThanOrEqual(errorListeners);
+    callback?.(new Error("late callback"));
+    expect(complete).toHaveBeenCalledOnce();
   });
 
   it("keeps handshake phase advancement monotonic", async () => {

@@ -287,7 +287,7 @@ export class BrowserGatewayProxy {
     if (specialResult.handled) {
       return specialResult.result as T;
     }
-    if (method === "sessions.files.upload") {
+    if (method === "sessions.files.upload" || method === "sessions.files.download") {
       try {
         // Recheck the active target after every async preflight, just before dispatch.
         executionTarget = await resolveBrowserExecutionTarget(this.options, access, method);
@@ -305,6 +305,10 @@ export class BrowserGatewayProxy {
       agentId: access.binding.agentId,
     });
     try {
+      if (method === "sessions.files.list") {
+        // The file listing may outlive a target switch; project current availability.
+        executionTarget = await resolveBrowserExecutionTarget(this.options, access, method);
+      }
       const projected = this.filterResult(access, method, prepared, result, executionTarget);
       return (
         method === "memory.delete"
@@ -564,10 +568,10 @@ export class BrowserGatewayProxy {
       method,
       prepared,
       result,
-      canUploadFiles:
+      canAccessWorkspaceFiles: (write) =>
         executionTarget === "platform_server" &&
         typeof prepared.sessionKey === "string" &&
-        this.spaceAccess.allowsAgentSession(access.binding.agentId, prepared.sessionKey, true),
+        this.spaceAccess.allowsAgentSession(access.binding.agentId, prepared.sessionKey, write),
       assertOwnedResultSessionKey: (value) =>
         this.assertions.ownedResultSessionKey(access.binding.agentId, value),
       projectSessionPayloadForAccess: (value) =>

@@ -315,6 +315,7 @@ const SESSION_KEY_PARAM_BY_METHOD = new Map<string, "key" | "sessionKey">([
   ["sessions.compact", "key"],
   ["sessions.delete", "key"],
   ["sessions.dispatch", "key"],
+  ["sessions.files.download", "sessionKey"],
   ["sessions.files.set", "sessionKey"],
   ["sessions.files.upload", "sessionKey"],
   ["sessions.fork", "key"],
@@ -346,6 +347,7 @@ const REQUIRED_SESSION_TARGET_METHODS = new Set([
   "sessions.compaction.restore",
   "sessions.delete",
   "sessions.dispatch",
+  "sessions.files.download",
   "sessions.files.set",
   "sessions.files.upload",
   "sessions.fork",
@@ -475,9 +477,35 @@ export function resolveSessionMutationAuthorization(params: {
   requestParams: unknown;
   context: GatewayRequestContext;
 }): { authorization?: SessionMutationAuthorization; error: ErrorShape | null } {
-  if (isGatewayAdmin(params.client)) {
+  const readOnly = params.method === "sessions.files.download";
+  if (isGatewayAdmin(params.client) && !readOnly) {
     return { error: null };
   }
+  const authorizeTarget = (target: SessionSharingTarget, sessionKey: string): ErrorShape | null => {
+    if (!readOnly) {
+      return authorizeSessionSharingTarget({ client: params.client, target });
+    }
+    const incognitoError = authorizeIncognitoSessionTarget({
+      client: params.client,
+      sessionKey,
+      target,
+    });
+    if (incognitoError) {
+      return incognitoError;
+    }
+    // Downloads share catalog read visibility, not mutation participation. Reuse this
+    // predicate again after asynchronous file reads so a newly private draft cannot leak.
+    const filter = createSessionListEntryFilter({ client: params.client });
+    return filter?.(target.canonicalKey, target.entry) === false
+      ? errorShape(ErrorCodes.INVALID_REQUEST, "session is draft for this connection", {
+          details: {
+            code: "SESSION_READ_DENIED",
+            sessionKey: target.canonicalKey,
+            visibility: resolveSessionVisibility(target.entry),
+          },
+        })
+      : null;
+  };
   // Resolve runtime config at most once per request and only when a path needs it. The context
   // getter reloads/resolves gateway config, so non-session requests (the vast majority) must not
   // pay it. Group discovery and the authorization loop then share one snapshot, so a mid-request
@@ -534,7 +562,7 @@ export function resolveSessionMutationAuthorization(params: {
       agentId: targetRef.agentId,
       ...lookupCaches,
     });
-    const error = target ? authorizeSessionSharingTarget({ client: params.client, target }) : null;
+    const error = target ? authorizeTarget(target, targetRef.sessionKey) : null;
     if (error) {
       return { error };
     }
@@ -594,7 +622,7 @@ export function resolveSessionMutationAuthorization(params: {
         if (!current) {
           return;
         }
-        const error = authorizeSessionSharingTarget({ client: params.client, target: current });
+        const error = authorizeTarget(current, targetRef.sessionKey);
         if (error) {
           throw new SessionMutationAuthorizationChangedError(error);
         }

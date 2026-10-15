@@ -11,12 +11,8 @@ import { SessionsCreateParamsSchema } from "./sessions-create.js";
 import { SessionToolOverridesSchema } from "./sessions-row.js";
 
 export { SessionsCreateParamsSchema };
-export {
-  SessionsFilesUploadParamsSchema,
-  SessionsFilesUploadResultSchema,
-  type SessionsFilesUploadParams,
-  type SessionsFilesUploadResult,
-} from "./sessions-files-upload.js";
+export * from "./sessions-files-download.js";
+export * from "./sessions-files-upload.js";
 export {
   SessionCreatedActorSchema,
   SessionRowSchema,

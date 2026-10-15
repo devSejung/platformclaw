@@ -15,6 +15,8 @@ import {
   runWithDiagnosticTraceContext,
 } from "../../../infra/diagnostic-trace-context.js";
 import { createLazyPromise } from "../../../shared/lazy-runtime.js";
+import type { RespondFn } from "../../server-methods/types.js";
+import { preflightWorkspaceDownloadEnvelope } from "../../workspace-download-envelope.js";
 import { formatForLog, logWs } from "../../ws-log.js";
 import type { GatewayWsClient } from "../ws-types.js";
 import type { GatewayWsMessageHandlerParams } from "./message-handler-types.js";
@@ -106,13 +108,19 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
         return;
       }
     }
-    const respond = (
+    const sendResponse = (
       ok: boolean,
       payload?: unknown,
       error?: ErrorShape,
       meta?: Record<string, unknown>,
+      onComplete?: (error?: Error) => void,
     ) => {
-      send({ type: "res", id: req.id, ok, payload, error });
+      const frame = { type: "res", id: req.id, ok, payload, error };
+      if (onComplete) {
+        send(frame, onComplete);
+      } else {
+        send(frame);
+      }
       const unauthorizedRoleError = isUnauthorizedRoleError(error);
       let logMeta = meta;
       if (unauthorizedRoleError) {
@@ -150,6 +158,26 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
         ...logMeta,
       });
     };
+    const respond: RespondFn = sendResponse;
+    respond.withCompletion = (ok, payload, error, meta) =>
+      new Promise<void>((resolve) => {
+        sendResponse(ok, payload, error, meta, () => resolve());
+      });
+
+    if (req.method === "sessions.files.download") {
+      // Scope/session authorization can emit larger errors or resolve private targets; reject
+      // impossible download envelopes first, after stale connection credentials still close.
+      const preflight = preflightWorkspaceDownloadEnvelope(req.id, req.params);
+      if (preflight.status === "close") {
+        setCloseCause("download-envelope-too-large", { method: req.method });
+        close(1009, "download response too large");
+        return;
+      }
+      if (preflight.status === "reject") {
+        respond(false, undefined, preflight.error);
+        return;
+      }
+    }
 
     const executeRequest = async () => {
       // One-shot CLI clients cancel by closing their authenticated socket;

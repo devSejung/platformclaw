@@ -564,6 +564,7 @@ describe("BrowserGatewayProxy session lifecycle", () => {
     ).resolves.toEqual({
       sessionKey,
       gitCheckout: true,
+      downloadAllowed: true,
       files: [{ path: "notes.md", name: "notes.md", kind: "read", missing: false }],
       browser: {
         path: "",

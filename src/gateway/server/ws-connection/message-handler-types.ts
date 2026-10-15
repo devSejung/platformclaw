@@ -63,7 +63,7 @@ export type GatewayWsMessageHandlerParams = {
   buildRequestContext: () => GatewayRequestContext;
   nodeLifecycleDispatch: GatewayNodeLifecycleDispatchTracker;
   refreshHealthSnapshot: GatewayRequestContext["refreshHealthSnapshot"];
-  send: (obj: unknown) => void;
+  send: (obj: unknown, onComplete?: (error?: Error) => void) => void;
   close: (code?: number, reason?: string) => void;
   isClosed: () => boolean;
   clearHandshakeTimer: () => void;

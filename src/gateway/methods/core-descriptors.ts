@@ -488,6 +488,8 @@ const CORE_GATEWAY_METHOD_SPECS = [
   ["tasks.dismiss", "tasks", "operator.write", "2026.7"],
   // Additive audit inspection appends so older advertised method indices stay stable.
   ["audit.run.inspect", "audit", "operator.read", "2026.7"],
+  // Additive workspace downloads append to preserve existing advertised indices.
+  ["sessions.files.download", "sessions-files", "operator.read", "2026.7"],
 ] as const satisfies readonly CoreGatewayMethodSpecRow[];
 
 export type CoreGatewayHandlerFamily = Exclude<(typeof CORE_GATEWAY_METHOD_SPECS)[number][1], null>;

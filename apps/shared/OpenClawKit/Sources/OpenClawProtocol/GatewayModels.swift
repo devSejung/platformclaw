@@ -7140,6 +7140,46 @@ public struct SessionsFilesGetResult: Codable, Sendable {
     }
 }
 
+public struct SessionsFilesDownloadParams: Codable, Sendable {
+    public let sessionkey: String
+    public let path: String
+    public let agentid: String?
+
+    public init(
+        sessionkey: String,
+        path: String,
+        agentid: String? = nil)
+    {
+        self.sessionkey = sessionkey
+        self.path = path
+        self.agentid = agentid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case path
+        case agentid = "agentId"
+    }
+}
+
+public struct SessionsFilesDownloadResult: Codable, Sendable {
+    public let sessionkey: String
+    public let file: [String: AnyCodable]
+
+    public init(
+        sessionkey: String,
+        file: [String: AnyCodable])
+    {
+        self.sessionkey = sessionkey
+        self.file = file
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case file
+    }
+}
+
 public struct SessionsFilesRevealParams: Codable, Sendable {
     public let key: String
     public let agentid: String?

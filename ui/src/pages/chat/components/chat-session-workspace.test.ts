@@ -62,6 +62,132 @@ describe("custodian panel toggle", () => {
   });
 });
 
+describe("workspace download actions", () => {
+  it.each([
+    { target: "Basic read-only", downloadAllowed: true, scopes: ["operator.read"], allowed: true },
+    {
+      target: "Basic reader with write scope",
+      downloadAllowed: true,
+      scopes: ["operator.write"],
+      allowed: true,
+    },
+    { target: "assigned VM", downloadAllowed: false, scopes: ["operator.admin"], allowed: false },
+    {
+      target: "upstream without target metadata",
+      downloadAllowed: undefined,
+      scopes: ["operator.read"],
+      allowed: true,
+    },
+  ])(
+    "honors $target download availability without upload rights",
+    async ({ downloadAllowed, scopes, allowed }) => {
+      const sessionKey = "agent:main:current";
+      const request = vi.fn();
+      const state = {
+        client: { request },
+        connected: true,
+        hello: gatewayHello(["sessions.files.download", "sessions.files.upload"], scopes),
+        sessionKey,
+        handleOpenSidebar: vi.fn(),
+        sessions: {
+          listFiles: vi.fn().mockResolvedValue({
+            sessionKey,
+            uploadAllowed: false,
+            ...(downloadAllowed === undefined ? {} : { downloadAllowed }),
+            files: [],
+            browser: {
+              path: "",
+              entries: [{ kind: "file", path: "file.bin", name: "file.bin" }],
+            },
+          }),
+        },
+      } as unknown as SessionWorkspaceHost;
+      toggleSessionWorkspace(state);
+      await vi.waitFor(() => expect(createSessionWorkspaceProps(state).list).not.toBeNull());
+      const props = createSessionWorkspaceProps(state);
+      expect(props.list?.downloadAllowed).toBe(downloadAllowed);
+      expect(props.uploadAllowed).toBe(false);
+      expect(Boolean(props.onDownloadFile)).toBe(allowed);
+      const container = document.createElement("div");
+      render(renderSessionWorkspaceRail(props), container);
+      expect(container.querySelectorAll('button[aria-label="Download file"]')).toHaveLength(
+        allowed ? 1 : 0,
+      );
+      if (props.onDownloadFile) {
+        state.sessionWorkspaceState!.list!.downloadAllowed = false;
+        props.onDownloadFile("file.bin");
+        expect(createSessionWorkspaceProps(state).onDownloadFile).toBeUndefined();
+        expect(request).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("uses only canonical workspace paths and the advertised read capability", async () => {
+    const sessionKey = "agent:main:current";
+    const request = vi.fn();
+    const state = {
+      client: { request },
+      connected: true,
+      hello: {
+        ...gatewayHello(["sessions.files.download"], ["operator.read"]),
+      },
+      sessionKey,
+      handleOpenSidebar: vi.fn(),
+      sessions: {
+        listFiles: vi.fn().mockResolvedValue({
+          sessionKey,
+          files: [
+            { path: "../cwd/changed.bin", workspacePath: "docs/changed.bin", kind: "modified" },
+            { path: "read.bin", workspacePath: "docs/read.bin", kind: "read" },
+            { path: "ambiguous.bin", kind: "read" },
+            { path: "gone.bin", workspacePath: "gone.bin", kind: "modified", missing: true },
+          ],
+          browser: {
+            path: "",
+            entries: [
+              { kind: "directory", path: "folder", name: "folder" },
+              { kind: "file", path: "folder/한글 & data.bin", name: "한글 & data.bin" },
+            ],
+          },
+        }),
+      },
+    } as unknown as SessionWorkspaceHost;
+    toggleSessionWorkspace(state);
+    await vi.waitFor(() => expect(createSessionWorkspaceProps(state).list).not.toBeNull());
+    const container = document.createElement("div");
+    const download = vi.fn();
+    const draw = () => {
+      const props = createSessionWorkspaceProps(state);
+      render(
+        renderSessionWorkspaceRail({
+          ...props,
+          onDownloadFile: props.onDownloadFile ? download : undefined,
+        }),
+        container,
+      );
+    };
+    draw();
+    const actions = [
+      ...container.querySelectorAll<HTMLButtonElement>('button[aria-label="Download file"]'),
+    ];
+    expect(actions).toHaveLength(3);
+    actions.forEach((action) => action.click());
+    expect(download.mock.calls.map(([path]) => path)).toEqual([
+      "docs/changed.bin",
+      "docs/read.bin",
+      "folder/한글 & data.bin",
+    ]);
+    expect(request).not.toHaveBeenCalled();
+    state.connected = false;
+    draw();
+    expect(container.querySelector('button[aria-label="Download file"]')).toBeNull();
+    state.connected = true;
+    state.hello!.features!.methods = [];
+    draw();
+    expect(container.querySelector('button[aria-label="Download file"]')).toBeNull();
+  });
+});
+
 describe("session workspace artifacts", () => {
   function createArtifactHost(params: { data: string; mimeType: string; title?: string }) {
     const handleOpenSidebar = vi.fn();

@@ -5894,6 +5894,9 @@ export const en: TranslationMap = {
       unavailable: "This discussion cannot be embedded.",
     },
     workspaceFiles: {
+      download: "Download file",
+      downloadFailed: "Workspace download failed",
+      downloadTooLarge: "File exceeds the 16 MiB workspace download limit: {file}",
       upload: "Upload workspace files",
       uploadHint:
         "Upload to this folder · up to 16 MiB per file · existing files are never replaced",

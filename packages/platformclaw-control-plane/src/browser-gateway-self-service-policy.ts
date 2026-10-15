@@ -56,17 +56,24 @@ export async function resolveBrowserExecutionTarget(
   access: BrowserGatewayAccess,
   method: string,
 ): Promise<SkillExecutionTarget | undefined> {
-  const workspaceFiles = method === "sessions.files.list" || method === "sessions.files.upload";
+  const workspaceFiles =
+    method === "sessions.files.list" ||
+    method === "sessions.files.upload" ||
+    method === "sessions.files.download";
   if (!method.startsWith("skills.") && !workspaceFiles) {
     return undefined;
   }
   const target =
     (await options.store.getPersonalExecutionProfile(access.binding.agentId))?.activeTarget ??
     "platform_server";
-  if (target === "assigned_vm" && method === "sessions.files.upload") {
+  if (
+    target === "assigned_vm" &&
+    (method === "sessions.files.upload" || method === "sessions.files.download")
+  ) {
+    const action = method === "sessions.files.download" ? "download" : "upload";
     throw new BrowserGatewayProxyError(
       "method-not-allowed",
-      "File upload is available only in the Basic workspace",
+      `File ${action} is available only in the Basic workspace`,
     );
   }
   if (

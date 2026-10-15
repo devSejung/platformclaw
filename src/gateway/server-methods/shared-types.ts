@@ -115,12 +115,16 @@ export type GatewayClient = {
 };
 
 /** Callback used by method handlers to emit one protocol response frame. */
-export type RespondFn = (
-  ok: boolean,
-  payload?: unknown,
-  error?: ErrorShape,
-  meta?: Record<string, unknown>,
-) => void;
+export type RespondFn = {
+  (ok: boolean, payload?: unknown, error?: ErrorShape, meta?: Record<string, unknown>): void;
+  /** Resolves after transport completion or terminal failure, never merely response enqueueing. */
+  withCompletion?: (
+    ok: boolean,
+    payload?: unknown,
+    error?: ErrorShape,
+    meta?: Record<string, unknown>,
+  ) => Promise<void>;
+};
 
 /** Minimal hosted OpenClaw contract retained by the gateway request router. */
 /**
