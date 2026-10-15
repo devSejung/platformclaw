@@ -295,18 +295,51 @@ describe("chat pane header", () => {
     expect(chip?.getAttribute("title")).toBe("Created by Ada");
   });
 
-  it("routes Enter and Escape from the rename input", () => {
-    const enter = mount({ editing: true, renameValue: "  Updated  " });
-    const enterInput = enter.container.querySelector<HTMLInputElement>("input");
-    enterInput?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
-    expect(enter.props.onCommitRename).toHaveBeenCalledOnce();
+  it.each([
+    ["Enter", false, 0, "commit"],
+    ["Escape", false, 0, "cancel"],
+    ["Enter", true, 0, null],
+    ["Escape", true, 0, null],
+    ["Enter", false, 229, null],
+    ["Escape", false, 229, null],
+  ] as const)(
+    "routes rename %s with isComposing=%s and keyCode=%i",
+    (key, isComposing, keyCode, action) => {
+      const { container, props } = mount({ editing: true, renameValue: "연구" });
+      const input = container.querySelector<HTMLInputElement>(".chat-pane__session-title-input");
+      expect(input).toBeInstanceOf(HTMLInputElement);
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key,
+        isComposing,
+        keyCode,
+      });
+      input?.dispatchEvent(event);
 
-    const escape = mount({ editing: true });
-    escape.container
-      .querySelector("input")
-      ?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
-    expect(escape.props.onCancelRename).toHaveBeenCalledOnce();
-    expect(escape.props.onCommitRename).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(action !== null);
+      expect(props.onCommitRename).toHaveBeenCalledTimes(action === "commit" ? 1 : 0);
+      expect(props.onCancelRename).toHaveBeenCalledTimes(action === "cancel" ? 1 : 0);
+
+      if (action === null) {
+        const ordinary = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key });
+        input?.dispatchEvent(ordinary);
+        expect(ordinary.defaultPrevented).toBe(true);
+        expect(props.onCommitRename).toHaveBeenCalledTimes(key === "Enter" ? 1 : 0);
+        expect(props.onCancelRename).toHaveBeenCalledTimes(key === "Escape" ? 1 : 0);
+      }
+    },
+  );
+
+  it("keeps rename input updates and blur confirmation", () => {
+    const { container, props } = mount({ editing: true });
+    const input = container.querySelector<HTMLInputElement>(".chat-pane__session-title-input")!;
+    input.value = "수정한 이름";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    expect(props.onRenameInput).toHaveBeenCalledWith("수정한 이름");
+    expect(props.onCommitRename).not.toHaveBeenCalled();
+    input.dispatchEvent(new FocusEvent("blur"));
+    expect(props.onCommitRename).toHaveBeenCalledOnce();
   });
 
   it("keeps catalog sessions static and without a workspace chip", () => {
