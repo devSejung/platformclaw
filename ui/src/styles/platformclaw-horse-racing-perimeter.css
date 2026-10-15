@@ -37,6 +37,51 @@
 .platformclaw-racing-perimeter__horse--backed {
   filter: saturate(75%) drop-shadow(0 0 2px var(--accent));
 }
+.platformclaw-racing-perimeter__body {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 200ms ease-out;
+}
+.platformclaw-racing-perimeter__horse[data-motion="fallen"] > .platformclaw-racing-perimeter__body {
+  transform: translateY(4px) rotate(75deg);
+}
+.platformclaw-racing-perimeter__horse[data-motion="recovering"]
+  > .platformclaw-racing-perimeter__body {
+  transform: rotate(20deg);
+  transition-duration: 400ms;
+}
+.platformclaw-racing-perimeter__stumble {
+  display: none;
+}
+.platformclaw-racing-perimeter__horse[data-motion="fallen"]
+  > .platformclaw-racing-perimeter__stumble,
+.platformclaw-racing-perimeter__horse[data-motion="recovering"]
+  > .platformclaw-racing-perimeter__stumble {
+  display: inline;
+}
+.platformclaw-racing-perimeter__horse[data-motion="fallen"] .platformclaw-racing-perimeter__legs,
+.platformclaw-racing-perimeter__horse[data-motion="recovering"]
+  .platformclaw-racing-perimeter__legs {
+  animation: none;
+}
+.platformclaw-racing-perimeter__stars {
+  transform-origin: 0 -20px;
+  animation: platformclaw-racing-dizzy 700ms ease-in-out infinite alternate;
+}
+@keyframes platformclaw-racing-dizzy {
+  from {
+    transform: rotate(-12deg);
+  }
+  to {
+    transform: rotate(12deg);
+  }
+}
+.platformclaw-racing-perimeter--paused .platformclaw-racing-perimeter__stars {
+  animation-play-state: paused;
+}
+.platformclaw-racing-perimeter--paused .platformclaw-racing-perimeter__body {
+  transition: none;
+}
 .platformclaw-racing-perimeter__boost {
   display: none;
 }
@@ -103,16 +148,30 @@
 }
 
 /* Keep each facing upright; only the side-left artwork is mirrored. */
-.platformclaw-racing-perimeter__horse > [data-horse-facing] {
+.platformclaw-racing-perimeter__body > [data-horse-facing] {
   display: none;
 }
-.platformclaw-racing-perimeter__horse[data-facing="right"] > [data-horse-facing="right"],
-.platformclaw-racing-perimeter__horse[data-facing="front"] > [data-horse-facing="front"],
-.platformclaw-racing-perimeter__horse[data-facing="left"] > [data-horse-facing="left"],
-.platformclaw-racing-perimeter__horse[data-facing="back"] > [data-horse-facing="back"] {
+.platformclaw-racing-perimeter__horse[data-facing="right"]
+  > .platformclaw-racing-perimeter__body
+  > [data-horse-facing="right"],
+.platformclaw-racing-perimeter__horse[data-facing="front"]
+  > .platformclaw-racing-perimeter__body
+  > [data-horse-facing="front"],
+.platformclaw-racing-perimeter__horse[data-facing="left"]
+  > .platformclaw-racing-perimeter__body
+  > [data-horse-facing="left"],
+.platformclaw-racing-perimeter__horse[data-facing="back"]
+  > .platformclaw-racing-perimeter__body
+  > [data-horse-facing="back"] {
   display: inline;
 }
 @media (prefers-reduced-motion: reduce) {
+  .platformclaw-racing-perimeter__stars {
+    animation: none;
+  }
+  .platformclaw-racing-perimeter__body {
+    transition: none;
+  }
   .platformclaw-racing-perimeter__horse[data-boosting="true"]
     > .platformclaw-racing-perimeter__boost {
     display: none;

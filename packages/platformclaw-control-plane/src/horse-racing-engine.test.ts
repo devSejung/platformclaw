@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HORSE_RACING_JOKER_ID } from "./horse-racing-contracts.js";
+import { HORSE_RACING_JOKER_ID, type RacingHorse } from "./horse-racing-contracts.js";
 import {
   createRacingHorses,
   drawHorseFinishOrder,
@@ -14,12 +14,42 @@ import {
 
 const time = (value: string) => Date.parse(value);
 
+function observeStumble(horses: RacingHorse[], order: string[], seed: string) {
+  for (let observedAt = 20_000; observedAt <= 113_000; observedAt += 1_000) {
+    const horse = horseRacePositions(horses, order, seed, observedAt).find(
+      (entry) => entry.motion === "fallen",
+    );
+    if (!horse) {
+      continue;
+    }
+    let before = observedAt - 1_000;
+    let startsAt = observedAt;
+    while (before + 1 < startsAt) {
+      const middle = Math.floor((before + startsAt) / 2);
+      const falling =
+        horseRacePositions(horses, order, seed, middle).find(
+          (entry) => entry.horseId === horse.horseId,
+        )?.motion === "fallen";
+      if (falling) {
+        startsAt = middle;
+      } else {
+        before = middle;
+      }
+    }
+    return { horseId: horse.horseId, startsAt };
+  }
+  throw new Error("The recorded race did not contain a fall");
+}
+
 describe("horse racing schedule", () => {
   it.each([
-    ["2026-10-15T11:00:00+09:00", "2026-10-15T10:50:00+09:00", "2026-10-15T10:59:00+09:00"],
-    ["2026-10-15T12:00:00+09:00", "2026-10-15T11:03:10+09:00", "2026-10-15T11:59:00+09:00"],
-    ["2026-10-15T17:00:00+09:00", "2026-10-15T16:03:10+09:00", "2026-10-15T16:59:00+09:00"],
-    ["2026-10-19T11:00:00+09:00", "2026-10-19T10:50:00+09:00", "2026-10-19T10:59:00+09:00"],
+    ["2026-10-15T09:00:00+09:00", "2026-10-15T08:50:00+09:00", "2026-10-15T08:59:00+09:00"],
+    ["2026-10-15T09:30:00+09:00", "2026-10-15T09:03:10+09:00", "2026-10-15T09:29:00+09:00"],
+    ["2026-10-15T11:00:00+09:00", "2026-10-15T10:33:10+09:00", "2026-10-15T10:59:00+09:00"],
+    ["2026-10-15T19:00:00+09:00", "2026-10-15T18:33:10+09:00", "2026-10-15T18:59:00+09:00"],
+    ["2026-10-15T19:30:00+09:00", "2026-10-15T19:03:10+09:00", "2026-10-15T19:29:00+09:00"],
+    ["2026-10-15T20:00:00+09:00", "2026-10-15T19:33:10+09:00", "2026-10-15T19:59:00+09:00"],
+    ["2026-10-19T09:00:00+09:00", "2026-10-19T08:50:00+09:00", "2026-10-19T08:59:00+09:00"],
   ])("opens and closes the canonical race window for %s", (start, open, close) => {
     expect(horseRaceOpensAt(time(start))).toBe(time(open));
     expect(time(start) - HORSE_RACE_LOCK_BEFORE_MS).toBe(time(close));
@@ -43,7 +73,7 @@ describe("horse racing schedule", () => {
     ["2026-10-15T23:59:59+09:00", "2026-10-15"],
   ])("uses the KST calendar day at %s", (now, day) => {
     expect(getHorseRaceDayStarts(time(now))).toEqual(
-      Array.from({ length: 7 }, (_, index) => time(`${day}T${11 + index}:00:00+09:00`)),
+      Array.from({ length: 23 }, (_, index) => time(`${day}T09:00:00+09:00`) + index * 30 * 60_000),
     );
   });
 
@@ -54,12 +84,17 @@ describe("horse racing schedule", () => {
 
   it.each([
     ["2026-10-15T10:59:59+09:00", "2026-10-15T11:00:00+09:00"],
-    ["2026-10-15T11:00:00+09:00", "2026-10-15T12:00:00+09:00"],
-    ["2026-10-15T17:00:00+09:00", "2026-10-16T11:00:00+09:00"],
-    ["2026-10-16T17:00:00+09:00", "2026-10-19T11:00:00+09:00"],
-    ["2026-10-17T00:00:00+09:00", "2026-10-19T11:00:00+09:00"],
-    ["2026-10-18T23:59:59+09:00", "2026-10-19T11:00:00+09:00"],
-    ["2026-12-31T17:00:00+09:00", "2027-01-01T11:00:00+09:00"],
+    ["2026-10-15T08:49:59+09:00", "2026-10-15T09:00:00+09:00"],
+    ["2026-10-15T09:00:00+09:00", "2026-10-15T09:30:00+09:00"],
+    ["2026-10-15T11:00:00+09:00", "2026-10-15T11:30:00+09:00"],
+    ["2026-10-15T19:00:00+09:00", "2026-10-15T19:30:00+09:00"],
+    ["2026-10-15T19:30:00+09:00", "2026-10-15T20:00:00+09:00"],
+    ["2026-10-15T19:59:59+09:00", "2026-10-15T20:00:00+09:00"],
+    ["2026-10-15T20:00:00+09:00", "2026-10-16T09:00:00+09:00"],
+    ["2026-10-16T20:00:00+09:00", "2026-10-19T09:00:00+09:00"],
+    ["2026-10-17T00:00:00+09:00", "2026-10-19T09:00:00+09:00"],
+    ["2026-10-18T23:59:59+09:00", "2026-10-19T09:00:00+09:00"],
+    ["2026-12-31T20:00:00+09:00", "2027-01-01T09:00:00+09:00"],
   ])("finds a strictly future weekday race from %s", (now, next) => {
     expect(nextHorseRaceStartsAt(time(now))).toBe(time(next));
   });
@@ -233,5 +268,75 @@ describe("horse racing fairness", () => {
     expect(horseRacePositions(horses, order, seed, HORSE_RACE_DURATION_MS / 2)).not.toEqual(
       horseRacePositions(horses, order, "other-seed", HORSE_RACE_DURATION_MS / 2),
     );
+  });
+
+  it("holds actual progress for three fallen seconds and one recovery second without announcing future motion", () => {
+    const seed = "stumble-replay";
+    const order = drawHorseFinishOrder(horses, seed);
+    const stumble = observeStumble(horses, order, seed);
+    expect(stumble.startsAt).toBeGreaterThanOrEqual(20_000);
+    expect(stumble.startsAt).toBeLessThanOrEqual(110_000);
+    const positionAt = (elapsed: number) =>
+      horseRacePositions(horses, order, seed, elapsed).find(
+        (entry) => entry.horseId === stumble.horseId,
+      )!;
+    expect(
+      horseRacePositions(horses, order, seed, stumble.startsAt - 1).every(
+        (entry) => !("motion" in entry),
+      ),
+    ).toBe(true);
+    const fallen = positionAt(stumble.startsAt);
+    expect(fallen.motion).toBe("fallen");
+    for (const elapsed of [1, 1_000, 2_999]) {
+      expect(positionAt(stumble.startsAt + elapsed)).toEqual(fallen);
+    }
+    for (const elapsed of [3_000, 3_999]) {
+      expect(positionAt(stumble.startsAt + elapsed)).toEqual({ ...fallen, motion: "recovering" });
+    }
+    expect(positionAt(stumble.startsAt + 4_000)).toEqual({
+      horseId: fallen.horseId,
+      position: fallen.position,
+    });
+    expect(positionAt(stumble.startsAt + 4_001).position).toBeGreaterThan(fallen.position);
+    expect(
+      horseRacePositions(horses, order, seed, 150_000).every((entry) => !("motion" in entry)),
+    ).toBe(true);
+    expect(
+      horseRacePositions(horses, order, seed, HORSE_RACE_DURATION_MS).every(
+        (entry) => entry.position === 100 && !("motion" in entry),
+      ),
+    ).toBe(true);
+  });
+
+  it("selects exactly one deterministic fall independently of form, stats, roster order or committed rank", () => {
+    const changed = horses
+      .toReversed()
+      .map((horse) =>
+        Object.assign({}, horse, { speed: 30, stamina: 20, condition: 15, weight: 1 }),
+      );
+    const fallingHorses = new Set<string>();
+    const startTimes = new Set<number>();
+    for (let index = 0; index < 12; index++) {
+      const seed = `stumble-independent-${index}`;
+      const order = drawHorseFinishOrder(horses, seed);
+      const stumble = observeStumble(horses, order, seed);
+      expect(observeStumble(horses, order, seed)).toEqual(stumble);
+      expect(observeStumble(changed, order.toReversed(), seed)).toEqual(stumble);
+      const observed = new Set<string>();
+      for (let elapsed = 20_000; elapsed <= 114_000; elapsed += 500) {
+        const active = horseRacePositions(horses, order, seed, elapsed).filter(
+          (entry) => entry.motion,
+        );
+        expect(active.length).toBeLessThanOrEqual(1);
+        for (const horse of active) {
+          observed.add(horse.horseId);
+        }
+      }
+      expect([...observed]).toEqual([stumble.horseId]);
+      fallingHorses.add(stumble.horseId);
+      startTimes.add(stumble.startsAt);
+    }
+    expect(fallingHorses.size).toBeGreaterThan(1);
+    expect(startTimes.size).toBeGreaterThan(1);
   });
 });

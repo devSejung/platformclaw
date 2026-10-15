@@ -1,4 +1,13 @@
 export const racingTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.racing.fallen": "Fallen · stopped briefly",
+  "platformClaw.racing.recovering": "Getting back up",
+  "platformClaw.racing.opacity": "Game opacity · {value}%",
+  "platformClaw.racing.restoreOpacity": "Restore to 100%",
+  "platformClaw.racing.opacityHelp":
+    "Apply 30–100% to the horses, panel, live feed and win effects.",
+  "platformClaw.racing.settingsSaved": "Saved for your account in this browser",
+  "platformClaw.racing.settingsUnsaved":
+    "Settings could not be saved; applied for this session only",
   "platformClaw.racing.verify": "Verify this race in my browser",
   "platformClaw.racing.verifying": "Recomputing commitment and finish order…",
   "platformClaw.racing.verified":
@@ -23,7 +32,8 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.baseball": "Baseball",
   "platformClaw.racing.baseballHelp": "Earn G with hits and home runs",
   "platformClaw.racing.sharedGold": "Baseball rewards and racing share your account's G.",
-  "platformClaw.racing.schedule": "KST weekdays · 11:00–17:00 · 7 races a day · weekends closed",
+  "platformClaw.racing.schedule":
+    "KST weekdays · 09:00–20:00 · every 30 minutes · 23 races a day · weekends closed",
   "platformClaw.racing.close": "Close game",
   "platformClaw.racing.loading": "Loading the race…",
   "platformClaw.racing.disconnected":
@@ -65,7 +75,7 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.result": "FINISH",
   "platformClaw.racing.fairness": "Fairness & verification",
   "platformClaw.racing.fairnessHelp":
-    "Condition stays secret until the result; speed and stamina bars are approximate. Track whispers are flavor, not winner promises. Bets never affect the draw. After the race, revealed data lets your browser check the commitment and finish order.",
+    "Condition stays secret until the result; speed and stamina bars are approximate. Track whispers offer uncertain clues; odds stay fixed from the base probabilities. Bets never affect the draw. After the race, revealed data lets your browser check the commitment and finish order.",
   "platformClaw.racing.commitment": "Pre-race commitment (SHA-256)",
   "platformClaw.racing.seed": "Revealed seed",
   "platformClaw.racing.seedHidden": "The secret seed is revealed only after the race ends.",
@@ -77,9 +87,9 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.retryBet": "Recheck the same bet",
   "platformClaw.racing.placeBet": "Place bet",
   "platformClaw.racing.betClosed":
-    "Betting is closed. First race opens at 10:50 KST; later races open 10 seconds after the previous finish. Betting closes one minute before the start.",
+    "Betting is closed. First race opens at 08:50 KST; later races open 10 seconds after the previous finish. Betting closes one minute before the start.",
   "platformClaw.racing.refresh": "Refresh connection",
-  "platformClaw.racing.recent": "Recent races",
+  "platformClaw.racing.recent": "Race history and my upcoming bets",
   "platformClaw.racing.live": "Back to live",
   "platformClaw.racing.soundOff": "Sound off · enable",
   "platformClaw.racing.soundOn": "Sound on · mute",
@@ -95,7 +105,7 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.perimeterHelp":
     "Horses race three laps around the window edges. You can keep using the app.",
   "platformClaw.racing.trackWaiting":
-    "Three-minute races start on the hour. The horses will appear around the window edges.",
+    "Three-minute races start on the hour and half-hour. The horses will appear around the window edges.",
   "platformClaw.racing.cancelBet": "Cancel bet",
   "platformClaw.racing.retryCancel": "Recheck this cancellation",
   "platformClaw.racing.cancelling": "Cancelling bet…",

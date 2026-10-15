@@ -27,7 +27,10 @@ export function horseRaceBoosts(
       .filter((entry) => {
         const from = before.get(entry.horseId);
         return (
-          from !== undefined && entry.position < 100 && entry.position - from > normalPace * 1.2
+          from !== undefined &&
+          !entry.motion &&
+          entry.position < 100 &&
+          entry.position - from > normalPace * 1.2
         );
       })
       .map((entry) => entry.horseId),

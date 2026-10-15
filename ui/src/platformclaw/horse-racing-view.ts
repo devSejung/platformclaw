@@ -39,9 +39,17 @@ function renderTrack(view: HorseRacingView, race: HorseRaceSnapshot) {
     <ol class="platformclaw-racing__ranking" aria-label=${t("platformClaw.racing.order")}>
       ${order.map((id, index) => {
         const horse = race.horses.find((entry) => entry.id === id)!;
-        const progress = race.positions.find((entry) => entry.horseId === id)?.position ?? 0;
+        const position = race.positions.find((entry) => entry.horseId === id);
+        const progress = position?.position ?? 0;
+        const motion = race.status === "racing" ? position?.motion : undefined;
         return html`<li data-racing-rank=${id} style=${`--horse-color:${horse.color}`}>
-          <b>${index + 1}</b><strong>${horseLabel(race, id)}</strong
+          <b>${index + 1}</b
+          ><strong
+            >${horseLabel(race, id)}${motion
+              ? html`<small data-racing-motion=${motion}
+                  >${t(`platformClaw.racing.${motion}`)}</small
+                >`
+              : nothing}</strong
           ><progress max="100" value=${progress} aria-label=${horse.name}></progress>
         </li>`;
       })}
@@ -180,7 +188,11 @@ export function renderHorseRacing(view: HorseRacingView) {
   const race = snapshot?.race;
   const locked = view.busy || view.pending || view.pendingCancelId !== null || view.stale;
   const open = Boolean(
-    race && race.status === "betting" && now < race.closesAt && !view.historical,
+    race &&
+    race.status === "betting" &&
+    now >= race.opensAt &&
+    now < race.closesAt &&
+    !view.historical,
   );
   const deadline = race
     ? race.status === "scheduled"
@@ -372,6 +384,27 @@ export function renderHorseRacing(view: HorseRacingView) {
               </ul>
             </section>
             <section class="platformclaw-racing__card platformclaw-racing__settings">
+              <div class="platformclaw-racing__opacity">
+                <label for="racing-opacity"
+                  >${t("platformClaw.racing.opacity", { value: String(view.opacity) })}</label
+                >
+                <input
+                  id="racing-opacity"
+                  type="range"
+                  min="30"
+                  max="100"
+                  step="5"
+                  .value=${String(view.opacity)}
+                  aria-valuetext=${`${view.opacity}%`}
+                  @input=${(event: Event) =>
+                    view.onOpacity(Number((event.target as HTMLInputElement).value))}
+                />
+                <button type="button" data-racing-opacity-reset @click=${() => view.onOpacity(100)}>
+                  ${t("platformClaw.racing.restoreOpacity")}
+                </button>
+                <small>${t("platformClaw.racing.opacityHelp")}</small>
+                <span role="status">${view.settingsStatus}</span>
+              </div>
               <button @click=${() => view.onExit("baseball")}>
                 ${t("platformClaw.racing.baseball")}
               </button>

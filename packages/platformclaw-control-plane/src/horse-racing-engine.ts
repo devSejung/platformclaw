@@ -18,8 +18,15 @@ export const HORSE_RACE_DURATION_MS = 180_000;
 const HORSE_RACE_BETTING_WINDOW_MS = 10 * 60_000;
 export const HORSE_RACE_LOCK_BEFORE_MS = 60_000;
 const HORSE_RACE_REST_MS = 10_000;
+const HORSE_RACE_INTERVAL_MS = 30 * 60_000;
+const FIRST_HORSE_RACE_HOUR = 9;
+const LAST_HORSE_RACE_HOUR = 20;
 const KST_OFFSET_MS = 9 * 60 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
+const STUMBLE_FALL_MS = 3_000;
+const STUMBLE_RECOVERY_MS = 1_000;
+const STUMBLE_FIRST_MS = 20_000;
+const STUMBLE_LAST_MS = 110_000;
 
 const HORSE_ROSTER = [
   {
@@ -121,19 +128,23 @@ export function getHorseRaceDayStarts(now: number): number[] {
   }
   const midnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
   return Array.from(
-    { length: 7 },
-    (_, index) => midnight + (11 + index) * 3_600_000 - KST_OFFSET_MS,
+    {
+      length:
+        ((LAST_HORSE_RACE_HOUR - FIRST_HORSE_RACE_HOUR) * 3_600_000) / HORSE_RACE_INTERVAL_MS + 1,
+    },
+    (_, index) =>
+      midnight + FIRST_HORSE_RACE_HOUR * 3_600_000 + index * HORSE_RACE_INTERVAL_MS - KST_OFFSET_MS,
   );
 }
 
 export function horseRaceOpensAt(startsAt: number): number {
-  const hour = new Date(startsAt + KST_OFFSET_MS).getUTCHours();
-  if (hour === 11) {
+  const local = new Date(startsAt + KST_OFFSET_MS);
+  if (local.getUTCHours() === FIRST_HORSE_RACE_HOUR && local.getUTCMinutes() === 0) {
     return startsAt - HORSE_RACE_BETTING_WINDOW_MS;
   }
   // Later races open after the previous scheduled race's full duration and rest,
   // even if that race was cancelled. Cancellation must not silently move the next betting window.
-  return startsAt - 3_600_000 + HORSE_RACE_DURATION_MS + HORSE_RACE_REST_MS;
+  return startsAt - HORSE_RACE_INTERVAL_MS + HORSE_RACE_DURATION_MS + HORSE_RACE_REST_MS;
 }
 
 export function nextHorseRaceStartsAt(now: number): number {
@@ -296,10 +307,30 @@ export function horseRacePositions(
   seed: string,
   elapsedMs: number,
 ): HorseRacePosition[] {
+  const stumbleRandom = seededRandom(`${HORSE_RACING_ANIMATION_VERSION}:stumble-horse`, seed);
+  const stumbleHorseId = canonicalHorses(horses)[Math.floor(stumbleRandom() * horses.length)]!.id;
+  const stumbleTime = seededRandom(
+    `${HORSE_RACING_ANIMATION_VERSION}:stumble-time`,
+    JSON.stringify([seed, stumbleHorseId]),
+  );
+  const stumbleStartsAt =
+    STUMBLE_FIRST_MS + Math.floor(stumbleTime() * (STUMBLE_LAST_MS - STUMBLE_FIRST_MS + 1));
   return horses.map((horse) => {
     const rank = finishOrder.indexOf(horse.id);
     const finishAt = HORSE_RACE_DURATION_MS - 2_500 + (2_500 * rank) / (horses.length - 1);
-    const progress = Math.max(0, Math.min(1, elapsedMs / finishAt));
+    const pauseDuration = horse.id === stumbleHorseId ? STUMBLE_FALL_MS + STUMBLE_RECOVERY_MS : 0;
+    const pausedMs = Math.max(0, Math.min(pauseDuration, elapsedMs - stumbleStartsAt));
+    // Remove the observed pause from the moving clock, then normalize its remaining duration.
+    // The plateau is real, while the independently committed finish time and winner stay unchanged.
+    const progress = Math.max(0, Math.min(1, (elapsedMs - pausedMs) / (finishAt - pauseDuration)));
+    let motion: HorseRacePosition["motion"];
+    if (
+      pauseDuration &&
+      elapsedMs >= stumbleStartsAt &&
+      elapsedMs < stumbleStartsAt + pauseDuration
+    ) {
+      motion = elapsedMs < stumbleStartsAt + STUMBLE_FALL_MS ? "fallen" : "recovering";
+    }
     const random = seededRandom(HORSE_RACING_ANIMATION_VERSION, JSON.stringify([seed, horse.id]));
     const segments = 12;
     const pace = Array.from({ length: segments }, (_, index) => {
@@ -319,6 +350,7 @@ export function horseRacePositions(
       horseId: horse.id,
       position: progress === 1 ? 100 : (distance / total) * 100,
       ...(progress === 1 ? { finishPlace: rank + 1 } : {}),
+      ...(motion ? { motion } : {}),
     };
   });
 }

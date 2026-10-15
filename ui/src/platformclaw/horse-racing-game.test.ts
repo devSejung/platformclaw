@@ -11,6 +11,7 @@ import { i18n } from "../i18n/index.ts";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
 import "./horse-racing-game.ts";
 import { horsePerimeterPoint } from "./horse-racing-perimeter.ts";
+import { loadHorseRacingOpacity, saveHorseRacingOpacity } from "./horse-racing-settings.ts";
 import { now, snapshot } from "./horse-racing.test-fixtures.ts";
 import { loadAllPlatformClawLocales } from "./i18n.ts";
 
@@ -96,7 +97,7 @@ describe("horse racing spectator and wallet UI", () => {
     });
     await flush(element);
     expect(element.querySelectorAll("[data-horse-id]")).toHaveLength(6);
-    expect(element.textContent).toContain("한국시간 평일 11~17시 정각");
+    expect(element.textContent).toContain("한국시간 평일 09~20시 · 30분마다 · 하루 23경주");
     expect(element.textContent).toContain("100 G");
     expect(element.textContent).not.toContain("승률");
     expect(element.querySelectorAll(".platformclaw-racing__gauge")).toHaveLength(12);
@@ -746,5 +747,172 @@ describe("horse racing spectator and wallet UI", () => {
     element.preferenceScope = "another-account";
     await flush(element);
     expect(element.querySelector("[data-racing-win]")).toBeNull();
+  });
+
+  it("restores opacity across reopenings, isolates accounts and servers, and resets to fully visible", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    const request = vi.fn(async (_method: string, _params?: unknown) => snapshot());
+    const first = mount(request);
+    await flush(first);
+    const input = first.querySelector<HTMLInputElement>("#racing-opacity")!;
+    expect([input.min, input.max, input.step, input.value]).toEqual(["30", "100", "5", "100"]);
+    input.value = "30";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush(first);
+    expect(first.style.getPropertyValue("--racing-opacity")).toBe("0.3");
+    expect(first.textContent).toContain("이 브라우저의 내 계정에 저장됨");
+    expect(loadHorseRacingOpacity("account-a")).toBe(30);
+    first.remove();
+
+    const reopened = mount(request);
+    await flush(reopened);
+    expect(reopened.querySelector<HTMLInputElement>("#racing-opacity")!.value).toBe("30");
+    reopened.preferenceScope = "account-b";
+    await flush(reopened);
+    expect(reopened.style.getPropertyValue("--racing-opacity")).toBe("1");
+    reopened.preferenceScope = "other-server:account-a";
+    await flush(reopened);
+    expect(reopened.querySelector<HTMLInputElement>("#racing-opacity")!.value).toBe("100");
+    reopened.preferenceScope = "account-a";
+    await flush(reopened);
+    reopened.querySelector<HTMLButtonElement>("[data-racing-collapse]")!.click();
+    await flush(reopened);
+    expect(reopened.style.getPropertyValue("--racing-opacity")).toBe("0.3");
+    reopened.querySelector<HTMLButtonElement>("[data-racing-restore]")!.click();
+    await flush(reopened);
+    reopened.querySelector<HTMLButtonElement>("[data-racing-opacity-reset]")!.click();
+    await flush(reopened);
+    expect(reopened.style.getPropertyValue("--racing-opacity")).toBe("1");
+    expect(loadHorseRacingOpacity("account-a")).toBe(100);
+    expect(request.mock.calls.every(([method]) => method === HORSE_RACING_RPC.snapshot)).toBe(true);
+  });
+
+  it("keeps opacity usable when browser storage is blocked and reports the unsaved preference", async () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new Error("storage blocked");
+      },
+      setItem: () => {
+        throw new Error("storage blocked");
+      },
+    });
+    const element = mount(async () => snapshot());
+    await flush(element);
+    const input = element.querySelector<HTMLInputElement>("#racing-opacity")!;
+    input.value = "30";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush(element);
+    expect(element.style.getPropertyValue("--racing-opacity")).toBe("0.3");
+    expect(element.textContent).toContain("설정을 저장할 수 없어 이번 실행에만 적용됩니다");
+    element.querySelector<HTMLButtonElement>("[data-racing-opacity-reset]")!.click();
+    await flush(element);
+    expect(element.style.getPropertyValue("--racing-opacity")).toBe("1");
+  });
+
+  it("discards malformed or out-of-range opacity and never writes an unscoped preference", () => {
+    const getItem = vi.fn();
+    const setItem = vi.fn();
+    vi.stubGlobal("localStorage", { getItem, setItem });
+    for (const raw of ["{", "null", "0", "29", "31", "101", '"30"', "[]", "{}"]) {
+      getItem.mockReturnValueOnce(raw);
+      expect(loadHorseRacingOpacity("account-a")).toBe(100);
+    }
+    expect(saveHorseRacingOpacity(null, 30)).toBe(false);
+    expect(saveHorseRacingOpacity("account-a", 0)).toBe(false);
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps accepted tickets cancellable while a changed opening time still blocks new bets", async () => {
+    const race = snapshot().race!;
+    const receipt = {
+      id: "already-accepted",
+      raceId: race.id,
+      market: "win" as const,
+      selection: ["1"],
+      amount: 50,
+      payout: null,
+      refunded: false,
+      cancelledAt: null,
+      quotedOdds: race.quotes[0]!.odds,
+      potentialPayout: 151,
+    };
+    const element = mount(async () =>
+      snapshot({
+        race: { ...race, opensAt: now + 60_000, myBets: [receipt] },
+      }),
+    );
+    await flush(element);
+    expect(element.querySelector<HTMLButtonElement>(".platformclaw-racing__submit")!.disabled).toBe(
+      true,
+    );
+    expect(element.querySelector<HTMLButtonElement>('[data-horse-id="1"]')!.disabled).toBe(true);
+    expect(
+      element.querySelector<HTMLButtonElement>('[data-cancel-bet="already-accepted"]')!.disabled,
+    ).toBe(false);
+  });
+
+  it("freezes an observed fall immediately, preserves the pose while minimized, and resumes after recovery", async () => {
+    const race = snapshot().race!;
+    let current = snapshot({
+      race: { ...race, status: "racing", positions: [{ horseId: "1", position: 10 }] },
+    });
+    const element = mount(async () => current);
+    await flush(element);
+    current = {
+      ...current,
+      serverNow: now + 1_000,
+      race: { ...current.race!, positions: [{ horseId: "1", position: 10.8, motion: "fallen" }] },
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush(element);
+    const runner = element.querySelector<SVGGElement>('[data-perimeter-horse="1"]')!;
+    const point = horsePerimeterPoint(window.innerWidth, window.innerHeight, 10.8, 0);
+    const stopped = `translate(${point.x} ${point.y})`;
+    expect(runner.getAttribute("transform")).toBe(stopped);
+    expect(runner.dataset.motion).toBe("fallen");
+    expect(runner.dataset.boosting).toBe("false");
+    expect(element.textContent).toContain("넘어짐 · 잠시 정지");
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(runner.getAttribute("transform")).toBe(stopped);
+    element.querySelector<HTMLButtonElement>("[data-racing-collapse]")!.click();
+    await flush(element);
+    expect(element.querySelector('[data-racing-motion="fallen"]')).not.toBeNull();
+    expect(runner.dataset.motion).toBe("fallen");
+    current = {
+      ...current,
+      serverNow: now + 3_000,
+      race: {
+        ...current.race!,
+        positions: [{ horseId: "1", position: 10.8, motion: "recovering" }],
+      },
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush(element);
+    expect(runner.dataset.motion).toBe("recovering");
+    expect(runner.getAttribute("transform")).toBe(stopped);
+    expect(element.textContent).toContain("일어나는 중");
+    element.querySelector<HTMLButtonElement>("[data-racing-restore]")!.click();
+    await flush(element);
+    Array.from(element.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "움직임 줄이기")!
+      .click();
+    await flush(element);
+    expect(element.querySelector(".platformclaw-racing-perimeter--paused")).not.toBeNull();
+    expect(runner.dataset.motion).toBe("recovering");
+    current = {
+      ...current,
+      serverNow: now + 5_000,
+      race: { ...current.race!, positions: [{ horseId: "1", position: 11.8 }] },
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush(element);
+    expect(runner.dataset.motion).toBe("running");
+    expect(runner.getAttribute("transform")).not.toBe(stopped);
+    expect(element.querySelector("[data-racing-motion]")).toBeNull();
+    expect(element.querySelector(".platformclaw-racing__wallet")!.textContent).toContain("100 G");
   });
 });

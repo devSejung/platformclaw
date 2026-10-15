@@ -131,8 +131,8 @@ occupied ports and cleans up only its own child services.
 
 The production game opens through seven quick brand/logo clicks and the game
 selector. Racing uses the same G balance as baseball and bat purchases. Weekday
-races start at 11:00 through 17:00 in Asia/Seoul, seven per day; there are no weekend
-races. The first race opens at 10:50. Subsequent races open ten seconds after the
+races start every thirty minutes from 09:00 through 20:00 in Asia/Seoul, twenty-three
+per day; there are no weekend races. The first race opens at 08:50. Subsequent races open ten seconds after the
 previous scheduled three-minute race ends. Betting closes one minute before departure.
 Tickets range from 50G to 1,000G, inclusive.
 Each race lasts three minutes. Horse names, stats and odds stay fixed across
@@ -147,6 +147,11 @@ cannot change it. Losing tickets pay zero. Fewer than two participating accounts
 cancels and refunds the race. A user can cancel a ticket for a full refund until
 the betting deadline, with idempotent retry after cancellation. The twenty-ticket
 limit counts all accepted tickets, including cancelled tickets.
+A schedule update retains accepted tickets, committed draws and stored payouts.
+If an updated opening time falls after an existing ticket was accepted, its owner
+can still cancel it before the betting deadline; new tickets follow the new opening time.
+The bounded race-history list includes that user’s active upcoming tickets so
+they remain reachable without replacing the default live race.
 
 Before betting, each race publishes its public roster and seed commitment.
 Speed and stamina appear as approximate gauges and condition as a short witty
@@ -155,8 +160,26 @@ until the terminal record. Exact odds permit probability inference. Private
 condition describes the recorded performance and affects the animation, without
 changing the fixed odds. Rumors add noisy hints; Juki's rumors ignore its hidden
 cold/hot state. These hints do not guarantee a result.
+Fixed odds use the unconditional draw probabilities. Reading informative rumors
+can change a player's expected return; the 3% payout deduction does not promise
+the same return for every hint-based strategy.
 Fast observed segments display directional speed streaks, a warm glow and quicker
 leg motion. Reduced-motion mode hides these burst effects.
+One horse per race can stumble at a seed-selected time, fall for three seconds,
+then spend one second getting up. Server progress stays stationary throughout
+both phases before resuming; the same event appears for every spectator. The
+horse sprite tips over with a small dust/star effect, while its name stays
+upright and the live standings show the current state. Reduced motion keeps the
+pose and status without the animated effects. The animation cannot change the
+committed finish order, fixed odds or three-minute race duration.
+On an animation update, unopened known-v1 rounds retain their seed, roster and
+commitment while adopting the new presentation. Already opened rounds with a
+different animation version cancel and refund once; completed history stays intact.
+The racing settings offer a 30–100% opacity slider in five-percent steps and a
+restore-to-100% button. Horses, the panel, minimized standings, live bets and win
+effects share the setting. This browser remembers it separately for each account
+and server, independently of baseball. If browser storage is blocked, the setting
+applies for the current session and the panel reports that it could not be saved.
 Betting cannot affect the weighted draw. After settlement, browsers can
 independently verify the revealed seed against both the commitment and finish
 order. Engine or pricing changes cancel and refund unfinished rounds rather than changing
