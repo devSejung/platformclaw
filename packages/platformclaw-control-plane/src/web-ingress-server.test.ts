@@ -225,6 +225,10 @@ describe("PlatformClawWebIngressServer", () => {
             "platformclaw.baseball.purchaseBat",
             "platformclaw.baseball.equipBat",
             "platformclaw.baseball.leaderboard",
+            "platformclaw.baseball.beginAtBat",
+            "platformclaw.racing.snapshot",
+            "platformclaw.racing.bet",
+            "platformclaw.racing.cancel",
           ],
         },
         snapshot: {

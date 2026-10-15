@@ -5,6 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   ensureBaseballGameSchema,
+  ensureGameEconomySchema,
+  ensureHorseRacingSchema,
   ensureVmHostExecutionEnvironmentSchema,
   ensureSkillHubStateSchema,
   initializeControlPlaneSchema,
@@ -12,7 +14,7 @@ import {
 } from "./sqlite-schema.js";
 
 describe("PlatformClaw control schema migrations", () => {
-  it("lazily upgrades an existing v3 database with baseball tables without changing its version", () => {
+  it("lazily adds game tables to an existing database without changing its version", () => {
     const directory = mkdtempSync(join(tmpdir(), "platformclaw-baseball-schema-"));
     const databasePath = join(directory, "control.sqlite");
     const initial = new DatabaseSync(databasePath);
@@ -31,6 +33,10 @@ describe("PlatformClaw control schema migrations", () => {
 
     ensureBaseballGameSchema(db);
     ensureBaseballGameSchema(db);
+    ensureGameEconomySchema(db);
+    ensureGameEconomySchema(db);
+    ensureHorseRacingSchema(db);
+    ensureHorseRacingSchema(db);
 
     expect(version).toBe(PLATFORMCLAW_CONTROL_SCHEMA_VERSION);
     expect(db.prepare("PRAGMA user_version").get()).toEqual({
@@ -45,10 +51,25 @@ describe("PlatformClaw control schema migrations", () => {
         )
         .all(),
     ).toEqual([
+      { name: "baseball_at_bats" },
       { name: "baseball_game_progress" },
       { name: "baseball_home_run_streaks" },
       { name: "baseball_idempotency" },
       { name: "baseball_owned_bats" },
+    ]);
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('game_gold_transactions', 'horse_bet_activity', 'horse_bet_cancellations', 'horse_bet_quotes', 'horse_bets', 'horse_races') ORDER BY name",
+        )
+        .all(),
+    ).toEqual([
+      { name: "game_gold_transactions" },
+      { name: "horse_bet_activity" },
+      { name: "horse_bet_cancellations" },
+      { name: "horse_bet_quotes" },
+      { name: "horse_bets" },
+      { name: "horse_races" },
     ]);
     db.close();
     rmSync(directory, { recursive: true, force: true });

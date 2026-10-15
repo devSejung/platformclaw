@@ -3,6 +3,7 @@ import {
   KNOWLEDGE_VAULT_RPC_METHODS,
   KNOWLEDGE_VAULT_RPC_PARAMS,
 } from "./browser-gateway-vault-policy.js";
+import { HORSE_RACING_RPC, HORSE_RACING_RPC_METHODS } from "./horse-racing-contracts.js";
 import { SPACE_RPC_METHODS, SPACE_RPC_PARAMS } from "./space-contracts.js";
 
 export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
@@ -54,6 +55,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "plugins.uninstall",
   "plugin.surface.refresh",
   ...BASEBALL_RPC_METHODS,
+  ...HORSE_RACING_RPC_METHODS,
   "question.get",
   "question.list",
   "question.resolve",
@@ -137,6 +139,7 @@ export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
   ...KNOWLEDGE_VAULT_RPC_METHODS,
   ...SPACE_RPC_METHODS,
   ...BASEBALL_RPC_METHODS,
+  ...HORSE_RACING_RPC_METHODS,
   "commands.list",
 ]);
 export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<string>>([
@@ -149,10 +152,17 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     new Set(KNOWLEDGE_VAULT_RPC_PARAMS[method]),
   ]),
   [BASEBALL_RPC_METHODS[0], new Set()],
-  [BASEBALL_RPC_METHODS[1], new Set(["requestId", "outcome", "distanceM"])],
+  [
+    BASEBALL_RPC_METHODS[1],
+    new Set(["requestId", "outcome", "distanceM", "atBatId", "timingDeltaMs"]),
+  ],
   [BASEBALL_RPC_METHODS[2], new Set(["requestId", "batId"])],
   [BASEBALL_RPC_METHODS[3], new Set(["requestId", "batId"])],
   [BASEBALL_RPC_METHODS[4], new Set()],
+  [BASEBALL_RPC_METHODS[5], new Set(["requestId"])],
+  [HORSE_RACING_RPC.snapshot, new Set(["raceId"])],
+  [HORSE_RACING_RPC.bet, new Set(["requestId", "raceId", "market", "selection", "amount"])],
+  [HORSE_RACING_RPC.cancel, new Set(["betId"])],
   ["agent.identity.get", new Set(["agentId", "sessionKey"])],
   ["agents.files.get", new Set(["agentId", "name"])],
   ["agents.files.list", new Set(["agentId"])],

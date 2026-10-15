@@ -1,11 +1,13 @@
 import { wikiDocumentTranslations } from "../../pages/agents/memory/wiki-document-translations.ts";
 import { baseballTranslations } from "./en-baseball.ts";
 import { executionTranslations } from "./en-execution.ts";
+import { racingTranslations } from "./en-racing.ts";
 import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
   ...baseballTranslations,
+  ...racingTranslations,
   ...vaultTranslations,
   ...spaceTranslations,
   ...executionTranslations,

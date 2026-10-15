@@ -97,6 +97,91 @@ healthy checkout.
 
 ## Start
 
+### Horse racing preview
+
+After building the current Control UI, run the isolated racing development harness:
+
+```sh
+pnpm platformclaw:racing-preview
+```
+
+Stop the harness before rebuilding the Control UI, then start it again after the
+build finishes. The web asset handler prepares its HTML and asset inventory at
+startup; rebuilding its active asset directory can leave that HTML pointing to
+removed JavaScript files and prevent the app from starting.
+
+The test clock advances past recorded rounds after a restart, preserving normal
+settlement/refunds and existing G balances.
+
+The app opens on `http://127.0.0.1:19301/platformclaw/login`. The separate
+development clock is at `http://127.0.0.1:19302`. Use `person.one` and
+`admin.user`, both with `test-password`, in separate browser sessions to test
+multiplayer betting. The clock page grants each synthetic account 3,000 test G
+through the baseball reward producer after login. It can advance betting,
+departure, and settlement without changing the production schedule. Runtime
+data and generated credentials stay in a dedicated preview directory.
+The immediate demo button enters two dedicated synthetic spectators and starts
+a race without debiting the viewer's G. Repeated demos advance to another test
+race, retaining normal server settlement/refund rules for the previous one.
+
+In an isolated Linux container whose published ports bind only to host loopback,
+pass `--listen-host 0.0.0.0`; the native default is loopback. The harness requires
+Python 3, the existing dependencies, and a built dist-backed Gateway. It refuses
+occupied ports and cleans up only its own child services.
+
+The production game opens through seven quick brand/logo clicks and the game
+selector. Racing uses the same G balance as baseball and bat purchases. Weekday
+races start at 11:00 through 17:00 in Asia/Seoul, seven per day; there are no weekend
+races. The first race opens at 10:50. Subsequent races open ten seconds after the
+previous scheduled three-minute race ends. Betting closes one minute before departure.
+Tickets range from 50G to 1,000G, inclusive.
+Each race lasts three minutes. Horse names, stats and odds stay fixed across
+races. A hidden cold/hot mixture makes Juki usually finish in the lower half,
+with rare strong performances; every finishing position remains possible.
+Win, unordered top-two (quinella) and two-horses-in-the-top-three (quinella-place)
+odds use the exact mixture of the weighted finish orders. Net fixed odds equal
+the reciprocal of the result probability multiplied by 0.97; the 3% fee is
+deducted from the principal-included winning payout. Each accepted ticket records its potential payout;
+the final exact rational payout is rounded down to integer G. Other tickets
+cannot change it. Losing tickets pay zero. Fewer than two participating accounts
+cancels and refunds the race. A user can cancel a ticket for a full refund until
+the betting deadline, with idempotent retry after cancellation. The twenty-ticket
+limit counts all accepted tickets, including cancelled tickets.
+
+Before betting, each race publishes its public roster and seed commitment.
+Speed and stamina appear as approximate gauges and condition as a short witty
+track rumor. Numeric condition, draw weights and win probabilities are withheld
+until the terminal record. Exact odds permit probability inference. Private
+condition describes the recorded performance and affects the animation, without
+changing the fixed odds. Rumors add noisy hints; Juki's rumors ignore its hidden
+cold/hot state. These hints do not guarantee a result.
+Fast observed segments display directional speed streaks, a warm glow and quicker
+leg motion. Reduced-motion mode hides these burst effects.
+Betting cannot affect the weighted draw. After settlement, browsers can
+independently verify the revealed seed against both the commitment and finish
+order. Engine or pricing changes cancel and refund unfinished rounds rather than changing
+their committed rules. Durable deadlines, tickets, results and gold movements
+live in the control SQLite database and recover on restart.
+Earlier horse-racing prototypes were development-only experimental builds.
+Their earlier racing implementations are not supported downgrade readers
+of the cancellation database. The released non-racing baseline's wallet column
+is unchanged. Old completed preview receipts retain their recorded payouts and
+finish positions; unfinished races with changed rules are refunded.
+The responsive race overlay follows a rectangular course inside the browser
+viewport. Upright vector artwork switches between side, front and rear views
+at corners instead of rotating the whole horse. It passes pointer input through
+to PlatformClaw. Compact controls and
+the latest thirty active bets show display names, selections and G amounts;
+cancelled tickets leave the live feed while remaining in the user's receipts.
+Every runner carries its name and number. The right-side live standings reorder
+from server positions, then show all six final places. A newly observed personal
+winning result celebrates once, with a static announcement for reduced motion.
+
+Baseball browser rewards require a server-issued, user-bound at-bat. The server
+recomputes outcome and distance from swing timing and the issued bat. This stops
+fabricated result claims and replay; it does not establish that a human, rather
+than automation, supplied the timing input.
+
 From a PowerShell window in the repository:
 
 ```powershell

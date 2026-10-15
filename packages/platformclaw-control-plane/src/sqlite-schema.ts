@@ -13,6 +13,8 @@ export {
   ensureOrganizationKnowledgeSchema,
 } from "./sqlite-schema-organization-knowledge.js";
 export { BASEBALL_GAME_SCHEMA, ensureBaseballGameSchema } from "./sqlite-schema-baseball.js";
+export { GAME_ECONOMY_SCHEMA, ensureGameEconomySchema } from "./sqlite-schema-game-economy.js";
+export { ensureHorseRacingSchema } from "./sqlite-schema-horse-racing.js";
 export {
   KNOWLEDGE_VAULT_SCHEMA,
   ensureKnowledgeVaultSchema,

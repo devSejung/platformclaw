@@ -1,0 +1,237 @@
+import { describe, expect, it } from "vitest";
+import { HORSE_RACING_JOKER_ID } from "./horse-racing-contracts.js";
+import {
+  createRacingHorses,
+  drawHorseFinishOrder,
+  getHorseRaceDayStarts,
+  horseRaceCommitment,
+  horseRacePositions,
+  nextHorseRaceStartsAt,
+  HORSE_RACE_DURATION_MS,
+  HORSE_RACE_LOCK_BEFORE_MS,
+  horseRaceOpensAt,
+} from "./horse-racing-engine.js";
+
+const time = (value: string) => Date.parse(value);
+
+describe("horse racing schedule", () => {
+  it.each([
+    ["2026-10-15T11:00:00+09:00", "2026-10-15T10:50:00+09:00", "2026-10-15T10:59:00+09:00"],
+    ["2026-10-15T12:00:00+09:00", "2026-10-15T11:03:10+09:00", "2026-10-15T11:59:00+09:00"],
+    ["2026-10-15T17:00:00+09:00", "2026-10-15T16:03:10+09:00", "2026-10-15T16:59:00+09:00"],
+    ["2026-10-19T11:00:00+09:00", "2026-10-19T10:50:00+09:00", "2026-10-19T10:59:00+09:00"],
+  ])("opens and closes the canonical race window for %s", (start, open, close) => {
+    expect(horseRaceOpensAt(time(start))).toBe(time(open));
+    expect(time(start) - HORSE_RACE_LOCK_BEFORE_MS).toBe(time(close));
+  });
+
+  it("opens every later weekday race after the previous scheduled duration and ten-second rest", () => {
+    const starts = getHorseRaceDayStarts(time("2026-10-15T00:00:00+09:00"));
+    for (const [index, startsAt] of starts.entries()) {
+      if (index === 0) {
+        continue;
+      }
+      const previous = starts[index - 1]!;
+      expect(horseRaceOpensAt(startsAt)).toBe(previous + HORSE_RACE_DURATION_MS + 10_000);
+      expect(horseRaceOpensAt(startsAt)).toBeLessThan(startsAt - HORSE_RACE_LOCK_BEFORE_MS);
+    }
+  });
+
+  it.each([
+    ["2026-10-15T00:00:00+09:00", "2026-10-15"],
+    ["2026-10-14T15:00:00Z", "2026-10-15"],
+    ["2026-10-15T23:59:59+09:00", "2026-10-15"],
+  ])("uses the KST calendar day at %s", (now, day) => {
+    expect(getHorseRaceDayStarts(time(now))).toEqual(
+      Array.from({ length: 7 }, (_, index) => time(`${day}T${11 + index}:00:00+09:00`)),
+    );
+  });
+
+  it.each(["2026-10-17T00:00:00+09:00", "2026-10-18T23:59:59+09:00"])(
+    "has no weekend starts at %s",
+    (now) => expect(getHorseRaceDayStarts(time(now))).toEqual([]),
+  );
+
+  it.each([
+    ["2026-10-15T10:59:59+09:00", "2026-10-15T11:00:00+09:00"],
+    ["2026-10-15T11:00:00+09:00", "2026-10-15T12:00:00+09:00"],
+    ["2026-10-15T17:00:00+09:00", "2026-10-16T11:00:00+09:00"],
+    ["2026-10-16T17:00:00+09:00", "2026-10-19T11:00:00+09:00"],
+    ["2026-10-17T00:00:00+09:00", "2026-10-19T11:00:00+09:00"],
+    ["2026-10-18T23:59:59+09:00", "2026-10-19T11:00:00+09:00"],
+    ["2026-12-31T17:00:00+09:00", "2027-01-01T11:00:00+09:00"],
+  ])("finds a strictly future weekday race from %s", (now, next) => {
+    expect(nextHorseRaceStartsAt(time(now))).toBe(time(next));
+  });
+});
+
+describe("horse racing fairness", () => {
+  const horses = createRacingHorses("race-2026-10-15-11", "private-condition");
+
+  it("keeps the named profiles and base win rates fixed across dates and hidden form", () => {
+    expect(createRacingHorses("race-2026-10-15-11", "private-condition")).toEqual(horses);
+    expect(createRacingHorses("race-2026-10-15-12", "private-condition")).not.toEqual(horses);
+    expect(horses).toHaveLength(6);
+    expect(horses.map((horse) => [horse.name, horse.speed, horse.stamina, horse.weight])).toEqual([
+      ["모리", 94, 80, 32],
+      ["파리", 76, 94, 19],
+      ["포운", 82, 72, 12],
+      ["로시", 70, 77, 8],
+      ["하니", 90, 78, 25],
+      ["쥬기", 55, 50, 4],
+    ]);
+    expect(
+      createRacingHorses("another-day", "another-form").map((horse) => [
+        horse.id,
+        horse.speed,
+        horse.stamina,
+        horse.weight,
+        horse.winProbability,
+      ]),
+    ).toEqual(
+      horses.map((horse) => [
+        horse.id,
+        horse.speed,
+        horse.stamina,
+        horse.weight,
+        horse.winProbability,
+      ]),
+    );
+    expect(horses.reduce((sum, horse) => sum + horse.winProbability, 0)).toBeCloseTo(1, 12);
+    for (const horse of horses) {
+      expect(horse.condition).toBeGreaterThanOrEqual(15);
+      expect(horse.condition).toBeLessThanOrEqual(100);
+      expect(horse.rumor.length).toBeGreaterThan(15);
+      expect(horse.rumor).not.toMatch(/\d|%/);
+      expect(horse.winProbability).toBe(
+        horse.weight / horses.reduce((sum, h) => sum + h.weight, 0),
+      );
+    }
+  });
+
+  it("keeps public speed and stamina stable while the hidden seed changes race-day condition", () => {
+    const other = createRacingHorses("race-2026-10-15-11", "other-condition");
+    expect(other.map((horse) => [horse.id, horse.speed, horse.stamina])).toEqual(
+      horses.map((horse) => [horse.id, horse.speed, horse.stamina]),
+    );
+    expect(other.map((horse) => horse.condition)).not.toEqual(
+      horses.map((horse) => horse.condition),
+    );
+  });
+
+  it("binds the commitment to the race, complete public roster and secret seed", () => {
+    const commitment = horseRaceCommitment("race", horses, "secret");
+    expect(commitment).toMatch(/^[0-9a-f]{64}$/);
+    expect(horseRaceCommitment("race", horses.toReversed(), "secret")).toBe(commitment);
+    expect(horseRaceCommitment("other-race", horses, "secret")).not.toBe(commitment);
+    expect(horseRaceCommitment("race", horses, "other-secret")).not.toBe(commitment);
+    const changedWeights = createRacingHorses("race-2026-10-15-11", "private-condition");
+    const changedRumor = createRacingHorses("race-2026-10-15-11", "private-condition");
+    for (const horse of changedWeights) {
+      horse.weight += 1;
+    }
+    for (const horse of changedRumor) {
+      horse.rumor += " 추가 소문";
+    }
+    expect(horseRaceCommitment("race", changedWeights, "secret")).not.toBe(commitment);
+    expect(horseRaceCommitment("race", changedRumor, "secret")).not.toBe(commitment);
+  });
+
+  it("replays each draw as a permutation independently of roster ordering", () => {
+    const order = drawHorseFinishOrder(horses, "draw-seed");
+    expect(drawHorseFinishOrder(horses.toReversed(), "draw-seed")).toEqual(order);
+    expect(order.toSorted((a, b) => a.localeCompare(b))).toEqual(
+      horses.map((horse) => horse.id).toSorted((a, b) => a.localeCompare(b)),
+    );
+  });
+
+  it("calibrates every fixed marginal win rate while the joker can occupy every rank", () => {
+    const trials = 50_000;
+    const wins = new Map<string, number>();
+    const jokerRanks = [0, 0, 0, 0, 0, 0];
+    for (let index = 0; index < trials; index++) {
+      const order = drawHorseFinishOrder(horses, `calibration-${index}`);
+      for (const [rank, id] of order.entries()) {
+        if (rank === 0) {
+          wins.set(id, (wins.get(id) ?? 0) + 1);
+        }
+        if (id === HORSE_RACING_JOKER_ID) {
+          jokerRanks[rank] = (jokerRanks[rank] ?? 0) + 1;
+        }
+      }
+    }
+    for (const horse of horses) {
+      expect(Math.abs((wins.get(horse.id) ?? 0) / trials - horse.winProbability)).toBeLessThan(
+        0.008,
+      );
+    }
+    expect(jokerRanks.every((count) => count > 0)).toBe(true);
+    expect(jokerRanks.slice(3).reduce((sum, count) => sum + count, 0) / trials).toBeGreaterThan(
+      0.8,
+    );
+    expect(jokerRanks.slice(0, 3).reduce((sum, count) => sum + count, 0) / trials).toBeLessThan(
+      0.15,
+    );
+  });
+
+  it("makes rookie form variable, steady form narrow and joker rumors uninformative about hot form", () => {
+    const values = new Map<string, number[]>();
+    const rumors = new Set<string>();
+    const jokerRumorsByForm = { hot: new Set<string>(), cold: new Set<string>() };
+    for (let index = 0; index < 600; index++) {
+      for (const horse of createRacingHorses("same-race", `form-${index}`)) {
+        const conditions = values.get(horse.id);
+        if (conditions) {
+          conditions.push(horse.condition);
+        } else {
+          values.set(horse.id, [horse.condition]);
+        }
+        rumors.add(horse.rumor);
+        if (horse.id === HORSE_RACING_JOKER_ID) {
+          jokerRumorsByForm[horse.condition >= 90 ? "hot" : "cold"].add(horse.rumor);
+        }
+      }
+    }
+    const rookie = values.get("3")!;
+    const steady = values.get("4")!;
+    expect(Math.max(...rookie) - Math.min(...rookie)).toBeGreaterThan(40);
+    expect(Math.max(...steady) - Math.min(...steady)).toBeLessThan(16);
+    expect(rumors.size).toBeGreaterThan(300);
+    expect(jokerRumorsByForm.hot.size).toBeGreaterThan(5);
+    expect(
+      [...jokerRumorsByForm.hot].filter((rumor) => jokerRumorsByForm.cold.has(rumor)).length /
+        jokerRumorsByForm.hot.size,
+    ).toBeGreaterThan(0.8);
+  });
+
+  it("replays monotonic animated positions and crosses the line in exactly the drawn order", () => {
+    const seed = "photo-finish";
+    const order = drawHorseFinishOrder(horses, seed);
+    let previous = horseRacePositions(horses, order, seed, -1);
+    expect(previous.every((horse) => horse.position === 0)).toBe(true);
+    const crossed: string[] = [];
+    expect(HORSE_RACE_DURATION_MS).toBe(180_000);
+    for (let elapsed = 0; elapsed <= HORSE_RACE_DURATION_MS; elapsed += 250) {
+      const positions = horseRacePositions(horses, order, seed, elapsed);
+      expect(horseRacePositions(horses, order, seed, elapsed)).toEqual(positions);
+      for (const horse of positions) {
+        const earlier = previous.find((candidate) => candidate.horseId === horse.horseId);
+        if (!earlier) {
+          throw new Error("Horse disappeared during race replay");
+        }
+        expect(horse.position).toBeGreaterThanOrEqual(earlier.position);
+        expect(horse.position).toBeLessThanOrEqual(100);
+        if (horse.position === 100 && earlier.position < 100) {
+          crossed.push(horse.horseId);
+        }
+      }
+      previous = positions;
+    }
+    expect(crossed).toEqual(order);
+    expect(previous.every((horse) => horse.position === 100)).toBe(true);
+    expect(horseRacePositions(horses, order, seed, HORSE_RACE_DURATION_MS * 2)).toEqual(previous);
+    expect(horseRacePositions(horses, order, seed, HORSE_RACE_DURATION_MS / 2)).not.toEqual(
+      horseRacePositions(horses, order, "other-seed", HORSE_RACE_DURATION_MS / 2),
+    );
+  });
+});

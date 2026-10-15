@@ -72,7 +72,7 @@ export function renderBaseballGame(params: {
               ${params.pendingMutationMethod === BASEBALL_RPC.plateAppearance
                 ? nothing
                 : html`<button type="button" @click=${params.onCancel}>취소</button>`}`
-          : !params.progress && !params.persistenceBusy
+          : (!params.progress || params.phase === "ready") && !params.persistenceBusy
             ? html`<button type="button" @click=${params.onRetryLoad}>다시 불러오기</button>`
             : nothing}
       </div>`

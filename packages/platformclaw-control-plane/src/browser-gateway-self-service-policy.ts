@@ -6,6 +6,7 @@ import {
   type BrowserGatewayProxyOptions,
 } from "./browser-gateway-contracts.js";
 import { isKnowledgeVaultRpc } from "./browser-gateway-vault-policy.js";
+import { HORSE_RACING_RPC_METHODS } from "./horse-racing-contracts.js";
 import { SPACE_RPC_PARAMS } from "./space-contracts.js";
 
 type JsonObject = Record<string, unknown>;
@@ -114,6 +115,7 @@ export function prepareBrowserSelfServiceRequest(
   if (
     PASSTHROUGH_METHODS.has(method) ||
     isBaseballRpcMethod(method) ||
+    HORSE_RACING_RPC_METHODS.some((racingMethod) => racingMethod === method) ||
     Object.hasOwn(SPACE_RPC_PARAMS, method) ||
     isKnowledgeVaultRpc(method)
   ) {

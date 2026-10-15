@@ -47,6 +47,7 @@ async function openSettings(page: Page): Promise<void> {
       });
     }
   });
+  await page.locator('[data-game-choice="baseball"]').click();
   await page.locator(".platformclaw-easter-egg__shop-trigger").click();
   await page.getByRole("dialog", { name: "배트 상점" }).waitFor();
 }
@@ -98,6 +99,13 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
       sessionKey: "agent:synthetic_agent:main",
       featureMethods: [...PLATFORMCLAW_WEB_GATEWAY_METHODS],
       methodResponses: {
+        [BASEBALL_RPC.beginAtBat]: {
+          id: "settings-at-bat",
+          pitchSample: 0.25,
+          batId: progress.equippedBatId,
+          issuedAt: 0,
+          expiresAt: Number.MAX_SAFE_INTEGER,
+        },
         [BASEBALL_RPC.progress]: progress,
         [BASEBALL_RPC.leaderboard]: {
           distance: [{ displayName: "synthetic-a", value: 147, isCurrentUser: true }],
@@ -188,6 +196,13 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
       methodResponses: {
         [BASEBALL_RPC.progress]: progress,
         [BASEBALL_RPC.leaderboard]: { distance: [], homeRunStreak: [] },
+        [BASEBALL_RPC.beginAtBat]: {
+          id: "bonus-at-bat",
+          pitchSample: 0.25,
+          batId: progress.equippedBatId,
+          issuedAt: 0,
+          expiresAt: Number.MAX_SAFE_INTEGER,
+        },
         [BASEBALL_RPC.plateAppearance]: {
           __mockError: { code: "UNAVAILABLE", message: "Synthetic lost response" },
         },

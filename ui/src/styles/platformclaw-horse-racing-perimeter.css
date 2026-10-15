@@ -1,0 +1,123 @@
+.platformclaw-racing-perimeter {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  z-index: 2147483646;
+  overflow: visible;
+}
+.platformclaw-racing-perimeter,
+.platformclaw-racing-perimeter * {
+  pointer-events: none;
+}
+.platformclaw-racing-perimeter__rail {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+  opacity: 0.18;
+}
+.platformclaw-racing-perimeter__finish {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  stroke-dasharray: 3 3;
+  opacity: 0.5;
+}
+.platformclaw-racing-perimeter__horse {
+  filter: saturate(55%);
+}
+.platformclaw-racing-perimeter__label {
+  font: 700 12px var(--font-body, system-ui, sans-serif);
+  fill: var(--text);
+  stroke: var(--bg);
+  stroke-width: 3px;
+  paint-order: stroke;
+  stroke-linejoin: round;
+}
+.platformclaw-racing-perimeter__horse--backed {
+  filter: saturate(75%) drop-shadow(0 0 2px var(--accent));
+}
+.platformclaw-racing-perimeter__boost {
+  display: none;
+}
+.platformclaw-racing-perimeter__horse[data-boosting="true"] {
+  filter: saturate(90%) drop-shadow(0 0 3px #e8ac46);
+}
+.platformclaw-racing-perimeter__horse[data-boosting="true"]
+  > .platformclaw-racing-perimeter__boost {
+  display: inline;
+}
+.platformclaw-racing-perimeter__speed-lines {
+  fill: none;
+  stroke: #e8ac46;
+  stroke-width: 2;
+  stroke-linecap: round;
+  animation: platformclaw-racing-dash 180ms ease-out infinite;
+}
+.platformclaw-racing-perimeter__dust {
+  fill: #c8ab80;
+  opacity: 0.4;
+  animation: platformclaw-racing-dash 300ms ease-out infinite;
+}
+.platformclaw-racing-perimeter__horse[data-boosting="true"] .platformclaw-racing-perimeter__legs {
+  animation-duration: 120ms;
+}
+@keyframes platformclaw-racing-dash {
+  from {
+    opacity: 0.7;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0.1;
+    transform: translateX(-8px);
+  }
+}
+.platformclaw-racing-perimeter__shadow {
+  fill: var(--muted);
+  opacity: 0.12;
+}
+.platformclaw-racing-perimeter__legs {
+  fill: none;
+  stroke: #6a5c50;
+  stroke-width: 2;
+  stroke-linecap: round;
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: platformclaw-racing-footsteps 220ms linear infinite alternate;
+}
+.platformclaw-racing-perimeter--paused .platformclaw-racing-perimeter__legs {
+  animation: none;
+}
+.platformclaw-racing-perimeter--paused
+  .platformclaw-racing-perimeter__horse[data-boosting="true"]
+  > .platformclaw-racing-perimeter__boost {
+  display: none;
+}
+@keyframes platformclaw-racing-footsteps {
+  from {
+    transform: scaleY(0.7);
+  }
+  to {
+    transform: scaleY(1.1);
+  }
+}
+
+/* Keep each facing upright; only the side-left artwork is mirrored. */
+.platformclaw-racing-perimeter__horse > [data-horse-facing] {
+  display: none;
+}
+.platformclaw-racing-perimeter__horse[data-facing="right"] > [data-horse-facing="right"],
+.platformclaw-racing-perimeter__horse[data-facing="front"] > [data-horse-facing="front"],
+.platformclaw-racing-perimeter__horse[data-facing="left"] > [data-horse-facing="left"],
+.platformclaw-racing-perimeter__horse[data-facing="back"] > [data-horse-facing="back"] {
+  display: inline;
+}
+@media (prefers-reduced-motion: reduce) {
+  .platformclaw-racing-perimeter__horse[data-boosting="true"]
+    > .platformclaw-racing-perimeter__boost {
+    display: none;
+  }
+  .platformclaw-racing-perimeter__legs {
+    animation: none;
+  }
+}

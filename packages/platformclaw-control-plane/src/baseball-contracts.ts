@@ -27,6 +27,7 @@ export const BASEBALL_RPC_METHODS = [
   "platformclaw.baseball.purchaseBat",
   "platformclaw.baseball.equipBat",
   "platformclaw.baseball.leaderboard",
+  "platformclaw.baseball.beginAtBat",
 ] as const;
 
 export type BaseballRpcMethod = (typeof BASEBALL_RPC_METHODS)[number];
@@ -37,6 +38,7 @@ export const BASEBALL_RPC = {
   purchaseBat: BASEBALL_RPC_METHODS[2],
   equipBat: BASEBALL_RPC_METHODS[3],
   leaderboard: BASEBALL_RPC_METHODS[4],
+  beginAtBat: BASEBALL_RPC_METHODS[5],
 } as const;
 
 const BASEBALL_RPC_METHOD_SET = new Set<string>(BASEBALL_RPC_METHODS);
@@ -71,8 +73,16 @@ export type BaseballLeaderboard = {
 
 export type BaseballPlateAppearanceRequest = {
   requestId: string;
-  outcome: BaseballPlateAppearanceOutcome;
-  distanceM?: number;
+  atBatId: string;
+  timingDeltaMs: number | null;
+};
+
+export type BaseballAtBat = {
+  id: string;
+  pitchSample: number;
+  batId: BaseballBatId;
+  issuedAt: number;
+  expiresAt: number;
 };
 
 export type BaseballPlateAppearanceResult = {
@@ -109,7 +119,13 @@ export type BaseballGameErrorCode =
   | "idempotency_conflict"
   | "unknown_bat"
   | "insufficient_gold"
-  | "bat_not_owned";
+  | "bat_not_owned"
+  | "at_bat_unavailable"
+  | "at_bat_consumed"
+  | "at_bat_expired"
+  | "at_bat_too_early"
+  | "at_bat_rate_limited"
+  | "invalid_swing";
 
 export class BaseballGameError extends Error {
   constructor(
@@ -124,11 +140,20 @@ export class BaseballGameError extends Error {
 export interface BaseballGameStore {
   loadBaseballProgress(userId: string): Promise<BaseballProgress>;
   loadBaseballLeaderboard(userId: string): Promise<BaseballLeaderboard>;
+  beginBaseballAtBat(params: {
+    userId: string;
+    requestId: string;
+    now: number;
+  }): Promise<BaseballAtBat>;
   rewardBaseballPlateAppearance(params: {
     userId: string;
     requestId: string;
-    outcome: BaseballPlateAppearanceOutcome;
+    /** Trusted in-process callers only; browser requests require a server-issued at-bat. */
+    outcome?: BaseballPlateAppearanceOutcome;
     distanceM?: number;
+    atBatId?: string;
+    timingDeltaMs?: number | null;
+    now?: number;
   }): Promise<BaseballPlateAppearanceResult>;
   purchaseBaseballBat(params: {
     userId: string;

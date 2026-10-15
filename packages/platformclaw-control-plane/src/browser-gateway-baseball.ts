@@ -4,7 +4,6 @@ import {
   isBaseballBatId,
   isBaseballRpcMethod,
   type BaseballGameStore,
-  type BaseballPlateAppearanceOutcome,
 } from "./baseball-contracts.js";
 import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
 
@@ -24,33 +23,24 @@ function requiredRequestId(value: unknown): string {
   return requestId;
 }
 
-function plateAppearanceOutcome(value: unknown): BaseballPlateAppearanceOutcome {
-  if (value === "home_run" || value === "hit" || value === "out" || value === "miss") {
-    return value;
-  }
-  throw new BrowserGatewayProxyError(
-    "invalid-params",
-    "baseball outcome must be home_run, hit, out, or miss",
-  );
-}
-
-function optionalDistance(
-  value: unknown,
-  outcome: BaseballPlateAppearanceOutcome,
-): number | undefined {
-  if (outcome === "out" || outcome === "miss") {
-    return undefined;
-  }
-  if (value === undefined) {
+function requiredAtBatId(value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || value.length > 128) {
     throw new BrowserGatewayProxyError(
       "invalid-params",
-      "baseball distanceM is required for a hit or home run",
+      "baseball atBatId is required; begin a new at-bat before submitting a swing",
     );
   }
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 1_000) {
+  return value;
+}
+
+function swingTiming(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 2_000) {
     throw new BrowserGatewayProxyError(
       "invalid-params",
-      "baseball distanceM must be an integer from 0 to 1000 for a hit or home run",
+      "baseball timingDeltaMs must be a number between -2000 and 2000, or null for a miss",
     );
   }
   return value;
@@ -68,6 +58,7 @@ export async function requestBrowserBaseball(params: {
   userId: string;
   method: string;
   request: JsonObject;
+  now?: number;
 }): Promise<{ handled: false } | { handled: true; result: unknown }> {
   if (!isBaseballRpcMethod(params.method)) {
     return { handled: false };
@@ -82,17 +73,28 @@ export async function requestBrowserBaseball(params: {
     if (params.method === BASEBALL_RPC.leaderboard) {
       return { handled: true, result: await params.store.loadBaseballLeaderboard(params.userId) };
     }
+    if (params.method === BASEBALL_RPC.beginAtBat) {
+      return {
+        handled: true,
+        result: await params.store.beginBaseballAtBat({
+          userId: params.userId,
+          requestId: requiredRequestId(params.request.requestId),
+          now: params.now ?? Date.now(),
+        }),
+      };
+    }
     if (params.method === BASEBALL_RPC.plateAppearance) {
       const requestId = requiredRequestId(params.request.requestId);
-      const outcome = plateAppearanceOutcome(params.request.outcome);
-      const distanceM = optionalDistance(params.request.distanceM, outcome);
+      const atBatId = requiredAtBatId(params.request.atBatId);
+      const timingDeltaMs = swingTiming(params.request.timingDeltaMs);
       return {
         handled: true,
         result: await params.store.rewardBaseballPlateAppearance({
           userId: params.userId,
           requestId,
-          outcome,
-          ...(distanceM === undefined ? {} : { distanceM }),
+          atBatId,
+          timingDeltaMs,
+          now: params.now ?? Date.now(),
         }),
       };
     }

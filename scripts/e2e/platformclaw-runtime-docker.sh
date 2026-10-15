@@ -320,7 +320,13 @@ MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T \
     trap '\''rm -rf "$probe_dir"'\'' EXIT
     printf '\''[safeconnect.platformclaw.test]:44422 %s %s\n'\'' \
       "$SAFECONNECT_ALGORITHM" "$SAFECONNECT_PUBLIC_KEY" >"$probe_dir/known_hosts"
+    # Match the production transport: OpenSSH rejects the SafeConnect domain
+    # separator in command-line usernames, but accepts a literal User in config.
+    safeconnect_user="samsungds.net\\person.one+person_one+10.0.0.10"
+    printf '\''Host platformclaw-safeconnect\n  HostName safeconnect.platformclaw.test\n  User %s\n'\'' \
+      "$safeconnect_user" >"$probe_dir/config"
     ssh_args=(
+      -F "$probe_dir/config"
       -p 44422
       -o BatchMode=no
       -o PreferredAuthentications=keyboard-interactive
@@ -331,7 +337,7 @@ MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T \
       -o UserKnownHostsFile="$probe_dir/known_hosts"
       -o GlobalKnownHostsFile=/dev/null
     )
-    target="samsungds.net\\person.one+person_one+10.0.0.10@safeconnect.platformclaw.test"
+    target="platformclaw-safeconnect"
     printf platformclaw-safeconnect-stream | {
       exec 3<<<"platformclaw-safeconnect-fixture-password"
       sshpass -d 3 ssh "${ssh_args[@]}" "$target" '\''cat > "$HOME/.platformclaw/e2e-stream"'\''

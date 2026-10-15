@@ -62,6 +62,7 @@ async function openGame(page: Page): Promise<void> {
       });
     }
   });
+  await page.locator('[data-game-choice="baseball"]').click();
   await page.locator('platformclaw-easter-egg [role="application"]').waitFor();
 }
 
@@ -158,7 +159,16 @@ async function newAccountPage(
     basePath: "/platformclaw/app",
     defaultAgentId: agentId,
     featureMethods: [...PLATFORMCLAW_WEB_GATEWAY_METHODS],
-    methodResponses,
+    methodResponses: {
+      [BASEBALL_RPC.beginAtBat]: {
+        id: "e2e-at-bat",
+        pitchSample: 0.5,
+        batId: "wood",
+        issuedAt: 0,
+        expiresAt: Number.MAX_SAFE_INTEGER,
+      },
+      ...methodResponses,
+    },
     sessionKey: `agent:${agentId}:main`,
   });
   await page.goto(`${server.baseUrl}platformclaw/app/chat`);
@@ -270,6 +280,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     await game.press("Escape");
     await game.waitFor({ state: "detached" });
     await accountA.page.evaluate(() => window.dispatchEvent(new Event("platformclaw:easter-egg")));
+    await accountA.page.locator('[data-game-choice="baseball"]').click();
     await expect
       .poll(async () => (await accountA.gateway.getRequests(BASEBALL_RPC.progress)).length)
       .toBe(2);
@@ -621,6 +632,13 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       "ball-flight",
       "ball_flight",
       {
+        [BASEBALL_RPC.beginAtBat]: {
+          id: "e2e-at-bat",
+          pitchSample: 0,
+          batId: "wood",
+          issuedAt: 0,
+          expiresAt: Number.MAX_SAFE_INTEGER,
+        },
         [BASEBALL_RPC.progress]: progress(),
         [BASEBALL_RPC.leaderboard]: leaderboard(),
         [BASEBALL_RPC.plateAppearance]: {
@@ -796,7 +814,10 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(descent.x).toBeGreaterThan(midflight.x + 30);
     expect(descent.y).toBeGreaterThan(midflight.y + 20);
     const plateAppearance = await account.gateway.waitForRequest(BASEBALL_RPC.plateAppearance);
-    expect(plateAppearance.params).toMatchObject({ outcome: "hit" });
+    expect(plateAppearance.params).toMatchObject({
+      atBatId: expect.any(String),
+      timingDeltaMs: expect.any(Number),
+    });
     await expect
       .poll(() => game.getByText("직전 보상 +3G", { exact: true }).isVisible())
       .toBe(true);
