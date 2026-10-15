@@ -1,0 +1,269 @@
+.platformclaw-baseball-forge {
+  display: grid;
+  gap: 10px;
+}
+.platformclaw-baseball-forge button {
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+.platformclaw-baseball-forge button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.platformclaw-baseball-forge small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.platformclaw-baseball-taunt {
+  --taunt-entry-y: 18px;
+  --taunt-rise-y: -16px;
+  --taunt-float-y: -30px;
+  --taunt-exit-y: -48px;
+  position: absolute;
+  z-index: 40;
+  top: 42%;
+  right: clamp(40px, 7vw, 112px);
+  max-width: min(240px, calc(100vw - 80px));
+  color: var(--baseball-team-color, var(--text));
+  font-size: clamp(24px, 3vw, 38px);
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  opacity: var(--baseball-opacity, 1);
+  pointer-events: none;
+  text-shadow:
+    0 2px 0 var(--bg),
+    0 0 10px var(--bg);
+}
+.platformclaw-baseball-taunt span {
+  display: block;
+  animation: platformclaw-baseball-taunt-fly 2s ease-out both;
+}
+@keyframes platformclaw-baseball-taunt-fly {
+  0% {
+    opacity: 0;
+    transform: translate(24px, var(--taunt-entry-y)) rotate(8deg) scale(0.82);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-6px, -4px) rotate(-5deg) scale(1.08);
+  }
+  45% {
+    opacity: 1;
+    transform: translate(0, var(--taunt-rise-y)) rotate(3deg);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-10px, var(--taunt-float-y)) rotate(-3deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-18px, var(--taunt-exit-y)) rotate(-6deg) scale(0.94);
+  }
+}
+@media (max-width: 900px) {
+  .platformclaw-baseball-taunt {
+    --taunt-entry-y: 4px;
+    --taunt-rise-y: -4px;
+    --taunt-float-y: -10px;
+    --taunt-exit-y: -16px;
+
+    top: 72px;
+    right: 40px;
+    font-size: 24px;
+  }
+  .platformclaw-easter-egg__shop-scrim {
+    box-sizing: border-box;
+    padding-top: 96px;
+  }
+  .platformclaw-easter-egg__shop {
+    max-height: min(520px, calc(100dvh - 152px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .platformclaw-baseball-taunt span {
+    animation: none;
+  }
+}
+.platformclaw-baseball-forge__preview {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  min-height: 76px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  opacity: var(--baseball-opacity, 1);
+}
+.platformclaw-baseball-forge__weapon {
+  display: block;
+  width: 60px;
+  height: 10px;
+  border: 1px solid currentcolor;
+  border-radius: 999px 5px 5px 999px;
+  background: var(--forge-color);
+  transform: rotate(-25deg);
+}
+.platformclaw-baseball-forge__preview[data-bat="wood"] {
+  --forge-color: #9a693f;
+}
+.platformclaw-baseball-forge__preview[data-bat="silver"] {
+  --forge-color: #bdc4cc;
+}
+.platformclaw-baseball-forge__preview[data-bat="gold"] {
+  --forge-color: #d6aa35;
+}
+.platformclaw-baseball-forge__preview[data-bat="platinum"] {
+  --forge-color: #d7e0e8;
+}
+.platformclaw-baseball-forge__preview[data-bat="titanium"] {
+  --forge-color: #778697;
+}
+.platformclaw-baseball-forge__preview[data-bat="emerald"] {
+  --forge-color: #2eaa70;
+}
+.platformclaw-baseball-forge__preview[data-bat="diamond"] {
+  --forge-color: #7ddbea;
+}
+.platformclaw-baseball-forge__preview[data-appearance="platinum"]
+  .platformclaw-baseball-forge__weapon,
+[data-bat-appearance="platinum"] .platformclaw-easter-egg__bat {
+  height: 7px;
+  border-radius: 3px 8px 8px 3px;
+}
+.platformclaw-baseball-forge__preview[data-appearance="titanium"]
+  .platformclaw-baseball-forge__weapon,
+[data-bat-appearance="titanium"] .platformclaw-easter-egg__bat {
+  clip-path: polygon(0 25%, 85% 0, 100% 25%, 100% 75%, 85% 100%, 0 75%);
+}
+.platformclaw-baseball-forge__preview[data-appearance="emerald"]
+  .platformclaw-baseball-forge__weapon,
+[data-bat-appearance="emerald"] .platformclaw-easter-egg__bat {
+  background: linear-gradient(0deg, #177248 0 35%, #86e7a9 35% 58%, #2eaa70 58%);
+}
+.platformclaw-baseball-forge__preview[data-appearance="diamond"]
+  .platformclaw-baseball-forge__weapon,
+[data-bat-appearance="diamond"] .platformclaw-easter-egg__bat {
+  background: repeating-linear-gradient(135deg, #7ddbea 0 8px, #d2f8fc 8px 12px);
+}
+.platformclaw-baseball-forge__preview[data-appearance="star-diamond"]
+  .platformclaw-baseball-forge__weapon,
+[data-bat-appearance="star-diamond"] .platformclaw-easter-egg__bat {
+  background: linear-gradient(90deg, #87ddea, #f7e39b, #d2f8fc);
+  box-shadow: 0 0 0 1px #b4a359;
+}
+.platformclaw-baseball-forge__preview[data-appearance="star-diamond"]
+  .platformclaw-baseball-forge__weapon::after,
+[data-bat-appearance="star-diamond"] .platformclaw-easter-egg__bat::after {
+  content: "★";
+  position: absolute;
+  right: 0;
+  top: -9px;
+  color: #d6aa35;
+  font-size: 15px;
+}
+.platformclaw-baseball-forge__receipt {
+  padding: 7px 9px;
+  border-inline-start: 3px solid var(--accent, #2eaa70);
+}
+.platformclaw-baseball-forge__actions {
+  display: grid;
+  gap: 8px;
+}
+.platformclaw-baseball-forge__odds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  font-size: 11px;
+}
+.platformclaw-baseball-forge__table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.platformclaw-baseball-forge table {
+  border-collapse: collapse;
+  white-space: nowrap;
+  font-size: 10px;
+}
+.platformclaw-baseball-forge td,
+.platformclaw-baseball-forge th {
+  padding: 5px;
+  border-bottom: 1px solid var(--border);
+  text-align: end;
+}
+.platformclaw-baseball-forge summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+.platformclaw-baseball-forge__preview[data-effect="success"],
+.platformclaw-baseball-forge__preview[data-effect="evolution"] {
+  animation: platformclaw-forge-flash 600ms ease-out;
+}
+.platformclaw-baseball-forge__preview[data-effect="drop"] {
+  animation: platformclaw-forge-shake 350ms ease-out;
+}
+.platformclaw-baseball-forge__shards {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.platformclaw-baseball-forge__shards i {
+  position: absolute;
+  left: 40px;
+  top: 38px;
+  width: 7px;
+  height: 4px;
+  background: var(--forge-color);
+  animation: platformclaw-forge-shard 600ms ease-out both;
+  transform: rotate(calc(var(--shard) * 72deg));
+}
+@keyframes platformclaw-forge-flash {
+  from {
+    box-shadow: inset 0 0 22px #e7d278;
+  }
+  to {
+    box-shadow: inset 0 0 0 transparent;
+  }
+}
+@keyframes platformclaw-forge-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+@keyframes platformclaw-forge-shard {
+  from {
+    transform: rotate(calc(var(--shard) * 72deg)) translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: rotate(calc(var(--shard) * 72deg)) translateX(35px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .platformclaw-baseball-forge *,
+  .platformclaw-baseball-forge__preview {
+    animation: none !important;
+    transition: none !important;
+  }
+  .platformclaw-baseball-forge__shards {
+    display: none;
+  }
+}

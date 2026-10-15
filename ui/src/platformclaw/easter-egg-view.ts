@@ -1,15 +1,18 @@
 import { html, nothing, svg } from "lit";
 import { styleMap } from "lit/directives/style-map.js";
 import {
-  BASEBALL_BATS,
-  BASEBALL_RPC,
+  BASEBALL_TEAM_CHANGE_COST,
   type BaseballBatId,
   type BaseballLeaderboard,
   type BaseballLeaderboardEntry,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import { getBaseballEnhancementAppearance } from "../../../packages/platformclaw-control-plane/src/baseball-enhancement.ts";
 import { BASEBALL_CELEBRATION_MS } from "./easter-egg-celebration.ts";
+import { renderBaseballForge, renderBaseballTaunt } from "./easter-egg-forge-view.ts";
 import { BASEBALL_TEAMS, type BaseballSettings } from "./easter-egg-settings.ts";
+import type { Pitch } from "./easter-egg-simulation.ts";
+import type { BaseballWorkshopNotice } from "./easter-egg-workshop.ts";
 import { platformClawT as t } from "./i18n.ts";
 
 const BASEBALL_BAT_NAMES: Record<BaseballBatId, string> = {
@@ -24,6 +27,14 @@ const BASEBALL_BAT_NAMES: Record<BaseballBatId, string> = {
 
 export const BASEBALL_TRAIL_POINTS = 9;
 
+const BASEBALL_PITCH_NAMES: Record<Pitch["kind"], string> = {
+  fastball: "직구",
+  changeup: "체인지업",
+  underhand: "언더핸드 패턴",
+  curve: "커브",
+  knuckleball: "너클볼",
+};
+
 export function renderBaseballGame(params: {
   active: boolean;
   shopOpen: boolean;
@@ -36,7 +47,16 @@ export function renderBaseballGame(params: {
   lastDistance: number | null;
   feedbackVisible: boolean;
   playerState: string;
-  pitcherState: string;
+  pitcherState:
+    | "idle"
+    | "leg-lift"
+    | "throw"
+    | "follow-through"
+    | "underhand-windup"
+    | "underhand-throw"
+    | "underhand-follow-through"
+    | "swing"
+    | "swing-perfect";
   progress: BaseballProgress | null;
   leaderboard: BaseballLeaderboard | null;
   leaderboardStatus: string;
@@ -48,14 +68,20 @@ export function renderBaseballGame(params: {
   bonusVisible: boolean;
   pendingMutationMethod: string | null;
   roundBatId: BaseballBatId;
-  pitchSpeedKph: number | null;
+  roundEnhancementLevel: number | null;
+  workshopNotice: BaseballWorkshopNotice | null;
+  workshopEffect: string;
+  workshopTaunt: string;
+  revealedPitch: Pitch | null;
   onOpenShop: (event: Event) => void;
   onRetry: () => void;
-  onCancel: () => void;
   onRetryLoad: () => void;
   onCloseShop: (event: Event) => void;
   onSelectBat: (batId: BaseballBatId, owned: boolean) => void;
   onSelectTeam: (teamId: string) => void;
+  onEnhance: () => void;
+  onRecover: (action: "restore" | "restart") => void;
+  onEquipEnhanced: () => void;
   onOpacity: (opacity: number) => void;
   onStopEvent: (event: Event) => void;
 }) {
@@ -63,17 +89,18 @@ export function renderBaseballGame(params: {
     return nothing;
   }
   const equipped = params.progress?.equippedBatId ?? "wood";
+  const enhanced = params.progress?.enhancement;
+  const equippedName = enhanced?.equipped
+    ? `${getBaseballEnhancementAppearance(enhanced.level).name} +${enhanced.level}`
+    : BASEBALL_BAT_NAMES[equipped];
   const team =
     BASEBALL_TEAMS.find((entry) => entry.id === params.settings.teamId) ?? BASEBALL_TEAMS[0];
   const saveStatus = html`${params.persistenceStatus
     ? html`<div class="platformclaw-easter-egg__save-status" role="status">
         <span>${params.persistenceStatus}</span>
         ${params.pendingMutationMethod
-          ? html`<button type="button" @click=${params.onRetry}>재시도</button>
-              ${params.pendingMutationMethod === BASEBALL_RPC.plateAppearance
-                ? nothing
-                : html`<button type="button" @click=${params.onCancel}>취소</button>`}`
-          : (!params.progress || params.phase === "ready") && !params.persistenceBusy
+          ? html`<button type="button" @click=${params.onRetry}>재시도</button>`
+          : !params.persistenceBusy
             ? html`<button type="button" @click=${params.onRetryLoad}>다시 불러오기</button>`
             : nothing}
       </div>`
@@ -87,6 +114,10 @@ export function renderBaseballGame(params: {
     data-streak=${params.streak}
     data-best=${params.progress?.bestDistanceM ?? 0}
     data-bat-id=${params.roundBatId}
+    data-bat-appearance=${params.roundEnhancementLevel === null
+      ? nothing
+      : getBaseballEnhancementAppearance(params.roundEnhancementLevel).appearanceId}
+    data-round-enhancement=${params.roundEnhancementLevel ?? nothing}
     data-pitch-state=${params.phase}
     data-team-id=${team.id}
     style=${styleMap({
@@ -97,7 +128,7 @@ export function renderBaseballGame(params: {
       "--baseball-celebration-duration": `${BASEBALL_CELEBRATION_MS}ms`,
     })}
   >
-    ${!params.shopOpen ? saveStatus : nothing}
+    ${!params.shopOpen ? saveStatus : nothing} ${renderBaseballTaunt(params.workshopTaunt)}
     <div class="platformclaw-easter-egg__scene">
       ${params.bonusVisible
         ? html`<div class="platformclaw-easter-egg__bonus" role="status">
@@ -123,9 +154,12 @@ export function renderBaseballGame(params: {
           : html`<span
               >${t("platformClaw.baseball.reward", { gold: String(params.awardedGold) })}</span
             >`}
-        <span
-          >${params.pitchSpeedKph === null ? "" : `${Math.round(params.pitchSpeedKph)}km/h`}</span
-        >
+        ${params.revealedPitch
+          ? html`<span class="platformclaw-easter-egg__pitch-info"
+              >${BASEBALL_PITCH_NAMES[params.revealedPitch.kind]}
+              ${Math.round(params.revealedPitch.speedKph)}km/h</span
+            >`
+          : nothing}
       </div>
       <div
         class="platformclaw-easter-egg__result platformclaw-easter-egg__feedback ${params.feedbackVisible
@@ -169,7 +203,8 @@ export function renderBaseballGame(params: {
           class="platformclaw-easter-egg__target platformclaw-easter-egg__target--${params.pitcherState}"
           aria-hidden="true"
         >
-          ${renderBaseballStickman("pitcher")}<span class="platformclaw-easter-egg__figure-label"
+          ${renderBaseballStickman("pitcher", "", params.pitcherState.startsWith("underhand"))}<span
+            class="platformclaw-easter-egg__figure-label"
             >투수</span
           >
         </div>
@@ -183,7 +218,7 @@ export function renderBaseballGame(params: {
     ${renderBaseballLeaderboards(
       params.leaderboard,
       params.leaderboardStatus,
-      equipped,
+      equippedName,
       params.onOpenShop,
     )}
     ${params.shopOpen
@@ -199,6 +234,11 @@ export function renderBaseballGame(params: {
           onClose: params.onCloseShop,
           onSelect: params.onSelectBat,
           onStopEvent: params.onStopEvent,
+          notice: params.workshopNotice,
+          effect: params.workshopEffect,
+          onEnhance: params.onEnhance,
+          onRecover: params.onRecover,
+          onEquipEnhanced: params.onEquipEnhanced,
         })
       : nothing}
   </div>`;
@@ -207,12 +247,12 @@ export function renderBaseballGame(params: {
 function renderBaseballLeaderboards(
   leaderboard: BaseballLeaderboard | null,
   status: string,
-  equipped: BaseballBatId,
+  equippedName: string,
   onOpenShop: (event: Event) => void,
 ) {
   return html`<div class="platformclaw-easter-egg__leaderboards" aria-label="야구 랭킹">
     <button class="platformclaw-easter-egg__shop-trigger" type="button" @click=${onOpenShop}>
-      ${BASEBALL_BAT_NAMES[equipped]} 배트 · ${t("platformClaw.baseball.settingsTitle")}
+      ${equippedName} 배트 · ${t("platformClaw.baseball.settingsTitle")}
     </button>
     ${status
       ? html`<span class="platformclaw-easter-egg__leaderboard-status" role="status"
@@ -248,9 +288,18 @@ function renderBaseballLeaderboardRows(entries: BaseballLeaderboardEntry[], suff
   </ol>`;
 }
 
-function renderBaseballStickman(role: "batter" | "pitcher" | "outfielder", capMark = "") {
-  const frontArm = role === "batter" ? "M24 23 39 29" : "M24 23 12 30";
-  const backArm = role === "pitcher" ? "M24 23 38 17" : "M24 23 36 30";
+function renderBaseballStickman(
+  role: "batter" | "pitcher" | "outfielder",
+  capMark = "",
+  underhand = false,
+) {
+  const frontArm = underhand
+    ? "M24 23 16 34 25 46"
+    : role === "batter"
+      ? "M24 23 39 29"
+      : "M24 23 12 30";
+  const backArm =
+    role === "pitcher" ? (underhand ? "M24 23 36 32" : "M24 23 38 17") : "M24 23 36 30";
   const frontLeg = role === "pitcher" ? "M24 37 13 48 25 49" : "M24 37 13 54";
   return html`<svg
     class="platformclaw-easter-egg__figure platformclaw-easter-egg__figure--${role}"
@@ -287,7 +336,13 @@ function renderBaseballShop(params: {
   onClose: (event: Event) => void;
   onSelect: (batId: BaseballBatId, owned: boolean) => void;
   onStopEvent: (event: Event) => void;
+  notice: BaseballWorkshopNotice | null;
+  effect: string;
+  onEnhance: () => void;
+  onRecover: (action: "restore" | "restart") => void;
+  onEquipEnhanced: () => void;
 }) {
+  const teamCost = params.progress?.teamId ? BASEBALL_TEAM_CHANGE_COST : 0;
   return html`<div
     class="platformclaw-easter-egg__shop-scrim"
     role="presentation"
@@ -299,29 +354,48 @@ function renderBaseballShop(params: {
       class="platformclaw-easter-egg__shop"
       role="dialog"
       aria-modal="true"
-      aria-label="배트 상점"
+      aria-label="배트 강화·설정"
     >
       <header>
-        <strong>${t("platformClaw.baseball.settingsTitle")}</strong
+        <strong>배트 강화 · ${t("platformClaw.baseball.settingsTitle")}</strong
         ><button type="button" @click=${params.onClose}>닫기</button>
       </header>
       ${params.saveStatus}
+      ${renderBaseballForge({
+        progress: params.progress,
+        busy: params.busy,
+        pending: params.pending,
+        notice: params.notice,
+        effect: params.effect,
+        onEnhance: params.onEnhance,
+        onRecover: params.onRecover,
+        onEquipEnhanced: params.onEquipEnhanced,
+        onSelectLegacy: params.onSelect,
+      })}
       <div class="platformclaw-easter-egg__settings">
-        <label for="baseball-team">${t("platformClaw.baseball.team")}</label>
+        <label for="baseball-team"
+          >${t("platformClaw.baseball.team")} ·
+          ${teamCost ? `변경 ${teamCost.toLocaleString("ko-KR")}G` : "첫 선택 무료"}</label
+        >
         <select
           id="baseball-team"
-          .value=${params.settings.teamId}
+          .value=${params.progress?.teamId ?? ""}
+          ?disabled=${params.busy || params.pending || !params.progress}
           @change=${(event: Event) =>
             params.onSelectTeam((event.target as HTMLSelectElement).value)}
         >
-          ${BASEBALL_TEAMS.map(
+          <option value="" disabled ?selected=${!params.progress?.teamId}>팀 선택</option>
+          ${BASEBALL_TEAMS.filter((team) => team.id !== "neutral").map(
             (team) =>
-              html`<option value=${team.id} ?selected=${team.id === params.settings.teamId}>
+              html`<option value=${team.id} ?selected=${team.id === params.progress?.teamId}>
                 ${team.name}
               </option>`,
           )}
         </select>
-        <small>${t("platformClaw.baseball.cosmetic")}</small>
+        <small
+          >첫 KBO 팀 선택은 무료이며, 이후 다른 팀으로 변경할 때 2,000G를 사용합니다. 팀은 성능에
+          영향을 주지 않습니다.</small
+        >
         <label for="baseball-opacity"
           >${t("platformClaw.baseball.opacity", { value: String(params.settings.opacity) })}</label
         >
@@ -339,8 +413,8 @@ function renderBaseballShop(params: {
         <button type="button" @click=${() => params.onOpacity(100)}>
           ${t("platformClaw.baseball.restore")}
         </button>
-        <small>${t("platformClaw.baseball.opacityHelp")}</small>
-        <span role="status">${params.settingsStatus}</span>
+        <small>${t("platformClaw.baseball.opacityHelp")}</small
+        ><span role="status">${params.settingsStatus}</span>
       </div>
       <p>${t("platformClaw.baseball.rules")}</p>
       <p>${t("platformClaw.baseball.streakRule")}</p>
@@ -349,35 +423,6 @@ function renderBaseballShop(params: {
           count: String(5 - ((params.progress?.totalHomers ?? 0) % 5)),
         })}
       </p>
-      <p>골드 ${params.progress?.gold ?? 0} · 장착은 다음 타석부터 적용</p>
-      <div class="platformclaw-easter-egg__shop-list">
-        ${BASEBALL_BATS.map((bat) => {
-          const owned = params.progress?.ownedBatIds.includes(bat.id) ?? bat.id === "wood";
-          const equipped = params.progress?.equippedBatId === bat.id;
-          const affordable = (params.progress?.gold ?? 0) >= bat.price;
-          const label = equipped
-            ? "장착 중"
-            : owned
-              ? "장착"
-              : affordable
-                ? `${bat.price}골드 구매`
-                : `${bat.price}골드 부족`;
-          return html`<button
-            type="button"
-            class="platformclaw-easter-egg__shop-item"
-            data-shop-bat=${bat.id}
-            ?disabled=${params.busy || params.pending || equipped || (!owned && !affordable)}
-            @click=${() => params.onSelect(bat.id, owned)}
-          >
-            <span class="platformclaw-easter-egg__shop-bat" data-bat=${bat.id}></span>
-            <span
-              ><strong>${BASEBALL_BAT_NAMES[bat.id]}</strong
-              ><small>파워 ×${bat.exitVelocityMultiplier.toFixed(2)}</small></span
-            >
-            <span>${label}</span>
-          </button>`;
-        })}
-      </div>
     </section>
   </div>`;
 }

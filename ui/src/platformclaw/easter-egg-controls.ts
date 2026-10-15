@@ -83,6 +83,7 @@ function trapBaseballShopFocus(host: HTMLElement, event: KeyboardEvent): void {
 /** One owner attaches and releases arcade input together, including an in-flight pointer gesture. */
 export class ArcadeInputController {
   private pointerId: number | null = null;
+  private readonly controlsHeld = new Set<string>();
   constructor(
     private readonly view: {
       host: HTMLElement;
@@ -98,6 +99,8 @@ export class ArcadeInputController {
 
   connect(): void {
     window.addEventListener("keydown", this.keydown, true);
+    window.addEventListener("keyup", this.keyup, true);
+    window.addEventListener("blur", this.blur);
     window.addEventListener("pointerdown", this.pointerdown, true);
     window.addEventListener("pointerup", this.pointerup, true);
     window.addEventListener("pointercancel", this.pointercancel, true);
@@ -105,6 +108,8 @@ export class ArcadeInputController {
 
   disconnect(): void {
     window.removeEventListener("keydown", this.keydown, true);
+    window.removeEventListener("keyup", this.keyup, true);
+    window.removeEventListener("blur", this.blur);
     window.removeEventListener("pointerdown", this.pointerdown, true);
     window.removeEventListener("pointerup", this.pointerup, true);
     window.removeEventListener("pointercancel", this.pointercancel, true);
@@ -113,9 +118,38 @@ export class ArcadeInputController {
 
   reset(): void {
     this.pointerId = null;
+    this.controlsHeld.clear();
   }
 
+  private readonly keyup = (event: KeyboardEvent): void => {
+    this.controlsHeld.delete(event.code);
+  };
+
+  private readonly blur = (): void => this.reset();
+
   private readonly keydown = (event: KeyboardEvent): void => {
+    if (event.key === "Control" || event.code === "ControlLeft" || event.code === "ControlRight") {
+      const held = this.controlsHeld.size > 0;
+      this.controlsHeld.add(event.code);
+      if (
+        !held &&
+        !event.repeat &&
+        !event.defaultPrevented &&
+        this.view.active() &&
+        !this.view.selector() &&
+        !this.view.shopOpen() &&
+        !isBaseballInteractiveTarget(event.target) &&
+        !isBaseballInteractiveTarget(document.activeElement) &&
+        document.hasFocus() &&
+        this.view.host.contains(document.activeElement)
+      ) {
+        this.view.swing(event);
+      }
+      return;
+    }
+    if (event.ctrlKey || event.altKey || event.metaKey) {
+      return;
+    }
     if (this.view.selector()) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -158,7 +192,7 @@ export class ArcadeInputController {
     if (this.pointerId !== event.pointerId) {
       return;
     }
-    this.reset();
+    this.pointerId = null;
     if (!this.view.shopOpen() && isBaseballSwingZone(event, this.view.player())) {
       this.view.swing(event);
     }
@@ -166,7 +200,7 @@ export class ArcadeInputController {
 
   private readonly pointercancel = (event: PointerEvent): void => {
     if (this.pointerId === event.pointerId) {
-      this.reset();
+      this.pointerId = null;
     }
   };
 }

@@ -54,7 +54,7 @@ async function openSettings(page: Page): Promise<void> {
   });
   await page.locator('[data-game-choice="baseball"]').click();
   await page.locator(".platformclaw-easter-egg__shop-trigger").click();
-  await page.getByRole("dialog", { name: "배트 상점" }).waitFor();
+  await page.getByRole("dialog", { name: "배트 강화·설정" }).waitFor();
 }
 
 async function capture(page: Page, name: string): Promise<void> {
@@ -98,6 +98,7 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     await page.route("**/platformclaw/api/auth/session", (route) =>
       route.fulfill({ json: baseballSession(accountId, "synthetic_agent") }),
     );
+    let teamProgress: BaseballProgress = { ...progress, gold: 100000 };
     const gateway = await installMockGateway(page, {
       basePath: "/platformclaw/app",
       defaultAgentId: "synthetic_agent",
@@ -111,7 +112,7 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
           issuedAt: 0,
           expiresAt: Number.MAX_SAFE_INTEGER,
         },
-        [BASEBALL_RPC.progress]: progress,
+        [BASEBALL_RPC.progress]: teamProgress,
         [BASEBALL_RPC.leaderboard]: {
           distance: [{ displayName: "synthetic-a", value: 147, isCurrentUser: true }],
           homeRunStreak: [],
@@ -121,8 +122,8 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     });
     await page.goto(`${server.baseUrl}platformclaw/app/chat`);
     await openSettings(page);
-    const dialog = page.getByRole("dialog", { name: "배트 상점" });
-    const team = dialog.getByLabel("응원 팀 · 무료");
+    const dialog = page.getByRole("dialog", { name: "배트 강화·설정" });
+    const team = dialog.locator("#baseball-team");
     const opacity = dialog.getByRole("slider");
     expect(await team.locator("option").count()).toBe(11);
     expect(await dialog.getByText("다음 누적 보너스까지 1홈런", { exact: true }).isVisible()).toBe(
@@ -132,6 +133,20 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     for (const mode of ["dark", "light"] as const) {
       await setThemeMode(page, mode);
       for (const club of BASEBALL_TEAMS.slice(1)) {
+        const chargedGold = teamProgress.teamId ? 2000 : 0;
+        teamProgress = Object.assign({}, teamProgress, {
+          teamId: club.id,
+          gold: teamProgress.gold - chargedGold,
+          revision: teamProgress.revision + 1,
+        });
+        await gateway.setMethodResponse(BASEBALL_RPC.selectTeam, {
+          requestId: `synthetic-${mode}-${club.id}`,
+          teamId: club.id,
+          changed: true,
+          chargedGold,
+          progress: teamProgress,
+        });
+        await gateway.setMethodResponse(BASEBALL_RPC.progress, teamProgress);
         await team.selectOption(club.id);
         await expect
           .poll(() => player.locator(".platformclaw-easter-egg__cap-mark").textContent())
@@ -156,9 +171,7 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
         await page.locator(".platformclaw-easter-egg__shop-trigger").click();
       }
     }
-    await team.selectOption("neutral");
-    expect(await player.locator(".platformclaw-easter-egg__cap").count()).toBe(0);
-    await team.selectOption("hanwha");
+    expect(await team.inputValue()).toBe("hanwha");
     await expect.poll(() => player.textContent()).toContain("한화 이글스");
     expect(
       await player
@@ -183,11 +196,13 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     expect(await team.inputValue()).toBe("hanwha");
     expect(await opacity.inputValue()).toBe("30");
     accountId = "synthetic-b";
+    await gateway.setMethodResponse(BASEBALL_RPC.progress, progress);
     await page.reload();
     await openSettings(page);
-    expect(await team.inputValue()).toBe("neutral");
+    expect(await team.inputValue()).toBe("");
     expect(await opacity.inputValue()).toBe("100");
     accountId = "synthetic-a";
+    await gateway.setMethodResponse(BASEBALL_RPC.progress, teamProgress);
     await page.reload();
     await openSettings(page);
     expect(await team.inputValue()).toBe("hanwha");
@@ -215,6 +230,14 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     await page.reload();
     await openSettings(page);
     expect(await opacity.inputValue()).toBe("100");
+    // A pre-server local team cache must not grant an unselected account a team.
+    await gateway.setMethodResponse(BASEBALL_RPC.progress, progress);
+    await page.reload();
+    await openSettings(page);
+    expect(await team.inputValue()).toBe("");
+    expect(await page.locator('[role="application"]').getAttribute("data-team-id")).toBe("neutral");
+    expect(await opacity.inputValue()).toBe("100");
+    await capture(page, "08-server-no-team-clears-local-cache.png");
   });
 
   it("celebrates only a confirmed bonus receipt, once after retry, without delaying the next pitch", async () => {
@@ -246,7 +269,7 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     });
     await page.goto(`${server.baseUrl}platformclaw/app/chat`);
     await openSettings(page);
-    const dialog = page.getByRole("dialog", { name: "배트 상점" });
+    const dialog = page.getByRole("dialog", { name: "배트 강화·설정" });
     await dialog.getByRole("slider").focus();
     await dialog.getByRole("slider").press("Home");
     const frozen = new Date(await page.evaluate(() => Date.now() + 1000));
@@ -271,6 +294,7 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
       progress: { ...progress, gold: 1244, totalHomers: 10, currentHomeRunStreak: 1, revision: 43 },
     };
     await gateway.setMethodResponse(BASEBALL_RPC.plateAppearance, receipt);
+    await gateway.deferNext(BASEBALL_RPC.progress);
     await page.getByRole("button", { name: "재시도", exact: true }).click();
     await page.clock.runFor(20);
     await bonus.waitFor();
@@ -291,6 +315,9 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     expect(Number(await game.getAttribute("data-round"))).toBe(round + 1);
     expect(await gateway.getRequests(BASEBALL_RPC.beginAtBat)).toHaveLength(atBatRequests + 1);
     expect(await game.getAttribute("data-pitch-state")).toBe("ready");
+    await gateway.resolveDeferred(BASEBALL_RPC.progress);
+    await expect.poll(() => game.textContent()).toContain("투구 준비 중");
+    expect(await game.textContent()).toContain("골드 1244");
     expect(
       await bonus
         .locator("i")

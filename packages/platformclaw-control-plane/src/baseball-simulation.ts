@@ -14,12 +14,23 @@ const SIMULATION_STEP_MS = 5;
 const MAX_LATE_CONTACT_SPEED_PENALTY = 0.4;
 const LAUNCH_SPEED_SCALE = 0.88;
 
+const PITCH_PROFILES = [
+  { kind: "fastball", minSpeedKph: 145, maxSpeedKph: 155, weight: 15 },
+  { kind: "changeup", minSpeedKph: 115, maxSpeedKph: 125, weight: 15 },
+  { kind: "underhand", minSpeedKph: 130, maxSpeedKph: 140, weight: 15 },
+  { kind: "curve", minSpeedKph: 105, maxSpeedKph: 115, weight: 15 },
+  { kind: "knuckleball", minSpeedKph: 100, maxSpeedKph: 110, weight: 4 },
+] as const;
+const PITCH_WEIGHT_TOTAL = PITCH_PROFILES.reduce((total, profile) => total + profile.weight, 0);
+
 export type BaseballPoint = { x: number; y: number };
 
 export type Pitch = {
+  kind: (typeof PITCH_PROFILES)[number]["kind"];
   speedKph: number;
   speedMps: number;
   idealContactTimeMs: number;
+  wobblePhase: number;
 };
 
 type AtBatResult = {
@@ -43,23 +54,47 @@ export type BattedBallSimulation = {
 };
 
 export function createPitch(random: () => number = Math.random): Pitch {
-  const sample = Math.min(1, Math.max(0, random()));
-  const speedKph = sample < 0.5 ? 115 + sample * 20 : 145 + (sample - 0.5) * 20;
-  const speedMps = speedKph / 3.6;
-  return {
-    speedKph,
-    speedMps,
-    idealContactTimeMs: ((BASEBALL_WORLD.pitcherX - BASEBALL_WORLD.contactX) / speedMps) * 1_000,
-  };
+  const sample = random();
+  if (!Number.isFinite(sample)) {
+    throw new Error("pitch sample must be a finite number");
+  }
+  // Split one uniform server sample into independent kind and within-kind speed draws.
+  const scaledSample = Math.min(1 - Number.EPSILON, Math.max(0, sample)) * PITCH_WEIGHT_TOTAL;
+  let bandSample = Math.floor(scaledSample);
+  const speedSample = scaledSample - bandSample;
+  // The four regular patterns share 15/64 each; knuckleballs occur 1/16 of the time.
+  for (const profile of PITCH_PROFILES) {
+    if (bandSample < profile.weight) {
+      const speedKph =
+        profile.minSpeedKph + speedSample * (profile.maxSpeedKph - profile.minSpeedKph);
+      const speedMps = speedKph / 3.6;
+      return {
+        kind: profile.kind,
+        speedKph,
+        speedMps,
+        idealContactTimeMs:
+          ((BASEBALL_WORLD.pitcherX - BASEBALL_WORLD.contactX) / speedMps) * 1_000,
+        wobblePhase: speedSample * Math.PI * 2,
+      };
+    }
+    bandSample -= profile.weight;
+  }
+  throw new Error("pitch sample did not select a profile");
 }
 
 export function pitchPositionAt(pitch: Pitch, elapsedMs: number): BaseballPoint {
+  const progress = Math.min(1, Math.max(0, elapsedMs) / pitch.idealContactTimeMs);
+  // Underhand is a low-release game pattern, not an extra pitch type or a late rise.
+  const releaseY = pitch.kind === "underhand" ? 0.35 : BASEBALL_WORLD.pitchY;
+  const bendHeight = pitch.kind === "curve" ? 2.5 : 0;
+  const envelope = 4 * progress * (1 - progress);
+  const wobble =
+    pitch.kind === "knuckleball"
+      ? 0.16 * envelope ** 2 * Math.sin(6 * Math.PI * progress + pitch.wobblePhase)
+      : 0;
   return {
-    x: Math.max(
-      BASEBALL_WORLD.contactX,
-      BASEBALL_WORLD.pitcherX - pitch.speedMps * (Math.max(0, elapsedMs) / 1_000),
-    ),
-    y: BASEBALL_WORLD.pitchY,
+    x: BASEBALL_WORLD.pitcherX + (BASEBALL_WORLD.contactX - BASEBALL_WORLD.pitcherX) * progress,
+    y: releaseY + (BASEBALL_WORLD.pitchY - releaseY) * progress + bendHeight * envelope + wobble,
   };
 }
 

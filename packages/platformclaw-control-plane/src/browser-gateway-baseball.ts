@@ -2,6 +2,7 @@ import {
   BASEBALL_RPC,
   BaseballGameError,
   isBaseballBatId,
+  isBaseballKboTeamId,
   isBaseballRpcMethod,
   type BaseballGameStore,
 } from "./baseball-contracts.js";
@@ -53,6 +54,13 @@ function requiredBatId(value: unknown) {
   return value;
 }
 
+function requiredRevision(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new BrowserGatewayProxyError("invalid-params", "baseball expectedRevision is required");
+  }
+  return value;
+}
+
 export async function requestBrowserBaseball(params: {
   store?: BaseballGameStore;
   userId: string;
@@ -98,12 +106,56 @@ export async function requestBrowserBaseball(params: {
         }),
       };
     }
+    if (
+      params.method === BASEBALL_RPC.enhanceBat ||
+      params.method === BASEBALL_RPC.recoverBat ||
+      params.method === BASEBALL_RPC.equipEnhancedBat ||
+      params.method === BASEBALL_RPC.selectTeam
+    ) {
+      const common = {
+        userId: params.userId,
+        requestId: requiredRequestId(params.request.requestId),
+        expectedRevision: requiredRevision(params.request.expectedRevision),
+      };
+      if (params.method === BASEBALL_RPC.enhanceBat) {
+        return { handled: true, result: await params.store.enhanceBaseballBat(common) };
+      }
+      if (params.method === BASEBALL_RPC.equipEnhancedBat) {
+        return { handled: true, result: await params.store.equipEnhancedBaseballBat(common) };
+      }
+      if (params.method === BASEBALL_RPC.recoverBat) {
+        const action = params.request.action;
+        if (action !== "restore" && action !== "restart") {
+          throw new BrowserGatewayProxyError(
+            "invalid-params",
+            "baseball recovery action is invalid",
+          );
+        }
+        return {
+          handled: true,
+          result: await params.store.recoverBaseballBat({ ...common, action }),
+        };
+      }
+      const teamId = params.request.teamId;
+      if (!isBaseballKboTeamId(teamId)) {
+        throw new BrowserGatewayProxyError("invalid-params", "baseball KBO team is invalid");
+      }
+      return {
+        handled: true,
+        result: await params.store.selectBaseballTeam({ ...common, teamId }),
+      };
+    }
     const requestId = requiredRequestId(params.request.requestId);
     const batId = requiredBatId(params.request.batId);
     if (params.method === BASEBALL_RPC.purchaseBat) {
       return {
         handled: true,
-        result: await params.store.purchaseBaseballBat({ userId: params.userId, requestId, batId }),
+        result: await params.store.purchaseBaseballBat({
+          userId: params.userId,
+          requestId,
+          batId,
+          historicalOnly: true,
+        }),
       };
     }
     return {

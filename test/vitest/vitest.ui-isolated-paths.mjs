@@ -7,6 +7,7 @@ export const uiIsolatedTestFiles = [
   "ui/src/app/router-outlet.test.ts",
   "ui/src/components/resizable-divider.test.ts",
   "ui/src/components/viewer-facepile.test.ts",
+  "ui/src/platformclaw/easter-egg-workshop.test.ts",
   "ui/src/platformclaw/execution-settings.test.ts",
   "ui/src/platformclaw/spaces-management.test.ts",
   "ui/src/platformclaw/spaces-page.test.ts",
