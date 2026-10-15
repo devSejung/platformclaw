@@ -376,11 +376,13 @@ async function main(): Promise<void> {
         );
         demoUsers.push(principal.user);
       }
-      let race = liveRuntime.auth.store.racing.snapshot(demoUsers[0].id, clockNow()).race;
+      // The fixed two-account setup always provides the spectator that observes the demo.
+      const spectator = demoUsers[0]!;
+      let race = liveRuntime.auth.store.racing.snapshot(spectator.id, clockNow()).race;
       // Demo participants exist only in this synthetic harness; the viewer's wallet is never charged.
       for (let attempts = 0; attempts < 8 && race?.status !== "betting"; attempts++) {
         stage("next");
-        race = liveRuntime.auth.store.racing.snapshot(demoUsers[0].id, clockNow()).race;
+        race = liveRuntime.auth.store.racing.snapshot(spectator.id, clockNow()).race;
       }
       if (!race || race.status !== "betting") {
         throw new Error("Open a new test race before starting the demo");
