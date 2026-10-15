@@ -97,7 +97,7 @@ describe("horse racing spectator and wallet UI", () => {
     });
     await flush(element);
     expect(element.querySelectorAll("[data-horse-id]")).toHaveLength(6);
-    expect(element.textContent).toContain("한국시간 평일 09~19시 · 30분마다");
+    expect(element.textContent).toContain("한국시간 평일 09~20시 · 30분마다 · 하루 23경주");
     expect(element.textContent).toContain("100 G");
     expect(element.textContent).not.toContain("승률");
     expect(element.querySelectorAll(".platformclaw-racing__gauge")).toHaveLength(12);

@@ -86,9 +86,9 @@ describe("SQLite horse racing betting policy", () => {
           .get(),
       ),
     ).toEqual({
-      count: 21,
+      count: 23,
       first: START - 2 * 3_600_000,
-      last: START + 8 * 3_600_000,
+      last: START + 9 * 3_600_000,
     });
     const end = START + HORSE_RACE_DURATION_MS;
     const settled = reopened.racing.snapshot(alice.id, end, race.id);

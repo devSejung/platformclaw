@@ -131,7 +131,7 @@ occupied ports and cleans up only its own child services.
 
 The production game opens through seven quick brand/logo clicks and the game
 selector. Racing uses the same G balance as baseball and bat purchases. Weekday
-races start every thirty minutes from 09:00 through 19:00 in Asia/Seoul, twenty-one
+races start every thirty minutes from 09:00 through 20:00 in Asia/Seoul, twenty-three
 per day; there are no weekend races. The first race opens at 08:50. Subsequent races open ten seconds after the
 previous scheduled three-minute race ends. Betting closes one minute before departure.
 Tickets range from 50G to 1,000G, inclusive.

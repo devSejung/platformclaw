@@ -27,7 +27,7 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.baseball": "야구",
   "platformClaw.racing.baseballHelp": "안타와 홈런으로 G를 모으세요",
   "platformClaw.racing.sharedGold": "야구 보상과 경마는 내 계정의 G를 함께 사용합니다.",
-  "platformClaw.racing.schedule": "한국시간 평일 09~19시 · 30분마다 · 하루 21경주 · 주말 휴장",
+  "platformClaw.racing.schedule": "한국시간 평일 09~20시 · 30분마다 · 하루 23경주 · 주말 휴장",
   "platformClaw.racing.close": "게임 닫기",
   "platformClaw.racing.loading": "경주 불러오는 중…",
   "platformClaw.racing.disconnected":

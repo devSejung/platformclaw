@@ -31,7 +31,7 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.baseballHelp": "Earn G with hits and home runs",
   "platformClaw.racing.sharedGold": "Baseball rewards and racing share your account's G.",
   "platformClaw.racing.schedule":
-    "KST weekdays · 09:00–19:00 · every 30 minutes · 21 races a day · weekends closed",
+    "KST weekdays · 09:00–20:00 · every 30 minutes · 23 races a day · weekends closed",
   "platformClaw.racing.close": "Close game",
   "platformClaw.racing.loading": "Loading the race…",
   "platformClaw.racing.disconnected":
