@@ -1,5 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 
+export const BASEBALL_CELEBRATION_MS = 900;
+
 /** One small celebration per confirmed receipt, independent of gameplay timing. */
 export class BaseballCelebration implements ReactiveController {
   visible = false;
@@ -21,7 +23,7 @@ export class BaseballCelebration implements ReactiveController {
     this.hide();
     this.visible = true;
     this.host.requestUpdate();
-    this.timer = setTimeout(() => this.hide(), 550);
+    this.timer = setTimeout(() => this.hide(), BASEBALL_CELEBRATION_MS);
   }
 
   hide(): void {

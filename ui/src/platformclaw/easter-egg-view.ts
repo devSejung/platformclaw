@@ -1,4 +1,4 @@
-import { html, nothing } from "lit";
+import { html, nothing, svg } from "lit";
 import { styleMap } from "lit/directives/style-map.js";
 import {
   BASEBALL_BATS,
@@ -8,6 +8,7 @@ import {
   type BaseballLeaderboardEntry,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import { BASEBALL_CELEBRATION_MS } from "./easter-egg-celebration.ts";
 import { BASEBALL_TEAMS, type BaseballSettings } from "./easter-egg-settings.ts";
 import { platformClawT as t } from "./i18n.ts";
 
@@ -91,6 +92,9 @@ export function renderBaseballGame(params: {
     style=${styleMap({
       "--baseball-opacity": String(params.settings.opacity / 100),
       "--baseball-team-color": team.color || undefined,
+      "--baseball-cap-color": team.capColor || undefined,
+      "--baseball-cap-mark-color": team.capMarkColor || undefined,
+      "--baseball-celebration-duration": `${BASEBALL_CELEBRATION_MS}ms`,
     })}
   >
     ${!params.shopOpen ? saveStatus : nothing}
@@ -154,7 +158,9 @@ export function renderBaseballGame(params: {
           class="platformclaw-easter-egg__player platformclaw-easter-egg__player--${params.playerState}"
           aria-hidden="true"
         >
-          ${renderBaseballStickman("batter")}<span class="platformclaw-easter-egg__bat"></span
+          ${renderBaseballStickman("batter", team.capMark)}<span
+            class="platformclaw-easter-egg__bat"
+          ></span
           ><span class="platformclaw-easter-egg__figure-label"
             >${team.id === "neutral" ? "타자" : team.name}</span
           >
@@ -242,7 +248,7 @@ function renderBaseballLeaderboardRows(entries: BaseballLeaderboardEntry[], suff
   </ol>`;
 }
 
-function renderBaseballStickman(role: "batter" | "pitcher" | "outfielder") {
+function renderBaseballStickman(role: "batter" | "pitcher" | "outfielder", capMark = "") {
   const frontArm = role === "batter" ? "M24 23 39 29" : "M24 23 12 30";
   const backArm = role === "pitcher" ? "M24 23 38 17" : "M24 23 36 30";
   const frontLeg = role === "pitcher" ? "M24 37 13 48 25 49" : "M24 37 13 54";
@@ -254,6 +260,13 @@ function renderBaseballStickman(role: "batter" | "pitcher" | "outfielder") {
     focusable="false"
   >
     <circle class="platformclaw-easter-egg__figure-head" cx="24" cy="10" r="6" />
+    ${capMark
+      ? svg`<g class="platformclaw-easter-egg__cap" transform="translate(15 -2)">
+          <path class="platformclaw-easter-egg__cap-crown" d="M1 10V7a8 7 0 0 1 16 0v3Z" />
+          <path class="platformclaw-easter-egg__cap-brim" d="M1 10h20" />
+          <text class="platformclaw-easter-egg__cap-mark" x="9" y="8.5" text-anchor="middle">${capMark}</text>
+        </g>`
+      : nothing}
     <path class="platformclaw-easter-egg__figure-torso" d="M24 17v20" />
     <path class="platformclaw-easter-egg__figure-arm-back" d=${backArm} />
     <path class="platformclaw-easter-egg__figure-arm-front" d=${frontArm} />

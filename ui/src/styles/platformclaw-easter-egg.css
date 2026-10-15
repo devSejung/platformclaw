@@ -53,7 +53,8 @@ platformclaw-easter-egg {
   height: 4px;
   border-radius: 50%;
   background: var(--baseball-team-color, #d6aa35);
-  animation: platformclaw-baseball-bonus 500ms ease-out both;
+  box-shadow: 0 0 0 0.5px var(--text);
+  animation: platformclaw-baseball-bonus var(--baseball-celebration-duration) ease-out both;
 }
 
 @keyframes platformclaw-baseball-bonus {
@@ -346,12 +347,32 @@ platformclaw-easter-egg {
   opacity: 0.72;
 }
 
-.platformclaw-easter-egg__player .platformclaw-easter-egg__figure-head {
-  fill: var(--baseball-team-color, currentcolor);
-}
-
 .platformclaw-easter-egg__player .platformclaw-easter-egg__figure-torso {
   stroke: var(--baseball-team-color, currentcolor);
+  filter: drop-shadow(0 0 0.7px var(--text));
+}
+
+.platformclaw-easter-egg__cap-crown {
+  fill: var(--baseball-cap-color);
+  stroke: var(--text);
+  stroke-width: 0.6;
+}
+
+.platformclaw-easter-egg__cap-brim {
+  fill: none;
+  stroke: var(--baseball-cap-color);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.platformclaw-easter-egg__cap-mark {
+  fill: var(--baseball-cap-mark-color);
+  stroke: #fff;
+  stroke-width: 0.3;
+  paint-order: stroke fill;
+  font-family: Arial, sans-serif;
+  font-size: 7px;
+  font-weight: 900;
 }
 
 .platformclaw-easter-egg__figure-label {

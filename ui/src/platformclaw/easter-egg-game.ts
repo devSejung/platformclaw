@@ -322,7 +322,6 @@ class PlatformClawEasterEgg extends BaseballPersistence {
       return;
     }
     this.clock.clear("pitch");
-    this.celebration.hide();
     this.clock.clear("follow");
     this.clock.clear("batter");
     this.clock.clear("feedback");
