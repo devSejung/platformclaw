@@ -351,12 +351,9 @@ export class SqliteHorseRacingStore implements HorseRacingStore {
         };
       }
       const race = this.findRace(bet.race_id);
-      if (
-        !race ||
-        race.status !== "betting" ||
-        now < horseRaceOpensAt(race.starts_at) ||
-        now >= race.starts_at - HORSE_RACE_LOCK_BEFORE_MS
-      ) {
+      // A schedule update can move opening later after this ticket was accepted.
+      // Its owner retains cancellation until close; the opening gate belongs to new debits only.
+      if (!race || race.status !== "betting" || now >= race.starts_at - HORSE_RACE_LOCK_BEFORE_MS) {
         throw new HorseRacingError("betting_closed", "베팅 접수가 마감되어 취소할 수 없습니다.");
       }
       // Cancellation, refund and ledger share the race write lock; recovery sees only active tickets.
@@ -448,21 +445,49 @@ export class SqliteHorseRacingStore implements HorseRacingStore {
   }
   private buildSnapshot(userId: string, now: number, raceId?: string): HorseRacingSnapshot {
     const nextStartsAt = nextHorseRaceStartsAt(now);
-    const recent = executeSync(
+    const latestStarted = takeFirstSync(
       this.db,
       this.query
         .selectFrom("horse_races")
         .selectAll()
         .where("starts_at", "<=", now)
         .orderBy("starts_at", "desc")
+        .limit(1),
+    );
+    const recent = executeSync(
+      this.db,
+      this.query
+        .selectFrom("horse_races")
+        .selectAll()
+        .where((eb) =>
+          eb.or([
+            eb("horse_races.starts_at", "<=", now),
+            eb.exists(
+              eb
+                .selectFrom("horse_bets")
+                .leftJoin(
+                  "horse_bet_cancellations",
+                  "horse_bet_cancellations.bet_id",
+                  "horse_bets.id",
+                )
+                .select("horse_bets.id")
+                .whereRef("horse_bets.race_id", "=", "horse_races.id")
+                .where("horse_bets.user_id", "=", userId)
+                .where("horse_bets.payout", "is", null)
+                .where("horse_bet_cancellations.bet_id", "is", null),
+            ),
+          ]),
+        )
+        .orderBy("starts_at", "desc")
         .limit(7),
     ).rows;
+    // Own future tickets remain reachable after a timetable update without displacing the live race.
     const next = this.findRace(`race-${nextStartsAt}`);
     const selected = raceId
       ? this.findRace(raceId)
       : next && now >= horseRaceOpensAt(next.starts_at)
         ? next
-        : (recent[0] ?? next);
+        : (latestStarted ?? next);
     if (raceId && !selected) {
       throw new HorseRacingError("unknown_race", "경주를 찾을 수 없습니다.");
     }

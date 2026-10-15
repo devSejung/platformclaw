@@ -18,6 +18,9 @@ export type HorseRacingView = {
   pendingCancelId: string | null;
   onCancel: (betId: string) => void;
   muted: boolean;
+  opacity: number;
+  settingsStatus: string;
+  onOpacity: (opacity: number) => void;
   reducedMotion: boolean;
   historical: boolean;
   verification: string;

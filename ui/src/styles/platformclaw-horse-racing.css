@@ -1,6 +1,14 @@
 /* Company UI stays usable around the dock. Only the panel itself receives pointer input. */
 .platformclaw-racing-dock,
 .platformclaw-racing-pill,
+.platformclaw-racing-perimeter,
+.platformclaw-racing-minimized-feed,
+.platformclaw-racing__win {
+  opacity: var(--racing-opacity, 1);
+}
+
+.platformclaw-racing-dock,
+.platformclaw-racing-pill,
 .platformclaw-games-scrim,
 .platformclaw-games-nav {
   position: fixed;
@@ -426,6 +434,20 @@
 }
 .platformclaw-racing__settings [aria-pressed="true"] {
   border-color: var(--accent);
+}
+.platformclaw-racing__opacity {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+}
+.platformclaw-racing__opacity input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.platformclaw-racing__opacity small,
+.platformclaw-racing__opacity [role="status"] {
+  color: var(--muted);
+  font-size: 10px;
 }
 .platformclaw-racing__warning {
   margin: 8px 0;

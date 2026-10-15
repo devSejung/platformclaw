@@ -20,6 +20,11 @@ import "../styles/platformclaw-horse-racing-betting.css";
 import { HorseRacingCelebration, type RacingWinReaction } from "./horse-racing-celebration.ts";
 import { paintHorsePerimeter, renderHorsePerimeter } from "./horse-racing-perimeter-view.ts";
 import { horseRaceBoosts } from "./horse-racing-perimeter.ts";
+import {
+  isHorseRacingOpacity,
+  loadHorseRacingOpacity,
+  saveHorseRacingOpacity,
+} from "./horse-racing-settings.ts";
 import { verifyHorseRace } from "./horse-racing-verification.ts";
 import { renderHorseRacing } from "./horse-racing-view.ts";
 import { platformClawT as t } from "./i18n.ts";
@@ -48,6 +53,8 @@ class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
   @state() private pending: HorseBetRequest | null = null;
   @state() private pendingCancel: { betId: string; raceId: string } | null = null;
   @state() private muted = true;
+  @state() private opacity = 100;
+  @state() private settingsStatus = "";
   @state() private reducedMotion = false;
   @state() private viewingRaceId: string | null = null;
   @state() private verification = "";
@@ -103,6 +110,10 @@ class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
       this.clearRailLayout();
       return;
     }
+    if (changed.has("preferenceScope")) {
+      this.opacity = loadHorseRacingOpacity(this.preferenceScope);
+      this.settingsStatus = "";
+    }
     if (changed.has("client") || changed.has("preferenceScope")) {
       this.stop();
       this.celebration.reset();
@@ -122,6 +133,8 @@ class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
       }
       this.resume();
     }
+    // The display:contents host shares one preference across all fixed siblings without changing their viewport geometry.
+    this.style.setProperty("--racing-opacity", String(this.opacity / 100));
     this.syncRailLayout();
     this.paintPerimeter();
   }
@@ -154,6 +167,16 @@ class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
       pendingCancelId: this.pendingCancelId,
       onCancel: (betId) => void this.cancelBet(betId),
       muted: this.muted,
+      opacity: this.opacity,
+      settingsStatus: this.settingsStatus,
+      onOpacity: (opacity) => {
+        if (isHorseRacingOpacity(opacity)) {
+          this.opacity = opacity;
+          this.settingsStatus = saveHorseRacingOpacity(this.preferenceScope, opacity)
+            ? t("platformClaw.racing.settingsSaved")
+            : t("platformClaw.racing.settingsUnsaved");
+        }
+      },
       reducedMotion: this.reducedMotion,
       historical: this.viewingRaceId !== null,
       verification: this.verification,
@@ -505,6 +528,7 @@ class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
     if (!this.pending) {
       const valid =
         race.status === "betting" &&
+        this.serverNow >= race.opensAt &&
         this.serverNow < race.closesAt &&
         this.selection.length === (this.market === "win" ? 1 : 2) &&
         Number.isSafeInteger(this.amount) &&

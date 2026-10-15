@@ -1,4 +1,9 @@
 export const racingTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.racing.opacity": "게임 화면 불투명도 · {value}%",
+  "platformClaw.racing.restoreOpacity": "100%로 복구",
+  "platformClaw.racing.opacityHelp": "말·패널·실시간 현황·당첨 효과 전체에 30~100%로 적용합니다.",
+  "platformClaw.racing.settingsSaved": "이 브라우저의 내 계정에 저장됨",
+  "platformClaw.racing.settingsUnsaved": "설정을 저장할 수 없어 이번 실행에만 적용됩니다",
   "platformClaw.racing.verify": "내 브라우저에서 이 경주 검증",
   "platformClaw.racing.verifying": "검증 해시와 결승 순위를 재계산하는 중…",
   "platformClaw.racing.verified": "검증 완료: 경주 전 해시와 확률 추첨 순위가 모두 일치합니다.",
@@ -22,7 +27,7 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.baseball": "야구",
   "platformClaw.racing.baseballHelp": "안타와 홈런으로 G를 모으세요",
   "platformClaw.racing.sharedGold": "야구 보상과 경마는 내 계정의 G를 함께 사용합니다.",
-  "platformClaw.racing.schedule": "한국시간 평일 11~17시 정각 · 하루 7경주 · 주말 휴장",
+  "platformClaw.racing.schedule": "한국시간 평일 09~19시 · 30분마다 · 하루 21경주 · 주말 휴장",
   "platformClaw.racing.close": "게임 닫기",
   "platformClaw.racing.loading": "경주 불러오는 중…",
   "platformClaw.racing.disconnected":
@@ -76,9 +81,9 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.retryBet": "같은 베팅 재확인",
   "platformClaw.racing.placeBet": "베팅 접수하기",
   "platformClaw.racing.betClosed":
-    "현재 접수 시간이 아닙니다. 첫 경주는 10:50에 열리고, 다음 경주는 이전 경주 종료 10초 후 열려 출발 1분 전에 마감됩니다.",
+    "현재 접수 시간이 아닙니다. 첫 경주는 08:50에 열리고, 다음 경주는 이전 경주 종료 10초 후 열려 출발 1분 전에 마감됩니다.",
   "platformClaw.racing.refresh": "다시 불러오기",
-  "platformClaw.racing.recent": "최근 경주",
+  "platformClaw.racing.recent": "경주 기록 · 내 예정 베팅",
   "platformClaw.racing.live": "현재 경주로",
   "platformClaw.racing.soundOff": "소리 꺼짐 · 켜기",
   "platformClaw.racing.soundOn": "소리 켜짐 · 끄기",
@@ -94,7 +99,7 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.perimeterHelp":
     "말들이 화면 가장자리를 세 바퀴 달립니다. 앱은 계속 사용할 수 있어요.",
   "platformClaw.racing.trackWaiting":
-    "정각에 3분 경주가 시작되면 화면 가장자리에 말들이 나타납니다.",
+    "매시 정각과 30분에 3분 경주가 시작되면 화면 가장자리에 말들이 나타납니다.",
   "platformClaw.racing.cancelBet": "베팅 취소",
   "platformClaw.racing.retryCancel": "이 취소 다시 확인",
   "platformClaw.racing.cancelling": "베팅 취소 중…",

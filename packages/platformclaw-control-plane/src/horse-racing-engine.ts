@@ -18,6 +18,9 @@ export const HORSE_RACE_DURATION_MS = 180_000;
 const HORSE_RACE_BETTING_WINDOW_MS = 10 * 60_000;
 export const HORSE_RACE_LOCK_BEFORE_MS = 60_000;
 const HORSE_RACE_REST_MS = 10_000;
+const HORSE_RACE_INTERVAL_MS = 30 * 60_000;
+const FIRST_HORSE_RACE_HOUR = 9;
+const LAST_HORSE_RACE_HOUR = 19;
 const KST_OFFSET_MS = 9 * 60 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -121,19 +124,23 @@ export function getHorseRaceDayStarts(now: number): number[] {
   }
   const midnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
   return Array.from(
-    { length: 7 },
-    (_, index) => midnight + (11 + index) * 3_600_000 - KST_OFFSET_MS,
+    {
+      length:
+        ((LAST_HORSE_RACE_HOUR - FIRST_HORSE_RACE_HOUR) * 3_600_000) / HORSE_RACE_INTERVAL_MS + 1,
+    },
+    (_, index) =>
+      midnight + FIRST_HORSE_RACE_HOUR * 3_600_000 + index * HORSE_RACE_INTERVAL_MS - KST_OFFSET_MS,
   );
 }
 
 export function horseRaceOpensAt(startsAt: number): number {
-  const hour = new Date(startsAt + KST_OFFSET_MS).getUTCHours();
-  if (hour === 11) {
+  const local = new Date(startsAt + KST_OFFSET_MS);
+  if (local.getUTCHours() === FIRST_HORSE_RACE_HOUR && local.getUTCMinutes() === 0) {
     return startsAt - HORSE_RACE_BETTING_WINDOW_MS;
   }
   // Later races open after the previous scheduled race's full duration and rest,
   // even if that race was cancelled. Cancellation must not silently move the next betting window.
-  return startsAt - 3_600_000 + HORSE_RACE_DURATION_MS + HORSE_RACE_REST_MS;
+  return startsAt - HORSE_RACE_INTERVAL_MS + HORSE_RACE_DURATION_MS + HORSE_RACE_REST_MS;
 }
 
 export function nextHorseRaceStartsAt(now: number): number {

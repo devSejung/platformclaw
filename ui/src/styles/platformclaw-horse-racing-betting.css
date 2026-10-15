@@ -154,7 +154,7 @@
   }
   to {
     transform: translateY(0) scale(1);
-    opacity: 1;
+    opacity: var(--racing-opacity, 1);
   }
 }
 @media (max-width: 999px) {
