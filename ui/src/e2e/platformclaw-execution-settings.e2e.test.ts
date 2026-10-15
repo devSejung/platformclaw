@@ -194,10 +194,14 @@ suite("PlatformClaw coding agent settings", () => {
         }),
       )
       .toBe(true);
-    const tabBoxes = await Promise.all(
-      ["location", "agents"].map((id) =>
-        component.locator(`[data-settings-tab='${id}']`).boundingBox(),
-      ),
+    // Compare one animation frame while the modal scales into view.
+    const tabBoxes = await settingsTabs.evaluate((group) =>
+      ["location", "agents"].map((id) => {
+        const tab = group.querySelector<HTMLElement>(`[data-settings-tab='${id}']`);
+        return tab && tab.getClientRects().length > 0
+          ? { width: tab.getBoundingClientRect().width }
+          : null;
+      }),
     );
     expect(tabBoxes[0]).not.toBeNull();
     expect(tabBoxes[1]).not.toBeNull();
