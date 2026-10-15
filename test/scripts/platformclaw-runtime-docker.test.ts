@@ -1913,6 +1913,13 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
     expect(server).toContain('append_event("login_shell_started"');
     expect(server).toContain('argv = [shell, "-il"]');
     expect(smokeScript).toContain(`printf '\\''%s\\n'\\''`);
+    expect(smokeScript).toContain("Host platformclaw-safeconnect\\n");
+    expect(smokeScript).toContain("HostName safeconnect.platformclaw.test\\n  User %s\\n");
+    expect(smokeScript).toContain('-F "$probe_dir/config"');
+    expect(smokeScript).toContain('target="platformclaw-safeconnect"');
+    expect(smokeScript).not.toContain("10.0.0.10@safeconnect.platformclaw.test");
+    expect(smokeScript).toContain("-o StrictHostKeyChecking=yes");
+    expect(smokeScript).toContain('-o UserKnownHostsFile="$probe_dir/known_hosts"');
     expect(server).not.toContain('responses[0], "password"');
     expect(fixtureDockerfile).toContain("--requirement /fixture/requirements.txt");
     expect(fixtureRequirements).toContain("asyncssh==2.24.0");
