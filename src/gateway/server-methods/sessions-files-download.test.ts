@@ -260,7 +260,7 @@ describe("session workspace downloads", () => {
       params: { sessionKey: "", path: "a" },
     };
     request.id = "i".repeat(MAX_PAYLOAD_BYTES - Buffer.byteLength(JSON.stringify(request), "utf8"));
-    const respond: RespondFn = vi.fn();
+    const respond: RespondFn = vi.fn<RespondFn>();
     respond.withCompletion = vi.fn(async () => {});
     const read = vi.spyOn(workspaceFs, "readWorkspaceFile");
     await expect(invokeWithResponse(respond, undefined, request)).rejects.toThrow(
@@ -422,7 +422,7 @@ describe("session workspace downloads", () => {
     const completion = new Promise<void>((resolve) => {
       complete = resolve;
     });
-    const respond: RespondFn = vi.fn();
+    const respond: RespondFn = vi.fn<RespondFn>();
     respond.withCompletion = vi.fn(() => completion);
     let finished = false;
     const first = Promise.resolve(invokeWithResponse(respond)).then(() => {
@@ -451,7 +451,7 @@ describe("session workspace downloads", () => {
 
   it("refuses responders without a known completion boundary before reading or taking a slot", async () => {
     const read = vi.spyOn(workspaceFs, "readWorkspaceFile");
-    const respond: RespondFn = vi.fn();
+    const respond: RespondFn = vi.fn<RespondFn>();
     await invokeWithResponse(respond);
     expect(respond).toHaveBeenCalledWith(
       false,
@@ -473,7 +473,7 @@ describe("session workspace downloads", () => {
     const completion = new Promise<void>((resolve) => {
       complete = resolve;
     });
-    const respond: RespondFn = vi.fn();
+    const respond: RespondFn = vi.fn<RespondFn>();
     respond.withCompletion = vi.fn(() => completion);
     const first = Promise.resolve(invokeWithResponse(respond));
     try {
@@ -506,7 +506,7 @@ describe("session workspace downloads", () => {
         return await read(...args);
       });
     let closed = false;
-    const respond: RespondFn = vi.fn();
+    const respond: RespondFn = vi.fn<RespondFn>();
     // A closed known transport reports terminal completion as soon as sending is attempted.
     respond.withCompletion = vi.fn(async () => {
       expect(closed).toBe(true);
@@ -532,7 +532,7 @@ describe("session workspace downloads", () => {
     "releases admission after %s failure",
     async (failure) => {
       const failureError = new Error("synthetic failure");
-      const respond: RespondFn = vi.fn();
+      const respond: RespondFn = vi.fn<RespondFn>();
       respond.withCompletion = vi.fn(async () => {});
       if (failure === "read") {
         vi.spyOn(workspaceFs, "readWorkspaceFile").mockRejectedValueOnce(failureError);

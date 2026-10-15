@@ -277,7 +277,7 @@ describe("authenticated WebSocket request trace dispatch", () => {
       const client = createClient();
       client.invalidated = failure === "invalidated";
       client.usesSharedGatewayAuth = failure === "shared-auth-stale";
-      client.sharedGatewaySessionGeneration = 1;
+      client.sharedGatewaySessionGeneration = "stale-generation";
       const send = vi.fn();
       const close = vi.fn();
       const buildRequestContext = vi.fn();
@@ -285,7 +285,7 @@ describe("authenticated WebSocket request trace dispatch", () => {
         handler: {
           connId: "download-stale-client",
           extraHandlers: {},
-          getRequiredSharedGatewaySessionGeneration: () => 2,
+          getRequiredSharedGatewaySessionGeneration: () => "current-generation",
           send,
           close,
           buildRequestContext,
@@ -533,7 +533,7 @@ describe("authenticated WebSocket request trace dispatch", () => {
         scopes: [],
       });
       const request = maximumInboundDownloadRequest({ sessionKey: "a", path: "a" });
-      const boundedResponse = onceMessage<ResponseFrame>(
+      const boundedResponse = onceMessage<Omit<ResponseFrame, "payload">>(
         limitedWs,
         (frame) => frame.type === "res" && frame.id === request.id,
       );
@@ -545,7 +545,7 @@ describe("authenticated WebSocket request trace dispatch", () => {
       );
       expect(limitedWs.readyState).toBe(WebSocket.OPEN);
 
-      const scopeResponse = onceMessage<ResponseFrame>(
+      const scopeResponse = onceMessage<Omit<ResponseFrame, "payload">>(
         limitedWs,
         (frame) => frame.type === "res" && frame.id === "ordinary-download-scope",
       );

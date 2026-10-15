@@ -25,8 +25,8 @@ function harness(
   vi.stubGlobal(
     "URL",
     class extends URL {
-      static createObjectURL = createObjectURL;
-      static revokeObjectURL = revokeObjectURL;
+      static override createObjectURL = createObjectURL;
+      static override revokeObjectURL = revokeObjectURL;
     },
   );
   const anchors: HTMLAnchorElement[] = [];
