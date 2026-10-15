@@ -341,7 +341,9 @@ async function main(): Promise<void> {
         raceStartsAt = nextHorseRaceStartsAt(
           Math.max(current, raceStartsAt + HORSE_RACE_DURATION_MS),
         );
-        target = horseRaceOpensAt(raceStartsAt);
+        // The next betting window can already be open after a real-time demo ends.
+        // Freeze at the current time rather than rewinding and rejecting the next demo.
+        target = Math.max(current, horseRaceOpensAt(raceStartsAt));
       } else if (action === "open") {
         target = horseRaceOpensAt(raceStartsAt);
       } else if (action === "lock") {
@@ -361,6 +363,9 @@ async function main(): Promise<void> {
       liveRuntime.auth.store.racing.advance(clockNow());
     };
     const runDemo = async () => {
+      // Keep the selected betting window stable while synthetic participants are funded.
+      clockBase = clockNow();
+      runningSince = null;
       const demoUsers = [];
       for (let index = 1; index <= 2; index++) {
         const accountId = `racing.demo.${index}`;
@@ -408,6 +413,8 @@ async function main(): Promise<void> {
           clockNow(),
         );
       }
+      // Snapshot may have advanced to the next betting race while the prior demo ran.
+      raceStartsAt = race.startsAt;
       stage("start");
     };
     let demoInFlight: Promise<void> | null = null;
