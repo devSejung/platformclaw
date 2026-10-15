@@ -7,6 +7,9 @@ import { getSafeLocalStorage } from "../local-storage.ts";
 import type { BaseballMutation } from "./easter-egg-persistence.ts";
 
 type StoredMutation = Pick<BaseballMutation, "method" | "params"> & { createdAt?: number };
+type ValidStoredMutation = StoredMutation & {
+  params: { requestId: string; expectedRevision: number };
+};
 
 function prefix(scope: string): string {
   return `platformclaw.baseball.pending.v1:${encodeURIComponent(scope)}:`;
@@ -46,7 +49,7 @@ export function isWorkshopJournalEvent(scope: string | null, key: string | null)
   return Boolean(scope && key && (key.startsWith(prefix(scope)) || key === receiptKey(scope)));
 }
 
-function valid(value: unknown): value is StoredMutation {
+function valid(value: unknown): value is ValidStoredMutation {
   if (!isRecord(value) || !isRecord(value.params)) {
     return false;
   }
@@ -85,7 +88,7 @@ function valid(value: unknown): value is StoredMutation {
 }
 
 /** Each intent has its own key so two tabs cannot overwrite each other's unknown request. */
-export function loadPendingWorkshop(scope: string | null): StoredMutation[] {
+export function loadPendingWorkshop(scope: string | null): ValidStoredMutation[] {
   const storage = getSafeLocalStorage();
   if (!scope || !storage) {
     throw new Error("Pending request storage unavailable");
@@ -95,7 +98,7 @@ export function loadPendingWorkshop(scope: string | null): StoredMutation[] {
     .filter((key): key is string => key !== null && key.startsWith(start))
     .toSorted();
   const completed = new Set(readReceipts(storage, scope).map((entry) => entry.requestId));
-  const pending: StoredMutation[] = [];
+  const pending: ValidStoredMutation[] = [];
   for (const key of keys) {
     const raw = storage.getItem(key);
     if (raw === null) {
@@ -105,14 +108,14 @@ export function loadPendingWorkshop(scope: string | null): StoredMutation[] {
     if (!valid(value) || key !== start + value.params.requestId) {
       throw new Error("Invalid pending request journal");
     }
-    if (!completed.has(value.params.requestId as string)) {
+    if (!completed.has(value.params.requestId)) {
       pending.push(value);
     }
   }
   return pending.toSorted(
     (a, b) =>
       (a.createdAt ?? 0) - (b.createdAt ?? 0) ||
-      String(a.params.requestId).localeCompare(String(b.params.requestId)),
+      a.params.requestId.localeCompare(b.params.requestId),
   );
 }
 
@@ -164,6 +167,9 @@ export async function clearPendingWorkshop(
   if (!scope) {
     return;
   }
+  if (!valid(mutation)) {
+    throw new Error("Invalid pending request journal");
+  }
   const settle = () => {
     const storage = getSafeLocalStorage();
     if (!storage) {
@@ -177,7 +183,7 @@ export async function clearPendingWorkshop(
       storage.getItem(key)
     ) {
       completed.push({
-        requestId: mutation.params.requestId as string,
+        requestId: mutation.params.requestId,
         tauntClaimed: false,
         at: Date.now(),
       });

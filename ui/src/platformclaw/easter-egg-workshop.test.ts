@@ -107,7 +107,7 @@ function preview(egg: WorkshopElement): HTMLElement {
 
 async function openWorkshop(
   initial: BaseballProgress,
-  mutate: (method: string, params: Record<string, unknown>) => unknown | Promise<unknown>,
+  mutate: (method: string, params: Record<string, unknown>) => unknown,
   scope = JSON.stringify(["wss://synthetic.test/gateway", "workshop-account-a"]),
 ) {
   const egg = document.createElement("platformclaw-easter-egg") as WorkshopElement;
