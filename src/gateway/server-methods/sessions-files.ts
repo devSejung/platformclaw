@@ -37,6 +37,7 @@ import {
   sanitizePathForLog,
 } from "./open-path.js";
 import { isSessionFilePathInsideRoot, loadSessionFileRoot } from "./sessions-file-root.js";
+import { sessionsFilesDownloadHandlers } from "./sessions-files-download.js";
 import {
   isSessionFileUploadAllowed,
   sessionsFilesUploadHandlers,
@@ -805,6 +806,7 @@ function respondSessionFileUnsafe(respond: RespondFn, filePath: string) {
 /** Gateway handlers for session files and workspace browsing. */
 export const sessionsFilesHandlers: GatewayRequestHandlers = {
   ...sessionsFilesUploadHandlers,
+  ...sessionsFilesDownloadHandlers,
   "sessions.files.list": async ({ params, respond, context }) => {
     if (
       !assertValidParams(params, validateSessionsFilesListParams, "sessions.files.list", respond)

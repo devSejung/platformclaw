@@ -37,6 +37,9 @@ export const nativeTranslations = {
   },
   chat: {
     workspaceFiles: {
+      download: "파일 다운로드",
+      downloadFailed: "작업 공간 다운로드 실패",
+      downloadTooLarge: "작업 공간 다운로드 제한 16 MiB를 초과했습니다: {file}",
       upload: "작업 공간 파일 업로드",
       uploadHint: "현재 폴더에 업로드 · 파일당 최대 16 MiB · 기존 파일은 덮어쓰지 않습니다",
       uploadProgress: "{total}개 중 {current}번째 업로드 중",

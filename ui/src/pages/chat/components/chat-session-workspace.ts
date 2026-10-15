@@ -38,6 +38,7 @@ import {
 import { normalizeOptionalString } from "../../../lib/string-coerce.ts";
 import { resolvePlatformClawBranding } from "../../../platformclaw/branding.ts";
 import { platformClawProductT } from "../../../platformclaw/i18n.ts";
+import { SessionWorkspaceDownloadController } from "./chat-session-workspace-download.ts";
 import {
   artifactSidebarContent,
   unsupportedFileSidebarContent,
@@ -71,6 +72,9 @@ export type SessionWorkspaceProps = {
   onOpenFile: (path: string, origin: "session" | "workspace") => void;
   onSearch: (search: string) => void;
   onOpenArtifact: (artifactId: string) => void;
+  onDownloadFile?: (path: string) => void;
+  downloading?: boolean;
+  downloadError?: string | null;
   onToggleTerminal?: () => void;
   onToggleBrowser?: () => void;
   onToggleCustodian?: () => void;
@@ -98,6 +102,7 @@ type SessionWorkspaceState = {
   requestId: number;
   sessionKey: string;
   upload?: SessionWorkspaceUploadController;
+  download?: SessionWorkspaceDownloadController;
 };
 
 type OpenRequest = {
@@ -155,6 +160,7 @@ function clearWorkspaceSearchTimer(workspace: SessionWorkspaceState | undefined)
 export function clearSessionWorkspaceTimers(state: SessionWorkspaceHost) {
   clearWorkspaceSearchTimer(state.sessionWorkspaceState);
   state.sessionWorkspaceState?.upload?.dispose();
+  state.sessionWorkspaceState?.download?.dispose();
 }
 
 function getWorkspaceState(state: SessionWorkspaceHost): SessionWorkspaceState {
@@ -166,6 +172,7 @@ function getWorkspaceState(state: SessionWorkspaceHost): SessionWorkspaceState {
   }
   clearWorkspaceSearchTimer(current);
   current?.upload?.dispose();
+  current?.download?.dispose();
   const next: SessionWorkspaceState = {
     activeId: null,
     agentId,
@@ -280,6 +287,9 @@ function loadWorkspace(
         ...(typeof files?.gitCheckout === "boolean" ? { gitCheckout: files.gitCheckout } : {}),
         ...(typeof files?.uploadAllowed === "boolean"
           ? { uploadAllowed: files.uploadAllowed }
+          : {}),
+        ...(typeof files?.downloadAllowed === "boolean"
+          ? { downloadAllowed: files.downloadAllowed }
           : {}),
         files: fileItems,
         ...(files?.browser ? { browser: files.browser } : {}),
@@ -673,6 +683,30 @@ export function createSessionWorkspaceProps(
 ): SessionWorkspaceProps {
   state.sessionWorkspaceDraftScope = options?.draftScope;
   const workspace = getWorkspaceState(state);
+  const downloadAllowed = () =>
+    workspace.list?.downloadAllowed !== false &&
+    isGatewayMethodAdvertised(state, "sessions.files.download") === true &&
+    readSessionMethodAccess(
+      {
+        client: state.client,
+        hello: state.hello,
+        phase: state.connected ? "connected" : "offline",
+      },
+      { method: "sessions.files.download", requiredScope: "operator.read" },
+    ).allowed;
+  workspace.download ??= new SessionWorkspaceDownloadController({
+    capture: () =>
+      state.sessionWorkspaceState === workspace && downloadAllowed() && state.client
+        ? { client: state.client, sessionKey: workspace.sessionKey, agentId: workspace.agentId }
+        : null,
+    isCurrent: (target) =>
+      state.sessionWorkspaceState === workspace &&
+      state.sessionKey === target.sessionKey &&
+      paneSessionAgentId(state) === target.agentId &&
+      state.client === target.client &&
+      downloadAllowed(),
+    requestUpdate: () => requestUpdate(state),
+  });
   workspace.upload ??= new SessionWorkspaceUploadController({
     capture: () =>
       workspaceUploadAllowed(state, workspace) && state.client && workspace.list?.browser
@@ -718,6 +752,7 @@ export function createSessionWorkspaceProps(
     list: workspace.list?.sessionKey === state.sessionKey ? workspace.list : null,
     loading: workspace.loading,
     error: workspace.error,
+    downloadError: workspace.download.error,
     activeId: workspace.activeId,
     dock: workspace.dock,
     narrowLayout: options?.narrowLayout === true,
@@ -725,6 +760,13 @@ export function createSessionWorkspaceProps(
     dockDragZone: workspace.dockDragZone,
     upload: workspace.upload,
     uploadAllowed: workspaceUploadAllowed(state, workspace),
+    downloading: workspace.download.busy,
+    onDownloadFile: downloadAllowed()
+      ? (path) => {
+          workspace.error = null;
+          void workspace.download!.download(path);
+        }
+      : undefined,
     onToggleCollapsed: () => toggleSessionWorkspace(state),
     onSetDock: (dock) => setSessionWorkspaceDock(state, dock),
     onDockDragStart: (event) => startSessionWorkspaceDockDrag(state, event),
@@ -1008,7 +1050,11 @@ export function renderSessionWorkspaceRail(
   const hasSessionItems = files.length > 0 || artifacts.length > 0;
   const hasBrowserItems = (browser?.entries.length ?? 0) > 0;
   const hasItems = hasSessionItems || hasBrowserItems;
-  const renderPathActions = (path: string, origin: "session" | "workspace"): TemplateResult => html`
+  const renderPathActions = (
+    path: string,
+    origin: "session" | "workspace",
+    downloadPath?: string,
+  ): TemplateResult => html`
     <span
       class="chat-workspace-rail__row-actions"
       role="group"
@@ -1027,6 +1073,24 @@ export function renderSessionWorkspaceRail(
           ${icons.eye}
         </button>
       </openclaw-tooltip>
+      ${downloadPath && sessionWorkspace.onDownloadFile
+        ? html`
+            <openclaw-tooltip .content=${t("chat.workspaceFiles.download")}>
+              <button
+                class="chat-workspace-rail__row-action"
+                type="button"
+                aria-label=${t("chat.workspaceFiles.download")}
+                ?disabled=${sessionWorkspace.downloading}
+                @click=${(event: Event) => {
+                  event.stopPropagation();
+                  sessionWorkspace.onDownloadFile?.(downloadPath);
+                }}
+              >
+                ${icons.download}
+              </button>
+            </openclaw-tooltip>
+          `
+        : nothing}
       <openclaw-tooltip .content=${t("chat.workspaceFiles.copyPath")}>
         <button
           class="chat-workspace-rail__row-action"
@@ -1096,7 +1160,11 @@ export function renderSessionWorkspaceRail(
                         >${t("chat.workspaceFiles.missing")}</span
                       >`
                     : nothing}
-                  ${renderPathActions(file.path, "session")}
+                  ${renderPathActions(
+                    file.path,
+                    "session",
+                    file.missing ? undefined : file.workspacePath,
+                  )}
                 </div>
               `;
             })}
@@ -1204,7 +1272,9 @@ export function renderSessionWorkspaceRail(
                       </span>
                     </button>
                     ${renderBrowserBadge(entry.sessionKind)}
-                    ${entry.kind === "file" ? renderPathActions(entry.path, "workspace") : nothing}
+                    ${entry.kind === "file"
+                      ? renderPathActions(entry.path, "workspace", entry.path)
+                      : nothing}
                   </div>
                 `;
               })}
@@ -1349,6 +1419,14 @@ export function renderSessionWorkspaceRail(
           `
         : nothing}
       ${renderSessionSummary()} ${renderWorkspaceUploadNotice(sessionWorkspace.upload)}
+      ${sessionWorkspace.downloadError
+        ? html`<div
+            class="chat-workspace-rail__state chat-workspace-rail__state--error"
+            role="alert"
+          >
+            ${sessionWorkspace.downloadError}
+          </div>`
+        : nothing}
       ${sessionWorkspace.error
         ? html`<div class="chat-workspace-rail__state chat-workspace-rail__state--error">
             ${sessionWorkspace.error}

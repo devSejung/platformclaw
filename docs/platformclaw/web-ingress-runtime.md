@@ -73,6 +73,15 @@ the Gateway workspace root or other host-absolute paths. `sessions.files.set`,
 `sessions.files.reveal`, and `sessions.diff` remain blocked; the Agent page's
 bounded Core Files editor remains a separate surface.
 
+Use **Download file** beside a Basic workspace file to save its original bytes,
+including binary files. Downloads support up to 16 MiB per file and show an
+error above that limit. Folders, missing files, and touched files without a
+confirmed workspace path do not offer this action. The `sessions.files.download`
+read method uses the same personal-Agent, owned-session, and Basic-target policy;
+it also checks session read visibility before and after reading. The Gateway
+admits one download at a time through response completion. If another download
+is still running, wait for it to finish and retry.
+
 Uploads require the packaged `fs-safe` native helper in an isolated Worker;
 unavailable helpers fail before writing. At most two uploads are admitted at
 once, with no server-side queue. The Gateway checks the current session and

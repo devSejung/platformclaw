@@ -25,6 +25,7 @@ const READ_METHODS = new Set([
   "sessions.compaction.list",
   "sessions.files.list",
   "sessions.files.get",
+  "sessions.files.download",
   "sessions.usage",
   "artifacts.list",
   "artifacts.download",

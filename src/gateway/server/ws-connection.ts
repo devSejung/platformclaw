@@ -21,11 +21,7 @@ import { isLoopbackAddress } from "../net.js";
 import type { NodeReapprovalCoordinator } from "../node-reapproval-coordinator.js";
 import { clearNodeWakeState } from "../node-wake-state.js";
 import type { PluginNodeCapabilitySurface } from "../plugin-node-capability.js";
-import {
-  MAX_BUFFERED_BYTES,
-  MAX_PAYLOAD_BYTES,
-  MAX_PREAUTH_PAYLOAD_BYTES,
-} from "../server-constants.js";
+import { MAX_PAYLOAD_BYTES, MAX_PREAUTH_PAYLOAD_BYTES } from "../server-constants.js";
 import type { GatewayRequestContext, GatewayRequestHandlers } from "../server-methods/types.js";
 import { formatError } from "../server-utils.js";
 import { cleanupTalkConnection } from "../talk-session-registry.js";
@@ -43,6 +39,7 @@ import {
   GatewayNodeLifecycleDispatchTracker,
   NODE_LIFECYCLE_DISPATCH_DRAIN_TIMEOUT_MS,
 } from "./ws-connection/node-lifecycle-dispatch.js";
+import { createGatewayWsResponseSender } from "./ws-connection/response-sender.js";
 import {
   attachWorkerWsMessageHandler,
   type WorkerConnectionService,
@@ -407,30 +404,13 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
     };
 
-    const send = (obj: unknown) => {
-      if (closed) {
-        return;
-      }
-      if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
-        logRejectedLargePayload({
-          surface: "gateway.ws.outbound_buffer",
-          bytes: socket.bufferedAmount,
-          limitBytes: MAX_BUFFERED_BYTES,
-          reason: "ws_send_buffer_close",
-        });
-        setCloseCause("outbound-buffer-exceeded", {
-          bytes: socket.bufferedAmount,
-          limitBytes: MAX_BUFFERED_BYTES,
-        });
-        close(1008, connectionKind === "worker" ? "slow-consumer" : "slow consumer");
-        return;
-      }
-      try {
-        socket.send(JSON.stringify(obj));
-      } catch {
-        /* ignore */
-      }
-    };
+    const send = createGatewayWsResponseSender({
+      socket,
+      isClosed: () => closed,
+      close,
+      setCloseCause,
+      connectionKind,
+    });
 
     const connectNonce = randomUUID();
     if (connectionKind === "gateway") {

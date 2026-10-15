@@ -163,6 +163,8 @@ export {
   SessionFileRelevanceSchema,
   SessionsFilesGetParamsSchema,
   SessionsFilesGetResultSchema,
+  SessionsFilesDownloadParamsSchema,
+  SessionsFilesDownloadResultSchema,
   SessionsFilesSetParamsSchema,
   SessionsFilesSetResultSchema,
   SessionsFilesUploadParamsSchema,

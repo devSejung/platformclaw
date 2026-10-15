@@ -177,14 +177,16 @@ describe("session sharing policy", () => {
             sessionKeys: [sessionKey],
           }),
         ).toBe(true);
-        expect(
-          resolveSessionMutationAuthorization({
-            client: visibleClient,
-            method: "chat.send",
-            requestParams: { sessionKey },
-            context,
-          }).error,
-        ).toBeNull();
+        for (const method of ["chat.send", "sessions.files.download"]) {
+          expect(
+            resolveSessionMutationAuthorization({
+              client: visibleClient,
+              method,
+              requestParams: { sessionKey },
+              context,
+            }).error,
+          ).toBeNull();
+        }
       }
 
       for (const hiddenClient of [owner, viewer]) {
@@ -196,17 +198,19 @@ describe("session sharing policy", () => {
             sessionKeys: [sessionKey],
           }),
         ).toBe(false);
-        expect(
-          resolveSessionMutationAuthorization({
-            client: hiddenClient,
-            method: "chat.send",
-            requestParams: { sessionKey },
-            context,
-          }).error,
-        ).toMatchObject({
-          code: "INVALID_REQUEST",
-          message: `Incognito session "${sessionKey}" was not found.`,
-        });
+        for (const method of ["chat.send", "sessions.files.download"]) {
+          expect(
+            resolveSessionMutationAuthorization({
+              client: hiddenClient,
+              method,
+              requestParams: { sessionKey },
+              context,
+            }).error,
+          ).toMatchObject({
+            code: "INVALID_REQUEST",
+            message: `Incognito session "${sessionKey}" was not found.`,
+          });
+        }
       }
     });
   });
@@ -306,6 +310,14 @@ describe("session sharing policy", () => {
         },
       );
       const context = { chatAbortControllers: new Map(), getRuntimeConfig: () => ({}) } as never;
+      expect(
+        resolveSessionMutationAuthorization({
+          client: client({ user: "viewer", scopes: ["operator.read"] }),
+          method: "sessions.files.download",
+          requestParams: { sessionKey, path: "file.bin" },
+          context,
+        }).error,
+      ).toBeNull();
       expect(
         resolveSessionMutationAuthorization({
           client: client({ user: "viewer" }),

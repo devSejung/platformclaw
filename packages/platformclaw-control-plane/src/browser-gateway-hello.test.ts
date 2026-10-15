@@ -87,6 +87,19 @@ const access: BrowserGatewayAccess = {
 };
 
 describe("projectPlatformClawBrowserHello", () => {
+  it("advertises workspace download only when the Gateway supports the bounded read RPC", () => {
+    const upstream = upstreamHello();
+    const params = { upstream, access, connectionId: "workspace-download" };
+    expect(projectPlatformClawBrowserHello(params).features.methods).not.toContain(
+      "sessions.files.download",
+    );
+    upstream.features.methods.push("sessions.files.download");
+    const available = projectPlatformClawBrowserHello(params);
+    expect(available.features.methods).toContain("sessions.files.download");
+    expect(available.auth?.scopes).not.toContain("operator.admin");
+    expect(available.features.capabilities).not.toContain("platformclaw.workspace-download");
+  });
+
   it("advertises vault operations and unified search only with their local service", () => {
     const params = { upstream: upstreamHello(), access, connectionId: "vault-browser" };
     const unavailable = projectPlatformClawBrowserHello(params).features.methods;

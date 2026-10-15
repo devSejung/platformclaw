@@ -8,6 +8,7 @@ import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 type SessionFilesMethod =
   | "sessions.files.list"
   | "sessions.files.get"
+  | "sessions.files.download"
   | "sessions.files.set"
   | "sessions.files.upload"
   | "sessions.files.reveal";
@@ -20,6 +21,8 @@ function createResponder() {
   const respond: RespondFn = (ok, payload, error) => {
     calls.push({ ok, payload, error });
   };
+  // This in-process test responder consumes the complete payload synchronously.
+  respond.withCompletion = async (...args) => respond(...args);
   return { calls, respond };
 }
 
