@@ -162,7 +162,7 @@ async function newAccountPage(
     methodResponses: {
       [BASEBALL_RPC.beginAtBat]: {
         id: "e2e-at-bat",
-        pitchSample: 0.5,
+        pitchSample: 0,
         batId: "wood",
         issuedAt: 0,
         expiresAt: Number.MAX_SAFE_INTEGER,
@@ -194,20 +194,19 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     await server?.close();
   });
 
-  it("buys and equips a bat, restores progress, and isolates another account", async () => {
+  it("equips an owned legacy bat, restores progress, and isolates another account", async () => {
     const viewport = { height: 800, width: 1280 };
-    const initialA = progress({ gold: 50, totalHomers: 3, bestDistanceM: 138, revision: 1 });
-    const purchasedA = progress({
-      gold: 0,
+    const initialA = progress({
+      gold: 50,
       ownedBatIds: ["wood", "silver"],
       totalHomers: 3,
       bestDistanceM: 138,
-      revision: 2,
+      revision: 1,
     });
     const equippedA = progress({
-      ...purchasedA,
+      ...initialA,
       equippedBatId: "silver",
-      revision: 3,
+      revision: 2,
     });
     const accountA = await newAccountPage(
       "person.a",
@@ -218,12 +217,6 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
           distance: [{ displayName: "person.a", value: 138, isCurrentUser: true }],
           homeRunStreak: [{ displayName: "person.a", value: 2, isCurrentUser: true }],
         }),
-        [BASEBALL_RPC.purchaseBat]: {
-          batId: "silver",
-          price: 50,
-          purchased: true,
-          progress: purchasedA,
-        },
         [BASEBALL_RPC.equipBat]: { batId: "silver", changed: true, progress: equippedA },
       },
       viewport,
@@ -254,15 +247,12 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(initialShopBounds!.y + initialShopBounds!.height).toBeLessThanOrEqual(viewport.height);
     await initialShop.click();
 
-    const dialog = game.getByRole("dialog", { name: "배트 상점" });
+    const dialog = game.getByRole("dialog", { name: "배트 강화·설정" });
     await dialog.waitFor();
     await game.locator(".platformclaw-easter-egg__shop-scrim").click({ position: { x: 4, y: 4 } });
     expect(await dialog.isVisible()).toBe(true);
 
-    await dialog.getByRole("button", { name: /실버.*50골드 구매/u }).click();
-    const purchase = await accountA.gateway.waitForRequest(BASEBALL_RPC.purchaseBat);
-    expect(purchase.params).toMatchObject({ batId: "silver" });
-    expect((purchase.params as { requestId?: unknown }).requestId).toEqual(expect.any(String));
+    await dialog.getByText("기존 보유 배트", { exact: true }).click();
     await expect
       .poll(() => dialog.getByRole("button", { name: /실버.*장착$/u }).isVisible())
       .toBe(true);
@@ -270,7 +260,8 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     await dialog.getByRole("button", { name: /실버.*장착$/u }).click();
     const equip = await accountA.gateway.waitForRequest(BASEBALL_RPC.equipBat);
     expect(equip.params).toMatchObject({ batId: "silver" });
-    await expect.poll(() => game.getByText("골드 0", { exact: true }).isVisible()).toBe(true);
+    expect(await accountA.gateway.getRequests(BASEBALL_RPC.purchaseBat)).toHaveLength(0);
+    await expect.poll(() => game.getByText("골드 50", { exact: true }).isVisible()).toBe(true);
     await expect
       .poll(() => game.getByRole("button", { name: "실버 배트 · 상점·설정" }).isVisible())
       .toBe(true);
@@ -357,13 +348,14 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     const game = account.page.locator('platformclaw-easter-egg [role="application"]');
     const board = game.locator(".platformclaw-easter-egg__leaderboards");
     await board.waitFor();
-    await expect.poll(() => game.getByText("145km/h", { exact: true }).isVisible()).toBe(true);
+    await expect.poll(() => game.getAttribute("data-pitch-state")).toBe("pitch");
+    expect(await game.locator(".platformclaw-easter-egg__pitch-info").count()).toBe(0);
     const phaseBeforeShop = await game.getAttribute("data-pitch-state");
     const plateAppearancesBeforeShop = (
       await account.gateway.getRequests(BASEBALL_RPC.plateAppearance)
     ).length;
     await game.getByRole("button", { name: "나무 배트 · 상점·설정" }).click();
-    const shopDialog = game.getByRole("dialog", { name: "배트 상점" });
+    const shopDialog = game.getByRole("dialog", { name: "배트 강화·설정" });
     await shopDialog.waitFor();
     await account.page.waitForTimeout(250);
     expect(await game.getAttribute("data-pitch-state")).toBe(phaseBeforeShop);
@@ -634,7 +626,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       {
         [BASEBALL_RPC.beginAtBat]: {
           id: "e2e-at-bat",
-          pitchSample: 0,
+          pitchSample: 0.234375,
           batId: "wood",
           issuedAt: 0,
           expiresAt: Number.MAX_SAFE_INTEGER,
@@ -654,7 +646,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     await openGame(account.page);
     const game = account.page.locator('platformclaw-easter-egg [role="application"]');
     await expect.poll(() => game.getAttribute("data-pitch-state")).toBe("pitch");
-    await expect.poll(() => game.getByText("115km/h", { exact: true }).isVisible()).toBe(true);
+    expect(await game.locator(".platformclaw-easter-egg__pitch-info").count()).toBe(0);
     const pitchTiming = await baseballProof.readPitchTiming(
       account.page.locator("platformclaw-easter-egg"),
     );
@@ -727,6 +719,9 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
       });
     expect(contactDelta).toBeLessThanOrEqual(1);
     await expect.poll(() => game.getAttribute("data-pitch-state")).toBe("in-play");
+    expect(await game.locator(".platformclaw-easter-egg__pitch-info").textContent()).toContain(
+      "115km/h",
+    );
     await account.page.waitForTimeout(95);
     const contactBatter = await baseballProof.readBatterPose(game);
     await capture(account.page, "visual-1280-batter-contact.png");

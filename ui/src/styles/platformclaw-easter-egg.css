@@ -579,7 +579,8 @@ platformclaw-easter-egg {
   transform: rotate(-14deg);
 }
 
-.platformclaw-easter-egg__target--leg-lift .platformclaw-easter-egg__figure-leg-front {
+.platformclaw-easter-egg__target--leg-lift .platformclaw-easter-egg__figure-leg-front,
+.platformclaw-easter-egg__target--underhand-windup .platformclaw-easter-egg__figure-leg-front {
   animation: platformclaw-easter-egg-pitcher-leg-lift 190ms ease-out both;
 }
 
@@ -597,6 +598,28 @@ platformclaw-easter-egg {
 
 .platformclaw-easter-egg__target--follow-through .platformclaw-easter-egg__figure-leg-back {
   animation: platformclaw-easter-egg-pitcher-follow-leg 360ms ease-out both;
+}
+
+.platformclaw-easter-egg__target--underhand-windup .platformclaw-easter-egg__figure-arm-front {
+  transform: rotate(-12deg);
+}
+
+.platformclaw-easter-egg__target--underhand-throw .platformclaw-easter-egg__figure-arm-front {
+  animation: platformclaw-easter-egg-pitcher-underhand 250ms ease-out both;
+}
+
+.platformclaw-easter-egg__target--underhand-follow-through
+  .platformclaw-easter-egg__figure-arm-front {
+  transform: rotate(20deg);
+}
+
+@keyframes platformclaw-easter-egg-pitcher-underhand {
+  from {
+    transform: rotate(-12deg);
+  }
+  to {
+    transform: rotate(20deg);
+  }
 }
 
 @keyframes platformclaw-easter-egg-batter-swing {

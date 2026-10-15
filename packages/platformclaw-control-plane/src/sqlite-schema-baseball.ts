@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { BASEBALL_ENHANCEMENT_SCHEMA } from "./sqlite-schema-baseball-enhancement.js";
 
 const BASEBALL_AT_BAT_SCHEMA = `
 CREATE TABLE IF NOT EXISTS baseball_at_bats (
@@ -17,6 +18,11 @@ CREATE INDEX IF NOT EXISTS baseball_at_bats_user_issued
 CREATE INDEX IF NOT EXISTS baseball_at_bats_expiry ON baseball_at_bats(expires_at);
 CREATE UNIQUE INDEX IF NOT EXISTS baseball_at_bats_live_user
   ON baseball_at_bats(user_id) WHERE consumed_at IS NULL;
+CREATE TABLE IF NOT EXISTS baseball_at_bat_enhancement_snapshots (
+  at_bat_id TEXT PRIMARY KEY REFERENCES baseball_at_bats(id) ON DELETE CASCADE,
+  enhancement_level INTEGER NOT NULL CHECK (enhancement_level BETWEEN 0 AND 20),
+  power_rule_version TEXT NOT NULL CHECK (power_rule_version = 'sweetspot-v1')
+) STRICT;
 `;
 
 export const BASEBALL_GAME_SCHEMA = `
@@ -56,6 +62,7 @@ CREATE TABLE IF NOT EXISTS baseball_idempotency (
   PRIMARY KEY (user_id, request_id)
 ) STRICT;
 ${BASEBALL_AT_BAT_SCHEMA}
+${BASEBALL_ENHANCEMENT_SCHEMA}
 `;
 
 export function ensureBaseballAtBatSchema(db: DatabaseSync): void {

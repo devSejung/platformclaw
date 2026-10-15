@@ -1,4 +1,4 @@
-import { BASEBALL_RPC_METHODS } from "./baseball-contracts.js";
+import { BASEBALL_RPC, BASEBALL_RPC_METHODS } from "./baseball-contracts.js";
 import {
   KNOWLEDGE_VAULT_RPC_METHODS,
   KNOWLEDGE_VAULT_RPC_PARAMS,
@@ -160,6 +160,10 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   [BASEBALL_RPC_METHODS[3], new Set(["requestId", "batId"])],
   [BASEBALL_RPC_METHODS[4], new Set()],
   [BASEBALL_RPC_METHODS[5], new Set(["requestId"])],
+  [BASEBALL_RPC.enhanceBat, new Set(["requestId", "expectedRevision"])],
+  [BASEBALL_RPC.recoverBat, new Set(["requestId", "expectedRevision", "action"])],
+  [BASEBALL_RPC.equipEnhancedBat, new Set(["requestId", "expectedRevision"])],
+  [BASEBALL_RPC.selectTeam, new Set(["requestId", "expectedRevision", "teamId"])],
   [HORSE_RACING_RPC.snapshot, new Set(["raceId"])],
   [HORSE_RACING_RPC.bet, new Set(["requestId", "raceId", "market", "selection", "amount"])],
   [HORSE_RACING_RPC.cancel, new Set(["betId"])],

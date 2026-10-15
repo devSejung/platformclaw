@@ -8,6 +8,9 @@ import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
 type GoldReason =
   | "baseball_reward"
   | "bat_purchase"
+  | "bat_enhancement"
+  | "bat_recovery"
+  | "baseball_team_change"
   | "horse_bet"
   | "horse_payout"
   | "horse_refund";

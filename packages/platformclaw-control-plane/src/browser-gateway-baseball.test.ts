@@ -60,10 +60,110 @@ function baseballStore() {
         revision: 2,
       }),
     })),
+    enhanceBaseballBat: vi.fn<BaseballGameStore["enhanceBaseballBat"]>(async ({ requestId }) => ({
+      requestId,
+      outcome: "success",
+      fromLevel: 0,
+      targetLevel: 1,
+      level: 1,
+      chargedGold: 100,
+      evolved: false,
+      automaticRestart: false,
+      progress: progress({
+        gold: 900,
+        revision: 1,
+        enhancement: { level: 1, status: "ready", equipped: true, version: 1 },
+      }),
+    })),
+    recoverBaseballBat: vi.fn<BaseballGameStore["recoverBaseballBat"]>(async ({ requestId }) => ({
+      requestId,
+      outcome: "restored",
+      chargedGold: 15_000,
+      progress: progress({
+        revision: 1,
+        enhancement: { level: 12, status: "ready", equipped: true, version: 1 },
+      }),
+    })),
+    equipEnhancedBaseballBat: vi.fn<BaseballGameStore["equipEnhancedBaseballBat"]>(
+      async ({ requestId }) => ({
+        requestId,
+        changed: true,
+        progress: progress({
+          revision: 1,
+          enhancement: { level: 0, status: "ready", equipped: true, version: 1 },
+        }),
+      }),
+    ),
+    selectBaseballTeam: vi.fn<BaseballGameStore["selectBaseballTeam"]>(
+      async ({ requestId, teamId }) => ({
+        requestId,
+        teamId,
+        changed: true,
+        chargedGold: 0,
+        progress: progress({ revision: 1, teamId }),
+      }),
+    ),
   } satisfies BaseballGameStore;
 }
 
 describe("BrowserGatewayProxy baseball BFF", () => {
+  it("scopes enhancement, recovery, loadout and paid teams to the authenticated account", async () => {
+    const game = baseballStore();
+    const { proxy, token, user } = await setup({ baseballStore: game });
+    const common = { requestId: "forge-1", expectedRevision: 0 };
+    await proxy.request(token, BASEBALL_RPC.enhanceBat, common);
+    expect(game.enhanceBaseballBat).toHaveBeenCalledWith({ ...common, userId: user.id });
+    await proxy.request(token, BASEBALL_RPC.recoverBat, { ...common, action: "restore" });
+    expect(game.recoverBaseballBat).toHaveBeenCalledWith({
+      ...common,
+      action: "restore",
+      userId: user.id,
+    });
+    await proxy.request(token, BASEBALL_RPC.equipEnhancedBat, common);
+    expect(game.equipEnhancedBaseballBat).toHaveBeenCalledWith({ ...common, userId: user.id });
+    await proxy.request(token, BASEBALL_RPC.selectTeam, { ...common, teamId: "lg" });
+    expect(game.selectBaseballTeam).toHaveBeenCalledWith({
+      ...common,
+      teamId: "lg",
+      userId: user.id,
+    });
+  });
+
+  it("rejects client-controlled RNG, levels, identities and malformed workshop inputs", async () => {
+    const game = baseballStore();
+    const { proxy, token } = await setup({ baseballStore: game });
+    for (const extra of [{ roll: 0 }, { level: 20 }, { userId: "other" }, { costGold: 0 }]) {
+      await expect(
+        proxy.request(token, BASEBALL_RPC.enhanceBat, {
+          requestId: "bad",
+          expectedRevision: 0,
+          ...extra,
+        }),
+      ).rejects.toBeDefined();
+    }
+    for (const expectedRevision of [-1, 0.5, "0", null, undefined]) {
+      await expect(
+        proxy.request(token, BASEBALL_RPC.enhanceBat, { requestId: "bad", expectedRevision }),
+      ).rejects.toBeDefined();
+    }
+    await expect(
+      proxy.request(token, BASEBALL_RPC.recoverBat, {
+        requestId: "bad",
+        expectedRevision: 0,
+        action: "protect",
+      }),
+    ).rejects.toBeDefined();
+    await expect(
+      proxy.request(token, BASEBALL_RPC.selectTeam, {
+        requestId: "bad",
+        expectedRevision: 0,
+        teamId: "neutral",
+      }),
+    ).rejects.toBeDefined();
+    expect(game.enhanceBaseballBat).not.toHaveBeenCalled();
+    expect(game.recoverBaseballBat).not.toHaveBeenCalled();
+    expect(game.selectBaseballTeam).not.toHaveBeenCalled();
+  });
   it("uses the authenticated platform user for local baseball reads and writes", async () => {
     const game = baseballStore();
     const { proxy, request, token, user } = await setup({ baseballStore: game });
@@ -120,6 +220,7 @@ describe("BrowserGatewayProxy baseball BFF", () => {
       userId: user.id,
       requestId: "buy-1",
       batId: "silver",
+      historicalOnly: true,
     });
     expect(request).not.toHaveBeenCalled();
   });

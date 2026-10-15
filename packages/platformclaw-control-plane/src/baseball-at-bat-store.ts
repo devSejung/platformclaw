@@ -2,11 +2,11 @@ import { randomInt, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   BaseballGameError,
-  getBaseballBatDefinition,
   type BaseballAtBat,
   type BaseballBatId,
   type BaseballPlateAppearanceOutcome,
 } from "./baseball-contracts.js";
+import { resolveBaseballAtBatPower } from "./baseball-enhancement.js";
 import { advanceBattedBall, createBattedBall } from "./baseball-simulation.js";
 import { HIT_WINDOW_MS } from "./baseball-timing.js";
 import { createSyncKysely, executeSync, takeFirstSync } from "./kysely-sync.js";
@@ -29,19 +29,35 @@ type AtBatRow = {
   consumed_at: number | null;
 };
 
-function projectAtBat(row: AtBatRow): BaseballAtBat {
+type EnhancementSnapshot = Required<Pick<BaseballAtBat, "enhancementLevel" | "powerRuleVersion">>;
+type EnhancementSnapshotRow = {
+  at_bat_id: string;
+  enhancement_level: number;
+  power_rule_version: "sweetspot-v1";
+};
+
+function projectAtBat(row: AtBatRow, snapshot?: EnhancementSnapshotRow): BaseballAtBat {
   return {
     id: row.id,
     pitchSample: row.pitch_sample,
     batId: row.bat_id,
     issuedAt: row.issued_at,
     expiresAt: row.expires_at,
+    ...(snapshot
+      ? {
+          enhancementLevel: snapshot.enhancement_level,
+          powerRuleVersion: snapshot.power_rule_version,
+        }
+      : {}),
   };
 }
 
 /** The caller owns the synchronous transaction so consumption and gold awards commit together. */
 export class BaseballAtBatStore {
-  private readonly query = createSyncKysely<{ baseball_at_bats: AtBatRow }>();
+  private readonly query = createSyncKysely<{
+    baseball_at_bats: AtBatRow;
+    baseball_at_bat_enhancement_snapshots: EnhancementSnapshotRow;
+  }>();
   private ready = false;
   private lastPruneAt: number | undefined;
 
@@ -54,7 +70,7 @@ export class BaseballAtBatStore {
     }
   }
 
-  issue(userId: string, requestId: string, batId: BaseballBatId, now: number): BaseballAtBat {
+  findIssued(userId: string, requestId: string): BaseballAtBat | undefined {
     const prior = takeFirstSync(
       this.db,
       this.query
@@ -63,9 +79,23 @@ export class BaseballAtBatStore {
         .where("user_id", "=", userId)
         .where("request_id", "=", requestId),
     );
-    // A lost issuance response replays the same pitch, never a second earning opportunity.
+    return prior ? this.project(prior) : undefined;
+  }
+
+  issue(
+    userId: string,
+    requestId: string,
+    batId: BaseballBatId,
+    now: number,
+    snapshot?: EnhancementSnapshot,
+  ): BaseballAtBat {
+    // A lost issuance response replays the same pitch and immutable power, even after a loadout change.
+    const prior = this.findIssued(userId, requestId);
     if (prior) {
-      return projectAtBat(prior);
+      return prior;
+    }
+    if (snapshot) {
+      resolveBaseballAtBatPower({ batId, ...snapshot }, 0);
     }
     const latest = takeFirstSync(
       this.db,
@@ -103,7 +133,17 @@ export class BaseballAtBatStore {
       consumed_at: null,
     };
     executeSync(this.db, this.query.insertInto("baseball_at_bats").values(row));
-    return projectAtBat(row);
+    if (snapshot) {
+      executeSync(
+        this.db,
+        this.query.insertInto("baseball_at_bat_enhancement_snapshots").values({
+          at_bat_id: row.id,
+          enhancement_level: snapshot.enhancementLevel,
+          power_rule_version: snapshot.powerRuleVersion,
+        }),
+      );
+    }
+    return this.project(row);
   }
 
   consume(
@@ -141,17 +181,12 @@ export class BaseballAtBatStore {
     if (now - row.issued_at < MIN_SUBMIT_INTERVAL_MS) {
       throw new BaseballGameError("at_bat_too_early", "Pitch has not reached the batter yet");
     }
-    const bat = getBaseballBatDefinition(row.bat_id);
-    if (!bat) {
-      throw new BaseballGameError("unknown_bat", "At-bat has an unknown bat; start a new at-bat");
-    }
+    const atBat = this.project(row);
+    const batPower = resolveBaseballAtBatPower(atBat, timingDeltaMs ?? 0);
     // The issued bat snapshot and shared physics own the result; client outcome/distance are ignored.
     const simulation =
       timingDeltaMs !== null && Math.abs(timingDeltaMs) <= HIT_WINDOW_MS
-        ? advanceBattedBall(
-            createBattedBall({ timingDeltaMs, batPower: bat.exitVelocityMultiplier }),
-            30_000,
-          )
+        ? advanceBattedBall(createBattedBall({ timingDeltaMs, batPower }), 30_000)
         : null;
     const result = simulation?.result;
     const outcome = result
@@ -182,6 +217,17 @@ export class BaseballAtBatStore {
         ? { distanceM: Math.max(0, Math.round(result.distanceM)) }
         : {}),
     };
+  }
+
+  private project(row: AtBatRow): BaseballAtBat {
+    const snapshot = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("baseball_at_bat_enhancement_snapshots")
+        .selectAll()
+        .where("at_bat_id", "=", row.id),
+    );
+    return projectAtBat(row, snapshot);
   }
 
   private prune(now: number): void {

@@ -20,28 +20,152 @@ function playToResult(timingDeltaMs: number, batPower = 1, frameMs = 16, fielded
   return simulation;
 }
 
-describe("PlatformClaw easter egg simulation", () => {
-  it("samples one pitch speed and uses it for movement and contact time", () => {
-    const random = vi.fn(() => 0.25);
-    const pitch = createPitch(random);
+const pitchCases = [
+  { kind: "fastball", sample: 0.1171875, min: 145, max: 155 },
+  { kind: "changeup", sample: 0.3515625, min: 115, max: 125 },
+  { kind: "underhand", sample: 0.5859375, min: 130, max: 140 },
+  { kind: "curve", sample: 0.8203125, min: 105, max: 115 },
+  { kind: "knuckleball", sample: 0.9765625, min: 100, max: 110 },
+] as const;
 
-    expect(random).toHaveBeenCalledOnce();
-    expect(pitch.speedKph).toBe(120);
-    expect(pitchPositionAt(pitch, 0).x).toBe(BASEBALL_WORLD.pitcherX);
-    expect(pitchPositionAt(pitch, pitch.idealContactTimeMs).x).toBeCloseTo(
-      BASEBALL_WORLD.contactX,
-      10,
-    );
-    const slow = createPitch(() => 0);
-    const fast = createPitch(() => 0.5);
-    expect(slow.speedKph).toBe(115);
-    expect(createPitch(() => 0.499_999).speedKph).toBeCloseTo(125, 4);
-    expect(fast.speedKph).toBe(145);
-    expect(createPitch(() => 1).speedKph).toBe(155);
-    expect(slow.idealContactTimeMs - fast.idealContactTimeMs).toBeGreaterThan(100);
-    for (let index = 0; index <= 100; index += 1) {
-      const speed = createPitch(() => index / 100).speedKph;
-      expect(speed <= 125 || speed >= 145).toBe(true);
+describe("PlatformClaw easter egg simulation", () => {
+  it.each(pitchCases)(
+    "replays one $kind sample and reaches the same contact point at its judged time",
+    ({ kind, sample, min, max }) => {
+      const random = vi.fn(() => sample);
+      const pitch = createPitch(random);
+      expect(random).toHaveBeenCalledOnce();
+      expect(pitch.kind).toBe(kind);
+      expect(pitch.speedKph).toBe((min + max) / 2);
+      expect(createPitch(() => sample)).toEqual(pitch);
+      expect(pitch.idealContactTimeMs).toBeCloseTo((18.44 / (pitch.speedKph / 3.6)) * 1000, 10);
+      const releaseY = kind === "underhand" ? 0.35 : 1.05;
+      expect(pitchPositionAt(pitch, -1)).toEqual({ x: 18.44, y: releaseY });
+      expect(pitchPositionAt(pitch, 0)).toEqual({ x: 18.44, y: releaseY });
+      expect(pitchPositionAt(pitch, pitch.idealContactTimeMs)).toEqual({ x: 0, y: 1.05 });
+      expect(pitchPositionAt(pitch, pitch.idealContactTimeMs + 100)).toEqual({ x: 0, y: 1.05 });
+      for (let step = 1; step <= 10; step += 1) {
+        const before = pitchPositionAt(pitch, (pitch.idealContactTimeMs * (step - 1)) / 10);
+        const after = pitchPositionAt(pitch, (pitch.idealContactTimeMs * step) / 10);
+        expect(before.x - after.x).toBeCloseTo(1.844, 10);
+      }
+    },
+  );
+
+  it("makes knuckleballs rare while preserving the independent speed distribution inside every pattern", () => {
+    for (const [kindIndex, band] of [0, 15, 30, 45, 60].entries()) {
+      const expected = pitchCases[kindIndex]!;
+      for (const fraction of [0.125, 0.375, 0.625, 0.875]) {
+        const pitch = createPitch(() => (band + fraction) / 64);
+        expect(pitch.kind).toBe(expected.kind);
+        expect((pitch.speedKph - expected.min) / (expected.max - expected.min)).toBeCloseTo(
+          fraction,
+          10,
+        );
+      }
+    }
+    const bins = pitchCases.map(() => [0, 0, 0, 0]);
+    for (let index = 0; index < 1024; index += 1) {
+      const pitch = createPitch(() => (index + 0.5) / 1024);
+      const kindIndex = pitchCases.findIndex(({ kind }) => kind === pitch.kind);
+      const { min, max } = pitchCases[kindIndex]!;
+      const speedBin = Math.floor(((pitch.speedKph - min) / (max - min)) * 4);
+      bins[kindIndex]![speedBin]! += 1;
+    }
+    expect(bins).toEqual([
+      [60, 60, 60, 60],
+      [60, 60, 60, 60],
+      [60, 60, 60, 60],
+      [60, 60, 60, 60],
+      [16, 16, 16, 16],
+    ]);
+    expect(
+      createPitch(() => 0.3515625).idealContactTimeMs -
+        createPitch(() => 0.1171875).idealContactTimeMs,
+    ).toBeGreaterThan(100);
+  });
+
+  it("handles profile boundaries and finite out-of-range samples without selecting a missing kind", () => {
+    for (const [sample, kind, speed] of [
+      [-1, "fastball", 145],
+      [0, "fastball", 145],
+      [15 / 64 - Number.EPSILON, "fastball", 155],
+      [15 / 64, "changeup", 115],
+      [30 / 64 - Number.EPSILON, "changeup", 125],
+      [30 / 64, "underhand", 130],
+      [45 / 64 - Number.EPSILON, "underhand", 140],
+      [45 / 64, "curve", 105],
+      [60 / 64 - Number.EPSILON, "curve", 115],
+      [60 / 64, "knuckleball", 100],
+      [1, "knuckleball", 110],
+      [2, "knuckleball", 110],
+    ] as const) {
+      const pitch = createPitch(() => sample);
+      expect(pitch.kind).toBe(kind);
+      expect(pitch.speedKph).toBeCloseTo(speed, 10);
+    }
+    for (const sample of [Number.NaN, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY]) {
+      expect(() => createPitch(() => sample)).toThrow("finite number");
+    }
+  });
+
+  it("keeps straight pitches flat, makes the low-release underhand rise steadily, and gives the curve a continuous arc", () => {
+    const at = (sample: number, progress: number) => {
+      const pitch = createPitch(() => sample);
+      return pitchPositionAt(pitch, pitch.idealContactTimeMs * progress);
+    };
+    for (const progress of [0.25, 0.5, 0.75]) {
+      expect(at(0.1171875, progress).y).toBe(1.05);
+      expect(at(0.3515625, progress).y).toBe(1.05);
+    }
+    for (let step = 1; step <= 4; step += 1) {
+      const before = at(0.5859375, (step - 1) / 4);
+      const after = at(0.5859375, step / 4);
+      expect(after.y - before.y).toBeCloseTo(0.175, 10);
+    }
+    expect(at(0.8203125, 0.5).y - 1.05).toBe(2.5);
+    expect(at(0.8203125, 0.75).y).toBeGreaterThan(at(0.5859375, 0.75).y);
+    for (const { sample } of pitchCases) {
+      expect(Math.abs(at(sample, 0.750001).y - at(sample, 0.749999).y)).toBeLessThan(0.001);
+    }
+  });
+
+  it("keeps knuckleball wobble deterministic, small, continuous, and smoothly zero at contact without new random draws", () => {
+    const pitch = createPitch(() => 0.9765625);
+    const at = (progress: number) => pitchPositionAt(pitch, pitch.idealContactTimeMs * progress);
+    const random = vi.spyOn(Math, "random").mockImplementation(() => {
+      throw new Error("unexpected frame randomness");
+    });
+    try {
+      expect(at(0.25).y).toBeGreaterThan(1.05);
+      expect(at(0.75).y).toBeLessThan(1.05);
+      let previous = at(0);
+      for (let step = 1; step <= 1000; step += 1) {
+        const point = at(step / 1000);
+        expect(Math.abs(point.y - 1.05)).toBeLessThanOrEqual(0.16);
+        expect(Math.abs(point.y - previous.y)).toBeLessThan(0.01);
+        expect(point.x).toBeLessThan(previous.x);
+        expect(at(step / 1000)).toEqual(point);
+        previous = point;
+      }
+      expect(Math.abs(at(0.999).y - 1.05)).toBeLessThan(0.00001);
+      expect(at(1)).toEqual({ x: 0, y: 1.05 });
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  it("preserves center-contact home runs for every bat and the entire Perfect window from platinum upward", () => {
+    for (const bat of BASEBALL_BATS) {
+      expect(playToResult(0, bat.exitVelocityMultiplier).result?.kind).toBe("HOME_RUN");
+    }
+    for (const bat of BASEBALL_BATS.slice(3)) {
+      for (const timingDeltaMs of [-25, 25]) {
+        expect(classifyTimingDelta(timingDeltaMs)).toBe("PERFECT");
+        expect(playToResult(timingDeltaMs, bat.exitVelocityMultiplier).result?.kind).toBe(
+          "HOME_RUN",
+        );
+      }
     }
   });
 

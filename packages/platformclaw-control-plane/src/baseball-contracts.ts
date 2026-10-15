@@ -21,6 +21,26 @@ export function isBaseballBatId(value: unknown): value is BaseballBatId {
   return typeof value === "string" && getBaseballBatDefinition(value) !== undefined;
 }
 
+export const BASEBALL_KBO_TEAM_IDS = [
+  "kia",
+  "kt",
+  "lg",
+  "nc",
+  "ssg",
+  "doosan",
+  "lotte",
+  "samsung",
+  "kiwoom",
+  "hanwha",
+] as const;
+
+export type BaseballKboTeamId = (typeof BASEBALL_KBO_TEAM_IDS)[number];
+export const BASEBALL_TEAM_CHANGE_COST = 2_000;
+
+export function isBaseballKboTeamId(value: unknown): value is BaseballKboTeamId {
+  return BASEBALL_KBO_TEAM_IDS.some((teamId) => teamId === value);
+}
+
 export const BASEBALL_RPC_METHODS = [
   "platformclaw.baseball.progress",
   "platformclaw.baseball.plateAppearance",
@@ -28,6 +48,10 @@ export const BASEBALL_RPC_METHODS = [
   "platformclaw.baseball.equipBat",
   "platformclaw.baseball.leaderboard",
   "platformclaw.baseball.beginAtBat",
+  "platformclaw.baseball.enhanceBat",
+  "platformclaw.baseball.recoverBat",
+  "platformclaw.baseball.equipEnhancedBat",
+  "platformclaw.baseball.selectTeam",
 ] as const;
 
 export type BaseballRpcMethod = (typeof BASEBALL_RPC_METHODS)[number];
@@ -39,6 +63,10 @@ export const BASEBALL_RPC = {
   equipBat: BASEBALL_RPC_METHODS[3],
   leaderboard: BASEBALL_RPC_METHODS[4],
   beginAtBat: BASEBALL_RPC_METHODS[5],
+  enhanceBat: BASEBALL_RPC_METHODS[6],
+  recoverBat: BASEBALL_RPC_METHODS[7],
+  equipEnhancedBat: BASEBALL_RPC_METHODS[8],
+  selectTeam: BASEBALL_RPC_METHODS[9],
 } as const;
 
 const BASEBALL_RPC_METHOD_SET = new Set<string>(BASEBALL_RPC_METHODS);
@@ -49,6 +77,13 @@ export function isBaseballRpcMethod(method: string): method is BaseballRpcMethod
 
 export type BaseballPlateAppearanceOutcome = "home_run" | "hit" | "out" | "miss";
 
+export type BaseballEnhancementState = {
+  level: number;
+  status: "ready" | "broken";
+  equipped: boolean;
+  version: 1;
+};
+
 export type BaseballProgress = {
   gold: number;
   ownedBatIds: BaseballBatId[];
@@ -58,6 +93,9 @@ export type BaseballProgress = {
   currentHomeRunStreak: number;
   bestHomeRunStreak: number;
   revision: number;
+  /** Separate opt-in state; previously purchased bats are retained unchanged. */
+  enhancement?: BaseballEnhancementState;
+  teamId?: BaseballKboTeamId | null;
 };
 
 export type BaseballLeaderboardEntry = {
@@ -83,6 +121,8 @@ export type BaseballAtBat = {
   batId: BaseballBatId;
   issuedAt: number;
   expiresAt: number;
+  enhancementLevel?: number;
+  powerRuleVersion?: "sweetspot-v1";
 };
 
 export type BaseballPlateAppearanceResult = {
@@ -115,8 +155,71 @@ export type BaseballEquipBatResult = {
   progress: BaseballProgress;
 };
 
+export type BaseballEnhancementOutcome =
+  | "success"
+  | "maintain"
+  | "drop"
+  | "destroy"
+  | "total_destroy";
+
+export type BaseballEnhanceBatRequest = {
+  requestId: string;
+  expectedRevision: number;
+};
+
+export type BaseballEnhanceBatResult = {
+  requestId: string;
+  outcome: BaseballEnhancementOutcome;
+  fromLevel: number;
+  targetLevel: number;
+  level: number;
+  chargedGold: number;
+  evolved: boolean;
+  automaticRestart: boolean;
+  progress: BaseballProgress;
+};
+
+export type BaseballRecoverBatRequest = {
+  requestId: string;
+  expectedRevision: number;
+  action: "restore" | "restart";
+};
+
+export type BaseballRecoverBatResult = {
+  requestId: string;
+  outcome: "restored" | "restarted";
+  chargedGold: number;
+  progress: BaseballProgress;
+};
+
+export type BaseballEquipEnhancedBatRequest = {
+  requestId: string;
+  expectedRevision: number;
+};
+
+export type BaseballEquipEnhancedBatResult = {
+  requestId: string;
+  changed: boolean;
+  progress: BaseballProgress;
+};
+
+export type BaseballSelectTeamRequest = {
+  requestId: string;
+  expectedRevision: number;
+  teamId: BaseballKboTeamId;
+};
+
+export type BaseballSelectTeamResult = {
+  requestId: string;
+  teamId: BaseballKboTeamId;
+  changed: boolean;
+  chargedGold: number;
+  progress: BaseballProgress;
+};
+
 export type BaseballGameErrorCode =
   | "idempotency_conflict"
+  | "legacy_purchase_closed"
   | "unknown_bat"
   | "insufficient_gold"
   | "bat_not_owned"
@@ -125,7 +228,13 @@ export type BaseballGameErrorCode =
   | "at_bat_expired"
   | "at_bat_too_early"
   | "at_bat_rate_limited"
-  | "invalid_swing";
+  | "invalid_swing"
+  | "stale_progress"
+  | "enhancement_max"
+  | "bat_broken"
+  | "bat_not_broken"
+  | "invalid_enhancement"
+  | "invalid_team";
 
 export class BaseballGameError extends Error {
   constructor(
@@ -159,10 +268,24 @@ export interface BaseballGameStore {
     userId: string;
     requestId: string;
     batId: BaseballBatId;
+    /** Internal trust boundary: browser handlers always set true and reject this field from clients. */
+    historicalOnly?: boolean;
   }): Promise<BaseballPurchaseBatResult>;
   equipBaseballBat(params: {
     userId: string;
     requestId: string;
     batId: BaseballBatId;
   }): Promise<BaseballEquipBatResult>;
+  enhanceBaseballBat(
+    params: BaseballEnhanceBatRequest & { userId: string },
+  ): Promise<BaseballEnhanceBatResult>;
+  recoverBaseballBat(
+    params: BaseballRecoverBatRequest & { userId: string },
+  ): Promise<BaseballRecoverBatResult>;
+  equipEnhancedBaseballBat(
+    params: BaseballEquipEnhancedBatRequest & { userId: string },
+  ): Promise<BaseballEquipEnhancedBatResult>;
+  selectBaseballTeam(
+    params: BaseballSelectTeamRequest & { userId: string },
+  ): Promise<BaseballSelectTeamResult>;
 }

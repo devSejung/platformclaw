@@ -1,12 +1,11 @@
 import { property, state } from "lit/decorators.js";
 import {
-  BASEBALL_BATS,
   BASEBALL_RPC,
   type BaseballBatId,
   type BaseballAtBat,
-  type BaseballLeaderboard,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import { resolveBaseballAtBatPower } from "../../../packages/platformclaw-control-plane/src/baseball-enhancement.ts";
 import "../styles/platformclaw-easter-egg.css";
 import { renderArcade } from "./easter-egg-arcade-view.ts";
 import { BaseballCelebration } from "./easter-egg-celebration.ts";
@@ -24,11 +23,7 @@ import {
   resolveBaseballFieldLayout,
   setBaseballWorldPosition,
 } from "./easter-egg-layout.ts";
-import {
-  BaseballPersistence,
-  type BaseballMutation,
-  type BaseballMutationResponse,
-} from "./easter-egg-persistence.ts";
+import type { BaseballMutation, BaseballMutationResponse } from "./easter-egg-persistence.ts";
 import {
   BASEBALL_DEFAULT_SETTINGS,
   isBaseballTeamId,
@@ -48,6 +43,7 @@ import {
 } from "./easter-egg-simulation.ts";
 import { classifyTimingDelta, formatTimingFeedback } from "./easter-egg-timing.ts";
 import { BASEBALL_TRAIL_POINTS, renderBaseballGame } from "./easter-egg-view.ts";
+import { BaseballWorkshop } from "./easter-egg-workshop.ts";
 import { PLATFORMCLAW_EASTER_EGG_EVENT } from "./easter-egg.ts";
 import { platformClawT as t } from "./i18n.ts";
 
@@ -59,10 +55,10 @@ const FOLLOW_THROUGH_MS = 250;
 const SWING_ANIMATION_MS = 190;
 const FEEDBACK_VISIBLE_MS = 1_100;
 
-type AnimationState = "idle" | "leg-lift" | "throw" | "follow-through" | "swing" | "swing-perfect";
+type AnimationState = Parameters<typeof renderBaseballGame>[0]["pitcherState"];
 type GamePhase = "ready" | "pitch" | "in-play" | "result";
 type TimerKey = "pitch" | "follow" | "batter" | "result" | "feedback";
-class PlatformClawEasterEgg extends BaseballPersistence {
+class PlatformClawEasterEgg extends BaseballWorkshop {
   @property({ attribute: false }) preferenceScope: string | null = null;
   /** Test seams; production retains Math.random and performance.now. */
   @property({ attribute: false }) random: () => number = Math.random;
@@ -81,15 +77,12 @@ class PlatformClawEasterEgg extends BaseballPersistence {
   @state() private feedbackVisible = false;
   @state() private playerState: AnimationState = "idle";
   @state() private pitcherState: AnimationState = "idle";
-  @state() private leaderboard: BaseballLeaderboard | null = null;
-  @state() private leaderboardStatus = "";
   @state() private settings: BaseballSettings = { ...BASEBALL_DEFAULT_SETTINGS };
   @state() private settingsStatus = "";
   @state() private awardedGold: number | null = null;
 
   private animationFrame = 0;
   private readonly celebration = new BaseballCelebration(this);
-  private leaderboardRequest = 0;
   private pitch: Pitch | null = null;
   private atBat: BaseballAtBat | null = null;
   private atBatRequestId: string | null = null;
@@ -112,13 +105,8 @@ class PlatformClawEasterEgg extends BaseballPersistence {
   private field = cacheBaseballFieldElements(this);
   private trail: BaseballPoint[] = [];
 
-  private readonly handleTrigger = (): void => {
-    if (this.gameScreen !== "closed") {
-      this.finishGame();
-    } else {
-      this.showGameSelector();
-    }
-  };
+  private readonly handleTrigger = (): void =>
+    this.gameScreen !== "closed" ? this.finishGame() : this.showGameSelector();
 
   private returnFocus: HTMLElement | null = null;
 
@@ -170,12 +158,19 @@ class PlatformClawEasterEgg extends BaseballPersistence {
     if (changed.has("client")) {
       this.clientEpoch += 1;
       this.celebration.reset();
-      this.pendingMutation = null;
-      this.persistenceBusy = false;
-      this.progress = null;
-      this.leaderboard = null;
-      this.leaderboardStatus = "";
-      if (this.active) {
+      this.resetPersistence();
+      const preservePending =
+        this.preferenceScope !== null && !changed.has("preferenceScope") && this.pendingMutation;
+      if (preservePending) {
+        this.persistenceStatus = this.pendingMutation!.label;
+      } else {
+        this.resetWorkshop();
+        this.pendingMutation = null;
+        this.progress = null;
+        this.leaderboard = null;
+        this.leaderboardStatus = "";
+      }
+      if (this.active && !preservePending) {
         this.persistenceStatus = this.client ? "진행도 다시 불러오는 중" : "진행 저장 불가";
         void this.loadProgress(this.playSequence);
       }
@@ -225,18 +220,20 @@ class PlatformClawEasterEgg extends BaseballPersistence {
       bonusVisible: this.celebration.visible,
       pendingMutationMethod: this.pendingMutation?.method ?? null,
       roundBatId: this.roundBatId,
-      pitchSpeedKph: this.pitch?.speedKph ?? null,
+      roundEnhancementLevel: this.atBat?.enhancementLevel ?? null,
+      workshopNotice: this.workshopNotice,
+      workshopEffect: this.workshopEffect,
+      workshopTaunt: this.workshopTaunt,
+      revealedPitch: this.phase === "in-play" || this.phase === "result" ? this.pitch : null,
       onOpenShop: this.openShop,
       onRetry: this.retryPendingMutation,
-      onCancel: this.dismissPendingMutation,
       onRetryLoad: this.retryLoad,
       onCloseShop: this.closeShop,
       onSelectBat: (batId, owned) => void this.selectBat(batId, owned),
-      onSelectTeam: (teamId) => {
-        if (isBaseballTeamId(teamId)) {
-          this.updateSettings({ ...this.settings, teamId });
-        }
-      },
+      onSelectTeam: this.selectTeam,
+      onEnhance: this.enhanceBat,
+      onRecover: this.recoverBat,
+      onEquipEnhanced: this.equipEnhancedBat,
       onOpacity: (opacity) => {
         if (Number.isInteger(opacity) && opacity >= 30 && opacity <= 100 && opacity % 5 === 0) {
           this.updateSettings({ ...this.settings, opacity });
@@ -247,20 +244,19 @@ class PlatformClawEasterEgg extends BaseballPersistence {
   }
 
   private async startGame(): Promise<void> {
+    this.finishGame();
     this.gameScreen = "baseball";
     const sequence = ++this.playSequence;
-    this.resetRuntime();
     document.body.classList.add("platformclaw-baseball-active");
     this.active = true;
+    this.shopOpen = this.restorePendingWorkshop();
     this.round = 0;
     this.hits = 0;
     this.homeRuns = 0;
     this.streak = 0;
     this.result = "";
     this.lastDistance = null;
-    this.leaderboard = null;
     this.awardedGold = null;
-    this.leaderboardStatus = "";
     this.persistenceStatus = this.client ? "진행도 불러오는 중" : "진행 저장 불가";
     await this.updateComplete;
     this.querySelector<HTMLElement>('[role="application"]')?.focus();
@@ -273,15 +269,14 @@ class PlatformClawEasterEgg extends BaseballPersistence {
     if (!client || !this.active || sequence !== this.playSequence) {
       return;
     }
-    this.persistenceBusy = true;
+    const finishPersistence = this.beginPersistence();
     try {
       const progress = await client.request<BaseballProgress>(BASEBALL_RPC.progress, {});
       if (!this.isCurrentRequest(client, epoch, sequence)) {
         return;
       }
-      this.progress = progress;
-      this.streak = progress.currentHomeRunStreak;
-      this.persistenceStatus = "";
+      this.applyBaseballProgress(progress);
+      this.persistenceStatus = this.pendingMutation?.label ?? "";
       void this.loadLeaderboard(sequence);
       await this.startRound(sequence);
     } catch {
@@ -289,31 +284,7 @@ class PlatformClawEasterEgg extends BaseballPersistence {
         this.persistenceStatus = "진행 저장 불가";
       }
     } finally {
-      if (this.isCurrentRequest(client, epoch, sequence)) {
-        this.persistenceBusy = false;
-      }
-    }
-  }
-
-  protected override async loadLeaderboard(sequence: number): Promise<void> {
-    const client = this.client;
-    const epoch = this.clientEpoch;
-    const request = ++this.leaderboardRequest;
-    if (!client || !this.active || sequence !== this.playSequence) {
-      return;
-    }
-    this.leaderboardStatus = "랭킹 불러오는 중";
-    try {
-      const leaderboard = await client.request<BaseballLeaderboard>(BASEBALL_RPC.leaderboard, {});
-      if (!this.isCurrentRequest(client, epoch, sequence) || this.leaderboardRequest !== request) {
-        return;
-      }
-      this.leaderboard = leaderboard;
-      this.leaderboardStatus = "";
-    } catch {
-      if (this.isCurrentRequest(client, epoch, sequence) && this.leaderboardRequest === request) {
-        this.leaderboardStatus = "랭킹 불러오기 실패";
-      }
+      finishPersistence();
     }
   }
 
@@ -339,6 +310,10 @@ class PlatformClawEasterEgg extends BaseballPersistence {
     this.battedBall = null;
     this.trail = [];
     this.atBatRequestId = createBaseballRequestId(this.random);
+    if (this.progress.enhancement?.equipped && this.progress.enhancement.status === "broken") {
+      this.persistenceStatus = "배트가 파괴되었습니다. 상점에서 복구 또는 재시작하세요.";
+      return;
+    }
     await this.loadAtBat(sequence);
   }
 
@@ -349,7 +324,7 @@ class PlatformClawEasterEgg extends BaseballPersistence {
     if (!client || !requestId || !this.active || sequence !== this.playSequence) {
       return;
     }
-    this.persistenceBusy = true;
+    const finishPersistence = this.beginPersistence();
     this.persistenceStatus = "투구 준비 중";
     try {
       const atBat = await client.request<BaseballAtBat>(BASEBALL_RPC.beginAtBat, { requestId });
@@ -362,14 +337,13 @@ class PlatformClawEasterEgg extends BaseballPersistence {
       this.roundBatId = atBat.batId;
       this.persistenceStatus = "";
       this.schedulePitch(sequence);
+      this.resumeGameTime();
     } catch {
       if (this.isCurrentRequest(client, epoch, sequence) && this.atBatRequestId === requestId) {
         this.persistenceStatus = "투구 준비 실패 · 다시 불러오기를 눌러주세요";
       }
     } finally {
-      if (this.isCurrentRequest(client, epoch, sequence)) {
-        this.persistenceBusy = false;
-      }
+      finishPersistence();
     }
   }
 
@@ -378,7 +352,7 @@ class PlatformClawEasterEgg extends BaseballPersistence {
       "pitch",
       MIN_WINDUP_DELAY_MS + this.random() * (MAX_WINDUP_DELAY_MS - MIN_WINDUP_DELAY_MS),
       () => {
-        this.pitcherState = "leg-lift";
+        this.pitcherState = this.pitch?.kind === "underhand" ? "underhand-windup" : "leg-lift";
         this.scheduleTimer("pitch", LEG_LIFT_MS, () => this.launchPitch(sequence));
       },
     );
@@ -391,11 +365,14 @@ class PlatformClawEasterEgg extends BaseballPersistence {
     }
     this.phase = "pitch";
     this.pitchElapsedMs = 0;
-    this.pitcherState = "throw";
+    const underhand = this.pitch.kind === "underhand";
+    this.pitcherState = underhand ? "underhand-throw" : "throw";
     this.lastFrameAt = this.now();
     this.trail = [pitchPositionAt(this.pitch, 0)];
     this.renderProjectile();
-    this.scheduleTimer("follow", FOLLOW_THROUGH_MS, () => (this.pitcherState = "follow-through"));
+    this.scheduleTimer("follow", FOLLOW_THROUGH_MS, () => {
+      this.pitcherState = underhand ? "underhand-follow-through" : "follow-through";
+    });
   }
 
   private readonly tick = (now: number): void => {
@@ -437,15 +414,19 @@ class PlatformClawEasterEgg extends BaseballPersistence {
   private swing(event: Event): void {
     if (
       !this.active ||
+      this.isPaused() ||
       this.phase !== "pitch" ||
       !this.pitch ||
       isBaseballInteractiveTarget(event.target)
     ) {
       return;
     }
-    if (event instanceof KeyboardEvent) {
+    if (event instanceof KeyboardEvent && event.code === "Space") {
       event.preventDefault();
     }
+    const now = this.now();
+    this.pitchElapsedMs += Math.max(0, now - this.lastFrameAt);
+    this.lastFrameAt = now;
     const timingDeltaMs = this.pitchElapsedMs - this.pitch.idealContactTimeMs;
     this.swingTimingDeltaMs = timingDeltaMs;
     const timing = classifyTimingDelta(timingDeltaMs);
@@ -455,8 +436,11 @@ class PlatformClawEasterEgg extends BaseballPersistence {
       this.resolveAtBat("miss");
       return;
     }
-    const bat = BASEBALL_BATS.find((entry) => entry.id === this.roundBatId) ?? BASEBALL_BATS[0];
-    this.battedBall = createBattedBall({ timingDeltaMs, batPower: bat.exitVelocityMultiplier });
+    const batPower = resolveBaseballAtBatPower(
+      this.atBat ?? { batId: this.roundBatId },
+      timingDeltaMs,
+    );
+    this.battedBall = createBattedBall({ timingDeltaMs, batPower });
     this.phase = "in-play";
     this.playerState = timing === "PERFECT" ? "swing-perfect" : "swing";
     this.trail = [{ x: BASEBALL_WORLD.contactX, y: BASEBALL_WORLD.pitchY }];
@@ -523,6 +507,13 @@ class PlatformClawEasterEgg extends BaseballPersistence {
 
   protected override onProgress(progress: BaseballProgress): void {
     this.streak = progress.currentHomeRunStreak;
+    const teamId =
+      progress.teamId && isBaseballTeamId(progress.teamId)
+        ? progress.teamId
+        : BASEBALL_DEFAULT_SETTINGS.teamId;
+    if (this.settings.teamId !== teamId) {
+      this.updateSettings({ ...this.settings, teamId });
+    }
   }
 
   protected override onPlateAppearanceConfirmed(
@@ -546,6 +537,11 @@ class PlatformClawEasterEgg extends BaseballPersistence {
     this.atBatRequestId = null;
     this.phase = "ready";
   }
+  protected override onWorkshopQueueUpdated(): void {
+    if (this.active && !this.shopOpen) {
+      this.closeShop();
+    }
+  }
   private scheduleNextRound(): void {
     const sequence = this.playSequence;
     this.scheduleTimer("result", BETWEEN_ROUNDS_MS, () => void this.startRound(sequence));
@@ -554,15 +550,6 @@ class PlatformClawEasterEgg extends BaseballPersistence {
   private readonly retryPendingMutation = (): void => {
     if (this.pendingMutation && !this.persistenceBusy) {
       void this.runMutation(this.pendingMutation);
-    }
-  };
-
-  private readonly dismissPendingMutation = (): void => {
-    const wasAtBat = this.pendingMutation?.method === BASEBALL_RPC.plateAppearance;
-    this.pendingMutation = null;
-    this.persistenceStatus = "";
-    if (wasAtBat) {
-      this.scheduleNextRound();
     }
   };
 
@@ -597,13 +584,24 @@ class PlatformClawEasterEgg extends BaseballPersistence {
   private readonly closeShop = (event?: Event): void => {
     event?.preventDefault();
     event?.stopPropagation();
-    if (this.shopOpen && !this.pendingMutation) {
-      this.shopOpen = false;
+    this.shopOpen = false;
+    if (!this.pendingMutation) {
+      if (
+        !this.atBat &&
+        this.phase === "ready" &&
+        !this.persistenceBusy &&
+        !(this.progress?.enhancement?.equipped && this.progress.enhancement.status === "broken")
+      ) {
+        void this.startRound(this.playSequence);
+      }
       this.resumeGameTime();
-      void this.updateComplete.then(() =>
-        this.querySelector<HTMLElement>(".platformclaw-easter-egg__shop-trigger")?.focus(),
-      );
+    } else {
+      this.pauseGameTime();
     }
+    // Background receipt/storage settlement must not steal focus from an input.
+    void this.updateComplete.then(
+      () => event && this.querySelector<HTMLElement>('[role="application"]')?.focus(),
+    );
   };
 
   private readonly handleResize = (): void => {
@@ -654,7 +652,7 @@ class PlatformClawEasterEgg extends BaseballPersistence {
   }
 
   private isPaused(): boolean {
-    return this.shopOpen || document.hidden;
+    return this.shopOpen || document.hidden || this.pendingMutation !== null;
   }
 
   private ensureAnimationLoop(): void {
@@ -721,11 +719,12 @@ class PlatformClawEasterEgg extends BaseballPersistence {
 
   private resetRuntime(): void {
     this.celebration.reset();
+    this.resetWorkshop();
     this.stopAnimationLoop();
     this.clock.clearAll();
     this.input.reset();
     this.pendingMutation = null;
-    this.persistenceBusy = false;
+    this.resetPersistence();
     this.pitch = null;
     this.atBat = null;
     this.atBatRequestId = null;
