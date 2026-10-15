@@ -11,25 +11,33 @@ import {
   type BaseballEnhancementOutcome,
 } from "./baseball-contracts.js";
 import {
-  BASEBALL_ENHANCEMENT_BASIS_POINTS,
   BASEBALL_ENHANCEMENT_MAX_LEVEL,
   BASEBALL_ENHANCEMENT_RECOVERY_COST,
   BASEBALL_ENHANCEMENT_RULES,
   BASEBALL_ENHANCEMENT_RULE_VERSION,
   getBaseballEnhancementAppearance,
-  getBaseballEnhancementPower,
   getBaseballEnhancementRule,
-  isBaseballEnhancementLevel,
   resolveBaseballAtBatPower,
   resolveBaseballEnhancement,
 } from "./baseball-enhancement.js";
 import { advanceBattedBall, createBattedBall } from "./baseball-simulation.js";
 
+function enhancedPower(level: number, timingDeltaMs: number): number {
+  return resolveBaseballAtBatPower(
+    {
+      batId: "wood",
+      enhancementLevel: level,
+      powerRuleVersion: BASEBALL_ENHANCEMENT_RULE_VERSION,
+    },
+    timingDeltaMs,
+  );
+}
+
 function simulate(level: number, timingDeltaMs: number) {
   return advanceBattedBall(
     createBattedBall({
       timingDeltaMs,
-      batPower: getBaseballEnhancementPower(level, timingDeltaMs),
+      batPower: enhancedPower(level, timingDeltaMs),
     }),
     30_000,
   ).result!;
@@ -84,9 +92,7 @@ describe("baseball enhancement rules", () => {
         ["destroy", rule.destroy],
         ["total_destroy", rule.totalDestroy],
       ] as const;
-      expect(buckets.reduce((sum, [, weight]) => sum + weight, 0)).toBe(
-        BASEBALL_ENHANCEMENT_BASIS_POINTS,
-      );
+      expect(buckets.reduce((sum, [, weight]) => sum + weight, 0)).toBe(10_000);
       let boundary = 0;
       for (const [outcome, weight] of buckets) {
         expect(Number.isInteger(weight)).toBe(true);
@@ -103,7 +109,7 @@ describe("baseball enhancement rules", () => {
         destroy: 0,
         total_destroy: 0,
       };
-      for (let roll = 0; roll < BASEBALL_ENHANCEMENT_BASIS_POINTS; roll += 1) {
+      for (let roll = 0; roll < 10_000; roll += 1) {
         counts[resolveBaseballEnhancement(rule.targetLevel, roll)] += 1;
       }
       expect(counts).toEqual(Object.fromEntries(buckets));
@@ -130,18 +136,16 @@ describe("baseball enhancement rules", () => {
 describe("enhanced bat power and snapshots", () => {
   it.each([0, 1, 5, 10, 11, 15, 20])("limits +%i power to the approved sweet spot", (level) => {
     const bonus = (0.1 * Math.min(level, 10)) / 10 + (0.02 * Math.max(level - 10, 0)) / 10;
-    expect(getBaseballEnhancementPower(level, 0)).toBeCloseTo(1 + bonus, 12);
-    expect(getBaseballEnhancementPower(level, -12.5)).toBeCloseTo(1 + bonus * 0.5625, 12);
-    expect(getBaseballEnhancementPower(level, 12.5)).toBe(
-      getBaseballEnhancementPower(level, -12.5),
-    );
+    expect(enhancedPower(level, 0)).toBeCloseTo(1 + bonus, 12);
+    expect(enhancedPower(level, -12.5)).toBeCloseTo(1 + bonus * 0.5625, 12);
+    expect(enhancedPower(level, 12.5)).toBe(enhancedPower(level, -12.5));
     for (const delta of [-100, -50, -25, 25, 50, 100]) {
-      expect(getBaseballEnhancementPower(level, delta)).toBe(1);
+      expect(enhancedPower(level, delta)).toBe(1);
     }
   });
 
   it("strengthens centered +20 contact without turning every Perfect input into a home run", () => {
-    expect(getBaseballEnhancementPower(20, 0)).toBeCloseTo(1.12, 12);
+    expect(enhancedPower(20, 0)).toBeCloseTo(1.12, 12);
     expect(simulate(20, 0).kind).toBe("HOME_RUN");
     expect(simulate(20, 0).distanceM).toBeGreaterThan(simulate(0, 0).distanceM);
     for (let level = 0; level <= BASEBALL_ENHANCEMENT_MAX_LEVEL; level += 1) {
@@ -158,8 +162,7 @@ describe("enhanced bat power and snapshots", () => {
   it.each([-1, 0.5, 21, Number.NaN, Number.POSITIVE_INFINITY])(
     "rejects invalid level %s",
     (level) => {
-      expect(isBaseballEnhancementLevel(level)).toBe(false);
-      expect(() => getBaseballEnhancementPower(level, 0)).toThrow(BaseballGameError);
+      expect(() => enhancedPower(level, 0)).toThrow(BaseballGameError);
       expect(() => getBaseballEnhancementAppearance(level)).toThrow(BaseballGameError);
     },
   );
@@ -167,7 +170,7 @@ describe("enhanced bat power and snapshots", () => {
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
     "rejects nonfinite timing %s",
     (delta) => {
-      expect(() => getBaseballEnhancementPower(20, delta)).toThrow(BaseballGameError);
+      expect(() => enhancedPower(20, delta)).toThrow(BaseballGameError);
     },
   );
 

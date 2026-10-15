@@ -12,7 +12,6 @@ import {
   savePendingWorkshop,
   clearPendingWorkshop,
   claimWorkshopTaunt,
-  WORKSHOP_RECEIPT_LIMIT,
 } from "./easter-egg-workshop-journal.ts";
 import "./easter-egg-game.ts";
 import { PLATFORMCLAW_EASTER_EGG_EVENT } from "./easter-egg.ts";
@@ -382,8 +381,8 @@ describe("baseball enhancement workshop", () => {
       ([method]) => method === BASEBALL_RPC.enhanceBat,
     );
     expect(attemptsMade).toHaveLength(2);
-    expect(attemptsMade[1][1]).toEqual(attemptsMade[0][1]);
-    expect(attemptsMade[0][1]).toMatchObject({ expectedRevision: 4 });
+    expect(attemptsMade[1]![1]).toEqual(attemptsMade[0]![1]);
+    expect(attemptsMade[0]![1]).toMatchObject({ expectedRevision: 4 });
     expect(egg.progress).toMatchObject({ gold: 900, revision: 5, enhancement: { level: 1 } });
     expect(egg.pendingMutation).toBeNull();
     expect(preview(egg).dataset.effect).toBe("success");
@@ -727,7 +726,7 @@ describe("baseball enhancement workshop", () => {
     };
     expect(savePendingWorkshop(scope, first)).toBe(true);
     await clearPendingWorkshop(scope, first);
-    for (let index = 0; index < WORKSHOP_RECEIPT_LIMIT + 10; index += 1) {
+    for (let index = 0; index < 138; index += 1) {
       const mutation = {
         method: BASEBALL_RPC.enhanceBat,
         params: { requestId: `receipt-${index}`, expectedRevision: index + 1 },
@@ -736,9 +735,7 @@ describe("baseball enhancement workshop", () => {
       await clearPendingWorkshop(scope, mutation);
     }
     expect(localStorage.length).toBe(1);
-    expect(JSON.parse(localStorage.getItem(localStorage.key(0)!)!)).toHaveLength(
-      WORKSHOP_RECEIPT_LIMIT,
-    );
+    expect(JSON.parse(localStorage.getItem(localStorage.key(0)!)!)).toHaveLength(128);
     expect(savePendingWorkshop(scope, first, true)).toBe(false);
     await clearPendingWorkshop(scope, first);
     expect(await claimWorkshopTaunt(scope, "old-receipt")).toBe(false);
@@ -932,7 +929,9 @@ describe("baseball enhancement workshop", () => {
           ? (newResponse.promise as Promise<T>)
           : oldClient.request<T>(method, params),
     );
-    egg.client = { request: retry };
+    egg.client = {
+      request: async <T>(method: string, params?: unknown) => (await retry(method, params)) as T,
+    };
     await flush(egg);
     expect(egg.pendingMutation).toBe(original);
     await click(egg, ".platformclaw-easter-egg__save-status button");

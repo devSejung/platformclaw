@@ -93,7 +93,9 @@ async function openPitchGame(sample: number) {
     }
     throw new Error(`unexpected method: ${method}`);
   });
-  egg.client = { request };
+  egg.client = {
+    request: async <T>(method: string, params?: unknown) => (await request(method, params)) as T,
+  };
   await openBaseball(egg);
   await flush(egg);
   return { egg, request };

@@ -524,7 +524,7 @@ describe("atomic opt-in baseball enhancements", () => {
         );
       const operations = order === "racing-first" ? [bet, enhance] : [enhance, bet];
       const results = await Promise.allSettled(
-        operations.map((operation) => Promise.resolve().then(operation)),
+        operations.map((operation) => Promise.resolve().then<unknown>(operation)),
       );
       expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
       expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);

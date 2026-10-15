@@ -12,7 +12,7 @@ function prefix(scope: string): string {
   return `platformclaw.baseball.pending.v1:${encodeURIComponent(scope)}:`;
 }
 
-export const WORKSHOP_RECEIPT_LIMIT = 128;
+const WORKSHOP_RECEIPT_LIMIT = 128;
 type CompletedReceipt = { requestId: string; tauntClaimed: boolean; at: number };
 
 function receiptKey(scope: string): string {

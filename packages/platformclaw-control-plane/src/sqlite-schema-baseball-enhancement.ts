@@ -1,5 +1,3 @@
-import type { DatabaseSync } from "node:sqlite";
-
 export const BASEBALL_ENHANCEMENT_SCHEMA = `
 CREATE TABLE IF NOT EXISTS baseball_bat_enhancements (
   user_id TEXT PRIMARY KEY REFERENCES platform_users(id) ON DELETE CASCADE,
@@ -14,8 +12,3 @@ CREATE TABLE IF NOT EXISTS baseball_team_selections (
   team_id TEXT NOT NULL CHECK (team_id IN ('kia','kt','lg','nc','ssg','doosan','lotte','samsung','kiwoom','hanwha'))
 ) STRICT;
 `;
-
-/** New state is opt-in; existing inventory, balances and records are never converted. */
-export function ensureBaseballEnhancementSchema(db: DatabaseSync): void {
-  db.exec(BASEBALL_ENHANCEMENT_SCHEMA);
-}

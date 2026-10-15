@@ -7,11 +7,11 @@ import {
 } from "./baseball-contracts.js";
 
 export const BASEBALL_ENHANCEMENT_RULE_VERSION = "sweetspot-v1";
-export const BASEBALL_ENHANCEMENT_BASIS_POINTS = 10_000;
+const BASEBALL_ENHANCEMENT_BASIS_POINTS = 10_000;
 export const BASEBALL_ENHANCEMENT_RECOVERY_COST = 15_000;
 export const BASEBALL_ENHANCEMENT_MAX_LEVEL = 20;
 
-export type BaseballEnhancementRule = {
+type BaseballEnhancementRule = {
   targetLevel: number;
   costGold: number;
   success: number;
@@ -226,7 +226,7 @@ export const BASEBALL_ENHANCEMENT_RULES = [
   },
 ] as const satisfies readonly BaseballEnhancementRule[];
 
-export function isBaseballEnhancementLevel(value: unknown): value is number {
+function isBaseballEnhancementLevel(value: unknown): value is number {
   return (
     typeof value === "number" &&
     Number.isInteger(value) &&
@@ -280,7 +280,7 @@ export function resolveBaseballEnhancement(
   );
 }
 
-export function getBaseballEnhancementPower(level: number, timingDeltaMs: number): number {
+function getBaseballEnhancementPower(level: number, timingDeltaMs: number): number {
   if (!isBaseballEnhancementLevel(level) || !Number.isFinite(timingDeltaMs)) {
     throw new BaseballGameError(
       "invalid_enhancement",

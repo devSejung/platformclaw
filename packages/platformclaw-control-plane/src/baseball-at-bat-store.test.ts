@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { BaseballAtBatStore } from "./baseball-at-bat-store.js";
 import { BaseballGameError, getBaseballBatDefinition } from "./baseball-contracts.js";
-import { getBaseballEnhancementPower } from "./baseball-enhancement.js";
+import { resolveBaseballAtBatPower } from "./baseball-enhancement.js";
 import {
   advanceBattedBall,
   createBattedBall,
@@ -67,7 +67,7 @@ describe("BaseballAtBatStore", () => {
       const simulated = advanceBattedBall(
         createBattedBall({
           timingDeltaMs,
-          batPower: getBaseballEnhancementPower(20, timingDeltaMs),
+          batPower: resolveBaseballAtBatPower(issued, timingDeltaMs),
         }),
         30_000,
       ).result!;
