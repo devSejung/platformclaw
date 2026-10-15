@@ -383,6 +383,12 @@ class PlatformClawHorseRacing extends OpenClawLightDomContentsElement {
       this.displayedPositions = target;
       return;
     }
+    // A reported fall freezes at its observed position immediately, rather than gliding through the fall pose.
+    for (const entry of race.positions) {
+      if (entry.motion) {
+        this.displayedPositions.set(entry.horseId, entry.position);
+      }
+    }
     // One snapshot behind: interpolate already observed progress, never predict the next position or winner.
     this.tween = {
       startsAt: performance.now(),

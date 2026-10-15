@@ -1,4 +1,6 @@
 export const racingTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.racing.fallen": "넘어짐 · 잠시 정지",
+  "platformClaw.racing.recovering": "일어나는 중",
   "platformClaw.racing.opacity": "게임 화면 불투명도 · {value}%",
   "platformClaw.racing.restoreOpacity": "100%로 복구",
   "platformClaw.racing.opacityHelp": "말·패널·실시간 현황·당첨 효과 전체에 30~100%로 적용합니다.",
@@ -69,7 +71,7 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.result": "결승 순위",
   "platformClaw.racing.fairness": "공정성·검증 정보",
   "platformClaw.racing.fairnessHelp":
-    "컨디션은 결과 전까지 비밀이며 속도·지구력 막대는 대략적인 정보입니다. 찌라시는 우승 보장이 아닌 분위기 힌트예요. 베팅금은 추첨 결과에 영향을 주지 않습니다. 종료 후 공개된 정보로 검증 해시와 순위를 확인할 수 있습니다.",
+    "컨디션은 결과 전까지 비밀이며 속도·지구력 막대는 대략적인 정보입니다. 찌라시는 승부를 추리하는 불확실한 힌트이며 배당은 기본 확률 기준으로 고정됩니다. 베팅금은 추첨 결과에 영향을 주지 않습니다. 종료 후 공개된 정보로 검증 해시와 순위를 확인할 수 있습니다.",
   "platformClaw.racing.commitment": "경주 전 검증 해시 (SHA-256)",
   "platformClaw.racing.seed": "공개된 시드",
   "platformClaw.racing.seedHidden": "비밀 시드는 경주 종료 후 공개됩니다.",

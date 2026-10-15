@@ -43,15 +43,21 @@ export function renderHorsePerimeter(
     ${race.horses.map((horse, lane) => {
       const point = horsePerimeterPoint(width, height, positions.get(horse.id) ?? 0, lane);
       const label = horsePerimeterLabel(width, height, point, lane);
+      const motion = race.positions.find((entry) => entry.horseId === horse.id)?.motion;
       return svg`<g data-perimeter-horse=${horse.id}
         class="platformclaw-racing-perimeter__horse ${backed.has(horse.id) ? "platformclaw-racing-perimeter__horse--backed" : ""}"
-        data-facing=${horsePerimeterFacing(point.angle)} data-boosting=${!stale && !reducedMotion && boosted.has(horse.id)} transform=${`translate(${point.x} ${point.y})`} style=${styleMap({ "--horse-color": horse.color })}>
+        data-facing=${horsePerimeterFacing(point.angle)} data-motion=${motion ?? "running"} data-boosting=${!motion && !stale && !reducedMotion && boosted.has(horse.id)} transform=${`translate(${point.x} ${point.y})`} style=${styleMap({ "--horse-color": horse.color })}>
         <title>${lane + 1}. ${horse.name}</title>
         <g data-horse-boost=${horse.id} class="platformclaw-racing-perimeter__boost" transform=${`rotate(${point.angle})`}>
           <path class="platformclaw-racing-perimeter__speed-lines" d="M-24-7h-18M-29 0h-23M-24 7h-14" />
           <circle class="platformclaw-racing-perimeter__dust" cx="-29" cy="11" r="3" />
           <circle class="platformclaw-racing-perimeter__dust" cx="-41" cy="7" r="2" />
         </g>
+        <g class="platformclaw-racing-perimeter__stumble">
+          <ellipse cx="0" cy="14" rx="19" ry="4" fill="#b1967c" opacity=".35" />
+          <path class="platformclaw-racing-perimeter__stars" fill="#e8ac46" d="M-10-24l2-4 2 4 4 2-4 2-2 4-2-4-4-2ZM8-19l2-3 1 3 3 1-3 1-1 3-2-3-3-1Z" />
+        </g>
+        <g class="platformclaw-racing-perimeter__body">
         <g data-horse-facing="right">${renderHorseSide(lane + 1, false)}</g>
         <g data-horse-facing="left">${renderHorseSide(lane + 1, true)}</g>
         <g data-horse-facing="front" transform="scale(.75)">
@@ -77,7 +83,7 @@ export function renderHorsePerimeter(
           <path fill="#51483f" d="M-2 4q8 8 1 13L-2 13Q1 8-2 4Z" />
           <path stroke="#554b42" stroke-width="1" d="M-6 1q6 3 12 0" fill="none" />
           <text y="-3" text-anchor="middle" fill="#f3eee3" font-size="6" font-weight="800">${lane + 1}</text>
-        </g>
+        </g></g>
       </g><text data-horse-label=${horse.id} class="platformclaw-racing-perimeter__label" x=${label.x} y=${label.y}>${lane + 1} ${horse.name}</text>`;
     })}
   </svg>`;
@@ -99,9 +105,11 @@ export function paintHorsePerimeter(
     const id = sprite.dataset.perimeterHorse ?? "";
     const lane = race.horses.findIndex((horse) => horse.id === id);
     const point = horsePerimeterPoint(width, height, positions.get(id) ?? 0, lane);
+    const motion = race.positions.find((entry) => entry.horseId === id)?.motion;
     sprite.setAttribute("transform", `translate(${point.x} ${point.y})`);
     sprite.dataset.facing = horsePerimeterFacing(point.angle);
-    sprite.dataset.boosting = String(boosted.has(id));
+    sprite.dataset.motion = motion ?? "running";
+    sprite.dataset.boosting = String(!motion && boosted.has(id));
     sprite.querySelector("[data-horse-boost]")?.setAttribute("transform", `rotate(${point.angle})`);
     const label = root.querySelector<SVGTextElement>(`[data-horse-label="${id}"]`);
     if (label) {

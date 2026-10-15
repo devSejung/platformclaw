@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { RacingHorse } from "./horse-racing-contracts.js";
+import {
+  HORSE_RACING_ANIMATION_VERSION,
+  type RacingHorse,
+  type HorseRacePosition,
+} from "./horse-racing-contracts.js";
 import { HORSE_RACE_DURATION_MS } from "./horse-racing-engine.js";
 import {
   START,
@@ -12,6 +16,137 @@ import {
   createStore,
 } from "./sqlite-horse-racing.test-harness.js";
 describe("SQLite horse racing betting policy", () => {
+  it("replays a real four-second stumble across restart and still pays the accepted finish order", async () => {
+    const { databasePath, first, second, alice, bob, race } = await setup();
+    const order = finishOrder(databasePath, race.id);
+    const receipt = first.racing.placeBet(
+      alice.id,
+      bet(race.id, "stumble-winner", 50, [order[0]!]),
+      OPEN,
+    ).receipt;
+    second.racing.placeBet(bob.id, bet(race.id, "stumble-second", 50, [order[1]!]), OPEN);
+    expect(
+      first.racing
+        .snapshot(alice.id, START + 19_999, race.id)
+        .race!.positions.every((entry) => !("motion" in entry)),
+    ).toBe(true);
+    let observed: { elapsed: number; position: HorseRacePosition } | undefined;
+    for (let elapsed = 20_000; elapsed <= 113_000; elapsed += 1_000) {
+      const position = first.racing
+        .snapshot(alice.id, START + elapsed, race.id)
+        .race!.positions.find((entry) => entry.motion === "fallen");
+      if (position) {
+        observed = { elapsed, position };
+        break;
+      }
+    }
+    if (!observed) {
+      throw new Error("The live snapshot never reported its committed stumble");
+    }
+    closeStore(first);
+    closeStore(second);
+    const reopened = createStore(databasePath);
+    const fall = observed;
+    const positionAt = (elapsed: number) =>
+      reopened.racing
+        .snapshot(alice.id, START + fall.elapsed + elapsed, race.id)
+        .race!.positions.find((entry) => entry.horseId === fall.position.horseId)!;
+    expect(positionAt(1_000)).toEqual(observed.position);
+    expect(positionAt(3_000)).toEqual({ ...observed.position, motion: "recovering" });
+    expect(positionAt(5_000).motion).toBeUndefined();
+    expect(positionAt(5_000).position).toBeGreaterThan(observed.position.position);
+    const settled = reopened.racing.snapshot(alice.id, START + HORSE_RACE_DURATION_MS, race.id);
+    expect(settled.race!.finishOrder).toEqual(order);
+    expect(settled.race!.myBets[0]).toMatchObject({
+      potentialPayout: receipt.potentialPayout,
+      payout: receipt.potentialPayout,
+    });
+    expect(
+      settled.race!.positions.every((entry) => entry.position === 100 && !("motion" in entry)),
+    ).toBe(true);
+    expect(settled.gold).toBe(1200 - 50 + receipt.potentialPayout!);
+    closeStore(reopened);
+    inspect(databasePath, (db) =>
+      db
+        .prepare("UPDATE horse_races SET animation_version = 'seeded-pace-v1' WHERE id = ?")
+        .run(race.id),
+    );
+    const history = createStore(databasePath).racing.snapshot(
+      alice.id,
+      START + HORSE_RACE_DURATION_MS + 1,
+      race.id,
+    );
+    expect(history.race!.animationVersion).toBe("seeded-pace-v1");
+    expect(history.race!.positions).toEqual(settled.race!.positions);
+    expect(history.race!.finishOrder).toEqual(order);
+    expect(history.race!.myBets).toEqual(settled.race!.myBets);
+    expect(history.gold).toBe(settled.gold);
+  });
+
+  it("refreshes untouched future presentation versions while refunding accepted old-animation tickets once", async () => {
+    const { databasePath, first, second, alice, bob, race } = await setup();
+    first.racing.placeBet(alice.id, bet(race.id, "old-animation-a", 50, ["1"]), OPEN);
+    second.racing.placeBet(bob.id, bet(race.id, "old-animation-b", 50, ["2"]), OPEN);
+    const futureStart = START + 30 * 60_000;
+    const futureId = `race-${futureStart}`;
+    const unknownId = `race-${START + 60 * 60_000}`;
+    const committed = inspect(databasePath, (db) => {
+      db.prepare(
+        "UPDATE horse_races SET animation_version = 'seeded-pace-v1' WHERE status IN ('scheduled','betting')",
+      ).run();
+      db.prepare(
+        "UPDATE horse_races SET animation_version = 'unknown-future-animation' WHERE id = ?",
+      ).run(unknownId);
+      return db
+        .prepare("SELECT seed, horses_json, commitment FROM horse_races WHERE id = ?")
+        .get(futureId);
+    });
+    closeStore(first);
+    closeStore(second);
+    const reopened = createStore(databasePath);
+    expect(reopened.racing.snapshot(alice.id, OPEN, race.id)).toMatchObject({
+      gold: 1200,
+      race: {
+        status: "cancelled",
+        cancellationReason: "engine_changed",
+        animationVersion: "seeded-pace-v1",
+      },
+    });
+    expect(reopened.racing.snapshot(alice.id, OPEN, futureId).race).toMatchObject({
+      status: "scheduled",
+      animationVersion: HORSE_RACING_ANIMATION_VERSION,
+    });
+    expect(reopened.racing.snapshot(alice.id, OPEN, unknownId).race).toMatchObject({
+      status: "scheduled",
+      animationVersion: "unknown-future-animation",
+    });
+    expect(
+      inspect(databasePath, (db) =>
+        db
+          .prepare("SELECT seed, horses_json, commitment FROM horse_races WHERE id = ?")
+          .get(futureId),
+      ),
+    ).toEqual(committed);
+    const futureOpensAt = START + HORSE_RACE_DURATION_MS + 10_000;
+    expect(reopened.racing.snapshot(alice.id, futureOpensAt).race).toMatchObject({
+      id: futureId,
+      status: "betting",
+      animationVersion: HORSE_RACING_ANIMATION_VERSION,
+    });
+    reopened.racing.placeBet(alice.id, bet(futureId, "new-animation-a", 50, ["1"]), futureOpensAt);
+    reopened.racing.placeBet(bob.id, bet(futureId, "new-animation-b", 50, ["2"]), futureOpensAt);
+    expect(reopened.racing.snapshot(alice.id, futureStart).race!.status).toBe("racing");
+    expect(
+      inspect(databasePath, (db) =>
+        db
+          .prepare(
+            "SELECT count(*) AS count FROM game_gold_transactions WHERE reason = 'horse_refund'",
+          )
+          .get(),
+      ),
+    ).toEqual({ count: 2 });
+  });
+
   it("enforces 50–1,000G before debit and quotes the net three-percent payout", async () => {
     const { first, alice, race } = await setup();
     for (const amount of [0, 49, 1_001, 50.5, Number.NaN]) {

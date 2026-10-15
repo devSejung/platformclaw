@@ -1,4 +1,6 @@
 export const racingTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.racing.fallen": "Fallen · stopped briefly",
+  "platformClaw.racing.recovering": "Getting back up",
   "platformClaw.racing.opacity": "Game opacity · {value}%",
   "platformClaw.racing.restoreOpacity": "Restore to 100%",
   "platformClaw.racing.opacityHelp":
@@ -73,7 +75,7 @@ export const racingTranslations: Readonly<Record<string, string>> = {
   "platformClaw.racing.result": "FINISH",
   "platformClaw.racing.fairness": "Fairness & verification",
   "platformClaw.racing.fairnessHelp":
-    "Condition stays secret until the result; speed and stamina bars are approximate. Track whispers are flavor, not winner promises. Bets never affect the draw. After the race, revealed data lets your browser check the commitment and finish order.",
+    "Condition stays secret until the result; speed and stamina bars are approximate. Track whispers offer uncertain clues; odds stay fixed from the base probabilities. Bets never affect the draw. After the race, revealed data lets your browser check the commitment and finish order.",
   "platformClaw.racing.commitment": "Pre-race commitment (SHA-256)",
   "platformClaw.racing.seed": "Revealed seed",
   "platformClaw.racing.seedHidden": "The secret seed is revealed only after the race ends.",

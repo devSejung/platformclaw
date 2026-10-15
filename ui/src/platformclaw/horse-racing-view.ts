@@ -39,9 +39,17 @@ function renderTrack(view: HorseRacingView, race: HorseRaceSnapshot) {
     <ol class="platformclaw-racing__ranking" aria-label=${t("platformClaw.racing.order")}>
       ${order.map((id, index) => {
         const horse = race.horses.find((entry) => entry.id === id)!;
-        const progress = race.positions.find((entry) => entry.horseId === id)?.position ?? 0;
+        const position = race.positions.find((entry) => entry.horseId === id);
+        const progress = position?.position ?? 0;
+        const motion = race.status === "racing" ? position?.motion : undefined;
         return html`<li data-racing-rank=${id} style=${`--horse-color:${horse.color}`}>
-          <b>${index + 1}</b><strong>${horseLabel(race, id)}</strong
+          <b>${index + 1}</b
+          ><strong
+            >${horseLabel(race, id)}${motion
+              ? html`<small data-racing-motion=${motion}
+                  >${t(`platformClaw.racing.${motion}`)}</small
+                >`
+              : nothing}</strong
           ><progress max="100" value=${progress} aria-label=${horse.name}></progress>
         </li>`;
       })}

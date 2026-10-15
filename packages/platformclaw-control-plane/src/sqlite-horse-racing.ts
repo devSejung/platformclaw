@@ -140,6 +140,23 @@ export class SqliteHorseRacingStore implements HorseRacingStore {
           .orderBy("starts_at", "asc"),
       ).rows;
       for (const race of pending) {
+        if (
+          race.status === "scheduled" &&
+          race.algorithm_version === HORSE_RACING_ALGORITHM_VERSION &&
+          race.pricing_version === HORSE_RACING_PRICING_VERSION &&
+          race.animation_version === "seeded-pace-v1"
+        ) {
+          // Scheduled v1 rows have never accepted a ticket. Refresh only that known presentation version;
+          // the already public seed commitment, roster and future draw stay unchanged.
+          executeSync(
+            this.db,
+            this.query
+              .updateTable("horse_races")
+              .set({ animation_version: HORSE_RACING_ANIMATION_VERSION })
+              .where("id", "=", race.id),
+          );
+          race.animation_version = HORSE_RACING_ANIMATION_VERSION;
+        }
         if (now < horseRaceOpensAt(race.starts_at)) {
           continue;
         }

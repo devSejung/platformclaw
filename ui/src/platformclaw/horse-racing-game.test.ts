@@ -854,4 +854,65 @@ describe("horse racing spectator and wallet UI", () => {
       element.querySelector<HTMLButtonElement>('[data-cancel-bet="already-accepted"]')!.disabled,
     ).toBe(false);
   });
+
+  it("freezes an observed fall immediately, preserves the pose while minimized, and resumes after recovery", async () => {
+    const race = snapshot().race!;
+    let current = snapshot({
+      race: { ...race, status: "racing", positions: [{ horseId: "1", position: 10 }] },
+    });
+    const element = mount(async () => current);
+    await flush(element);
+    current = {
+      ...current,
+      serverNow: now + 1_000,
+      race: { ...current.race!, positions: [{ horseId: "1", position: 10.8, motion: "fallen" }] },
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush(element);
+    const runner = element.querySelector<SVGGElement>('[data-perimeter-horse="1"]')!;
+    const point = horsePerimeterPoint(window.innerWidth, window.innerHeight, 10.8, 0);
+    const stopped = `translate(${point.x} ${point.y})`;
+    expect(runner.getAttribute("transform")).toBe(stopped);
+    expect(runner.dataset.motion).toBe("fallen");
+    expect(runner.dataset.boosting).toBe("false");
+    expect(element.textContent).toContain("넘어짐 · 잠시 정지");
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(runner.getAttribute("transform")).toBe(stopped);
+    element.querySelector<HTMLButtonElement>("[data-racing-collapse]")!.click();
+    await flush(element);
+    expect(element.querySelector('[data-racing-motion="fallen"]')).not.toBeNull();
+    expect(runner.dataset.motion).toBe("fallen");
+    current = {
+      ...current,
+      serverNow: now + 3_000,
+      race: {
+        ...current.race!,
+        positions: [{ horseId: "1", position: 10.8, motion: "recovering" }],
+      },
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush(element);
+    expect(runner.dataset.motion).toBe("recovering");
+    expect(runner.getAttribute("transform")).toBe(stopped);
+    expect(element.textContent).toContain("일어나는 중");
+    element.querySelector<HTMLButtonElement>("[data-racing-restore]")!.click();
+    await flush(element);
+    Array.from(element.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "움직임 줄이기")!
+      .click();
+    await flush(element);
+    expect(element.querySelector(".platformclaw-racing-perimeter--paused")).not.toBeNull();
+    expect(runner.dataset.motion).toBe("recovering");
+    current = {
+      ...current,
+      serverNow: now + 5_000,
+      race: { ...current.race!, positions: [{ horseId: "1", position: 11.8 }] },
+    };
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush(element);
+    expect(runner.dataset.motion).toBe("running");
+    expect(runner.getAttribute("transform")).not.toBe(stopped);
+    expect(element.querySelector("[data-racing-motion]")).toBeNull();
+    expect(element.querySelector(".platformclaw-racing__wallet")!.textContent).toContain("100 G");
+  });
 });

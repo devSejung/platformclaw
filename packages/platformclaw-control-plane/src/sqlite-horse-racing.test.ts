@@ -485,7 +485,7 @@ describe("SQLite horse racing and shared game economy", () => {
     expect((await mirror.loadBaseballProgress(bob.id)).gold).toBe(settledB.gold);
   });
 
-  it.each(["algorithm_version", "pricing_version"] as const)(
+  it.each(["algorithm_version", "pricing_version", "animation_version"] as const)(
     "refunds unfinished races if a deployment changes committed %s",
     async (versionColumn) => {
       const { databasePath, first, second, alice, bob, race } = await setup();
@@ -496,18 +496,25 @@ describe("SQLite horse racing and shared game economy", () => {
         db
           .prepare(`UPDATE horse_races SET ${versionColumn} = ? WHERE id = ?`)
           .run(
-            versionColumn === "pricing_version" ? "probability-fair-v1" : "future-algorithm",
+            versionColumn === "pricing_version"
+              ? "probability-fair-v1"
+              : versionColumn === "animation_version"
+                ? "seeded-pace-v1"
+                : "future-algorithm",
             race.id,
           ),
       );
-      const snapshot = second.racing.snapshot(alice.id, START + 1, race.id);
+      closeStore(first);
+      closeStore(second);
+      const reopened = createStore(databasePath);
+      const snapshot = reopened.racing.snapshot(alice.id, START + 1, race.id);
       expect(snapshot.race).toMatchObject({
         status: "cancelled",
         cancellationReason: "engine_changed",
       });
       expect(snapshot.gold).toBe(1200);
-      first.racing.advance(START + HORSE_RACE_DURATION_MS);
-      expect((await first.loadBaseballProgress(bob.id)).gold).toBe(1200);
+      reopened.racing.advance(START + HORSE_RACE_DURATION_MS);
+      expect((await reopened.loadBaseballProgress(bob.id)).gold).toBe(1200);
       expect(
         inspect(databasePath, (db) =>
           db

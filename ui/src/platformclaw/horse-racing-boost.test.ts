@@ -40,6 +40,11 @@ describe("observed racing bursts", () => {
     const slower = structuredClone(after);
     slower.serverNow += 2_000;
     expect(horseRaceBoosts(after, slower).size).toBe(0);
+    for (const motion of ["fallen", "recovering"] as const) {
+      const stopped = structuredClone(after);
+      stopped.race!.positions[0]!.motion = motion;
+      expect(horseRaceBoosts(before, stopped).has("1")).toBe(false);
+    }
   });
 
   it("keeps burst trails behind all four facings without rotating horses or stealing clicks", () => {
@@ -78,5 +83,46 @@ describe("observed racing bursts", () => {
       expect(runner.dataset.boosting).toBe("false");
     }
     expect(container.querySelectorAll("button, a, [tabindex]")).toHaveLength(0);
+  });
+
+  it("renders a fall on first connection and keeps server motion through painter and template updates", () => {
+    const race = running().race!;
+    race.positions = [{ horseId: "1", position: 12, motion: "fallen" }];
+    const positions = new Map([["1", 12]]);
+    const container = document.createElement("div");
+    document.body.append(container);
+    for (const [stale, reduced] of [
+      [false, false],
+      [true, false],
+      [false, true],
+    ]) {
+      render(
+        renderHorsePerimeter(race, 640, 400, positions, stale!, reduced!, new Set(["1"])),
+        container,
+      );
+      const runner = container.querySelector<SVGGElement>('[data-perimeter-horse="1"]')!;
+      expect(runner.dataset.motion).toBe("fallen");
+      expect(runner.dataset.boosting).toBe("false");
+      const label = container.querySelector('[data-horse-label="1"]')!;
+      expect(label.textContent).toContain("모리");
+      expect(label.getAttribute("transform")).toBeNull();
+      expect(
+        runner.querySelectorAll(".platformclaw-racing-perimeter__body > [data-horse-facing]"),
+      ).toHaveLength(4);
+      paintHorsePerimeter(container, race, 640, 400, positions, new Set(["1"]));
+      expect(runner.dataset.motion).toBe("fallen");
+      expect(runner.dataset.boosting).toBe("false");
+    }
+    race.positions = [{ horseId: "1", position: 12, motion: "recovering" }];
+    paintHorsePerimeter(container, race, 640, 400, positions, new Set());
+    expect(container.querySelector<SVGGElement>('[data-perimeter-horse="1"]')!.dataset.motion).toBe(
+      "recovering",
+    );
+    race.positions = [{ horseId: "1", position: 13 }];
+    positions.set("1", 13);
+    paintHorsePerimeter(container, race, 640, 400, positions, new Set());
+    expect(container.querySelector<SVGGElement>('[data-perimeter-horse="1"]')!.dataset.motion).toBe(
+      "running",
+    );
   });
 });

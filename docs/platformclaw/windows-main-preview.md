@@ -160,8 +160,21 @@ until the terminal record. Exact odds permit probability inference. Private
 condition describes the recorded performance and affects the animation, without
 changing the fixed odds. Rumors add noisy hints; Juki's rumors ignore its hidden
 cold/hot state. These hints do not guarantee a result.
+Fixed odds use the unconditional draw probabilities. Reading informative rumors
+can change a player's expected return; the 3% payout deduction does not promise
+the same return for every hint-based strategy.
 Fast observed segments display directional speed streaks, a warm glow and quicker
 leg motion. Reduced-motion mode hides these burst effects.
+One horse per race can stumble at a seed-selected time, fall for three seconds,
+then spend one second getting up. Server progress stays stationary throughout
+both phases before resuming; the same event appears for every spectator. The
+horse sprite tips over with a small dust/star effect, while its name stays
+upright and the live standings show the current state. Reduced motion keeps the
+pose and status without the animated effects. The animation cannot change the
+committed finish order, fixed odds or three-minute race duration.
+On an animation update, unopened known-v1 rounds retain their seed, roster and
+commitment while adopting the new presentation. Already opened rounds with a
+different animation version cancel and refund once; completed history stays intact.
 The racing settings offer a 30–100% opacity slider in five-percent steps and a
 restore-to-100% button. Horses, the panel, minimized standings, live bets and win
 effects share the setting. This browser remembers it separately for each account

@@ -4,7 +4,7 @@ export const HORSE_RACING_PRICING_VERSION = "probability-net-3pct-v2";
 export const HORSE_RACING_MIN_BET_GOLD = 50;
 export const HORSE_RACING_MAX_BET_GOLD = 1_000;
 export const HORSE_RACING_FEE_PERCENT = 3;
-export const HORSE_RACING_ANIMATION_VERSION = "seeded-pace-v1";
+export const HORSE_RACING_ANIMATION_VERSION = "seeded-pace-stumble-v2";
 export const HORSE_RACING_RPC = {
   snapshot: "platformclaw.racing.snapshot",
   bet: "platformclaw.racing.bet",
@@ -35,7 +35,12 @@ type HorseRaceEntrant = Omit<RacingHorse, "condition" | "weight" | "winProbabili
   weight: number | null;
   winProbability: number | null;
 };
-export type HorseRacePosition = { horseId: string; position: number; finishPlace?: number };
+export type HorseRacePosition = {
+  horseId: string;
+  position: number;
+  finishPlace?: number;
+  motion?: "fallen" | "recovering";
+};
 export type HorseRaceQuote = {
   market: HorseBetMarket;
   selection: string[];
