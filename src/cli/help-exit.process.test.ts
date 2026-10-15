@@ -151,10 +151,13 @@ async function runCliProcess(params: {
     await fs.writeFile(
       exitDiagnosticPath,
       `import { writeSync } from "node:fs";
+import childProcess from "node:child_process";
+const diagnosticStarted = performance.now();
 const mark = (event) => {
   try {
     writeSync(2, JSON.stringify({
       cliExitDiagnostic: event,
+      elapsedMs: performance.now() - diagnosticStarted,
       resourceTypes: process.getActiveResourcesInfo(),
     }) + "\\n");
   } catch {
@@ -183,6 +186,20 @@ const exit = process.exit;
 process.exit = function(...args) {
   mark("process.exit");
   return Reflect.apply(exit, this, args);
+};
+const reallyExit = process.reallyExit;
+process.reallyExit = function(...args) {
+  mark("process.reallyExit");
+  return Reflect.apply(reallyExit, this, args);
+};
+const execFileSync = childProcess.execFileSync;
+childProcess.execFileSync = function(...args) {
+  mark("execFileSync.begin");
+  try {
+    return Reflect.apply(execFileSync, this, args);
+  } finally {
+    mark("execFileSync.end");
+  }
 };
 process.on("beforeExit", () => mark("beforeExit"));
 process.on("exit", () => mark("exit"));
@@ -310,10 +327,24 @@ function parseJsonLines(stdout: string): Array<Record<string, unknown>> {
 }
 
 type CliProcessFailure = Error & {
-  code?: number | string;
+  code?: number | string | null;
+  signal?: NodeJS.Signals | null;
   stderr?: string;
   stdout?: string;
 };
+
+function expectCliProcessFailureCode(failure: CliProcessFailure | undefined, code: number): void {
+  expect(
+    failure?.code,
+    JSON.stringify({
+      message: failure?.message,
+      code: failure?.code,
+      signal: failure?.signal,
+      stderr: failure?.stderr,
+      stdout: failure?.stdout,
+    }),
+  ).toBe(code);
+}
 describe("CLI help process exit", () => {
   it("disables esbuild worker IPC for source CLI children", () => {
     expect(process.env.ESBUILD_WORKER_THREADS).toBe("0");
@@ -521,7 +552,7 @@ describe("JSON console style process output", () => {
         failure = error as CliProcessFailure;
       }
 
-      expect(failure?.code).toBe(2);
+      expectCliProcessFailureCode(failure, 2);
       expect(parseJsonLines(failure?.stderr ?? "")).toEqual([
         expect.objectContaining({
           level: "error",
@@ -550,6 +581,7 @@ describe("JSON console style process output", () => {
             OPENCLAW_TEST_CONSOLE_STYLE: undefined,
           },
           failRunMainImport: true,
+          diagnoseExit: true,
           stateEnv: () => ({ OPENCLAW_TEST_CONSOLE_STYLE: "json" }),
           timeoutMs: SLOW_DOTENV_CHILD_PROCESS_TIMEOUT_MS,
         });
@@ -557,7 +589,7 @@ describe("JSON console style process output", () => {
         failure = error as CliProcessFailure;
       }
 
-      expect(failure?.code).toBe(1);
+      expectCliProcessFailureCode(failure, 1);
       expect(parseJsonLines(failure?.stderr ?? "")).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -588,7 +620,7 @@ describe("JSON console style process output", () => {
       failure = error as CliProcessFailure;
     }
 
-    expect(failure?.code).toBe(1);
+    expectCliProcessFailureCode(failure, 1);
     expect(failure?.stdout ?? "").toBe("");
     expect(parseJsonLines(failure?.stderr ?? "")).toEqual([
       expect.objectContaining({
@@ -673,7 +705,7 @@ describe("JSON console style process output", () => {
       failure = error as CliProcessFailure;
     }
 
-    expect(failure?.code).toBe(1);
+    expectCliProcessFailureCode(failure, 1);
     expect(parseJsonLines(failure?.stderr ?? "")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
