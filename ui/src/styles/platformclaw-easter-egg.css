@@ -500,16 +500,14 @@ platformclaw-easter-egg {
   line-height: 1.5;
 }
 
-.platformclaw-easter-egg__shop header,
-.platformclaw-easter-egg__shop-item {
+.platformclaw-easter-egg__shop header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.platformclaw-easter-egg__shop header button,
-.platformclaw-easter-egg__shop-item {
+.platformclaw-easter-egg__shop header button {
   border: 1px solid var(--border);
   border-radius: 8px;
   color: inherit;
@@ -525,40 +523,6 @@ platformclaw-easter-egg {
   margin: 8px 0;
   color: var(--muted);
   font-size: 11px;
-}
-
-.platformclaw-easter-egg__shop-list {
-  display: grid;
-  gap: 6px;
-}
-
-.platformclaw-easter-egg__shop-item {
-  width: 100%;
-  padding: 8px;
-  text-align: left;
-}
-
-.platformclaw-easter-egg__shop-item:disabled {
-  cursor: default;
-  opacity: 0.56;
-}
-
-.platformclaw-easter-egg__shop-item > span:nth-child(2) {
-  display: grid;
-  flex: 1;
-}
-
-.platformclaw-easter-egg__shop-item small {
-  color: var(--muted);
-}
-
-.platformclaw-easter-egg__shop-bat {
-  width: 30px;
-  height: 6px;
-  border: 1px solid color-mix(in srgb, var(--text) 55%, transparent);
-  border-radius: 999px 4px 4px 999px;
-  background: #9a693f;
-  transform: rotate(-12deg);
 }
 
 .platformclaw-easter-egg__player--swing .platformclaw-easter-egg__bat,

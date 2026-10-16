@@ -47,6 +47,19 @@ export class SqliteBaseballEnhancement {
     private readonly roll = () => randomInt(10_000),
   ) {}
 
+  ensure(userId: string): void {
+    const current = this.readEnhancement(userId);
+    if (current?.equipped === 1) {
+      return;
+    }
+    // Activation retires legacy gameplay without changing refund evidence, levels, or wallet revision.
+    this.writeEnhancement(
+      current
+        ? { ...current, equipped: 1 }
+        : { user_id: userId, level: 0, status: "ready", equipped: 1, version: 1 },
+    );
+  }
+
   read(userId: string): { enhancement?: BaseballEnhancementState; teamId?: BaseballKboTeamId } {
     const row = this.readEnhancement(userId);
     const team = takeFirstSync(
@@ -93,15 +106,6 @@ export class SqliteBaseballEnhancement {
       this.bumpRevision(userId);
     }
     return { requestId: request.requestId, changed };
-  }
-
-  unequip(userId: string): boolean {
-    const current = this.readEnhancement(userId);
-    if (!current || current.equipped === 0) {
-      return false;
-    }
-    this.writeEnhancement({ ...current, equipped: 0 });
-    return true;
   }
 
   enhance(

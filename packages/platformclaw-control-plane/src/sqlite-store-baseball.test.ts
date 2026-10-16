@@ -65,6 +65,7 @@ function seedLegacyReceipt(
   userId: string,
   requestId: string,
   envelope: unknown,
+  operation: "purchase_bat" | "equip_bat" = "purchase_bat",
 ): void {
   const db = new DatabaseSync(databasePath);
   db.prepare(
@@ -72,7 +73,7 @@ function seedLegacyReceipt(
   ).run(
     userId,
     requestId,
-    "purchase_bat",
+    operation,
     createHash("sha256")
       .update(JSON.stringify({ batId: "silver" }), "utf8")
       .digest("hex"),
@@ -102,6 +103,7 @@ describe("SqliteControlPlaneStore baseball state", () => {
       currentHomeRunStreak: 0,
       bestHomeRunStreak: 0,
       revision: 0,
+      enhancement: { level: 0, status: "ready", equipped: true, version: 1 },
     });
     const homeRun = await first.rewardBaseballPlateAppearance({
       userId: user.id,
@@ -294,7 +296,11 @@ describe("SqliteControlPlaneStore baseball state", () => {
     );
     db.close();
     const upgraded = createStore(databasePath);
-    await expect(upgraded.loadBaseballProgress(user.id)).resolves.toEqual(priorProgress);
+    const expectedProgress = {
+      ...priorProgress,
+      enhancement: { level: 0, status: "ready", equipped: true, version: 1 },
+    };
+    await expect(upgraded.loadBaseballProgress(user.id)).resolves.toEqual(expectedProgress);
     await expect(upgraded.loadBaseballLeaderboard(user.id)).resolves.toEqual({
       distance: [{ displayName: "admin.user", value: 147, isCurrentUser: true }],
       homeRunStreak: [{ displayName: "admin.user", value: 4, isCurrentUser: true }],
@@ -310,7 +316,7 @@ describe("SqliteControlPlaneStore baseball state", () => {
       awardedGold: 10,
       homeRunBonusGold: 5,
       progress: {
-        ...priorProgress,
+        ...expectedProgress,
         gold: 1_244,
         totalHomers: 10,
         currentHomeRunStreak: 1,
@@ -349,7 +355,7 @@ describe("SqliteControlPlaneStore baseball state", () => {
         requestId: request.requestId,
         batId: "silver",
       }),
-    ).rejects.toMatchObject({ code: "idempotency_conflict" });
+    ).rejects.toMatchObject({ code: "legacy_purchase_closed" });
     await expect(store.loadBaseballProgress(user.id)).resolves.toMatchObject({
       gold: 5,
       totalHomers: 1,
@@ -461,36 +467,6 @@ describe("SqliteControlPlaneStore baseball state", () => {
         { displayName: "admin.user", value: 2, isCurrentUser: true },
         { displayName: "member.c", value: 1, isCurrentUser: false },
       ],
-    });
-    store.close();
-  });
-
-  it("preserves a prior insufficient-funds purchase receipt after new purchases close", async () => {
-    const databasePath = createDatabasePath();
-    const store = createStore(databasePath);
-    const user = await seedUser(store);
-    await store.loadBaseballProgress(user.id);
-
-    const purchase = {
-      userId: user.id,
-      requestId: "silver-failed",
-      batId: "silver" as const,
-      historicalOnly: true,
-    };
-    seedLegacyReceipt(databasePath, user.id, purchase.requestId, {
-      ok: false,
-      error: { code: "insufficient_gold", message: "Legacy purchase lacked gold" },
-    });
-    await expect(store.purchaseBaseballBat(purchase)).rejects.toMatchObject({
-      code: "insufficient_gold",
-    });
-    setGold(databasePath, user.id, 50);
-    await expect(store.purchaseBaseballBat(purchase)).rejects.toMatchObject({
-      code: "insufficient_gold",
-    });
-    await expect(store.loadBaseballProgress(user.id)).resolves.toMatchObject({
-      gold: 50,
-      ownedBatIds: ["wood"],
     });
     store.close();
   });
@@ -611,13 +587,11 @@ describe("SqliteControlPlaneStore baseball state", () => {
         userId: user.id,
         requestId: "buy-silver-tab-a",
         batId: "platinum",
-        historicalOnly: true,
       }),
       second.purchaseBaseballBat({
         userId: user.id,
         requestId: "buy-silver-tab-b",
         batId: "diamond",
-        historicalOnly: true,
       }),
     ]);
 
@@ -652,72 +626,84 @@ describe("SqliteControlPlaneStore baseball state", () => {
     second.close();
   });
 
-  it("replays prior successful purchases and keeps existing owned bats usable without another charge", async () => {
+  it("rejects retired purchases and equipment before replay while preserving historical refund evidence", async () => {
     const databasePath = createDatabasePath();
     const store = createStore(databasePath);
     const user = await seedUser(store);
     const initial = await store.loadBaseballProgress(user.id);
-    setGold(databasePath, user.id, 50);
     const db = new DatabaseSync(databasePath);
     db.prepare("INSERT INTO baseball_owned_bats (user_id,bat_id) VALUES (?,?)").run(
       user.id,
       "silver",
     );
-    db.prepare("UPDATE baseball_game_progress SET revision = 1 WHERE user_id = ?").run(user.id);
+    db.prepare(
+      "UPDATE baseball_game_progress SET gold = 1750, equipped_bat_id = 'silver', revision = 42 WHERE user_id = ?",
+    ).run(user.id);
     db.close();
-    const priorResult = {
-      batId: "silver",
-      price: 50,
-      purchased: true,
-      progress: { ...initial, gold: 50, ownedBatIds: ["wood", "silver"], revision: 1 },
+    const historicalProgress = {
+      ...initial,
+      gold: 1750,
+      ownedBatIds: ["wood", "silver"],
+      equippedBatId: "silver",
+      revision: 42,
     };
-    seedLegacyReceipt(databasePath, user.id, "buy-silver", { ok: true, result: priorResult });
-
-    await expect(
-      store.purchaseBaseballBat({
-        userId: user.id,
-        requestId: "buy-silver",
-        batId: "silver",
-        historicalOnly: true,
-      }),
-    ).resolves.toEqual(priorResult);
-    await expect(
-      store.purchaseBaseballBat({
-        userId: user.id,
-        requestId: "buy-silver-again",
-        batId: "silver",
-        historicalOnly: true,
-      }),
-    ).resolves.toMatchObject({
-      price: 50,
-      purchased: false,
-      progress: { gold: 50, revision: 1 },
+    seedLegacyReceipt(databasePath, user.id, "buy-silver", {
+      ok: true,
+      result: { batId: "silver", price: 50, purchased: true, progress: historicalProgress },
     });
-    await expect(
-      store.equipBaseballBat({ userId: user.id, requestId: "equip-gold", batId: "gold" }),
-    ).rejects.toMatchObject({ code: "bat_not_owned" });
-    await expect(
-      store.equipBaseballBat({ userId: user.id, requestId: "equip-silver", batId: "silver" }),
-    ).resolves.toMatchObject({
-      batId: "silver",
-      changed: true,
-      progress: { equippedBatId: "silver", revision: 2 },
+    seedLegacyReceipt(databasePath, user.id, "failed-silver", {
+      ok: false,
+      error: { code: "insufficient_gold", message: "Historical insufficient funds" },
     });
+    seedLegacyReceipt(
+      databasePath,
+      user.id,
+      "equip-silver",
+      {
+        ok: true,
+        result: { batId: "silver", changed: true, progress: historicalProgress },
+      },
+      "equip_bat",
+    );
+    const persisted = () => {
+      const connection = new DatabaseSync(databasePath);
+      try {
+        return [
+          "baseball_game_progress",
+          "baseball_owned_bats",
+          "baseball_home_run_streaks",
+          "baseball_bat_enhancements",
+          "baseball_idempotency",
+          "game_gold_transactions",
+        ].map((table) => connection.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+      } finally {
+        connection.close();
+      }
+    };
+    const before = persisted();
+    for (const requestId of ["buy-silver", "failed-silver", "new-purchase"]) {
+      await expect(
+        store.purchaseBaseballBat({ userId: user.id, requestId, batId: "silver" }),
+      ).rejects.toMatchObject({ code: "legacy_purchase_closed" });
+    }
+    for (const requestId of ["equip-silver", "new-equip"]) {
+      await expect(
+        store.equipBaseballBat({ userId: user.id, requestId, batId: "silver" }),
+      ).rejects.toMatchObject({ code: "legacy_bat_closed" });
+    }
+    expect(persisted()).toEqual(before);
     store.close();
     const reopened = createStore(databasePath);
     await expect(
-      reopened.purchaseBaseballBat({
-        userId: user.id,
-        requestId: "buy-silver",
-        batId: "silver",
-        historicalOnly: true,
-      }),
-    ).resolves.toEqual(priorResult);
-    await expect(reopened.loadBaseballProgress(user.id)).resolves.toMatchObject({
-      gold: 50,
-      equippedBatId: "silver",
-      ownedBatIds: ["wood", "silver"],
-      revision: 2,
+      reopened.purchaseBaseballBat({ userId: user.id, requestId: "buy-silver", batId: "silver" }),
+    ).rejects.toMatchObject({ code: "legacy_purchase_closed" });
+    await expect(
+      reopened.equipBaseballBat({ userId: user.id, requestId: "equip-silver", batId: "silver" }),
+    ).rejects.toMatchObject({ code: "legacy_bat_closed" });
+    expect(persisted()).toEqual(before);
+    expect(await reopened.loadBaseballProgress(user.id)).toMatchObject({
+      ...historicalProgress,
+      enhancement: { level: 0, equipped: true },
     });
     reopened.close();
   });

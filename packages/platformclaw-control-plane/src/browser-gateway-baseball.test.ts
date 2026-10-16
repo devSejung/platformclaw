@@ -45,21 +45,12 @@ function baseballStore() {
         progress: progress({ gold: 1, totalHomers: 1, bestDistanceM: 130, revision: 1 }),
       }),
     ),
-    purchaseBaseballBat: vi.fn<BaseballGameStore["purchaseBaseballBat"]>(async () => ({
-      batId: "silver" as const,
-      price: 50,
-      purchased: true,
-      progress: progress({ gold: 0, ownedBatIds: ["wood", "silver"], revision: 1 }),
-    })),
-    equipBaseballBat: vi.fn<BaseballGameStore["equipBaseballBat"]>(async () => ({
-      batId: "silver" as const,
-      changed: true,
-      progress: progress({
-        ownedBatIds: ["wood", "silver"],
-        equippedBatId: "silver",
-        revision: 2,
-      }),
-    })),
+    purchaseBaseballBat: vi.fn<BaseballGameStore["purchaseBaseballBat"]>(async () => {
+      throw new BaseballGameError("legacy_purchase_closed", "Fixed-price bat purchases are closed");
+    }),
+    equipBaseballBat: vi.fn<BaseballGameStore["equipBaseballBat"]>(async () => {
+      throw new BaseballGameError("legacy_bat_closed", "Fixed-price bats are retired");
+    }),
     enhanceBaseballBat: vi.fn<BaseballGameStore["enhanceBaseballBat"]>(async ({ requestId }) => ({
       requestId,
       outcome: "success",
@@ -213,17 +204,31 @@ describe("BrowserGatewayProxy baseball BFF", () => {
       timingDeltaMs: null,
       now: NOW,
     });
-    await expect(
-      proxy.request(token, BASEBALL_RPC.purchaseBat, { requestId: "buy-1", batId: "silver" }),
-    ).resolves.toMatchObject({ batId: "silver", price: 50 });
-    expect(game.purchaseBaseballBat).toHaveBeenCalledWith({
-      userId: user.id,
-      requestId: "buy-1",
-      batId: "silver",
-      historicalOnly: true,
-    });
     expect(request).not.toHaveBeenCalled();
   });
+
+  it.each([BASEBALL_RPC.purchaseBat, BASEBALL_RPC.equipBat])(
+    "rejects retired %s without calling the store or forwarding upstream",
+    async (method) => {
+      const game = baseballStore();
+      const { proxy, request, token } = await setup({ baseballStore: game });
+      for (const batId of ["wood", "silver", "titanium", "diamond"]) {
+        await expect(
+          proxy.request(token, method, { requestId: `retired-${batId}`, batId }),
+        ).rejects.toMatchObject({ code: "method-not-allowed" });
+      }
+      await expect(
+        proxy.request(token, method, {
+          requestId: "bypass",
+          batId: "diamond",
+          historicalOnly: false,
+        }),
+      ).rejects.toMatchObject({ code: "method-not-allowed" });
+      expect(game.purchaseBaseballBat).not.toHaveBeenCalled();
+      expect(game.equipBaseballBat).not.toHaveBeenCalled();
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects client-selected user identity before the baseball store runs", async () => {
     const game = baseballStore();
@@ -274,8 +279,8 @@ describe("BrowserGatewayProxy baseball BFF", () => {
 
   it("validates narrow baseball payloads and maps domain failures without upstream dispatch", async () => {
     const game = baseballStore();
-    game.purchaseBaseballBat.mockRejectedValueOnce(
-      new BaseballGameError("insufficient_gold", "not enough baseball gold for silver"),
+    game.enhanceBaseballBat.mockRejectedValueOnce(
+      new BaseballGameError("insufficient_gold", "not enough baseball gold for enhancement"),
     );
     const { proxy, request, token } = await setup({ baseballStore: game });
 
@@ -297,13 +302,13 @@ describe("BrowserGatewayProxy baseball BFF", () => {
     }
     expect(game.rewardBaseballPlateAppearance).not.toHaveBeenCalled();
     await expect(
-      proxy.request(token, BASEBALL_RPC.purchaseBat, { requestId: "bad-bat", batId: "mythril" }),
-    ).rejects.toMatchObject({ code: "invalid-params" });
-    await expect(
-      proxy.request(token, BASEBALL_RPC.purchaseBat, { requestId: "buy-1", batId: "silver" }),
+      proxy.request(token, BASEBALL_RPC.enhanceBat, {
+        requestId: "enhance-1",
+        expectedRevision: 0,
+      }),
     ).rejects.toMatchObject({
       code: "invalid-params",
-      message: "not enough baseball gold for silver",
+      message: "not enough baseball gold for enhancement",
     });
     expect(request).not.toHaveBeenCalled();
   });

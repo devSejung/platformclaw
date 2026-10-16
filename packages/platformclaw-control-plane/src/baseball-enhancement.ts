@@ -1,6 +1,6 @@
 import {
   BaseballGameError,
-  getBaseballBatDefinition,
+  isBaseballBatId,
   type BaseballAtBat,
   type BaseballBatId,
   type BaseballEnhancementOutcome,
@@ -338,9 +338,9 @@ export function resolveBaseballAtBatPower(
     }
     return getBaseballEnhancementPower(atBat.enhancementLevel, timingDeltaMs);
   }
-  const bat = getBaseballBatDefinition(atBat.batId);
-  if (!bat) {
+  if (!isBaseballBatId(atBat.batId)) {
     throw new BaseballGameError("unknown_bat", "At-bat has an unknown bat; start a new at-bat");
   }
-  return bat.exitVelocityMultiplier;
+  // Pre-enhancement nonces settle as +0 without changing their historical database rows.
+  return getBaseballEnhancementPower(0, timingDeltaMs);
 }

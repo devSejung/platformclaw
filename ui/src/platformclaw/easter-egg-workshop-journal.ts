@@ -80,6 +80,7 @@ function valid(value: unknown): value is ValidStoredMutation {
   }
   return (
     method === BASEBALL_RPC.enhanceBat ||
+    // Previously journaled opt-in requests still need receipt settlement after reconnect.
     method === BASEBALL_RPC.equipEnhancedBat ||
     (method === BASEBALL_RPC.recoverBat &&
       ["restore", "restart"].includes(params.action as string)) ||

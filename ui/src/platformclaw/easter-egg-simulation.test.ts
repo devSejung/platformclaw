@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { BASEBALL_BATS } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import {
+  getBaseballEnhancementAppearance,
+  resolveBaseballAtBatPower,
+} from "../../../packages/platformclaw-control-plane/src/baseball-enhancement.ts";
 import {
   BASEBALL_WORLD,
   advanceBattedBall,
@@ -18,6 +21,19 @@ function playToResult(timingDeltaMs: number, batPower = 1, frameMs = 16, fielded
     advanceBattedBall(simulation, frameMs);
   }
   return simulation;
+}
+
+const enhancementLevels = Array.from({ length: 21 }, (_, level) => level);
+
+function enhancedPower(level: number, timingDeltaMs: number): number {
+  return resolveBaseballAtBatPower(
+    {
+      batId: getBaseballEnhancementAppearance(level).batId,
+      enhancementLevel: level,
+      powerRuleVersion: "sweetspot-v1",
+    },
+    timingDeltaMs,
+  );
 }
 
 const pitchCases = [
@@ -155,16 +171,14 @@ describe("PlatformClaw easter egg simulation", () => {
     }
   });
 
-  it("preserves center-contact home runs for every bat and the entire Perfect window from platinum upward", () => {
-    for (const bat of BASEBALL_BATS) {
-      expect(playToResult(0, bat.exitVelocityMultiplier).result?.kind).toBe("HOME_RUN");
-    }
-    for (const bat of BASEBALL_BATS.slice(3)) {
+  it("keeps center contact strong without guaranteeing the whole Perfect window at any enhancement", () => {
+    for (const level of enhancementLevels) {
+      expect(playToResult(0, enhancedPower(level, 0)).result?.kind).toBe("HOME_RUN");
       for (const timingDeltaMs of [-25, 25]) {
         expect(classifyTimingDelta(timingDeltaMs)).toBe("PERFECT");
-        expect(playToResult(timingDeltaMs, bat.exitVelocityMultiplier).result?.kind).toBe(
-          "HOME_RUN",
-        );
+        expect(
+          playToResult(timingDeltaMs, enhancedPower(level, timingDeltaMs)).result?.kind,
+        ).not.toBe("HOME_RUN");
       }
     }
   });
@@ -225,38 +239,28 @@ describe("PlatformClaw easter egg simulation", () => {
     expect(distance(100)).toBeLessThan(20);
   });
 
-  it("produces balanced deterministic outcomes across every bat", () => {
-    const results = BASEBALL_BATS.flatMap((bat) =>
-      Array.from(
-        { length: 41 },
-        (_, index) => playToResult(index * 5 - 100, bat.exitVelocityMultiplier).result?.kind,
-      ),
+  it("improves central contact across enhancement levels without changing off-center outcomes", () => {
+    const outcomes = enhancementLevels.map((level) =>
+      Array.from({ length: 41 }, (_, index) => {
+        const timingDeltaMs = index * 5 - 100;
+        return playToResult(timingDeltaMs, enhancedPower(level, timingDeltaMs)).result?.kind;
+      }),
     );
-    const homeRuns = results.filter((result) => result === "HOME_RUN").length;
-    const outs = results.filter((result) => result === "OUT").length;
-    const hits = results.filter((result) => result === "HIT").length;
-
-    expect(homeRuns / results.length).toBeGreaterThan(0.22);
-    expect(homeRuns / results.length).toBeLessThan(0.29);
-    expect(outs / results.length).toBeGreaterThan(0.4);
-    expect(outs / results.length).toBeLessThan(0.49);
-    expect(hits / results.length).toBeGreaterThan(0.27);
-    expect(hits / results.length).toBeLessThan(0.36);
-    expect(outs / (outs + hits)).toBeGreaterThan(0.55);
-    expect(outs / (outs + hits)).toBeLessThan(0.65);
-
-    const homeRunRates = BASEBALL_BATS.map((bat) => {
-      const batResults = Array.from(
-        { length: 41 },
-        (_, index) => playToResult(index * 5 - 100, bat.exitVelocityMultiplier).result?.kind,
-      );
-      return batResults.filter((result) => result === "HOME_RUN").length / batResults.length;
-    });
-    expect(homeRunRates[0]).toBeGreaterThan(0.05);
-    expect(homeRunRates[0]).toBeLessThan(0.12);
-    expect(homeRunRates.at(-1)).toBeGreaterThan(0.35);
-    expect(homeRunRates.at(-1)).toBeLessThan(0.47);
-    expect(homeRunRates).toEqual(homeRunRates.toSorted((left, right) => left - right));
+    for (const levelOutcomes of outcomes) {
+      expect(levelOutcomes).not.toContain(undefined);
+      expect(levelOutcomes).toContain("HIT");
+      expect(levelOutcomes).toContain("OUT");
+      for (let index = 0; index < levelOutcomes.length; index += 1) {
+        if (Math.abs(index * 5 - 100) >= 25) {
+          expect(levelOutcomes[index]).toBe(outcomes[0]![index]);
+        }
+      }
+    }
+    const homeRuns = outcomes.map(
+      (levelOutcomes) => levelOutcomes.filter((result) => result === "HOME_RUN").length,
+    );
+    expect(homeRuns).toEqual(homeRuns.toSorted((left, right) => left - right));
+    expect(homeRuns.at(-1)).toBeGreaterThan(homeRuns[0]!);
   });
 
   it("records an ordinary landing inside the fence when no fielder can reach it", () => {

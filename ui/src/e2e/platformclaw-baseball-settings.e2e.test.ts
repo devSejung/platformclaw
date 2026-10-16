@@ -108,7 +108,9 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
         [BASEBALL_RPC.beginAtBat]: {
           id: "settings-at-bat",
           pitchSample: 0.25,
-          batId: progress.equippedBatId,
+          batId: "wood",
+          enhancementLevel: 0,
+          powerRuleVersion: "sweetspot-v1",
           issuedAt: 0,
           expiresAt: Number.MAX_SAFE_INTEGER,
         },
@@ -258,7 +260,9 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
         [BASEBALL_RPC.beginAtBat]: {
           id: "bonus-at-bat",
           pitchSample: 0.25,
-          batId: progress.equippedBatId,
+          batId: "wood",
+          enhancementLevel: 0,
+          powerRuleVersion: "sweetspot-v1",
           issuedAt: 0,
           expiresAt: Number.MAX_SAFE_INTEGER,
         },

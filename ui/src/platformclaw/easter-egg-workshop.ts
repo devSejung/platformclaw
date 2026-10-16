@@ -30,12 +30,6 @@ export type BaseballWorkshopNotice = {
   automaticRestart?: boolean;
 };
 
-const NON_WORKSHOP_MUTATIONS = new Set<string>([
-  BASEBALL_RPC.plateAppearance,
-  BASEBALL_RPC.equipBat,
-  BASEBALL_RPC.purchaseBat,
-]);
-
 /** Confirmed server receipts own workshop feedback; unknown outcomes remain retryable. */
 export abstract class BaseballWorkshop extends BaseballPersistence {
   abstract random: () => number;
@@ -82,7 +76,7 @@ export abstract class BaseballWorkshop extends BaseballPersistence {
 
   protected restorePendingWorkshop(): boolean {
     // Other tabs may queue work, but the active gameplay receipt still owns its callback.
-    if (this.pendingMutation && NON_WORKSHOP_MUTATIONS.has(this.pendingMutation.method)) {
+    if (this.pendingMutation?.method === BASEBALL_RPC.plateAppearance) {
       return false;
     }
     try {
@@ -117,7 +111,7 @@ export abstract class BaseballWorkshop extends BaseballPersistence {
 
   protected override rememberMutation(mutation: BaseballMutation): boolean {
     const remembered =
-      NON_WORKSHOP_MUTATIONS.has(mutation.method) ||
+      mutation.method === BASEBALL_RPC.plateAppearance ||
       savePendingWorkshop(this.preferenceScope, mutation, mutation.journaled);
     if (remembered) {
       mutation.journaled = true;
@@ -144,10 +138,6 @@ export abstract class BaseballWorkshop extends BaseballPersistence {
 
   protected readonly enhanceBat = (): void => {
     void this.workshopMutation(BASEBALL_RPC.enhanceBat, {}, "강화 결과 확인 실패");
-  };
-
-  protected readonly equipEnhancedBat = (): void => {
-    void this.workshopMutation(BASEBALL_RPC.equipEnhancedBat, {}, "강화 배트 장착 실패");
   };
 
   protected readonly recoverBat = (action: "restore" | "restart"): void => {

@@ -1,11 +1,13 @@
 import { property, state } from "lit/decorators.js";
 import {
   BASEBALL_RPC,
-  type BaseballBatId,
   type BaseballAtBat,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
-import { resolveBaseballAtBatPower } from "../../../packages/platformclaw-control-plane/src/baseball-enhancement.ts";
+import {
+  getBaseballEnhancementAppearance,
+  resolveBaseballAtBatPower,
+} from "../../../packages/platformclaw-control-plane/src/baseball-enhancement.ts";
 import "../styles/platformclaw-easter-egg.css";
 import { renderArcade } from "./easter-egg-arcade-view.ts";
 import { BaseballCelebration } from "./easter-egg-celebration.ts";
@@ -89,7 +91,6 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
   private swingTimingDeltaMs: number | null = null;
   private pitchElapsedMs = 0;
   private battedBall: BattedBallSimulation | null = null;
-  private roundBatId: BaseballBatId = "wood";
   private lastFrameAt = 0;
   private readonly input = new ArcadeInputController({
     host: this,
@@ -196,6 +197,7 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
     });
   }
   private renderBaseball() {
+    const roundEnhancementLevel = this.atBat ? (this.atBat.enhancementLevel ?? 0) : null;
     return renderBaseballGame({
       active: this.active,
       shopOpen: this.shopOpen,
@@ -219,8 +221,8 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
       awardedGold: this.awardedGold,
       bonusVisible: this.celebration.visible,
       pendingMutationMethod: this.pendingMutation?.method ?? null,
-      roundBatId: this.roundBatId,
-      roundEnhancementLevel: this.atBat?.enhancementLevel ?? null,
+      roundBatId: getBaseballEnhancementAppearance(roundEnhancementLevel ?? 0).batId,
+      roundEnhancementLevel,
       workshopNotice: this.workshopNotice,
       workshopEffect: this.workshopEffect,
       workshopTaunt: this.workshopTaunt,
@@ -229,11 +231,9 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
       onRetry: this.retryPendingMutation,
       onRetryLoad: this.retryLoad,
       onCloseShop: this.closeShop,
-      onSelectBat: (batId, owned) => void this.selectBat(batId, owned),
       onSelectTeam: this.selectTeam,
       onEnhance: this.enhanceBat,
       onRecover: this.recoverBat,
-      onEquipEnhanced: this.equipEnhancedBat,
       onOpacity: (opacity) => {
         if (Number.isInteger(opacity) && opacity >= 30 && opacity <= 100 && opacity % 5 === 0) {
           this.updateSettings({ ...this.settings, opacity });
@@ -310,7 +310,7 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
     this.battedBall = null;
     this.trail = [];
     this.atBatRequestId = createBaseballRequestId(this.random);
-    if (this.progress.enhancement?.equipped && this.progress.enhancement.status === "broken") {
+    if (this.progress.enhancement?.status === "broken") {
       this.persistenceStatus = "배트가 파괴되었습니다. 상점에서 복구 또는 재시작하세요.";
       return;
     }
@@ -334,7 +334,6 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
       this.atBat = atBat;
       this.atBatRequestId = null;
       this.pitch = createPitch(() => atBat.pitchSample);
-      this.roundBatId = atBat.batId;
       this.persistenceStatus = "";
       this.schedulePitch(sequence);
       this.resumeGameTime();
@@ -418,6 +417,7 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
       this.isPaused() ||
       this.phase !== "pitch" ||
       !this.pitch ||
+      !this.atBat ||
       isBaseballInteractiveTarget(event.target)
     ) {
       return;
@@ -437,10 +437,7 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
       this.resolveAtBat("miss");
       return;
     }
-    const batPower = resolveBaseballAtBatPower(
-      this.atBat ?? { batId: this.roundBatId },
-      timingDeltaMs,
-    );
+    const batPower = resolveBaseballAtBatPower(this.atBat, timingDeltaMs);
     this.battedBall = createBattedBall({ timingDeltaMs, batPower });
     this.phase = "in-play";
     this.playerState = timing === "PERFECT" ? "swing-perfect" : "swing";
@@ -492,17 +489,6 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
       },
       label: "타석 저장 실패",
       onSuccess: () => this.scheduleNextRound(),
-    });
-  }
-
-  private async selectBat(batId: BaseballBatId, owned: boolean): Promise<void> {
-    if (!this.progress || this.persistenceBusy || this.pendingMutation) {
-      return;
-    }
-    await this.runMutation({
-      method: owned ? BASEBALL_RPC.equipBat : BASEBALL_RPC.purchaseBat,
-      params: { requestId: createBaseballRequestId(this.random), batId },
-      label: owned ? "배트 장착 실패" : "배트 구매 실패",
     });
   }
 
@@ -591,7 +577,7 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
         !this.atBat &&
         this.phase === "ready" &&
         !this.persistenceBusy &&
-        !(this.progress?.enhancement?.equipped && this.progress.enhancement.status === "broken")
+        this.progress?.enhancement?.status !== "broken"
       ) {
         void this.startRound(this.playSequence);
       }

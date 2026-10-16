@@ -1,8 +1,5 @@
 import { html, nothing } from "lit";
-import type {
-  BaseballBatId,
-  BaseballProgress,
-} from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import type { BaseballProgress } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import {
   BASEBALL_ENHANCEMENT_MAX_LEVEL,
   BASEBALL_ENHANCEMENT_RECOVERY_COST,
@@ -22,15 +19,6 @@ export function renderBaseballTaunt(taunt: string) {
       </div>`
     : nothing;
 }
-const LEGACY_BAT_NAMES: Record<BaseballBatId, string> = {
-  wood: "나무",
-  silver: "실버",
-  gold: "골드",
-  platinum: "플래티넘",
-  titanium: "티타늄",
-  emerald: "에메랄드",
-  diamond: "다이아몬드",
-};
 
 function receiptText(notice: BaseballWorkshopNotice): string {
   const spent = notice.chargedGold ? ` · ${gold(notice.chargedGold)}G 사용` : "";
@@ -58,8 +46,6 @@ export function renderBaseballForge(params: {
   effect: string;
   onEnhance: () => void;
   onRecover: (action: "restore" | "restart") => void;
-  onEquipEnhanced: () => void;
-  onSelectLegacy: (batId: BaseballBatId, owned: boolean) => void;
 }) {
   const state = params.progress?.enhancement;
   const level = state?.level ?? 0;
@@ -115,26 +101,16 @@ export function renderBaseballForge(params: {
             유지됩니다.</small
           >
         </div>`
-      : !state?.equipped
+      : rule
         ? html`<button
-              type="button"
-              data-forge-equip
-              ?disabled=${disabled}
-              @click=${params.onEquipEnhanced}
-            >
-              ${state ? "강화 배트 장착" : "강화 배트 시작 · 무료 +0"}
-            </button>
-            <small>기존 보유 배트·골드·누적 기록은 유지됩니다.</small>`
-        : rule
-          ? html`<button
-              type="button"
-              data-forge-enhance
-              ?disabled=${disabled || (params.progress?.gold ?? 0) < rule.costGold}
-              @click=${params.onEnhance}
-            >
-              +${rule.targetLevel} 도전 · ${gold(rule.costGold)}G
-            </button>`
-          : html`<strong data-forge-max>최대 강화 +20</strong>`}
+            type="button"
+            data-forge-enhance
+            ?disabled=${disabled || (params.progress?.gold ?? 0) < rule.costGold}
+            @click=${params.onEnhance}
+          >
+            +${rule.targetLevel} 도전 · ${gold(rule.costGold)}G
+          </button>`
+        : html`<strong data-forge-max>최대 강화 +20</strong>`}
     ${rule && state?.status !== "broken"
       ? html`<div
           class="platformclaw-baseball-forge__odds"
@@ -147,8 +123,8 @@ export function renderBaseballForge(params: {
         </div>`
       : nothing}
     <small
-      >장착·강화 성능은 다음 타석부터 적용됩니다. 강화는 정타 중심만 강하게 하며 Perfect 전체의
-      홈런을 보장하지 않습니다.</small
+      >강화 성능은 다음 타석부터 적용됩니다. 강화는 정타 중심만 강하게 하며 Perfect 전체의 홈런을
+      보장하지 않습니다.</small
     >
     <details>
       <summary>전체 강화 확률·비용</summary>
@@ -182,30 +158,5 @@ export function renderBaseballForge(params: {
         </table>
       </div>
     </details>
-    ${(params.progress?.ownedBatIds.length ?? 0) > 0
-      ? html`<details>
-          <summary>기존 보유 배트</summary>
-          <div class="platformclaw-easter-egg__shop-list">
-            ${params.progress?.ownedBatIds.map(
-              (batId) => html`<button
-                type="button"
-                class="platformclaw-easter-egg__shop-item"
-                data-shop-bat=${batId}
-                ?disabled=${disabled ||
-                (!state?.equipped && params.progress?.equippedBatId === batId)}
-                @click=${() => params.onSelectLegacy(batId, true)}
-              >
-                <span class="platformclaw-easter-egg__shop-bat" data-bat=${batId}></span
-                ><span>${LEGACY_BAT_NAMES[batId]}</span
-                ><span
-                  >${!state?.equipped && params.progress?.equippedBatId === batId
-                    ? "장착 중"
-                    : "장착"}</span
-                >
-              </button>`,
-            )}
-          </div>
-        </details>`
-      : nothing}
   </section>`;
 }
