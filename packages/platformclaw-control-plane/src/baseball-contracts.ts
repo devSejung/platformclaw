@@ -1,11 +1,12 @@
+// Retain material IDs and historical prices for stored ownership and purchase receipts.
 export const BASEBALL_BATS = [
-  { id: "wood", price: 0, exitVelocityMultiplier: 1 },
-  { id: "silver", price: 50, exitVelocityMultiplier: 1.04 },
-  { id: "gold", price: 200, exitVelocityMultiplier: 1.08 },
-  { id: "platinum", price: 500, exitVelocityMultiplier: 1.12 },
-  { id: "titanium", price: 1_000, exitVelocityMultiplier: 1.16 },
-  { id: "emerald", price: 2_000, exitVelocityMultiplier: 1.21 },
-  { id: "diamond", price: 4_000, exitVelocityMultiplier: 1.27 },
+  { id: "wood", price: 0 },
+  { id: "silver", price: 50 },
+  { id: "gold", price: 200 },
+  { id: "platinum", price: 500 },
+  { id: "titanium", price: 1_000 },
+  { id: "emerald", price: 2_000 },
+  { id: "diamond", price: 4_000 },
 ] as const;
 
 export type BaseballBatId = (typeof BASEBALL_BATS)[number]["id"];
@@ -93,7 +94,7 @@ export type BaseballProgress = {
   currentHomeRunStreak: number;
   bestHomeRunStreak: number;
   revision: number;
-  /** Separate opt-in state; previously purchased bats are retained unchanged. */
+  /** Current progress always includes this; older immutable receipts may omit it. */
   enhancement?: BaseballEnhancementState;
   teamId?: BaseballKboTeamId | null;
 };
@@ -220,6 +221,7 @@ export type BaseballSelectTeamResult = {
 export type BaseballGameErrorCode =
   | "idempotency_conflict"
   | "legacy_purchase_closed"
+  | "legacy_bat_closed"
   | "unknown_bat"
   | "insufficient_gold"
   | "bat_not_owned"
@@ -268,8 +270,6 @@ export interface BaseballGameStore {
     userId: string;
     requestId: string;
     batId: BaseballBatId;
-    /** Internal trust boundary: browser handlers always set true and reject this field from clients. */
-    historicalOnly?: boolean;
   }): Promise<BaseballPurchaseBatResult>;
   equipBaseballBat(params: {
     userId: string;

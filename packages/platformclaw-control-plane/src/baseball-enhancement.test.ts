@@ -184,7 +184,9 @@ describe("enhanced bat power and snapshots", () => {
     expect(resolveBaseballAtBatPower(snapshot, -25)).toBe(1);
     expect(resolveBaseballAtBatPower(snapshot, 25)).toBe(1);
     for (const bat of BASEBALL_BATS) {
-      expect(resolveBaseballAtBatPower({ batId: bat.id }, 25)).toBe(bat.exitVelocityMultiplier);
+      for (const delta of [-25, 0, 25]) {
+        expect(resolveBaseballAtBatPower({ batId: bat.id }, delta)).toBe(enhancedPower(0, delta));
+      }
     }
   });
 

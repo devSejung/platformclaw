@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { BaseballAtBatStore } from "./baseball-at-bat-store.js";
-import { BaseballGameError, getBaseballBatDefinition } from "./baseball-contracts.js";
+import { BaseballGameError } from "./baseball-contracts.js";
 import { resolveBaseballAtBatPower } from "./baseball-enhancement.js";
 import {
   advanceBattedBall,
@@ -12,6 +12,10 @@ import {
 import { runImmediateTransaction } from "./kysely-sync.js";
 
 const databases: DatabaseSync[] = [];
+
+function enhancementSnapshot(level = 0) {
+  return { enhancementLevel: level, powerRuleVersion: "sweetspot-v1" as const };
+}
 
 function setup() {
   const db = new DatabaseSync(":memory:");
@@ -49,15 +53,13 @@ describe("BaseballAtBatStore", () => {
     (timingDeltaMs) => {
       const { db, store, transaction } = setup();
       const snapshot = { enhancementLevel: 20, powerRuleVersion: "sweetspot-v1" as const };
-      const issued = transaction(() =>
-        store.issue("alice", "enhanced", "diamond", 1_000, snapshot),
-      );
+      const issued = transaction(() => store.issue("alice", "enhanced", 1_000, snapshot));
       expect(issued).toMatchObject(snapshot);
       const reopened = new BaseballAtBatStore(db);
       reopened.ensureSchema();
       expect(
         transaction(() =>
-          reopened.issue("alice", "enhanced", "wood", 1_100, {
+          reopened.issue("alice", "enhanced", 1_100, {
             enhancementLevel: 0,
             powerRuleVersion: "sweetspot-v1",
           }),
@@ -78,11 +80,26 @@ describe("BaseballAtBatStore", () => {
       );
       expect(simulated.kind).toBe(timingDeltaMs === 0 ? "HOME_RUN" : "OUT");
       if (timingDeltaMs !== 0) {
-        const legacy = transaction(() => store.issue("bob", "legacy", "diamond", 1_000));
-        expect(legacy).not.toHaveProperty("enhancementLevel");
+        db.prepare(
+          "INSERT INTO baseball_at_bats (id,user_id,request_id,pitch_sample,bat_id,issued_at,expires_at,consumed_at) VALUES ('legacy','bob','legacy',0.25,'diamond',1000,181000,NULL)",
+        ).run();
+        const legacy = transaction(() => store.findIssued("bob", "legacy"))!;
+        expect(legacy).toMatchObject({ batId: "wood", ...enhancementSnapshot() });
         expect(
           transaction(() => store.consume("bob", legacy.id, timingDeltaMs, 2_000)).outcome,
-        ).toBe("home_run");
+        ).toBe("out");
+        expect(db.prepare("SELECT bat_id FROM baseball_at_bats WHERE id = 'legacy'").get()).toEqual(
+          {
+            bat_id: "diamond",
+          },
+        );
+        expect(
+          db
+            .prepare(
+              "SELECT * FROM baseball_at_bat_enhancement_snapshots WHERE at_bat_id = 'legacy'",
+            )
+            .get(),
+        ).toBeUndefined();
       }
     },
   );
@@ -92,18 +109,23 @@ describe("BaseballAtBatStore", () => {
     const snapshot = { enhancementLevel: 12, powerRuleVersion: "sweetspot-v1" as const };
     expect(() =>
       transaction(() => {
-        store.issue("alice", "aborted", "titanium", 0, snapshot);
+        store.issue("alice", "aborted", 0, snapshot);
         throw new Error("abort");
       }),
     ).toThrow("abort");
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM baseball_at_bat_enhancement_snapshots").get(),
     ).toEqual({ count: 0 });
-    transaction(() => store.issue("alice", "old-enhanced", "titanium", 0, snapshot));
-    transaction(() => store.issue("alice", "new-legacy", "wood", 172_800_001));
+    const old = transaction(() => store.issue("alice", "old-enhanced", 0, snapshot));
+    transaction(() => store.issue("alice", "new-baseline", 172_800_001, enhancementSnapshot()));
+    expect(
+      db
+        .prepare("SELECT * FROM baseball_at_bat_enhancement_snapshots WHERE at_bat_id = ?")
+        .get(old.id),
+    ).toBeUndefined();
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM baseball_at_bat_enhancement_snapshots").get(),
-    ).toEqual({ count: 0 });
+    ).toEqual({ count: 1 });
   });
 
   it.each([
@@ -116,12 +138,16 @@ describe("BaseballAtBatStore", () => {
     "replays the issued %s and judges the same normalized contact time",
     (kind, sample, speedKph) => {
       const { db, store, transaction } = setup();
-      const issued = transaction(() => store.issue("alice", "pitch-round", "platinum", 1_000));
+      const issued = transaction(() =>
+        store.issue("alice", "pitch-round", 1_000, enhancementSnapshot(9)),
+      );
       db.prepare("UPDATE baseball_at_bats SET pitch_sample = ? WHERE id = ?").run(
         sample,
         issued.id,
       );
-      const replay = transaction(() => store.issue("alice", "pitch-round", "wood", 1_100));
+      const replay = transaction(() =>
+        store.issue("alice", "pitch-round", 1_100, enhancementSnapshot()),
+      );
       expect(replay.pitchSample).toBe(sample);
       expect(replay.batId).toBe("platinum");
       const pitch = createPitch(() => replay.pitchSample);
@@ -132,7 +158,10 @@ describe("BaseballAtBatStore", () => {
       expect(timingDeltaMs).toBeCloseTo(0, 10);
       const result = transaction(() => store.consume("alice", replay.id, timingDeltaMs, 10_000));
       const expected = advanceBattedBall(
-        createBattedBall({ timingDeltaMs, batPower: 1.12 }),
+        createBattedBall({
+          timingDeltaMs,
+          batPower: resolveBaseballAtBatPower(replay, timingDeltaMs),
+        }),
         30_000,
       ).result!;
       expect(result).toEqual({ outcome: "home_run", distanceM: Math.round(expected.distanceM) });
@@ -141,23 +170,31 @@ describe("BaseballAtBatStore", () => {
 
   it("issues user-bound durable pitches, replays requests, and supersedes the previous live pitch", () => {
     const { db, store, transaction } = setup();
-    const first = transaction(() => store.issue("alice", "round-1", "wood", 1_000));
+    const first = transaction(() => store.issue("alice", "round-1", 1_000, enhancementSnapshot()));
     expect(first).toMatchObject({ batId: "wood", issuedAt: 1_000, expiresAt: 181_000 });
     expect(first.id).toMatch(/^[\da-f-]{36}$/);
     expect(first.pitchSample).toBeGreaterThanOrEqual(0);
     expect(first.pitchSample).toBeLessThan(1);
-    expect(transaction(() => store.issue("alice", "round-1", "diamond", 1_100))).toEqual(first);
-    expect(errorCode(() => transaction(() => store.issue("alice", "round-2", "wood", 1_699)))).toBe(
-      "at_bat_rate_limited",
+    expect(
+      transaction(() => store.issue("alice", "round-1", 1_100, enhancementSnapshot(20))),
+    ).toEqual(first);
+    expect(
+      errorCode(() =>
+        transaction(() => store.issue("alice", "round-2", 1_699, enhancementSnapshot())),
+      ),
+    ).toBe("at_bat_rate_limited");
+    const second = transaction(() =>
+      store.issue("alice", "round-2", 1_700, enhancementSnapshot(20)),
     );
-    const second = transaction(() => store.issue("alice", "round-2", "diamond", 1_700));
     expect(second.id).not.toBe(first.id);
     expect(errorCode(() => transaction(() => store.consume("alice", first.id, 0, 2_000)))).toBe(
       "at_bat_consumed",
     );
     const reopened = new BaseballAtBatStore(db);
     reopened.ensureSchema();
-    expect(transaction(() => reopened.issue("alice", "round-2", "wood", 2_000))).toEqual(second);
+    expect(
+      transaction(() => reopened.issue("alice", "round-2", 2_000, enhancementSnapshot())),
+    ).toEqual(second);
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM baseball_at_bats WHERE consumed_at IS NULL").get(),
     ).toEqual({ count: 1 });
@@ -165,7 +202,7 @@ describe("BaseballAtBatStore", () => {
 
   it("rejects fabricated IDs, another user's nonce, expiry, early rewards, and repeated consumption", () => {
     const { store, transaction } = setup();
-    const pitch = transaction(() => store.issue("alice", "round-1", "wood", 1_000));
+    const pitch = transaction(() => store.issue("alice", "round-1", 1_000, enhancementSnapshot()));
     expect(
       errorCode(() => transaction(() => store.consume("alice", "fake-home-run", 0, 2_000))),
     ).toBe("at_bat_unavailable");
@@ -184,7 +221,7 @@ describe("BaseballAtBatStore", () => {
     expect(errorCode(() => transaction(() => store.consume("alice", pitch.id, 0, 1_301)))).toBe(
       "at_bat_consumed",
     );
-    const next = transaction(() => store.issue("alice", "round-2", "wood", 2_000));
+    const next = transaction(() => store.issue("alice", "round-2", 2_000, enhancementSnapshot()));
     expect(
       errorCode(() => transaction(() => store.consume("alice", next.id, 0, next.expiresAt))),
     ).toBe("at_bat_expired");
@@ -192,8 +229,12 @@ describe("BaseballAtBatStore", () => {
 
   it("uses the issued bat snapshot and canonical physics rather than supplied result claims", () => {
     const { store, transaction } = setup();
-    const wood = transaction(() => store.issue("alice", "wood-round", "wood", 1_000));
-    const diamond = transaction(() => store.issue("bob", "diamond-round", "diamond", 1_000));
+    const wood = transaction(() =>
+      store.issue("alice", "wood-round", 1_000, enhancementSnapshot()),
+    );
+    const diamond = transaction(() =>
+      store.issue("bob", "diamond-round", 1_000, enhancementSnapshot(20)),
+    );
     const woodResult = transaction(() => store.consume("alice", wood.id, 0, 2_000));
     const diamondResult = transaction(() => store.consume("bob", diamond.id, 0, 2_000));
     for (const [pitch, result] of [
@@ -203,7 +244,7 @@ describe("BaseballAtBatStore", () => {
       const simulation = advanceBattedBall(
         createBattedBall({
           timingDeltaMs: 0,
-          batPower: getBaseballBatDefinition(pitch.batId)!.exitVelocityMultiplier,
+          batPower: resolveBaseballAtBatPower(pitch, 0),
         }),
         30_000,
       );
@@ -213,7 +254,9 @@ describe("BaseballAtBatStore", () => {
       });
     }
     expect(diamondResult.distanceM).toBeGreaterThan(woodResult.distanceM!);
-    const miss = transaction(() => store.issue("alice", "miss-round", "wood", 3_000));
+    const miss = transaction(() =>
+      store.issue("alice", "miss-round", 3_000, enhancementSnapshot()),
+    );
     expect(transaction(() => store.consume("alice", miss.id, 101, 4_000))).toEqual({
       outcome: "miss",
     });
@@ -221,7 +264,7 @@ describe("BaseballAtBatStore", () => {
 
   it("does not consume the nonce for invalid timing or an aborted award transaction", () => {
     const { store, transaction } = setup();
-    const pitch = transaction(() => store.issue("alice", "round-1", "wood", 1_000));
+    const pitch = transaction(() => store.issue("alice", "round-1", 1_000, enhancementSnapshot()));
     for (const timing of [Number.NaN, Number.POSITIVE_INFINITY, 2_001, -2_001]) {
       expect(
         errorCode(() => transaction(() => store.consume("alice", pitch.id, timing, 2_000))),
@@ -249,11 +292,11 @@ describe("BaseballAtBatStore", () => {
       }
     });
     const now = 2 * 86_400_000;
-    transaction(() => store.issue("alice", "batch-one", "wood", now));
+    transaction(() => store.issue("alice", "batch-one", now, enhancementSnapshot()));
     expect(
       db.prepare("SELECT count(*) AS count FROM baseball_at_bats WHERE expires_at = 1").get(),
     ).toEqual({ count: 5 });
-    transaction(() => store.issue("bob", "batch-two", "wood", now));
+    transaction(() => store.issue("bob", "batch-two", now, enhancementSnapshot()));
     expect(
       db.prepare("SELECT count(*) AS count FROM baseball_at_bats WHERE expires_at = 1").get(),
     ).toEqual({ count: 0 });
@@ -262,15 +305,17 @@ describe("BaseballAtBatStore", () => {
   it("keeps recent retries, prunes old pitch state, and leaves the SQLite version unchanged", () => {
     const { db, store, transaction } = setup();
     db.exec("PRAGMA user_version = 3");
-    const old = transaction(() => store.issue("alice", "old-round", "wood", 0));
-    const recent = transaction(() => store.issue("bob", "recent-round", "wood", 86_400_000));
-    transaction(() => store.issue("alice", "new-round", "wood", 172_800_001));
+    const old = transaction(() => store.issue("alice", "old-round", 0, enhancementSnapshot()));
+    const recent = transaction(() =>
+      store.issue("bob", "recent-round", 86_400_000, enhancementSnapshot()),
+    );
+    transaction(() => store.issue("alice", "new-round", 172_800_001, enhancementSnapshot()));
     expect(errorCode(() => transaction(() => store.consume("alice", old.id, 0, 172_900_000)))).toBe(
       "at_bat_unavailable",
     );
-    expect(transaction(() => store.issue("bob", "recent-round", "wood", 172_900_000))).toEqual(
-      recent,
-    );
+    expect(
+      transaction(() => store.issue("bob", "recent-round", 172_900_000, enhancementSnapshot())),
+    ).toEqual(recent);
     expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 3 });
   });
 });

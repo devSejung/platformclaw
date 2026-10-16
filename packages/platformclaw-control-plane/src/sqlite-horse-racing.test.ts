@@ -16,32 +16,34 @@ import {
   createStore,
 } from "./sqlite-horse-racing.test-harness.js";
 describe("SQLite horse racing and shared game economy", () => {
-  it("uses baseball-earned gold for racing and bat purchases across connections", async () => {
-    const { first, second, alice, bob, race } = await setup(33);
+  it("uses baseball-earned gold for racing and enhancement across connections", async () => {
+    const { first, second, alice, bob, race } = await setup(49);
     const ticket = first.racing.placeBet(alice.id, bet(race.id, "alice-bet", 50, ["1"]), OPEN);
-    expect(ticket.snapshot.gold).toBe(49);
-    expect((await second.loadBaseballProgress(alice.id)).gold).toBe(49);
+    expect(ticket.snapshot.gold).toBe(97);
+    const progress = await second.loadBaseballProgress(alice.id);
+    expect(progress.gold).toBe(97);
     await expect(
-      second.purchaseBaseballBat({
+      second.enhanceBaseballBat({
         userId: alice.id,
-        requestId: "silver-before-hit",
-        batId: "silver",
+        requestId: "enhance-before-hit",
+        expectedRevision: progress.revision,
       }),
     ).rejects.toMatchObject({ code: "insufficient_gold" });
-    await first.rewardBaseballPlateAppearance({
+    const reward = await first.rewardBaseballPlateAppearance({
       userId: alice.id,
       requestId: "another-hit",
       outcome: "hit",
       distanceM: 80,
     });
-    const purchased = await second.purchaseBaseballBat({
+    const enhanced = await second.enhanceBaseballBat({
       userId: alice.id,
-      requestId: "silver-after-hit",
-      batId: "silver",
+      requestId: "enhance-after-hit",
+      expectedRevision: reward.progress.revision,
     });
-    expect(purchased.progress.gold).toBe(2);
-    expect(first.racing.snapshot(alice.id, OPEN).gold).toBe(2);
-    expect(first.racing.snapshot(bob.id, OPEN).gold).toBe(99);
+    expect(enhanced.chargedGold).toBe(100);
+    expect(enhanced.progress.gold).toBe(0);
+    expect(first.racing.snapshot(alice.id, OPEN).gold).toBe(0);
+    expect(first.racing.snapshot(bob.id, OPEN).gold).toBe(147);
     expect(first.racing.snapshot(bob.id, OPEN).race?.myBets).toEqual([]);
     expect(first.racing.snapshot(bob.id, OPEN).race?.totalStake).toBe(50);
     const winQuote = race.quotes.find(
@@ -49,7 +51,7 @@ describe("SQLite horse racing and shared game economy", () => {
     )!;
     expect(ticket.receipt.quotedOdds).toBe(winQuote.odds);
     expect(ticket.receipt.potentialPayout).toBeGreaterThanOrEqual(50);
-    expect(purchased.progress.ownedBatIds).toEqual(["wood", "silver"]);
+    expect(enhanced.progress.enhancement?.equipped).toBe(true);
   });
 
   it("withholds condition and draw weights before reveal and publishes a bounded active named bet feed", async () => {
@@ -597,12 +599,18 @@ describe("SQLite horse racing and shared game economy", () => {
       now: OPEN + 2_000,
     });
     expect(pitch.batId).toBe("wood");
-    await second.purchaseBaseballBat({
-      userId: alice.id,
-      requestId: "buy-silver",
-      batId: "silver",
+    // Synthetic pre-upgrade loadout remains refund evidence; active enhancement changes after issuance.
+    inspect(databasePath, (db) => {
+      db.prepare("INSERT INTO baseball_owned_bats (user_id,bat_id) VALUES (?,?)").run(
+        alice.id,
+        "silver",
+      );
+      db.prepare(
+        "UPDATE baseball_game_progress SET equipped_bat_id = 'silver' WHERE user_id = ?",
+      ).run(alice.id);
+      db.prepare("UPDATE baseball_bat_enhancements SET level = 20 WHERE user_id = ?").run(alice.id);
     });
-    await second.equipBaseballBat({ userId: alice.id, requestId: "equip-silver", batId: "silver" });
+    expect(pitch).toMatchObject({ enhancementLevel: 0, powerRuleVersion: "sweetspot-v1" });
     await expect(
       first.rewardBaseballPlateAppearance({
         userId: bob.id,
@@ -626,7 +634,12 @@ describe("SQLite horse racing and shared game economy", () => {
     });
     expect(reward).toMatchObject({
       awardedGold: 5,
-      progress: { gold: 15, totalHomers: 1, equippedBatId: "silver" },
+      progress: {
+        gold: 65,
+        totalHomers: 1,
+        equippedBatId: "silver",
+        enhancement: { level: 20, equipped: true },
+      },
     });
     expect(reward.progress.bestDistanceM).toBeGreaterThan(100);
     expect(reward.progress.bestDistanceM).toBeLessThan(150);
@@ -640,7 +653,7 @@ describe("SQLite horse racing and shared game economy", () => {
     closeStore(second);
     const reopened = createStore(databasePath);
     expect(await reopened.rewardBaseballPlateAppearance(request)).toEqual(reward);
-    expect((await reopened.loadBaseballProgress(alice.id)).gold).toBe(15);
+    expect((await reopened.loadBaseballProgress(alice.id)).gold).toBe(65);
     expect(
       inspect(databasePath, (db) =>
         db
