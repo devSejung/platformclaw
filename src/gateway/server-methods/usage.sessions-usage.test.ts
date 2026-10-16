@@ -886,6 +886,41 @@ describe("sessions.usage", () => {
     ]);
   });
 
+  it.each(["UTC", "America/New_York"])(
+    "bounds activity by calendar days in %s",
+    async (timeZone) => {
+      const accepted = await runSessionsUsage({
+        startDate: "2024-01-01",
+        endDate: "2024-12-31",
+        mode: "specific",
+        timeZone,
+        agentId: "main",
+        limit: 0,
+        includeActivity: true,
+      });
+      expect(mockArg(accepted, 0, 0)).toBe(true);
+      for (const endDate of ["2025-01-01", "2025-01-02"]) {
+        const rejected = await runSessionsUsage({
+          startDate: "2024-01-01",
+          endDate,
+          mode: "specific",
+          timeZone,
+          agentId: "main",
+          limit: 0,
+          includeActivity: true,
+        });
+        expect(mockArg(rejected, 0, 0)).toBe(false);
+        expect(mockArg(rejected, 0, 2)).toMatchObject({ code: "INVALID_REQUEST" });
+      }
+      const allAgents = await runSessionsUsage({
+        ...BASE_USAGE_RANGE,
+        agentScope: "all",
+        includeActivity: true,
+      });
+      expect(mockArg(allAgents, 0, 0)).toBe(false);
+    },
+  );
+
   it("aggregate totals include all sessions even when limit restricts the page (#76496)", async () => {
     // Override discoverAllSessions to return 3 sessions with distinct costs
     vi.mocked(discoverAllSessions)
@@ -956,7 +991,11 @@ describe("sessions.usage", () => {
     const result = mockArg(respond, 0, 1) as {
       sessions: Array<{ key: string }>;
       totals: { totalCost: number; totalTokens: number };
-      aggregates: { sessionCount?: number; longestSessionDurationMs?: number };
+      aggregates: {
+        sessionCount?: number;
+        longestSessionDurationMs?: number;
+        activity?: Array<{ sessionCount: number; totalTokens: number }>;
+      };
     };
 
     // Only the most-recent session (s-a, mtime=300) appears in the page
@@ -971,10 +1010,30 @@ describe("sessions.usage", () => {
     // But aggregate totals must include all 3 sessions (0.08 + 0.04 + 0.02 = 0.14)
     expect(result.totals.totalCost).toBeCloseTo(0.14);
     expect(result.totals.totalTokens).toBe(30);
+    expect(result.aggregates.activity).toBeUndefined();
     // Aggregate session stats also cover hidden rows: the longest duration
     // belongs to s-c, which the page dropped. s-late was discovered but has no
     // in-range activity, so it stays out of the count.
     expect(result.aggregates.sessionCount).toBe(3);
     expect(result.aggregates.longestSessionDurationMs).toBe(90_000);
+    vi.mocked(discoverAllSessions).mockResolvedValueOnce([
+      { sessionId: "s-a", sessionFile: "/tmp/agents/main/sessions/s-a.jsonl", mtime: 300 },
+      { sessionId: "s-b", sessionFile: "/tmp/agents/main/sessions/s-b.jsonl", mtime: 200 },
+      { sessionId: "s-c", sessionFile: "/tmp/agents/main/sessions/s-c.jsonl", mtime: 100 },
+    ]);
+    const activityResponse = await runSessionsUsage({
+      ...BASE_USAGE_RANGE,
+      agentId: "main",
+      limit: 0,
+      includeActivity: true,
+    });
+    const activityResult = mockArg(activityResponse, 0, 1) as typeof result;
+    expect(activityResult.sessions).toHaveLength(0);
+    expect(
+      activityResult.aggregates.activity?.reduce((sum, entry) => sum + entry.totalTokens, 0),
+    ).toBe(30);
+    expect(
+      activityResult.aggregates.activity?.reduce((sum, entry) => sum + entry.sessionCount, 0),
+    ).toBe(3);
   });
 });

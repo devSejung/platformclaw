@@ -45,7 +45,9 @@ import {
   type UsageCacheStatus,
 } from "../../infra/session-cost-usage.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
+import { classifySessionKind } from "../../sessions/classify-session-kind.js";
 import { resolvePreferredSessionKeyForSessionIdMatches } from "../../sessions/session-id-resolution.js";
+import { UsageActivityAccumulator } from "../../shared/usage-activity.js";
 import {
   buildUsageAggregateTail,
   mergeUsageDailyLatency,
@@ -256,6 +258,7 @@ type SessionsUsageCacheKeyParams = {
   groupingMode: UsageGroupingMode;
   specificKey: string | null;
   includeContextWeight: boolean;
+  includeActivity?: boolean;
 };
 
 // Every normalized query axis that can change response bytes belongs in this
@@ -271,6 +274,7 @@ function sessionsUsageCacheKey(params: SessionsUsageCacheKeyParams): string {
     params.groupingMode,
     params.specificKey,
     params.includeContextWeight,
+    params.includeActivity === true,
   ]);
 }
 
@@ -1187,9 +1191,30 @@ export const usageHandlers: GatewayRequestHandlers = {
     const dayBucket = resolveDayBucket(dateInterpretation);
     const limit = typeof p.limit === "number" && Number.isFinite(p.limit) ? p.limit : 50;
     const includeContextWeight = p.includeContextWeight ?? false;
+    const includeActivity = p.includeActivity ?? false;
     const specificKey = normalizeOptionalString(p.key) ?? null;
     const requestedAgentId = normalizeOptionalString(p.agentId);
     const requestedAllAgents = p.agentScope === "all";
+    // Count calendar days in the requested zone; DST changes elapsed day lengths.
+    const activityDays = includeActivity
+      ? (datePartsToStartMs(getDateParts(new Date(endMs), dateInterpretation), { mode: "utc" })! -
+          datePartsToStartMs(getDateParts(new Date(startMs), dateInterpretation), {
+            mode: "utc",
+          })!) /
+          86_400_000 +
+        1
+      : 0;
+    if (includeActivity && (requestedAllAgents || activityDays > 366)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "Activity reports require one agent and at most 366 calendar days",
+        ),
+      );
+      return;
+    }
     if (requestedAllAgents && (requestedAgentId || specificKey)) {
       respond(
         false,
@@ -1233,6 +1258,7 @@ export const usageHandlers: GatewayRequestHandlers = {
         groupingMode,
         specificKey,
         includeContextWeight,
+        includeActivity,
         load: async () => {
           // Load session store for named sessions only on a result-cache miss.
           const sessionStoreOpts = effectiveAgentId ? { agentId: effectiveAgentId } : {};
@@ -1498,6 +1524,17 @@ export const usageHandlers: GatewayRequestHandlers = {
           // stats stay correct when the row list is truncated by `limit`.
           let longestSessionDurationMs = 0;
           let activeSessionCount = 0;
+          const activity = includeActivity
+            ? new UsageActivityAccumulator(
+                dayBucket ?? {
+                  mode: "time-zone",
+                  timeZone:
+                    dateInterpretation.mode === "gateway"
+                      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+                      : "UTC",
+                },
+              )
+            : undefined;
 
           for (const [entryIndex, merged] of mergedEntries.entries()) {
             const agentId = merged.agentId;
@@ -1517,6 +1554,17 @@ export const usageHandlers: GatewayRequestHandlers = {
             const channel = sessionDeliveryChannel(merged.storeEntry);
             const chatType =
               merged.storeEntry?.chatType ?? sessionDeliveryOrigin(merged.storeEntry)?.chatType;
+
+            // Aggregate before the row cap: reporting clients must not turn a
+            // truncated session page into an apparently complete activity report.
+            if (activity && usage && agentId) {
+              activity.add(
+                agentId,
+                channel ?? "unknown",
+                classifySessionKind(merged.key, merged.storeEntry),
+                usage,
+              );
+            }
 
             if (usage) {
               if (usage.messageCounts) {
@@ -1672,6 +1720,7 @@ export const usageHandlers: GatewayRequestHandlers = {
           });
 
           const aggregates: SessionsUsageAggregates = {
+            ...(activity ? { activity: activity.entries() } : {}),
             sessionCount: activeSessionCount,
             ...(longestSessionDurationMs > 0 ? { longestSessionDurationMs } : {}),
             messages: aggregateMessages,

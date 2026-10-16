@@ -32,6 +32,50 @@ The ingress holds one private operator Gateway connection through the public
 `@openclaw/gateway-client` package. Operator credentials never enter a browser
 frame, cookie, response, or projected Gateway hello.
 
+## Activity dashboard
+
+Settings > Dashboard is available to every active signed-in member, including
+non-administrators. It shows numeric activity across registered personal
+accounts, filtered by inclusive dates, current primary organization, account,
+channel, and session kind. Shared room agents are excluded. Disabled and unused
+accounts remain visible. Organization and account status are current snapshots,
+not historical membership or employment records.
+
+The authenticated read-only `/platformclaw/api/dashboard` endpoint accepts
+`startDate`, `endDate`, `timeZone`, and optional `accountId`, `organizationId`,
+`channel`, and `kind`. Ranges are limited to 366 days; the default display time
+zone is `Asia/Seoul`. `format=xlsx` downloads a workbook containing all matching
+accounts, daily activity, hourly activity, summary values, and metric definitions.
+The export is generated at download time and includes its own report timestamp.
+
+Request messages count retained transcript messages with the user role. They may
+include automated or synthetic turns and do not measure completed tasks or model
+calls. Activation means at least one such message in the selected filters.
+Comparisons use the preceding equal-length calendar period; today may still be
+in progress. Costs are estimates from available token usage and prices, not
+provider invoices. Deleted history cannot be reconstructed. Missing prices and
+pending usage-cache aggregation are reported explicitly; pending reports refresh
+while the page is visible. Failures show a manual retry action.
+
+The private Gateway supplies numeric activity only when `includeActivity` is
+requested for one agent; `limit=0` omits session rows entirely. Hour buckets are reduced to 168 local weekday/hour
+cells before transport; all matched sessions count before the session row limit.
+The dashboard reads agents through four bounded workers and reuses the existing
+usage caches. Up to 16 finished reports are reused for 15 seconds (3 seconds for
+pending reports), with a fresh roster read invalidating changed membership.
+Identical in-flight requests are shared. Each member may start two reports at
+once, within a budget of 2,000 agent-window calls per minute; both the selected
+and preceding periods count. A report with more than 1,000 selected agents must
+be narrowed by account or organization. Over-budget requests return HTTP 429
+with a retry delay; at most eight distinct reports run across all members.
+The HTTP projection returns account display identity and numbers;
+it never returns session identifiers, conversation labels or content, filesystem
+paths, directory email addresses, or credentials. Existing personal Gateway
+authorization remains unchanged. **My tokens & cost** preserves the original
+personal usage analysis.
+
+## Gateway subscriptions
+
 That private connection owns the connection-scoped `sessions.subscribe`
 lifecycle. Each Gateway hello or reconnect must acknowledge the subscription
 before ingress reports ready, so current, externally started, and reconnected

@@ -53,6 +53,8 @@ export type SessionUsageEntry = {
 
 /** Cross-session aggregate buckets returned alongside usage rows. */
 export type SessionsUsageAggregates = {
+  /** All-session numeric activity; never derived from the capped sessions list. */
+  activity?: import("./usage-activity.js").SessionUsageActivity[];
   /** Sessions with activity in the requested range, before the row `limit` cap. */
   sessionCount?: number;
   /** Longest single-row duration across every matched session, not just returned rows. */

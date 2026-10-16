@@ -26,7 +26,9 @@ function errorMessage(error: unknown): string {
   return typeof error === "string" ? error : "request failed";
 }
 
-async function loadUsageRouteData(context: ApplicationContext): Promise<UsageRouteData> {
+export async function loadUsageRouteData(
+  context: Pick<ApplicationContext, "gateway" | "agentSelection">,
+): Promise<UsageRouteData> {
   const gateway = context.gateway;
   const gatewaySnapshot = gateway.snapshot;
   const startDate = currentLocalDate();

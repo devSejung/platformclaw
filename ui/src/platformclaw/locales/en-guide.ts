@@ -1,11 +1,13 @@
 import { wikiDocumentTranslations } from "../../pages/agents/memory/wiki-document-translations.ts";
 import { baseballTranslations } from "./en-baseball.ts";
+import { dashboardTranslations } from "./en-dashboard.ts";
 import { executionTranslations } from "./en-execution.ts";
 import { racingTranslations } from "./en-racing.ts";
 import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  ...dashboardTranslations,
   ...baseballTranslations,
   ...racingTranslations,
   ...vaultTranslations,
@@ -296,11 +298,11 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.chatBody": "Start a new request and work with your Agent from here.",
   "platformClaw.guide.chatDetails":
     "A conversation keeps the context established by earlier messages.|Use a new conversation for unrelated work so results and history stay easy to find.",
-  "platformClaw.guide.usageTitle": "Usage: understand tokens and cost",
+  "platformClaw.guide.usageTitle": "Dashboard: understand platform activity",
   "platformClaw.guide.usageBody":
-    "Review the tokens your Agents used and their estimated cost over a selected period.",
+    "All signed-in members can review account activity, trends, and busy hours for a selected period.",
   "platformClaw.guide.usageDetails":
-    "Change the date range to review input tokens, output tokens, and cost trends.|Break usage down by Agent, model, and conversation to find expensive work.|Use detail and cache metrics to spot repeated work that can be optimized.",
+    "Filter by account, current primary organization, channel, and activity type. Select an account to inspect its patterns.|Request messages count retained user-role messages and may include automated turns; incomplete aggregation is shown explicitly.|Download Excel for every matching account and the metric definitions. My tokens & cost keeps personal conversation analysis available.",
   "platformClaw.guide.tasksTitle": "Tasks: follow assigned work",
   "platformClaw.guide.tasksBody": "See whether work assigned to an Agent is active or complete.",
   "platformClaw.guide.tasksDetails":

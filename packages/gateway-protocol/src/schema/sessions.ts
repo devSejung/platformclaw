@@ -822,10 +822,12 @@ export const SessionsUsageParamsSchema = closedObject({
   ),
   /** IANA time zone for `specific`; preferred over `utcOffset`, which remains a compatibility fallback. */
   timeZone: Type.Optional(NonEmptyString),
-  /** Maximum sessions to return (default 50). */
-  limit: Type.Optional(Type.Integer({ minimum: 1 })),
+  /** Maximum sessions to return (default 50); zero requests aggregates only. */
+  limit: Type.Optional(Type.Integer({ minimum: 0 })),
   /** Include context weight breakdown (systemPromptReport). */
   includeContextWeight: Type.Optional(Type.Boolean()),
+  /** Include bounded numeric activity for one agent, independent of the session row limit. */
+  includeActivity: Type.Optional(Type.Boolean()),
 });
 
 // Wire types derive directly from local schema consts so public d.ts graphs never

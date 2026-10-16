@@ -8140,6 +8140,7 @@ public struct SessionsUsageParams: Codable, Sendable {
     public let timezone: String?
     public let limit: Int?
     public let includecontextweight: Bool?
+    public let includeactivity: Bool?
 
     public init(
         key: String? = nil,
@@ -8154,7 +8155,8 @@ public struct SessionsUsageParams: Codable, Sendable {
         utcoffset: String? = nil,
         timezone: String? = nil,
         limit: Int? = nil,
-        includecontextweight: Bool? = nil)
+        includecontextweight: Bool? = nil,
+        includeactivity: Bool? = nil)
     {
         self.key = key
         self.agentid = agentid
@@ -8169,6 +8171,7 @@ public struct SessionsUsageParams: Codable, Sendable {
         self.timezone = timezone
         self.limit = limit
         self.includecontextweight = includecontextweight
+        self.includeactivity = includeactivity
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -8185,6 +8188,7 @@ public struct SessionsUsageParams: Codable, Sendable {
         case timezone = "timeZone"
         case limit
         case includecontextweight = "includeContextWeight"
+        case includeactivity = "includeActivity"
     }
 }
 

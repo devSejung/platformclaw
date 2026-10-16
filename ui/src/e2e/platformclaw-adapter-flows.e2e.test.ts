@@ -371,7 +371,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await page.goto(`${server.baseUrl}platformclaw/app/settings/usage`);
     const settingsSidebar = page.locator(".settings-sidebar");
     await expect.poll(() => settingsSidebar.isVisible()).toBe(true);
-    for (const label of ["Usage", "Tasks", "Threads", "Activity"]) {
+    for (const label of ["Dashboard", "Tasks", "Threads", "Activity"]) {
       await expect
         .poll(() => settingsSidebar.getByRole("link", { name: label, exact: true }).count())
         .toBe(1);
@@ -380,9 +380,11 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       0,
     );
     await expect
-      .poll(() => page.locator(".page-title + platformclaw-page-help-trigger").count())
+      .poll(() => page.locator(".pc-dashboard-route-tabs platformclaw-page-help-trigger").count())
       .toBe(1);
-    await expect.poll(() => page.locator(".page-title").textContent()).toBe("Usage");
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Dashboard", exact: true }).isVisible())
+      .toBe(true);
     if (captureUiProofEnabled) {
       await page.screenshot({
         animations: "disabled",
