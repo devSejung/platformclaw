@@ -376,8 +376,9 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
   }
 
   private readonly tick = (now: number): void => {
+    // This callback consumed its frame; an asynchronous save may prevent scheduling another.
+    this.animationFrame = 0;
     if (!this.active || this.isPaused()) {
-      this.animationFrame = 0;
       return;
     }
     const deltaMs = Math.max(0, now - this.lastFrameAt);
