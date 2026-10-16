@@ -398,13 +398,23 @@ The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
 health, recreates existing agent sandboxes with the new image, and restores the
 prior environment on failure. Before startup it stops the stack, saves a full
-Gateway-state snapshot, and runs `openclaw doctor --fix --yes --non-interactive`
-with the new image. If Doctor or health validation fails, it restores both the
+Gateway-state snapshot, and runs
+`openclaw doctor --fix --yes --non-interactive --repair-only` with the new image.
+This preserves repairs and migrations while deferring diagnostic-only checks.
+If repair or health validation fails, it restores both the
 old image refs and the pre-migration Gateway and SkillHub state before restarting the old
 stack. Compose never pulls these private image names from a registry, and
 update refuses to start unless the current rollback pair exists locally.
 Previous images and the reported state snapshot remain available for an
-explicit rollback:
+explicit rollback. After health checks and sandbox recreation succeed, the
+services accept traffic while `doctor --lint --deferred --json` runs inside Gateway.
+This selects the diagnostics deferred by the repair pass; checks with state
+maintenance behavior stay before startup.
+The deploy command streams the read-only findings and waits for diagnostics to
+finish; diagnostic findings or execution errors produce a warning without
+rolling back the running services or newly accepted user data. State backups
+and required migrations still run before startup, so this is not a zero-downtime
+update:
 
 ```bash
 ./platformclaw-deploy image update \

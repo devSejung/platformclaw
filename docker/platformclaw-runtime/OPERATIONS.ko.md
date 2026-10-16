@@ -520,11 +520,20 @@ Release의 transfer tar와 **같은 SHA의 deployment bundle**에서 아래 명�
 추가하고 owner-only secret을 생성한다. 서비스가
 정지된 동안 전체 Gateway `.openclaw` 상태를 `~/platformclaw/backups/gateway-state/`에,
 SkillHub 상태를 `~/platformclaw/backups/skillhub-state/`에
-백업하고, 새 이미지로 `openclaw doctor --fix --yes --non-interactive`를 실행한 뒤 Compose
+백업하고, 새 이미지로 `openclaw doctor --fix --yes --non-interactive --repair-only`를 실행한 뒤 Compose
 health를 기다린다. health가 통과하면 기존 Agent sandbox를 모두 제거하여 다음 실행부터
 새 sandbox 이미지로 다시 만들게 한다. Doctor, health, sandbox 제거 중 하나라도 실패하면
 `deployment.env.previous`와 migration 전 Gateway 상태를 함께 복원한 뒤 이전 이미지로
 재기동한다. 이전 이미지와 상태 백업은 rollback을 위해 자동 삭제하지 않는다.
+
+`--repair-only`는 기존 복구와 마이그레이션을 유지하면서 순수 진단을 서비스 시작 뒤로
+미룬다. health와 sandbox 제거가 성공하면 사용자가 접속할 수 있는 상태에서
+`doctor --lint --deferred --json`으로 미뤄 둔 읽기 전용 진단을 실행한다. 상태를 변경하는
+검사는 시작 전에 유지한다. 배포 명령은 진단 결과를
+출력하며 완료를 기다린다. 진단에서 문제가 발견되거나 실행이 실패해도 경고만 출력하고
+새로 받은 사용자 데이터를 보존하기 위해 서비스를 자동 롤백하지 않는다. 출력된 문제를
+확인하고 필요한 복구를 별도로 수행한다. 상태 백업과 필수 마이그레이션 동안의 서비스
+중단은 여전히 필요하다.
 
 실패한 업데이트를 같은 image ref로 재시도해도 이 절차를 생략하지 않는다. Gateway 상태를
 다시 백업하고 doctor migration을 실행한 뒤에만 서비스를 시작한다.

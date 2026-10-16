@@ -15,6 +15,7 @@ import {
 } from "../hooks/internal-hooks.js";
 import { closeOpenClawAgentDatabasesForTest } from "../state/openclaw-agent-db.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
+import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { makeTempWorkspace } from "../test-helpers/workspace.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import {
@@ -229,6 +230,25 @@ describe("resolveBootstrapFilesForRun", () => {
 
     const filePaths = files.map((file) => file.path);
     expect(filePaths).toContain(path.join(workspaceDir, "EXTRA.md"));
+  });
+
+  it("keeps diagnostic bootstrap reads off state writes and executable hooks", async () => {
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-diagnostic-");
+    await fs.writeFile(path.join(workspaceDir, "BOOTSTRAP.md"), "setup instructions");
+    await writeCompletedWorkspaceState(workspaceDir);
+    closeOpenClawStateDatabaseForTest();
+    const databasePath = resolveOpenClawStateSqlitePath();
+    const before = await fs.readFile(databasePath);
+    let hookRan = false;
+    registerInternalHook("agent:bootstrap", () => {
+      hookRan = true;
+    });
+
+    const files = await resolveBootstrapFilesForRun({ workspaceDir, readOnly: true });
+
+    expect(files.map((file) => file.name)).not.toContain("BOOTSTRAP.md");
+    expect(hookRan).toBe(false);
+    expect(await fs.readFile(databasePath)).toEqual(before);
   });
 
   it("drops malformed hook files with missing/invalid paths", async () => {

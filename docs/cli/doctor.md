@@ -45,6 +45,7 @@ openclaw doctor --lint --allow-exec
 openclaw doctor --deep
 openclaw doctor --fix
 openclaw doctor --fix --non-interactive
+openclaw doctor --fix --yes --non-interactive --repair-only
 openclaw doctor --generate-gateway-token
 openclaw doctor --post-upgrade
 openclaw doctor --post-upgrade --json
@@ -70,31 +71,49 @@ openclaw channels status --probe
 
 ## Options
 
-| Option                          | Effect                                                                                                                                                                                  |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--no-workspace-suggestions`    | Disable workspace memory/search suggestions.                                                                                                                                            |
-| `--yes`                         | Accept defaults without prompting.                                                                                                                                                      |
-| `--repair` / `--fix`            | Apply recommended non-service repairs without prompting (`--fix` is an alias). Gateway service installs/rewrites still require interactive confirmation or explicit `gateway` commands. |
-| `--force`                       | Apply aggressive repairs, including overwriting custom service config.                                                                                                                  |
-| `--non-interactive`             | Run without prompts; safe migrations and non-service repairs only.                                                                                                                      |
-| `--generate-gateway-token`      | Generate and configure a gateway token.                                                                                                                                                 |
-| `--allow-exec`                  | Allow doctor to execute configured `exec` SecretRefs while verifying secrets.                                                                                                           |
-| `--deep`                        | Scan system services for extra gateway installs; report recent Gateway supervisor restart handoffs.                                                                                     |
-| `--lint`                        | Run modernized health checks in read-only mode and emit diagnostic findings.                                                                                                            |
-| `--post-upgrade`                | Run post-upgrade plugin compatibility probes; findings go to stdout; exit code 1 if any error-level finding is present.                                                                 |
-| `--state-sqlite <mode>`         | Run explicit shared state SQLite maintenance. The only mode is `compact`.                                                                                                               |
-| `--session-sqlite <mode>`       | Run the targeted session SQLite migration mode: `inspect`, `dry-run`, `import`, `validate`, `compact`, `recover`, or `restore`.                                                         |
-| `--session-sqlite-store <path>` | With `--session-sqlite`: select one legacy `sessions.json` store path.                                                                                                                  |
-| `--session-sqlite-agent <id>`   | With `--session-sqlite`: select one configured agent.                                                                                                                                   |
-| `--session-sqlite-all-agents`   | With `--session-sqlite`: select configured and discovered agent stores.                                                                                                                 |
-| `--github-issue`                | With `--session-sqlite recover`: prepare a sanitized openclaw/openclaw issue report; doctor creates it with `gh` after `--yes` or interactive confirmation.                             |
-| `--json`                        | With `--lint`: JSON findings. With `--post-upgrade`: `{ probesRun, findings }`. With `--state-sqlite` or `--session-sqlite`: the maintenance report as JSON.                            |
-| `--severity-min <level>`        | With `--lint`: drop findings below `info`, `warning`, or `error`.                                                                                                                       |
-| `--all`                         | With `--lint`: run all registered checks, including opt-in checks excluded from the default set.                                                                                        |
-| `--skip <id>`                   | With `--lint`: skip a check id. Repeatable.                                                                                                                                             |
-| `--only <id>`                   | With `--lint`: run only the given check id(s). Repeatable.                                                                                                                              |
+| Option                          | Effect                                                                                                                                                                                             |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--no-workspace-suggestions`    | Disable workspace memory/search suggestions.                                                                                                                                                       |
+| `--yes`                         | Accept defaults without prompting.                                                                                                                                                                 |
+| `--repair` / `--fix`            | Apply recommended non-service repairs without prompting (`--fix` is an alias). Gateway service installs/rewrites still require interactive confirmation or explicit `gateway` commands.            |
+| `--repair-only`                 | With `--fix`, `--repair`, or `--yes`: keep repair and migration steps while deferring diagnostic-only checks. Cannot be combined with lint, post-upgrade, deep, JSON, or SQLite maintenance modes. |
+| `--force`                       | Apply aggressive repairs, including overwriting custom service config.                                                                                                                             |
+| `--non-interactive`             | Run without prompts; safe migrations and non-service repairs only.                                                                                                                                 |
+| `--generate-gateway-token`      | Generate and configure a gateway token.                                                                                                                                                            |
+| `--allow-exec`                  | Allow doctor to execute configured `exec` SecretRefs while verifying secrets.                                                                                                                      |
+| `--deep`                        | Scan system services for extra gateway installs; report recent Gateway supervisor restart handoffs.                                                                                                |
+| `--lint`                        | Run modernized health checks in read-only mode and emit diagnostic findings.                                                                                                                       |
+| `--deferred`                    | With `--lint`: run diagnostics deferred by `--repair-only`, including their opt-in checks. Excludes state maintenance and unclassified plugin checks.                                              |
+| `--post-upgrade`                | Run post-upgrade plugin compatibility probes; findings go to stdout; exit code 1 if any error-level finding is present.                                                                            |
+| `--state-sqlite <mode>`         | Run explicit shared state SQLite maintenance. The only mode is `compact`.                                                                                                                          |
+| `--session-sqlite <mode>`       | Run the targeted session SQLite migration mode: `inspect`, `dry-run`, `import`, `validate`, `compact`, `recover`, or `restore`.                                                                    |
+| `--session-sqlite-store <path>` | With `--session-sqlite`: select one legacy `sessions.json` store path.                                                                                                                             |
+| `--session-sqlite-agent <id>`   | With `--session-sqlite`: select one configured agent.                                                                                                                                              |
+| `--session-sqlite-all-agents`   | With `--session-sqlite`: select configured and discovered agent stores.                                                                                                                            |
+| `--github-issue`                | With `--session-sqlite recover`: prepare a sanitized openclaw/openclaw issue report; doctor creates it with `gh` after `--yes` or interactive confirmation.                                        |
+| `--json`                        | With `--lint`: JSON findings. With `--post-upgrade`: `{ probesRun, findings }`. With `--state-sqlite` or `--session-sqlite`: the maintenance report as JSON.                                       |
+| `--severity-min <level>`        | With `--lint`: drop findings below `info`, `warning`, or `error`.                                                                                                                                  |
+| `--all`                         | With `--lint`: run all registered checks, including opt-in checks excluded from the default set.                                                                                                   |
+| `--skip <id>`                   | With `--lint`: skip a check id. Repeatable.                                                                                                                                                        |
+| `--only <id>`                   | With `--lint`: run only the given check id(s). Repeatable.                                                                                                                                         |
 
 `--severity-min`, `--all`, `--only`, and `--skip` are only accepted together with `--lint`; `--json` is accepted with `--lint`, `--post-upgrade`, `--state-sqlite`, and `--session-sqlite`.
+
+## Repair before startup
+
+Use `openclaw doctor --fix --yes --non-interactive --repair-only` before starting
+a Gateway during an image upgrade. It keeps configuration, authentication,
+plugin, session, and storage repairs, including repairs that require exclusive
+offline state ownership. It skips diagnostic-only contributions and the
+diagnostic portion of the mixed memory check. Authentication checks still run
+before startup because they can refresh expiring OAuth credentials. Repairs may
+still inspect every configured agent when their owner requires it.
+
+After the Gateway starts, run `openclaw doctor --lint --deferred --json` for the
+deferred diagnostics, including their opt-in checks. `--deferred` requires
+`--lint` and excludes state maintenance and unclassified plugin checks. Keep these
+findings separate from rollback decisions once the Gateway accepts new writes.
+The default full doctor flow is unchanged.
 
 ## Lint mode
 

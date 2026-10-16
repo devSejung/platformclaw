@@ -12,6 +12,7 @@ export function createDoctorHealthContribution(params: {
   healthCheckIds?: readonly string[];
   healthChecks?: DoctorContributionHealthCheck | readonly DoctorContributionHealthCheck[];
   hint?: string;
+  execution?: DoctorHealthContribution["execution"];
   run?: (ctx: DoctorHealthFlowContext) => Promise<void>;
 }): DoctorHealthContribution {
   const healthChecks = normalizeHealthChecks(params.id, params.healthChecks);
@@ -31,6 +32,7 @@ export function createDoctorHealthContribution(params: {
     source: "doctor",
     healthChecks,
     healthCheckIds,
+    execution: params.execution ?? "repair",
     run:
       params.run ??
       ((ctx) =>

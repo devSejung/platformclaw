@@ -218,6 +218,30 @@ describe("root memory repair", () => {
     expect(repairNote?.[1]).toBe("Doctor changes");
   });
 
+  it("collects audit errors through the injected sink without changing workspace files", async () => {
+    const workspaceFile = path.join(tmpDir, "workspace-file");
+    await fs.writeFile(workspaceFile, "unchanged", "utf8");
+    const noteFn = vi.fn();
+
+    await noteWorkspaceMemoryHealth(
+      {},
+      {
+        agentId: "secondary",
+        workspaceDir: workspaceFile,
+        labelAgent: true,
+        noteFn,
+      },
+    );
+
+    expect(noteFn).toHaveBeenCalledWith(
+      expect.stringContaining('Agent "secondary": Workspace memory audit could not be completed'),
+      "Doctor",
+    );
+    expect(note).not.toHaveBeenCalled();
+    expect(await fs.readFile(workspaceFile, "utf8")).toBe("unchanged");
+    expect(await fs.readdir(tmpDir)).toEqual(["workspace-file"]);
+  });
+
   it("treats an oversized AGENTS.md as missing memory guidance", async () => {
     await fs.writeFile(path.join(tmpDir, "AGENTS.md"), "x".repeat(2 * 1024 * 1024), "utf8");
 

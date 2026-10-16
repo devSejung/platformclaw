@@ -57,6 +57,7 @@ export function resolveFinalDoctorHealthContributions(params: {
     }),
     createDoctorHealthContribution({
       id: "doctor:default-account-routing",
+      execution: "diagnostic",
       label: "Default account routing",
       healthChecks: {
         description: "Multi-account channels have explicit default routing or complete bindings.",
@@ -117,7 +118,31 @@ export function resolveFinalDoctorHealthContributions(params: {
     }),
     createDoctorHealthContribution({
       id: "doctor:web-fetch-proxy",
+      execution: "diagnostic",
       label: "Web fetch proxy",
+      healthChecks: {
+        description: "Explicit web fetch proxy policy matches configured proxy connectivity.",
+        defaultEnabled: false,
+        async detect(ctx) {
+          const { isDefaultInstallIdentity } = await import("../config/paths.js");
+          if (!isDefaultInstallIdentity(ctx.env ?? process.env)) {
+            return [];
+          }
+          const { noteWebFetchProxyDiagnostic } =
+            await import("../commands/doctor-web-fetch-proxy.js");
+          const messages: string[] = [];
+          await noteWebFetchProxyDiagnostic({
+            cfg: ctx.cfg,
+            env: ctx.env ?? process.env,
+            noteFn: (message) => messages.push(String(message)),
+          });
+          return messages.map((message) => ({
+            checkId: "core/doctor/web-fetch-proxy",
+            severity: "warning" as const,
+            message,
+          }));
+        },
+      },
       run: runWebFetchProxyHealth,
     }),
     createDoctorHealthContribution({
@@ -128,36 +153,42 @@ export function resolveFinalDoctorHealthContributions(params: {
     }),
     createDoctorHealthContribution({
       id: "doctor:oauth-tls",
+      execution: "diagnostic",
       label: "OAuth TLS",
       healthCheckIds: ["core/doctor/oauth-tls"],
       run: runOpenAIOAuthTlsHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:hooks-model",
+      execution: "diagnostic",
       label: "Hooks model",
       healthCheckIds: ["core/doctor/hooks-model"],
       run: runHooksModelHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:provider-catalog-projection",
+      execution: "diagnostic",
       label: "Provider catalog projection",
       healthCheckIds: ["core/doctor/provider-catalog-projection"],
       run: (ctx) => runCoreHealthFindingNote(ctx, "core/doctor/provider-catalog-projection"),
     }),
     createDoctorHealthContribution({
       id: "doctor:local-audio-acceleration",
+      execution: "diagnostic",
       label: "Local audio acceleration",
       healthCheckIds: ["core/doctor/local-audio-acceleration"],
       run: (ctx) => runCoreHealthFindingNote(ctx, "core/doctor/local-audio-acceleration"),
     }),
     createDoctorHealthContribution({
       id: "doctor:runtime-tool-schemas",
+      execution: "diagnostic",
       label: "Runtime tool schemas",
       healthCheckIds: ["core/doctor/runtime-tool-schemas"],
       run: (ctx) => runCoreHealthFindingNote(ctx, "core/doctor/runtime-tool-schemas"),
     }),
     createDoctorHealthContribution({
       id: "doctor:skill-workshop-tool-policy",
+      execution: "diagnostic",
       label: "Skill Workshop tool policy",
       healthCheckIds: ["core/doctor/skill-workshop-tool-policy"],
       run: (ctx) => runCoreHealthFindingNote(ctx, "core/doctor/skill-workshop-tool-policy"),
@@ -199,6 +230,7 @@ export function resolveFinalDoctorHealthContributions(params: {
       ? [
           createDoctorHealthContribution({
             id: "doctor:claws-state",
+            execution: "diagnostic",
             label: "Claws state",
             healthCheckIds: ["core/doctor/claws-state"],
             run: (ctx) => runCoreHealthFindingNote(ctx, "core/doctor/claws-state"),
@@ -238,6 +270,7 @@ export function resolveFinalDoctorHealthContributions(params: {
     }),
     createDoctorHealthContribution({
       id: "doctor:bootstrap-size",
+      execution: "diagnostic",
       label: "Bootstrap size",
       healthCheckIds: ["core/doctor/bootstrap-size"],
       run: runBootstrapSizeHealth,
@@ -304,6 +337,8 @@ export function resolveFinalDoctorHealthContributions(params: {
       healthCheckIds: ["core/doctor/shell-completion"],
       run: params.runShellCompletionHealth,
     }),
+    // Daemon and responsiveness repairs consume these observed facts. Keep the
+    // probe in repair-only mode so a live Gateway is not treated as unhealthy.
     createDoctorHealthContribution({
       id: "doctor:gateway-health",
       label: "Gateway health",
@@ -343,6 +378,7 @@ export function resolveFinalDoctorHealthContributions(params: {
     }),
     createDoctorHealthContribution({
       id: "doctor:memory-search",
+      execution: "mixed",
       label: "Memory search",
       healthChecks: {
         description: "Memory search provider and backend readiness are captured as findings.",
@@ -383,6 +419,7 @@ export function resolveFinalDoctorHealthContributions(params: {
     }),
     createDoctorHealthContribution({
       id: "doctor:workspace-suggestions",
+      execution: "diagnostic",
       label: "Workspace suggestions",
       healthCheckIds: ["core/doctor/workspace-suggestions"],
       run: runWorkspaceSuggestionsHealth,

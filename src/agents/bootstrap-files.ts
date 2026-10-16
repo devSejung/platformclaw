@@ -20,6 +20,7 @@ import {
   resolveBootstrapTotalMaxChars,
 } from "./embedded-agent-helpers.js";
 import type { AgentRunSessionTarget } from "./run-session-target.js";
+import { readWorkspaceStateSnapshot } from "./workspace-state-store.js";
 import {
   DEFAULT_BOOTSTRAP_FILENAME,
   DEFAULT_AGENTS_FILENAME,
@@ -190,7 +191,15 @@ function filterCompletedWorkspaceBootstrapFile(
   });
 }
 
-async function isWorkspaceSetupCompletedForContext(workspaceDir: string): Promise<boolean> {
+async function isWorkspaceSetupCompletedForContext(
+  workspaceDir: string,
+  readOnly?: boolean,
+): Promise<boolean> {
+  if (readOnly) {
+    return Boolean(
+      readWorkspaceStateSnapshot(workspaceDir, { readOnly: true }).setup.setupCompletedAt?.trim(),
+    );
+  }
   try {
     return await isWorkspaceSetupCompleted(workspaceDir);
   } catch {
@@ -220,6 +229,8 @@ function filterBootstrapFilesAfterHooks(params: {
 /** Resolves hook-adjusted, session-filtered bootstrap files for a run. */
 export async function resolveBootstrapFilesForRun(params: {
   workspaceDir: string;
+  /** Diagnostic reads skip lifecycle writes and executable bootstrap hooks. */
+  readOnly?: boolean;
   config?: OpenClawConfig;
   sessionKey?: string;
   sessionId?: string;
@@ -237,7 +248,10 @@ export async function resolveBootstrapFilesForRun(params: {
     chatType: params.chatType,
     workspaceDir: params.workspaceDir,
   };
-  const workspaceSetupCompleted = await isWorkspaceSetupCompletedForContext(params.workspaceDir);
+  const workspaceSetupCompleted = await isWorkspaceSetupCompletedForContext(
+    params.workspaceDir,
+    params.readOnly,
+  );
   const rawFiles = params.sessionKey
     ? await getOrLoadBootstrapFiles({
         workspaceDir: params.workspaceDir,
@@ -266,14 +280,16 @@ export async function resolveBootstrapFilesForRun(params: {
     runKind: params.runKind,
   });
 
-  const updated = await applyBootstrapHookOverrides({
-    files: bootstrapFiles,
-    workspaceDir: params.workspaceDir,
-    config: params.config,
-    sessionKey: params.sessionKey,
-    sessionId: params.sessionId,
-    agentId: params.agentId,
-  });
+  const updated = params.readOnly
+    ? bootstrapFiles
+    : await applyBootstrapHookOverrides({
+        files: bootstrapFiles,
+        workspaceDir: params.workspaceDir,
+        config: params.config,
+        sessionKey: params.sessionKey,
+        sessionId: params.sessionId,
+        agentId: params.agentId,
+      });
   const filteredUpdated = filterCompletedWorkspaceBootstrapFile(
     filterBootstrapFilesAfterHooks({
       files: updated,
@@ -289,6 +305,7 @@ export async function resolveBootstrapFilesForRun(params: {
 /** Resolves both raw bootstrap metadata and bounded context files for a run. */
 export async function resolveBootstrapContextForRun(params: {
   workspaceDir: string;
+  readOnly?: boolean;
   config?: OpenClawConfig;
   sessionKey?: string;
   sessionId?: string;

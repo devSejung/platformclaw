@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => ({
   noteAuthProfileHealth: vi.fn().mockResolvedValue(undefined),
   noteLegacyCodexProviderOverride: vi.fn(),
   noteMemorySearchHealth: vi.fn().mockResolvedValue(undefined),
+  maybeRepairMemoryRecallHealth: vi.fn().mockResolvedValue(undefined),
   noteWebFetchProxyDiagnostic: vi.fn().mockResolvedValue(undefined),
   buildGatewayConnectionDetails: vi.fn(() => ({ message: "gateway details" })),
   callGateway: vi.fn(),
@@ -287,7 +288,7 @@ vi.mock("../commands/doctor-auth.js", () => ({
 }));
 
 vi.mock("../commands/doctor-memory-search.js", () => ({
-  maybeRepairMemoryRecallHealth: vi.fn().mockResolvedValue(undefined),
+  maybeRepairMemoryRecallHealth: mocks.maybeRepairMemoryRecallHealth,
   noteMemoryRecallHealth: vi.fn().mockResolvedValue(undefined),
   noteMemorySearchHealth: mocks.noteMemorySearchHealth,
 }));
@@ -604,6 +605,7 @@ describe("doctor health contributions", () => {
     mocks.noteLegacyCodexProviderOverride.mockClear();
     mocks.noteMemorySearchHealth.mockClear();
     mocks.noteMemorySearchHealth.mockResolvedValue(undefined);
+    mocks.maybeRepairMemoryRecallHealth.mockClear();
     mocks.noteWebFetchProxyDiagnostic.mockClear();
     mocks.noteWebFetchProxyDiagnostic.mockResolvedValue(undefined);
     mocks.buildGatewayConnectionDetails.mockClear();
@@ -1915,6 +1917,122 @@ describe("doctor health contributions", () => {
     });
   });
 
+  it("preserves auth migrations and the OAuth refresh owner in repair-only mode", async () => {
+    const contribution = requireDoctorContribution("doctor:auth-profiles");
+    const ctx = {
+      cfg: {},
+      sourceConfigValid: true,
+      prompter: buildDoctorPrompter(true),
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+      options: { repairOnly: true, nonInteractive: true },
+    } as unknown as Parameters<(typeof contribution)["run"]>[0];
+
+    await contribution.run(ctx);
+
+    expect(mocks.maybeRepairLegacyOAuthSidecarProfiles).toHaveBeenCalled();
+    expect(mocks.maybeMigrateAuthProfileJsonStoresToSqlite).toHaveBeenCalled();
+    expect(mocks.maybeMigrateLegacyPluginModelCatalogs).toHaveBeenCalled();
+    expect(mocks.maybeRepairLegacyOAuthProfileIds).toHaveBeenCalled();
+    expect(mocks.noteAuthProfileHealth).toHaveBeenCalledWith({
+      cfg: ctx.cfg,
+      prompter: ctx.prompter,
+      allowKeychainPrompt: false,
+    });
+    expect(mocks.buildGatewayConnectionDetails).toHaveBeenCalled();
+  });
+
+  it("preserves memory repair while deferring memory readiness diagnostics", async () => {
+    const contribution = requireDoctorContribution("doctor:memory-search");
+    const ctx = {
+      cfg: {},
+      prompter: buildDoctorPrompter(true),
+      options: { repairOnly: true },
+    } as unknown as Parameters<(typeof contribution)["run"]>[0];
+
+    await contribution.run(ctx);
+
+    expect(mocks.maybeRepairMemoryRecallHealth).toHaveBeenCalledWith({
+      cfg: ctx.cfg,
+      prompter: ctx.prompter,
+    });
+    expect(mocks.noteMemorySearchHealth).not.toHaveBeenCalled();
+  });
+
+  it("exposes deferred web-fetch proxy diagnostics through opt-in lint", async () => {
+    const id = "web-fetch-proxy";
+    const message = "web fetch proxy warning";
+    mocks.noteWebFetchProxyDiagnostic.mockImplementationOnce(async (params) => {
+      params.noteFn(message, "Web fetch proxy");
+    });
+    const contribution = requireDoctorContribution(`doctor:${id}`);
+    const check = contribution.healthChecks[0] as HealthCheck;
+    const ctx = {
+      cfg: {},
+      mode: "lint" as const,
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+    };
+
+    await expect(runDoctorLintChecks(ctx, { checks: [check] })).resolves.toMatchObject({
+      checksRun: 0,
+    });
+    expect(mocks.collectActiveToolSchemaProjectionWarnings).not.toHaveBeenCalled();
+    expect(mocks.noteWebFetchProxyDiagnostic).not.toHaveBeenCalled();
+    await expect(
+      runDoctorLintChecks(ctx, { checks: [check], includeAllChecks: true }),
+    ).resolves.toMatchObject({
+      checksRun: 1,
+      findings: [{ checkId: `core/doctor/${id}`, severity: "warning", message }],
+    });
+    expect(mocks.note).not.toHaveBeenCalled();
+  });
+
+  it("keeps every mixed migration owner in repair-only order", () => {
+    const full = resolveDoctorHealthContributions().map((entry) => entry.id);
+    const repairOnly = resolveDoctorHealthContributions(true).map((entry) => entry.id);
+    const deferred = new Set(
+      [
+        "gateway-config",
+        "command-owner",
+        "disk-space",
+        "default-account-routing",
+        "web-fetch-proxy",
+        "oauth-tls",
+        "hooks-model",
+        "provider-catalog-projection",
+        "local-audio-acceleration",
+        "runtime-tool-schemas",
+        "skill-workshop-tool-policy",
+        "claws-state",
+        "bootstrap-size",
+        "workspace-suggestions",
+      ].map((id) => `doctor:${id}`),
+    );
+
+    expect(repairOnly).toEqual(full.filter((id) => !deferred.has(id)));
+    expect(repairOnly).toEqual(
+      expect.arrayContaining([
+        "doctor:auth-profiles",
+        "doctor:agent-memory-schema",
+        "doctor:skills",
+        "doctor:memory-search",
+        "doctor:browser",
+        "doctor:state-integrity",
+        "doctor:active-tool-schema-warnings",
+        "doctor:db-bloat",
+        "doctor:channel-ingress-dead-letters",
+        "doctor:security",
+        "doctor:gateway-health",
+        "doctor:claude-cli",
+        "doctor:workspace-status",
+        "doctor:device-pairing",
+        "doctor:skill-curator",
+        "doctor:startup-channel-maintenance",
+        "doctor:write-config",
+        "doctor:final-config-validation",
+      ]),
+    );
+  });
+
   it("registers auth profile health as an opt-in structured check", async () => {
     const contribution = requireDoctorContribution("doctor:auth-profiles");
     const [check] = contribution.healthChecks;
@@ -1940,6 +2058,92 @@ describe("doctor health contributions", () => {
       allowKeychainPrompt: false,
     });
   });
+
+  it("selects deferred diagnostics from owner metadata without state or migration detectors", async () => {
+    const full = await resolveDoctorContributionHealthChecks();
+    const deferred = await resolveDoctorContributionHealthChecks({ deferredOnly: true });
+    const ids = deferred.map((check) => check.id);
+
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "core/doctor/bootstrap-size",
+        "core/doctor/memory-search",
+        "core/doctor/web-fetch-proxy",
+      ]),
+    );
+    for (const id of [
+      "core/doctor/auth-profiles",
+      "core/doctor/state-integrity",
+      "core/doctor/workspace-status",
+      "core/doctor/device-pairing",
+      "core/doctor/claude-cli",
+      "core/doctor/skill-curator",
+      "core/doctor/heartbeat-cadence-migration",
+      "core/doctor/final-config-validation",
+    ]) {
+      expect(full.some((check) => check.id === id)).toBe(true);
+      expect(ids).not.toContain(id);
+    }
+    const future = createDoctorHealthContribution({
+      id: "doctor:future-unclassified",
+      label: "Future",
+      healthChecks: {
+        description: "Unknown detector",
+        detect: vi.fn(async () => []),
+      },
+    });
+    expect(future.execution).toBe("repair");
+  });
+
+  it.each([false, true])(
+    "carries observed Gateway health into dependent repairs (repair-only=%s)",
+    async (repairOnly) => {
+      const status = { ok: true };
+      mocks.checkGatewayHealth.mockResolvedValueOnce({
+        authenticated: true,
+        healthOk: true,
+        status,
+      });
+      const relevantIds = new Set([
+        "doctor:gateway-health",
+        "doctor:whatsapp-responsiveness",
+        "doctor:gateway-daemon",
+      ]);
+      const contributions = resolveDoctorHealthContributions(repairOnly).filter((entry) =>
+        relevantIds.has(entry.id),
+      );
+      const ctx = {
+        cfg: {},
+        sourceConfigValid: true,
+        prompter: buildDoctorPrompter(true),
+        runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+        options: { repairOnly, nonInteractive: true },
+      } as unknown as DoctorContributionRunContext;
+
+      for (const contribution of contributions) {
+        await contribution.run(ctx);
+      }
+
+      expect(mocks.checkGatewayHealth).toHaveBeenCalledOnce();
+      expect(mocks.noteWhatsappResponsivenessHealth).toHaveBeenCalledWith({
+        cfg: ctx.cfg,
+        status,
+        shouldRepair: true,
+      });
+      expect(mocks.maybeRepairGatewayDaemon).toHaveBeenCalledWith(
+        expect.objectContaining({
+          healthOk: true,
+          healthSkipped: false,
+        }),
+      );
+      expect(mocks.checkGatewayHealth.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.noteWhatsappResponsivenessHealth.mock.invocationCallOrder[0]!,
+      );
+      expect(mocks.checkGatewayHealth.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.maybeRepairGatewayDaemon.mock.invocationCallOrder[0]!,
+      );
+    },
+  );
 
   it("forwards skipped Gateway health to daemon repair", async () => {
     const contribution = requireDoctorContribution("doctor:gateway-daemon");
@@ -2228,8 +2432,8 @@ describe("doctor health contributions", () => {
     expect(mocks.noteMemorySearchHealth).toHaveBeenCalledWith(
       {},
       expect.objectContaining({
-        includeWorkspaceMemoryHealth: false,
-        skipQmdBinaryProbe: true,
+        includeWorkspaceMemoryHealth: true,
+        skipQmdBinaryProbe: false,
         skipAuthProfileResolution: true,
         gatewayMemoryProbe: { checked: false, ready: false, skipped: true },
         noteFn: expect.any(Function),
@@ -3013,6 +3217,37 @@ describe("doctor health contributions", () => {
     expect(mocks.runDoctorHealthRepairs).toHaveBeenCalledWith(expect.any(Object), {
       checks: [{ id: "plugin/example/unrelated", kind: "plugin" }],
     });
+  });
+
+  it("retains unclassified plugin detectors in the offline repair pass", async () => {
+    mocks.listHealthChecks.mockReturnValue([
+      { id: "plugin/diagnostic", kind: "plugin", description: "Diagnostic", detect: vi.fn() },
+      {
+        id: "plugin/repair",
+        kind: "plugin",
+        description: "Repair",
+        detect: vi.fn(),
+        repair: vi.fn(),
+      },
+      { id: "plugin/runnable", kind: "plugin", description: "Runnable", run: vi.fn() },
+    ]);
+    const contribution = requireDoctorContribution("doctor:structured-health-repairs");
+    const ctx = {
+      cfg: {},
+      prompter: buildDoctorPrompter(true),
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+      options: { repairOnly: true },
+      configPath: "/tmp/fake-openclaw.json",
+    } as unknown as Parameters<(typeof contribution)["run"]>[0];
+
+    await contribution.run(ctx);
+
+    const [, options] = mocks.runDoctorHealthRepairs.mock.calls[0]!;
+    expect(options.checks.map((check: HealthCheck) => check.id)).toEqual([
+      "plugin/diagnostic",
+      "plugin/repair",
+      "plugin/runnable",
+    ]);
   });
 
   it("rejects extension repairs that claim reserved core doctor ids", async () => {

@@ -323,8 +323,9 @@ type WorkspaceMemoryDoctorScope = {
 /** Emits workspace root-memory health warnings. */
 export async function noteWorkspaceMemoryHealth(
   cfg: OpenClawConfig,
-  scope?: WorkspaceMemoryDoctorScope,
+  scope?: WorkspaceMemoryDoctorScope & { noteFn?: typeof note },
 ): Promise<void> {
+  const writeNote = scope?.noteFn ?? note;
   try {
     const agentId = scope?.agentId ?? tryResolveDefaultAgentId(cfg);
     if (!agentId) {
@@ -335,14 +336,14 @@ export async function noteWorkspaceMemoryHealth(
       await detectRootMemoryFiles(workspaceDir),
     );
     if (rootMemoryWarning) {
-      note(
+      writeNote(
         `${scope?.labelAgent ? `Agent "${agentId}":\n` : ""}${rootMemoryWarning}`,
         "Workspace memory",
       );
     }
   } catch (err) {
     const prefix = scope?.labelAgent ? `Agent "${scope.agentId}": ` : "";
-    note(
+    writeNote(
       `${prefix}Workspace memory audit could not be completed: ${formatErrorMessage(err)}`,
       "Doctor",
     );

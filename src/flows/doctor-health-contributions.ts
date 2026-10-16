@@ -82,6 +82,7 @@ async function runAuthProfileHealth(ctx: DoctorHealthFlowContext): Promise<void>
     runtime: ctx.runtime,
   });
   ctx.cfg = await maybeRepairLegacyOAuthProfileIds(ctx.cfg, ctx.prompter);
+  // Auth health also refreshes expired OAuth credentials; keep that repair before startup.
   await noteAuthProfileHealth({
     cfg: ctx.cfg,
     prompter: ctx.prompter,
@@ -365,8 +366,8 @@ async function runGatewayHealthChecks(ctx: DoctorHealthFlowContext): Promise<voi
     : { checked: false, ready: false, skipped: healthOk };
 }
 
-function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
-  return [
+function resolveDoctorHealthContributions(repairOnly = false): DoctorHealthContribution[] {
+  const contributions = [
     ...resolveInitialDoctorHealthContributions({
       runStructuredHealthRepairs: (ctx) =>
         runStructuredHealthRepairs(ctx, resolveDoctorContributionHealthChecks),
@@ -382,13 +383,21 @@ function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
       runGatewayHealthChecks,
     }),
   ];
+  return repairOnly
+    ? contributions.filter((entry) => entry.execution !== "diagnostic")
+    : contributions;
 }
 
-export async function resolveDoctorContributionHealthChecks(): Promise<readonly HealthCheck[]> {
+export async function resolveDoctorContributionHealthChecks(
+  options: { deferredOnly?: boolean } = {},
+): Promise<readonly HealthCheck[]> {
   const { createCoreHealthChecks } = await import("./doctor-core-checks.js");
   const checksById = new Map(createCoreHealthChecks().map((check) => [check.id, check]));
   const checks: HealthCheck[] = [];
   for (const contribution of resolveDoctorHealthContributions()) {
+    if (options.deferredOnly === true && contribution.execution === "repair") {
+      continue;
+    }
     if (contribution.healthChecks.length > 0) {
       checks.push(...contribution.healthChecks.map(normalizeHealthCheck));
       continue;
@@ -409,7 +418,7 @@ export async function resolveDoctorContributionHealthChecks(): Promise<readonly 
 export async function runDoctorHealthContributions(ctx: DoctorHealthFlowContext): Promise<void> {
   const runWithPluginMetadataSnapshot = ctx.runWithPluginMetadataSnapshot;
   if (!runWithPluginMetadataSnapshot) {
-    for (const contribution of resolveDoctorHealthContributions()) {
+    for (const contribution of resolveDoctorHealthContributions(ctx.options.repairOnly)) {
       await contribution.run(ctx);
     }
     return;
@@ -417,7 +426,7 @@ export async function runDoctorHealthContributions(ctx: DoctorHealthFlowContext)
 
   const { resolveAgentWorkspaceDir, resolveDefaultAgentId } =
     await import("../agents/agent-scope.js");
-  for (const contribution of resolveDoctorHealthContributions()) {
+  for (const contribution of resolveDoctorHealthContributions(ctx.options.repairOnly)) {
     const workspaceDir = resolveAgentWorkspaceDir(
       ctx.cfg,
       resolveDefaultAgentId(ctx.cfg),

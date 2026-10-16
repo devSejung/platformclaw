@@ -61,6 +61,31 @@ function insertPersistedAttestationHash(filename: string, sha256: string): void 
 }
 
 describe("workspace state store", () => {
+  it("reads completed state through a new alias without changing the database", () => {
+    const dir = workspaceDir();
+    fs.mkdirSync(dir, { recursive: true });
+    mergeWorkspaceSetupState(dir, { setupCompletedAt: "2026-07-16T02:00:00.000Z" });
+    const alias = path.join(path.dirname(dir), "diagnostic-alias");
+    fs.symlinkSync(dir, alias, process.platform === "win32" ? "junction" : "dir");
+    closeOpenClawStateDatabaseForTest();
+    const databasePath = resolveOpenClawStateSqlitePath();
+    const before = fs.readFileSync(databasePath);
+
+    const snapshot = readWorkspaceStateSnapshot(alias, { readOnly: true });
+
+    expect(snapshot.setup.setupCompletedAt).toBe("2026-07-16T02:00:00.000Z");
+    expect(fs.readFileSync(databasePath)).toEqual(before);
+  });
+
+  it("does not create missing state for diagnostic reads", () => {
+    const databasePath = resolveOpenClawStateSqlitePath();
+    expect(fs.existsSync(databasePath)).toBe(false);
+
+    expect(readWorkspaceStateSnapshot(workspaceDir(), { readOnly: true }).setupExists).toBe(false);
+
+    expect(fs.existsSync(databasePath)).toBe(false);
+  });
+
   it("round-trips setup and attestation state after a database restart", () => {
     const dir = workspaceDir();
     mergeWorkspaceSetupState(dir, {

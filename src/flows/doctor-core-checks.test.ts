@@ -1077,4 +1077,40 @@ describe("core/doctor/bootstrap-size", () => {
       }),
     );
   });
+
+  it("reports secondary-agent truncation when the default agent is healthy", async () => {
+    tmp = await fs.mkdtemp(join(tmpdir(), "openclaw-health-bootstrap-fleet-"));
+    const primaryWorkspace = join(tmp, "primary");
+    const secondaryWorkspace = join(tmp, "secondary");
+    await fs.mkdir(primaryWorkspace);
+    await fs.mkdir(secondaryWorkspace);
+    await fs.writeFile(join(primaryWorkspace, "AGENTS.md"), "Small instructions", "utf8");
+    await fs.writeFile(join(secondaryWorkspace, "AGENTS.md"), "a".repeat(15_000), "utf8");
+
+    const check = getCheck(CORE_HEALTH_CHECKS, "core/doctor/bootstrap-size");
+    const findings = await check.detect({
+      mode: "lint",
+      runtime,
+      cfg: {
+        agents: {
+          defaults: { bootstrapMaxChars: 20_000 },
+          entries: {
+            primary: { default: true, workspace: primaryWorkspace },
+            secondary: { workspace: secondaryWorkspace, bootstrapMaxChars: 10_000 },
+          },
+        },
+      },
+    });
+
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        severity: "warning",
+        message: expect.stringContaining('Agent "secondary": AGENTS.md'),
+        path: join(secondaryWorkspace, "AGENTS.md"),
+      }),
+    );
+    expect(findings.some((finding) => finding.path === join(primaryWorkspace, "AGENTS.md"))).toBe(
+      false,
+    );
+  });
 });
