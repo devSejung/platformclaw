@@ -2,7 +2,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { expect, it } from "vitest";
-import { BASEBALL_RPC } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import {
+  BASEBALL_RPC,
+  type BaseballPlateAppearanceRequest,
+} from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
 import {
   installMockGateway,
@@ -145,12 +148,14 @@ it("keeps five consecutive pitches moving through natural MISS and Space/Ctrl co
         .toBe(index + 1);
       const requests = await gateway.getRequests(BASEBALL_RPC.plateAppearance);
       const receipt = requests[index]!;
-      expect(receipt.params.atBatId).toBe(atBat(index).id);
-      if (round.key) {
-        expect(typeof receipt.params.timingDeltaMs).toBe("number");
-        expect(Math.abs(receipt.params.timingDeltaMs as number)).toBeLessThanOrEqual(100);
-      } else {
-        expect(receipt.params.timingDeltaMs).toBeNull();
+      const params = receipt.params as BaseballPlateAppearanceRequest;
+      expect(params).toEqual({
+        requestId: expect.any(String),
+        atBatId: atBat(index).id,
+        timingDeltaMs: round.key ? expect.any(Number) : null,
+      });
+      if (typeof params.timingDeltaMs === "number") {
+        expect(Math.abs(params.timingDeltaMs)).toBeLessThanOrEqual(100);
       }
       expect(await game.getAttribute("data-pitch-state")).toBe("result");
       await expect
