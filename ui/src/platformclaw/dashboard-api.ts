@@ -27,7 +27,7 @@ export async function requestDashboard(
   return (await response.json()) as DashboardReport;
 }
 
-export function dashboardDate(date: Date, timeZone: string): string {
+function dashboardDate(date: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",

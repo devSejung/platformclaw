@@ -9,7 +9,7 @@ import {
   type DashboardService,
 } from "./dashboard-service.js";
 
-export const PLATFORMCLAW_DASHBOARD_PATH = "/platformclaw/api/dashboard";
+const PLATFORMCLAW_DASHBOARD_PATH = "/platformclaw/api/dashboard";
 
 export async function handlePlatformClawDashboardRequest(
   req: IncomingMessage,

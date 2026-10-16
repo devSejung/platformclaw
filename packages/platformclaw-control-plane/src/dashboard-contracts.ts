@@ -26,7 +26,7 @@ export type DashboardMetrics = {
   missingCostEntries: number;
 };
 
-export type DashboardAccountUsage = Omit<DashboardAccount, "createdAt"> &
+type DashboardAccountUsage = Omit<DashboardAccount, "createdAt"> &
   DashboardMetrics & {
     previousRequests: number;
     activeDays: number;
