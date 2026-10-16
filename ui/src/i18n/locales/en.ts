@@ -3162,6 +3162,22 @@ export const en: TranslationMap = {
     publishedNeedsOwnershipReview:
       "Published {skill} to the registry, but organization access changed. The skill is private until an administrator assigns an eligible owner; administrators were notified.",
     management: "Skill management",
+    publishedDetails: "Published details",
+    editSkill: "Edit skill",
+    displayName: "Display name",
+    summary: "Summary",
+    packageIdentity: "Package identity: {slug}. Publish a new version to change package contents.",
+    editNamespaceHelp:
+      "Moving namespaces changes organization access. Existing workspace installations are kept.",
+    savingSkill: "Saving…",
+    saveSkill: "Save changes",
+    editedSkill: "Updated {skill}.",
+    editedPublicationPending: "Changes saved; sharing awaits security scanning and publication.",
+    editedNeedsOwnershipReview:
+      "Updated {skill}, but organization access changed. The skill is private until an administrator assigns an eligible owner; administrators were notified.",
+    publishVersion: "Publish new version",
+    publishVersionHelp:
+      "Upload the updated package with a new version number. Previously published versions remain unchanged.",
     owner: "Owner",
     ownerUnassigned: "Admin unassigned queue",
     ownerYou: "You",

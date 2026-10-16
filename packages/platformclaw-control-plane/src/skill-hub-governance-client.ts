@@ -1,9 +1,38 @@
+import type { SkillHubVisibility } from "./skill-hub-adapter.js";
+
+export type SkillHubEditableMetadata = {
+  id: number;
+  namespace: string;
+  slug: string;
+  revision: string;
+  displayName: string;
+  summary: string;
+  visibility: SkillHubVisibility;
+  effectiveVisibility: SkillHubVisibility;
+  reviewVersions: string[];
+};
+
+export type SkillHubRegistryEdit = {
+  operationId: string;
+  skillId: number;
+  namespace: string;
+  slug: string;
+  expectedRevision: string;
+  targetNamespace: string;
+  displayName: string;
+  summary: string;
+  visibility: SkillHubVisibility;
+};
+
 export interface SkillHubGovernanceClient {
+  getEditableSkill?(namespace: string, slug: string): Promise<SkillHubEditableMetadata>;
+  editSkill?(params: SkillHubRegistryEdit): Promise<SkillHubEditableMetadata>;
   approvePendingReview(params: {
     namespace: string;
     slug: string;
     version: string;
     comment: string;
+    requireSafeScan?: boolean;
   }): Promise<{ reviewId: number; status: string }>;
 }
 
@@ -32,6 +61,32 @@ function record(value: unknown, label: string): Record<string, unknown> {
     throw new SkillHubGovernanceError(`Skill Hub returned invalid ${label}`);
   }
   return value as Record<string, unknown>;
+}
+
+function editableMetadata(value: unknown): SkillHubEditableMetadata {
+  const data = record(value, "editable skill");
+  if (
+    !Number.isSafeInteger(data.id) ||
+    Number(data.id) < 1 ||
+    typeof data.namespace !== "string" ||
+    !data.namespace ||
+    typeof data.slug !== "string" ||
+    !data.slug ||
+    typeof data.revision !== "string" ||
+    !data.revision ||
+    typeof data.displayName !== "string" ||
+    !data.displayName.trim() ||
+    typeof data.summary !== "string" ||
+    !["PUBLIC", "NAMESPACE_ONLY", "PRIVATE"].includes(String(data.visibility)) ||
+    !["PUBLIC", "NAMESPACE_ONLY", "PRIVATE"].includes(String(data.effectiveVisibility)) ||
+    !Array.isArray(data.reviewVersions) ||
+    data.reviewVersions.some(
+      (version) => typeof version !== "string" || !version || version.length > 100,
+    )
+  ) {
+    throw new SkillHubGovernanceError("Skill Hub returned invalid editable skill metadata");
+  }
+  return data as SkillHubEditableMetadata;
 }
 
 function normalizeBaseUrl(raw: string): URL {
@@ -69,55 +124,79 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }
 
+  async getEditableSkill(namespace: string, slug: string): Promise<SkillHubEditableMetadata> {
+    await this.ensureLogin();
+    const response = await this.jsonRequest(
+      `api/v1/admin/platformclaw/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`,
+      { method: "GET" },
+      true,
+    );
+    const metadata = editableMetadata(response.data);
+    if (metadata.namespace !== namespace || metadata.slug !== slug) {
+      throw new SkillHubGovernanceError("Skill Hub returned mismatched editable skill metadata");
+    }
+    return metadata;
+  }
+
+  async editSkill(params: SkillHubRegistryEdit): Promise<SkillHubEditableMetadata> {
+    await this.ensureLogin();
+    const response = await this.jsonRequest(
+      `api/v1/admin/platformclaw/skills/${encodeURIComponent(String(params.skillId))}`,
+      { method: "PATCH", body: JSON.stringify(params) },
+      true,
+    );
+    const metadata = editableMetadata(response.data);
+    if (
+      metadata.id !== params.skillId ||
+      metadata.namespace !== params.targetNamespace ||
+      metadata.slug !== params.slug ||
+      metadata.displayName !== params.displayName ||
+      metadata.summary !== params.summary ||
+      metadata.visibility !== params.visibility
+    ) {
+      throw new SkillHubGovernanceError("Skill Hub returned a mismatched edit result");
+    }
+    return metadata;
+  }
+
   async approvePendingReview(params: {
     namespace: string;
     slug: string;
     version: string;
     comment: string;
+    requireSafeScan?: boolean;
   }): Promise<{ reviewId: number; status: string }> {
     await this.ensureLogin();
-    const page = await this.jsonRequest(
-      "api/v1/reviews/my-submissions?page=0&size=100",
+    const response = await this.jsonRequest(
+      `api/v1/admin/platformclaw/skills/${encodeURIComponent(params.namespace)}/${encodeURIComponent(params.slug)}/versions/${encodeURIComponent(params.version)}/review`,
       { method: "GET" },
       true,
     );
-    const data = record(page.data, "review page");
-    if (!Array.isArray(data.items)) {
-      throw new SkillHubGovernanceError("Skill Hub returned invalid review submissions");
+    const review = record(response.data, "exact version review");
+    if (
+      review.namespace !== params.namespace ||
+      review.skillSlug !== params.slug ||
+      review.version !== params.version ||
+      !["PENDING", "APPROVED"].includes(String(review.status))
+    ) {
+      throw new SkillHubGovernanceError("Skill Hub returned a mismatched exact version review");
     }
-    const exact = data.items
-      .map((item) => record(item, "review submission"))
-      .filter(
-        (item) =>
-          item.namespace === params.namespace &&
-          item.skillSlug === params.slug &&
-          item.version === params.version,
-      );
-    const pending = exact.filter((item) => item.status === "PENDING");
-    const approved = exact.filter((item) => item.status === "APPROVED");
-    const matches = pending.length > 0 ? pending : approved;
-    if (matches.length !== 1) {
-      throw new SkillHubGovernanceError(
-        matches.length === 0
-          ? "Skill Hub has no pending review for this exact version"
-          : "Skill Hub returned ambiguous pending reviews",
-        409,
-      );
-    }
-    const id = matches[0]!.id;
+    const id = review.id;
     if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 1) {
       throw new SkillHubGovernanceError("Skill Hub returned an invalid review id");
     }
-    if (matches[0]!.status === "APPROVED") {
+    if (review.status === "APPROVED" && !params.requireSafeScan) {
       return { reviewId: id, status: "APPROVED" };
     }
     const approvalResponse = await this.jsonRequest(
-      `api/v1/reviews/${encodeURIComponent(String(id))}/approve`,
+      params.requireSafeScan
+        ? `api/v1/admin/platformclaw/skills/${encodeURIComponent(params.namespace)}/${encodeURIComponent(params.slug)}/versions/${encodeURIComponent(params.version)}/approve-safe`
+        : `api/v1/reviews/${encodeURIComponent(String(id))}/approve`,
       { method: "POST", body: JSON.stringify({ comment: params.comment }) },
       true,
     );
     const result = record(approvalResponse.data, "review approval");
-    if (result.id !== id || typeof result.status !== "string") {
+    if (result.id !== id || result.status !== "APPROVED") {
       throw new SkillHubGovernanceError("Skill Hub returned a mismatched review approval");
     }
     return { reviewId: id, status: result.status };
@@ -157,14 +236,34 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
     const response = await this.request(path, init, authenticated);
     const declared = response.headers.get("content-length");
     if (declared && Number(declared) > MAX_JSON_BYTES) {
+      void response.body?.cancel().catch(() => undefined);
       throw new SkillHubGovernanceError("Skill Hub governance response is oversized");
     }
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.byteLength > MAX_JSON_BYTES) {
-      throw new SkillHubGovernanceError("Skill Hub governance response is oversized");
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new SkillHubGovernanceError("Skill Hub governance response is empty");
     }
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      size += chunk.value.byteLength;
+      if (size > MAX_JSON_BYTES) {
+        void reader.cancel().catch(() => undefined);
+        throw new SkillHubGovernanceError("Skill Hub governance response is oversized");
+      }
+      chunks.push(chunk.value);
+    }
+    const bytes = Buffer.concat(chunks, size);
     try {
-      return record(JSON.parse(bytes.toString("utf8")), "governance JSON");
+      const body = record(JSON.parse(bytes.toString("utf8")), "governance JSON");
+      if (typeof body.code === "number" && body.code !== 0 && body.code !== 200) {
+        throw new SkillHubGovernanceError("Skill Hub rejected the governance request");
+      }
+      return body;
     } catch (error) {
       if (error instanceof SkillHubGovernanceError) {
         throw error;

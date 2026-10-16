@@ -11,7 +11,6 @@ import {
   loadPlatformClawSkillHubDetail,
   loadPlatformClawSkillHubNotifications,
   markPlatformClawSkillHubNotificationsRead,
-  publishPlatformClawSkillArchive,
   removePlatformClawSkillHubAccess,
   searchPlatformClawSkillHubManagementUsers,
   searchPlatformClawSkillHub,
@@ -30,11 +29,8 @@ import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
 import { SkillHubAdminController } from "./admin-controller.ts";
 import { renderSkillHubAdmin } from "./admin.ts";
 import { SkillHubDeleteController } from "./delete-controller.ts";
-import {
-  renderSkillHubNotifications,
-  renderSkillHubUpload,
-  renderSkillHubVersionChange,
-} from "./dialogs.ts";
+import { renderSkillHubNotifications, renderSkillHubVersionChange } from "./dialogs.ts";
+import { SkillHubEditController } from "./edit-controller.ts";
 import {
   skillHubScannerStatusLabel,
   skillHubSkillStatusLabel,
@@ -43,6 +39,7 @@ import {
 } from "./labels.ts";
 import { renderSkillHubManagement } from "./management.ts";
 import * as pageSupport from "./page-support.ts";
+import { SkillHubUploadController } from "./upload-controller.ts";
 import { SkillHubWorkspacePublishController } from "./workspace-publish-controller.ts";
 
 class SkillHubPage extends SkillHubAdminController {
@@ -60,13 +57,6 @@ class SkillHubPage extends SkillHubAdminController {
   @state() private notificationsLoading = false;
   @state() private notificationsError: string | null = null;
   @state() private notifications: PlatformClawSkillHubNotification[] = [];
-  @state() private uploadOpen = false;
-  @state() private uploadFile: File | null = null;
-  @state() private uploadSlug = "";
-  @state() private uploadNamespace = "";
-  @state() private uploadVersion = "1.0.0";
-  @state() private uploadVisibility = "NAMESPACE_ONLY";
-  @state() private uploading = false;
   @state() private managementBusy = false;
   @state() private ownerUserId = "";
   @state() private accessUserId = "";
@@ -86,6 +76,22 @@ class SkillHubPage extends SkillHubAdminController {
     closeDetail: () => this.closeDetail(),
     setMessage: (message) => (this.message = message),
   });
+  private readonly skillEdit = new SkillHubEditController(this, {
+    refresh: async (ref) => {
+      await this.search();
+      await this.openDetail(ref);
+    },
+    setMessage: (message) => (this.message = message),
+  });
+  private readonly skillUpload = new SkillHubUploadController(this, {
+    refresh: async (ref) => {
+      await this.search();
+      if (ref) {
+        await this.openDetail(ref);
+      }
+    },
+    setMessage: (message) => (this.message = message),
+  });
 
   override connectedCallback() {
     super.connectedCallback();
@@ -97,7 +103,6 @@ class SkillHubPage extends SkillHubAdminController {
     this.error = null;
     try {
       this.config = await loadPlatformClawSkillHubConfig();
-      this.uploadNamespace = this.config.namespaces[0] ?? "";
       await this.search();
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -180,42 +185,6 @@ class SkillHubPage extends SkillHubAdminController {
     }
   }
 
-  private async publishZip() {
-    if (!this.uploadFile || this.uploading) {
-      return;
-    }
-    this.uploading = true;
-    this.message = null;
-    try {
-      const result = await publishPlatformClawSkillArchive(this.uploadFile, {
-        slug: this.uploadSlug,
-        namespace: this.uploadNamespace,
-        version: this.uploadVersion,
-        visibility: this.uploadVisibility,
-      });
-      const publishMessage: PlatformClawSkillHubMessage = {
-        kind: result.ownershipReviewRequired ? "warning" : "success",
-        text: result.ownershipReviewRequired
-          ? t("skillHubPage.publishedNeedsOwnershipReview", {
-              skill: `${result.namespace}/${result.slug}@${result.version}`,
-            })
-          : t("skillHubPage.publishedZip", {
-              skill: `${result.namespace}/${result.slug}@${result.version}`,
-            }),
-      };
-      this.uploadOpen = false;
-      await this.search();
-      this.message = publishMessage;
-    } catch (error) {
-      this.message = {
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      this.uploading = false;
-    }
-  }
-
   private async search() {
     this.loading = true;
     this.error = null;
@@ -242,6 +211,7 @@ class SkillHubPage extends SkillHubAdminController {
     this.resetManagementSelection();
     this.detailRef = { namespace: ref.namespace, slug: ref.slug };
     this.detail = null;
+    this.selectedVersion = "";
     this.detailLoading = true;
     this.message = null;
     try {
@@ -267,6 +237,7 @@ class SkillHubPage extends SkillHubAdminController {
   private closeDetail() {
     this.detailRef = null;
     this.skillDelete.clear();
+    this.skillEdit.clear();
     this.resetManagementSelection();
   }
 
@@ -378,6 +349,7 @@ class SkillHubPage extends SkillHubAdminController {
             ${t("skillsPage.close")}
           </button>
         </header>
+        ${this.error ? html`<div class="callout danger" role="alert">${this.error}</div>` : nothing}
         ${this.detailLoading
           ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
           : html`
@@ -450,7 +422,14 @@ class SkillHubPage extends SkillHubAdminController {
                 selectedAccessUserId: this.accessUserId,
                 forceReason: this.forceReason,
                 forceAcknowledged: this.forceAcknowledged,
-                busy: this.managementBusy || this.skillDelete.busy,
+                busy: this.managementBusy || this.skillDelete.busy || this.skillEdit.busy,
+                onEditSkill: () =>
+                  this.skillEdit.request(
+                    this.detailRef,
+                    this.detail,
+                    this.config?.namespaces ?? [],
+                  ),
+                onPublishVersion: () => this.skillUpload.openDialog(this.config, this.detail),
                 onOwnerQuery: (value) => {
                   this.ownerQuery = value;
                   this.ownerUserId = "";
@@ -565,13 +544,7 @@ class SkillHubPage extends SkillHubAdminController {
                   : nothing}
               </button>`
             : nothing}
-          <button
-            class="btn"
-            @click=${() => {
-              this.message = null;
-              this.uploadOpen = true;
-            }}
-          >
+          <button class="btn" @click=${() => this.skillUpload.openDialog(this.config)}>
             ${t("skillHubPage.uploadZip")}
           </button>
           <button
@@ -647,7 +620,7 @@ class SkillHubPage extends SkillHubAdminController {
                 : html`<div class="skill-hub-state">${t("skillsPage.skillHub.noResults")}</div>`}
           </section>
         </main>
-        ${this.renderDetail()} ${this.skillDelete.renderDialog()}
+        ${this.renderDetail()} ${this.skillDelete.renderDialog()} ${this.skillEdit.renderDialog()}
         ${renderSkillHubNotifications({
           open: this.notificationsOpen,
           loading: this.notificationsLoading,
@@ -657,24 +630,7 @@ class SkillHubPage extends SkillHubAdminController {
           onMarkAllRead: () => void this.markAllNotificationsRead(),
         })}
         ${this.workspacePublish.renderDialog(this.config)}
-        ${renderSkillHubUpload({
-          open: this.uploadOpen,
-          config: this.config,
-          file: this.uploadFile,
-          error: this.message?.kind === "error" ? this.message.text : null,
-          slug: this.uploadSlug,
-          namespace: this.uploadNamespace,
-          version: this.uploadVersion,
-          visibility: this.uploadVisibility,
-          busy: this.uploading,
-          onClose: () => (this.uploadOpen = false),
-          onFile: (file) => (this.uploadFile = file),
-          onSlug: (value) => (this.uploadSlug = value),
-          onNamespace: (value) => (this.uploadNamespace = value),
-          onVersion: (value) => (this.uploadVersion = value),
-          onVisibility: (value) => (this.uploadVisibility = value),
-          onPublish: () => void this.publishZip(),
-        })}
+        ${this.skillUpload.renderDialog(this.config)}
         ${renderSkillHubAdmin({
           open: this.adminOpen,
           loading: this.adminLoading,

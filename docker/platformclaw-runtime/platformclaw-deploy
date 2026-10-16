@@ -808,6 +808,19 @@ reconcile_skillhub_environment() {
   done
 }
 
+skillhub_server_upgrade_available() {
+  [[ "$(read_env_value PLATFORMCLAW_SKILL_HUB_ENABLED)" == "true" &&
+     "$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE)" == "platformclaw-skillhub-server:6e133c006e49" ]] &&
+    skillhub_bundle_available
+}
+
+upgrade_bundled_skillhub_server() {
+  skillhub_server_upgrade_available || return 0
+  set_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE \
+    "$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE "$script_dir/deployment.env.example")"
+  echo "Upgraded the bundled SkillHub server with published metadata editing."
+}
+
 set_env_value() {
   local key="$1"
   local value="$2"
@@ -983,6 +996,7 @@ copy_named_volume() {
 restore_previous_images() {
   local previous_main
   local previous_sandbox
+  local previous_skillhub_server
   previous_main="$(read_env_value PLATFORMCLAW_IMAGE "$env_file.previous")"
   previous_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE "$env_file.previous")"
   [[ -n "$previous_main" && -n "$previous_sandbox" ]] || {
@@ -990,6 +1004,8 @@ restore_previous_images() {
     exit 1
   }
   set_image_pair "$previous_main" "$previous_sandbox"
+  previous_skillhub_server="$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE "$env_file.previous")"
+  [[ -z "$previous_skillhub_server" ]] || set_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE "$previous_skillhub_server"
 }
 
 image_pair_available() {
@@ -1294,6 +1310,8 @@ apply_images() {
   local sandbox_image="$2"
   local current_main
   local current_sandbox
+  local current_skillhub_server
+  local rollback_skillhub_server=""
   local gateway_state_backup=""
   local skillhub_state_backup=""
   local rollback_main=""
@@ -1312,11 +1330,13 @@ apply_images() {
 
   current_main="$(read_env_value PLATFORMCLAW_IMAGE)"
   current_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE)"
-  if [[ "$current_main" == "$main_image" && "$current_sandbox" == "$sandbox_image" ]]; then
+  current_skillhub_server="$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE)"
+  if [[ "$current_main" == "$main_image" && "$current_sandbox" == "$sandbox_image" ]] && ! skillhub_server_upgrade_available; then
     same_image_pair="1"
     if [[ -f "$env_file.previous" ]]; then
       rollback_main="$(read_env_value PLATFORMCLAW_IMAGE "$env_file.previous")"
       rollback_sandbox="$(read_env_value PLATFORMCLAW_SANDBOX_IMAGE "$env_file.previous")"
+      rollback_skillhub_server="$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE "$env_file.previous")"
       if [[ "$rollback_main" != "$current_main" || "$rollback_sandbox" != "$current_sandbox" ]] && \
         image_pair_available "$rollback_main" "$rollback_sandbox"; then
         rollback_pair_available="1"
@@ -1329,6 +1349,7 @@ apply_images() {
   else
     rollback_main="$current_main"
     rollback_sandbox="$current_sandbox"
+    rollback_skillhub_server="$current_skillhub_server"
     rollback_pair_available="1"
   fi
   prepare_image_update_runtime_files
@@ -1339,6 +1360,9 @@ apply_images() {
   if [[ "$same_image_pair" != "1" ]]; then
     previous_env_staging="$(mktemp "$deploy_root/.deployment.env.preflight.XXXXXX")"
     cp -p "$env_file" "$previous_env_staging"
+    # Snapshot before changing the bundled dependency, so image and PostgreSQL
+    # state rollback restore a matching server rather than reusing its new schema.
+    upgrade_bundled_skillhub_server
     set_image_pair "$main_image" "$sandbox_image"
   fi
 
@@ -1393,6 +1417,7 @@ apply_images() {
   fi
   if [[ "$rollback_pair_available" == "1" ]]; then
     set_image_pair "$rollback_main" "$rollback_sandbox"
+    [[ -z "$rollback_skillhub_server" ]] || set_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE "$rollback_skillhub_server"
     "${compose[@]}" up -d --wait || true
   else
     echo "No distinct rollback image pair is available; services remain stopped." >&2

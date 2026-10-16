@@ -19,18 +19,19 @@ registry runtime.
 
 ## Delivery status
 
-| Capability                                                                  | Status  |
-| --------------------------------------------------------------------------- | ------- |
-| Search, version detail, direct workspace publish, and exact-version install | Current |
-| Basic and assigned-VM installs as separate destinations                     | Current |
-| Shared Global, Team, Group, and Part namespace authorization                | Current |
-| Per-user skill access grants                                                | Current |
-| Scanner-gated automatic publication and current risk badges                 | Current |
-| Owner and administrator force publication with reason and audit             | Current |
-| Eligible ownership transfer and inactive/ineligible-owner review queue      | Current |
-| Owner and administrator hard-delete of PlatformClaw-managed registry skills | Current |
-| Persistent in-app lifecycle notifications                                   | Current |
-| 500 MiB compressed package ceiling with independent expanded-content limits | Current |
+| Capability                                                                    | Status  |
+| ----------------------------------------------------------------------------- | ------- |
+| Search, version detail, direct workspace publish, and exact-version install   | Current |
+| Basic and assigned-VM installs as separate destinations                       | Current |
+| Shared Global, Team, Group, and Part namespace authorization                  | Current |
+| Per-user skill access grants                                                  | Current |
+| Scanner-gated automatic publication and current risk badges                   | Current |
+| Owner and administrator force publication with reason and audit               | Current |
+| Eligible ownership transfer and inactive/ineligible-owner review queue        | Current |
+| Revision-checked metadata edits and namespace moves by owner or administrator | Current |
+| Owner and administrator hard-delete of PlatformClaw-managed registry skills   | Current |
+| Persistent in-app lifecycle notifications                                     | Current |
+| 500 MiB compressed package ceiling with independent expanded-content limits   | Current |
 
 ## Organization and ownership
 
@@ -44,6 +45,22 @@ one Group. See
 The owner can transfer ownership immediately to another eligible active employee.
 Transfer does not wait for a registry review, but it must be recorded in the audit
 log and notify the old and new owners.
+
+Owners and administrators can edit the display name, description, and visibility
+or move the skill to an allowed namespace. A move requires destination
+publication rights and an eligible owner. It preserves the registry skill ID,
+immutable versions, package bytes, scan results, and explicit grants. Namespace
+membership is reevaluated at the new coordinate. The package slug remains fixed;
+instruction and file changes publish as a new version.
+
+Edits reserve both coordinates in persistent SQLite state before changing the
+registry. A repeated operation ID recovers the same result. Concurrent edits,
+publications, deletions, transfers, grants, and installs cannot bypass the
+reservation. A policy or ownership change during the external mutation keeps the
+edit pending until the canonical registry confirms Private visibility. Recovery
+persists independently of the original edit and cannot release the reservation
+before that confirmation. Completion produces an unassigned Private skill and a
+visible administrator-review result.
 
 The owner or a PlatformClaw administrator can permanently delete a skill only while
 PlatformClaw still has the accountable ownership record for that exact

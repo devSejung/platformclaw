@@ -119,6 +119,33 @@ export abstract class SqliteControlPlaneSkillHubOperationsStore extends SqliteCo
         .selectAll()
         .where("state", "=", "pending")
         .where("next_attempt_at", "<=", now)
+        // Reservations must be excluded before LIMIT: skipped jobs otherwise
+        // occupy every batch slot while unrelated approvals wait indefinitely.
+        .where((expression) =>
+          expression.not(
+            expression.exists(
+              expression
+                .selectFrom("skill_hub_edit_intents as edit")
+                .select("edit.id")
+                .where("edit.state", "=", "pending")
+                .whereRef("edit.slug", "=", "skill_hub_governance_jobs.slug")
+                .where((reservation) =>
+                  reservation.or([
+                    reservation(
+                      "edit.namespace",
+                      "=",
+                      expression.ref("skill_hub_governance_jobs.namespace"),
+                    ),
+                    reservation(
+                      "edit.target_namespace",
+                      "=",
+                      expression.ref("skill_hub_governance_jobs.namespace"),
+                    ),
+                  ]),
+                ),
+            ),
+          ),
+        )
         .orderBy("next_attempt_at")
         .limit(limit),
     ).rows.map((row) =>

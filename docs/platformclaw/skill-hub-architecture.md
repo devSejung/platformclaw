@@ -123,6 +123,14 @@ The integration is based on `iflytek/skillhub` tag `v0.2.16`, commit
 `6e133c006e492dc3f468d91b21960aff1d577150`. Upgrades are explicit migrations,
 never an automatic move to `main` or `latest`.
 
+The managed server carries a pinned PlatformClaw source patch for catalog
+metadata edits and namespace moves. The patch adds an administrator-only
+management API, transaction-scoped edit receipts, and publication serialization.
+It preserves registry skill/version IDs and package bytes. Scanner, PostgreSQL,
+and Redis object images remain pinned. The server source archive, checksum,
+patch, and attribution are kept with the existing runtime build inputs; the
+modified server remains part of the same PlatformClaw transfer archive.
+
 The upstream repository is Apache-2.0. Any copied or modified upstream source
 must ship with the license, retain applicable copyright, patent, trademark, and
 attribution notices, and mark modified files. The Apache license does not grant
@@ -150,13 +158,36 @@ LLM and VirusTotal integrations remain disabled. Scanner unavailability must
 produce an explicit unavailable or failed state; it must not auto-publish or
 silently call an external service.
 
+The managed registry backports the upstream scan-task outbox into its pinned
+server. Audit, version, and queued scan state commit together before Redis
+delivery. Stable task IDs bind each result to its own audit; an older scan cannot
+complete a newer scan. Contended duplicate deliveries stay pending for reclaim.
+Existing pending scans migrate in PostgreSQL before normal consumers run.
+
 ## Data and lifecycle boundaries
 
 Organization bindings, ownership, ACLs, scan-governance jobs, notifications, and
 the unassigned queue use additive tables in the existing shared PlatformClaw
 SQLite database. The change is backward-tolerable and does not bump the schema
-version. Registry metadata and package blobs remain in PostgreSQL and the
-registry storage volume; PlatformClaw does not duplicate them.
+version. PostgreSQL and the registry storage volume own canonical registry
+metadata and package blobs. Edit intents retain request snapshots for recovery.
+
+Metadata edits additionally record a durable intent in the shared SQLite store
+before calling the registry. The intent reserves the source and destination
+coordinates. A registry transaction changes metadata, relocates review scope,
+updates search, and stores an idempotent receipt. PlatformClaw then atomically
+rekeys ownership, ACLs, and governance jobs and records completion. Recovery
+replays the same operation ID, so a lost registry response or a control-process
+restart cannot duplicate a move. Concurrent ownership or policy drift persists a
+separate privacy-recovery request while keeping both coordinates reserved. Its
+immutable request replays after response loss; only a definitive revision conflict
+allows a fresh snapshot and request ID. Ownership, ACL, and job relocation completes
+only after the registry confirms requested and effective Private visibility, and
+the result remains unassigned even if policy eligibility returns during recovery.
+This visibility-only restriction also works in frozen or archived namespaces;
+profile changes, moves, and broader visibility still require active namespaces.
+Completed
+receipts let an unchanged browser retry recover the result at the old coordinate.
 
 The current control schema v3 organization migration rebuilt the managed
 hierarchy and namespace-binding constraint. Existing `team` bindings with no
@@ -189,3 +220,8 @@ Each release must prove:
 - [Skill Hub product policy](/platformclaw/skill-hub-policy)
 - [Operate Skill Hub](/platformclaw/skill-hub)
 - [PlatformClaw architecture](/platformclaw)
+
+Terminal scan delivery/execution failure is recorded on the current audit as `failedAt`,
+separately from a completed scan. Published versions retain their publication fact and
+immutable IDs/ZIP bytes during reinspection; failed rounds receive a new durable task
+before a PRIVATE skill can broaden its audience.

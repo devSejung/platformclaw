@@ -1,0 +1,495 @@
+diff --git a/server/skillhub-app/src/main/java/com/iflytek/skillhub/controller/portal/SecurityAuditController.java b/server/skillhub-app/src/main/java/com/iflytek/skillhub/controller/portal/SecurityAuditController.java
+--- a/server/skillhub-app/src/main/java/com/iflytek/skillhub/controller/portal/SecurityAuditController.java
++++ b/server/skillhub-app/src/main/java/com/iflytek/skillhub/controller/portal/SecurityAuditController.java
+@@ -125 +125,2 @@
+-                audit.getCreatedAt()
++                audit.getCreatedAt(),
++                audit.getFailedAt()
+diff --git a/server/skillhub-app/src/main/java/com/iflytek/skillhub/dto/SecurityAuditResponse.java b/server/skillhub-app/src/main/java/com/iflytek/skillhub/dto/SecurityAuditResponse.java
+--- a/server/skillhub-app/src/main/java/com/iflytek/skillhub/dto/SecurityAuditResponse.java
++++ b/server/skillhub-app/src/main/java/com/iflytek/skillhub/dto/SecurityAuditResponse.java
+@@ -20 +20,2 @@
+-        Instant createdAt
++        Instant createdAt,
++        Instant failedAt
+diff --git a/server/skillhub-app/src/main/java/com/iflytek/skillhub/stream/AbstractStreamConsumer.java b/server/skillhub-app/src/main/java/com/iflytek/skillhub/stream/AbstractStreamConsumer.java
+--- a/server/skillhub-app/src/main/java/com/iflytek/skillhub/stream/AbstractStreamConsumer.java
++++ b/server/skillhub-app/src/main/java/com/iflytek/skillhub/stream/AbstractStreamConsumer.java
+@@ -237,0 +238,2 @@
++        } catch (DeferredMessageException e) {
++            log.info("Retained pending delivery for later reclaim: {}", e.getMessage());
+@@ -242,0 +245,6 @@
++    }
++
++    // Contention is not a task failure. Retain the durable Redis delivery so
++    // reclaim can retry after the current owner finishes, without spending retries.
++    protected static class DeferredMessageException extends RuntimeException {
++        protected DeferredMessageException(String message) { super(message); }
+diff --git a/server/skillhub-app/src/main/java/com/iflytek/skillhub/stream/ScanTaskConsumer.java b/server/skillhub-app/src/main/java/com/iflytek/skillhub/stream/ScanTaskConsumer.java
+--- a/server/skillhub-app/src/main/java/com/iflytek/skillhub/stream/ScanTaskConsumer.java
++++ b/server/skillhub-app/src/main/java/com/iflytek/skillhub/stream/ScanTaskConsumer.java
+@@ -13,0 +14 @@
++import org.redisson.api.RLock;
+@@ -28,0 +30 @@
++    private final RedissonClient redissonClient;
+@@ -44,0 +47 @@
++        this.redissonClient = redissonClient;
+@@ -74,0 +78 @@
++        this.redissonClient = redissonClient;
+@@ -130,0 +135,30 @@
++        if (!securityScanService.shouldProcessTask(payload.taskId())) {
++            log.info("Skipping obsolete or completed security scan task: taskId={}, versionId={}", payload.taskId(), payload.versionId());
++            payload.skipCleanup();
++            return;
++        }
++        RLock processingLock = redissonClient.getLock("skillhub:scan:processing:" + payload.taskId());
++        boolean acquired = false;
++        try {
++            acquired = processingLock.tryLock();
++            if (!acquired) {
++                log.info("Skipping concurrently processed security scan task: taskId={}, versionId={}",
++                        payload.taskId(), payload.versionId());
++                payload.skipCleanup();
++                // Leave this delivery pending for reclaim without consuming scanner
++                // retries: the active worker still owns the same immutable task.
++                throw new ConcurrentScanInProgressException(payload.taskId());
++            }
++            if (!securityScanService.shouldProcessTask(payload.taskId())) {
++                payload.skipCleanup();
++                return;
++            }
++            executeScan(payload);
++        } finally {
++            if (acquired && processingLock.isHeldByCurrentThread()) {
++                processingLock.unlock();
++            }
++        }
++    }
++
++    private void executeScan(ScanTaskPayload payload) {
+@@ -133,5 +167 @@
+-                payload.taskId(),
+-                payload.versionId(),
+-                skillPath,
+-                Map.of()
+-        );
++                payload.taskId(), payload.versionId(), skillPath, Map.of());
+@@ -139 +169,7 @@
+-        securityScanService.processScanResult(payload.versionId(), payload.scannerType(), response);
++        securityScanService.processScanResult(payload.taskId(), payload.versionId(), payload.scannerType(), response);
++    }
++
++    private static final class ConcurrentScanInProgressException extends DeferredMessageException {
++        private ConcurrentScanInProgressException(String taskId) {
++            super("Security scan is already in progress: taskId=" + taskId);
++        }
+@@ -156,6 +192 @@
+-            skillVersionRepository.findById(payload.versionId())
+-                    .filter(version -> version.getStatus() == SkillVersionStatus.SCANNING)
+-                    .ifPresent(version -> {
+-                        version.setStatus(SkillVersionStatus.SCAN_FAILED);
+-                        skillVersionRepository.save(version);
+-                    });
++            securityScanService.markTaskFailed(payload.taskId(), payload.versionId());
+@@ -261,0 +293 @@
++        private boolean cleanupEnabled = true;
+@@ -309,0 +342,3 @@
++            if (!cleanupEnabled) {
++                return null;
++            }
+@@ -310,0 +346,4 @@
++        }
++
++        protected void skipCleanup() {
++            cleanupEnabled = false;
+diff --git a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/review/ReviewService.java b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/review/ReviewService.java
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/review/ReviewService.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/review/ReviewService.java
+@@ -177,0 +178,11 @@
++        Namespace namespace = namespaceRepository.findById(task.getNamespaceId())
++                .orElseThrow(() -> new DomainNotFoundException("namespace.not_found", task.getNamespaceId()));
++        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
++            // Relocation owns the same namespace lock and increments pending task versions.
++            // Refresh before permission/status checks so source reviewers cannot act after a move.
++            entityManager.refresh(namespace, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
++            entityManager.refresh(task);
++            if (!task.getNamespaceId().equals(namespace.getId())) {
++                throw new com.iflytek.skillhub.domain.skill.PlatformclawVisibilityConflict("Review moved; reload before approving");
++            }
++        }
+@@ -182,2 +192,0 @@
+-        Namespace namespace = namespaceRepository.findById(task.getNamespaceId())
+-                .orElseThrow(() -> new DomainNotFoundException("namespace.not_found", task.getNamespaceId()));
+@@ -192,0 +202,6 @@
++        Skill skill = skillRepository.findById(skillVersion.getSkillId())
++                .orElseThrow(() -> new DomainNotFoundException("skill.not_found", skillVersion.getSkillId()));
++        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
++            entityManager.refresh(skill, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
++            entityManager.refresh(skillVersion, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
++        }
+@@ -204,3 +218,0 @@
+-
+-        Skill skill = skillRepository.findById(skillVersion.getSkillId())
+-                .orElseThrow(() -> new DomainNotFoundException("skill.not_found", skillVersion.getSkillId()));
+@@ -226 +238,4 @@
+-        if (skillVersion.getRequestedVisibility() != null) {
++        if (skill.isPlatformclawManagedMetadata()) {
++            skill.setVisibility(skill.getPlatformclawDesiredVisibility());
++            skillVersion.setRequestedVisibility(skill.getPlatformclawDesiredVisibility());
++        } else if (skillVersion.getRequestedVisibility() != null) {
+@@ -345,0 +361,3 @@
++        if (skill.isPlatformclawManagedMetadata()) {
++            return;
++        }
+diff --git a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityAudit.java b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityAudit.java
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityAudit.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityAudit.java
+@@ -28,0 +29,3 @@
++    @Column(name = "task_id", length = 100)
++    private String taskId;
++
+@@ -58,0 +62,3 @@
++    @Column(name = "platformclaw_failed_at")
++    private Instant failedAt;
++
+@@ -68,0 +75,4 @@
++        this(skillVersionId, scannerType, null);
++    }
++
++    public SecurityAudit(Long skillVersionId, ScannerType scannerType, String taskId) {
+@@ -70,0 +81 @@
++        this.taskId = taskId;
+@@ -93,0 +105,4 @@
++    public String getTaskId() {
++        return taskId;
++    }
++
+@@ -123,0 +139,8 @@
++    }
++
++    public Instant getFailedAt() {
++        return failedAt;
++    }
++
++    public void markFailed() {
++        failedAt = Instant.now(Clock.systemUTC());
+diff --git a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityAuditRepository.java b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityAuditRepository.java
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityAuditRepository.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityAuditRepository.java
+@@ -13,0 +14,2 @@
++
++    Optional<SecurityAudit> findByTaskId(String taskId);
+diff --git a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityScanService.java b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityScanService.java
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityScanService.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/security/SecurityScanService.java
+@@ -35 +35 @@
+-    private final ScanTaskProducer scanTaskProducer;
++    private final ScanTaskOutboxRepository scanTaskOutboxRepository;
+@@ -42 +41,0 @@
+-                               ScanTaskProducer scanTaskProducer,
+@@ -45 +44,2 @@
+-                               @Value("${skillhub.security.scanner.enabled:false}") boolean enabled) {
++                               @Value("${skillhub.security.scanner.enabled:false}") boolean enabled,
++                               ScanTaskOutboxRepository scanTaskOutboxRepository) {
+@@ -48 +47,0 @@
+-        this.scanTaskProducer = scanTaskProducer;
+@@ -51,0 +51 @@
++        this.scanTaskOutboxRepository = scanTaskOutboxRepository;
+@@ -55,0 +56,13 @@
++    }
++
++    public void requireStoredBundleScanning() {
++        if (!enabled || !"upload".equalsIgnoreCase(scanMode)) {
++            throw new com.iflytek.skillhub.domain.skill.PlatformclawVisibilityConflict(
++                    "Enable the security scanner in upload mode before sharing an unscanned stored release");
++        }
++    }
++
++    @Transactional
++    public void triggerStoredBundleScan(Long versionId, String publisherId) {
++        requireStoredBundleScanning();
++        triggerScan(versionId, List.of(), publisherId);
+@@ -65,3 +78,3 @@
+-        SkillVersion version = skillVersionRepository.findById(versionId)
+-                .orElseThrow(() -> new IllegalStateException("SkillVersion not found: " + versionId));
+-
++        SkillVersion version = lockVersion(versionId);
++
++        String taskId = UUID.randomUUID().toString();
+@@ -74 +87 @@
+-            packagePath = saveTempDirectory(versionId, entries).toString();
++            packagePath = saveTempDirectory(versionId, taskId, entries).toString();
+@@ -77,3 +90,2 @@
+-        auditRepository.save(new SecurityAudit(versionId, ScannerType.SKILL_SCANNER));
+-        scanTaskProducer.publishScanTask(new ScanTask(
+-                UUID.randomUUID().toString(),
++        final ScanTask scanTask = new ScanTask(
++                taskId,
+@@ -86 +98,3 @@
+-        ));
++        );
++        auditRepository.save(new SecurityAudit(versionId, ScannerType.SKILL_SCANNER, scanTask.taskId()));
++        scanTaskOutboxRepository.save(new ScanTaskOutbox(scanTask));
+@@ -94,6 +108,18 @@
+-    @Transactional
+-    public void processScanResult(Long versionId, ScannerType scannerType, SecurityScanResponse response) {
+-        SecurityAudit audit = auditRepository.findLatestActiveByVersionIdAndScannerType(versionId, scannerType)
+-                .orElseThrow(() -> new IllegalStateException(
+-                        "SecurityAudit not found for versionId=" + versionId + ", scannerType=" + scannerType));
+-        SkillVersion version = skillVersionRepository.findById(versionId)
++    @jakarta.persistence.PersistenceContext
++    private jakarta.persistence.EntityManager entityManager;
++
++    // Stable identity also rejects obsolete pre-upgrade deliveries and superseded
++    // rescans. Only the current audit may move the version lifecycle forward.
++    public boolean shouldProcessTask(String taskId) {
++        var audit = auditRepository.findByTaskId(taskId);
++        return audit.filter(a -> !a.isDeleted() && a.getScannedAt() == null && a.getFailedAt() == null
++                && isCurrentAudit(a)).isPresent();
++    }
++
++    private boolean isCurrentAudit(SecurityAudit audit) {
++        return auditRepository.findLatestActiveByVersionIdAndScannerType(audit.getSkillVersionId(), audit.getScannerType())
++                .map(latest -> java.util.Objects.equals(latest.getTaskId(), audit.getTaskId())).orElse(false);
++    }
++
++    private SkillVersion lockVersion(Long versionId) {
++        var version = skillVersionRepository.findById(versionId)
+@@ -101 +127,34 @@
+-
++        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
++            // A caller may already own this row and have prepared requested
++            // visibility/status. Flush before refresh to preserve those changes.
++            entityManager.flush();
++            entityManager.refresh(version, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
++        }
++        return version;
++    }
++
++    @Transactional
++    public void markTaskFailed(String taskId, Long versionId) {
++        var version = lockVersion(versionId);
++        var failed = auditRepository.findByTaskId(taskId)
++                .filter(a -> a.getSkillVersionId().equals(versionId) && !a.isDeleted()
++                        && a.getScannedAt() == null && a.getFailedAt() == null);
++        if (failed.isEmpty()) return;
++        var audit = failed.get();
++        // Failure belongs to the immutable task, including published background
++        // scans. Keep released versions available while recording a terminal fact.
++        audit.markFailed();
++        auditRepository.save(audit);
++        if (isCurrentAudit(audit) && version.getStatus() == SkillVersionStatus.SCANNING) {
++            version.setStatus(SkillVersionStatus.SCAN_FAILED);
++            skillVersionRepository.save(version);
++        }
++    }
++
++    @Transactional
++    public void processScanResult(String taskId, Long versionId, ScannerType scannerType, SecurityScanResponse response) {
++        SkillVersion version = lockVersion(versionId);
++        SecurityAudit audit = auditRepository.findByTaskId(taskId)
++                .filter(a -> a.getSkillVersionId().equals(versionId) && a.getScannerType() == scannerType)
++                .orElseThrow(() -> new IllegalStateException("SecurityAudit not found for taskId=" + taskId));
++        if (audit.isDeleted() || audit.getScannedAt() != null || audit.getFailedAt() != null) return;
+@@ -113 +172 @@
+-        if (version.getStatus() == SkillVersionStatus.SCANNING) {
++        if (isCurrentAudit(audit) && version.getStatus() == SkillVersionStatus.SCANNING) {
+@@ -123 +182 @@
+-    private Path saveTempDirectory(Long versionId, List<PackageEntry> entries) {
++    private Path saveTempDirectory(Long versionId, String taskId, List<PackageEntry> entries) {
+@@ -125 +184 @@
+-            Path skillDir = TEMP_BASE_DIR.resolve(String.valueOf(versionId)).normalize();
++            Path skillDir = TEMP_BASE_DIR.resolve(String.valueOf(versionId)).resolve(taskId).normalize();
+@@ -185,0 +245 @@
++        scanTaskOutboxRepository.deleteByVersionId(versionId);
+@@ -202,0 +263 @@
++        scanTaskOutboxRepository.deleteByVersionId(versionId);
+diff --git a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/Skill.java b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/Skill.java
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/Skill.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/Skill.java
+@@ -191,0 +192,16 @@
++    @Column(name = "platformclaw_managed_metadata", nullable = false)
++    private boolean platformclawManagedMetadata;
++
++    @Enumerated(EnumType.STRING)
++    @Column(name = "platformclaw_requested_visibility", length = 20)
++    private SkillVisibility platformclawRequestedVisibility;
++
++    public SkillVisibility getPlatformclawDesiredVisibility() {
++        return platformclawRequestedVisibility != null ? platformclawRequestedVisibility : visibility;
++    }
++    public void setPlatformclawRequestedVisibility(SkillVisibility value) { platformclawRequestedVisibility = value; }
++
++    public boolean isPlatformclawManagedMetadata() { return platformclawManagedMetadata; }
++    public void setPlatformclawManagedMetadata(boolean value) { platformclawManagedMetadata = value; }
++    public void setNamespaceId(Long value) { namespaceId = value; }
++
+diff --git a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/SkillVersionRepository.java b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/SkillVersionRepository.java
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/SkillVersionRepository.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/SkillVersionRepository.java
+@@ -14,0 +15 @@
++    boolean existsPublishedBySkillId(Long skillId, boolean includeHistorical);
+diff --git a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillPublishService.java b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillPublishService.java
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillPublishService.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillPublishService.java
+@@ -93,0 +94,2 @@
++    @jakarta.persistence.PersistenceContext
++    private jakarta.persistence.EntityManager platformclawEntityManager;
+@@ -234,0 +237,4 @@
++                    if (existing.getPlatformclawDesiredVisibility() != visibility
++                            || existing.getPlatformclawDesiredVisibility() != existing.getVisibility()) {
++                        errors.add("Complete registry visibility review or edit visibility before publishing a version");
++                    }
+@@ -240 +246 @@
+-                        if (existingVersion.isPresent() && existingVersion.get().getStatus() == SkillVersionStatus.PUBLISHED) {
++                        if (existingVersion.isPresent() && wasPublished(existingVersion.get())) {
+@@ -245,3 +251 @@
+-                    boolean hasPublished = !skillVersionRepository
+-                            .findBySkillIdAndStatus(existing.getId(), SkillVersionStatus.PUBLISHED)
+-                            .isEmpty();
++                    boolean hasPublished = blocksOtherOwner(existing);
+@@ -343,0 +348,5 @@
++        // Namespace locking serializes publication against aggregate relocation. Direct
++        // nontransactional validation callers do not own a database commit section.
++        if (TransactionSynchronizationManager.isActualTransactionActive()) {
++            platformclawEntityManager.refresh(namespace, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
++        }
+@@ -391,0 +401,6 @@
++        var ownedSkill = skillRepository.findByNamespaceIdAndSlugAndOwnerId(namespace.getId(), skillSlug, publisherId);
++        if (ownedSkill.isPresent()
++                && (ownedSkill.get().getPlatformclawDesiredVisibility() != visibility
++                    || ownedSkill.get().getPlatformclawDesiredVisibility() != ownedSkill.get().getVisibility())) {
++            throw new PlatformclawVisibilityConflict();
++        }
+@@ -403,3 +418 @@
+-                boolean hasPublished = !skillVersionRepository
+-                        .findBySkillIdAndStatus(existing.getId(), SkillVersionStatus.PUBLISHED)
+-                        .isEmpty();
++                boolean hasPublished = blocksOtherOwner(existing);
+@@ -418 +431 @@
+-        Skill skill = skillRepository.findByNamespaceIdAndSlugAndOwnerId(namespace.getId(), skillSlug, publisherId)
++        Skill skill = ownedSkill
+@@ -433,0 +447,3 @@
++            // Audience editing prepares historical releases independently. A new
++            // version must not withdraw those already-published review identities.
++            if (skill.isPlatformclawManagedMetadata() && wasPublished(pending)) continue;
+@@ -444 +460 @@
+-            if (matchedVersion.getStatus() == SkillVersionStatus.PUBLISHED) {
++            if (wasPublished(matchedVersion)) {
+@@ -453 +469,3 @@
+-        boolean autoPublish = forceAutoPublish || isSuperAdmin;
++        // Shared publication requires scanning/review even through the bootstrap
++        // admin token; explicit internal force and private preview retain their flow.
++        boolean autoPublish = forceAutoPublish || (isSuperAdmin && visibility == SkillVisibility.PRIVATE);
+@@ -556,2 +574,6 @@
+-        skill.setDisplayName(metadata.name());
+-        skill.setSummary(metadata.description());
++        // Registry edits deliberately override release-package presentation metadata.
++        // Released package bytes remain immutable while later versions retain the edit.
++        if (!skill.isPlatformclawManagedMetadata()) {
++            skill.setDisplayName(metadata.name());
++            skill.setSummary(metadata.description());
++        }
+@@ -575 +597 @@
+-        if (!REPLACEABLE_VERSION_STATUSES.contains(version.getStatus())) {
++        if (wasPublished(version) || !REPLACEABLE_VERSION_STATUSES.contains(version.getStatus())) {
+@@ -602,0 +625,12 @@
++    }
++
++    private boolean blocksOtherOwner(Skill skill) {
++        // Managed edits can temporarily demote releases without freeing their
++        // coordinate. Unedited private owner isolation retains its native contract.
++        return skillVersionRepository.existsPublishedBySkillId(skill.getId(), skill.isPlatformclawManagedMetadata());
++    }
++
++    private boolean wasPublished(SkillVersion version) {
++        // Review and scan transitions can change current status. The recorded
++        // publication fact keeps released rows and archive bytes immutable.
++        return version.getPublishedAt() != null || version.getStatus() == SkillVersionStatus.PUBLISHED;
+diff --git a/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SecurityAuditJpaRepository.java b/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SecurityAuditJpaRepository.java
+--- a/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SecurityAuditJpaRepository.java
++++ b/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SecurityAuditJpaRepository.java
+@@ -32 +32 @@
+-            ORDER BY sa.createdAt DESC
++            ORDER BY sa.createdAt DESC, sa.id DESC
+@@ -44,2 +44,2 @@
+-              AND sa.createdAt = (
+-                  SELECT MAX(sa2.createdAt) FROM SecurityAudit sa2
++              AND NOT EXISTS (
++                  SELECT 1 FROM SecurityAudit sa2
+@@ -48,0 +49 @@
++                    AND (sa2.createdAt > sa.createdAt OR (sa2.createdAt = sa.createdAt AND sa2.id > sa.id))
+@@ -59 +60 @@
+-            ORDER BY sa.createdAt DESC
++            ORDER BY sa.createdAt DESC, sa.id DESC
+diff --git a/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SkillVersionJpaRepository.java b/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SkillVersionJpaRepository.java
+--- a/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SkillVersionJpaRepository.java
++++ b/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SkillVersionJpaRepository.java
+@@ -31,0 +32,4 @@
++    @Query(value = "SELECT EXISTS (SELECT 1 FROM skill_version WHERE skill_id = :skillId AND (status = 'PUBLISHED' OR (:includeHistorical AND published_at IS NOT NULL)))", nativeQuery = true)
++    boolean existsPublishedBySkillId(@Param("skillId") Long skillId, @Param("includeHistorical") boolean includeHistorical);
++
++    @Override
+diff --git a/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/SearchIndexService.java b/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/SearchIndexService.java
+--- a/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/SearchIndexService.java
++++ b/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/SearchIndexService.java
+@@ -9,0 +10 @@
++    void indexInCurrentTransaction(SkillSearchDocument document);
+diff --git a/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/SearchRebuildService.java b/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/SearchRebuildService.java
+--- a/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/SearchRebuildService.java
++++ b/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/SearchRebuildService.java
+@@ -9,0 +10 @@
++    void rebuildBySkillInCurrentTransaction(Long skillId);
+diff --git a/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/postgres/PostgresFullTextIndexService.java b/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/postgres/PostgresFullTextIndexService.java
+--- a/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/postgres/PostgresFullTextIndexService.java
++++ b/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/postgres/PostgresFullTextIndexService.java
+@@ -27,0 +28,2 @@
++    @jakarta.persistence.PersistenceContext
++    private jakarta.persistence.EntityManager platformclawEntityManager;
+@@ -37,0 +40,14 @@
++        indexInCurrentTransaction(document);
++    }
++
++    // Edit receipts and their search projection must commit atomically. Keep the
++    // existing REQUIRES_NEW entry point for afterCommit/CallerRunsPolicy callers.
++    @Override
++    @Transactional(propagation = Propagation.MANDATORY)
++    public void indexInCurrentTransaction(SkillSearchDocument document) {
++        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()
++                && !matchesCurrentAggregate(document)) {
++            org.slf4j.LoggerFactory.getLogger(getClass()).info(
++                    "Skipped stale search projection after aggregate change [skillId={}]", document.skillId());
++            return;
++        }
+@@ -85,0 +102,20 @@
++    private boolean matchesCurrentAggregate(SkillSearchDocument document) {
++        // Async projections may have been prepared before an edit. Lock the same
++        // namespace before rechecking facts so a delayed writer cannot undo a move.
++        // Explicit FOR UPDATE preserves the row-lock contract across PostgreSQL
++        // and JPA test dialects that emit unsupported SHARE/NO KEY UPDATE variants.
++        platformclawEntityManager.createNativeQuery("select id from namespace where id = :id for update")
++                .setParameter("id", document.namespaceId()).getResultList();
++        var namespace = platformclawEntityManager.find(com.iflytek.skillhub.domain.namespace.Namespace.class,
++                document.namespaceId());
++        var skill = platformclawEntityManager.find(com.iflytek.skillhub.domain.skill.Skill.class, document.skillId());
++        if (namespace == null || skill == null) return false;
++        platformclawEntityManager.refresh(skill);
++        return skill.getNamespaceId().equals(document.namespaceId())
++                && java.util.Objects.equals(namespace.getSlug(), document.namespaceSlug())
++                && java.util.Objects.equals(skill.getDisplayName() != null ? skill.getDisplayName() : skill.getSlug(), document.title())
++                && java.util.Objects.equals(skill.getSummary(), document.summary())
++                && skill.getVisibility().name().equals(document.visibility())
++                && skill.getStatus().name().equals(document.status());
++    }
++
+diff --git a/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/postgres/PostgresSearchRebuildService.java b/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/postgres/PostgresSearchRebuildService.java
+--- a/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/postgres/PostgresSearchRebuildService.java
++++ b/server/skillhub-search/src/main/java/com/iflytek/skillhub/search/postgres/PostgresSearchRebuildService.java
+@@ -121,0 +122,7 @@
++    @Override
++    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
++    public void rebuildBySkillInCurrentTransaction(Long skillId) {
++        skillRepository.findById(skillId).flatMap(this::toDocument)
++                .ifPresent(searchIndexService::indexInCurrentTransaction);
++    }
++

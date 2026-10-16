@@ -19,7 +19,7 @@ import type {
   SkillHubOwnershipRow,
 } from "./sqlite-store-types.js";
 
-function ownership(row: SkillHubOwnershipRow): SkillHubOwnership {
+export function projectSkillHubOwnership(row: SkillHubOwnershipRow): SkillHubOwnership {
   return {
     namespace: row.namespace,
     slug: row.slug,
@@ -48,10 +48,7 @@ function access(row: SkillHubAccessRow): SkillHubAccessGrant {
   };
 }
 
-export abstract class SqliteControlPlaneSkillHubStore
-  extends SqliteControlPlaneSkillHubOperationsStore
-  implements SkillHubStateStore
-{
+export abstract class SqliteControlPlaneSkillHubStore extends SqliteControlPlaneSkillHubOperationsStore {
   async getSkillHubOwnership(namespace: string, slug: string): Promise<SkillHubOwnership | null> {
     this.ensureSkillHubStateSchema();
     const row = takeFirstSync(
@@ -62,7 +59,7 @@ export abstract class SqliteControlPlaneSkillHubStore
         .where("namespace", "=", namespace)
         .where("slug", "=", slug),
     );
-    return row ? ownership(row) : null;
+    return row ? projectSkillHubOwnership(row) : null;
   }
 
   async recordSkillHubPublication(
@@ -70,6 +67,7 @@ export abstract class SqliteControlPlaneSkillHubStore
   ): Promise<SkillHubOwnership> {
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
+      this.requireSkillHubCoordinateAvailable(params.namespace, params.slug);
       const owner = this.requireUserRow(params.ownerUserId);
       const binding = takeFirstSync(
         this.db,
@@ -125,7 +123,7 @@ export abstract class SqliteControlPlaneSkillHubStore
             }),
           ),
       );
-      const result = ownership(
+      const result = projectSkillHubOwnership(
         takeFirstSync(
           this.db,
           this.query
@@ -180,6 +178,7 @@ export abstract class SqliteControlPlaneSkillHubStore
   ): Promise<boolean> {
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
+      this.requireSkillHubCoordinateAvailable(params.namespace, params.slug);
       const current = takeFirstSync(
         this.db,
         this.query
@@ -303,7 +302,7 @@ export abstract class SqliteControlPlaneSkillHubStore
           }),
         );
       }
-      return ownership({
+      return projectSkillHubOwnership({
         ...current,
         owner_user_id: target.id,
         previous_owner_user_id: current.owner_user_id,
@@ -407,7 +406,7 @@ export abstract class SqliteControlPlaneSkillHubStore
         .selectAll()
         .where("owner_user_id", "is", null)
         .orderBy("updated_at", "desc"),
-    ).rows.map(ownership);
+    ).rows.map(projectSkillHubOwnership);
   }
 
   async listSkillHubAccess(namespace: string, slug: string, now: number) {

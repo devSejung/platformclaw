@@ -27,12 +27,30 @@ export function renderSkillHubManagement(props: {
   onForceAcknowledged: (value: boolean) => void;
   onForcePublish: () => void;
   onDeleteSkill: () => void;
+  onEditSkill: () => void;
+  onPublishVersion: () => void;
 }) {
   if (!props.detail?.canManage) {
     return nothing;
   }
   return html`<section class="skill-hub-management">
     <h3>${t("skillHubPage.management")}</h3>
+    <div class="skill-hub-management__group">
+      <div>
+        <strong>${t("skillHubPage.publishedDetails")}</strong>
+        <p>${t("skillHubPage.publishVersionHelp")}</p>
+      </div>
+      <div class="skill-hub-install-actions">
+        ${props.detail.skill.revision && typeof props.detail.owner?.revision === "number"
+          ? html`<button class="btn btn--sm" ?disabled=${props.busy} @click=${props.onEditSkill}>
+              ${t("skillHubPage.editSkill")}
+            </button>`
+          : nothing}
+        <button class="btn btn--sm" ?disabled=${props.busy} @click=${props.onPublishVersion}>
+          ${t("skillHubPage.publishVersion")}
+        </button>
+      </div>
+    </div>
     <div class="skill-hub-management__group">
       <div>
         <strong>${t("skillHubPage.owner")}</strong>

@@ -40,6 +40,7 @@ export type SkillHubSecurityAudit = {
   maxSeverity?: string;
   findingsCount?: number;
   scannedAt?: string;
+  failedAt?: string;
 };
 
 export type SkillHubPublishArchive = Buffer | { path: string; size: number };
@@ -59,6 +60,11 @@ function isSkillHubArchiveFile(
 export interface SkillHubAdapter {
   search(query: string, limit: number): Promise<{ items: SkillHubSearchItem[]; total: number }>;
   getSkill(namespace: string, slug: string): Promise<SkillHubSkillDetail>;
+  getVersionState(
+    namespace: string,
+    slug: string,
+    version: string,
+  ): Promise<{ id: number; version: string; status: string }>;
   listVersions(namespace: string, slug: string): Promise<SkillHubVersion[]>;
   listSecurityAudits(skillId: number, versionId: number): Promise<SkillHubSecurityAudit[]>;
   publish(params: {
@@ -297,6 +303,28 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     };
   }
 
+  async getVersionState(namespace: string, slug: string, version: string) {
+    const data = record(
+      apiData(
+        await this.jsonRequest(
+          this.url(
+            `api/v1/skills/${encodePath(namespace)}/${encodePath(slug)}/versions/${encodePath(version)}`,
+          ),
+        ),
+      ),
+      "version detail",
+    );
+    const actualVersion = stringValue(data.version, "version number");
+    if (actualVersion !== version) {
+      throw new SkillHubAdapterError("Skill Hub returned a mismatched version detail");
+    }
+    return {
+      id: positiveInteger(data.id, "version id"),
+      version: actualVersion,
+      status: stringValue(data.status, "version status"),
+    };
+  }
+
   async listVersions(namespace: string, slug: string): Promise<SkillHubVersion[]> {
     const url = this.url(`api/v1/skills/${encodePath(namespace)}/${encodePath(slug)}/versions`);
     url.searchParams.set("page", "0");
@@ -346,6 +374,7 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
         typeof value.maxSeverity === "string" ? { maxSeverity: value.maxSeverity } : {},
         findingsCount === undefined ? {} : { findingsCount },
         typeof value.scannedAt === "string" ? { scannedAt: value.scannedAt } : {},
+        typeof value.failedAt === "string" ? { failedAt: value.failedAt } : {},
       );
     });
   }
