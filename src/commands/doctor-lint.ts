@@ -27,6 +27,7 @@ interface DoctorLintCliOptions {
   readonly allowExec?: boolean;
   readonly deep?: boolean;
   readonly includeAllChecks?: boolean;
+  readonly deferredOnly?: boolean;
 }
 
 function detectMode(opts: DoctorLintCliOptions): "human" | "json" {
@@ -81,14 +82,21 @@ export async function runDoctorLintCli(
     allowExecSecretRefs: opts.allowExec === true,
     ...(snapshot.path !== undefined ? { configPath: snapshot.path } : {}),
   };
-  registerBundledHealthChecks({ cfg: snapshot.config, cwd: ctx.cwd });
-  const coreChecks = await resolveDoctorContributionHealthChecks();
-  const extensionChecks = listExtensionHealthChecksForDoctor(coreChecks);
+  // Unclassified plugin detectors may mutate shared state. Deferred deployment
+  // diagnostics run only the contribution owners that declare that boundary.
+  if (opts.deferredOnly !== true) {
+    registerBundledHealthChecks({ cfg: snapshot.config, cwd: ctx.cwd });
+  }
+  const coreChecks = await resolveDoctorContributionHealthChecks({
+    deferredOnly: opts.deferredOnly === true,
+  });
+  const extensionChecks =
+    opts.deferredOnly === true ? [] : listExtensionHealthChecksForDoctor(coreChecks);
   const coreCtx = { ...ctx, deep: opts.deep === true };
 
   const runOpts: DoctorLintRunOptions = {
     checks: [...coreChecks.map((check) => withCoreLintContext(check, coreCtx)), ...extensionChecks],
-    includeAllChecks: opts.includeAllChecks === true,
+    includeAllChecks: opts.deferredOnly === true || opts.includeAllChecks === true,
     ...(opts.skipIds && opts.skipIds.length > 0 ? { skipIds: opts.skipIds } : {}),
     ...(opts.onlyIds && opts.onlyIds.length > 0 ? { onlyIds: opts.onlyIds } : {}),
   };

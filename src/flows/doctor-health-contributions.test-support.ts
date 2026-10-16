@@ -21,6 +21,7 @@ type DoctorHealthContribution = FlowContribution & {
   surface: "health";
   healthChecks: readonly HealthCheckInput[];
   healthCheckIds: readonly string[];
+  execution: "repair" | "diagnostic" | "mixed";
   run: (ctx: DoctorHealthFlowContext) => Promise<void>;
 };
 
@@ -33,7 +34,7 @@ type DoctorHealthContributionTestApi = {
     hint?: string;
     run?: (ctx: DoctorHealthFlowContext) => Promise<void>;
   }): DoctorHealthContribution;
-  resolveDoctorHealthContributions(): DoctorHealthContribution[];
+  resolveDoctorHealthContributions(repairOnly?: boolean): DoctorHealthContribution[];
 };
 
 function getTestApi(): DoctorHealthContributionTestApi {
@@ -52,6 +53,6 @@ export function createDoctorHealthContribution(
   return getTestApi().createDoctorHealthContribution(params);
 }
 
-export function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
-  return getTestApi().resolveDoctorHealthContributions();
+export function resolveDoctorHealthContributions(repairOnly = false): DoctorHealthContribution[] {
+  return getTestApi().resolveDoctorHealthContributions(repairOnly);
 }

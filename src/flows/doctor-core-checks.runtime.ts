@@ -1087,6 +1087,8 @@ export async function collectRuntimeToolSchemaFindings(
           config: cfg,
           agentId,
           agentDir: resolveAgentDir(cfg, agentId),
+          // Lint can run beside a live Gateway; catalog discovery must not persist model state.
+          readOnly: true,
         });
         const modelRef = resolveDefaultModelForAgent({
           cfg,

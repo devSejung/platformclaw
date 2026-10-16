@@ -618,6 +618,7 @@ export async function noteMemorySearchHealth(
         agentId: scope.agentId,
         workspaceDir: scope.workspaceDir,
         labelAgent: labelAgents,
+        ...(opts?.noteFn ? { noteFn: opts.noteFn } : {}),
       });
     }
     const outputNote = opts?.noteFn ?? note;

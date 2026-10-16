@@ -247,7 +247,7 @@ skillhub_enabled() {
 }
 
 preflight_skillhub_resources() {
-  skillhub_enabled || return
+  skillhub_enabled || return 0
   local available_kib
   local memory_kib
   local required_disk_kib=20971520
@@ -611,7 +611,7 @@ preflight_guide_video_s3_runtime() {
 }
 
 require_skillhub_images() {
-  skillhub_enabled || return
+  skillhub_enabled || return 0
   local key
   local image
   for key in PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE \
@@ -626,7 +626,7 @@ require_skillhub_images() {
 }
 
 bootstrap_skillhub() {
-  skillhub_enabled || return
+  skillhub_enabled || return 0
   local token_file="$secret_root/skillhub-token"
   local token_source="${PLATFORMCLAW_SKILL_HUB_TOKEN_SOURCE:-}"
   local create_token="false"
@@ -1088,7 +1088,7 @@ restore_gateway_state_backup() {
 
 create_skillhub_state_backup() {
   skillhub_state_backup=""
-  skillhub_enabled || return
+  skillhub_enabled || return 0
   install -d -m 0700 "$skillhub_state_backup_root"
   local archive="skillhub-state-$(date -u +%Y%m%dT%H%M%SZ)-$$.tar"
   local runtime_image
@@ -1117,7 +1117,7 @@ restore_skillhub_state_backup() {
   local backup="$1"
   local backup_root_resolved
   local backup_resolved
-  skillhub_enabled || return
+  skillhub_enabled || return 0
   [[ -f "$backup" ]] || { echo "SkillHub state backup is unavailable: $backup" >&2; return 1; }
   backup_root_resolved="$(realpath -e "$skillhub_state_backup_root")"
   backup_resolved="$(realpath -e "$backup")"
@@ -1142,9 +1142,23 @@ restore_skillhub_state_backup() {
 }
 
 run_upgrade_doctor() {
-  echo "Run OpenClaw state migrations with the new image"
+  echo "Run OpenClaw repairs and state migrations before starting services"
   "${compose[@]}" run --rm --no-deps openclaw-gateway \
-    node /app/openclaw.mjs doctor --fix --yes --non-interactive
+    node /app/openclaw.mjs doctor --fix --yes --non-interactive --repair-only
+}
+
+run_upgrade_diagnostics() {
+  echo "PlatformClaw is serving traffic; run read-only OpenClaw diagnostics"
+  # Exec does not inherit the token exported by the Gateway launcher. Read the
+  # mounted secret inside the container so it never enters host arguments.
+  if ! "${compose[@]}" exec --no-TTY openclaw-gateway bash -ceu '
+    OPENCLAW_GATEWAY_TOKEN="$(cat /run/secrets/platformclaw_gateway_token)"
+    export OPENCLAW_GATEWAY_TOKEN
+    exec node /app/openclaw.mjs doctor --lint --deferred --json
+  '; then
+    echo "OpenClaw diagnostics reported findings or could not complete; PlatformClaw remains running. Review the diagnostic output above." >&2
+    echo "Run doctor --lint --deferred again from the Gateway shell after addressing the reported findings; no automatic rollback was performed." >&2
+  fi
 }
 
 copy_legacy_directory() {
@@ -1354,6 +1368,9 @@ apply_images() {
     { [[ "$current_sandbox" == "$sandbox_image" ]] || recreate_sandboxes; }; then
     echo "PlatformClaw updated: $main_image / $sandbox_image"
     echo "Pre-update Gateway state retained for explicit rollback: $gateway_state_backup"
+    # Read-only findings must never restore a pre-update snapshot after the
+    # healthy services have accepted new user data.
+    run_upgrade_diagnostics
     return
   fi
 
