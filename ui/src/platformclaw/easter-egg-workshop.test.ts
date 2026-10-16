@@ -11,7 +11,6 @@ import {
   loadPendingWorkshop,
   savePendingWorkshop,
   clearPendingWorkshop,
-  claimWorkshopTaunt,
 } from "./easter-egg-workshop-journal.ts";
 import "./easter-egg-game.ts";
 import { PLATFORMCLAW_EASTER_EGG_EVENT } from "./easter-egg.ts";
@@ -124,14 +123,11 @@ async function openWorkshop(
       return {
         id: "synthetic-workshop-at-bat",
         pitchSample: 0,
-        batId: state?.equipped
-          ? getBaseballEnhancementAppearance(state.level).batId
-          : serverProgress.equippedBatId,
+        batId: getBaseballEnhancementAppearance(state?.level ?? 0).batId,
         issuedAt: Date.now(),
         expiresAt: Date.now() + 120_000,
-        ...(state?.equipped
-          ? { enhancementLevel: state.level, powerRuleVersion: "sweetspot-v1" }
-          : {}),
+        enhancementLevel: state?.level ?? 0,
+        powerRuleVersion: "sweetspot-v1",
       };
     }
     return mutate(method, params as Record<string, unknown>);
@@ -205,54 +201,94 @@ describe("baseball enhancement workshop", () => {
     vi.useRealTimers();
   });
 
-  it("starts +0 only after explicit free equip and preserves legacy inventory and records", async () => {
-    const initial = progress({
-      gold: 5_000,
-      revision: 7,
-      ownedBatIds: ["wood", "diamond"],
-      equippedBatId: "diamond",
-      totalHomers: 9,
-      bestDistanceM: 147,
-      bestHomeRunStreak: 4,
-    });
-    const reply = deferred<unknown>();
-    const { egg, request } = await openWorkshop(initial, (method) => {
-      expect(method).toBe(BASEBALL_RPC.equipEnhancedBat);
-      return reply.promise;
-    });
-    expect(egg.progress).toEqual(initial);
-    expect(egg.progress).not.toHaveProperty("enhancement");
-    expect(
-      request.mock.calls.every(([method]) =>
-        [BASEBALL_RPC.progress, BASEBALL_RPC.leaderboard, BASEBALL_RPC.beginAtBat].includes(
-          method as typeof BASEBALL_RPC.progress,
-        ),
-      ),
-    ).toBe(true);
-    await click(egg, "[data-forge-equip]");
-    expect(egg.progress).toEqual(initial);
-    const params = request.mock.calls.find(
-      ([method]) => method === BASEBALL_RPC.equipEnhancedBat,
-    )![1] as Record<string, unknown>;
-    expect(params).toMatchObject({ expectedRevision: 7 });
-    expect(typeof params.requestId).toBe("string");
-    reply.resolve({
-      requestId: params.requestId,
-      changed: true,
-      progress: {
-        ...initial,
-        revision: 8,
-        enhancement: { level: 0, status: "ready", equipped: true, version: 1 },
+  it.each([
+    {
+      name: "legacy diamond owner without enhancement",
+      initial: progress({
+        gold: 5_000,
+        revision: 7,
+        ownedBatIds: ["wood", "diamond"],
+        equippedBatId: "diamond",
+        totalHomers: 9,
+        bestDistanceM: 147,
+        bestHomeRunStreak: 4,
+        teamId: "lg",
+      }),
+      level: 0,
+    },
+    { name: "new player", initial: progress(), level: 0 },
+    { name: "existing enhanced player", initial: enhanced(7), level: 7 },
+    {
+      name: "unequipped enhancement with a historical diamond",
+      initial: enhanced(12, {
+        ownedBatIds: ["wood", "diamond"],
+        equippedBatId: "diamond",
+        enhancement: { level: 12, status: "ready", equipped: false, version: 1 },
+      }),
+      level: 12,
+    },
+  ])(
+    "uses only enhancement for $name and preserves it across reconnect",
+    async ({ initial, level }) => {
+      const { egg, request } = await openWorkshop(initial, () => {
+        throw new Error("Opening the workshop must not mutate account data");
+      });
+      const appearance = getBaseballEnhancementAppearance(level);
+      const assertEnhancement = () => {
+        expect(egg.progress).toEqual(initial);
+        expect(egg.querySelector("[data-forge-equip]")).toBeNull();
+        expect(egg.querySelector("[data-shop-bat]")).toBeNull();
+        expect(egg.querySelector("[data-enhancement-level]")?.textContent).toContain(`+${level}`);
+        expect(egg.querySelector(".platformclaw-easter-egg__shop-trigger")?.textContent).toContain(
+          `+${level}`,
+        );
+        expect(egg.querySelector<HTMLElement>('[role="application"]')?.dataset).toMatchObject({
+          batId: appearance.batId,
+          batAppearance: appearance.appearanceId,
+          roundEnhancement: String(level),
+        });
+      };
+      assertEnhancement();
+      const client = egg.client;
+      egg.client = null;
+      await flush(egg);
+      egg.client = client;
+      await flush(egg);
+      assertEnhancement();
+      expect(requestCount(request, BASEBALL_RPC.progress)).toBe(2);
+      for (const method of [
+        BASEBALL_RPC.purchaseBat,
+        BASEBALL_RPC.equipBat,
+        BASEBALL_RPC.equipEnhancedBat,
+      ]) {
+        expect(requestCount(request, method)).toBe(0);
+      }
+    },
+  );
+
+  it("settles a previously journaled opt-in receipt without exposing a new equip action", async () => {
+    const scope = "synthetic-historical-opt-in";
+    const intent = {
+      method: BASEBALL_RPC.equipEnhancedBat,
+      params: { requestId: "previous-opt-in", expectedRevision: 7 },
+    };
+    expect(savePendingWorkshop(scope, intent)).toBe(true);
+    const committed = enhanced(0, { gold: 5_000, revision: 8, equippedBatId: "diamond" });
+    const { egg, request } = await openWorkshop(
+      committed,
+      (method, params) => {
+        expect(method).toBe(intent.method);
+        expect(params).toEqual(intent.params);
+        return { requestId: params.requestId, changed: true, progress: committed };
       },
-    });
-    await flush(egg);
-    expect(egg.progress).toMatchObject({
-      ...initial,
-      revision: 8,
-      enhancement: { level: 0, equipped: true },
-    });
-    expect(button(egg, "[data-forge-enhance]").disabled).toBe(false);
-    expect(egg.querySelector('[data-forge-result="equipped"]')).not.toBeNull();
+      scope,
+    );
+    expect(egg.querySelector("[data-forge-equip]")).toBeNull();
+    expect(requestCount(request, BASEBALL_RPC.beginAtBat)).toBe(0);
+    await click(egg, ".platformclaw-easter-egg__save-status button");
+    expect(egg.pendingMutation).toBeNull();
+    expect(loadPendingWorkshop(scope)).toEqual([]);
+    expect(egg.progress).toEqual(committed);
     expect(requestCount(request, BASEBALL_RPC.equipEnhancedBat)).toBe(1);
   });
 
@@ -718,43 +754,6 @@ describe("baseball enhancement workshop", () => {
     expect(document.activeElement).toBe(input);
   });
 
-  it("bounds completed receipts without letting a stale tab recreate an evicted request", async () => {
-    const scope = "synthetic-bounded-journal";
-    const first = {
-      method: BASEBALL_RPC.enhanceBat,
-      params: { requestId: "old-receipt", expectedRevision: 0 },
-    };
-    expect(savePendingWorkshop(scope, first)).toBe(true);
-    await clearPendingWorkshop(scope, first);
-    for (let index = 0; index < 138; index += 1) {
-      const mutation = {
-        method: BASEBALL_RPC.enhanceBat,
-        params: { requestId: `receipt-${index}`, expectedRevision: index + 1 },
-      };
-      expect(savePendingWorkshop(scope, mutation)).toBe(true);
-      await clearPendingWorkshop(scope, mutation);
-    }
-    expect(localStorage.length).toBe(1);
-    expect(JSON.parse(localStorage.getItem(localStorage.key(0)!)!)).toHaveLength(128);
-    expect(savePendingWorkshop(scope, first, true)).toBe(false);
-    await clearPendingWorkshop(scope, first);
-    expect(await claimWorkshopTaunt(scope, "old-receipt")).toBe(false);
-    expect(loadPendingWorkshop(scope)).toEqual([]);
-  });
-
-  it("does not consume a cosmetic claim while its display surface is hidden or gone", async () => {
-    const scope = "synthetic-visible-claim";
-    const mutation = {
-      method: BASEBALL_RPC.enhanceBat,
-      params: { requestId: "display-once", expectedRevision: 0 },
-    };
-    expect(savePendingWorkshop(scope, mutation)).toBe(true);
-    await clearPendingWorkshop(scope, mutation);
-    expect(await claimWorkshopTaunt(scope, "display-once", () => false)).toBe(false);
-    expect(await claimWorkshopTaunt(scope, "display-once", () => true)).toBe(true);
-    expect(await claimWorkshopTaunt(scope, "display-once", () => true)).toBe(false);
-  });
-
   it("releases a request settled by another tab and ignores its late response after a newer result", async () => {
     const held = deferred<unknown>();
     const committed = enhanced(0, { gold: 900, revision: 1 });
@@ -873,45 +872,6 @@ describe("baseball enhancement workshop", () => {
     },
   );
 
-  it.each(
-    [BASEBALL_RPC.equipBat, BASEBALL_RPC.purchaseBat].flatMap((method) =>
-      [false, true].map((rejected) => ({ method, rejected })),
-    ),
-  )(
-    "settles an active $method before adopting workshop work: rejected=$rejected",
-    async ({ method, rejected }) => {
-      const pending = deferred<unknown>();
-      const { egg } = await openWorkshop(enhanced(), () =>
-        pending.promise.then((response) => {
-          if (rejected) {
-            throw new GatewayRequestError({
-              code: "INVALID_REQUEST",
-              message: "Synthetic legacy rejection",
-            });
-          }
-          return response;
-        }),
-      );
-      const confirmed = vi.fn();
-      const mutation: BaseballMutation = {
-        method,
-        params: { requestId: `active-${method}`, batId: "wood" },
-        label: "Synthetic owned legacy receipt",
-        onSuccess: confirmed,
-      };
-      void egg.runMutation(mutation);
-      await flush(egg);
-      queueEnhancement(egg, "queued-after-legacy", 1);
-      notifyJournal();
-      await flush(egg);
-      expect(egg.pendingMutation).toBe(mutation);
-      pending.resolve({ progress: enhanced(0, { revision: 1 }) });
-      await flush(egg);
-      expect(confirmed).toHaveBeenCalledTimes(rejected ? 0 : 1);
-      expect(egg.pendingMutation).toMatchObject({ params: { requestId: "queued-after-legacy" } });
-    },
-  );
-
   it("keeps the reconnect retry's release handle after the old invocation finishes", async () => {
     const oldResponse = deferred<unknown>();
     const newResponse = deferred<unknown>();
@@ -983,35 +943,53 @@ describe("baseball enhancement workshop", () => {
     expect(egg.progress).toMatchObject(newest);
   });
 
-  it("resumes a legacy at-bat after unequipping a broken enhancement without paying for recovery", async () => {
-    const initial = enhanced(0, {
-      gold: 500,
-      ownedBatIds: ["wood", "diamond"],
-      enhancement: { level: 0, status: "broken", equipped: true, version: 1 },
-    });
-    const next = {
-      ...initial,
-      equippedBatId: "diamond" as const,
-      revision: 1,
-      enhancement: { level: 0, status: "broken" as const, equipped: false, version: 1 as const },
-    };
-    const { egg, request, setServerProgress } = await openWorkshop(initial, (method) => {
-      expect(method).toBe(BASEBALL_RPC.equipBat);
-      return { batId: "diamond", changed: true, progress: next };
-    });
-    expect(request.mock.calls.some(([method]) => method === BASEBALL_RPC.beginAtBat)).toBe(false);
-    setServerProgress(next);
-    button(egg, '[data-shop-bat="diamond"]').click();
-    await flush(egg);
-    await click(egg, ".platformclaw-easter-egg__shop header button");
-    expect(requestCount(request, BASEBALL_RPC.beginAtBat)).toBe(1);
-    expect(egg.querySelector<HTMLElement>('[role="application"]')?.dataset.batId).toBe("diamond");
-    expect(
-      egg.querySelector<HTMLElement>('[role="application"]')?.dataset.roundEnhancement,
-    ).toBeUndefined();
-    expect(egg.progress).toMatchObject(next);
-    expect(egg.querySelector('[role="dialog"]')).toBeNull();
-  });
+  it.each([false, true])(
+    "blocks a broken enhancement regardless of equipped=%s until recovery",
+    async (equipped) => {
+      const initial = enhanced(0, {
+        gold: 500,
+        ownedBatIds: ["wood", "diamond"],
+        equippedBatId: "diamond",
+        enhancement: { level: 0, status: "broken", equipped, version: 1 },
+      });
+      const next = {
+        ...initial,
+        revision: 1,
+        enhancement: { level: 0, status: "ready" as const, equipped: true, version: 1 as const },
+      };
+      const { egg, request, setServerProgress } = await openWorkshop(initial, (method, params) => {
+        expect(method).toBe(BASEBALL_RPC.recoverBat);
+        expect(params.action).toBe("restart");
+        return {
+          requestId: params.requestId,
+          outcome: "restarted",
+          chargedGold: 0,
+          progress: next,
+        };
+      });
+      expect(egg.querySelector("[data-shop-bat]")).toBeNull();
+      expect(egg.querySelector("[data-forge-equip]")).toBeNull();
+      expect(requestCount(request, BASEBALL_RPC.beginAtBat)).toBe(0);
+      await click(egg, ".platformclaw-easter-egg__shop header button");
+      expect(requestCount(request, BASEBALL_RPC.beginAtBat)).toBe(0);
+      await click(egg, ".platformclaw-easter-egg__shop-trigger");
+      setServerProgress(next);
+      await click(egg, '[data-forge-recover="restart"]');
+      await click(egg, ".platformclaw-easter-egg__shop header button");
+      expect(requestCount(request, BASEBALL_RPC.beginAtBat)).toBe(1);
+      expect(egg.querySelector<HTMLElement>('[role="application"]')?.dataset).toMatchObject({
+        batId: "wood",
+        roundEnhancement: "0",
+      });
+      expect(egg.progress).toMatchObject({
+        ...initial,
+        revision: 1,
+        enhancement: next.enhancement,
+      });
+      expect(requestCount(request, BASEBALL_RPC.equipBat)).toBe(0);
+      expect(requestCount(request, BASEBALL_RPC.purchaseBat)).toBe(0);
+    },
+  );
 
   it("clears a definitively rejected pending attempt and refreshes gold without inventing a new retry", async () => {
     const { egg, request, setServerProgress } = await openWorkshop(
