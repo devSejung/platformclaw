@@ -265,6 +265,7 @@
   - changed-files:
       - any-glob-to-any-file:
           - "ui/**"
+          - "packages/platformclaw-control-plane/src/*dashboard*"
           - "src/gateway/control-ui.ts"
           - "src/gateway/control-ui-shared.ts"
           - "packages/gateway-protocol/src/**"

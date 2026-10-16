@@ -16,7 +16,7 @@ describe("PlatformClaw page help", () => {
   it("keeps the trigger beside the exact heading and the modal outside route content", async () => {
     const heading = document.createElement("h1");
     heading.className = "page-title";
-    heading.textContent = "Usage";
+    heading.textContent = "Dashboard";
     const query = document.createElement("input");
     query.className = "usage-query-input";
     const trigger = document.createElement("platformclaw-page-help-trigger");
@@ -27,17 +27,17 @@ describe("PlatformClaw page help", () => {
     await trigger.updateComplete;
     await element.updateComplete;
 
-    expect(heading.textContent).toBe("Usage");
+    expect(heading.textContent).toBe("Dashboard");
     expect(heading.nextElementSibling).toBe(trigger);
     expect(trigger.nextElementSibling).toBe(query);
     expect(query.isConnected).toBe(true);
     expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).toBeNull();
     const button = trigger.shadowRoot?.querySelector<HTMLButtonElement>("button");
-    expect(button?.ariaLabel).toBe("Help for Usage: understand tokens and cost");
+    expect(button?.ariaLabel).toBe("Help for Dashboard: understand platform activity");
     button?.click();
     await element.updateComplete;
     expect(element.shadowRoot?.querySelector(".help-panel h2")?.textContent).toBe(
-      "Usage: understand tokens and cost",
+      "Dashboard: understand platform activity",
     );
     expect(element.shadowRoot?.querySelector(".tour-progress")).toBeNull();
     expect(element.shadowRoot?.querySelector(".tour-highlight")).toBeNull();

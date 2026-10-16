@@ -365,7 +365,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await expect
       .poll(() => page.getByText("Chat & Sessions", { exact: true }).isVisible())
       .toBe(true);
-    for (const label of ["Usage", "Tasks", "Threads", "Activity"]) {
+    for (const label of ["Dashboard", "Tasks", "Threads", "Activity"]) {
       await expect
         .poll(() =>
           page.locator(".settings-sidebar__item-label", { hasText: label }).first().isVisible(),
@@ -375,15 +375,17 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     expect(await page.locator(".settings-sidebar__item-label", { hasText: "Memory" }).count()).toBe(
       0,
     );
-    await expect.poll(() => page.locator(".page-title").textContent()).toBe("Usage");
+    await expect
+      .poll(() => page.getByRole("heading", { name: "Dashboard", exact: true }).isVisible())
+      .toBe(true);
     const usageHelp = page.getByRole("button", {
-      name: "Help for Usage: understand tokens and cost",
+      name: "Help for Dashboard: understand platform activity",
     });
     await expect.poll(() => usageHelp.isVisible()).toBe(true);
     await usageHelp.click();
     await expect
       .poll(() =>
-        page.getByRole("heading", { name: "Usage: understand tokens and cost" }).isVisible(),
+        page.getByRole("heading", { name: "Dashboard: understand platform activity" }).isVisible(),
       )
       .toBe(true);
     if (captureUiProofEnabled) {

@@ -122,6 +122,33 @@ describe("registerMaintenanceCommands doctor action", () => {
     expect(options.repair).toBe(true);
   });
 
+  it.each(["--fix", "--repair", "--yes"])("enables repair-only with %s", async (repairFlag) => {
+    doctorCommand.mockResolvedValue(undefined);
+    await runMaintenanceCli(["doctor", "--repair-only", repairFlag]);
+    expect(commandCall(doctorCommand)[1].repairOnly).toBe(true);
+    expect(runtime.exit).toHaveBeenCalledWith(0);
+  });
+
+  it.each(
+    [
+      [],
+      ["--fix", "--lint"],
+      ["--fix", "--post-upgrade"],
+      ["--fix", "--deep"],
+      ["--fix", "--json"],
+      ["--fix", "--state-sqlite", "compact"],
+      ["--fix", "--session-sqlite", "import"],
+    ].map((args) => [args]),
+  )("rejects repair-only with incompatible options %j", async (args) => {
+    await runMaintenanceCli(["doctor", "--repair-only", ...args]);
+    expect(doctorCommand).not.toHaveBeenCalled();
+    expect(runDoctorLintCli).not.toHaveBeenCalled();
+    expect(runtime.exit).toHaveBeenCalledWith(2);
+    expect(runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining("doctor --repair-only requires"),
+    );
+  });
+
   it("passes session sqlite options to doctor command", async () => {
     doctorCommand.mockResolvedValue(undefined);
 
@@ -263,6 +290,7 @@ describe("registerMaintenanceCommands doctor action", () => {
       json: true,
       severityMin: "error",
       includeAllChecks: true,
+      deferredOnly: false,
       skipIds: ["a"],
       onlyIds: ["b"],
       allowExec: true,
@@ -279,6 +307,40 @@ describe("registerMaintenanceCommands doctor action", () => {
       "doctor lint options require --lint. Use `openclaw doctor --lint ...`.",
     );
     expect(runtime.exit).toHaveBeenCalledWith(2);
+  });
+
+  it("runs the classified deferred lint scope without invoking repairs", async () => {
+    runDoctorLintCli.mockResolvedValue(0);
+    await runMaintenanceCli(["doctor", "--lint", "--deferred", "--json"]);
+    expect(doctorCommand).not.toHaveBeenCalled();
+    expect(runDoctorLintCli).toHaveBeenCalledWith(
+      runtime,
+      expect.objectContaining({
+        deferredOnly: true,
+        json: true,
+        includeAllChecks: false,
+      }),
+    );
+    expect(runtime.exit).toHaveBeenCalledWith(0);
+  });
+
+  it.each(
+    [
+      ["--deferred"],
+      ["--lint", "--deferred", "--all"],
+      ["--lint", "--deferred", "--only", "core/doctor/state-integrity"],
+      ["--lint", "--deferred", "--skip", "core/doctor/memory-search"],
+      ["--lint", "--deferred", "--deep"],
+      ["--lint", "--deferred", "--fix"],
+    ].map((args) => [args]),
+  )("rejects incompatible deferred lint options %j", async (args) => {
+    await runMaintenanceCli(["doctor", ...args]);
+    expect(doctorCommand).not.toHaveBeenCalled();
+    expect(runDoctorLintCli).not.toHaveBeenCalled();
+    expect(runtime.exit).toHaveBeenCalledWith(2);
+    expect(runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining("doctor --deferred requires --lint"),
+    );
   });
 
   it("rejects --all outside doctor lint mode", async () => {

@@ -32,7 +32,9 @@ const auditDreamingArtifacts = vi.hoisted(() => vi.fn());
 const auditShortTermPromotionArtifacts = vi.hoisted(() => vi.fn());
 const repairDreamingArtifacts = vi.hoisted(() => vi.fn());
 const repairShortTermPromotionArtifacts = vi.hoisted(() => vi.fn());
-const noteWorkspaceMemoryHealth = vi.hoisted(() => vi.fn(async () => undefined));
+const noteWorkspaceMemoryHealth = vi.hoisted(() =>
+  vi.fn<typeof import("./doctor-workspace.js").noteWorkspaceMemoryHealth>(async () => undefined),
+);
 const maybeRepairWorkspaceMemoryHealth = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../../packages/terminal-core/src/note.js", () => ({
@@ -361,6 +363,42 @@ describe("noteMemorySearchHealth", () => {
       expect.stringContaining('Memory search provider is set to "local"'),
       "Memory search",
     );
+  });
+
+  it("collects workspace and QMD readiness without resolving or refreshing credentials", async () => {
+    const noteFn = vi.fn();
+    noteWorkspaceMemoryHealth.mockImplementationOnce(async (_cfg, scope) => {
+      scope?.noteFn?.('Agent "agent-default": workspace audit warning', "Workspace memory");
+    });
+    checkQmdBinaryAvailability.mockResolvedValueOnce({
+      available: false,
+      reason: "binary",
+      error: "qmd unavailable",
+    });
+
+    await runConfiguredMemorySearch(
+      "openai",
+      { memory: { backend: "qmd" } },
+      {
+        noteFn,
+        skipAuthProfileResolution: true,
+      },
+      openAiEmbeddingModel,
+    );
+
+    expect(noteFn).toHaveBeenCalledWith(
+      expect.stringContaining("workspace audit warning"),
+      "Workspace memory",
+    );
+    expect(noteFn).toHaveBeenCalledWith(
+      expect.stringContaining("qmd binary could not be started"),
+      "Memory search",
+    );
+    expect(checkQmdBinaryAvailability).toHaveBeenCalledOnce();
+    expect(resolveApiKeyForProvider).not.toHaveBeenCalled();
+    expect(maybeRepairWorkspaceMemoryHealth).not.toHaveBeenCalled();
+    expect(repairShortTermPromotionArtifacts).not.toHaveBeenCalled();
+    expect(note).not.toHaveBeenCalled();
   });
 
   it("warns when local provider with default model but gateway probe reports not ready", async () => {

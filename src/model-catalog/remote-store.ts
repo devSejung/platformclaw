@@ -5,6 +5,8 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
+import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
+import { tableExists } from "../state/openclaw-state-db-schema-helpers.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
@@ -49,20 +51,21 @@ function ensureRemoteModelCatalogSchema(options: OpenClawStateDatabaseOptions = 
   ensuredDatabases.add(database.db);
 }
 
-function openDatabase(options: OpenClawStateDatabaseOptions) {
-  ensureRemoteModelCatalogSchema(options);
-  return openOpenClawStateDatabase(options);
-}
-
 export function readRemoteModelCatalog(
   options: OpenClawStateDatabaseOptions = {},
 ): RemoteModelCatalogStoreRow | undefined {
-  const state = openDatabase(options);
-  const db = getNodeSqliteKysely<RemoteModelCatalogDatabase>(state.db);
-  return executeSqliteQueryTakeFirstSync(
-    state.db,
-    db.selectFrom("model_catalog_remote").selectAll().where("id", "=", 1),
-  );
+  // Catalog overlays are read beside live Gateway writers. A cache miss must
+  // not initialize state or run schema maintenance; the first refresh owns DDL.
+  return withExistingOpenClawStateDatabaseReadOnly(({ db: sqlite }) => {
+    if (!tableExists(sqlite, "model_catalog_remote")) {
+      return undefined;
+    }
+    const db = getNodeSqliteKysely<RemoteModelCatalogDatabase>(sqlite);
+    return executeSqliteQueryTakeFirstSync(
+      sqlite,
+      db.selectFrom("model_catalog_remote").selectAll().where("id", "=", 1),
+    );
+  }, options);
 }
 
 export function writeRemoteModelCatalog(

@@ -185,6 +185,9 @@ export async function runMemorySearchHealthContribution(
   if (ctx.prompter.shouldRepair) {
     await maybeRepairMemoryRecallHealth({ cfg: ctx.cfg, prompter: ctx.prompter });
   }
+  if (ctx.options.repairOnly === true) {
+    return;
+  }
   await noteMemorySearchHealth(ctx.cfg, {
     gatewayMemoryProbe: ctx.gatewayMemoryProbe ?? { checked: false, ready: false, skipped: false },
   });
@@ -229,8 +232,9 @@ export async function collectMemorySearchHealthFindings(
   const { noteMemorySearchHealth } = await import("../commands/doctor-memory-search.js");
   const notes: string[] = [];
   await noteMemorySearchHealth(ctx.cfg, {
-    includeWorkspaceMemoryHealth: false,
-    skipQmdBinaryProbe: true,
+    // This opt-in readiness check can inspect files and probe QMD, but must never refresh credentials.
+    includeWorkspaceMemoryHealth: true,
+    skipQmdBinaryProbe: false,
     skipAuthProfileResolution: true,
     gatewayMemoryProbe: { checked: false, ready: false, skipped: true },
     noteFn: (message) => notes.push(String(message)),

@@ -12,6 +12,7 @@ const STATE_SQLITE_CONFLICTING_OPTION_NAMES = [
   "workspaceSuggestions",
   "yes",
   "repair",
+  "repairOnly",
   "fix",
   "force",
   "nonInteractive",
@@ -19,6 +20,7 @@ const STATE_SQLITE_CONFLICTING_OPTION_NAMES = [
   "allowExec",
   "deep",
   "lint",
+  "deferred",
   "postUpgrade",
   "sessionSqlite",
   "sessionSqliteStore",
@@ -29,6 +31,26 @@ const STATE_SQLITE_CONFLICTING_OPTION_NAMES = [
   "all",
   "skip",
   "only",
+] as const;
+
+const DEFERRED_LINT_CONFLICTING_OPTIONS = [
+  "all",
+  "only",
+  "skip",
+  "deep",
+  "repair",
+  "fix",
+  "yes",
+  "force",
+  "repairOnly",
+  "postUpgrade",
+  "stateSqlite",
+  "sessionSqlite",
+  "sessionSqliteStore",
+  "sessionSqliteAgent",
+  "sessionSqliteAllAgents",
+  "githubIssue",
+  "generateGatewayToken",
 ] as const;
 
 /** Register maintenance commands that inspect or mutate local OpenClaw state. */
@@ -45,6 +67,11 @@ export function registerMaintenanceCommands(program: Command) {
     .option("--yes", "Accept defaults without prompting", false)
     .option("--repair", "Apply recommended repairs without prompting", false)
     .option("--fix", "Apply recommended repairs (alias for --repair)", false)
+    .option(
+      "--repair-only",
+      "With --fix or --yes: run repairs and defer diagnostic-only checks",
+      false,
+    )
     .option("--force", "Apply aggressive repairs (overwrites custom service config)", false)
     .option("--non-interactive", "Run without prompts (safe migrations only)", false)
     .option("--generate-gateway-token", "Generate and configure a gateway token", false)
@@ -55,6 +82,7 @@ export function registerMaintenanceCommands(program: Command) {
     )
     .option("--deep", "Scan system services for extra gateway installs", false)
     .option("--lint", "Run read-only health checks and report findings", false)
+    .option("--deferred", "With --lint: check only diagnostics deferred by --repair-only", false)
     .option(
       "--post-upgrade",
       "Emit plugin-compat findings only (machine-readable with --json)",
@@ -101,6 +129,32 @@ export function registerMaintenanceCommands(program: Command) {
     )
     .action(async (opts, command) => {
       if (
+        opts.deferred === true &&
+        (opts.lint !== true || hasExplicitOptions(command, DEFERRED_LINT_CONFLICTING_OPTIONS))
+      ) {
+        defaultRuntime.error(
+          "doctor --deferred requires --lint and cannot be combined with repair, maintenance, --all, --deep, --only, or --skip options.",
+        );
+        defaultRuntime.exit(2);
+        return;
+      }
+      if (
+        opts.repairOnly === true &&
+        (opts.lint === true ||
+          opts.postUpgrade === true ||
+          opts.stateSqlite !== undefined ||
+          opts.sessionSqlite !== undefined ||
+          opts.deep === true ||
+          opts.json === true ||
+          !(opts.repair === true || opts.fix === true || opts.yes === true))
+      ) {
+        defaultRuntime.error(
+          "doctor --repair-only requires --fix, --repair, or --yes and cannot be combined with diagnostic or SQLite maintenance modes.",
+        );
+        defaultRuntime.exit(2);
+        return;
+      }
+      if (
         typeof opts.stateSqlite === "string" &&
         hasExplicitOptions(command, STATE_SQLITE_CONFLICTING_OPTION_NAMES)
       ) {
@@ -119,6 +173,7 @@ export function registerMaintenanceCommands(program: Command) {
               json: Boolean(opts.json),
               severityMin: typeof opts.severityMin === "string" ? opts.severityMin : undefined,
               includeAllChecks: Boolean(opts.all),
+              deferredOnly: Boolean(opts.deferred),
               skipIds: Array.isArray(opts.skip) ? opts.skip : [],
               onlyIds: Array.isArray(opts.only) ? opts.only : [],
               allowExec: Boolean(opts.allowExec),
@@ -155,6 +210,7 @@ export function registerMaintenanceCommands(program: Command) {
           workspaceSuggestions: opts.workspaceSuggestions,
           yes: Boolean(opts.yes),
           repair: Boolean(opts.repair) || Boolean(opts.fix),
+          repairOnly: Boolean(opts.repairOnly),
           force: Boolean(opts.force),
           nonInteractive: Boolean(opts.nonInteractive),
           generateGatewayToken: Boolean(opts.generateGatewayToken),

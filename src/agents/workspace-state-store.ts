@@ -7,6 +7,7 @@ import {
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
 import { runSqliteDeferredTransactionSync } from "../infra/sqlite-transaction.js";
+import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
 import type { DB as OpenClawStateKyselyDatabase } from "../state/openclaw-state-db.generated.js";
 import {
   openOpenClawStateDatabase,
@@ -181,7 +182,7 @@ export function resolveWorkspaceStateIdentity(workspaceDir: string): WorkspaceSt
 
 function resolveWorkspaceIdentityFromDatabase(params: {
   workspaceDir: string;
-  database: ReturnType<typeof openOpenClawStateDatabase>;
+  database: Pick<ReturnType<typeof openOpenClawStateDatabase>, "db">;
 }): WorkspaceIdentityResolution {
   const aliases = resolveWorkspaceStateAliases(params.workspaceDir);
   const canonicalIdentity = aliases.at(-1)!;
@@ -291,7 +292,7 @@ export function registerWorkspaceStateAliasesInTransaction(params: {
 
 function readSnapshotFromDatabase(params: {
   identity: WorkspaceStateIdentity;
-  database: ReturnType<typeof openOpenClawStateDatabase>;
+  database: Pick<ReturnType<typeof openOpenClawStateDatabase>, "db">;
 }): WorkspaceStateSnapshot {
   const identity = params.identity;
   const kysely = getNodeSqliteKysely<WorkspaceStateDatabase>(params.database.db);
@@ -363,7 +364,26 @@ function readSnapshotFromDatabase(params: {
   };
 }
 
-export function readWorkspaceStateSnapshot(workspaceDir: string): WorkspaceStateSnapshot {
+export function readWorkspaceStateSnapshot(
+  workspaceDir: string,
+  options: { readOnly?: boolean } = {},
+): WorkspaceStateSnapshot {
+  if (options.readOnly) {
+    // Diagnostics may overlap the Gateway. Read the canonical identity without
+    // joining schema maintenance or registering newly observed path aliases.
+    return (
+      withExistingOpenClawStateDatabaseReadOnly((database) =>
+        runSqliteDeferredTransactionSync(database.db, () => {
+          const { identity } = resolveWorkspaceIdentityFromDatabase({ workspaceDir, database });
+          return readSnapshotFromDatabase({ identity, database });
+        }),
+      ) ?? {
+        identity: resolveWorkspaceStateIdentity(workspaceDir),
+        setupExists: false,
+        setup: { version: WORKSPACE_SETUP_STATE_VERSION },
+      }
+    );
+  }
   const database = openOpenClawStateDatabase();
   const initial = runSqliteDeferredTransactionSync(database.db, () => {
     const resolution = resolveWorkspaceIdentityFromDatabase({ workspaceDir, database });

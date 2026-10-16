@@ -190,6 +190,40 @@ afterEach(async () => {
 });
 
 describe("web announcements through the authenticated BFF", () => {
+  it("preserves dashboard accounts across announcement writes and a reopened SQLite store", async () => {
+    const accounts = await store.listDashboardAccounts();
+    expect(accounts.map((account) => account.accountId)).toEqual([
+      "admin.test",
+      "member.one",
+      "member.two",
+    ]);
+    const published = await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, draft());
+    expect(published.status).toBe(200);
+    expect(await store.listDashboardAccounts()).toEqual(accounts);
+    const reopened = openStore();
+    expect(await reopened.listDashboardAccounts()).toEqual(accounts);
+    expect(reopened.announcements.snapshot(now).announcement?.title).toBe("Synthetic notice");
+    const updated = await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+      ...draft(),
+      action: "update",
+      expectedRevision: 1,
+      title: "Updated synthetic notice",
+    });
+    expect(updated.status).toBe(200);
+    expect(reopened.announcements.snapshot(now).announcement?.title).toBe(
+      "Updated synthetic notice",
+    );
+    expect(await reopened.listDashboardAccounts()).toEqual(accounts);
+    const cancelled = await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+      action: "cancel",
+      expectedRevision: 2,
+    });
+    expect(cancelled.status).toBe(200);
+    expect(reopened.announcements.snapshot(now).announcement).toBeNull();
+    expect(await store.listDashboardAccounts()).toEqual(accounts);
+    expect(await reopened.listDashboardAccounts()).toEqual(accounts);
+  });
+
   it("enforces administrator, active session, Origin and field boundaries without exposing audit data", async () => {
     expect((await request(null)).status).toBe(401);
     expect((await request("member.one", ANNOUNCEMENTS_ADMIN_PATH)).status).toBe(403);

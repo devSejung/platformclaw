@@ -19,6 +19,7 @@ import { BrowserOrganizationService } from "./browser-organization-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import { JiraVocService, type JiraVocConfig } from "./browser-voc-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
+import { DashboardService } from "./dashboard-service.js";
 import { EmployeeSsoService, type EmployeeSsoConfig } from "./employee-sso.js";
 import { ExecCredentialService } from "./exec-credential-service.js";
 import {
@@ -345,6 +346,7 @@ export function createPlatformClawWebIngressRuntime(
     ),
     mcpAdministrationService: mcpAdministration,
     organizationService: organization,
+    dashboardService: new DashboardService({ store: auth.store, gateway }),
     ...(execCredentialService ? { execCredentialService } : {}),
     ...(vocService ? { vocService } : {}),
     ...(skillHub ? { skillHubService: skillHub } : {}),

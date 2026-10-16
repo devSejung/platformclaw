@@ -65,6 +65,8 @@ export type DoctorHealthContribution = FlowContribution & {
   surface: "health";
   healthChecks: readonly HealthCheckInput[];
   healthCheckIds: readonly string[];
+  /** Only declared diagnostics are safe to defer; mixed owners retain pre-start repairs. */
+  execution: "repair" | "diagnostic" | "mixed";
   run: (ctx: DoctorHealthFlowContext) => Promise<void>;
 };
 

@@ -18,6 +18,7 @@ import {
   handlePlatformClawBrowserAuthRequest,
   readPlatformClawSessionCookie,
 } from "./browser-auth-http.js";
+import { handlePlatformClawDashboardRequest } from "./browser-dashboard-http.js";
 import { handlePlatformClawExecCredentialRequest } from "./browser-exec-credentials-http.js";
 import { handlePlatformClawEmployeeExecutionRequest } from "./browser-execution-http.js";
 import { reportBrowserGatewayRequestFailure } from "./browser-gateway-errors.js";
@@ -280,6 +281,15 @@ export class PlatformClawWebIngressServer {
           service: this.options.mcpService,
           readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
+        this.options.dashboardService &&
+        (await handlePlatformClawDashboardRequest(req, res, {
+          service: this.options.dashboardService,
+          authService: this.options.authService,
         }))
       ) {
         return;

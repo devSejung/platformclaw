@@ -4,6 +4,7 @@ import { isSpaceConversationSession } from "../../../packages/platformclaw-contr
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
+import type { UsageRouteData } from "../pages/usage/usage-page.ts";
 import { loadAllPlatformClawLocales, loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import { loadPlatformClawChatRoute } from "./space-conversation-route.ts";
 import {
@@ -234,6 +235,54 @@ export class PlatformClawControlUiAdapter {
       enabledRouteIds,
       sessionCatalogFilter: (sessionKey) => !isSpaceConversationSession(sessionKey),
       routeOverrides: {
+        usage: {
+          loaderDeps: (_context, location) => location.search,
+          loader: async (context, options) =>
+            new URLSearchParams(options.location.search).get("view") === "personal"
+              ? import("../pages/usage/route.ts").then((module) =>
+                  module.loadUsageRouteData(context),
+                )
+              : null,
+          component: () =>
+            Promise.all([
+              import("./dashboard-page.ts"),
+              import("../pages/usage/usage-page.ts"),
+              loadPlatformClawLocale(),
+            ]).then(() => ({
+              header: false,
+              render: (routeData: unknown) => {
+                const data = routeData as UsageRouteData | null | undefined;
+                return html`
+                  <nav
+                    class="pc-dashboard-route-tabs"
+                    aria-label=${t("platformClaw.dashboard.title")}
+                  >
+                    <a
+                      class="btn btn--sm ${data ? "" : "primary"}"
+                      href=${`${PLATFORMCLAW_APP_PATH}/settings/usage`}
+                      aria-current=${data ? nothing : "page"}
+                      >${t("platformClaw.dashboard.overview")}</a
+                    >
+                    <a
+                      class="btn btn--sm ${data ? "primary" : ""}"
+                      href=${`${PLATFORMCLAW_APP_PATH}/settings/usage?view=personal`}
+                      aria-current=${data ? "page" : nothing}
+                      >${t("platformClaw.dashboard.personal")}</a
+                    >
+                    ${renderPageHelpTrigger("usage")}
+                  </nav>
+                  ${data
+                    ? html`<openclaw-usage-page .routeData=${data}></openclaw-usage-page>`
+                    : html`
+                        <platformclaw-dashboard-page
+                          .fetchImpl=${this.fetchImpl}
+                          .onUnauthenticated=${onUnauthenticated}
+                        ></platformclaw-dashboard-page>
+                      `}
+                `;
+              },
+            })),
+        },
         chat: {
           loader: (context, options) =>
             loadPlatformClawChatRoute(context, options.location, "chat", options.signal),
@@ -395,6 +444,11 @@ export class PlatformClawControlUiAdapter {
         sidebarEntries,
         settingsNavigationMode: "takeover",
         routeCopy: {
+          usage: {
+            title: () => t("platformClaw.dashboard.title"),
+            subtitle: () => t("platformClaw.dashboard.subtitle"),
+            settingsLabel: () => t("platformClaw.dashboard.title"),
+          },
           spaces: {
             title: () => t("platformClaw.spaces.title"),
             subtitle: () => t("platformClaw.spaces.intro"),

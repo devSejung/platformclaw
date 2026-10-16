@@ -64,6 +64,7 @@ export function resolveInitialDoctorHealthContributions(params: {
     }),
     createDoctorHealthContribution({
       id: "doctor:gateway-config",
+      execution: "diagnostic",
       label: "Gateway config",
       healthCheckIds: ["core/doctor/gateway-config"],
       run: params.runGatewayConfigHealth,
@@ -95,6 +96,7 @@ export function resolveInitialDoctorHealthContributions(params: {
     }),
     createDoctorHealthContribution({
       id: "doctor:command-owner",
+      execution: "diagnostic",
       label: "Command owner",
       healthCheckIds: ["core/doctor/command-owner"],
       run: runCommandOwnerHealth,
@@ -263,6 +265,7 @@ export function resolveInitialDoctorHealthContributions(params: {
     }),
     createDoctorHealthContribution({
       id: "doctor:disk-space",
+      execution: "diagnostic",
       label: "Disk space",
       healthChecks: {
         description: "Low disk space around the OpenClaw state directory is a finding.",
