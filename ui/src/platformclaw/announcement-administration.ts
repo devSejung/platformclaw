@@ -14,7 +14,7 @@ function localTime(timestamp: number): string {
   return new Date(timestamp - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
-export class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
+class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => {};
   @state() private opened = false;
