@@ -300,15 +300,17 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
   }
 
   private bindForm(action: string, mapper: (form: FormData) => Record<string, unknown>): void {
-    this.root
-      .querySelector<HTMLFormElement>(`form[data-action='${action}']`)
-      ?.addEventListener("submit", (event) => {
+    for (const form of this.root.querySelectorAll<HTMLFormElement>(
+      `form[data-action='${action}']`,
+    )) {
+      form.addEventListener("submit", (event) => {
         event.preventDefault();
         void this.mutate({
           action,
-          ...mapper(new FormData(event.currentTarget as HTMLFormElement)),
+          ...mapper(new FormData(form)),
         });
       });
+    }
   }
 
   private bindEvents(): void {

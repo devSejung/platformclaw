@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import "./skill-hub-page.ts";
+import { registerSkillHubDetailTests } from "./detail-controller.test-support.ts";
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -845,3 +846,5 @@ describe("SkillHubPage", () => {
     expect(page.querySelector('.skill-hub-upload [role="alert"]')).toBeNull();
   });
 });
+
+registerSkillHubDetailTests();

@@ -4,58 +4,33 @@ import "../../components/modal-dialog.ts";
 import { titleForRoute } from "../../app-navigation.ts";
 import { t } from "../../i18n/index.ts";
 import {
-  installPlatformClawHubSkill,
-  forcePublishPlatformClawHubSkill,
-  grantPlatformClawSkillHubAccess,
   loadPlatformClawSkillHubConfig,
-  loadPlatformClawSkillHubDetail,
   loadPlatformClawSkillHubNotifications,
   markPlatformClawSkillHubNotificationsRead,
   publishPlatformClawSkillArchive,
-  removePlatformClawSkillHubAccess,
-  searchPlatformClawSkillHubManagementUsers,
   searchPlatformClawSkillHub,
-  transferPlatformClawSkillHubOwner,
-  type PlatformClawSkillHubConfig,
-  type PlatformClawSkillHubDetail,
   type PlatformClawSkillHubMessage,
-  type PlatformClawSkillHubManagementUser,
   type PlatformClawSkillHubNotification,
   type PlatformClawSkillHubSearchItem,
-  PlatformClawSkillHubRequestError,
 } from "../../platformclaw/skill-hub.ts";
 import "../../styles/plugins.css";
 import "../../styles/skill-hub.css";
 import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
-import { SkillHubAdminController } from "./admin-controller.ts";
 import { renderSkillHubAdmin } from "./admin.ts";
-import { SkillHubDeleteController } from "./delete-controller.ts";
+import { SkillHubDetailController } from "./detail-controller.ts";
 import {
   renderSkillHubNotifications,
   renderSkillHubUpload,
   renderSkillHubVersionChange,
 } from "./dialogs.ts";
-import {
-  skillHubScannerStatusLabel,
-  skillHubSkillStatusLabel,
-  skillHubVersionStatusLabel,
-  skillHubVisibilityLabel,
-} from "./labels.ts";
-import { renderSkillHubManagement } from "./management.ts";
 import * as pageSupport from "./page-support.ts";
 import { SkillHubWorkspacePublishController } from "./workspace-publish-controller.ts";
 
-class SkillHubPage extends SkillHubAdminController {
-  @state() private config: PlatformClawSkillHubConfig | null = null;
+class SkillHubPage extends SkillHubDetailController {
   @state() private query = pageSupport.readSkillHubInitialQuery(window.location.href);
   @state() private results: PlatformClawSkillHubSearchItem[] | null = null;
   @state() private total = 0;
   @state() private loading = true;
-  @state() private detailRef: pageSupport.SkillHubRef | null = null;
-  @state() private detail: PlatformClawSkillHubDetail | null = null;
-  @state() private detailLoading = false;
-  @state() private selectedVersion = "";
-  @state() private installing: pageSupport.InstallTarget | null = null;
   @state() private notificationsOpen = false;
   @state() private notificationsLoading = false;
   @state() private notificationsError: string | null = null;
@@ -67,23 +42,8 @@ class SkillHubPage extends SkillHubAdminController {
   @state() private uploadVersion = "1.0.0";
   @state() private uploadVisibility = "NAMESPACE_ONLY";
   @state() private uploading = false;
-  @state() private managementBusy = false;
-  @state() private ownerUserId = "";
-  @state() private accessUserId = "";
-  @state() private ownerQuery = "";
-  @state() private accessQuery = "";
-  @state() private ownerCandidates: PlatformClawSkillHubManagementUser[] = [];
-  @state() private accessCandidates: PlatformClawSkillHubManagementUser[] = [];
-  @state() private forceReason = "";
-  @state() private forceAcknowledged = false;
-  @state() private pendingVersionChange: pageSupport.PendingVersionChange | null = null;
   private readonly workspacePublish = new SkillHubWorkspacePublishController(this, {
     refresh: () => this.search(),
-    setMessage: (message) => (this.message = message),
-  });
-  private readonly skillDelete = new SkillHubDeleteController(this, {
-    refresh: () => this.search(),
-    closeDetail: () => this.closeDetail(),
     setMessage: (message) => (this.message = message),
   });
 
@@ -142,44 +102,6 @@ class SkillHubPage extends SkillHubAdminController {
     }
   }
 
-  private async searchManagementUsers(query: string, purpose: "owner" | "access") {
-    if (!this.detailRef || query.trim().length < 2) {
-      if (purpose === "owner") {
-        this.ownerCandidates = [];
-      } else {
-        this.accessCandidates = [];
-      }
-      return;
-    }
-    const normalized = query.trim();
-    const ref = { ...this.detailRef };
-    try {
-      const result = await searchPlatformClawSkillHubManagementUsers(
-        ref.namespace,
-        ref.slug,
-        normalized,
-        purpose,
-      );
-      if (
-        (purpose === "owner" ? this.ownerQuery : this.accessQuery).trim() !== normalized ||
-        this.detailRef?.namespace !== ref.namespace ||
-        this.detailRef?.slug !== ref.slug
-      ) {
-        return;
-      }
-      if (purpose === "owner") {
-        this.ownerCandidates = result.items;
-      } else {
-        this.accessCandidates = result.items;
-      }
-    } catch (error) {
-      this.message = {
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
   private async publishZip() {
     if (!this.uploadFile || this.uploading) {
       return;
@@ -216,7 +138,7 @@ class SkillHubPage extends SkillHubAdminController {
     }
   }
 
-  private async search() {
+  protected override async search() {
     this.loading = true;
     this.error = null;
     this.message = null;
@@ -236,314 +158,6 @@ class SkillHubPage extends SkillHubAdminController {
     } finally {
       this.loading = false;
     }
-  }
-
-  private async openDetail(ref: pageSupport.SkillHubRef) {
-    this.resetManagementSelection();
-    this.detailRef = { namespace: ref.namespace, slug: ref.slug };
-    this.detail = null;
-    this.detailLoading = true;
-    this.message = null;
-    try {
-      this.detail = await loadPlatformClawSkillHubDetail(ref.namespace, ref.slug);
-      this.selectedVersion =
-        this.detail.versions.find((version) => version.downloadAvailable)?.version ?? "";
-    } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
-    } finally {
-      this.detailLoading = false;
-    }
-  }
-
-  private resetManagementSelection() {
-    this.ownerUserId = "";
-    this.accessUserId = "";
-    this.ownerQuery = "";
-    this.accessQuery = "";
-    this.ownerCandidates = [];
-    this.accessCandidates = [];
-  }
-
-  private closeDetail() {
-    this.detailRef = null;
-    this.skillDelete.clear();
-    this.resetManagementSelection();
-  }
-
-  private async install(
-    target: pageSupport.InstallTarget,
-    versionChange?: pageSupport.PendingVersionChange,
-  ) {
-    if (!this.detailRef || !this.selectedVersion || this.installing) {
-      return;
-    }
-    this.installing = target;
-    this.message = null;
-    try {
-      const result = await installPlatformClawHubSkill({
-        ...this.detailRef,
-        version: this.selectedVersion,
-        destination: target,
-        ...(versionChange
-          ? {
-              acknowledgedReplacement: true as const,
-              currentRevision: versionChange.currentRevision,
-            }
-          : {}),
-      });
-      this.pendingVersionChange = null;
-      this.message = {
-        kind: "success",
-        text: t("skillHubPage.installed", {
-          skill: `${result.slug}@${result.version}`,
-          target: t(
-            target === "assigned_vm" ? "platformClaw.execution.vm" : "platformClaw.execution.basic",
-          ),
-        }),
-      };
-    } catch (error) {
-      if (
-        error instanceof PlatformClawSkillHubRequestError &&
-        error.details?.code === "existing-skill-replacement-required" &&
-        typeof error.details.currentVersion === "string" &&
-        typeof error.details.currentRevision === "string" &&
-        typeof error.details.requestedVersion === "string" &&
-        (error.details.direction === "upgrade" ||
-          error.details.direction === "downgrade" ||
-          error.details.direction === "reinstall")
-      ) {
-        this.pendingVersionChange = {
-          target,
-          currentVersion: error.details.currentVersion,
-          currentRevision: error.details.currentRevision,
-          requestedVersion: error.details.requestedVersion,
-          direction: error.details.direction,
-        };
-        return;
-      }
-      this.message = {
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      this.installing = null;
-    }
-  }
-
-  private async runManagement(
-    operation: () => Promise<unknown>,
-    success: string | ((result: unknown) => PlatformClawSkillHubMessage),
-  ) {
-    if (!this.detailRef || this.managementBusy) {
-      return;
-    }
-    this.managementBusy = true;
-    try {
-      const result = await operation();
-      const ref = this.detailRef;
-      await this.openDetail(ref);
-      this.message =
-        typeof success === "function" ? success(result) : { kind: "success", text: success };
-    } catch (error) {
-      this.message = {
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      this.managementBusy = false;
-    }
-  }
-
-  private renderDetail() {
-    if (!this.detailRef) {
-      return nothing;
-    }
-    const skill = this.detail?.skill;
-    const basic = this.config?.installTargets?.find(
-      (target) => target.target === "platform_server",
-    );
-    const vm = this.config?.installTargets?.find((target) => target.target === "assigned_vm");
-    return html`<openclaw-modal-dialog
-      label=${skill?.displayName ?? this.detailRef.slug}
-      @modal-cancel=${() => this.closeDetail()}
-    >
-      <article class="skill-hub-detail">
-        <header class="skill-hub-detail__header">
-          <div>
-            <span class="skill-hub-card__namespace">${this.detailRef.namespace}</span>
-            <h2>${skill?.displayName ?? this.detailRef.slug}</h2>
-            ${skill?.summary ? html`<p>${skill.summary}</p>` : nothing}
-          </div>
-          <button class="btn btn--sm" @click=${() => this.closeDetail()}>
-            ${t("skillsPage.close")}
-          </button>
-        </header>
-        ${this.detailLoading
-          ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
-          : html`
-              <div class="skill-hub-badges">
-                <span class="skill-hub-badge">${skillHubVisibilityLabel(skill?.visibility)}</span>
-                <span class="skill-hub-badge">${skillHubSkillStatusLabel(skill?.status)}</span>
-                ${this.detail?.scanner
-                  ? html`<span class="skill-hub-badge is-${this.detail.scanner.status}">
-                      ${skillHubScannerStatusLabel(this.detail.scanner.status)}
-                    </span>`
-                  : nothing}
-              </div>
-              <section class="skill-hub-versions">
-                <h3>${t("skillHubPage.versions")}</h3>
-                ${this.detail?.versions.map(
-                  (version) => html`<label class="skill-hub-version">
-                    <input
-                      type="radio"
-                      name="skill-hub-version"
-                      value=${version.version}
-                      .checked=${this.selectedVersion === version.version}
-                      ?disabled=${!version.downloadAvailable}
-                      @change=${() => (this.selectedVersion = version.version)}
-                    />
-                    <span>
-                      <strong>${pageSupport.skillHubVersionLabel(version.version)}</strong>
-                      <small
-                        >${version.changelog ?? skillHubVersionStatusLabel(version.status)}</small
-                      >
-                    </span>
-                    <span class="skill-hub-version__size"
-                      >${version.totalSize ? `${Math.ceil(version.totalSize / 1024)} KB` : ""}</span
-                    >
-                  </label>`,
-                )}
-              </section>
-              <div class="skill-hub-install-actions">
-                <button
-                  class="btn primary"
-                  ?disabled=${!this.selectedVersion ||
-                  this.installing !== null ||
-                  basic?.available === false}
-                  title=${basic?.disabledReason ?? ""}
-                  @click=${() => this.install("platform_server")}
-                >
-                  ${this.installing === "platform_server"
-                    ? t("skillsPage.skillHub.installing")
-                    : t("skillHubPage.installBasic")}
-                </button>
-                <button
-                  class="btn"
-                  ?disabled=${!this.selectedVersion ||
-                  this.installing !== null ||
-                  vm?.available === false}
-                  title=${vm?.disabledReason ?? ""}
-                  @click=${() => this.install("assigned_vm")}
-                >
-                  ${this.installing === "assigned_vm"
-                    ? t("skillsPage.skillHub.installing")
-                    : t("skillHubPage.installVm")}
-                </button>
-              </div>
-              ${renderSkillHubManagement({
-                detail: this.detail,
-                ownerQuery: this.ownerQuery,
-                accessQuery: this.accessQuery,
-                ownerCandidates: this.ownerCandidates,
-                accessCandidates: this.accessCandidates,
-                selectedOwnerUserId: this.ownerUserId,
-                selectedAccessUserId: this.accessUserId,
-                forceReason: this.forceReason,
-                forceAcknowledged: this.forceAcknowledged,
-                busy: this.managementBusy || this.skillDelete.busy,
-                onOwnerQuery: (value) => {
-                  this.ownerQuery = value;
-                  this.ownerUserId = "";
-                  void this.searchManagementUsers(value, "owner");
-                },
-                onSelectOwner: (user) => {
-                  this.ownerUserId = user.id;
-                  this.ownerQuery = user.displayName ?? user.accountId;
-                  this.ownerCandidates = [];
-                },
-                onTransferOwner: () => {
-                  void this.runManagement(
-                    () =>
-                      transferPlatformClawSkillHubOwner(
-                        this.detailRef!.namespace,
-                        this.detailRef!.slug,
-                        this.ownerUserId,
-                        this.detail!.owner!.revision!,
-                      ),
-                    t("skillHubPage.ownerTransferred"),
-                  );
-                },
-                onAccessQuery: (value) => {
-                  this.accessQuery = value;
-                  this.accessUserId = "";
-                  void this.searchManagementUsers(value, "access");
-                },
-                onSelectAccess: (user) => {
-                  this.accessUserId = user.id;
-                  this.accessQuery = user.displayName ?? user.accountId;
-                  this.accessCandidates = [];
-                },
-                onGrantAccess: () => {
-                  void this.runManagement(
-                    () =>
-                      grantPlatformClawSkillHubAccess(
-                        this.detailRef!.namespace,
-                        this.detailRef!.slug,
-                        { userId: this.accessUserId, inheritVersions: true },
-                      ),
-                    t("skillHubPage.accessGranted"),
-                  );
-                },
-                onRemoveAccess: (userId) => {
-                  void this.runManagement(
-                    () =>
-                      removePlatformClawSkillHubAccess(
-                        this.detailRef!.namespace,
-                        this.detailRef!.slug,
-                        userId,
-                      ),
-                    t("skillHubPage.accessRevoked"),
-                  );
-                },
-                onForceReason: (value) => (this.forceReason = value),
-                onForceAcknowledged: (value) => (this.forceAcknowledged = value),
-                onForcePublish: () => {
-                  void this.runManagement(
-                    () =>
-                      forcePublishPlatformClawHubSkill(
-                        this.detailRef!.namespace,
-                        this.detailRef!.slug,
-                        {
-                          version: this.selectedVersion,
-                          acknowledged: true,
-                          reason: this.forceReason,
-                        },
-                      ),
-                    (result) =>
-                      (result as { ownershipReviewRequired?: true }).ownershipReviewRequired
-                        ? {
-                            kind: "warning",
-                            text: t("skillHubPage.forcePublishedNeedsOwnershipReview"),
-                          }
-                        : { kind: "success", text: t("skillHubPage.forcePublished") },
-                  );
-                },
-                onDeleteSkill: () => this.skillDelete.request(this.detailRef, this.detail),
-              })}
-              ${this.message
-                ? html`<div
-                    class="callout ${this.message.kind === "error"
-                      ? "danger"
-                      : this.message.kind === "warning"
-                        ? "warning"
-                        : "success"}"
-                  >
-                    ${this.message.text}
-                  </div>`
-                : nothing}
-            `}
-      </article>
-    </openclaw-modal-dialog>`;
   }
 
   override render() {
