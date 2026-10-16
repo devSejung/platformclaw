@@ -1,5 +1,8 @@
+import { EditorView } from "@codemirror/view";
 import { expectDefined } from "@openclaw/normalization-core";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { i18n } from "../../../i18n/index.ts";
+import { captureI18nStateForTesting } from "../../../i18n/lib/translate.test-support.ts";
 import "../../../styles.css";
 import "./chat-sidebar.ts";
 
@@ -8,6 +11,7 @@ import "./chat-sidebar.ts";
 // Importing vitest/browser statically would throw during jsdom collection.
 const browserMode = "__vitest_browser__" in globalThis;
 let userEvent: (typeof import("vitest/browser"))["userEvent"];
+const restoreLocale = captureI18nStateForTesting();
 
 type FileSidebarContent = {
   kind: "file";
@@ -33,9 +37,13 @@ type FileSidebarContent = {
 
 beforeAll(async () => {
   if (browserMode) {
+    // Button assertions use English; the browser may inherit a different host locale.
+    await i18n.setLocale("en");
     ({ userEvent } = await import("vitest/browser"));
   }
 });
+
+afterAll(restoreLocale);
 
 type DetailPanel = HTMLElement & {
   content: FileSidebarContent;
@@ -72,6 +80,62 @@ afterEach(() => {
 });
 
 describe.runIf(browserMode)("chat file editor", () => {
+  it("keeps the editor idle during unrelated panel updates while preserving edits", async () => {
+    const save = vi.fn().mockResolvedValue({ ok: true, hash: "hash-2" });
+    const panel = await mountFile({
+      kind: "file",
+      path: "idle-editor.txt",
+      name: "idle-editor.txt",
+      content: "first\nsecond\nthird",
+      line: 2,
+      edit: { hash: "hash-1", save, fetchLatest: vi.fn() },
+    });
+    await userEvent.click(button(panel, "Edit file"));
+    const editor = panel.querySelector<HTMLElement>(".cm-content")!;
+    await userEvent.fill(editor, "draft\nsecond\nthird");
+    const draft = editor.textContent;
+    const updates = vi.spyOn(EditorView.prototype, "update");
+    try {
+      for (let index = 0; index < 10; index += 1) {
+        Object.assign(panel, { allowExternalEmbedUrls: index % 2 === 0 });
+        await panel.updateComplete;
+        await Promise.resolve();
+      }
+      expect(updates).not.toHaveBeenCalled();
+      expect(panel.querySelector(".cm-content")).toBe(editor);
+      expect(document.activeElement).toBe(editor);
+      expect(editor.textContent).toBe(draft);
+
+      await userEvent.click(button(panel, "Discard"));
+      expect(editor.getAttribute("contenteditable")).toBe("false");
+
+      // Equal line inputs must be reapplied after replacing the document's positions.
+      panel.content.content = "a longer first line\nsecond\nthird";
+      Object.assign(panel, { allowExternalEmbedUrls: true });
+      await panel.updateComplete;
+      await expect
+        .poll(() => [...editor.querySelectorAll(".cm-line")].map((line) => line.textContent))
+        .toEqual(["a longer first line", "second", "third"]);
+      const target = editor.querySelector(".file-view__line--target");
+      expect(target?.textContent).toBe("second");
+      expect(target?.getAttribute("data-line")).toBe("2");
+      expect(panel.querySelector(".cm-content")).toBe(editor);
+
+      await userEvent.click(button(panel, "Edit file"));
+      await userEvent.fill(editor, "saved after idle\nsecond\nthird");
+      await userEvent.click(button(panel, "Save"));
+      await expect.poll(() => save.mock.calls.length).toBe(1);
+      expect(save).toHaveBeenCalledWith({
+        content: "saved after idle\nsecond\nthird",
+        expectedHash: "hash-1",
+      });
+      await expect.poll(() => button(panel, "Save").disabled).toBe(true);
+      expect(editor.getAttribute("contenteditable")).toBe("true");
+    } finally {
+      updates.mockRestore();
+    }
+  });
+
   it("renders content and decorates the requested line", async () => {
     const panel = await mountFile({
       kind: "file",
@@ -84,6 +148,41 @@ describe.runIf(browserMode)("chat file editor", () => {
     expect(panel.querySelector(".cm-content")?.textContent).toContain("const second = 2;");
     const target = panel.querySelector(".file-view__line--target");
     expect(target?.getAttribute("data-line")).toBe("2");
+  });
+
+  it("refreshes search matches and the current match without replacing the editor", async () => {
+    const panel = await mountFile({
+      kind: "file",
+      path: "search.txt",
+      name: "search.txt",
+      content: "alpha\nbeta\nalpha beta",
+      line: 2,
+    });
+    const editor = panel.querySelector(".cm-content");
+    await userEvent.click(button(panel, "Search in file"));
+    const search = panel.querySelector<HTMLInputElement>(".file-view__search input")!;
+    await userEvent.fill(search, "alpha");
+    await expect
+      .poll(() =>
+        [...panel.querySelectorAll(".file-view__line--match")].map((line) => line.textContent),
+      )
+      .toEqual(["alpha", "alpha beta"]);
+    await userEvent.click(button(panel, "Next match"));
+    await expect
+      .poll(() => panel.querySelector(".file-view__line--current")?.textContent)
+      .toBe("alpha beta");
+    await userEvent.fill(search, "beta");
+    await expect
+      .poll(() =>
+        [...panel.querySelectorAll(".file-view__line--match")].map((line) => line.textContent),
+      )
+      .toEqual(["beta", "alpha beta"]);
+    expect(panel.querySelector(".file-view__line--current")?.textContent).toBe("beta");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => panel.querySelectorAll(".file-view__line--match").length).toBe(0);
+    expect(panel.querySelector(".file-view__line--current")).toBeNull();
+    expect(panel.querySelector(".file-view__line--target")?.textContent).toBe("beta");
+    expect(panel.querySelector(".cm-content")).toBe(editor);
   });
 
   it("enables save after an edit and keeps the saved content", async () => {

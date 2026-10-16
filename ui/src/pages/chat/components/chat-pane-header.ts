@@ -290,6 +290,10 @@ export function renderChatPaneHeader(props: ChatPaneHeaderProps) {
             @input=${(event: InputEvent) =>
               props.onRenameInput((event.currentTarget as HTMLInputElement).value)}
             @keydown=${(event: KeyboardEvent) => {
+              // IME confirmation and cancellation belong to the in-progress composition.
+              if (event.isComposing || event.keyCode === 229) {
+                return;
+              }
               if (event.key === "Enter") {
                 event.preventDefault();
                 props.onCommitRename();

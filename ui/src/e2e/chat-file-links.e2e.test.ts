@@ -34,6 +34,7 @@ describeControlUiE2e("Control UI chat file links", () => {
 
   it("opens the selected file from chat and the workspace root", async () => {
     const context = await browser.newContext({
+      locale: "en-US",
       recordVideo: { dir: artifactDir, size: { height: 900, width: 1280 } },
       viewport: { height: 900, width: 1280 },
     });
@@ -187,6 +188,7 @@ describeControlUiE2e("Control UI chat file links", () => {
       },
     } satisfies Record<string, Record<string, unknown>>;
     const context = await browser.newContext({
+      locale: "en-US",
       recordVideo: { dir: artifactDir, size: { height: 900, width: 1280 } },
       viewport: { height: 900, width: 1280 },
     });

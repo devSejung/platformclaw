@@ -122,6 +122,10 @@ export async function createFileEditorView(params: {
   });
 
   const clampLine = (line: number) => Math.max(1, Math.min(Math.floor(line), view.state.doc.lines));
+  // Panel synchronization derives a fresh match array even when its values are unchanged.
+  let previousDecorations:
+    | (FileEditorDecorations & { document: EditorState["doc"]; matches: readonly number[] })
+    | undefined;
 
   return {
     destroy: () => {
@@ -146,7 +150,7 @@ export async function createFileEditorView(params: {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: content } });
     },
     setEditable: (nextEditable) => {
-      if (destroyed) {
+      if (destroyed || nextEditable === isEditable) {
         return;
       }
       // Tracked so a setContent state rebuild keeps the current edit mode.
@@ -162,6 +166,18 @@ export async function createFileEditorView(params: {
       if (destroyed) {
         return;
       }
+      // A changed document needs new line anchors even when search inputs are equal.
+      const previous = previousDecorations;
+      if (
+        previous?.document === view.state.doc &&
+        previous.targetLine === targetLine &&
+        previous.currentMatch === currentMatch &&
+        previous.matches.length === matches.length &&
+        matches.every((line, index) => line === previous.matches[index])
+      ) {
+        return;
+      }
+      previousDecorations = { document: view.state.doc, targetLine, matches, currentMatch };
       const matchingLines = new Set(matches);
       const lineNumbersToDecorate = new Set(matches);
       if (targetLine != null) {
