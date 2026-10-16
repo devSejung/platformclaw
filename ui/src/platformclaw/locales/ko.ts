@@ -1,4 +1,5 @@
 import type { TranslationMap } from "../../i18n/index.ts";
+import { announcementTranslations } from "./ko-announcements.ts";
 import { baseballTranslations } from "./ko-baseball.ts";
 import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
@@ -84,6 +85,7 @@ export const nativeTranslations = {
 
 export const translations: Readonly<Record<string, string>> = {
   ...baseballTranslations,
+  ...announcementTranslations,
   ...racingTranslations,
   ...vaultTranslations,
   ...spaceTranslations,

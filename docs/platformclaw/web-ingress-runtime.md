@@ -414,6 +414,51 @@ Only `baseUrl`, `projectKey`, `issueType`, and `authorization` are required.
 The file stays server-side; the browser descriptor receives only a capability
 flag and never receives the Jira URL or credential.
 
+## Publish a web announcement
+
+Open **Web announcements** in the administrator menu. Enter a title, plain text
+message, type, and exposure end time, then select **Preview** and **Publish**.
+Maintenance notices also require a scheduled maintenance time. Times are entered
+in the browser's displayed local time zone and stored as UTC timestamps. There
+is one current announcement; publishing a new one replaces it. Reopen the same
+menu to preview an edit or confirm cancellation. Reload after a revision conflict
+before editing again.
+
+General notices appear above every signed-in web page. Maintenance notices also
+open an accessible dialog once per account and announcement revision. Closing
+the dialog leaves the countdown banner; **View announcement** opens it again.
+The scheduled time changes the text to a maintenance-scheduled state. It does
+not stop the server, cancel work, or send Knox/CDEP messages. Exposure ends at
+the configured end time, including when the browser cannot reach the BFF.
+
+The BFF owns authenticated `GET /platformclaw/api/announcements` and
+administrator-only `GET`/`POST /platformclaw/api/admin/announcements`. Writes
+require the configured public Origin and an active administrator checked again
+inside the SQLite transaction. Public snapshots contain only the notice,
+revision, and server time. Audit actor/details remain server-side. The countdown
+uses a server clock sample, half the request round-trip time, and monotonic
+elapsed browser time; client wall-clock changes do not change that sample.
+
+Additive `web_announcement` and `web_announcement_seen` tables live in the
+existing control-plane database without changing schema version 3. Notice
+revisions, cancellation, and popup claims survive restarts. Popup claims use
+authenticated, Origin-checked `POST /platformclaw/api/announcements/seen` and
+serialize competing tabs/devices through SQLite. Claims prioritize at-most-once
+automatic display: if the response is lost or the tab closes before rendering,
+the automatic dialog may be skipped. The persistent banner and manual reopen
+remain available. Dialogs wait for an existing modal to close.
+
+The shipped Compose profile runs one `platformclaw-control` BFF with a persistent
+control database volume. Local BFF WebSocket signals carry no announcement
+content. Browsers also fetch every 15 seconds and on reconnect, network recovery,
+or returning to the tab. BFF processes using the same local SQLite database see
+missed changes on that next successful fetch; this does not provide replication
+between independent databases or support SQLite WAL on network filesystems.
+Do not scale across hosts with separate database copies. When all requests fail,
+the last snapshot remains visible until its exposure deadline and a retry notice
+is shown. Background refresh and popup-claim timeouts are ten seconds; latency and suspended tabs can delay
+refresh, and resumed tabs resample the server clock.
+
 ## Current boundary
 
 The package now provides the runtime composition, deployment configuration,

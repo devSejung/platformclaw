@@ -22,6 +22,27 @@ export {
 
 export const PLATFORMCLAW_CONTROL_SCHEMA_VERSION = 3;
 
+// Additive feature state: older builds can continue using schema v3 unchanged.
+export function ensureWebAnnouncementSchema(db: DatabaseSync): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS web_announcement (
+    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+    id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('general', 'maintenance')),
+    maintenance_at INTEGER,
+    expires_at INTEGER NOT NULL,
+    cancelled INTEGER NOT NULL CHECK (cancelled IN (0, 1)),
+    CHECK ((kind = 'general' AND maintenance_at IS NULL) OR
+      (kind = 'maintenance' AND maintenance_at IS NOT NULL AND expires_at > maintenance_at))
+  ) STRICT;
+  CREATE TABLE IF NOT EXISTS web_announcement_seen (
+    user_id TEXT PRIMARY KEY REFERENCES platform_users(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL
+  ) STRICT;`);
+}
+
 const SCHEMA_V1 = `
 CREATE TABLE platform_users (
   id TEXT PRIMARY KEY,

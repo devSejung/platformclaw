@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { BrowserAnnouncementService } from "./browser-announcements-http.js";
 import type { BrowserLoginRateLimiter } from "./browser-auth-http.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import type { EmployeeExecutionService } from "./browser-execution-http.js";
@@ -64,6 +65,7 @@ export type PlatformClawWebIngressOptions = {
   gateway: PlatformClawGatewayBackend;
   executionService?: EmployeeExecutionService;
   vmAdministrationService?: VmAdministrationService;
+  announcementService?: BrowserAnnouncementService;
   mcpAdministrationService?: McpAdministrationService;
   mcpService?: EmployeeMcpService;
   organizationService?: BrowserOrganizationService;

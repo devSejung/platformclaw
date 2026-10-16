@@ -12,6 +12,7 @@ import {
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import { reconcileWikiAccess } from "./knowledge-vault-access.js";
 import { executeSync, runImmediateTransaction } from "./kysely-sync.js";
+import { SqliteAnnouncementStore } from "./sqlite-announcements.js";
 import { SqliteHorseRacingStore } from "./sqlite-horse-racing.js";
 import { SqliteKnowledgeVaultStore } from "./sqlite-knowledge-vault-store.js";
 import { ensureKnowledgeVaultSchema } from "./sqlite-schema-knowledge-vault.js";
@@ -28,6 +29,7 @@ export class SqliteControlPlaneStore
     ControlPlaneExecutionManagementStore
 {
   readonly vaults = new SqliteKnowledgeVaultStore(this.db);
+  readonly announcements = new SqliteAnnouncementStore(this.db);
   readonly spaces = new SqliteSpaceStore(this.db);
   readonly racing = new SqliteHorseRacingStore(this.db, {
     prepare: () => this.ensureBaseballGameSchema(),

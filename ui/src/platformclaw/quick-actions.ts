@@ -4,6 +4,7 @@ import { icons } from "../components/icons.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import "./voc-dialog.ts";
+import "./announcement-administration.ts";
 
 export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
@@ -167,6 +168,12 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
               .fetchImpl=${this.fetchImpl}
               .onUnauthenticated=${this.onUnauthenticated}
             ></platformclaw-vm-administration>`
+          : null}
+        ${this.admin
+          ? html`<platformclaw-announcement-administration
+              .fetchImpl=${this.fetchImpl}
+              .onUnauthenticated=${this.onUnauthenticated}
+            ></platformclaw-announcement-administration>`
           : null}
       </div>
       ${this.vocOpen

@@ -54,6 +54,7 @@ describe("platformclaw-quick-actions", () => {
       "button",
       "button",
       "platformclaw-vm-administration",
+      "platformclaw-announcement-administration",
     ]);
 
     admin.shadowRoot?.querySelector<HTMLButtonElement>('[aria-label="VOC"]')?.click();

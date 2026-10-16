@@ -94,6 +94,43 @@ describe("openclaw-modal-dialog", () => {
     expect(document.activeElement).toBe(notes);
   });
 
+  it("keeps the selected field focused inside a shadow-root owner", async () => {
+    const owner = document.createElement("div");
+    const target = document.createElement("div");
+    owner.attachShadow({ mode: "open" }).append(target);
+    container.append(owner);
+    render(
+      html`<openclaw-modal-dialog label="Edit">
+        <input autofocus />
+        <textarea></textarea>
+      </openclaw-modal-dialog>`,
+      target,
+    );
+    const { webAwesomeDialog } = await getRenderedModalDialog(target);
+    const notes = target.querySelector("textarea")!;
+    notes.focus();
+    webAwesomeDialog.dispatchEvent(new Event("wa-after-show"));
+    expect(owner.shadowRoot!.activeElement).toBe(notes);
+  });
+
+  it("keeps focus within a slotted field's shadow root", async () => {
+    render(
+      html`<openclaw-modal-dialog label="Edit"
+        ><input autofocus />
+        <div id="field"></div
+      ></openclaw-modal-dialog>`,
+      container,
+    );
+    const { webAwesomeDialog } = await getRenderedModalDialog(container);
+    const field = container.querySelector("#field")!;
+    const input = document.createElement("input");
+    field.attachShadow({ mode: "open" }).append(input);
+    input.focus();
+    webAwesomeDialog.dispatchEvent(new Event("wa-after-show"));
+    expect(document.activeElement).toBe(field);
+    expect(field.shadowRoot!.activeElement).toBe(input);
+  });
+
   it("delegates native modality and light dismissal to Web Awesome", async () => {
     const { webAwesomeDialog, dialog } = await renderModal();
 
