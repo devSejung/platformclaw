@@ -129,6 +129,7 @@ describe("sessions.usage result cache", () => {
       { ...baseParams, limit: 1 },
       { ...baseParams, groupBy: "family" },
       { ...baseParams, includeContextWeight: true },
+      { ...baseParams, includeActivity: true },
     ];
 
     for (const params of variants) {

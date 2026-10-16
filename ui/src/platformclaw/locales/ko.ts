@@ -1,5 +1,6 @@
 import type { TranslationMap } from "../../i18n/index.ts";
 import { baseballTranslations } from "./ko-baseball.ts";
+import { dashboardTranslations } from "./ko-dashboard.ts";
 import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
 import { racingTranslations } from "./ko-racing.ts";
@@ -83,6 +84,7 @@ export const nativeTranslations = {
 } satisfies TranslationMap;
 
 export const translations: Readonly<Record<string, string>> = {
+  ...dashboardTranslations,
   ...baseballTranslations,
   ...racingTranslations,
   ...vaultTranslations,
@@ -405,10 +407,11 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.guide.chatBody": "새 요청을 입력하고 Agent와 대화를 시작하는 기본 화면입니다.",
   "platformClaw.guide.chatDetails":
     "한 대화 안에서는 앞에서 나눈 내용과 작업 맥락이 이어집니다.|서로 관계없는 일은 새 대화로 나누면 결과와 기록을 찾기 쉽습니다.",
-  "platformClaw.guide.usageTitle": "Usage: 사용량과 비용 확인하기",
-  "platformClaw.guide.usageBody": "Agent가 사용한 토큰과 예상 비용을 기간별로 확인하는 화면입니다.",
+  "platformClaw.guide.usageTitle": "대시보드: 플랫폼 활용 현황 확인하기",
+  "platformClaw.guide.usageBody":
+    "로그인한 모든 구성원이 계정별 이용 현황과 추이, 사용이 집중되는 시간대를 확인할 수 있습니다.",
   "platformClaw.guide.usageDetails":
-    "조회 기간을 바꿔 전체 입력·출력 토큰과 비용 추이를 확인합니다.|Agent, 모델, 대화별로 나누어 어떤 작업에서 사용량이 늘었는지 찾습니다.|상세 내역과 캐시 사용량을 함께 보면 반복 작업을 최적화하는 데 도움이 됩니다.",
+    "기간·계정·현재 대표 소속·채널·활동 유형으로 필터링합니다. 계정을 선택하면 해당 계정의 추이와 집중 시간대를 확인합니다.|요청 메시지는 보존된 사용자 역할 메시지 기준이며 자동 생성 메시지도 포함될 수 있습니다. 집계 중인 데이터는 별도 안내합니다.|필터에 해당하는 전체 계정과 집계 기준을 엑셀로 내려받습니다. 내 토큰·비용 탭에서 개인 대화의 상세 분석도 이용할 수 있습니다.",
   "platformClaw.guide.tasksTitle": "Tasks: 맡긴 작업의 진행 상태 보기",
   "platformClaw.guide.tasksBody":
     "Agent에게 맡긴 작업이 진행 중인지, 완료됐는지 한곳에서 확인합니다.",

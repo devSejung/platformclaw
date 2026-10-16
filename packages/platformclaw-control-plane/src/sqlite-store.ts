@@ -28,6 +28,28 @@ export class SqliteControlPlaneStore
     ControlPlaneExecutionManagementStore
 {
   readonly vaults = new SqliteKnowledgeVaultStore(this.db);
+  async listDashboardAccounts() {
+    return executeSync(
+      this.db,
+      this.query
+        .selectFrom("platform_users as u")
+        .leftJoin("agent_bindings as a", (join) =>
+          join.onRef("a.user_id", "=", "u.id").on("a.kind", "=", "personal"),
+        )
+        .leftJoin("managed_scope_primary_memberships as p", "p.user_id", "u.id")
+        .leftJoin("managed_scopes as s", "s.id", "p.scope_id")
+        .select([
+          "u.account_id as accountId",
+          "u.display_name as displayName",
+          "u.status",
+          "u.created_at as createdAt",
+          "a.agent_id as agentId",
+          "s.id as organizationId",
+          "s.name as organizationName",
+        ])
+        .orderBy("u.account_id"),
+    ).rows;
+  }
   readonly spaces = new SqliteSpaceStore(this.db);
   readonly racing = new SqliteHorseRacingStore(this.db, {
     prepare: () => this.ensureBaseballGameSchema(),

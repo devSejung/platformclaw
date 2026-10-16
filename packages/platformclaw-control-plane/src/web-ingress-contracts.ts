@@ -67,6 +67,7 @@ export type PlatformClawWebIngressOptions = {
   mcpAdministrationService?: McpAdministrationService;
   mcpService?: EmployeeMcpService;
   organizationService?: BrowserOrganizationService;
+  dashboardService?: import("./dashboard-service.js").DashboardService;
   execCredentialService?: ExecCredentialService;
   vocService?: JiraVocService;
   skillHubService?: SkillHubService;
