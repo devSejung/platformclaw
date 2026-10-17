@@ -10,7 +10,7 @@ import type {
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import { installMockGateway } from "../test-helpers/control-ui-e2e.ts";
 
-export const installationProofDir = path.join(
+const installationProofDir = path.join(
   process.cwd(),
   ".artifacts",
   "control-ui-e2e",
