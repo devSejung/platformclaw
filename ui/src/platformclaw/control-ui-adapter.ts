@@ -159,6 +159,14 @@ export class PlatformClawControlUiAdapter {
         ></platformclaw-organization-join-prompt>`,
       )
       .catch(() => nothing);
+    const announcements = import("./announcements.ts")
+      .then(
+        () => html`<platformclaw-announcements
+          .fetchImpl=${this.fetchImpl}
+          .onUnauthenticated=${onUnauthenticated}
+        ></platformclaw-announcements>`,
+      )
+      .catch(() => nothing);
     void Promise.all([import("./page-help.ts"), loadPlatformClawLocale()]).catch(() => undefined);
     const renderPageHelpTrigger = (
       routeId: RouteId,
@@ -188,7 +196,19 @@ export class PlatformClawControlUiAdapter {
           quickActions,
           html`<p class="muted" role="status">${t("platformClaw.quickActions.loading")}</p>`,
         ),
-      renderMainBanner: () => until(joinPrompt, nothing),
+      renderMainBanner: () => html`
+        <style>
+          /* A stack of notices must scroll rather than squeeze the chat controls out of view. */
+          .content--chat:has(> platformclaw-announcements[data-active]) {
+            overflow-y: auto;
+          }
+          .content--chat:has(> platformclaw-announcements[data-active]) > openclaw-router-outlet {
+            min-height: min(28rem, 100dvh);
+            flex-shrink: 0;
+          }
+        </style>
+        ${until(announcements, nothing)}${until(joinPrompt, nothing)}
+      `,
       renderPageHeaderAccessory: renderPageHelpTrigger,
       renderPageOverlay: (routeId, routeLocation) => {
         const currentLocation = routeLocation ?? new URL(this.location.href);

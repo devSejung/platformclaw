@@ -1,4 +1,5 @@
 import type { TranslationMap } from "../../i18n/index.ts";
+import { announcementTranslations } from "./ko-announcements.ts";
 import { baseballTranslations } from "./ko-baseball.ts";
 import { dashboardTranslations } from "./ko-dashboard.ts";
 import { executionTranslations } from "./ko-execution.ts";
@@ -86,6 +87,7 @@ export const nativeTranslations = {
 export const translations: Readonly<Record<string, string>> = {
   ...dashboardTranslations,
   ...baseballTranslations,
+  ...announcementTranslations,
   ...racingTranslations,
   ...vaultTranslations,
   ...spaceTranslations,

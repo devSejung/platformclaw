@@ -12,6 +12,8 @@ import {
   validateRequestFrame,
 } from "@openclaw/gateway-protocol";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
+import { ANNOUNCEMENTS_CHANGED } from "./announcement-contracts.js";
+import { handlePlatformClawAnnouncementRequest } from "./browser-announcements-http.js";
 import {
   handlePlatformClawBrowserAuthRequest,
   readPlatformClawSessionCookie,
@@ -323,6 +325,16 @@ export class PlatformClawWebIngressServer {
         return;
       }
       if (
+        this.options.announcementService &&
+        (await handlePlatformClawAnnouncementRequest(req, res, {
+          service: this.options.announcementService,
+          readJsonBody: readBrowserJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
         this.options.skillHubService &&
         (await handlePlatformClawSkillHubRequest(req, res, {
           service: this.options.skillHubService,
@@ -455,6 +467,7 @@ export class PlatformClawWebIngressServer {
     let connectionClosed = false;
     let unsubscribe = () => {};
     let unsubscribeLocal = () => {};
+    let unsubscribeAnnouncements = () => {};
     let handshakeChain = Promise.resolve();
     let handshakePendingCount = 0;
     let pendingRequestCount = 0;
@@ -554,6 +567,19 @@ export class PlatformClawWebIngressServer {
             .catch(() => websocket.close(1011, "event filtering failed"));
         });
         connected = true;
+        // BFF-local invalidations carry no content or admin data. Recheck the session;
+        // authoritative content is always fetched through the authenticated HTTP route.
+        unsubscribeAnnouncements =
+          this.options.announcementService?.subscribe(() => {
+            void this.options.gatewayProxy
+              .resolveAccess(token, false)
+              .then(() => {
+                if (connected && !connectionClosed) {
+                  sendEvent({ event: ANNOUNCEMENTS_CHANGED, payload: {} });
+                }
+              })
+              .catch(closeUnauthorized);
+          }) ?? (() => {});
         unsubscribeLocal =
           this.options.gatewayProxy.subscribeConnectionEvents?.(connectionId, (event) => {
             if (!connected || connectionClosed) {
@@ -712,6 +738,7 @@ export class PlatformClawWebIngressServer {
       clearTimeout(handshakeTimer);
       unsubscribe();
       unsubscribeLocal();
+      unsubscribeAnnouncements();
       void this.options.gatewayProxy.releaseBrowserConnection?.(connectionId);
     });
   }

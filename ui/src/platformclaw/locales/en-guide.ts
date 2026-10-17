@@ -1,4 +1,5 @@
 import { wikiDocumentTranslations } from "../../pages/agents/memory/wiki-document-translations.ts";
+import { announcementTranslations } from "./en-announcements.ts";
 import { baseballTranslations } from "./en-baseball.ts";
 import { dashboardTranslations } from "./en-dashboard.ts";
 import { executionTranslations } from "./en-execution.ts";
@@ -9,6 +10,7 @@ import { vaultTranslations } from "./en-vaults.ts";
 export const translations: Readonly<Record<string, string>> = {
   ...dashboardTranslations,
   ...baseballTranslations,
+  ...announcementTranslations,
   ...racingTranslations,
   ...vaultTranslations,
   ...spaceTranslations,

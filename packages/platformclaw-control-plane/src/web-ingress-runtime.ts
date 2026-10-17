@@ -1,3 +1,4 @@
+import { BrowserAnnouncementService } from "./browser-announcements-http.js";
 import {
   createEmployeeBrowserAuthRuntime,
   type EmployeeBrowserAuthRuntime,
@@ -338,6 +339,11 @@ export function createPlatformClawWebIngressRuntime(
     ...(canvasRelay ? { canvasRelay } : {}),
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,
+    announcementService: new BrowserAnnouncementService(
+      auth.service,
+      auth.store.announcements,
+      options.employeeAuth?.now,
+    ),
     mcpAdministrationService: mcpAdministration,
     organizationService: organization,
     dashboardService: new DashboardService({ store: auth.store, gateway }),
