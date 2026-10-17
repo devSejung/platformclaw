@@ -12,7 +12,14 @@ const ALLOWED_PATCHED_DEPENDENCIES = new Map([
   ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
 ]);
 
-const ALLOWED_PATCH_FILES = new Set(["patches/.gitkeep", ...ALLOWED_PATCHED_DEPENDENCIES.values()]);
+const ALLOWED_PATCH_FILES = new Set([
+  "patches/.gitkeep",
+  ...ALLOWED_PATCHED_DEPENDENCIES.values(),
+  // Approved checksum-pinned SkillHub Docker source patches (see PROVENANCE.md).
+  // These paths do not authorize any pnpm patchedDependencies declaration.
+  "docker/platformclaw-runtime/skillhub-edit/upstream.patch",
+  "docker/platformclaw-runtime/skillhub-edit/upstream-tests.patch",
+]);
 
 function listTrackedFiles(cwd, patterns) {
   return execFileSync("git", ["ls-files", "-z", "--", ...patterns], {

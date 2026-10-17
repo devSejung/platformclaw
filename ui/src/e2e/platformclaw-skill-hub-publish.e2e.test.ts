@@ -11,6 +11,7 @@ import {
   startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
+import { verifySkillHubManagement } from "./skill-hub-management.e2e.test-helpers.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
@@ -188,6 +189,11 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     await server?.close();
   });
 
+  it("autocompletes eligible owners and access recipients without clipping narrow cards", async () => {
+    const { page } = await newPage("en-US");
+    await verifySkillHubManagement(page, server.baseUrl, proofDir);
+  });
+
   it("edits a published skill, protects an in-flight move, and publishes the next version under its new identity", async () => {
     const { page } = await newPage("en-US");
     let skill = {
@@ -199,7 +205,7 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
       status: "PUBLISHED",
       revision: "registry-revision-1",
     };
-    let submitted: Record<string, unknown> | undefined;
+    const submittedRequests: Array<Record<string, unknown>> = [];
     let cancelledOperationId: unknown;
     let ownerRevision = 42;
     const detailRequests: string[] = [];
@@ -218,7 +224,8 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
         return route.fulfill({ json: { total: 1, items: [{ ...skill, latestVersion: "1.0.0" }] } });
       }
       if (pathname.endsWith("/edit")) {
-        submitted = route.request().postDataJSON() as Record<string, unknown>;
+        const submitted = route.request().postDataJSON() as Record<string, unknown>;
+        submittedRequests.push(submitted);
         if (!cancelledOperationId) {
           cancelledOperationId = submitted.operationId;
           ownerRevision = 43;
@@ -268,7 +275,7 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     await dialog.getByRole("button", { name: "Reload", exact: true }).click();
     await expect.poll(() => dialog.count()).toBe(0);
     await detail.getByRole("button", { name: "Edit skill", exact: true }).click();
-    submitted = undefined;
+    submittedRequests.length = 0;
     await dialog.locator('[name="displayName"]').fill("Edited Demo");
     await dialog.locator('[name="summary"]').fill("Updated summary");
     await dialog.locator('[name="namespace"]').selectOption("platform");
@@ -283,12 +290,13 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
         dialog.locator("input:enabled, select:enabled, textarea:enabled, button:enabled").count(),
       )
       .toBe(0);
-    await expect.poll(() => submitted).toBeDefined();
+    await expect.poll(() => submittedRequests).toHaveLength(1);
     try {
       await page.keyboard.press("Escape");
       await page.mouse.click(5, 5);
       expect(await dialog.isVisible()).toBe(true);
-      expect(submitted).toEqual({
+      expect(submittedRequests).toHaveLength(1);
+      expect(submittedRequests[0]).toEqual({
         operationId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
         namespace: "platform",
         displayName: "Edited Demo",
@@ -297,7 +305,7 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
         expectedOwnerUpdatedAt: 43,
         expectedRegistryRevision: "registry-revision-2",
       });
-      expect(submitted?.operationId).not.toBe(cancelledOperationId);
+      expect(submittedRequests[0]?.operationId).not.toBe(cancelledOperationId);
     } finally {
       finish();
     }

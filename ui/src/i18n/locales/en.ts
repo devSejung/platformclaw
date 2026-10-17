@@ -3184,6 +3184,8 @@ export const en: TranslationMap = {
     ownerAssigned: "Assigned owner",
     employeeId: "Employee account ID",
     searchUsers: "Search by name or account ID",
+    userSearchHelp: "Type at least 2 characters, then choose an employee.",
+    noEligibleUsers: "No eligible employees found.",
     transferOwner: "Transfer owner",
     ownerTransferred: "Skill ownership transferred.",
     individualAccess: "Individual access",

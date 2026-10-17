@@ -12,13 +12,11 @@ import {
   loadPlatformClawSkillHubNotifications,
   markPlatformClawSkillHubNotificationsRead,
   removePlatformClawSkillHubAccess,
-  searchPlatformClawSkillHubManagementUsers,
   searchPlatformClawSkillHub,
   transferPlatformClawSkillHubOwner,
   type PlatformClawSkillHubConfig,
   type PlatformClawSkillHubDetail,
   type PlatformClawSkillHubMessage,
-  type PlatformClawSkillHubManagementUser,
   type PlatformClawSkillHubNotification,
   type PlatformClawSkillHubSearchItem,
   PlatformClawSkillHubRequestError,
@@ -60,10 +58,6 @@ class SkillHubPage extends SkillHubAdminController {
   @state() private managementBusy = false;
   @state() private ownerUserId = "";
   @state() private accessUserId = "";
-  @state() private ownerQuery = "";
-  @state() private accessQuery = "";
-  @state() private ownerCandidates: PlatformClawSkillHubManagementUser[] = [];
-  @state() private accessCandidates: PlatformClawSkillHubManagementUser[] = [];
   @state() private forceReason = "";
   @state() private forceAcknowledged = false;
   @state() private pendingVersionChange: pageSupport.PendingVersionChange | null = null;
@@ -147,44 +141,6 @@ class SkillHubPage extends SkillHubAdminController {
     }
   }
 
-  private async searchManagementUsers(query: string, purpose: "owner" | "access") {
-    if (!this.detailRef || query.trim().length < 2) {
-      if (purpose === "owner") {
-        this.ownerCandidates = [];
-      } else {
-        this.accessCandidates = [];
-      }
-      return;
-    }
-    const normalized = query.trim();
-    const ref = { ...this.detailRef };
-    try {
-      const result = await searchPlatformClawSkillHubManagementUsers(
-        ref.namespace,
-        ref.slug,
-        normalized,
-        purpose,
-      );
-      if (
-        (purpose === "owner" ? this.ownerQuery : this.accessQuery).trim() !== normalized ||
-        this.detailRef?.namespace !== ref.namespace ||
-        this.detailRef?.slug !== ref.slug
-      ) {
-        return;
-      }
-      if (purpose === "owner") {
-        this.ownerCandidates = result.items;
-      } else {
-        this.accessCandidates = result.items;
-      }
-    } catch (error) {
-      this.message = {
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
   private async search() {
     this.loading = true;
     this.error = null;
@@ -228,10 +184,6 @@ class SkillHubPage extends SkillHubAdminController {
   private resetManagementSelection() {
     this.ownerUserId = "";
     this.accessUserId = "";
-    this.ownerQuery = "";
-    this.accessQuery = "";
-    this.ownerCandidates = [];
-    this.accessCandidates = [];
   }
 
   private closeDetail() {
@@ -414,10 +366,6 @@ class SkillHubPage extends SkillHubAdminController {
               </div>
               ${renderSkillHubManagement({
                 detail: this.detail,
-                ownerQuery: this.ownerQuery,
-                accessQuery: this.accessQuery,
-                ownerCandidates: this.ownerCandidates,
-                accessCandidates: this.accessCandidates,
                 selectedOwnerUserId: this.ownerUserId,
                 selectedAccessUserId: this.accessUserId,
                 forceReason: this.forceReason,
@@ -430,15 +378,8 @@ class SkillHubPage extends SkillHubAdminController {
                     this.config?.namespaces ?? [],
                   ),
                 onPublishVersion: () => this.skillUpload.openDialog(this.config, this.detail),
-                onOwnerQuery: (value) => {
-                  this.ownerQuery = value;
-                  this.ownerUserId = "";
-                  void this.searchManagementUsers(value, "owner");
-                },
                 onSelectOwner: (user) => {
-                  this.ownerUserId = user.id;
-                  this.ownerQuery = user.displayName ?? user.accountId;
-                  this.ownerCandidates = [];
+                  this.ownerUserId = user?.id ?? "";
                 },
                 onTransferOwner: () => {
                   void this.runManagement(
@@ -452,15 +393,8 @@ class SkillHubPage extends SkillHubAdminController {
                     t("skillHubPage.ownerTransferred"),
                   );
                 },
-                onAccessQuery: (value) => {
-                  this.accessQuery = value;
-                  this.accessUserId = "";
-                  void this.searchManagementUsers(value, "access");
-                },
                 onSelectAccess: (user) => {
-                  this.accessUserId = user.id;
-                  this.accessQuery = user.displayName ?? user.accountId;
-                  this.accessCandidates = [];
+                  this.accessUserId = user?.id ?? "";
                 },
                 onGrantAccess: () => {
                   void this.runManagement(

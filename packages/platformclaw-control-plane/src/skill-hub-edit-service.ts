@@ -16,7 +16,7 @@ import type {
   SkillHubEditResult,
 } from "./skill-hub-state.js";
 
-export type SkillHubEditRequest = {
+type SkillHubEditRequest = {
   operationId: string;
   namespace: string;
   displayName: string;

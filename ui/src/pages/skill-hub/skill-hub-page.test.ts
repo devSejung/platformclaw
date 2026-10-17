@@ -580,6 +580,13 @@ describe("SkillHubPage", () => {
     )!;
     search.value = "eligible";
     search.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await waitForFast(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          (input instanceof Request ? input.url : input.toString()).includes("management-users"),
+        ),
+      ).toBe(true),
+    );
     [...page.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.trim() === "Close")
       ?.click();
