@@ -11,6 +11,30 @@ import { vaultTranslations } from "./ko-vaults.ts";
 // Native chat uses the shared translator; keep product-owned copy here rather
 // than hand-editing the generated upstream locale catalog.
 export const nativeTranslations = {
+  skillHubPage: {
+    downloadLocation: "스킬을 어디에 다운로드할까요?",
+    downloadLocationHelp:
+      "기본 서버와 VM의 스킬은 각각 따로 관리됩니다. 위에서 버전을 고른 뒤 사용할 위치에 다운로드하세요.",
+    basicServer: "기본 서버",
+    basicServerHelp: "PlatformClaw 서버의 내 작업 공간에서 사용하는 스킬입니다.",
+    developmentVm: "내 개발 VM",
+    developmentVmHelp: "내게 할당된 VM의 작업 공간에서 사용하는 스킬입니다.",
+    checkingInstallation: "연결 상태와 설치된 버전을 확인하고 있습니다…",
+    installedVersion: "다운로드됨 · {version}",
+    installedVersionUnknown:
+      "이미 다운로드되어 있지만 버전을 확인할 수 없습니다. 작업 공간에서 스킬을 확인하세요.",
+    notInstalled: "이 위치에는 아직 다운로드하지 않았습니다.",
+    alreadyInstalled: "선택한 버전이 이미 다운로드됨",
+    changeToVersion: "{version}으로 변경",
+    vmUnassigned:
+      "할당된 VM이 없습니다. 작업 위치 설정에서 VM을 선택하고 연결하거나 관리자에게 도움을 요청하세요.",
+    vmNotReady:
+      "VM 연결 준비가 필요합니다. 작업 위치 설정에서 연결 설정을 완료한 뒤 다시 확인하세요.",
+    vmUnreachable:
+      "현재 VM의 스킬을 확인할 수 없습니다. 작업 위치 설정에서 연결 상태를 점검한 뒤 다시 확인하세요.",
+    basicUnreachable: "기본 서버의 상태를 확인할 수 없습니다. 다운로드 전에 다시 확인하세요.",
+    checkAgain: "다시 확인",
+  },
   execApproval: {
     expiresIn: "{time} 후 만료",
     expired: "만료됨",

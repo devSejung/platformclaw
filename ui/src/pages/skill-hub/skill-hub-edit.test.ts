@@ -221,7 +221,7 @@ describe("published Skill Hub editing", () => {
         expectedOwnerUpdatedAt: 42,
         expectedRegistryRevision: "registry-revision-1",
       });
-      expect(fetchMock).toHaveBeenLastCalledWith(
+      expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/skills/platform/demo"),
         expect.any(Object),
       );

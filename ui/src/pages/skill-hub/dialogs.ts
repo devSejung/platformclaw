@@ -349,6 +349,7 @@ export function renderSkillHubVersionChange(props: {
   currentVersion: string;
   requestedVersion: string;
   direction: "upgrade" | "downgrade" | "reinstall";
+  targetLabel?: string;
   busy: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -370,6 +371,7 @@ export function renderSkillHubVersionChange(props: {
       <header class="skill-hub-dialog__header">
         <div>
           <h2>${t("skillHubPage.versionChangeTitle")}</h2>
+          ${props.targetLabel ? html`<p>${props.targetLabel}</p>` : nothing}
           <p>
             ${props.direction === "reinstall"
               ? `${t("skillHubPage.confirmVersionChange")}: v${props.currentVersion}.`

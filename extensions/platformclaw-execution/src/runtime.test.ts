@@ -1,14 +1,46 @@
-import { access, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { disposeSshSandboxSession } from "openclaw/plugin-sdk/sandbox";
-import { describe, expect, it } from "vitest";
+import { disposeSshSandboxSession, type SshSandboxSession } from "openclaw/plugin-sdk/sandbox";
+import { describe, expect, it, vi } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
 import {
   createMultiplexedSafeConnectSession,
+  createExecutionDependenciesFromEnvironment,
   createSafeConnectSession,
   parseTarget,
   quoteOpenSshConfigPath,
 } from "./runtime.js";
+import { VmTmuxTerminalManager } from "./tmux-terminal-manager.js";
+
+const leaseIo = vi.hoisted(() => ({
+  manager: undefined as import("./ssh-lease-manager.js").SafeConnectSshLeaseManager | undefined,
+  startMaster: vi.fn(async () => {
+    let running = true;
+    return {
+      isRunning: () => running,
+      onExit: () => undefined,
+      stop: vi.fn(async () => {
+        running = false;
+      }),
+    };
+  }),
+}));
+
+vi.mock("./ssh-lease-manager.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./ssh-lease-manager.js")>();
+  return {
+    ...actual,
+    SafeConnectSshLeaseManager: class extends actual.SafeConnectSshLeaseManager {
+      constructor(options: ConstructorParameters<typeof actual.SafeConnectSshLeaseManager>[0]) {
+        super({ ...options, startMaster: leaseIo.startMaster });
+        leaseIo.manager = this;
+      }
+    },
+  };
+});
 
 const TARGET: AssignedVmTargetSnapshot = {
   kind: "assigned_vm",
@@ -48,6 +80,112 @@ const TARGET: AssignedVmTargetSnapshot = {
 };
 
 describe("PlatformClaw SafeConnect session", () => {
+  it("preserves VM channels across Basic reads and retires them on a committed target change", async () => {
+    leaseIo.startMaster.mockClear();
+    const directory = await mkdtemp(path.join(tmpdir(), "platformclaw-runtime-target-"));
+    const tokenFile = path.join(directory, "execution-token");
+    await writeFile(tokenFile, "test-runtime-token");
+    const brokerAddress =
+      process.platform === "win32"
+        ? String.raw`\\.\pipe\platformclaw-target-${randomUUID()}`
+        : path.join(directory, "broker.sock");
+    const socketPath =
+      process.platform === "win32"
+        ? `${brokerAddress}-execution`
+        : path.join(directory, "execution.sock");
+    const basic = {
+      kind: "platform_server",
+      agentId: TARGET.agentId,
+      targetId: "platform-server",
+      revision: TARGET.revision,
+    };
+    let active = "platform_server";
+    const requests: Array<{ agentId: string; target?: string }> = [];
+    const server = createServer((req, res) => {
+      void (async () => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(Buffer.from(chunk));
+        }
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          agentId: string;
+          target?: string;
+        };
+        requests.push(body);
+        res.setHeader("Content-Type", "application/json");
+        if (req.url?.endsWith("/change-target")) {
+          active = body.target!;
+          res.end(JSON.stringify({ ...basic, revision: TARGET.revision + 1 }));
+          return;
+        }
+        res.end(JSON.stringify((body.target ?? active) === "assigned_vm" ? TARGET : basic));
+      })().catch((error: unknown) => {
+        res.destroy(error instanceof Error ? error : new Error(String(error)));
+      });
+    });
+    const terminalTarget = vi.spyOn(VmTmuxTerminalManager.prototype, "observeTarget");
+    const channels: SshSandboxSession[] = [];
+    let dependencies:
+      | Awaited<ReturnType<typeof createExecutionDependenciesFromEnvironment>>
+      | undefined;
+    try {
+      await new Promise<void>((resolve) => {
+        server.listen(socketPath, resolve);
+      });
+      dependencies = await createExecutionDependenciesFromEnvironment({
+        PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: brokerAddress,
+        PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: tokenFile,
+      });
+      await expect(dependencies.resolveTarget({ agentId: TARGET.agentId })).resolves.toEqual(basic);
+      await expect(
+        dependencies.resolveTarget({ agentId: TARGET.agentId, target: "platform_server" }),
+      ).resolves.toEqual(basic);
+      await expect(
+        dependencies.resolveTarget({ agentId: TARGET.agentId, target: "assigned_vm" }),
+      ).resolves.toMatchObject(TARGET);
+      expect(terminalTarget).toHaveBeenCalledExactlyOnceWith(TARGET.agentId, undefined);
+      const manager = leaseIo.manager!;
+      channels.push(await manager.createSession(TARGET));
+      const master = await leaseIo.startMaster.mock.results[0]!.value;
+      await expect(
+        dependencies.resolveTarget({ agentId: TARGET.agentId, target: "assigned_vm" }),
+      ).resolves.toMatchObject(TARGET);
+      expect(terminalTarget).toHaveBeenCalledTimes(1);
+      await expect(dependencies.resolveTarget({ agentId: TARGET.agentId })).resolves.toEqual(basic);
+      expect(terminalTarget).toHaveBeenLastCalledWith(TARGET.agentId, undefined);
+      channels.push(await manager.createSession(TARGET));
+      expect(leaseIo.startMaster).toHaveBeenCalledTimes(1);
+      expect(master.isRunning()).toBe(true);
+      expect(master.stop).not.toHaveBeenCalled();
+      await expect(
+        dependencies.changeTarget({
+          agentId: TARGET.agentId,
+          target: "platform_server",
+          expectedRevision: TARGET.revision,
+        }),
+      ).resolves.toEqual({ ...basic, revision: TARGET.revision + 1 });
+      await vi.waitFor(() => expect(master.stop).toHaveBeenCalledOnce());
+      expect(master.isRunning()).toBe(false);
+      expect(requests.map((request) => request.target)).toEqual([
+        undefined,
+        "platform_server",
+        "assigned_vm",
+        "assigned_vm",
+        undefined,
+        "platform_server",
+      ]);
+    } finally {
+      await Promise.all(channels.map((channel) => disposeSshSandboxSession(channel)));
+      await dependencies?.dispose();
+      terminalTarget.mockRestore();
+      leaseIo.manager = undefined;
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("requires the assigned VM workspace to stay inside its canonical home", () => {
     expect(parseTarget(TARGET)).toMatchObject({
       remoteHomeDir: "/users/person.one",

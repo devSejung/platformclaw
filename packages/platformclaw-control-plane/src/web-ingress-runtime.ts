@@ -191,7 +191,7 @@ export function createPlatformClawWebIngressRuntime(
           {
             vaultService,
             spaceService,
-            resolveTarget: (agentId) => executionService.resolveTarget(agentId),
+            resolveTarget: (agentId, target) => executionService.resolveTarget(agentId, target),
             resolveConnectionTarget: (agentId) => executionService.resolveConnectionTarget(agentId),
             changeTarget: (params) => executionService.changeTarget(params),
             issueCredentialGrant: (params) => executionService.issueCredentialGrant(params),

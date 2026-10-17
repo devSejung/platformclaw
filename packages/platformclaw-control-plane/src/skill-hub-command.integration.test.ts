@@ -265,6 +265,7 @@ describe("Knox Skill Hub command transport", () => {
                   {
                     skillKey: "demo-skill",
                     source: "openclaw-workspace",
+                    baseDir: "/workspace/skills/demo-skill",
                     version: "1.0.0",
                     revision: "sha256:1111111111111111",
                   },

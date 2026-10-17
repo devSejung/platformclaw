@@ -449,8 +449,15 @@ export async function createExecutionDependenciesFromEnvironment(
         body: { agentId, ...(requestedTarget ? { target: requestedTarget } : {}) },
       }),
     );
-    await terminals.observeTarget(agentId, target.kind === "assigned_vm" ? target : undefined);
-    sshLeases.observeTarget(agentId, target.kind === "assigned_vm" ? target : undefined);
+    // Terminals follow the active selection; explicit workspace lookups do not change it.
+    if (!requestedTarget) {
+      await terminals.observeTarget(agentId, target.kind === "assigned_vm" ? target : undefined);
+    }
+    // VM operations remain authorized while Basic is selected. Only a VM snapshot
+    // change or the explicit changeTarget commit below may retire their SSH lease.
+    if (target.kind === "assigned_vm") {
+      sshLeases.observeTarget(agentId, target);
+    }
     return target;
   };
   return {

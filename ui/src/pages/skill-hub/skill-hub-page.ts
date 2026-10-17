@@ -4,7 +4,6 @@ import "../../components/modal-dialog.ts";
 import { titleForRoute } from "../../app-navigation.ts";
 import { t } from "../../i18n/index.ts";
 import {
-  installPlatformClawHubSkill,
   forcePublishPlatformClawHubSkill,
   grantPlatformClawSkillHubAccess,
   loadPlatformClawSkillHubConfig,
@@ -19,7 +18,6 @@ import {
   type PlatformClawSkillHubMessage,
   type PlatformClawSkillHubNotification,
   type PlatformClawSkillHubSearchItem,
-  PlatformClawSkillHubRequestError,
 } from "../../platformclaw/skill-hub.ts";
 import "../../styles/plugins.css";
 import "../../styles/skill-hub.css";
@@ -27,8 +25,9 @@ import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
 import { SkillHubAdminController } from "./admin-controller.ts";
 import { renderSkillHubAdmin } from "./admin.ts";
 import { SkillHubDeleteController } from "./delete-controller.ts";
-import { renderSkillHubNotifications, renderSkillHubVersionChange } from "./dialogs.ts";
+import { renderSkillHubNotifications } from "./dialogs.ts";
 import { SkillHubEditController } from "./edit-controller.ts";
+import { SkillHubInstallController } from "./install-controller.ts";
 import {
   skillHubScannerStatusLabel,
   skillHubSkillStatusLabel,
@@ -49,8 +48,8 @@ class SkillHubPage extends SkillHubAdminController {
   @state() private detailRef: pageSupport.SkillHubRef | null = null;
   @state() private detail: PlatformClawSkillHubDetail | null = null;
   @state() private detailLoading = false;
+  @state() private detailError: string | null = null;
   @state() private selectedVersion = "";
-  @state() private installing: pageSupport.InstallTarget | null = null;
   @state() private notificationsOpen = false;
   @state() private notificationsLoading = false;
   @state() private notificationsError: string | null = null;
@@ -60,7 +59,11 @@ class SkillHubPage extends SkillHubAdminController {
   @state() private accessUserId = "";
   @state() private forceReason = "";
   @state() private forceAcknowledged = false;
-  @state() private pendingVersionChange: pageSupport.PendingVersionChange | null = null;
+  private detailGeneration = 0;
+  private readonly skillInstall = new SkillHubInstallController(
+    this,
+    (message) => (this.message = message),
+  );
   private readonly workspacePublish = new SkillHubWorkspacePublishController(this, {
     refresh: () => this.search(),
     setMessage: (message) => (this.message = message),
@@ -164,20 +167,32 @@ class SkillHubPage extends SkillHubAdminController {
   }
 
   private async openDetail(ref: pageSupport.SkillHubRef) {
+    const generation = ++this.detailGeneration;
+    this.skillInstall.clear();
     this.resetManagementSelection();
+    this.detailError = null;
     this.detailRef = { namespace: ref.namespace, slug: ref.slug };
     this.detail = null;
     this.selectedVersion = "";
     this.detailLoading = true;
     this.message = null;
     try {
-      this.detail = await loadPlatformClawSkillHubDetail(ref.namespace, ref.slug);
+      const detail = await loadPlatformClawSkillHubDetail(ref.namespace, ref.slug);
+      if (generation !== this.detailGeneration) {
+        return;
+      }
+      this.detail = detail;
+      this.skillInstall.open(ref, this.config);
       this.selectedVersion =
         this.detail.versions.find((version) => version.downloadAvailable)?.version ?? "";
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
+      if (generation === this.detailGeneration) {
+        this.detailError = error instanceof Error ? error.message : String(error);
+      }
     } finally {
-      this.detailLoading = false;
+      if (generation === this.detailGeneration) {
+        this.detailLoading = false;
+      }
     }
   }
 
@@ -187,70 +202,12 @@ class SkillHubPage extends SkillHubAdminController {
   }
 
   private closeDetail() {
+    this.detailGeneration += 1;
+    this.skillInstall.clear();
     this.detailRef = null;
     this.skillDelete.clear();
     this.skillEdit.clear();
     this.resetManagementSelection();
-  }
-
-  private async install(
-    target: pageSupport.InstallTarget,
-    versionChange?: pageSupport.PendingVersionChange,
-  ) {
-    if (!this.detailRef || !this.selectedVersion || this.installing) {
-      return;
-    }
-    this.installing = target;
-    this.message = null;
-    try {
-      const result = await installPlatformClawHubSkill({
-        ...this.detailRef,
-        version: this.selectedVersion,
-        destination: target,
-        ...(versionChange
-          ? {
-              acknowledgedReplacement: true as const,
-              currentRevision: versionChange.currentRevision,
-            }
-          : {}),
-      });
-      this.pendingVersionChange = null;
-      this.message = {
-        kind: "success",
-        text: t("skillHubPage.installed", {
-          skill: `${result.slug}@${result.version}`,
-          target: t(
-            target === "assigned_vm" ? "platformClaw.execution.vm" : "platformClaw.execution.basic",
-          ),
-        }),
-      };
-    } catch (error) {
-      if (
-        error instanceof PlatformClawSkillHubRequestError &&
-        error.details?.code === "existing-skill-replacement-required" &&
-        typeof error.details.currentVersion === "string" &&
-        typeof error.details.currentRevision === "string" &&
-        typeof error.details.requestedVersion === "string" &&
-        (error.details.direction === "upgrade" ||
-          error.details.direction === "downgrade" ||
-          error.details.direction === "reinstall")
-      ) {
-        this.pendingVersionChange = {
-          target,
-          currentVersion: error.details.currentVersion,
-          currentRevision: error.details.currentRevision,
-          requestedVersion: error.details.requestedVersion,
-          direction: error.details.direction,
-        };
-        return;
-      }
-      this.message = {
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      this.installing = null;
-    }
   }
 
   private async runManagement(
@@ -282,10 +239,7 @@ class SkillHubPage extends SkillHubAdminController {
       return nothing;
     }
     const skill = this.detail?.skill;
-    const basic = this.config?.installTargets?.find(
-      (target) => target.target === "platform_server",
-    );
-    const vm = this.config?.installTargets?.find((target) => target.target === "assigned_vm");
+    const detailError = this.detailError ?? this.error;
     return html`<openclaw-modal-dialog
       label=${skill?.displayName ?? this.detailRef.slug}
       @modal-cancel=${() => this.closeDetail()}
@@ -301,7 +255,9 @@ class SkillHubPage extends SkillHubAdminController {
             ${t("skillsPage.close")}
           </button>
         </header>
-        ${this.error ? html`<div class="callout danger" role="alert">${this.error}</div>` : nothing}
+        ${detailError
+          ? html`<div class="callout danger" role="alert">${detailError}</div>`
+          : nothing}
         ${this.detailLoading
           ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
           : html`
@@ -323,8 +279,11 @@ class SkillHubPage extends SkillHubAdminController {
                       name="skill-hub-version"
                       value=${version.version}
                       .checked=${this.selectedVersion === version.version}
-                      ?disabled=${!version.downloadAvailable}
-                      @change=${() => (this.selectedVersion = version.version)}
+                      ?disabled=${!version.downloadAvailable || this.skillInstall.busy}
+                      @change=${() => {
+                        this.selectedVersion = version.version;
+                        this.skillInstall.cancelConfirmation();
+                      }}
                     />
                     <span>
                       <strong>${pageSupport.skillHubVersionLabel(version.version)}</strong>
@@ -338,32 +297,7 @@ class SkillHubPage extends SkillHubAdminController {
                   </label>`,
                 )}
               </section>
-              <div class="skill-hub-install-actions">
-                <button
-                  class="btn primary"
-                  ?disabled=${!this.selectedVersion ||
-                  this.installing !== null ||
-                  basic?.available === false}
-                  title=${basic?.disabledReason ?? ""}
-                  @click=${() => this.install("platform_server")}
-                >
-                  ${this.installing === "platform_server"
-                    ? t("skillsPage.skillHub.installing")
-                    : t("skillHubPage.installBasic")}
-                </button>
-                <button
-                  class="btn"
-                  ?disabled=${!this.selectedVersion ||
-                  this.installing !== null ||
-                  vm?.available === false}
-                  title=${vm?.disabledReason ?? ""}
-                  @click=${() => this.install("assigned_vm")}
-                >
-                  ${this.installing === "assigned_vm"
-                    ? t("skillsPage.skillHub.installing")
-                    : t("skillHubPage.installVm")}
-                </button>
-              </div>
+              ${this.skillInstall.render(this.selectedVersion)}
               ${renderSkillHubManagement({
                 detail: this.detail,
                 selectedOwnerUserId: this.ownerUserId,
@@ -586,19 +520,7 @@ class SkillHubPage extends SkillHubAdminController {
           onPendingAction: (action) => (this.pendingAdminAction = action),
           onConfirmAction: () => void this.confirmAdminAction(),
         })}
-        ${renderSkillHubVersionChange({
-          open: this.pendingVersionChange !== null,
-          currentVersion: this.pendingVersionChange?.currentVersion ?? "",
-          requestedVersion: this.pendingVersionChange?.requestedVersion ?? "",
-          direction: this.pendingVersionChange?.direction ?? "upgrade",
-          busy: this.installing !== null,
-          onClose: () => (this.pendingVersionChange = null),
-          onConfirm: () => {
-            if (this.pendingVersionChange) {
-              void this.install(this.pendingVersionChange.target, this.pendingVersionChange);
-            }
-          },
-        })}`,
+        ${this.skillInstall.renderConfirmation()}`,
     });
   }
 }

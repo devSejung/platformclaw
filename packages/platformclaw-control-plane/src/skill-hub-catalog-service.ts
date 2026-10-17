@@ -5,6 +5,7 @@ import { SkillHubRegistryMutationLock } from "./skill-hub-registry-mutation-lock
 import { SkillHubServiceBase } from "./skill-hub-service-base.js";
 import {
   isInside,
+  isValidSkillHubVersion,
   projectSkillHubAccessGrant,
   safeName,
   SKILL_KEY_PATTERN,
@@ -148,7 +149,7 @@ export abstract class SkillHubCatalogService extends SkillHubServiceBase {
     await this.authorizeInstallTarget(actor.agentId, source);
     const status = await this.gatewayCall<{
       skills?: Array<{
-        skillKey?: string;
+        baseDir?: string;
         name?: string;
         description?: string;
         source?: string;
@@ -170,25 +171,28 @@ export abstract class SkillHubCatalogService extends SkillHubServiceBase {
       refresh: true,
       ...(actor.roomBinding ? {} : { backendTarget: source }),
     });
-    const ownerSource =
-      source === "assigned_vm" ? "platformclaw-vm-workspace" : "openclaw-workspace";
     return {
       source,
-      items: (status.skills ?? [])
-        .filter((item) => item.source === ownerSource && typeof item.skillKey === "string")
-        .map((item) =>
-          Object.assign(
-            { skillKey: item.skillKey! },
-            typeof item.name === "string" ? { name: item.name } : {},
-            typeof item.description === "string" ? { description: item.description } : {},
-            typeof item.version === "string" ? { version: item.version } : {},
-            typeof item.revision === "string" ? { revision: item.revision } : {},
-            typeof item.eligible === "boolean" ? { eligible: item.eligible } : {},
-            typeof item.disabled === "boolean" ? { disabled: item.disabled } : {},
-            typeof item.modelVisible === "boolean" ? { modelVisible: item.modelVisible } : {},
-            item.missing ? { missing: item.missing } : {},
-          ),
-        ),
+      items: (status.skills ?? []).flatMap((item) => {
+        const slug = this.workspaceSkillSlug(item, source);
+        return slug
+          ? [
+              Object.assign(
+                { skillKey: slug },
+                typeof item.name === "string" ? { name: item.name } : {},
+                typeof item.description === "string" ? { description: item.description } : {},
+                typeof item.version === "string" && isValidSkillHubVersion(item.version)
+                  ? { version: item.version }
+                  : {},
+                typeof item.revision === "string" ? { revision: item.revision } : {},
+                typeof item.eligible === "boolean" ? { eligible: item.eligible } : {},
+                typeof item.disabled === "boolean" ? { disabled: item.disabled } : {},
+                typeof item.modelVisible === "boolean" ? { modelVisible: item.modelVisible } : {},
+                item.missing ? { missing: item.missing } : {},
+              ),
+            ]
+          : [];
+      }),
     };
   }
 

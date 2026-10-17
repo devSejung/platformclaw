@@ -135,7 +135,14 @@ describe("Skill Hub workspace publication", () => {
   it("publishes the active workspace skill from a Knox slash command", async () => {
     const { service, adminRpcCall, adapterMocks } = await fixture();
     adminRpcCall.mockResolvedValue({
-      skills: [{ skillKey: "demo-skill", source: "openclaw-workspace", version: "1.2.3" }],
+      skills: [
+        {
+          skillKey: "demo-skill",
+          source: "openclaw-workspace",
+          baseDir: "/workspace/skills/demo-skill",
+          version: "1.2.3",
+        },
+      ],
     });
     await expect(service.command("person.one", "publish demo-skill")).resolves.toMatchObject({
       text: expect.stringContaining("## Published"),
@@ -147,7 +154,13 @@ describe("Skill Hub workspace publication", () => {
     const { service, actor, adminRpcCall } = await fixture();
     adminRpcCall.mockResolvedValue({
       skills: [
-        { skillKey: "demo-skill", source: "openclaw-workspace", version: "1.2.3", path: "/secret" },
+        {
+          skillKey: "metadata-alias",
+          source: "openclaw-workspace",
+          baseDir: "/workspace/skills/demo-skill",
+          version: "1.2.3",
+          path: "/secret",
+        },
         { skillKey: "bundled", source: "openclaw-bundled" },
       ],
     });

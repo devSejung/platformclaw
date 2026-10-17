@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
 import { VmRemoteSkillInstallerService } from "./remote-skill-install.js";
@@ -198,7 +199,7 @@ describe("VM remote skill installer", () => {
   });
 
   it.runIf(process.platform !== "win32")(
-    "installs a real staged tree atomically and rejects a collision",
+    "discovers a maximum-size installed skill and revision-pins its replacement",
     async () => {
       await withTempWorkspace(
         { rootDir: resolvePreferredOpenClawTmpDir(), prefix: "platformclaw-vm-install-" },
@@ -206,25 +207,31 @@ describe("VM remote skill installer", () => {
           const sourceDir = path.join(dir, "source");
           const workspaceDir = path.join(dir, "workspace");
           await fs.mkdir(sourceDir, { recursive: true });
-          await fs.writeFile(
-            path.join(sourceDir, "SKILL.md"),
-            "---\nname: demo-skill\ndescription: Demo\n---\n",
+          const markdown = "---\nname: demo-skill\ndescription: Demo\nversion: 1.0.0\n---\n".padEnd(
+            256 * 1024,
+            "x",
           );
-          const access = new VmRemoteSkillInstallerService({
+          await fs.writeFile(path.join(sourceDir, "SKILL.md"), markdown);
+          const remoteTarget = { ...target, remoteHomeDir: dir, remoteWorkspaceDir: workspaceDir };
+          const io = {
             createSession: vi.fn(async () => ({
               command: "ssh",
               configPath: path.join(dir, "ssh-config"),
               host: "vm",
             })),
             disposeSession: vi.fn(async () => undefined),
-            uploadDirectory: vi.fn(async ({ localDir, remoteDir }) => {
-              await fs.mkdir(path.dirname(remoteDir), { recursive: true });
-              await fs.cp(localDir, remoteDir, { recursive: true, errorOnExist: true });
-            }),
+            uploadDirectory: vi.fn(
+              async ({ localDir, remoteDir }: { localDir: string; remoteDir: string }) => {
+                await fs.mkdir(path.dirname(remoteDir), { recursive: true });
+                await fs.cp(localDir, remoteDir, { recursive: true, errorOnExist: true });
+              },
+            ),
             runCommand: runLocalRemoteCommand,
-          }).createAccess({
-            target: { ...target, remoteHomeDir: dir, remoteWorkspaceDir: workspaceDir },
-            refreshCatalog: vi.fn(async () => undefined),
+          };
+          const catalog = new VmRemoteSkillCatalogService(io);
+          const access = new VmRemoteSkillInstallerService(io).createAccess({
+            target: remoteTarget,
+            refreshCatalog: () => catalog.list(remoteTarget, true),
           });
 
           await access.install({
@@ -233,9 +240,14 @@ describe("VM remote skill installer", () => {
             mode: "install",
             timeoutMs: 30_000,
           });
-          await expect(
-            fs.readFile(path.join(workspaceDir, "skills", "demo-skill", "SKILL.md"), "utf8"),
-          ).resolves.toContain("Demo");
+          const installed = await catalog.list(remoteTarget, false);
+          const skillFile = installed.files.find((file) =>
+            file.filePath.endsWith("/skills/demo-skill/SKILL.md"),
+          );
+          if (!skillFile) {
+            throw new Error("installed skill missing from the refreshed VM catalog");
+          }
+          expect(skillFile.content).toBe(markdown);
           await expect(
             access.install({
               sourceDir,
@@ -244,6 +256,23 @@ describe("VM remote skill installer", () => {
               timeoutMs: 30_000,
             }),
           ).rejects.toThrow("already exists");
+          const revision = `sha256:${createHash("sha256").update(skillFile.content).digest("hex").slice(0, 16)}`;
+          const nextMarkdown = markdown.replace("version: 1.0.0", "version: 2.0.0");
+          await fs.writeFile(path.join(sourceDir, "SKILL.md"), nextMarkdown);
+          const update = {
+            sourceDir,
+            slug: "demo-skill",
+            mode: "update" as const,
+            timeoutMs: 30_000,
+          };
+          await expect(
+            access.install({ ...update, expectedSkillRevision: "sha256:0000000000000000" }),
+          ).rejects.toThrow("changed; reload and retry");
+          await access.install({ ...update, expectedSkillRevision: revision });
+          const updated = await catalog.list(remoteTarget, false);
+          expect(updated.files.find((file) => file.filePath === skillFile.filePath)?.content).toBe(
+            nextMarkdown,
+          );
         },
       );
     },
