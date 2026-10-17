@@ -3139,6 +3139,28 @@ export const en: TranslationMap = {
     versionYanked: "Yanked",
     installBasic: "Install to Basic Workspace",
     installVm: "Install to My VM Workspace",
+    downloadLocation: "Where should this skill be downloaded?",
+    downloadLocationHelp:
+      "Each location keeps its own skills. Choose a version above, then download it to the location you use.",
+    basicServer: "Basic server",
+    basicServerHelp: "Use this skill in your personal workspace on PlatformClaw.",
+    developmentVm: "My development VM",
+    developmentVmHelp: "Use this skill in the workspace on your assigned VM.",
+    checkingInstallation: "Checking connection and installed version…",
+    installedVersion: "Downloaded · {version}",
+    installedVersionUnknown:
+      "Already downloaded. Its version is missing; check the skill in your workspace.",
+    notInstalled: "Not downloaded to this location yet.",
+    alreadyInstalled: "Selected version already downloaded",
+    changeToVersion: "Change to {version}",
+    vmUnassigned:
+      "No VM is assigned. Choose and connect a VM in Work location settings, or ask your administrator for help.",
+    vmNotReady:
+      "Your VM is not ready. Complete the connection setup in Work location settings, then check again.",
+    vmUnreachable:
+      "Cannot check skills on your VM right now. Check its connection in Work location settings, then try again.",
+    basicUnreachable: "Cannot check the basic server right now. Check again before downloading.",
+    checkAgain: "Check again",
     installed: "Installed {skill} to {target}.",
     versionChangeTitle: "Confirm version change",
     versionChangeHelp:

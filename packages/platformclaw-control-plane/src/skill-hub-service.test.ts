@@ -291,6 +291,7 @@ describe("SkillHubService", () => {
               {
                 skillKey: "demo-skill",
                 source: "openclaw-workspace",
+                baseDir: "/workspace/skills/demo-skill",
                 version: "1.2.3",
                 revision: "sha256:0123456789abcdef",
               },
@@ -522,6 +523,7 @@ describe("SkillHubService", () => {
         {
           skillKey: "demo-skill",
           source: "openclaw-workspace",
+          baseDir: "/workspace/skills/demo-skill",
           version: "1.0.0",
           revision: "sha256:0123456789abcdef",
         },
@@ -559,6 +561,7 @@ describe("SkillHubService", () => {
             {
               skillKey: "demo-skill",
               source: "openclaw-workspace",
+              baseDir: "/workspace/skills/demo-skill",
               version: "1.0.0",
               revision: "sha256:0123456789abcdef",
             },

@@ -20,7 +20,9 @@ type RemoteSkillTimingOptions = {
 };
 
 const MAX_SKILLS = 128;
-const MAX_SKILL_BYTES = 64 * 1024;
+// Skill Hub accepts SKILL.md up to 256 KiB. Keep installed packages discoverable
+// so a later download can identify the existing directory for replacement.
+const MAX_SKILL_BYTES = 256 * 1024;
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024;
 const MAX_SCAN_OUTPUT_BYTES = 4 * 1024 * 1024;
 const MAX_CACHED_TARGETS = 256;

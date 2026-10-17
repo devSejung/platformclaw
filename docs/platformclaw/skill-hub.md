@@ -12,7 +12,8 @@ title: "Skill Hub integration"
 PlatformClaw connects its existing Skills page to an internal, company-wide
 Skill Hub. Employees can publish a real Agent workspace skill without selecting
 a ZIP, search the catalog, inspect versions, and install one exact version into
-the personal Agent's active Basic or assigned-VM workspace.
+the personal Agent's Basic workspace or assigned-VM workspace. Each destination
+keeps its own installed skills, independently of the active work location.
 
 The managed deployment runs the registry on the same PlatformClaw server and
 ships it through the existing PlatformClaw release archive and deployment flow.
@@ -200,18 +201,34 @@ recorded in the audit log.
 1. Search **Skill Hub** on the same Skills page.
 2. Open a result to inspect its summary and published versions.
 3. Choose a version whose download is available.
-4. Confirm the current work location, then select **Install to Basic workspace**
-   or **Install to My development VM**.
+4. Under **Where should this skill be downloaded?**, check the installed version
+   shown separately for **Basic server** and **My development VM**.
+5. Select **Install to Basic Workspace** or **Install to My VM Workspace** for
+   the destination you want. This choice does not switch your active work
+   location.
+
+If the selected version is already downloaded to a destination, its action is
+disabled. To install a different version there, select that version, choose
+**Change to** the requested version, and review the destination and version
+change before confirming replacement. Installing on Basic leaves the VM copy
+unchanged, and installing on the VM leaves the Basic copy unchanged.
+
+An unavailable destination shows a reason and disables its install action.
+If no VM is assigned, ask an administrator to assign one. If your VM is not ready
+or cannot be reached, complete or check its connection in **Work location**
+settings, then select **Check again** in the skill detail. See
+[VM administration](/platformclaw/vm-administration) for assignment and connection
+setup. You can still install to Basic while the VM is unavailable.
 
 PlatformClaw downloads the exact
 `/api/cli/v1/skills/{namespace}/{slug}/versions/{version}/download` resource,
 validates it, and stages it through the Gateway upload installer for the
-authenticated user's Agent. The browser sends the work location it displayed
-only as a stale-screen guard. The control process resolves the authoritative
-execution profile again, and the Gateway pins its target revision before any
-mutation. Target selection and the actual workspace install are serialized for
-each Agent, and the pinned target is revalidated after that guard is acquired.
-A concurrent target switch or stale screen therefore fails visibly;
+authenticated user's Agent. The browser explicitly selects the destination. The
+control process checks access to that destination again, and the Gateway pins
+the execution profile revision before any mutation. Target configuration and
+the actual workspace install are serialized for each Agent, and the pinned
+revision is revalidated after that guard is acquired. A concurrent target
+configuration change therefore fails visibly;
 installation never falls back from a VM to the Basic workspace.
 
 Basic installs use the canonical local workspace installer. Assigned-VM installs
@@ -220,10 +237,10 @@ streams only the approved extracted tree over its server-side SSH session. It
 stages under the remote workspace's `.openclaw/skill-installs`, validates the
 remote tree, locks the `skills` directory, and atomically moves it into
 `workspace/skills/<slug>`. Staging is removed on success or failure. Installing
-an existing skill with the same slug always returns a revision-bound replacement
-challenge, including when the requested version is unchanged. PlatformClaw does
-not claim the namespace of an existing install without durable provenance. The Basic
-and VM installers use sibling staging and backup directories to replace
+an existing skill with the same slug requires a revision-bound replacement
+confirmation. The browser prevents downloading the same installed version again.
+PlatformClaw does not claim the namespace of an existing install without durable
+provenance. The Basic and VM installers use sibling staging and backup directories to replace
 atomically and restore the old tree if validation or commit fails.
 
 ## Delete a published skill

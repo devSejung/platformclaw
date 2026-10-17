@@ -237,7 +237,7 @@ describe("VM remote skill catalog", () => {
         code: 1,
       })
       .mockResolvedValueOnce({
-        stdout: encodedLine("platformclaw-vm-workspace", "/x/SKILL.md", "x".repeat(64 * 1024 + 1)),
+        stdout: encodedLine("platformclaw-vm-workspace", "/x/SKILL.md", "x".repeat(256 * 1024 + 1)),
         stderr: Buffer.alloc(0),
         code: 0,
       });

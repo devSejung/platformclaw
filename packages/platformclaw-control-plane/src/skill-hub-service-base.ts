@@ -105,6 +105,20 @@ export abstract class SkillHubServiceBase {
     return { activeTarget: profile.activeTarget, targetRevision: profile.targetRevision };
   }
 
+  protected workspaceSkillSlug(
+    skill: { source?: string; baseDir?: string },
+    target: SkillInstallTarget,
+  ): string | undefined {
+    const source = target === "assigned_vm" ? "platformclaw-vm-workspace" : "openclaw-workspace";
+    if (skill.source !== source || !skill.baseDir) {
+      return undefined;
+    }
+    // Hub archives mutate a physical directory. Frontmatter can override skillKey,
+    // so matching that logical key can miss an installed package or remove another one.
+    const slug = path.posix.basename(skill.baseDir.replaceAll("\\", "/"));
+    return SKILL_KEY_PATTERN.test(slug) ? slug : undefined;
+  }
+
   protected authorizeNamespace(raw: string): string {
     const namespace = safeName(raw, "namespace", NAMESPACE_PATTERN);
     if (!this.namespaces.has(namespace)) {

@@ -106,6 +106,7 @@ async function setup(room = true, manager?: "admin" | "owner") {
   const ready = {
     skillKey: "demo-skill",
     source: "openclaw-workspace",
+    baseDir: "/workspace/skills/demo-skill",
     version: "1.0.0",
     revision: "sha256:1111111111111111",
     eligible: true,
@@ -580,7 +581,11 @@ describe("Knox Skill Hub natural-language tool transport", () => {
         return {
           skills: [
             { ...f.ready, source: "platformclaw-vm-workspace" },
-            { ...f.ready, skillKey: "other-basic-helper" },
+            {
+              ...f.ready,
+              skillKey: "other-basic-helper",
+              baseDir: "/workspace/skills/other-basic-helper",
+            },
           ],
         };
       }
@@ -627,6 +632,7 @@ describe("Knox Skill Hub natural-language tool transport", () => {
       skills: Array.from({ length: 11 }, (_, index) => ({
         ...f.ready,
         skillKey: `helper-${index}`,
+        baseDir: `/workspace/skills/helper-${index}`,
         description: "d".repeat(500),
       })),
     });

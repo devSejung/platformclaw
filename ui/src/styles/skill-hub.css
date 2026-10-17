@@ -284,6 +284,53 @@
   gap: 8px;
 }
 
+.skill-hub-destinations {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.skill-hub-destinations h3,
+.skill-hub-destination h4 {
+  margin: 0 0 6px;
+}
+
+.skill-hub-destinations > div > p,
+.skill-hub-destination__description {
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.skill-hub-destinations .skill-hub-install-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.skill-hub-destination {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+}
+
+.skill-hub-destination .skill-hub-destination__status {
+  flex: 1;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.skill-hub-destination .btn {
+  white-space: normal;
+}
+
 .skill-hub-badge {
   padding: 5px 9px;
   font-size: 0.72rem;
@@ -445,6 +492,10 @@ openclaw-skill-hub-user-picker {
   .skill-hub-grid,
   .skill-hub-upload__fields,
   .skill-hub-admin__form {
+    grid-template-columns: 1fr;
+  }
+
+  .skill-hub-destinations .skill-hub-install-actions {
     grid-template-columns: 1fr;
   }
 

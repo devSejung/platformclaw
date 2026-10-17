@@ -5,6 +5,7 @@ import { SkillHubCatalogService } from "./skill-hub-catalog-service.js";
 import { assertSkillHubWorkspace } from "./skill-hub-command-workspace.js";
 import {
   compareSemVer,
+  isValidSkillHubVersion,
   MAX_SKILL_FILES,
   MAX_SKILL_MD_BYTES,
   parseSkillMarkdown,
@@ -321,20 +322,18 @@ export abstract class SkillHubPublicationService extends SkillHubCatalogService 
       actor.roomBinding ? "room" : "employee",
     );
     const status = await this.gatewayCall<{
-      skills?: Array<{ skillKey?: string; source?: string; version?: string; revision?: string }>;
+      skills?: Array<{ baseDir?: string; source?: string; version?: string; revision?: string }>;
     }>("skills.status", {
       agentId: actor.agentId,
       refresh: true,
       ...(actor.roomBinding ? {} : { backendTarget: params.destination }),
     });
-    const installedSource =
-      params.destination === "assigned_vm" ? "platformclaw-vm-workspace" : "openclaw-workspace";
     const installed = status?.skills?.find(
-      (candidate) => candidate.skillKey === slug && candidate.source === installedSource,
+      (candidate) => this.workspaceSkillSlug(candidate, params.destination) === slug,
     );
     const installedVersion = installed?.version;
     const installedRevision = installed?.revision;
-    if (installed && !installedVersion) {
+    if (installed && (!installedVersion || !isValidSkillHubVersion(installedVersion))) {
       throw new SkillHubServiceError("installed skill does not declare a valid version", 409, {
         code: "installed-version-unavailable",
       });

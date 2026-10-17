@@ -1,0 +1,322 @@
+import { html, nothing, type ReactiveController, type ReactiveControllerHost } from "lit";
+import { t } from "../../i18n/index.ts";
+import {
+  installPlatformClawHubSkill,
+  loadPlatformClawSkillHubConfig,
+  loadPlatformClawWorkspaceSkills,
+  PlatformClawSkillHubRequestError,
+  type PlatformClawSkillHubConfig,
+  type PlatformClawSkillHubMessage,
+  type PlatformClawSkillHubWorkspaceSkill,
+} from "../../platformclaw/skill-hub.ts";
+import { renderSkillHubVersionChange } from "./dialogs.ts";
+import {
+  skillHubVersionLabel,
+  type InstallTarget,
+  type PendingVersionChange,
+  type SkillHubRef,
+} from "./page-support.ts";
+
+type InstallState =
+  | { status: "checking" }
+  | { status: "unavailable"; reason: string }
+  | { status: "ready"; installed?: PlatformClawSkillHubWorkspaceSkill };
+
+const targets = ["platform_server", "assigned_vm"] as const;
+
+export class SkillHubInstallController implements ReactiveController {
+  private ref: SkillHubRef | null = null;
+  private generation = 0;
+  private states: Record<InstallTarget, InstallState> = {
+    platform_server: { status: "checking" },
+    assigned_vm: { status: "checking" },
+  };
+  private installing: InstallTarget | null = null;
+  private pending: (PendingVersionChange & SkillHubRef) | null = null;
+
+  constructor(
+    private readonly host: ReactiveControllerHost,
+    private readonly setMessage: (message: PlatformClawSkillHubMessage | null) => void,
+  ) {
+    host.addController(this);
+  }
+
+  get busy(): boolean {
+    return this.installing !== null;
+  }
+
+  hostDisconnected(): void {
+    this.clear();
+  }
+
+  open(ref: SkillHubRef, config: PlatformClawSkillHubConfig | null): void {
+    this.clear();
+    this.ref = { namespace: ref.namespace, slug: ref.slug };
+    for (const target of targets) {
+      void this.loadTarget(target, config);
+    }
+  }
+
+  clear(): void {
+    this.generation += 1;
+    this.ref = null;
+    this.pending = null;
+    this.states = { platform_server: { status: "checking" }, assigned_vm: { status: "checking" } };
+    this.host.requestUpdate();
+  }
+
+  cancelConfirmation(): void {
+    if (!this.installing) {
+      this.pending = null;
+      this.host.requestUpdate();
+    }
+  }
+
+  private label(target: InstallTarget): string {
+    return t(
+      target === "platform_server" ? "skillHubPage.basicServer" : "skillHubPage.developmentVm",
+    );
+  }
+
+  private async loadTarget(
+    target: InstallTarget,
+    config?: PlatformClawSkillHubConfig | null,
+  ): Promise<void> {
+    const generation = this.generation;
+    const ref = this.ref;
+    if (!ref) {
+      return;
+    }
+    this.states[target] = { status: "checking" };
+    this.host.requestUpdate();
+    let state: InstallState;
+    try {
+      const currentConfig = config ?? (await loadPlatformClawSkillHubConfig());
+      const availability = currentConfig.installTargets?.find((entry) => entry.target === target);
+      if (availability?.available === false || (target === "assigned_vm" && !availability)) {
+        state = {
+          status: "unavailable",
+          reason: t(
+            availability?.status === "unassigned" || !availability
+              ? "skillHubPage.vmUnassigned"
+              : "skillHubPage.vmNotReady",
+          ),
+        };
+      } else {
+        const result = await loadPlatformClawWorkspaceSkills(target);
+        if (result.source !== target || !Array.isArray(result.items)) {
+          throw new Error("Invalid workspace skill status");
+        }
+        state = {
+          status: "ready",
+          installed: result.items.find((item) => item.skillKey === ref.slug),
+        };
+      }
+    } catch {
+      state = {
+        status: "unavailable",
+        reason: t(
+          target === "assigned_vm" ? "skillHubPage.vmUnreachable" : "skillHubPage.basicUnreachable",
+        ),
+      };
+    }
+    // A closed/replaced detail must never receive an older target's status.
+    if (generation === this.generation) {
+      this.states[target] = state;
+      this.host.requestUpdate();
+    }
+  }
+
+  render(version: string) {
+    return html`<section
+      class="skill-hub-destinations"
+      aria-label=${t("skillHubPage.downloadLocation")}
+    >
+      <div>
+        <h3>${t("skillHubPage.downloadLocation")}</h3>
+        <p>${t("skillHubPage.downloadLocationHelp")}</p>
+      </div>
+      <div class="skill-hub-install-actions">
+        ${targets.map((target) => this.renderTarget(target, version))}
+      </div>
+    </section>`;
+  }
+
+  private renderTarget(target: InstallTarget, version: string) {
+    const state = this.states[target];
+    const installed = state.status === "ready" ? state.installed : undefined;
+    const sameVersion = Boolean(installed?.version && installed.version === version);
+    const unknownVersion = Boolean(installed && !installed.version);
+    const blocked =
+      state.status !== "ready" ||
+      !version ||
+      sameVersion ||
+      unknownVersion ||
+      Boolean(this.installing);
+    const status =
+      state.status === "checking"
+        ? t("skillHubPage.checkingInstallation")
+        : state.status === "unavailable"
+          ? state.reason
+          : installed?.version
+            ? t("skillHubPage.installedVersion", {
+                version: skillHubVersionLabel(installed.version),
+              })
+            : installed
+              ? t("skillHubPage.installedVersionUnknown")
+              : t("skillHubPage.notInstalled");
+    const action =
+      this.installing === target
+        ? t("skillsPage.skillHub.installing")
+        : sameVersion
+          ? t("skillHubPage.alreadyInstalled")
+          : installed
+            ? t("skillHubPage.changeToVersion", { version: skillHubVersionLabel(version) })
+            : t(
+                target === "platform_server"
+                  ? "skillHubPage.installBasic"
+                  : "skillHubPage.installVm",
+              );
+    return html`<article
+      class="skill-hub-destination"
+      data-install-target=${target}
+      aria-busy=${state.status === "checking"}
+    >
+      <h4>${this.label(target)}</h4>
+      <p class="skill-hub-destination__description">
+        ${t(
+          target === "platform_server"
+            ? "skillHubPage.basicServerHelp"
+            : "skillHubPage.developmentVmHelp",
+        )}
+      </p>
+      <p class="skill-hub-destination__status" role="status">${status}</p>
+      <button
+        class="btn ${target === "platform_server" ? "primary" : ""}"
+        ?disabled=${blocked}
+        @click=${() => void this.install(target, version)}
+      >
+        ${action}
+      </button>
+      ${state.status === "unavailable"
+        ? html`<button
+            class="btn btn--sm"
+            ?disabled=${Boolean(this.installing)}
+            @click=${() => void this.loadTarget(target)}
+          >
+            ${t("skillHubPage.checkAgain")}
+          </button>`
+        : nothing}
+    </article>`;
+  }
+
+  renderConfirmation() {
+    const pending = this.pending;
+    return renderSkillHubVersionChange({
+      open: pending !== null,
+      currentVersion: pending?.currentVersion ?? "",
+      requestedVersion: pending?.requestedVersion ?? "",
+      direction: pending?.direction ?? "upgrade",
+      targetLabel: pending ? this.label(pending.target) : undefined,
+      busy: this.installing !== null,
+      onClose: () => this.cancelConfirmation(),
+      onConfirm: () =>
+        pending && void this.install(pending.target, pending.requestedVersion, pending),
+    });
+  }
+
+  private async install(
+    target: InstallTarget,
+    version: string,
+    confirmation?: PendingVersionChange & SkillHubRef,
+  ): Promise<void> {
+    const ref = this.ref;
+    const state = this.states[target];
+    if (
+      !ref ||
+      !version ||
+      this.installing ||
+      state.status !== "ready" ||
+      state.installed?.version === version
+    ) {
+      return;
+    }
+    const generation = this.generation;
+    this.installing = target;
+    this.setMessage(null);
+    this.host.requestUpdate();
+    try {
+      const result = await installPlatformClawHubSkill({
+        ...ref,
+        version,
+        destination: target,
+        ...(confirmation
+          ? {
+              acknowledgedReplacement: true as const,
+              currentRevision: confirmation.currentRevision,
+            }
+          : {}),
+      });
+      if (generation !== this.generation) {
+        return;
+      }
+      this.pending = null;
+      this.states[target] = {
+        status: "ready",
+        installed: { skillKey: result.slug, version: result.version },
+      };
+      this.setMessage({
+        kind: "success",
+        text: t("skillHubPage.installed", {
+          skill: `${result.slug}@${result.version}`,
+          target: this.label(target),
+        }),
+      });
+    } catch (error) {
+      if (generation !== this.generation) {
+        return;
+      }
+      const details = error instanceof PlatformClawSkillHubRequestError ? error.details : undefined;
+      if (
+        details?.code === "existing-skill-replacement-required" &&
+        typeof details.currentVersion === "string" &&
+        typeof details.currentRevision === "string" &&
+        typeof details.requestedVersion === "string" &&
+        (details.direction === "upgrade" ||
+          details.direction === "downgrade" ||
+          details.direction === "reinstall")
+      ) {
+        this.states[target] = {
+          status: "ready",
+          installed: {
+            skillKey: ref.slug,
+            version: details.currentVersion,
+            revision: details.currentRevision,
+          },
+        };
+        // Another tab may have installed this version after our inventory read.
+        this.pending =
+          details.currentVersion === version
+            ? null
+            : {
+                ...ref,
+                target,
+                currentVersion: details.currentVersion,
+                currentRevision: details.currentRevision,
+                requestedVersion: details.requestedVersion,
+                direction: details.direction,
+              };
+      } else {
+        this.pending = null;
+        this.setMessage({
+          kind: "error",
+          text: error instanceof Error ? error.message : String(error),
+        });
+        await this.loadTarget(target);
+      }
+    } finally {
+      this.installing = null;
+      this.host.requestUpdate();
+    }
+  }
+}

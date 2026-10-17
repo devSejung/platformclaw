@@ -117,6 +117,7 @@ describe("SkillHubPage", () => {
           ],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse({ source: "platform_server", items: [] }))
       .mockResolvedValueOnce(
         jsonResponse({
           ok: true,
@@ -136,6 +137,12 @@ describe("SkillHubPage", () => {
 
     expect(page.textContent).toContain("Install to Basic Workspace");
     expect(page.textContent).toContain("Install to My VM Workspace");
+    await waitForFast(() =>
+      expect(
+        page.querySelector<HTMLButtonElement>('[data-install-target="platform_server"] button')
+          ?.disabled,
+      ).toBe(false),
+    );
     const buttons = [...page.querySelectorAll<HTMLButtonElement>("button")];
     buttons.find((button) => button.textContent?.includes("Basic Workspace"))?.click();
     await waitForFast(() => expect(page.textContent).toContain("Installed release-notes@2.1.0"));
@@ -320,6 +327,10 @@ describe("SkillHubPage", () => {
   });
 
   it("requires a second confirmation before replacing an installed version", async () => {
+    let resolveChallenge!: (response: Response) => void;
+    const pendingChallenge = new Promise<Response>((resolve) => {
+      resolveChallenge = resolve;
+    });
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -348,24 +359,14 @@ describe("SkillHubPage", () => {
             visibility: "NAMESPACE_ONLY",
             status: "PUBLISHED",
           },
-          versions: [{ version: "2.1.0", status: "PUBLISHED", downloadAvailable: true }],
+          versions: [
+            { version: "2.1.0", status: "PUBLISHED", downloadAvailable: true },
+            { version: "1.9.0", status: "PUBLISHED", downloadAvailable: true },
+          ],
         }),
       )
-      .mockResolvedValueOnce(
-        jsonResponse(
-          {
-            error: "version change requires confirmation",
-            details: {
-              code: "existing-skill-replacement-required",
-              currentVersion: "2.0.0",
-              currentRevision: "sha256:0123456789abcdef",
-              requestedVersion: "2.1.0",
-              direction: "upgrade",
-            },
-          },
-          409,
-        ),
-      )
+      .mockResolvedValueOnce(jsonResponse({ source: "platform_server", items: [] }))
+      .mockImplementationOnce(() => pendingChallenge)
       .mockResolvedValueOnce(
         jsonResponse({
           ok: true,
@@ -380,10 +381,41 @@ describe("SkillHubPage", () => {
     await waitForFast(() => expect(page.textContent).toContain("release-notes"));
     page.querySelector<HTMLButtonElement>(".skill-hub-card")?.click();
     await waitForFast(() => expect(page.textContent).toContain("Install to Basic Workspace"));
+    await waitForFast(() =>
+      expect(
+        page.querySelector<HTMLButtonElement>('[data-install-target="platform_server"] button')
+          ?.disabled,
+      ).toBe(false),
+    );
     [...page.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Install to Basic Workspace"))
       ?.click();
+    const selected = page.querySelector<HTMLInputElement>('input[type="radio"][value="2.1.0"]')!;
+    const other = page.querySelector<HTMLInputElement>('input[type="radio"][value="1.9.0"]')!;
+    await waitForFast(() => expect(other.disabled).toBe(true));
+    expect(selected.disabled).toBe(true);
+    other.click();
+    expect(selected.checked).toBe(true);
+    expect(other.checked).toBe(false);
+    expect(page.querySelector(".skill-hub-version-change")).toBeNull();
+    resolveChallenge(
+      jsonResponse(
+        {
+          error: "version change requires confirmation",
+          details: {
+            code: "existing-skill-replacement-required",
+            currentVersion: "2.0.0",
+            currentRevision: "sha256:0123456789abcdef",
+            requestedVersion: "2.1.0",
+            direction: "upgrade",
+          },
+        },
+        409,
+      ),
+    );
     await waitForFast(() => expect(page.textContent).toContain("Confirm version change"));
+    expect(page.querySelector(".skill-hub-version-change")?.textContent).toContain("v2.1.0");
+    expect(selected.checked).toBe(true);
     [...page.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Replace installed version"))
       ?.click();

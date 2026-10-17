@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -167,13 +167,97 @@ describe("createPlatformClawWebIngressRuntime", () => {
       if (!executionHandoff) {
         throw new Error("execution handoff was not assembled");
       }
-      const executionTarget = await new ExecutionHandoffClient(
+      const executionClient = new ExecutionHandoffClient(
         deriveExecutionHandoffAddress(credentialBrokerAddress),
         "execution-service-token-with-32-bytes",
-      ).resolveTarget("person_one");
+      );
+      const executionTarget = await executionClient.resolveTarget("person_one");
       expect(executionTarget).toMatchObject({
         kind: "platform_server",
         agentId: "person_one",
+      });
+      await expect(executionClient.resolveTarget("person_one", "assigned_vm")).rejects.toThrow(
+        "execution handoff request failed (409)",
+      );
+      const store = runtime.auth.store;
+      const { user: admin } = await store.upsertPrincipal(
+        { provider: "ldap", subject: "admin.user", accountId: "admin.user", employeeId: "1002" },
+        4,
+      );
+      const endpoint = await store.createSafeConnectEndpoint({
+        actorUserId: admin.id,
+        label: "Test endpoint",
+        host: "safeconnect.example.test",
+        port: 22,
+        adDomain: "example.test",
+        createdAt: 5,
+      });
+      const hostKeyBlob = Buffer.from(
+        `0000000b7373682d6564323535313900000020${"07".repeat(32)}`,
+        "hex",
+      );
+      await store.approveSafeConnectHostKey({
+        actorUserId: admin.id,
+        endpointId: endpoint.id,
+        algorithm: "ssh-ed25519",
+        publicKey: hostKeyBlob.toString("base64"),
+        fingerprint: `SHA256:${createHash("sha256").update(hostKeyBlob).digest("base64").replace(/=+$/u, "")}`,
+        approvedAt: 6,
+      });
+      const host = await store.createVmHost({
+        actorUserId: admin.id,
+        endpointId: endpoint.id,
+        label: "Test VM",
+        targetAddress: "192.0.2.10",
+        createdAt: 7,
+      });
+      const allocation = await store.assignVmToPersonalAgent({
+        actorUserId: admin.id,
+        agentId: "person_one",
+        vmHostId: host.id,
+        linuxAccount: "person_one",
+        assignedAt: 8,
+      });
+      await store.recordVmConnectionResult({
+        actorUserId: user.id,
+        agentId: "person_one",
+        expectedAllocationId: allocation.id,
+        expectedTargetRevision: 0,
+        checkedAt: 9,
+        result: {
+          status: "ready",
+          remoteHomeDir: "/home/person_one",
+          remoteWorkspaceDir: "/home/person_one/workspace",
+        },
+      });
+      await expect(
+        executionClient.resolveTarget("person_one", "assigned_vm"),
+      ).resolves.toMatchObject({
+        kind: "assigned_vm",
+        allocationId: allocation.id,
+        revision: 0,
+      });
+      await expect(store.getPersonalExecutionProfile("person_one")).resolves.toMatchObject({
+        activeTarget: "platform_server",
+        targetRevision: 0,
+      });
+      await executionClient.changeTarget({
+        agentId: "person_one",
+        target: "assigned_vm",
+        expectedRevision: 0,
+      });
+      await expect(executionClient.resolveTarget("person_one", "platform_server")).resolves.toEqual(
+        {
+          kind: "platform_server",
+          agentId: "person_one",
+          targetId: "platform-server",
+          revision: 1,
+        },
+      );
+      await expect(executionClient.resolveTarget("person_one")).resolves.toMatchObject({
+        kind: "assigned_vm",
+        allocationId: allocation.id,
+        revision: 1,
       });
       expect(clientOptions?.token).toBe("test-auth-token");
       expect(runtime.gateway.getHello()).toEqual(hello());

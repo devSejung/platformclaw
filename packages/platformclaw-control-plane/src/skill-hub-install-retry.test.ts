@@ -178,6 +178,7 @@ describe("SkillHubService install retry", () => {
                 {
                   skillKey: "demo-skill",
                   source: "openclaw-workspace",
+                  baseDir: "/workspace/skills/demo-skill",
                   version: "1.0.0",
                 },
               ],

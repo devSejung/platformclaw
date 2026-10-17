@@ -57,7 +57,7 @@ export function projectSkillHubAccessGrant(grant: SkillHubAccessGrant) {
   };
 }
 
-function isValidSemVer(value: string): boolean {
+export function isValidSkillHubVersion(value: string): boolean {
   if (!VERSION_PATTERN.test(value)) {
     return false;
   }
@@ -75,7 +75,7 @@ function isValidSemVer(value: string): boolean {
 export function compareSemVer(left: string, right: string): number {
   const parse = (value: string) => {
     const match = VERSION_PATTERN.exec(value);
-    if (!match || !isValidSemVer(value)) {
+    if (!match || !isValidSkillHubVersion(value)) {
       return undefined;
     }
     const core = [Number(match[1]), Number(match[2]), Number(match[3])];
@@ -162,7 +162,7 @@ export function safeName(raw: string, label: string, pattern: RegExp): string {
 
 export function validVersion(raw: string): string {
   const value = raw.trim();
-  if (!isValidSemVer(value)) {
+  if (!isValidSkillHubVersion(value)) {
     throw new SkillHubServiceError("version must be valid SemVer", 400);
   }
   return value;
