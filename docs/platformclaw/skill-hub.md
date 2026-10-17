@@ -28,6 +28,10 @@ SkillHub's service remains a separate internal container. Its React portal,
 OAuth, logo, and branding are not embedded. PlatformClaw independently ports the
 upstream catalog information architecture into its Lit UI and theme.
 
+The managed server includes a pinned PlatformClaw patch for revision-checked
+metadata edits and namespace moves. External registries need the same management
+API and the existing server-only governance session to enable editing.
+
 ## Before you begin
 
 The standard `platformclaw-<version>-<sha12>.tar` contains PlatformClaw, sandbox,
@@ -129,6 +133,67 @@ the same authenticated package through SkillHub's warning-confirmable publish
 endpoint. This allows ordinary skill files with arbitrary extensions, including
 `.jsonl` and `.bin`. Any additional pre-publish warning remains unconfirmed and
 still blocks publication.
+
+## Edit a published skill
+
+Open **Skill Hub**, open the skill, and use its management section. The current
+owner and PlatformClaw administrators can manage an existing skill; an individual
+read/install grant does not give editing rights.
+
+| Change                                               | Action                                                                                  |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Display name, description, visibility, or namespace  | Select **Edit skill**, change the fields, then **Save changes**.                        |
+| Skill instructions or packaged files                 | Select **Publish new version**, choose the updated ZIP, and enter a new SemVer version. |
+| Accountable owner                                    | Select an eligible active employee and transfer ownership.                              |
+| Individual read/install access                       | Grant or revoke access in the management section.                                       |
+| Namespace scope, visibility ceiling, or access state | Use the administrator namespace view.                                                   |
+| Registry entry and all its versions                  | Use **Delete skill** and confirm the named skill.                                       |
+
+A namespace move requires publication rights at the destination and an owner who
+is eligible there. Transfer ownership first if the current owner cannot own a
+skill in the destination namespace. The destination must be allowed and have a
+managed binding. Its visibility ceiling still applies, and an existing skill
+with the same package identity blocks the move.
+
+Review the destination and visibility before saving: namespace membership can
+change who can find and install the skill. Explicit per-user grants, versions,
+packages, security scan results, and version history remain attached to the same
+skill. The old registry coordinate stops resolving after a move. Copies already
+installed in Basic or VM workspaces remain unchanged.
+
+The package slug and released versions are immutable. The display name can be
+edited independently. **Publish new version** pins the current namespace, slug,
+and visibility, and requires a new version; it never overwrites a released ZIP. Explicitly
+edited catalog metadata remains in place on subsequent publication. Change
+visibility through **Edit skill** before publishing with a different visibility.
+
+Saving checks both the registry metadata revision and the PlatformClaw ownership
+revision. If another editor changed the skill, reload its detail before retrying.
+After a definite rejection, select **Reload**, then open **Edit skill** again to
+start with the current details. An uncertain network or recovery error keeps the
+same request ID for a safe retry.
+Changing Private to a shared visibility prepares the existing eligible versions
+for security scanning and publication. The skill stays private until approval;
+the saved edit reports that sharing is pending. Completed scans are reused, and
+owners or administrators retain the existing reasoned force-publication path.
+Failed scan rounds start fresh scans from the stored ZIP. If no eligible release
+remains, publish a new Private version before sharing the skill again.
+Employees downloading a shared skill can install only published versions.
+An interrupted request retains a persistent edit ID: retrying the unchanged form
+recovers the result, including after a namespace move. The control process also
+reconciles pending edits automatically when an authenticated Skill Hub session
+is active. Other mutations and catalog access to the affected coordinates wait
+until reconciliation finishes.
+
+If ownership or namespace policy changes while a registry edit is in flight,
+PlatformClaw keeps the edit reserved until the registry confirms both requested
+and effective Private visibility, then completes reconciliation with an unassigned
+owner. The privacy recovery has its own persistent request ID and survives a lost
+response or restart; a restored policy does not silently resume sharing. The
+result displays an ownership-review warning and administrators receive
+an inbox item. An administrator must review the owner and visibility before
+sharing the skill again. Edit starts, completions, and rejected operations are
+recorded in the audit log.
 
 ## Search and install a version
 
@@ -336,9 +401,24 @@ The pinned adapter uses these SkillHub `v0.2.16` endpoints:
 | Search         | `GET /api/cli/v1/skills/search`                                         |
 | Detail         | `GET /api/v1/skills/{namespace}/{slug}`                                 |
 | Versions       | `GET /api/v1/skills/{namespace}/{slug}/versions`                        |
+| Version state  | `GET /api/v1/skills/{namespace}/{slug}/versions/{version}`              |
 | Publish        | `POST /api/cli/v1/skills/{namespace}/publish`                           |
 | Delete skill   | `DELETE /api/cli/v1/skills/{namespace}/{slug}`                          |
 | Exact download | `GET /api/cli/v1/skills/{namespace}/{slug}/versions/{version}/download` |
+
+The managed server patch additionally exposes
+`GET /api/v1/admin/platformclaw/skills/{namespace}/{slug}` and
+`PATCH /api/v1/admin/platformclaw/skills/{skillId}`. Only the control process uses
+these administrator endpoints through its private CSRF-protected session. The
+same boundary resolves an exact version's pending or latest approved review at
+`GET /api/v1/admin/platformclaw/skills/{namespace}/{slug}/versions/{version}/review`,
+so old versions remain reviewable beyond the first catalog page. The
+automatic policy uses
+`POST /api/v1/admin/platformclaw/skills/{namespace}/{slug}/versions/{version}/approve-safe`
+to check completed SAFE evidence and approve in one registry transaction. The
+browser submits revision-checked edits to
+`POST /platformclaw/api/skill-hub/skills/{namespace}/{slug}/edit`; it receives the
+resulting coordinate and any ownership-review or pending-publication warning.
 
 The browser calls only same-origin `/platformclaw/api/skill-hub/*` endpoints with
 its HttpOnly PlatformClaw session cookie. Browser responses contain registry

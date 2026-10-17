@@ -174,9 +174,15 @@ export function renderSkillHubWorkspacePublish(props: {
             @change=${(event: Event) =>
               props.onVisibility((event.target as HTMLSelectElement).value)}
           >
-            <option value="PUBLIC">${t("skillsPage.skillHub.public")}</option>
-            <option value="NAMESPACE_ONLY">${t("skillsPage.skillHub.namespaceOnly")}</option>
-            <option value="PRIVATE">${t("skillsPage.skillHub.private")}</option>
+            <option value="PUBLIC" ?selected=${props.visibility === "PUBLIC"}>
+              ${t("skillsPage.skillHub.public")}
+            </option>
+            <option value="NAMESPACE_ONLY" ?selected=${props.visibility === "NAMESPACE_ONLY"}>
+              ${t("skillsPage.skillHub.namespaceOnly")}
+            </option>
+            <option value="PRIVATE" ?selected=${props.visibility === "PRIVATE"}>
+              ${t("skillsPage.skillHub.private")}
+            </option>
           </select>
         </label>
       </div>
@@ -217,6 +223,7 @@ export function renderSkillHubUpload(props: {
   namespace: string;
   version: string;
   visibility: string;
+  existing?: { namespace: string; slug: string } | null;
   busy: boolean;
   onClose: () => void;
   onFile: (file: File | null) => void;
@@ -232,7 +239,7 @@ export function renderSkillHubUpload(props: {
   const maxBytes = props.config?.maxUploadBytes ?? 500 * 1024 * 1024;
   const invalidFile = props.file ? props.file.size > maxBytes : false;
   return html`<openclaw-modal-dialog
-    label=${t("skillHubPage.uploadZip")}
+    label=${t(props.existing ? "skillHubPage.publishVersion" : "skillHubPage.uploadZip")}
     @modal-cancel=${(event: Event) => {
       if (props.busy) {
         event.preventDefault();
@@ -244,8 +251,12 @@ export function renderSkillHubUpload(props: {
     <section class="skill-hub-dialog skill-hub-upload">
       <header class="skill-hub-dialog__header">
         <div>
-          <h2>${t("skillHubPage.uploadZip")}</h2>
-          <p>${t("skillHubPage.uploadDescription")}</p>
+          <h2>${t(props.existing ? "skillHubPage.publishVersion" : "skillHubPage.uploadZip")}</h2>
+          <p>
+            ${t(
+              props.existing ? "skillHubPage.publishVersionHelp" : "skillHubPage.uploadDescription",
+            )}
+          </p>
         </div>
         <button class="btn btn--sm" ?disabled=${props.busy} @click=${props.onClose}>
           ${t("skillsPage.close")}
@@ -271,7 +282,7 @@ export function renderSkillHubUpload(props: {
           <span>${t("skillHubPage.slug")}</span>
           <input
             .value=${props.slug}
-            ?disabled=${props.busy}
+            ?disabled=${props.busy || Boolean(props.existing)}
             @input=${(event: Event) => props.onSlug((event.target as HTMLInputElement).value)}
           />
         </label>
@@ -279,11 +290,11 @@ export function renderSkillHubUpload(props: {
           <span>${t("skillsPage.skillHub.namespace")}</span>
           <select
             .value=${props.namespace}
-            ?disabled=${props.busy}
+            ?disabled=${props.busy || Boolean(props.existing)}
             @change=${(event: Event) =>
               props.onNamespace((event.target as HTMLSelectElement).value)}
           >
-            ${props.config?.namespaces.map(
+            ${(props.existing ? [props.existing.namespace] : props.config?.namespaces)?.map(
               (namespace) => html`<option value=${namespace}>${namespace}</option>`,
             )}
           </select>
@@ -301,13 +312,19 @@ export function renderSkillHubUpload(props: {
           <span>${t("skillsPage.skillHub.visibility")}</span>
           <select
             .value=${props.visibility}
-            ?disabled=${props.busy}
+            ?disabled=${props.busy || Boolean(props.existing)}
             @change=${(event: Event) =>
               props.onVisibility((event.target as HTMLSelectElement).value)}
           >
-            <option value="PUBLIC">${t("skillsPage.skillHub.public")}</option>
-            <option value="NAMESPACE_ONLY">${t("skillsPage.skillHub.namespaceOnly")}</option>
-            <option value="PRIVATE">${t("skillsPage.skillHub.private")}</option>
+            <option value="PUBLIC" ?selected=${props.visibility === "PUBLIC"}>
+              ${t("skillsPage.skillHub.public")}
+            </option>
+            <option value="NAMESPACE_ONLY" ?selected=${props.visibility === "NAMESPACE_ONLY"}>
+              ${t("skillsPage.skillHub.namespaceOnly")}
+            </option>
+            <option value="PRIVATE" ?selected=${props.visibility === "PRIVATE"}>
+              ${t("skillsPage.skillHub.private")}
+            </option>
           </select>
         </label>
       </div>

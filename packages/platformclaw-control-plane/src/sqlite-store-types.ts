@@ -250,6 +250,18 @@ export type SkillHubOwnershipRow = {
   updated_at: number;
 };
 
+export type SkillHubEditIntentRow = {
+  id: string;
+  namespace: string;
+  slug: string;
+  target_namespace: string;
+  state: "pending" | "completed" | "cancelled";
+  payload_json: string;
+  result_json: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
 export type SkillHubAccessRow = {
   namespace: string;
   slug: string;
@@ -349,6 +361,7 @@ export type ControlPlaneDatabase = {
   encrypted_user_exec_credentials: EncryptedUserExecCredentialRow;
   mcp_oauth_states: McpOAuthStateRow;
   skill_hub_skill_ownership: SkillHubOwnershipRow;
+  skill_hub_edit_intents: SkillHubEditIntentRow;
   skill_hub_skill_access: SkillHubAccessRow;
   skill_hub_notifications: SkillHubNotificationRow;
   skill_hub_governance_jobs: SkillHubGovernanceJobRow;

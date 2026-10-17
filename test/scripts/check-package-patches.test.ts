@@ -78,6 +78,42 @@ patchedDependencies:
     expect(collectPackagePatchViolations(dir)).toEqual([]);
   });
 
+  it("keeps approved registry source patches separate from pnpm patch approval", () => {
+    const dir = makeRepo();
+    const sourcePath = "docker/platformclaw-runtime/skillhub-edit";
+    const sourceDir = path.join(dir, sourcePath);
+    mkdirSync(sourceDir, { recursive: true });
+    for (const name of ["upstream.patch", "upstream-tests.patch"]) {
+      writeFileSync(path.join(sourceDir, name), "diff\n", "utf8");
+    }
+    git(dir, ["add", sourcePath]);
+    expect(collectPackagePatchViolations(dir)).toEqual([]);
+
+    writeFileSync(path.join(sourceDir, "unapproved.patch"), "diff\n", "utf8");
+    writeFileSync(
+      path.join(dir, "pnpm-workspace.yaml"),
+      `packages:
+  - .
+patchedDependencies:
+  "left-pad@1.3.0": "${sourcePath}/upstream.patch"
+`,
+      "utf8",
+    );
+    git(dir, ["add", "pnpm-workspace.yaml", sourcePath]);
+    expect(collectPackagePatchViolations(dir)).toEqual([
+      {
+        file: "pnpm-workspace.yaml",
+        kind: "patchedDependency",
+        detail: `left-pad@1.3.0 -> ${sourcePath}/upstream.patch`,
+      },
+      {
+        file: `${sourcePath}/unapproved.patch`,
+        kind: "patchFile",
+        detail: "new package patch file",
+      },
+    ]);
+  });
+
   it("rejects new workspace patchedDependencies and patch files", () => {
     const dir = makeRepo();
     mkdirSync(path.join(dir, "patches"), { recursive: true });

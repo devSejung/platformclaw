@@ -1,5 +1,6 @@
 import type { PlatformUser } from "./contracts.js";
-import { SkillHubCommandService } from "./skill-hub-command-service.js";
+import type { SkillHubAdapter } from "./skill-hub-adapter.js";
+import { SkillHubEditService } from "./skill-hub-edit-service.js";
 import { SkillHubGovernanceError } from "./skill-hub-governance-client.js";
 import {
   projectSkillHubAccessGrant,
@@ -35,7 +36,7 @@ export {
 } from "./skill-hub-service-support.js";
 export type { AuthenticatedWorkspace, SkillInstallTarget } from "./skill-hub-service-support.js";
 
-export class SkillHubService extends SkillHubCommandService {
+export class SkillHubService extends SkillHubEditService {
   async notifications(user: PlatformUser, limit = 50) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
       throw new SkillHubServiceError("notification limit must be between 1 and 100", 400);
@@ -360,6 +361,7 @@ export class SkillHubService extends SkillHubCommandService {
         namespace,
         slug,
       );
+      await this.adapterCall(() => this.options.adapter.getVersionState(namespace, slug, version));
       let approval: { reviewId: number; status: string };
       try {
         approval = await this.options.governance!.approvePendingReview({
@@ -421,9 +423,15 @@ export class SkillHubService extends SkillHubCommandService {
     this.governanceProcessing = true;
     let processed = 0;
     try {
+      processed += await this.recoverPendingSkillEdits();
       const now = this.now();
       const jobs = await this.options.store.listDueSkillHubGovernanceJobs(now, 10);
       for (const job of jobs) {
+        // A reserved coordinate may already have moved in the registry. Waiting
+        // for its durable edit is intentional, not a failed scan attempt.
+        if (await this.options.store.getSkillHubPendingEdit(job.namespace, job.slug)) {
+          continue;
+        }
         processed += 1;
         const attempts = job.attempts + 1;
         try {
@@ -439,25 +447,35 @@ export class SkillHubService extends SkillHubCommandService {
           const skill = await this.adapterCall(() =>
             this.options.adapter.getSkill(job.namespace, job.slug),
           );
-          const versions = await this.adapterCall(() =>
-            this.options.adapter.listVersions(job.namespace, job.slug),
-          );
-          const version = versions.find((candidate) => candidate.version === job.version);
-          if (!version) {
-            await this.retryGovernanceJob(job, attempts, "version-not-visible");
-            continue;
+          let version: Awaited<ReturnType<SkillHubAdapter["getVersionState"]>>;
+          try {
+            version = await this.adapterCall(() =>
+              this.options.adapter.getVersionState(job.namespace, job.slug, job.version),
+            );
+          } catch (error) {
+            if (error instanceof SkillHubServiceError && error.statusCode === 404) {
+              await this.retryGovernanceJob(job, attempts, "version-not-visible");
+              continue;
+            }
+            throw error;
           }
           const audits = await this.adapterCall(() =>
             this.options.adapter.listSecurityAudits(skill.id, version.id),
           );
           const terminal =
+            version.status !== "SCANNING" &&
             audits.length > 0 &&
-            audits.every((audit) => !["PENDING", "SCANNING"].includes(audit.verdict.toUpperCase()));
-          if (!terminal) {
+            audits.every((audit) => Boolean(audit.scannedAt));
+          const scanFailed =
+            version.status === "SCAN_FAILED" || audits.some((audit) => Boolean(audit.failedAt));
+          if (!terminal && !scanFailed) {
             await this.retryGovernanceJob(job, attempts, "scan-pending");
             continue;
           }
           await this.withRegistryMutationLock(job.namespace, job.slug, async () => {
+            if (await this.options.store.getSkillHubPendingEdit(job.namespace, job.slug)) {
+              return;
+            }
             await this.reconcileOwners();
             const lockedOwnership = await this.options.store.getSkillHubOwnership(
               job.namespace,
@@ -467,20 +485,44 @@ export class SkillHubService extends SkillHubCommandService {
               await this.finishGovernanceJob(job, "blocked", attempts, "owner-review-required");
               return;
             }
+            if (lockedOwnership.visibility === "PRIVATE") {
+              await this.finishGovernanceJob(job, "blocked", attempts, "visibility-private");
+              return;
+            }
             const lockedSkill = await this.adapterCall(() =>
               this.options.adapter.getSkill(job.namespace, job.slug),
             );
-            const lockedVersions = await this.adapterCall(() =>
-              this.options.adapter.listVersions(job.namespace, job.slug),
+            const lockedVersion = await this.adapterCall(() =>
+              this.options.adapter.getVersionState(job.namespace, job.slug, job.version),
             );
-            const lockedVersion = lockedVersions.find(
-              (candidate) => candidate.version === job.version,
-            );
-            if (lockedSkill.id !== skill.id || lockedVersion?.id !== version.id) {
+            if (lockedSkill.id !== skill.id || lockedVersion.id !== version.id) {
+              await this.retryGovernanceJob(job, attempts, "version-changed");
               return;
             }
-            if (audits.some((audit) => audit.isSafe !== true)) {
-              await this.finishGovernanceJob(job, "blocked", attempts, "scan-unsafe");
+            // An edit can replace a failed round before this lock is acquired.
+            // Read current audit facts here rather than blocking its new SAFE round.
+            const lockedAudits = await this.adapterCall(() =>
+              this.options.adapter.listSecurityAudits(lockedSkill.id, lockedVersion.id),
+            );
+            const lockedScanFailed =
+              lockedVersion.status === "SCAN_FAILED" ||
+              lockedAudits.some((audit) => Boolean(audit.failedAt));
+            if (
+              !lockedScanFailed &&
+              (lockedVersion.status === "SCANNING" ||
+                lockedAudits.length === 0 ||
+                lockedAudits.some((audit) => !audit.scannedAt))
+            ) {
+              await this.retryGovernanceJob(job, attempts, "scan-pending");
+              return;
+            }
+            if (lockedScanFailed || lockedAudits.some((audit) => audit.isSafe !== true)) {
+              await this.finishGovernanceJob(
+                job,
+                "blocked",
+                attempts,
+                lockedScanFailed ? "scan-failed" : "scan-unsafe",
+              );
               await this.options.store.createSkillHubNotification({
                 userId: job.ownerUserId,
                 kind: "scan-blocked",
@@ -496,6 +538,7 @@ export class SkillHubService extends SkillHubCommandService {
               slug: job.slug,
               version: job.version,
               comment: "PlatformClaw automatic approval after a clean security scan.",
+              requireSafeScan: true,
             });
             await this.finishGovernanceJob(job, "approved", attempts);
             // Approval is an external irreversible side effect. Persist it before

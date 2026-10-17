@@ -93,6 +93,16 @@ describe("PlatformClaw Skill Hub integration", () => {
       }
       if (
         req.method === "GET" &&
+        req.url === "/api/v1/skills/engineering/demo-skill/versions/2.0.0"
+      ) {
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({ code: 0, data: { id: 20, version: "2.0.0", status: "PUBLISHED" } }),
+        );
+        return;
+      }
+      if (
+        req.method === "GET" &&
         req.url === "/api/cli/v1/skills/engineering/demo-skill/versions/2.0.0/download"
       ) {
         res.setHeader("Content-Type", "application/zip");
@@ -142,6 +152,7 @@ describe("PlatformClaw Skill Hub integration", () => {
       })),
     } as unknown as BrowserAuthService;
     const store = {
+      getSkillHubPendingEdit: vi.fn(async () => null),
       getUserById: vi.fn(async () => ({
         id: "user-one",
         status: "active",
@@ -246,12 +257,22 @@ describe("PlatformClaw Skill Hub integration", () => {
       }),
       expect.objectContaining({
         method: "GET",
+        url: "/api/v1/skills/engineering/demo-skill/versions/2.0.0",
+        authorization: "Bearer registry-server-token",
+      }),
+      expect.objectContaining({
+        method: "GET",
         url: "/api/cli/v1/skills/engineering/demo-skill/versions/2.0.0/download",
         authorization: "Bearer registry-server-token",
       }),
       expect.objectContaining({
         method: "GET",
         url: "/api/v1/skills/engineering/demo-skill",
+        authorization: "Bearer registry-server-token",
+      }),
+      expect.objectContaining({
+        method: "GET",
+        url: "/api/v1/skills/engineering/demo-skill/versions/2.0.0",
         authorization: "Bearer registry-server-token",
       }),
     ]);

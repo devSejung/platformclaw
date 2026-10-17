@@ -52,6 +52,7 @@ export abstract class SqliteControlPlaneSkillHubNamespaceStore extends SqliteCon
   }
 
   protected requireSkillHubManager(actorUserId: string, namespace: string, slug: string) {
+    this.requireSkillHubCoordinateAvailable(namespace, slug);
     const actor = this.requireUserRow(actorUserId);
     const current = takeFirstSync(
       this.db,
@@ -82,6 +83,32 @@ export abstract class SqliteControlPlaneSkillHubNamespaceStore extends SqliteCon
       throw new ControlPlaneAuthorizationError("Skill Hub namespace membership required");
     }
     return current;
+  }
+
+  protected requireSkillHubCoordinateAvailable(namespace: string, slug: string): void {
+    if (this.selectPendingSkillHubEdit(namespace, slug)) {
+      throw new ControlPlaneConflictError(
+        "skill_hub_owner_changed",
+        "Skill Hub edit is pending; reload to recover it before another mutation",
+      );
+    }
+  }
+
+  protected selectPendingSkillHubEdit(namespace: string, slug: string) {
+    return takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("skill_hub_edit_intents")
+        .selectAll()
+        .where("state", "=", "pending")
+        .where("slug", "=", slug)
+        .where((expression) =>
+          expression.or([
+            expression("namespace", "=", namespace),
+            expression("target_namespace", "=", namespace),
+          ]),
+        ),
+    );
   }
 
   async getSkillHubNamespaceBinding(namespace: string): Promise<SkillHubNamespaceBinding | null> {

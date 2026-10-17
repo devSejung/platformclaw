@@ -1,8 +1,11 @@
 # Bundled SkillHub object images
 
-PlatformClaw's transfer archive mirrors the following unmodified object images
-from `iflytek/skillhub` tag `v0.2.16`, commit
-`6e133c006e492dc3f468d91b21960aff1d577150`:
+PlatformClaw builds its SkillHub server from `iflytek/skillhub` tag `v0.2.16`, commit
+`6e133c006e492dc3f468d91b21960aff1d577150`, with the approved private metadata-edit
+patch in `skillhub-edit/`. The image tag is
+`platformclaw-skillhub-server:6e133c006e49099555e5c88b`. Source archive verification,
+the reviewed patch, and license provenance are recorded in that directory.
+The server runtime base and unchanged bundled dependencies are pinned below:
 
 - server: `sha256:80a22a90c9855224a83663ad069cea80ec42ecb5e44c863b58be2fa2869f75b9`
 - scanner: `sha256:45275e86b05fdcec1811d5b47c47a87d0639b75be3197aa5ba3a0ce2977a7815`
@@ -10,5 +13,5 @@ from `iflytek/skillhub` tag `v0.2.16`, commit
 - Redis 7.4.10 Alpine: `sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2`
 
 SkillHub is Copyright 2026 iFlytek Co., Ltd. and licensed under Apache License
-2.0. See `SKILLHUB-LICENSE.txt`. PlatformClaw does not copy or embed the
-SkillHub source tree or web UI.
+2.0. See `SKILLHUB-LICENSE.txt`. The build downloads and verifies upstream source;
+the transfer archive includes the resulting server image, without the web UI.

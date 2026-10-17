@@ -1,4 +1,8 @@
 import type { SkillHubVisibility } from "./skill-hub-adapter.js";
+import type {
+  SkillHubEditableMetadata,
+  SkillHubRegistryEdit,
+} from "./skill-hub-governance-client.js";
 
 export type SkillHubOwnership = {
   namespace: string;
@@ -63,7 +67,66 @@ export type SkillHubManagementUser = {
   displayName?: string;
 };
 
+export type SkillHubEditPlan = {
+  id: string;
+  namespace: string;
+  slug: string;
+  targetNamespace: string;
+  skillId: number;
+  registryRevision: string;
+  displayName: string;
+  summary: string;
+  visibility: SkillHubVisibility;
+  actorUserId: string;
+  expectedOwnerUpdatedAt: number;
+  expectedSourceBindingUpdatedAt: number;
+  expectedTargetBindingUpdatedAt: number;
+  changedAt: number;
+};
+
+export type SkillHubEditResult = {
+  ownership: SkillHubOwnership;
+  reconciliationRequired: boolean;
+  publicationPending?: boolean;
+};
+
+export type SkillHubEditIntent = SkillHubEditPlan & {
+  originalOwnership: SkillHubOwnership;
+  state: "pending" | "completed" | "cancelled";
+  result?: SkillHubEditResult;
+  privacy?: SkillHubRegistryEdit;
+};
+
+export type SkillHubEditCompletion =
+  | { state: "completed"; result: SkillHubEditResult }
+  | { state: "privacy-required"; intent: SkillHubEditIntent };
+
 export interface SkillHubStateStore {
+  beginSkillHubEdit(params: SkillHubEditPlan): Promise<SkillHubEditIntent>;
+  getSkillHubEdit(id: string): Promise<SkillHubEditIntent | null>;
+  getSkillHubPendingEdit(namespace: string, slug: string): Promise<SkillHubEditIntent | null>;
+  listPendingSkillHubEdits(limit?: number): Promise<SkillHubEditIntent[]>;
+  recordSkillHubEditRecoveryAttempt(params: { id: string; attemptedAt: number }): Promise<void>;
+  completeSkillHubEdit(params: {
+    id: string;
+    changedAt: number;
+    reviewVersions?: readonly string[];
+    publicationPending?: boolean;
+    registryMetadata?: SkillHubEditableMetadata;
+    privacyConfirmedOperationId?: string;
+  }): Promise<SkillHubEditCompletion>;
+  rebaseSkillHubEditPrivacy(params: {
+    id: string;
+    expectedOperationId: string;
+    metadata: SkillHubEditableMetadata;
+    changedAt: number;
+  }): Promise<SkillHubEditIntent>;
+  cancelSkillHubEdit(params: {
+    id: string;
+    actorUserId: string;
+    changedAt: number;
+    reason: string;
+  }): Promise<void>;
   getSkillHubOwnership(namespace: string, slug: string): Promise<SkillHubOwnership | null>;
   recordSkillHubPublication(params: {
     namespace: string;

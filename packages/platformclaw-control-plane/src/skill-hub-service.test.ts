@@ -890,16 +890,21 @@ describe("SkillHubService", () => {
       currentVersion: "1.0.0",
       updatedAt: 1,
     });
-    adapterMocks.listVersions.mockResolvedValue([
-      {
-        id: 20,
-        version: "1.0.0",
-        status: "PENDING_REVIEW",
-        downloadAvailable: true,
-      },
-    ]);
+    adapterMocks.getVersionState.mockResolvedValue({
+      id: 20,
+      version: "1.0.0",
+      status: "PENDING_REVIEW",
+    });
+    adapterMocks.listVersions.mockRejectedValue(
+      new Error("The oldest version is outside the first catalog page"),
+    );
     adapterMocks.listSecurityAudits.mockResolvedValue([
-      { scannerType: "skill-scanner", verdict: "CLEAN", isSafe: true },
+      {
+        scannerType: "skill-scanner",
+        verdict: "SAFE",
+        isSafe: true,
+        scannedAt: "2026-10-16T00:00:00Z",
+      },
     ]);
     const updateJob = vi.spyOn(store, "updateSkillHubGovernanceJob");
 
@@ -909,10 +914,15 @@ describe("SkillHubService", () => {
       slug: "demo-skill",
       version: "1.0.0",
       comment: "PlatformClaw automatic approval after a clean security scan.",
+      requireSafeScan: true,
     });
     expect(updateJob).toHaveBeenCalledWith(
       expect.objectContaining({ state: "approved", attempts: 2 }),
     );
+    expect(adapterMocks.getVersionState).toHaveBeenCalledTimes(2);
+    expect(adapterMocks.getVersionState).toHaveBeenCalledWith("engineering", "demo-skill", "1.0.0");
+    expect(adapterMocks.listSecurityAudits).toHaveBeenCalledWith(10, 20);
+    expect(adapterMocks.listVersions).not.toHaveBeenCalled();
   });
 
   it("never auto-approves a reconciliation job without a current owner", async () => {

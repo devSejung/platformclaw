@@ -15,6 +15,69 @@ function requestUrl(input: string | URL | Request): URL {
 }
 
 describe("IflytekSkillHubAdapter", () => {
+  it("distinguishes a terminal task failure from a completed security scan", async () => {
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "http://registry.example.test",
+      token: "test-token",
+      maxArchiveBytes: 1024,
+      fetchImpl: async (input) => {
+        expect(requestUrl(input).pathname).toBe("/api/v1/skills/1/versions/2/security-audit");
+        return json({
+          code: 0,
+          data: [
+            {
+              scannerType: "SKILL_SCANNER",
+              verdict: "SUSPICIOUS",
+              isSafe: false,
+              scannedAt: null,
+              failedAt: "2026-10-16T00:00:00Z",
+            },
+          ],
+        });
+      },
+    });
+    await expect(adapter.listSecurityAudits(1, 2)).resolves.toEqual([
+      {
+        scannerType: "SKILL_SCANNER",
+        verdict: "SUSPICIOUS",
+        isSafe: false,
+        failedAt: "2026-10-16T00:00:00Z",
+      },
+    ]);
+  });
+
+  it("reads the exact version state without relying on a bounded version page", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      expect(requestUrl(input).pathname).toBe(
+        "/api/v1/skills/engineering/demo-skill/versions/1.0.0",
+      );
+      return json({ code: 0, data: { id: 2, version: "1.0.0", status: "PENDING_REVIEW" } });
+    });
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "http://registry.example.test",
+      token: "test-token",
+      maxArchiveBytes: 1024,
+      fetchImpl,
+    });
+    await expect(adapter.getVersionState("engineering", "demo-skill", "1.0.0")).resolves.toEqual({
+      id: 2,
+      version: "1.0.0",
+      status: "PENDING_REVIEW",
+    });
+  });
+
+  it("rejects an exact version response with a different version", async () => {
+    const adapter = new IflytekSkillHubAdapter({
+      baseUrl: "http://registry.example.test",
+      token: "test-token",
+      maxArchiveBytes: 1024,
+      fetchImpl: async () => json({ code: 0, data: { version: "2.0.0", status: "PUBLISHED" } }),
+    });
+    await expect(adapter.getVersionState("engineering", "demo-skill", "1.0.0")).rejects.toThrow(
+      "mismatched version detail",
+    );
+  });
+
   it("uses the pinned v0.2.16 CLI and portal API contracts", async () => {
     const fetchImpl = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
       const url = requestUrl(input);

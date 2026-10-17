@@ -174,6 +174,22 @@ CREATE INDEX IF NOT EXISTS organization_memory_reference_target
 `;
 
 export const SKILL_HUB_STATE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS skill_hub_edit_intents (
+  id TEXT PRIMARY KEY,
+  namespace TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  target_namespace TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'completed', 'cancelled')),
+  payload_json TEXT NOT NULL,
+  result_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS skill_hub_edit_intents_source
+  ON skill_hub_edit_intents(state, namespace, slug);
+CREATE INDEX IF NOT EXISTS skill_hub_edit_intents_target
+  ON skill_hub_edit_intents(state, target_namespace, slug);
+
 CREATE TABLE IF NOT EXISTS skill_hub_skill_ownership (
   namespace TEXT NOT NULL,
   slug TEXT NOT NULL,

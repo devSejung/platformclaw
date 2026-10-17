@@ -330,12 +330,64 @@
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
+  min-width: 0;
 }
 
 .skill-hub-management__action {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  align-items: start;
+}
+
+openclaw-skill-hub-user-picker {
+  flex: 1;
+  min-width: min(100%, 240px);
+}
+
+.skill-hub-management__action > .btn {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.skill-hub-user-picker {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.skill-hub-user-results:not([hidden]) {
+  display: grid;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--popover);
+}
+
+.skill-hub-user-option {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.skill-hub-user-option span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.skill-hub-user-option:hover,
+.skill-hub-user-option[aria-selected="true"] {
+  background: var(--bg-elevated);
 }
 
 .skill-hub-access-list {

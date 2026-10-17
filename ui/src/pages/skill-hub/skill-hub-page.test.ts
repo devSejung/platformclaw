@@ -580,6 +580,13 @@ describe("SkillHubPage", () => {
     )!;
     search.value = "eligible";
     search.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await waitForFast(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          (input instanceof Request ? input.url : input.toString()).includes("management-users"),
+        ),
+      ).toBe(true),
+    );
     [...page.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.trim() === "Close")
       ?.click();
@@ -781,20 +788,23 @@ describe("SkillHubPage", () => {
     const page = document.createElement("openclaw-skill-hub-page");
     document.body.append(page);
     await waitForFast(() => expect(page.textContent).toContain("No Skill Hub results"));
-    const internal = page as unknown as {
-      uploadFile: File;
-      uploadSlug: string;
-      uploadNamespace: string;
-      uploadVersion: string;
-      uploadVisibility: string;
-      publishZip(): Promise<void>;
-    };
-    internal.uploadFile = new File(["zip"], "demo.zip", { type: "application/zip" });
-    internal.uploadSlug = "demo";
-    internal.uploadNamespace = "engineering";
-    internal.uploadVersion = "1.0.0";
-    internal.uploadVisibility = "PUBLIC";
-    await internal.publishZip();
+    [...page.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Upload ZIP")!
+      .click();
+    await waitForFast(() => expect(page.querySelector(".skill-hub-upload")).not.toBeNull());
+    const dialog = page.querySelector(".skill-hub-upload")!;
+    const file = dialog.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(file, "files", {
+      value: [new File(["zip"], "demo.zip", { type: "application/zip" })],
+    });
+    file.dispatchEvent(new Event("change", { bubbles: true }));
+    const slug = dialog.querySelector<HTMLInputElement>(".skill-hub-upload__fields input")!;
+    slug.value = "demo";
+    slug.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitForFast(() =>
+      expect(dialog.querySelector<HTMLButtonElement>("button.primary")?.disabled).toBe(false),
+    );
+    dialog.querySelector<HTMLButtonElement>("button.primary")!.click();
     await waitForFast(() => expect(page.textContent).toContain("private until an administrator"));
     expect(page.querySelector(".callout.warning")).not.toBeNull();
   });

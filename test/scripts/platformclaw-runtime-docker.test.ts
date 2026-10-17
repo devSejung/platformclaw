@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -125,8 +126,48 @@ describe("PlatformClaw Docker runtime", () => {
 
   it("prepares immutable SkillHub images for smoke and transfer archives", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
+    const serverDockerfile = readRepoFile("docker/platformclaw-runtime/skillhub-edit/Dockerfile");
 
-    expect(build).toContain('"ghcr.io/iflytek/skillhub-server@sha256:80a22a90');
+    expect(build).toContain('context: "docker/platformclaw-runtime/skillhub-edit"');
+    const patchRoot = path.resolve("docker/platformclaw-runtime/skillhub-edit");
+    const inputs = [
+      "Dockerfile",
+      "upstream.patch",
+      ...readdirSync(path.join(patchRoot, "overlay"), { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) =>
+          path.relative(patchRoot, path.join(entry.parentPath, entry.name)).replaceAll("\\", "/"),
+        )
+        .filter((name) => !name.includes("/test/")),
+    ].toSorted();
+    const hash = createHash("sha256");
+    for (const name of inputs) {
+      hash
+        .update(name)
+        .update("\0")
+        .update(readFileSync(path.join(patchRoot, name), "utf8").replaceAll("\r\n", "\n"))
+        .update("\0");
+    }
+    const serverImage = `platformclaw-skillhub-server:6e133c006e49${hash.digest("hex").slice(0, 12)}`;
+    expect(build).toContain(`target: "${serverImage}"`);
+    expect(readRepoFile("docker/platformclaw-runtime/deployment.env.example")).toContain(
+      `PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=${serverImage}`,
+    );
+    expect(readRepoFile("docker/platformclaw-runtime/compose.yaml")).toContain(serverImage);
+    expect(readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh")).toContain(serverImage);
+    expect(serverDockerfile).toContain(
+      "FROM ghcr.io/iflytek/skillhub-server@sha256:80a22a90c9855224a83663ad069cea80ec42ecb5e44c863b58be2fa2869f75b9 AS runtime",
+    );
+    expect(serverDockerfile).toMatch(/^FROM maven:[^\s]+@sha256:[0-9a-f]{64} AS build$/mu);
+    expect(serverDockerfile).toMatch(
+      /^ADD --checksum=sha256:[0-9a-f]{64} https:\/\/codeload\.github\.com\/iflytek\/skillhub\/tar\.gz\/6e133c006e492dc3f468d91b21960aff1d577150 /mu,
+    );
+    expect(serverDockerfile).toContain("COPY overlay/ /source/");
+    const serverBuildIndex = build.indexOf(
+      'run("docker", ["build", "--tag", image.target, image.context])',
+    );
+    expect(serverBuildIndex).toBeGreaterThan(-1);
+    expect(serverBuildIndex).toBeLessThan(build.indexOf("if (options.exportImage)"));
     expect(build).toContain('"ghcr.io/iflytek/skillhub-scanner@sha256:45275e86');
     expect(build).toContain('"postgres:16-alpine@sha256:44c4ee98');
     expect(build).toContain('"redis:7-alpine@sha256:e7723ff7');
@@ -876,6 +917,32 @@ printf '%s\n' 'PLATFORMCLAW_IMAGE=platformclaw:old' >"$env_file"
 docker() { return 1; }
 reconcile_skillhub_environment
 if grep -q '^PLATFORMCLAW_SKILL_HUB_ENABLED=' "$env_file"; then exit 14; fi
+# An enabled installation receives only the exact previous bundled reference.
+printf '%s\n' 'PLATFORMCLAW_SKILL_HUB_ENABLED=true' 'PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e49' >"$env_file"
+upgrade_bundled_skillhub_server
+grep -qx 'PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e49' "$env_file"
+docker() { return 0; }
+cp "$env_file" "$env_file.previous"
+upgrade_bundled_skillhub_server
+expected="$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE "$script_dir/deployment.env.example")"
+grep -qx "PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=$expected" "$env_file"
+set_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE registry.example.invalid/custom:abcdef012345
+upgrade_bundled_skillhub_server
+grep -qx 'PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=registry.example.invalid/custom:abcdef012345' "$env_file"
+set_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE platformclaw-skillhub-server:6e133c006e49
+set_env_value PLATFORMCLAW_SKILL_HUB_ENABLED false
+upgrade_bundled_skillhub_server
+grep -qx 'PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e49' "$env_file"
+# Dependency rollback follows the same snapshot as the main/sandbox image pair.
+eval "$(awk '/^set_image_pair\(\)/ { emit = 1 } /^validate_deployment_env\(\)/ { emit = 0 } emit' "$deploy_script")"
+eval "$(awk '/^restore_previous_images\(\)/ { emit = 1 } /^image_pair_available\(\)/ { emit = 0 } emit' "$deploy_script")"
+printf '%s\n' 'PLATFORMCLAW_IMAGE=platformclaw:aaaaaaaaaaaa' 'PLATFORMCLAW_SANDBOX_IMAGE=platformclaw-sandbox:bbbbbbbbbbbb' 'PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e49' >"$env_file.previous"
+set_image_pair platformclaw:cccccccccccc platformclaw-sandbox:dddddddddddd
+set_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE "$expected"
+restore_previous_images
+grep -qx 'PLATFORMCLAW_IMAGE=platformclaw:aaaaaaaaaaaa' "$env_file"
+grep -qx 'PLATFORMCLAW_SANDBOX_IMAGE=platformclaw-sandbox:bbbbbbbbbbbb' "$env_file"
+grep -qx 'PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e49' "$env_file"
 `;
       const result = spawnSync("bash", ["-ceu", script, "--", deployScript, root], {
         encoding: "utf8",

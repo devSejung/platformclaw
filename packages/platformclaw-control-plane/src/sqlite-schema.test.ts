@@ -359,7 +359,7 @@ describe("PlatformClaw control schema migrations", () => {
     db.close();
   });
 
-  it("lazily creates additive Skill Hub ownership, ACL, inbox, jobs, and bindings", () => {
+  it("lazily creates additive Skill Hub ownership, ACL, inbox, jobs, bindings, and edit intents", () => {
     const db = new DatabaseSync(":memory:");
     initializeControlPlaneSchema(db);
     ensureSkillHubStateSchema(db);
@@ -371,6 +371,7 @@ describe("PlatformClaw control schema migrations", () => {
         )
         .all(),
     ).toEqual([
+      { name: "skill_hub_edit_intents" },
       { name: "skill_hub_governance_jobs" },
       { name: "skill_hub_namespace_bindings" },
       { name: "skill_hub_notifications" },
@@ -381,6 +382,60 @@ describe("PlatformClaw control schema migrations", () => {
       user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
     });
     db.close();
+  });
+
+  it("lazily adds edit intents to an existing Skill Hub database without a version bump or ownership loss", () => {
+    const directory = mkdtempSync(join(tmpdir(), "platformclaw-skill-edit-schema-"));
+    const databasePath = join(directory, "control.sqlite");
+    const initial = new DatabaseSync(databasePath);
+    initializeControlPlaneSchema(initial, databasePath);
+    ensureSkillHubStateSchema(initial);
+    initial.exec(`
+      INSERT INTO skill_hub_skill_ownership
+        (namespace, slug, owner_user_id, previous_owner_user_id, visibility, current_version, updated_at)
+      VALUES ('existing', 'demo', NULL, NULL, 'PRIVATE', '1.0.0', 123);
+      DROP TABLE skill_hub_edit_intents;
+    `);
+    const version = initial.prepare("PRAGMA user_version").get();
+    initial.close();
+
+    const db = new DatabaseSync(databasePath);
+    try {
+      initializeControlPlaneSchema(db, databasePath);
+      expect(
+        db.prepare("SELECT name FROM sqlite_master WHERE name = 'skill_hub_edit_intents'").get(),
+      ).toBeUndefined();
+      ensureSkillHubStateSchema(db);
+      ensureSkillHubStateSchema(db);
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'skill_hub_edit_intents'",
+          )
+          .get(),
+      ).toEqual({ name: "skill_hub_edit_intents" });
+      expect(
+        db
+          .prepare(
+            "SELECT namespace, slug, visibility, current_version, updated_at FROM skill_hub_skill_ownership",
+          )
+          .all(),
+      ).toEqual([
+        {
+          namespace: "existing",
+          slug: "demo",
+          visibility: "PRIVATE",
+          current_version: "1.0.0",
+          updated_at: 123,
+        },
+      ]);
+      expect(version).toEqual({ user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION });
+      expect(db.prepare("PRAGMA user_version").get()).toEqual(version);
+      expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      db.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("lazily restores the additive VM execution-environment table on schema v2", () => {

@@ -74,6 +74,9 @@ export async function createSkillHubServiceFixture(
     }),
   );
   const store = {
+    getSkillHubPendingEdit: vi.fn(async () => null),
+    listPendingSkillHubEdits: vi.fn(async () => []),
+    recordSkillHubEditRecoveryAttempt: vi.fn(async () => undefined),
     getPersonalExecutionProfile,
     getPersonalAgentBinding: vi.fn(async () => ({
       id: "binding-1",
@@ -191,6 +194,9 @@ export async function createSkillHubServiceFixture(
       status: "PUBLISHED",
     })),
     listVersions: vi.fn<SkillHubAdapter["listVersions"]>(async () => []),
+    getVersionState: vi.fn<SkillHubAdapter["getVersionState"]>(
+      async (_namespace, _slug, version) => ({ id: 20, version, status: "PUBLISHED" }),
+    ),
     listSecurityAudits: vi.fn<SkillHubAdapter["listSecurityAudits"]>(async () => []),
     publish: vi.fn(async (params) => ({
       namespace: params.namespace,

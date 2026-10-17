@@ -34,8 +34,34 @@ afterEach(async () => {
   );
 });
 
-async function setup(room = true) {
+async function setup(room = true, manager?: "admin" | "owner") {
   const fixture = await createSkillHubServiceFixture();
+  if (manager === "admin") {
+    fixture.actor.user.globalRole = "admin";
+  }
+  if (manager === "owner") {
+    await fixture.store.recordSkillHubPublication({
+      namespace: "engineering",
+      slug: "demo-skill",
+      ownerUserId: fixture.actor.user.id,
+      expectedOwnerUserId: null,
+      expectedOwnerUpdatedAt: null,
+      expectedBindingUpdatedAt: 1,
+      visibility: "PUBLIC",
+      version: "1.0.0",
+      changedAt: 1,
+    });
+  }
+  if (manager) {
+    const route = await fixture.store.resolveAuthenticatedKnoxDmRoute({ accountId: "person.one" });
+    if (route.status !== "resolved") {
+      throw new Error("fixture DM route unavailable");
+    }
+    vi.spyOn(fixture.store, "resolveAuthenticatedKnoxDmRoute").mockResolvedValue({
+      ...route,
+      user: fixture.actor.user,
+    });
+  }
   const roomBinding = {
     id: "room-binding",
     kind: "knox-room" as const,
@@ -206,6 +232,51 @@ function activateVm(fixture: Awaited<ReturnType<typeof createSkillHubServiceFixt
 }
 
 describe("Knox Skill Hub natural-language tool transport", () => {
+  it.each(
+    (["admin", "owner"] as const).flatMap((manager) =>
+      (["PENDING_REVIEW", "SCANNING", "SCAN_FAILED"] as const).map((status) => ({
+        manager,
+        status,
+      })),
+    ),
+  )("blocks $manager preview of $status releases in a room", async ({ manager, status }) => {
+    const f = await setup(true, manager);
+    f.adapterMocks.listVersions.mockResolvedValue([
+      { id: 20, version: "1.0.0", status, downloadAvailable: true },
+    ]);
+    f.adapterMocks.getVersionState.mockResolvedValue({ id: 20, version: "1.0.0", status });
+    expect((await f.call("install", f.installInput)).status).toBe(409);
+    expect(await f.tool("install").execute("blocked-room-install", f.installInput)).toMatchObject({
+      isError: true,
+    });
+    expect(f.adapterMocks.download).not.toHaveBeenCalled();
+    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.upload.begin", expect.anything());
+    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.install", expect.anything());
+  });
+
+  it.each(
+    (["admin", "owner"] as const).flatMap((manager) =>
+      [
+        { room: true, status: "PUBLISHED" },
+        { room: false, status: "PENDING_REVIEW" },
+      ].map((scenario) => ({ manager, room: scenario.room, status: scenario.status })),
+    ),
+  )("allows $manager $status installation (room=$room)", async ({ manager, room, status }) => {
+    const f = await setup(room, manager);
+    f.adapterMocks.listVersions.mockResolvedValue([
+      { id: 20, version: "1.0.0", status, downloadAvailable: true },
+    ]);
+    f.adapterMocks.getVersionState.mockResolvedValue({ id: 20, version: "1.0.0", status });
+    expect(await f.tool("install").execute("permitted-install", f.installInput)).toMatchObject({
+      details: { ok: true, noOp: false, version: "1.0.0" },
+    });
+    expect(f.adapterMocks.download).toHaveBeenCalledWith("engineering", "demo-skill", "1.0.0");
+    expect(f.adminRpcCall).toHaveBeenCalledWith(
+      "skills.install",
+      expect.objectContaining({ agentId: f.context.agentId }),
+    );
+  });
+
   it.each([true, false])(
     "executes plugin tools through HTTP and reports next-run readiness (room=%s)",
     async (room) => {

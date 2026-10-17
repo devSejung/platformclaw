@@ -41,8 +41,34 @@ afterEach(async () => {
   );
 });
 
-async function setup(enabled = true, room = false) {
+async function setup(enabled = true, room = false, manager?: "admin" | "owner") {
   const fixture = await createSkillHubServiceFixture();
+  if (manager === "admin") {
+    fixture.actor.user.globalRole = "admin";
+  }
+  if (manager === "owner") {
+    await fixture.store.recordSkillHubPublication({
+      namespace: "engineering",
+      slug: "demo-skill",
+      ownerUserId: fixture.actor.user.id,
+      expectedOwnerUserId: null,
+      expectedOwnerUpdatedAt: null,
+      expectedBindingUpdatedAt: 1,
+      visibility: "PUBLIC",
+      version: "1.0.0",
+      changedAt: 1,
+    });
+  }
+  if (manager) {
+    const route = await fixture.store.resolveAuthenticatedKnoxDmRoute({ accountId: "person.one" });
+    if (route.status !== "resolved") {
+      throw new Error("fixture DM route unavailable");
+    }
+    vi.spyOn(fixture.store, "resolveAuthenticatedKnoxDmRoute").mockResolvedValue({
+      ...route,
+      user: fixture.actor.user,
+    });
+  }
   const roomBinding = {
     id: "room-binding",
     kind: "knox-room" as const,
@@ -134,6 +160,75 @@ async function setup(enabled = true, room = false) {
 }
 
 describe("Knox Skill Hub command transport", () => {
+  it.each(
+    (["admin", "owner"] as const).flatMap((manager) =>
+      (["PENDING_REVIEW", "SCANNING", "SCAN_FAILED"] as const).map((status) => ({
+        manager,
+        status,
+      })),
+    ),
+  )("blocks $manager preview of $status releases in a room", async ({ manager, status }) => {
+    const f = await setup(true, true, manager);
+    f.adapterMocks.search.mockResolvedValue({
+      items: [
+        {
+          namespace: "engineering",
+          slug: "demo-skill",
+          latestVersion: "1.0.0",
+          summary: "Demo",
+          visibility: "PUBLIC",
+        },
+      ],
+      total: 1,
+    });
+    f.adapterMocks.listVersions.mockResolvedValue([
+      { id: 20, version: "1.0.0", status, downloadAvailable: true },
+    ]);
+    f.adapterMocks.getVersionState.mockResolvedValue({ id: 20, version: "1.0.0", status });
+    for (const reference of ["engineering/demo-skill", "demo-skill"]) {
+      expect(await f.run(`install ${reference}`)).toMatchObject({ isError: true });
+    }
+    expect(f.adapterMocks.download).not.toHaveBeenCalled();
+    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.upload.begin", expect.anything());
+    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.install", expect.anything());
+  });
+
+  it.each(
+    (["admin", "owner"] as const).flatMap((manager) =>
+      [
+        { room: true, status: "PUBLISHED" },
+        { room: false, status: "PENDING_REVIEW" },
+      ].map((scenario) => ({ manager, room: scenario.room, status: scenario.status })),
+    ),
+  )("allows $manager $status installation (room=$room)", async ({ manager, room, status }) => {
+    const f = await setup(true, room, manager);
+    f.adapterMocks.listVersions.mockResolvedValue([
+      { id: 20, version: "1.0.0", status, downloadAvailable: true },
+    ]);
+    f.adapterMocks.getVersionState.mockResolvedValue({ id: 20, version: "1.0.0", status });
+    const zip = new JSZip();
+    zip.file(
+      "SKILL.md",
+      "---\nname: demo-skill\ndescription: Demo\nversion: 1.0.0\n---\nInstructions",
+    );
+    f.adapterMocks.download.mockResolvedValue(await zip.generateAsync({ type: "nodebuffer" }));
+    f.adminRpcCall.mockImplementation(async (method) => {
+      if (method === "skills.status") {
+        return { skills: [] };
+      }
+      if (method === "skills.upload.begin") {
+        return { uploadId: "upload-1", receivedBytes: 0 };
+      }
+      return { ok: true, slug: "demo-skill" };
+    });
+    expect((await f.run("install engineering/demo-skill")).text).toContain("설치 완료");
+    expect(f.adapterMocks.download).toHaveBeenCalledWith("engineering", "demo-skill", "1.0.0");
+    expect(f.adminRpcCall).toHaveBeenCalledWith(
+      "skills.install",
+      expect.objectContaining({ agentId: f.agentId }),
+    );
+  });
+
   it.each([false, true])(
     "executes all seven verbs through plugin dispatch, HTTP and service (room=%s)",
     async (room) => {

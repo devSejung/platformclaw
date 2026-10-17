@@ -54,6 +54,7 @@ describe("Skill Hub ZIP upload dialog", () => {
   it("uses server limits and blocks an oversized archive", () => {
     const container = document.createElement("div");
     const onPublish = vi.fn();
+    const onVisibility = vi.fn();
     render(
       renderSkillHubUpload({
         open: true,
@@ -69,7 +70,7 @@ describe("Skill Hub ZIP upload dialog", () => {
         onSlug: vi.fn(),
         onNamespace: vi.fn(),
         onVersion: vi.fn(),
-        onVisibility: vi.fn(),
+        onVisibility,
         onPublish,
       }),
       container,
@@ -82,6 +83,12 @@ describe("Skill Hub ZIP upload dialog", () => {
     expect(publish?.disabled).toBe(true);
     publish?.click();
     expect(onPublish).not.toHaveBeenCalled();
+    const visibility = container.querySelectorAll<HTMLSelectElement>("select")[1]!;
+    expect(visibility.disabled).toBe(false);
+    expect(visibility.value).toBe("NAMESPACE_ONLY");
+    visibility.value = "PRIVATE";
+    visibility.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onVisibility).toHaveBeenCalledWith("PRIVATE");
   });
 
   it("keeps a busy upload open and disables every draft control", () => {

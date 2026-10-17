@@ -169,6 +169,103 @@ describe("SkillHubService registry deletion", () => {
     await expect(deletion).resolves.toMatchObject({ deleted: true });
   });
 
+  it.each([true, false])(
+    "checks the exact force-publish version outside the catalog page (exists: %s)",
+    async (exists) => {
+      const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
+      const { service, actor, adapterMocks } = await fixture(["engineering"], {
+        approvePendingReview,
+      });
+      await service.publish(actor, {
+        skill: "demo-skill",
+        namespace: "engineering",
+        version: "1.2.3",
+        visibility: "PRIVATE",
+      });
+      adapterMocks.listVersions.mockRejectedValue(
+        new Error("Old release is outside the first catalog page"),
+      );
+      if (exists) {
+        adapterMocks.getVersionState.mockResolvedValue({
+          id: 19,
+          version: "0.1.0",
+          status: "PENDING_REVIEW",
+        });
+      } else {
+        adapterMocks.getVersionState.mockRejectedValue(
+          new SkillHubAdapterError("Version not found", 404),
+        );
+      }
+      const force = service.acknowledgeForcePublish(actor.user, "engineering", "demo-skill", {
+        version: "0.1.0",
+        acknowledged: true,
+        reason: "reviewed original release exception",
+      });
+      if (exists) {
+        await expect(force).resolves.toMatchObject({
+          upstreamOverridePerformed: true,
+          version: "0.1.0",
+        });
+        expect(approvePendingReview).toHaveBeenCalledWith(
+          expect.objectContaining({ version: "0.1.0" }),
+        );
+      } else {
+        await expect(force).rejects.toMatchObject({ statusCode: 404 });
+        expect(approvePendingReview).not.toHaveBeenCalled();
+      }
+      expect(adapterMocks.getVersionState).toHaveBeenCalledWith(
+        "engineering",
+        "demo-skill",
+        "0.1.0",
+      );
+      expect(adapterMocks.listVersions).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rechecks exact version identity after scanning before automatic approval", async () => {
+    const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
+    const { service, actor, adapterMocks, store } = await fixture(["engineering"], {
+      approvePendingReview,
+    });
+    await service.publish(actor, {
+      skill: "demo-skill",
+      namespace: "engineering",
+      version: "1.2.3",
+      visibility: "PUBLIC",
+    });
+    vi.spyOn(store, "listDueSkillHubGovernanceJobs").mockResolvedValue([
+      {
+        namespace: "engineering",
+        slug: "demo-skill",
+        version: "0.1.0",
+        ownerUserId: actor.user.id,
+        state: "pending",
+        attempts: 1,
+        nextAttemptAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    adapterMocks.getVersionState
+      .mockResolvedValueOnce({ id: 19, version: "0.1.0", status: "PENDING_REVIEW" })
+      .mockResolvedValueOnce({ id: 20, version: "0.1.0", status: "PENDING_REVIEW" });
+    adapterMocks.listSecurityAudits.mockResolvedValue([
+      {
+        scannerType: "skill-scanner",
+        verdict: "SAFE",
+        isSafe: true,
+        scannedAt: "2026-10-16T00:00:00Z",
+      },
+    ]);
+    const updateJob = vi.spyOn(store, "updateSkillHubGovernanceJob");
+    await service.processGovernanceQueue();
+    expect(approvePendingReview).not.toHaveBeenCalled();
+    expect(updateJob).toHaveBeenCalledWith(
+      expect.objectContaining({ version: "0.1.0", state: "pending", lastError: "version-changed" }),
+    );
+    expect(adapterMocks.listSecurityAudits).toHaveBeenCalledWith(10, 19);
+    expect(adapterMocks.listVersions).not.toHaveBeenCalled();
+  });
+
   it("blocks force approval behind deletion and fails closed after the ownership root is removed", async () => {
     const deleteStarted = deferred();
     const releaseDelete = deferred();
@@ -236,13 +333,22 @@ describe("SkillHubService registry deletion", () => {
         updatedAt: 1,
       },
     ]);
-    adapterMocks.listVersions.mockResolvedValue([
-      { id: 20, version: "1.2.3", status: "PENDING_REVIEW", downloadAvailable: true },
-    ]);
+    adapterMocks.getVersionState.mockResolvedValue({
+      id: 20,
+      version: "1.2.3",
+      status: "PENDING_REVIEW",
+    });
     adapterMocks.listSecurityAudits.mockImplementationOnce(async () => {
       scanStarted.resolve();
       await releaseScan.promise;
-      return [{ scannerType: "skill-scanner", verdict: "CLEAN", isSafe: true }];
+      return [
+        {
+          scannerType: "skill-scanner",
+          verdict: "SAFE",
+          isSafe: true,
+          scannedAt: "2026-10-16T00:00:00Z",
+        },
+      ];
     });
 
     const processing = service.processGovernanceQueue();

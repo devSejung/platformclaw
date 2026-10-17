@@ -1,0 +1,386 @@
+diff --git a/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerLoggingTest.java b/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerLoggingTest.java
+--- a/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerLoggingTest.java
++++ b/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerLoggingTest.java
+@@ -152,0 +153,9 @@
++    private static RedissonClient lockingRedissonClient() {
++        var client = mock(RedissonClient.class);
++        var lock = mock(org.redisson.api.RLock.class);
++        org.mockito.Mockito.when(client.getLock(org.mockito.ArgumentMatchers.anyString())).thenReturn(lock);
++        org.mockito.Mockito.when(lock.tryLock()).thenReturn(true);
++        org.mockito.Mockito.when(lock.isHeldByCurrentThread()).thenReturn(true);
++        return client;
++    }
++
+@@ -162 +171 @@
+-                    mock(RedissonClient.class),
++                    lockingRedissonClient(),
+@@ -208,5 +217,11 @@
+-            super(null, null, task -> {}, new ObjectMapper(), "upload", true);
+-        }
+-
+-        @Override
+-        public void processScanResult(Long versionId, ScannerType scannerType, SecurityScanResponse response) {
++            super(null, null, new ObjectMapper(), "upload", true, null);
++        }
++
++        @Override
++        public boolean shouldProcessTask(String taskId) { return true; }
++
++        @Override
++        public void markTaskFailed(String taskId, Long versionId) { }
++
++        @Override
++        public void processScanResult(String taskId, Long versionId, ScannerType scannerType, SecurityScanResponse response) {
+@@ -247,0 +263,5 @@
++            throw new UnsupportedOperationException();
++        }
++
++        @Override
++        public boolean existsPublishedBySkillId(Long skillId, boolean includeHistorical) {
+diff --git a/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerTest.java b/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerTest.java
+--- a/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerTest.java
++++ b/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerTest.java
+@@ -22,0 +23 @@
++import org.redisson.api.RLock;
+@@ -40,0 +42 @@
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
+@@ -41,0 +44,3 @@
++import static org.mockito.Mockito.never;
++import static org.mockito.Mockito.verify;
++import static org.mockito.Mockito.when;
+@@ -98,0 +104 @@
++        StubSecurityScanService service = new StubSecurityScanService();
+@@ -101 +107 @@
+-                new StubSecurityScanService(),
++                service,
+@@ -118 +124,2 @@
+-        assertThat(skillVersionRepository.savedVersion.getStatus()).isEqualTo(SkillVersionStatus.SCAN_FAILED);
++        assertThat(service.failedTaskId).isEqualTo("task-2");
++        assertThat(service.failedVersionId).isEqualTo(42L);
+@@ -270,0 +278,81 @@
++    @Test
++    void processBusiness_whenTaskIsAlreadyInFlight_skipsScanAndPreservesSharedTempPath() throws Exception {
++        Files.createDirectories(SCAN_TEMP_DIR);
++        Path tempDir = Files.createTempDirectory(SCAN_TEMP_DIR, "scan-task-consumer-inflight");
++        Path skillFile = Files.writeString(tempDir.resolve("SKILL.md"), "# demo");
++        StubSecurityScanner securityScanner = new StubSecurityScanner();
++        RLock processingLock = mock(RLock.class);
++        when(processingLock.tryLock()).thenReturn(false);
++        TestableScanTaskConsumer consumer = new TestableScanTaskConsumer(
++                securityScanner,
++                new StubSecurityScanService(),
++                new InMemorySkillVersionRepository(),
++                new InMemoryScanTaskProducer(),
++                new InMemoryObjectStorageService(),
++                redissonClient(processingLock)
++        );
++        ScanTaskConsumer.ScanTaskPayload payload = new ScanTaskConsumer.ScanTaskPayload(
++                "task-inflight", 42L, tempDir.toString(), null, ScannerType.SKILL_SCANNER);
++
++        try {
++            assertThatThrownBy(() -> consumer.invokeProcessBusiness(payload))
++                    .isInstanceOf(RuntimeException.class)
++                    .hasMessage("Security scan is already in progress: taskId=task-inflight");
++
++            assertThat(securityScanner.lastRequest).isNull();
++            assertThat(skillFile).exists();
++            verify(processingLock, never()).unlock();
++        } finally {
++            Files.deleteIfExists(skillFile);
++            Files.deleteIfExists(tempDir);
++        }
++    }
++
++    @Test
++    void handleMessage_whenTaskLockIsHeld_retainsDeliveryWithoutSpendingRetries() {
++        StubSecurityScanner securityScanner = new StubSecurityScanner();
++        InMemoryScanTaskProducer producer = new InMemoryScanTaskProducer();
++        RLock processingLock = mock(RLock.class);
++        when(processingLock.tryLock()).thenReturn(false);
++        TestableScanTaskConsumer consumer = new TestableScanTaskConsumer(
++                securityScanner,
++                new StubSecurityScanService(),
++                new InMemorySkillVersionRepository(),
++                producer,
++                new InMemoryObjectStorageService(),
++                redissonClient(processingLock)
++        );
++
++        consumer.handleMessage(new StreamMessageId(11, 0), Map.of(
++                "taskId", "task-reclaimed",
++                "versionId", "42",
++                "skillPath", "/tmp/skillhub-scans/42",
++                "scannerType", ScannerType.SKILL_SCANNER.getValue()
++        ));
++
++        assertThat(producer.publishedTask).isNull();
++        verify(consumer.stream, never()).ack(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(StreamMessageId.class));
++    }
++
++    @Test
++    void processBusiness_whenScannerFails_releasesProcessingLock() {
++        StubSecurityScanner securityScanner = new StubSecurityScanner();
++        securityScanner.failure = new IllegalStateException("scanner unavailable");
++        RLock processingLock = availableProcessingLock();
++        TestableScanTaskConsumer consumer = new TestableScanTaskConsumer(
++                securityScanner,
++                new StubSecurityScanService(),
++                new InMemorySkillVersionRepository(),
++                new InMemoryScanTaskProducer(),
++                new InMemoryObjectStorageService(),
++                redissonClient(processingLock)
++        );
++        ScanTaskConsumer.ScanTaskPayload payload = new ScanTaskConsumer.ScanTaskPayload(
++                "task-failure", 42L, "/tmp/failure", null, ScannerType.SKILL_SCANNER);
++
++        assertThatThrownBy(() -> consumer.invokeProcessBusiness(payload))
++                .isInstanceOf(IllegalStateException.class)
++                .hasMessage("scanner unavailable");
++        verify(processingLock).unlock();
++    }
++
+@@ -302 +390 @@
+-                    mock(RedissonClient.class),
++                    redissonClient(availableProcessingLock()),
+@@ -314,0 +403,21 @@
++        @SuppressWarnings("unchecked")
++        private TestableScanTaskConsumer(SecurityScanner securityScanner,
++                                         SecurityScanService securityScanService,
++                                         SkillVersionRepository skillVersionRepository,
++                                         ScanTaskProducer scanTaskProducer,
++                                         ObjectStorageService objectStorageService,
++                                         RedissonClient redissonClient) {
++            super(
++                    redissonClient,
++                    "skillhub:scan:requests",
++                    "skillhub-scanners",
++                    securityScanner,
++                    securityScanService,
++                    skillVersionRepository,
++                    scanTaskProducer,
++                    objectStorageService,
++                    new MessageObservationSupport(ObservationRegistry.NOOP, new RequestIdAccessor())
++            );
++            this.stream = mock(RStream.class);
++        }
++
+@@ -334,0 +444,13 @@
++    }
++
++    private static RLock availableProcessingLock() {
++        RLock processingLock = mock(RLock.class);
++        when(processingLock.tryLock()).thenReturn(true);
++        when(processingLock.isHeldByCurrentThread()).thenReturn(true);
++        return processingLock;
++    }
++
++    private static RedissonClient redissonClient(RLock processingLock) {
++        RedissonClient redissonClient = mock(RedissonClient.class);
++        when(redissonClient.getLock(org.mockito.ArgumentMatchers.anyString())).thenReturn(processingLock);
++        return redissonClient;
+@@ -363,0 +486,2 @@
++        private String failedTaskId;
++        private Long failedVersionId;
+@@ -368,6 +492,11 @@
+-            super(null, null, task -> {
+-            }, new com.fasterxml.jackson.databind.ObjectMapper(), "local", true);
+-        }
+-
+-        @Override
+-        public void processScanResult(Long versionId, ScannerType scannerType, SecurityScanResponse response) {
++            super(null, null, new com.fasterxml.jackson.databind.ObjectMapper(), "local", true, null);
++        }
++
++        @Override
++        public boolean shouldProcessTask(String taskId) { return true; }
++
++        @Override
++        public void markTaskFailed(String taskId, Long versionId) { failedTaskId = taskId; failedVersionId = versionId; }
++
++        @Override
++        public void processScanResult(String taskId, Long versionId, ScannerType scannerType, SecurityScanResponse response) {
+@@ -413,0 +543,5 @@
++            throw unsupported();
++        }
++
++        @Override
++        public boolean existsPublishedBySkillId(Long skillId, boolean includeHistorical) {
+diff --git a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/review/ReviewServiceTest.java b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/review/ReviewServiceTest.java
+--- a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/review/ReviewServiceTest.java
++++ b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/review/ReviewServiceTest.java
+@@ -367,0 +368,2 @@
++            when(namespaceRepository.findById(NAMESPACE_ID)).thenReturn(Optional.of(createTeamNamespace()));
++
+@@ -404,0 +407 @@
++            when(skillRepository.findById(SKILL_ID)).thenReturn(Optional.of(createSkill()));
+@@ -534,0 +538 @@
++            when(skillRepository.findById(SKILL_ID)).thenReturn(Optional.of(createSkill()));
+diff --git a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/security/SecurityScanServiceTest.java b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/security/SecurityScanServiceTest.java
+--- a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/security/SecurityScanServiceTest.java
++++ b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/security/SecurityScanServiceTest.java
+@@ -35 +35 @@
+-    private ScanTaskProducer scanTaskProducer;
++    private ScanTaskOutboxRepository outboxRepository;
+@@ -44 +43,0 @@
+-                scanTaskProducer,
+@@ -47 +46,2 @@
+-                true
++                true,
++                outboxRepository
+@@ -53 +53 @@
+-        SecurityAudit audit = new SecurityAudit(42L, ScannerType.SKILL_SCANNER);
++        SecurityAudit audit = new SecurityAudit(42L, ScannerType.SKILL_SCANNER, "task-42");
+@@ -79 +79 @@
+-        ArgumentCaptor<ScanTask> taskCaptor = ArgumentCaptor.forClass(ScanTask.class);
++        ArgumentCaptor<ScanTaskOutbox> taskCaptor = ArgumentCaptor.forClass(ScanTaskOutbox.class);
+@@ -81 +81 @@
+-        verify(scanTaskProducer).publishScanTask(taskCaptor.capture());
++        verify(outboxRepository).save(taskCaptor.capture());
+@@ -85 +85 @@
+-        ScanTask task = taskCaptor.getValue();
++        ScanTask task = taskCaptor.getValue().toScanTask();
+@@ -100 +99,0 @@
+-                scanTaskProducer,
+@@ -103 +102,2 @@
+-                true
++                true,
++                outboxRepository
+@@ -118,4 +118,4 @@
+-        ArgumentCaptor<ScanTask> taskCaptor = ArgumentCaptor.forClass(ScanTask.class);
+-        verify(scanTaskProducer).publishScanTask(taskCaptor.capture());
+-
+-        ScanTask task = taskCaptor.getValue();
++        ArgumentCaptor<ScanTaskOutbox> taskCaptor = ArgumentCaptor.forClass(ScanTaskOutbox.class);
++        verify(outboxRepository).save(taskCaptor.capture());
++
++        ScanTask task = taskCaptor.getValue().toScanTask();
+@@ -150 +149,0 @@
+-                scanTaskProducer,
+@@ -153 +152,2 @@
+-                true
++                true,
++                outboxRepository
+@@ -173 +173 @@
+-        SecurityAudit audit = new SecurityAudit(42L, ScannerType.SKILL_SCANNER);
++        SecurityAudit audit = new SecurityAudit(42L, ScannerType.SKILL_SCANNER, "task-42");
+@@ -176,0 +177 @@
++        given(auditRepository.findByTaskId("task-42")).willReturn(Optional.of(audit));
+@@ -199 +200 @@
+-        service.processScanResult(42L, ScannerType.SKILL_SCANNER, response);
++        service.processScanResult("task-42", 42L, ScannerType.SKILL_SCANNER, response);
+@@ -231 +232 @@
+-        verify(scanTaskProducer).publishScanTask(org.mockito.ArgumentMatchers.any(ScanTask.class));
++        verify(outboxRepository).save(org.mockito.ArgumentMatchers.any(ScanTaskOutbox.class));
+@@ -237 +238 @@
+-        SecurityAudit audit = new SecurityAudit(42L, ScannerType.SKILL_SCANNER);
++        SecurityAudit audit = new SecurityAudit(42L, ScannerType.SKILL_SCANNER, "task-42");
+@@ -240,0 +242 @@
++        given(auditRepository.findByTaskId("task-42")).willReturn(Optional.of(audit));
+@@ -254 +256 @@
+-        service.processScanResult(42L, ScannerType.SKILL_SCANNER, response);
++        service.processScanResult("task-42", 42L, ScannerType.SKILL_SCANNER, response);
+diff --git a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillPublishServiceTest.java b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillPublishServiceTest.java
+--- a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillPublishServiceTest.java
++++ b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillPublishServiceTest.java
+@@ -596 +596 @@
+-    void testPublishFromEntries_SuperAdminShouldAutoPublish() throws Exception {
++    void testPublishFromEntries_SuperAdminSharedVersionRequiresReviewBeforePublication() throws Exception {
+@@ -634,6 +634,5 @@
+-        assertEquals(SkillVersionStatus.PUBLISHED, result.version().getStatus());
+-        assertEquals(Instant.now(CLOCK), result.version().getPublishedAt());
+-        verify(reviewTaskRepository, never()).save(any(ReviewTask.class));
+-        verify(skillRepository).save(argThat(savedSkill ->
+-                savedSkill.getLatestVersionId() != null && savedSkill.getLatestVersionId().equals(10L)));
+-        verify(eventPublisher).publishEvent(any(SkillPublishedEvent.class));
++        assertEquals(SkillVersionStatus.PENDING_REVIEW, result.version().getStatus());
++        assertNull(result.version().getPublishedAt());
++        assertNull(skill.getLatestVersionId());
++        verify(reviewTaskRepository).save(any(ReviewTask.class));
++        verify(eventPublisher, never()).publishEvent(any(SkillPublishedEvent.class));
+@@ -801 +800 @@
+-        assertEquals(SkillVersionStatus.PUBLISHED, result.version().getStatus());
++        assertEquals(SkillVersionStatus.PENDING_REVIEW, result.version().getStatus());
+@@ -1147 +1146 @@
+-        when(skillVersionRepository.findBySkillIdAndStatus(1L, SkillVersionStatus.PUBLISHED)).thenReturn(List.of(publishedVersion));
++        when(skillVersionRepository.existsPublishedBySkillId(1L, false)).thenReturn(true);
+@@ -1179 +1178 @@
+-        when(skillVersionRepository.findBySkillIdAndStatus(1L, SkillVersionStatus.PUBLISHED)).thenReturn(List.of(publishedVersion));
++        when(skillVersionRepository.existsPublishedBySkillId(1L, false)).thenReturn(true);
+@@ -1214 +1213 @@
+-        when(skillVersionRepository.findBySkillIdAndStatus(1L, SkillVersionStatus.PUBLISHED)).thenReturn(List.of());
++        when(skillVersionRepository.existsPublishedBySkillId(1L, false)).thenReturn(false);
+@@ -1282,47 +1281,8 @@
+-    void testPublishFromEntries_ShouldDeferVisibilityChangeUntilApproval() throws Exception {
+-        // Arrange
+-        String namespaceSlug = "test-ns";
+-        String publisherId = "user-100";
+-        String skillMdContent = "---\nname: test-skill\ndescription: Test\nversion: 2.0.0\n---\nBody";
+-
+-        PackageEntry skillMd = new PackageEntry("SKILL.md", skillMdContent.getBytes(), skillMdContent.length(), "text/markdown");
+-        List<PackageEntry> entries = List.of(skillMd);
+-
+-        Namespace namespace = new Namespace(namespaceSlug, "Test NS", "user-1");
+-        setId(namespace, 1L);
+-        NamespaceMember member = mock(NamespaceMember.class);
+-        SkillMetadata metadata = new SkillMetadata("test-skill", "Test", "2.0.0", "Body", Map.of());
+-
+-        // Skill was created with PRIVATE visibility
+-        Skill skill = new Skill(1L, "test-skill", publisherId, SkillVisibility.PRIVATE);
+-        setId(skill, 1L);
+-
+-        when(namespaceRepository.findBySlug(namespaceSlug)).thenReturn(Optional.of(namespace));
+-        when(namespaceMemberRepository.findByNamespaceIdAndUserId(any(), eq(publisherId))).thenReturn(Optional.of(member));
+-        when(skillPackageValidator.validate(entries)).thenReturn(ValidationResult.pass());
+-        when(skillMetadataParser.parse(skillMdContent)).thenReturn(metadata);
+-        when(prePublishValidator.validate(any())).thenReturn(ValidationResult.pass());
+-        when(skillRepository.findByNamespaceIdAndSlug(any(), eq("test-skill"))).thenReturn(List.of(skill));
+-        when(skillRepository.findByNamespaceIdAndSlugAndOwnerId(any(), eq("test-skill"), eq(publisherId))).thenReturn(Optional.of(skill));
+-        when(skillVersionRepository.findBySkillIdAndVersion(any(), eq("2.0.0"))).thenReturn(Optional.empty());
+-        when(skillVersionRepository.save(any(SkillVersion.class))).thenAnswer(invocation -> {
+-            SkillVersion saved = invocation.getArgument(0);
+-            if (saved.getId() == null) {
+-                setId(saved, 20L);
+-            }
+-            return saved;
+-        });
+-        when(skillRepository.save(any())).thenReturn(skill);
+-
+-        // Act — submit with PUBLIC visibility on an existing PRIVATE skill
+-        SkillPublishService.PublishResult result = service.publishFromEntries(
+-                namespaceSlug,
+-                entries,
+-                publisherId,
+-                SkillVisibility.PUBLIC,
+-                Set.of()
+-        );
+-
+-        // Assert — current published visibility stays unchanged until approval
+-        assertEquals(SkillVisibility.PRIVATE, skill.getVisibility());
+-        assertEquals(SkillVisibility.PUBLIC, result.version().getRequestedVisibility());
++    void testPublishFromEntries_UneditedAudienceChangeRequiresMetadataEdit() throws Exception {
++        PublishFixture fixture = stubValidPublishInputs("test-ns", "user-100", "test-skill", "test-skill", "2.0.0", true);
++        fixture.skill().setVisibility(SkillVisibility.PRIVATE);
++        assertThrows(PlatformclawVisibilityConflict.class, () -> service.publishFromEntries(
++                "test-ns", fixture.entries(), "user-100", SkillVisibility.PUBLIC, Set.of()));
++        assertEquals(SkillVisibility.PRIVATE, fixture.skill().getVisibility());
++        verify(skillVersionRepository, never()).save(any());
++        verify(objectStorageService, never()).putObject(anyString(), any(), anyLong(), anyString());
+@@ -1364,0 +1325 @@
++        fixture.skill().setVisibility(SkillVisibility.NAMESPACE_ONLY);
+@@ -1387,0 +1349 @@
++        fixture.skill().setVisibility(SkillVisibility.PRIVATE);
+@@ -1539 +1501 @@
+-        assertEquals(SkillVersionStatus.PUBLISHED, result.version().getStatus());
++        assertEquals(SkillVersionStatus.PENDING_REVIEW, result.version().getStatus());
+@@ -1541,4 +1503,4 @@
+-        verify(reviewTaskRepository, never()).save(any(ReviewTask.class));
+-    }
+-
+-    private record PublishFixture(List<PackageEntry> entries) {
++        verify(reviewTaskRepository).save(any(ReviewTask.class));
++    }
++
++    private record PublishFixture(List<PackageEntry> entries, Skill skill) {
+@@ -1580 +1542 @@
+-        return new PublishFixture(entries);
++        return new PublishFixture(entries, skill);

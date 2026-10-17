@@ -227,7 +227,7 @@ services:
 
   skillhub-storage-init:
     profiles: [skillhub]
-    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e49}
+    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e49099555e5c88b}
     pull_policy: never
     user: "0:0"
     network_mode: none
@@ -259,7 +259,7 @@ services:
 
   skillhub-server:
     profiles: [skillhub]
-    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e49}
+    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e49099555e5c88b}
     pull_policy: never
     depends_on:
       skillhub-postgres:

@@ -1,5 +1,6 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
+import "./user-picker.ts";
 import type {
   PlatformClawSkillHubDetail,
   PlatformClawSkillHubManagementUser,
@@ -7,32 +8,44 @@ import type {
 
 export function renderSkillHubManagement(props: {
   detail: PlatformClawSkillHubDetail | null;
-  ownerQuery: string;
-  accessQuery: string;
-  ownerCandidates: PlatformClawSkillHubManagementUser[];
-  accessCandidates: PlatformClawSkillHubManagementUser[];
   selectedOwnerUserId: string;
   selectedAccessUserId: string;
   forceReason: string;
   forceAcknowledged: boolean;
   busy: boolean;
-  onOwnerQuery: (value: string) => void;
-  onSelectOwner: (user: PlatformClawSkillHubManagementUser) => void;
+  onSelectOwner: (user: PlatformClawSkillHubManagementUser | null) => void;
   onTransferOwner: () => void;
-  onAccessQuery: (value: string) => void;
-  onSelectAccess: (user: PlatformClawSkillHubManagementUser) => void;
+  onSelectAccess: (user: PlatformClawSkillHubManagementUser | null) => void;
   onGrantAccess: () => void;
   onRemoveAccess: (userId: string) => void;
   onForceReason: (value: string) => void;
   onForceAcknowledged: (value: boolean) => void;
   onForcePublish: () => void;
   onDeleteSkill: () => void;
+  onEditSkill: () => void;
+  onPublishVersion: () => void;
 }) {
   if (!props.detail?.canManage) {
     return nothing;
   }
   return html`<section class="skill-hub-management">
     <h3>${t("skillHubPage.management")}</h3>
+    <div class="skill-hub-management__group">
+      <div>
+        <strong>${t("skillHubPage.publishedDetails")}</strong>
+        <p>${t("skillHubPage.publishVersionHelp")}</p>
+      </div>
+      <div class="skill-hub-install-actions">
+        ${props.detail.skill.revision && typeof props.detail.owner?.revision === "number"
+          ? html`<button class="btn btn--sm" ?disabled=${props.busy} @click=${props.onEditSkill}>
+              ${t("skillHubPage.editSkill")}
+            </button>`
+          : nothing}
+        <button class="btn btn--sm" ?disabled=${props.busy} @click=${props.onPublishVersion}>
+          ${t("skillHubPage.publishVersion")}
+        </button>
+      </div>
+    </div>
     <div class="skill-hub-management__group">
       <div>
         <strong>${t("skillHubPage.owner")}</strong>
@@ -47,23 +60,13 @@ export function renderSkillHubManagement(props: {
         </p>
       </div>
       <div class="skill-hub-management__action">
-        <input
-          .value=${props.ownerQuery}
-          placeholder=${t("skillHubPage.searchUsers")}
-          @input=${(event: Event) => props.onOwnerQuery((event.target as HTMLInputElement).value)}
-        />
-        ${props.ownerCandidates.length > 0
-          ? html`<div class="skill-hub-user-results">
-              ${props.ownerCandidates.map(
-                (user) => html`<button
-                  class="btn btn--sm"
-                  @click=${() => props.onSelectOwner(user)}
-                >
-                  ${user.displayName ?? user.accountId} · ${user.accountId}
-                </button>`,
-              )}
-            </div>`
-          : nothing}
+        <openclaw-skill-hub-user-picker
+          namespace=${props.detail.skill.namespace}
+          slug=${props.detail.skill.slug}
+          purpose="owner"
+          .disabled=${props.busy}
+          .onSelect=${props.onSelectOwner}
+        ></openclaw-skill-hub-user-picker>
         <button
           class="btn btn--sm"
           ?disabled=${props.busy || !props.selectedOwnerUserId}
@@ -79,23 +82,13 @@ export function renderSkillHubManagement(props: {
         <p>${t("skillHubPage.individualAccessHelp")}</p>
       </div>
       <div class="skill-hub-management__action">
-        <input
-          .value=${props.accessQuery}
-          placeholder=${t("skillHubPage.searchUsers")}
-          @input=${(event: Event) => props.onAccessQuery((event.target as HTMLInputElement).value)}
-        />
-        ${props.accessCandidates.length > 0
-          ? html`<div class="skill-hub-user-results">
-              ${props.accessCandidates.map(
-                (user) => html`<button
-                  class="btn btn--sm"
-                  @click=${() => props.onSelectAccess(user)}
-                >
-                  ${user.displayName ?? user.accountId} · ${user.accountId}
-                </button>`,
-              )}
-            </div>`
-          : nothing}
+        <openclaw-skill-hub-user-picker
+          namespace=${props.detail.skill.namespace}
+          slug=${props.detail.skill.slug}
+          purpose="access"
+          .disabled=${props.busy}
+          .onSelect=${props.onSelectAccess}
+        ></openclaw-skill-hub-user-picker>
         <button
           class="btn btn--sm"
           ?disabled=${props.busy || !props.selectedAccessUserId}

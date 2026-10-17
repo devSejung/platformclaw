@@ -306,6 +306,34 @@ export async function handlePlatformClawSkillHubRequest(
         return true;
       }
       const body = objectBody(read.value);
+      const editMatch = new RegExp(
+        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/edit$`,
+        "u",
+      ).exec(url.pathname);
+      if (editMatch) {
+        if (typeof body.summary !== "string") {
+          throw new SkillHubServiceError("summary must be a string", 400);
+        }
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.editPublishedSkill(
+            actor.user,
+            decodeSegment(editMatch[1]!),
+            decodeSegment(editMatch[2]!),
+            {
+              operationId: stringField(body, "operationId"),
+              namespace: stringField(body, "namespace"),
+              displayName: stringField(body, "displayName"),
+              summary: body.summary,
+              visibility: stringField(body, "visibility"),
+              expectedOwnerUpdatedAt: integerField(body, "expectedOwnerUpdatedAt"),
+              expectedRegistryRevision: stringField(body, "expectedRegistryRevision"),
+            },
+          ),
+        );
+        return true;
+      }
       if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/publish`) {
         sendBrowserJson(
           res,

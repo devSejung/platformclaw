@@ -59,6 +59,7 @@ export type PlatformClawSkillHubDetail = {
     summary: string;
     visibility: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
     status: string;
+    revision?: string;
     downloadCount?: number;
     starCount?: number;
     ratingAvg?: number;
@@ -318,6 +319,31 @@ export function deletePlatformClawSkillHubSkill(
   return request(`/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`, {
     method: "DELETE",
     body: JSON.stringify({ expectedOwnerUpdatedAt }),
+  });
+}
+
+export function editPlatformClawSkillHubSkill(
+  namespace: string,
+  slug: string,
+  params: {
+    operationId: string;
+    namespace: string;
+    displayName: string;
+    summary: string;
+    visibility: PlatformClawSkillHubDetail["skill"]["visibility"];
+    expectedOwnerUpdatedAt: number;
+    expectedRegistryRevision: string;
+  },
+): Promise<{
+  ok: true;
+  namespace: string;
+  slug: string;
+  ownershipReviewRequired?: true;
+  publicationPending?: true;
+}> {
+  return request(`/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/edit`, {
+    method: "POST",
+    body: JSON.stringify(params),
   });
 }
 

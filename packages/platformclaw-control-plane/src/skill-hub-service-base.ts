@@ -7,6 +7,7 @@ import { GatewayAdminRpcError } from "./gateway-admin-rpc-client.js";
 import {
   SkillHubAdapterError,
   type SkillHubAdapter,
+  type SkillHubVersion,
   type SkillHubVisibility,
 } from "./skill-hub-adapter.js";
 import { isExcludedSkillArchivePath } from "./skill-hub-archive-policy.js";
@@ -157,6 +158,9 @@ export abstract class SkillHubServiceBase {
     version?: string,
     audience: SkillHubAudience = "employee",
   ): Promise<boolean> {
+    if (await this.options.store.getSkillHubPendingEdit(namespace, slug)) {
+      return false;
+    }
     const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
     const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
     const visibilityRank: Record<SkillHubVisibility, number> = {
@@ -215,6 +219,7 @@ export abstract class SkillHubServiceBase {
     namespace: string,
     slug: string,
   ) {
+    await this.assertNoPendingSkillEdit(namespace, slug);
     await this.reconcileOwners();
     const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
     if (ownership && user.globalRole !== "admin" && ownership.ownerUserId !== user.id) {
@@ -254,6 +259,7 @@ export abstract class SkillHubServiceBase {
   protected async requireManagedSkill(actor: PlatformUser, namespaceRaw: string, slugRaw: string) {
     const namespace = this.authorizeNamespace(namespaceRaw);
     const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
+    await this.assertNoPendingSkillEdit(namespace, slug);
     await this.reconcileOwners();
     const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
     if (!ownership) {
@@ -269,6 +275,18 @@ export abstract class SkillHubServiceBase {
       throw new SkillHubServiceError("Skill Hub namespace membership required", 403);
     }
     return { namespace, slug, ownership };
+  }
+
+  protected async assertNoPendingSkillEdit(namespace: string, slug: string): Promise<void> {
+    if (await this.options.store.getSkillHubPendingEdit(namespace, slug)) {
+      throw new SkillHubServiceError(
+        "Skill Hub edit is still being reconciled; retry shortly.",
+        409,
+        {
+          code: "skill-hub-edit-pending",
+        },
+      );
+    }
   }
 
   protected async reconcileOwners(): Promise<void> {
@@ -296,7 +314,14 @@ export abstract class SkillHubServiceBase {
   }
 
   protected triggerGovernanceProcessing(delayMs = 1_000): void {
-    if (!this.options.governance || this.governanceClosed || this.governanceTimer) {
+    // The active queue owns its next pass. Recovery errors must not replace
+    // that cadence with the initial user-action timer throughout an outage.
+    if (
+      !this.options.governance ||
+      this.governanceClosed ||
+      this.governanceProcessing ||
+      this.governanceTimer
+    ) {
       return;
     }
     this.governanceTimer = setTimeout(() => {
@@ -311,6 +336,11 @@ export abstract class SkillHubServiceBase {
     attempts: number,
     lastError: string,
   ): Promise<void> {
+    // An edit can reserve the coordinate during a native read. Preserve the scan
+    // retry budget until that persisted operation finishes, including read errors.
+    if (await this.options.store.getSkillHubPendingEdit(job.namespace, job.slug)) {
+      return;
+    }
     const terminal = attempts >= 20;
     await this.options.store.updateSkillHubGovernanceJob({
       namespace: job.namespace,
@@ -347,18 +377,22 @@ export abstract class SkillHubServiceBase {
   }
 
   protected projectScanner(
-    version: string | undefined,
+    currentVersion: Pick<SkillHubVersion, "version" | "status"> | undefined,
     audits: Awaited<ReturnType<SkillHubAdapter["listSecurityAudits"]>>,
   ) {
-    if (!version) {
+    if (!currentVersion) {
       return { status: "not_available", badge: "Not scanned", current: true } as const;
     }
-    if (audits.length === 0) {
-      return { version, status: "pending", badge: "Scan pending", current: true } as const;
+    const { version } = currentVersion;
+    if (currentVersion.status === "SCAN_FAILED" || audits.some((audit) => audit.failedAt)) {
+      return { version, status: "failed", badge: "Scan failed", current: true, audits } as const;
     }
-    const pending = audits.some((audit) =>
-      ["PENDING", "SCANNING"].includes(audit.verdict.toUpperCase()),
-    );
+    // Native audits start SUSPICIOUS/unsafe before work begins. Only scannedAt
+    // records completion; an older completed audit cannot finish an active rescan.
+    const pending =
+      currentVersion.status === "SCANNING" ||
+      audits.length === 0 ||
+      audits.some((audit) => !audit.scannedAt);
     const unsafe = !pending && audits.some((audit) => audit.isSafe !== true);
     return {
       version,

@@ -11,6 +11,7 @@ import {
   startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
+import { verifySkillHubManagement } from "./skill-hub-management.e2e.test-helpers.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
@@ -186,6 +187,152 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
   afterAll(async () => {
     await browser?.close();
     await server?.close();
+  });
+
+  it("autocompletes eligible owners and access recipients without clipping narrow cards", async () => {
+    const { page } = await newPage("en-US");
+    await verifySkillHubManagement(page, server.baseUrl, proofDir);
+  });
+
+  it("edits a published skill, protects an in-flight move, and publishes the next version under its new identity", async () => {
+    const { page } = await newPage("en-US");
+    let skill = {
+      namespace: "engineering",
+      slug: "demo",
+      displayName: "Demo Skill",
+      summary: "Original summary",
+      visibility: "NAMESPACE_ONLY",
+      status: "PUBLISHED",
+      revision: "registry-revision-1",
+    };
+    const submittedRequests: Array<Record<string, unknown>> = [];
+    let cancelledOperationId: unknown;
+    let ownerRevision = 42;
+    const detailRequests: string[] = [];
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    await page.route("**/platformclaw/api/skill-hub/**", async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname.endsWith("/config")) {
+        return route.fulfill({
+          json: { namespaces: ["engineering", "platform"], maxPackageBytes: 1024 },
+        });
+      }
+      if (pathname.endsWith("/search")) {
+        return route.fulfill({ json: { total: 1, items: [{ ...skill, latestVersion: "1.0.0" }] } });
+      }
+      if (pathname.endsWith("/edit")) {
+        const submitted = route.request().postDataJSON() as Record<string, unknown>;
+        submittedRequests.push(submitted);
+        if (!cancelledOperationId) {
+          cancelledOperationId = submitted.operationId;
+          ownerRevision = 43;
+          skill = { ...skill, revision: "registry-revision-2" };
+          return route.fulfill({
+            status: 409,
+            json: { error: "Skill changed. Reload the detail before saving." },
+          });
+        }
+        await pending;
+        skill = {
+          ...skill,
+          namespace: "platform",
+          displayName: "Edited Demo",
+          summary: "Updated summary",
+          visibility: "PRIVATE",
+          revision: "registry-revision-2",
+        };
+        return route.fulfill({ json: { ok: true, namespace: skill.namespace, slug: skill.slug } });
+      }
+      if (pathname.endsWith("/demo")) {
+        detailRequests.push(pathname);
+        return route.fulfill({
+          json: {
+            skill,
+            owner: { assigned: true, isMine: true, unassigned: false, revision: ownerRevision },
+            canManage: true,
+            versions: [{ version: "1.0.0", status: "PUBLISHED", downloadAvailable: true }],
+            access: [],
+          },
+        });
+      }
+      return route.fulfill({ json: { items: [], total: 0 } });
+    });
+    await page.goto(`${server.baseUrl}platformclaw/app/skills/hub`);
+    await page.locator(".skill-hub-card").click();
+    const detail = page.locator(".skill-hub-detail");
+    await detail.getByRole("button", { name: "Edit skill", exact: true }).click();
+    const dialog = page.locator(".skill-hub-edit");
+    await expect.poll(() => dialog.locator('[name="displayName"]').inputValue()).toBe("Demo Skill");
+    expect(await dialog.locator('[name="summary"]').inputValue()).toBe("Original summary");
+    expect(await dialog.locator('[name="visibility"]').inputValue()).toBe("NAMESPACE_ONLY");
+    expect(await dialog.locator('[name="namespace"]').inputValue()).toBe("engineering");
+    await dialog.getByRole("button", { name: "Save changes", exact: true }).click();
+    await expect.poll(() => dialog.getByRole("alert").textContent()).toContain("Reload the detail");
+    expect(await dialog.getByRole("button", { name: "Save changes", exact: true }).count()).toBe(0);
+    await dialog.getByRole("button", { name: "Reload", exact: true }).click();
+    await expect.poll(() => dialog.count()).toBe(0);
+    await detail.getByRole("button", { name: "Edit skill", exact: true }).click();
+    submittedRequests.length = 0;
+    await dialog.locator('[name="displayName"]').fill("Edited Demo");
+    await dialog.locator('[name="summary"]').fill("Updated summary");
+    await dialog.locator('[name="namespace"]').selectOption("platform");
+    await dialog.locator('[name="visibility"]').selectOption("PRIVATE");
+    await page.screenshot({
+      animations: "disabled",
+      path: path.join(proofDir, "13-edit-move-fhd.png"),
+    });
+    await dialog.getByRole("button", { name: "Save changes", exact: true }).click();
+    await expect
+      .poll(() =>
+        dialog.locator("input:enabled, select:enabled, textarea:enabled, button:enabled").count(),
+      )
+      .toBe(0);
+    await expect.poll(() => submittedRequests).toHaveLength(1);
+    try {
+      await page.keyboard.press("Escape");
+      await page.mouse.click(5, 5);
+      expect(await dialog.isVisible()).toBe(true);
+      expect(submittedRequests).toHaveLength(1);
+      expect(submittedRequests[0]).toEqual({
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+        namespace: "platform",
+        displayName: "Edited Demo",
+        summary: "Updated summary",
+        visibility: "PRIVATE",
+        expectedOwnerUpdatedAt: 43,
+        expectedRegistryRevision: "registry-revision-2",
+      });
+      expect(submittedRequests[0]?.operationId).not.toBe(cancelledOperationId);
+    } finally {
+      finish();
+    }
+    await expect.poll(() => dialog.count()).toBe(0);
+    await expect.poll(() => detail.locator("h2").textContent()).toBe("Edited Demo");
+    expect(await detail.locator(".skill-hub-card__namespace").textContent()).toBe("platform");
+    expect(await detail.textContent()).toContain("Updated summary");
+    await expect.poll(() => detail.textContent()).toContain("Updated platform/demo.");
+    expect(detailRequests).toEqual([
+      "/platformclaw/api/skill-hub/skills/engineering/demo",
+      "/platformclaw/api/skill-hub/skills/engineering/demo",
+      "/platformclaw/api/skill-hub/skills/platform/demo",
+    ]);
+    await page.screenshot({
+      animations: "disabled",
+      path: path.join(proofDir, "14-edited-detail-fhd.png"),
+    });
+    await detail.getByRole("button", { name: "Publish new version", exact: true }).click();
+    const upload = page.locator(".skill-hub-upload");
+    const inputs = upload.locator(".skill-hub-upload__fields input");
+    expect(await inputs.first().inputValue()).toBe("demo");
+    expect(await inputs.first().isDisabled()).toBe(true);
+    expect(await inputs.nth(1).inputValue()).toBe("");
+    expect(await upload.locator("select").first().inputValue()).toBe("platform");
+    expect(await upload.locator("select").first().isDisabled()).toBe(true);
+    expect(await upload.locator("select").nth(1).inputValue()).toBe("PRIVATE");
+    expect(await upload.locator("select").nth(1).isDisabled()).toBe(true);
   });
 
   it("publishes an assigned-VM skill from either plugin tab without switching workspaces", async () => {
