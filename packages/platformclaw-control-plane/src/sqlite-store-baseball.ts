@@ -4,7 +4,6 @@ import {
   BASEBALL_BATS,
   BASEBALL_DEFAULT_BAT_ID,
   BaseballGameError,
-  getBaseballBatDefinition,
   isBaseballBatId,
   type BaseballBatId,
   type BaseballAtBat,
@@ -25,10 +24,7 @@ import {
   type BaseballProgress,
   type BaseballPurchaseBatResult,
 } from "./baseball-contracts.js";
-import {
-  BASEBALL_ENHANCEMENT_RULE_VERSION,
-  getBaseballEnhancementAppearance,
-} from "./baseball-enhancement.js";
+import { BASEBALL_ENHANCEMENT_RULE_VERSION } from "./baseball-enhancement.js";
 import { ControlPlaneStateError } from "./contracts.js";
 import {
   executeSync,
@@ -48,8 +44,6 @@ type BaseballOperationEnvelope<T> =
 
 type BaseballOperationName =
   | "plate_appearance"
-  | "purchase_bat"
-  | "equip_bat"
   | "enhance_bat"
   | "recover_bat"
   | "equip_enhanced_bat"
@@ -155,36 +149,25 @@ export class SqliteControlPlaneBaseballStore
   }): Promise<BaseballAtBat> {
     this.ensureBaseballGameSchema();
     return runImmediateTransaction(this.db, () => {
-      const progress = this.ensureBaseballProgress(params.userId);
+      this.ensureBaseballProgress(params.userId);
       const prior = this.baseballAtBats.findIssued(params.userId, params.requestId);
       if (prior) {
         return prior;
       }
       const enhancement = this.baseballEnhancement.read(params.userId).enhancement;
-      if (enhancement?.equipped) {
-        if (enhancement.status === "broken") {
-          throw new BaseballGameError(
-            "bat_broken",
-            "Restore the broken bat or restart at +0 before pitching",
-          );
-        }
-        return this.baseballAtBats.issue(
-          params.userId,
-          params.requestId,
-          getBaseballEnhancementAppearance(enhancement.level).batId,
-          params.now,
-          {
-            enhancementLevel: enhancement.level,
-            powerRuleVersion: BASEBALL_ENHANCEMENT_RULE_VERSION,
-          },
+      if (!enhancement) {
+        throw new ControlPlaneStateError("baseball enhancement state is missing");
+      }
+      if (enhancement.status === "broken") {
+        throw new BaseballGameError(
+          "bat_broken",
+          "Restore the broken bat or restart at +0 before pitching",
         );
       }
-      return this.baseballAtBats.issue(
-        params.userId,
-        params.requestId,
-        progress.equipped_bat_id as BaseballBatId,
-        params.now,
-      );
+      return this.baseballAtBats.issue(params.userId, params.requestId, params.now, {
+        enhancementLevel: enhancement.level,
+        powerRuleVersion: BASEBALL_ENHANCEMENT_RULE_VERSION,
+      });
     });
   }
 
@@ -276,120 +259,26 @@ export class SqliteControlPlaneBaseballStore
     );
   }
 
-  async purchaseBaseballBat(params: {
+  async purchaseBaseballBat(_params: {
     userId: string;
     requestId: string;
     batId: BaseballBatId;
-    historicalOnly?: boolean;
   }): Promise<BaseballPurchaseBatResult> {
-    return this.runBaseballIdempotentOperation(
-      params.userId,
-      params.requestId,
-      "purchase_bat",
-      { batId: params.batId },
-      () => {
-        const bat = getBaseballBatDefinition(params.batId);
-        if (!bat) {
-          throw new BaseballGameError("unknown_bat", `unknown baseball bat: ${params.batId}`);
-        }
-        const owned = takeFirstSync(
-          this.db,
-          this.query
-            .selectFrom("baseball_owned_bats")
-            .select("bat_id")
-            .where("user_id", "=", params.userId)
-            .where("bat_id", "=", bat.id),
-        );
-        if (owned) {
-          return {
-            batId: bat.id,
-            price: bat.price,
-            purchased: false,
-            progress: this.readBaseballProgress(params.userId),
-          };
-        }
-        // Browser handlers always set this internal flag; client-supplied flags are disallowed.
-        // Trusted in-process historical fixtures retain their existing purchase seam.
-        if (params.historicalOnly) {
-          throw new BaseballGameError(
-            "legacy_purchase_closed",
-            "Fixed-price bat purchases are closed; start the enhancement bat instead",
-          );
-        }
-        const current = this.ensureBaseballProgress(params.userId);
-        if (current.gold < bat.price) {
-          throw new BaseballGameError(
-            "insufficient_gold",
-            `not enough baseball gold for ${bat.id}`,
-          );
-        }
-        executeSync(
-          this.db,
-          this.query
-            .insertInto("baseball_owned_bats")
-            .values({ user_id: params.userId, bat_id: bat.id }),
-        );
-        this.economy.change(
-          params.userId,
-          -bat.price,
-          "bat_purchase",
-          params.requestId,
-          Date.now(),
-        );
-        return {
-          batId: bat.id,
-          price: bat.price,
-          purchased: true,
-          progress: this.readBaseballProgress(params.userId),
-        };
-      },
+    // Retired actions must not replay historical receipts into an active legacy loadout.
+    throw new BaseballGameError(
+      "legacy_purchase_closed",
+      "Fixed-price bat purchases are closed; use the enhancement bat instead",
     );
   }
 
-  async equipBaseballBat(params: {
+  async equipBaseballBat(_params: {
     userId: string;
     requestId: string;
     batId: BaseballBatId;
   }): Promise<BaseballEquipBatResult> {
-    return this.runBaseballIdempotentOperation(
-      params.userId,
-      params.requestId,
-      "equip_bat",
-      { batId: params.batId },
-      () => {
-        const bat = getBaseballBatDefinition(params.batId);
-        if (!bat) {
-          throw new BaseballGameError("unknown_bat", `unknown baseball bat: ${params.batId}`);
-        }
-        const current = this.ensureBaseballProgress(params.userId);
-        const owned = takeFirstSync(
-          this.db,
-          this.query
-            .selectFrom("baseball_owned_bats")
-            .select("bat_id")
-            .where("user_id", "=", params.userId)
-            .where("bat_id", "=", bat.id),
-        );
-        if (!owned) {
-          throw new BaseballGameError("bat_not_owned", `baseball bat is not owned: ${bat.id}`);
-        }
-        const enhancedUnequipped = this.baseballEnhancement.unequip(params.userId);
-        const changed = current.equipped_bat_id !== bat.id || enhancedUnequipped;
-        if (changed) {
-          executeSync(
-            this.db,
-            this.query
-              .updateTable("baseball_game_progress")
-              .set({ equipped_bat_id: bat.id, revision: current.revision + 1 })
-              .where("user_id", "=", params.userId),
-          );
-        }
-        return {
-          batId: bat.id,
-          changed,
-          progress: this.readBaseballProgress(params.userId),
-        };
-      },
+    throw new BaseballGameError(
+      "legacy_bat_closed",
+      "Fixed-price bats are retired; use the enhancement bat instead",
     );
   }
 
@@ -493,6 +382,7 @@ export class SqliteControlPlaneBaseballStore
         .values({ user_id: userId, current_streak: 0, best_streak: 0 })
         .onConflict((conflict) => conflict.column("user_id").doNothing()),
     );
+    this.baseballEnhancement.ensure(userId);
     return this.requireBaseballProgressRow(userId);
   }
 

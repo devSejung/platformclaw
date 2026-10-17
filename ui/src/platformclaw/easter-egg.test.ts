@@ -4,6 +4,7 @@ import {
   type BaseballLeaderboard,
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
+import { getBaseballEnhancementAppearance } from "../../../packages/platformclaw-control-plane/src/baseball-enhancement.ts";
 import { i18n } from "../i18n/index.ts";
 import {
   BASEBALL_TEAMS,
@@ -50,11 +51,13 @@ async function flush(element: EasterEggElement): Promise<void> {
   await element.updateComplete;
 }
 
-function atBat(batId: BaseballProgress["equippedBatId"] = "wood", pitchSample = 0) {
+function atBat(level = 0, pitchSample = 0) {
   return {
     id: "test-at-bat",
     pitchSample,
-    batId,
+    batId: getBaseballEnhancementAppearance(level).batId,
+    enhancementLevel: level,
+    powerRuleVersion: "sweetspot-v1",
     issuedAt: Date.now(),
     expiresAt: Date.now() + 120_000,
   };
@@ -80,7 +83,7 @@ async function openPitchGame(sample: number) {
   egg.random = () => 0;
   const request = vi.fn(async <T>(method: string, _params?: unknown): Promise<T> => {
     if (method === BASEBALL_RPC.beginAtBat) {
-      return atBat("wood", sample) as T;
+      return atBat(0, sample) as T;
     }
     if (method === BASEBALL_RPC.progress) {
       return progress() as T;
@@ -304,7 +307,7 @@ describe("PlatformClaw easter egg", () => {
     egg.client = {
       request: async <T>(method: string): Promise<T> => {
         if (method === BASEBALL_RPC.beginAtBat) {
-          return atBat("wood", egg.random()) as T;
+          return atBat(0, egg.random()) as T;
         }
         if (method === BASEBALL_RPC.progress) {
           return progress({ gold: 50, bestDistanceM: 168, currentHomeRunStreak: 2 }) as T;
@@ -371,7 +374,7 @@ describe("PlatformClaw easter egg", () => {
     egg.client = {
       request: async <T>(method: string, params?: unknown): Promise<T> => {
         if (method === BASEBALL_RPC.beginAtBat) {
-          return atBat("wood", egg.random()) as T;
+          return atBat(0, egg.random()) as T;
         }
         if (method === BASEBALL_RPC.progress) {
           return progress({
@@ -440,7 +443,7 @@ describe("PlatformClaw easter egg", () => {
     egg.client = {
       request: async <T>(method: string): Promise<T> => {
         if (method === BASEBALL_RPC.beginAtBat) {
-          return atBat("wood", egg.random()) as T;
+          return atBat(0, egg.random()) as T;
         }
         if (method === BASEBALL_RPC.progress) {
           return progress() as T;
@@ -490,7 +493,7 @@ describe("PlatformClaw easter egg", () => {
     egg.client = {
       request: async <T>(method: string): Promise<T> => {
         if (method === BASEBALL_RPC.beginAtBat) {
-          return atBat("wood", egg.random()) as T;
+          return atBat(0, egg.random()) as T;
         }
         if (method === BASEBALL_RPC.progress) {
           return progress() as T;
@@ -580,7 +583,7 @@ async function openSettingsGame(scope = scopeA, initial = savedProgress) {
   }
   const request = vi.fn(async (method: string, params?: unknown) => {
     if (method === BASEBALL_RPC.beginAtBat) {
-      return atBat("diamond", egg.random());
+      return atBat(0, egg.random());
     }
     const current = settingsAccounts.get(scope)!;
     if (method === BASEBALL_RPC.progress) {
@@ -717,7 +720,8 @@ describe("baseball local opacity and server team settings", () => {
         team.capMark,
       );
       expect(egg.querySelectorAll(".platformclaw-easter-egg__cap")).toHaveLength(1);
-      expect(game.dataset.batId).toBe("diamond");
+      expect(game.dataset.batId).toBe("wood");
+      expect(game.dataset.roundEnhancement).toBe("0");
       expect(egg.querySelector(".platformclaw-easter-egg__player")!.textContent).toContain(
         team.name,
       );
@@ -766,7 +770,7 @@ describe("baseball local opacity and server team settings", () => {
     egg.client = {
       request: async <T>(method: string) =>
         (method === BASEBALL_RPC.beginAtBat
-          ? atBat("diamond")
+          ? atBat(0)
           : method === BASEBALL_RPC.progress
             ? savedProgress
             : { distance: [], homeRunStreak: [] }) as T,

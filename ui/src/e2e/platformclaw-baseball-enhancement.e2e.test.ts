@@ -97,12 +97,9 @@ async function setup(page: Page, initial: BaseballProgress) {
       [BASEBALL_RPC.beginAtBat]: {
         id: "synthetic-forge-at-bat",
         pitchSample: 0.1171875,
-        batId: initial.enhancement?.equipped
-          ? getBaseballEnhancementAppearance(initial.enhancement.level).batId
-          : initial.equippedBatId,
-        ...(initial.enhancement?.equipped
-          ? { enhancementLevel: initial.enhancement.level, powerRuleVersion: "sweetspot-v1" }
-          : {}),
+        batId: getBaseballEnhancementAppearance(initial.enhancement?.level ?? 0).batId,
+        enhancementLevel: initial.enhancement?.level ?? 0,
+        powerRuleVersion: "sweetspot-v1",
         issuedAt: 0,
         expiresAt: Number.MAX_SAFE_INTEGER,
       },
@@ -131,7 +128,7 @@ describeE2e("enhancement workshop in notebook Chrome with synthetic server recei
     await server?.close();
   });
 
-  it("opts in freely, charges only confirmed attempts, retries one receipt, and evolves in light and dark themes", async () => {
+  it("starts at +0, charges only confirmed attempts, retries one receipt, and evolves in light and dark themes", async () => {
     context = await browser.newContext({
       locale: "ko-KR",
       serviceWorkers: "block",
@@ -141,22 +138,18 @@ describeE2e("enhancement workshop in notebook Chrome with synthetic server recei
         : undefined,
     });
     const page = await context.newPage();
-    const { gateway, pageErrors } = await setup(page, progress());
+    const { gateway, pageErrors } = await setup(page, progress(0, { revision: 31 }));
     const forge = page.locator(".platformclaw-baseball-forge");
     const preview = forge.locator(".platformclaw-baseball-forge__preview");
     await setThemeMode(page, "light");
-    await page.locator("[data-forge-equip]").waitFor();
-    await capture(page, "01-free-opt-in-light");
+    expect(await page.locator("[data-forge-equip]").count()).toBe(0);
+    expect(await page.locator("[data-shop-bat]").count()).toBe(0);
+    expect(
+      await page.locator("[data-enhancement-level]").getAttribute("data-enhancement-level"),
+    ).toBe("0");
+    expect(await gateway.getRequests(BASEBALL_RPC.equipEnhancedBat)).toHaveLength(0);
+    await capture(page, "01-enhancement-only-plus0-light");
     await readablePause(page);
-    const started = progress(0, { revision: 31 });
-    await gateway.setMethodResponse(BASEBALL_RPC.equipEnhancedBat, {
-      requestId: "synthetic-start",
-      changed: true,
-      progress: started,
-    });
-    await page.locator("[data-forge-equip]").click();
-    await expect.poll(() => forge.textContent()).toContain("강화 배트 +0 장착");
-    expect(await forge.textContent()).toContain("골드 50,000G");
     await gateway.setMethodResponse(BASEBALL_RPC.enhanceBat, {
       __mockError: { code: "UNAVAILABLE", message: "Synthetic lost response" },
     });
@@ -576,48 +569,49 @@ describeE2e("enhancement workshop in notebook Chrome with synthetic server recei
     expect(pageErrors).toEqual([]);
   });
 
-  it("resumes a legacy pitch after unequipping a broken enhancement without a recovery charge", async () => {
-    context = await browser.newContext({ locale: "ko-KR", viewport: { width: 1280, height: 800 } });
-    const page = await context.newPage();
-    const initial = progress(0, {
-      enhancement: { level: 0, status: "broken", equipped: true, version: 1 },
-    });
-    const { gateway, pageErrors } = await setup(page, initial);
-    expect(await gateway.getRequests(BASEBALL_RPC.beginAtBat)).toHaveLength(0);
-    const legacy = progress(0, {
-      revision: 31,
-      enhancement: { level: 0, status: "broken", equipped: false, version: 1 },
-    });
-    await gateway.setMethodResponse(BASEBALL_RPC.equipBat, {
-      batId: "diamond",
-      changed: true,
-      progress: legacy,
-    });
-    await gateway.setMethodResponse(BASEBALL_RPC.beginAtBat, {
-      id: "synthetic-legacy-after-broken",
-      pitchSample: 0.1171875,
-      batId: "diamond",
-      issuedAt: 0,
-      expiresAt: Number.MAX_SAFE_INTEGER,
-    });
-    await page.getByText("기존 보유 배트", { exact: true }).click();
-    await page.locator('[data-shop-bat="diamond"]').click();
-    await expect
-      .poll(() => page.locator('[data-shop-bat="diamond"]').textContent())
-      .toContain("장착 중");
-    await capture(page, "15-broken-enhancement-legacy-equipped");
-    await page.locator(".platformclaw-easter-egg__shop header button").click();
-    const game = page.locator('[role="application"]');
-    await expect.poll(() => game.getAttribute("data-pitch-state")).toBe("pitch");
-    expect(await game.getAttribute("data-bat-id")).toBe("diamond");
-    expect(await game.getAttribute("data-round-enhancement")).toBeNull();
-    expect(await game.evaluate((element) => document.activeElement === element)).toBe(true);
-    expect(await gateway.getRequests(BASEBALL_RPC.beginAtBat)).toHaveLength(1);
-    expect(await gateway.getRequests(BASEBALL_RPC.recoverBat)).toHaveLength(0);
-    expect(await game.textContent()).toContain("골드 50000");
-    await capture(page, "16-legacy-pitch-resumed-after-broken-enhancement");
-    expect(pageErrors).toEqual([]);
-  });
+  it.each([false, true])(
+    "requires recovery for a broken enhancement with equipped=%s",
+    async (equipped) => {
+      context = await browser.newContext({
+        locale: "ko-KR",
+        viewport: { width: 1280, height: 800 },
+      });
+      const page = await context.newPage();
+      const initial = progress(0, {
+        enhancement: { level: 0, status: "broken", equipped, version: 1 },
+      });
+      const { gateway, pageErrors } = await setup(page, initial);
+      expect(await gateway.getRequests(BASEBALL_RPC.beginAtBat)).toHaveLength(0);
+      expect(await page.locator("[data-shop-bat]").count()).toBe(0);
+      expect(await page.locator("[data-forge-equip]").count()).toBe(0);
+      await page.locator(".platformclaw-easter-egg__shop header button").click();
+      expect(await gateway.getRequests(BASEBALL_RPC.beginAtBat)).toHaveLength(0);
+      await page.locator(".platformclaw-easter-egg__shop-trigger").click();
+      const restarted = progress(0, { revision: 31 });
+      await gateway.setMethodResponse(BASEBALL_RPC.recoverBat, {
+        requestId: "synthetic-free-restart",
+        outcome: "restarted",
+        chargedGold: 0,
+        progress: restarted,
+      });
+      await page.locator('[data-forge-recover="restart"]').click();
+      await page.locator('[data-forge-result="restarted"]').waitFor();
+      await page.locator(".platformclaw-easter-egg__shop header button").click();
+      const game = page.locator('[role="application"]');
+      await expect.poll(() => game.getAttribute("data-pitch-state")).toBe("pitch");
+      expect(await game.getAttribute("data-bat-id")).toBe("wood");
+      expect(await game.getAttribute("data-round-enhancement")).toBe("0");
+      expect(await gateway.getRequests(BASEBALL_RPC.beginAtBat)).toHaveLength(1);
+      expect(await gateway.getRequests(BASEBALL_RPC.recoverBat)).toHaveLength(1);
+      expect(await gateway.getRequests(BASEBALL_RPC.equipBat)).toHaveLength(0);
+      expect(await gateway.getRequests(BASEBALL_RPC.purchaseBat)).toHaveLength(0);
+      expect(restarted.gold).toBe(initial.gold);
+      expect(restarted.ownedBatIds).toEqual(initial.ownedBatIds);
+      expect(restarted.equippedBatId).toBe(initial.equippedBatId);
+      await capture(page, `15-enhancement-only-restarted-${equipped}.png`);
+      expect(pageErrors).toEqual([]);
+    },
+  );
 
   it("records the two-second floating failure taunt in notebook Chrome", async () => {
     context = await browser.newContext({

@@ -1,7 +1,6 @@
 import {
   BASEBALL_RPC,
   BaseballGameError,
-  isBaseballBatId,
   isBaseballKboTeamId,
   isBaseballRpcMethod,
   type BaseballGameStore,
@@ -47,13 +46,6 @@ function swingTiming(value: unknown): number | null {
   return value;
 }
 
-function requiredBatId(value: unknown) {
-  if (!isBaseballBatId(value)) {
-    throw new BrowserGatewayProxyError("invalid-params", "baseball batId is invalid");
-  }
-  return value;
-}
-
 function requiredRevision(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw new BrowserGatewayProxyError("invalid-params", "baseball expectedRevision is required");
@@ -75,6 +67,12 @@ export async function requestBrowserBaseball(params: {
     throw new BrowserGatewayProxyError("method-not-allowed", "baseball game state is unavailable");
   }
   try {
+    if (params.method === BASEBALL_RPC.purchaseBat || params.method === BASEBALL_RPC.equipBat) {
+      throw new BrowserGatewayProxyError(
+        "method-not-allowed",
+        "Fixed-price bats are retired; use the enhancement bat",
+      );
+    }
     if (params.method === BASEBALL_RPC.progress) {
       return { handled: true, result: await params.store.loadBaseballProgress(params.userId) };
     }
@@ -145,23 +143,7 @@ export async function requestBrowserBaseball(params: {
         result: await params.store.selectBaseballTeam({ ...common, teamId }),
       };
     }
-    const requestId = requiredRequestId(params.request.requestId);
-    const batId = requiredBatId(params.request.batId);
-    if (params.method === BASEBALL_RPC.purchaseBat) {
-      return {
-        handled: true,
-        result: await params.store.purchaseBaseballBat({
-          userId: params.userId,
-          requestId,
-          batId,
-          historicalOnly: true,
-        }),
-      };
-    }
-    return {
-      handled: true,
-      result: await params.store.equipBaseballBat({ userId: params.userId, requestId, batId }),
-    };
+    return { handled: false };
   } catch (error) {
     if (error instanceof BaseballGameError) {
       throw new BrowserGatewayProxyError("invalid-params", error.message);

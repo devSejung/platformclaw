@@ -6,7 +6,11 @@ import {
   type BaseballBatId,
   type BaseballPlateAppearanceOutcome,
 } from "./baseball-contracts.js";
-import { resolveBaseballAtBatPower } from "./baseball-enhancement.js";
+import {
+  BASEBALL_ENHANCEMENT_RULE_VERSION,
+  getBaseballEnhancementAppearance,
+  resolveBaseballAtBatPower,
+} from "./baseball-enhancement.js";
 import { advanceBattedBall, createBattedBall } from "./baseball-simulation.js";
 import { HIT_WINDOW_MS } from "./baseball-timing.js";
 import { createSyncKysely, executeSync, takeFirstSync } from "./kysely-sync.js";
@@ -37,18 +41,16 @@ type EnhancementSnapshotRow = {
 };
 
 function projectAtBat(row: AtBatRow, snapshot?: EnhancementSnapshotRow): BaseballAtBat {
+  // Old nonces have no enhancement row; keep their receipt intact and play them at +0.
+  const enhancementLevel = snapshot?.enhancement_level ?? 0;
   return {
     id: row.id,
     pitchSample: row.pitch_sample,
-    batId: row.bat_id,
+    batId: getBaseballEnhancementAppearance(enhancementLevel).batId,
     issuedAt: row.issued_at,
     expiresAt: row.expires_at,
-    ...(snapshot
-      ? {
-          enhancementLevel: snapshot.enhancement_level,
-          powerRuleVersion: snapshot.power_rule_version,
-        }
-      : {}),
+    enhancementLevel,
+    powerRuleVersion: snapshot?.power_rule_version ?? BASEBALL_ENHANCEMENT_RULE_VERSION,
   };
 }
 
@@ -85,18 +87,16 @@ export class BaseballAtBatStore {
   issue(
     userId: string,
     requestId: string,
-    batId: BaseballBatId,
     now: number,
-    snapshot?: EnhancementSnapshot,
+    snapshot: EnhancementSnapshot,
   ): BaseballAtBat {
     // A lost issuance response replays the same pitch and immutable power, even after a loadout change.
     const prior = this.findIssued(userId, requestId);
     if (prior) {
       return prior;
     }
-    if (snapshot) {
-      resolveBaseballAtBatPower({ batId, ...snapshot }, 0);
-    }
+    const batId = getBaseballEnhancementAppearance(snapshot.enhancementLevel).batId;
+    resolveBaseballAtBatPower({ batId, ...snapshot }, 0);
     const latest = takeFirstSync(
       this.db,
       this.query
@@ -133,16 +133,14 @@ export class BaseballAtBatStore {
       consumed_at: null,
     };
     executeSync(this.db, this.query.insertInto("baseball_at_bats").values(row));
-    if (snapshot) {
-      executeSync(
-        this.db,
-        this.query.insertInto("baseball_at_bat_enhancement_snapshots").values({
-          at_bat_id: row.id,
-          enhancement_level: snapshot.enhancementLevel,
-          power_rule_version: snapshot.powerRuleVersion,
-        }),
-      );
-    }
+    executeSync(
+      this.db,
+      this.query.insertInto("baseball_at_bat_enhancement_snapshots").values({
+        at_bat_id: row.id,
+        enhancement_level: snapshot.enhancementLevel,
+        power_rule_version: snapshot.powerRuleVersion,
+      }),
+    );
     return this.project(row);
   }
 

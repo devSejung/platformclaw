@@ -15,16 +15,6 @@ import type { Pitch } from "./easter-egg-simulation.ts";
 import type { BaseballWorkshopNotice } from "./easter-egg-workshop.ts";
 import { platformClawT as t } from "./i18n.ts";
 
-const BASEBALL_BAT_NAMES: Record<BaseballBatId, string> = {
-  wood: "나무",
-  silver: "실버",
-  gold: "골드",
-  platinum: "플래티넘",
-  titanium: "티타늄",
-  emerald: "에메랄드",
-  diamond: "다이아몬드",
-};
-
 export const BASEBALL_TRAIL_POINTS = 9;
 
 const BASEBALL_PITCH_NAMES: Record<Pitch["kind"], string> = {
@@ -77,22 +67,18 @@ export function renderBaseballGame(params: {
   onRetry: () => void;
   onRetryLoad: () => void;
   onCloseShop: (event: Event) => void;
-  onSelectBat: (batId: BaseballBatId, owned: boolean) => void;
   onSelectTeam: (teamId: string) => void;
   onEnhance: () => void;
   onRecover: (action: "restore" | "restart") => void;
-  onEquipEnhanced: () => void;
   onOpacity: (opacity: number) => void;
   onStopEvent: (event: Event) => void;
 }) {
   if (!params.active) {
     return nothing;
   }
-  const equipped = params.progress?.equippedBatId ?? "wood";
   const enhanced = params.progress?.enhancement;
-  const equippedName = enhanced?.equipped
-    ? `${getBaseballEnhancementAppearance(enhanced.level).name} +${enhanced.level}`
-    : BASEBALL_BAT_NAMES[equipped];
+  const level = enhanced?.level ?? 0;
+  const equippedName = `${getBaseballEnhancementAppearance(level).name} +${level}`;
   const team =
     BASEBALL_TEAMS.find((entry) => entry.id === params.settings.teamId) ?? BASEBALL_TEAMS[0];
   const saveStatus = html`${params.persistenceStatus
@@ -232,13 +218,11 @@ export function renderBaseballGame(params: {
           busy: params.persistenceBusy,
           pending: Boolean(params.pendingMutationMethod),
           onClose: params.onCloseShop,
-          onSelect: params.onSelectBat,
           onStopEvent: params.onStopEvent,
           notice: params.workshopNotice,
           effect: params.workshopEffect,
           onEnhance: params.onEnhance,
           onRecover: params.onRecover,
-          onEquipEnhanced: params.onEquipEnhanced,
         })
       : nothing}
   </div>`;
@@ -334,13 +318,11 @@ function renderBaseballShop(params: {
   busy: boolean;
   pending: boolean;
   onClose: (event: Event) => void;
-  onSelect: (batId: BaseballBatId, owned: boolean) => void;
   onStopEvent: (event: Event) => void;
   notice: BaseballWorkshopNotice | null;
   effect: string;
   onEnhance: () => void;
   onRecover: (action: "restore" | "restart") => void;
-  onEquipEnhanced: () => void;
 }) {
   const teamCost = params.progress?.teamId ? BASEBALL_TEAM_CHANGE_COST : 0;
   return html`<div
@@ -369,8 +351,6 @@ function renderBaseballShop(params: {
         effect: params.effect,
         onEnhance: params.onEnhance,
         onRecover: params.onRecover,
-        onEquipEnhanced: params.onEquipEnhanced,
-        onSelectLegacy: params.onSelect,
       })}
       <div class="platformclaw-easter-egg__settings">
         <label for="baseball-team"

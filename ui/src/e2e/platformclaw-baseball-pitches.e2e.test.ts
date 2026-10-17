@@ -84,6 +84,8 @@ describeE2e("five baseball pitch patterns in a real browser with synthetic Gatew
         id: `${kind}-hit`,
         pitchSample: sample,
         batId: "wood",
+        enhancementLevel: 0,
+        powerRuleVersion: "sweetspot-v1",
         issuedAt: 0,
         expiresAt: Number.MAX_SAFE_INTEGER,
       };

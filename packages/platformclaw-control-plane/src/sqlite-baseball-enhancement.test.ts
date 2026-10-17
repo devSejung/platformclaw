@@ -110,53 +110,138 @@ afterEach(() => {
   }
 });
 
-describe("atomic opt-in baseball enhancements", () => {
-  it("retains existing bats, wallet, records and SQLite version until the user explicitly starts", async () => {
-    const ctx = await setup(12_345);
-    ctx.write(
-      "INSERT INTO baseball_owned_bats (user_id,bat_id) VALUES (?,?)",
-      ctx.userId,
-      "diamond",
-    );
-    ctx.write(
-      "UPDATE baseball_game_progress SET equipped_bat_id = 'diamond', total_homers = 9, best_distance_m = 147, revision = 42 WHERE user_id = ?",
-      ctx.userId,
-    );
-    const prior = await ctx.store.loadBaseballProgress(ctx.userId);
-    expect(prior).toMatchObject({
-      gold: 12_345,
-      equippedBatId: "diamond",
-      ownedBatIds: ["wood", "diamond"],
-      totalHomers: 9,
-      bestDistanceM: 147,
-      revision: 42,
+describe("atomic enhancement-only baseball", () => {
+  it.each([
+    { name: "legacy player without enhancement", level: null, status: "ready", equipped: 0 },
+    { name: "unequipped enhancement", level: 17, status: "ready", equipped: 0 },
+    { name: "equipped enhancement", level: 20, status: "ready", equipped: 1 },
+    { name: "unequipped broken enhancement", level: 0, status: "broken", equipped: 0 },
+  ] as const)(
+    "activates $name without changing historical refund evidence or unrelated progress",
+    async ({ level, status, equipped }) => {
+      const ctx = await setup(12_345);
+      ctx.write(
+        "INSERT INTO baseball_owned_bats (user_id,bat_id) VALUES (?,?)",
+        ctx.userId,
+        "diamond",
+      );
+      ctx.write(
+        "UPDATE baseball_game_progress SET equipped_bat_id = 'diamond', total_homers = 9, best_distance_m = 147, revision = 42 WHERE user_id = ?",
+        ctx.userId,
+      );
+      ctx.write(
+        "UPDATE baseball_home_run_streaks SET current_streak = 2, best_streak = 4 WHERE user_id = ?",
+        ctx.userId,
+      );
+      ctx.write(
+        "INSERT INTO baseball_team_selections (user_id,team_id) VALUES (?,?)",
+        ctx.userId,
+        "kia",
+      );
+      const historicalReceipt =
+        '{ "ok": true, "result": { "batId": "diamond", "price": 4000, "purchased": true } }';
+      ctx.write(
+        "INSERT INTO baseball_idempotency (user_id,request_id,operation,payload_digest,result_json) VALUES (?,?,?,?,?)",
+        ctx.userId,
+        "historical-purchase",
+        "purchase_bat",
+        "historical-digest",
+        historicalReceipt,
+      );
+      ctx.write(
+        "INSERT INTO game_gold_transactions (id,user_id,reason,reference_id,delta,balance_after,created_at) VALUES (?,?,?,?,?,?,?)",
+        "historical-charge",
+        ctx.userId,
+        "bat_purchase",
+        "historical-purchase",
+        -4000,
+        12345,
+        500,
+      );
+      if (level === null) {
+        ctx.write("DELETE FROM baseball_bat_enhancements WHERE user_id = ?", ctx.userId);
+      } else {
+        ctx.state(level, status);
+        ctx.write(
+          "UPDATE baseball_bat_enhancements SET equipped = ? WHERE user_id = ?",
+          equipped,
+          ctx.userId,
+        );
+      }
+      const historicalData = () =>
+        [
+          "baseball_owned_bats",
+          "baseball_game_progress",
+          "baseball_home_run_streaks",
+          "baseball_team_selections",
+          "baseball_idempotency",
+          "game_gold_transactions",
+        ].map((table) => ctx.read(`SELECT * FROM ${table} ORDER BY rowid`));
+      const before = historicalData();
+      const version = ctx.read("PRAGMA user_version");
+      const expectedEnhancement = { level: level ?? 0, status, equipped: true, version: 1 };
+      const progress = await ctx.store.loadBaseballProgress(ctx.userId);
+      expect(progress).toMatchObject({
+        gold: 12_345,
+        equippedBatId: "diamond",
+        ownedBatIds: ["wood", "diamond"],
+        totalHomers: 9,
+        bestDistanceM: 147,
+        currentHomeRunStreak: 2,
+        bestHomeRunStreak: 4,
+        revision: 42,
+        teamId: "kia",
+        enhancement: expectedEnhancement,
+      });
+      const reopened = openStore(ctx.databasePath, ctx.roll);
+      expect(await reopened.loadBaseballProgress(ctx.userId)).toEqual(progress);
+      if (status === "broken") {
+        await expect(
+          reopened.beginBaseballAtBat({
+            userId: ctx.userId,
+            requestId: "broken-legacy-player",
+            now: 1000,
+          }),
+        ).rejects.toMatchObject({ code: "bat_broken" });
+      } else {
+        const atBat = await reopened.beginBaseballAtBat({
+          userId: ctx.userId,
+          requestId: "canonical-player",
+          now: 1000,
+        });
+        expect(atBat).toMatchObject({
+          enhancementLevel: level ?? 0,
+          powerRuleVersion: "sweetspot-v1",
+        });
+        if (level === null) {
+          expect(atBat.batId).toBe("wood");
+        }
+      }
+      expect(historicalData()).toEqual(before);
+      expect(ctx.read("PRAGMA user_version")).toEqual(version);
+      expect(ctx.roll).not.toHaveBeenCalled();
+    },
+  );
+
+  it("starts a new player at ready +0 and treats enhancement equipment as already active", async () => {
+    const ctx = await setup(0);
+    expect(await ctx.store.loadBaseballProgress(ctx.userId)).toMatchObject({
+      gold: 0,
+      revision: 0,
+      enhancement: { level: 0, status: "ready", equipped: true, version: 1 },
     });
-    expect(prior).not.toHaveProperty("enhancement");
-    expect(prior).not.toHaveProperty("teamId");
-    const atBat = await ctx.store.beginBaseballAtBat({
+    expect(await ctx.equip()).toMatchObject({ changed: false, progress: { revision: 0 } });
+    const issued = await ctx.store.beginBaseballAtBat({
       userId: ctx.userId,
-      requestId: "legacy-pitch",
-      now: 1_000,
+      requestId: "new-player",
+      now: 1000,
     });
-    expect(atBat.batId).toBe("diamond");
-    expect(atBat).not.toHaveProperty("enhancementLevel");
-    const version = ctx.read("PRAGMA user_version");
-    const activated = await ctx.store.equipEnhancedBaseballBat({
-      userId: ctx.userId,
-      requestId: "explicit-activation",
-      expectedRevision: 42,
+    expect(issued).toMatchObject({
+      batId: "wood",
+      enhancementLevel: 0,
+      powerRuleVersion: "sweetspot-v1",
     });
-    expect(activated).toMatchObject({
-      changed: true,
-      progress: {
-        ...prior,
-        revision: 43,
-        enhancement: { level: 0, status: "ready", equipped: true, version: 1 },
-      },
-    });
-    expect(ctx.read("PRAGMA user_version")).toEqual(version);
     expect(ctx.read("SELECT * FROM game_gold_transactions")).toHaveLength(0);
-    expect(ctx.roll).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -166,9 +251,8 @@ describe("atomic opt-in baseball enhancements", () => {
     "charges one +1 attempt on %s and replays the exact receipt",
     async (outcome, rollValue, level, cost) => {
       const ctx = await setup(500);
-      await ctx.equip();
       ctx.setRoll(rollValue);
-      const request = { userId: ctx.userId, requestId: "attempt", expectedRevision: 1 };
+      const request = { userId: ctx.userId, requestId: "attempt", expectedRevision: 0 };
       const receipt = await ctx.store.enhanceBaseballBat(request);
       expect(receipt).toMatchObject({
         requestId: "attempt",
@@ -179,7 +263,7 @@ describe("atomic opt-in baseball enhancements", () => {
         chargedGold: cost,
         evolved: false,
         automaticRestart: false,
-        progress: { gold: 400, revision: 2, enhancement: { level, status: "ready" } },
+        progress: { gold: 400, revision: 1, enhancement: { level, status: "ready" } },
       });
       expect(await ctx.store.enhanceBaseballBat(request)).toEqual(receipt);
       const reopened = openStore(ctx.databasePath, ctx.roll);
@@ -215,14 +299,13 @@ describe("atomic opt-in baseball enhancements", () => {
     [20, 17],
   ])("lands a failed +%i attempt at +%i and charges the fee", async (target, landing) => {
     const ctx = await setup();
-    await ctx.equip();
     ctx.state(target - 1);
     const rule = getBaseballEnhancementRule(target);
     ctx.setRoll(rule.success + rule.maintain);
     const result = await ctx.store.enhanceBaseballBat({
       userId: ctx.userId,
       requestId: "drop",
-      expectedRevision: 1,
+      expectedRevision: 0,
     });
     expect(result).toMatchObject({
       outcome: "drop",
@@ -236,12 +319,11 @@ describe("atomic opt-in baseball enhancements", () => {
 
   it("reports tier evolution without adding or replacing any previously owned bat", async () => {
     const ctx = await setup();
-    await ctx.equip();
     ctx.state(2);
     const result = await ctx.store.enhanceBaseballBat({
       userId: ctx.userId,
       requestId: "evolve-silver",
-      expectedRevision: 1,
+      expectedRevision: 0,
     });
     expect(result).toMatchObject({
       outcome: "success",
@@ -260,26 +342,20 @@ describe("atomic opt-in baseball enhancements", () => {
       enhancementLevel: 3,
       powerRuleVersion: "sweetspot-v1",
     });
-    await ctx.store.equipBaseballBat({
-      userId: ctx.userId,
-      requestId: "legacy-wood",
-      batId: "wood",
-    });
+    await expect(
+      ctx.store.equipBaseballBat({
+        userId: ctx.userId,
+        requestId: "legacy-wood",
+        batId: "wood",
+      }),
+    ).rejects.toMatchObject({ code: "legacy_bat_closed" });
     expect(await ctx.store.loadBaseballProgress(ctx.userId)).toMatchObject({
-      enhancement: { level: 3, equipped: false },
+      enhancement: { level: 3, equipped: true },
     });
-    const progress = await ctx.store.loadBaseballProgress(ctx.userId);
-    const reequipped = await ctx.store.equipEnhancedBaseballBat({
-      userId: ctx.userId,
-      requestId: "reequip",
-      expectedRevision: progress.revision,
-    });
-    expect(reequipped.progress.enhancement).toMatchObject({ level: 3, equipped: true });
   });
 
   it("resets total destruction to ready +0 while preserving gold after the fee and all records", async () => {
     const ctx = await setup(50_000);
-    await ctx.equip();
     ctx.state(3);
     ctx.write(
       "UPDATE baseball_game_progress SET total_homers = 11, best_distance_m = 160 WHERE user_id = ?",
@@ -289,7 +365,7 @@ describe("atomic opt-in baseball enhancements", () => {
     const result = await ctx.store.enhanceBaseballBat({
       userId: ctx.userId,
       requestId: "total-destroy",
-      expectedRevision: 1,
+      expectedRevision: 0,
     });
     expect(result).toMatchObject({
       outcome: "total_destroy",
@@ -309,13 +385,12 @@ describe("atomic opt-in baseball enhancements", () => {
     "offers recovery only when the balance after the fee is sufficient (%iG)",
     async (remainingGold) => {
       const ctx = await setup(10_000 + remainingGold);
-      await ctx.equip();
       ctx.state(15);
       ctx.setRoll(9_650);
       const broken = await ctx.store.enhanceBaseballBat({
         userId: ctx.userId,
         requestId: "normal-destroy",
-        expectedRevision: 1,
+        expectedRevision: 0,
       });
       const enough = remainingGold >= 15_000;
       expect(broken).toMatchObject({
@@ -337,27 +412,27 @@ describe("atomic opt-in baseball enhancements", () => {
         ctx.store.enhanceBaseballBat({
           userId: ctx.userId,
           requestId: "broken-attempt",
-          expectedRevision: 2,
+          expectedRevision: 1,
         }),
       ).rejects.toMatchObject({ code: "bat_broken" });
       const request = {
         userId: ctx.userId,
         requestId: "restore",
-        expectedRevision: 2,
+        expectedRevision: 1,
         action: "restore" as const,
       };
       const restored = await ctx.store.recoverBaseballBat(request);
       expect(restored).toMatchObject({
         outcome: "restored",
         chargedGold: 15_000,
-        progress: { gold: 0, revision: 3, enhancement: { level: 12, status: "ready" } },
+        progress: { gold: 0, revision: 2, enhancement: { level: 12, status: "ready" } },
       });
       expect(await ctx.store.recoverBaseballBat(request)).toEqual(restored);
       await expect(
         ctx.store.recoverBaseballBat({
           ...request,
           requestId: "restore-again",
-          expectedRevision: 3,
+          expectedRevision: 2,
         }),
       ).rejects.toMatchObject({ code: "bat_not_broken" });
       expect(ctx.roll).toHaveBeenCalledTimes(1);
@@ -374,49 +449,40 @@ describe("atomic opt-in baseball enhancements", () => {
     "keeps recovery atomic when racing spends shared gold before %s",
     async (action) => {
       const ctx = await setup(35_000);
-      await ctx.equip();
       ctx.state(15);
       ctx.setRoll(9_650);
       await ctx.store.enhanceBaseballBat({
         userId: ctx.userId,
         requestId: "break",
-        expectedRevision: 1,
+        expectedRevision: 0,
       });
       ctx.spendRacingGold(20_000);
       await expect(
         ctx.store.recoverBaseballBat({
           userId: ctx.userId,
           requestId: "stale-recovery",
-          expectedRevision: 2,
+          expectedRevision: 1,
           action,
         }),
       ).rejects.toMatchObject({ code: "stale_progress" });
       const receipt = await ctx.store.recoverBaseballBat({
         userId: ctx.userId,
         requestId: "recover-after-racing",
-        expectedRevision: 3,
+        expectedRevision: 2,
         action,
       });
       expect(receipt).toMatchObject({
         outcome: "restarted",
         chargedGold: 0,
-        progress: { gold: 5_000, revision: 4, enhancement: { level: 0, status: "ready" } },
+        progress: { gold: 5_000, revision: 3, enhancement: { level: 0, status: "ready" } },
       });
       expect(ctx.read("SELECT reason FROM game_gold_transactions")).toHaveLength(2);
     },
   );
 
-  it("rejects unaffordable, inactive and max-level attempts before drawing or charging", async () => {
+  it("rejects unaffordable and max-level attempts before drawing or charging", async () => {
     const ctx = await setup(99);
-    await expect(
-      ctx.store.enhanceBaseballBat({
-        userId: ctx.userId,
-        requestId: "inactive",
-        expectedRevision: 0,
-      }),
-    ).rejects.toMatchObject({ code: "invalid_enhancement" });
-    await ctx.equip();
-    const request = { userId: ctx.userId, requestId: "poor", expectedRevision: 1 };
+    const request = { userId: ctx.userId, requestId: "poor", expectedRevision: 0 };
     await expect(ctx.store.enhanceBaseballBat(request)).rejects.toMatchObject({
       code: "insufficient_gold",
     });
@@ -435,17 +501,16 @@ describe("atomic opt-in baseball enhancements", () => {
 
   it("serializes same-request retries and different stale clicks across SQLite connections", async () => {
     const ctx = await setup(1_000);
-    await ctx.equip();
     ctx.setRoll(9_975);
     const second = openStore(ctx.databasePath, ctx.roll);
-    const request = { userId: ctx.userId, requestId: "same-attempt", expectedRevision: 1 };
+    const request = { userId: ctx.userId, requestId: "same-attempt", expectedRevision: 0 };
     const results = await Promise.all([
       ctx.store.enhanceBaseballBat(request),
       second.enhanceBaseballBat(request),
     ]);
     expect(results[0]).toEqual(results[1]);
     expect(ctx.roll).toHaveBeenCalledTimes(1);
-    const next = { userId: ctx.userId, requestId: "next-a", expectedRevision: 2 };
+    const next = { userId: ctx.userId, requestId: "next-a", expectedRevision: 1 };
     const concurrent = await Promise.allSettled([
       ctx.store.enhanceBaseballBat(next),
       second.enhanceBaseballBat({ ...next, requestId: "next-b" }),
@@ -457,14 +522,14 @@ describe("atomic opt-in baseball enhancements", () => {
     expect(ctx.roll).toHaveBeenCalledTimes(2);
     expect(await ctx.store.loadBaseballProgress(ctx.userId)).toMatchObject({
       gold: 800,
-      revision: 3,
+      revision: 2,
       enhancement: { level: 0 },
     });
     await expect(
       second.recoverBaseballBat({
         userId: ctx.userId,
         requestId: request.requestId,
-        expectedRevision: 1,
+        expectedRevision: 0,
         action: "restart",
       }),
     ).rejects.toMatchObject({ code: "idempotency_conflict" });
@@ -472,20 +537,19 @@ describe("atomic opt-in baseball enhancements", () => {
 
   it("sees a racing debit before an enhancement and cannot make the wallet negative", async () => {
     const ctx = await setup(100);
-    await ctx.equip();
     ctx.spendRacingGold(50);
     await expect(
       ctx.store.enhanceBaseballBat({
         userId: ctx.userId,
         requestId: "before-refresh",
-        expectedRevision: 1,
+        expectedRevision: 0,
       }),
     ).rejects.toMatchObject({ code: "stale_progress" });
     await expect(
       ctx.store.enhanceBaseballBat({
         userId: ctx.userId,
         requestId: "after-refresh",
-        expectedRevision: 2,
+        expectedRevision: 1,
       }),
     ).rejects.toMatchObject({ code: "insufficient_gold" });
     expect(ctx.roll).not.toHaveBeenCalled();
@@ -499,7 +563,6 @@ describe("atomic opt-in baseball enhancements", () => {
     "shares one wallet with the real racing API in %s order",
     async (order) => {
       const ctx = await setup(100);
-      await ctx.equip();
       const second = openStore(ctx.databasePath, ctx.roll);
       const now = Date.parse("2026-10-15T10:50:00+09:00");
       const race = second.racing.snapshot(ctx.userId, now).race!;
@@ -508,7 +571,7 @@ describe("atomic opt-in baseball enhancements", () => {
         ctx.store.enhanceBaseballBat({
           userId: ctx.userId,
           requestId: "shared-wallet-enhance",
-          expectedRevision: 1,
+          expectedRevision: 0,
         });
       const bet = () =>
         second.racing.placeBet(
@@ -531,7 +594,7 @@ describe("atomic opt-in baseball enhancements", () => {
       const expectedGold = order === "racing-first" ? 50 : 0;
       expect(await ctx.store.loadBaseballProgress(ctx.userId)).toMatchObject({
         gold: expectedGold,
-        revision: 2,
+        revision: 1,
       });
       expect(second.racing.snapshot(ctx.userId, now).gold).toBe(expectedGold);
       expect(ctx.read("SELECT delta,balance_after FROM game_gold_transactions")).toEqual([
@@ -600,7 +663,6 @@ describe("atomic opt-in baseball enhancements", () => {
 
   it("fixes issued enhancement snapshots even if the bat changes or breaks before retry", async () => {
     const ctx = await setup();
-    await ctx.equip();
     ctx.state(20);
     const issued = await ctx.store.beginBaseballAtBat({
       userId: ctx.userId,

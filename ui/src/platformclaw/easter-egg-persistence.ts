@@ -224,8 +224,6 @@ export abstract class BaseballPersistence extends OpenClawLightDomContentsElemen
           error instanceof GatewayRequestError &&
           error.code === "INVALID_REQUEST" &&
           [
-            BASEBALL_RPC.equipBat,
-            BASEBALL_RPC.purchaseBat,
             BASEBALL_RPC.enhanceBat,
             BASEBALL_RPC.recoverBat,
             BASEBALL_RPC.equipEnhancedBat,
