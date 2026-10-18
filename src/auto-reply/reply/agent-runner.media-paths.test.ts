@@ -3,9 +3,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { EmbeddedAgentQueueMessageOutcome } from "../../agents/embedded-agent-runner/runs.js";
+import type {
+  EmbeddedAgentQueueMessageOptions,
+  EmbeddedAgentQueueMessageOutcome,
+} from "../../agents/embedded-agent-runner/runs.js";
 import {
   claimPendingAgentQuestionAnswer,
+  getPendingAgentQuestionAnswer,
   registerPendingAgentQuestion,
 } from "../../agents/harness/gateway-question.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -27,7 +31,7 @@ const queueEmbeddedAgentMessageWithOutcomeAsyncMock = vi.fn(
   async (
     sessionId: string,
     _text: string,
-    _options?: unknown,
+    _options?: EmbeddedAgentQueueMessageOptions,
   ): Promise<EmbeddedAgentQueueMessageOutcome> => ({
     queued: false,
     sessionId,
@@ -491,14 +495,26 @@ describe("runReplyAgent media path normalization", () => {
     });
     const persistApproved = vi.fn(async () => {});
     const onAdopted = vi.fn(async () => {});
-    queueEmbeddedAgentMessageWithOutcomeAsyncMock.mockImplementation(async (sessionId, text) => {
-      expect(text).toBe("1");
-      expect(
-        await claimPendingAgentQuestionAnswer({ sessionKey, text, persist: persistApproved }),
-      ).toBe(true);
-      return { queued: true, sessionId, target: "embedded_run", gatewayHealth: "live" };
-    });
+    // Direct runner fixtures supply the identity that reply admission captures
+    // before runtime/auth awaits; steering must not rediscover another question.
+    const questionAnswerBinding = getPendingAgentQuestionAnswer({ sessionKey, text: "1" });
+    queueEmbeddedAgentMessageWithOutcomeAsyncMock.mockImplementation(
+      async (sessionId, text, options) => {
+        expect(text).toBe("1");
+        expect(options?.questionAnswerBinding).toEqual(questionAnswerBinding);
+        expect(options?.waitForTranscriptCommit).toBe(true);
+        expect(
+          await claimPendingAgentQuestionAnswer({
+            ...options?.questionAnswerBinding,
+            text,
+            persist: persistApproved,
+          }),
+        ).toBe(true);
+        return { queued: true, sessionId, target: "embedded_run", gatewayHealth: "live" };
+      },
+    );
     try {
+      expect(questionAnswerBinding).toEqual({ sessionKey, questionId: "ask_envelope" });
       await runReplyAgent(
         makeRunReplyAgentParams({
           sessionKey,
@@ -513,6 +529,7 @@ describe("runReplyAgent media path normalization", () => {
             transcriptPrompt: "1",
           },
           opts: {
+            questionAnswerBinding,
             turnAdoptionLifecycle: {
               onAdopted,
               onDeferred: vi.fn(),
@@ -527,7 +544,10 @@ describe("runReplyAgent media path normalization", () => {
       expect(gatewayCall).toHaveBeenCalledWith(
         "question.resolve",
         {},
-        expect.objectContaining({ answers: { answers: { action: ["Continue"] } } }),
+        expect.objectContaining({
+          id: "ask_envelope",
+          answers: { answers: { action: ["Continue"] } },
+        }),
       );
       expect(enqueueFollowupRunMock).not.toHaveBeenCalled();
     } finally {
