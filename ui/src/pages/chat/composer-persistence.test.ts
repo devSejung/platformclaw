@@ -63,6 +63,32 @@ afterEach(() => {
 });
 
 describe("chat composer persistence", () => {
+  it("roundtrips contextual send targets and rejects a stale target overwrite", () => {
+    const state = createState();
+    const item: ChatQueueItem = {
+      ...reconnectItem("contextual", 1),
+      sessionKey: state.sessionKey,
+      agentId: "lily",
+      sendTarget: {
+        sessionId: "source-session",
+        expectedLeafEntryId: "source-leaf",
+        requireExactLeaf: true,
+      },
+    };
+    expect(admitStoredChatComposerQueueItem(state, state.sessionKey, item)).toBe(true);
+    const restored = loadChatComposerSnapshot(state, state.sessionKey)?.queue?.[0];
+    expect(restored?.sendTarget).toEqual(item.sendTarget);
+    const stale = { ...item, sendTarget: { ...item.sendTarget!, sessionId: "different-session" } };
+    expect(
+      updateStoredChatComposerQueueItem(
+        state,
+        state.sessionKey,
+        stale,
+        { ...stale, text: "changed" },
+        "lily",
+      ),
+    ).toBe(false);
+  });
   it("notifies durable outbox subscribers on writes until they unsubscribe", () => {
     const state = createState();
     const original = reconnectItem("notify", 1);

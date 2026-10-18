@@ -57,6 +57,7 @@ type ChatSendRequestParams = {
   suppressCommandInterpretation?: boolean;
   senderAttribution?: ChatSenderAttribution;
   expectedLeafEntryId?: string | null;
+  requireExactLeaf?: boolean;
   expectedSessionRoutingContract?: string;
   idempotencyKey: string;
 };
@@ -104,7 +105,20 @@ export function normalizeChatSendRequest(params: {
     };
   }
 
-  const p = controlUiReconnectResume.params as ChatSendRequestParams;
+  const p = { ...controlUiReconnectResume.params } as ChatSendRequestParams;
+  if (
+    p.requireExactLeaf === true &&
+    (!p.sessionId?.trim() || p.expectedLeafEntryId === undefined)
+  ) {
+    return { ok: false, error: "exact-leaf sends require sessionId and expectedLeafEntryId" };
+  }
+  if (p.requireExactLeaf === true && p.queueMode === "steer") {
+    return { ok: false, error: "exact-leaf sends cannot steer an active run" };
+  }
+  if (p.requireExactLeaf === true) {
+    // A concurrent run must never turn this explicit new turn into an implicit steer.
+    p.queueMode = "followup";
+  }
   const suppressCommandInterpretation = p.suppressCommandInterpretation === true;
   const requestedSenderAttribution = p.senderAttribution
     ? {

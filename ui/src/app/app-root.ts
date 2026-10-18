@@ -12,10 +12,8 @@ import { t } from "../i18n/index.ts";
 import { isPersonalVmTerminalSession, isTerminalAvailable } from "../lib/terminal-availability.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../lit/subscriptions-controller.ts";
-import type {
-  PlatformClawControlUiAdapter,
-  PlatformClawSessionIdentity,
-} from "../platformclaw/control-ui-adapter.ts";
+import type { PlatformClawControlUiAdapter } from "../platformclaw/control-ui-adapter.ts";
+import type { PlatformClawSessionIdentity } from "../platformclaw/web-contract.ts";
 import { bootstrapApplication, type ApplicationRuntime } from "./bootstrap.ts";
 import { applicationContext, type ApplicationContext } from "./context.ts";
 import {

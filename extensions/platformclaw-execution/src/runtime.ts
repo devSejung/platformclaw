@@ -29,6 +29,7 @@ import {
   isSshpassAuthenticationFailure,
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
+import { parseCredentialMetadata, type PlatformClawCredentialRuntime } from "./credential-tool.js";
 import { parseTarget } from "./execution-target-parser.js";
 import { requireSingleLine, requireString } from "./execution-target-validation.js";
 export { parseTarget } from "./execution-target-parser.js";
@@ -45,6 +46,7 @@ const EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
 const EXECUTION_CONNECTION_TARGET_PATH = "/platformclaw/internal/execution/connection-target";
 const EXECUTION_CHANGE_TARGET_PATH = "/platformclaw/internal/execution/change-target";
 const EXECUTION_CREDENTIALS_PATH = "/platformclaw/internal/execution/credentials";
+const EXECUTION_CREDENTIAL_METADATA_PATH = "/platformclaw/internal/execution/credential-metadata";
 const MAX_HANDOFF_RESPONSE_BYTES = 512 * 1024;
 const VM_CONNECTION_TEST_TIMEOUT_MS = 15_000;
 function requireSshToken(value: unknown, label: string): string {
@@ -351,6 +353,7 @@ export async function createExecutionDependenciesFromEnvironment(
   timing: { logTiming?: (message: string) => void } = {},
 ): Promise<
   PlatformClawExecutionDependencies &
+    PlatformClawCredentialRuntime &
     PlatformClawSkillExportRuntime & {
       testConnection(params: {
         agentId: string;
@@ -461,6 +464,15 @@ export async function createExecutionDependenciesFromEnvironment(
     return target;
   };
   return {
+    credentialMetadata: async ({ agentId, sessionKey }) =>
+      parseCredentialMetadata(
+        await callExecutionHandoff({
+          socketPath: executionHandoffAddress(brokerAddress),
+          serviceToken,
+          path: EXECUTION_CREDENTIAL_METADATA_PATH,
+          body: { agentId, sessionKey },
+        }),
+      ),
     resolveExecCredentials: async (agentId) => {
       const value = await callExecutionHandoff({
         socketPath: executionHandoffAddress(brokerAddress),

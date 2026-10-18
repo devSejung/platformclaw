@@ -31,6 +31,7 @@ const tuiPtyExcludes = ["src/tui/tui-pty-harness.e2e.test.ts", "src/tui/tui-pty-
 const exclude = [
   ...(baseTest.exclude ?? []).filter((p) => p !== "**/*.e2e.test.ts"),
   ...tuiPtyExcludes,
+  "test/e2e/platformclaw/**/*.ui.e2e.test.ts",
 ];
 
 export default defineConfig({

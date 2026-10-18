@@ -196,10 +196,30 @@ export async function admitChatSend(params: {
     if (entry && !latestEntry) {
       throw new Error(`Session "${sessionKey}" was deleted while starting work. Retry.`);
     }
+    const retryableClaim = isRetryableUnadoptedChatClaim(latestEntry, clientRunId);
+    if (
+      (latestEntry?.restartRecoveryDeliveryRunId &&
+        latestEntry.restartRecoveryDeliverySourceRunId === clientRunId &&
+        !retryableClaim) ||
+      hasRestartRecoveryTerminalRun(latestEntry, clientRunId)
+    ) {
+      // Recovery can settle while this retry waits for the writer. Accepted work
+      // wins before source-leaf checks, including strict contextual retries.
+      if (commitOutcome) {
+        reservationSuperseded = true;
+        supersedingResult = {
+          ts: Date.now(),
+          ok: true,
+          payload: { runId: clientRunId, status: "ok" as const },
+        };
+      }
+      return;
+    }
     // An active owner can advance this branch while a steer is being composed.
     // The lifecycle admission keeps branch identity fixed after this check; if
     // the owner clears, acceptance-aware dispatch preserves this turn as follow-up.
     const hasActiveSteeringOwner =
+      p.requireExactLeaf !== true &&
       p.queueMode === "steer" &&
       expectedLeafEntryId !== undefined &&
       replyRunRegistry.isMessageInjectableFromOriginatingLeaf(
@@ -229,7 +249,9 @@ export async function admitChatSend(params: {
         requestedSessionId === undefined || requestedSessionId === latestEntry?.sessionId;
       const matchesActivePath =
         activePathRelation === "exact" ||
-        (activePathRelation === "ancestor" && requestedSessionId !== undefined);
+        (p.requireExactLeaf !== true &&
+          activePathRelation === "ancestor" &&
+          requestedSessionId !== undefined);
       if (!matchesRequestedSession || !matchesActivePath) {
         throw new Error(ACTIVE_LEAF_CHANGED_ERROR_REASON);
       }
@@ -244,25 +266,6 @@ export async function admitChatSend(params: {
       (expectedLeafEntryId === undefined || commitOutcome)
     ) {
       throw new Error(`Session "${sessionKey}" changed while starting work. Retry.`);
-    }
-    const retryableClaim = isRetryableUnadoptedChatClaim(latestEntry, clientRunId);
-    if (
-      (latestEntry?.restartRecoveryDeliveryRunId &&
-        latestEntry.restartRecoveryDeliverySourceRunId === clientRunId &&
-        !retryableClaim) ||
-      hasRestartRecoveryTerminalRun(latestEntry, clientRunId)
-    ) {
-      // Recovery can settle while this retry waits on lifecycle admission.
-      // Revalidate under that admission so a stale pre-lock snapshot cannot dispatch twice.
-      if (commitOutcome) {
-        reservationSuperseded = true;
-        supersedingResult = {
-          ts: Date.now(),
-          ok: true,
-          payload: { runId: clientRunId, status: "ok" as const },
-        };
-      }
-      return;
     }
     const archivedError = resolveSessionWorkStartError(sessionKey, latestEntry);
     if (archivedError) {

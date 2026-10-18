@@ -1,5 +1,13 @@
 import type { RouteId } from "../app-route-paths.ts";
 
+export type PlatformClawSessionIdentity = {
+  accountId: string;
+  agentId: string;
+  displayName: string;
+  department: string;
+  globalRole: "member" | "admin";
+};
+
 const PLATFORMCLAW_LOGIN_PATH = "/platformclaw/login";
 export const PLATFORMCLAW_APP_PATH = "/platformclaw/app";
 export const PLATFORMCLAW_DEFAULT_APP_PATH = `${PLATFORMCLAW_APP_PATH}/chat`;

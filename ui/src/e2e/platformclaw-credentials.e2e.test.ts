@@ -3,6 +3,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
+import { translations as koreanTranslations } from "../platformclaw/locales/ko.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import {
   canRunPlaywrightChromium,
@@ -124,9 +125,11 @@ describeBrowser("PlatformClaw credentials in the Settings application", () => {
         }
         await route.fulfill({
           json: {
+            accountId: "person.one",
             definitions: ["GITHUB_TOKEN", "JIRA_API_TOKEN"].map((envName) => ({
               envName,
               configured: configured.has(envName),
+              revision: configured.has(envName) ? 1 : undefined,
             })),
           },
         });
@@ -179,7 +182,10 @@ describeBrowser("PlatformClaw credentials in the Settings application", () => {
 
       rejectSave = true;
       await secondSave.click();
-      await settings.getByRole("status").filter({ hasText: "잠시 후 다시 시도하세요." }).waitFor();
+      await settings
+        .getByRole("status")
+        .filter({ hasText: koreanTranslations["platformClaw.execCredentials.failed"] })
+        .waitFor();
       expect(await second.inputValue()).toBe("fXixture-jira-token");
       rejectSave = false;
       await second.press("Enter");

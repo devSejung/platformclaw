@@ -77,7 +77,7 @@ export type ChatCommandHost = Parameters<typeof handleAbortChat>[0] &
     confirmConversationReset?: () => Promise<boolean>;
     exportCurrentChat?: () => Promise<void> | void;
     refreshCurrentSessionTools?: () => Promise<void>;
-    refreshCurrentChat?: () => Promise<void>;
+    refreshCurrentChat?: (options?: { awaitHistory?: boolean }) => Promise<void>;
   } & UiSessionDefaultsHost;
 
 function setChatCommandError(

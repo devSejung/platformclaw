@@ -26,6 +26,7 @@
   },
   "tools": {
     "alsoAllow": [
+      "platformclaw_credentials",
       "memory_search",
       "memory_get",
       "memory_write",
@@ -43,6 +44,7 @@
         "alsoAllow": [
           "bundle-mcp",
           "automations",
+          "platformclaw_credentials",
           "memory_search",
           "memory_get",
           "memory_write",

@@ -29,6 +29,24 @@ function stored(row: EncryptedUserExecCredentialRow): StoredExecCredential {
 }
 
 export abstract class SqliteControlPlaneExecCredentialStore extends SqliteControlPlaneCredentialStore {
+  async listExecCredentialMetadataForAgent(
+    agentId: string,
+  ): Promise<ExecCredentialDefinition[] | null> {
+    const owner = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("agent_bindings")
+        .innerJoin("platform_users", "platform_users.id", "agent_bindings.user_id")
+        .select("platform_users.id as user_id")
+        .where("agent_bindings.agent_id", "=", agentId)
+        .where("agent_bindings.kind", "=", "personal")
+        .where("agent_bindings.state", "=", "active")
+        .where("platform_users.status", "=", "active"),
+    );
+    // Metadata reads must never load encrypted envelopes or infer ownership from tool arguments.
+    return owner ? this.listExecCredentialDefinitions(owner.user_id) : null;
+  }
+
   async listExecCredentialDefinitions(userId?: string): Promise<ExecCredentialDefinition[]> {
     if (!userId) {
       return executeSync(

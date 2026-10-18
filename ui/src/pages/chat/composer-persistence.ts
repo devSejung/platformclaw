@@ -157,6 +157,7 @@ function queueItemVersionMatches(
     canonicalExpected &&
     stored.id === canonicalExpected.id &&
     stored.sendRunId === canonicalExpected.sendRunId &&
+    JSON.stringify(stored.sendTarget) === JSON.stringify(canonicalExpected.sendTarget) &&
     stored.sendAttempts === canonicalExpected.sendAttempts &&
     stored.sendState === canonicalExpected.sendState &&
     stored.agentId === canonicalExpected.agentId &&

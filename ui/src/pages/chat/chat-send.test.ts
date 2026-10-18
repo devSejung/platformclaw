@@ -1254,6 +1254,155 @@ describe("handleSendChat", () => {
     vi.stubGlobal("sessionStorage", createStorageMock());
   });
 
+  it("admits one exact contextual turn without consuming the composer or reply target", async () => {
+    const response = createDeferred<{ status: string; runId: string }>();
+    const host = makeHost({
+      requestHandlers: { "chat.send": () => response.promise },
+      chatMessage: "unfinished draft",
+      chatDisplayedLeafEntryId: "source-leaf",
+      chatReplyTarget: { messageId: "reply", sourceMessageId: "reply", text: "unrelated quote" },
+    });
+    asChatPageHost(host).currentSessionId = "source-session";
+    const onAdmitted = vi.fn();
+    const options = {
+      runId: "contextual-run",
+      actionScope: {
+        agentId: "main",
+        sessionKey: host.sessionKey,
+        sessionId: "source-session",
+        expectedLeafEntryId: "source-leaf",
+      },
+      ignoreReplyTarget: true,
+      onAdmitted,
+    };
+    const first = handleSendChat(host, "Continue the previous request.", options);
+    await handleSendChat(host, "Continue the previous request.", options);
+    await waitForFast(() =>
+      expect(host.request).toHaveBeenCalledWith("chat.send", expect.anything()),
+    );
+    expect(onAdmitted).toHaveBeenCalledTimes(1);
+    expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(1);
+    const payload = host.request.mock.calls.find(([method]) => method === "chat.send")?.[1];
+    expect(payload).toMatchObject({
+      sessionId: "source-session",
+      expectedLeafEntryId: "source-leaf",
+      requireExactLeaf: true,
+      idempotencyKey: "contextual-run",
+      message: "Continue the previous request.",
+    });
+    expect(payload).not.toHaveProperty("replyToId");
+    expect(host.chatMessage).toBe("unfinished draft");
+    expect(host.chatReplyTarget?.messageId).toBe("reply");
+    response.resolve({ status: "ok", runId: "contextual-run" });
+    await first;
+  });
+
+  it.each(["session", "leaf", "connection"])(
+    "rejects contextual %s changes during settings wait before admission",
+    async (changed) => {
+      const settingsPatch = createDeferred<boolean>();
+      const host = makeHost({
+        requestHandlers: { "chat.send": { status: "ok" } },
+        chatDisplayedLeafEntryId: "source-leaf",
+        pendingSettingsPatches: { "agent:main": settingsPatch.promise },
+      });
+      asChatPageHost(host).currentSessionId = "source-session";
+      const onAdmitted = vi.fn();
+      const send = handleSendChat(host, "Continue the previous request.", {
+        runId: "contextual-run",
+        actionScope: {
+          agentId: "main",
+          sessionKey: host.sessionKey,
+          sessionId: "source-session",
+          expectedLeafEntryId: "source-leaf",
+        },
+        onAdmitted,
+      });
+      expect(await raceWithMacrotask(send)).toBe("pending");
+      if (changed === "session") {
+        asChatPageHost(host).currentSessionId = "replacement-session";
+      }
+      if (changed === "leaf") {
+        host.chatDisplayedLeafEntryId = "replacement-leaf";
+      }
+      if (changed === "connection") {
+        host.connectionEpoch = 1;
+      }
+      settingsPatch.resolve(true);
+      await send;
+      expect(onAdmitted).not.toHaveBeenCalled();
+      expect(host.chatQueue).toEqual([]);
+      expect(host.request).not.toHaveBeenCalledWith("chat.send", expect.anything());
+    },
+  );
+
+  it("retains a failed contextual run and target on outbox Retry", async () => {
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    const host = makeHost({
+      sessionKey: "agent:main:main",
+      requestHandlers: {
+        "chat.history": {
+          messages: [],
+          sessionId: "replacement-session",
+          sessionInfo: { activeLeafEntryId: "replacement-leaf" },
+        },
+        "chat.send": { status: "ok", runId: "contextual-run" },
+      },
+    });
+    asChatPageHost(host).currentSessionId = "replacement-session";
+    const item = {
+      id: "contextual-item",
+      text: "Continue the previous request.",
+      createdAt: 1,
+      sessionKey: host.sessionKey,
+      agentId: "main",
+      sendRunId: "contextual-run",
+      sendState: "failed" as const,
+      sendTarget: {
+        sessionId: "source-session",
+        expectedLeafEntryId: "source-leaf",
+        requireExactLeaf: true as const,
+      },
+    };
+    expect(admitStoredChatComposerQueueItem(host, host.sessionKey, item)).toBe(true);
+    host.chatQueue = [item];
+    await retryQueuedChatMessage(host, item.id);
+    expect(host.request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        idempotencyKey: "contextual-run",
+        ...item.sendTarget,
+      }),
+    );
+  });
+
+  it("does not steer a contextual outbox item through Send Now", async () => {
+    const host = makeHost({
+      requestHandlers: { "chat.send": { status: "started" } },
+      chatRunId: "active-run",
+    });
+    host.chatQueue = [
+      {
+        id: "contextual-item",
+        text: "Continue.",
+        createdAt: 1,
+        sendState: "waiting-idle",
+        sendRunId: "contextual-run",
+        sessionKey: host.sessionKey,
+        agentId: "main",
+        sendTarget: {
+          sessionId: "source-session",
+          expectedLeafEntryId: "source-leaf",
+          requireExactLeaf: true,
+        },
+      },
+    ];
+    await steerQueuedChatMessage(host, "contextual-item");
+    expect(host.request).not.toHaveBeenCalledWith("chat.send", expect.anything());
+    expect(host.chatQueue[0]?.sendState).toBe("waiting-idle");
+    expect(host.chatError).toBeTruthy();
+  });
+
   it("preserves the visible bare main route for an immediate send", async () => {
     const host = makeHost({
       requestHandlers: {

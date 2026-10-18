@@ -251,6 +251,8 @@ export type ApplicationShellSession = {
 
 export type ApplicationBootstrapOptions = {
   readonly chatWorkingTip?: ApplicationContext["chatWorkingTip"];
+  readonly renderChatAccessory?: ApplicationContext["renderChatAccessory"];
+  readonly onChatToolResult?: ApplicationContext["onChatToolResult"];
   readonly accessMode?: ApplicationAccessMode;
   readonly enabledRouteIds?: readonly RouteId[];
   /** Product embedders may replace an enabled route without exposing unrelated routes. */
@@ -529,6 +531,8 @@ export function bootstrapApplication(
     pendingGatewayConnection = null;
   };
   const context: ApplicationContext<RouteId> = {
+    renderChatAccessory: options.renderChatAccessory,
+    onChatToolResult: options.onChatToolResult,
     basePath,
     accessMode: options.accessMode ?? "operator",
     sessionCatalogFilter: options.sessionCatalogFilter,

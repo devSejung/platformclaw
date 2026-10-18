@@ -1,11 +1,13 @@
 import { request } from "node:http";
 import { isAbsolute } from "node:path";
+import type { ExecCredentialService } from "./exec-credential-service.js";
 import {
   PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH,
   PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH,
   PLATFORMCLAW_EXECUTION_GRANT_PATH,
   PLATFORMCLAW_EXECUTION_TARGET_PATH,
   PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH,
+  PLATFORMCLAW_EXEC_CREDENTIAL_METADATA_PATH,
   PLATFORMCLAW_MCP_CONNECTION_PATH,
 } from "./execution-handoff-http.js";
 import type {
@@ -95,6 +97,13 @@ export class ExecutionHandoffClient {
       string,
       string
     >;
+  }
+
+  async execCredentialMetadata(agentId: string, sessionKey: string) {
+    return (await this.post(PLATFORMCLAW_EXEC_CREDENTIAL_METADATA_PATH, {
+      agentId,
+      sessionKey,
+    })) as Awaited<ReturnType<ExecCredentialService["metadataForAgent"]>>;
   }
 
   private async post(pathname: string, body: unknown): Promise<unknown> {

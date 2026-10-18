@@ -243,6 +243,7 @@ export class ChatPane extends ChatPaneHeader {
       onReset: () => void clearChatHistory(state),
     });
     const props: ChatProps = {
+      chatAccessory: this.context.renderChatAccessory?.(state),
       transcript: this.transcript,
       paneId: this.paneId,
       sessionKey: state.sessionKey,

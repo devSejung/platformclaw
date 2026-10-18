@@ -60,6 +60,7 @@ describe("PlatformClaw execution plugin", () => {
     try {
       plugin.register({
         registrationMode: "full",
+        registerTool: vi.fn(),
         logger: { info: vi.fn() },
         registerGatewayMethod: vi.fn(() => () => undefined),
         on: vi.fn((event, handler) => {
@@ -112,6 +113,7 @@ describe("PlatformClaw execution plugin", () => {
     const stopHandlers: Array<() => Promise<void>> = [];
     plugin.register({
       registrationMode: "full",
+      registerTool: vi.fn(),
       on: vi.fn((event: string, handler: () => Promise<void>) => {
         if (event === "gateway_stop") {
           stopHandlers.push(handler);
@@ -170,6 +172,7 @@ describe("PlatformClaw execution plugin", () => {
     try {
       plugin.register({
         registrationMode: "full",
+        registerTool: vi.fn(),
         logger: { info: vi.fn() },
         registerGatewayMethod: vi.fn(() => () => undefined),
         on: vi.fn((event: string, handler: () => Promise<void>) => {
@@ -235,6 +238,7 @@ describe("PlatformClaw execution plugin", () => {
     try {
       plugin.register({
         registrationMode: "full",
+        registerTool: vi.fn(),
         logger: { info: vi.fn() },
         registerGatewayMethod: vi.fn(() => () => undefined),
         on: vi.fn((event: string, handler: () => Promise<void>) => {

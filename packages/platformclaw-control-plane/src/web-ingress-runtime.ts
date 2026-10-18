@@ -205,6 +205,8 @@ export function createPlatformClawWebIngressRuntime(
               ? {
                   resolveExecCredentials: (agentId: string) =>
                     execCredentialService.resolveForAgent(agentId),
+                  execCredentialMetadata: (agentId: string, sessionKey: string) =>
+                    execCredentialService.metadataForAgent(agentId, sessionKey),
                 }
               : {}),
           },

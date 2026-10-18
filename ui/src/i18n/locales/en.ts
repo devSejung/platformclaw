@@ -5012,6 +5012,7 @@ export const en: TranslationMap = {
     errorDetails: "Error details",
     copyError: "Copy error",
     sendErrors: {
+      contextualActionBusy: "This request must wait for the original conversation to be idle.",
       activeLeafChanged: "The thread switched branches — review and resend.",
     },
     waitingOnSubagents: "Waiting on subagents",

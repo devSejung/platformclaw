@@ -1,6 +1,7 @@
 import type { QueueMode } from "../../../../src/auto-reply/reply/queue/types.js";
 import type { SessionsListResult } from "../../api/types.ts";
 import { setLastActiveSessionKey } from "../../app/settings.ts";
+import { t } from "../../i18n/index.ts";
 import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { visibleSessionMatches } from "../../lib/sessions/index.ts";
 import { generateUUID } from "../../lib/uuid.ts";
@@ -239,6 +240,11 @@ export async function sendQueuedChatMessageWithQueueMode(
           entry.sendState === "unconfirmed")),
   );
   if (!item) {
+    return;
+  }
+  if (item.sendTarget) {
+    // Contextual actions belong to an exact completed turn, never an active-run steer.
+    setChatError(host, t("chat.sendErrors.contextualActionBusy"));
     return;
   }
   const itemSessionKey = item.sessionKey ?? host.sessionKey;

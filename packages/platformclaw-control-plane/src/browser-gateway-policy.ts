@@ -200,6 +200,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "timeoutMs",
       "idempotencyKey",
       "expectedLeafEntryId",
+      "requireExactLeaf",
       "replyToId",
       "__controlUiReconnectResume",
     ]),

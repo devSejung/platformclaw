@@ -3461,6 +3461,12 @@ describe("scripts/test-projects changed-target routing", () => {
   });
 
   it("routes control ui e2e tests to the ui e2e lane", () => {
+    const credentialFlowTest = "test/e2e/platformclaw/platformclaw-credential-flow.ui.e2e.test.ts";
+    expectSingleVitestRunPlan(buildVitestRunPlans([credentialFlowTest]), {
+      config: "test/vitest/vitest.ui-e2e.config.ts",
+      includePatterns: [credentialFlowTest],
+    });
+
     expectSingleVitestRunPlan(buildVitestRunPlans(["ui/src/e2e/chat-flow.e2e.test.ts"]), {
       config: "test/vitest/vitest.ui-e2e.config.ts",
       includePatterns: ["ui/src/e2e/chat-flow.e2e.test.ts"],

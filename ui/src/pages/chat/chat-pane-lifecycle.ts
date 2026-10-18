@@ -272,6 +272,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
       this.chatMessagesBySession,
     );
     pageState.chatScrollToEnd = (options) => this.transcript.scrollToEnd(options);
+    pageState.onChatToolResult = (result) => this.context.onChatToolResult?.(pageState, result);
     pageState.createChatSession = (message) => this.createSession(message);
     pageState.confirmConversationReset = () => this.confirmConversationReset();
     pageState.exportCurrentChat = () =>
@@ -280,8 +281,8 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
       await pageState.onModelChanged?.();
       pageState.requestUpdate?.();
     };
-    pageState.refreshCurrentChat = async () => {
-      await refreshPageChat(pageState);
+    pageState.refreshCurrentChat = async (options) => {
+      await refreshPageChat(pageState, { awaitHistory: options?.awaitHistory });
       pageState.requestUpdate?.();
     };
     pageState.refreshSessionPullRequests = (options) => this.refreshSessionPullRequests(options);

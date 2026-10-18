@@ -151,6 +151,8 @@ export const ChatSendParamsSchema = closedObject({
   // Client's believed active-branch leaf entry id. A mismatch with the
   // session's current active leaf rejects the send so stale views cannot post elsewhere.
   expectedLeafEntryId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
+  // Context-bound actions opt out of ancestor/steering admission; ordinary sends keep their policy.
+  requireExactLeaf: Type.Optional(Type.Boolean()),
   expectedSessionRoutingContract: Type.Optional(NonEmptyString),
   idempotencyKey: NonEmptyString,
 });

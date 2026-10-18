@@ -37,6 +37,9 @@ async function startServer() {
     score: 0.9,
   };
   const service = {
+    execCredentialMetadata: vi.fn(async (_agentId: string, _sessionKey: string) => ({
+      definitions: [{ envName: "REPORT_API_TOKEN", configured: false }],
+    })),
     spaceService: {
       agentRead: vi.fn<SpaceService["agentRead"]>(async () => ({ results: [], indexing: false })),
     },
@@ -143,6 +146,39 @@ async function postResponse(
 }
 
 describe("PlatformClawExecutionHandoffServer", () => {
+  it("serves metadata through the authenticated handoff and rejects wider input", async () => {
+    const { socketPath, service } = await startServer();
+    const client = new ExecutionHandoffClient(
+      socketPath,
+      "service-token-that-is-at-least-32-bytes",
+    );
+    const sessionKey = "agent:person_one:dashboard:synthetic";
+    expect(await client.execCredentialMetadata("person_one", sessionKey)).toEqual({
+      definitions: [{ envName: "REPORT_API_TOKEN", configured: false }],
+    });
+    expect(service.execCredentialMetadata).toHaveBeenCalledWith("person_one", sessionKey);
+    service.execCredentialMetadata.mockClear();
+    for (const body of [
+      { agentId: "person_one" },
+      { agentId: "person_one", sessionKey, value: "synthetic-only" },
+    ]) {
+      expect(
+        (
+          await postResponse(
+            socketPath,
+            "/platformclaw/internal/execution/credential-metadata",
+            body,
+          )
+        ).status,
+      ).toBe(400);
+    }
+    const unauthorized = new ExecutionHandoffClient(socketPath, "wrong-synthetic-token");
+    await expect(unauthorized.execCredentialMetadata("person_one", sessionKey)).rejects.toThrow(
+      "(401)",
+    );
+    expect(service.execCredentialMetadata).not.toHaveBeenCalled();
+  });
+
   it("forwards the frozen Wiki scope and explicit revision, returning actionable conflicts", async () => {
     const { socketPath, service } = await startServer();
     const turnScope = { revision: 4, vaultIds: ["vault-one"], personalEnabled: false };

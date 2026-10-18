@@ -17615,6 +17615,7 @@ public struct ChatSendParams: Codable, Sendable {
     public let suppresscommandinterpretation: Bool?
     public let senderattribution: [String: AnyCodable]?
     public let expectedleafentryid: AnyCodable?
+    public let requireexactleaf: Bool?
     public let expectedsessionroutingcontract: String?
     public let idempotencykey: String
 
@@ -17642,6 +17643,7 @@ public struct ChatSendParams: Codable, Sendable {
         suppresscommandinterpretation: Bool? = nil,
         senderattribution: [String: AnyCodable]? = nil,
         expectedleafentryid: AnyCodable? = nil,
+        requireexactleaf: Bool? = nil,
         expectedsessionroutingcontract: String? = nil,
         idempotencykey: String)
     {
@@ -17668,6 +17670,7 @@ public struct ChatSendParams: Codable, Sendable {
         self.suppresscommandinterpretation = suppresscommandinterpretation
         self.senderattribution = senderattribution
         self.expectedleafentryid = expectedleafentryid
+        self.requireexactleaf = requireexactleaf
         self.expectedsessionroutingcontract = expectedsessionroutingcontract
         self.idempotencykey = idempotencykey
     }
@@ -17695,6 +17698,7 @@ public struct ChatSendParams: Codable, Sendable {
         suppresscommandinterpretation: Bool? = nil,
         senderattribution: [String: AnyCodable]? = nil,
         expectedleafentryid: AnyCodable? = nil,
+        requireexactleaf: Bool? = nil,
         expectedsessionroutingcontract: String? = nil,
         idempotencykey: String)
     {
@@ -17722,6 +17726,7 @@ public struct ChatSendParams: Codable, Sendable {
             suppresscommandinterpretation: suppresscommandinterpretation,
             senderattribution: senderattribution,
             expectedleafentryid: expectedleafentryid,
+            requireexactleaf: requireexactleaf,
             expectedsessionroutingcontract: expectedsessionroutingcontract,
             idempotencykey: idempotencykey)
     }
@@ -17750,6 +17755,7 @@ public struct ChatSendParams: Codable, Sendable {
         case suppresscommandinterpretation = "suppressCommandInterpretation"
         case senderattribution = "senderAttribution"
         case expectedleafentryid = "expectedLeafEntryId"
+        case requireexactleaf = "requireExactLeaf"
         case expectedsessionroutingcontract = "expectedSessionRoutingContract"
         case idempotencykey = "idempotencyKey"
     }

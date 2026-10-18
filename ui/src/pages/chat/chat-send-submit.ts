@@ -1,6 +1,11 @@
 import { shouldForwardModelCommandToServer } from "../../../../src/auto-reply/commands-registry.shared.js";
 import { normalizeChatFollowUpModeOverride, setLastActiveSessionKey } from "../../app/settings.ts";
-import type { ChatAttachment, ChatQueueSkillWorkshopRevision } from "../../lib/chat/chat-types.ts";
+import { t } from "../../i18n/index.ts";
+import type {
+  ChatAttachment,
+  ChatQueueSkillWorkshopRevision,
+  ChatSendActionScope,
+} from "../../lib/chat/chat-types.ts";
 import { parseSlashCommand } from "../../lib/chat/commands.ts";
 import { extractCompanionCommandQuestion } from "../../lib/chat/companion-question.ts";
 import { resolveCurrentUserIdentity } from "../../lib/chat/current-user-identity.ts";
@@ -38,6 +43,7 @@ import type { ChatHost } from "./chat-send-contract.ts";
 import { chatOutboxDrainDependencies, deliverChatQueueItem } from "./chat-send-delivery.ts";
 import {
   canSendVolatileQueueItem,
+  captureChatConnectionOwner,
   enqueuePendingSendMessage,
   isSkillWorkshopRevisionConnectionCurrent,
   reconnectSafeQueuedSendState,
@@ -67,6 +73,11 @@ import {
 } from "./steer-lifecycle.ts";
 
 type ChatSendOptions = {
+  runId?: string;
+  actionScope?: ChatSendActionScope;
+  ignoreReplyTarget?: boolean;
+  /** Queue ownership has transferred; delivery failures now belong to outbox Retry. */
+  onAdmitted?: (submission: { queueId: string; runId: string }) => void;
   restoreDraft?: boolean;
   skillWorkshopRevision?: ChatQueueSkillWorkshopRevision;
   /** Lets request-scoped UI actions recover from rejected local commands. */
@@ -200,7 +211,11 @@ export async function handleSendChat(
   const message = (messageOverride ?? host.chatMessage).trim();
   const submittedAtMs = controlUiNowMs();
   const submittedSessionKey = host.sessionKey;
-  let expectedLeafEntryId = resolveDisplayedLeafEntryId(host as unknown as ChatState);
+  const actionScope = opts?.actionScope;
+  const actionConnectionIsCurrent = captureChatConnectionOwner(host);
+  let expectedLeafEntryId = actionScope
+    ? actionScope.expectedLeafEntryId
+    : resolveDisplayedLeafEntryId(host as unknown as ChatState);
   const attachmentsToSend =
     messageOverride == null ? snapshotChatAttachments(host.chatAttachments) : [];
   const hasAttachments = attachmentsToSend.length > 0;
@@ -210,7 +225,18 @@ export async function handleSendChat(
     return;
   }
 
-  if (!skillWorkshopRevision) {
+  if (
+    actionScope &&
+    (!opts?.runId?.trim() ||
+      messageOverride == null ||
+      skillWorkshopRevision ||
+      message.startsWith("/"))
+  ) {
+    setChatError(host, t("chat.sendErrors.activeLeafChanged"));
+    return;
+  }
+
+  if (!skillWorkshopRevision && !actionScope) {
     // Natural stop aliases require a run; explicit /stop is always available.
     if (
       isChatStopCommand(message) &&
@@ -396,20 +422,16 @@ export async function handleSendChat(
     }
   }
 
-  const replyTarget = host.chatReplyTarget;
+  const replyTarget = opts?.ignoreReplyTarget ? null : host.chatReplyTarget;
   // Persisted ids use replyToId; synthetic replies fall back to a quote.
   const replyToId = replyTarget?.sourceMessageId?.trim() || undefined;
   const effectiveMessage =
     replyTarget && !replyToId ? prependReplyQuote(message, replyTarget) : message;
 
-  const refreshSessions = !skillWorkshopRevision && isChatResetCommand(message);
-  const submitKey = chatSubmitKey(
-    host,
-    "message",
-    effectiveMessage,
-    attachmentsToSend,
-    skillWorkshopRevision,
-  );
+  const refreshSessions = !skillWorkshopRevision && !actionScope && isChatResetCommand(message);
+  const submitKey =
+    opts?.runId ??
+    chatSubmitKey(host, "message", effectiveMessage, attachmentsToSend, skillWorkshopRevision);
   await withChatSubmitGuard(host, submitKey, async () => {
     if (host.chatLoading) {
       // A terminal event can render before its authoritative leaf arrives.
@@ -417,10 +439,36 @@ export async function handleSendChat(
       if (!(await loadChatHistory(host as unknown as ChatState))) {
         return;
       }
-      expectedLeafEntryId = resolveDisplayedLeafEntryId(host as unknown as ChatState);
+      if (!actionScope) {
+        expectedLeafEntryId = resolveDisplayedLeafEntryId(host as unknown as ChatState);
+      }
     }
     if (host.sessionKey !== submittedSessionKey) {
       return;
+    }
+    if (actionScope) {
+      const pending = getPendingChatPickerPatch(host, actionScope.sessionKey, actionScope.agentId);
+      if (pending && !(await waitForPendingChatSettings(host, actionScope.sessionKey, pending))) {
+        return;
+      }
+      if (
+        !actionConnectionIsCurrent() ||
+        host.sessionKey !== actionScope.sessionKey ||
+        !visibleSessionMatches(host, actionScope.sessionKey, actionScope.agentId) ||
+        (host as unknown as ChatState).currentSessionId !== actionScope.sessionId ||
+        resolveDisplayedLeafEntryId(host as unknown as ChatState) !==
+          actionScope.expectedLeafEntryId ||
+        isChatBusy(host) ||
+        hasAbortableSessionRun(host)
+      ) {
+        setChatError(host, t("chat.sendErrors.activeLeafChanged"));
+        return;
+      }
+      const existing = host.chatQueue.find((item) => item.sendRunId === opts?.runId);
+      if (existing?.sendRunId) {
+        opts?.onAdmitted?.({ queueId: existing.id, runId: existing.sendRunId });
+        return;
+      }
     }
     const cleared =
       messageOverride == null
@@ -441,6 +489,18 @@ export async function handleSendChat(
       waitingForSettings ? "waiting-model" : reconnectSafeQueuedSendState(host),
       skillWorkshopRevision,
       replyToId,
+      {
+        sendRunId: opts?.runId,
+        ...(actionScope
+          ? {
+              sendTarget: {
+                sessionId: actionScope.sessionId,
+                expectedLeafEntryId: actionScope.expectedLeafEntryId,
+                requireExactLeaf: true,
+              } as const,
+            }
+          : {}),
+      },
     );
     if (!queued) {
       return;
@@ -459,6 +519,7 @@ export async function handleSendChat(
       setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
       return;
     }
+    opts?.onAdmitted?.({ queueId: queued.id, runId: queued.sendRunId! });
     const sendResult = await deliverChatQueueItem(host, queued, {
       previousDraft: cleared.previousDraft,
       previousAttachments: cleared.previousAttachments,
@@ -483,6 +544,7 @@ export async function handleSendChat(
         host.chatFollowUpMode ?? normalizeChatFollowUpModeOverride(host.settings?.chatFollowUpMode);
       if (
         !skillWorkshopRevision &&
+        !pending.sendTarget &&
         followUpMode !== "queue" &&
         host.connected &&
         hasAbortableSessionRun(host)

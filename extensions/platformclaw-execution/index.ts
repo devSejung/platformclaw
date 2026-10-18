@@ -19,6 +19,7 @@ import type {
   AssignedVmTargetSnapshot,
   PlatformClawExecutionTargetSnapshot,
 } from "./src/backend.js";
+import { registerPlatformClawCredentialTool } from "./src/credential-tool.js";
 import { registerPlatformClawExecutionGateway } from "./src/gateway.js";
 import { createExecutionDependenciesFromEnvironment } from "./src/runtime.js";
 import { PlatformClawTargetMutationCoordinator } from "./src/target-mutation-coordinator.js";
@@ -29,6 +30,7 @@ export default definePluginEntry({
   description: "Private execution-target router for PlatformClaw personal agents.",
   register(api) {
     if (api.registrationMode !== "full") {
+      registerPlatformClawCredentialTool(api);
       return;
     }
     const configured =
@@ -40,6 +42,7 @@ export default definePluginEntry({
       : undefined;
     const dependenciesPromise =
       executionRuntimePromise ?? Promise.resolve(createUnavailableExecutionDependencies());
+    registerPlatformClawCredentialTool(api, executionRuntimePromise);
     const requireExecutionRuntime = async () => {
       if (!executionRuntimePromise) {
         throw new Error(

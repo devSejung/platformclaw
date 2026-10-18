@@ -58,6 +58,11 @@ describe("ChatSendParamsSchema", () => {
     expect(Value.Check(ChatSendParamsSchema, { ...send, queueCap: 200 })).toBe(false);
   });
 
+  it("accepts only a boolean exact-leaf admission option", () => {
+    expect(Value.Check(ChatSendParamsSchema, { ...send, requireExactLeaf: true })).toBe(true);
+    expect(Value.Check(ChatSendParamsSchema, { ...send, requireExactLeaf: "true" })).toBe(false);
+  });
+
   it("bounds privileged sender attribution", () => {
     expect(
       Value.Check(ChatSendParamsSchema, {

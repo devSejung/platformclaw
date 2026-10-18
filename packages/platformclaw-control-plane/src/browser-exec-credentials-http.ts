@@ -43,7 +43,7 @@ export async function handlePlatformClawExecCredentialRequest(
         200,
         admin
           ? await options.service.adminSnapshot(auth.user.id)
-          : await options.service.snapshot(auth.user.id),
+          : { ...(await options.service.snapshot(auth.user.id)), accountId: auth.user.accountId },
       );
     } catch (error) {
       sendJson(res, error instanceof ControlPlaneAuthorizationError ? 403 : 400, {
@@ -65,6 +65,19 @@ export async function handlePlatformClawExecCredentialRequest(
     const body = asRecord(read.value);
     if (!body || typeof body.action !== "string" || typeof body.envName !== "string") {
       throw new ControlPlaneStateError("invalid request body");
+    }
+    if (!admin && body.expectedAccountId !== undefined) {
+      if (typeof body.expectedAccountId !== "string" || !body.expectedAccountId) {
+        throw new ControlPlaneStateError("invalid expected account");
+      }
+      // The cookie remains the owner; this precondition prevents an old tab writing to a new login.
+      if (body.expectedAccountId !== auth.user.accountId) {
+        sendJson(res, 409, {
+          error: "credential-account-changed",
+          code: "credential-account-changed",
+        });
+        return true;
+      }
     }
     const result = admin
       ? body.action === "add"

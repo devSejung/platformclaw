@@ -379,7 +379,7 @@ function replayInFlightRunEvents(
     if (!event || event.runId !== run.runId) {
       continue;
     }
-    handleAgentEvent(state as never, event as never);
+    handleAgentEvent(state as never, event as never, { source: "history" });
   }
 }
 

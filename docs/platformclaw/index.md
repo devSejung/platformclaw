@@ -74,6 +74,21 @@ point is **Settings > MCP**: administrators manage the global registry and
 per-tool blocks there, while employees see only personal credentials they can
 configure.
 
+## Personal keys during chat
+
+In a personal PC chat, the `platformclaw_credentials` plugin tool can request an
+administrator-approved environment variable by its exact name. **Add key** opens
+the matching input in **Settings > Credentials**. Save the value there, select
+**Return to conversation**, and select **Continue** to send a new turn in the
+original session. Never paste a key into chat. Cancel, an account or session
+change, reconnect, or an expired request ends the handoff without sending a turn.
+
+Saved means that the encrypted value was stored; it does not verify service
+authentication. Existing personal Basic and assigned-VM exec processes receive
+the saved environment variables. This flow does not configure model-provider,
+MCP, OAuth, Space, or shared-agent credentials, and does not resume a suspended
+tool call. Executed programs can still read their own environment.
+
 ## Maintenance rules
 
 - Keep current behavior, approved decisions, proposals, and open decisions

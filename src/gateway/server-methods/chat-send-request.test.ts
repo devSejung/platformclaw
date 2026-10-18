@@ -40,6 +40,28 @@ function validParams(overrides: Record<string, unknown> = {}) {
 }
 
 describe("normalizeChatSendRequest", () => {
+  it.each([
+    { requireExactLeaf: true },
+    { requireExactLeaf: true, sessionId: "session-1" },
+    { requireExactLeaf: true, sessionId: " ", expectedLeafEntryId: "leaf-1" },
+    {
+      requireExactLeaf: true,
+      sessionId: "session-1",
+      expectedLeafEntryId: "leaf-1",
+      queueMode: "steer",
+    },
+  ])("rejects incomplete or steering exact-leaf requests: %j", (params) => {
+    expect(normalizeChatSendRequest({ params: validParams(params), client: null }).ok).toBe(false);
+  });
+
+  it.each([null, "leaf-1"])("retains explicit exact-leaf scope %s", (expectedLeafEntryId) => {
+    const params = { requireExactLeaf: true, sessionId: "session-1", expectedLeafEntryId };
+    expect(normalizeChatSendRequest({ params: validParams(params), client: null })).toMatchObject({
+      ok: true,
+      value: { p: { ...params, queueMode: "followup" } },
+    });
+  });
+
   it("normalizes the message and derives the main-turn defaults", () => {
     const result = normalizeChatSendRequest({ params: validParams(), client: null });
 

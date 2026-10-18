@@ -10,6 +10,7 @@ import {
   ControlPlaneConflictError,
   ControlPlaneStateError,
 } from "./contracts.js";
+import type { ExecCredentialService } from "./exec-credential-service.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
 import {
   KnowledgeVaultSearchError,
@@ -30,6 +31,8 @@ export const PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH =
 export const PLATFORMCLAW_MCP_CONNECTION_PATH = "/platformclaw/internal/mcp/connection";
 export const PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH =
   "/platformclaw/internal/execution/credentials";
+export const PLATFORMCLAW_EXEC_CREDENTIAL_METADATA_PATH =
+  "/platformclaw/internal/execution/credential-metadata";
 export const PLATFORMCLAW_VAULT_SEARCH_PATH = "/platformclaw/internal/memory/vaults/search";
 export const PLATFORMCLAW_VAULT_GET_PATH = "/platformclaw/internal/memory/vaults/get";
 export const PLATFORMCLAW_VAULT_SCOPE_PATH = "/platformclaw/internal/memory/vaults/scope";
@@ -61,6 +64,7 @@ type ExecutionHandoffHandler = Pick<
     expiresAt?: number;
   } | null>;
   resolveExecCredentials?: (agentId: string) => Promise<Record<string, string>>;
+  execCredentialMetadata?: ExecCredentialService["metadataForAgent"];
 };
 
 export function deriveExecutionHandoffAddress(credentialBrokerAddress: string): string {
@@ -345,6 +349,7 @@ export class PlatformClawExecutionHandoffServer {
         pathname !== PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH &&
+        pathname !== PLATFORMCLAW_EXEC_CREDENTIAL_METADATA_PATH &&
         pathname !== PLATFORMCLAW_MCP_CONNECTION_PATH &&
         pathname !== PLATFORMCLAW_VAULT_SEARCH_PATH &&
         pathname !== PLATFORMCLAW_VAULT_GET_PATH &&
@@ -504,6 +509,23 @@ export class PlatformClawExecutionHandoffServer {
           });
           sendJson(res, result ? 200 : 404, result ?? { error: "Vault document unavailable" });
         }
+        return;
+      }
+      if (pathname === PLATFORMCLAW_EXEC_CREDENTIAL_METADATA_PATH) {
+        if (!this.service.execCredentialMetadata) {
+          sendJson(res, 503, { error: "credential metadata unavailable" });
+          return;
+        }
+        if (
+          typeof body.sessionKey !== "string" ||
+          !body.sessionKey ||
+          body.sessionKey.length > 512 ||
+          Object.keys(body).some((key) => key !== "agentId" && key !== "sessionKey")
+        ) {
+          sendJson(res, 400, { error: "invalid credential session" });
+          return;
+        }
+        sendJson(res, 200, await this.service.execCredentialMetadata(agentId, body.sessionKey));
         return;
       }
       if (pathname === PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH) {

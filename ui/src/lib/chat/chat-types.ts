@@ -3,6 +3,7 @@
  */
 
 import type { MediaKind } from "@openclaw/media-core/constants";
+import type { UiSessionDefaultsHost } from "../sessions/session-key.ts";
 import type { SenderIdentity } from "./sender-label.ts";
 
 export type ChatAttachment = {
@@ -22,6 +23,34 @@ export type ChatQueueSkillWorkshopRevision = {
   connectionEpoch?: number;
 };
 
+type ChatSendTarget = {
+  sessionId: string;
+  expectedLeafEntryId: string | null;
+  requireExactLeaf: true;
+};
+
+export type ChatSendActionScope = Omit<ChatSendTarget, "requireExactLeaf"> & {
+  sessionKey: string;
+  agentId: string;
+};
+
+/** Page-owned state and actions available to product chat accessories. */
+export type ChatAccessoryHost = UiSessionDefaultsHost & {
+  sessionKey: string;
+  connected: boolean;
+  chatRunId: string | null;
+  currentSessionId?: string | null;
+  chatLoading: boolean;
+  chatDisplayedLeafEntryId?: string | null;
+  chatMessages: unknown[];
+  chatSending: boolean;
+  chatQueue: ChatQueueItem[];
+  selectedChatSessionArchived: boolean;
+  requestUpdate?: () => void;
+  refreshCurrentChat?: (options?: { awaitHistory?: boolean }) => Promise<void>;
+  handleSendChat: (messageOverride?: string, options?: unknown) => Promise<void>;
+};
+
 export type ChatQueueItem = {
   id: string;
   text: string;
@@ -37,6 +66,8 @@ export type ChatQueueItem = {
   sendAttempts?: number;
   sendError?: string;
   sendRunId?: string;
+  /** Explicit action target survives outbox retries without adopting a reset transcript. */
+  sendTarget?: ChatSendTarget;
   sendState?:
     | "waiting-model"
     | "waiting-idle"

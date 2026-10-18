@@ -1,4 +1,4 @@
-import { normalizeAgentId } from "../sessions/session-key.ts";
+import { normalizeAgentId, parseAgentSessionKey } from "../sessions/session-key.ts";
 import type { ChatAttachment, ChatQueueItem } from "./chat-types.ts";
 import { normalizeSenderIdentity } from "./sender-label.ts";
 
@@ -110,6 +110,30 @@ export function normalizeStoredQueueItem(value: unknown): ChatQueueItem | null {
   const sendRunId = normalizeOptionalString(entry.sendRunId);
   if (sendRunId) {
     item.sendRunId = sendRunId;
+  }
+  if (entry.sendTarget !== undefined) {
+    const target = entry.sendTarget as Partial<NonNullable<ChatQueueItem["sendTarget"]>> | null;
+    // A malformed scoped send must never become an unrestricted ordinary send.
+    if (
+      !target ||
+      typeof target !== "object" ||
+      Array.isArray(target) ||
+      target.requireExactLeaf !== true ||
+      !normalizeOptionalString(target.sessionId) ||
+      (target.expectedLeafEntryId !== null &&
+        !normalizeOptionalString(target.expectedLeafEntryId)) ||
+      !sendRunId ||
+      !normalizeOptionalString(entry.sessionKey) ||
+      (!normalizeOptionalString(entry.agentId) &&
+        !parseAgentSessionKey(normalizeOptionalString(entry.sessionKey) ?? ""))
+    ) {
+      return null;
+    }
+    item.sendTarget = {
+      sessionId: target.sessionId!,
+      expectedLeafEntryId: target.expectedLeafEntryId!,
+      requireExactLeaf: true,
+    };
   }
   if (typeof entry.sendAttempts === "number" && Number.isFinite(entry.sendAttempts)) {
     item.sendAttempts = entry.sendAttempts;

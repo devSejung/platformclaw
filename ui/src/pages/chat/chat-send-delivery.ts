@@ -308,9 +308,11 @@ async function sendQueuedChatMessage(
           runId,
           sessionKey,
           agentId: prepared.agentId,
-          ...(options?.expectedLeafEntryId !== undefined
-            ? { expectedLeafEntryId: options.expectedLeafEntryId }
-            : {}),
+          ...(prepared.sendTarget
+            ? prepared.sendTarget
+            : options?.expectedLeafEntryId !== undefined
+              ? { expectedLeafEntryId: options.expectedLeafEntryId }
+              : {}),
           ...(prepared.replyToId ? { replyToId: prepared.replyToId } : {}),
         });
     if (!requestConnectionIsCurrent()) {
