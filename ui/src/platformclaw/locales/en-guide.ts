@@ -8,6 +8,29 @@ import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.credentialFlow.requiredTitle": "A personal key is needed",
+  "platformClaw.credentialFlow.requiredBody":
+    "This task needs {envName}. Enter the key in Credentials, not in chat.",
+  "platformClaw.credentialFlow.configure": "Add key",
+  "platformClaw.credentialFlow.later": "Not now",
+  "platformClaw.credentialFlow.targetHint": "Save {envName}, then return to this conversation.",
+  "platformClaw.credentialFlow.saved": "Saved. Service authentication has not been checked.",
+  "platformClaw.credentialFlow.return": "Return to conversation",
+  "platformClaw.credentialFlow.continue": "Continue",
+  "platformClaw.credentialFlow.continueHint":
+    "Send a new request in the original conversation to continue.",
+  "platformClaw.credentialFlow.expired":
+    "This request has expired. Ask for key setup again in the conversation.",
+  "platformClaw.credentialFlow.unconfirmed": "We could not confirm whether the key was saved.",
+  "platformClaw.credentialFlow.statusUnconfirmed":
+    "The save was acknowledged, but the current state could not be confirmed.",
+  "platformClaw.credentialFlow.accountChanged":
+    "This request ended because the signed-in account changed.",
+  "platformClaw.credentialFlow.recheckStatus": "Check status again",
+  "platformClaw.credentialFlow.stateChanged":
+    "The stored key changed. Save the key again before continuing.",
+  "platformClaw.credentialFlow.continueMessage":
+    "I have saved {envName}. Continue the previous request from the current conversation state. Do not repeat completed work, and follow existing confirmation requirements for any further action.",
   "platformClaw.waitingTips.request":
     "Mind reading is still in beta. Include your preferred output format.",
   "platformClaw.waitingTips.newChat": "New topic? Start a new chat. Context needs fresh air too.",

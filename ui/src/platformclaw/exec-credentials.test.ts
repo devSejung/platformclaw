@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
 import type { PlatformClawExecCredentialsElement } from "./exec-credentials.ts";
-import { platformClawT as t } from "./i18n.ts";
+import { loadAllPlatformClawLocales, platformClawT as t } from "./i18n.ts";
 import "./exec-credentials.ts";
+
+beforeAll(loadAllPlatformClawLocales);
 
 type CredentialElement = PlatformClawExecCredentialsElement;
 

@@ -3,7 +3,10 @@ import { defineConfig } from "vitest/config";
 import { loadPatternListFromEnv, narrowIncludePatternsForCli } from "./vitest.pattern-file.ts";
 import { sharedVitestConfig } from "./vitest.shared.config.ts";
 
-const uiE2eIncludePatterns = ["ui/src/**/*.e2e.test.ts"];
+const uiE2eIncludePatterns = [
+  "ui/src/**/*.e2e.test.ts",
+  "test/e2e/platformclaw/**/*.ui.e2e.test.ts",
+];
 
 function createUiE2eVitestConfig(
   env: Record<string, string | undefined> = process.env,

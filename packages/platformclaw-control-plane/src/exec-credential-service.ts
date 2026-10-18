@@ -6,7 +6,7 @@ import { ExecCredentialCipher } from "./exec-credential-crypto.js";
 import { isSpaceConversationSession } from "./space-contracts.js";
 import type { SqliteControlPlaneStore } from "./sqlite-store.js";
 
-export type ExecCredentialMetadata =
+type ExecCredentialMetadata =
   | { status: "unsupported"; code: "scope" }
   | {
       definitions: {

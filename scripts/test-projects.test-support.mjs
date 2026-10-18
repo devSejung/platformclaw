@@ -1643,6 +1643,7 @@ function isControlUiE2eTarget(relative) {
     relative === "ui/src/test-helpers/control-ui-e2e.ts" ||
     relative === "ui/src/e2e" ||
     relative.startsWith("ui/src/e2e/") ||
+    (relative.startsWith("test/e2e/platformclaw/") && relative.endsWith(".ui.e2e.test.ts")) ||
     (relative.startsWith("ui/src/") && relative.endsWith(".e2e.test.ts"))
   );
 }

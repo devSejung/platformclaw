@@ -864,6 +864,7 @@ describe("detectChangedScope", () => {
 
   it.each([
     "ui/src/pages/chat/chat-realtime.test.ts",
+    "test/e2e/platformclaw/platformclaw-credential-flow.ui.e2e.test.ts",
     "ui/package.json",
     "test/vitest/vitest.shared.config.ts",
     "scripts/ensure-playwright-chromium.mjs",

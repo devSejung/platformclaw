@@ -17,7 +17,7 @@ import { ExecutionHandoffClient } from "../../../packages/platformclaw-control-p
 import { PlatformClawExecutionHandoffServer } from "../../../packages/platformclaw-control-plane/src/execution-handoff-http.ts";
 import { SqliteControlPlaneStore } from "../../../packages/platformclaw-control-plane/src/sqlite-store.ts";
 import { sanitizeChatHistoryMessages } from "../../../src/gateway/chat-display-projection.ts";
-import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
+import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../../../ui/src/platformclaw/web-contract.ts";
 import {
   canRunPlaywrightChromium,
   controlUiSessionUrl,
@@ -26,7 +26,7 @@ import {
   startControlUiE2eServer,
   type ControlUiE2eServer,
   type MockGatewayControls,
-} from "../test-helpers/control-ui-e2e.ts";
+} from "../../../ui/src/test-helpers/control-ui-e2e.ts";
 
 const chromiumPath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumPath);
@@ -64,7 +64,7 @@ async function startCredentialFixture() {
     initialAdminAccountIds: ["proof.admin"],
   });
   const principal = (accountId: string) => ({
-    provider: "ldap",
+    provider: "ldap" as const,
     subject: `proof:${accountId}`,
     accountId,
     employeeId: accountId,

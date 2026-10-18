@@ -4,6 +4,7 @@ import { isSpaceConversationSession } from "../../../packages/platformclaw-contr
 import type { RouteId } from "../app-route-paths.ts";
 import { selectApplicationSession } from "../app/agent-selection.ts";
 import type { ApplicationChatToolResult, ApplicationContext } from "../app/context.ts";
+import type { ChatAccessoryHost } from "../lib/chat/chat-types.ts";
 import { isSessionRunActive } from "../lib/session-run-state.ts";
 import { sessionNavigationTarget } from "../lib/sessions/route-navigation.ts";
 import {
@@ -11,10 +12,9 @@ import {
   resolveUiSelectedSessionAgentId,
 } from "../lib/sessions/session-key.ts";
 import type { ChatHistoryResult } from "../pages/chat/chat-history.ts";
-import type { ChatPageHost } from "../pages/chat/chat-state-host.ts";
-import type { PlatformClawSessionIdentity } from "./control-ui-adapter.ts";
 import type { PlatformClawExecCredentialsElement } from "./exec-credentials.ts";
 import { platformClawT as t } from "./i18n.ts";
+import type { PlatformClawSessionIdentity } from "./web-contract.ts";
 import { PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH } from "./web-contract.ts";
 
 const FLOW_TTL_MS = 30 * 60_000;
@@ -98,7 +98,7 @@ export class PlatformClawCredentialFlow {
   private application: ApplicationContext<RouteId> | null = null;
   private stopGateway: (() => void) | null = null;
   private owner: { client: object; hello: object } | null = null;
-  private host: ChatPageHost | null = null;
+  private host: ChatAccessoryHost | null = null;
   private state: FlowState | null = null;
   private busy = false;
   private error: "unconfirmed" | "expired" | null = null;
@@ -170,7 +170,7 @@ export class PlatformClawCredentialFlow {
     }
   };
 
-  capture(host: ChatPageHost, result: ApplicationChatToolResult): void {
+  capture(host: ChatAccessoryHost, result: ApplicationChatToolResult): void {
     const action = credentialAction(result.details);
     const agentId = resolveUiSelectedSessionAgentId(host);
     const parsed = parseAgentSessionKey(host.sessionKey);
@@ -311,7 +311,7 @@ export class PlatformClawCredentialFlow {
     }
   };
 
-  render(host: ChatPageHost): unknown {
+  render(host: ChatAccessoryHost): unknown {
     const state = this.state;
     if (!state || state.phase === "submitted") {
       return nothing;
@@ -464,7 +464,7 @@ export class PlatformClawCredentialFlow {
     );
   }
 
-  private hostCurrent(host: ChatPageHost, state: PendingFlow): boolean {
+  private hostCurrent(host: ChatAccessoryHost, state: PendingFlow): boolean {
     return (
       this.connectionCurrent() &&
       Date.now() < state.expiresAt &&
@@ -633,7 +633,7 @@ export class PlatformClawCredentialFlow {
     }
   }
 
-  private async continueConversation(host: ChatPageHost): Promise<void> {
+  private async continueConversation(host: ChatAccessoryHost): Promise<void> {
     const state = this.pending();
     if (
       state?.phase !== "saved" ||

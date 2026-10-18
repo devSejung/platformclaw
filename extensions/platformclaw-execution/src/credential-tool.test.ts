@@ -1,10 +1,10 @@
+import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import {
   createPluginRegistryFixture,
   registerVirtualTestPlugin,
 } from "openclaw/plugin-sdk/plugin-test-contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
-  createPlatformClawCredentialTool,
   registerPlatformClawCredentialTool,
   type PlatformClawCredentialRuntime,
 } from "./credential-tool.js";
@@ -21,23 +21,34 @@ function runtime(definitions = [{ envName: "REPORT_API_TOKEN", configured: false
   return { credentialMetadata: vi.fn(async () => ({ definitions })) };
 }
 
+function createPlatformClawCredentialTool(
+  toolContext: OpenClawPluginToolContext,
+  metadata: Promise<PlatformClawCredentialRuntime>,
+) {
+  const fixture = createPluginRegistryFixture();
+  registerVirtualTestPlugin({
+    ...fixture,
+    id: "platformclaw-execution",
+    name: "PlatformClaw Execution",
+    contracts: { tools: ["platformclaw_credentials"] },
+    register: (api) => registerPlatformClawCredentialTool(api, metadata),
+  });
+  expect(fixture.registry.registry.diagnostics).toEqual([]);
+  const registration = fixture.registry.registry.tools.find((entry) =>
+    entry.names.includes("platformclaw_credentials"),
+  );
+  const tool = registration?.factory(toolContext);
+  if (Array.isArray(tool)) {
+    throw new Error("credential tool registration returned multiple tools");
+  }
+  return tool ?? null;
+}
+
 describe("PlatformClaw credential tool", () => {
   it("materializes the registered tool for a sandboxed personal conversation and emits a stable bounded action", async () => {
     const metadata = runtime();
-    const fixture = createPluginRegistryFixture();
-    registerVirtualTestPlugin({
-      ...fixture,
-      id: "platformclaw-execution",
-      name: "PlatformClaw Execution",
-      contracts: { tools: ["platformclaw_credentials"] },
-      register: (api) => registerPlatformClawCredentialTool(api, Promise.resolve(metadata)),
-    });
-    expect(fixture.registry.registry.diagnostics).toEqual([]);
-    const registration = fixture.registry.registry.tools.find((entry) =>
-      entry.names.includes("platformclaw_credentials"),
-    );
-    const tool = registration?.factory(context);
-    if (!tool || Array.isArray(tool)) {
+    const tool = createPlatformClawCredentialTool(context, Promise.resolve(metadata));
+    if (!tool) {
       throw new Error("credential tool was not materialized");
     }
     const first = await tool.execute("call-one", {

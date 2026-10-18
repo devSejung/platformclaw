@@ -6,10 +6,10 @@ import type {
 import { parseAgentSessionKey } from "openclaw/plugin-sdk/routing";
 import { textResult } from "openclaw/plugin-sdk/tool-results";
 
-export const PLATFORMCLAW_CREDENTIAL_TOOL_NAME = "platformclaw_credentials";
+const PLATFORMCLAW_CREDENTIAL_TOOL_NAME = "platformclaw_credentials";
 
 type CredentialDefinition = { envName: string; configured: boolean };
-export type PlatformClawCredentialMetadata =
+type PlatformClawCredentialMetadata =
   | { definitions: CredentialDefinition[] }
   | { status: "unsupported"; code: "scope" };
 export type PlatformClawCredentialRuntime = {
@@ -90,7 +90,7 @@ function listResult(definitions: CredentialDefinition[]) {
   return build(selected.length < definitions.length);
 }
 
-export function createPlatformClawCredentialTool(
+function createPlatformClawCredentialTool(
   context: OpenClawPluginToolContext,
   runtime: Promise<PlatformClawCredentialRuntime>,
 ) {

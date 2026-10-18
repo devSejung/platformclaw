@@ -72,7 +72,7 @@ import {
   sendQueuedChatMessageWithQueueMode as sendQueuedChatMessageWithQueueModeLifecycle,
 } from "./steer-lifecycle.ts";
 
-export type ChatSendOptions = {
+type ChatSendOptions = {
   runId?: string;
   actionScope?: ChatSendActionScope;
   ignoreReplyTarget?: boolean;

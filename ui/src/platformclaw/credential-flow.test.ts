@@ -1,8 +1,11 @@
 import { render } from "lit";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ApplicationChatToolResult, ApplicationContext } from "../app/context.ts";
 import type { ChatPageHost } from "../pages/chat/chat-state-host.ts";
 import { PlatformClawCredentialFlow } from "./credential-flow.ts";
+import { loadAllPlatformClawLocales } from "./i18n.ts";
+
+beforeAll(loadAllPlatformClawLocales);
 
 const REQUEST_ID = "d745f81c-6421-4d72-8b68-baf4c3f04e11";
 

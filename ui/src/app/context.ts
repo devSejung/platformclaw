@@ -4,10 +4,10 @@ import type { RouteId } from "../app-route-paths.ts";
 import type { AgentIdentityCapability } from "../lib/agents/identity.ts";
 import type { AgentCapability } from "../lib/agents/index.ts";
 import type { ChannelCapability } from "../lib/channels/index.ts";
+import type { ChatAccessoryHost } from "../lib/chat/chat-types.ts";
 import type { RuntimeConfigCapability } from "../lib/config/index.ts";
 import type { SessionCapability } from "../lib/sessions/index.ts";
 import type { WorkboardCapability } from "../lib/workboard/capability.ts";
-import type { ChatPageHost } from "../pages/chat/chat-state-host.ts";
 import type { AgentSelectionCapability } from "./agent-selection.ts";
 import type { ApplicationConfigCapability } from "./config.ts";
 import type { ApplicationGateway } from "./gateway.ts";
@@ -132,9 +132,9 @@ export type ApplicationContext<TRouteId extends string = string> = {
   /** Product-owned control rendered by the page that owns its visible heading. */
   readonly renderPageHeaderAccessory?: (routeId: TRouteId) => unknown;
   /** Product-owned content rendered above this pane's composer. */
-  readonly renderChatAccessory?: (host: ChatPageHost) => unknown;
+  readonly renderChatAccessory?: (host: ChatAccessoryHost) => unknown;
   /** Runs at the accepted live-result boundary, before a final history refresh. */
-  readonly onChatToolResult?: (host: ChatPageHost, result: ApplicationChatToolResult) => void;
+  readonly onChatToolResult?: (host: ChatAccessoryHost, result: ApplicationChatToolResult) => void;
   readonly navigate: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly replace: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly revalidate: (routeId?: TRouteId) => Promise<void>;

@@ -12,18 +12,11 @@ import { loadPlatformClawChatRoute } from "./space-conversation-route.ts";
 import {
   PLATFORMCLAW_APP_PATH,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
+  type PlatformClawSessionIdentity,
   type PlatformClawWebDescriptor,
   readPlatformClawWebDescriptor,
 } from "./web-contract.ts";
 import { createPlatformClawWorkingTip } from "./working-tips.ts";
-
-export type PlatformClawSessionIdentity = {
-  accountId: string;
-  agentId: string;
-  displayName: string;
-  department: string;
-  globalRole: "member" | "admin";
-};
 
 type PlatformClawSessionPayload = {
   authenticated: true;
