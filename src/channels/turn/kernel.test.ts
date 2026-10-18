@@ -133,10 +133,19 @@ function createDispatch(
 ): DispatchReplyWithBufferedBlockDispatcher {
   return vi.fn(async (params) => {
     events.push("dispatch");
-    await params.dispatcherOptions.deliver(deliverPayload, { kind: "final" });
+    const delivery = await params.dispatcherOptions.deliver(deliverPayload, { kind: "final" });
+    // Match the core dispatcher's immediate native-suppression accounting. The
+    // real two-layer contract is exercised in lifecycle-visibility.test.ts.
+    const finalCount =
+      delivery &&
+      typeof delivery === "object" &&
+      "suppression" in delivery &&
+      !("finalization" in delivery)
+        ? 0
+        : 1;
     return {
-      queuedFinal: true,
-      counts: { tool: 0, block: 0, final: 1 },
+      queuedFinal: finalCount > 0,
+      counts: { tool: 0, block: 0, final: finalCount },
     };
   }) as DispatchReplyWithBufferedBlockDispatcher;
 }
@@ -482,8 +491,19 @@ describe("channel turn kernel", () => {
     const deliver = vi.fn(async () => ({ visibleReplySent: true }));
     dispatchReplyWithRoutedChannelDispatcherCore.mockImplementationOnce(async (params) => {
       await params.dispatcherOptions.deliver({ text: "deliver me" }, { kind: "block" });
-      await params.dispatcherOptions.deliver({ text: "cancel me" }, { kind: "final" });
-      return { queuedFinal: true, counts: { tool: 0, block: 1, final: 1 } };
+      const cancelled = await params.dispatcherOptions.deliver(
+        { text: "cancel me" },
+        { kind: "final" },
+      );
+      expect(cancelled).toMatchObject({
+        visibleReplySent: false,
+        suppression: {
+          reason: "cancelled_by_message_sending_hook",
+        },
+      });
+      // The real dispatcher already removes this immediate cancellation before
+      // its result reaches lifecycle reconciliation; retain the delivered block.
+      return { queuedFinal: false, counts: { tool: 0, block: 1, final: 0 } };
     });
 
     const result = await dispatchChannelInboundTurn({

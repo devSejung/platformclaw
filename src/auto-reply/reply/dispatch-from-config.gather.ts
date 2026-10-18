@@ -24,6 +24,7 @@ import { stripLegacyMediaContextFields } from "../../media/media-facts.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { withPluginRuntimeRegistryScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { normalizeTtsAutoMode } from "../../tts/tts-config.js";
+import { createMessageDataContext } from "../command-turn-context.js";
 import type { FinalizedRuntimeMsgContext as FinalizedMsgContext } from "../templating.js";
 import { normalizeVerboseLevel } from "../thinking.js";
 import type {
@@ -59,9 +60,12 @@ export async function gatherDispatchRequest(
   params: DispatchFromConfigParams,
   messageAuditTerminal: InboundMessageAuditTerminalRecorder | undefined,
 ) {
-  const ctx = isFinalizedInboundContext(params.ctx)
-    ? params.ctx
-    : finalizeInboundContext(params.ctx);
+  // Normalize bound answers before target lookup and source-policy selection,
+  // so slash-like data cannot reroute or suppress its own visible outcome.
+  const inbound = params.replyOptions?.questionAnswerBinding
+    ? createMessageDataContext(params.ctx)
+    : params.ctx;
+  const ctx = isFinalizedInboundContext(inbound) ? inbound : finalizeInboundContext(inbound);
   const normalizedParams = ctx === params.ctx ? params : { ...params, ctx };
   const state = {
     params: normalizedParams,

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "../../config/sessions.js";
+import { getReplyPayloadAgentRunTerminalOutcome } from "../reply-payload.js";
+import { registerFollowupPreflightGenerationFailureTests } from "./followup-turn-admission.generation.test-utils.js";
 import type { FollowupRun } from "./queue.js";
 
 const state = vi.hoisted(() => ({
@@ -58,7 +60,8 @@ vi.mock("./compaction-notice.js", () => ({
   shouldNotifyUserAboutCompaction: () => state.shouldNotifyCompaction,
 }));
 
-vi.mock("./agent-runner-failure-reply.js", () => ({
+vi.mock("./agent-runner-failure-reply.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-runner-failure-reply.js")>()),
   buildPreflightCompactionFailureText: (...args: unknown[]) =>
     state.buildPreflightFailureText(...args),
 }));
@@ -293,7 +296,9 @@ describe("admitFollowupTurn", () => {
     expect(result.kind).toBe("admitted");
     if (result.kind === "admitted") {
       expect(result.turn.queued.run.modelSelectionLocked).toBe(false);
+      expect(result.turn.session.current()).toBeUndefined();
     }
+    expect(sessionStore.main).toBe(staleEntry);
     expect(state.preflight).toHaveBeenCalledWith(
       expect.objectContaining({ sessionEntry: undefined }),
     );
@@ -302,6 +307,14 @@ describe("admitFollowupTurn", () => {
     };
     expect(preflightParams.sessionStore?.main).toBeUndefined();
     expect(state.refreshGoal).toHaveBeenCalledWith(undefined, undefined);
+  });
+
+  registerFollowupPreflightGenerationFailureTests({
+    admitFollowupTurn,
+    createOperation,
+    createRun,
+    createDefaults,
+    state,
   });
 
   it.each([
@@ -318,12 +331,16 @@ describe("admitFollowupTurn", () => {
       mode: "memory",
     },
     {
+      name: "restores the item when source adoption replaces the in-memory generation",
+      mode: "memory-adoption",
+    },
+    {
       name: "restores the item when the admitted persisted generation disappears",
       mode: "disappeared",
     },
   ] as const)("$name", async ({ mode }) => {
     const operation = createOperation();
-    const hasRevision = mode === "persisted-revision" || mode === "memory";
+    const hasRevision = mode === "persisted-revision" || mode.startsWith("memory");
     const initialEntry: SessionEntry = {
       sessionId: "queued-session",
       ...(hasRevision ? { lifecycleRevision: "admitted" } : {}),
@@ -337,7 +354,13 @@ describe("admitFollowupTurn", () => {
     };
     const sessionStore = { main: initialEntry };
     state.admitReply.mockResolvedValue({ status: "owned", operation, sessionEntry: initialEntry });
-    if (mode === "memory") {
+    if (mode.startsWith("memory")) {
+      const replaceGeneration = async () => {
+        sessionStore.main = replacementEntry;
+      };
+      if (mode === "memory-adoption") {
+        state.admitLifecycle.mockImplementation(replaceGeneration);
+      }
       await expect(
         admitFollowupTurn({
           queued: createRun(),
@@ -345,9 +368,7 @@ describe("admitFollowupTurn", () => {
             sessionEntry: initialEntry,
             sessionStore,
             opts: {
-              onQueuedFollowupAdmitted: vi.fn(async () => {
-                sessionStore.main = replacementEntry;
-              }),
+              onQueuedFollowupAdmitted: mode === "memory" ? replaceGeneration : undefined,
             },
           }),
         }),
@@ -363,6 +384,40 @@ describe("admitFollowupTurn", () => {
     }
     expect(operation.complete).toHaveBeenCalledOnce();
     expect(state.preflight).not.toHaveBeenCalled();
+  });
+
+  it("refreshes same-generation state and policy after presentation admission", async () => {
+    const operation = createOperation();
+    const initialEntry: SessionEntry = { sessionId: "queued-session", updatedAt: 1 };
+    const refreshedEntry: SessionEntry = { ...initialEntry, updatedAt: 2, sendPolicy: "deny" };
+    const sessionStore = { main: initialEntry };
+    const onSourceReplyDeliveryPolicy = vi.fn();
+    state.admitReply.mockResolvedValue({ status: "owned", operation, sessionEntry: initialEntry });
+    state.preflight.mockImplementation(async ({ sessionEntry }) => {
+      expect(sessionEntry).toBe(refreshedEntry);
+      expect(onSourceReplyDeliveryPolicy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sendPolicyDenied: true }),
+      );
+      return sessionEntry;
+    });
+
+    const result = await admitFollowupTurn({
+      queued: createRun(),
+      defaults: createDefaults({
+        sessionEntry: initialEntry,
+        sessionStore,
+        opts: {
+          onSourceReplyDeliveryPolicy,
+          onQueuedFollowupAdmitted: async () => {
+            sessionStore.main = refreshedEntry;
+            state.sendPolicy = "deny";
+          },
+        },
+      }),
+    });
+
+    expect(result).toMatchObject({ kind: "admitted", turn: { sendPolicy: "deny" } });
+    expect(state.preflight).toHaveBeenCalledOnce();
   });
 
   it("advances the owned lifecycle generation only through explicit adoption", async () => {
@@ -761,11 +816,12 @@ describe("admitFollowupTurn", () => {
     const onCompactionNoticePayload = vi.fn(async () => {});
     state.shouldNotifyCompaction = true;
     state.admitReply.mockResolvedValue({ status: "owned", operation, sessionEntry: initialEntry });
-    state.loadEntry.mockReturnValueOnce(initialEntry).mockReturnValue(deniedEntry);
+    state.loadEntry.mockReturnValue(initialEntry);
     state.resolveSendPolicy.mockImplementation(({ entry }) =>
       entry === deniedEntry ? "deny" : "allow",
     );
     state.preflight.mockImplementation(async ({ onCompactionNotice }) => {
+      state.loadEntry.mockReturnValue(deniedEntry);
       await onCompactionNotice?.("end");
       return deniedEntry;
     });
@@ -920,8 +976,9 @@ describe("admitFollowupTurn", () => {
     const onCompactionNoticePayload = vi.fn(async () => {});
     state.shouldNotifyCompaction = true;
     state.admitReply.mockResolvedValue({ status: "owned", operation, sessionEntry: initialEntry });
-    state.loadEntry.mockReturnValueOnce(initialEntry).mockReturnValue(replacementEntry);
+    state.loadEntry.mockReturnValue(initialEntry);
     state.preflight.mockImplementation(async ({ onCompactionNotice }) => {
+      state.loadEntry.mockReturnValue(replacementEntry);
       await onCompactionNotice?.("end");
       return initialEntry;
     });
@@ -943,8 +1000,9 @@ describe("admitFollowupTurn", () => {
     const replacementEntry: SessionEntry = { sessionId: "replacement-session", updatedAt: 2 };
     state.shouldNotifyCompaction = true;
     state.admitReply.mockResolvedValue({ status: "owned", operation, sessionEntry: initialEntry });
-    state.loadEntry.mockReturnValueOnce(initialEntry).mockReturnValue(replacementEntry);
+    state.loadEntry.mockReturnValue(initialEntry);
     state.preflight.mockImplementation(async ({ onCompactionNotice }) => {
+      state.loadEntry.mockReturnValue(replacementEntry);
       try {
         await onCompactionNotice?.("start");
       } catch {
@@ -975,8 +1033,16 @@ describe("admitFollowupTurn", () => {
 
     expect(result).toMatchObject({
       kind: "admitted",
-      turn: { preflightFailurePayload: { text: "preflight failed" } },
+      turn: { preflightFailurePayload: { text: "preflight failed", isError: true } },
     });
+    if (result.kind === "admitted") {
+      expect(
+        getReplyPayloadAgentRunTerminalOutcome(result.turn.preflightFailurePayload!),
+      ).toMatchObject({
+        status: "error",
+        error: "preflight failed",
+      });
+    }
     expect(operation.fail).toHaveBeenCalledWith("run_failed", expect.any(Error));
   });
 

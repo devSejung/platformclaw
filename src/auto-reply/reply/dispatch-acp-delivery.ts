@@ -16,10 +16,8 @@ import { resolveConfiguredTtsMode, shouldCleanTtsDirectiveText } from "../../tts
 import { isReplyPayloadStatusNotice } from "../reply-payload.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { ReplyPayload } from "../types.js";
-import {
-  captureReplyDispatchDeliveryOutcome,
-  waitForReplyDispatcherIdle,
-} from "./reply-dispatcher.js";
+import { captureReplyDispatchDeliveryOutcome } from "./reply-dispatcher-outcome.js";
+import { waitForReplyDispatcherIdle } from "./reply-dispatcher.js";
 import type { ReplyDispatchKind, ReplyDispatcher } from "./reply-dispatcher.types.js";
 import { readDispatcherFailedCounts } from "./reply-dispatcher.types.js";
 import {

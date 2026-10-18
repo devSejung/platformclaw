@@ -47,6 +47,20 @@ export type CommandTurnContextInput = {
   BotUsername?: unknown;
 };
 
+/** Preserve answer text as data while disabling every command projection. */
+export function createMessageDataContext<T extends CommandTurnContextInput>(ctx: T) {
+  return {
+    ...ctx,
+    commandText: "",
+    BodyForCommands: "",
+    CommandBody: "",
+    CommandSource: undefined,
+    CommandTargetSessionKey: undefined,
+    CommandAuthorized: false,
+    CommandTurn: createCommandTurnContext("message", { authorized: false }),
+  };
+}
+
 function resolveCommandBody(input: CommandTurnContextInput): string | undefined {
   if (typeof input.commandText === "string") {
     return input.commandText;

@@ -6,6 +6,7 @@ import {
 } from "openclaw/plugin-sdk/channel-outbound";
 import { runDetachedWebhookWork } from "openclaw/plugin-sdk/webhook-request-guards";
 import { resolveKnoxCommandText } from "./command-text.js";
+import type { KnoxQuestionAnswerBinding } from "./input-routing.js";
 import { KnoxOutboundError } from "./outbound.js";
 import { getKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage } from "./types.js";
@@ -13,6 +14,9 @@ import type { KnoxInboundMessage } from "./types.js";
 const VERSION = 1;
 
 type StoredKnoxIngress = { version: 1; rawEvent: string };
+type AdmittedKnoxMessage = KnoxInboundMessage & {
+  questionAnswerBinding?: KnoxQuestionAnswerBinding;
+};
 export type KnoxIngressLifecycle = Omit<ChannelIngressMonitorLifecycle, "onAdoptionFinalizing">;
 
 export const KnoxIngressPermanentError = createChannelIngressError<
@@ -22,8 +26,14 @@ export const KnoxIngressPermanentError = createChannelIngressError<
 export function createKnoxIngress(options: {
   accountId: string;
   queue?: ChannelIngressQueue<StoredKnoxIngress>;
-  dispatch: (message: KnoxInboundMessage, lifecycle: KnoxIngressLifecycle) => Promise<void>;
-  isPendingQuestionReply?: (message: KnoxInboundMessage) => Promise<boolean>;
+  dispatch: (
+    message: KnoxInboundMessage,
+    lifecycle: KnoxIngressLifecycle,
+    questionAnswerBinding?: KnoxQuestionAnswerBinding,
+  ) => Promise<void>;
+  resolveQuestionAnswerBinding?: (
+    message: KnoxInboundMessage,
+  ) => Promise<KnoxQuestionAnswerBinding | undefined>;
   notifyQueued?: (
     message: KnoxInboundMessage,
     context: { aheadCount: number; abortSignal: AbortSignal },
@@ -32,7 +42,7 @@ export function createKnoxIngress(options: {
   abortSignal?: AbortSignal;
 }) {
   const inspect = (
-    message: KnoxInboundMessage,
+    message: AdmittedKnoxMessage,
     context?: { phase: "admission" | "claim"; claimedLaneKey?: string },
   ) => {
     const command = resolveKnoxCommandText(message.message.text).trim().split(/\s+/u)[0];
@@ -40,16 +50,17 @@ export function createKnoxIngress(options: {
     const conversationId = message.conversation.conversationId;
     return {
       eventId: message.messageId,
-      // A question can resolve before its durable reply is reclaimed. Preserve the
-      // admitted control lane; dispatch still rechecks routing and command authority.
+      // The durable binding survives reclaim; a stale answer must never become
+      // ordinary work or answer a replacement question sharing the same choices.
       laneKey:
         control ||
+        message.questionAnswerBinding ||
         (context?.phase === "claim" && context.claimedLaneKey === `${conversationId}:control`)
           ? `${conversationId}:control`
           : conversationId,
     };
   };
-  const monitor = createChannelIngressMonitor<KnoxInboundMessage, string, StoredKnoxIngress>({
+  const monitor = createChannelIngressMonitor<AdmittedKnoxMessage, string, StoredKnoxIngress>({
     queue:
       options.queue ??
       (() =>
@@ -63,9 +74,9 @@ export function createKnoxIngress(options: {
       version: VERSION,
       serialize: (message) => JSON.stringify(message),
       deserialize: (rawEvent, { claim }) => {
-        let message: KnoxInboundMessage;
+        let message: AdmittedKnoxMessage;
         try {
-          message = JSON.parse(rawEvent) as KnoxInboundMessage;
+          message = JSON.parse(rawEvent) as AdmittedKnoxMessage;
         } catch (error) {
           throw new KnoxIngressPermanentError("invalid-event", "Knox ingress JSON is invalid", {
             cause: error,
@@ -85,7 +96,9 @@ export function createKnoxIngress(options: {
     // A delivery may outlive the pump that claimed it when another lane (notably
     // /stop) repumps. Give every delivery its own Gateway root lease.
     deliver: async (message, lifecycle) =>
-      await runDetachedWebhookWork(async () => await options.dispatch(message, lifecycle)),
+      await runDetachedWebhookWork(
+        async () => await options.dispatch(message, lifecycle, message.questionAnswerBinding),
+      ),
     pollIntervalMs: 500,
     sequencedAdmission: true,
     onQueued: options.notifyQueued
@@ -131,14 +144,12 @@ export function createKnoxIngress(options: {
 
   let admission = Promise.resolve();
   const admit = async (message: KnoxInboundMessage) => {
-    const facts = inspect(message);
-    if (
-      facts.laneKey === message.conversation.conversationId &&
-      (await options.isPendingQuestionReply?.(message))
-    ) {
-      facts.laneKey = `${message.conversation.conversationId}:control`;
-    }
-    const result = await monitor.admit(message, { facts });
+    const questionAnswerBinding =
+      inspect(message).laneKey === message.conversation.conversationId
+        ? await options.resolveQuestionAnswerBinding?.(message)
+        : undefined;
+    const admitted = { ...message, questionAnswerBinding };
+    const result = await monitor.admit(admitted, { facts: inspect(admitted) });
     return { duplicate: result.kind === "durable" && result.queueResult.duplicate };
   };
   return {

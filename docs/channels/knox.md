@@ -22,6 +22,9 @@ question with its option number or option text. For multiple choices, separate
 numbers or labels with commas, such as `1, 2`. Answers to an active question,
 `/approve` commands, and `/stop` can reach the running task while ordinary new
 requests keep their conversation order. Approval authorization still applies.
+Each admitted answer stays bound to its original question. A duplicate or late
+answer receives a notice if that question has already closed; it cannot answer
+a replacement question or start a new task.
 
 Attachment results include readable descriptions and validated public links
 when available. Private file paths, internal links, and sensitive media references

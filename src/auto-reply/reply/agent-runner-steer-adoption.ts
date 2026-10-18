@@ -1,7 +1,16 @@
+import { expectDefined } from "@openclaw/normalization-core";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { isIngressAdoptionLostError } from "../../channels/message/ingress-drain.js";
 import { logVerbose } from "../../globals.js";
+import { runBeforeAgentReplyForTurn } from "../../plugins/before-agent-reply.js";
+import {
+  buildAgentHookContextChannelFields,
+  buildAgentHookContextIdentityFields,
+} from "../../plugins/hook-agent-context.js";
+import type { RunReplyAgentParams } from "./agent-runner-core.js";
 import type { ReplyOperationRunState } from "./reply-operation-run-state.js";
 import { type ReplyOperation, replyRunRegistry } from "./reply-run-registry.js";
+import { buildChannelSourceTurnId } from "./source-turn-id.js";
 
 export async function finalizeAcceptedSteer(params: {
   activeReplyOperation: ReplyOperation | undefined;
@@ -54,4 +63,65 @@ export async function finalizeAcceptedSteer(params: {
     return "stop";
   }
   return "continue";
+}
+
+export async function runSteeredTurnBeforeReply(
+  params: Pick<RunReplyAgentParams, "followupRun" | "sessionCtx" | "opts" | "sessionKey"> & {
+    steerSessionId: string;
+    sourceTurnId: string | undefined;
+  },
+) {
+  const { followupRun, sessionCtx, opts, sessionKey, steerSessionId, sourceTurnId } = params;
+  // Channel dispatch normally stamps the route-scoped source id. Internal
+  // callers can derive the same per-message identity from the prepared turn.
+  const steerRunId = expectDefined(
+    sourceTurnId ??
+      buildChannelSourceTurnId({
+        provider:
+          followupRun.originatingChannel ?? followupRun.run.messageProvider ?? sessionCtx.Provider,
+        accountId:
+          followupRun.originatingAccountId ??
+          followupRun.run.agentAccountId ??
+          sessionCtx.AccountId,
+        conversationId:
+          followupRun.originatingTo ??
+          followupRun.originatingChatId ??
+          sessionKey ??
+          followupRun.run.sessionKey,
+        messageId: followupRun.messageId ?? sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
+      }) ??
+      normalizeOptionalString(opts?.runId),
+    "steered turn id",
+  );
+  const trigger = "user";
+  const hookResult = await runBeforeAgentReplyForTurn({
+    runId: steerRunId,
+    trigger,
+    event: { cleanedBody: followupRun.prompt },
+    context: {
+      runId: steerRunId,
+      agentId: followupRun.run.agentId,
+      sessionKey: sessionKey ?? followupRun.run.sessionKey,
+      sessionId: steerSessionId,
+      workspaceDir: followupRun.run.workspaceDir,
+      modelProviderId: followupRun.run.provider,
+      modelId: followupRun.run.model,
+      trigger,
+      ...buildAgentHookContextChannelFields({
+        sessionKey: sessionKey ?? followupRun.run.sessionKey,
+        messageChannel: followupRun.originatingChannel,
+        messageProvider: followupRun.run.messageProvider,
+        currentChannelId: followupRun.originatingChatId,
+        messageTo: followupRun.originatingTo,
+        senderId: followupRun.run.senderId,
+      }),
+      ...buildAgentHookContextIdentityFields({
+        trigger,
+        senderId: followupRun.run.senderId,
+        chatId: followupRun.originatingChatId,
+        channelContext: followupRun.run.channelContext,
+      }),
+    },
+  });
+  return hookResult;
 }

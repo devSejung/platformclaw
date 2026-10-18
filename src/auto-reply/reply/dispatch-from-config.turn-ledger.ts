@@ -8,7 +8,7 @@ import type { ReplyPayload } from "../reply-payload.js";
 import {
   captureReplyDispatchDeliveryOutcome,
   type ReplyDispatchDeliveryOutcome,
-} from "./reply-dispatcher.js";
+} from "./reply-dispatcher-outcome.js";
 import type { ReplyDispatchKind, ReplyDispatcher } from "./reply-dispatcher.types.js";
 
 // Failsafe for transports that never settle: the completion barrier bounds
@@ -82,6 +82,8 @@ export function createReplyTurnLedger(dispatcher: ReplyDispatcher): ReplyTurnLed
         return { queued: true };
       }
       pendingOutcomes.push(
+        // Native finalization may need onIdle, which runs after this gate. Its
+        // admission stays conservative; pending replay cleanup uses capture.finalization.
         capture.promise.then((outcome) => {
           if (outcome === "not-visible") {
             nonVisibleDelivery = true;
@@ -96,7 +98,7 @@ export function createReplyTurnLedger(dispatcher: ReplyDispatcher): ReplyTurnLed
           }
         }),
       );
-      return { queued: true, outcome: capture.promise };
+      return { queued: true, outcome: kind === "final" ? capture.finalization : capture.promise };
     },
     recordRoutedDelivery(payload, delivered) {
       deliveryAttempted = true;

@@ -27,6 +27,7 @@ export type {
 export {
   buildTtsSupplementMediaPayload,
   FAST_MODE_AUTO_PROGRESS_KIND,
+  getReplyPayloadAgentRunTerminalOutcome,
   getReplyPayloadNoVisibleReplyReason,
   getReplyPayloadTtsSupplement,
   isFastModeAutoProgressPayload,

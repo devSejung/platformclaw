@@ -1,3 +1,4 @@
+import type { AgentRunTerminalOutcome } from "../agents/agent-run-terminal-outcome.js";
 import type { OutboundLocation } from "../channels/location.js";
 /** Reply payload contracts and metadata helpers shared by dispatch and channel renderers. */
 import type { ReplyToMode } from "../config/types.base.js";
@@ -240,10 +241,13 @@ export type NoVisibleReplyReason =
   | "delivery-not-visible"
   | "filtered-result"
   | "empty-result"
+  | "question-unavailable"
   | "unknown";
 
 /** WeakMap-backed metadata attached to payload objects without changing wire shape. */
 export type ReplyPayloadMetadata = {
+  /** Authoritative runner failure, retained even when group policy hides its text. */
+  agentRunTerminalOutcome?: AgentRunTerminalOutcome;
   /** Identifies a core-authored recovery notice without matching its display text. */
   noVisibleReplyReason?: NoVisibleReplyReason;
   assistantMessageIndex?: number;
@@ -320,7 +324,14 @@ export function getReplyPayloadMetadata(payload: object): ReplyPayloadMetadata |
   return replyPayloadMetadata.get(payload);
 }
 
-/** Reads the recorded reason on a core-authored missing-reply recovery notice. */
+/** Reads the runner's terminal outcome without interpreting user-facing error copy. */
+export function getReplyPayloadAgentRunTerminalOutcome(
+  payload: object,
+): AgentRunTerminalOutcome | undefined {
+  return getReplyPayloadMetadata(payload)?.agentRunTerminalOutcome;
+}
+
+/** Reads the producer's recorded reason for missing visible output. */
 export function getReplyPayloadNoVisibleReplyReason(
   payload: object,
 ): NoVisibleReplyReason | undefined {

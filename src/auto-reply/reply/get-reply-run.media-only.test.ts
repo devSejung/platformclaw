@@ -15,8 +15,18 @@ import {
 import type { SessionEntry } from "../../config/sessions.js";
 import { HEARTBEAT_RUN_SCOPE } from "../../infra/heartbeat-run-scope.js";
 import { MESSAGE_TOOL_ONLY_DELIVERY_HINT } from "../../plugin-sdk/message-tool-delivery-hints.js";
+import {
+  captureActivePluginRegistrySnapshot,
+  restoreActivePluginRegistrySnapshot,
+  setActivePluginRegistry,
+} from "../../plugins/runtime.js";
 import { createUserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
+import {
+  createChannelTestPluginBase,
+  createTestRegistry,
+} from "../../test-utils/channel-plugins.js";
 import { normalizeSessionDeliveryState } from "../../utils/delivery-context.shared.js";
+import { getReplyPayloadNoVisibleReplyReason } from "../reply-payload.js";
 import { runReplyAgent } from "./agent-runner.runtime.js";
 import { applySessionHints } from "./body.js";
 import {
@@ -70,6 +80,12 @@ vi.mock("../../config/sessions/paths.js", async (importOriginal) => ({
 const loadSessionEntryMock = vi.hoisted(() => vi.fn());
 const updateAmbientTranscriptWatermarkMock = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const consumeSessionSkillSuggestionMock = vi.hoisted(() => vi.fn());
+const steeredBeforeReplyMock = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock("../../plugins/before-agent-reply.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../plugins/before-agent-reply.js")>()),
+  runBeforeAgentReplyForTurn: steeredBeforeReplyMock,
+}));
 
 vi.mock("../../config/sessions/session-accessor.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../config/sessions/session-accessor.js")>();
@@ -124,6 +140,22 @@ vi.mock("../command-detection.js", async (importOriginal) => ({
 
 vi.mock("./agent-runner.runtime.js", () => ({
   runReplyAgent: vi.fn().mockResolvedValue({ text: "ok" }),
+}));
+
+// These paths are unreachable during the real steering proof. Avoid loading the
+// full provider/memory graph; fail loudly if an answer instead starts new work.
+vi.mock("./agent-runner-execute.js", () => ({
+  createReplyAgentRestartRecoveryController: () => {
+    throw new Error("unexpected new run");
+  },
+  executePreparedReplyAgentRun: () => {
+    throw new Error("unexpected provider execution");
+  },
+}));
+vi.mock("./followup-runner.js", () => ({
+  createFollowupRunner: () => {
+    throw new Error("unexpected followup execution");
+  },
 }));
 
 vi.mock("./body.js", () => ({
@@ -349,6 +381,7 @@ function requireLastRunReplyAgentCall() {
 
 describe("runPreparedReply media-only handling", () => {
   const cleanupPaths: string[] = [];
+  let pluginRegistrySnapshot: ReturnType<typeof captureActivePluginRegistrySnapshot>;
 
   beforeAll(async () => {
     // Preload the runtime seams directly so test setup does not need a synthetic
@@ -361,6 +394,21 @@ describe("runPreparedReply media-only handling", () => {
   });
 
   beforeEach(async () => {
+    pluginRegistrySnapshot = captureActivePluginRegistrySnapshot();
+    // The real Knox gateway has registered its channel before answering. Model
+    // that precondition while retaining the actual threading/queue lookup path.
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "knox",
+          plugin: createChannelTestPluginBase({
+            id: "knox",
+            capabilities: { chatTypes: ["direct", "group"] },
+          }),
+          source: "test",
+        },
+      ]),
+    );
     loadSessionEntryMock.mockReset();
     consumeSessionSkillSuggestionMock.mockReset();
     updateAmbientTranscriptWatermarkMock.mockClear();
@@ -375,6 +423,7 @@ describe("runPreparedReply media-only handling", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    restoreActivePluginRegistrySnapshot(pluginRegistrySnapshot);
     const paths = cleanupPaths.splice(0);
     return Promise.all(paths.map((entry) => rm(entry, { recursive: true, force: true })));
   });
@@ -1894,9 +1943,17 @@ describe("runPreparedReply media-only handling", () => {
       activeOperation.complete();
     }
   });
-  it.each(["steer", "followup", "collect", "interrupt"] as const)(
-    "resumes a live question in %s queue mode",
-    async (mode) => {
+  it.each(
+    (["steer", "followup", "collect", "interrupt"] as const).flatMap((mode) =>
+      [
+        { bound: false, stale: false },
+        { bound: true, stale: false },
+        { bound: true, stale: true },
+      ].map((binding) => ({ mode, bound: binding.bound, stale: binding.stale })),
+    ),
+  )(
+    "handles question in $mode queue mode (bound=$bound stale=$stale)",
+    async ({ mode, bound, stale }) => {
       const { runReplyAgent: executeReplyAgent } = await import("./agent-runner-run.js");
       const queueSettings = await import("./queue/settings-runtime.js");
       const embeddedAgentRuntime = await import("../../agents/embedded-agent.runtime.js");
@@ -1969,7 +2026,7 @@ describe("runPreparedReply media-only handling", () => {
       };
       try {
         vi.mocked(runReplyAgent).mockImplementation(executeReplyAgent);
-        await runPreparedReply(
+        const result = await runPreparedReply(
           baseParams({
             isNewSession: false,
             sessionId: "active-question-session",
@@ -1979,7 +2036,18 @@ describe("runPreparedReply media-only handling", () => {
               ThreadHistoryBody: "Previous discussion",
             },
             sessionCtx: { ...createSessionTurn("1", "knox", "group"), ...inboundIdentity },
-            opts: { userTurnTranscriptRecorder: recorder, turnAdoptionLifecycle: { onAdopted } },
+            opts: {
+              userTurnTranscriptRecorder: recorder,
+              turnAdoptionLifecycle: { onAdopted },
+              ...(bound
+                ? {
+                    questionAnswerBinding: {
+                      sessionKey: "session-key",
+                      questionId: stale ? "ask_previous" : "ask_queue_modes",
+                    },
+                  }
+                : {}),
+            },
           }),
         );
         const call = requireLastRunReplyAgentCall();
@@ -1987,9 +2055,17 @@ describe("runPreparedReply media-only handling", () => {
         expect(call.resolvedQueue.mode).toBe("steer");
         expect(embeddedAgentRuntime.abortEmbeddedAgentRun).not.toHaveBeenCalled();
         expect(handle.abort).not.toHaveBeenCalled();
-        expect(handle.queueMessage).toHaveBeenCalledOnce();
-        expect(persistApproved).toHaveBeenCalledOnce();
-        expect(onAdopted).toHaveBeenCalledOnce();
+        expect(handle.queueMessage).toHaveBeenCalledTimes(bound ? 0 : 1);
+        expect(steeredBeforeReplyMock).toHaveBeenCalledTimes(bound ? 0 : 1);
+        expect(persistApproved).toHaveBeenCalledTimes(stale ? 0 : 1);
+        expect(onAdopted).toHaveBeenCalledTimes(stale ? 0 : 1);
+        if (stale) {
+          expect(result).toMatchObject({ isError: true });
+          if (!result || Array.isArray(result)) {
+            throw new Error("expected one stale-question reply");
+          }
+          expect(getReplyPayloadNoVisibleReplyReason(result)).toBe("question-unavailable");
+        }
       } finally {
         vi.mocked(runReplyAgent).mockImplementation(originalReplyAgent);
         question.dispose();

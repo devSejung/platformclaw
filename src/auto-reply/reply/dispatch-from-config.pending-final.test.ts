@@ -10,7 +10,8 @@ import {
   clearPendingFinalDeliveryAfterSuccess,
   reconcilePendingFinalDeliveryAfterSettlement,
 } from "./dispatch-from-config.pending-final.js";
-import { captureReplyDispatchDeliveryOutcome, createReplyDispatcher } from "./reply-dispatcher.js";
+import { captureReplyDispatchDeliveryOutcome } from "./reply-dispatcher-outcome.js";
+import { createReplyDispatcher } from "./reply-dispatcher.js";
 import { retireTerminalRestartRecoverySourceClaim } from "./restart-recovery-claim.js";
 
 describe("pending final delivery restart proof", () => {

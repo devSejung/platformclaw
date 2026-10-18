@@ -368,9 +368,10 @@ export async function prepareReplyRunAdmission(
       sessionKey: sessionKey ?? sessionIdFinal,
       text: baseBodyFinal,
     });
-  const resolvedQueue = answeringQuestion
-    ? { ...configuredQueue, mode: "steer" as const }
-    : configuredQueue;
+  const resolvedQueue =
+    answeringQuestion || opts?.questionAnswerBinding
+      ? { ...configuredQueue, mode: "steer" as const }
+      : configuredQueue;
   const embeddedAgentRuntime = useFastReplyRuntime
     ? null
     : await traceRunPhase("reply.load_embedded_agent_runtime", () => loadEmbeddedAgentRuntime());

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { captureReplyDispatchDeliveryOutcome, createReplyDispatcher } from "./reply-dispatcher.js";
+import { captureReplyDispatchDeliveryOutcome } from "./reply-dispatcher-outcome.js";
+import { createReplyDispatcher } from "./reply-dispatcher.js";
 
 describe("channel-attested reply visibility", () => {
   it.each([undefined, { visibleReplySent: true }, { visibleReplySent: false }])(

@@ -214,8 +214,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: auth-profile preservation decision for native model pickers.
       // -3: expired Pi SDK aliases and the memory embedding registrar removed.
       // -854: retired facade and hook exports, with focused replacements retained.
-      // +4: missing-reply diagnosis type/getter, pending-answer query, terminal error projection.
-      3978,
+      // +5: missing-reply diagnosis type/getter, bound-question query, terminal error/payload readers.
+      3979,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -265,8 +265,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: auth-profile preservation decision for native model pickers.
       // -1: expired memory embedding registrar removed.
       // -524: retired callable facade exports with canonical owners retained.
-      // +3: canonical missing-reply, pending-answer, and terminal-error readers for channels.
-      2386,
+      // +4: canonical missing-reply, bound-question, terminal-error, and payload-outcome readers.
+      2387,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(

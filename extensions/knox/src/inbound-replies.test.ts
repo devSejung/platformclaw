@@ -17,6 +17,11 @@ import {
 } from "openclaw/plugin-sdk/reply-payload";
 import type { PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FailoverError } from "../../../src/agents/failover-error.js";
+import {
+  buildEmptyInteractiveReplyPayload,
+  buildKnownAgentRunFailureReplyPayload,
+} from "../../../src/auto-reply/reply/agent-runner-failure-reply.js";
 import { dispatchKnoxInbound } from "./inbound.js";
 import { setKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
@@ -173,6 +178,52 @@ async function runReplyBoundary(
 }
 
 describe("Knox reply delivery through the core dispatch boundary", () => {
+  it.each(["empty-result", "timeout"] as const)(
+    "renders the real runner's %s error payload with a correlated Korean diagnosis",
+    async (reason) => {
+      const sessionCtx = { Provider: "knox", ChatType: "group" };
+      const payload =
+        reason === "empty-result"
+          ? buildEmptyInteractiveReplyPayload({
+              isInteractive: true,
+              isMessageToolOnly: false,
+              hasPendingContinuation: false,
+              hasExplicitSilentReply: false,
+              hasCommittedDelivery: false,
+              sessionCtx,
+              cfg: { agents: { defaults: { silentReply: { group: "disallow" } } } },
+            })
+          : buildKnownAgentRunFailureReplyPayload({
+              err: new FailoverError("CLI produced no output and was terminated.", {
+                reason: "timeout",
+                code: "cli_no_output_timeout",
+                provider: "test-cli",
+                cliTimeout: {
+                  mode: "no-output",
+                  timeoutSeconds: 120,
+                  observedActivity: true,
+                  activeToolCount: 1,
+                  backgroundTaskCount: 0,
+                },
+              }),
+              sessionCtx,
+              resolvedVerboseLevel: "off",
+            });
+      expect(payload?.isError).toBe(true);
+      await runReplyBoundary(async () => payload);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({
+        status: reason === "timeout" ? "timeout" : "error",
+        final: true,
+      });
+      expect(sent[0]?.text).toContain(`확인 코드: ${reason}`);
+      expect(sent[0]?.text).toContain("요청 참조:");
+      expect(sent[0]?.text).not.toContain("CLI produced no output");
+      expect(outcomes).toContainEqual(expect.objectContaining({ reason }));
+      expect(outcomes).not.toContainEqual(expect.objectContaining({ reason: "delivered" }));
+    },
+  );
+
   it.each(["room", "dm"] as const)(
     "explains an empty result in %s with one Korean terminal notice",
     async (conversationType) => {

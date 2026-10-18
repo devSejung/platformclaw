@@ -1,6 +1,11 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
+import { findAgentRunTerminalOutcome } from "../../agents/agent-run-terminal-error.js";
+import {
+  buildAgentRunTerminalOutcomeFromLifecycleEvent,
+  type AgentRunTerminalOutcome,
+} from "../../agents/agent-run-terminal-outcome.js";
 import { formatAuthProfileFailureMessage } from "../../agents/auth-profiles/failure-copy.js";
 import {
   buildOAuthRefreshFailureLoginCommand,
@@ -25,10 +30,14 @@ import {
 } from "../../agents/failover-error.js";
 import { isMissingProviderAuthError } from "../../agents/model-auth.js";
 import { isFallbackSummaryError } from "../../agents/model-fallback-attempt.js";
+import { resolveAgentRunErrorLifecycleFields } from "../../agents/run-termination.js";
 import { resolveSilentReplyPolicy } from "../../config/silent-reply.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
+import {
+  markReplyPayloadForSourceSuppressionDelivery,
+  setReplyPayloadMetadata,
+} from "../reply-payload.js";
 import type { TemplateContext } from "../templating.js";
 import type { VerboseLevel } from "../thinking.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
@@ -461,8 +470,29 @@ export function buildExternalRunFailureReply(
   };
 }
 
-export function markAgentRunFailureReplyPayload<T extends ReplyPayload>(payload: T): T {
+export function resolveAgentRunFailureOutcome(
+  error?: unknown,
+  abortSignal?: AbortSignal,
+): AgentRunTerminalOutcome {
+  return (
+    findAgentRunTerminalOutcome(error) ??
+    buildAgentRunTerminalOutcomeFromLifecycleEvent({
+      phase: "error",
+      data: {
+        ...resolveAgentRunErrorLifecycleFields(findCliTimeoutError(error) ?? error, abortSignal),
+        ...(error !== undefined ? { error: formatErrorMessage(error) } : {}),
+      },
+      abortSignal,
+    })
+  );
+}
+
+export function markAgentRunFailureReplyPayload<T extends ReplyPayload>(
+  payload: T,
+  outcome = resolveAgentRunFailureOutcome(),
+): T {
   const marked = markReplyPayloadForSourceSuppressionDelivery(payload);
+  setReplyPayloadMetadata(marked, { agentRunTerminalOutcome: outcome });
   if (!isSilentReplyText(marked.text, SILENT_REPLY_TOKEN)) {
     marked.isError = true;
   }
@@ -474,22 +504,26 @@ export function buildTerminalAgentRunFailureReplyPayload(params: {
   visibleReplyDelivered: boolean;
   sessionCtx: ExternalFailureConversationContext;
   cfg?: OpenClawConfig;
+  outcome?: AgentRunTerminalOutcome;
 }): ReplyPayload {
   const text = params.isHeartbeat
     ? HEARTBEAT_EXTERNAL_RUN_FAILURE_TEXT
     : GENERIC_EXTERNAL_RUN_FAILURE_TEXT;
   // Once output is visible, hiding its terminal failure leaves a misleading partial reply.
   // Keep normal group silence only for failures that produced no visible output.
-  return markAgentRunFailureReplyPayload({
-    text: params.visibleReplyDelivered
-      ? text
-      : resolveExternalRunFailureTextForConversation({
-          text,
-          sessionCtx: params.sessionCtx,
-          isGenericRunnerFailure: true,
-          cfg: params.cfg,
-        }),
-  });
+  return markAgentRunFailureReplyPayload(
+    {
+      text: params.visibleReplyDelivered
+        ? text
+        : resolveExternalRunFailureTextForConversation({
+            text,
+            sessionCtx: params.sessionCtx,
+            isGenericRunnerFailure: true,
+            cfg: params.cfg,
+          }),
+    },
+    params.outcome,
+  );
 }
 
 export function buildEmptyInteractiveReplyPayload(params: {
@@ -516,14 +550,17 @@ export function buildEmptyInteractiveReplyPayload(params: {
   ) {
     return undefined;
   }
-  return markAgentRunFailureReplyPayload({
-    text: resolveExternalRunFailureTextForConversation({
-      text: "I finished the turn, but it did not produce a visible reply. Please try again, or start a new session if this keeps happening.",
-      sessionCtx: params.sessionCtx,
-      isGenericRunnerFailure: true,
-      cfg: params.cfg,
+  return setReplyPayloadMetadata(
+    markAgentRunFailureReplyPayload({
+      text: resolveExternalRunFailureTextForConversation({
+        text: "I finished the turn, but it did not produce a visible reply. Please try again, or start a new session if this keeps happening.",
+        sessionCtx: params.sessionCtx,
+        isGenericRunnerFailure: true,
+        cfg: params.cfg,
+      }),
     }),
-  });
+    { noVisibleReplyReason: "empty-result" },
+  );
 }
 
 /** Converts known agent-run failures into user-facing reply payloads. */
@@ -533,6 +570,8 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
   resolvedVerboseLevel: VerboseLevel | undefined;
   cfg?: OpenClawConfig;
 }): ReplyPayload | undefined {
+  const markFailurePayload = <T extends ReplyPayload>(payload: T) =>
+    markAgentRunFailureReplyPayload(payload, resolveAgentRunFailureOutcome(params.err));
   const message = formatErrorMessage(params.err);
   const isFallbackSummary = isFallbackSummaryError(params.err);
   const isBilling = isFallbackSummary
@@ -541,7 +580,7 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
       ? params.err.reason === "billing"
       : isBillingErrorMessage(message);
   if (isBilling) {
-    return markAgentRunFailureReplyPayload({
+    return markFailurePayload({
       text: resolveExternalRunFailureTextForConversation({
         text: resolveBillingFailureReplyText(params.err),
         sessionCtx: params.sessionCtx,
@@ -555,7 +594,7 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
     includeDetails: isVerboseFailureDetailEnabled(params.resolvedVerboseLevel),
   });
   if (preflightCompactionFailureText) {
-    return markAgentRunFailureReplyPayload({
+    return markFailurePayload({
       text: resolveExternalRunFailureTextForConversation({
         text: preflightCompactionFailureText,
         sessionCtx: params.sessionCtx,
@@ -584,7 +623,7 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
       : undefined;
 
   if (isRateLimit && !isOverloaded) {
-    return markAgentRunFailureReplyPayload({
+    return markFailurePayload({
       text: resolveExternalRunFailureTextForConversation({
         text: buildRateLimitCooldownMessage(params.err),
         sessionCtx: params.sessionCtx,
@@ -594,7 +633,7 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
     });
   }
   if (rateLimitOrOverloadedCopy) {
-    return markAgentRunFailureReplyPayload({
+    return markFailurePayload({
       text: resolveExternalRunFailureTextForConversation({
         text: rateLimitOrOverloadedCopy,
         sessionCtx: params.sessionCtx,
@@ -614,7 +653,7 @@ export function buildKnownAgentRunFailureReplyPayload(params: {
   if (externalRunFailureReply.isGenericRunnerFailure) {
     return undefined;
   }
-  return markAgentRunFailureReplyPayload({
+  return markFailurePayload({
     text: resolveExternalRunFailureTextForConversation({
       text: externalRunFailureReply.text,
       sessionCtx: params.sessionCtx,

@@ -18,7 +18,6 @@ import {
 } from "openclaw/plugin-sdk/status-helpers";
 import { listAccountIds, resolveKnoxAccount } from "./accounts.js";
 import { KnoxChannelConfigSchema } from "./config-schema.js";
-import { startKnoxGatewayAccount } from "./gateway.js";
 import { parseKnoxTarget, sendKnoxOutbound } from "./outbound.js";
 import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 
@@ -185,7 +184,14 @@ export const knoxPlugin: ChannelPlugin<ResolvedKnoxAccount> = createChatChannelP
         webhookPath: account.webhookPath,
       }),
     }),
-    gateway: { startAccount: startKnoxGatewayAccount },
+    gateway: {
+      startAccount: async (ctx) => {
+        // Discovery and CLI commands need metadata, not the inbound execution graph.
+        // Load it only when this account actually starts its Gateway listener.
+        const { startKnoxGatewayAccount } = await import("./gateway.js");
+        return await startKnoxGatewayAccount(ctx);
+      },
+    },
     message: messageAdapter,
   },
   outbound: {

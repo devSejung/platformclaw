@@ -1,11 +1,8 @@
-import { expectDefined } from "@openclaw/normalization-core";
-import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { resolveDefaultAgentId } from "../../agents/agent-scope-config.js";
 import {
   formatEmbeddedAgentQueueFailureSummary,
   queueEmbeddedAgentMessageWithOutcomeAsync,
 } from "../../agents/embedded-agent-runner/runs.js";
-import { hasPendingAgentQuestionAnswer } from "../../agents/harness/gateway-question.js";
 import { hasRestartRecoverySourceClaim } from "../../config/sessions/restart-recovery-state.js";
 import { loadSessionEntry, updateSessionEntry } from "../../config/sessions/session-accessor.js";
 import { logVerbose } from "../../globals.js";
@@ -13,13 +10,8 @@ import { measureDiagnosticsTimelineSpan } from "../../infra/diagnostics-timeline
 import { hasOutboundReplyContent } from "../../plugin-sdk/reply-payload.js";
 import {
   buildHandledBeforeAgentReplyPayloads,
-  runBeforeAgentReplyForTurn,
   withBeforeAgentReplyObserver,
 } from "../../plugins/before-agent-reply.js";
-import {
-  buildAgentHookContextChannelFields,
-  buildAgentHookContextIdentityFields,
-} from "../../plugins/hook-agent-context.js";
 import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
 import type { OriginatingChannelType } from "../templating.js";
 import type { ReplyPayload } from "../types.js";
@@ -39,10 +31,12 @@ import {
 import {
   createShouldEmitToolOutput,
   createShouldEmitToolResult,
+  createUnavailableQuestionReply,
+  resolveQuestionAnswerSteerText,
   isAudioPayload,
 } from "./agent-runner-helpers.js";
 import { resetReplyRunSession } from "./agent-runner-session-reset.js";
-import { finalizeAcceptedSteer } from "./agent-runner-steer-adoption.js";
+import { finalizeAcceptedSteer, runSteeredTurnBeforeReply } from "./agent-runner-steer-adoption.js";
 import { resolveQueuedReplyExecutionConfig } from "./agent-runner-utils.js";
 import { createAudioAsVoiceBuffer, createBlockReplyPipeline } from "./block-reply-pipeline.js";
 import { resolveEffectiveBlockStreamingConfig } from "./block-streaming.js";
@@ -67,7 +61,7 @@ import {
   retireTerminalRestartRecoverySourceClaim,
 } from "./restart-recovery-claim.js";
 import { resolveRoutedDeliveryThreadId } from "./routed-delivery-thread.js";
-import { buildChannelSourceTurnId, readChannelSourceTurnId } from "./source-turn-id.js";
+import { readChannelSourceTurnId } from "./source-turn-id.js";
 import { createTypingSignaler } from "./typing-mode.js";
 export async function runReplyAgent(
   params: RunReplyAgentParams,
@@ -141,6 +135,15 @@ export async function runReplyAgent(
       attributes: traceAttributes,
     });
   const effectiveShouldSteer = !isHeartbeat && !effectiveResetTriggered && shouldSteer;
+  if (
+    opts?.questionAnswerBinding &&
+    (!effectiveShouldSteer ||
+      !isActive ||
+      opts.questionAnswerBinding.sessionKey !== (sessionKey ?? followupRun.run.sessionKey))
+  ) {
+    typing.cleanup();
+    return createUnavailableQuestionReply();
+  }
   const effectiveShouldFollowup = !effectiveResetTriggered && shouldFollowup;
   const typingSignals = createTypingSignaler({
     typing,
@@ -231,81 +234,38 @@ export async function runReplyAgent(
         ? providedReplyOperation
         : (registeredReplyOperation ?? providedReplyOperation);
     const steerSessionId = activeReplyOperation?.sessionId ?? followupRun.run.sessionId;
-    // Channel dispatch normally stamps the route-scoped source id. Internal
-    // callers can derive the same per-message identity from the prepared turn.
-    const steerRunId = expectDefined(
-      restartRecoverySourceTurnId ??
-        buildChannelSourceTurnId({
-          provider:
-            followupRun.originatingChannel ??
-            followupRun.run.messageProvider ??
-            sessionCtx.Provider,
-          accountId:
-            followupRun.originatingAccountId ??
-            followupRun.run.agentAccountId ??
-            sessionCtx.AccountId,
-          conversationId:
-            followupRun.originatingTo ??
-            followupRun.originatingChatId ??
-            sessionKey ??
-            followupRun.run.sessionKey,
-          messageId: followupRun.messageId ?? sessionCtx.MessageSidFull ?? sessionCtx.MessageSid,
-        }) ??
-        normalizeOptionalString(opts?.runId),
-      "steered turn id",
-    );
-    const trigger = "user";
-    const hookResult = await runBeforeAgentReplyForTurn({
-      runId: steerRunId,
-      trigger,
-      event: { cleanedBody: followupRun.prompt },
-      context: {
-        runId: steerRunId,
-        agentId: followupRun.run.agentId,
-        sessionKey: sessionKey ?? followupRun.run.sessionKey,
-        sessionId: steerSessionId,
-        workspaceDir: followupRun.run.workspaceDir,
-        modelProviderId: followupRun.run.provider,
-        modelId: followupRun.run.model,
-        trigger,
-        ...buildAgentHookContextChannelFields({
-          sessionKey: sessionKey ?? followupRun.run.sessionKey,
-          messageChannel: followupRun.originatingChannel,
-          messageProvider: followupRun.run.messageProvider,
-          currentChannelId: followupRun.originatingChatId,
-          messageTo: followupRun.originatingTo,
-          senderId: followupRun.run.senderId,
-        }),
-        ...buildAgentHookContextIdentityFields({
-          trigger,
-          senderId: followupRun.run.senderId,
-          chatId: followupRun.originatingChatId,
-          channelContext: followupRun.run.channelContext,
-        }),
-      },
-    });
-    beforeAgentReplyDispatchedForSteer = true;
+    // Bound answers continue the existing question; ordinary-turn hooks must
+    // never handle a stale control reply before its atomic identity claim.
+    const hookResult = opts?.questionAnswerBinding
+      ? undefined
+      : await runSteeredTurnBeforeReply({
+          followupRun,
+          sessionCtx,
+          opts,
+          sessionKey,
+          steerSessionId,
+          sourceTurnId: restartRecoverySourceTurnId,
+        });
+    beforeAgentReplyDispatchedForSteer = !opts?.questionAnswerBinding;
     if (hookResult?.handled) {
       typing.cleanup();
       return buildHandledBeforeAgentReplyPayloads(hookResult.reply);
     }
-    // Thread history and runtime context are useful to steering, but fixed-choice
-    // question parsing must receive the original user answer without that envelope.
-    const questionAnswer = followupRun.transcriptPrompt ?? followupRun.prompt;
-    const steerText =
-      !(followupRun.images?.length || followupRun.media?.length) &&
-      hasPendingAgentQuestionAnswer({
-        sessionKey: sessionKey ?? followupRun.run.sessionKey ?? steerSessionId,
-        text: questionAnswer,
-      })
-        ? questionAnswer
-        : followupRun.prompt;
+    const steerText = opts?.questionAnswerBinding
+      ? (followupRun.transcriptPrompt ?? followupRun.prompt)
+      : resolveQuestionAnswerSteerText(
+          followupRun,
+          sessionKey ?? followupRun.run.sessionKey ?? steerSessionId,
+        );
     const steerOutcome = await queueEmbeddedAgentMessageWithOutcomeAsync(
       steerSessionId,
       steerText,
       {
         steeringMode: "all",
         isInboundUserMessage: true,
+        ...(opts?.questionAnswerBinding
+          ? { questionAnswerBinding: opts.questionAnswerBinding }
+          : {}),
         ...(followupRun.images?.length ? { images: followupRun.images } : {}),
         ...(followupRun.imageOrder?.length ? { imageOrder: followupRun.imageOrder } : {}),
         ...(followupRun.media?.length ? { media: followupRun.media } : {}),
@@ -347,6 +307,10 @@ export async function runReplyAgent(
       await touchActiveSessionEntry();
       typing.cleanup();
       return undefined;
+    }
+    if (opts?.questionAnswerBinding) {
+      typing.cleanup();
+      return createUnavailableQuestionReply();
     }
     // A vanished/non-streaming owner can fall through; every rejection from a
     // still-owning runtime must retain this exact turn as a follow-up.
@@ -707,6 +671,7 @@ export async function runReplyAgent(
       cfg,
       didDeliverVisiblePartialReply: () => didDeliverVisiblePartialReply,
       isHeartbeat,
+      onAgentRunFailure: opts?.onAgentRunFailure,
       isRestartRecoveryArmed,
       replyOperation,
       resolvedVerboseLevel,

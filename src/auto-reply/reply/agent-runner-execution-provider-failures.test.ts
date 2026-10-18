@@ -540,6 +540,11 @@ describe("executeAgentTurn: provider failures", () => {
     expect(state.runEmbeddedAgentMock).toHaveBeenCalledTimes(1);
     expect(result.kind).toBe("final");
     if (result.kind === "final") {
+      expect(getReplyPayloadMetadata(result.payload)?.agentRunTerminalOutcome).toMatchObject({
+        status: "timeout",
+        reason: "hard_timeout",
+        timeoutPhase: "provider",
+      });
       expect(result.payload.text).toContain("no-output watchdog");
       expect(result.payload.text).toContain("1 active CLI tool call");
       expect(result.payload.text).toMatch(/effects may be partial/i);

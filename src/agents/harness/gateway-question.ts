@@ -214,30 +214,56 @@ function parsePendingAgentQuestionAnswers(
 }
 
 /** Non-consuming admission check; question ownership and answer parsing stay canonical. */
+export function getPendingAgentQuestionAnswer(params?: {
+  sessionKey: string;
+  text: string;
+  questionId?: string;
+}): { sessionKey: string; questionId: string } | undefined {
+  // Include a claim in flight so another matching arrival remains bound to the
+  // same question and cannot become ordinary work while its resolve awaits I/O.
+  const available = (state: PendingAgentQuestion) => !state.cancelRequested;
+  const state = params
+    ? pendingAgentQuestions.get(params.sessionKey.trim())
+    : [...pendingAgentQuestions.values()].find(available);
+  if (
+    !state ||
+    !available(state) ||
+    (params?.questionId !== undefined && params.questionId !== state.questionId) ||
+    (params && !parsePendingAgentQuestionAnswers(state, params.text))
+  ) {
+    return undefined;
+  }
+  return { sessionKey: state.sessionKey, questionId: state.questionId };
+}
+
 export function hasPendingAgentQuestionAnswer(params?: {
   sessionKey: string;
   text: string;
 }): boolean {
-  const available = (state: PendingAgentQuestion) => !state.cancelRequested && !state.resolving;
   if (!params) {
-    return [...pendingAgentQuestions.values()].some(available);
+    return [...pendingAgentQuestions.values()].some(
+      (state) => !state.cancelRequested && !state.resolving,
+    );
   }
   const state = pendingAgentQuestions.get(params.sessionKey.trim());
-  if (!state || !available(state)) {
-    return false;
-  }
-  return parsePendingAgentQuestionAnswers(state, params.text) !== undefined;
+  return state?.resolving !== true && getPendingAgentQuestionAnswer(params) !== undefined;
 }
 
 /** Claims the next queued plain-text message for the session's gateway question. */
 export async function claimPendingAgentQuestionAnswer(params: {
   sessionKey?: string;
+  questionId?: string;
   text: string;
   persist?: () => Promise<void>;
 }): Promise<boolean> {
   const sessionKey = params.sessionKey?.trim();
   const state = sessionKey ? pendingAgentQuestions.get(sessionKey) : undefined;
-  if (!state || state.cancelRequested || state.resolving) {
+  if (
+    !state ||
+    state.cancelRequested ||
+    state.resolving ||
+    (params.questionId !== undefined && params.questionId !== state.questionId)
+  ) {
     return false;
   }
   const answers = parsePendingAgentQuestionAnswers(state, params.text);

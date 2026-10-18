@@ -1,3 +1,4 @@
+import type { AgentRunTerminalOutcome } from "../../agents/agent-run-terminal-outcome.js";
 // Shared type contracts for dispatch-from-config runtime execution.
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { SourceReplyDeliveryMode } from "../get-reply-options.types.js";
@@ -15,8 +16,10 @@ export type DispatchFromConfigResult = {
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   sendPolicyDenied?: boolean;
   observedReplyDelivery?: boolean;
-  /** The source resolver settled without handing its reply to another active/queued run. */
+  /** The source resolver completed without failure or handing its reply to another run. */
   sourceTurnCompleted?: true;
+  /** Runner-owned failure survives payload filtering and intentional group silence. */
+  sourceTurnFailure?: AgentRunTerminalOutcome;
   noVisibleReplyFallbackEligible?: boolean;
   /** Diagnosis only; source delivery policy still decides whether recovery may be sent. */
   noVisibleReplyReason?: NoVisibleReplyReason;

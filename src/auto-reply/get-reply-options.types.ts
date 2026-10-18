@@ -1,11 +1,12 @@
 import type { FastMode } from "@openclaw/normalization-core/string-coerce";
+import type { AgentRunTerminalOutcome } from "../agents/agent-run-terminal-outcome.js";
 /** Public option types for reply generation callbacks, streaming, and delivery policy. */
 import type { AgentPlanStep } from "../channels/streaming.js";
 import type { ImageContent } from "../llm/types.js";
 import type { MediaFact } from "../media/media-facts.js";
 import type { PromptImageOrderEntry } from "../media/prompt-image-order.js";
 import type { UserTurnTranscriptRecorder } from "../sessions/user-turn-transcript.types.js";
-import type { ReplyPayload } from "./reply-payload.js";
+import type { NoVisibleReplyReason, ReplyPayload } from "./reply-payload.js";
 import type { TypingController } from "./reply/typing.js";
 import type { SourceReplyDeliveryMode } from "./source-reply-delivery-mode.types.js";
 
@@ -110,6 +111,8 @@ type ProgressCallbackResult = false | void;
 export type GetReplyOptions = {
   /** Override run id for agent events (defaults to random UUID). */
   runId?: string;
+  /** Plain-text answer admitted for one exact pending question; never becomes new work. */
+  questionAnswerBinding?: { sessionKey: string; questionId: string };
   /** Stable provider prompt-cache affinity key; distinct from run id/idempotency. */
   promptCacheKey?: string;
   /** Abort signal for the underlying agent run. */
@@ -122,6 +125,8 @@ export type GetReplyOptions = {
   media?: MediaFact[];
   /** Notifies when an agent run actually starts (useful for webchat command handling). */
   onAgentRunStart?: (runId: string) => void;
+  /** Runner-owned failure before reply filtering, including deferred follow-up execution. */
+  onAgentRunFailure?: (outcome: AgentRunTerminalOutcome, reason?: NoVisibleReplyReason) => void;
   /**
    * Canonical adoption lifecycle (adopted / deferred / abandoned / settled + pre-adoption abort).
    */

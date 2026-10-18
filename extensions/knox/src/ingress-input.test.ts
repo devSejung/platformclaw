@@ -6,14 +6,19 @@ import {
   runAgentHarnessGatewayQuestion,
   type AgentHarnessUserInputQuestion,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
-import { hasPendingAgentQuestionAnswer } from "openclaw/plugin-sdk/channel-inbound";
+import { getPendingAgentQuestionAnswer } from "openclaw/plugin-sdk/channel-inbound";
 import {
   closeOpenClawStateDatabaseForTest,
   createChannelIngressQueueForTests,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { registerPendingAgentQuestion } from "../../../src/agents/harness/gateway-question.js";
 import { createKnoxIngress } from "./ingress.js";
-import { isKnoxPendingQuestionReply, resolveKnoxPendingQuestionText } from "./input-routing.js";
+import {
+  resolveKnoxQuestionAnswerBinding,
+  resolveKnoxPendingQuestionText,
+  type KnoxQuestionAnswerBinding,
+} from "./input-routing.js";
 import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 
 const account: ResolvedKnoxAccount = {
@@ -51,6 +56,130 @@ afterEach(() => {
 });
 
 describe("Knox live input lanes", () => {
+  it.each(["duplicate", "externally-resolved", "replacement"] as const)(
+    "keeps admitted Q1 answers bound through %s before ordinary B",
+    async (scenario) => {
+      const stateDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "knox-binding-")));
+      const queue = createChannelIngressQueueForTests<{ version: 1; rawEvent: string }>({
+        channelId: "knox",
+        accountId: account.accountId,
+        stateDir,
+      });
+      const sessionKey = `agent:room:binding-${scenario}`;
+      const questions = [
+        {
+          id: "action",
+          header: "Action",
+          question: "Continue?",
+          options: [{ label: "Continue" }, { label: "Cancel" }],
+        },
+      ];
+      const resolved = vi.fn(async () => ({
+        status: "answered",
+        answers: { answers: { action: ["Continue"] } },
+      }));
+      const first = registerPendingAgentQuestion({
+        questionId: "Q1",
+        sessionKey,
+        questions,
+        gatewayCall: resolved,
+        answer: new Promise(() => {}),
+      });
+      let replacement: { dispose: () => void } | undefined;
+      const holdMain = deferred<void>();
+      const holdControl = deferred<void>();
+      const started: string[] = [];
+      const outcomes: string[] = [];
+      const bindings: KnoxQuestionAnswerBinding[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          Response.json({
+            status: "resolved",
+            agentId: "room",
+            sessionKey,
+            senderLinked: false,
+            executionTarget: null,
+          }),
+        ),
+      );
+      const ingress = createKnoxIngress({
+        accountId: account.accountId,
+        queue,
+        resolveQuestionAnswerBinding: async (raw) =>
+          await resolveKnoxQuestionAnswerBinding({ account, message: raw }),
+        dispatch: async (raw, lifecycle, binding) => {
+          started.push(raw.messageId);
+          await lifecycle.onAdopted();
+          if (raw.messageId === "A") {
+            await holdMain.promise;
+            return;
+          }
+          if (raw.messageId === "control") {
+            await holdControl.promise;
+            return;
+          }
+          if (binding) {
+            bindings.push(binding);
+            const accepted = await claimPendingAgentQuestionAnswer(binding);
+            outcomes.push(`${raw.messageId}:${accepted ? "answered" : "question-unavailable"}`);
+            if (accepted) {
+              first.dispose();
+              if (scenario === "replacement") {
+                replacement = registerPendingAgentQuestion({
+                  questionId: "Q2",
+                  sessionKey,
+                  questions,
+                  gatewayCall: resolved,
+                  answer: new Promise(() => {}),
+                });
+              }
+            }
+            return;
+          }
+          outcomes.push(`${raw.messageId}:ordinary`);
+        },
+      });
+      ingress.start();
+      try {
+        await ingress.admit(message("A", "start"));
+        await vi.waitFor(() => expect(started).toEqual(["A"]));
+        await ingress.admit(message("B", "ordinary work"));
+        await ingress.admit(message("control", "/approve blocker allow-once"));
+        await vi.waitFor(() => expect(started).toContain("control"));
+        await ingress.admit(message("C", "1"));
+        await ingress.admit(message("D", "1"));
+        if (scenario === "externally-resolved") {
+          first.dispose();
+        }
+        holdControl.resolve();
+        await vi.waitFor(() => expect(outcomes).toContain("D:question-unavailable"));
+        expect(bindings).toEqual([
+          { sessionKey, questionId: "Q1", text: "1" },
+          { sessionKey, questionId: "Q1", text: "1" },
+        ]);
+        expect(outcomes).toEqual([
+          `C:${scenario === "externally-resolved" ? "question-unavailable" : "answered"}`,
+          "D:question-unavailable",
+        ]);
+        expect(resolved).toHaveBeenCalledTimes(scenario === "externally-resolved" ? 0 : 1);
+        if (scenario === "replacement") {
+          expect(getPendingAgentQuestionAnswer({ sessionKey, text: "1" })?.questionId).toBe("Q2");
+        }
+        holdMain.resolve();
+        await vi.waitFor(() => expect(outcomes).toContain("B:ordinary"));
+        expect(started).toEqual(["A", "control", "C", "D", "B"]);
+      } finally {
+        holdMain.resolve();
+        holdControl.resolve();
+        first.dispose();
+        replacement?.dispose();
+        await ingress.stop();
+        closeOpenClawStateDatabaseForTest();
+        await fs.rm(stateDir, { recursive: true, force: true });
+      }
+    },
+  );
   it.each([
     {
       name: "multiselect",
@@ -232,8 +361,8 @@ describe("Knox live input lanes", () => {
       const ingress = createKnoxIngress({
         accountId: account.accountId,
         queue,
-        isPendingQuestionReply: async (raw) =>
-          await isKnoxPendingQuestionReply({ account, message: raw }),
+        resolveQuestionAnswerBinding: async (raw) =>
+          await resolveKnoxQuestionAnswerBinding({ account, message: raw }),
         dispatch: async (raw, lifecycle) => {
           started.push(raw.messageId);
           await lifecycle.onAdopted();
@@ -317,18 +446,18 @@ describe("Knox live input lanes", () => {
             executionTarget: null,
           }),
         );
-        expect(await isKnoxPendingQuestionReply({ account, message: reply })).toBe(false);
+        expect(await resolveKnoxQuestionAnswerBinding({ account, message: reply })).toBeUndefined();
         vi.mocked(fetch).mockResolvedValueOnce(Response.json({ status: "room-disabled" }));
-        expect(await isKnoxPendingQuestionReply({ account, message: reply })).toBe(false);
+        expect(await resolveKnoxQuestionAnswerBinding({ account, message: reply })).toBeUndefined();
         expect(
-          await isKnoxPendingQuestionReply({
+          await resolveKnoxQuestionAnswerBinding({
             account,
             message: {
               ...reply,
               conversation: { type: "dm", providerType: "SINGLE", conversationId: "personal-1" },
             },
           }),
-        ).toBe(false);
+        ).toBeUndefined();
         await ingress.admit(message("ordinary", "another task"));
         expect(started).toEqual(["first"]);
         await ingress.admit(message("answer", replyText));
@@ -338,7 +467,7 @@ describe("Knox live input lanes", () => {
         expect(observed[1]).toBe(
           JSON.stringify({ status: "answered", answers: { answers: { action: ["Continue"] } } }),
         );
-        expect(hasPendingAgentQuestionAnswer({ sessionKey, text: "1" })).toBe(false);
+        expect(getPendingAgentQuestionAnswer({ sessionKey, text: "1" })).toBeUndefined();
       } finally {
         answer.resolve({ status: "answered", answers: { answers: { action: ["Continue"] } } });
         await questionRun;

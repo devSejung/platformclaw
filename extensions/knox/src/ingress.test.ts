@@ -59,12 +59,17 @@ describe("createKnoxIngress", () => {
   );
 
   it("persists a pending question reply's control lane across claim-time resolution", async () => {
-    const isPendingQuestionReply = vi.fn(async () => true);
+    const questionAnswerBinding = {
+      sessionKey: "agent:room:main",
+      questionId: "ask_one",
+      text: "1",
+    };
+    const resolveQuestionAnswerBinding = vi.fn(async () => questionAnswerBinding);
     const ingress = createKnoxIngress({
       accountId: "default",
       queue: {} as never,
       dispatch: vi.fn(),
-      isPendingQuestionReply,
+      resolveQuestionAnswerBinding,
     });
     const message = {
       schemaVersion: 1,
@@ -78,16 +83,18 @@ describe("createKnoxIngress", () => {
     await ingress.admit(message);
     const options = vi.mocked(createChannelIngressMonitor).mock.calls.at(-1)?.[0];
     const monitor = vi.mocked(createChannelIngressMonitor).mock.results.at(-1)?.value;
-    expect(monitor.admit).toHaveBeenCalledWith(message, {
+    const admitted = { ...message, questionAnswerBinding };
+    expect(monitor.admit).toHaveBeenCalledWith(admitted, {
       facts: { eventId: "answer-message", laneKey: "room-1:control" },
     });
-    isPendingQuestionReply.mockResolvedValue(false);
     expect(
-      options?.inspect(message, {
+      options?.inspect(admitted, {
         phase: "claim",
         claimedId: "answer-message",
         claimedLaneKey: "room-1:control",
       }),
     ).toEqual({ eventId: "answer-message", laneKey: "room-1:control" });
+    const stored = options?.payload.serialize(admitted, {} as never);
+    expect(JSON.parse(stored as string).questionAnswerBinding).toEqual(questionAnswerBinding);
   });
 });

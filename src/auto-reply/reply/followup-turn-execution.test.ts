@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTurnParams } from "./agent-runner-execution.types.js";
+import { markAgentRunFailureReplyPayload } from "./agent-runner-failure-reply.js";
 import type { AdmittedFollowupTurn } from "./followup-turn-admission.js";
 
 const state = vi.hoisted(() => ({
@@ -90,6 +91,31 @@ beforeEach(() => {
 });
 
 describe("executeFollowupTurn", () => {
+  it("publishes a preflight terminal failure without starting the runner", async () => {
+    const onAgentRunFailure = vi.fn();
+    const preflightFailurePayload = markAgentRunFailureReplyPayload({ text: "Preflight failed" });
+    const result = await executeFollowupTurn({
+      turn: createTurn({ preflightFailurePayload }),
+      defaults: {
+        typing: createTypingController(),
+        typingMode: "never",
+        defaultModel: "claude",
+        opts: { onAgentRunFailure },
+      },
+      onToolResult: vi.fn(async () => {}),
+      onCompactionNoticePayload: vi.fn(async () => {}),
+    });
+    expect(state.execute).not.toHaveBeenCalled();
+    expect(result.execution.outcome).toMatchObject({
+      kind: "rejected",
+      payload: { isError: true },
+    });
+    expect(onAgentRunFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "error" }),
+      undefined,
+    );
+  });
+
   it("normalizes queued route facts into the canonical execution call", async () => {
     const turn = createTurn();
     const typing = createTypingController();

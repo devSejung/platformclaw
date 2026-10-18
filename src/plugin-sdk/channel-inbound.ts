@@ -14,7 +14,7 @@ import {
   type FinalizeChannelInboundContextResult,
 } from "../channels/inbound-event/context.js";
 import type { InboundEventKind } from "../channels/inbound-event/kind.js";
-export { hasPendingAgentQuestionAnswer } from "../agents/harness/gateway-question.js";
+export { getPendingAgentQuestionAnswer } from "../agents/harness/gateway-question.js";
 
 export {
   createInboundDebouncer,

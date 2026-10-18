@@ -10,7 +10,7 @@ import {
   buildPendingFinalDeliveryText,
   sanitizePendingFinalDeliveryText,
 } from "./pending-final-delivery.js";
-import type { ReplyDispatchDeliveryOutcome } from "./reply-dispatcher.js";
+import type { ReplyDispatchDeliveryOutcome } from "./reply-dispatcher-outcome.js";
 
 type SettledFinalDelivery = {
   outcome: ReplyDispatchDeliveryOutcome;

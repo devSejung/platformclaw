@@ -3,6 +3,7 @@ import { hasCompletedSourceReplyDeliveryEvidence } from "../../agents/embedded-a
 import { clearAgentRunContext } from "../../infra/agent-run-registry.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { defaultRuntime } from "../../runtime.js";
+import { resolveAgentRunFailureOutcome } from "./agent-runner-failure-reply.js";
 import { accountFollowupTurn } from "./agent-runner-result-accounting.js";
 import { deliverFollowupDecision, resolveFollowupDeliveryDecision } from "./followup-delivery.js";
 import {
@@ -34,6 +35,17 @@ export function createFollowupRunner(
     let admittedRunId: string | undefined;
     let executionStarted = false;
     let queuedFollowupAdmitted = false;
+    // Progress cleanup can rethrow the same fault through delivery; publish it once per run.
+    const reportedFailures = new Set<unknown>();
+    const reportFailure = (error: unknown) => {
+      if (reportedFailures.has(error)) {
+        return;
+      }
+      reportedFailures.add(error);
+      defaults.opts?.onAgentRunFailure?.(
+        resolveAgentRunFailureOutcome(error, operation?.abortSignal),
+      );
+    };
     const initiallyAborted =
       queued.abortSignal?.aborted === true || queued.queueAbortSignal?.aborted === true;
     const endDeliveryCorrelations = initiallyAborted
@@ -111,6 +123,7 @@ export function createFollowupRunner(
           `followup queue: progress presentation failed after execution: ${formatErrorMessage(error)}`,
         );
         operation.fail("run_failed", error);
+        reportFailure(error);
       }
       if (
         execution.execution.outcome.kind === "settled" &&
@@ -149,6 +162,7 @@ export function createFollowupRunner(
           `followup queue: execution failed after start; refusing replay: ${formatErrorMessage(error)}`,
         );
         operation?.fail("run_failed", error);
+        reportFailure(error);
         disposition = { kind: "consumed" };
       } else {
         disposition = { kind: "retry", error };
