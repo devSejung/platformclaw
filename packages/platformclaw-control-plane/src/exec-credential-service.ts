@@ -1,8 +1,21 @@
+import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { ControlPlaneAuthorizationError } from "./contracts.js";
 import { normalizeExecEnvName } from "./exec-credential-contracts.js";
 import { ExecCredentialCipher } from "./exec-credential-crypto.js";
+import { isSpaceConversationSession } from "./space-contracts.js";
 import type { SqliteControlPlaneStore } from "./sqlite-store.js";
+
+export type ExecCredentialMetadata =
+  | { status: "unsupported"; code: "scope" }
+  | {
+      definitions: {
+        envName: string;
+        configured: boolean;
+        revision?: number;
+        updatedAt?: number;
+      }[];
+    };
 
 export class ExecCredentialService {
   constructor(
@@ -21,6 +34,32 @@ export class ExecCredentialService {
 
   async snapshot(userId: string) {
     return { definitions: await this.options.store.listExecCredentialDefinitions(userId) };
+  }
+
+  async metadataForAgent(agentId: string, sessionKey: string): Promise<ExecCredentialMetadata> {
+    const parsed = parseAgentSessionKey(sessionKey);
+    const excluded =
+      /^(?:subagent|acp|cron|hook|node|space|space-session)(?::|$)|:(?:group|channel|dm):/iu;
+    if (
+      !parsed ||
+      parsed.agentId !== agentId ||
+      sessionKey !== sessionKey.trim() ||
+      isSpaceConversationSession(sessionKey) ||
+      excluded.test(parsed.rest)
+    ) {
+      return { status: "unsupported" as const, code: "scope" as const };
+    }
+    const definitions = await this.options.store.listExecCredentialMetadataForAgent(agentId);
+    return definitions
+      ? {
+          definitions: definitions.map((definition) => ({
+            envName: definition.envName,
+            configured: definition.configured === true,
+            revision: definition.revision,
+            updatedAt: definition.updatedAt,
+          })),
+        }
+      : { status: "unsupported" as const, code: "scope" as const };
   }
 
   async adminSnapshot(actorUserId: string) {

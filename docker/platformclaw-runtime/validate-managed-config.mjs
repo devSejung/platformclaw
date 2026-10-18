@@ -20,6 +20,7 @@ export const REQUIRED_MANAGED_PLUGIN_IDS = [
 ];
 
 export const REQUIRED_MANAGED_AGENT_TOOL_IDS = [
+  "platformclaw_credentials",
   "memory_search",
   "memory_get",
   "memory_write",

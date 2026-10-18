@@ -1,10 +1,12 @@
 import { html, nothing } from "lit";
+import { ref } from "lit/directives/ref.js";
 import { until } from "lit/directives/until.js";
 import { isSpaceConversationSession } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
 import type { RouteId } from "../app-route-paths.ts";
 import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../app/bootstrap.ts";
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import type { UsageRouteData } from "../pages/usage/usage-page.ts";
+import { PlatformClawCredentialFlow } from "./credential-flow.ts";
 import { loadAllPlatformClawLocales, loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import { loadPlatformClawChatRoute } from "./space-conversation-route.ts";
 import {
@@ -96,6 +98,7 @@ function browserSessionStorage(): Pick<Storage, "getItem" | "setItem" | "removeI
 
 export class PlatformClawControlUiAdapter {
   private sessionCheck: Promise<PlatformClawSessionCheck> | null = null;
+  private credentialFlow: PlatformClawCredentialFlow | null = null;
 
   constructor(
     readonly descriptor: PlatformClawWebDescriptor,
@@ -128,7 +131,13 @@ export class PlatformClawControlUiAdapter {
     identity: PlatformClawSessionIdentity,
     onLogout: () => Promise<void>,
   ): ApplicationBootstrapOptions {
+    this.credentialFlow?.dispose();
+    const credentialFlow = new PlatformClawCredentialFlow(identity, this.fetchImpl, () =>
+      this.loadSession(true),
+    );
+    this.credentialFlow = credentialFlow;
     const onUnauthenticated = () => {
+      credentialFlow.dispose();
       this.clearBrowserSessionState();
       this.redirectToLogin(true);
     };
@@ -212,6 +221,7 @@ export class PlatformClawControlUiAdapter {
       `,
       renderPageHeaderAccessory: renderPageHelpTrigger,
       renderPageOverlay: (routeId, routeLocation) => {
+        credentialFlow.visit(routeId);
         const currentLocation = routeLocation ?? new URL(this.location.href);
         return html`<platformclaw-page-help
           .routeId=${routeId}
@@ -234,6 +244,8 @@ export class PlatformClawControlUiAdapter {
     return {
       accessMode: "personal-agent",
       chatWorkingTip: createPlatformClawWorkingTip(enabledRouteIds),
+      onChatToolResult: (host, result) => credentialFlow.capture(host, result),
+      renderChatAccessory: (host) => credentialFlow.render(host),
       enabledRouteIds,
       sessionCatalogFilter: (sessionKey) => !isSpaceConversationSession(sessionKey),
       routeOverrides: {
@@ -286,8 +298,19 @@ export class PlatformClawControlUiAdapter {
             })),
         },
         chat: {
-          loader: (context, options) =>
-            loadPlatformClawChatRoute(context, options.location, "chat", options.signal),
+          loader: async (context, options) => {
+            credentialFlow.attach(context);
+            const data = await loadPlatformClawChatRoute(
+              context,
+              options.location,
+              "chat",
+              options.signal,
+            );
+            if (!options.signal.aborted) {
+              credentialFlow.visitConversation(data);
+            }
+            return data;
+          },
         },
         spaces: {
           loaderDeps: (_context, location) => location.search,
@@ -301,7 +324,10 @@ export class PlatformClawControlUiAdapter {
             })),
         },
         credentials: {
-          loader: async () => undefined,
+          loader: async (context) => {
+            credentialFlow.attach(context);
+            return undefined;
+          },
           component: () =>
             Promise.all([import("./exec-credentials.ts"), loadPlatformClawLocale()]).then(() => ({
               header: true,
@@ -314,9 +340,14 @@ export class PlatformClawControlUiAdapter {
                 </section>
                 <main class="settings-page">
                   <platformclaw-exec-credentials
+                    ${ref(credentialFlow.bindForm)}
                     .admin=${identity.globalRole === "admin"}
                     .fetchImpl=${this.fetchImpl}
                     .onUnauthenticated=${onUnauthenticated}
+                    .target=${credentialFlow.target}
+                    .onPersonalSaved=${credentialFlow.saved}
+                    .onReturnToConversation=${credentialFlow.returnToConversation}
+                    .onCancelFlow=${credentialFlow.cancel}
                   ></platformclaw-exec-credentials>
                 </main>
               `,
@@ -474,6 +505,8 @@ export class PlatformClawControlUiAdapter {
     } catch {
       // Local teardown and navigation must not depend on the logout response.
     } finally {
+      this.credentialFlow?.dispose();
+      this.credentialFlow = null;
       stopApplication();
       this.clearBrowserSessionState();
       this.redirectToLogin(false);

@@ -150,6 +150,7 @@ function sameQueuedDeliveryVersion(left: ChatQueueItem, right: ChatQueueItem): b
   return (
     left.id === right.id &&
     left.sendRunId === right.sendRunId &&
+    JSON.stringify(left.sendTarget) === JSON.stringify(right.sendTarget) &&
     left.sendAttempts === right.sendAttempts &&
     left.sendState === right.sendState &&
     left.agentId === right.agentId &&

@@ -514,7 +514,7 @@ export function handlePageGatewayEvent(state: ChatPageHost, event: GatewayEventF
     return;
   }
   if (event.event === "agent" || event.event === "session.tool") {
-    handleAgentEvent(state as never, event.payload as never);
+    handleAgentEvent(state as never, event.payload as never, { source: "live" });
     requestChatPageUpdate(state);
     return;
   }

@@ -7,6 +7,7 @@ import type { ChannelCapability } from "../lib/channels/index.ts";
 import type { RuntimeConfigCapability } from "../lib/config/index.ts";
 import type { SessionCapability } from "../lib/sessions/index.ts";
 import type { WorkboardCapability } from "../lib/workboard/capability.ts";
+import type { ChatPageHost } from "../pages/chat/chat-state-host.ts";
 import type { AgentSelectionCapability } from "./agent-selection.ts";
 import type { ApplicationConfigCapability } from "./config.ts";
 import type { ApplicationGateway } from "./gateway.ts";
@@ -56,6 +57,16 @@ export type ApplicationNavigationOptions = Partial<
 >;
 
 export type ApplicationAccessMode = "operator" | "personal-agent";
+
+/** A completed, accepted live tool result; history replay never publishes this notification. */
+export type ApplicationChatToolResult = {
+  name: string;
+  toolCallId: string;
+  runId: string;
+  sessionKey: string;
+  agentId?: string;
+  details: unknown;
+};
 
 type SkillWorkshopRevisionHandoff = {
   sessionKey: string;
@@ -120,6 +131,10 @@ export type ApplicationContext<TRouteId extends string = string> = {
   readonly initialUserMessage: ApplicationInitialUserMessageHandoff;
   /** Product-owned control rendered by the page that owns its visible heading. */
   readonly renderPageHeaderAccessory?: (routeId: TRouteId) => unknown;
+  /** Product-owned content rendered above this pane's composer. */
+  readonly renderChatAccessory?: (host: ChatPageHost) => unknown;
+  /** Runs at the accepted live-result boundary, before a final history refresh. */
+  readonly onChatToolResult?: (host: ChatPageHost, result: ApplicationChatToolResult) => void;
   readonly navigate: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly replace: (routeId: TRouteId, options?: ApplicationNavigationOptions) => void;
   readonly revalidate: (routeId?: TRouteId) => Promise<void>;

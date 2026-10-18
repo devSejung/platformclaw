@@ -82,6 +82,8 @@ type ChatReplyTarget = {
 };
 
 export type ChatProps = {
+  /** Optional product-owned content above this pane's composer. */
+  chatAccessory?: unknown;
   transcript: ChatTranscriptController;
   paneId: string;
   sessionKey: string;
@@ -639,6 +641,7 @@ export function renderChat(props: ChatProps) {
                   sessions: props.swarmSessions ?? [],
                   sessionKey: props.sessionKey,
                 })}
+                ${showModelSetupSplash ? nothing : props.chatAccessory}
                 ${showModelSetupSplash ? nothing : chatColumnFooter}
               </div>
               ${props.sessionRailReady

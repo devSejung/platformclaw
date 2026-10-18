@@ -1,5 +1,6 @@
 // Control UI module implements app tool stream behavior.
 import { stripInlineDirectiveTagsForDelivery } from "../../../../src/utils/directive-tags.js";
+import type { ApplicationChatToolResult } from "../../app/context.ts";
 import type { ExecApprovalRequest } from "../../app/exec-approval.ts";
 import type { ChatQueueItem, ChatStreamSegment } from "../../lib/chat/chat-types.ts";
 import { formatUnknownText, truncateText } from "../../lib/format.ts";
@@ -54,6 +55,7 @@ export type ToolStreamEntry = {
 };
 
 type ToolStreamHost = {
+  onChatToolResult?: (result: ApplicationChatToolResult) => void;
   sessionKey: string;
   assistantAgentId?: string | null;
   agentsList?: { defaultId?: string | null } | null;
@@ -978,7 +980,11 @@ function handlePlanEvent(host: ToolStreamHost, payload: AgentEventPayload) {
   host.requestUpdate?.();
 }
 
-export function handleAgentEvent(host: ToolStreamHost, payload?: AgentEventPayload) {
+export function handleAgentEvent(
+  host: ToolStreamHost,
+  payload?: AgentEventPayload,
+  options?: { source: "live" | "history" },
+) {
   if (!payload) {
     return;
   }
@@ -1136,6 +1142,24 @@ export function handleAgentEvent(host: ToolStreamHost, payload?: AgentEventPaylo
   }
 
   entry.message = buildToolStreamMessage(entry);
+  if (
+    options?.source === "live" &&
+    phase === "result" &&
+    entry.isError !== true &&
+    readRecord(data.result)?.isError !== true &&
+    entry.name !== "tool" &&
+    sessionKey &&
+    resolveAcceptedSession(host, payload, { allowSessionScopedWhenIdle: true }).accepted
+  ) {
+    host.onChatToolResult?.({
+      name: entry.name,
+      toolCallId,
+      runId: payload.runId,
+      sessionKey,
+      ...(payload.agentId ? { agentId: payload.agentId } : {}),
+      details: resultDetails,
+    });
+  }
   trimToolStream(host);
   scheduleToolStreamSync(host, phase === "result");
 }

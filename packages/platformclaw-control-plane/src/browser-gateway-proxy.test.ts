@@ -575,6 +575,23 @@ describe("BrowserGatewayProxy", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves exact contextual send targets through the browser policy", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const target = {
+      sessionId: "source-session",
+      expectedLeafEntryId: "source-leaf",
+      requireExactLeaf: true,
+    };
+    request.mockResolvedValueOnce({ status: "started", runId: "contextual-run" });
+    await proxy.request(token, "chat.send", {
+      sessionKey: `agent:${binding.agentId}:main`,
+      message: "Continue the previous request.",
+      idempotencyKey: "contextual-run",
+      ...target,
+    });
+    expect(request).toHaveBeenCalledWith("chat.send", expect.objectContaining(target));
+  });
+
   it("advertises user commands while removing operator command metadata", async () => {
     const { proxy, request, token } = await setup();
     request.mockResolvedValueOnce({

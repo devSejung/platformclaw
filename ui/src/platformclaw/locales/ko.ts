@@ -1,6 +1,7 @@
 import type { TranslationMap } from "../../i18n/index.ts";
 import { announcementTranslations } from "./ko-announcements.ts";
 import { baseballTranslations } from "./ko-baseball.ts";
+import { credentialFlowTranslations } from "./ko-credentials.ts";
 import { dashboardTranslations } from "./ko-dashboard.ts";
 import { executionTranslations } from "./ko-execution.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
@@ -65,6 +66,9 @@ export const nativeTranslations = {
     },
   },
   chat: {
+    sendErrors: {
+      contextualActionBusy: "원래 대화가 작업을 마친 뒤 이 요청을 보낼 수 있습니다.",
+    },
     workspaceFiles: {
       download: "파일 다운로드",
       downloadFailed: "작업 공간 다운로드 실패",
@@ -134,6 +138,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.waitingTips.gpu": "GPU를 한 대 더 사달라고 말하고 싶은 순간이네요.",
   "platformClaw.waitingTips.support":
     "아무리 해도 안 풀리면 정승언에게 문의해 주세요. 숨겨진 마지막 도구입니다.",
+  ...credentialFlowTranslations,
   ...dashboardTranslations,
   ...baseballTranslations,
   ...announcementTranslations,

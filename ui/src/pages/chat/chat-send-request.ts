@@ -17,30 +17,38 @@ export async function requestChatSend(
     attachments?: ChatAttachment[];
     runId: string;
     sessionKey?: string;
+    sessionId?: string;
     agentId?: string;
     queueMode?: QueueMode;
     replyToId?: string;
     expectedLeafEntryId?: string | null;
+    requireExactLeaf?: boolean;
   },
 ): Promise<ChatSendAck> {
   const routing = resolveChatSendRouting(state, params);
+  const sessionId = params.sessionId ?? routing.sessionId;
   const controlUiReconnectResume = Boolean(
-    routing.sessionId && state.reconnectResumeSessionId === routing.sessionId,
+    !params.requireExactLeaf && sessionId && state.reconnectResumeSessionId === sessionId,
   );
   const payload = await state.client!.request("chat.send", {
     sessionKey: routing.sessionKey,
     ...(isUiGlobalSessionKey(routing.sessionKey) && routing.selectedAgentId
       ? { agentId: routing.selectedAgentId }
       : {}),
-    ...(routing.sessionId ? { sessionId: routing.sessionId } : {}),
+    ...(sessionId ? { sessionId } : {}),
     ...(controlUiReconnectResume ? { __controlUiReconnectResume: true } : {}),
     message: params.message,
     deliver: false,
     ...(params.replyToId ? { replyToId: params.replyToId } : {}),
-    ...(params.queueMode ? { queueMode: params.queueMode } : {}),
+    ...(params.requireExactLeaf
+      ? { queueMode: "followup" }
+      : params.queueMode
+        ? { queueMode: params.queueMode }
+        : {}),
     ...(params.expectedLeafEntryId !== undefined
       ? { expectedLeafEntryId: params.expectedLeafEntryId }
       : {}),
+    ...(params.requireExactLeaf ? { requireExactLeaf: true } : {}),
     idempotencyKey: params.runId,
     attachments: buildChatApiAttachments(params.attachments),
   });

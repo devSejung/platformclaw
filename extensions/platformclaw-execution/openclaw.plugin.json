@@ -2,6 +2,7 @@
   "id": "platformclaw-execution",
   "name": "PlatformClaw Execution",
   "description": "Private execution-target router for PlatformClaw personal agents.",
+  "contracts": { "tools": ["platformclaw_credentials"] },
   "activation": {
     "onStartup": true
   },

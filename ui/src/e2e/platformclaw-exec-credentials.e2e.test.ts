@@ -29,26 +29,45 @@ describeControlUiE2e("PlatformClaw execution credentials", () => {
     await server?.close();
   });
 
-  it("validates, saves, reports an error, removes, and shows the empty state on PC", async () => {
+  it("retains a sibling input node, draft, focus, and caret through a save, error, and removal on PC", async () => {
     const page = await browser.newPage({ locale: "en-US", viewport: { width: 1440, height: 900 } });
     let configured = false;
+    let revision = 0;
     let definitionsVisible = true;
     let failNext = false;
+    let resolveFirstSave!: () => void;
+    const firstSave = new Promise<void>((resolve) => {
+      resolveFirstSave = resolve;
+    });
     const mutations: unknown[] = [];
     await page.route("**/platformclaw/api/exec-credentials", async (route) => {
       if (route.request().method() === "POST") {
         const body = route.request().postDataJSON();
         mutations.push(body);
+        if (mutations.length === 1) {
+          await firstSave;
+        }
         if (failNext) {
           failNext = false;
           await route.fulfill({ status: 503, json: { error: "Credential service unavailable" } });
           return;
         }
         configured = body.action === "replace";
+        if (configured) {
+          revision++;
+        }
+        await route.fulfill({ json: { envName: "API_TOKEN", revision } });
+        return;
       }
       await route.fulfill({
         json: {
-          definitions: definitionsVisible ? [{ envName: "API_TOKEN", configured }] : [],
+          accountId: "account-a",
+          definitions: definitionsVisible
+            ? [
+                { envName: "API_TOKEN", configured, revision },
+                { envName: "SECOND_TOKEN", configured: false },
+              ]
+            : [],
         },
       });
     });
@@ -67,36 +86,70 @@ describeControlUiE2e("PlatformClaw execution credentials", () => {
 
       const component = page.locator("platformclaw-exec-credentials");
       const input = component.getByLabel("API_TOKEN");
-      const save = component.getByRole("button", { name: "Save", exact: true });
+      const sibling = component.getByLabel("SECOND_TOKEN");
+      const save = component.locator("[data-action='save'][data-env='API_TOKEN']");
       await input.waitFor();
 
       await input.fill("   ");
       expect(await save.isDisabled()).toBe(true);
-      expect(await input.inputValue()).toBe("   ");
       expect(mutations).toEqual([]);
 
       await input.fill(" fixture-only ");
+      await sibling.fill("synthetic-unsaved-only");
+      const siblingNode = await sibling.evaluateHandle((element) => element as HTMLInputElement);
       await save.click();
+      await expect.poll(() => mutations.length).toBe(1);
+      expect(await sibling.isEnabled()).toBe(true);
+      await sibling.press("Home");
+      await sibling.press("ArrowRight");
+      resolveFirstSave();
       await expect.poll(() => component.getByText("Saved", { exact: true }).isVisible()).toBe(true);
       expect(mutations).toEqual([
-        { action: "replace", envName: "API_TOKEN", value: " fixture-only " },
+        {
+          action: "replace",
+          envName: "API_TOKEN",
+          value: " fixture-only ",
+          expectedAccountId: "account-a",
+        },
       ]);
       await expect
         .poll(async () => (await component.getByRole("status").textContent())?.trim())
         .toBe("Saved.");
+      expect(
+        await siblingNode.evaluate((element) => ({
+          sameNode: element === document.querySelector('[data-value="SECOND_TOKEN"]'),
+          focused: element === document.activeElement,
+          value: element.value,
+          selectionStart: element.selectionStart,
+          selectionEnd: element.selectionEnd,
+        })),
+      ).toEqual({
+        sameNode: true,
+        focused: true,
+        value: "synthetic-unsaved-only",
+        selectionStart: 1,
+        selectionEnd: 1,
+      });
+      await sibling.press("X");
+      expect(await sibling.inputValue()).toBe("sXynthetic-unsaved-only");
 
       failNext = true;
       await input.fill("replacement");
       await save.click();
-      await component.getByText("Credential service unavailable", { exact: true }).waitFor();
+      await component.getByText("Credential request failed.", { exact: true }).waitFor();
       expect(await input.isEnabled()).toBe(true);
       expect(await input.inputValue()).toBe("replacement");
 
       await component.getByRole("button", { name: "Remove", exact: true }).click();
       await expect
-        .poll(() => component.getByText("Not configured", { exact: true }).isVisible())
-        .toBe(true);
-      expect(mutations.at(-1)).toEqual({ action: "remove", envName: "API_TOKEN" });
+        .poll(() => component.getByText("Not configured", { exact: true }).count())
+        .toBe(1);
+      expect(await sibling.inputValue()).toBe("sXynthetic-unsaved-only");
+      expect(mutations.at(-1)).toEqual({
+        action: "remove",
+        envName: "API_TOKEN",
+        expectedAccountId: "account-a",
+      });
 
       definitionsVisible = false;
       await page.evaluate(() => {
@@ -108,6 +161,7 @@ describeControlUiE2e("PlatformClaw execution credentials", () => {
         .getByText("No environment variables are allowed yet.", { exact: true })
         .waitFor();
     } finally {
+      resolveFirstSave();
       await page.close();
     }
   });

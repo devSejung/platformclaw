@@ -26,6 +26,35 @@ export function isToolResultHistoryBlockType(type: unknown): boolean {
   return normalized === "toolresult" || normalized === "tool_result";
 }
 
+/** Preserve bounded routing metadata, never arbitrary tool-owned UI payloads. */
+function projectToolResultUiAction(value: unknown): Record<string, unknown> | undefined {
+  const action = readRecord(value);
+  if (
+    !action ||
+    Object.keys(action).length !== 5 ||
+    !Object.keys(action).every((key) =>
+      ["version", "kind", "feature", "requestId", "targetKey"].includes(key),
+    ) ||
+    action.version !== 1 ||
+    action.kind !== "settings" ||
+    typeof action.feature !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/u.test(action.feature) ||
+    typeof action.requestId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(action.requestId) ||
+    typeof action.targetKey !== "string" ||
+    !/^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$/u.test(action.targetKey)
+  ) {
+    return undefined;
+  }
+  return {
+    version: 1,
+    kind: "settings",
+    feature: action.feature,
+    requestId: action.requestId,
+    targetKey: action.targetKey,
+  };
+}
+
 export function projectToolResultDetails(
   details: unknown,
   maxChars: number,
@@ -35,6 +64,10 @@ export function projectToolResultDetails(
     return undefined;
   }
   const projected: Record<string, unknown> = {};
+  const uiAction = projectToolResultUiAction(record.uiAction);
+  if (uiAction) {
+    projected.uiAction = uiAction;
+  }
   for (const key of ["changed", "created"] as const) {
     if (typeof record[key] === "boolean") {
       projected[key] = record[key];

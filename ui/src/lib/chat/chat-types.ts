@@ -22,6 +22,17 @@ export type ChatQueueSkillWorkshopRevision = {
   connectionEpoch?: number;
 };
 
+export type ChatSendTarget = {
+  sessionId: string;
+  expectedLeafEntryId: string | null;
+  requireExactLeaf: true;
+};
+
+export type ChatSendActionScope = Omit<ChatSendTarget, "requireExactLeaf"> & {
+  sessionKey: string;
+  agentId: string;
+};
+
 export type ChatQueueItem = {
   id: string;
   text: string;
@@ -37,6 +48,8 @@ export type ChatQueueItem = {
   sendAttempts?: number;
   sendError?: string;
   sendRunId?: string;
+  /** Explicit action target survives outbox retries without adopting a reset transcript. */
+  sendTarget?: ChatSendTarget;
   sendState?:
     | "waiting-model"
     | "waiting-idle"

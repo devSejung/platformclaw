@@ -5,7 +5,7 @@ import type {
   ModelCatalogEntry,
   SessionsListResult,
 } from "../../api/types.ts";
-import type { ApplicationContext } from "../../app/context.ts";
+import type { ApplicationChatToolResult, ApplicationContext } from "../../app/context.ts";
 import type { UiSettings } from "../../app/settings.ts";
 import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
 import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
@@ -45,6 +45,7 @@ export type ChatPageHost = ChatHost &
   ChatRealtimeState &
   SessionWorkspaceHost &
   BackgroundTasksHost & {
+    onChatToolResult?: (result: ApplicationChatToolResult) => void;
     initialUserMessage: ApplicationContext["initialUserMessage"];
     password: string;
     onboarding: boolean;
@@ -158,6 +159,6 @@ export type ChatPageHost = ChatHost &
     confirmConversationReset?: () => Promise<boolean>;
     exportCurrentChat?: () => Promise<void> | void;
     refreshCurrentSessionTools?: () => Promise<void>;
-    refreshCurrentChat?: () => Promise<void>;
+    refreshCurrentChat?: (options?: { awaitHistory?: boolean }) => Promise<void>;
     refreshSessionPullRequests?: (options?: { refresh?: boolean }) => Promise<void>;
   };

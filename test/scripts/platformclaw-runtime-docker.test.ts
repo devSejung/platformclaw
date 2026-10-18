@@ -3,14 +3,20 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  createPluginRegistryFixture,
+  registerVirtualTestPlugin,
+} from "openclaw/plugin-sdk/plugin-test-contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { reconcileManagedConfig } from "../../docker/platformclaw-runtime/reconcile-managed-config.mjs";
 import {
   PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION,
+  REQUIRED_MANAGED_AGENT_TOOL_IDS,
   REQUIRED_MANAGED_SANDBOX_TOOL_IDS,
   validateManagedConfig,
 } from "../../docker/platformclaw-runtime/validate-managed-config.mjs";
+import { registerPlatformClawCredentialTool } from "../../extensions/platformclaw-execution/api.js";
 import { mainLanes } from "../../scripts/lib/docker-e2e-scenarios.mjs";
 import {
   isToolAllowed,
@@ -18,6 +24,7 @@ import {
 } from "../../src/agents/sandbox/tool-policy.js";
 import type { OpenClawConfig } from "../../src/config/config.js";
 import { buildRealtimeInstructions } from "../../src/gateway/server-methods/talk-shared.js";
+import { resolvePluginTools } from "../../src/plugins/tools.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -59,6 +66,73 @@ function readRepoFile(filePath: string): string {
 }
 
 describe("PlatformClaw Docker runtime", () => {
+  it("materializes the real registered credential tool through the managed personal sandbox policy", async () => {
+    const seeded = JSON.parse(
+      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+    ) as OpenClawConfig;
+    const config: OpenClawConfig = {
+      ...seeded,
+      plugins: {
+        enabled: true,
+        allow: ["platformclaw-execution"],
+        entries: { "platformclaw-execution": { enabled: true } },
+      },
+    };
+    const fixture = createPluginRegistryFixture(config);
+    registerVirtualTestPlugin({
+      ...fixture,
+      id: "platformclaw-execution",
+      name: "PlatformClaw Execution",
+      contracts: { tools: ["platformclaw_credentials"] },
+      register: (api) =>
+        registerPlatformClawCredentialTool(
+          api,
+          Promise.resolve({
+            credentialMetadata: async () => ({
+              definitions: [{ envName: "REPORT_API_TOKEN", configured: false }],
+            }),
+          }),
+        ),
+    });
+    const policy = resolveSandboxToolPolicyForAgent(config, "person_one");
+    const context = {
+      config,
+      agentId: "person_one",
+      sessionKey: "agent:person_one:dashboard:synthetic",
+      sessionId: "synthetic-session",
+      runId: "synthetic-run",
+      sandboxed: true,
+    };
+    const tools = resolvePluginTools({
+      context,
+      runtimeRegistry: fixture.registry.registry,
+      toolAllowlist: policy.allow,
+      toolDenylist: policy.deny,
+    }).filter((tool) => isToolAllowed(policy, tool.name));
+    const tool = tools.find((candidate) => candidate.name === "platformclaw_credentials");
+    expect(tool).toBeDefined();
+    expect(
+      (await tool!.execute("synthetic-call", { action: "request", envName: "REPORT_API_TOKEN" }))
+        .details,
+    ).toMatchObject({ status: "required" });
+    const deniedConfig = {
+      ...config,
+      tools: {
+        ...config.tools,
+        sandbox: {
+          tools: { alsoAllow: ["platformclaw_credentials"], deny: ["platformclaw_credentials"] },
+        },
+      },
+    };
+    const reconciled = reconcileManagedConfig(deniedConfig, "platformclaw-sandbox:test");
+    expect(reconciled.config.tools.sandbox.tools.deny).toContain("platformclaw_credentials");
+    const denied = resolveSandboxToolPolicyForAgent(
+      reconciled.config as OpenClawConfig,
+      "person_one",
+    );
+    expect(isToolAllowed(denied, "platformclaw_credentials")).toBe(false);
+  });
+
   it("bundles and runtime-loads the ACPX backend without a state-volume install", () => {
     const build = readRepoFile("scripts/platformclaw-build.mjs");
 
@@ -1046,18 +1120,7 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
         },
       },
       tools: {
-        alsoAllow: [
-          "memory_search",
-          "memory_get",
-          "memory_write",
-          "wiki_apply",
-          "wiki_get",
-          "wiki_lint",
-          "wiki_search",
-          "wiki_status",
-          "space_search",
-          "space_get",
-        ],
+        alsoAllow: REQUIRED_MANAGED_AGENT_TOOL_IDS,
         deny: ["group:nodes"],
         sandbox: { tools: { alsoAllow: REQUIRED_MANAGED_SANDBOX_TOOL_IDS } },
       },
@@ -1091,7 +1154,7 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
       },
     });
     const seededPolicy = resolveSandboxToolPolicyForAgent(config as OpenClawConfig, undefined);
-    for (const tool of ["space_search", "space_get"]) {
+    for (const tool of ["space_search", "space_get", "platformclaw_credentials"]) {
       expect(isToolAllowed(seededPolicy, tool)).toBe(true);
     }
     expect(serialized).not.toContain("OPENCLAW_GATEWAY_TOKEN");
@@ -1136,16 +1199,7 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
     ]);
     expect(result.config.tools.alsoAllow).toEqual([
       "operator-tool",
-      "memory_search",
-      "memory_get",
-      "memory_write",
-      "wiki_apply",
-      "wiki_get",
-      "wiki_lint",
-      "wiki_search",
-      "wiki_status",
-      "space_search",
-      "space_get",
+      ...REQUIRED_MANAGED_AGENT_TOOL_IDS,
     ]);
     expect(result.config.tools.deny).toEqual(["group:nodes"]);
     const sandboxToolPolicy = resolveSandboxToolPolicyForAgent(
@@ -1154,7 +1208,7 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
     );
     expect(sandboxToolPolicy.deny).not.toContain("automations");
     expect(isToolAllowed(sandboxToolPolicy, "automations")).toBe(true);
-    for (const tool of ["space_search", "space_get"]) {
+    for (const tool of ["space_search", "space_get", "platformclaw_credentials"]) {
       expect(isToolAllowed(sandboxToolPolicy, tool)).toBe(true);
     }
     expect(source.agents.defaults.sandbox.docker.image).toBe("platformclaw-sandbox:old");

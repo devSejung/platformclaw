@@ -1294,13 +1294,21 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       name: "allows a same-session expected ancestor that remains on the active path",
       sessionId: "current",
       accepted: true,
+      requireExactLeaf: false,
+    },
+    {
+      name: "rejects an active-path ancestor for an exact-leaf contextual action",
+      sessionId: "current",
+      accepted: false,
+      requireExactLeaf: true,
     },
     {
       name: "rejects an active-path ancestor from a different requested session generation",
       sessionId: "different-session-generation",
       accepted: false,
+      requireExactLeaf: false,
     },
-  ])("$name", async ({ sessionId, accepted }) => {
+  ])("$name", async ({ sessionId, accepted, requireExactLeaf }) => {
     await createGatewayUserTurnSqliteFixture(`openclaw-chat-send-active-ancestor-${sessionId}-`);
     await appendTranscriptMessage(transcriptScope(), {
       eventId: "rendered-leaf",
@@ -1337,6 +1345,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       requestParams: {
         expectedLeafEntryId: "rendered-leaf",
         sessionId: sessionId === "current" ? mockState.sessionId : sessionId,
+        requireExactLeaf,
       },
       waitFor: "none",
     });

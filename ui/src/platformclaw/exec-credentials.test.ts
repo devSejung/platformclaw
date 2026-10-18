@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
+import type { PlatformClawExecCredentialsElement } from "./exec-credentials.ts";
+import { platformClawT as t } from "./i18n.ts";
 import "./exec-credentials.ts";
 
-type CredentialElement = HTMLElement & { admin: boolean; fetchImpl: typeof fetch };
+type CredentialElement = PlatformClawExecCredentialsElement;
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -27,6 +29,38 @@ function clickAction(element: HTMLElement, action: string, envName: string): voi
     .click();
 }
 
+function snapshot(configured = false, revision = 1, accountId = "account-a"): Response {
+  return response({ accountId, definitions: [{ envName: "API_TOKEN", configured, revision }] });
+}
+
+function deferredResponse(): { promise: Promise<Response>; resolve: (value: Response) => void } {
+  let resolve!: (value: Response) => void;
+  const promise = new Promise<Response>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+const target = { requestId: "request-a", envName: "API_TOKEN", expectedAccountId: "account-a" };
+
+async function mount(fetchImpl: typeof fetch, contextual = false): Promise<CredentialElement> {
+  const element = document.createElement("platformclaw-exec-credentials") as CredentialElement;
+  element.fetchImpl = fetchImpl;
+  if (contextual) {
+    element.target = target;
+  }
+  document.body.append(element);
+  await vi.waitFor(() => expect(element.querySelector("[data-value]")).not.toBeNull());
+  return element;
+}
+
+function save(element: CredentialElement, value = "synthetic-only"): void {
+  const input = element.querySelector<HTMLInputElement>("[data-value='API_TOKEN']")!;
+  input.value = value;
+  input.dispatchEvent(new Event("input"));
+  element.querySelector<HTMLButtonElement>("[data-action='save']")!.click();
+}
+
 describe("PlatformClaw exec credentials", () => {
   afterEach(async () => {
     document
@@ -39,11 +73,17 @@ describe("PlatformClaw exec credentials", () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        response({ definitions: [{ envName: "API_TOKEN", configured: false }] }),
+        response({
+          accountId: "account-a",
+          definitions: [{ envName: "API_TOKEN", configured: false, revision: 1 }],
+        }),
       )
       .mockResolvedValueOnce(response({ envName: "API_TOKEN", revision: 1 }))
       .mockResolvedValueOnce(
-        response({ definitions: [{ envName: "API_TOKEN", configured: true }] }),
+        response({
+          accountId: "account-a",
+          definitions: [{ envName: "API_TOKEN", configured: true, revision: 1 }],
+        }),
       );
     const element = document.createElement("platformclaw-exec-credentials") as CredentialElement;
     element.fetchImpl = fetchImpl;
@@ -62,6 +102,7 @@ describe("PlatformClaw exec credentials", () => {
         action: "replace",
         envName: "API_TOKEN",
         value: "  personal-secret  ",
+        expectedAccountId: "account-a",
       }),
     });
     expect(element.innerHTML).not.toContain("personal-secret");
@@ -75,8 +116,8 @@ describe("PlatformClaw exec credentials", () => {
 
   it("preserves another credential's draft and caret through saving and refreshing", async () => {
     const definitions = [
-      { envName: "TOKEN_A", configured: false },
-      { envName: "TOKEN_B", configured: false },
+      { envName: "TOKEN_A", configured: false, revision: 1 },
+      { envName: "TOKEN_B", configured: false, revision: 1 },
     ];
     let resolvePost!: (response: Response) => void;
     const pending = new Promise<Response>((resolve) => {
@@ -88,13 +129,18 @@ describe("PlatformClaw exec credentials", () => {
     });
     const fetchImpl = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(response({ definitions }))
+      .mockResolvedValueOnce(response({ accountId: "account-a", definitions }))
       .mockReturnValueOnce(pending)
       .mockReturnValueOnce(refresh)
       .mockResolvedValueOnce(response({ envName: "TOKEN_B", revision: 1 }))
       .mockResolvedValueOnce(
         response({
-          definitions: definitions.map((item) => ({ envName: item.envName, configured: true })),
+          accountId: "account-a",
+          definitions: definitions.map((item) => ({
+            envName: item.envName,
+            configured: true,
+            revision: 1,
+          })),
         }),
       );
     const element = document.createElement("platformclaw-exec-credentials") as CredentialElement;
@@ -122,7 +168,10 @@ describe("PlatformClaw exec credentials", () => {
     enterSecret(element, "TOKEN_B", "newer-secret-b");
     secretInput(element, "TOKEN_B").setSelectionRange(6, 6);
     resolveRefresh(
-      response({ definitions: [{ ...definitions[0], configured: true }, definitions[1]] }),
+      response({
+        accountId: "account-a",
+        definitions: [{ ...definitions[0], configured: true, revision: 1 }, definitions[1]],
+      }),
     );
     await vi.waitFor(() =>
       expect(
@@ -140,7 +189,12 @@ describe("PlatformClaw exec credentials", () => {
 
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(5));
     expect(fetchImpl.mock.calls[3]?.[1]?.body).toBe(
-      JSON.stringify({ action: "replace", envName: "TOKEN_B", value: "newer-secret-b" }),
+      JSON.stringify({
+        action: "replace",
+        envName: "TOKEN_B",
+        value: "newer-secret-b",
+        expectedAccountId: "account-a",
+      }),
     );
     await vi.waitFor(() => expect(secretInput(element, "TOKEN_B").placeholder).toBe("••••••••"));
     expect(secretInput(element, "TOKEN_B").value).toBe("");
@@ -150,10 +204,12 @@ describe("PlatformClaw exec credentials", () => {
     "keeps the correct drafts after a request failure (save acknowledged: %s)",
     async (saved) => {
       const definitions = [
-        { envName: "TOKEN_A", configured: false },
-        { envName: "TOKEN_B", configured: false },
+        { envName: "TOKEN_A", configured: false, revision: 1 },
+        { envName: "TOKEN_B", configured: false, revision: 1 },
       ];
-      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(response({ definitions }));
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(response({ accountId: "account-a", definitions }));
       if (saved) {
         fetchImpl.mockResolvedValueOnce(response({ envName: "TOKEN_A", revision: 1 }));
       }
@@ -166,7 +222,16 @@ describe("PlatformClaw exec credentials", () => {
       enterSecret(element, "TOKEN_B", "secret-b");
       clickAction(element, "save", "TOKEN_A");
 
-      await vi.waitFor(() => expect(element.textContent).toContain("Service unavailable"));
+      await vi.waitFor(() =>
+        expect(element.textContent).toContain(
+          t(
+            saved
+              ? "platformClaw.credentialFlow.statusUnconfirmed"
+              : "platformClaw.execCredentials.failed",
+          ),
+        ),
+      );
+      expect(element.textContent).not.toContain("Service unavailable");
       expect(secretInput(element, "TOKEN_A").value).toBe(saved ? "" : "retry-secret-a");
       expect(secretInput(element, "TOKEN_B").value).toBe("secret-b");
       if (saved) {
@@ -177,16 +242,21 @@ describe("PlatformClaw exec credentials", () => {
 
   it("keeps sibling drafts on removal and locale changes, then clears them when leaving", async () => {
     const definitions = [
-      { envName: "TOKEN_A", configured: true },
-      { envName: "TOKEN_B", configured: false },
+      { envName: "TOKEN_A", configured: true, revision: 1 },
+      { envName: "TOKEN_B", configured: false, revision: 1 },
     ];
     const fetchImpl = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(response({ definitions }))
+      .mockResolvedValueOnce(response({ accountId: "account-a", definitions }))
       .mockResolvedValueOnce(response({ deleted: true }))
       .mockResolvedValueOnce(
         response({
-          definitions: definitions.map((item) => ({ envName: item.envName, configured: false })),
+          accountId: "account-a",
+          definitions: definitions.map((item) => ({
+            envName: item.envName,
+            configured: false,
+            revision: 1,
+          })),
         }),
       );
     const element = document.createElement("platformclaw-exec-credentials") as CredentialElement;
@@ -195,10 +265,16 @@ describe("PlatformClaw exec credentials", () => {
     await vi.waitFor(() => expect(secretInput(element, "TOKEN_B")).not.toBeNull());
     enterSecret(element, "TOKEN_B", "unsaved-b");
     await i18n.setLocale("ko");
-    await vi.waitFor(() => expect(element.textContent).toContain("저장됨"));
+    await vi.waitFor(() =>
+      expect(element.textContent).toContain(t("platformClaw.execCredentials.title")),
+    );
     expect(secretInput(element, "TOKEN_B").value).toBe("unsaved-b");
     clickAction(element, "remove", "TOKEN_A");
-    await vi.waitFor(() => expect(secretInput(element, "TOKEN_A").placeholder).toBe("새 값 입력"));
+    await vi.waitFor(() =>
+      expect(secretInput(element, "TOKEN_A").placeholder).toBe(
+        t("platformClaw.execCredentials.valuePlaceholder"),
+      ),
+    );
     expect(secretInput(element, "TOKEN_B").value).toBe("unsaved-b");
     const draftInput = secretInput(element, "TOKEN_B");
     element.remove();
@@ -207,7 +283,9 @@ describe("PlatformClaw exec credentials", () => {
   });
 
   it("shows allowlist administration only to administrators", async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => response({ definitions: [] }));
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response({ accountId: "account-a", definitions: [] }),
+    );
     const element = document.createElement("platformclaw-exec-credentials") as CredentialElement;
     element.admin = true;
     element.fetchImpl = fetchImpl;
@@ -224,10 +302,12 @@ describe("PlatformClaw exec credentials", () => {
     });
     const fetchImpl = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(response({ definitions: [] }))
-      .mockResolvedValueOnce(response({ definitions: [{ envName: "API_TOKEN" }] }))
+      .mockResolvedValueOnce(response({ accountId: "account-a", definitions: [] }))
+      .mockResolvedValueOnce(
+        response({ accountId: "account-a", definitions: [{ envName: "API_TOKEN" }] }),
+      )
       .mockReturnValueOnce(mutation)
-      .mockResolvedValue(response({ definitions: [] }));
+      .mockResolvedValue(response({ accountId: "account-a", definitions: [] }));
     const element = document.createElement("platformclaw-exec-credentials") as CredentialElement;
     element.admin = true;
     element.fetchImpl = fetchImpl;
@@ -239,26 +319,227 @@ describe("PlatformClaw exec credentials", () => {
     expect(
       element.querySelector<HTMLButtonElement>("[data-action='remove-definition']")?.disabled,
     ).toBe(true);
-    resolveMutation(response({ definitions: [] }));
+    resolveMutation(response({ accountId: "account-a", definitions: [] }));
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(5));
   });
 
   it("requires a nonblank draft before enabling Save", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
-      response({ definitions: [{ envName: "API_TOKEN", configured: false }] }),
+      response({
+        accountId: "account-a",
+        definitions: [{ envName: "API_TOKEN", configured: false, revision: 1 }],
+      }),
     );
     const element = document.createElement("platformclaw-exec-credentials") as CredentialElement;
     element.fetchImpl = fetchImpl;
     document.body.append(element);
     await vi.waitFor(() => expect(secretInput(element, "API_TOKEN")).not.toBeNull());
     enterSecret(element, "API_TOKEN", "   ");
-    const save = element.querySelector<HTMLButtonElement>("[data-action='save']")!;
-    expect(save.disabled).toBe(true);
-    save.click();
+    const saveButton = element.querySelector<HTMLButtonElement>("[data-action='save']")!;
+    expect(saveButton.disabled).toBe(true);
+    saveButton.click();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     enterSecret(element, "API_TOKEN", "new-token");
-    expect(save.disabled).toBe(false);
+    expect(saveButton.disabled).toBe(false);
     enterSecret(element, "API_TOKEN", "");
-    expect(save.disabled).toBe(true);
+    expect(saveButton.disabled).toBe(true);
+  });
+  it("focuses the exact requested input once and preserves another input's focus, draft, and caret on locale changes", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response({
+        accountId: "account-a",
+        definitions: [{ envName: "FIRST_TOKEN" }, { envName: "API_TOKEN" }],
+      }),
+    );
+    const element = await mount(fetchImpl, true);
+    await vi.waitFor(() =>
+      expect((document.activeElement as HTMLInputElement)?.dataset.value).toBe("API_TOKEN"),
+    );
+    const first = element.querySelector<HTMLInputElement>("[data-value='FIRST_TOKEN']")!;
+    first.value = "synthetic-draft";
+    first.dispatchEvent(new Event("input"));
+    first.focus();
+    first.setSelectionRange(2, 5);
+    await i18n.setLocale("ko");
+    await vi.waitFor(() =>
+      expect(element.textContent).toContain(t("platformClaw.execCredentials.title")),
+    );
+    const active = document.activeElement as HTMLInputElement;
+    expect(active.dataset.value).toBe("FIRST_TOKEN");
+    expect(active.value).toBe("synthetic-draft");
+    expect([active.selectionStart, active.selectionEnd]).toEqual([2, 5]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the acknowledged secret and uses GET-only retry before confirming the exact stored revision", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(snapshot())
+      .mockResolvedValueOnce(response({ envName: "API_TOKEN", revision: 4 }))
+      .mockRejectedValueOnce(new Error("synthetic-only must never appear"))
+      .mockResolvedValueOnce(snapshot(true, 4));
+    const element = await mount(fetchImpl, true);
+    const onSaved = vi.fn();
+    const onReturn = vi.fn();
+    element.onPersonalSaved = onSaved;
+    element.onReturnToConversation = onReturn;
+    save(element);
+    await vi.waitFor(() => expect(element.querySelector("[data-recheck]")).not.toBeNull());
+    expect(element.querySelector<HTMLInputElement>("[data-value]")!.value).toBe("");
+    expect(element.textContent).not.toContain("synthetic-only");
+    expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(true);
+    expect(onSaved).not.toHaveBeenCalled();
+    element.querySelector<HTMLButtonElement>("[data-recheck]")!.click();
+    await vi.waitFor(() =>
+      expect(onSaved).toHaveBeenCalledExactlyOnceWith({
+        requestId: "request-a",
+        envName: "API_TOKEN",
+        revision: 4,
+      }),
+    );
+    expect(fetchImpl.mock.calls.map((call) => call[1]?.method ?? "GET")).toEqual([
+      "GET",
+      "POST",
+      "GET",
+      "GET",
+    ]);
+    expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(false);
+    element.querySelector<HTMLButtonElement>("[data-flow-return]")!.click();
+    expect(onReturn).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { ack: { envName: "OTHER_TOKEN", revision: 4 }, storedRevision: 4, expectedCalls: 2 },
+    { ack: { envName: "API_TOKEN", revision: 0 }, storedRevision: 0, expectedCalls: 2 },
+    { ack: { envName: "API_TOKEN", revision: 4 }, storedRevision: 5, expectedCalls: 3 },
+  ])(
+    "does not complete mismatched ACK or changed stored revision $ack",
+    async ({ ack, storedRevision, expectedCalls }) => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(snapshot())
+        .mockResolvedValueOnce(response(ack))
+        .mockResolvedValueOnce(snapshot(true, storedRevision));
+      const element = await mount(fetchImpl, true);
+      const onSaved = vi.fn();
+      element.onPersonalSaved = onSaved;
+      save(element);
+      await vi.waitFor(() => expect(element.querySelector("[role='status']")).not.toBeNull());
+      expect(fetchImpl).toHaveBeenCalledTimes(expectedCalls);
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(true);
+    },
+  );
+
+  it.each(["cancel", "disconnect", "target"] as const)(
+    "ignores a late save ACK after %s",
+    async (action) => {
+      const pending = deferredResponse();
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(snapshot())
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValue(snapshot(true, 4));
+      const element = await mount(fetchImpl, true);
+      const onSaved = vi.fn();
+      const onCancel = vi.fn();
+      element.onPersonalSaved = onSaved;
+      element.onCancelFlow = onCancel;
+      save(element);
+      if (action === "cancel") {
+        element.querySelector<HTMLButtonElement>("[data-flow-cancel]")!.click();
+        expect(onCancel).toHaveBeenCalledOnce();
+      } else if (action === "disconnect") {
+        element.remove();
+      } else {
+        element.target = { ...target, requestId: "request-b" };
+      }
+      pending.resolve(response({ envName: "API_TOKEN", revision: 4 }));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(element.querySelector<HTMLInputElement>("[data-value]")?.value ?? "").toBe("");
+    },
+  );
+
+  it("blocks an account change before entering a key and discards values when the mutation account guard rejects", async () => {
+    const mismatch = document.createElement("platformclaw-exec-credentials") as CredentialElement;
+    mismatch.target = target;
+    mismatch.fetchImpl = vi.fn<typeof fetch>(async () => snapshot(false, 1, "account-b"));
+    document.body.append(mismatch);
+    await vi.waitFor(() => expect(mismatch.querySelector("[role='status']")).not.toBeNull());
+    expect(mismatch.querySelector("[data-value]")).toBeNull();
+    expect(mismatch.textContent).not.toContain("account-b");
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(snapshot())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "credential-account-changed" }), { status: 409 }),
+      );
+    const element = await mount(fetchImpl, true);
+    const onSaved = vi.fn();
+    element.onPersonalSaved = onSaved;
+    save(element);
+    await vi.waitFor(() =>
+      expect(element.querySelector<HTMLInputElement>("[data-value]")!.value).toBe(""),
+    );
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(element.querySelector<HTMLInputElement>("[data-value]")!.disabled).toBe(true);
+    expect(JSON.parse(fetchImpl.mock.calls[1]![1]!.body as string).expectedAccountId).toBe(
+      "account-a",
+    );
+  });
+
+  it("makes one mutation for repeated save clicks and does not leak raw server errors", async () => {
+    const pending = deferredResponse();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(snapshot())
+      .mockReturnValueOnce(pending.promise);
+    const element = await mount(fetchImpl, true);
+    const button = element.querySelector<HTMLButtonElement>("[data-action='save']")!;
+    save(element);
+    button.click();
+    element.querySelector<HTMLButtonElement>("[data-action='save']")!.click();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    pending.resolve(new Response(JSON.stringify({ error: "synthetic-only" }), { status: 503 }));
+    await vi.waitFor(() => expect(element.querySelector("[role='status']")).not.toBeNull());
+    expect(element.textContent).not.toContain("synthetic-only");
+    expect(element.querySelector<HTMLInputElement>("[data-value]")!.value).toBe("synthetic-only");
+  });
+
+  it("does not automatically retry an ambiguous POST or confirm its later metadata", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(snapshot())
+      .mockRejectedValueOnce(new Error("synthetic-only"));
+    const element = await mount(fetchImpl, true);
+    const onSaved = vi.fn();
+    element.onPersonalSaved = onSaved;
+    save(element);
+    await vi.waitFor(() =>
+      expect(element.querySelector<HTMLInputElement>("[data-value]")!.disabled).toBe(false),
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(element.querySelector("[data-recheck]")).toBeNull();
+    expect(element.textContent).not.toContain("synthetic-only");
+    expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(true);
+  });
+
+  it("leaves the contextual request incomplete when its allowed definition disappears", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(snapshot())
+      .mockResolvedValueOnce(response({ envName: "API_TOKEN", revision: 2 }))
+      .mockResolvedValueOnce(response({ accountId: "account-a", definitions: [] }));
+    const element = await mount(fetchImpl, true);
+    const onSaved = vi.fn();
+    element.onPersonalSaved = onSaved;
+    save(element);
+    await vi.waitFor(() => expect(element.querySelector("[data-value]")).toBeNull());
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(true);
   });
 });
