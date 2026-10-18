@@ -80,13 +80,70 @@ describe("PlatformClaw page help", () => {
     expect(pageHelpForRoute("memory", pathname).title).toBe(title);
   });
 
-  it("falls back to the route title and subtitle for tabs without tour copy", () => {
-    expect(pageHelpForRoute("profile")).toEqual({
-      title: "Profile",
-      body: "Your display name, avatar, and identity on this gateway.",
+  it.each(["en", "ko"] as const)("uses Space copy rather than Settings in %s", async (locale) => {
+    await i18n.setLocale(locale);
+    await loadPlatformClawLocale();
+    expect(pageHelpForRoute("spaces")).toEqual({
+      title: "Spaces",
+      body:
+        locale === "ko"
+          ? "공유 페이지에서 내 에이전트와 대화합니다. Space 에이전트는 공용 질문과 최종 답변을 참고할 수 있습니다."
+          : "Shared pages and your own agent conversations. Space agents can recall shared questions and final answers.",
       details: [],
     });
   });
+
+  it.each(["en", "ko"] as const)("uses product Credentials copy in %s", async (locale) => {
+    await i18n.setLocale(locale);
+    await loadPlatformClawLocale();
+    expect(pageHelpForRoute("credentials")).toEqual({
+      title: "Credentials",
+      body:
+        locale === "ko"
+          ? "저장한 값은 내 개인 Agent의 모든 Basic·VM exec에 환경변수로 전달됩니다. 값은 다시 표시되지 않습니다."
+          : "Saved values are injected as environment variables into every Basic and VM exec for your personal Agent. Values are never shown again.",
+      details: [],
+    });
+  });
+
+  it("refreshes the Space trigger and open help through Korean-English-Korean changes", async () => {
+    const trigger = document.createElement("platformclaw-page-help-trigger");
+    trigger.routeId = "spaces";
+    const element = document.createElement("platformclaw-page-help");
+    element.routeId = "spaces";
+    document.body.append(trigger, element);
+    await trigger.updateComplete;
+    trigger.shadowRoot?.querySelector("button")?.click();
+    for (const locale of ["ko", "en", "ko"] as const) {
+      await i18n.setLocale(locale);
+      await loadPlatformClawLocale();
+      await trigger.updateComplete;
+      await element.updateComplete;
+      const label = locale === "ko" ? "Spaces 도움말" : "Help for Spaces";
+      const button = trigger.shadowRoot?.querySelector("button");
+      expect(button?.ariaLabel).toBe(label);
+      expect(button?.title).toBe(label);
+      expect(element.shadowRoot?.querySelector(".help-panel p")?.textContent).toBe(
+        pageHelpForRoute("spaces").body,
+      );
+    }
+  });
+
+  it.each(["en", "ko"] as const)(
+    "uses the Profile title and matching subtitle in %s",
+    async (locale) => {
+      await i18n.setLocale(locale);
+      await loadPlatformClawLocale();
+      expect(pageHelpForRoute("profile")).toEqual({
+        title: locale === "ko" ? "프로필" : "Profile",
+        body:
+          locale === "ko"
+            ? "이 Gateway에서 사용하는 내 표시 이름, 아바타, 신원 정보입니다."
+            : "Your display name, avatar, and identity on this gateway.",
+        details: [],
+      });
+    },
+  );
 
   it.each([
     ["/settings/plugins", "Installed: manage active plugins"],

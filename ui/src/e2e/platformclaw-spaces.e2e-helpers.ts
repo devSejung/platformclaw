@@ -343,7 +343,10 @@ export function setupSpaceBrowserTests() {
     }
     await mkdir(proofDir, { recursive: true });
     server = await startControlUiE2eServer();
-    browser = await chromium.launch({ executablePath });
+    browser = await chromium.launch({
+      executablePath,
+      headless: process.env.OPENCLAW_UI_E2E_HEADED !== "1",
+    });
   });
   afterAll(async () => {
     await browser?.close();

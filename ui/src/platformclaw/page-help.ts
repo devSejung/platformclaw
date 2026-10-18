@@ -53,6 +53,20 @@ function pluginGuide(pathname: string): string {
 }
 
 export function pageHelpForRoute(routeId: RouteId, pathname = "", search = ""): PageHelp {
+  if (routeId === "credentials") {
+    return {
+      title: t("platformClaw.execCredentials.pageTitle"),
+      body: t("platformClaw.execCredentials.intro"),
+      details: [],
+    };
+  }
+  if (routeId === "spaces") {
+    return {
+      title: t("platformClaw.spaces.title"),
+      body: t("platformClaw.spaces.intro"),
+      details: [],
+    };
+  }
   const guide =
     routeId === "memory"
       ? memoryGuide(pathname, search)
@@ -73,11 +87,36 @@ export function pageHelpForRoute(routeId: RouteId, pathname = "", search = ""): 
   };
 }
 
-class PlatformClawPageHelpTriggerElement extends OpenClawLitElement {
+abstract class PlatformClawPageHelpLocaleElement extends OpenClawLitElement {
+  private loadedLocale: string | null = null;
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this.syncLocale();
+  }
+
+  protected override updated(): void {
+    this.syncLocale();
+  }
+
+  private syncLocale(): void {
+    const locale = i18n.getLocale();
+    if (this.loadedLocale === locale) {
+      return;
+    }
+    this.loadedLocale = locale;
+    void loadPlatformClawLocale().then(() => {
+      if (this.loadedLocale === locale) {
+        this.requestUpdate();
+      }
+    });
+  }
+}
+
+class PlatformClawPageHelpTriggerElement extends PlatformClawPageHelpLocaleElement {
   @property() routeId: RouteId = "chat";
   @property() pathname = "";
   @property() search = "";
-  private loadedLocale: string | null = null;
 
   static override styles = css`
     :host {
@@ -109,28 +148,6 @@ class PlatformClawPageHelpTriggerElement extends OpenClawLitElement {
     }
   `;
 
-  override connectedCallback(): void {
-    super.connectedCallback();
-    this.syncLocale();
-  }
-
-  protected override updated(): void {
-    this.syncLocale();
-  }
-
-  private syncLocale(): void {
-    const locale = i18n.getLocale();
-    if (this.loadedLocale === locale) {
-      return;
-    }
-    this.loadedLocale = locale;
-    void loadPlatformClawLocale().then(() => {
-      if (this.loadedLocale === locale) {
-        this.requestUpdate();
-      }
-    });
-  }
-
   override render() {
     const help = pageHelpForRoute(this.routeId, this.pathname, this.search);
     const label = guideT("platformClaw.guide.openHelp", { title: help.title });
@@ -148,7 +165,7 @@ class PlatformClawPageHelpTriggerElement extends OpenClawLitElement {
   }
 }
 
-export class PlatformClawPageHelpElement extends OpenClawLitElement {
+export class PlatformClawPageHelpElement extends PlatformClawPageHelpLocaleElement {
   @property() routeId: RouteId = "chat";
   @property() pathname = "";
   @property() search = "";
@@ -206,7 +223,6 @@ export class PlatformClawPageHelpElement extends OpenClawLitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     document.addEventListener("platformclaw-page-help-open", this.openHelp);
-    void loadPlatformClawLocale().then(() => this.requestUpdate());
   }
 
   override disconnectedCallback(): void {

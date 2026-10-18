@@ -266,7 +266,15 @@ platformclaw-spaces-page {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.pc-space-title-row {
+  display: flex;
+  align-items: center;
+}
+.pc-space-title-row > platformclaw-page-help-trigger {
+  flex-shrink: 0;
+}
 .pc-space-heading h1 {
+  min-width: 0;
   margin: 0;
   font-size: 17px;
   font-weight: 600;

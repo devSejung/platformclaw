@@ -39,6 +39,7 @@ type SpaceEditor = {
   revision?: number;
 };
 type SpacesViewProps = {
+  titleAccessory?: unknown;
   spaces: Space[];
   snapshot: SpaceSnapshot | null;
   page: SpacePage | null;
@@ -588,7 +589,10 @@ export function renderSpacesView(p: SpacesViewProps) {
         </button>
         <div class="pc-space-heading">
           <span>${p.snapshot?.space.name ?? t("title")}</span>
-          <h1>${p.page?.title ?? t("title")}</h1>
+          <div class="pc-space-title-row">
+            <h1>${p.page?.title ?? t("title")}</h1>
+            ${p.titleAccessory}
+          </div>
         </div>
         <div class="pc-space-topbar-actions">
           ${p.snapshot

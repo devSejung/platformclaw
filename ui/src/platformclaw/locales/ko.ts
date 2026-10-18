@@ -11,6 +11,9 @@ import { vaultTranslations } from "./ko-vaults.ts";
 // Native chat uses the shared translator; keep product-owned copy here rather
 // than hand-editing the generated upstream locale catalog.
 export const nativeTranslations = {
+  subtitles: {
+    profile: "이 Gateway에서 사용하는 내 표시 이름, 아바타, 신원 정보입니다.",
+  },
   skillHubPage: {
     downloadLocation: "스킬을 어디에 다운로드할까요?",
     downloadLocationHelp:
