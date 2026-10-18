@@ -29,6 +29,7 @@ import { CommandLaneClearedError, GatewayDrainingError } from "../../process/com
 import { defaultRuntime } from "../../runtime.js";
 import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
+import type { ReplyPayload } from "../types.js";
 import { buildContextOverflowRecoveryText } from "./agent-runner-context-recovery.js";
 import type { AgentTurnInternalResult, AgentTurnParams } from "./agent-runner-execution.types.js";
 import {
@@ -44,7 +45,8 @@ import {
   isNonDirectConversationContext,
   isPureTransientRateLimitSummary,
   isVerboseFailureDetailEnabled,
-  markAgentRunFailureReplyPayload,
+  markAgentRunFailureReplyPayload as markFailureReplyPayload,
+  resolveAgentRunFailureOutcome,
   resolveBillingFailureReplyText,
   resolveExternalRunFailureTextForConversation,
 } from "./agent-runner-failure-reply.js";
@@ -142,6 +144,14 @@ export async function handleAgentExecutionError(params: {
 }): Promise<ErrorAction> {
   const turn = params.turn;
   const err = params.error;
+  const markAgentRunFailureReplyPayload = <T extends ReplyPayload>(payload: T) =>
+    markFailureReplyPayload(
+      payload,
+      resolveAgentRunFailureOutcome(
+        err,
+        turn.replyOperation?.abortSignal ?? turn.opts?.abortSignal,
+      ),
+    );
   const takePendingLifecycleTerminal = () => {
     const terminal = params.state.pendingLifecycleTerminal?.backstop;
     params.state.pendingLifecycleTerminal = undefined;

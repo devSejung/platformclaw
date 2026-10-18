@@ -478,7 +478,9 @@ describe("handleToolExecutionStart read path checks", () => {
     expect(payload?.text).toContain(
       questions.length > 1
         ? "Reply by number or question id. Use a declared option where choices are fixed."
-        : "Reply with the number, the option text, or your own answer.",
+        : questions.some((question) => "multiSelect" in question && question.multiSelect)
+          ? "Reply with option numbers or labels separated by commas or newlines (for example, 1, 2), or your own answer."
+          : "Reply with the number, the option text, or your own answer.",
     );
     expect(payload).not.toHaveProperty("presentation");
     expect(payload).not.toHaveProperty("presentationTextMode");

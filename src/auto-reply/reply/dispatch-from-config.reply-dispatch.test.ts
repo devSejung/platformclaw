@@ -5,7 +5,6 @@ import {
   OutboundDeliveryError,
   PlatformMessageNotDispatchedError,
 } from "../../infra/outbound/deliver-types.js";
-import type { PluginHookReplyDispatchResult } from "../../plugins/hooks.test-fixtures.js";
 import { getPluginRuntimeGatewayRequestScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { createInternalHookEventPayload } from "../../test-utils/internal-hook-event-payload.js";
 import { withReplyDispatcher } from "../dispatch-dispatcher.js";
@@ -199,35 +198,6 @@ describe("dispatchReplyFromConfig reply_dispatch hook", () => {
       counts: { tool: 1, block: 2, final: 3 },
     });
   });
-  it("still applies send-policy deny after an unhandled plugin dispatch", async () => {
-    hookMocks.runner.runReplyDispatch.mockResolvedValue({
-      handled: false,
-      queuedFinal: false,
-      counts: { tool: 0, block: 0, final: 0 },
-    } satisfies PluginHookReplyDispatchResult);
-
-    const result = await dispatchReplyFromConfig({
-      ctx: createHookCtx(),
-      cfg: {
-        ...emptyConfig,
-        session: {
-          sendPolicy: { default: "deny" },
-        },
-      },
-      dispatcher: createDispatcher(),
-      replyResolver: async () => ({ text: "model reply" }),
-    });
-
-    expect(hookMocks.runner.runReplyDispatch).toHaveBeenCalled();
-    // createHookCtx's "private" chat type is undirected, so no fallback
-    // eligibility surfaces for this turn.
-    expect(result).toEqual({
-      queuedFinal: false,
-      counts: { tool: 0, block: 0, final: 0 },
-      sendPolicyDenied: true,
-    });
-  });
-
   it("clears pending final delivery after final dispatch succeeds", async () => {
     hookMocks.runner.hasHooks.mockReturnValue(false);
     sessionStoreMocks.currentEntry = {

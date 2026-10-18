@@ -15,7 +15,8 @@ const state = vi.hoisted(() => ({
   clearRunContext: vi.fn(),
 }));
 
-vi.mock("../../infra/agent-run-registry.js", () => ({
+vi.mock("../../infra/agent-run-registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../infra/agent-run-registry.js")>()),
   clearAgentRunContext: (...args: unknown[]) => state.clearRunContext(...args),
 }));
 
@@ -192,14 +193,21 @@ describe("createFollowupRunner", () => {
     const typing = createTypingController();
     const turn = createTurn(order);
     const failure = new Error("candidate failed before settlement");
+    const onAgentRunFailure = vi.fn();
     state.admit.mockResolvedValue({ kind: "admitted", turn });
     state.execute.mockRejectedValue(failure);
 
     await expect(
-      createFollowupRunner({ typing, typingMode: "instant", defaultModel: "claude" })(turn.queued),
+      createFollowupRunner({
+        typing,
+        typingMode: "instant",
+        defaultModel: "claude",
+        opts: { onAgentRunFailure },
+      })(turn.queued),
     ).rejects.toBe(failure);
 
     expect(state.completeLifecycle).not.toHaveBeenCalled();
+    expect(onAgentRunFailure).not.toHaveBeenCalled();
     expect(state.clearRunContext).toHaveBeenCalledWith("run-1");
     expect(order).toEqual(["operation-complete"]);
     expect(typing.markRunComplete).toHaveBeenCalledOnce();
@@ -224,20 +232,30 @@ describe("createFollowupRunner", () => {
   it("consumes a turn that fails after canonical execution starts", async () => {
     const typing = createTypingController();
     const turn = createTurn();
+    const onAgentRunFailure = vi.fn();
     state.admit.mockResolvedValue({ kind: "admitted", turn });
     state.execute.mockImplementation(async ({ onExecutionStarted }) => {
       onExecutionStarted?.();
       throw new Error("execution failed after start");
     });
 
-    await createFollowupRunner({ typing, typingMode: "instant", defaultModel: "claude" })(
-      turn.queued,
-    );
+    await createFollowupRunner({
+      typing,
+      typingMode: "instant",
+      defaultModel: "claude",
+      opts: { onAgentRunFailure },
+    })(turn.queued);
 
     expect(state.execute).toHaveBeenCalledOnce();
     expect(state.completeLifecycle).toHaveBeenCalledWith(turn.queued);
     expect(state.clearRunContext).toHaveBeenCalledWith("run-1");
     expect(turn.operation.fail).toHaveBeenCalledWith("run_failed", expect.any(Error));
+    expect(onAgentRunFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        status: "error",
+        error: "execution failed after start",
+      }),
+    );
   });
 
   it("holds the reply operation through progress drain, accounting, and delivery", async () => {
@@ -283,29 +301,47 @@ describe("createFollowupRunner", () => {
     expect(state.clearRunContext).toHaveBeenCalledWith("run-1");
   });
 
-  it("does not replay a settled turn when progress presentation fails", async () => {
-    const typing = createTypingController();
-    const turn = createTurn();
-    const execution = createRejectedExecution();
-    execution.progress.drain = vi.fn(async () => {
-      throw new Error("presentation failed");
-    });
-    state.admit.mockResolvedValue({ kind: "admitted", turn });
-    state.execute.mockResolvedValue(execution);
-    state.account.mockResolvedValue(undefined);
-    state.resolveDecision.mockReturnValue({ kind: "suppress", reason: "silent" });
-    state.deliver.mockResolvedValue(undefined);
+  it.each([false, true])(
+    "does not replay a settled progress failure (delivery also fails: %s)",
+    async (deliveryAlsoFails) => {
+      const typing = createTypingController();
+      const turn = createTurn();
+      const execution = createRejectedExecution();
+      const failure = new Error("presentation failed");
+      const onAgentRunFailure = vi.fn();
+      execution.progress.drain = vi.fn(async () => {
+        throw failure;
+      });
+      state.admit.mockResolvedValue({ kind: "admitted", turn });
+      state.execute.mockImplementation(async ({ onExecutionStarted }) => {
+        onExecutionStarted?.();
+        return execution;
+      });
+      state.account.mockResolvedValue(undefined);
+      state.resolveDecision.mockReturnValue({ kind: "suppress", reason: "silent" });
+      if (deliveryAlsoFails) {
+        state.deliver.mockRejectedValue(failure);
+      } else {
+        state.deliver.mockResolvedValue(undefined);
+      }
 
-    await createFollowupRunner({ typing, typingMode: "instant", defaultModel: "claude" })(
-      turn.queued,
-    );
+      await createFollowupRunner({
+        typing,
+        typingMode: "instant",
+        defaultModel: "claude",
+        opts: { onAgentRunFailure },
+      })(turn.queued);
 
-    expect(state.execute).toHaveBeenCalledOnce();
-    expect(state.account).toHaveBeenCalledOnce();
-    expect(state.deliver).toHaveBeenCalledOnce();
-    expect(state.completeLifecycle).toHaveBeenCalledWith(turn.queued);
-    expect(turn.operation.fail).toHaveBeenCalledWith("run_failed", expect.any(Error));
-  });
+      expect(state.execute).toHaveBeenCalledOnce();
+      expect(state.account).toHaveBeenCalledOnce();
+      expect(state.deliver).toHaveBeenCalledOnce();
+      expect(state.completeLifecycle).toHaveBeenCalledWith(turn.queued);
+      expect(turn.operation.fail).toHaveBeenCalledWith("run_failed", expect.any(Error));
+      expect(onAgentRunFailure).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ status: "error", error: "presentation failed" }),
+      );
+    },
+  );
 
   it("reports a completed message-tool source delivery before final projection", async () => {
     const typing = createTypingController();

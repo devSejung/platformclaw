@@ -12,7 +12,7 @@ vi.mock("openclaw/plugin-sdk/channel-outbound", async () => {
     createChannelIngressMonitor: vi.fn(() => ({
       start: vi.fn(),
       stop: vi.fn(),
-      admit: vi.fn(),
+      admit: vi.fn(async () => ({ kind: "durable", queueResult: { duplicate: false } })),
     })),
   };
 });
@@ -33,25 +33,68 @@ describe("createKnoxIngress", () => {
     );
   });
 
-  it("places a final-line stop command on the control lane", () => {
-    createKnoxIngress({
+  it.each(["/stop", "/approve approval-1 allow-once"])(
+    "places final-line %s on the control lane",
+    (command) => {
+      createKnoxIngress({
+        accountId: "default",
+        queue: {} as never,
+        dispatch: vi.fn(),
+      });
+      const options = vi.mocked(createChannelIngressMonitor).mock.calls.at(-1)?.[0];
+      const message = {
+        schemaVersion: 1,
+        eventId: "event-1",
+        messageId: "message-1",
+        occurredAt: new Date(0).toISOString(),
+        sender: { knoxUserId: "person.one", displayName: "Person One" },
+        conversation: { type: "room", providerType: "GROUP", conversationId: "room-1" },
+        message: { type: "text", text: `metadata\n@bot ${command}` },
+      } as const;
+      expect(options?.inspect(message, { phase: "admission" })).toEqual({
+        eventId: "message-1",
+        laneKey: "room-1:control",
+      });
+    },
+  );
+
+  it("persists a pending question reply's control lane across claim-time resolution", async () => {
+    const questionAnswerBinding = {
+      sessionKey: "agent:room:main",
+      questionId: "ask_one",
+      text: "1",
+    };
+    const resolveQuestionAnswerBinding = vi.fn(async () => questionAnswerBinding);
+    const ingress = createKnoxIngress({
       accountId: "default",
       queue: {} as never,
       dispatch: vi.fn(),
+      resolveQuestionAnswerBinding,
     });
-    const options = vi.mocked(createChannelIngressMonitor).mock.calls.at(-1)?.[0];
     const message = {
       schemaVersion: 1,
-      eventId: "event-1",
-      messageId: "message-1",
+      eventId: "answer-event",
+      messageId: "answer-message",
       occurredAt: new Date(0).toISOString(),
       sender: { knoxUserId: "person.one", displayName: "Person One" },
       conversation: { type: "room", providerType: "GROUP", conversationId: "room-1" },
-      message: { type: "text", text: "metadata\n@bot /stop" },
+      message: { type: "text", text: "1" },
     } as const;
-    expect(options?.inspect(message, { phase: "admission" })).toEqual({
-      eventId: "message-1",
-      laneKey: "room-1:control",
+    await ingress.admit(message);
+    const options = vi.mocked(createChannelIngressMonitor).mock.calls.at(-1)?.[0];
+    const monitor = vi.mocked(createChannelIngressMonitor).mock.results.at(-1)?.value;
+    const admitted = { ...message, questionAnswerBinding };
+    expect(monitor.admit).toHaveBeenCalledWith(admitted, {
+      facts: { eventId: "answer-message", laneKey: "room-1:control" },
     });
+    expect(
+      options?.inspect(admitted, {
+        phase: "claim",
+        claimedId: "answer-message",
+        claimedLaneKey: "room-1:control",
+      }),
+    ).toEqual({ eventId: "answer-message", laneKey: "room-1:control" });
+    const stored = options?.payload.serialize(admitted, {} as never);
+    expect(JSON.parse(stored as string).questionAnswerBinding).toEqual(questionAnswerBinding);
   });
 });

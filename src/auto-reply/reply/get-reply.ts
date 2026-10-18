@@ -37,7 +37,10 @@ import {
   sessionDeliveryChannel,
   sessionDeliveryOrigin,
 } from "../../utils/delivery-context.shared.js";
-import { resolveCommandTurnTargetSessionKey } from "../command-turn-context.js";
+import {
+  createMessageDataContext,
+  resolveCommandTurnTargetSessionKey,
+} from "../command-turn-context.js";
 import type { GetReplyOptions } from "../get-reply-options.types.js";
 import { DEFAULT_HEARTBEAT_ACK_MAX_CHARS, stripHeartbeatToken } from "../heartbeat.js";
 import type { ReplyPayload } from "../reply-payload.js";
@@ -218,10 +221,13 @@ async function applyLinkUnderstandingIfNeeded(params: {
 }
 
 export async function getReplyFromConfig(
-  ctx: MsgContext,
+  inputCtx: MsgContext,
   opts?: GetReplyOptions,
   configOverride?: OpenClawConfig,
 ): Promise<ReplyPayload | ReplyPayload[] | undefined> {
+  // A bound answer is data for an existing question, including slash text.
+  // Clear command projections before native commands, resets, or directives run.
+  const ctx = opts?.questionAnswerBinding ? createMessageDataContext(inputCtx) : inputCtx;
   const isFastTestEnv = isFastTestRuntimeEnv();
   let cfg = resolveGetReplyConfig({
     getRuntimeConfig,

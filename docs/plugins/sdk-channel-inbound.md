@@ -148,6 +148,34 @@ has `visibleReplySent: false`, does not emit `message_sent`, and does not count
 as a visible queued reply. This lets plugins distinguish hook cancellation
 from provider failure without inventing a native message identity.
 
+`DispatchFromConfigResult.noVisibleReplyReason` records why no visible result was
+observed before recovery. Read the same fact on a recovery payload with
+`getReplyPayloadNoVisibleReplyReason` from `openclaw/plugin-sdk/reply-payload`.
+This diagnosis does not authorize delivery: honor `sendPolicyDenied` and
+`sourceReplyDeliveryMode` before sending a channel-owned recovery notice.
+Use `replyOptions.onSourceReplyDeliveryPolicy` to receive that canonical policy
+before execution starts. Channel-owned progress and exception notices must honor
+it too; a thrown run cannot provide completion-result flags.
+Queued followups publish their refreshed policy before adoption and progress.
+`sourceTurnCompleted` marks a successful settled resolver that did not hand its
+reply to an active run or pending continuation. `sourceTurnFailure` carries the
+canonical agent terminal outcome even when group policy filters its reply text.
+Read the same outcome on returned error payloads with
+`getReplyPayloadAgentRunTerminalOutcome` from `openclaw/plugin-sdk/reply-payload`.
+Use `replyOptions.onAgentRunFailure` to observe failures that occur after an
+initial dispatch returns a queued admission; its optional reason preserves known
+empty-result diagnoses even when reply text is filtered.
+Text-only channels can use successful completion to close a
+visible streamed answer when core deduplicates the final payload against a block.
+
+For serialized inbound queues, `getPendingAgentQuestionAnswer({ sessionKey, text })`
+from `openclaw/plugin-sdk/channel-inbound` returns the live question's session key
+and question ID when it accepts the candidate answer. The check neither claims
+nor resolves it. Authenticate and route the input normally, persist that binding
+with its admitted answer, then pass it as `replyOptions.questionAnswerBinding`.
+The active run atomically claims that question; a stale binding returns a
+`question-unavailable` notice without steering ordinary work or answering a new question.
+
 By default, routed turns record inbound metadata against
 `ctxPayload.SessionKey ?? route.sessionKey`. Set `record.sessionKey` only when a
 native command intentionally executes in one command session while updating a

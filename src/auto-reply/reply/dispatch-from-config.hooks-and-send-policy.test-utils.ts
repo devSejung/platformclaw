@@ -3,7 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionBindingRecord } from "../../infra/outbound/session-binding-service.js";
 import type { PluginSubagentRequesterContext } from "../../plugins/runtime/subagent-requester-context.js";
-import { setReplyPayloadMetadata } from "../reply-payload.js";
+import { getReplyPayloadNoVisibleReplyReason, setReplyPayloadMetadata } from "../reply-payload.js";
 import type { MsgContext } from "../templating.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import {
@@ -437,7 +437,11 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
       replyResolver,
     });
 
-    expect(result).toEqual({ queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } });
+    expect(result).toEqual({
+      queuedFinal: false,
+      counts: { tool: 0, block: 0, final: 0 },
+      sourceTurnCompleted: true,
+    });
   });
 
   it.each([
@@ -484,7 +488,11 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     await dispatcher.waitForIdle();
 
     expect(deliver).not.toHaveBeenCalled();
-    expect(result).toEqual({ queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } });
+    expect(result).toEqual({
+      queuedFinal: false,
+      counts: { tool: 0, block: 0, final: 0 },
+      sourceTurnCompleted: true,
+    });
     expect(result.noVisibleReplyFallbackDelivered).toBeUndefined();
     expect(result.noVisibleReplyFallbackEligible).toBeUndefined();
   });
@@ -515,6 +523,7 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     expect(deliveredTexts).not.toContain("visible reply");
     expect(deliveredTexts).toContain(NO_VISIBLE_REPLY_FALLBACK_TEXT);
     expect(result.noVisibleReplyFallbackDelivered).toBe(true);
+    expect(result.noVisibleReplyReason).toBe("delivery-suppressed");
   });
 
   it("reports queue-cap rejection instead of a temporary model failure", async () => {
@@ -547,6 +556,7 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     expect(deliveredTexts).toEqual([QUEUE_CAP_REJECTION_TEXT]);
     expect(deliveredTexts).not.toContain(NO_VISIBLE_REPLY_FALLBACK_TEXT);
     expect(result.noVisibleReplyFallbackDelivered).toBe(true);
+    expect(result.noVisibleReplyReason).toBe("queue-cap");
     expect(diagnosticMocks.logMessageDispatchCompleted).toHaveBeenCalledWith(
       expect.objectContaining({
         outcome: "skipped",
@@ -577,6 +587,7 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     });
 
     expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
+    expect(result.sourceTurnCompleted).toBeUndefined();
     expect(result).toEqual({
       queuedFinal: false,
       counts: { tool: 0, block: 0, final: 0 },
@@ -617,7 +628,11 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
       queuedFinal: true,
       counts: { tool: 0, block: 0, final: 0 },
       noVisibleReplyFallbackDelivered: true,
+      noVisibleReplyReason: "empty-result",
+      sourceTurnCompleted: true,
     });
+    const fallback = vi.mocked(dispatcher.sendFinalReply).mock.calls[0]?.[0];
+    expect(fallback && getReplyPayloadNoVisibleReplyReason(fallback)).toBe("empty-result");
     expect(result.noVisibleReplyFallbackEligible).toBeUndefined();
   });
 
@@ -680,6 +695,7 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
 
     expect(replyResolver).toHaveBeenCalledOnce();
     expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
+    expect(result.sourceTurnCompleted).toBeUndefined();
     expect(result).toEqual({
       queuedFinal: false,
       counts: { tool: 0, block: 0, final: 0 },
@@ -838,10 +854,48 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     expect(result).toEqual({
       queuedFinal: false,
       counts: { tool: 0, block: 0, final: 0 },
+      sourceTurnCompleted: true,
     });
     expect(result.noVisibleReplyFallbackDelivered).toBeUndefined();
     expect(result.noVisibleReplyFallbackEligible).toBeUndefined();
   });
+
+  it.each(["send-policy-denied", "message-tool-only"] as const)(
+    "reports canonical %s policy before a resolver fails",
+    async (policy) => {
+      setNoAbort();
+      sessionStoreMocks.currentEntry = {
+        sessionId: "s1",
+        updatedAt: 0,
+        sendPolicy: policy === "send-policy-denied" ? "deny" : "allow",
+      };
+      const onSourceReplyDeliveryPolicy = vi.fn();
+      const expectedPolicy = {
+        sendPolicyDenied: policy === "send-policy-denied",
+        sourceReplyDeliveryMode: policy === "message-tool-only" ? "message_tool_only" : "automatic",
+      };
+      const replyResolver = vi.fn(async () => {
+        expect(onSourceReplyDeliveryPolicy).toHaveBeenCalledExactlyOnceWith(expectedPolicy);
+        throw new Error("resolver failed after policy resolution");
+      });
+
+      await expect(
+        dispatchReplyFromConfig({
+          ctx: buildTestCtx({ ChatType: "direct", SessionKey: "test:policy-before-failure" }),
+          cfg:
+            policy === "message-tool-only"
+              ? ({ messages: { visibleReplies: "message_tool" } } as OpenClawConfig)
+              : emptyConfig,
+          dispatcher: createDispatcher(),
+          replyResolver,
+          replyOptions: { onSourceReplyDeliveryPolicy },
+        }),
+      ).rejects.toThrow("resolver failed after policy resolution");
+
+      expect(replyResolver).toHaveBeenCalledOnce();
+      expect(onSourceReplyDeliveryPolicy).toHaveBeenCalledExactlyOnceWith(expectedPolicy);
+    },
+  );
 
   it("does not deliver no-visible fallback when sendPolicy is deny", async () => {
     setNoAbort();
@@ -880,6 +934,7 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     expect(result.noVisibleReplyFallbackDelivered).toBeUndefined();
     expect(result.noVisibleReplyFallbackEligible).toBe(true);
     expect(result.sendPolicyDenied).toBe(true);
+    expect(result.noVisibleReplyReason).toBe("send-policy-denied");
   });
 
   it("does not deliver no-visible fallback under message_tool_only source delivery", async () => {
@@ -914,6 +969,7 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     expect(result.sourceReplyDeliveryMode).toBe("message_tool_only");
     // Direct silent policy is disallow; eligibility remains for transport fallbacks.
     expect(result.noVisibleReplyFallbackEligible).toBe(true);
+    expect(result.noVisibleReplyReason).toBe("message-tool-only");
   });
 
   it("does not deliver no-visible fallback after observed reply delivery", async () => {
@@ -1323,6 +1379,11 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     const deliveredTexts = deliver.mock.calls.map((call) => call[0].text);
     expect(deliveredTexts).toContain(NO_VISIBLE_REPLY_FALLBACK_TEXT);
     expect(result.noVisibleReplyFallbackDelivered).toBe(true);
+    expect(result.noVisibleReplyReason).toBe("delivery-suppressed");
+    const fallback = deliver.mock.calls.find(([payload]) =>
+      Boolean(getReplyPayloadNoVisibleReplyReason(payload)),
+    )?.[0];
+    expect(fallback && getReplyPayloadNoVisibleReplyReason(fallback)).toBe("delivery-suppressed");
   });
 
   it("keeps eligibility when a beforeDeliver hook cancels the queued fallback", async () => {
@@ -1366,44 +1427,74 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     expect(result.noVisibleReplyFallbackEligible).toBe(true);
   });
 
-  it("delivers fallback when a beforeDeliver hook cancels the model final", async () => {
-    setNoAbort();
-    const deliver = vi.fn(async (_payload: ReplyPayload) => {});
-    const dispatcher = createReplyDispatcher({
-      deliver,
-      beforeDeliver: async (payload) =>
-        payload.text === NO_VISIBLE_REPLY_FALLBACK_TEXT ? payload : null,
-    });
-    const replyResolver = vi.fn(async () => ({ text: "cancelled answer" }));
-    const ctx = buildTestCtx({
-      ChatType: "group",
-      Surface: "telegram",
-      Provider: "telegram",
-      SessionKey: "agent:main:telegram:group:oc_group",
-      WasMentioned: true,
-    });
+  it.each(["cancelled", "failed", "not-visible"] as const)(
+    "records why a model final was %s before delivering recovery",
+    async (outcome) => {
+      setNoAbort();
+      const deliver = vi.fn(async (payload: ReplyPayload) =>
+        outcome === "not-visible" && payload.text !== NO_VISIBLE_REPLY_FALLBACK_TEXT
+          ? { visibleReplySent: false }
+          : undefined,
+      );
+      const dispatcher = createReplyDispatcher({
+        deliver,
+        beforeDeliver: async (payload) => {
+          if (payload.text === NO_VISIBLE_REPLY_FALLBACK_TEXT || outcome === "not-visible") {
+            return payload;
+          }
+          if (outcome === "failed") {
+            throw new Error("before-delivery stage failed");
+          }
+          return null;
+        },
+      });
+      const replyResolver = vi.fn(async () => ({ text: "cancelled answer" }));
+      const ctx = buildTestCtx({
+        ChatType: "group",
+        Surface: "telegram",
+        Provider: "telegram",
+        SessionKey: "agent:main:telegram:group:oc_group",
+        WasMentioned: true,
+      });
 
-    const result = await dispatchReplyFromConfig({
-      ctx,
-      cfg: {
-        agents: {
-          defaults: {
-            silentReply: {
-              group: "disallow",
+      const result = await dispatchReplyFromConfig({
+        ctx,
+        cfg: {
+          agents: {
+            defaults: {
+              silentReply: {
+                group: "disallow",
+              },
             },
           },
-        },
-      } as OpenClawConfig,
-      dispatcher,
-      replyResolver,
-    });
-    dispatcher.markComplete();
-    await dispatcher.waitForIdle();
+        } as OpenClawConfig,
+        dispatcher,
+        replyResolver,
+      });
+      dispatcher.markComplete();
+      await dispatcher.waitForIdle();
 
-    const deliveredTexts = deliver.mock.calls.map((call) => call[0].text);
-    expect(deliveredTexts).toEqual([NO_VISIBLE_REPLY_FALLBACK_TEXT]);
-    expect(result.noVisibleReplyFallbackDelivered).toBe(true);
-  });
+      expect(deliver.mock.calls.map(([payload]) => payload.text)).toEqual(
+        outcome === "not-visible"
+          ? ["cancelled answer", NO_VISIBLE_REPLY_FALLBACK_TEXT]
+          : [NO_VISIBLE_REPLY_FALLBACK_TEXT],
+      );
+      expect(result.noVisibleReplyFallbackDelivered).toBe(true);
+      expect(result.noVisibleReplyReason).toBe(
+        outcome === "failed"
+          ? "delivery-failed"
+          : outcome === "not-visible"
+            ? "delivery-not-visible"
+            : "delivery-suppressed",
+      );
+      const fallback = deliver.mock.calls.find(
+        ([payload]) => payload.text === NO_VISIBLE_REPLY_FALLBACK_TEXT,
+      )?.[0];
+      expect(fallback && getReplyPayloadNoVisibleReplyReason(fallback)).toBe(
+        result.noVisibleReplyReason,
+      );
+    },
+  );
 
   it("suppresses tool result delivery when sendPolicy is deny", async () => {
     setNoAbort();

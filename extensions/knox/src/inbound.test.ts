@@ -170,4 +170,12 @@ describe("dispatchKnoxInbound", () => {
     await expect(dispatchKnoxInbound({ account, message, lifecycle })).rejects.toBe(wrapped);
     expect(sendKnoxOutbound).not.toHaveBeenCalled();
   });
+
+  it("returns setup failure to ingress when source delivery policy was never resolved", async () => {
+    const failure = new Error("Synthetic setup failure before policy resolution");
+    installRuntime(vi.fn().mockRejectedValue(failure));
+
+    await expect(dispatchKnoxInbound({ account, message, lifecycle })).rejects.toBe(failure);
+    expect(sendKnoxOutbound).not.toHaveBeenCalled();
+  });
 });

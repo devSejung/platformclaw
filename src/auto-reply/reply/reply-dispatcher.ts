@@ -17,6 +17,10 @@ import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { registerDispatcher } from "./dispatcher-registry.js";
 import { normalizeReplyPayload, type NormalizeReplySkipReason } from "./normalize-reply.js";
+import {
+  replyDispatchDeliveryOutcomeTrackers,
+  type ReplyDispatchDeliveryOutcome,
+} from "./reply-dispatcher-outcome.js";
 import type {
   ReplyDispatchBeforeDeliver,
   ReplyDispatchBeforeDeliverOptions,
@@ -43,12 +47,6 @@ type ReplyDispatchCancelHandler = (
   info: ReplyDispatchRuntimeInfo,
 ) => Promise<void> | void;
 
-export type ReplyDispatchDeliveryOutcome =
-  | "delivered"
-  | "cancelled"
-  | "failed-before-deliver"
-  | "failed-deliver";
-
 function isRetryableNoSendFailure(error: unknown): boolean {
   return (
     isProvenDeliveryNotSentError(error) &&
@@ -70,12 +68,6 @@ function isRetryableNoSendFailure(error: unknown): boolean {
   );
 }
 
-type ReplyDispatchDeliveryOutcomeTracker = {
-  promise: Promise<ReplyDispatchDeliveryOutcome>;
-  resolve: (outcome: ReplyDispatchDeliveryOutcome) => void;
-  tracked: boolean;
-};
-
 type ReplyDispatchDeliverer = (
   payload: ReplyPayload,
   info: ReplyDispatchRuntimeInfo,
@@ -88,7 +80,6 @@ const DEFAULT_HUMAN_DELAY_MAX_MS = 2500;
 const DEFAULT_BEFORE_DELIVER_TIMEOUT_MS = 15_000;
 const silentReplyLogger = createSubsystemLogger("silent-reply/dispatcher");
 const beforeDeliverCancelledHooks = new WeakMap<ReplyDispatcher, ReplyDispatchCancelHandler[]>();
-const deliveryOutcomeTrackers = new WeakMap<ReplyPayload, ReplyDispatchDeliveryOutcomeTracker>();
 
 type ReplyDispatchBeforeDeliverStage = {
   hook: ReplyDispatchBeforeDeliver;
@@ -227,23 +218,6 @@ export function appendReplyDispatcherBeforeDeliverCancelled(
   }
   hooks.push(hook);
   return true;
-}
-
-/** Capture one core-dispatcher delivery outcome without changing send* return types. */
-export function captureReplyDispatchDeliveryOutcome(payload: ReplyPayload): {
-  promise: Promise<ReplyDispatchDeliveryOutcome>;
-  isTracked: () => boolean;
-} {
-  let resolveOutcome!: (outcome: ReplyDispatchDeliveryOutcome) => void;
-  const tracker: ReplyDispatchDeliveryOutcomeTracker = {
-    promise: new Promise((resolve) => {
-      resolveOutcome = resolve;
-    }),
-    resolve: (outcome) => resolveOutcome(outcome),
-    tracked: false,
-  };
-  deliveryOutcomeTrackers.set(payload, tracker);
-  return { promise: tracker.promise, isTracked: () => tracker.tracked };
 }
 
 function buildReplyDispatchRuntimeInfo(
@@ -460,7 +434,7 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     }
     queuedCounts[kind] += 1;
     pending += 1;
-    const deliveryOutcomeTracker = deliveryOutcomeTrackers.get(payload);
+    const deliveryOutcomeTracker = replyDispatchDeliveryOutcomeTrackers.get(payload);
     if (deliveryOutcomeTracker) {
       deliveryOutcomeTracker.tracked = true;
     }
@@ -472,6 +446,7 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
     }
     let deliveryStarted = false;
     let deliveryOutcome: ReplyDispatchDeliveryOutcome = "failed-before-deliver";
+    let deliveryFinalization: Promise<ReplyDispatchDeliveryOutcome> | undefined;
 
     sendChain = sendChain
       .then(async () => {
@@ -500,7 +475,38 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
           deliverPayload = copyReplyPayloadMetadata(normalized, deliverPayload);
         }
         deliveryStarted = true;
-        await options.deliver(deliverPayload, dispatchInfo);
+        const result = await options.deliver(deliverPayload, dispatchInfo);
+        if (isRecord(result) && result.finalization instanceof Promise) {
+          // Native buffers flush onIdle, after the reply operation returns. Keep
+          // admission conservative while replay cleanup waits for the actual send.
+          deliveryFinalization = result.finalization.then(
+            (finalized) => {
+              const settled = { ...result, ...(isRecord(finalized) ? finalized : {}) };
+              return settled.visibleReplySent === false
+                ? isRecord(settled.suppression)
+                  ? "cancelled"
+                  : "not-visible"
+                : "delivered";
+            },
+            (error: unknown) =>
+              isRetryableNoSendFailure(error) ? "failed-before-deliver" : "failed-deliver",
+          );
+          deliveryOutcome = "delivered";
+          return;
+        }
+        // A fulfilled channel adapter can explicitly report that nothing was shown.
+        // Treat that as invisible or the turn ledger will suppress its recovery notice.
+        if (isRecord(result) && result.visibleReplySent === false) {
+          // Intentional native suppression must retire pending replay just like
+          // a beforeDeliver cancellation; bare nonvisibility remains recoverable.
+          if (isRecord(result.suppression)) {
+            deliveryOutcome = "cancelled";
+            cancelledCounts[kind] += 1;
+          } else {
+            deliveryOutcome = "not-visible";
+          }
+          return;
+        }
         deliveryOutcome = "delivered";
       })
       .catch(async (err: unknown) => {
@@ -518,8 +524,8 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
       })
       .finally(() => {
         const dispatchInfo = buildReplyDispatchRuntimeInfo(normalized, kind);
-        deliveryOutcomeTracker?.resolve(deliveryOutcome);
-        deliveryOutcomeTrackers.delete(payload);
+        deliveryOutcomeTracker?.resolve(deliveryOutcome, deliveryFinalization);
+        replyDispatchDeliveryOutcomeTrackers.delete(payload);
         try {
           options.onDeliverySettled?.(dispatchInfo);
         } catch (err: unknown) {

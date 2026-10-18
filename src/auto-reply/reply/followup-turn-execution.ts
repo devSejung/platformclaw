@@ -1,5 +1,9 @@
 import { loadSessionEntryReadOnly } from "../../config/sessions/session-accessor.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import {
+  getReplyPayloadAgentRunTerminalOutcome,
+  getReplyPayloadNoVisibleReplyReason,
+} from "../reply-payload.js";
 import type { TemplateContext } from "../templating.js";
 import type { VerboseLevel } from "../thinking.js";
 import type { ReplyPayload } from "../types.js";
@@ -271,6 +275,13 @@ export async function executeFollowupTurn(params: {
   let execution: AgentTurnExecutionResult;
   const runStartedAt = Date.now();
   if (turn.preflightFailurePayload) {
+    const failure = getReplyPayloadAgentRunTerminalOutcome(turn.preflightFailurePayload);
+    if (failure) {
+      sourceOpts?.onAgentRunFailure?.(
+        failure,
+        getReplyPayloadNoVisibleReplyReason(turn.preflightFailurePayload),
+      );
+    }
     execution = {
       runId: turn.runId,
       outcome: { kind: "rejected", payload: turn.preflightFailurePayload },

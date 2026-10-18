@@ -41,6 +41,7 @@ import { logMessageQueuedWithBacklogPolicy } from "../../logging/diagnostic-runt
 import { diagnosticLogger as diag, logSessionStateChange } from "../../logging/diagnostic.js";
 import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { resolveTimerTimeoutMs } from "../../shared/number-coercion.js";
+import { claimPendingAgentQuestionAnswer } from "../harness/gateway-question.js";
 import {
   ACTIVE_EMBEDDED_RUNS,
   ACTIVE_EMBEDDED_RUNS_BY_RUN_ID,
@@ -79,6 +80,7 @@ type EmbeddedAgentQueueFailureReason =
   | "source_reply_delivery_mode_mismatch"
   | "task_suggestion_delivery_mode_mismatch"
   | "transcript_commit_wait_unsupported"
+  | "question_unavailable"
   | "runtime_rejected";
 
 export type EmbeddedAgentQueueMessageOutcome =
@@ -446,6 +448,22 @@ export async function queueEmbeddedAgentMessageWithOutcomeAsync(
   text: string,
   options?: EmbeddedAgentQueueMessageOptions,
 ): Promise<EmbeddedAgentQueueMessageOutcome> {
+  if (options?.questionAnswerBinding) {
+    // Admission binds an answer to its original question. Resolving centrally
+    // prevents any backend from injecting a duplicate into a replacement turn.
+    const claimed = await claimPendingAgentQuestionAnswer({
+      ...options.questionAnswerBinding,
+      text,
+      persist: options.userTurnTranscriptRecorder
+        ? async () => {
+            await options.userTurnTranscriptRecorder?.persistApproved();
+          }
+        : undefined,
+    });
+    return claimed
+      ? { queued: true, sessionId, target: "embedded_run", gatewayHealth: "live" }
+      : createQueueFailureOutcome(sessionId, "question_unavailable");
+  }
   const prepared = prepareEmbeddedAgentQueueMessage(sessionId, text, options);
   if (prepared.kind === "complete") {
     return prepared.outcome;

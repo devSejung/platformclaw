@@ -9,6 +9,7 @@ import {
   isEmbeddedAgentRunActive,
 } from "../../agents/embedded-agent-runner/runs.js";
 import { testing as embeddedRunTesting } from "../../agents/embedded-agent-runner/runs.test-support.js";
+import { FailoverError } from "../../agents/failover-error.js";
 import { clearRuntimeConfigSnapshot } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
@@ -25,7 +26,13 @@ import {
   type MemoryFlushPlanResolver,
 } from "../../plugins/memory-state.test-fixtures.js";
 import { GatewayDrainingError } from "../../process/command-queue.js";
-import { getReplyPayloadMetadata, type ReplyPayload } from "../reply-payload.js";
+import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
+import {
+  getReplyPayloadAgentRunTerminalOutcome,
+  getReplyPayloadMetadata,
+  getReplyPayloadNoVisibleReplyReason,
+  type ReplyPayload,
+} from "../reply-payload.js";
 import type { TemplateContext } from "../templating.js";
 import type { VerboseLevel } from "../thinking.shared.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
@@ -33,6 +40,7 @@ import type { FollowupRun, QueueSettings } from "./queue.js";
 import { enqueueFollowupRun, scheduleFollowupDrain } from "./queue.js";
 import { createReplyOperation, replyRunRegistry } from "./reply-run-registry.js";
 import { testing as replyRunRegistryTesting } from "./reply-run-registry.test-support.js";
+import { buildTestCtx } from "./test-ctx.js";
 import { createMockTypingController } from "./test-helpers.js";
 
 function createCliBackendTestConfig() {
@@ -83,6 +91,7 @@ const runtimeErrorMock = vi.fn();
 const abortEmbeddedAgentRunMock = vi.fn();
 const clearSessionQueuesMock = vi.fn();
 const refreshQueuedFollowupSessionMock = vi.fn();
+const followupRunnerDefaults = vi.hoisted(() => vi.fn());
 const compactState = vi.hoisted(() => ({
   compactEmbeddedAgentSessionMock: vi.fn(),
 }));
@@ -162,8 +171,12 @@ vi.mock("../../runtime.js", () => {
   };
 });
 
-vi.mock("./queue.js", () => {
+vi.mock("./queue.js", async () => {
+  const lifecycle = await vi.importActual<typeof import("./queue/types.js")>("./queue/types.js");
   return {
+    admitFollowupRunLifecycle: lifecycle.admitFollowupRunLifecycle,
+    isFollowupRunAborted: lifecycle.isFollowupRunAborted,
+    resolveFollowupAbortSignal: lifecycle.resolveFollowupAbortSignal,
     enqueueFollowupRun: vi.fn(),
     scheduleFollowupDrain: vi.fn(),
     clearSessionQueues: (...args: unknown[]) => clearSessionQueuesMock(...args),
@@ -194,7 +207,10 @@ vi.mock("../../commitments/runtime.js", () => ({
 }));
 
 vi.mock("./followup-runner.js", () => ({
-  createFollowupRunner: () => vi.fn(async () => undefined),
+  createFollowupRunner: (defaults: unknown) => {
+    followupRunnerDefaults(defaults);
+    return vi.fn(async () => undefined);
+  },
 }));
 
 vi.mock("../../utils/provider-utils.js", () => ({
@@ -222,6 +238,8 @@ vi.mock("../../acp/control-plane/manager.js", () => ({
 
 vi.mock("../../agents/subagent-registry.js", () => ({
   getLatestSubagentRunByChildSessionKey: () => null,
+  getSwarmRunByLaunchReplayKey: () => undefined,
+  initSubagentRegistry: () => {},
   listSubagentRunsForController: () => [],
   markSubagentRunTerminated: () => 0,
 }));
@@ -288,6 +306,7 @@ function setupAgentRunnerMocks(): void {
   embeddedRunTesting.resetActiveEmbeddedRuns();
   replyRunRegistryTesting.resetReplyRunRegistry();
   runEmbeddedAgentMock.mockClear();
+  followupRunnerDefaults.mockClear();
   warnPrivateFinalSpy.mockClear();
   runCliAgentMock.mockClear();
   runWithModelFallbackMock.mockClear();
@@ -596,8 +615,256 @@ describe("runReplyAgent auto-compaction token update", () => {
       const result = await runEmptyDirectReply(agentResult);
       const payload = expectRecordFields(result, { isError: true }, "empty interactive fallback");
       expect(payload.text).toContain("did not produce a visible reply");
+      expect(getReplyPayloadNoVisibleReplyReason(payload)).toBe("empty-result");
+      expect(getReplyPayloadAgentRunTerminalOutcome(payload)).toMatchObject({ status: "error" });
     },
   );
+
+  it.each([
+    "group-block-failure",
+    "group-deferred-failure",
+    "group-deferred-empty",
+    "group-deferred-deny",
+    "group-empty",
+    "direct-empty",
+    "direct-cli-timeout",
+    "direct-embedded-timeout",
+  ] as const)("carries %s through the real runner and dispatch settlement", async (scenario) => {
+    const { dispatchReplyFromConfig } = await import("./dispatch-from-config.js");
+    const { createReplyDispatcher } = await import("./reply-dispatcher.js");
+    const stateDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "runner-outcome-")));
+    vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+    vi.stubEnv("OPENCLAW_CONFIG_PATH", path.join(stateDir, "openclaw.json"));
+    const sessionKey = `agent:main:whatsapp:${scenario}`;
+    const storePath = path.join(stateDir, "sessions", "sessions.json");
+    const sessionEntry = { sessionId: "session", updatedAt: Date.now() };
+    const cfg: OpenClawConfig = {
+      plugins: { enabled: false },
+      session: { store: storePath },
+      agents: { defaults: { workspace: path.join(stateDir, "workspace") } },
+    };
+    await fs.writeFile(path.join(stateDir, "openclaw.json"), JSON.stringify(cfg));
+    await seedSessionStore({ storePath, sessionKey, entry: sessionEntry });
+    const { typing, resolvedQueue, followupRun } = createBaseRun({
+      storePath,
+      sessionEntry,
+      config: cfg,
+    });
+    followupRun.run.sessionKey = sessionKey;
+    followupRun.run.workspaceDir = path.join(stateDir, "workspace");
+    const deferred = scenario.startsWith("group-deferred-");
+    if (deferred) {
+      resolvedQueue.mode = "collect";
+      followupRun.originatingChatType = "group";
+      vi.mocked(enqueueFollowupRun).mockReturnValueOnce(true);
+    }
+    runEmbeddedAgentMock.mockImplementationOnce(async (params) => {
+      if (scenario === "group-block-failure") {
+        await params.onBlockReply?.({ text: "작업 중입니다." });
+        await params.onBlockReplyFlush?.();
+        throw new Error("provider ended before completing the turn");
+      }
+      if (scenario === "group-deferred-failure" || scenario === "group-deferred-deny") {
+        throw new Error("deferred provider failed after source dispatch returned");
+      }
+      if (scenario === "direct-cli-timeout") {
+        params.onExecutionPhase?.({ phase: "tool_execution_started" });
+        throw new FailoverError("CLI produced no output for 120s and was terminated.", {
+          reason: "timeout",
+          provider: "claude-cli",
+          code: "cli_no_output_timeout",
+          cliTimeout: {
+            mode: "no-output",
+            timeoutSeconds: 120,
+            observedActivity: true,
+            activeToolCount: 1,
+            backgroundTaskCount: 0,
+          },
+        });
+      }
+      if (scenario === "direct-embedded-timeout") {
+        return {
+          payloads: [{ text: "Runtime did not finish the response", isError: true }],
+          meta: {
+            agentMeta: {},
+            stopReason: "timeout",
+            timeoutPhase: "provider",
+            error: { kind: "retry_limit", message: "provider deadline exceeded" },
+          },
+        };
+      }
+      return { payloads: [], meta: { agentMeta: {} } };
+    });
+    const delivered: ReplyPayload[] = [];
+    const dispatcher = createReplyDispatcher({
+      deliver: async (payload) => {
+        delivered.push(payload);
+      },
+    });
+    const onAgentRunFailure = vi.fn();
+    const policyOrder: string[] = [];
+    const onSourceReplyDeliveryPolicy = vi.fn((policy: { sendPolicyDenied: boolean }) => {
+      policyOrder.push(policy.sendPolicyDenied ? "deny" : "allow");
+    });
+    if (deferred) {
+      followupRun.turnAdoptionLifecycle = {
+        onAdopted: () => {
+          policyOrder.push("adopted");
+        },
+      };
+    }
+    try {
+      const result = await dispatchReplyFromConfig({
+        ctx: buildTestCtx({
+          Body: "hello",
+          SessionKey: sessionKey,
+          MessageSid: crypto.randomUUID(),
+          ChatType: scenario.startsWith("group-") ? "group" : "direct",
+          WasMentioned: true,
+        }),
+        cfg,
+        dispatcher,
+        replyOptions: { onAgentRunFailure, onSourceReplyDeliveryPolicy },
+        fastAbortResolver: async () => ({ handled: false, aborted: false }),
+        formatAbortReplyTextResolver: () => "Aborted",
+        replyResolver: (sessionCtx, opts) => {
+          return runReplyAgent({
+            commandBody: "hello",
+            followupRun,
+            queueKey: sessionKey,
+            resolvedQueue,
+            shouldSteer: false,
+            shouldFollowup: deferred,
+            isActive: deferred,
+            isStreaming: false,
+            opts,
+            replyOperation: opts?.replyOperation,
+            typing,
+            sessionCtx: sessionCtx as TemplateContext,
+            sessionEntry,
+            sessionStore: { [sessionKey]: sessionEntry },
+            sessionKey,
+            storePath,
+            defaultModel: "anthropic/claude-opus-4-6",
+            resolvedVerboseLevel: "off",
+            isNewSession: false,
+            blockStreamingEnabled: scenario === "group-block-failure",
+            resolvedBlockStreamingBreak: "message_end",
+            shouldInjectGroupIntro: false,
+            typingMode: "instant",
+          });
+        },
+      });
+      dispatcher.markComplete();
+      await dispatcher.waitForIdle();
+      if (deferred) {
+        expect(result.sourceTurnFailure).toBeUndefined();
+        expect(result.sourceTurnCompleted).toBeUndefined();
+        expect(onAgentRunFailure).not.toHaveBeenCalled();
+        const { executeFollowupTurn } = await import("./followup-turn-execution.js");
+        const defaults = followupRunnerDefaults.mock
+          .calls[0]?.[0] as import("./followup-turn-admission.js").FollowupRunnerParams;
+        if (scenario === "group-deferred-deny") {
+          cfg.session = { ...cfg.session, sendPolicy: { default: "deny" } };
+          followupRun.run.config = cfg;
+          await fs.writeFile(path.join(stateDir, "openclaw.json"), JSON.stringify(cfg));
+          clearRuntimeConfigSnapshot();
+        }
+        const { admitFollowupTurn } = await import("./followup-turn-admission.js");
+        const admission = await admitFollowupTurn({ queued: followupRun, defaults });
+        if (admission.kind !== "admitted") {
+          throw new Error("Expected real followup admission");
+        }
+        const { turn } = admission;
+        try {
+          const execution = await executeFollowupTurn({
+            turn,
+            defaults,
+            onToolResult: async () => {},
+            onCompactionNoticePayload: async () => {},
+          });
+          await execution.progress.drain();
+          if (scenario === "group-deferred-failure" || scenario === "group-deferred-deny") {
+            expect(execution.execution.outcome).toMatchObject({
+              kind: "rejected",
+              payload: { text: SILENT_REPLY_TOKEN },
+            });
+            expect(onAgentRunFailure).toHaveBeenCalledWith(
+              expect.objectContaining({ status: "error" }),
+              undefined,
+            );
+            if (scenario === "group-deferred-deny") {
+              expect(policyOrder.indexOf("deny")).toBeLessThan(policyOrder.indexOf("adopted"));
+              expect(onSourceReplyDeliveryPolicy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ sendPolicyDenied: true }),
+              );
+            }
+          } else {
+            const { accountFollowupTurn } = await import("./agent-runner-result-accounting.js");
+            const { resolveFollowupDeliveryDecision, deliverFollowupDecision } =
+              await import("./followup-delivery.js");
+            const accounting = await accountFollowupTurn({ turn, defaults, execution });
+            const decision = resolveFollowupDeliveryDecision({
+              turn,
+              execution: execution.execution,
+              accounting,
+              opts: defaults.opts,
+            });
+            // Queued decisions may carry NO_REPLY until the transport normalizer.
+            // Assert the real delivery boundary, rather than its intermediate shape.
+            await deliverFollowupDecision({
+              decision,
+              turn,
+              defaults,
+              runId: execution.execution.runId,
+              runFollowup: async () => {},
+            });
+            dispatcher.markComplete();
+            await dispatcher.waitForIdle();
+            expect(delivered).toEqual([]);
+            expect(onAgentRunFailure).toHaveBeenCalledWith(
+              expect.objectContaining({ status: "error" }),
+              "empty-result",
+            );
+          }
+        } finally {
+          turn.operation.complete();
+        }
+        expect(result.sourceTurnFailure).toBeUndefined();
+        expect(runEmbeddedAgentMock).toHaveBeenCalledTimes(1);
+        return;
+      }
+      expect(runEmbeddedAgentMock).toHaveBeenCalledTimes(1);
+      expect(result.sourceTurnCompleted).toBeUndefined();
+      expect(result.sourceTurnFailure?.status).toBe(
+        scenario.endsWith("timeout") ? "timeout" : "error",
+      );
+      if (scenario === "group-empty") {
+        expect(delivered).toEqual([]);
+        expect(result.noVisibleReplyReason).toBe("empty-result");
+        expect(result.noVisibleReplyFallbackEligible).toBeUndefined();
+        expect(result.noVisibleReplyFallbackDelivered).toBeUndefined();
+      } else if (scenario === "group-block-failure") {
+        expect(delivered.map((payload) => payload.text)).toContain("작업 중입니다.");
+        expect(
+          delivered.some((payload) => payload.text?.includes("No response was generated")),
+        ).toBe(false);
+      } else {
+        const failure = delivered.find((payload) => payload.isError);
+        expect(failure).toBeDefined();
+        expect(getReplyPayloadAgentRunTerminalOutcome(failure!)).toMatchObject({
+          status: scenario.endsWith("timeout") ? "timeout" : "error",
+        });
+        if (scenario === "direct-empty") {
+          expect(getReplyPayloadNoVisibleReplyReason(failure!)).toBe("empty-result");
+        }
+      }
+    } finally {
+      closeOpenClawStateDatabaseForTest();
+      vi.unstubAllEnvs();
+      await fs.rm(stateDir, { recursive: true, force: true });
+    }
+  });
 
   it("threads the empty interactive direct fallback through normal final preparation", async () => {
     const result = await runEmptyDirectReply(

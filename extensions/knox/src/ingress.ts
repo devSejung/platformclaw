@@ -6,6 +6,7 @@ import {
 } from "openclaw/plugin-sdk/channel-outbound";
 import { runDetachedWebhookWork } from "openclaw/plugin-sdk/webhook-request-guards";
 import { resolveKnoxCommandText } from "./command-text.js";
+import type { KnoxQuestionAnswerBinding } from "./input-routing.js";
 import { KnoxOutboundError } from "./outbound.js";
 import { getKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage } from "./types.js";
@@ -13,6 +14,9 @@ import type { KnoxInboundMessage } from "./types.js";
 const VERSION = 1;
 
 type StoredKnoxIngress = { version: 1; rawEvent: string };
+type AdmittedKnoxMessage = KnoxInboundMessage & {
+  questionAnswerBinding?: KnoxQuestionAnswerBinding;
+};
 export type KnoxIngressLifecycle = Omit<ChannelIngressMonitorLifecycle, "onAdoptionFinalizing">;
 
 export const KnoxIngressPermanentError = createChannelIngressError<
@@ -22,7 +26,14 @@ export const KnoxIngressPermanentError = createChannelIngressError<
 export function createKnoxIngress(options: {
   accountId: string;
   queue?: ChannelIngressQueue<StoredKnoxIngress>;
-  dispatch: (message: KnoxInboundMessage, lifecycle: KnoxIngressLifecycle) => Promise<void>;
+  dispatch: (
+    message: KnoxInboundMessage,
+    lifecycle: KnoxIngressLifecycle,
+    questionAnswerBinding?: KnoxQuestionAnswerBinding,
+  ) => Promise<void>;
+  resolveQuestionAnswerBinding?: (
+    message: KnoxInboundMessage,
+  ) => Promise<KnoxQuestionAnswerBinding | undefined>;
   notifyQueued?: (
     message: KnoxInboundMessage,
     context: { aheadCount: number; abortSignal: AbortSignal },
@@ -30,19 +41,26 @@ export function createKnoxIngress(options: {
   log?: (message: string) => void;
   abortSignal?: AbortSignal;
 }) {
-  const inspect = (message: KnoxInboundMessage) => {
+  const inspect = (
+    message: AdmittedKnoxMessage,
+    context?: { phase: "admission" | "claim"; claimedLaneKey?: string },
+  ) => {
     const command = resolveKnoxCommandText(message.message.text).trim().split(/\s+/u)[0];
-    const control = command?.toLowerCase() === "/stop";
+    const control = command?.toLowerCase() === "/stop" || command?.toLowerCase() === "/approve";
+    const conversationId = message.conversation.conversationId;
     return {
       eventId: message.messageId,
-      // Stop must enter while ordinary work owns the conversation lane; otherwise
-      // the command cannot interrupt the run it was sent to stop.
-      laneKey: control
-        ? `${message.conversation.conversationId}:control`
-        : message.conversation.conversationId,
+      // The durable binding survives reclaim; a stale answer must never become
+      // ordinary work or answer a replacement question sharing the same choices.
+      laneKey:
+        control ||
+        message.questionAnswerBinding ||
+        (context?.phase === "claim" && context.claimedLaneKey === `${conversationId}:control`)
+          ? `${conversationId}:control`
+          : conversationId,
     };
   };
-  const monitor = createChannelIngressMonitor<KnoxInboundMessage, string, StoredKnoxIngress>({
+  const monitor = createChannelIngressMonitor<AdmittedKnoxMessage, string, StoredKnoxIngress>({
     queue:
       options.queue ??
       (() =>
@@ -56,9 +74,9 @@ export function createKnoxIngress(options: {
       version: VERSION,
       serialize: (message) => JSON.stringify(message),
       deserialize: (rawEvent, { claim }) => {
-        let message: KnoxInboundMessage;
+        let message: AdmittedKnoxMessage;
         try {
-          message = JSON.parse(rawEvent) as KnoxInboundMessage;
+          message = JSON.parse(rawEvent) as AdmittedKnoxMessage;
         } catch (error) {
           throw new KnoxIngressPermanentError("invalid-event", "Knox ingress JSON is invalid", {
             cause: error,
@@ -78,15 +96,14 @@ export function createKnoxIngress(options: {
     // A delivery may outlive the pump that claimed it when another lane (notably
     // /stop) repumps. Give every delivery its own Gateway root lease.
     deliver: async (message, lifecycle) =>
-      await runDetachedWebhookWork(async () => await options.dispatch(message, lifecycle)),
+      await runDetachedWebhookWork(
+        async () => await options.dispatch(message, lifecycle, message.questionAnswerBinding),
+      ),
     pollIntervalMs: 500,
     sequencedAdmission: true,
     onQueued: options.notifyQueued
       ? async (message, context) => {
-          if (
-            resolveKnoxCommandText(message.message.text).trim().split(/\s+/u)[0]?.toLowerCase() ===
-            "/stop"
-          ) {
+          if (inspect(message).laneKey === `${message.conversation.conversationId}:control`) {
             return;
           }
           await runDetachedWebhookWork(async () => {
@@ -125,14 +142,27 @@ export function createKnoxIngress(options: {
     onError: (error) => options.log?.(`knox ingress failed: ${String(error)}`),
   });
 
+  let admission = Promise.resolve();
+  const admit = async (message: KnoxInboundMessage) => {
+    const questionAnswerBinding =
+      inspect(message).laneKey === message.conversation.conversationId
+        ? await options.resolveQuestionAnswerBinding?.(message)
+        : undefined;
+    const admitted = { ...message, questionAnswerBinding };
+    const result = await monitor.admit(admitted, { facts: inspect(admitted) });
+    return { duplicate: result.kind === "durable" && result.queueResult.duplicate };
+  };
   return {
     start: monitor.start,
     stop: monitor.stop,
     admit: async (message: KnoxInboundMessage) => {
-      const result = await monitor.admit(message, { facts: inspect(message) });
-      return {
-        duplicate: result.kind === "durable" && result.queueResult.duplicate,
-      };
+      // Async routing must not reorder otherwise FIFO transport arrivals.
+      const result = admission.then(async () => await admit(message));
+      admission = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return await result;
     },
   };
 }

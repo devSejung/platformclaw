@@ -1,9 +1,12 @@
+import type { AgentRunTerminalOutcome } from "../../agents/agent-run-terminal-outcome.types.js";
 import type { PluginHookReplyDispatchEvent } from "../../plugins/hook-types.js";
+import type { NoVisibleReplyReason } from "../reply-payload.js";
 import type { CommandSessionMetadataChange } from "./command-session-metadata.js";
 import type { ReplySessionBinding } from "./get-reply.types.js";
 
 export type InternalReplyResolverOptions = {
   onDeliberateSilentTerminalReply?: () => void;
+  onAgentRunFailure?: (outcome: AgentRunTerminalOutcome, reason?: NoVisibleReplyReason) => void;
   onPendingContinuation?: () => void;
   onSessionMetadataChanges?: (changes: CommandSessionMetadataChange[]) => void;
   onSessionPrepared?: (binding: ReplySessionBinding) => void;

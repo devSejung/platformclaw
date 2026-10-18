@@ -52,6 +52,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
     providedReplyOperation,
     preparedSessionState,
     resolvedQueue,
+    questionAnswerBinding,
     embeddedAgentRuntime,
     resolveActiveEmbeddedSessionId,
     resolvePreparedSessionState,
@@ -99,7 +100,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
     model,
     requestedRouteResolution,
     typing,
-    opts,
+    opts: requestedOpts,
     defaultModel,
     timeoutMs,
     blockStreamingEnabled,
@@ -109,6 +110,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
     sessionKey,
     storePath,
   } = params;
+  const opts = questionAnswerBinding ? { ...requestedOpts, questionAnswerBinding } : requestedOpts;
   const {
     resolvedVerboseLevel,
     resolvedReasoningLevel,

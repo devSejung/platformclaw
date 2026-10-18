@@ -326,6 +326,12 @@ export async function prepareDispatchOperationContext(state: PrepareDispatchDeli
     suppressHookUserDelivery,
     suppressHookReplyLifecycle,
   } = sourceReplyPolicy;
+  // Channel-owned progress and error paths need this decision even when the
+  // resolver throws before a DispatchFromConfigResult can carry policy facts.
+  params.replyOptions?.onSourceReplyDeliveryPolicy?.({
+    sendPolicyDenied,
+    sourceReplyDeliveryMode,
+  });
   const reasoningPayloadsEnabled = params.replyOptions?.reasoningPayloadsEnabled === true;
   const commentaryPayloadsEnabled = params.replyOptions?.commentaryPayloadsEnabled === true;
   const attachSourceReplyDeliveryMode = (

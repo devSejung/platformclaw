@@ -1,6 +1,9 @@
+import path from "node:path";
 // Tests runtime-loaded fast-path command behavior for get-reply.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
+import { loadSessionEntry, replaceSessionEntry } from "../../config/sessions/session-accessor.js";
+import { getReplyPayloadNoVisibleReplyReason, setReplyPayloadMetadata } from "../reply-payload.js";
 import {
   createReplyRuntimeMocks,
   createTempHomeHarness,
@@ -9,6 +12,7 @@ import {
   makeReplyConfig,
   resetReplyRuntimeMocks,
 } from "../reply.test-harness.js";
+import * as replyRunner from "./agent-runner.runtime.js";
 import { loadGetReplyModuleForTest } from "./get-reply.test-loader.js";
 
 let getReplyFromConfig: typeof import("./get-reply.js").getReplyFromConfig;
@@ -53,6 +57,82 @@ describe("getReplyFromConfig fast-path runtime", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
   });
+
+  it.each(["/new", "/status", "/trace on"])(
+    "keeps stale bound %s as answer data before command/reset handling",
+    async (text) => {
+      await withTempHome(async (home) => {
+        const sessionKey = "agent:main:whatsapp:bound";
+        const storePath = path.join(home, "sessions.json");
+        await replaceSessionEntry(
+          { storePath, sessionKey },
+          { sessionId: "existing-question-session", updatedAt: Date.now() },
+        );
+        // This suite owns real command/session preparation; the actual question
+        // runner and atomic claim are covered by the media-only admission fixture.
+        const staleReply = setReplyPayloadMetadata(
+          { isError: true, text: "The question has already ended." },
+          { noVisibleReplyReason: "question-unavailable" },
+        );
+        const preparedRunner = vi
+          .spyOn(replyRunner, "runReplyAgent")
+          .mockImplementation(async (params) => {
+            expect(params.opts?.questionAnswerBinding).toEqual({
+              sessionKey,
+              questionId: "expired-question",
+            });
+            expect(params.resetTriggered).toBe(false);
+            expect(params.sessionCtx.commandText).toBe("");
+            expect(params.followupRun.transcriptPrompt).toBe(text);
+            return staleReply;
+          });
+        try {
+          const result = await getReplyFromConfig(
+            {
+              Body: text,
+              BodyForAgent: text,
+              RawBody: text,
+              CommandBody: text,
+              CommandAuthorized: true,
+              CommandSource: "native",
+              CommandTurn: {
+                kind: "native",
+                source: "native",
+                authorized: true,
+                commandName: text.slice(1).split(" ")[0],
+                body: text,
+              },
+              CommandTargetSessionKey: "agent:other:wrong-target",
+              From: "+1001",
+              To: "+2000",
+              SessionKey: sessionKey,
+              Provider: "whatsapp",
+              Surface: "whatsapp",
+              ChatType: "direct",
+            },
+            { questionAnswerBinding: { sessionKey, questionId: "expired-question" } },
+            makeReplyConfig(home) as OpenClawConfig,
+          );
+          if (!result || Array.isArray(result)) {
+            throw new Error("expected stale-question result");
+          }
+          expect(result.isError).toBe(true);
+          expect(getReplyPayloadNoVisibleReplyReason(result)).toBe("question-unavailable");
+          expect(loadSessionEntry({ storePath, sessionKey })?.sessionId).toBe(
+            "existing-question-session",
+          );
+          expect(loadSessionEntry({ storePath, sessionKey })?.traceLevel).toBeUndefined();
+          expect(
+            loadSessionEntry({ storePath, sessionKey: "agent:other:wrong-target" }),
+          ).toBeUndefined();
+          expect(agentMocks.runEmbeddedAgent).not.toHaveBeenCalled();
+          expect(preparedRunner).toHaveBeenCalledOnce();
+        } finally {
+          preparedRunner.mockRestore();
+        }
+      });
+    },
+  );
 
   it("keeps old-style runtime tests fast with marked temp-home configs", async () => {
     await withTempHome(async (home) => {

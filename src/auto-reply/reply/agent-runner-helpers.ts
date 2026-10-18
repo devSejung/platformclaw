@@ -5,12 +5,22 @@ import {
   resolveSendableOutboundReplyParts,
 } from "openclaw/plugin-sdk/reply-payload";
 import { loadSessionEntryReadOnly } from "../../config/sessions/session-accessor.js";
+import { setReplyPayloadMetadata } from "../reply-payload.js";
 import { normalizeVerboseLevel, type VerboseLevel } from "../thinking.js";
 import type { ReplyPayload } from "../types.js";
 import type { TypingSignaler } from "./typing-mode.js";
 
 const hasAudioMedia = (urls?: string[]): boolean =>
   Boolean(urls?.some((url) => isAudioFileName(url)));
+
+export function createUnavailableQuestionReply(): ReplyPayload {
+  const payload = {
+    isError: true,
+    text: "This answer belongs to a question that is no longer available. Check the latest question and answer again.",
+  };
+  setReplyPayloadMetadata(payload, { noVisibleReplyReason: "question-unavailable" });
+  return payload;
+}
 
 /** Returns true when a payload carries audio media. */
 export const isAudioPayload = (payload: ReplyPayload): boolean =>

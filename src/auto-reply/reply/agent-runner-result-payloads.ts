@@ -16,6 +16,8 @@ import { estimateUsageCost, resolveModelCostConfig } from "../../utils/usage-for
 import { buildFallbackClearedNotice, buildFallbackNotice } from "../fallback-state.js";
 import {
   isReplyPayloadStatusNotice,
+  getReplyPayloadAgentRunTerminalOutcome,
+  getReplyPayloadNoVisibleReplyReason,
   markReplyPayloadForSourceSuppressionDelivery,
 } from "../reply-payload.js";
 import type { ReplyPayload } from "../types.js";
@@ -398,6 +400,13 @@ export async function prepareReplyAgentPayloads(state: {
       return { kind: "return" as const, value: silentFallbackFailurePayload };
     }
   } else if (emptyInteractiveReplyPayload && !hasTerminalReplyPayload) {
+    const failure = getReplyPayloadAgentRunTerminalOutcome(emptyInteractiveReplyPayload);
+    if (failure) {
+      opts?.onAgentRunFailure?.(
+        failure,
+        getReplyPayloadNoVisibleReplyReason(emptyInteractiveReplyPayload),
+      );
+    }
     const emptyPayloadResult = await buildFinalPayloads([emptyInteractiveReplyPayload]);
     replyPayloads = [...replyPayloads, ...emptyPayloadResult.replyPayloads];
     didLogHeartbeatStrip = emptyPayloadResult.didLogHeartbeatStrip;

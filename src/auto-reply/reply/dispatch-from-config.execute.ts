@@ -3,6 +3,10 @@ import {
   isFastModeAutoProgressPayload,
   resolveSendableOutboundReplyParts,
 } from "openclaw/plugin-sdk/reply-payload";
+import {
+  mergeAgentRunTerminalOutcome,
+  type AgentRunTerminalOutcome,
+} from "../../agents/agent-run-terminal-outcome.js";
 import { isAskUserPromptPending } from "../../agents/tools/ask-user-tool.js";
 import { normalizeAgentPlanSteps } from "../../channels/streaming.js";
 import type { BlockReplyContext } from "../get-reply-options.types.js";
@@ -11,6 +15,7 @@ import {
   getReplyPayloadMetadata,
   isReplyPayloadStatusNotice,
   type ReplyPayload,
+  type NoVisibleReplyReason,
 } from "../reply-payload.js";
 import { buildTerminalAgentRunFailureReplyPayload } from "./agent-runner-failure-reply.js";
 import { takeCommandSessionMetadataChanges } from "./command-session-metadata.js";
@@ -66,6 +71,8 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
     wrapProgressCallback,
   } = state;
   let deliberateSilentTerminalReply = false;
+  let sourceTurnFailure: AgentRunTerminalOutcome | undefined;
+  let sourceTurnFailureReplyReason: NoVisibleReplyReason | undefined;
   let pendingContinuation = false;
   let didDeliverVisiblePartialReply = false;
   const replyResult = await runWithDispatchLifecycleAdmission(
@@ -82,6 +89,11 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
                 sourceReplyDeliveryMode,
                 sessionPromptSourceReplyDeliveryMode: state.sessionStableSourceReplyDeliveryMode,
                 ...({
+                  onAgentRunFailure: (outcome, reason) => {
+                    sourceTurnFailure = mergeAgentRunTerminalOutcome(sourceTurnFailure, outcome);
+                    sourceTurnFailureReplyReason = reason;
+                    params.replyOptions?.onAgentRunFailure?.(sourceTurnFailure, reason);
+                  },
                   onDeliberateSilentTerminalReply: () => {
                     deliberateSilentTerminalReply = true;
                   },
@@ -601,6 +613,8 @@ export async function executeDispatch(state: PrepareDispatchExecutionReadyState)
   }
   const nextState = extendPreparedDispatchState(state, {
     deliberateSilentTerminalReply,
+    sourceTurnFailure,
+    sourceTurnFailureReplyReason,
     pendingContinuation,
     replyResult,
   });

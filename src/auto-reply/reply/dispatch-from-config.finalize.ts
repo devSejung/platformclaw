@@ -6,6 +6,8 @@ import { registerReplyDispatcherSettledTask } from "../dispatch-dispatcher.js";
 import {
   getReplyPayloadMetadata,
   markReplyPayloadAsTtsSupplement,
+  setReplyPayloadMetadata,
+  type NoVisibleReplyReason,
   type ReplyPayload,
 } from "../reply-payload.js";
 import { isDispatchReplyOperationAbortedError } from "./dispatch-from-config.abort.js";
@@ -21,7 +23,7 @@ import {
   capturePendingFinalDeliveryIdentity,
   reconcilePendingFinalDeliveryAfterSettlement,
 } from "./dispatch-from-config.pending-final.js";
-import type { ReplyDispatchDeliveryOutcome } from "./reply-dispatcher.js";
+import type { ReplyDispatchDeliveryOutcome } from "./reply-dispatcher-outcome.js";
 
 export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState) {
   const {
@@ -273,6 +275,7 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
     replyAdmission?.status === "skipped" && replyAdmission.reason === "queue-cap";
   const noVisibleReplyFallbackAllowed = () =>
     noVisibleReplyFallbackDirected &&
+    !state.sourceTurnFailure &&
     !suppressDelivery &&
     !sendPolicyDenied &&
     state.sourceReplyDeliveryMode !== "message_tool_only" &&
@@ -294,6 +297,52 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
   }
   let counts = dispatcher.getQueuedCounts();
   let noVisibleReplyFallbackDelivered = false;
+  const noVisibleReplyFallbackEligible = () =>
+    noVisibleReplyFallbackDirected &&
+    !state.sourceTurnFailure &&
+    queuedSettleResult === "settled" &&
+    !turnLedger.hasVisibleDelivery() &&
+    !noVisibleReplyFallbackDelivered &&
+    !getObservedReplyDelivery() &&
+    !replyAcceptedByActiveRun &&
+    !emptyFinalAllowedAsSilent &&
+    !deliberateSilentTerminalReply &&
+    !pendingContinuation;
+  // Capture the original absence before recovery sends change delivery counters.
+  // Eligibility describes missing visibility; it never overrides source delivery policy.
+  const noVisibleReplyReason: NoVisibleReplyReason | undefined =
+    state.sourceTurnFailureReplyReason ??
+    (noVisibleReplyFallbackEligible()
+      ? (() => {
+          if (sendPolicyDenied) {
+            return "send-policy-denied";
+          }
+          if (state.sourceReplyDeliveryMode === "message_tool_only") {
+            return "message-tool-only";
+          }
+          if (queueCapRejected) {
+            return "queue-cap";
+          }
+          const failedCounts = dispatcher.getFailedCounts?.();
+          if (failedCounts && Object.values(failedCounts).some((count) => count > 0)) {
+            return "delivery-failed";
+          }
+          if (turnLedger.hasNonVisibleDelivery()) {
+            return "delivery-not-visible";
+          }
+          const cancelledCounts = dispatcher.getCancelledCounts?.();
+          if (cancelledCounts && Object.values(cancelledCounts).some((count) => count > 0)) {
+            return "delivery-suppressed";
+          }
+          if (turnLedger.hasForeignQueuedAdmissions()) {
+            return "unknown";
+          }
+          if (turnLedger.hasDeliveryAttempt() || attemptedFinalDelivery) {
+            return "delivery-not-visible";
+          }
+          return replies.length > 0 ? "filtered-result" : "empty-result";
+        })()
+      : undefined);
   // The agent-result classifier owns deliberate silence and pending continuation;
   // carry those facts here because filtered reply payloads cannot safely rederive either.
   // An aborted or timed-out settle leaves delivery state unknown; admission
@@ -301,9 +350,10 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
   if (queuedSettleResult === "settled" && noVisibleReplyFallbackAllowed()) {
     try {
       throwIfDispatchOperationAborted();
-      const fallbackPayload: ReplyPayload = {
-        text: queueCapRejected ? QUEUE_CAP_REJECTION_TEXT : NO_VISIBLE_REPLY_FALLBACK_TEXT,
-      };
+      const fallbackPayload = setReplyPayloadMetadata<ReplyPayload>(
+        { text: queueCapRejected ? QUEUE_CAP_REJECTION_TEXT : NO_VISIBLE_REPLY_FALLBACK_TEXT },
+        { noVisibleReplyReason },
+      );
       const result = await routeReplyToOriginating(fallbackPayload, {
         abortSignal: getDispatchAbortSignal(),
         kind: "final",
@@ -371,22 +421,17 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
         ? { sessionMetadataChanges: state.routeState.sessionMetadataChangesForResult }
         : {}),
       ...(getObservedReplyDelivery() ? { observedReplyDelivery: true } : {}),
+      ...(state.sourceTurnFailure ? { sourceTurnFailure: state.sourceTurnFailure } : {}),
+      ...(!state.sourceTurnFailure && !pendingContinuation && !replyAcceptedByActiveRun
+        ? { sourceTurnCompleted: true as const }
+        : {}),
       // Eligibility keys off settled visible delivery: a suppressed or cancelled
       // final (including the core fallback itself) leaves channel-level recovery
       // eligible, while any settled visible delivery clears it. An aborted or
       // timed-out settle leaves delivery unresolved, and a fallback reported as
       // delivered must not stay recoverable — either could double-send.
-      ...(noVisibleReplyFallbackDirected &&
-      queuedSettleResult === "settled" &&
-      !turnLedger.hasVisibleDelivery() &&
-      !noVisibleReplyFallbackDelivered &&
-      !getObservedReplyDelivery() &&
-      !replyAcceptedByActiveRun &&
-      !emptyFinalAllowedAsSilent &&
-      !deliberateSilentTerminalReply &&
-      !pendingContinuation
-        ? { noVisibleReplyFallbackEligible: true }
-        : {}),
+      ...(noVisibleReplyFallbackEligible() ? { noVisibleReplyFallbackEligible: true } : {}),
+      ...(noVisibleReplyReason ? { noVisibleReplyReason } : {}),
       ...(noVisibleReplyFallbackDelivered ? { noVisibleReplyFallbackDelivered: true } : {}),
       ...(beforeAgentRunBlocked ? { beforeAgentRunBlocked } : {}),
     }),

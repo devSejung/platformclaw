@@ -201,19 +201,63 @@ export function registerPendingAgentQuestion(params: {
   };
 }
 
+function parsePendingAgentQuestionAnswers(
+  state: PendingAgentQuestion,
+  text: string,
+): AgentHarnessUserInputAnswers | undefined {
+  const answers = buildAgentHarnessUserInputAnswers(state.questions, text);
+  return state.questions.every(
+    (question) => (answers.answers[question.id]?.answers.length ?? 0) > 0,
+  )
+    ? answers
+    : undefined;
+}
+
+/** Non-consuming admission check; question ownership and answer parsing stay canonical. */
+export function getPendingAgentQuestionAnswer(params?: {
+  sessionKey: string;
+  text: string;
+  questionId?: string;
+}): { sessionKey: string; questionId: string } | undefined {
+  // Include a claim in flight so another matching arrival remains bound to the
+  // same question and cannot become ordinary work while its resolve awaits I/O.
+  const available = (state: PendingAgentQuestion) => !state.cancelRequested;
+  const state = params
+    ? pendingAgentQuestions.get(params.sessionKey.trim())
+    : [...pendingAgentQuestions.values()].find(available);
+  if (
+    !state ||
+    !available(state) ||
+    (params?.questionId !== undefined && params.questionId !== state.questionId) ||
+    (params && !parsePendingAgentQuestionAnswers(state, params.text))
+  ) {
+    return undefined;
+  }
+  return { sessionKey: state.sessionKey, questionId: state.questionId };
+}
+
 /** Claims the next queued plain-text message for the session's gateway question. */
 export async function claimPendingAgentQuestionAnswer(params: {
   sessionKey?: string;
+  questionId?: string;
   text: string;
   persist?: () => Promise<void>;
 }): Promise<boolean> {
   const sessionKey = params.sessionKey?.trim();
   const state = sessionKey ? pendingAgentQuestions.get(sessionKey) : undefined;
-  if (!state || state.cancelRequested || state.resolving) {
+  if (
+    !state ||
+    state.cancelRequested ||
+    state.resolving ||
+    (params.questionId !== undefined && params.questionId !== state.questionId)
+  ) {
+    return false;
+  }
+  const answers = parsePendingAgentQuestionAnswers(state, params.text);
+  if (!answers) {
     return false;
   }
   state.resolving = true;
-  const answers = buildAgentHarnessUserInputAnswers(state.questions, params.text);
   if (!state.answer) {
     // A consumed claim must be backed by a registered gateway question; if
     // registration fails the message returns false so normal steering runs.

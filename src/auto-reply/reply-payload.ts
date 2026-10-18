@@ -1,3 +1,4 @@
+import type { AgentRunTerminalOutcome } from "../agents/agent-run-terminal-outcome.types.js";
 import type { OutboundLocation } from "../channels/location.js";
 /** Reply payload contracts and metadata helpers shared by dispatch and channel renderers. */
 import type { ReplyToMode } from "../config/types.base.js";
@@ -230,8 +231,25 @@ export function buildTtsSupplementMediaPayload(payload: ReplyPayload): ReplyPayl
   };
 }
 
+/** Recorded dispatch facts explaining why the source turn had no visible reply. */
+export type NoVisibleReplyReason =
+  | "send-policy-denied"
+  | "message-tool-only"
+  | "queue-cap"
+  | "delivery-failed"
+  | "delivery-suppressed"
+  | "delivery-not-visible"
+  | "filtered-result"
+  | "empty-result"
+  | "question-unavailable"
+  | "unknown";
+
 /** WeakMap-backed metadata attached to payload objects without changing wire shape. */
 export type ReplyPayloadMetadata = {
+  /** Authoritative runner failure, retained even when group policy hides its text. */
+  agentRunTerminalOutcome?: AgentRunTerminalOutcome;
+  /** Identifies a core-authored recovery notice without matching its display text. */
+  noVisibleReplyReason?: NoVisibleReplyReason;
   assistantMessageIndex?: number;
   /** Original runtime MEDIA references used to identify the persisted assistant row. */
   assistantTranscriptMediaUrls?: string[];
@@ -304,6 +322,20 @@ export function setReplyPayloadMetadata<T extends object>(
 /** Reads internal metadata attached to a reply payload object. */
 export function getReplyPayloadMetadata(payload: object): ReplyPayloadMetadata | undefined {
   return replyPayloadMetadata.get(payload);
+}
+
+/** Reads the runner's terminal outcome without interpreting user-facing error copy. */
+export function getReplyPayloadAgentRunTerminalOutcome(
+  payload: object,
+): AgentRunTerminalOutcome | undefined {
+  return getReplyPayloadMetadata(payload)?.agentRunTerminalOutcome;
+}
+
+/** Reads the producer's recorded reason for missing visible output. */
+export function getReplyPayloadNoVisibleReplyReason(
+  payload: object,
+): NoVisibleReplyReason | undefined {
+  return getReplyPayloadMetadata(payload)?.noVisibleReplyReason;
 }
 
 /** Returns true when a payload is the synthesized warning for a non-terminal tool error. */

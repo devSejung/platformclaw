@@ -7,6 +7,7 @@ import {
 import { hasOutboundReplyContent } from "openclaw/plugin-sdk/reply-payload";
 import type { ChatRunStartupPhase } from "../../../packages/gateway-protocol/src/index.js";
 import { peekSessionMcpRuntime } from "../../agents/agent-bundle-mcp-manager-api.js";
+import { buildAgentRunTerminalOutcomeFromLifecycleEvent } from "../../agents/agent-run-terminal-outcome.js";
 import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-budget.js";
 import {
   formatRateLimitOrOverloadedErrorCopy,
@@ -31,6 +32,11 @@ import { isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { logSessionTurnCreated } from "../../logging/diagnostic.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
+import {
+  getReplyPayloadAgentRunTerminalOutcome,
+  getReplyPayloadNoVisibleReplyReason,
+  setReplyPayloadMetadata,
+} from "../reply-payload.js";
 import type { ReplyPayload } from "../types.js";
 import {
   clearRecoveredAutoFallbackPrimaryProbeSelection,
@@ -450,8 +456,23 @@ async function executeAgentTurnInternalWithRetryState(
         visibleReplyDelivered: false,
         sessionCtx: params.sessionCtx,
         cfg: params.followupRun.run.config,
+        outcome: buildAgentRunTerminalOutcomeFromLifecycleEvent({
+          phase: "error",
+          data: { ...runResult.meta, error: runResult.meta.error?.message },
+          abortSignal: params.replyOperation?.abortSignal ?? params.opts?.abortSignal,
+        }),
       })
     : undefined;
+  if (terminalFailurePayload) {
+    // Existing runtime error text can win final preparation over the synthesized notice.
+    // Carry the same terminal fact on that vehicle before normalizers clone or filter it.
+    const agentRunTerminalOutcome = getReplyPayloadAgentRunTerminalOutcome(terminalFailurePayload);
+    for (const payload of runResult.payloads ?? []) {
+      if (payload.isError) {
+        setReplyPayloadMetadata(payload, { agentRunTerminalOutcome });
+      }
+    }
+  }
 
   return {
     kind: "completed",
@@ -552,6 +573,13 @@ export async function executeAgentTurn(params: AgentTurnParams): Promise<AgentTu
       if (isReplyOperationUserAbort(executionParams.replyOperation)) {
         return { runId, outcome: { kind: "aborted", reason: "user" } };
       }
+      const failure = getReplyPayloadAgentRunTerminalOutcome(internal.payload);
+      if (failure) {
+        executionParams.opts?.onAgentRunFailure?.(
+          failure,
+          getReplyPayloadNoVisibleReplyReason(internal.payload),
+        );
+      }
       return {
         runId,
         outcome: {
@@ -566,6 +594,12 @@ export async function executeAgentTurn(params: AgentTurnParams): Promise<AgentTu
       : isReplyOperationUserAbort(executionParams.replyOperation)
         ? "user"
         : undefined;
+    if (internal.terminalFailurePayload) {
+      const failure = getReplyPayloadAgentRunTerminalOutcome(internal.terminalFailurePayload);
+      if (failure) {
+        executionParams.opts?.onAgentRunFailure?.(failure);
+      }
+    }
     const provider =
       internal.fallbackProvider ??
       internal.result.meta?.agentMeta?.provider ??

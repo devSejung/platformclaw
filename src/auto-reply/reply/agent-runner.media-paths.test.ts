@@ -3,7 +3,15 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { EmbeddedAgentQueueMessageOutcome } from "../../agents/embedded-agent-runner/runs.js";
+import type {
+  EmbeddedAgentQueueMessageOptions,
+  EmbeddedAgentQueueMessageOutcome,
+} from "../../agents/embedded-agent-runner/runs.js";
+import {
+  claimPendingAgentQuestionAnswer,
+  getPendingAgentQuestionAnswer,
+  registerPendingAgentQuestion,
+} from "../../agents/harness/gateway-question.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { TemplateContext } from "../templating.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
@@ -23,7 +31,7 @@ const queueEmbeddedAgentMessageWithOutcomeAsyncMock = vi.fn(
   async (
     sessionId: string,
     _text: string,
-    _options?: unknown,
+    _options?: EmbeddedAgentQueueMessageOptions,
   ): Promise<EmbeddedAgentQueueMessageOutcome> => ({
     queued: false,
     sessionId,
@@ -460,6 +468,91 @@ describe("runReplyAgent media path normalization", () => {
       },
     );
     expect(enqueueFollowupRunMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a live question with raw text while preserving transcript commitment and adoption", async () => {
+    const sessionKey = "agent:main:question-envelope";
+    const gatewayCall = vi.fn(async () => ({
+      status: "answered",
+      answers: { answers: { action: ["Continue"] } },
+    }));
+    const question = registerPendingAgentQuestion({
+      questionId: "ask_envelope",
+      sessionKey,
+      questions: [
+        {
+          id: "action",
+          header: "Action",
+          question: "Continue?",
+          options: [{ label: "Continue" }, { label: "Cancel" }],
+        },
+      ],
+      gatewayCall,
+      answer: Promise.resolve({
+        status: "answered",
+        answers: { answers: { action: ["Continue"] } },
+      }),
+    });
+    const persistApproved = vi.fn(async () => {});
+    const onAdopted = vi.fn(async () => {});
+    // Direct runner fixtures supply the identity that reply admission captures
+    // before runtime/auth awaits; steering must not rediscover another question.
+    const questionAnswerBinding = getPendingAgentQuestionAnswer({ sessionKey, text: "1" });
+    queueEmbeddedAgentMessageWithOutcomeAsyncMock.mockImplementation(
+      async (sessionId, text, options) => {
+        expect(text).toBe("1");
+        expect(options?.questionAnswerBinding).toEqual(questionAnswerBinding);
+        expect(options?.waitForTranscriptCommit).toBe(true);
+        expect(
+          await claimPendingAgentQuestionAnswer({
+            ...options?.questionAnswerBinding,
+            text,
+            persist: persistApproved,
+          }),
+        ).toBe(true);
+        return { queued: true, sessionId, target: "embedded_run", gatewayHealth: "live" };
+      },
+    );
+    try {
+      expect(questionAnswerBinding).toEqual({ sessionKey, questionId: "ask_envelope" });
+      await runReplyAgent(
+        makeRunReplyAgentParams({
+          sessionKey,
+          resolvedQueue: { mode: "steer" },
+          shouldSteer: true,
+          shouldFollowup: true,
+          isActive: true,
+          followupRun: {
+            ...createMockFollowupRun({
+              prompt: "[Thread history - for context]\nPrevious discussion\n\n1",
+            }),
+            transcriptPrompt: "1",
+          },
+          opts: {
+            questionAnswerBinding,
+            turnAdoptionLifecycle: {
+              onAdopted,
+              onDeferred: vi.fn(),
+              onAbandoned: vi.fn(),
+              onSettled: vi.fn(),
+            },
+          },
+        }),
+      );
+      expect(persistApproved).toHaveBeenCalledOnce();
+      expect(onAdopted).toHaveBeenCalledOnce();
+      expect(gatewayCall).toHaveBeenCalledWith(
+        "question.resolve",
+        {},
+        expect.objectContaining({
+          id: "ask_envelope",
+          answers: { answers: { action: ["Continue"] } },
+        }),
+      );
+      expect(enqueueFollowupRunMock).not.toHaveBeenCalled();
+    } finally {
+      question.dispose();
+    }
   });
 
   it("steers ordered current-turn images with the active prompt", async () => {

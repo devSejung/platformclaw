@@ -14,6 +14,8 @@ import { sessionDeliveryChannel } from "../../utils/delivery-context.shared.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
 import {
   getReplyPayloadMetadata,
+  getReplyPayloadAgentRunTerminalOutcome,
+  getReplyPayloadNoVisibleReplyReason,
   isReplyPayloadStatusNotice,
   markReplyPayloadForSourceSuppressionDelivery,
 } from "../reply-payload.js";
@@ -234,6 +236,10 @@ export function resolveFollowupDeliveryDecision(params: {
         getReplyPayloadMetadata(payload)?.deliverDespiteSourceReplySuppression === true),
   );
   if (!hasTerminalPayload && fallbackPayload) {
+    const failure = getReplyPayloadAgentRunTerminalOutcome(fallbackPayload);
+    if (failure && !accounting.terminalFailurePayload) {
+      opts?.onAgentRunFailure?.(failure, getReplyPayloadNoVisibleReplyReason(fallbackPayload));
+    }
     payloads = [
       ...payloads,
       ...resolveFollowupDeliveryPayloads({

@@ -33,6 +33,7 @@ import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import {
   buildKnownAgentRunFailureReplyPayload,
   buildTerminalAgentRunFailureReplyPayload,
+  resolveAgentRunFailureOutcome,
 } from "./agent-runner-failure-reply.js";
 import type { BlockReplyPipeline } from "./block-reply-pipeline.js";
 import { resolveEffectiveReplyRoute } from "./effective-reply-route.js";
@@ -374,6 +375,7 @@ export async function handleReplyAgentRunError(
     isRestartRecoveryArmed: () => boolean;
     replyOperation: ReplyOperation;
     resolvedVerboseLevel: VerboseLevel;
+    onAgentRunFailure?: InternalGetReplyOptions["onAgentRunFailure"];
     returnWithQueuedFollowupDrain: <T>(value: T) => T;
     sessionCtx: TemplateContext;
   },
@@ -425,6 +427,7 @@ export async function handleReplyAgentRunError(
       }),
     );
   }
+  context.onAgentRunFailure?.(resolveAgentRunFailureOutcome(error, replyOperation.abortSignal));
   const knownFailurePayload = buildKnownAgentRunFailureReplyPayload({
     err: error,
     sessionCtx,

@@ -378,8 +378,11 @@ async function dispatchChannelTurnWithDeliveryOwner(
   const recordSettledDelivery = (
     info: ChannelDeliveryInfo,
     result: ChannelDeliveryResult | undefined,
+    deferred = false,
   ) => {
-    if (isExplicitlyNonVisibleChannelDelivery(result)) {
+    // The dispatcher already subtracts immediate native suppression as cancellation.
+    // Deferred results settle after that accounting, so this owner reconciles them.
+    if (isExplicitlyNonVisibleChannelDelivery(result) && (deferred || !result?.suppression)) {
       nonVisibleDeliveryCounts[info.kind] += 1;
     }
   };
@@ -614,7 +617,7 @@ async function dispatchChannelTurnWithDeliveryOwner(
             attempts: pendingDeliveryAttempts,
             delivery,
             emitMessageSent: getMessageSentEmitter()?.emitMessageSent,
-            onSettled: recordSettledDelivery,
+            onSettled: (info, result) => recordSettledDelivery(info, result, true),
           });
         } catch (error: unknown) {
           settlementError = error;

@@ -10,7 +10,7 @@ import {
   buildPendingFinalDeliveryText,
   sanitizePendingFinalDeliveryText,
 } from "./pending-final-delivery.js";
-import type { ReplyDispatchDeliveryOutcome } from "./reply-dispatcher.js";
+import type { ReplyDispatchDeliveryOutcome } from "./reply-dispatcher-outcome.js";
 
 type SettledFinalDelivery = {
   outcome: ReplyDispatchDeliveryOutcome;
@@ -218,7 +218,9 @@ export async function reconcilePendingFinalDeliveryAfterSettlement(params: {
       const ownsEveryPendingPayload =
         !pendingPayloadSet || relevantDeliveries.length === pendingPayloadSet.size;
       const failedBeforeDeliver = relevantDeliveries.filter(
-        (delivery) => delivery.outcome === "failed-before-deliver",
+        // Explicit nonvisibility is safe to replay, unlike an ambiguous native failure.
+        (delivery) =>
+          delivery.outcome === "failed-before-deliver" || delivery.outcome === "not-visible",
       );
 
       if (

@@ -9,11 +9,14 @@ import { formatErrorMessage } from "../../infra/errors.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
 import { sessionDeliveryChannel } from "../../utils/delivery-context.shared.js";
-import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
 import type { ReplyPayload } from "../types.js";
 import { resolveRunAfterAutoFallbackPrimaryProbeRecheck } from "./agent-runner-auto-fallback.js";
 import { resolveAdmittedRunSessionFile } from "./agent-runner-core.js";
-import { buildPreflightCompactionFailureText } from "./agent-runner-failure-reply.js";
+import {
+  buildPreflightCompactionFailureText,
+  markAgentRunFailureReplyPayload,
+  resolveAgentRunFailureOutcome,
+} from "./agent-runner-failure-reply.js";
 import { runPreflightCompactionIfNeeded } from "./agent-runner-memory.js";
 import {
   resolveQueuedReplyExecutionConfig,
@@ -38,6 +41,7 @@ import {
   createReplySessionEntryHandle,
   ReplySessionGenerationInvalidatedError as FollowupSessionGenerationInvalidatedError,
 } from "./session-entry-handle.js";
+import { resolveSourceReplyVisibilityPolicy } from "./source-reply-delivery-mode.js";
 import type { TypingController } from "./typing.js";
 
 export type FollowupRunnerParams = {
@@ -162,15 +166,6 @@ export async function admitFollowupTurn(params: {
   operation.retainFailureUntilComplete();
   let queuedFollowupAdmitted = false;
   try {
-    await admitFollowupRunLifecycle(params.queued);
-    if (isFollowupRunAborted(params.queued)) {
-      return { kind: "skipped", reason: "aborted", operation };
-    }
-
-    // Queue drains retain the latest live runner closure per key. Keep local dispatcher
-    // callbacks in that closure so retried non-routable items use the newest transport owner.
-    queuedFollowupAdmitted = true;
-    await params.defaults.opts?.onQueuedFollowupAdmitted?.();
     if (operation.sessionId !== run.sessionId) {
       run = {
         ...run,
@@ -298,6 +293,24 @@ export async function admitFollowupTurn(params: {
       sendPolicy: resolveTurnSendPolicy(activeEntry),
       preflightCompactionApplied: false,
     };
+    const publishTurnSourceReplyPolicy = () => {
+      const sourcePolicy = resolveSourceReplyVisibilityPolicy({
+        cfg: config,
+        ctx: {
+          ChatType: turn.queued.originatingChatType ?? turn.queued.run.chatType,
+          InboundEventKind: turn.queued.currentInboundEventKind,
+          Provider: turn.queued.run.messageProvider,
+          Surface: turn.queued.originatingChannel ?? turn.queued.run.messageProvider,
+        },
+        requested:
+          turn.queued.run.sourceReplyDeliveryMode ?? params.defaults.opts?.sourceReplyDeliveryMode,
+        sendPolicy: turn.sendPolicy,
+      });
+      params.defaults.opts?.onSourceReplyDeliveryPolicy?.({
+        sendPolicyDenied: sourcePolicy.sendPolicyDenied,
+        sourceReplyDeliveryMode: sourcePolicy.sourceReplyDeliveryMode,
+      });
+    };
     const refreshTurnSessionState = (entry: SessionEntry | undefined) => {
       const refreshedInboundContext =
         params.defaults.opts?.isHeartbeat === true
@@ -306,6 +319,7 @@ export async function admitFollowupTurn(params: {
       turn.sendPolicy = resolveTurnSendPolicy(entry, turn.queued);
       turn.currentInboundContext = refreshedInboundContext;
       turn.queued = { ...turn.queued, currentInboundContext: refreshedInboundContext };
+      publishTurnSourceReplyPolicy();
     };
     const readTurnSessionEntry = () =>
       replySessionKey && params.defaults.storePath
@@ -316,6 +330,24 @@ export async function admitFollowupTurn(params: {
         : replySessionKey && params.defaults.sessionStore
           ? params.defaults.sessionStore[replySessionKey]
           : session.current();
+    const refreshOwnedSessionEntry = (entry: SessionEntry | undefined) => {
+      const current = session.current();
+      // The retained enqueue-time object can still belong to the predecessor;
+      // it cannot roll back either an admitted or an owned compaction generation.
+      const matchesOwner = current
+        ? isSameSessionGeneration(entry, current)
+        : entry?.sessionId === operation.sessionId;
+      if (entry && matchesOwner) {
+        session.adopt(entry);
+      }
+      return session.current();
+    };
+    const refreshAdoptedSessionState = () => {
+      const entry = readTurnSessionEntry();
+      assertPersistedGeneration(entry);
+      activeEntry = refreshOwnedSessionEntry(entry);
+      refreshTurnSessionState(activeEntry);
+    };
     const synchronizeTurnGeneration = (
       entry: SessionEntry | undefined,
       previousEntry: SessionEntry | undefined,
@@ -337,6 +369,20 @@ export async function admitFollowupTurn(params: {
       }
       return generationRotated;
     };
+    // Publish the refreshed policy before adoption can start channel progress timers.
+    // The source dispatch's earlier policy may have changed while this turn was queued.
+    publishTurnSourceReplyPolicy();
+    await admitFollowupRunLifecycle(params.queued);
+    if (isFollowupRunAborted(params.queued)) {
+      return { kind: "skipped", reason: "aborted", operation };
+    }
+    // Awaited adoption/presentation hooks can replace the authoritative generation.
+    // Recheck before either further channel setup or preflight can use the old owner.
+    refreshAdoptedSessionState();
+    // Keep dispatcher ownership in the latest drain closure, after source policy settles.
+    queuedFollowupAdmitted = true;
+    await params.defaults.opts?.onQueuedFollowupAdmitted?.();
+    refreshAdoptedSessionState();
     const previousCompactionCount = activeEntry?.compactionCount ?? 0;
     let pendingTerminalCompactionNotice: Exclude<CompactionNoticePhase, "start"> | undefined;
     let compactionNoticeGenerationInvalidated = false;
@@ -360,7 +406,8 @@ export async function admitFollowupTurn(params: {
               }
               throw error;
             }
-            if (resolveTurnSendPolicy(noticeEntry, turn.queued) === "deny") {
+            refreshTurnSessionState(noticeEntry);
+            if (turn.sendPolicy === "deny") {
               return;
             }
             await params.onCompactionNoticePayload?.(
@@ -427,10 +474,7 @@ export async function admitFollowupTurn(params: {
       if (!isSameSessionGeneration(failureEntry, session.current())) {
         assertPersistedGeneration(failureEntry);
       }
-      if (failureEntry) {
-        session.adopt(failureEntry);
-        activeEntry = session.current() ?? failureEntry;
-      }
+      activeEntry = refreshOwnedSessionEntry(failureEntry);
       synchronizeTurnGeneration(activeEntry, preflightEntry);
       refreshTurnSessionState(activeEntry);
       if (compactionNoticeGenerationInvalidated) {
@@ -449,7 +493,10 @@ export async function admitFollowupTurn(params: {
       if (!text) {
         turn.preflightError = error;
       } else {
-        turn.preflightFailurePayload = markReplyPayloadForSourceSuppressionDelivery({ text });
+        turn.preflightFailurePayload = markAgentRunFailureReplyPayload(
+          { text },
+          resolveAgentRunFailureOutcome(error),
+        );
       }
     }
     if (
