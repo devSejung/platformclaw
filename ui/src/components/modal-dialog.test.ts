@@ -198,6 +198,74 @@ describe("openclaw-modal-dialog", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["Escape", "backdrop"])(
+    "closes once when a stable Lit owner echoes %s dismissal",
+    async (source) => {
+      let opened = true;
+      const onCancel = vi.fn(() => {
+        opened = false;
+        renderOwner();
+      });
+      function renderOwner() {
+        render(
+          html`<openclaw-modal-dialog
+            .open=${opened}
+            label="Stable owner"
+            @modal-cancel=${onCancel}
+          >
+            <button>Action</button>
+          </openclaw-modal-dialog>`,
+          container,
+        );
+      }
+      renderOwner();
+      const { modal, webAwesomeDialog, dialog } = await getRenderedModalDialog(container);
+      const close = vi.spyOn(dialog, "close");
+      const show = vi.spyOn(dialog, "showModal");
+      const hide = vi.fn();
+      webAwesomeDialog.addEventListener("wa-hide", hide);
+
+      if (source === "Escape") {
+        dialog.dispatchEvent(new Event("cancel", { bubbles: true, cancelable: true }));
+      } else {
+        dialog.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      }
+      await vi.waitFor(() => expect(dialog.open).toBe(false));
+      expect(container.querySelector("openclaw-modal-dialog")).toBe(modal);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(hide).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
+
+      opened = true;
+      renderOwner();
+      await vi.waitFor(() => expect(dialog.open).toBe(true));
+      expect(show).toHaveBeenCalledTimes(1);
+      opened = false;
+      renderOwner();
+      await vi.waitFor(() => expect(dialog.open).toBe(false));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      expect(hide).toHaveBeenCalledTimes(2);
+      expect(close).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("does not retain a hiding state after the owner prevents dismissal", async () => {
+    const { modal, webAwesomeDialog, dialog } = await renderModal();
+    const preventCancel = (event: Event) => event.preventDefault();
+    modal.addEventListener("modal-cancel", preventCancel);
+    const close = vi.spyOn(dialog, "close");
+    dialog.dispatchEvent(new Event("cancel", { bubbles: true, cancelable: true }));
+    await nextFrame();
+    expect(dialog.open).toBe(true);
+    expect(close).not.toHaveBeenCalled();
+
+    modal.removeEventListener("modal-cancel", preventCancel);
+    modal.hide();
+    await vi.waitFor(() => expect(dialog.open).toBe(false));
+    expect(webAwesomeDialog.open).toBe(false);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores lifecycle events from tooltips and menus nested in the modal", async () => {
     const { modal, dialog } = await renderModal();
     const nestedSurface = container.querySelector("#first-action");

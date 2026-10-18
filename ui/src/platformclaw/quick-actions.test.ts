@@ -67,7 +67,7 @@ describe("platformclaw-quick-actions", () => {
     await loadPlatformClawLocale();
     const member = await mount();
 
-    await vi.waitFor(() => expect(member.shadowRoot?.textContent).toContain("기본 작업 공간"));
+    await vi.waitFor(() => expect(member.shadowRoot?.textContent).toContain("기본 서버"));
     expect(member.shadowRoot?.textContent).not.toContain("가이드");
   });
 

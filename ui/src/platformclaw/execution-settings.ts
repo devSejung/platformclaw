@@ -1,38 +1,38 @@
 import {
   emptyCodingAgentConfiguration,
-  parseCodingAgentConfiguration,
   type CodingAgentConfiguration,
   type CodingAgentId,
   type CodingAgentProbeResult,
-  type PersonalCodingAgentSettings,
 } from "@platformclaw/coding-agent-contract";
-/*
- * Keep the browser form on the same parser as BFF/RPC. A permissive local copy
- * would let URL, quote, or provider-variant behavior drift between boundaries.
- */
+import { render as renderLit } from "lit";
+import type { OpenClawModalDialog } from "../components/modal-dialog.ts";
 import "../components/modal-dialog.ts";
 import "../components/web-awesome-tabs.ts";
 import { i18n } from "../i18n/index.ts";
+import {
+  bindExecutionSettingsEvents,
+  type ExecutionSettingsAction,
+} from "./execution-settings-events.ts";
+import {
+  EXECUTION_PROGRESS_SUCCESS_DELAY_MS,
+  renderExecutionSettingsShell,
+} from "./execution-settings-shell.ts";
 import {
   AGENT_LABELS,
   CLAUDE_ENVIRONMENT,
   type ClaudeEnvironmentKey,
   type ExecutionSettings,
+  type ExecutionCodingAgentView,
+  renderExecutionCodingAgents,
   type ExecutionTarget,
   type ExecutionAction,
   type ExecutionActivity,
   type VmSelectionDraft,
-  renderExecutionLocation,
-  renderExecutionProgress,
-  executionStatusView,
-  renderExecutionTabs,
-  executionCodingAgentSummary,
-  renderExecutionDiagnostics,
-  renderExecutionAgentField,
-  renderExecutionSettingsStyles,
-  escapeHtml,
-  formText,
-  hasLiteralSurroundingQuotes,
+  codingAgentValidationErrors,
+  canActivateVerifiedVm,
+  completedExecutionActivity,
+  canRetryExecutionProgress,
+  hasExecutionProgress,
   ExecutionRequestError,
   executionErrorMessage,
 } from "./execution-settings-view.ts";
@@ -56,6 +56,9 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
   private vmDraft: VmSelectionDraft | null = null;
   private assignmentId = "";
   private pendingRelease = false;
+  private editingVm = false;
+  private progressVisible = false;
+  private progressTimer: number | undefined;
   private activeTab: "location" | "agents" = "location";
   private readonly expandedAgents = new Set<CodingAgentId>();
   private readonly codingAgentDrafts = new Map<CodingAgentId, CodingAgentConfiguration>();
@@ -72,11 +75,16 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
   onUnauthenticated: () => void = () => {};
   initialSettings?: ExecutionSettings;
 
+  constructor() {
+    super();
+    bindExecutionSettingsEvents(this.root, (action) => this.dispatchAction(action));
+  }
   connectedCallback(): void {
     this.unsubscribeLocale = i18n.subscribe(() => void this.renderLocale());
     void this.initialize();
   }
   disconnectedCallback(): void {
+    this.clearProgressTimer();
     this.unsubscribeLocale();
   }
   private async initialize(): Promise<void> {
@@ -95,7 +103,35 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
   }
   openSettings(): void {
     this.opened = true;
+    if (
+      (hasExecutionProgress(this.activity) && this.activity.kind !== "success") ||
+      canActivateVerifiedVm(this.settings, this.activity)
+    ) {
+      this.progressVisible = true;
+    }
     this.render();
+  }
+  private clearProgressTimer(): void {
+    window.clearTimeout(this.progressTimer);
+    this.progressTimer = undefined;
+  }
+  private hideProgress(): void {
+    this.clearProgressTimer();
+    this.progressVisible = false;
+    // Dismissing the verified offer consumes it; reopening settings must respect Later.
+    // Hiding an in-flight request leaves its eventual result untouched.
+    if (this.activity.kind === "success" && this.activity.action === "credential") {
+      this.activity = { ...this.activity, offerActivation: false };
+    }
+    if (this.activity.kind === "success" && this.activity.target) {
+      this.root.querySelector("main")!.scrollTop = 0;
+    }
+    this.render();
+  }
+  private closeSettings(): void {
+    this.opened = false;
+    this.pendingRelease = false;
+    this.hideProgress();
   }
   private async renderLocale(): Promise<void> {
     await loadPlatformClawLocale();
@@ -146,6 +182,9 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.assignmentId = settings.assignment?.id ?? "";
     this.settings = settings;
     if (previousAssignment !== this.assignmentId) {
+      // Allocation changes invalidate the editor and coding-agent drafts together.
+      this.editingVm = false;
+      this.vmDraft = null;
       this.resetCodingAgentDraftState();
       this.syncCodingAgentDrafts(settings, true);
     } else {
@@ -186,18 +225,32 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     }
   }
 
-  private async mutate(action: ExecutionAction | ExecutionTarget, body?: unknown): Promise<void> {
+  private async mutate(
+    action: ExecutionAction | ExecutionTarget,
+    body?: unknown,
+    connectedBefore = false,
+  ): Promise<void> {
     if (this.busy || this.loading || !this.settings) {
       return;
     }
     const previousRevision = this.settings.targetRevision;
     const previousAssignment = this.assignmentId;
-    let connected = false;
+    // Editor resets must not erase the in-flight selection used to reconcile a lost response.
+    const requestedSelection = action === "selection" ? this.vmDraft : null;
+    let connected = connectedBefore;
+    const target =
+      action === "selection"
+        ? "assigned_vm"
+        : action === "assigned_vm" || action === "platform_server"
+          ? action
+          : null;
+    this.clearProgressTimer();
+    this.progressVisible = target !== null || action === "credential";
     this.activity =
       action === "selection"
         ? { kind: "connecting" }
         : action === "assigned_vm" || action === "platform_server"
-          ? { kind: "switching", target: action, connected: false }
+          ? { kind: "switching", target: action, connected }
           : { kind: "working", action };
     this.busy = true;
     this.message = "";
@@ -205,7 +258,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.render();
     try {
       if (action === "assigned_vm" || action === "platform_server") {
-        await this.changeTarget(action, false);
+        await this.changeTarget(action, connected);
       } else {
         this.applySettings(
           await this.request<ExecutionSettings>(`${PLATFORMCLAW_EXECUTION_API_PATH}/${action}`, {
@@ -224,14 +277,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       if (action === "release") {
         this.vmDraft = null;
       }
-      this.activity = {
-        kind: "success",
-        connection: connected ? "complete" : null,
-        target:
-          action === "selection" || action === "assigned_vm" || action === "platform_server"
-            ? this.settings.activeTarget
-            : null,
-      };
+      this.activity = completedExecutionActivity(this.settings, action, connected);
     } catch (error) {
       // A failed response can follow a committed selection or target change. Reconcile
       // from the owner instead of presenting the previous location as current.
@@ -246,8 +292,8 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         action === "selection" &&
         this.settings?.assignment &&
         this.settings.assignment.id !== previousAssignment &&
-        this.settings.assignment.vmHostId === this.vmDraft?.vmHostId &&
-        this.settings.assignment.linuxAccount === this.vmDraft?.linuxAccount &&
+        this.settings.assignment.vmHostId === requestedSelection?.vmHostId &&
+        this.settings.assignment.linuxAccount === requestedSelection?.linuxAccount &&
         this.settings.assignment.status === "ready" &&
         this.settings.credentialStatus === "current"
       ) {
@@ -255,9 +301,11 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       }
       this.activity = {
         kind: "error",
+        action,
         connection: connected ? "complete" : action === "selection" ? "failed" : null,
         error,
         locationUnknown,
+        target,
       };
       const requestedTarget =
         action === "selection" || action === "assigned_vm"
@@ -274,23 +322,38 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
           this.settings?.activeTarget === requestedTarget &&
           (action !== "selection" ||
             (connected &&
-              this.settings.assignment?.vmHostId === this.vmDraft?.vmHostId &&
-              this.settings.assignment?.linuxAccount === this.vmDraft?.linuxAccount)))
+              this.settings.assignment?.vmHostId === requestedSelection?.vmHostId &&
+              this.settings.assignment?.linuxAccount === requestedSelection?.linuxAccount)))
       ) {
         if (released) {
           this.vmDraft = null;
         }
         this.activity = {
           kind: "success",
-          connection: action === "selection" ? "complete" : null,
+          action,
+          connection: connected ? "complete" : null,
           target: requestedTarget,
         };
       }
     } finally {
+      if (this.activity.kind === "success") {
+        this.editingVm = false;
+      }
       if (this.settings && this.settings.targetRevision !== previousRevision) {
         notifyPlatformClawExecutionTargetChanged();
       }
       this.busy = false;
+      if (
+        this.progressVisible &&
+        this.activity.kind === "success" &&
+        !canActivateVerifiedVm(this.settings, this.activity) &&
+        this.isConnected
+      ) {
+        this.progressTimer = window.setTimeout(
+          () => this.hideProgress(),
+          EXECUTION_PROGRESS_SUCCESS_DELAY_MS,
+        );
+      }
       this.render();
     }
   }
@@ -299,41 +362,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     return this.codingAgentDrafts.get(agent) ?? emptyCodingAgentConfiguration(agent);
   }
   private validateCodingAgent(agent: CodingAgentId, action: "check" | "save"): boolean {
-    const configuration = this.configuration(agent);
-    const errors: Record<string, string> = {};
-    const validate = (field: string, label: string, value: string, required: boolean) => {
-      if (required && !value.trim()) {
-        errors[field] = t("platformClaw.execution.agentFieldRequired", { field: label });
-      } else if (hasLiteralSurroundingQuotes(value)) {
-        errors[field] = t("platformClaw.execution.agentFieldQuoted", { field: label });
-      }
-    };
-    validate(
-      "executablePath",
-      `${AGENT_LABELS[agent]} executable`,
-      configuration.executablePath,
-      action === "check" || configuration.enabled,
-    );
-    if (configuration.agent === "claude") {
-      for (const field of CLAUDE_ENVIRONMENT) {
-        validate(
-          field.key,
-          t(field.labelKey),
-          configuration.environment[field.key],
-          action === "check" || configuration.enabled,
-        );
-      }
-    }
-    if (!Object.keys(errors).length) {
-      try {
-        parseCodingAgentConfiguration(configuration);
-      } catch (error) {
-        errors.configuration =
-          error instanceof Error
-            ? error.message
-            : t("platformClaw.execution.agentConfigurationInvalid");
-      }
-    }
+    const errors = codingAgentValidationErrors(this.configuration(agent), action);
     this.codingAgentErrors.set(agent, errors);
     if (!Object.keys(errors).length) {
       return true;
@@ -487,206 +516,166 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       }
     }
   }
-  private renderAgentsPanel(settings: ExecutionSettings): string {
-    const assignment = settings.assignment;
-    return `<section class="tab-panel coding-agents" id="execution-panel-agents" role="tabpanel" aria-labelledby="execution-tab-agents">${assignment ? `<p class="agent-context">${escapeHtml(assignment.vmLabel)} · ${escapeHtml(assignment.linuxAccount)}</p><p class="agent-shared-help">${escapeHtml(t("platformClaw.execution.agentOffHelp"))}</p>${AGENTS.map((agent) => this.renderCodingAgent(agent)).join("")}` : `<p class="muted">${escapeHtml(t("platformClaw.execution.noAvailableVm"))}</p>`}</section>`;
-  }
-  private bindEvents(): void {
-    const closeDialog = () => {
-      this.opened = false;
-      this.pendingRelease = false;
-      this.render();
-    };
-    this.root.querySelector<HTMLElement>("[data-action='open']")?.addEventListener("click", () => {
-      this.opened = true;
-      this.render();
-    });
-    this.root
-      .querySelector<HTMLElement>("[data-action='close']")
-      ?.addEventListener("click", closeDialog);
-    this.root.querySelector("openclaw-modal-dialog")?.addEventListener("modal-cancel", closeDialog);
-    this.root
-      .querySelector<HTMLElement>("[data-action='refresh']")
-      ?.addEventListener("click", () => void this.refresh());
-    this.root.querySelector("wa-tab-group")?.addEventListener("wa-tab-show", (event) => {
-      const tab = (event as CustomEvent<{ name: string }>).detail.name;
-      if ((tab === "location" || tab === "agents") && tab !== this.activeTab) {
-        this.activeTab = tab;
-        this.render();
-      }
-    });
-    for (const tab of this.root.querySelectorAll<HTMLElement>("[data-settings-tab]")) {
-      tab.addEventListener("click", () => {
-        this.activeTab = tab.dataset.settingsTab === "agents" ? "agents" : "location";
-        this.render();
-      });
+  private dispatchAction(action: ExecutionSettingsAction): void {
+    if (action.kind === "open") {
+      return this.openSettings();
     }
-    this.root
-      .querySelector<HTMLElement>("[data-action='test']")
-      ?.addEventListener("click", () => void this.mutate("test"));
-    this.root
-      .querySelector<HTMLElement>("[data-action='credential']")
-      ?.addEventListener("click", () => {
-        const password = this.root.querySelector<HTMLInputElement>("[data-password]")?.value ?? "";
-        void this.mutate("credential", { password });
-      });
-    for (const agent of AGENTS) {
-      this.root
-        .querySelector<HTMLInputElement>(`[data-agent-toggle='${agent}']`)
-        ?.addEventListener("change", (event) => {
-          const enabled = (event.currentTarget as HTMLInputElement).checked;
-          this.updateDraft(agent, "enabled", enabled);
-          const valid = !enabled || this.validateCodingAgent(agent, "save");
-          if (!valid) {
-            this.expandedAgents.add(agent);
-          }
+    if (action.kind === "show-progress") {
+      this.progressVisible = true;
+      this.render();
+      return;
+    }
+    if (action.kind === "close") {
+      return this.closeSettings();
+    }
+    if (action.kind === "hide-progress" || action.kind === "back-to-settings") {
+      return this.hideProgress();
+    }
+    if (action.kind === "gateway-toggle") {
+      this.gatewayExpanded = action.open;
+      return;
+    }
+    if (this.busy || this.loading) {
+      return;
+    }
+    switch (action.kind) {
+      case "activate-verified-vm":
+        if (canActivateVerifiedVm(this.settings, this.activity)) {
+          void this.mutate("assigned_vm", undefined, true);
+        }
+        break;
+      case "retry-progress":
+        if (
+          canRetryExecutionProgress(this.settings, this.activity) &&
+          this.activity.kind === "error" &&
+          this.activity.target
+        ) {
+          void this.mutate(
+            this.activity.target,
+            undefined,
+            this.activity.connection === "complete",
+          );
+        }
+        break;
+      case "tab":
+        if (
+          (action.tab === "location" || action.tab === "agents") &&
+          action.tab !== this.activeTab
+        ) {
+          this.activeTab = action.tab;
           this.render();
-        });
-      for (const input of this.root.querySelectorAll<HTMLInputElement>(
-        `[data-agent-field^='${agent}-']`,
-      )) {
-        input.addEventListener("input", () =>
-          this.updateDraft(agent, input.dataset.field ?? "", input.value),
-        );
-      }
-      for (const action of ["detect", "check", "save"] as const) {
-        this.root
-          .querySelector<HTMLElement>(`[data-agent-action='${agent}-${action}']`)
-          ?.addEventListener("click", () => void this.codingAgentRequest(action, agent));
-      }
-      this.root
-        .querySelector<HTMLElement>(`[data-agent-quick-save='${agent}']`)
-        ?.addEventListener("click", () => void this.codingAgentRequest("save", agent));
-      this.root
-        .querySelector<HTMLElement>(`[data-agent-expand='${agent}']`)
-        ?.addEventListener("click", () => {
-          if (this.expandedAgents.has(agent)) {
-            this.expandedAgents.delete(agent);
+        }
+        break;
+      case "vm-draft":
+        this.vmDraft = action.draft;
+        break;
+      case "selection":
+        this.vmDraft = action.draft;
+        void this.mutate("selection", { ...action.draft, password: action.password });
+        break;
+      case "agent-field":
+        this.updateDraft(action.agent, action.field, action.value);
+        break;
+      case "agent-toggle":
+        this.updateDraft(action.agent, "enabled", action.enabled);
+        if (action.enabled && !this.validateCodingAgent(action.agent, "save")) {
+          this.expandedAgents.add(action.agent);
+        }
+        this.render();
+        break;
+      case "agent-action":
+        if (action.action === "expand") {
+          if (this.expandedAgents.has(action.agent)) {
+            this.expandedAgents.delete(action.agent);
           } else {
-            this.expandedAgents.add(agent);
+            this.expandedAgents.add(action.agent);
           }
           this.render();
+        } else {
+          void this.codingAgentRequest(action.action, action.agent);
+        }
+        break;
+      case "edit-vm":
+      case "cancel-edit-vm":
+        if (this.settings?.activeTarget === "platform_server") {
+          this.editingVm = action.kind === "edit-vm";
+          this.render();
+        }
+        break;
+      case "target":
+        void this.mutate(action.target);
+        break;
+      case "refresh":
+        void this.refresh();
+        break;
+      case "test":
+        void this.mutate("test");
+        break;
+      case "credential":
+        void this.mutate("credential", {
+          password: action.password,
         });
-    }
-    this.root
-      .querySelector<HTMLDetailsElement>("[data-claude-gateway]")
-      ?.addEventListener("toggle", (event) => {
-        this.gatewayExpanded = (event.currentTarget as HTMLDetailsElement).open;
-      });
-    this.root
-      .querySelector<HTMLFormElement>("[data-action='select-vm']")
-      ?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const form = new FormData(event.currentTarget as HTMLFormElement);
-        this.vmDraft = {
-          vmHostId: formText(form, "vmHostId"),
-          linuxAccount: formText(form, "linuxAccount"),
-        };
-        void this.mutate("selection", {
-          vmHostId: formText(form, "vmHostId"),
-          linuxAccount: formText(form, "linuxAccount"),
-          password: formText(form, "password"),
-        });
-      });
-    this.root
-      .querySelector<HTMLElement>("[data-action='release']")
-      ?.addEventListener("click", () => {
-        this.pendingRelease = true;
+        break;
+      case "release":
+      case "cancel-release":
+        this.pendingRelease = action.kind === "release";
         this.render();
-        this.root.querySelector<HTMLElement>("[data-action='confirm-release']")?.focus();
-      });
-    this.root
-      .querySelector<HTMLElement>("[data-action='cancel-release']")
-      ?.addEventListener("click", () => {
-        this.pendingRelease = false;
-        this.render();
-        this.root.querySelector<HTMLElement>("[data-action='release']")?.focus();
-      });
-    this.root
-      .querySelector<HTMLElement>("[data-action='confirm-release']")
-      ?.addEventListener("click", () => {
+        this.root
+          .querySelector<HTMLElement>(
+            this.pendingRelease ? "[data-action='confirm-release']" : "[data-action='release']",
+          )
+          ?.focus();
+        break;
+      case "confirm-release":
         this.pendingRelease = false;
         void this.mutate("release");
-      });
-    for (const button of this.root.querySelectorAll<HTMLElement>("[data-target]")) {
-      button.addEventListener("click", () => {
-        const target = button.dataset.target;
-        if (target === "platform_server" || target === "assigned_vm") {
-          void this.mutate(target);
-        }
-      });
+        break;
     }
-    const form = this.root.querySelector<HTMLFormElement>("[data-action='select-vm']");
-    form?.addEventListener("input", () => {
-      const data = new FormData(form);
-      this.vmDraft = {
-        vmHostId: formText(data, "vmHostId"),
-        linuxAccount: formText(data, "linuxAccount"),
-      };
-    });
   }
 
-  private renderField(
-    agent: CodingAgentId,
-    field: string,
-    label: string,
-    value: string,
-    secondary?: string,
-  ): string {
-    return renderExecutionAgentField(
-      agent,
-      field,
-      label,
-      value,
-      secondary,
-      this.codingAgentErrors.get(agent)?.[field],
-      this.busy,
-    );
-  }
-  private renderDiagnostics(agent: CodingAgentId, settings?: PersonalCodingAgentSettings): string {
-    return renderExecutionDiagnostics(
-      this.codingAgentProbes.get(agent) ?? settings?.lastCheck,
-      [...(this.codingAgentDirtyFields.get(agent) ?? [])].some((field) => field !== "enabled"),
-      this.codingAgentProbeKinds.get(agent) === "detect",
-      this.codingAgentProbeTimes.get(agent),
-    );
-  }
-  private renderCodingAgent(agent: CodingAgentId): string {
-    const configuration = this.configuration(agent);
-    const saved = this.settings?.codingAgents?.find((item) => item.configuration.agent === agent);
-    const canProbe =
-      this.settings?.assignment?.status === "ready" && this.settings.credentialStatus === "current";
-    const canEditConfig = Boolean(
-      this.settings?.assignment && this.settings.assignment.status !== "revoked",
-    );
-    const dirty = Boolean(this.codingAgentDirtyFields.get(agent)?.size);
-    const gatewayComplete =
-      configuration.agent === "claude" &&
-      CLAUDE_ENVIRONMENT.every(({ key }) => configuration.environment[key].trim());
-    const gateway =
-      configuration.agent === "claude"
-        ? `<details class="gateway" data-claude-gateway ${this.gatewayExpanded || !gatewayComplete ? "open" : ""}><summary><span><strong>${escapeHtml(t("platformClaw.execution.claudeGateway"))}</strong><small>${escapeHtml(t(gatewayComplete ? "platformClaw.execution.claudeGatewayConfigured" : "platformClaw.execution.claudeGatewaySetup"))}</small></span><span class="chevron" aria-hidden="true">⌄</span></summary><div class="gateway-fields"><p class="field-help">${escapeHtml(t("platformClaw.execution.claudeGatewayLiteralHelp"))}</p>${CLAUDE_ENVIRONMENT.map(({ key, labelKey }) => this.renderField(agent, key, t(labelKey), configuration.environment[key], key)).join("")}</div></details>`
-        : "";
-    const configurationError = this.codingAgentErrors.get(agent)?.configuration;
-    const savedEnabled = saved?.configuration.enabled ?? false;
-    const expanded = this.expandedAgents.has(agent);
-    const progress =
-      this.busyAgentAction?.agent === agent
-        ? `<p class="agent-progress" role="status" aria-live="polite">${escapeHtml(t(this.busyAgentAction.action === "check" ? "platformClaw.execution.agentChecking" : this.busyAgentAction.action === "detect" ? "platformClaw.execution.agentDetecting" : "platformClaw.execution.agentSaving"))}</p>`
-        : "";
-    return `<section class="agent-card${expanded ? "" : " is-collapsed"}" data-coding-agent="${agent}" ${this.busyAgentAction?.agent === agent ? `aria-busy="true"` : ""}><div class="agent-heading"><div><h3>${AGENT_LABELS[agent]}</h3><p>${escapeHtml(savedEnabled ? t("platformClaw.execution.agentSavedOn") : t("platformClaw.execution.agentSavedOff"))}</p>${dirty ? `<p class="unsaved">${escapeHtml(t("platformClaw.execution.agentUnsaved"))}</p>` : ""}<p class="compact-check">${escapeHtml(executionCodingAgentSummary(saved))}</p>${dirty && !expanded ? `<button class="button agent-quick-save" data-agent-quick-save="${agent}" ${!canEditConfig || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.agentSaveChanges"))}</button>` : ""}</div><button class="agent-expand" data-agent-expand="${agent}" type="button" aria-expanded="${expanded}" aria-controls="agent-settings-${agent}">${escapeHtml(t(expanded ? "platformClaw.execution.agentCollapse" : "platformClaw.execution.agentConfigure"))}</button><label class="switch"><input type="checkbox" role="switch" aria-label="${escapeHtml(t("platformClaw.execution.useAgent", { agent: AGENT_LABELS[agent] }))}" data-agent-toggle="${agent}" ${configuration.enabled ? "checked" : ""} ${!canEditConfig || this.busy ? "disabled" : ""}><span aria-hidden="true"></span><b>${escapeHtml(t("platformClaw.execution.agentToggleShort"))}</b></label></div><div class="agent-settings" id="agent-settings-${agent}">${progress}${this.renderDiagnostics(agent, saved)}${this.renderField(agent, "executablePath", t("platformClaw.execution.agentExecutable"), configuration.executablePath, t("platformClaw.execution.agentAbsolutePath"))}${gateway}${configurationError ? `<p class="configuration-error" role="alert">${escapeHtml(configurationError)}</p>` : ""}<p class="check-note">${escapeHtml(t("platformClaw.execution.agentCheckTokens"))}</p><div class="agent-actions"><button class="button" data-agent-action="${agent}-detect" ${!canProbe || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.agentDetect"))}</button><button class="button" data-agent-action="${agent}-check" ${!canProbe || this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.agentCheck"))}</button><button class="button primary" data-agent-action="${agent}-save" ${!canEditConfig || this.busy ? "disabled" : ""}>${escapeHtml(dirty ? t("platformClaw.execution.agentSaveChanges") : t("platformClaw.execution.agentSave"))}</button></div></div></section>`;
+  private codingAgentViews(): ExecutionCodingAgentView[] {
+    return AGENTS.map((agent) => ({
+      configuration: this.configuration(agent),
+      saved: this.settings?.codingAgents.find((item) => item.configuration.agent === agent),
+      dirtyFields: [...(this.codingAgentDirtyFields.get(agent) ?? [])],
+      probe: this.codingAgentProbes.get(agent),
+      probeKind: this.codingAgentProbeKinds.get(agent),
+      probeTime: this.codingAgentProbeTimes.get(agent),
+      errors: { ...this.codingAgentErrors.get(agent) },
+      expanded: this.expandedAgents.has(agent),
+      gatewayExpanded: this.gatewayExpanded,
+      busyAction: this.busyAgentAction?.agent === agent ? this.busyAgentAction.action : null,
+    }));
   }
   private render(): void {
-    const settings = this.settings;
-    const activity = this.activity;
-    const { badgeLabel, busyMessage, message, messageKind, warn } = executionStatusView(
-      settings,
-      activity,
-      this.message,
-      this.messageKind,
+    const bodyMarkup =
+      this.settings && this.activeTab === "agents"
+        ? renderExecutionCodingAgents(this.settings, this.busy, this.codingAgentViews())
+        : "";
+    // Lit retains both native-dialog owners across phase updates. Only source-owned,
+    // escaped form markup is replaced inside their stable shells.
+    renderLit(
+      renderExecutionSettingsShell({
+        settings: this.settings,
+        activity: this.activity,
+        opened: this.opened,
+        progressVisible: this.progressVisible,
+        busy: this.busy,
+        loading: this.loading,
+        pendingRelease: this.pendingRelease,
+        activeTab: this.activeTab,
+        editingVm: this.editingVm,
+        vmDraft: this.vmDraft,
+        bodyMarkup,
+        message: this.message,
+        messageKind: this.messageKind,
+        canRetryProgress: canRetryExecutionProgress(this.settings, this.activity),
+      }),
+      this.root,
     );
-    this.root.innerHTML = `${renderExecutionSettingsStyles(warn)}<button class="badge" data-action="open" aria-busy="${this.busy}" aria-label="${escapeHtml(t("platformClaw.execution.openSettings"))}"><span class="dot" aria-hidden="true"></span><span>${escapeHtml(busyMessage || badgeLabel)}</span></button>${this.opened ? `<openclaw-modal-dialog class="modal" label="${escapeHtml(t("platformClaw.execution.workEnvironmentSettings"))}"><section class="panel"><header><h2>${escapeHtml(t("platformClaw.execution.workEnvironmentSettings"))}</h2><button class="close" data-action="close" aria-label="${escapeHtml(t("platformClaw.execution.close"))}">×</button></header>${renderExecutionTabs(this.activeTab)}<main aria-busy="${this.busy}">${this.loading ? `<p>${escapeHtml(t("common.loading"))}</p>` : ""}${renderExecutionProgress(activity)}${message ? `<div class="message message--${messageKind}" role="${messageKind === "error" ? "alert" : "status"}">${escapeHtml(message)}</div>` : ""}${settings ? (this.activeTab === "location" ? renderExecutionLocation(settings, this.busy || this.loading, this.vmDraft) : this.renderAgentsPanel(settings)) : ""}</main><footer data-confirmation-footer aria-live="polite">${this.pendingRelease ? `<section class="confirm"><h3>${escapeHtml(t("platformClaw.execution.releaseConfirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.execution.releaseConfirmBody"))}</p><div class="row"><button class="button primary" data-action="confirm-release">${escapeHtml(t("platformClaw.execution.releaseConfirm"))}</button><button class="button" data-action="cancel-release">${escapeHtml(t("platformClaw.execution.cancel"))}</button></div></section>` : ""}${!this.pendingRelease ? `<button class="button" data-action="refresh" ${this.busy || this.loading ? "disabled" : ""}>${escapeHtml(t("platformClaw.execution.refresh"))}</button>` : ""}</footer></section></openclaw-modal-dialog>` : ""}`;
-    this.bindEvents();
+    this.root
+      .querySelector<OpenClawModalDialog>("[data-progress-modal]")
+      ?.setReturnFocusTarget(this.root.querySelector<HTMLElement>("[data-settings-heading]"));
   }
 }
 

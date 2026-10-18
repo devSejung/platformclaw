@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   canRunPlaywrightChromium,
@@ -8,7 +8,10 @@ import {
   startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
-import { createTweakcnThemePayload } from "../test-helpers/custom-theme.ts";
+import {
+  assertExecutionProgressLayout,
+  runExecutionProgressCase,
+} from "./execution-settings-progress.test-support.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
@@ -54,6 +57,16 @@ async function screenshot(page: Page, name: string): Promise<void> {
   }
   await mkdir(proofDir, { recursive: true });
   await page.screenshot({ animations: "disabled", path: path.join(proofDir, name) });
+}
+
+async function waitForProgressClosed(component: Locator): Promise<void> {
+  await expect
+    .poll(() =>
+      component
+        .locator("[data-progress-modal] dialog")
+        .evaluate((dialog) => (dialog as HTMLDialogElement).open),
+    )
+    .toBe(false);
 }
 
 suite("PlatformClaw coding agent settings", () => {
@@ -412,17 +425,19 @@ suite("PlatformClaw coding agent settings", () => {
       .poll(() => component.getByRole("dialog", { name: "Work environment settings" }).isVisible())
       .toBe(true);
     await component.locator("[data-target='platform_server']").click();
-    await component.getByText("Fixture switch failed", { exact: true }).waitFor();
+    await expect
+      .poll(() => component.locator("[data-progress-modal]").textContent())
+      .toContain("Fixture switch failed");
     expect(await component.locator("[data-action='confirm-switch']").count()).toBe(0);
-    await component.locator("[data-target='platform_server']").click();
+    await component.locator("[data-action='retry-progress']").click();
     await expect
       .poll(() => component.locator("[data-target='assigned_vm']").isEnabled())
       .toBe(true);
+    // Enabled controls remain inert until the upper native modal has finished closing.
+    await waitForProgressClosed(component);
 
-    const credentials = component.locator(".credentials-details");
-    if ((await credentials.getAttribute("open")) === null) {
-      await credentials.locator("summary").click();
-    }
+    const credentials = component.locator("form[data-action='update-credential']");
+    expect(await credentials.isVisible()).toBe(true);
     await credentials.locator("[data-password]").fill("fixture-only");
     await credentials.locator("[data-action='credential']").click();
     await expect
@@ -430,6 +445,9 @@ suite("PlatformClaw coding agent settings", () => {
       .toEqual({
         password: "fixture-only",
       });
+    const offer = component.locator("[data-activation-offer]");
+    await offer.getByRole("button", { name: "Later", exact: true }).click();
+    await waitForProgressClosed(component);
     await expect.poll(() => component.locator("[data-action='test']").isEnabled()).toBe(true);
     await component.locator("[data-action='test']").click();
     await expect.poll(() => requests.some((item) => item.path.endsWith("/test"))).toBe(true);
@@ -438,16 +456,17 @@ suite("PlatformClaw coding agent settings", () => {
       await component.locator("[data-target='platform_server']").click();
     }
 
+    await component.locator("[data-action='edit-vm']").click();
     const form = component.locator("form[data-action='select-vm']");
     await form.locator("input[name='linuxAccount']").fill("pc-user");
-    await form.locator("button").click();
+    await form.locator("button[type='submit']").click();
     expect(
       await form
         .locator("input[name='password']")
         .evaluate((input) => (input as HTMLInputElement).validity.valueMissing),
     ).toBe(true);
     await form.locator("input[name='password']").fill("fixture-only");
-    await form.locator("button").click();
+    await form.locator("button[type='submit']").click();
     await expect
       .poll(() => requests.find((item) => item.path.endsWith("/selection"))?.body)
       .toEqual({
@@ -457,264 +476,205 @@ suite("PlatformClaw coding agent settings", () => {
       });
     await expect
       .poll(() => component.locator("[data-action='open']").textContent())
-      .toContain("My development VM");
+      .toContain("Development VM");
     await component.locator("[data-target='platform_server']").click();
     await expect.poll(() => component.locator("[data-action='release']").isEnabled()).toBe(true);
 
+    const connectionDetails = component.locator(".connection-details");
+    if ((await connectionDetails.getAttribute("open")) === null) {
+      await connectionDetails.locator("summary").click();
+    }
     await component.locator("[data-action='release']").click();
     await component.locator("[data-action='cancel-release']").click();
     await expect.poll(() => component.locator("[data-action='confirm-release']").count()).toBe(0);
     failRefreshOnce = true;
     await component.locator("[data-action='refresh']").click();
-    await component.getByText("Fixture unavailable", { exact: true }).waitFor();
+    await component
+      .locator("[data-settings-modal]")
+      .getByText("Fixture unavailable", { exact: true })
+      .waitFor();
     await component.locator("[data-action='refresh']").click();
+    await expect.poll(() => connectionDetails.getAttribute("open")).not.toBeNull();
     await component.locator("[data-action='release']").click();
     await component.locator("[data-action='confirm-release']").click();
-    await expect.poll(() => component.locator(".credentials-details").count()).toBe(0);
+    await expect
+      .poll(() => component.locator("form[data-action='update-credential']").count())
+      .toBe(0);
     await screenshot(page, "05-desktop-empty-after-release.png");
     await page.close();
   });
 
-  it("opens credentials and gates VM/probe actions when credentials are missing", async () => {
+  it("verifies renewed credentials and changes location only after accepting the offer", async () => {
     const page = await browser.newPage({ locale: "en-US", viewport: { width: 360, height: 640 } });
-    await page.route("**/platformclaw/api/execution**", (route) =>
-      route.fulfill({
-        json: {
-          activeTarget: "platform_server",
-          targetRevision: 1,
-          credentialStatus: "missing",
-          accountId: "person.one",
-          availableVms: [],
-          assignment: {
-            id: "allocation-one",
-            vmHostId: "vm-one",
-            status: "connection_required",
-            vmLabel: "Development VM",
-            safeConnectLabel: "Corporate access",
-            linuxAccount: "person.one",
-          },
-          codingAgents: [],
-        },
-      }),
-    );
+    let settings = {
+      activeTarget: "platform_server",
+      targetRevision: 1,
+      credentialStatus: "missing",
+      accountId: "person.one",
+      availableVms: [],
+      assignment: {
+        id: "allocation-one",
+        vmHostId: "vm-one",
+        status: "connection_required",
+        vmLabel: "Development VM",
+        safeConnectLabel: "Corporate access",
+        linuxAccount: "person.one",
+      },
+      codingAgents: [],
+    };
+    const mutations: Array<{ path: string; body: unknown }> = [];
+    let releaseCredential: (() => void) | undefined;
+    await page.route("**/platformclaw/api/execution**", async (route) => {
+      const request = route.request();
+      if (request.method() === "POST") {
+        const pathname = new URL(request.url()).pathname;
+        mutations.push({ path: pathname, body: request.postDataJSON() });
+        if (pathname.endsWith("/target")) {
+          expect(request.postDataJSON()).toEqual({ target: "assigned_vm", expectedRevision: 3 });
+          settings = { ...settings, activeTarget: "assigned_vm", targetRevision: 4 };
+        } else {
+          expect(pathname).toBe("/platformclaw/api/execution/credential");
+          await new Promise<void>((resolve) => {
+            releaseCredential = resolve;
+          });
+          if (mutations.length === 1) {
+            await route.fulfill({ status: 422, json: { error: "AD password was not accepted" } });
+            return;
+          }
+          settings = {
+            ...settings,
+            credentialStatus: "current",
+            targetRevision: settings.targetRevision + 1,
+            assignment: { ...settings.assignment, status: "ready" },
+          };
+        }
+      }
+      await route.fulfill({ json: settings });
+    });
     await mount(page, "en");
     const component = page.locator("platformclaw-execution-settings");
     await component.locator("[data-action='open']").click();
-    await expect
-      .poll(() => component.locator(".credentials-details").getAttribute("open"))
-      .not.toBeNull();
+    const vmCard = component.locator("[data-vm-connection]");
+    const renewal = vmCard.locator("form[data-action='update-credential']");
+    expect(await vmCard.count()).toBe(1);
+    expect(await renewal.isVisible()).toBe(true);
+    expect(await component.locator(".credentials-details").count()).toBe(0);
     await expect
       .poll(() => component.locator("[data-target='assigned_vm']").isDisabled())
       .toBe(true);
     await expect.poll(() => component.locator("[data-action='test']").isDisabled()).toBe(true);
     const closeBox = await component.locator("[data-action='close']").boundingBox();
-    const footerBox = await component.locator("[data-confirmation-footer]").boundingBox();
+    const settingsBox = await component.locator("[data-settings-panel]").boundingBox();
     expect(closeBox).not.toBeNull();
-    expect(footerBox).not.toBeNull();
+    expect(settingsBox).not.toBeNull();
     expect(closeBox!.y).toBeGreaterThanOrEqual(0);
-    expect(footerBox!.y + footerBox!.height).toBeLessThanOrEqual(640);
+    expect(settingsBox!.y + settingsBox!.height).toBeLessThanOrEqual(640);
+    expect(await component.locator("[data-confirmation-footer]").isVisible()).toBe(false);
     await screenshot(page, "06-mobile-missing-credentials.png");
     await component.locator("[data-settings-tab='agents']").click();
     await expect
       .poll(() => component.locator("[data-agent-action$='-check']:enabled").count())
       .toBe(0);
+    await component.locator("[data-settings-tab='location']").click();
+    const password = renewal.locator("[data-password]");
+    const upper = component.locator("[data-progress-modal]");
+    const offer = upper.locator("[data-activation-offer]");
+    async function savePassword(value: string) {
+      await password.fill(value);
+      await renewal.getByRole("button", { name: "Verify and save", exact: true }).click();
+      await upper.locator("[data-operation='credential'][data-phase='working']").waitFor();
+      expect(
+        await upper.locator("dialog").evaluate((dialog) => (dialog as HTMLDialogElement).open),
+      ).toBe(true);
+      expect(await upper.locator("[data-step='credential']").getAttribute("data-state")).toBe(
+        "active",
+      );
+      expect(
+        await upper.locator("[data-step='activation'], [data-step='connection']").count(),
+      ).toBe(0);
+      expect(
+        await upper
+          .locator(".execution-packet")
+          .evaluate((element) => getComputedStyle(element).animationName),
+      ).not.toBe("none");
+      const panelBox = await assertExecutionProgressLayout(component);
+      expect(await password.inputValue()).toBe("");
+      await expect.poll(() => typeof releaseCredential).toBe("function");
+      const release = releaseCredential!;
+      releaseCredential = undefined;
+      release();
+      return panelBox;
+    }
+    await savePassword("wrong-test-password");
+    await expect.poll(() => mutations.length).toBe(1);
+    await expect
+      .poll(() => upper.locator("[role='alert']").textContent())
+      .toContain("The AD password was not accepted.");
+    expect(await upper.locator("[data-step='credential']").getAttribute("data-state")).toBe(
+      "failed",
+    );
+    expect(
+      await upper.locator("dialog").evaluate((dialog) => (dialog as HTMLDialogElement).open),
+    ).toBe(true);
+    await upper.locator("[data-action='back-to-settings']").click();
+    await waitForProgressClosed(component);
+    expect(await password.inputValue()).toBe("");
+    expect(await password.isVisible()).toBe(true);
+    expect(await password.isEnabled()).toBe(true);
+    const credentialWorkingBox = await savePassword("corrected-test-password");
+    await offer.waitFor();
+    await assertExecutionProgressLayout(component, credentialWorkingBox);
+    expect(await upper.locator("[data-step='credential']").getAttribute("data-state")).toBe(
+      "complete",
+    );
+    expect(mutations).toHaveLength(2);
+    await offer.getByRole("button", { name: "Later", exact: true }).click();
+    await waitForProgressClosed(component);
+    await component.locator("[data-action='close']").click();
+    await component.locator("[data-action='open']").click();
+    await waitForProgressClosed(component);
+    expect(await offer.count()).toBe(0);
+    expect(await password.inputValue()).toBe("");
+    expect(await renewal.isVisible()).toBe(true);
+    expect(await vmCard.locator("[data-vm-status][role='alert']").count()).toBe(0);
+    expect(await component.locator("[data-current-target]").textContent()).toContain(
+      "Basic server",
+    );
+    expect(mutations).toEqual([
+      { path: "/platformclaw/api/execution/credential", body: { password: "wrong-test-password" } },
+      {
+        path: "/platformclaw/api/execution/credential",
+        body: { password: "corrected-test-password" },
+      },
+    ]);
+    await savePassword("verified-again");
+    await offer.waitFor();
+    expect(mutations).toHaveLength(3);
+    await offer.locator("[data-action='activate-verified-vm']").click();
+    await waitForProgressClosed(component);
+    expect(mutations.at(-1)).toEqual({
+      path: "/platformclaw/api/execution/target",
+      body: { target: "assigned_vm", expectedRevision: 3 },
+    });
+    expect(await component.locator("[data-current-target]").textContent()).toContain(
+      "Development VM",
+    );
+    await savePassword("already-using-vm");
+    await waitForProgressClosed(component);
+    expect(await offer.count()).toBe(0);
+    expect(mutations.filter((request) => request.path.endsWith("/target"))).toHaveLength(1);
+    expect(
+      await component
+        .locator("[data-settings-modal] dialog")
+        .evaluate((dialog) => (dialog as HTMLDialogElement).open),
+    ).toBe(true);
+    await screenshot(page, "07-mobile-credentials-corrected.png");
     await page.close();
   });
 
   it.each(themeCases)(
     "connects and activates the VM with visible progress on mobile $family $mode",
-    async ({ family, mode }) => {
-      const context = await browser.newContext({
-        colorScheme: mode,
-        locale: "en-US",
-        serviceWorkers: "block",
-        viewport: { width: 390, height: 844 },
-      });
-      const page = await context.newPage();
-      let releaseSelection = () => {};
-      let releaseActivation = () => {};
-      const selectionGate = new Promise<void>((resolve) => {
-        releaseSelection = resolve;
-      });
-      const activationGate = new Promise<void>((resolve) => {
-        releaseActivation = resolve;
-      });
-      const requests: Array<{ path: string; body: unknown }> = [];
-      const initialSettings = {
-        activeTarget: "platform_server",
-        targetRevision: 3,
-        credentialStatus: "missing",
-        accountId: "person.one",
-        availableVms: [{ id: "development", label: "Development VM" }],
-        codingAgents: [],
-      };
-      const selectedSettings = {
-        ...initialSettings,
-        targetRevision: 4,
-        credentialStatus: "current",
-        assignment: {
-          id: "allocation-development",
-          vmHostId: "development",
-          status: "ready",
-          vmLabel: "Development VM",
-          safeConnectLabel: "Corporate access",
-          linuxAccount: "person.one",
-          remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
-          lastConnectionSucceededAt: 1_787_642_400_000,
-        },
-      };
-      const activeSettings = {
-        ...selectedSettings,
-        activeTarget: "assigned_vm",
-        targetRevision: 5,
-      };
-      let currentSettings: typeof initialSettings | typeof selectedSettings = initialSettings;
-
-      await page.route("**/platformclaw/api/execution**", async (route) => {
-        const request = route.request();
-        const pathname = new URL(request.url()).pathname;
-        if (request.method() === "POST") {
-          requests.push({ path: pathname, body: request.postDataJSON() });
-          if (pathname.endsWith("/selection")) {
-            await selectionGate;
-            currentSettings = selectedSettings;
-          } else if (pathname.endsWith("/target")) {
-            await activationGate;
-            currentSettings = activeSettings;
-          } else {
-            throw new Error(`Unexpected execution mutation: ${pathname}`);
-          }
-        }
-        await route.fulfill({ json: currentSettings });
-      });
-
-      try {
-        await mount(page, "en");
-        if (family === "custom") {
-          // Browser-owned module source avoids Vitest rewriting imports inside evaluate callbacks.
-          await page.addScriptTag({
-            type: "module",
-            content: `
-              import { importCustomThemeFromUrl, syncCustomThemeStyleTag } from ${JSON.stringify(`${server.baseUrl}src/app/custom-theme.ts`)};
-              const theme = await importCustomThemeFromUrl(
-                "https://tweakcn.com/themes/connection-proof",
-                async () => new Response(JSON.stringify(${JSON.stringify(createTweakcnThemePayload())}), {
-                  headers: { "Content-Type": "application/json" },
-                }),
-              );
-              syncCustomThemeStyleTag(theme);
-            `,
-          });
-          await page.locator("#openclaw-custom-theme").waitFor({ state: "attached" });
-        }
-        await page.evaluate(
-          ({ family: themeFamily, mode: themeMode }) => {
-            const resolvedFamily =
-              themeFamily === "claw" ? "" : themeFamily === "knot" ? "openknot" : themeFamily;
-            const resolvedTheme = resolvedFamily
-              ? `${resolvedFamily}${themeMode === "light" ? "-light" : ""}`
-              : themeMode;
-            document.documentElement.dataset.theme = resolvedTheme;
-            document.documentElement.dataset.themeMode = themeMode;
-          },
-          { family, mode },
-        );
-        const component = page.locator("platformclaw-execution-settings");
-        const badge = component.getByRole("button", { name: "Open work location settings" });
-        await expect.poll(() => badge.textContent()).toContain("Basic workspace");
-        await badge.click();
-        await expect
-          .poll(() =>
-            component.getByRole("dialog", { name: "Work environment settings" }).isVisible(),
-          )
-          .toBe(true);
-        const form = component.locator("form[data-action='select-vm']");
-        await form.locator("select[name='vmHostId']").selectOption("development");
-        await form.locator("input[name='linuxAccount']").fill("person.one");
-        await form.locator("input[name='password']").fill("test-password");
-        await component.getByRole("button", { name: "Connect and use VM", exact: true }).click();
-
-        const progress = component.locator("[data-connection-progress]");
-        await expect.poll(() => requests.length).toBe(1);
-        expect(requests[0]).toEqual({
-          path: "/platformclaw/api/execution/selection",
-          body: {
-            vmHostId: "development",
-            linuxAccount: "person.one",
-            password: "test-password",
-          },
-        });
-        await expect.poll(() => progress.getAttribute("role")).toBe("status");
-        await expect
-          .poll(() => progress.locator("[data-step='connection']").getAttribute("data-state"))
-          .toBe("active");
-        expect(await progress.locator("[data-step='activation']").getAttribute("data-state")).toBe(
-          "pending",
-        );
-        expect(
-          (await progress.locator("[data-state='active']").textContent())?.trim(),
-        ).toBeTruthy();
-        expect(await progress.locator("[data-state='active']").isVisible()).toBe(true);
-        expect(await component.locator("input:not(:disabled), select:not(:disabled)").count()).toBe(
-          0,
-        );
-        expect(await component.locator("[data-action='close']").isEnabled()).toBe(true);
-        expect(await badge.getAttribute("aria-busy")).toBe("true");
-        const progressBox = await progress.boundingBox();
-        expect(progressBox).not.toBeNull();
-        expect(progressBox!.x).toBeGreaterThanOrEqual(0);
-        expect(progressBox!.x + progressBox!.width).toBeLessThanOrEqual(390);
-        expect(progressBox!.y + progressBox!.height).toBeLessThanOrEqual(844);
-        const colors = await progress.evaluate((element) => {
-          const root = getComputedStyle(document.documentElement);
-          const probe = document.createElement("span");
-          probe.style.color = "var(--text)";
-          element.append(probe);
-          const expectedText = getComputedStyle(probe).color;
-          probe.remove();
-          return {
-            text: getComputedStyle(element).color,
-            expectedText,
-            run: root.getPropertyValue("--run").trim(),
-            theme: document.documentElement.dataset.theme,
-          };
-        });
-        expect(colors.text).toBe(colors.expectedText);
-        expect(colors.run).not.toBe("");
-        expect(colors.theme).toContain(
-          family === "claw" ? mode : family === "knot" ? "openknot" : family,
-        );
-        await screenshot(page, `connect-${family}-${mode}-01-connection.png`);
-
-        releaseSelection();
-        await expect.poll(() => requests.length).toBe(2);
-        expect(requests[1]).toEqual({
-          path: "/platformclaw/api/execution/target",
-          body: { target: "assigned_vm", expectedRevision: 4 },
-        });
-        await expect
-          .poll(() => progress.locator("[data-step='connection']").getAttribute("data-state"))
-          .toBe("complete");
-        expect(await progress.locator("[data-step='activation']").getAttribute("data-state")).toBe(
-          "active",
-        );
-        expect(
-          (await progress.locator("[data-state='active']").textContent())?.trim(),
-        ).toBeTruthy();
-        expect(await badge.getAttribute("aria-busy")).toBe("true");
-        await screenshot(page, `connect-${family}-${mode}-02-activation.png`);
-
-        releaseActivation();
-        await expect.poll(() => badge.textContent()).toContain("My development VM");
-        expect(requests).toHaveLength(2);
-        expect(await component.locator("[data-action='confirm-switch']").count()).toBe(0);
-        await expect.poll(() => badge.getAttribute("aria-busy")).not.toBe("true");
-        await screenshot(page, `connect-${family}-${mode}-03-active.png`);
-      } finally {
-        releaseSelection();
-        releaseActivation();
-        await context.close();
-      }
-    },
+    ({ family, mode }) =>
+      runExecutionProgressCase({ browser, server, family, mode, mount, screenshot }),
   );
 });

@@ -14,6 +14,15 @@ function moduleIdIncludesPackage(id: string, packageName: string): boolean {
 export function controlUiStableChunkName(id: string): string | undefined {
   const normalized = normalizeModuleId(id);
 
+  // Both English source catalogs are required at startup. Keep them together so
+  // route-graph changes do not scatter shared vocabulary across compressed chunks.
+  if (
+    normalized.endsWith("/ui/src/i18n/locales/en.ts") ||
+    normalized.endsWith("/ui/src/i18n/locales/en-agents.ts")
+  ) {
+    return "control-ui-english";
+  }
+
   // These entry-and-route helpers must stay together; separate shared chunks
   // turn small route-graph changes into extra startup preload requests.
   if (
