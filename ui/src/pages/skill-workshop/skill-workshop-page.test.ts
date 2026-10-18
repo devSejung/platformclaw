@@ -298,7 +298,7 @@ describe("SkillWorkshopPage lifecycle", () => {
       expect(callsFor(request, "skills.proposals.list")).toHaveLength(2),
     );
     await page.updateComplete;
-    expect(page.querySelector(".sw-target-context")?.textContent).toContain("My development VM");
+    expect(page.querySelector(".sw-target-context")?.textContent).toContain("Development VM");
   });
 
   it("does not issue duplicate list requests while a load is in flight", async () => {

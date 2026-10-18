@@ -1501,6 +1501,8 @@ jobs:
         run: node scripts/ensure-playwright-chromium.mjs
 
       - name: Test Control UI end-to-end
+        env:
+          OPENCLAW_CAPTURE_UI_PROOF: "1"
         run: >-
           node scripts/run-vitest.mjs run
           --config test/vitest/vitest.ui-e2e.config.ts
@@ -1535,6 +1537,15 @@ jobs:
         with:
           name: wiki-document-bulk-browser-proof-${{ github.event.pull_request.head.sha || github.sha }}-${{ matrix.shard }}
           path: .artifacts/control-ui-e2e/wiki-document-bulk/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload VM connection browser evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: vm-connection-browser-proof-${{ github.event.pull_request.head.sha || github.sha }}-${{ matrix.shard }}
+          path: .artifacts/control-ui-e2e/coding-agent-settings/
           if-no-files-found: ignore
           retention-days: 7
 

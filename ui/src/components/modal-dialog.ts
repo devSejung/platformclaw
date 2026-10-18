@@ -34,6 +34,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
   private returnFocusOverride: HTMLElement | null | undefined;
   private syncGeneration = 0;
   private suppressNextCancel = false;
+  private hiding = false;
 
   static override styles = css`
     :host {
@@ -43,7 +44,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     wa-dialog {
       --width: min(var(--openclaw-modal-width, 540px), calc(100vw - 48px));
       --spacing: 0;
-      --backdrop-filter: blur(4px);
+      --backdrop-filter: var(--openclaw-modal-backdrop-filter, blur(4px));
     }
 
     wa-dialog::part(dialog) {
@@ -126,6 +127,8 @@ export class OpenClawModalDialog extends OpenClawLitElement {
 
   override disconnectedCallback() {
     this.syncGeneration += 1;
+    this.hiding = false;
+    this.suppressNextCancel = false;
     OpenClawModalDialog.#openDialogs.delete(this);
     const webAwesomeDialog = this.webAwesomeDialog;
     const dialog = webAwesomeDialog?.shadowRoot?.querySelector("dialog");
@@ -186,7 +189,9 @@ export class OpenClawModalDialog extends OpenClawLitElement {
       webAwesomeDialog.open = true;
       return;
     }
-    if (webAwesomeDialog.open || dialog?.open) {
+    // An accepted native dismissal keeps its dialog open through the hide animation.
+    // An owner's .open=false echo must not start a second Web Awesome close request.
+    if (!this.hiding && (webAwesomeDialog.open || dialog?.open)) {
       this.suppressNextCancel = true;
       webAwesomeDialog.open = false;
     }
@@ -254,6 +259,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     if (event.target !== event.currentTarget) {
       return;
     }
+    this.hiding = false;
     OpenClawModalDialog.#openDialogs.delete(this);
     const returnFocus = this.returnFocusOverride;
     const originalReturnFocus = this.returnFocus;
@@ -284,6 +290,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     }
     if (this.suppressNextCancel) {
       this.suppressNextCancel = false;
+      this.hiding = true;
       return;
     }
     const cancelEvent = new CustomEvent("modal-cancel", {
@@ -294,7 +301,9 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     this.dispatchEvent(cancelEvent);
     if (cancelEvent.defaultPrevented) {
       event.preventDefault();
+      return;
     }
+    this.hiding = true;
   };
 
   show() {

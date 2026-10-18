@@ -9,6 +9,8 @@ export const uiIsolatedTestFiles = [
   "ui/src/components/viewer-facepile.test.ts",
   "ui/src/platformclaw/easter-egg-workshop.test.ts",
   "ui/src/platformclaw/dashboard-page.test.ts",
+  "ui/src/platformclaw/execution-settings-agents.test.ts",
+  "ui/src/platformclaw/execution-settings-progress.test.ts",
   "ui/src/platformclaw/execution-settings.test.ts",
   "ui/src/platformclaw/spaces-management.test.ts",
   "ui/src/platformclaw/spaces-page.test.ts",

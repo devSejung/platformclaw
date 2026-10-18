@@ -29,11 +29,14 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function contextWithClient(client: GatewayBrowserClient): ApplicationContext {
+function contextWithClient(
+  client: GatewayBrowserClient,
+  phase: ApplicationGatewaySnapshot["phase"] = "stopped",
+): ApplicationContext {
   return {
     basePath: "",
     gateway: {
-      snapshot: { client, phase: "stopped" },
+      snapshot: { client, phase },
       subscribe: () => () => undefined,
     },
     navigate: vi.fn(),
@@ -154,6 +157,89 @@ describe("LogsPage lifecycle", () => {
     await load;
 
     expect(page.logsEntries).toEqual([]);
+  });
+
+  it.each([200, 0])(
+    "keeps the initial %s-line tail through same-connection metadata updates and appends from its cursor",
+    async (initialCount) => {
+      const initial = deferred<{ cursor: number; lines: string[]; reset: boolean }>();
+      const lines = Array.from({ length: initialCount }, (_, index) => `line ${index + 1}`);
+      const request = vi
+        .fn((_method: string, _params: unknown, _options?: { signal?: AbortSignal }) =>
+          Promise.resolve({ cursor: initialCount + 1, lines: ["appended"], reset: false }),
+        )
+        .mockReturnValueOnce(initial.promise);
+      const client = { request } as unknown as GatewayBrowserClient;
+      const page = document.createElement("openclaw-logs-page") as TestLogsPage;
+      page.context = contextWithClient(client, "connected");
+      document.body.append(page);
+      await page.updateComplete;
+      expect(request).toHaveBeenCalledTimes(1);
+      const signal = request.mock.calls[0]?.[2]?.signal;
+      expect(signal).toBeInstanceOf(AbortSignal);
+
+      page.applyGatewaySnapshot({ ...page.context.gateway.snapshot, sessionKey: "other" });
+
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(signal?.aborted).toBe(false);
+      initial.resolve({ cursor: initialCount, lines, reset: true });
+      await vi.waitFor(() => expect(page.logsStatus.hasLoaded).toBe(true));
+      expect(page.logsEntries).toHaveLength(initialCount);
+      page.applyGatewaySnapshot({ ...page.context.gateway.snapshot, sessionKey: "another" });
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(signal?.aborted).toBe(false);
+
+      await page.loadLogs({ quiet: true });
+
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(request.mock.calls[1]?.[1]).toEqual({
+        cursor: initialCount,
+        limit: 500,
+        maxBytes: 250_000,
+      });
+      expect(page.logsEntries).toHaveLength(initialCount + 1);
+      expect(page.logsEntries.at(-1)).toEqual(expect.objectContaining({ raw: "appended" }));
+      await page.updateComplete;
+      expect(page.querySelectorAll(".log-row")).toHaveLength(initialCount + 1);
+    },
+  );
+
+  it("lets an explicit reset replace a pending quiet poll without applying its late tail", async () => {
+    const poll = deferred<{ cursor: number; lines: string[]; reset: boolean }>();
+    const reset = deferred<{ cursor: number; lines: string[]; reset: boolean }>();
+    const request = vi
+      .fn((_method: string, _params: unknown, _options?: { signal?: AbortSignal }) =>
+        Promise.resolve({ cursor: 200, lines: ["initial"], reset: true }),
+      )
+      .mockResolvedValueOnce({ cursor: 200, lines: ["initial"], reset: true })
+      .mockReturnValueOnce(poll.promise)
+      .mockReturnValueOnce(reset.promise);
+    const client = { request } as unknown as GatewayBrowserClient;
+    const page = document.createElement("openclaw-logs-page") as TestLogsPage;
+    page.context = contextWithClient(client);
+    document.body.append(page);
+    await page.updateComplete;
+    page.connected = true;
+    await page.loadLogs({ reset: true });
+    const quiet = page.loadLogs({ quiet: true });
+    const signal = request.mock.calls[1]?.[2]?.signal;
+    expect(signal?.aborted).toBe(false);
+
+    const refresh = page.loadLogs({ reset: true });
+
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(signal?.aborted).toBe(true);
+    expect(request.mock.calls[1]?.[1]).toEqual({ cursor: 200, limit: 500, maxBytes: 250_000 });
+    expect(request.mock.calls[2]?.[1]).toEqual({
+      cursor: undefined,
+      limit: 500,
+      maxBytes: 250_000,
+    });
+    reset.resolve({ cursor: 300, lines: ["replacement"], reset: true });
+    await refresh;
+    poll.resolve({ cursor: 201, lines: ["stale tail"], reset: false });
+    await quiet;
+    expect(page.logsEntries).toEqual([expect.objectContaining({ raw: "replacement" })]);
   });
 
   it("serializes quiet polls so an older cursor cannot overwrite a newer one", async () => {
