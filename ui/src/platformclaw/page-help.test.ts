@@ -97,11 +97,11 @@ describe("PlatformClaw page help", () => {
     await i18n.setLocale(locale);
     await loadPlatformClawLocale();
     expect(pageHelpForRoute("credentials")).toEqual({
-      title: "Credentials",
+      title: locale === "ko" ? "인증정보" : "Credentials",
       body:
         locale === "ko"
-          ? "저장한 값은 내 개인 Agent의 모든 Basic·VM exec에 환경변수로 전달됩니다. 값은 다시 표시되지 않습니다."
-          : "Saved values are injected as environment variables into every Basic and VM exec for your personal Agent. Values are never shown again.",
+          ? "내 개인 Agent가 작업할 때 사용하는 인증정보입니다."
+          : "Credentials your personal Agent uses while working.",
       details: [],
     });
   });
