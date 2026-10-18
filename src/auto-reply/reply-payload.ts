@@ -230,8 +230,22 @@ export function buildTtsSupplementMediaPayload(payload: ReplyPayload): ReplyPayl
   };
 }
 
+/** Recorded dispatch facts explaining why the source turn had no visible reply. */
+export type NoVisibleReplyReason =
+  | "send-policy-denied"
+  | "message-tool-only"
+  | "queue-cap"
+  | "delivery-failed"
+  | "delivery-suppressed"
+  | "delivery-not-visible"
+  | "filtered-result"
+  | "empty-result"
+  | "unknown";
+
 /** WeakMap-backed metadata attached to payload objects without changing wire shape. */
 export type ReplyPayloadMetadata = {
+  /** Identifies a core-authored recovery notice without matching its display text. */
+  noVisibleReplyReason?: NoVisibleReplyReason;
   assistantMessageIndex?: number;
   /** Original runtime MEDIA references used to identify the persisted assistant row. */
   assistantTranscriptMediaUrls?: string[];
@@ -304,6 +318,13 @@ export function setReplyPayloadMetadata<T extends object>(
 /** Reads internal metadata attached to a reply payload object. */
 export function getReplyPayloadMetadata(payload: object): ReplyPayloadMetadata | undefined {
   return replyPayloadMetadata.get(payload);
+}
+
+/** Reads the recorded reason on a core-authored missing-reply recovery notice. */
+export function getReplyPayloadNoVisibleReplyReason(
+  payload: object,
+): NoVisibleReplyReason | undefined {
+  return getReplyPayloadMetadata(payload)?.noVisibleReplyReason;
 }
 
 /** Returns true when a payload is the synthesized warning for a non-terminal tool error. */

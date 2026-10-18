@@ -312,6 +312,11 @@ export type GetReplyOptions = {
    * private unless dispatch explicitly marks a source reply as deliverable.
    */
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
+  /** Reports canonical source delivery policy before dispatch can start or fail. */
+  onSourceReplyDeliveryPolicy?: (policy: {
+    sendPolicyDenied: boolean;
+    sourceReplyDeliveryMode: SourceReplyDeliveryMode;
+  }) => void;
   /** Enables task-suggestion tools only when the initiating surface can action Gateway events. */
   taskSuggestionDeliveryMode?: TaskSuggestionDeliveryMode;
   /** Starts delivery tracking when this turn later drains as a queued followup. */

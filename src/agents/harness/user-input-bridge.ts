@@ -171,11 +171,18 @@ export function buildAgentHarnessQuestionPromptPayload(params: {
 
 function questionReplyGuidance(questions: readonly AgentHarnessUserInputQuestion[]): string {
   if (questions.length !== 1) {
+    const multiSelectQuestion = questions.find((question) => question.multiSelect);
+    if (multiSelectQuestion) {
+      return `Reply by question number or id. For multiple choices use "${multiSelectQuestion.id}: 1, 2". Separate questions with newlines.`;
+    }
     return "Reply by number or question id. Use a declared option where choices are fixed.";
   }
   const [question] = questions;
   if (!question || (question.options?.length ?? 0) === 0) {
     return "Reply with your answer.";
+  }
+  if (question.multiSelect) {
+    return `Reply with option numbers or labels separated by commas or newlines (for example, 1, 2)${question.isOther ? ", or your own answer" : ""}.`;
   }
   return question.isOther
     ? "Reply with the number, the option text, or your own answer."
@@ -208,8 +215,9 @@ export function buildAgentHarnessUserInputAnswers(
   if (questions.length === 1) {
     const question = questions[0];
     if (question) {
-      const answer = normalizeAgentHarnessUserInputAnswer(inputText, question);
-      answers[question.id] = { answers: answer ? [answer] : [] };
+      answers[question.id] = {
+        answers: normalizeAgentHarnessUserInputAnswers(inputText, question),
+      };
     }
     return { answers };
   }
@@ -225,10 +233,42 @@ export function buildAgentHarnessUserInputAnswers(
       keyed.get(question.question.toLowerCase()) ??
       keyed.get(String(index + 1));
     const answer = key ?? fallbackLines[index] ?? "";
-    const normalized = answer ? normalizeAgentHarnessUserInputAnswer(answer, question) : undefined;
-    answers[question.id] = { answers: normalized ? [normalized] : [] };
+    answers[question.id] = { answers: normalizeAgentHarnessUserInputAnswers(answer, question) };
   });
   return { answers };
+}
+
+function normalizeAgentHarnessUserInputAnswers(
+  answer: string,
+  question: AgentHarnessUserInputQuestion,
+): string[] {
+  if (!question.multiSelect || !question.options?.length) {
+    const normalized = normalizeAgentHarnessUserInputAnswer(answer, question);
+    return normalized ? [normalized] : [];
+  }
+  const fixedQuestion = { ...question, isOther: false };
+  // Match the whole label before splitting: option labels may contain commas.
+  const exact = normalizeAgentHarnessUserInputAnswer(answer, fixedQuestion);
+  if (exact) {
+    return [exact];
+  }
+  const tokens = answer.split(/,|\r?\n/).map((token) => token.trim());
+  const normalized = tokens.map((token) =>
+    normalizeAgentHarnessUserInputAnswer(token, fixedQuestion),
+  );
+  if (normalized.every((value) => value !== undefined)) {
+    return [...new Set(normalized)];
+  }
+  // Never partially accept a selection list or mistake an out-of-range number
+  // for free text. A separate custom answer remains one string, including commas.
+  if (
+    question.isOther &&
+    !normalized.some(Boolean) &&
+    !tokens.some((token) => /^\d+$/.test(token))
+  ) {
+    return answer.trim() ? [answer.trim()] : [];
+  }
+  return [];
 }
 
 export function normalizeAgentHarnessUserInputAnswer(

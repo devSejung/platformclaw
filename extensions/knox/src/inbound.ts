@@ -1,36 +1,48 @@
+import { createHash } from "node:crypto";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { findAgentRunTerminalOutcome, formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
+import { redactSensitiveText } from "openclaw/plugin-sdk/logging-core";
+import { getReplyPayloadNoVisibleReplyReason } from "openclaw/plugin-sdk/reply-payload";
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveKnoxCommandText } from "./command-text.js";
 import { KnoxIngressPermanentError, type KnoxIngressLifecycle } from "./ingress.js";
+import { resolveKnoxPendingQuestionText } from "./input-routing.js";
 import {
   buildKnoxTarget,
   KnoxOutboundError,
   sendKnoxOutbound,
   type KnoxOutboundContext,
 } from "./outbound.js";
+import { formatKnoxReplyFailure, type KnoxReplyFailureReason } from "./reply-notice.js";
+import { renderKnoxReplyText } from "./reply-text.js";
 import { KnoxRoutingClient } from "./routing-client.js";
 import { getKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 
-function isRuntimeTimeout(error: unknown): boolean {
+function runtimeFailureReason(error: unknown): "timeout" | "cancelled" | "runtime-error" {
+  const terminal = findAgentRunTerminalOutcome(error);
+  if (terminal) {
+    if (terminal.status === "timeout") {
+      return "timeout";
+    }
+    return terminal.reason === "cancelled" || terminal.reason === "aborted"
+      ? "cancelled"
+      : "runtime-error";
+  }
   let candidate = error;
   const seen = new Set<object>();
   while (candidate && typeof candidate === "object" && !seen.has(candidate)) {
     seen.add(candidate);
-    const value = candidate as {
-      name?: unknown;
-      terminalOutcome?: { status?: unknown; reason?: unknown };
-      cause?: unknown;
-    };
-    if (
-      value.name === "TimeoutError" ||
-      value.terminalOutcome?.status === "timeout" ||
-      value.terminalOutcome?.reason === "timeout"
-    ) {
-      return true;
+    const value = candidate as { name?: unknown; cause?: unknown };
+    if (value.name === "TimeoutError") {
+      return "timeout";
+    }
+    if (value.name === "AbortError") {
+      return "cancelled";
     }
     candidate = value.cause;
   }
-  return false;
+  return "runtime-error";
 }
 
 function isGatewayDrainingError(error: unknown): boolean {
@@ -135,6 +147,11 @@ export async function dispatchKnoxInbound(params: {
     params.message.conversation.conversationId,
   );
   const commandText = resolveKnoxCommandText(params.message.message.text);
+  const questionText = resolveKnoxPendingQuestionText({
+    sessionKey: routing.sessionKey,
+    text: params.message.message.text,
+  });
+  const agentText = questionText ?? params.message.message.text;
   const route = {
     agentId: routing.agentId,
     dmScope: "main" as const,
@@ -169,7 +186,7 @@ export async function dispatchKnoxInbound(params: {
     message: {
       rawBody: params.message.message.text,
       commandBody: commandText,
-      bodyForAgent: params.message.message.text,
+      bodyForAgent: agentText,
     },
     access: {
       commands: { authorized: routing.senderLinked },
@@ -189,6 +206,22 @@ export async function dispatchKnoxInbound(params: {
     },
   });
   const runId = `knox:${params.message.messageId}`;
+  const reference = createHash("sha256")
+    .update(`${params.account.accountId}:${target}:${runId}`)
+    .digest("hex")
+    .slice(0, 12);
+  const recordOutcome = (reason: string, error?: unknown) =>
+    params.log?.info?.(
+      JSON.stringify({
+        event: "knox.reply.outcome",
+        reference,
+        runId,
+        reason,
+        ...(error === undefined
+          ? {}
+          : { error: redactSensitiveText(formatErrorMessage(error)).slice(0, 1_000) }),
+      }),
+    );
   const outboundContext: KnoxOutboundContext = {
     account: params.account,
     inbound: params.message,
@@ -200,6 +233,12 @@ export async function dispatchKnoxInbound(params: {
       : {}),
   };
   let finalSent = false;
+  let visibleReplySent = false;
+  let processingNoticeSent = false;
+  let recoveryReason: KnoxReplyFailureReason = "unknown";
+  let deliveryFailure: Error | undefined;
+  let deliveryPolicyResolved = false;
+  let automaticReplySuppression: "send-policy-denied" | "message-tool-only" | undefined;
   let finalOrdinal = 0;
   let turnFinished = false;
   let progressTask: Promise<void> | undefined;
@@ -215,7 +254,14 @@ export async function dispatchKnoxInbound(params: {
   params.lifecycle.abortSignal.addEventListener("abort", abandonDeferredWait, { once: true });
   const startProgressTimer = () => {
     // Waiting and processing are distinct phases; adoption starts this delay.
-    if (adopted || turnFinished || params.lifecycle.abortSignal.aborted) {
+    if (
+      adopted ||
+      turnFinished ||
+      visibleReplySent ||
+      !deliveryPolicyResolved ||
+      automaticReplySuppression ||
+      params.lifecycle.abortSignal.aborted
+    ) {
       return;
     }
     adopted = true;
@@ -230,7 +276,9 @@ export async function dispatchKnoxInbound(params: {
         final: false,
         requestId: `progress:${params.message.messageId}`,
       })
-        .then(() => undefined)
+        .then(() => {
+          processingNoticeSent = true;
+        })
         .catch((error: unknown) =>
           params.log?.warn?.(`Knox progress delivery failed: ${String(error)}`),
         );
@@ -265,7 +313,7 @@ export async function dispatchKnoxInbound(params: {
           id: message.eventId,
           timestamp: Date.parse(message.occurredAt),
           rawText: message.message.text,
-          textForAgent: message.message.text,
+          textForAgent: agentText,
           textForCommands: commandText,
           raw: message,
         }),
@@ -275,26 +323,57 @@ export async function dispatchKnoxInbound(params: {
           accountId: params.account.accountId,
           route,
           ctxPayload,
+          replyOptions: {
+            onSourceReplyDeliveryPolicy: ({ sendPolicyDenied, sourceReplyDeliveryMode }) => {
+              // Read the owner's decision before adoption or a thrown run can
+              // bypass the result flags with a channel-owned progress/error notice.
+              deliveryPolicyResolved = true;
+              automaticReplySuppression = sendPolicyDenied
+                ? "send-policy-denied"
+                : sourceReplyDeliveryMode === "message_tool_only"
+                  ? "message-tool-only"
+                  : undefined;
+            },
+          },
           delivery: {
             durable: () => false,
-            deliver: async (payload) => {
-              const text = payload.text;
-              if (!text?.trim()) {
-                return { visibleReplySent: false };
+            onError: (error) => {
+              // Dispatcher settlement can swallow transport exceptions. Keep the
+              // native failure and correlation before the outer run loses it.
+              deliveryFailure ??=
+                error instanceof Error
+                  ? error
+                  : new Error(formatErrorMessage(error), { cause: error });
+              recordOutcome("delivery-failed", error);
+            },
+            deliver: async (payload, info) => {
+              const reason = getReplyPayloadNoVisibleReplyReason(payload);
+              const rendered = reason ? undefined : await renderKnoxReplyText(payload);
+              const diagnosis = reason ?? (!rendered ? "unrenderable-result" : undefined);
+              const text = diagnosis ? formatKnoxReplyFailure(diagnosis, reference) : rendered!;
+              const question = isRecord(payload.channelData?.askUser);
+              // A prompt or tool/block reply is visible progress, not completion.
+              // Only the terminal reply may suppress a later execution failure.
+              const terminal = info.kind === "final" && !question;
+              if (terminal) {
+                turnFinished = true;
               }
-              turnFinished = true;
               clearTimeout(progressTimer);
               await progressTask;
               const deliveryOrdinal = finalOrdinal++;
-              await sendKnoxOutbound({
+              const messageId = await sendKnoxOutbound({
                 context: outboundContext,
-                status: "final",
+                status: terminal ? (diagnosis || payload.isError ? "error" : "final") : "progress",
                 text,
-                final: true,
+                final: terminal,
                 requestId: `final:${params.message.messageId}:${deliveryOrdinal}`,
               });
-              finalSent = true;
-              return { visibleReplySent: true };
+              visibleReplySent = true;
+              finalSent ||= terminal;
+              if (diagnosis || question || terminal) {
+                recordOutcome(diagnosis ?? (question ? "waiting-for-user" : "delivered"));
+              }
+              return { visibleReplySent: true, messageIds: [messageId], content: text };
             },
           },
           record: {
@@ -308,8 +387,47 @@ export async function dispatchKnoxInbound(params: {
     if (deferred && !params.lifecycle.abortSignal.aborted) {
       await deferredTurn;
     }
+    // A started processing notice must acknowledge before its UI can be closed.
+    await progressTask;
+    if (deliveryFailure !== undefined) {
+      throw deliveryFailure;
+    }
+    if (result.dispatched) {
+      recoveryReason = result.dispatchResult.noVisibleReplyReason ?? "unknown";
+      if (
+        result.dispatchResult.sendPolicyDenied === true ||
+        result.dispatchResult.sourceReplyDeliveryMode === "message_tool_only"
+      ) {
+        // Eligibility reports missing visibility, not permission to override policy.
+        recordOutcome(
+          result.dispatchResult.sendPolicyDenied ? "send-policy-denied" : "message-tool-only",
+        );
+        return;
+      }
+      // Block-streamed answers may consume/dedupe the final payload. Only the
+      // dispatch owner's settled fact closes them; questions and adopted input do not.
+      if (
+        !finalSent &&
+        (visibleReplySent || processingNoticeSent) &&
+        !abandoned &&
+        !params.lifecycle.abortSignal.aborted &&
+        result.dispatchResult.noVisibleReplyFallbackEligible !== true &&
+        result.dispatchResult.sourceTurnCompleted === true
+      ) {
+        await sendKnoxOutbound({
+          context: outboundContext,
+          status: "final",
+          text: "요청 처리가 끝났습니다.",
+          final: true,
+          requestId: `complete:${params.message.messageId}`,
+        });
+        finalSent = true;
+        recordOutcome("completed");
+      }
+    }
     if (
       abandoned ||
+      params.lifecycle.abortSignal.aborted ||
       !result.dispatched ||
       result.dispatchResult.noVisibleReplyFallbackEligible !== true
     ) {
@@ -319,8 +437,8 @@ export async function dispatchKnoxInbound(params: {
     turnFinished = true;
     clearTimeout(progressTimer);
     await progressTask;
-    // A stable final delivery is retried by durable ingress. Sending a distinct
-    // error here could produce contradictory terminal messages after an ambiguous timeout.
+    // Preserve the native failure for ingress; a second notice could contradict
+    // a partially acknowledged final after an ambiguous transport timeout.
     if (error instanceof KnoxOutboundError || isGatewayDrainingError(error)) {
       throw error;
     }
@@ -329,13 +447,22 @@ export async function dispatchKnoxInbound(params: {
     if (finalSent) {
       throw error;
     }
-    const timedOut = isRuntimeTimeout(error);
+    const reason = runtimeFailureReason(error);
+    const timedOut = reason === "timeout";
+    recordOutcome(reason, error);
+    if (automaticReplySuppression) {
+      recordOutcome(automaticReplySuppression);
+      return;
+    }
+    // If setup failed before policy resolution, ingress owns retry/reporting;
+    // the channel has no authoritative permission for a direct failure notice.
+    if (!deliveryPolicyResolved) {
+      throw error;
+    }
     await sendKnoxOutbound({
       context: outboundContext,
       status: timedOut ? "timeout" : "error",
-      text: timedOut
-        ? "The request timed out before completion."
-        : "The request could not be completed.",
+      text: formatKnoxReplyFailure(reason, reference),
       final: true,
       requestId: `${timedOut ? "timeout" : "error"}:${params.message.messageId}`,
     });
@@ -348,14 +475,14 @@ export async function dispatchKnoxInbound(params: {
     await progressTask;
   }
   if (!finalSent) {
+    recordOutcome(recoveryReason);
     await sendKnoxOutbound({
       context: outboundContext,
       status: "error",
-      text: "No response was generated.",
+      text: formatKnoxReplyFailure(recoveryReason, reference),
       final: true,
       requestId: `error:${params.message.messageId}`,
     });
-    params.log?.warn?.(`Knox turn completed without final text: ${params.message.eventId}`);
   }
 }
 

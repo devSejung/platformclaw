@@ -148,6 +148,24 @@ has `visibleReplySent: false`, does not emit `message_sent`, and does not count
 as a visible queued reply. This lets plugins distinguish hook cancellation
 from provider failure without inventing a native message identity.
 
+`DispatchFromConfigResult.noVisibleReplyReason` records why no visible result was
+observed before recovery. Read the same fact on a recovery payload with
+`getReplyPayloadNoVisibleReplyReason` from `openclaw/plugin-sdk/reply-payload`.
+This diagnosis does not authorize delivery: honor `sendPolicyDenied` and
+`sourceReplyDeliveryMode` before sending a channel-owned recovery notice.
+Use `replyOptions.onSourceReplyDeliveryPolicy` to receive that canonical policy
+before execution starts. Channel-owned progress and exception notices must honor
+it too; a thrown run cannot provide completion-result flags.
+`sourceTurnCompleted` marks a settled resolver that did not hand its reply to an
+active run or pending continuation. Text-only channels can use it to close a
+visible streamed answer when core deduplicates the final payload against a block.
+
+For serialized inbound queues, `hasPendingAgentQuestionAnswer()` from
+`openclaw/plugin-sdk/channel-inbound` checks whether any question is awaiting
+input. Pass `{ sessionKey, text }` to check a candidate answer against that
+session's question. The check neither claims nor resolves it. Authenticate and
+route the input normally, then let the active run consume the answer.
+
 By default, routed turns record inbound metadata against
 `ctxPayload.SessionKey ?? route.sessionKey`. Set `record.sessionKey` only when a
 native command intentionally executes in one command session while updating a

@@ -5,6 +5,7 @@ import {
   formatEmbeddedAgentQueueFailureSummary,
   queueEmbeddedAgentMessageWithOutcomeAsync,
 } from "../../agents/embedded-agent-runner/runs.js";
+import { hasPendingAgentQuestionAnswer } from "../../agents/harness/gateway-question.js";
 import { hasRestartRecoverySourceClaim } from "../../config/sessions/restart-recovery-state.js";
 import { loadSessionEntry, updateSessionEntry } from "../../config/sessions/session-accessor.js";
 import { logVerbose } from "../../globals.js";
@@ -288,9 +289,20 @@ export async function runReplyAgent(
       typing.cleanup();
       return buildHandledBeforeAgentReplyPayloads(hookResult.reply);
     }
+    // Thread history and runtime context are useful to steering, but fixed-choice
+    // question parsing must receive the original user answer without that envelope.
+    const questionAnswer = followupRun.transcriptPrompt ?? followupRun.prompt;
+    const steerText =
+      !(followupRun.images?.length || followupRun.media?.length) &&
+      hasPendingAgentQuestionAnswer({
+        sessionKey: sessionKey ?? followupRun.run.sessionKey ?? steerSessionId,
+        text: questionAnswer,
+      })
+        ? questionAnswer
+        : followupRun.prompt;
     const steerOutcome = await queueEmbeddedAgentMessageWithOutcomeAsync(
       steerSessionId,
-      followupRun.prompt,
+      steerText,
       {
         steeringMode: "all",
         isInboundUserMessage: true,

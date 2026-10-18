@@ -51,7 +51,19 @@ function roomMessage(id: number): KnoxInboundMessage {
 function installRuntime(run: (params: TestRun) => Promise<unknown>) {
   setKnoxRuntime({
     config: { current: () => ({}) },
-    channel: { inbound: { buildContext: () => ({}), run } },
+    channel: {
+      inbound: {
+        buildContext: () => ({}),
+        run: async (params: TestRun) => {
+          const turn = await params.adapter.resolveTurn();
+          turn.replyOptions?.onSourceReplyDeliveryPolicy?.({
+            sendPolicyDenied: false,
+            sourceReplyDeliveryMode: "automatic",
+          });
+          return await run(params);
+        },
+      },
+    },
   } as unknown as PluginRuntime);
 }
 function mockRelay(sent: Sent[]) {
@@ -91,6 +103,42 @@ afterEach(() => {
 });
 
 describe("Knox room admission and delivery", () => {
+  it.each(["final", "error"] as const)(
+    "closes acknowledged progress as %s from settled dispatch facts",
+    async (expectedStatus) => {
+      const sent: Sent[] = [];
+      mockRelay(sent);
+      installRuntime(async (params) => {
+        await params.turnAdoptionLifecycle.onAdopted();
+        await vi.waitFor(() => expect(sent.some(({ status }) => status === "progress")).toBe(true));
+        return {
+          ...emptyDispatchResult,
+          dispatchResult: {
+            ...emptyDispatchResult.dispatchResult,
+            sourceTurnCompleted: true,
+            noVisibleReplyFallbackEligible: expectedStatus === "error",
+            ...(expectedStatus === "error" ? { noVisibleReplyReason: "delivery-suppressed" } : {}),
+          },
+        };
+      });
+      await dispatchKnoxInbound({
+        account: { ...account, progressDelayMs: 0 },
+        message: roomMessage(1),
+        lifecycle: {
+          admission: "exclusive",
+          abortSignal: new AbortController().signal,
+          onAdopted: vi.fn(),
+          onDeferred: vi.fn(),
+          onAbandoned: vi.fn(),
+        },
+      });
+      expect(sent.map(({ status }) => status)).toEqual(["progress", expectedStatus]);
+      expect(sent[1]?.text).toContain(
+        expectedStatus === "error" ? "확인 코드: delivery-suppressed" : "요청 처리가 끝났습니다.",
+      );
+    },
+  );
+
   it("notifies newly waiting mentions with N=1,2 and never waits for notice ACK", async () => {
     const stateDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "knox-notice-")));
     const queue = createChannelIngressQueueForTests<{ version: 1; rawEvent: string }>({
@@ -532,7 +580,13 @@ describe("Knox room admission and delivery", () => {
         onAbandoned: vi.fn(),
       };
       await dispatchKnoxInbound({ account, message: roomMessage(1), lifecycle });
-      expect(sent.map(({ text }) => text)).toEqual(eligible ? ["No response was generated."] : []);
+      if (eligible) {
+        expect(sent).toHaveLength(1);
+        expect(sent[0]?.text).toContain("확인 코드: unknown");
+        expect(sent[0]?.text).toContain("요청 참조:");
+      } else {
+        expect(sent).toEqual([]);
+      }
     },
   );
 

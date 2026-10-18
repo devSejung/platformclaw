@@ -34,6 +34,10 @@ type ReplyTurnLedger = {
   settleQueued: (abortSignal?: AbortSignal) => Promise<LedgerSettleResult>;
   /** True once any settled, contentful, non-suppressed delivery exists. */
   hasVisibleDelivery: () => boolean;
+  /** True after a queued or routed send was attempted, even when it was not visible. */
+  hasDeliveryAttempt: () => boolean;
+  /** Transport explicitly completed without displaying a reply. */
+  hasNonVisibleDelivery: () => boolean;
   /** True when the dispatcher admitted payloads the dispatch pipeline never sent
    * (channel-owned sends). Their settlement is unknown, so the fallback gate
    * treats them conservatively as visible: silence over a double-send. */
@@ -43,6 +47,8 @@ type ReplyTurnLedger = {
 export function createReplyTurnLedger(dispatcher: ReplyDispatcher): ReplyTurnLedger {
   let visibleDeliveries = 0;
   let queuedAdmissions = 0;
+  let deliveryAttempted = false;
+  let nonVisibleDelivery = false;
   const pendingOutcomes: Array<Promise<void>> = [];
   const enqueue = (kind: ReplyDispatchKind, payload: ReplyPayload): boolean => {
     if (kind === "tool") {
@@ -55,6 +61,7 @@ export function createReplyTurnLedger(dispatcher: ReplyDispatcher): ReplyTurnLed
   };
   return {
     sendQueued(kind, payload) {
+      deliveryAttempted = true;
       const capture = captureReplyDispatchDeliveryOutcome(payload);
       const queued = enqueue(kind, payload);
       if (!queued) {
@@ -76,6 +83,10 @@ export function createReplyTurnLedger(dispatcher: ReplyDispatcher): ReplyTurnLed
       }
       pendingOutcomes.push(
         capture.promise.then((outcome) => {
+          if (outcome === "not-visible") {
+            nonVisibleDelivery = true;
+            return;
+          }
           // "failed-deliver" means the transport send started and then rejected;
           // chunked sends may already have shown partial content, so only
           // outcomes that never reached the transport ("cancelled",
@@ -88,6 +99,7 @@ export function createReplyTurnLedger(dispatcher: ReplyDispatcher): ReplyTurnLed
       return { queued: true, outcome: capture.promise };
     },
     recordRoutedDelivery(payload, delivered) {
+      deliveryAttempted = true;
       if (delivered && hasOutboundReplyContent(payload, { trimText: true })) {
         visibleDeliveries += 1;
       }
@@ -145,6 +157,8 @@ export function createReplyTurnLedger(dispatcher: ReplyDispatcher): ReplyTurnLed
       }
     },
     hasVisibleDelivery: () => visibleDeliveries > 0,
+    hasDeliveryAttempt: () => deliveryAttempted,
+    hasNonVisibleDelivery: () => nonVisibleDelivery,
     hasForeignQueuedAdmissions: () => {
       const counts = dispatcher.getQueuedCounts();
       return counts.tool + counts.block + counts.final > queuedAdmissions;

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { clearAutoFallbackPrimaryProbeSelection } from "../../agents/agent-scope.js";
 import { resolveSessionAuthProfileOverride } from "../../agents/auth-profiles/session-override.js";
+import { hasPendingAgentQuestionAnswer } from "../../agents/harness/gateway-question.js";
 import { resolveAgentHarnessPolicy } from "../../agents/harness/policy.js";
 import { listOpenAIAuthProfileProvidersForAgentRuntime } from "../../agents/openai-routing.js";
 import { hasResolvedThinkingCatalogEntry } from "../../agents/thinking-runtime.js";
@@ -331,7 +332,15 @@ export async function prepareReplyRunAdmission(
     return { sessionEntry: latestSessionEntry, sessionId: latestSessionId, sessionFile };
   };
   let preparedSessionState = resolvePreparedSessionState();
-  const resolvedQueue = useFastReplyRuntime
+  const currentRouteThreadId = resolveRoutedDeliveryThreadId({ ctx, sessionKey });
+  const applySlackRouteThreadSteeringGuard = isSlackDirectRoutedThreadTurn(ctx);
+  const resolveActiveRunAcceptsCurrentThread = (busy: { isActive: boolean }) => {
+    if (!busy.isActive || !sessionKey || !applySlackRouteThreadSteeringGuard) {
+      return true;
+    }
+    return routeThreadIdsMatch(resolveActiveReplyRunThreadId(sessionKey), currentRouteThreadId);
+  };
+  const configuredQueue = useFastReplyRuntime
     ? {
         mode: "collect" as const,
         debounceMs: 0,
@@ -347,6 +356,21 @@ export async function prepareReplyRunAdmission(
           ? { ...perMessageQueueOptions, dropPolicy: "new" }
           : perMessageQueueOptions,
       });
+  // Answers resume the existing question owner. Ordinary followup/collect or
+  // interrupt policy would queue behind, or abort, the run awaiting that answer.
+  const answeringQuestion =
+    !isRoomEvent &&
+    !context.isHeartbeat &&
+    !effectiveResetTriggered &&
+    !promptMedia?.length &&
+    resolveActiveRunAcceptsCurrentThread({ isActive: true }) &&
+    hasPendingAgentQuestionAnswer({
+      sessionKey: sessionKey ?? sessionIdFinal,
+      text: baseBodyFinal,
+    });
+  const resolvedQueue = answeringQuestion
+    ? { ...configuredQueue, mode: "steer" as const }
+    : configuredQueue;
   const embeddedAgentRuntime = useFastReplyRuntime
     ? null
     : await traceRunPhase("reply.load_embedded_agent_runtime", () => loadEmbeddedAgentRuntime());
@@ -441,14 +465,6 @@ export async function prepareReplyRunAdmission(
   );
   const queueKey = sessionKey ?? sessionIdFinal;
   preparedSessionState = resolvePreparedSessionState();
-  const currentRouteThreadId = resolveRoutedDeliveryThreadId({ ctx, sessionKey });
-  const applySlackRouteThreadSteeringGuard = isSlackDirectRoutedThreadTurn(ctx);
-  const resolveActiveRunAcceptsCurrentThread = (busy: { isActive: boolean }) => {
-    if (!busy.isActive || !sessionKey || !applySlackRouteThreadSteeringGuard) {
-      return true;
-    }
-    return routeThreadIdsMatch(resolveActiveReplyRunThreadId(sessionKey), currentRouteThreadId);
-  };
   const resolveActiveReplyOperationSessionId = () =>
     sessionKey ? resolveActiveReplyRunSessionId(sessionKey) : undefined;
   const resolveActiveQueueSessionId = () =>

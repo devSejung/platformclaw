@@ -8,9 +8,14 @@ import {
   clearActiveEmbeddedRun,
   setActiveEmbeddedRun,
 } from "../../agents/embedded-agent-runner/runs.js";
+import {
+  claimPendingAgentQuestionAnswer,
+  registerPendingAgentQuestion,
+} from "../../agents/harness/gateway-question.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { HEARTBEAT_RUN_SCOPE } from "../../infra/heartbeat-run-scope.js";
 import { MESSAGE_TOOL_ONLY_DELIVERY_HINT } from "../../plugin-sdk/message-tool-delivery-hints.js";
+import { createUserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
 import { normalizeSessionDeliveryState } from "../../utils/delivery-context.shared.js";
 import { runReplyAgent } from "./agent-runner.runtime.js";
 import { applySessionHints } from "./body.js";
@@ -51,11 +56,13 @@ vi.mock("../../agents/harness/hook-helpers.js", () => ({
   runAgentHarnessBeforeMessageWriteHook: vi.fn((params: { message: unknown }) => params.message),
 }));
 
-vi.mock("../../config/sessions/group.js", () => ({
+vi.mock("../../config/sessions/group.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../config/sessions/group.js")>()),
   resolveGroupSessionKey: vi.fn().mockReturnValue(undefined),
 }));
 
-vi.mock("../../config/sessions/paths.js", () => ({
+vi.mock("../../config/sessions/paths.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../config/sessions/paths.js")>()),
   resolveSessionFilePath: vi.fn().mockReturnValue("/tmp/session.jsonl"),
   resolveSessionFilePathOptions: vi.fn().mockReturnValue({}),
 }));
@@ -64,14 +71,21 @@ const loadSessionEntryMock = vi.hoisted(() => vi.fn());
 const updateAmbientTranscriptWatermarkMock = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 const consumeSessionSkillSuggestionMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../../config/sessions/session-accessor.js", () => ({
-  listSessionEntries: vi.fn().mockReturnValue([]),
-  loadSessionEntry: loadSessionEntryMock,
-  patchSessionEntry: vi.fn(),
-  persistSessionTranscriptTurn: vi.fn(),
-}));
+vi.mock("../../config/sessions/session-accessor.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../config/sessions/session-accessor.js")>();
+  return {
+    ...actual,
+    listSessionEntries: vi.fn().mockReturnValue([]),
+    loadSessionEntry: loadSessionEntryMock,
+    patchSessionEntry: vi.fn(),
+    persistSessionTranscriptTurn: vi.fn(),
+  };
+});
 
-vi.mock("../../config/sessions/ambient-transcript-watermark.js", () => ({
+vi.mock("../../config/sessions/ambient-transcript-watermark.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../config/sessions/ambient-transcript-watermark.js")
+  >()),
   updateAmbientTranscriptWatermark: updateAmbientTranscriptWatermarkMock,
 }));
 
@@ -79,11 +93,13 @@ vi.mock("../../config/sessions/skill-suggestions.js", () => ({
   consumeSessionSkillSuggestion: consumeSessionSkillSuggestionMock,
 }));
 
-vi.mock("../../globals.js", () => ({
+vi.mock("../../globals.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../globals.js")>()),
   logVerbose: vi.fn(),
 }));
 
-vi.mock("../../process/command-queue.js", () => ({
+vi.mock("../../process/command-queue.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../process/command-queue.js")>()),
   clearCommandLane: vi.fn().mockReturnValue(0),
   getQueueSize: vi.fn().mockReturnValue(0),
 }));
@@ -101,7 +117,8 @@ vi.mock("../../utils/provider-utils.js", () => ({
   isReasoningTagProvider: vi.fn().mockReturnValue(false),
 }));
 
-vi.mock("../command-detection.js", () => ({
+vi.mock("../command-detection.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../command-detection.js")>()),
   hasControlCommand: vi.fn().mockReturnValue(false),
 }));
 
@@ -119,7 +136,8 @@ vi.mock("./groups.js", () => ({
   buildGroupChatContext: vi.fn().mockReturnValue(""),
 }));
 
-vi.mock("./inbound-meta.js", () => ({
+vi.mock("./inbound-meta.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./inbound-meta.js")>()),
   buildInboundMetaSystemPrompt: vi.fn().mockReturnValue(""),
   buildInboundUserContextPrefix: vi.fn().mockReturnValue(""),
   formatActiveGoalContext: vi.fn().mockReturnValue(undefined),
@@ -155,7 +173,8 @@ vi.mock("./session-reset-prompt.js", () => ({
   }),
 }));
 
-vi.mock("./typing-mode.js", () => ({
+vi.mock("./typing-mode.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./typing-mode.js")>()),
   resolveTypingMode: vi.fn().mockReturnValue("off"),
 }));
 
@@ -1875,6 +1894,114 @@ describe("runPreparedReply media-only handling", () => {
       activeOperation.complete();
     }
   });
+  it.each(["steer", "followup", "collect", "interrupt"] as const)(
+    "resumes a live question in %s queue mode",
+    async (mode) => {
+      const { runReplyAgent: executeReplyAgent } = await import("./agent-runner-run.js");
+      const queueSettings = await import("./queue/settings-runtime.js");
+      const embeddedAgentRuntime = await import("../../agents/embedded-agent.runtime.js");
+      vi.mocked(queueSettings.resolveQueueSettings).mockReturnValueOnce({ mode });
+      vi.mocked(embeddedAgentRuntime.resolveActiveEmbeddedRunSessionId).mockReturnValue(
+        "active-question-session",
+      );
+      vi.mocked(embeddedAgentRuntime.isEmbeddedAgentRunActive).mockReturnValue(true);
+      const originalReplyAgent = expectDefined(
+        vi.mocked(runReplyAgent).getMockImplementation(),
+        "mock reply runner",
+      );
+      const recorder = createUserTurnTranscriptRecorder({
+        input: { text: "1" },
+        target: () => undefined,
+      });
+      const persistApproved = vi.spyOn(recorder, "persistApproved").mockResolvedValue(undefined);
+      const onAdopted = vi.fn(async () => {});
+      const handle = {
+        isStreaming: () => false,
+        isStopped: () => false,
+        isCompacting: () => false,
+        supportsTranscriptCommitWait: true,
+        abort: vi.fn(),
+        queueMessage: vi.fn(
+          async (
+            text: string,
+            options?: Parameters<Parameters<typeof setActiveEmbeddedRun>[1]["queueMessage"]>[1],
+          ) => {
+            expect(text).toBe("1");
+            expect(
+              await claimPendingAgentQuestionAnswer({
+                sessionKey: "session-key",
+                text,
+                persist: async () => {
+                  await options?.userTurnTranscriptRecorder?.persistApproved();
+                },
+              }),
+            ).toBe(true);
+          },
+        ),
+      };
+      setActiveEmbeddedRun("active-question-session", handle, "session-key");
+      const question = registerPendingAgentQuestion({
+        questionId: "ask_queue_modes",
+        sessionKey: "session-key",
+        questions: [
+          {
+            id: "action",
+            header: "Action",
+            question: "Continue?",
+            options: [{ label: "Continue" }, { label: "Cancel" }],
+          },
+        ],
+        gatewayCall: vi.fn(async () => ({
+          status: "answered",
+          answers: { answers: { action: ["Continue"] } },
+        })),
+        answer: Promise.resolve({
+          status: "answered",
+          answers: { answers: { action: ["Continue"] } },
+        }),
+      });
+      const inboundIdentity = {
+        MessageSid: `question-answer-${mode}`,
+        AccountId: "synthetic",
+        OriginatingChannel: "knox",
+        OriginatingTo: "room:room-1",
+        To: "room:room-1",
+      };
+      try {
+        vi.mocked(runReplyAgent).mockImplementation(executeReplyAgent);
+        await runPreparedReply(
+          baseParams({
+            isNewSession: false,
+            sessionId: "active-question-session",
+            ctx: {
+              ...createInboundTurn("1", "knox", "group"),
+              ...inboundIdentity,
+              ThreadHistoryBody: "Previous discussion",
+            },
+            sessionCtx: { ...createSessionTurn("1", "knox", "group"), ...inboundIdentity },
+            opts: { userTurnTranscriptRecorder: recorder, turnAdoptionLifecycle: { onAdopted } },
+          }),
+        );
+        const call = requireLastRunReplyAgentCall();
+        expect(call.shouldSteer).toBe(true);
+        expect(call.resolvedQueue.mode).toBe("steer");
+        expect(embeddedAgentRuntime.abortEmbeddedAgentRun).not.toHaveBeenCalled();
+        expect(handle.abort).not.toHaveBeenCalled();
+        expect(handle.queueMessage).toHaveBeenCalledOnce();
+        expect(persistApproved).toHaveBeenCalledOnce();
+        expect(onAdopted).toHaveBeenCalledOnce();
+      } finally {
+        vi.mocked(runReplyAgent).mockImplementation(originalReplyAgent);
+        question.dispose();
+        clearActiveEmbeddedRun("active-question-session", handle, "session-key");
+        vi.mocked(embeddedAgentRuntime.resolveActiveEmbeddedRunSessionId).mockReturnValue(
+          undefined,
+        );
+        vi.mocked(embeddedAgentRuntime.isEmbeddedAgentRunActive).mockReturnValue(false);
+      }
+    },
+  );
+
   it("does not enable steering for active heartbeat runs", async () => {
     const queueSettings = await import("./queue/settings-runtime.js");
     const embeddedAgentRuntime = await import("../../agents/embedded-agent.runtime.js");

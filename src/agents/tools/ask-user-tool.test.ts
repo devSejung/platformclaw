@@ -55,6 +55,12 @@ afterEach(() => {
 });
 
 describe("ask_user normalization", () => {
+  it("exposes multiple selection in the model schema and canonical questions", () => {
+    const args = { questions: [{ ...validArgs.questions[0], multiSelect: true }] };
+    expect(Value.Check(createAskUserTool({}).parameters, args)).toBe(true);
+    expect(normalizeAskUserParams(args).questions[0]?.multiSelect).toBe(true);
+  });
+
   it("normalizes headers, forces free text, and clamps timeout", () => {
     const normalized = normalizeAskUserParams({ ...validArgs, timeoutSeconds: 5 });
 

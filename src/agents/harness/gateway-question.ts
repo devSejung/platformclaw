@@ -201,6 +201,34 @@ export function registerPendingAgentQuestion(params: {
   };
 }
 
+function parsePendingAgentQuestionAnswers(
+  state: PendingAgentQuestion,
+  text: string,
+): AgentHarnessUserInputAnswers | undefined {
+  const answers = buildAgentHarnessUserInputAnswers(state.questions, text);
+  return state.questions.every(
+    (question) => (answers.answers[question.id]?.answers.length ?? 0) > 0,
+  )
+    ? answers
+    : undefined;
+}
+
+/** Non-consuming admission check; question ownership and answer parsing stay canonical. */
+export function hasPendingAgentQuestionAnswer(params?: {
+  sessionKey: string;
+  text: string;
+}): boolean {
+  const available = (state: PendingAgentQuestion) => !state.cancelRequested && !state.resolving;
+  if (!params) {
+    return [...pendingAgentQuestions.values()].some(available);
+  }
+  const state = pendingAgentQuestions.get(params.sessionKey.trim());
+  if (!state || !available(state)) {
+    return false;
+  }
+  return parsePendingAgentQuestionAnswers(state, params.text) !== undefined;
+}
+
 /** Claims the next queued plain-text message for the session's gateway question. */
 export async function claimPendingAgentQuestionAnswer(params: {
   sessionKey?: string;
@@ -212,8 +240,11 @@ export async function claimPendingAgentQuestionAnswer(params: {
   if (!state || state.cancelRequested || state.resolving) {
     return false;
   }
+  const answers = parsePendingAgentQuestionAnswers(state, params.text);
+  if (!answers) {
+    return false;
+  }
   state.resolving = true;
-  const answers = buildAgentHarnessUserInputAnswers(state.questions, params.text);
   if (!state.answer) {
     // A consumed claim must be backed by a registered gateway question; if
     // registration fails the message returns false so normal steering runs.

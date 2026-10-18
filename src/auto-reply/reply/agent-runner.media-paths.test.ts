@@ -4,6 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EmbeddedAgentQueueMessageOutcome } from "../../agents/embedded-agent-runner/runs.js";
+import {
+  claimPendingAgentQuestionAnswer,
+  registerPendingAgentQuestion,
+} from "../../agents/harness/gateway-question.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { TemplateContext } from "../templating.js";
 import type { FollowupRun, QueueSettings } from "./queue.js";
@@ -460,6 +464,75 @@ describe("runReplyAgent media path normalization", () => {
       },
     );
     expect(enqueueFollowupRunMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a live question with raw text while preserving transcript commitment and adoption", async () => {
+    const sessionKey = "agent:main:question-envelope";
+    const gatewayCall = vi.fn(async () => ({
+      status: "answered",
+      answers: { answers: { action: ["Continue"] } },
+    }));
+    const question = registerPendingAgentQuestion({
+      questionId: "ask_envelope",
+      sessionKey,
+      questions: [
+        {
+          id: "action",
+          header: "Action",
+          question: "Continue?",
+          options: [{ label: "Continue" }, { label: "Cancel" }],
+        },
+      ],
+      gatewayCall,
+      answer: Promise.resolve({
+        status: "answered",
+        answers: { answers: { action: ["Continue"] } },
+      }),
+    });
+    const persistApproved = vi.fn(async () => {});
+    const onAdopted = vi.fn(async () => {});
+    queueEmbeddedAgentMessageWithOutcomeAsyncMock.mockImplementation(async (sessionId, text) => {
+      expect(text).toBe("1");
+      expect(
+        await claimPendingAgentQuestionAnswer({ sessionKey, text, persist: persistApproved }),
+      ).toBe(true);
+      return { queued: true, sessionId, target: "embedded_run", gatewayHealth: "live" };
+    });
+    try {
+      await runReplyAgent(
+        makeRunReplyAgentParams({
+          sessionKey,
+          resolvedQueue: { mode: "steer" },
+          shouldSteer: true,
+          shouldFollowup: true,
+          isActive: true,
+          followupRun: {
+            ...createMockFollowupRun({
+              prompt: "[Thread history - for context]\nPrevious discussion\n\n1",
+            }),
+            transcriptPrompt: "1",
+          },
+          opts: {
+            turnAdoptionLifecycle: {
+              onAdopted,
+              onDeferred: vi.fn(),
+              onAbandoned: vi.fn(),
+              onSettled: vi.fn(),
+            },
+          },
+        }),
+      );
+      expect(persistApproved).toHaveBeenCalledOnce();
+      expect(onAdopted).toHaveBeenCalledOnce();
+      expect(gatewayCall).toHaveBeenCalledWith(
+        "question.resolve",
+        {},
+        expect.objectContaining({ answers: { answers: { action: ["Continue"] } } }),
+      );
+      expect(enqueueFollowupRunMock).not.toHaveBeenCalled();
+    } finally {
+      question.dispose();
+    }
   });
 
   it("steers ordered current-turn images with the active prompt", async () => {

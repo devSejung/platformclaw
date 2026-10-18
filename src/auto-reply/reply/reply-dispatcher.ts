@@ -45,6 +45,7 @@ type ReplyDispatchCancelHandler = (
 
 export type ReplyDispatchDeliveryOutcome =
   | "delivered"
+  | "not-visible"
   | "cancelled"
   | "failed-before-deliver"
   | "failed-deliver";
@@ -500,7 +501,20 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
           deliverPayload = copyReplyPayloadMetadata(normalized, deliverPayload);
         }
         deliveryStarted = true;
-        await options.deliver(deliverPayload, dispatchInfo);
+        const result = await options.deliver(deliverPayload, dispatchInfo);
+        // A fulfilled channel adapter can explicitly report that nothing was shown.
+        // Treat that as invisible or the turn ledger will suppress its recovery notice.
+        if (isRecord(result) && result.visibleReplySent === false) {
+          // Intentional native suppression must retire pending replay just like
+          // a beforeDeliver cancellation; bare nonvisibility remains recoverable.
+          if (isRecord(result.suppression)) {
+            deliveryOutcome = "cancelled";
+            cancelledCounts[kind] += 1;
+          } else {
+            deliveryOutcome = "not-visible";
+          }
+          return;
+        }
         deliveryOutcome = "delivered";
       })
       .catch(async (err: unknown) => {

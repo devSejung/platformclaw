@@ -38,6 +38,22 @@ describe("createReplyTurnLedger", () => {
     await ledger.settleQueued();
     expect(deliver).not.toHaveBeenCalled();
     expect(ledger.hasVisibleDelivery()).toBe(false);
+    expect(ledger.hasNonVisibleDelivery()).toBe(false);
+    dispatcher.markComplete();
+    await dispatcher.waitForIdle();
+  });
+
+  it("distinguishes a non-visible transport result from pre-delivery cancellation", async () => {
+    const dispatcher = createReplyDispatcher({
+      deliver: async () => ({ visibleReplySent: false }),
+    });
+    const ledger = createReplyTurnLedger(dispatcher);
+    const send = ledger.sendQueued("final", { mediaUrl: "https://example.com/image.png" });
+    await ledger.settleQueued();
+    await expect(send.outcome).resolves.toBe("not-visible");
+    expect(ledger.hasVisibleDelivery()).toBe(false);
+    expect(ledger.hasNonVisibleDelivery()).toBe(true);
+    expect(dispatcher.getCancelledCounts?.().final).toBe(0);
     dispatcher.markComplete();
     await dispatcher.waitForIdle();
   });
@@ -121,7 +137,9 @@ describe("createReplyTurnLedger", () => {
 
   it("records routed settlements only when delivered and contentful", () => {
     const ledger = createReplyTurnLedger(createUntrackedDispatcher());
+    expect(ledger.hasDeliveryAttempt()).toBe(false);
     ledger.recordRoutedDelivery({ text: "suppressed" }, false);
+    expect(ledger.hasDeliveryAttempt()).toBe(true);
     ledger.recordRoutedDelivery({ text: "" }, true);
     expect(ledger.hasVisibleDelivery()).toBe(false);
     ledger.recordRoutedDelivery({ mediaUrl: "https://example.com/seatmap.png" }, true);

@@ -10,6 +10,7 @@ import {
   clearPendingFinalDeliveryAfterSuccess,
   reconcilePendingFinalDeliveryAfterSettlement,
 } from "./dispatch-from-config.pending-final.js";
+import { captureReplyDispatchDeliveryOutcome, createReplyDispatcher } from "./reply-dispatcher.js";
 import { retireTerminalRestartRecoverySourceClaim } from "./restart-recovery-claim.js";
 
 describe("pending final delivery restart proof", () => {
@@ -109,7 +110,38 @@ describe("pending final delivery restart proof", () => {
     ).toBeUndefined();
   });
 
-  it("keeps normal-turn provenance when transport fails before delivery", async () => {
+  it.each(["failed-before-deliver", "not-visible"] as const)(
+    "keeps normal-turn provenance after %s",
+    async (outcome) => {
+      await writePendingFinal("continue");
+      const identity = capturePendingFinalDeliveryIdentity({
+        intentId: "intent-1",
+        sessionKey,
+        storePath,
+      });
+      const payload: ReplyPayload = { text: "hook reply" };
+
+      await reconcilePendingFinalDeliveryAfterSettlement({
+        deliveries: [{ outcome, payload }],
+        identity,
+        replies: [payload],
+        sessionKey,
+        storePath,
+      });
+
+      expect(loadSessionEntry({ sessionKey, storePath })).toMatchObject({
+        pendingFinalDelivery: {
+          kind: "replayable",
+          text: "hook reply",
+          intentId: "intent-1",
+        },
+        restartRecoveryBeforeAgentReplyState: "continue",
+        restartRecoverySourceIngress: "channel",
+      });
+    },
+  );
+
+  it("retires replay when the native adapter intentionally suppresses delivery", async () => {
     await writePendingFinal("continue");
     const identity = capturePendingFinalDeliveryIdentity({
       intentId: "intent-1",
@@ -117,24 +149,30 @@ describe("pending final delivery restart proof", () => {
       storePath,
     });
     const payload: ReplyPayload = { text: "hook reply" };
+    const delivery = captureReplyDispatchDeliveryOutcome(payload);
+    const dispatcher = createReplyDispatcher({
+      deliver: async () => ({
+        visibleReplySent: false,
+        suppression: { reason: "cancelled_by_message_sending_hook" },
+      }),
+    });
+    expect(dispatcher.sendFinalReply(payload)).toBe(true);
+    dispatcher.markComplete();
+    await dispatcher.waitForIdle();
+    const outcome = await delivery.promise;
+    expect(outcome).toBe("cancelled");
 
     await reconcilePendingFinalDeliveryAfterSettlement({
-      deliveries: [{ outcome: "failed-before-deliver", payload }],
+      deliveries: [{ outcome, payload }],
       identity,
       replies: [payload],
       sessionKey,
       storePath,
     });
-
-    expect(loadSessionEntry({ sessionKey, storePath })).toMatchObject({
-      pendingFinalDelivery: {
-        kind: "replayable",
-        text: "hook reply",
-        intentId: "intent-1",
-      },
-      restartRecoveryBeforeAgentReplyState: "continue",
-      restartRecoverySourceIngress: "channel",
-    });
+    expect(loadSessionEntry({ sessionKey, storePath })?.pendingFinalDelivery).toBeUndefined();
+    expect(
+      loadSessionEntry({ sessionKey, storePath })?.restartRecoveryBeforeAgentReplyState,
+    ).toBeUndefined();
   });
 
   it("does not retire a source while its terminal provider outcome is unknown", async () => {

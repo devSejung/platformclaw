@@ -23,6 +23,7 @@ export function createKnoxIngress(options: {
   accountId: string;
   queue?: ChannelIngressQueue<StoredKnoxIngress>;
   dispatch: (message: KnoxInboundMessage, lifecycle: KnoxIngressLifecycle) => Promise<void>;
+  isPendingQuestionReply?: (message: KnoxInboundMessage) => Promise<boolean>;
   notifyQueued?: (
     message: KnoxInboundMessage,
     context: { aheadCount: number; abortSignal: AbortSignal },
@@ -30,16 +31,22 @@ export function createKnoxIngress(options: {
   log?: (message: string) => void;
   abortSignal?: AbortSignal;
 }) {
-  const inspect = (message: KnoxInboundMessage) => {
+  const inspect = (
+    message: KnoxInboundMessage,
+    context?: { phase: "admission" | "claim"; claimedLaneKey?: string },
+  ) => {
     const command = resolveKnoxCommandText(message.message.text).trim().split(/\s+/u)[0];
-    const control = command?.toLowerCase() === "/stop";
+    const control = command?.toLowerCase() === "/stop" || command?.toLowerCase() === "/approve";
+    const conversationId = message.conversation.conversationId;
     return {
       eventId: message.messageId,
-      // Stop must enter while ordinary work owns the conversation lane; otherwise
-      // the command cannot interrupt the run it was sent to stop.
-      laneKey: control
-        ? `${message.conversation.conversationId}:control`
-        : message.conversation.conversationId,
+      // A question can resolve before its durable reply is reclaimed. Preserve the
+      // admitted control lane; dispatch still rechecks routing and command authority.
+      laneKey:
+        control ||
+        (context?.phase === "claim" && context.claimedLaneKey === `${conversationId}:control`)
+          ? `${conversationId}:control`
+          : conversationId,
     };
   };
   const monitor = createChannelIngressMonitor<KnoxInboundMessage, string, StoredKnoxIngress>({
@@ -83,10 +90,7 @@ export function createKnoxIngress(options: {
     sequencedAdmission: true,
     onQueued: options.notifyQueued
       ? async (message, context) => {
-          if (
-            resolveKnoxCommandText(message.message.text).trim().split(/\s+/u)[0]?.toLowerCase() ===
-            "/stop"
-          ) {
+          if (inspect(message).laneKey === `${message.conversation.conversationId}:control`) {
             return;
           }
           await runDetachedWebhookWork(async () => {
@@ -125,14 +129,29 @@ export function createKnoxIngress(options: {
     onError: (error) => options.log?.(`knox ingress failed: ${String(error)}`),
   });
 
+  let admission = Promise.resolve();
+  const admit = async (message: KnoxInboundMessage) => {
+    const facts = inspect(message);
+    if (
+      facts.laneKey === message.conversation.conversationId &&
+      (await options.isPendingQuestionReply?.(message))
+    ) {
+      facts.laneKey = `${message.conversation.conversationId}:control`;
+    }
+    const result = await monitor.admit(message, { facts });
+    return { duplicate: result.kind === "durable" && result.queueResult.duplicate };
+  };
   return {
     start: monitor.start,
     stop: monitor.stop,
     admit: async (message: KnoxInboundMessage) => {
-      const result = await monitor.admit(message, { facts: inspect(message) });
-      return {
-        duplicate: result.kind === "durable" && result.queueResult.duplicate,
-      };
+      // Async routing must not reorder otherwise FIFO transport arrivals.
+      const result = admission.then(async () => await admit(message));
+      admission = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return await result;
     },
   };
 }

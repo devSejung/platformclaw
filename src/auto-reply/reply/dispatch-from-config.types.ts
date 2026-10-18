@@ -1,6 +1,7 @@
 // Shared type contracts for dispatch-from-config runtime execution.
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { SourceReplyDeliveryMode } from "../get-reply-options.types.js";
+import type { NoVisibleReplyReason } from "../reply-payload.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { FormatAbortReplyText, TryFastAbortFromMessage } from "./abort.runtime-types.js";
 import type { CommandSessionMetadataChange } from "./command-session-metadata.js";
@@ -14,7 +15,11 @@ export type DispatchFromConfigResult = {
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   sendPolicyDenied?: boolean;
   observedReplyDelivery?: boolean;
+  /** The source resolver settled without handing its reply to another active/queued run. */
+  sourceTurnCompleted?: true;
   noVisibleReplyFallbackEligible?: boolean;
+  /** Diagnosis only; source delivery policy still decides whether recovery may be sent. */
+  noVisibleReplyReason?: NoVisibleReplyReason;
   noVisibleReplyFallbackDelivered?: boolean;
   beforeAgentRunBlocked?: boolean;
   sessionMetadataChanges?: CommandSessionMetadataChange[];

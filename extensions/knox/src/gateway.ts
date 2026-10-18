@@ -4,6 +4,7 @@ import { registerPluginHttpRoute } from "openclaw/plugin-sdk/webhook-ingress";
 import { resolveKnoxAccount } from "./accounts.js";
 import { dispatchKnoxInbound, sendKnoxQueuedNotice } from "./inbound.js";
 import { createKnoxIngress } from "./ingress.js";
+import { isKnoxPendingQuestionReply } from "./input-routing.js";
 import { createKnoxWebhookHandler } from "./webhook-handler.js";
 
 export async function startKnoxGatewayAccount(ctx: {
@@ -27,6 +28,8 @@ export async function startKnoxGatewayAccount(ctx: {
     accountId: account.accountId,
     abortSignal: ctx.abortSignal,
     log: (message) => ctx.log?.error?.(message),
+    isPendingQuestionReply: async (message) =>
+      await isKnoxPendingQuestionReply({ account, message }),
     notifyQueued: async (message, context) => {
       await sendKnoxQueuedNotice({ account, message, ...context });
     },

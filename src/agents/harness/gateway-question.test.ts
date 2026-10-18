@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   cancelPendingAgentQuestionForSession,
   claimPendingAgentQuestionAnswer,
+  hasPendingAgentQuestionAnswer,
   registerPendingAgentQuestion,
   runAgentHarnessGatewayQuestion,
   type AgentHarnessQuestionGatewayCall,
@@ -28,6 +29,76 @@ const questions = [
 ] as const;
 
 describe("gateway harness questions", () => {
+  it.each([false, true])(
+    "classifies only live session-bound answers without consuming the question (multiSelect=%s)",
+    async (multiSelect) => {
+      const answer = deferred<{
+        status: "answered";
+        answers: { answers: Record<string, string[]> };
+      }>();
+      const gatewayCall = vi.fn<AgentHarnessQuestionGatewayCall>(async () => await answer.promise);
+      const claim = registerPendingAgentQuestion({
+        questionId: "ask_admission",
+        sessionKey: "agent:room:input-admission",
+        questions: [
+          {
+            id: "action",
+            header: "Action",
+            question: "Continue?",
+            multiSelect,
+            options: [{ label: "Continue" }, { label: "Cancel" }],
+          },
+        ],
+        gatewayCall,
+        answer: answer.promise,
+      });
+      try {
+        expect(hasPendingAgentQuestionAnswer()).toBe(true);
+        expect(hasPendingAgentQuestionAnswer({ sessionKey: "agent:other:main", text: "1" })).toBe(
+          false,
+        );
+        expect(
+          hasPendingAgentQuestionAnswer({
+            sessionKey: "agent:room:input-admission",
+            text: "unrelated work",
+          }),
+        ).toBe(false);
+        for (const text of ["1", "continue"]) {
+          expect(
+            hasPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text }),
+          ).toBe(true);
+        }
+        expect(gatewayCall).not.toHaveBeenCalled();
+        const persist = vi.fn(async () => {});
+        await expect(
+          claimPendingAgentQuestionAnswer({
+            sessionKey: "agent:room:input-admission",
+            text: "1, missing choice",
+            persist,
+          }),
+        ).resolves.toBe(false);
+        expect(persist).not.toHaveBeenCalled();
+        expect(gatewayCall).not.toHaveBeenCalled();
+        expect(
+          hasPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text: "1" }),
+        ).toBe(true);
+        const resolved = claimPendingAgentQuestionAnswer({
+          sessionKey: "agent:room:input-admission",
+          text: "1",
+        });
+        expect(
+          hasPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text: "1" }),
+        ).toBe(false);
+        answer.resolve({ status: "answered", answers: { answers: { action: ["Continue"] } } });
+        await expect(resolved).resolves.toBe(true);
+      } finally {
+        claim.dispose();
+      }
+      expect(
+        hasPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text: "1" }),
+      ).toBe(false);
+    },
+  );
   it("does not request a gateway question when the session reservation conflicts", async () => {
     const gatewayCall = vi.fn<AgentHarnessQuestionGatewayCall>();
     const reservation = registerPendingAgentQuestion({
