@@ -17,8 +17,20 @@ export const executionTranslations: Readonly<Record<string, string>> = {
   "platformClaw.execution.linuxAccount": "Linux 계정",
   "platformClaw.execution.selectionHelp":
     "로그인 계정 ID가 자동 입력됩니다. 실제 Linux 계정이 다른 경우에만 수정하세요.",
-  "platformClaw.execution.connectVm": "연결 확인 후 VM 저장",
-  "platformClaw.execution.changeVm": "연결 확인 후 VM 변경",
+  "platformClaw.execution.connectVm": "연결하고 사용",
+  "platformClaw.execution.changeVm": "연결하고 사용",
+  "platformClaw.execution.connectionStep": "VM 연결 및 작업 공간 준비",
+  "platformClaw.execution.activationStep": "이 VM을 작업 위치로 사용",
+  "platformClaw.execution.connecting": "VM에 연결하고 작업 공간을 준비하고 있습니다…",
+  "platformClaw.execution.switching": "작업 위치를 {target}(으)로 전환하고 있습니다…",
+  "platformClaw.execution.testing": "VM 연결을 확인하고 있습니다…",
+  "platformClaw.execution.releasing": "VM 할당을 해제하고 있습니다…",
+  "platformClaw.execution.usingTarget": "이제 {target}에서 작업합니다.",
+  "platformClaw.execution.activationFailed":
+    "VM 연결은 완료됐지만 작업 위치를 전환하지 못했습니다. {error}",
+  "platformClaw.execution.switchFailed": "작업 위치가 변경되지 않았습니다. 다시 시도하세요.",
+  "platformClaw.execution.locationUnknown":
+    "현재 작업 위치를 확인하지 못했습니다. 새로고침한 뒤 계속하세요.",
   "platformClaw.execution.noAvailableVm": "현재 선택할 수 있는 개발 VM이 없습니다.",
   "platformClaw.execution.switchBasicToChange":
     "VM을 변경하거나 해제하려면 먼저 기본 작업 공간으로 전환하세요.",
@@ -102,10 +114,6 @@ export const executionTranslations: Readonly<Record<string, string>> = {
   "platformClaw.execution.lastCheck": "마지막 연결 성공",
   "platformClaw.execution.neverChecked": "아직 확인하지 않음",
   "platformClaw.execution.workspacePending": "첫 연결 성공 후 작업 공간이 준비됩니다",
-  "platformClaw.execution.confirmTitle": "작업 위치를 변경할까요?",
-  "platformClaw.execution.confirmBody":
-    "{target}(으)로 변경합니다. 대화와 Agent 설정은 유지되지만 파일과 실행 중인 프로세스는 이전 위치에 남습니다.",
-  "platformClaw.execution.confirm": "위치 변경",
   "platformClaw.execution.saved": "작업 위치 설정을 변경했습니다.",
   "platformClaw.execution.passwordRejected": "AD 비밀번호가 올바르지 않습니다.",
   "platformClaw.execution.sessionExpired": "세션이 만료되었습니다. 다시 로그인하세요.",
