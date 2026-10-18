@@ -111,6 +111,7 @@ describe("PlatformClawControlUiAdapter", () => {
       },
     });
     expect(options.routeOverrides?.organization).toBeDefined();
+    expect(options.chatWorkingTip).toEqual(expect.any(Function));
     expect(options.shellSession?.renderMainBanner).toEqual(expect.any(Function));
     expect(options.shellSession?.renderPageHeaderAccessory).toEqual(expect.any(Function));
     const organizationTitle = options.navigation?.routeCopy?.organization?.title;

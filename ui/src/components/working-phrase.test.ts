@@ -5,7 +5,7 @@ import "./working-phrase.ts";
 // Mirrors WORKING_PHRASE_SHOW_AFTER_MS / WORKING_PHRASE_ROTATE_EVERY_MS in
 // working-phrase.ts (knip forbids test-only exports).
 const WORKING_PHRASE_SHOW_AFTER_MS = 30_000;
-const WORKING_PHRASE_ROTATE_EVERY_MS = 45_000;
+const WORKING_PHRASE_ROTATE_EVERY_MS = 30_000;
 
 type WorkingPhraseElement = HTMLElement & {
   startMs: number | null;
@@ -52,6 +52,7 @@ describe("openclaw-working-phrase", () => {
 
   it("shows a phrase once the wait drags on", async () => {
     expect(await textAt(element, WORKING_PHRASE_SHOW_AFTER_MS + 1_000)).toMatch(PHRASE_TEXT);
+    expect(element.querySelector("[aria-hidden=true]")).not.toBeNull();
   });
 
   it("is stable within a rotation and changes across rotations", async () => {

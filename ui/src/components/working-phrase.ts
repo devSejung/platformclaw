@@ -1,9 +1,10 @@
-// Whimsical long-wait status word ("Clawing…") for the chat working row.
-// Silent for the first stretch of a run, then rotates through crab-themed
-// gerunds so long quiet runs feel alive without claiming progress data the
-// UI does not have. Decorative only — the row keeps its sr-only "Working…".
+// Long-wait copy never claims progress the UI cannot observe. Embedded
+// products supply useful tips; the default keeps decorative crab phrases.
+import { consume } from "@lit/context";
 import { html, nothing } from "lit";
 import { property } from "lit/decorators.js";
+import type { RouteId } from "../app-route-paths.ts";
+import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { t } from "../i18n/index.ts";
 import { fnv1aUtf16 } from "../lib/fnv1a.ts";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
@@ -35,7 +36,7 @@ const PHRASE_KEYS = [
  * in working-phrase.test.ts (knip forbids test-only exports). */
 const WORKING_PHRASE_SHOW_AFTER_MS = 30_000;
 /** How long each phrase holds before rotating to the next. */
-const WORKING_PHRASE_ROTATE_EVERY_MS = 45_000;
+const WORKING_PHRASE_ROTATE_EVERY_MS = 30_000;
 
 /** Constant-time stride walk over the phrase list: any stride in
  * [1, len-1] guarantees adjacent buckets differ, and with a prime-length
@@ -50,6 +51,9 @@ function displayedPhraseIndex(seed: string, bucket: number): number {
 }
 
 class WorkingPhrase extends OpenClawLightDomContentsElement {
+  @consume({ context: applicationContext, subscribe: true })
+  @property({ attribute: false })
+  context?: ApplicationContext<RouteId>;
   @property({ type: Number }) startMs: number | null = null;
   @property() seed = "";
 
@@ -82,8 +86,15 @@ class WorkingPhrase extends OpenClawLightDomContentsElement {
     }
     const sinceShown = elapsed - WORKING_PHRASE_SHOW_AFTER_MS;
     const bucket = Math.floor(sinceShown / WORKING_PHRASE_ROTATE_EVERY_MS);
+    if (this.context?.chatWorkingTip) {
+      return html`<span class="chat-working-indicator__tip"
+        ><span aria-hidden="true">💡</span> ${this.context.chatWorkingTip(this.seed, bucket)}</span
+      >`;
+    }
     const index = displayedPhraseIndex(this.seed, bucket);
-    return html`<span>·</span> ${t(`chat.progressLabels.${PHRASE_KEYS[index]}`)}…`;
+    return html`<span aria-hidden="true"
+      >· ${t(`chat.progressLabels.${PHRASE_KEYS[index]}`)}…</span
+    >`;
   }
 }
 

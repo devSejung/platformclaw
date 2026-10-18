@@ -8,6 +8,33 @@ import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.waitingTips.request":
+    "Mind reading is still in beta. Include your preferred output format.",
+  "platformClaw.waitingTips.newChat": "New topic? Start a new chat. Context needs fresh air too.",
+  "platformClaw.waitingTips.history":
+    "Old chats never clock out. Reopen one to pick up where you left off.",
+  "platformClaw.waitingTips.skillHub": "Before reinventing the wheel, check Skill Hub.",
+  "platformClaw.waitingTips.createSkill":
+    "Asking for the third time? Promote that task to a skill.",
+  "platformClaw.waitingTips.workshop":
+    "Skills need a checkup too. Review changes in Workshop before applying them.",
+  "platformClaw.waitingTips.workLocation":
+    "Your Agent can take a business trip to the VM. Files do not automatically tag along.",
+  "platformClaw.waitingTips.memory": "What was that again? Give Memory search a try.",
+  "platformClaw.waitingTips.automation":
+    "Schedule repeat work in Automations. Asking every time is work too.",
+  "platformClaw.waitingTips.help":
+    "The manual is done playing hide-and-seek. Use the help button beside the page title.",
+  "platformClaw.waitingTips.space":
+    "Team effort? Gather the context in a Space with pages and shared notes.",
+  "platformClaw.waitingTips.wiki": "Writing the same explanation again? Give it a home in Wiki.",
+  "platformClaw.waitingTips.personalWiki":
+    "Personal Wiki is your private library. Publish copies to Shared when you want to share.",
+  "platformClaw.waitingTips.sharedWiki":
+    "A document too good to keep to yourself? Put it in Shared Wiki and grant readers access.",
+  "platformClaw.waitingTips.aiReference": "Add Wikis for your Agent to reference.",
+  "platformClaw.waitingTips.gpu": "This feels like a good moment to ask for another GPU.",
+  "platformClaw.waitingTips.support": "Still stuck? Ask Jung Seungon. The hidden final tool.",
   ...dashboardTranslations,
   ...baseballTranslations,
   ...announcementTranslations,

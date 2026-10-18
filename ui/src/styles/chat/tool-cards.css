@@ -1151,6 +1151,7 @@
 
 .chat-working-indicator {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: 22px;
   min-height: 28px;
@@ -1159,6 +1160,8 @@
 
 .chat-working-indicator__status {
   display: inline-flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
   color: var(--muted);
@@ -1170,13 +1173,11 @@
   color: var(--muted);
 }
 
-.chat-working-indicator--subagents {
-  max-width: 100%;
-}
-
-.chat-working-indicator--subagents .chat-working-indicator__status {
+.chat-working-indicator__tip {
   min-width: 0;
-  flex-wrap: wrap;
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
 }
 
 .chat-working-indicator__child {

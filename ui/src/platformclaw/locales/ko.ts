@@ -109,6 +109,28 @@ export const nativeTranslations = {
 } satisfies TranslationMap;
 
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.waitingTips.request": "독심술은 아직이에요. 원하는 결과 형식도 함께 알려주세요.",
+  "platformClaw.waitingTips.newChat": "주제가 바뀌면 새 대화로. 맥락도 환기가 필요해요.",
+  "platformClaw.waitingTips.history": "지난 대화는 퇴근하지 않아요. 다시 열어 이어가세요.",
+  "platformClaw.waitingTips.skillHub": "바퀴를 다시 만들기 전, Skill Hub부터 찾아보세요.",
+  "platformClaw.waitingTips.createSkill": "같은 부탁 세 번째라면, 스킬로 승진시켜 주세요.",
+  "platformClaw.waitingTips.workshop": "스킬도 검수가 필요해요. Workshop에서 검토 후 적용하세요.",
+  "platformClaw.waitingTips.workLocation": "Agent는 VM으로 출장 가도, 파일은 자동 동행하지 않아요.",
+  "platformClaw.waitingTips.memory": "“그때 뭐였지?” 싶으면 Memory에서 검색해 보세요.",
+  "platformClaw.waitingTips.automation":
+    "반복 업무는 Automations에 예약하세요. 매번 부탁하기도 일이니까요.",
+  "platformClaw.waitingTips.help": "설명서 숨바꼭질 끝. 화면 제목 옆 도움말 버튼을 눌러보세요.",
+  "platformClaw.waitingTips.space":
+    "이슈가 단체전이라면 Space로. 페이지와 공유 노트에 맥락을 모아보세요.",
+  "platformClaw.waitingTips.wiki": "같은 설명을 또 쓰고 있나요? 이번엔 Wiki에 입주시켜 주세요.",
+  "platformClaw.waitingTips.personalWiki":
+    "Personal Wiki는 개인 서재예요. 공유할 문서만 Shared에 사본으로 보내세요.",
+  "platformClaw.waitingTips.sharedWiki":
+    "좋은 문서, 혼자 읽기 아깝다면 Shared Wiki에. 읽을 사람 권한도 챙겨주세요.",
+  "platformClaw.waitingTips.aiReference": "참고할 Wiki를 추가해 주세요.",
+  "platformClaw.waitingTips.gpu": "GPU를 한 대 더 사달라고 말하고 싶은 순간이네요.",
+  "platformClaw.waitingTips.support":
+    "아무리 해도 안 풀리면 정승언에게 문의해 주세요. 숨겨진 마지막 도구입니다.",
   ...dashboardTranslations,
   ...baseballTranslations,
   ...announcementTranslations,

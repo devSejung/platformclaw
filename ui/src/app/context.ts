@@ -99,6 +99,8 @@ export type ApplicationContext<TRouteId extends string = string> = {
   readonly sessionCatalogFilter?: (sessionKey: string) => boolean;
   /** Canonical route availability resolved by the product bootstrap. */
   readonly isRouteEnabled?: (routeId: TRouteId) => boolean;
+  /** Product-owned long-wait copy; rotation is stable within an active run. */
+  readonly chatWorkingTip?: (seed: string, rotation: number) => string;
   readonly gateway: ApplicationGateway;
   readonly agents: AgentCapability;
   readonly agentIdentity: AgentIdentityCapability;

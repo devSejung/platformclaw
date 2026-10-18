@@ -13,6 +13,7 @@ import {
   type PlatformClawWebDescriptor,
   readPlatformClawWebDescriptor,
 } from "./web-contract.ts";
+import { createPlatformClawWorkingTip } from "./working-tips.ts";
 
 export type PlatformClawSessionIdentity = {
   accountId: string;
@@ -232,6 +233,7 @@ export class PlatformClawControlUiAdapter {
     ];
     return {
       accessMode: "personal-agent",
+      chatWorkingTip: createPlatformClawWorkingTip(enabledRouteIds),
       enabledRouteIds,
       sessionCatalogFilter: (sessionKey) => !isSpaceConversationSession(sessionKey),
       routeOverrides: {
