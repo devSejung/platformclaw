@@ -10,6 +10,7 @@ import {
 } from "../../agents/embedded-agent-runner/runs.js";
 import {
   claimPendingAgentQuestionAnswer,
+  getPendingAgentQuestionAnswer,
   registerPendingAgentQuestion,
 } from "../../agents/harness/gateway-question.js";
 import type { SessionEntry } from "../../config/sessions.js";
@@ -41,6 +42,7 @@ import {
   buildInboundUserContextPrefix,
   resolveInboundUserContextPromptJoiner,
 } from "./inbound-meta.js";
+import { createDeferred } from "./queue.test-helpers.js";
 import { createReplyOperation, getActiveReplyRunCount } from "./reply-run-registry.js";
 import { testing as replyRunTesting } from "./reply-run-registry.test-support.js";
 import { routeReply } from "./route-reply.runtime.js";
@@ -1946,17 +1948,26 @@ describe("runPreparedReply media-only handling", () => {
   it.each(
     (["steer", "followup", "collect", "interrupt"] as const).flatMap((mode) =>
       [
-        { bound: false, stale: false },
-        { bound: true, stale: false },
-        { bound: true, stale: true },
-      ].map((binding) => ({ mode, bound: binding.bound, stale: binding.stale })),
+        { bound: false, stale: false, transition: "none" },
+        { bound: true, stale: false, transition: "none" },
+        { bound: true, stale: true, transition: "none" },
+        { bound: false, stale: true, transition: "disposed" },
+        { bound: false, stale: true, transition: "replaced" },
+      ].map((binding) => ({
+        mode,
+        bound: binding.bound,
+        stale: binding.stale,
+        transition: binding.transition,
+      })),
     ),
   )(
-    "handles question in $mode queue mode (bound=$bound stale=$stale)",
-    async ({ mode, bound, stale }) => {
+    "handles question in $mode queue mode (bound=$bound stale=$stale transition=$transition)",
+    async ({ mode, bound, stale, transition }) => {
       const { runReplyAgent: executeReplyAgent } = await import("./agent-runner-run.js");
       const queueSettings = await import("./queue/settings-runtime.js");
       const embeddedAgentRuntime = await import("../../agents/embedded-agent.runtime.js");
+      const { resolveSessionAuthProfileOverride } =
+        await import("../../agents/auth-profiles/session-override.js");
       vi.mocked(queueSettings.resolveQueueSettings).mockReturnValueOnce({ mode });
       vi.mocked(embeddedAgentRuntime.resolveActiveEmbeddedRunSessionId).mockReturnValue(
         "active-question-session",
@@ -1997,26 +2008,44 @@ describe("runPreparedReply media-only handling", () => {
         ),
       };
       setActiveEmbeddedRun("active-question-session", handle, "session-key");
+      const questions = [
+        {
+          id: "action",
+          header: "Action",
+          question: "Continue?",
+          options: [{ label: "Continue" }, { label: "Cancel" }],
+        },
+      ];
+      const gatewayCall = vi.fn(async () => ({
+        status: "answered",
+        answers: { answers: { action: ["Continue"] } },
+      }));
+      const replacementGatewayCall = vi.fn(async () => ({
+        status: "answered",
+        answers: { answers: { action: ["Continue"] } },
+      }));
       const question = registerPendingAgentQuestion({
         questionId: "ask_queue_modes",
         sessionKey: "session-key",
-        questions: [
-          {
-            id: "action",
-            header: "Action",
-            question: "Continue?",
-            options: [{ label: "Continue" }, { label: "Cancel" }],
-          },
-        ],
-        gatewayCall: vi.fn(async () => ({
-          status: "answered",
-          answers: { answers: { action: ["Continue"] } },
-        })),
+        questions,
+        gatewayCall,
         answer: Promise.resolve({
           status: "answered",
           answers: { answers: { action: ["Continue"] } },
         }),
       });
+      let replacement: { dispose: () => void } | undefined;
+      const authReached = createDeferred<void>();
+      const releaseAuth = createDeferred<void>();
+      if (transition !== "none") {
+        // Admission has selected Q1 before auth awaits. Retire or replace its
+        // owner while paused, then resume the same incoming answer deterministically.
+        vi.mocked(resolveSessionAuthProfileOverride).mockImplementationOnce(async () => {
+          authReached.resolve();
+          await releaseAuth.promise;
+          return undefined;
+        });
+      }
       const inboundIdentity = {
         MessageSid: `question-answer-${mode}`,
         AccountId: "synthetic",
@@ -2024,9 +2053,10 @@ describe("runPreparedReply media-only handling", () => {
         OriginatingTo: "room:room-1",
         To: "room:room-1",
       };
+      let runPromise: ReturnType<typeof runPreparedReply> | undefined;
       try {
         vi.mocked(runReplyAgent).mockImplementation(executeReplyAgent);
-        const result = await runPreparedReply(
+        runPromise = runPreparedReply(
           baseParams({
             isNewSession: false,
             sessionId: "active-question-session",
@@ -2050,15 +2080,44 @@ describe("runPreparedReply media-only handling", () => {
             },
           }),
         );
+        if (transition !== "none") {
+          void runPromise.catch((error: unknown) => authReached.reject(error));
+          await authReached.promise;
+          question.dispose();
+          if (transition === "replaced") {
+            replacement = registerPendingAgentQuestion({
+              questionId: "ask_replacement",
+              sessionKey: "session-key",
+              questions,
+              gatewayCall: replacementGatewayCall,
+              answer: new Promise(() => {}),
+            });
+          }
+          releaseAuth.resolve();
+        }
+        const result = await runPromise;
         const call = requireLastRunReplyAgentCall();
         expect(call.shouldSteer).toBe(true);
         expect(call.resolvedQueue.mode).toBe("steer");
         expect(embeddedAgentRuntime.abortEmbeddedAgentRun).not.toHaveBeenCalled();
         expect(handle.abort).not.toHaveBeenCalled();
-        expect(handle.queueMessage).toHaveBeenCalledTimes(bound ? 0 : 1);
-        expect(steeredBeforeReplyMock).toHaveBeenCalledTimes(bound ? 0 : 1);
+        // Check the real side-effect boundary first: on the old unbound path,
+        // the replacement question is actually resolved before this assertion.
+        expect(replacementGatewayCall).not.toHaveBeenCalled();
+        expect(handle.queueMessage).not.toHaveBeenCalled();
+        expect(call.opts?.questionAnswerBinding).toEqual({
+          sessionKey: "session-key",
+          questionId: bound && stale ? "ask_previous" : "ask_queue_modes",
+        });
+        expect(steeredBeforeReplyMock).not.toHaveBeenCalled();
         expect(persistApproved).toHaveBeenCalledTimes(stale ? 0 : 1);
         expect(onAdopted).toHaveBeenCalledTimes(stale ? 0 : 1);
+        expect(gatewayCall).toHaveBeenCalledTimes(stale ? 0 : 1);
+        if (transition === "replaced") {
+          expect(
+            getPendingAgentQuestionAnswer({ sessionKey: "session-key", text: "1" })?.questionId,
+          ).toBe("ask_replacement");
+        }
         if (stale) {
           expect(result).toMatchObject({ isError: true });
           if (!result || Array.isArray(result)) {
@@ -2067,8 +2126,11 @@ describe("runPreparedReply media-only handling", () => {
           expect(getReplyPayloadNoVisibleReplyReason(result)).toBe("question-unavailable");
         }
       } finally {
+        releaseAuth.resolve();
+        await runPromise?.catch(() => undefined);
         vi.mocked(runReplyAgent).mockImplementation(originalReplyAgent);
         question.dispose();
+        replacement?.dispose();
         clearActiveEmbeddedRun("active-question-session", handle, "session-key");
         vi.mocked(embeddedAgentRuntime.resolveActiveEmbeddedRunSessionId).mockReturnValue(
           undefined,
@@ -2077,6 +2139,84 @@ describe("runPreparedReply media-only handling", () => {
       }
     },
   );
+
+  it.each(
+    (["followup", "collect"] as const).flatMap((mode) =>
+      (["images", "extractedFileImages", "imageOrder"] as const).map((source) => ({
+        mode,
+        source,
+      })),
+    ),
+  )("preserves matching-choice $source in configured $mode admission", async ({ mode, source }) => {
+    const queueSettings = await import("./queue/settings-runtime.js");
+    const embeddedAgentRuntime = await import("../../agents/embedded-agent.runtime.js");
+    vi.mocked(queueSettings.resolveQueueSettings).mockReturnValueOnce({ mode });
+    vi.mocked(embeddedAgentRuntime.resolveActiveEmbeddedRunSessionId).mockReturnValue(
+      "image-question-session",
+    );
+    vi.mocked(embeddedAgentRuntime.isEmbeddedAgentRunActive).mockReturnValue(true);
+    const gatewayCall = vi.fn(async () => ({
+      status: "answered",
+      answers: { answers: { action: ["Continue"] } },
+    }));
+    const question = registerPendingAgentQuestion({
+      questionId: "ask_images",
+      sessionKey: "session-key",
+      questions: [
+        {
+          id: "action",
+          header: "Action",
+          question: "Continue?",
+          options: [{ label: "Continue" }, { label: "Cancel" }],
+        },
+      ],
+      gatewayCall,
+      answer: new Promise(() => {}),
+    });
+    const image = {
+      type: "image" as const,
+      mimeType: "image/png",
+      data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+    };
+    const opts =
+      source === "imageOrder"
+        ? { imageOrder: ["offloaded" as const] }
+        : source === "images"
+          ? { images: [image] }
+          : { extractedFileImages: [{ ...image, attachmentIndex: 0 }] };
+    try {
+      await expect(
+        runPreparedReply(
+          baseParams({
+            isNewSession: false,
+            sessionId: "image-question-session",
+            ctx: createInboundTurn("1", "knox", "group"),
+            sessionCtx: createSessionTurn("1", "knox", "group"),
+            opts,
+          }),
+        ),
+      ).resolves.toEqual({ text: "ok" });
+      const call = requireLastRunReplyAgentCall();
+      expect(call.resolvedQueue.mode).toBe(mode);
+      expect(call.shouldSteer).toBe(false);
+      expect(call.shouldFollowup).toBe(true);
+      expect(call.opts?.questionAnswerBinding).toBeUndefined();
+      expect(call.followupRun.images).toEqual(source === "imageOrder" ? undefined : [image]);
+      expect(call.followupRun.imageOrder).toEqual([
+        source === "imageOrder" ? "offloaded" : "inline",
+      ]);
+      expect(call.followupRun.transcriptPrompt).toBe("1");
+      expect(gatewayCall).not.toHaveBeenCalled();
+      expect(
+        getPendingAgentQuestionAnswer({ sessionKey: "session-key", text: "1" })?.questionId,
+      ).toBe("ask_images");
+      expect(embeddedAgentRuntime.abortEmbeddedAgentRun).not.toHaveBeenCalled();
+    } finally {
+      question.dispose();
+      vi.mocked(embeddedAgentRuntime.resolveActiveEmbeddedRunSessionId).mockReturnValue(undefined);
+      vi.mocked(embeddedAgentRuntime.isEmbeddedAgentRunActive).mockReturnValue(false);
+    }
+  });
 
   it("does not enable steering for active heartbeat runs", async () => {
     const queueSettings = await import("./queue/settings-runtime.js");

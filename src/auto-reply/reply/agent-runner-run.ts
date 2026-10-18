@@ -32,7 +32,6 @@ import {
   createShouldEmitToolOutput,
   createShouldEmitToolResult,
   createUnavailableQuestionReply,
-  resolveQuestionAnswerSteerText,
   isAudioPayload,
 } from "./agent-runner-helpers.js";
 import { resetReplyRunSession } from "./agent-runner-session-reset.js";
@@ -253,10 +252,7 @@ export async function runReplyAgent(
     }
     const steerText = opts?.questionAnswerBinding
       ? (followupRun.transcriptPrompt ?? followupRun.prompt)
-      : resolveQuestionAnswerSteerText(
-          followupRun,
-          sessionKey ?? followupRun.run.sessionKey ?? steerSessionId,
-        );
+      : followupRun.prompt;
     const steerOutcome = await queueEmbeddedAgentMessageWithOutcomeAsync(
       steerSessionId,
       steerText,

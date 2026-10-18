@@ -4,12 +4,10 @@ import {
   hasOutboundReplyContent,
   resolveSendableOutboundReplyParts,
 } from "openclaw/plugin-sdk/reply-payload";
-import { hasPendingAgentQuestionAnswer } from "../../agents/harness/gateway-question.js";
 import { loadSessionEntryReadOnly } from "../../config/sessions/session-accessor.js";
 import { setReplyPayloadMetadata } from "../reply-payload.js";
 import { normalizeVerboseLevel, type VerboseLevel } from "../thinking.js";
 import type { ReplyPayload } from "../types.js";
-import type { FollowupRun } from "./queue.js";
 import type { TypingSignaler } from "./typing-mode.js";
 
 const hasAudioMedia = (urls?: string[]): boolean =>
@@ -22,18 +20,6 @@ export function createUnavailableQuestionReply(): ReplyPayload {
   };
   setReplyPayloadMetadata(payload, { noVisibleReplyReason: "question-unavailable" });
   return payload;
-}
-
-/** Fixed-choice parsing needs the original answer, before the steering envelope. */
-export function resolveQuestionAnswerSteerText(
-  followupRun: FollowupRun,
-  sessionKey: string,
-): string {
-  const text = followupRun.transcriptPrompt ?? followupRun.prompt;
-  return !(followupRun.images?.length || followupRun.media?.length) &&
-    hasPendingAgentQuestionAnswer({ sessionKey, text })
-    ? text
-    : followupRun.prompt;
 }
 
 /** Returns true when a payload carries audio media. */

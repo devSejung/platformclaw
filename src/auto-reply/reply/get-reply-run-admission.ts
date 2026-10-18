@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { clearAutoFallbackPrimaryProbeSelection } from "../../agents/agent-scope.js";
 import { resolveSessionAuthProfileOverride } from "../../agents/auth-profiles/session-override.js";
-import { hasPendingAgentQuestionAnswer } from "../../agents/harness/gateway-question.js";
+import { getPendingAgentQuestionAnswer } from "../../agents/harness/gateway-question.js";
 import { resolveAgentHarnessPolicy } from "../../agents/harness/policy.js";
 import { listOpenAIAuthProfileProvidersForAgentRuntime } from "../../agents/openai-routing.js";
 import { hasResolvedThinkingCatalogEntry } from "../../agents/thinking-runtime.js";
@@ -356,22 +356,27 @@ export async function prepareReplyRunAdmission(
           ? { ...perMessageQueueOptions, dropPolicy: "new" }
           : perMessageQueueOptions,
       });
-  // Answers resume the existing question owner. Ordinary followup/collect or
-  // interrupt policy would queue behind, or abort, the run awaiting that answer.
-  const answeringQuestion =
-    !isRoomEvent &&
+  // The question that authorizes bypassing followup/collect must also own the
+  // later claim: runtime/auth awaits can replace it before steering begins.
+  // Image-bearing input must retain normal media steering instead of consuming text alone.
+  const questionAnswerBinding =
+    opts?.questionAnswerBinding ??
+    (!isRoomEvent &&
     !context.isHeartbeat &&
     !effectiveResetTriggered &&
     !promptMedia?.length &&
-    resolveActiveRunAcceptsCurrentThread({ isActive: true }) &&
-    hasPendingAgentQuestionAnswer({
-      sessionKey: sessionKey ?? sessionIdFinal,
-      text: baseBodyFinal,
-    });
-  const resolvedQueue =
-    answeringQuestion || opts?.questionAnswerBinding
-      ? { ...configuredQueue, mode: "steer" as const }
-      : configuredQueue;
+    !opts?.images?.length &&
+    !opts?.extractedFileImages?.length &&
+    !opts?.imageOrder?.length &&
+    resolveActiveRunAcceptsCurrentThread({ isActive: true })
+      ? getPendingAgentQuestionAnswer({
+          sessionKey: sessionKey ?? sessionIdFinal,
+          text: baseBodyFinal,
+        })
+      : undefined);
+  const resolvedQueue = questionAnswerBinding
+    ? { ...configuredQueue, mode: "steer" as const }
+    : configuredQueue;
   const embeddedAgentRuntime = useFastReplyRuntime
     ? null
     : await traceRunPhase("reply.load_embedded_agent_runtime", () => loadEmbeddedAgentRuntime());
@@ -626,6 +631,7 @@ export async function prepareReplyRunAdmission(
     sessionIdFinal,
     preparedSessionState,
     resolvedQueue,
+    questionAnswerBinding,
     embeddedAgentRuntime,
     resolveActiveEmbeddedSessionId,
     resolvePreparedSessionState,
