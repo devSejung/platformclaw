@@ -71,21 +71,19 @@ describeControlUiE2e("PlatformClaw execution credentials", () => {
       await input.waitFor();
 
       await input.fill("   ");
-      await save.click();
+      expect(await save.isDisabled()).toBe(true);
+      expect(await input.inputValue()).toBe("   ");
       expect(mutations).toEqual([]);
-      expect(
-        await input.evaluate((element) => (element as HTMLInputElement).validity.valueMissing),
-      ).toBe(true);
 
       await input.fill(" fixture-only ");
       await save.click();
-      await expect
-        .poll(() => component.getByText("Configured", { exact: true }).isVisible())
-        .toBe(true);
+      await expect.poll(() => component.getByText("Saved", { exact: true }).isVisible()).toBe(true);
       expect(mutations).toEqual([
         { action: "replace", envName: "API_TOKEN", value: " fixture-only " },
       ]);
-      await expect.poll(() => component.getByRole("status").textContent()).toBe("Saved.");
+      await expect
+        .poll(async () => (await component.getByRole("status").textContent())?.trim())
+        .toBe("Saved.");
 
       failNext = true;
       await input.fill("replacement");

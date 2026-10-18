@@ -409,8 +409,7 @@ describe("subtitleForRoute", () => {
       "skill-workshop": "Review, refine, and apply proposals before they become live skills.",
       nodes: "Paired devices, pairing approvals, and exec bindings.",
       profile: "Your display name, avatar, and identity on this gateway.",
-      credentials:
-        "Saved values are injected as environment variables into every Basic and VM exec for your personal Agent. Values are never shown again.",
+      credentials: "Credentials your personal Agent uses while working.",
       communications: "Messages and text-to-speech settings.",
       appearance: "Theme, UI, and setup wizard settings.",
       lobsterdex: "Every lobster palette that has visited this browser.",
