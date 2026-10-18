@@ -602,6 +602,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   }
   override render() {
     return renderSpacesView({
+      titleAccessory: this.context?.renderPageHeaderAccessory?.("spaces"),
       spaces: this.spaces,
       snapshot: this.snapshot,
       page: this.page,
