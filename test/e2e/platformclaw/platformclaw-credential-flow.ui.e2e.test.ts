@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { registerPlatformClawCredentialTool } from "../../../extensions/platformclaw-execution/api.ts";
+import { registerPlatformClawCredentialTool } from "../../../extensions/platformclaw-execution/api.js";
 import type { BrowserAuthService } from "../../../packages/platformclaw-control-plane/src/browser-auth-service.ts";
 import { handlePlatformClawExecCredentialRequest } from "../../../packages/platformclaw-control-plane/src/browser-exec-credentials-http.ts";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
