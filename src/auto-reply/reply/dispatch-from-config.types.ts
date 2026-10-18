@@ -1,4 +1,4 @@
-import type { AgentRunTerminalOutcome } from "../../agents/agent-run-terminal-outcome.js";
+import type { AgentRunTerminalOutcome } from "../../agents/agent-run-terminal-outcome.types.js";
 // Shared type contracts for dispatch-from-config runtime execution.
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { SourceReplyDeliveryMode } from "../get-reply-options.types.js";

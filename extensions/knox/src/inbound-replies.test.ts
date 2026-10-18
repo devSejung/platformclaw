@@ -15,13 +15,13 @@ import {
   type NoVisibleReplyReason,
   type ReplyPayload,
 } from "openclaw/plugin-sdk/reply-payload";
-import type { PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FailoverError } from "../../../src/agents/failover-error.js";
 import {
   buildEmptyInteractiveReplyPayload,
   buildKnownAgentRunFailureReplyPayload,
-} from "../../../src/auto-reply/reply/agent-runner-failure-reply.js";
+  FailoverError,
+} from "openclaw/plugin-sdk/reply-payload-testing";
+import type { PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchKnoxInbound } from "./inbound.js";
 import { setKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";

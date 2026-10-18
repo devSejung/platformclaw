@@ -1,5 +1,5 @@
 import type { FastMode } from "@openclaw/normalization-core/string-coerce";
-import type { AgentRunTerminalOutcome } from "../agents/agent-run-terminal-outcome.js";
+import type { AgentRunTerminalOutcome } from "../agents/agent-run-terminal-outcome.types.js";
 /** Public option types for reply generation callbacks, streaming, and delivery policy. */
 import type { AgentPlanStep } from "../channels/streaming.js";
 import type { ImageContent } from "../llm/types.js";

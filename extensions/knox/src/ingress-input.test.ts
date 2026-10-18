@@ -10,9 +10,9 @@ import { getPendingAgentQuestionAnswer } from "openclaw/plugin-sdk/channel-inbou
 import {
   closeOpenClawStateDatabaseForTest,
   createChannelIngressQueueForTests,
+  registerPendingAgentQuestion,
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { registerPendingAgentQuestion } from "../../../src/agents/harness/gateway-question.js";
 import { createKnoxIngress } from "./ingress.js";
 import {
   resolveKnoxQuestionAnswerBinding,

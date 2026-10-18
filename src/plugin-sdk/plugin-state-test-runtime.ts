@@ -34,3 +34,5 @@ export {
 // Test-only pairing-store seeding so channel tests exercise the real
 // store-backed authorization path instead of injecting fake readers.
 export { addChannelAllowFromStoreEntry } from "../pairing/pairing-store.js";
+// Seed the canonical question registry so ingress tests retain real answer ownership.
+export { registerPendingAgentQuestion } from "../agents/harness/gateway-question.js";

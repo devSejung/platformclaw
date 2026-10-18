@@ -1,4 +1,4 @@
-import type { AgentRunTerminalOutcome } from "../../agents/agent-run-terminal-outcome.js";
+import type { AgentRunTerminalOutcome } from "../../agents/agent-run-terminal-outcome.types.js";
 import type { PluginHookReplyDispatchEvent } from "../../plugins/hook-types.js";
 import type { NoVisibleReplyReason } from "../reply-payload.js";
 import type { CommandSessionMetadataChange } from "./command-session-metadata.js";
