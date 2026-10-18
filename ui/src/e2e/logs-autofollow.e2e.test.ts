@@ -34,6 +34,12 @@ const appendedLogLine = JSON.stringify({
   time: new Date(Date.UTC(2026, 6, 13, 12, 3, 20)).toISOString(),
   _meta: { logLevelName: "warn" },
 });
+const initialLogPage = {
+  cursor: logLines.length,
+  file: "/tmp/openclaw.log",
+  lines: logLines,
+  reset: true,
+};
 
 describeControlUiE2e("Control UI logs auto-follow mocked Gateway E2E", () => {
   beforeAll(async () => {
@@ -67,34 +73,45 @@ describeControlUiE2e("Control UI logs auto-follow mocked Gateway E2E", () => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(String(error)));
     const gateway = await installMockGateway(page, {
+      deferredMethods: ["logs.tail"],
       methodResponses: {
-        "logs.tail": {
-          sequence: [
-            {
-              cursor: logLines.length,
-              file: "/tmp/openclaw.log",
-              lines: logLines,
-              reset: true,
-            },
-            {
-              cursor: logLines.length + 1,
-              file: "/tmp/openclaw.log",
-              lines: [appendedLogLine],
-              reset: false,
-            },
-            {
-              cursor: logLines.length + 1,
-              file: "/tmp/openclaw.log",
-              lines: [],
-              reset: false,
-            },
-          ],
-        },
+        "logs.tail": initialLogPage,
       },
     });
 
     try {
       await page.goto(`${server.baseUrl}logs`);
+      await gateway.waitForRequest("logs.tail");
+      const connectRequest = await gateway.waitForRequest("connect");
+      const { client } = connectRequest.params as { client: { instanceId: string } };
+      expect(client.instanceId).not.toBe("");
+      await gateway.setMethodResponse("logs.tail", {
+        sequence: [
+          {
+            cursor: logLines.length + 1,
+            file: "/tmp/openclaw.log",
+            lines: [appendedLogLine],
+            reset: false,
+          },
+          {
+            cursor: logLines.length + 1,
+            file: "/tmp/openclaw.log",
+            lines: [],
+            reset: false,
+          },
+        ],
+      });
+      // Same-client metadata must not restart the pending initial tail. Resolve its
+      // full page explicitly so an erroneous reset consumes the one-line incremental page.
+      await gateway.emitGatewayEvent("presence", {
+        presence: [
+          { instanceId: client.instanceId, user: { id: "log-operator", name: "Log operator" } },
+        ],
+      });
+      expect(await gateway.getRequests("logs.tail")).toHaveLength(1);
+      // Hold the next poll so observing the initial page cannot race a valid append.
+      await gateway.deferNext("logs.tail");
+      await gateway.resolveDeferred("logs.tail", initialLogPage);
       await expect.poll(() => page.locator(".log-row").count()).toBe(logLines.length);
       expect((await gateway.getRequests("logs.tail"))[0]?.params).toEqual({
         limit: 500,
@@ -108,6 +125,7 @@ describeControlUiE2e("Control UI logs auto-follow mocked Gateway E2E", () => {
         limit: 500,
         maxBytes: 250_000,
       });
+      await gateway.resolveDeferred("logs.tail");
       await expect.poll(() => page.locator(".log-row").count()).toBe(logLines.length + 1);
       await page.locator(".log-row", { hasText: "log line 201" }).waitFor();
 
