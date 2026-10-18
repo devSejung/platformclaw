@@ -1,32 +1,24 @@
+import { html, nothing, render as renderTemplate } from "lit";
+import { live } from "lit/directives/live.js";
+import { repeat } from "lit/directives/repeat.js";
+import {
+  renderSettingsEmpty,
+  renderSettingsRow,
+  renderSettingsSection,
+  renderSettingsStatus,
+} from "../components/settings-ui.ts";
 import { i18n } from "../i18n/index.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import {
   PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH,
   PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH,
 } from "./web-contract.ts";
+import "./exec-credentials.css";
 
 type Definition = { envName: string; configured?: boolean };
-type CredentialMutation = { action: string; envName: string; value?: string };
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>'"]/gu, (character) => {
-    switch (character) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case "'":
-        return "&#39;";
-      default:
-        return "&quot;";
-    }
-  });
-}
+type CredentialMutation = { action: "add" | "remove" | "replace"; envName: string; value?: string };
 
 class PlatformClawExecCredentialsElement extends HTMLElement {
-  private readonly root = this.attachShadow({ mode: "open" });
   private definitions: Definition[] = [];
   private adminDefinitions: Definition[] = [];
   private loading = true;
@@ -46,6 +38,10 @@ class PlatformClawExecCredentialsElement extends HTMLElement {
   disconnectedCallback(): void {
     this.unsubscribeLocale();
     this.secretDrafts.clear();
+    for (const input of this.querySelectorAll<HTMLInputElement>("[data-value]")) {
+      input.value = "";
+    }
+    renderTemplate(nothing, this);
   }
 
   private async initialize(load: boolean): Promise<void> {
@@ -118,10 +114,15 @@ class PlatformClawExecCredentialsElement extends HTMLElement {
     this.render();
     try {
       await this.request(path, { method: "POST", body: JSON.stringify(body) });
-      this.message = t("platformClaw.execCredentials.saved");
-      if (body.action === "replace" || body.action === "remove") {
+      if (path === PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH) {
+        // The acknowledged row is saved even if the following metadata refresh fails.
         this.secretDrafts.delete(body.envName);
+        const definition = this.definitions.find((item) => item.envName === body.envName);
+        if (definition) {
+          definition.configured = body.action === "replace";
+        }
       }
+      this.message = t("platformClaw.execCredentials.saved");
       await this.refresh(false);
     } catch (error) {
       this.message =
@@ -132,68 +133,186 @@ class PlatformClawExecCredentialsElement extends HTMLElement {
     }
   }
 
-  private bindEvents(): void {
-    const adminForm = this.root.querySelector<HTMLFormElement>("[data-admin-form]");
-    adminForm?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const input = adminForm.elements.namedItem("envName") as HTMLInputElement;
-      void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH, {
-        action: "add",
-        envName: input.value,
-      });
+  private renderCredential(item: Definition) {
+    const draft = this.secretDrafts.get(item.envName) ?? "";
+    const status = draft
+      ? "platformClaw.execCredentials.unsaved"
+      : item.configured
+        ? "platformClaw.execCredentials.configured"
+        : "platformClaw.execCredentials.notConfigured";
+    return renderSettingsRow({
+      stacked: true,
+      title: html`<span class="platformclaw-credential-heading"
+        ><span>${item.envName}</span>${renderSettingsStatus({
+          kind: draft ? "warn" : item.configured ? "ok" : "muted",
+          label: t(status),
+        })}</span
+      >`,
+      control: html`
+        <form
+          class="platformclaw-credential-form"
+          @submit=${(event: SubmitEvent) => {
+            event.preventDefault();
+            this.saveCredential(item.envName);
+          }}
+        >
+          <input
+            class="settings-input"
+            data-value=${item.envName}
+            aria-label=${item.envName}
+            type="password"
+            autocomplete="new-password"
+            maxlength="32768"
+            required
+            placeholder=${item.configured
+              ? "••••••••"
+              : t("platformClaw.execCredentials.valuePlaceholder")}
+            .value=${live(draft)}
+            ?disabled=${this.busy === item.envName}
+            @input=${(event: Event) => {
+              this.secretDrafts.set(item.envName, (event.currentTarget as HTMLInputElement).value);
+              this.render();
+            }}
+          />
+          <button
+            class="btn primary"
+            data-action="save"
+            data-env=${item.envName}
+            ?disabled=${Boolean(this.busy) || !draft.trim()}
+          >
+            ${t("platformClaw.execCredentials.save")}
+          </button>
+          ${item.configured
+            ? html`<button
+                type="button"
+                class="btn"
+                data-action="remove"
+                data-env=${item.envName}
+                ?disabled=${Boolean(this.busy)}
+                @click=${() =>
+                  void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
+                    action: "remove",
+                    envName: item.envName,
+                  })}
+              >
+                ${t("platformClaw.execCredentials.remove")}
+              </button>`
+            : nothing}
+        </form>
+      `,
     });
-    for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-action]")) {
-      button.addEventListener("click", () => {
-        const envName = button.dataset.env ?? "";
-        if (button.dataset.action === "remove-definition") {
-          void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH, {
-            action: "remove",
-            envName,
-          });
-        }
-        if (button.dataset.action === "remove") {
-          void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, { action: "remove", envName });
-        }
-        if (button.dataset.action === "save") {
-          const input = [...this.root.querySelectorAll<HTMLInputElement>("[data-value]")].find(
-            (candidate) => candidate.dataset.value === envName,
-          );
-          if (input && !input.value.trim()) {
-            input.value = "";
-          }
-          if (input?.reportValidity()) {
-            this.secretDrafts.set(envName, input.value);
-            void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
-              action: "replace",
-              envName,
-              value: input.value,
-            });
-          }
-        }
+  }
+
+  private saveCredential(envName: string): void {
+    const value = this.secretDrafts.get(envName);
+    if (value?.trim()) {
+      void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
+        action: "replace",
+        envName,
+        value,
       });
-    }
-    for (const input of this.root.querySelectorAll<HTMLInputElement>("[data-value]")) {
-      input.addEventListener("input", () =>
-        this.secretDrafts.set(input.dataset.value ?? "", input.value),
-      );
     }
   }
 
+  private renderAdministration() {
+    return renderSettingsSection(
+      {
+        title: t("platformClaw.execCredentials.adminTitle"),
+        description: t("platformClaw.execCredentials.adminIntro"),
+      },
+      html`
+        ${renderSettingsRow({
+          title: t("platformClaw.execCredentials.add"),
+          stacked: true,
+          control: html`
+            <form
+              class="platformclaw-credential-definition-form"
+              data-admin-form
+              @submit=${(event: SubmitEvent) => {
+                event.preventDefault();
+                const form = event.currentTarget as HTMLFormElement;
+                const envName = (form.elements.namedItem("envName") as HTMLInputElement).value;
+                void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH, {
+                  action: "add",
+                  envName,
+                });
+              }}
+            >
+              <input
+                class="settings-input"
+                name="envName"
+                aria-label=${t("platformClaw.execCredentials.adminTitle")}
+                autocomplete="off"
+                maxlength="128"
+                placeholder="OPENAI_API_KEY"
+                required
+                ?disabled=${Boolean(this.busy)}
+              />
+              <button class="btn primary" ?disabled=${Boolean(this.busy)}>
+                ${t("platformClaw.execCredentials.add")}
+              </button>
+            </form>
+          `,
+        })}
+        ${repeat(
+          this.adminDefinitions,
+          (item) => item.envName,
+          (item) =>
+            renderSettingsRow({
+              title: item.envName,
+              control: html`
+                <button
+                  class="btn"
+                  data-action="remove-definition"
+                  data-env=${item.envName}
+                  ?disabled=${Boolean(this.busy)}
+                  @click=${() =>
+                    void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH, {
+                      action: "remove",
+                      envName: item.envName,
+                    })}
+                >
+                  ${t("platformClaw.execCredentials.remove")}
+                </button>
+              `,
+            }),
+        )}
+      `,
+    );
+  }
+
   private render(): void {
-    const personal = this.definitions
-      .map(
-        (item) =>
-          `<article class="row"><div><strong>${escapeHtml(item.envName)}</strong><span class="status ${item.configured ? "ok" : ""}">${escapeHtml(t(item.configured ? "platformClaw.execCredentials.configured" : "platformClaw.execCredentials.notConfigured"))}</span></div><div class="actions"><input data-value="${escapeHtml(item.envName)}" type="password" required aria-label="${escapeHtml(item.envName)}" autocomplete="new-password" maxlength="32768" placeholder="${escapeHtml(t("platformClaw.execCredentials.valuePlaceholder"))}" ${this.busy ? "disabled" : ""}><button class="primary" data-action="save" data-env="${escapeHtml(item.envName)}" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execCredentials.save"))}</button>${item.configured ? `<button data-action="remove" data-env="${escapeHtml(item.envName)}" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execCredentials.remove"))}</button>` : ""}</div></article>`,
-      )
-      .join("");
-    const administration = this.admin
-      ? `<section><h3>${escapeHtml(t("platformClaw.execCredentials.adminTitle"))}</h3><p>${escapeHtml(t("platformClaw.execCredentials.adminIntro"))}</p><form data-admin-form><input name="envName" autocomplete="off" maxlength="128" placeholder="OPENAI_API_KEY" required><button class="primary" ${this.busy ? "disabled" : ""}>${escapeHtml(t("platformClaw.execCredentials.add"))}</button></form><div class="chips">${this.adminDefinitions.map((item) => `<span><code>${escapeHtml(item.envName)}</code><button data-action="remove-definition" data-env="${escapeHtml(item.envName)}" aria-label="${escapeHtml(t("platformClaw.execCredentials.remove"))}" ${this.busy ? "disabled" : ""}>×</button></span>`).join("")}</div></section>`
-      : "";
-    this.root.innerHTML = `<style>:host{display:block;color:var(--text);font:14px/1.5 var(--font-sans,system-ui,sans-serif);margin-bottom:28px}*{box-sizing:border-box}section{display:grid;gap:12px;margin-bottom:24px}h2,h3{margin:0}h2{font-size:18px}h3{font-size:15px}p{margin:0;color:var(--muted)}.panel{padding:18px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--card)}.row{display:grid;gap:10px;padding:14px 0;border-top:1px solid var(--border)}.row>div:first-child{display:flex;justify-content:space-between;gap:12px}.status{color:var(--muted)}.status.ok{color:var(--ok)}.actions,form,.chips{display:flex;gap:8px;flex-wrap:wrap}input,button{font:inherit;border:1px solid var(--border-strong);border-radius:var(--radius-md);padding:8px 10px;background:var(--bg);color:var(--text)}input{flex:1;min-width:220px}.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-foreground)}button{cursor:pointer}button:disabled{opacity:.5}.chips span{display:flex;align-items:center;gap:5px;padding-left:9px;border:1px solid var(--border);border-radius:999px}.chips button{border:0;background:transparent;padding:4px 8px}.message,.empty{padding:11px;border-radius:var(--radius-md);background:var(--accent-subtle)}</style><div class="panel"><section><h2>${escapeHtml(t("platformClaw.execCredentials.title"))}</h2><p>${escapeHtml(t("platformClaw.execCredentials.intro"))}</p>${this.message ? `<div class="message" role="status">${escapeHtml(this.message)}</div>` : ""}${this.loading ? `<p>${escapeHtml(t("common.loading"))}</p>` : personal || `<div class="empty">${escapeHtml(t("platformClaw.execCredentials.empty"))}</div>`}</section>${administration}</div>`;
-    for (const input of this.root.querySelectorAll<HTMLInputElement>("[data-value]")) {
-      input.value = this.secretDrafts.get(input.dataset.value ?? "") ?? "";
+    if (!this.isConnected) {
+      return;
     }
-    this.bindEvents();
+    // Keyed Lit rows retain the actual input nodes and caret while sibling saves complete.
+    renderTemplate(
+      html`
+        ${renderSettingsSection(
+          {
+            title: t("platformClaw.execCredentials.title"),
+            description: html`${t("platformClaw.execCredentials.intro")}
+            ${t("platformClaw.execCredentials.replaceHelp")}`,
+          },
+          this.definitions.length
+            ? repeat(
+                this.definitions,
+                (item) => item.envName,
+                (item) => this.renderCredential(item),
+              )
+            : renderSettingsEmpty(
+                t(this.loading ? "common.loading" : "platformClaw.execCredentials.empty"),
+              ),
+        )}
+        ${this.admin ? this.renderAdministration() : nothing}
+        ${this.message
+          ? html`<p class="settings-page__intro" role="status" aria-live="polite">
+              ${this.message}
+            </p>`
+          : nothing}
+      `,
+      this,
+    );
   }
 }
 

@@ -304,20 +304,13 @@ export class PlatformClawControlUiAdapter {
             Promise.all([import("./exec-credentials.ts"), loadPlatformClawLocale()]).then(() => ({
               header: true,
               render: () => html`
-                <style>
-                  .platformclaw-credentials-page {
-                    width: min(920px, 100%);
-                    margin: 0 auto;
-                    padding: 0 20px 48px;
-                  }
-                </style>
                 <section class="content-header">
                   <div>
                     <div class="page-title">${t("platformClaw.execCredentials.pageTitle")}</div>
                     ${renderPageHelpTrigger("credentials")}
                   </div>
                 </section>
-                <main class="platformclaw-credentials-page">
+                <main class="settings-page">
                   <platformclaw-exec-credentials
                     .admin=${identity.globalRole === "admin"}
                     .fetchImpl=${this.fetchImpl}
@@ -444,6 +437,11 @@ export class PlatformClawControlUiAdapter {
         sidebarEntries,
         settingsNavigationMode: "takeover",
         routeCopy: {
+          credentials: {
+            title: () => t("platformClaw.execCredentials.pageTitle"),
+            subtitle: () => t("platformClaw.execCredentials.intro"),
+            settingsLabel: () => t("platformClaw.execCredentials.pageTitle"),
+          },
           usage: {
             title: () => t("platformClaw.dashboard.title"),
             subtitle: () => t("platformClaw.dashboard.subtitle"),
