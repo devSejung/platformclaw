@@ -1863,13 +1863,13 @@ describe("grouped chat rendering", () => {
       return {
         hidden: status?.querySelector(".agent-chat__sr-only")?.textContent,
         visibleLabels: status?.querySelectorAll("span:not(.agent-chat__sr-only)").length,
-        // The whimsical long-wait phrase rides in its own aria-hidden element,
-        // never as a plain status span screen readers would announce.
-        decorativePhrases: status?.querySelectorAll("openclaw-working-phrase[aria-hidden]").length,
+        // The phrase component hides its decorative fallback while keeping
+        // product tips accessible without live announcements.
+        phraseComponents: status?.querySelectorAll("openclaw-working-phrase").length,
       };
     };
 
-    const expected = { hidden: "Working…", visibleLabels: 0, decorativePhrases: 1 };
+    const expected = { hidden: "Working…", visibleLabels: 0, phraseComponents: 1 };
     expect(statusFor(1_000)).toEqual(expected);
     expect(statusFor(1_500)).toEqual(expected);
     expect(statusFor(8_000)).toEqual(expected);

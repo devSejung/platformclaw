@@ -250,6 +250,7 @@ export type ApplicationShellSession = {
 };
 
 export type ApplicationBootstrapOptions = {
+  readonly chatWorkingTip?: ApplicationContext["chatWorkingTip"];
   readonly accessMode?: ApplicationAccessMode;
   readonly enabledRouteIds?: readonly RouteId[];
   /** Product embedders may replace an enabled route without exposing unrelated routes. */
@@ -532,6 +533,7 @@ export function bootstrapApplication(
     accessMode: options.accessMode ?? "operator",
     sessionCatalogFilter: options.sessionCatalogFilter,
     isRouteEnabled: (routeId) => enabledRouteIds.includes(routeId),
+    chatWorkingTip: options.chatWorkingTip,
     gateway,
     agents,
     agentIdentity,

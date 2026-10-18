@@ -144,7 +144,6 @@ export function renderChatWorkingIndicator(
                     .startMs=${part.startedAt}
                   ></openclaw-elapsed-time>
                   <openclaw-working-phrase
-                    aria-hidden="true"
                     .startMs=${part.startedAt}
                     .seed=${part.key}
                   ></openclaw-working-phrase>
