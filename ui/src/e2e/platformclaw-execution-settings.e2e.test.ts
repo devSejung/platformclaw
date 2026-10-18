@@ -555,6 +555,10 @@ suite("PlatformClaw coding agent settings", () => {
     const component = page.locator("platformclaw-execution-settings");
     await component.locator("[data-action='open']").click();
     const vmCard = component.locator("[data-vm-connection]");
+    // Exercise the wider Linux font metrics that exposed narrow-screen footer overflow.
+    await component.evaluate((host) => {
+      (host as HTMLElement).style.setProperty("--font-sans", '"DejaVu Sans", sans-serif');
+    });
     const renewal = vmCard.locator("form[data-action='update-credential']");
     expect(await vmCard.count()).toBe(1);
     expect(await renewal.isVisible()).toBe(true);

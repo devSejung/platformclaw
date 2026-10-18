@@ -170,7 +170,7 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
         name: "Open work location settings",
       });
       await expect.poll(() => workLocationButton.isVisible()).toBe(true);
-      await expect.poll(() => workLocationButton.textContent()).toContain("My development VM");
+      await expect.poll(() => workLocationButton.textContent()).toContain("Development VM");
       const workLabelLineCount = await workLocationButton
         .locator("span")
         .nth(1)

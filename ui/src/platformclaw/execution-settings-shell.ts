@@ -225,6 +225,7 @@ const shellStyles = `
   .progress-footer .row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;margin:0}
   .progress-footer .button:only-child{grid-column:1/-1}
   .activation-offer{display:grid;gap:12px;width:100%}
+  .activation-offer .row{grid-template-columns:minmax(0,1fr) auto}
   .execution-diagram{display:grid;grid-template-columns:94px minmax(70px,1fr) 94px;align-items:center;gap:8px;padding:4px 0 0;color:var(--run)}
   .execution-endpoint{display:grid;justify-items:center;align-content:center;gap:6px;color:var(--muted);font-size:11px;text-align:center}
   .execution-endpoint>svg{width:32px;height:32px;stroke-width:1.5;border-radius:6px}
