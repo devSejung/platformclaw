@@ -204,7 +204,8 @@ class LogsPage extends OpenClawLightDomElement {
   private applyGatewaySnapshot(snapshot: ApplicationGatewaySnapshot, resetForSourceBind = false) {
     const connectionChanged = (snapshot.phase === "connected") !== this.connected;
     const clientChanged = resetForSourceBind || snapshot.client !== this.client;
-    if (clientChanged || connectionChanged) {
+    const scopeChanged = clientChanged || connectionChanged;
+    if (scopeChanged) {
       this.logsTaskQuiet = false;
       void this.logsTask.run([null, null, null, false, false]);
     }
@@ -214,7 +215,11 @@ class LogsPage extends OpenClawLightDomElement {
       this.resetServerState();
     }
     this.syncPolling();
-    this.ensureInitialLogs();
+    // Metadata updates share the current tail. Restarting it would discard the
+    // first page; only a source/client or connection change owns an initial reset.
+    if (scopeChanged) {
+      this.ensureInitialLogs();
+    }
   }
 
   private resetServerState() {

@@ -112,9 +112,9 @@ describe("Skill Workshop execution target context", () => {
 
   it.each([
     ["board", "platform_server", "vm", "Development VM"],
-    ["board", "assigned_vm", "basic", "Basic workspace"],
+    ["board", "assigned_vm", "basic", "Basic server"],
     ["today", "platform_server", "vm", "Development VM"],
-    ["today", "assigned_vm", "basic", "Basic workspace"],
+    ["today", "assigned_vm", "basic", "Basic server"],
   ] as const)(
     "blocks target-dependent %s actions for a mismatched proposal",
     (mode, current, target, expectedTarget) => {

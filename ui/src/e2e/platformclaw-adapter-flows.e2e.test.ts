@@ -467,7 +467,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     const response = await page.goto(`${server.baseUrl}platformclaw/app/skills/workshop`);
     expect(response?.status()).toBe(200);
     await expect
-      .poll(() => page.getByText("Current work location: Basic workspace").isVisible())
+      .poll(() => page.getByText("Current work location: Basic server").isVisible())
       .toBe(true);
     await expect
       .poll(() => page.getByText("Target: Development VM").first().isVisible())
