@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   cancelPendingAgentQuestionForSession,
   claimPendingAgentQuestionAnswer,
-  hasPendingAgentQuestionAnswer,
+  getPendingAgentQuestionAnswer,
   registerPendingAgentQuestion,
   runAgentHarnessGatewayQuestion,
   type AgentHarnessQuestionGatewayCall,
@@ -53,20 +53,21 @@ describe("gateway harness questions", () => {
         answer: answer.promise,
       });
       try {
-        expect(hasPendingAgentQuestionAnswer()).toBe(true);
-        expect(hasPendingAgentQuestionAnswer({ sessionKey: "agent:other:main", text: "1" })).toBe(
-          false,
-        );
+        const binding = { sessionKey: "agent:room:input-admission", questionId: "ask_admission" };
+        expect(getPendingAgentQuestionAnswer()).toEqual(binding);
         expect(
-          hasPendingAgentQuestionAnswer({
+          getPendingAgentQuestionAnswer({ sessionKey: "agent:other:main", text: "1" }),
+        ).toBeUndefined();
+        expect(
+          getPendingAgentQuestionAnswer({
             sessionKey: "agent:room:input-admission",
             text: "unrelated work",
           }),
-        ).toBe(false);
+        ).toBeUndefined();
         for (const text of ["1", "continue"]) {
           expect(
-            hasPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text }),
-          ).toBe(true);
+            getPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text }),
+          ).toEqual(binding);
         }
         expect(gatewayCall).not.toHaveBeenCalled();
         const persist = vi.fn(async () => {});
@@ -80,23 +81,33 @@ describe("gateway harness questions", () => {
         expect(persist).not.toHaveBeenCalled();
         expect(gatewayCall).not.toHaveBeenCalled();
         expect(
-          hasPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text: "1" }),
-        ).toBe(true);
+          getPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text: "1" }),
+        ).toEqual(binding);
         const resolved = claimPendingAgentQuestionAnswer({
           sessionKey: "agent:room:input-admission",
           text: "1",
         });
         expect(
-          hasPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text: "1" }),
-        ).toBe(false);
+          getPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text: "1" }),
+        ).toEqual(binding);
+        expect(claim.isResolving()).toBe(true);
+        await expect(
+          claimPendingAgentQuestionAnswer({
+            sessionKey: "agent:room:input-admission",
+            text: "1",
+            persist,
+          }),
+        ).resolves.toBe(false);
+        expect(persist).not.toHaveBeenCalled();
+        expect(gatewayCall).toHaveBeenCalledTimes(1);
         answer.resolve({ status: "answered", answers: { answers: { action: ["Continue"] } } });
         await expect(resolved).resolves.toBe(true);
       } finally {
         claim.dispose();
       }
       expect(
-        hasPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text: "1" }),
-      ).toBe(false);
+        getPendingAgentQuestionAnswer({ sessionKey: "agent:room:input-admission", text: "1" }),
+      ).toBeUndefined();
     },
   );
   it("does not request a gateway question when the session reservation conflicts", async () => {

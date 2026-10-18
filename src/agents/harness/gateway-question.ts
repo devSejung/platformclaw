@@ -236,19 +236,6 @@ export function getPendingAgentQuestionAnswer(params?: {
   return { sessionKey: state.sessionKey, questionId: state.questionId };
 }
 
-export function hasPendingAgentQuestionAnswer(params?: {
-  sessionKey: string;
-  text: string;
-}): boolean {
-  if (!params) {
-    return [...pendingAgentQuestions.values()].some(
-      (state) => !state.cancelRequested && !state.resolving,
-    );
-  }
-  const state = pendingAgentQuestions.get(params.sessionKey.trim());
-  return state?.resolving !== true && getPendingAgentQuestionAnswer(params) !== undefined;
-}
-
 /** Claims the next queued plain-text message for the session's gateway question. */
 export async function claimPendingAgentQuestionAnswer(params: {
   sessionKey?: string;
