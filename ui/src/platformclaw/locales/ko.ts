@@ -314,16 +314,18 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.organization.errors.searchLength": "사용자를 검색하려면 2자 이상 입력하세요.",
   "platformClaw.organization.errors.noMembershipRemoved":
     "제거된 소속이 없습니다. 최신 roster를 불러왔으니 현재 상태를 확인하세요.",
-  "platformClaw.execCredentials.pageTitle": "Credentials",
-  "platformClaw.execCredentials.title": "개인 실행 Credential",
-  "platformClaw.execCredentials.intro":
-    "저장한 값은 내 개인 Agent의 모든 Basic·VM exec에 환경변수로 전달됩니다. 값은 다시 표시되지 않습니다.",
+  "platformClaw.execCredentials.pageTitle": "인증정보",
+  "platformClaw.execCredentials.title": "개인 인증정보",
+  "platformClaw.execCredentials.intro": "내 개인 Agent가 작업할 때 사용하는 인증정보입니다.",
   "platformClaw.execCredentials.adminTitle": "허용 환경변수",
   "platformClaw.execCredentials.adminIntro":
     "관리자는 사용자가 등록할 수 있는 환경변수 이름만 관리합니다.",
-  "platformClaw.execCredentials.configured": "등록됨",
+  "platformClaw.execCredentials.configured": "저장됨",
   "platformClaw.execCredentials.notConfigured": "미등록",
   "platformClaw.execCredentials.valuePlaceholder": "새 값 입력",
+  "platformClaw.execCredentials.replaceHelp":
+    "저장된 값은 보안상 표시하지 않습니다. 변경하려면 새 값을 입력하고 저장하세요.",
+  "platformClaw.execCredentials.unsaved": "저장 전",
   "platformClaw.execCredentials.save": "저장",
   "platformClaw.execCredentials.remove": "삭제",
   "platformClaw.execCredentials.add": "추가",
