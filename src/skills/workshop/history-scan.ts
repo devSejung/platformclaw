@@ -3,6 +3,7 @@ import { resolveAgentConfig, resolveAgentDir } from "../../agents/agent-scope.js
 import { resolveModelAsync } from "../../agents/embedded-agent-runner/model.js";
 import { isEmbeddedAgentRunActive } from "../../agents/embedded-agent-runner/runs.js";
 import { resolveDefaultModelForAgent } from "../../agents/model-selection-config.js";
+import { acquireAgentRunPreparedModelRuntime } from "../../agents/prepared-model-runtime.js";
 import { resolveHeartbeatPrompt } from "../../auto-reply/heartbeat.js";
 import { resolveStorePath } from "../../config/sessions/paths.js";
 import { toErrorObject } from "../../infra/errors.js";
@@ -209,19 +210,39 @@ async function runSkillHistoryScanCore(
     }
     eligible = resumedCandidates;
   }
-  const modelRef = resolveDefaultModelForAgent({ cfg: params.config, agentId: params.agentId });
-  const resolvedModel =
-    eligible.length > 0
-      ? (
-          await resolveModelAsync(
-            modelRef.provider,
-            modelRef.model,
-            resolveAgentDir(params.config, params.agentId, params.env),
-            params.config,
-            { agentId: params.agentId, workspaceDir: params.workspaceDir },
-          )
-        ).model
-      : undefined;
+  let modelConfig = params.config;
+  let modelRef: ReturnType<typeof resolveDefaultModelForAgent> | undefined;
+  let resolvedModel: Awaited<ReturnType<typeof resolveModelAsync>>["model"];
+  if (eligible.length > 0) {
+    // Gateway admission owns the binding flags and committed config generation. Borrow its
+    // stores rather than starting an unbound discovery lifecycle from this request.
+    const runtimeLease = await acquireAgentRunPreparedModelRuntime({
+      agentId: params.agentId,
+      agentDir: resolveAgentDir(params.config, params.agentId, params.env),
+      config: params.config,
+      workspaceDir: params.workspaceDir,
+      ...(params.env ? { env: params.env } : {}),
+    });
+    try {
+      const snapshot = runtimeLease.snapshot;
+      modelConfig = snapshot.config;
+      modelRef = resolveDefaultModelForAgent({
+        cfg: modelConfig,
+        agentId: params.agentId,
+        manifestPlugins: snapshot.metadataSnapshot.plugins,
+      });
+      resolvedModel = (
+        await resolveModelAsync(modelRef.provider, modelRef.model, snapshot.agentDir, modelConfig, {
+          ...snapshot.createStores(),
+          agentId: params.agentId,
+          workspaceDir: snapshot.workspaceDir,
+          preparedModelRuntime: snapshot,
+        })
+      ).model;
+    } finally {
+      runtimeLease.release();
+    }
+  }
   const contextTokens = resolvedModel
     ? Math.min(
         resolvedModel.contextTokens ?? resolvedModel.contextWindow,
@@ -235,8 +256,8 @@ async function runSkillHistoryScanCore(
   );
   // The configured prompt is only an extra legacy match; the stable marker is authoritative.
   const heartbeatPrompt = resolveHeartbeatPrompt(
-    resolveAgentConfig(params.config, params.agentId)?.heartbeat?.prompt ??
-      params.config.agents?.defaults?.heartbeat?.prompt,
+    resolveAgentConfig(modelConfig, params.agentId)?.heartbeat?.prompt ??
+      modelConfig.agents?.defaults?.heartbeat?.prompt,
   );
   const batch = await collectSkillHistoryScanBatch({
     candidates: eligible,
@@ -313,7 +334,7 @@ async function runSkillHistoryScanCore(
   try {
     await runSkillHistoryScanReview({
       agentId: params.agentId,
-      config: params.config,
+      config: modelConfig,
       env: params.env,
       modelRef,
       progress,
