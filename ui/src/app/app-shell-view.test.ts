@@ -159,4 +159,19 @@ describe("shell approval presentation ownership", () => {
     expect(modalQueue.props.inlineApprovalId).toBe("route-approval");
     expect(modalQueue.querySelector(".exec-approval-card")).toBeNull();
   });
+  it("adds only the existing search icon to hosted desktop chrome", () => {
+    const host = shellHost({ queue: [] });
+    render(renderApplicationShell(host), container);
+    const controls = container.querySelector(".shell-chrome-controls");
+    expect(controls?.querySelectorAll("button")).toHaveLength(1);
+    expect(controls?.querySelector(".shell-chrome-controls__search")).not.toBeNull();
+    expect(controls?.querySelector(".shell-chrome-controls__nav-toggle")).toBeNull();
+    expect(container.querySelector(".cmd-palette")).toBeNull();
+    const topbar = container.querySelector("openclaw-app-topbar") as HTMLElement & {
+      searchDisabled: boolean;
+      searchOnly: boolean;
+    };
+    expect(topbar.searchDisabled).toBe(false);
+    expect(topbar.searchOnly).toBe(true);
+  });
 });

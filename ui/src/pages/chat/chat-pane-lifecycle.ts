@@ -41,6 +41,7 @@ import { resetChatViewState } from "./chat-view-state.ts";
 import { chatAttachmentFromDataUrl } from "./components/chat-attachments.ts";
 import { dismissConfirmedActionPopovers } from "./components/chat-message.ts";
 import { toggleSessionWorkspace } from "./components/chat-session-workspace.ts";
+import { openChatThreadSearch, closeChatThreadSearch } from "./components/chat-thread.ts";
 import { WIDGET_PROMPT_EVENT, type WidgetPromptEventDetail } from "./components/chat-tool-cards.ts";
 import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "./composer-persistence.ts";
 import { exportChatMarkdown } from "./export.ts";
@@ -154,6 +155,28 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
   }
 
   protected readonly handleDocumentKeydown = (event: KeyboardEvent) => {
+    if (
+      this.active &&
+      !event.defaultPrevented &&
+      !event.isComposing &&
+      event.keyCode !== 229 &&
+      !document.querySelector(CHAT_MODAL_SELECTOR)
+    ) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        resolveAsciiShortcutKey(event) === "f"
+      ) {
+        event.preventDefault();
+        openChatThreadSearch(this.paneId, () => this.requestUpdate());
+        return;
+      }
+      if (event.key === "Escape" && closeChatThreadSearch(this.paneId)) {
+        event.preventDefault();
+        return;
+      }
+    }
     if (
       this.active &&
       !event.defaultPrevented &&
@@ -456,6 +479,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
   }
 
   override updated(changedProperties: Map<PropertyKey, unknown> = new Map()) {
+    this.syncSearchTarget();
     if (changedProperties.has("focusComposer") && this.focusComposer) {
       const textarea = this.querySelector<HTMLTextAreaElement>(CHAT_COMPOSER_TEXTAREA_SELECTOR);
       const input = textarea?.closest<HTMLElement>(".agent-chat__input");

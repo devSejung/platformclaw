@@ -37,6 +37,11 @@ import {
   SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD,
   sessionPullRequestsForGateway,
 } from "../../lib/session-pull-requests.ts";
+import { navigateToSessionSearchHit } from "../../lib/session-search-navigation.ts";
+import {
+  createSessionTranscriptSearchPager,
+  sessionTranscriptSearchScope,
+} from "../../lib/session-transcript-search.ts";
 import type { SessionsGroupBy } from "../../lib/sessions/grouping.ts";
 import {
   DEFAULT_SESSION_LIST_QUERY,
@@ -63,11 +68,7 @@ import { isActiveWorkboardCard } from "../../lib/workboard/card-state.ts";
 import { captureSessionToWorkboard } from "../../lib/workboard/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
-import {
-  searchVisibleSessionTranscripts,
-  sessionAgentIdentityById,
-  sessionAgentIds,
-} from "./agent-scope.ts";
+import { sessionAgentIdentityById, sessionAgentIds } from "./agent-scope.ts";
 import { rememberSessionCustomGroup, sessionCategoryNames } from "./custom-groups.ts";
 import { loadStoredGroupBy, parseFilterInteger, saveStoredGroupBy } from "./page-state.ts";
 import { renderSessions, type SessionsProps, type TranscriptSearchState } from "./view.ts";
@@ -268,15 +269,10 @@ class SessionsPage extends OpenClawLightDomElement {
       if (!client || !query || !context || !advertised) {
         return null;
       }
-      const result = await searchVisibleSessionTranscripts({
-        client,
+      const result = await createSessionTranscriptSearchPager(client, {
         query,
-        result: this.result,
-        listSessions: context.sessions.list,
-        listOptions: this.sessionListOptions(),
-        resolveAgentId: (sessionKey) =>
-          parseAgentSessionKey(sessionKey)?.agentId ?? this.sessionAgentId(sessionKey, context),
-      });
+        ...sessionTranscriptSearchScope(context),
+      }).next();
       return {
         results: result.results,
         indexing: result.indexing === true,
@@ -1671,6 +1667,11 @@ class SessionsPage extends OpenClawLightDomElement {
             this.selectedKeys = new Set();
           },
           onDeleteSelected: () => void this.deleteSelected(),
+          onNavigateToSearchHit: (hit) =>
+            navigateToSessionSearchHit(context, {
+              ...hit,
+              query: this.submittedTranscriptSearchQuery,
+            }),
           onNavigateToChat: (sessionKey) => {
             const face = resolveSessionPreferredFaceForKey(context, sessionKey);
             context.navigate(face, {

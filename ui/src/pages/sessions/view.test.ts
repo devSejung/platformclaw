@@ -296,7 +296,7 @@ describe("sessions view", () => {
 
   it("renders transcript provenance and opens the matching session", async () => {
     const container = document.createElement("div");
-    const onNavigateToChat = vi.fn();
+    const onNavigateToSearchHit = vi.fn();
     render(
       renderSessions({
         ...buildProps(
@@ -326,7 +326,7 @@ describe("sessions view", () => {
           indexing: true,
           truncated: true,
         },
-        onNavigateToChat,
+        onNavigateToSearchHit,
       }),
       container,
     );
@@ -343,7 +343,13 @@ describe("sessions view", () => {
     expect(container.textContent).toContain("Showing the first 25 matches.");
 
     result?.click();
-    expect(onNavigateToChat).toHaveBeenCalledWith("agent:main:launch");
+    expect(onNavigateToSearchHit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "agent:main:launch",
+        sessionId: "session-launch",
+        messageId: "message-1",
+      }),
+    );
   });
 
   it("disables transcript search when the Gateway does not advertise it", async () => {

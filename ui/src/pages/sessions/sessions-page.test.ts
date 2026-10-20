@@ -196,7 +196,9 @@ describe("sessions page lifecycle", () => {
     await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
     expect(request).toHaveBeenCalledWith("sessions.search", {
       agentId: "main",
-      sessionKeys: ["agent:main:launch"],
+      scope: "agent",
+      mode: "substring",
+      offset: 0,
       query: "launch code",
       limit: 25,
     });
@@ -229,51 +231,43 @@ describe("sessions page lifecycle", () => {
     });
   });
 
-  it("fans all-agent transcript search out by owning agent and merges ranked results", async () => {
-    const request = vi.fn(async (_method: string, params: { agentId: string }) => ({
-      results: [
-        {
-          sessionKey: `agent:${params.agentId}:one`,
-          sessionId: `${params.agentId}-one`,
-          messageId: `${params.agentId}-message`,
-          role: "assistant" as const,
-          timestamp: params.agentId === "writer" ? 2 : 1,
-          snippet: params.agentId,
-          score: params.agentId === "writer" ? 2 : 1,
-        },
-      ],
-    }));
+  it("delegates full agent scope to Gateway without enumerating the roster", async () => {
+    const results = [
+      {
+        sessionKey: "agent:main:unloaded",
+        sessionId: "unloaded",
+        messageId: "match",
+        role: "assistant",
+        timestamp: 1,
+        snippet: "needle",
+        score: 1,
+      },
+    ];
+    const request = vi.fn(async () => ({ results, totalCount: 1, hasMore: false }));
     const mutableGateway = createGateway({ request } as unknown as GatewayBrowserClient);
     mutableGateway.emit({
       hello: { features: { methods: ["sessions.search"] } } as ApplicationGatewaySnapshot["hello"],
     });
     const context = createContext(mutableGateway.gateway, createSessions());
-    context.agentSelection.state.scopeId = null;
     const page = await createPage(context);
-    page.result = {
-      count: 2,
-      sessions: [{ key: "agent:main:one" }, { key: "agent:writer:one" }],
-    } as SessionsListResult;
-
+    page.result = { count: 0, sessions: [] } as unknown as SessionsListResult;
     page.updateTranscriptSearchQuery("needle");
     await page.runTranscriptSearch();
-
-    expect(request).toHaveBeenCalledTimes(2);
-    expect(request).toHaveBeenCalledWith(
-      "sessions.search",
-      expect.objectContaining({ agentId: "main", sessionKeys: ["agent:main:one"] }),
-    );
-    expect(request).toHaveBeenCalledWith(
-      "sessions.search",
-      expect.objectContaining({ agentId: "writer", sessionKeys: ["agent:writer:one"] }),
-    );
-    expect(page.transcriptSearch.status).toBe("results");
-    if (page.transcriptSearch.status === "results") {
-      expect(page.transcriptSearch.results.map((result) => result.sessionKey)).toEqual([
-        "agent:writer:one",
-        "agent:main:one",
-      ]);
-    }
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith("sessions.search", {
+      agentId: "main",
+      scope: "agent",
+      mode: "substring",
+      offset: 0,
+      query: "needle",
+      limit: 25,
+    });
+    expect(page.transcriptSearch).toEqual({
+      status: "results",
+      results,
+      indexing: false,
+      truncated: false,
+    });
   });
 
   it("does not request empty or unadvertised transcript searches", async () => {

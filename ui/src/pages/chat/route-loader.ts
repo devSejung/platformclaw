@@ -8,6 +8,7 @@ import { pathForSession } from "../../app-session-path-builder.ts";
 import { sessionRefFromPath, type SessionPathTarget } from "../../app-session-route-paths.ts";
 import { waitForGatewayClient } from "../../app/gateway-readiness.ts";
 import type { BoardFace } from "../../lib/board/settings.ts";
+import { sessionSearchTargetFromLocation } from "../../lib/session-search-navigation.ts";
 import {
   buildCatalogSessionKey,
   catalogSessionKeyFromSearch,
@@ -39,47 +40,14 @@ import {
   type ShortSessionResolution as SessionReferenceResolution,
   type ChatRouteContext,
 } from "./route-loader-short-cache.ts";
+import type { ChatRouteData, SessionCandidate } from "./route-loader-types.ts";
 
 const SESSION_REF_SEARCH_LIMIT = 20;
 const SESSION_REF_SEARCH_MAX_PAGES = 5;
 // A uuid's first block is the longest run that is contiguous in both the hyphenated
 // stored key and the hyphen-stripped short id used in URLs.
 
-type SessionCandidate = {
-  agentId: string;
-  displayName: string;
-  href: string;
-  idPrefix: string;
-};
-
-export type ChatRouteData =
-  | {
-      kind: "session";
-      sessionKey: string;
-      agentId?: string;
-      draft?: string;
-      focusComposer?: boolean;
-      face: BoardFace;
-      shortId?: string;
-      canonicalLocation?: RouteLocation;
-      canonicalLocationReady?: Promise<RouteLocation | null>;
-      canonicalLocationSource?: RouteLocation;
-    }
-  | {
-      kind: "ambiguous";
-      shortId: string;
-      candidates: SessionCandidate[];
-      truncated: boolean;
-      face: BoardFace;
-    };
-
-export type SessionChatRouteData = Omit<
-  Extract<ChatRouteData, { kind: "session" }>,
-  "face" | "kind"
-> & {
-  face?: BoardFace;
-  kind?: "session";
-};
+export type { ChatRouteData, SessionChatRouteData } from "./route-loader-types.ts";
 
 export function locationWithoutDraft(location: RouteLocation): RouteLocation {
   const params = new URLSearchParams(location.search);
@@ -523,6 +491,22 @@ function resolvedMainSessionRouteData(params: {
 }
 
 export async function loadChatRoute(
+  context: ChatRouteContext,
+  location: RouteLocation,
+  face: BoardFace,
+  signal: AbortSignal,
+): Promise<ChatRouteData | ReturnType<typeof notFound>> {
+  const result = await loadChatRouteData(context, location, face, signal);
+  if (result && "kind" in result && result.kind === "session") {
+    const searchTarget = sessionSearchTargetFromLocation(location, result.sessionKey);
+    if (searchTarget) {
+      return { ...result, searchTarget };
+    }
+  }
+  return result;
+}
+
+async function loadChatRouteData(
   context: ChatRouteContext,
   location: RouteLocation,
   face: BoardFace,

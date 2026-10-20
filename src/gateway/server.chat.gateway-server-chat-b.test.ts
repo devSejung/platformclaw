@@ -6103,10 +6103,17 @@ describe("gateway server chat", () => {
 
       expect(history.ok).toBe(true);
       expect(history.payload?.messages?.map(readOpenClawSeq)).toEqual([2, 3, 4]);
-      expect(history.payload?.offset).toBeUndefined();
-      expect(history.payload?.nextOffset).toBeUndefined();
-      expect(history.payload?.hasMore).toBeUndefined();
-      expect(history.payload?.totalMessages).toBeUndefined();
+      expect(history.payload?.offset).toBe(3);
+      expect(history.payload?.nextOffset).toBe(6);
+      expect(history.payload?.hasMore).toBe(true);
+      expect(history.payload?.totalMessages).toBe(7);
+      const older = await rpcReq<{ messages?: Array<{ __openclaw?: { seq?: number } }> }>(
+        ws,
+        "chat.history",
+        { sessionKey: "main", limit: 3, offset: history.payload?.nextOffset },
+      );
+      expect(older.ok).toBe(true);
+      expect(older.payload?.messages?.map(readOpenClawSeq)).toEqual([1]);
     });
   });
 

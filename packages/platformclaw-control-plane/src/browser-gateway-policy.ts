@@ -392,7 +392,10 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "allowMissing",
     ]),
   ],
-  ["sessions.search", new Set(["agentId", "sessionKeys", "query", "limit"])],
+  [
+    "sessions.search",
+    new Set(["agentId", "sessionKeys", "query", "limit", "mode", "scope", "sessionId", "offset"]),
+  ],
   ["sessions.steer", new Set(["key", "agentId", "message"])],
   ["sessions.subscribe", new Set()],
   [

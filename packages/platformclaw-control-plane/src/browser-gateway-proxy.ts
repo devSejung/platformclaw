@@ -260,10 +260,9 @@ export class BrowserGatewayProxy {
     if (spaceResult.handled) {
       return spaceResult.result as T;
     }
-    // Stale browser catalogs may still supply Space keys. An empty discovery scope
-    // must not become an unscoped native search after those keys are removed.
-    if (method === "sessions.search" && (prepared.sessionKeys as string[]).length === 0) {
-      return { results: [] } as T;
+    const emptySearch = this.spaceAccess.emptySessionSearchResult(method, prepared);
+    if (emptySearch !== undefined) {
+      return emptySearch as T;
     }
     const localResult = await requestBrowserGatewayLocal(
       this.options,
@@ -435,13 +434,7 @@ export class BrowserGatewayProxy {
       };
     }
     if (method === "sessions.search") {
-      this.assertions.optionalAgentId(access.binding.agentId, params.agentId, method);
-      this.assertions.sessionKeyArray(
-        access.binding.agentId,
-        params.sessionKeys,
-        "sessionKeys",
-        true,
-      );
+      this.assertions.sessionSearch(access.binding.agentId, params);
       return this.spaceAccess.prepareSessionSearch(access, params);
     }
     if (method === "sessions.preview") {

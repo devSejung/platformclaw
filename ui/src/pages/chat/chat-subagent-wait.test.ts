@@ -7,7 +7,7 @@ import {
   renderChatSearchBar,
   renderChatThread,
   resetChatThreadPresentationState,
-  toggleChatThreadSearch,
+  openChatThreadSearch,
 } from "./components/chat-thread.ts";
 import { renderChatWorkingIndicator } from "./components/chat-working-indicator.ts";
 
@@ -67,70 +67,73 @@ describe("chat waiting on subagents", () => {
       history: [...messages, { role: "assistant", content: "Finished setup", timestamp: 3_000 }],
       markerText: "Resumed",
     },
-  ])("shows no search matches with $name while a child is active", ({ history, markerText }) => {
-    const transcript = createTestTranscript();
-    const container = document.createElement("div");
-    const paneId = "subagent-wait-search";
-    const draw = () =>
-      render(
-        html`
-          ${renderChatSearchBar(paneId, draw)}
-          ${renderChatThread(
-            {
-              paneId,
-              sessionKey: parent.key,
-              selectedSession: parent,
-              subagentSessions: [child],
-              loading: false,
-              messages: history,
-              toolMessages: [],
-              streamSegments: [],
-              stream: null,
-              streamStartedAt: null,
-              queue: [],
-              showThinking: false,
-              showToolCalls: false,
-              sessions: null,
-              assistantName: "Molty",
-              assistantAvatar: null,
-              onDraftChange: () => {},
-              onSend: () => {},
-            },
-            transcript,
-          )}
-        `,
-        container,
-      );
-    try {
-      draw();
-      expect(container.querySelector(".chat-working-indicator--subagents")).not.toBeNull();
-      toggleChatThreadSearch(paneId, draw);
-      const search = container.querySelector<HTMLInputElement>(".agent-chat__search-bar input");
-      expect(search).not.toBeNull();
-      search!.value = "PRIVATE_YIELD_CONTEXT";
-      search!.dispatchEvent(new Event("input", { bubbles: true }));
-      expect(container.querySelector(".chat-working-indicator--subagents")).toBeNull();
-      expect(container.querySelector(".chat-yield-marker")).toBeNull();
-      expect(container.querySelector(".agent-chat__empty")?.textContent).toBe(
-        "No matching messages",
-      );
+  ])(
+    "preserves transcript context with $name while finding messages",
+    ({ history, markerText }) => {
+      const transcript = createTestTranscript();
+      const container = document.createElement("div");
+      const paneId = "subagent-wait-search";
+      const draw = () =>
+        render(
+          html`
+            ${renderChatSearchBar(paneId, draw, { sessionKey: parent.key })}
+            ${renderChatThread(
+              {
+                paneId,
+                sessionKey: parent.key,
+                selectedSession: parent,
+                subagentSessions: [child],
+                loading: false,
+                messages: history,
+                toolMessages: [],
+                streamSegments: [],
+                stream: null,
+                streamStartedAt: null,
+                queue: [],
+                showThinking: false,
+                showToolCalls: false,
+                sessions: null,
+                assistantName: "Molty",
+                assistantAvatar: null,
+                onDraftChange: () => {},
+                onSend: () => {},
+              },
+              transcript,
+            )}
+          `,
+          container,
+        );
+      try {
+        draw();
+        expect(container.querySelector(".chat-working-indicator--subagents")).not.toBeNull();
+        openChatThreadSearch(paneId, draw);
+        const search = container.querySelector<HTMLInputElement>(".agent-chat__search-bar input");
+        expect(search).not.toBeNull();
+        search!.value = "PRIVATE_YIELD_CONTEXT";
+        search!.dispatchEvent(new Event("input", { bubbles: true }));
+        expect(container.querySelector(".chat-working-indicator--subagents")).not.toBeNull();
+        if (markerText) {
+          expect(container.querySelector(".chat-yield-marker")?.textContent).toContain(markerText);
+        }
+        expect(container.querySelector(".agent-chat__empty")).toBeNull();
 
-      search!.value = "";
-      search!.dispatchEvent(new Event("input", { bubbles: true }));
-      expect(container.querySelector(".agent-chat__empty")).toBeNull();
-      expect(container.querySelector(".chat-working-indicator--subagents")).not.toBeNull();
-      if (markerText) {
-        expect(container.querySelector(".chat-yield-marker")?.textContent).toContain(markerText);
-        search!.value = ` ${markerText.toUpperCase()} `;
+        search!.value = "";
         search!.dispatchEvent(new Event("input", { bubbles: true }));
         expect(container.querySelector(".agent-chat__empty")).toBeNull();
-        expect(container.querySelector(".chat-yield-marker")?.textContent).toContain(markerText);
-        expect(container.querySelector(".chat-working-indicator--subagents")).toBeNull();
+        expect(container.querySelector(".chat-working-indicator--subagents")).not.toBeNull();
+        if (markerText) {
+          expect(container.querySelector(".chat-yield-marker")?.textContent).toContain(markerText);
+          search!.value = ` ${markerText.toUpperCase()} `;
+          search!.dispatchEvent(new Event("input", { bubbles: true }));
+          expect(container.querySelector(".agent-chat__empty")).toBeNull();
+          expect(container.querySelector(".chat-yield-marker")?.textContent).toContain(markerText);
+          expect(container.querySelector(".chat-working-indicator--subagents")).not.toBeNull();
+        }
+      } finally {
+        transcript.hostDisconnected();
       }
-    } finally {
-      transcript.hostDisconnected();
-    }
-  });
+    },
+  );
 
   it.each([
     {

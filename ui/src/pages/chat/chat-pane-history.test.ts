@@ -8,10 +8,11 @@ import type {
 } from "../../../../packages/gateway-protocol/src/index.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationContext } from "../../app/context.ts";
+import type { SessionSearchTarget } from "../../lib/session-search-navigation.ts";
 import { buildCatalogSessionKey, type CatalogSessionKey } from "../../lib/sessions/catalog-key.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
 import "./chat-pane.ts";
-import { loadChatHistory } from "./chat-history.ts";
+import { loadChatHistory, type ChatHistoryResult } from "./chat-history.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import type { AfterCommitEffect } from "./render-lifecycle.ts";
 import type { ChatSessionScrollPosition } from "./scroll.ts";
@@ -42,9 +43,13 @@ type TestChatPane = HTMLElement & {
   resetOlderMessagesViewport: (nextSessionKey?: string) => ChatSessionScrollPosition | null;
   restoreOlderMessagesViewport: (sessionKey: string, scrollTop: number) => void;
   transcriptScrollTop: number | null;
+  revealSearchResult: (target: SessionSearchTarget, agentId?: string) => Promise<void>;
+  searchRenderProps: () => { onSearchResult: (target: SessionSearchTarget) => void };
+  searchHighlightQuery: string;
   transcript: {
     activeSessionKey: string | null;
     pendingScrollOffsetFor: (sessionKey: string) => number | null;
+    revealMessage: (messageId: string) => boolean;
   };
 };
 
@@ -175,6 +180,140 @@ function nativeHistorySeq(message: unknown): number | undefined {
     | undefined;
   return typeof metadata?.seq === "number" ? metadata.seq : undefined;
 }
+
+describe("chat pane search owner and hydration", () => {
+  const target: SessionSearchTarget = {
+    sessionKey: "global",
+    sessionId: "global-transcript",
+    messageId: "search-hit",
+    query: "배포",
+  };
+  const searchedMessage = {
+    role: "assistant",
+    content: "배포 설정",
+    __openclaw: { id: target.messageId, seq: 1 },
+  };
+
+  function createSearchPane(request = vi.fn()) {
+    const { pane, state } = createTestChatPane({
+      client: { request } as unknown as GatewayBrowserClient,
+      sessions: {} as SessionCapability,
+    });
+    state.sessionKey = "global";
+    state.assistantAgentId = "research";
+    state.agentsList = {
+      defaultId: "main",
+      mainKey: "main",
+      scope: "global",
+      agents: [{ id: "main" }, { id: "research" }, { id: "other-owner" }],
+    };
+    state.currentSessionId = target.sessionId;
+    Object.defineProperty(pane, "updateComplete", {
+      value: Promise.resolve(true),
+      configurable: true,
+    });
+    return { pane, state, request };
+  }
+
+  it("reveals a loaded raw-global hit owned by the selected nondefault agent", async () => {
+    const { pane, state, request } = createSearchPane();
+    state.chatMessages = [searchedMessage];
+    const reveal = vi.spyOn(pane.transcript, "revealMessage").mockReturnValue(true);
+    pane.searchRenderProps().onSearchResult(target);
+    await vi.waitFor(() => expect(reveal).toHaveBeenCalledWith(target.messageId));
+    expect(request).not.toHaveBeenCalled();
+    expect(pane.searchHighlightQuery).toBe(target.query);
+  });
+
+  it("rejects a result callback captured before the selected global owner changed", async () => {
+    const { pane, state, request } = createSearchPane();
+    const onResult = pane.searchRenderProps().onSearchResult;
+    const reveal = vi.spyOn(pane.transcript, "revealMessage").mockReturnValue(true);
+    state.assistantAgentId = "other-owner";
+    onResult(target);
+    await Promise.resolve();
+    expect(reveal).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+    expect(pane.searchHighlightQuery).toBe("");
+  });
+
+  it("discards an anchor response when the same raw-global key changes owners", async () => {
+    const anchor = createDeferred<ChatHistoryResult>();
+    const { pane, state, request } = createSearchPane(vi.fn().mockReturnValue(anchor.promise));
+    const currentMessages = [{ role: "assistant", content: "Current owner window" }];
+    state.chatMessages = currentMessages;
+    const reveal = vi.spyOn(pane.transcript, "revealMessage").mockReturnValue(false);
+    const pending = pane.revealSearchResult(target, "research");
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "chat.history",
+        expect.objectContaining({
+          agentId: "research",
+          sessionKey: "global",
+          messageId: target.messageId,
+        }),
+      ),
+    );
+    state.assistantAgentId = "other-owner";
+    state.lastError = "Current owner error";
+    anchor.resolve({ messages: [searchedMessage] });
+    await pending;
+    expect(state.chatMessages).toBe(currentMessages);
+    expect(reveal).toHaveBeenCalledOnce();
+    expect(state.lastError).toBe("Current owner error");
+  });
+
+  it("awaits initial hydration before revealing a cached hit and refetches its window", async () => {
+    const initialHistory = createDeferred<ChatHistoryResult>();
+    const anchorHistory = createDeferred<ChatHistoryResult>();
+    const request = vi
+      .fn()
+      .mockImplementation((_method, params) =>
+        params.messageId ? anchorHistory.promise : initialHistory.promise,
+      );
+    const { pane, state } = createSearchPane(request);
+    state.chatMessages = [searchedMessage];
+    state.chatHistoryPagination = { hasMore: false, totalMessages: 1 };
+    const reveal = vi
+      .spyOn(pane.transcript, "revealMessage")
+      .mockImplementation((messageId) =>
+        state.chatMessages.some(
+          (message) => (message as typeof searchedMessage)["__openclaw"]?.id === messageId,
+        ),
+      );
+    const hydration = loadChatHistory(state, { deferBranches: true });
+    const pending = pane.revealSearchResult(target, "research");
+    await Promise.resolve();
+    expect(reveal).not.toHaveBeenCalled();
+    initialHistory.resolve({
+      messages: [
+        { role: "assistant", content: "Recent tail", __openclaw: { id: "tail", seq: 500 } },
+      ],
+      sessionInfo: { key: "global", kind: "global", updatedAt: 1, sessionId: target.sessionId },
+      hasMore: true,
+      nextOffset: 100,
+      totalMessages: 500,
+    });
+    await hydration;
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(state.chatMessages).not.toContainEqual(searchedMessage);
+    expect(request).toHaveBeenLastCalledWith(
+      "chat.history",
+      expect.objectContaining({
+        sessionKey: "global",
+        agentId: "research",
+        sessionId: target.sessionId,
+        messageId: target.messageId,
+      }),
+    );
+    anchorHistory.resolve({ messages: [searchedMessage], hasMore: false, totalMessages: 1 });
+    await pending;
+    expect(state.chatMessages).toContainEqual(searchedMessage);
+    expect(reveal).toHaveBeenCalledTimes(2);
+    expect(reveal).toHaveLastReturnedWith(true);
+    expect(state.lastError).toBeNull();
+  });
+});
 
 describe("chat pane native history pagination", () => {
   it("restores a saved per-session viewport while first visits keep the end anchor", () => {

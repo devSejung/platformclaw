@@ -254,9 +254,7 @@ function sameChatItemsStructuralInput(
     previous.runActive === next.runActive &&
     previous.questionPrompts === next.questionPrompts &&
     Boolean(previous.planStatus?.steps.length) === Boolean(next.planStatus?.steps.length) &&
-    previous.loading === next.loading &&
-    previous.searchOpen === next.searchOpen &&
-    previous.searchQuery === next.searchQuery
+    previous.loading === next.loading
   );
 }
 

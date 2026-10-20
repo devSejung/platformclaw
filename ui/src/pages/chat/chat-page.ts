@@ -28,9 +28,8 @@ import { routeDraft } from "./route-draft.ts";
 import { locationWithoutDraft, type SessionChatRouteData } from "./route-loader.ts";
 import type { ChatMessageCache } from "./session-message-cache.ts";
 import {
-  resolveSplitDropZone,
-  splitDropIndicatorRect,
-  type SplitDropRect,
+  resolveSplitDropIndicator,
+  type SplitDropIndicator,
   type SplitDropZone,
 } from "./split-drop-zone.ts";
 import {
@@ -52,7 +51,6 @@ import {
   type ChatSplitPane,
 } from "./split-layout.ts";
 
-type DropIndicator = { paneId: string; zone: SplitDropZone; rect: SplitDropRect };
 export class ChatPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })
   private context!: ApplicationContext;
@@ -61,7 +59,7 @@ export class ChatPage extends OpenClawLightDomElement {
   @state() private layout: ChatSplitLayout | undefined;
   @state() private narrow = false;
   @state() private mergedChrome = false;
-  @state() private dropIndicator: DropIndicator | null = null;
+  @state() private dropIndicator: SplitDropIndicator | null = null;
 
   private readonly subscriptions = new SubscriptionsController(this)
     .watch(
@@ -341,26 +339,23 @@ export class ChatPage extends OpenClawLightDomElement {
     this.dropIndicator = null;
   }
 
-  private resolveDropIndicator(pane: ChatPaneElement, x: number, y: number): DropIndicator | null {
+  private resolveDropIndicator(
+    pane: ChatPaneElement,
+    x: number,
+    y: number,
+  ): SplitDropIndicator | null {
     const paneId = pane.paneId;
     const container = this.querySelector<HTMLElement>(".chat-split-view__drop-container");
     if (!paneId || !container) {
       return null;
     }
-    const paneRect = pane.getBoundingClientRect();
-    const zone = resolveSplitDropZone(paneRect, x, y);
-    const indicatorRect = splitDropIndicatorRect(paneRect, zone);
-    const containerRect = container.getBoundingClientRect();
-    return {
+    return resolveSplitDropIndicator(
       paneId,
-      zone,
-      rect: {
-        left: indicatorRect.left - containerRect.left,
-        top: indicatorRect.top - containerRect.top,
-        width: indicatorRect.width,
-        height: indicatorRect.height,
-      },
-    };
+      pane.getBoundingClientRect(),
+      container.getBoundingClientRect(),
+      x,
+      y,
+    );
   }
 
   private syncRouteToActivePane() {
@@ -581,6 +576,7 @@ export class ChatPage extends OpenClawLightDomElement {
           .active=${active}
           .draft=${draft}
           .focusComposer=${focus}
+          .searchTarget=${active ? this.data?.searchTarget : undefined}
           .routeFace=${this.data?.face ?? "chat"}
           .paneTitle=${title}
           .narrow=${this.narrow}

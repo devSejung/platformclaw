@@ -247,6 +247,7 @@ export class ChatPane extends ChatPaneHeader {
       transcript: this.transcript,
       paneId: this.paneId,
       sessionKey: state.sessionKey,
+      ...this.searchRenderProps(),
       announceTranscript: this.active,
       onSessionKeyChange: (next) => {
         this.onPaneSessionChange?.(this.paneId, next);
@@ -467,8 +468,8 @@ export class ChatPane extends ChatPaneHeader {
       onRequestUpdate: state.requestUpdate,
       onHistoryKeydown: state.handleChatInputHistoryKey,
       onSlashIntent: () => refreshChatCommands(state),
-      showNewMessages: state.chatNewMessagesBelow,
-      onScrollToBottom: state.scrollToBottom,
+      showNewMessages: state.chatNewMessagesBelow || this.searchHistoryAnchored,
+      onScrollToBottom: () => void this.returnFromSearchToLatest(),
       attachments: state.chatAttachments,
       getAttachments: () => state.chatAttachments,
       pendingAttachmentReads: attachmentReads.pendingReads,

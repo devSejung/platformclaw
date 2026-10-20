@@ -105,11 +105,23 @@ describeControlUiE2e("Control UI session transcript search", () => {
       historyMessages: [
         {
           role: "assistant",
+          __openclaw: { id: "message-launch", seq: 1 },
           content: [{ type: "text", text: "The nebula launch checklist is ready." }],
           timestamp,
         },
       ],
       methodResponses: {
+        "chat.history": {
+          messages: [
+            {
+              role: "assistant",
+              __openclaw: { id: "message-launch", seq: 1 },
+              content: [{ type: "text", text: "The nebula launch checklist is ready." }],
+              timestamp,
+            },
+          ],
+          sessionId: "session-launch",
+        },
         "sessions.list": {
           count: 1,
           defaults: { contextTokens: null, model: "gpt-5.5", modelProvider: "openai" },
@@ -120,6 +132,7 @@ describeControlUiE2e("Control UI session transcript search", () => {
               key: "agent:main:launch",
               kind: "direct",
               label: "Launch planning",
+              boardFace: "dashboard",
               status: "done",
               totalTokens: 1200,
               updatedAt: timestamp,
@@ -162,7 +175,9 @@ describeControlUiE2e("Control UI session transcript search", () => {
       agentId: "main",
       limit: 25,
       query: "nebula launch",
-      sessionKeys: ["agent:main:launch"],
+      mode: "substring",
+      scope: "agent",
+      offset: 0,
     });
     await expect.poll(() => result.textContent()).toContain("Launch planning");
     await expect.poll(() => result.textContent()).toContain("Assistant");
@@ -183,8 +198,11 @@ describeControlUiE2e("Control UI session transcript search", () => {
       .poll(() => (page ? new URL(page.url()).pathname : ""))
       .toBe(controlUiSessionPath("agent:main:launch"));
     await page
-      .getByText("The nebula launch checklist is ready.", { exact: true })
+      .getByRole("paragraph")
+      .filter({ hasText: "The nebula launch checklist is ready." })
       .waitFor({ state: "visible", timeout: 10_000 });
+    expect(new URL(page.url()).hash).toContain("message=message-launch");
+    expect(new URL(page.url()).hash).toContain("transcript=session-launch");
     await captureUiProof("04-matching-chat.png");
   });
 
@@ -249,31 +267,19 @@ describeControlUiE2e("Control UI session transcript search", () => {
       agentId: "main",
       limit: 25,
       query: "launch code",
-      sessionKeys: [first.key, moved.key, missed.key],
+      mode: "substring",
+      scope: "agent",
+      offset: 0,
     });
   });
 
   it.each([
+    { label: "a later roster page is unavailable", response: null },
     {
-      label: "a later session page cannot be loaded",
-      response: null,
-      message: /Unable to load all sessions for transcript search\./,
-      proofFile: "05-incomplete-roster-error.png",
+      label: "the roster cursor does not advance",
+      response: { count: 0, sessions: [], hasMore: true, nextOffset: 50 },
     },
-    {
-      label: "the session pagination cursor stops advancing",
-      response: {
-        count: 0,
-        hasMore: true,
-        nextOffset: 50,
-        offset: 50,
-        sessions: [],
-      },
-      message: /Session pagination did not advance during transcript search\./,
-      proofFile: "06-stalled-roster-error.png",
-    },
-  ])("shows a retryable search error when $label", async (testCase) => {
-    const timestamp = Date.parse("2026-07-12T14:30:00.000Z");
+  ])("searches without requesting roster pagination when $label", async ({ response }) => {
     context = await browser.newContext({
       locale: "en-US",
       serviceWorkers: "block",
@@ -285,7 +291,7 @@ describeControlUiE2e("Control UI session transcript search", () => {
       methodResponses: {
         "sessions.list": {
           cases: [
-            { match: { offset: 50 }, response: testCase.response },
+            { match: { offset: 50 }, response },
             {
               response: {
                 count: 1,
@@ -299,40 +305,49 @@ describeControlUiE2e("Control UI session transcript search", () => {
                     key: "agent:main:visible",
                     kind: "direct",
                     label: "Visible session",
-                    updatedAt: timestamp,
+                    updatedAt: 1,
                   },
                 ],
                 totalCount: 51,
-                ts: timestamp,
+                ts: 1,
               },
             },
           ],
         },
-        "sessions.search": { results: [] },
+        "sessions.search": {
+          results: [
+            {
+              sessionKey: "agent:main:unloaded",
+              sessionId: "unloaded",
+              messageId: "unloaded-hit",
+              role: "assistant",
+              timestamp: 1,
+              snippet: "needle outside the loaded roster",
+              score: 0,
+            },
+          ],
+          totalCount: 1,
+          hasMore: false,
+        },
       },
     });
-
     await page.goto(`${server?.baseUrl ?? ""}sessions`);
-    const search = page.getByRole("search", { name: "Search transcripts" });
-    const input = search.getByRole("searchbox", { name: "Search thread transcripts" });
-    await input.waitFor({ state: "visible", timeout: 10_000 });
+    const input = page.getByRole("searchbox", { name: "Search thread transcripts" });
+    await input.waitFor({ state: "visible" });
     await input.fill("needle");
     await input.press("Enter");
-
-    await page
-      .locator(".sessions-transcript-search__notice--danger")
-      .getByText(testCase.message)
-      .waitFor({ state: "visible", timeout: 10_000 });
-    await page.getByRole("button", { name: "Retry" }).waitFor({ state: "visible" });
-    await expect
-      .poll(async () =>
-        (await gateway.getRequests("sessions.list")).some(
-          (request) => (request.params as { offset?: number } | undefined)?.offset === 50,
-        ),
-      )
-      .toBe(true);
-    expect(await gateway.getRequests("sessions.search")).toHaveLength(0);
-    await captureUiProof(testCase.proofFile);
+    await page.getByText("needle outside the loaded roster", { exact: true }).waitFor();
+    expect(await gateway.getRequests("sessions.search")).toHaveLength(1);
+    expect(
+      (await gateway.getRequests("sessions.list")).some(
+        (request) => (request.params as { offset?: number })?.offset === 50,
+      ),
+    ).toBe(false);
+    expect((await gateway.getRequests("sessions.search"))[0]?.params).toMatchObject({
+      scope: "agent",
+      mode: "substring",
+      query: "needle",
+    });
   });
 
   it("ignores stale results and exposes indexing and request errors", async () => {

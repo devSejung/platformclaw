@@ -37,9 +37,8 @@ type ChatHistoryPage = {
   messages: unknown[];
   responseOffset?: number;
   completeCliImport?: true;
-  // Absent only for anchored (messageId) reads: the anchor may resolve a
-  // reset-archive transcript that numeric offset cursors cannot address, so
-  // anchored responses expose no paging metadata.
+  // Reset archives cannot be addressed by numeric offsets; active-source
+  // anchors retain paging so search navigation can load surrounding history.
   pagination?: {
     offset: number;
     totalMessages: number;
@@ -336,7 +335,7 @@ export async function readChatHistoryPage(params: {
         ? projected
         : capOffsetChatHistoryProjectedMessages(projected, max);
     const normalized = augmentChatHistoryWithCanvasBlocks(windowed);
-    if (messageId) {
+    if (messageId && readPage.transcriptSource !== "active") {
       // Numeric offsets do not encode the selected historical transcript source.
       return { messages: normalized };
     }

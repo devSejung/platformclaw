@@ -459,7 +459,7 @@ it("keeps prose and confirmed yield while hiding paired sibling tools", () => {
   ).toEqual([]);
 });
 
-it("does not expose an unnamed failed yield result when search filters out its call", () => {
+it("sanitizes an unnamed failed yield result while preserving its visible outcome", () => {
   const messages = [
     {
       ...separateHistory[0],
@@ -477,10 +477,8 @@ it("does not expose an unnamed failed yield result when search filters out its c
     createProps({
       messages,
       showToolCalls: true,
-      searchOpen: true,
-      searchQuery: "PRIVATE_SEARCH_CONTEXT",
     }),
   );
   expect(JSON.stringify(items)).not.toContain("PRIVATE_SEARCH_CONTEXT");
-  expect(items).toEqual([]);
+  expect(JSON.stringify(items)).toContain("Could not hand off the turn");
 });

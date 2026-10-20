@@ -11,7 +11,6 @@ import {
 import { normalizeRoleForGrouping } from "../../lib/chat/message-normalizer.ts";
 import { extractToolCardsCached, extractToolPreview } from "../../lib/chat/tool-cards.ts";
 import { fnv1aUtf16 } from "../../lib/fnv1a.ts";
-import { normalizeLowercaseStringOrEmpty } from "../../lib/string-coerce.ts";
 
 export function appendCanvasBlockToAssistantMessage(
   message: unknown,
@@ -66,37 +65,6 @@ export function safeNormalizeMessage(message: unknown): NormalizedMessage | null
   } catch {
     return null;
   }
-}
-
-export function messageMatchesSearchQuery(message: unknown, query: string): boolean {
-  const normalizedQuery = normalizeLowercaseStringOrEmpty(query);
-  if (!normalizedQuery) {
-    return true;
-  }
-  const text = normalizeLowercaseStringOrEmpty(extractTextCached(message));
-  return text.includes(normalizedQuery);
-}
-
-export function turnHasMatchingAssistant(
-  messages: unknown[],
-  sourceIndex: number,
-  searchQuery: string,
-): boolean {
-  for (let index = sourceIndex + 1; index < messages.length; index += 1) {
-    const message = messages[index];
-    const normalized = safeNormalizeMessage(message);
-    if (!normalized) {
-      continue;
-    }
-    const role = normalizeRoleForGrouping(normalized.role).toLowerCase();
-    if (role === "user" || role === "system") {
-      return false;
-    }
-    if (role === "assistant" && messageMatchesSearchQuery(message, searchQuery)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 type ChatMessagePreview = {
@@ -191,7 +159,6 @@ export function findNearestAssistantMessageIndex(
   toolTimestamp: number | null,
   minimumIndex = 0,
   maximumIndex = items.length,
-  searchQuery?: string,
 ): number | null {
   let currentTurnStart = minimumIndex;
   let currentTurnEnd = maximumIndex;
@@ -221,10 +188,7 @@ export function findNearestAssistantMessageIndex(
       }
       const message = asRecord(item.message);
       const role = typeof message?.role === "string" ? message.role.toLowerCase() : "";
-      if (
-        role !== "assistant" ||
-        (searchQuery && !messageMatchesSearchQuery(message, searchQuery))
-      ) {
+      if (role !== "assistant") {
         return null;
       }
       return {

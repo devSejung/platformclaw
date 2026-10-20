@@ -244,6 +244,8 @@ export async function reconcileSessionTranscriptIndexes(
   return new Promise<SessionTranscriptReconcileResult>((resolve, reject) => {
     let active: ActivePreparedProjection | undefined;
     let doneReceived = false;
+    let cleanupFinished = false;
+    let exitedCleanly = false;
     let reconciledSessions = 0;
     let settled = false;
     const settle = (finish: () => void, terminate: boolean) => {
@@ -281,7 +283,10 @@ export async function reconcileSessionTranscriptIndexes(
           settle(() => reject(normalizeReconcileError(error)), true);
           return;
         }
-        settle(() => resolve({ reconciledSessions }), false);
+        cleanupFinished = true;
+        if (exitedCleanly) {
+          settle(() => resolve({ reconciledSessions }), false);
+        }
         return;
       }
       try {
@@ -328,6 +333,12 @@ export async function reconcileSessionTranscriptIndexes(
     });
     worker.once("exit", (code) => {
       if (doneReceived && code === 0) {
+        // done precedes Worker teardown. Hold ownership until the handles are
+        // closed, otherwise session deletion can race a completed reconcile.
+        exitedCleanly = true;
+        if (cleanupFinished) {
+          settle(() => resolve({ reconciledSessions }), false);
+        }
         return;
       }
       settle(

@@ -226,6 +226,42 @@ describe("chat transcript row measurement", () => {
     transcript.hostDisconnected();
   });
 
+  it("reveals a search hit beyond the truncated assistant preview through the canonical loader", async () => {
+    const transcript = createTestTranscript();
+    const container = document.body.appendChild(document.createElement("div"));
+    const loadFullAssistantMessage = vi.fn().mockResolvedValue({
+      ok: true,
+      message: { role: "assistant", content: "Complete content with 배포 설정." },
+    });
+    const props = {
+      ...threadProps("pane-search-expand", "agent:work:main", [
+        {
+          role: "assistant",
+          content: "Preview\n...(truncated)...",
+          __openclaw: { id: "search-full", seq: 1 },
+          timestamp: 1000,
+        },
+      ]),
+      searchHighlightQuery: "배포",
+      searchRevealMessageId: "search-full",
+      loadFullAssistantMessage,
+      onRequestUpdate: () => {
+        render(renderChatThread(props, transcript), container);
+        transcript.hostUpdated();
+      },
+    };
+    render(renderChatThread(props, transcript), container);
+    transcript.hostConnected();
+    transcript.hostUpdated();
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Complete content with 배포 설정."),
+    );
+    expect(loadFullAssistantMessage).toHaveBeenCalledOnce();
+    expect(transcript.revealMessage("search-full")).toBe(true);
+    expect(transcript.revealMessage("deleted-hit")).toBe(false);
+    transcript.hostDisconnected();
+  });
+
   it("shows a retryable inline error when full assistant content cannot be loaded", async () => {
     const transcript = createTestTranscript();
     const container = document.body.appendChild(document.createElement("div"));

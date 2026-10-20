@@ -4235,6 +4235,10 @@ export const en: TranslationMap = {
     },
   },
   palette: {
+    conversationSearch: "Search conversations",
+    conversationSearchHint: "Search titles and messages, including archived conversations.",
+    moreResults: "Show more results",
+    titleMatch: "Title match",
     placeholder: "Search chats and commands…",
     noResults: "No results",
     categories: {
@@ -5700,6 +5704,16 @@ export const en: TranslationMap = {
       search: "Search messages",
       searchPlaceholder: "Search messages...",
       closeSearch: "Close search",
+      searching: "Searching…",
+      searchFailed: "Search failed. Try again.",
+      searchUnavailable: "Connect to search this conversation.",
+      previousMatch: "Previous matching message",
+      nextMatch: "Next matching message",
+      searchPartial: "The transcript index is updating. Results may be incomplete.",
+      searchCount: "{current} / {total} messages",
+      searchHelp: "Enter / Shift+Enter",
+      resultUnavailable:
+        "This message is no longer available. Search again to refresh the results.",
       unpin: "Unpin",
       loading: "Loading chat",
       noMatches: "No matching messages",

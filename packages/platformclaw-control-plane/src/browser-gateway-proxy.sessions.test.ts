@@ -2,6 +2,73 @@ import { describe, expect, it } from "vitest";
 import { setupBrowserGatewayProxyTest as setup } from "./browser-gateway-proxy.test-harness.js";
 
 describe("BrowserGatewayProxy session lifecycle", () => {
+  it("pins whole-agent literal search to the browser owner before paging and counts", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const key = `agent:${binding.agentId}:main`;
+    const result = {
+      results: [{ sessionKey: key, messageId: "m1", snippet: "배포실패" }],
+      totalCount: 3,
+      hasMore: true,
+    };
+    request.mockResolvedValueOnce(result);
+    await expect(
+      proxy.request(token, "sessions.search", {
+        query: "배포",
+        mode: "substring",
+        scope: "agent",
+        offset: 1,
+        limit: 1,
+      }),
+    ).resolves.toEqual(result);
+    expect(request).toHaveBeenLastCalledWith("sessions.search", {
+      query: "배포",
+      mode: "substring",
+      scope: "agent",
+      offset: 1,
+      limit: 1,
+      agentId: binding.agentId,
+      excludeSessionKeyPrefixes: [`agent:${binding.agentId}:space-session:`],
+    });
+    await expect(
+      proxy.request(token, "sessions.search", {
+        query: "배포",
+        mode: "substring",
+        scope: "agent",
+        agentId: "other",
+      }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+    await expect(
+      proxy.request(token, "sessions.search", {
+        query: "배포",
+        mode: "substring",
+        scope: "agent",
+        sessionKeys: ["agent:other:main"],
+      }),
+    ).rejects.toMatchObject({ code: "cross-agent-denied" });
+  });
+
+  it("rejects foreign, Space, and malformed whole-agent search results including their counts", async () => {
+    const { binding, proxy, request, token } = await setup();
+    for (const result of [
+      { results: [{ sessionKey: "agent:other:main" }], totalCount: 100 },
+      {
+        results: [{ sessionKey: `agent:${binding.agentId}:space-session:hidden` }],
+        totalCount: 100,
+      },
+      { totalCount: 100 },
+      { results: [{ key: `agent:${binding.agentId}:main` }], totalCount: 100 },
+    ]) {
+      request.mockResolvedValueOnce(result);
+      await expect(
+        proxy.request(token, "sessions.search", {
+          query: "배포",
+          mode: "substring",
+          scope: "agent",
+        }),
+      ).rejects.toMatchObject({ code: "upstream-result-denied" });
+    }
+  });
+
   it("keeps owned session reads while removing cross-agent ACP child lineage", async () => {
     const { binding, proxy, request, token } = await setup();
     const key = `agent:${binding.agentId}:dashboard:f63ef63b-0aaa-4000-8000-000000000001`;

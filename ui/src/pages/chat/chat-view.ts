@@ -32,8 +32,10 @@ import type { ControlUiFollowUpMode } from "../../lib/chat/follow-up-mode.ts";
 import type { CanvasPluginSurfaceRoute, EmbedSandboxMode } from "../../lib/chat/tool-display.ts";
 import { resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
 import type { ProviderUsageDisplayProps } from "../../lib/provider-quota-summary.ts";
+import type { SessionSearchTarget } from "../../lib/session-search-navigation.ts";
 import type { SessionToolOverrides } from "../../lib/sessions/patch.ts";
 import type { UiSessionDefaultsHost } from "../../lib/sessions/session-key.ts";
+import { CHAT_MODAL_SELECTOR } from "./chat-pane-shared.ts";
 import type { ChatRunStartupStatus } from "./chat-run-startup.ts";
 import type { ChatSessionCompanionThread } from "./chat-session-companion.ts";
 import { renderChatViewNotices } from "./chat-view-notices.ts";
@@ -62,7 +64,8 @@ import {
   renderChatPinnedMessages,
   renderChatSearchBar,
   renderChatThread,
-  toggleChatThreadSearch,
+  openChatThreadSearch,
+  closeChatThreadSearch,
 } from "./components/chat-thread.ts";
 import type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult } from "./input-history.ts";
 import type { RealtimeTalkConversationEntry } from "./realtime-talk-conversation.ts";
@@ -87,6 +90,11 @@ export type ChatProps = {
   transcript: ChatTranscriptController;
   paneId: string;
   sessionKey: string;
+  searchSessionId?: string;
+  searchHighlightQuery?: string;
+  searchRevealMessageId?: string;
+  onSearchResult?: (target: SessionSearchTarget) => void;
+  onSearchInvalidate?: () => void;
   announceTranscript?: boolean;
   onSessionKeyChange: (next: string) => void;
   thinkingLevel: string | null;
@@ -331,6 +339,8 @@ export function renderChat(props: ChatProps) {
     {
       paneId: props.paneId,
       sessionKey: props.sessionKey,
+      searchHighlightQuery: props.searchHighlightQuery,
+      searchRevealMessageId: props.searchRevealMessageId,
       announceTranscript: props.announceTranscript,
       loading: props.loading,
       historyPagination: props.historyPagination,
@@ -524,11 +534,18 @@ export function renderChat(props: ChatProps) {
       @click=${(event: Event) => openInlineChatImage(event, openImmediateImage)}
       @dragover=${attachmentDropHandlers.onDragover}
       @keydown=${(event: KeyboardEvent) => {
+        if (event.defaultPrevented || event.isComposing || event.keyCode === 229) {
+          return;
+        }
         if (isImageLightboxEvent(event)) {
           return;
         }
         if ((event.key === "Enter" || event.key === " ") && inlineChatImageFromEvent(event)) {
           openInlineChatImage(event, openImmediateImage);
+          return;
+        }
+        if (event.key === "Escape" && closeChatThreadSearch(props.paneId)) {
+          event.preventDefault();
           return;
         }
         if (event.key === "Escape" && props.replyTarget && !event.defaultPrevented) {
@@ -540,14 +557,23 @@ export function renderChat(props: ChatProps) {
           (event.metaKey || event.ctrlKey) &&
           !event.altKey &&
           !event.shiftKey &&
+          !document.querySelector(CHAT_MODAL_SELECTOR) &&
           resolveAsciiShortcutKey(event) === "f"
         ) {
           event.preventDefault();
-          toggleChatThreadSearch(props.paneId, requestUpdate);
+          openChatThreadSearch(props.paneId, requestUpdate);
         }
       }}
     >
-      ${renderChatViewNotices(props)} ${renderChatSearchBar(props.paneId, requestUpdate)}
+      ${renderChatViewNotices(props)}
+      ${renderChatSearchBar(props.paneId, requestUpdate, {
+        agentId: props.currentAgentId,
+        sessionKey: props.sessionKey,
+        sessionId: props.searchSessionId,
+        client: props.gatewayClient,
+        onResult: props.onSearchResult,
+        onInvalidate: props.onSearchInvalidate,
+      })}
       ${renderChatPinnedMessages(
         {
           paneId: props.paneId,

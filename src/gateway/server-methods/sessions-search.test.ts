@@ -5,11 +5,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayRequestContext, RespondFn } from "./types.js";
 
 const searchSessionTranscriptsMock = vi.fn();
+const searchSessionTranscriptSubstringsMock = vi.fn();
 const listSessionEntriesMock = vi.fn();
 const resolveExistingAgentSessionStoreTargetsSyncMock = vi.fn();
 
 vi.mock("../../config/sessions/session-transcript-search.js", () => ({
   searchSessionTranscripts: (...args: unknown[]) => searchSessionTranscriptsMock(...args),
+}));
+vi.mock("../../config/sessions/session-transcript-search-worker.js", () => ({
+  searchSessionTranscriptSubstrings: (...args: unknown[]) =>
+    searchSessionTranscriptSubstringsMock(...args),
 }));
 vi.mock("../../config/sessions/session-accessor.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../config/sessions/session-accessor.js")>()),
@@ -67,6 +72,13 @@ describe("sessions.search gateway method", () => {
     cfg = { agents: { list: [{ id: "main", default: true }, { id: "work" }] } };
     searchSessionTranscriptsMock.mockReset();
     searchSessionTranscriptsMock.mockReturnValue({ hits: [], indexing: false });
+    searchSessionTranscriptSubstringsMock.mockReset();
+    searchSessionTranscriptSubstringsMock.mockResolvedValue({
+      hits: [],
+      indexing: false,
+      totalCount: 0,
+      hasMore: false,
+    });
     listSessionEntriesMock.mockReset();
     listSessionEntriesMock.mockReturnValue([]);
     resolveExistingAgentSessionStoreTargetsSyncMock.mockReset();
@@ -88,6 +100,136 @@ describe("sessions.search gateway method", () => {
       expect.objectContaining({ message: "query must not be empty" }),
     );
     expect(searchSessionTranscriptsMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves visible agent scope before literal counts and pages", async () => {
+    const key = "agent:work:thread";
+    const hidden = "agent:work:space-session:hidden";
+    listSessionEntriesMock.mockReturnValue([
+      { sessionKey: key, entry: { label: "Deployment notes" } },
+      { sessionKey: hidden, entry: {} },
+      { sessionKey: "agent:other:secret", entry: {} },
+      { sessionKey: "global", entry: {} },
+      { sessionKey: "unknown", entry: {} },
+      { sessionKey: "agent:work:cron:job", entry: {} },
+      { sessionKey: "agent:work:subagent:child", entry: {} },
+      { sessionKey: "agent:work:child", entry: { spawnedBy: key } },
+      { sessionKey: "agent:work:dashboard:incognito-hidden", entry: { incognito: true } },
+      {
+        sessionKey: "agent:work:draft",
+        entry: { visibility: "draft", createdActor: { id: "other" } },
+      },
+    ]);
+    searchSessionTranscriptSubstringsMock.mockResolvedValue({
+      hits: [
+        {
+          sessionKey: key,
+          sessionId: "current",
+          messageId: "m1",
+          role: "user",
+          timestamp: 1,
+          snippet: "배포실패",
+          score: 0,
+        },
+      ],
+      totalCount: 4,
+      hasMore: true,
+      truncated: true,
+      indexing: true,
+    });
+    const respond = await callSearch(
+      {
+        agentId: "work",
+        scope: "agent",
+        mode: "substring",
+        query: "배포",
+        sessionId: "current",
+        offset: 1,
+        limit: 1,
+        excludeSessionKeyPrefixes: ["agent:work:space-session:"],
+      },
+      ["operator.read"],
+      "viewer",
+    );
+    expect(searchSessionTranscriptSubstringsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "work",
+        query: "배포",
+        sessionKeys: [key],
+        sessionId: "current",
+        offset: 1,
+        limit: 1,
+      }),
+    );
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({
+        totalCount: 4,
+        hasMore: true,
+        indexing: true,
+        results: [expect.objectContaining({ sessionKey: key, title: "Deployment notes" })],
+      }),
+    );
+    expect(searchSessionTranscriptsMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a complete empty literal result without widening an empty authorized scope", async () => {
+    const respond = await callSearch({
+      agentId: "work",
+      scope: "agent",
+      mode: "substring",
+      query: "배포",
+    });
+    expect(respond).toHaveBeenCalledWith(true, { results: [], totalCount: 0, hasMore: false });
+    expect(searchSessionTranscriptSubstringsMock).not.toHaveBeenCalled();
+    const legacy = await callSearch({ agentId: "work", scope: "agent", query: "needle" });
+    expect(legacy).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "INVALID_REQUEST" }),
+    );
+  });
+
+  it("keeps explicitly selected global sessions searchable outside agent discovery", async () => {
+    listSessionEntriesMock.mockReturnValue([{ sessionKey: "global", entry: {} }]);
+    await callSearch({
+      agentId: "work",
+      sessionKeys: ["global"],
+      mode: "substring",
+      query: "배포",
+    });
+    expect(searchSessionTranscriptSubstringsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "work",
+        sessionKeys: ["global"],
+        query: "배포",
+      }),
+    );
+  });
+
+  it("withholds rows and counts when permission changes while the worker searches", async () => {
+    const key = "agent:work:thread";
+    listSessionEntriesMock.mockReturnValue([{ sessionKey: key, entry: {} }]);
+    searchSessionTranscriptSubstringsMock.mockImplementationOnce(async () => {
+      await Promise.resolve();
+      listSessionEntriesMock.mockReturnValue([
+        { sessionKey: key, entry: { visibility: "draft", createdActor: { id: "other" } } },
+      ]);
+      return { hits: [], totalCount: 100, hasMore: true, indexing: false };
+    });
+    const respond = await callSearch(
+      { agentId: "work", scope: "agent", mode: "substring", query: "배포" },
+      ["operator.read"],
+      "viewer",
+    );
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        code: "UNAVAILABLE",
+        message: "Conversation visibility changed. Search again.",
+      }),
+    );
   });
 
   it("derives one agent and canonical filters from sessionKeys", async () => {

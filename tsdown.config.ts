@@ -294,6 +294,8 @@ function buildCoreDistEntries(): Record<string, string> {
       "src/config/sessions/session-accessor.sqlite-archive.worker.ts",
     "config/sessions/session-transcript-reconcile.worker":
       "src/config/sessions/session-transcript-reconcile.worker.ts",
+    "config/sessions/session-transcript-search.worker":
+      "src/config/sessions/session-transcript-search.worker.ts",
     "state/openclaw-database-verify.worker": "src/state/openclaw-database-verify.worker.ts",
     "system-agent/setup-inference-detection.worker":
       "src/system-agent/setup-inference-detection.worker.ts",

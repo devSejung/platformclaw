@@ -1,8 +1,11 @@
+import { property, state as litState } from "lit/decorators.js";
 import type { SessionsCatalogContinueResult } from "../../../../packages/gateway-protocol/src/index.js";
 import {
   COMMAND_PALETTE_TARGET_EVENT,
   type CommandPaletteTargetDetail,
 } from "../../components/command-palette-contract.ts";
+import { t } from "../../i18n/index.ts";
+import type { SessionSearchTarget } from "../../lib/session-search-navigation.ts";
 import {
   announceCatalogSessionContinued,
   parseCatalogSessionKey,
@@ -17,10 +20,12 @@ import { replaceChatAttachmentsFromEditor } from "./attachment-payload-store.ts"
 import type { ChatHistoryPagination } from "./chat-history-pagination.ts";
 import {
   loadChatHistory,
+  loadChatHistoryAnchor,
   loadOlderChatHistoryPage,
   resolveChatHistoryPagination,
   rewindChatHistory,
   switchChatHistoryBranch,
+  waitForPendingChatHistory,
 } from "./chat-history.ts";
 import { ChatPaneSession } from "./chat-pane-session.ts";
 import {
@@ -33,6 +38,7 @@ import {
 import { persistChatComposerState } from "./composer-persistence.ts";
 import {
   captureChatSessionScrollPosition,
+  cancelChatScroll,
   getChatSessionScrollPosition,
   restoreChatScroll,
   saveChatSessionScrollPosition,
@@ -41,6 +47,134 @@ import {
 } from "./scroll.ts";
 
 export abstract class ChatPaneHistory extends ChatPaneSession {
+  @property({ attribute: false }) searchTarget?: SessionSearchTarget;
+  @litState() protected searchHighlightQuery = "";
+  @litState() protected searchRevealMessageId = "";
+  @litState() protected searchHistoryAnchored = false;
+  private consumedSearchTarget?: SessionSearchTarget;
+  private searchNavigationVersion = 0;
+
+  protected searchRenderProps() {
+    const state = this.state;
+    const agentId = state
+      ? scopedAgentParamsForSession(state, state.sessionKey).agentId
+      : undefined;
+    return {
+      searchSessionId: this.state?.currentSessionId ?? undefined,
+      searchHighlightQuery: this.searchHighlightQuery,
+      searchRevealMessageId: this.searchRevealMessageId,
+      onSearchResult: (target: SessionSearchTarget) =>
+        void this.revealSearchResult(target, agentId),
+      onSearchInvalidate: () => this.invalidateSearchNavigation(),
+    };
+  }
+
+  protected syncSearchTarget(): void {
+    const target = this.searchTarget;
+    const agentId =
+      this.state && target
+        ? scopedAgentParamsForSession(this.state, target.sessionKey).agentId
+        : undefined;
+    if (
+      !target ||
+      !this.active ||
+      target === this.consumedSearchTarget ||
+      !this.state?.connected ||
+      !visibleSessionMatches(this.state, target.sessionKey, agentId)
+    ) {
+      return;
+    }
+    this.consumedSearchTarget = target;
+    void this.revealSearchResult(target, agentId);
+  }
+
+  protected async revealSearchResult(target: SessionSearchTarget, agentId?: string): Promise<void> {
+    const state = this.state;
+    if (!state || !visibleSessionMatches(state, target.sessionKey, agentId)) {
+      return;
+    }
+    const client = state.client;
+    const connectionEpoch = state.connectionEpoch;
+    const version = ++this.searchNavigationVersion;
+    const isCurrent = () =>
+      this.isConnected &&
+      this.state === state &&
+      state.connected &&
+      state.client === client &&
+      state.connectionEpoch === connectionEpoch &&
+      version === this.searchNavigationVersion &&
+      visibleSessionMatches(state, target.sessionKey, agentId);
+    try {
+      // A restored window can already contain this hit. Await the initial tail
+      // before either reveal path or its later commit would undo the jump.
+      await waitForPendingChatHistory(state);
+      if (!isCurrent()) {
+        return;
+      }
+      cancelChatScroll(state);
+      state.chatFollowLocked = true;
+      state.chatHasAutoScrolled = true;
+      this.searchHighlightQuery = target.query;
+      this.searchRevealMessageId = target.messageId;
+      this.requestUpdate();
+      await this.updateComplete;
+      if (!isCurrent()) {
+        return;
+      }
+      if (this.transcript.revealMessage(target.messageId)) {
+        return;
+      }
+      const found = await loadChatHistoryAnchor(state, target, isCurrent);
+      if (!isCurrent()) {
+        return;
+      }
+      if (!found) {
+        state.lastError = t("chat.thread.resultUnavailable");
+        this.requestUpdate();
+        return;
+      }
+      cancelChatScroll(state);
+      state.chatFollowLocked = true;
+      state.chatNewMessagesBelow = true;
+      this.searchHistoryAnchored = true;
+      this.requestUpdate();
+      await this.updateComplete;
+      if (isCurrent() && !this.transcript.revealMessage(target.messageId)) {
+        state.lastError = t("chat.thread.resultUnavailable");
+        this.requestUpdate();
+      }
+    } catch (error) {
+      if (isCurrent()) {
+        state.lastError = error instanceof Error ? error.message : String(error);
+        this.requestUpdate();
+      }
+    }
+  }
+
+  protected invalidateSearchNavigation(): void {
+    this.searchNavigationVersion += 1;
+    this.searchHighlightQuery = "";
+    this.searchRevealMessageId = "";
+  }
+
+  protected async returnFromSearchToLatest(): Promise<void> {
+    const state = this.state;
+    if (!state) {
+      return;
+    }
+    const sessionKey = state.sessionKey;
+    this.invalidateSearchNavigation();
+    if (this.searchHistoryAnchored) {
+      const result = await loadChatHistory(state);
+      if (!result || this.state !== state || state.sessionKey !== sessionKey) {
+        return;
+      }
+    }
+    this.searchHistoryAnchored = false;
+    this.searchHighlightQuery = "";
+    this.searchRevealMessageId = "";
+    state.scrollToBottom();
+  }
   private releaseCommandPaletteTarget?: () => void;
   private activeCatalogContinuation: symbol | null = null;
 
@@ -61,6 +195,10 @@ export abstract class ChatPaneHistory extends ChatPaneSession {
   }
 
   protected resetOlderMessagesViewport(nextSessionKey?: string): ChatSessionScrollPosition | null {
+    this.searchNavigationVersion += 1;
+    this.searchHistoryAnchored = false;
+    this.searchHighlightQuery = "";
+    this.searchRevealMessageId = "";
     let restoredPosition: ChatSessionScrollPosition | null = null;
     const state = this.state;
     if (nextSessionKey && state) {

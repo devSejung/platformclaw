@@ -9,46 +9,28 @@ import {
   validateSessionsListParams,
   validateSessionsPreviewParams,
   validateSessionsResolveParams,
-  validateSessionsSearchParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import {
-  isConfiguredSessionStoreAgentId,
-  isPerAgentSessionStoreConfig,
   listSessionMembershipKeys,
-  resolveExistingAgentSessionStoreTargetsSync,
-  resolveStorePath,
   runSessionsCleanup,
   serializeSessionCleanupResult,
   type SessionEntry,
 } from "../../config/sessions.js";
-import { listSessionEntriesReadOnly } from "../../config/sessions/session-accessor.js";
-import { searchSessionTranscripts } from "../../config/sessions/session-transcript-search.js";
 import { buildProjectedAgentRunIndex } from "../../infra/agent-run-registry.js";
 import {
   measureDiagnosticsTimelineSpan,
   measureDiagnosticsTimelineSpanSync,
 } from "../../infra/diagnostics-timeline.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import {
-  isIncognitoSessionKey,
-  normalizeAgentId,
-  parseAgentSessionKey,
-} from "../../routing/session-key.js";
 import { resolveRequestedSessionAgentId as resolveRequestedGlobalAgentId } from "../session-request-agent.js";
 import {
-  canAccessIncognitoSession,
   createSessionListEntryFilter,
   isGatewayAdmin,
   resolveSessionSharingRole,
   resolveSessionSharingTarget,
   resolveSessionVisibility,
 } from "../session-sharing.js";
-import {
-  resolveSessionStoreAgentId,
-  resolveSessionStoreKey,
-  resolveStoredSessionKeyForAgentStore,
-} from "../session-store-key.js";
 import {
   readRecentSessionMessagesWithStatsAsync,
   readSessionPreviewItemsFromTranscript,
@@ -77,6 +59,7 @@ import {
 } from "./session-active-runs.js";
 import { emitSessionsChanged } from "./session-change-event.js";
 import { respondWithCachedSessionList } from "./sessions-list-cache.js";
+import { sessionSearchHandlers } from "./sessions-search.js";
 import {
   filterSessionStoreToConfiguredAgents,
   loadSessionEntriesForTarget,
@@ -86,147 +69,7 @@ import type { GatewayRequestHandlers } from "./types.js";
 import { assertValidParams } from "./validation.js";
 
 export const sessionReadHandlers: GatewayRequestHandlers = {
-  "sessions.search": async ({ params, respond, context, client }) => {
-    if (!assertValidParams(params, validateSessionsSearchParams, "sessions.search", respond)) {
-      return;
-    }
-    const query = params.query.trim();
-    if (!query) {
-      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "query must not be empty"));
-      return;
-    }
-    const cfg = context.getRuntimeConfig();
-    const restrictIncognito =
-      Boolean(gatewayClientSessionCreator(client)) && !isGatewayAdmin(client);
-    const canSearchSessionKey = (sessionKey: string) =>
-      !isIncognitoSessionKey(sessionKey) ||
-      canAccessIncognitoSession({ cfg, client: client ?? null, sessionKey });
-    const requestedAgentId = params.agentId ? normalizeAgentId(params.agentId) : undefined;
-    const sessionKeys = params.sessionKeys?.map((sessionKey) =>
-      requestedAgentId
-        ? resolveStoredSessionKeyForAgentStore({ cfg, agentId: requestedAgentId, sessionKey })
-        : resolveSessionStoreKey({ cfg, sessionKey }),
-    );
-    const agentIds = new Set(
-      sessionKeys?.map((sessionKey) =>
-        requestedAgentId && (sessionKey === "global" || sessionKey === "unknown")
-          ? requestedAgentId
-          : resolveSessionStoreAgentId(cfg, sessionKey),
-      ),
-    );
-    if (
-      agentIds.size > 1 ||
-      (requestedAgentId && [...agentIds].some((agentId) => agentId !== requestedAgentId))
-    ) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, "sessions.search supports one agent per call"),
-      );
-      return;
-    }
-    const agentId =
-      requestedAgentId ?? agentIds.values().next().value ?? resolveDefaultAgentId(cfg);
-    const configured = isConfiguredSessionStoreAgentId(cfg, agentId);
-    if (requestedAgentId && !params.sessionKeys && configured) {
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.INVALID_REQUEST, "agentId requires sessionKeys"),
-      );
-      return;
-    }
-    const scopedSessionKeysRaw = configured
-      ? sessionKeys
-      : sessionKeys?.filter((sessionKey) => {
-          const sessionAgentId =
-            requestedAgentId && (sessionKey === "global" || sessionKey === "unknown")
-              ? requestedAgentId
-              : resolveSessionStoreAgentId(cfg, sessionKey);
-          return sessionAgentId === agentId;
-        });
-    const scopedSessionKeys = scopedSessionKeysRaw?.filter(canSearchSessionKey);
-    if (!configured && scopedSessionKeys?.length === 0) {
-      respond(true, { results: [] }, undefined);
-      return;
-    }
-    const existingTargets = configured
-      ? []
-      : resolveExistingAgentSessionStoreTargetsSync(cfg, agentId);
-    if (!configured && existingTargets.length === 0) {
-      respond(true, { results: [] }, undefined);
-      return;
-    }
-    try {
-      const configuredVisibleSessionKeys =
-        restrictIncognito && configured && scopedSessionKeys === undefined
-          ? listSessionEntriesReadOnly({
-              agentId,
-              storePath: resolveStorePath(cfg.session?.store, { agentId }),
-            })
-              .map((entry) => entry.sessionKey)
-              .filter(canSearchSessionKey)
-          : undefined;
-      const searchTargets = configured ? [undefined] : existingTargets;
-      const targetResults = searchTargets.flatMap((target) => {
-        const targetSessionKeys =
-          scopedSessionKeys ??
-          configuredVisibleSessionKeys ??
-          (target && (restrictIncognito || !isPerAgentSessionStoreConfig(cfg.session?.store))
-            ? listSessionEntriesReadOnly({ agentId: target.agentId, storePath: target.storePath })
-                .map((entry) => entry.sessionKey)
-                .filter((sessionKey) => {
-                  if (!canSearchSessionKey(sessionKey)) {
-                    return false;
-                  }
-                  const parsed = parseAgentSessionKey(sessionKey);
-                  return !parsed || normalizeAgentId(parsed.agentId) === agentId;
-                })
-            : undefined);
-        if (targetSessionKeys?.length === 0) {
-          return [];
-        }
-        return [
-          searchSessionTranscripts({
-            agentId: target?.agentId ?? agentId,
-            query,
-            // Over-fetch retired multi-store searches so deduplication can still fill the caller's
-            // requested page when the same transcript was copied during a store migration.
-            limit: configured ? params.limit : 25,
-            ...(targetSessionKeys ? { sessionKeys: targetSessionKeys } : {}),
-            ...(target ? { storePath: target.storePath } : {}),
-          }),
-        ];
-      });
-      const limit = params.limit ?? 10;
-      const sortedHits = targetResults
-        .flatMap((result) => result.hits)
-        .toSorted(
-          (left, right) =>
-            right.score - left.score ||
-            right.timestamp - left.timestamp ||
-            left.messageId.localeCompare(right.messageId),
-        );
-      const seenHits = new Set<string>();
-      const hits = sortedHits.filter((hit) => {
-        const identity = `${hit.sessionKey}\u0000${hit.sessionId}\u0000${hit.messageId}`;
-        if (seenHits.has(identity)) {
-          return false;
-        }
-        seenHits.add(identity);
-        return true;
-      });
-      respond(true, {
-        results: hits.slice(0, limit),
-        ...(targetResults.some((result) => result.indexing) ? { indexing: true } : {}),
-        ...(targetResults.some((result) => result.truncated) || hits.length > limit
-          ? { truncated: true }
-          : {}),
-      });
-    } catch (error) {
-      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatErrorMessage(error)));
-    }
-  },
+  ...sessionSearchHandlers,
   "sessions.list": async ({ params, respond, client, context }) => {
     if (!assertValidParams(params, validateSessionsListParams, "sessions.list", respond)) {
       return;
