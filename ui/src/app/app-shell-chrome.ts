@@ -339,7 +339,7 @@ export class ShellChromeOwner {
 
   readonly handleDocumentKeydown = (event: KeyboardEvent): void => {
     const host = this.host;
-    if (!host.runtime?.shellSession && !host.commandPalette && isCommandPaletteShortcut(event)) {
+    if (!host.commandPalette && isCommandPaletteShortcut(event)) {
       event.preventDefault();
       this.togglePalette();
       return;
@@ -403,9 +403,6 @@ export class ShellChromeOwner {
 
   runWithCommandPalette(action: (palette: CommandPaletteElement) => void): void {
     const host = this.host;
-    if (host.runtime?.shellSession) {
-      return;
-    }
     const palette = host.commandPalette;
     if (palette) {
       action(palette);

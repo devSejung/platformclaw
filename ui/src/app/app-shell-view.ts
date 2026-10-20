@@ -13,6 +13,11 @@ import type { ThemeModeChangeDetail } from "../components/theme-mode-toggle.ts";
 import { t } from "../i18n/index.ts";
 import { isGatewayMethodAdvertised } from "../lib/gateway-methods.ts";
 import { readSessionMethodAccess } from "../lib/session-method-access.ts";
+import {
+  navigateToSessionSearchHit,
+  type SessionSearchTarget,
+} from "../lib/session-search-navigation.ts";
+import { sessionNavigationTarget } from "../lib/sessions/route-navigation.ts";
 import { normalizeAgentId } from "../lib/sessions/session-key.ts";
 import { isPersonalVmTerminalSession, isTerminalAvailable } from "../lib/terminal-availability.ts";
 import { findSettingsSearchBlocks } from "../pages/config/settings-search.ts";
@@ -296,11 +301,20 @@ export function renderApplicationShell(host: ShellViewHost) {
   // Optional tags stay mounted before definition. Lit replays their properties on upgrade,
   // and the upgraded panels catch the first toggle instead of dropping the event.
   return html`
-    ${operatorChrome && isOptionalElementDefined(host.commandPaletteElement)
+    ${isOptionalElementDefined(host.commandPaletteElement)
       ? html`<openclaw-command-palette
           .onNavigate=${(routeId: RouteId) => host.navigate(routeId)}
-          .onSelectSession=${(sessionKey: string) => host.selectChatSession(sessionKey)}
-          .onSlashCommand=${(command: string) => host.handleCommandPaletteSlashCommand(command)}
+          .searchOnly=${!operatorChrome}
+          .onSelectSearchHit=${(hit: SessionSearchTarget) =>
+            navigateToSessionSearchHit(context, hit)}
+          .onSelectSession=${(sessionKey: string) =>
+            context.navigate(
+              "chat",
+              sessionNavigationTarget({ context, face: "chat", sessionKey }).options,
+            )}
+          .onSlashCommand=${operatorChrome
+            ? (command: string) => host.handleCommandPaletteSlashCommand(command)
+            : undefined}
         ></openclaw-command-palette>`
       : nothing}
     <div
@@ -333,50 +347,61 @@ export function renderApplicationShell(host: ShellViewHost) {
         : nothing}
       <openclaw-app-topbar
         .basePath=${context.basePath}
-        .searchDisabled=${!operatorChrome}
+        .searchDisabled=${false}
+        .searchOnly=${!operatorChrome}
         .navDrawerOpen=${navDrawerOpen}
         .onboarding=${onboarding}
-        .onOpenPalette=${operatorChrome ? () => host.openPalette() : undefined}
+        .onOpenPalette=${() => host.openPalette()}
         .onToggleDrawer=${(trigger: HTMLElement) => host.toggleNavigationSurface(trigger)}
       ></openclaw-app-topbar>
-      ${operatorChrome && !onboarding && !settingsTakeover && !mobileNavLayout
+      ${!onboarding && !settingsTakeover && !mobileNavLayout
         ? html`
             <div class="shell-chrome-controls">
+              ${operatorChrome
+                ? html`
+                    <openclaw-tooltip
+                      .content=${`${t(navCollapsed ? "nav.expand" : "nav.collapse")} (⌘B)`}
+                    >
+                      <button
+                        type="button"
+                        class="shell-chrome-controls__button shell-chrome-controls__nav-toggle"
+                        aria-label=${t(navCollapsed ? "nav.expand" : "nav.collapse")}
+                        aria-expanded=${navCollapsed ? "false" : "true"}
+                        @click=${() => host.toggleNavigationSurface()}
+                      >
+                        ${navCollapsed ? icons.panelLeftOpen : icons.panelLeftClose}
+                      </button>
+                    </openclaw-tooltip>
+                  `
+                : nothing}
+              ${operatorChrome && navCollapsed
+                ? html`
+                    <openclaw-tooltip
+                      .content=${newSessionAccess.allowed
+                        ? t("chat.runControls.newSession")
+                        : newSessionAccess.reason}
+                    >
+                      <button
+                        type="button"
+                        class="shell-chrome-controls__button shell-chrome-controls__new-thread"
+                        aria-label=${t("chat.runControls.newSession")}
+                        ?disabled=${!newSessionAccess.allowed}
+                        @click=${() => openNewSession(selectedAgentId)}
+                      >
+                        ${icons.plus}
+                      </button>
+                    </openclaw-tooltip>
+                  `
+                : nothing}
               <openclaw-tooltip
-                .content=${`${t(navCollapsed ? "nav.expand" : "nav.collapse")} (⌘B)`}
+                .content=${`${t(operatorChrome ? "chat.openCommandPalette" : "palette.conversationSearch")} (${PALETTE_SHORTCUT})`}
               >
                 <button
                   type="button"
-                  class="shell-chrome-controls__button shell-chrome-controls__nav-toggle"
-                  aria-label=${t(navCollapsed ? "nav.expand" : "nav.collapse")}
-                  aria-expanded=${navCollapsed ? "false" : "true"}
-                  @click=${() => host.toggleNavigationSurface()}
-                >
-                  ${navCollapsed ? icons.panelLeftOpen : icons.panelLeftClose}
-                </button>
-              </openclaw-tooltip>
-              ${navCollapsed
-                ? html`<openclaw-tooltip
-                    .content=${newSessionAccess.allowed
-                      ? t("chat.runControls.newSession")
-                      : newSessionAccess.reason}
-                  >
-                    <button
-                      type="button"
-                      class="shell-chrome-controls__button shell-chrome-controls__new-thread"
-                      aria-label=${t("chat.runControls.newSession")}
-                      ?disabled=${!newSessionAccess.allowed}
-                      @click=${() => openNewSession(selectedAgentId)}
-                    >
-                      ${icons.plus}
-                    </button>
-                  </openclaw-tooltip>`
-                : nothing}
-              <openclaw-tooltip .content=${`${t("chat.openCommandPalette")} (${PALETTE_SHORTCUT})`}>
-                <button
-                  type="button"
                   class="shell-chrome-controls__button shell-chrome-controls__search"
-                  aria-label=${t("chat.openCommandPalette")}
+                  aria-label=${t(
+                    operatorChrome ? "chat.openCommandPalette" : "palette.conversationSearch",
+                  )}
                   @click=${() => host.openPalette()}
                 >
                   ${icons.search}

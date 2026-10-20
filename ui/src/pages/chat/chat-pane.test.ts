@@ -22,11 +22,49 @@ import type { ChatPageHost } from "./chat-state-host.ts";
 import { createBackgroundTasksProps } from "./components/chat-background-tasks.ts";
 import { createSessionWorkspaceProps } from "./components/chat-session-workspace.ts";
 import type { SidebarContent } from "./components/chat-sidebar.ts";
+import * as threadPresentation from "./components/chat-thread.ts";
 import { cacheChatSessionSnapshot, type ChatMessageCache } from "./session-message-cache.ts";
 import { openSlot } from "./sidebar-layout.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("document-level transcript find", () => {
+  it.each([
+    { active: true, isComposing: false, modal: false, handled: true },
+    { active: false, isComposing: false, modal: false, handled: false },
+    { active: true, isComposing: true, modal: false, handled: false },
+    { active: true, isComposing: false, modal: true, handled: false },
+  ])(
+    "routes Ctrl+F only to the active pane outside modal and IME states: %j",
+    ({ active, isComposing, modal, handled }) => {
+      const { pane } = createTestChatPane({
+        client: {} as GatewayBrowserClient,
+        sessions: {} as SessionCapability,
+      });
+      pane.active = active;
+      const open = vi.spyOn(threadPresentation, "openChatThreadSearch");
+      const dialog = document.createElement("dialog");
+      if (modal) {
+        dialog.setAttribute("open", "");
+        document.body.append(dialog);
+      }
+      const event = new KeyboardEvent("keydown", {
+        key: "f",
+        code: "KeyF",
+        ctrlKey: true,
+        isComposing,
+        cancelable: true,
+      });
+      pane.handleDocumentKeydown(event);
+      expect(event.defaultPrevented).toBe(handled);
+      expect(open).toHaveBeenCalledTimes(handled ? 1 : 0);
+      open.mockRestore();
+      dialog.remove();
+      threadPresentation.resetChatThreadPresentationState();
+    },
+  );
 });
 
 const suggestion: TaskSuggestion = {

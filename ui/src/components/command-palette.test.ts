@@ -19,7 +19,9 @@ type GatewayHarness = {
 };
 
 function createGateway(connected: boolean): GatewayHarness {
-  const client = {} as GatewayBrowserClient;
+  const client = {
+    request: vi.fn(async () => ({ results: [], totalCount: 0, hasMore: false })),
+  } as unknown as GatewayBrowserClient;
   let snapshot: ApplicationGatewaySnapshot = {
     client,
     phase: connected ? "connected" : "reconnecting",
@@ -69,7 +71,9 @@ function createContext(
 ): ApplicationContext<RouteId> {
   return {
     gateway,
+    agentSelection: { state: { scopeId: "main" }, subscribe: () => () => {} },
     sessions: {
+      state: { result: null },
       list,
     },
   } as unknown as ApplicationContext<RouteId>;
@@ -223,4 +227,297 @@ describe("CommandPalette lifecycle", () => {
 
     expect(palette.onNavigate).toHaveBeenCalledWith("plugins");
   });
+  it("keeps hosted search focused on conversations and hands off the exact message", async () => {
+    const { gateway } = createGateway(true);
+    const hit = {
+      sessionKey: "agent:main:old",
+      sessionId: "generation-2",
+      messageId: "message-120",
+      role: "assistant",
+      timestamp: 1,
+      snippet: "배포실패 해결",
+      score: 1,
+      title: "Archived launch",
+    };
+    const request = vi.fn(async () => ({ results: [hit], totalCount: 1, hasMore: false }));
+    gateway.snapshot.client!.request = request as GatewayBrowserClient["request"];
+    const list = vi.fn(async () => createSessionResult("agent:main:title-only", "배포 계획"));
+    const { palette } = await mountPalette(createContext(gateway, list));
+    palette.searchOnly = true;
+    palette.onSelectSearchHit = vi.fn();
+    await enterQuery(palette, "배포");
+    expect(palette.querySelectorAll(".cmd-palette__item")).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(250);
+    await palette.updateComplete;
+
+    expect(request).toHaveBeenCalledWith(
+      "sessions.search",
+      expect.objectContaining({ scope: "agent", mode: "substring", query: "배포" }),
+    );
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ archivedFilter: "all" }));
+    expect(palette.textContent).toContain("Archived launch");
+    expect(palette.textContent).toContain("Assistant");
+    expect(palette.querySelector("mark")?.textContent).toBe("배포");
+    expect(palette.querySelector("#cmd-palette-option-nav-config")).toBeNull();
+    expect(palette.querySelector("#cmd-palette-option-slash-verbose")).toBeNull();
+    const input = palette.querySelector<HTMLInputElement>(".cmd-palette__input")!;
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    await palette.updateComplete;
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+        isComposing: true,
+      }),
+    );
+    expect(palette.onSelectSearchHit).not.toHaveBeenCalled();
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    expect(palette.onSelectSearchHit).toHaveBeenCalledWith({
+      sessionKey: hit.sessionKey,
+      sessionId: hit.sessionId,
+      messageId: hit.messageId,
+      query: "배포",
+    });
+    expect(palette.isOpen).toBe(false);
+  });
+
+  it("discards a previous body query during the debounce window", async () => {
+    const { gateway } = createGateway(true);
+    const stale = createDeferred<{ results: unknown[] }>();
+    gateway.snapshot.client!.request = vi.fn(
+      () => stale.promise,
+    ) as GatewayBrowserClient["request"];
+    const { palette } = await mountPalette(
+      createContext(
+        gateway,
+        vi.fn(async () => createSessionResult("agent:main:old", "Old title")),
+      ),
+    );
+    palette.searchOnly = true;
+    await enterQuery(palette, "old");
+    await vi.advanceTimersByTimeAsync(250);
+    const input = palette.querySelector<HTMLInputElement>(".cmd-palette__input")!;
+    input.value = "new";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    stale.resolve({
+      results: [
+        {
+          sessionKey: "agent:main:old",
+          sessionId: "old",
+          messageId: "old",
+          role: "user",
+          timestamp: 1,
+          snippet: "stale needle",
+          score: 1,
+        },
+      ],
+    });
+    await Promise.resolve();
+    await palette.updateComplete;
+    expect(palette.textContent).not.toContain("Old title");
+    expect(palette.textContent).not.toContain("stale needle");
+  });
+
+  it("shows recoverable failures and appends paged results", async () => {
+    const { gateway } = createGateway(true);
+    const hit = (id: string) => ({
+      sessionKey: `agent:main:${id}`,
+      sessionId: id,
+      messageId: id,
+      role: "user",
+      timestamp: 1,
+      snippet: `needle ${id}`,
+      score: 1,
+    });
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Offline"))
+      .mockResolvedValueOnce({
+        results: Array.from({ length: 11 }, (_, index) =>
+          hit(index === 0 ? "first" : index === 10 ? "second" : `middle-${index}`),
+        ),
+        totalCount: 11,
+        hasMore: false,
+      });
+    gateway.snapshot.client!.request = request;
+    const { palette } = await mountPalette(
+      createContext(
+        gateway,
+        vi.fn(async () => ({ sessions: [] }) as unknown as SessionsListResult),
+      ),
+    );
+    palette.searchOnly = true;
+    await enterQuery(palette, "needle");
+    await vi.advanceTimersByTimeAsync(250);
+    await palette.updateComplete;
+    const retry = palette.querySelector<HTMLButtonElement>(".cmd-palette__status button");
+    expect(retry).not.toBeNull();
+    retry!.click();
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    await palette.updateComplete;
+    await vi.waitFor(() => expect(palette.textContent).toContain("needle first"));
+    palette.querySelector<HTMLButtonElement>(".cmd-palette__more")!.click();
+    await vi.waitFor(() => expect(palette.querySelectorAll(".cmd-palette__item")).toHaveLength(11));
+    await palette.updateComplete;
+    expect(request).toHaveBeenLastCalledWith(
+      "sessions.search",
+      expect.objectContaining({ offset: 0 }),
+    );
+    await vi.waitFor(() => expect(palette.querySelectorAll(".cmd-palette__item")).toHaveLength(11));
+    expect(palette.querySelector(".cmd-palette__more")).toBeNull();
+  });
+  it("discards pending all-agent results when selection changes", async () => {
+    const { gateway } = createGateway(true);
+    const stale = createDeferred<{ results: unknown[]; totalCount: number; hasMore: boolean }>();
+    const request = vi
+      .fn()
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementationOnce(() => stale.promise)
+      .mockResolvedValue({ results: [], totalCount: 0, hasMore: false });
+    gateway.snapshot.client!.request = request;
+    let notify: (() => void) | undefined;
+    const context = {
+      ...createContext(
+        gateway,
+        vi.fn(async () => ({ sessions: [] }) as unknown as SessionsListResult),
+      ),
+      agentSelection: {
+        state: { scopeId: null as string | null },
+        subscribe: (listener: () => void) => {
+          notify = listener;
+          return () => {};
+        },
+      },
+      agents: { state: { agentsList: { agents: [{ id: "main" }, { id: "writer" }] } } },
+    } as unknown as ApplicationContext<RouteId>;
+    const { palette } = await mountPalette(context);
+    palette.searchOnly = true;
+    await enterQuery(palette, "needle");
+    await vi.advanceTimersByTimeAsync(250);
+    expect(request).toHaveBeenCalledTimes(2);
+    context.agentSelection.state.scopeId = "main";
+    notify!();
+    stale.resolve({
+      results: [
+        {
+          sessionKey: "agent:writer:stale",
+          sessionId: "stale",
+          messageId: "stale",
+          role: "user",
+          timestamp: 1,
+          snippet: "stale all-agent result",
+          score: 0,
+        },
+      ],
+      totalCount: 1,
+      hasMore: false,
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    await palette.updateComplete;
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(palette.textContent).not.toContain("stale all-agent result");
+    expect(request).toHaveBeenLastCalledWith(
+      "sessions.search",
+      expect.objectContaining({ agentId: "main" }),
+    );
+  });
+  it("includes archived title-only matches and opens their conversation", async () => {
+    const { gateway } = createGateway(true);
+    const archived = {
+      ...createSessionResult("agent:main:archived", "Archived deployment"),
+      sessions: [
+        {
+          key: "agent:main:archived",
+          kind: "direct",
+          displayName: "Archived deployment",
+          archived: true,
+          updatedAt: 1,
+        },
+      ],
+    };
+    const { palette } = await mountPalette(
+      createContext(
+        gateway,
+        vi.fn(async () => archived as SessionsListResult),
+      ),
+    );
+    palette.searchOnly = true;
+    await enterQuery(palette, "deployment");
+    await vi.advanceTimersByTimeAsync(250);
+    await palette.updateComplete;
+    const item = palette.querySelector<HTMLElement>(".cmd-palette__item");
+    expect(item?.textContent).toContain("Archived deployment");
+    expect(palette.querySelector(".cmd-palette__snippet")).toBeNull();
+    item?.click();
+    expect(palette.onSelectSession).toHaveBeenCalledWith("agent:main:archived");
+  });
+
+  it("offers the next title page without declaring no matches before it is read", async () => {
+    const { gateway } = createGateway(true);
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessions: [{ key: "agent:main:cron:hidden", kind: "cron", updatedAt: 1 }],
+        hasMore: true,
+        nextOffset: 1,
+      })
+      .mockResolvedValueOnce(createSessionResult("agent:main:older", "Older deployment"));
+    const { palette } = await mountPalette(createContext(gateway, list));
+    palette.searchOnly = true;
+    await enterQuery(palette, "deployment");
+    await vi.advanceTimersByTimeAsync(250);
+    await palette.updateComplete;
+    expect(palette.querySelectorAll(".cmd-palette__item")).toHaveLength(0);
+    expect(palette.querySelector(".cmd-palette__empty")).toBeNull();
+    palette.querySelector<HTMLButtonElement>(".cmd-palette__more")!.click();
+    await vi.waitFor(() => expect(palette.textContent).toContain("Older deployment"));
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 1 }));
+    expect(palette.querySelector(".cmd-palette__more")).toBeNull();
+  });
+
+  it.each([
+    { text: "İX 배포", query: "배포", match: "배포" },
+    { text: "İa i", query: "i", match: "i" },
+    { text: "ſ", query: "s", match: "ſ" },
+    { text: "aXb a.b", query: "a.b", match: "a.b" },
+  ])(
+    "highlights literal Unicode match in original title/snippet offsets: $text",
+    async ({ text, query, match }) => {
+      const { gateway } = createGateway(true);
+      gateway.snapshot.client!.request = vi.fn(async () => ({
+        results: [
+          {
+            sessionKey: "agent:main:unicode",
+            sessionId: "unicode",
+            messageId: "unicode-message",
+            role: "assistant",
+            timestamp: 1,
+            snippet: text,
+            title: text,
+            score: 0,
+          },
+        ],
+        totalCount: 1,
+        hasMore: false,
+      })) as GatewayBrowserClient["request"];
+      const { palette } = await mountPalette(
+        createContext(
+          gateway,
+          vi.fn(async () => ({ sessions: [] }) as unknown as SessionsListResult),
+        ),
+      );
+      palette.searchOnly = true;
+      await enterQuery(palette, query);
+      await vi.advanceTimersByTimeAsync(250);
+      await palette.updateComplete;
+      expect(
+        Array.from(palette.querySelectorAll("mark"), (element) => element.textContent),
+      ).toEqual([match, match]);
+    },
+  );
 });

@@ -17,7 +17,11 @@ import {
   replaceSqliteTranscriptEvents,
 } from "./session-accessor.sqlite.js";
 import { listSessionsNeedingTranscriptIndexReconcile } from "./session-transcript-index.js";
-import { searchSessionTranscripts } from "./session-transcript-search.js";
+import { searchSessionTranscriptSubstrings } from "./session-transcript-search-worker.js";
+import {
+  searchSessionTranscripts,
+  querySessionTranscriptSubstrings,
+} from "./session-transcript-search.js";
 
 vi.mock("../config.js", async () => ({
   ...(await vi.importActual<typeof import("../config.js")>("../config.js")),
@@ -100,6 +104,120 @@ function agentKysely() {
 }
 
 describe("searchSessionTranscripts", () => {
+  it("finds literal CJK fragments and punctuation through the worker with bounded pages", async () => {
+    await appendUserMessage(
+      "session-1",
+      "agent:main:main",
+      "로그인오류 배포실패 100%_done foo.bar",
+    );
+    await appendAssistantMessage("session-1", "agent:main:main", "배포 설정 FOo.Bar");
+    await appendUserMessage("session-2", "agent:main:other", "배포다른대화");
+    const params = { agentId: "main", env: env(), sessionKeys: ["agent:main:main"], limit: 1 };
+    const page = await searchSessionTranscriptSubstrings({ ...params, query: "배포" });
+    expect(page).toMatchObject({ totalCount: 2, hasMore: true, truncated: true, indexing: false });
+    expect(page.hits).toHaveLength(1);
+    const next = await searchSessionTranscriptSubstrings({ ...params, query: "배포", offset: 1 });
+    expect(next).toMatchObject({ totalCount: 2, hasMore: false });
+    expect(next.hits[0]?.messageId).not.toBe(page.hits[0]?.messageId);
+    expect(
+      (await searchSessionTranscriptSubstrings({ ...params, query: "로그인" })).totalCount,
+    ).toBe(1);
+    expect((await searchSessionTranscriptSubstrings({ ...params, query: "%_" })).totalCount).toBe(
+      1,
+    );
+    expect(
+      (await searchSessionTranscriptSubstrings({ ...params, query: "foo.bar" })).totalCount,
+    ).toBe(2);
+    expect(
+      (
+        await searchSessionTranscriptSubstrings({
+          ...params,
+          query: "배포",
+          sessionId: "session-2",
+        })
+      ).totalCount,
+    ).toBe(0);
+    expect(
+      (await searchSessionTranscriptSubstrings({ ...params, query: "배포", offset: 20 }))
+        .totalCount,
+    ).toBe(2);
+    expect(search("로그인").hits).toHaveLength(0);
+  });
+
+  it("excludes abandoned branches from literal pages and their counts", async () => {
+    const scope = transcriptScope("session-1", "agent:main:main");
+    await replaceSqliteTranscriptEvents(scope, [
+      { type: "message", id: "m1", parentId: null, message: { role: "user", content: "배포정상" } },
+      {
+        type: "message",
+        id: "m2",
+        parentId: "m1",
+        message: { role: "assistant", content: "배포폐기" },
+      },
+    ] as unknown as TranscriptEvent[]);
+    await appendSqliteTranscriptEvent(scope, {
+      type: "leaf",
+      id: "leaf-1",
+      parentId: "m2",
+      targetId: "m1",
+    } as unknown as TranscriptEvent);
+    const result = querySessionTranscriptSubstrings(
+      { agentId: "main", env: env(), query: "배포" },
+      agentKysely().db,
+    );
+    expect(result).toMatchObject({ hits: [], totalCount: 0, indexing: true });
+    await waitForSearchReconcile("배포정상");
+    expect(
+      querySessionTranscriptSubstrings(
+        { agentId: "main", env: env(), query: "배포" },
+        agentKysely().db,
+      ),
+    ).toMatchObject({ totalCount: 1 });
+  });
+
+  it("matches Unicode casing consistently in worker predicates, counts, pages, and snippets", async () => {
+    const cases = [
+      { query: "привет", text: "ПРИВЕТ" },
+      { query: "ä", text: "Ä" },
+      { query: "σ", text: "ς Σ" },
+      { query: "k", text: "K K" },
+      { query: "s", text: "ſ S" },
+      { query: "ß", text: "ẞ" },
+    ];
+    for (const [index, { query, text }] of cases.entries()) {
+      const sessionKey = `agent:main:unicode-${index}`;
+      const sessionId = `unicode-${index}`;
+      // Dotted-I lowercasing changes UTF-16 length; emoji straddles the excerpt
+      // boundary. Neither may move the match or leave a dangling surrogate.
+      const content = `${"İ".repeat(600)}${"😀".repeat(90)} ${text} ${"tail ".repeat(120)}`;
+      await appendUserMessage(sessionId, sessionKey, content);
+      await appendAssistantMessage(sessionId, sessionKey, content);
+      const params = { agentId: "main", env: env(), sessionKeys: [sessionKey], query, limit: 1 };
+      const first = await searchSessionTranscriptSubstrings(params);
+      const next = await searchSessionTranscriptSubstrings({ ...params, offset: 1 });
+      expect(first).toMatchObject({ totalCount: 2, hasMore: true });
+      expect(next).toMatchObject({ totalCount: 2, hasMore: false });
+      expect(first.hits[0]?.messageId).not.toBe(next.hits[0]?.messageId);
+      for (const hit of [...first.hits, ...next.hits]) {
+        expect(hit.snippet).toContain(text);
+        expect(hit.snippet).not.toMatch(
+          /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u,
+        );
+      }
+    }
+    await appendUserMessage("simple-fold", "agent:main:simple-fold", "İ ß");
+    for (const query of ["i", "ss"]) {
+      expect(
+        await searchSessionTranscriptSubstrings({
+          agentId: "main",
+          env: env(),
+          sessionKeys: ["agent:main:simple-fold"],
+          query,
+        }),
+      ).toMatchObject({ hits: [], totalCount: 0, hasMore: false });
+    }
+  });
+
   it("indexes appended messages synchronously and returns bounded hits", async () => {
     await appendUserMessage("session-1", "agent:main:main", "the deployment failed on friday");
     await appendAssistantMessage("session-1", "agent:main:main", "the deployment fix is rolling");

@@ -5,6 +5,7 @@ import { INTERNAL_SESSION_PATH_PARAM, pathForRoute, routePageSpec } from "../../
 import type { ApplicationContext } from "../../app/context.ts";
 import { t } from "../../i18n/index.ts";
 import type { BoardFace } from "../../lib/board/settings.ts";
+import { sessionSearchTargetFromLocation } from "../../lib/session-search-navigation.ts";
 import type { ChatRouteData } from "./route-loader.ts";
 
 function renderAmbiguous(data: Extract<ChatRouteData, { kind: "ambiguous" }>) {
@@ -47,7 +48,7 @@ function sessionLoaderDeps(
   const serializedSearch = search.toString();
   return `${bridgedPath ?? location.pathname}\u0000${
     serializedSearch ? `?${serializedSearch}` : ""
-  }`;
+  }${sessionSearchTargetFromLocation(location, "") ? `\u0000${location.hash}` : ""}`;
 }
 
 function sessionPage(face: BoardFace) {

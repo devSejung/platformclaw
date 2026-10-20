@@ -14,7 +14,7 @@ import {
   projectBrowserSessionPayloadForAccess,
 } from "./browser-gateway-ownership.js";
 import { browserTaskEventBelongsToAccess } from "./browser-gateway-task-policy.js";
-import { isSpaceConversationSession } from "./space-contracts.js";
+import { isSpaceConversationSession, spaceConversationSessionPrefix } from "./space-contracts.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -128,10 +128,35 @@ export class BrowserGatewaySpaceAccess {
     return {
       ...params,
       agentId: access.binding.agentId,
-      sessionKeys: (params.sessionKeys as string[])
-        .map((key) => key.trim())
-        .filter((key) => this.isPersonalSession(key)),
+      ...(params.scope === "agent"
+        ? {
+            excludeSessionKeyPrefixes: [spaceConversationSessionPrefix(access.binding.agentId)],
+          }
+        : {}),
+      ...(Array.isArray(params.sessionKeys)
+        ? {
+            sessionKeys: (params.sessionKeys as string[])
+              .map((key) => key.trim())
+              .filter((key) => this.isPersonalSession(key)),
+          }
+        : {}),
     };
+  }
+
+  emptySessionSearchResult(method: string, prepared: JsonObject): JsonObject | undefined {
+    // Removing stale Space keys must leave an empty allowlist, never expand
+    // discovery into an unscoped search through the shared Gateway client.
+    if (
+      method === "sessions.search" &&
+      Array.isArray(prepared.sessionKeys) &&
+      prepared.sessionKeys.length === 0
+    ) {
+      return {
+        results: [],
+        ...(prepared.mode === "substring" ? { totalCount: 0, hasMore: false } : {}),
+      };
+    }
+    return undefined;
   }
 
   projectSessionSearch(
@@ -140,13 +165,24 @@ export class BrowserGatewaySpaceAccess {
     result: unknown,
   ): JsonObject {
     const payload = asObject(result, "sessions.search result");
-    const results = Array.isArray(payload.results) ? payload.results : [];
-    const requestedKeys = new Set(prepared.sessionKeys as string[]);
+    if (!Array.isArray(payload.results)) {
+      throw new BrowserGatewayProxyError(
+        "upstream-result-denied",
+        "Gateway returned an invalid search result",
+      );
+    }
+    const results = payload.results;
+    const requestedKeys = Array.isArray(prepared.sessionKeys)
+      ? new Set(prepared.sessionKeys as string[])
+      : undefined;
     if (
       results.some(
         (entry) =>
           !this.payloadBelongsToAccess(access, entry) ||
-          !requestedKeys.has((entry as JsonObject).sessionKey as string),
+          typeof (entry as JsonObject).sessionKey !== "string" ||
+          !this.isPersonalSession((entry as JsonObject).sessionKey as string) ||
+          (requestedKeys !== undefined &&
+            !requestedKeys.has((entry as JsonObject).sessionKey as string)),
       )
     ) {
       throw new BrowserGatewayProxyError(

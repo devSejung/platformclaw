@@ -49,6 +49,7 @@ export async function readSessionMessagesAroundIdWithStatsAsync(
   }
   return {
     found: true,
+    transcriptSource: "active",
     hasOverreadContext: page.hasOverreadContext,
     messages: page.events.flatMap((entry) => {
       const message = sqliteMessageEventWithSeq(entry);

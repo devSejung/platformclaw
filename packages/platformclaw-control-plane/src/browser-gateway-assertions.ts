@@ -46,6 +46,15 @@ export class BrowserGatewayAssertions {
     }
   }
 
+  sessionSearch(agentId: string, params: JsonObject): void {
+    this.optionalAgentId(agentId, params.agentId, "sessions.search");
+    // Discovery needs no client allowlist; explicit keys still require ownership
+    // before Space filtering can remove them from the request.
+    if (params.scope !== "agent" || params.sessionKeys !== undefined) {
+      this.sessionKeyArray(agentId, params.sessionKeys, "sessionKeys", true);
+    }
+  }
+
   ownedResultSessionKey(agentId: string, rawSessionKey: unknown): void {
     const sessionKey = optionalString(rawSessionKey);
     if (!sessionKey || this.resolveAgentIdFromSessionKey(sessionKey) !== agentId) {

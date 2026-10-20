@@ -126,6 +126,8 @@ const rootEntries = [
   "src/audit/audit-event-writer.worker.ts!",
   // Loaded by URL from the SQLite lifecycle archive owner.
   "src/config/sessions/session-accessor.sqlite-archive.worker.ts!",
+  // Loaded by URL from the transcript-search owner; no static import edge exists.
+  "src/config/sessions/session-transcript-search.worker.ts!",
   "src/state/openclaw-database-verify.worker.ts!",
   "src/agents/model-provider-auth.worker.ts!",
   // Loaded by URL from setup-inference-detection.ts; no static import edge exists.

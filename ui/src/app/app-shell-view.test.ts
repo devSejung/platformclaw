@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 
+import { createRouter } from "@openclaw/uirouter";
 import { nothing, render, type LitElement } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RouteId } from "../app-routes.ts";
@@ -9,6 +10,7 @@ import { renderApplicationShell, type ShellViewHost } from "./app-shell-view.ts"
 import type { ExecApprovalRequest } from "./exec-approval.ts";
 import { COMMAND_PALETTE_ELEMENT, EXEC_APPROVAL_ELEMENT } from "./lazy-custom-element.ts";
 import "../components/exec-approval.ts";
+import "./router-outlet.ts";
 
 const embeddedSession = "agent:personal:space-session:00000000-0000-4000-8000-000000000007";
 const routeSession = "agent:main:previous-route";
@@ -30,8 +32,8 @@ function shellHost(params: {
   routeId?: RouteId;
   target?: CommandPaletteTargetDetail;
 }): ShellViewHost {
-  // Only shell projection state is needed: no router, personal runtime, or
-  // Gateway transport starts when rendering this ownership boundary.
+  // The connected outlet uses the real idle router contract. Navigation,
+  // personal runtime, and Gateway transport remain unstarted.
   return {
     context: {
       basePath: "",
@@ -62,7 +64,11 @@ function shellHost(params: {
       agentSelection: { state: { selectedId: "main" } },
       theme: { mode: "light" },
     },
-    runtime: { shellSession: {}, settingsNavigationMode: "takeover", router: {} },
+    runtime: {
+      shellSession: {},
+      settingsNavigationMode: "takeover",
+      router: createRouter<RouteId>({ routes: [] }),
+    },
     activeSessionKey: routeSession,
     commandPaletteTarget: params.target,
     commandPaletteElement: COMMAND_PALETTE_ELEMENT,
@@ -85,6 +91,7 @@ async function drawShell(host: ShellViewHost) {
   >("openclaw-exec-approval");
   expect(modalQueue).not.toBeNull();
   await modalQueue!.updateComplete;
+  await container.querySelector<LitElement>("openclaw-router-outlet")?.updateComplete;
   return modalQueue!;
 }
 
@@ -158,5 +165,20 @@ describe("shell approval presentation ownership", () => {
 
     expect(modalQueue.props.inlineApprovalId).toBe("route-approval");
     expect(modalQueue.querySelector(".exec-approval-card")).toBeNull();
+  });
+  it("adds only the existing search icon to hosted desktop chrome", async () => {
+    const host = shellHost({ queue: [] });
+    await drawShell(host);
+    const controls = container.querySelector(".shell-chrome-controls");
+    expect(controls?.querySelectorAll("button")).toHaveLength(1);
+    expect(controls?.querySelector(".shell-chrome-controls__search")).not.toBeNull();
+    expect(controls?.querySelector(".shell-chrome-controls__nav-toggle")).toBeNull();
+    expect(container.querySelector(".cmd-palette")).toBeNull();
+    const topbar = container.querySelector("openclaw-app-topbar") as HTMLElement & {
+      searchDisabled: boolean;
+      searchOnly: boolean;
+    };
+    expect(topbar.searchDisabled).toBe(false);
+    expect(topbar.searchOnly).toBe(true);
   });
 });

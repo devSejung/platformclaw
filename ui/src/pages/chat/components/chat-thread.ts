@@ -14,6 +14,7 @@ import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
 import { styleMap } from "lit/directives/style-map.js";
 import { classifySessionKind } from "../../../../../src/sessions/classify-session-kind.js";
+import { escapeRegExp } from "../../../../../src/shared/regexp.js";
 import type { GatewaySessionRow, SessionsListResult } from "../../../api/types.ts";
 import type { QuestionPrompt } from "../../../app/question-prompt.ts";
 import { resolveLocalUserName } from "../../../app/user-identity.ts";
@@ -52,6 +53,7 @@ import {
 import { resolveTurnRecap, type TurnRecap } from "../chat-progress.ts";
 import type { ChatRunStartupStatus } from "../chat-run-startup.ts";
 import { resolveChatSubagentWait } from "../chat-subagent-wait.ts";
+import { ChatThreadSearch, type ChatThreadSearchBinding } from "../chat-thread-search.ts";
 import {
   assistantGroupCanOwnActiveRunStatus,
   assistantMessageExpansionSignature,
@@ -82,6 +84,7 @@ import { getToolTitlesVersion } from "../tool-titles.ts";
 import { renderBackgroundTasksStatusRow } from "./chat-background-tasks-status.ts";
 import type { BackgroundTasksProps } from "./chat-background-tasks.ts";
 import { renderChatDivider, renderChatNotice } from "./chat-divider.ts";
+import { resolveMessageActionDetails } from "./chat-message-markdown.ts";
 import type { ArtifactDownloadResolver } from "./chat-message-media.ts";
 import {
   dismissConfirmedActionPopovers,
@@ -105,8 +108,8 @@ const pinnedMessagesMap = new Map<string, PinnedMessages>();
 const deletedMessagesMap = new Map<string, DeletedMessages>();
 
 type ChatThreadState = {
-  searchOpen: boolean;
-  searchQuery: string;
+  search: ChatThreadSearch;
+  searchRevealMessageId?: string;
   pinnedExpanded: boolean;
   transcriptRenderDependencies: readonly unknown[];
   transcriptRenderContext: object;
@@ -116,6 +119,8 @@ type ChatThreadProps = {
   compactionStatus?: CompactionStatus | null;
   paneId: string;
   sessionKey: string;
+  searchHighlightQuery?: string;
+  searchRevealMessageId?: string;
   boardProvider?: BoardProvider;
   announceTranscript?: boolean;
   loading: boolean;
@@ -324,6 +329,10 @@ class ChatSessionVirtualizerHost implements ReactiveControllerHost {
   }
   private rowKeys: readonly string[] = [];
   private rowIndexesByKey = new Map<string, number>();
+  private rowIndexesByMessageId = new Map<string, number>();
+  private pendingRevealMessageId: string | null = null;
+  private highlightQuery = "";
+  private highlightRanges: Range[] = [];
   private focusedRowKey: string | null = null;
   private announcementInitialized = false;
   private announcementKey: string | null = null;
@@ -425,9 +434,26 @@ class ChatSessionVirtualizerHost implements ReactiveControllerHost {
       controller.hostUpdated?.();
     }
     this.applyPendingScrollOffset();
+    if (this.pendingRevealMessageId && this.scrollElement) {
+      const bubble = [
+        ...(this.threadInnerElement?.querySelectorAll<HTMLElement>("[data-entry-id]") ?? []),
+      ].find((element) => element.dataset.entryId === this.pendingRevealMessageId);
+      if (bubble) {
+        const scroll = this.scrollElement;
+        this.scrollToOffset(
+          scroll.scrollTop +
+            bubble.getBoundingClientRect().top -
+            scroll.getBoundingClientRect().top -
+            Math.max(0, (scroll.clientHeight - bubble.offsetHeight) / 2),
+        );
+        this.pendingRevealMessageId = null;
+      }
+    }
+    this.updateSearchHighlight();
   }
 
   disconnect(): void {
+    this.clearSearchHighlight();
     if (this.pendingRowMeasureFrame !== null) {
       cancelAnimationFrame(this.pendingRowMeasureFrame);
       this.pendingRowMeasureFrame = null;
@@ -519,6 +545,98 @@ class ChatSessionVirtualizerHost implements ReactiveControllerHost {
     ) as TemplateResult;
   }
 
+  setSearchHighlight(query: string): void {
+    this.highlightQuery = query.trim();
+  }
+
+  private clearSearchHighlight(): void {
+    const highlight =
+      typeof CSS === "undefined" ? undefined : CSS.highlights?.get("openclaw-search");
+    if (highlight) {
+      // Each pane removes only its own ranges; split-pane updates must not erase
+      // the other pane's find results from the document-owned highlight registry.
+      for (const range of this.highlightRanges) {
+        highlight.delete(range);
+      }
+      if (highlight.size === 0) {
+        CSS.highlights.delete("openclaw-search");
+      }
+    }
+    this.highlightRanges = [];
+  }
+
+  private updateSearchHighlight(): void {
+    this.clearSearchHighlight();
+    if (
+      !this.highlightQuery ||
+      typeof Highlight === "undefined" ||
+      typeof CSS === "undefined" ||
+      !CSS.highlights ||
+      !this.threadInnerElement
+    ) {
+      return;
+    }
+    const ranges: Range[] = [];
+    const pattern = new RegExp(escapeRegExp(this.highlightQuery), "giu");
+    // Paint ranges without mutating Lit-owned markdown or copying message HTML.
+    for (const bubble of this.threadInnerElement.querySelectorAll(".chat-bubble")) {
+      const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      let text = "";
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        if (node.parentElement?.closest("button, script, style, [aria-hidden='true']")) {
+          continue;
+        }
+        nodes.push(node);
+        text += node.data;
+      }
+      for (const match of text.matchAll(pattern)) {
+        if (ranges.length >= 1000) {
+          break;
+        }
+        // RegExp indexes refer to the original UTF-16 text. Lowercasing first
+        // shifts offsets for characters whose case mapping changes length.
+        const start = match.index;
+        const matchEnd = start + match[0].length;
+        let position = 0;
+        const range = document.createRange();
+        let started = false;
+        for (const node of nodes) {
+          const end = position + node.length;
+          if (!started && start < end) {
+            range.setStart(node, start - position);
+            started = true;
+          }
+          if (started && matchEnd <= end) {
+            range.setEnd(node, matchEnd - position);
+            ranges.push(range);
+            break;
+          }
+          position = end;
+        }
+      }
+    }
+    const highlight = CSS.highlights.get("openclaw-search") ?? new Highlight();
+    for (const range of ranges) {
+      highlight.add(range);
+    }
+    this.highlightRanges = ranges;
+    CSS.highlights.set("openclaw-search", highlight);
+  }
+
+  revealMessage(messageId: string): boolean {
+    const index = this.rowIndexesByMessageId.get(messageId);
+    if (index === undefined) {
+      return false;
+    }
+    this.pendingScrollOffset = null;
+    this.pendingRevealMessageId = messageId;
+    this.virtualizerController.getVirtualizer().scrollToIndex(index, { align: "center" });
+    this.host.requestUpdate();
+    return true;
+  }
+
   scrollToEnd(options: { behavior?: ScrollBehavior } = {}): void {
     this.virtualizerController.getVirtualizer().scrollToEnd(options);
   }
@@ -596,6 +714,27 @@ class ChatSessionVirtualizerHost implements ReactiveControllerHost {
   }
 
   private syncRows(rows: readonly ChatTranscriptRow[]): void {
+    this.rowIndexesByMessageId.clear();
+    for (const [index, row] of rows.entries()) {
+      if (row.kind !== "item") {
+        continue;
+      }
+      const item = row.item;
+      const messages =
+        item.kind === "group"
+          ? item.messages
+          : item.kind === "work-group"
+            ? item.groups.flatMap((group) => group.messages)
+            : item.kind === "message"
+              ? [item]
+              : [];
+      for (const entry of messages) {
+        const id = persistedMessageEntryId(entry.message);
+        if (id) {
+          this.rowIndexesByMessageId.set(id, index);
+        }
+      }
+    }
     const nextKeys = rows.map((row) => row.key);
     if (
       nextKeys.length === this.rowKeys.length &&
@@ -764,6 +903,10 @@ export class ChatTranscriptController implements ReactiveController {
     this.sessionVirtualizer?.scrollToEnd(options);
   }
 
+  revealMessage(messageId: string): boolean {
+    return this.sessionVirtualizer?.revealMessage(messageId) ?? false;
+  }
+
   scrollToOffset(offset: number, onSettled?: (position: ChatSessionScrollPosition) => void): void {
     this.sessionVirtualizer?.restoreScrollOffset(offset, onSettled);
   }
@@ -816,8 +959,7 @@ export class ChatTranscriptController implements ReactiveController {
 
 function createChatThreadState(): ChatThreadState {
   return {
-    searchOpen: false,
-    searchQuery: "",
+    search: new ChatThreadSearch(),
     pinnedExpanded: false,
     transcriptRenderDependencies: [],
     transcriptRenderContext: {},
@@ -872,17 +1014,20 @@ export function resetChatThreadSessionPresentationState(paneId: string, owner?: 
   if (state) {
     // Search input belongs to the outgoing transcript. Other fields are pane
     // preferences or dependency memos and invalidate themselves on new props.
-    state.searchOpen = false;
-    state.searchQuery = "";
+    state.search.close(false);
   }
 }
 
 export function resetChatThreadPresentationState(paneId?: string, owner?: ParentNode) {
   dismissChatThreadPortals(paneId, owner);
   if (paneId) {
+    threadStates.get(paneId)?.search.close(false);
     threadStates.delete(paneId);
     resetChatThreadState(paneId);
   } else {
+    for (const state of threadStates.values()) {
+      state.search.close(false);
+    }
     threadStates.clear();
     resetChatThreadState();
   }
@@ -891,32 +1036,83 @@ export function resetChatThreadPresentationState(paneId?: string, owner?: Parent
 export function renderChatSearchBar(
   paneId: string,
   requestUpdate: () => void,
+  binding: Omit<ChatThreadSearchBinding, "requestUpdate">,
 ): TemplateResult | typeof nothing {
-  const state = getChatThreadState(paneId);
-  if (!state.searchOpen) {
+  const search = getChatThreadState(paneId).search;
+  search.bind({ ...binding, requestUpdate });
+  if (!search.open) {
     return nothing;
   }
   return html`
-    <div class="agent-chat__search-bar">
+    <div
+      class="agent-chat__search-bar"
+      @keydown=${(event: KeyboardEvent) => {
+        if (event.isComposing || event.keyCode === 229) {
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          search.close();
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          search.move(event.shiftKey ? -1 : 1);
+        }
+      }}
+    >
       ${icons.search}
       <input
         type="text"
+        ${ref(search.setInput)}
         placeholder=${t("chat.thread.searchPlaceholder")}
         aria-label=${t("chat.thread.search")}
-        .value=${state.searchQuery}
+        .value=${search.query}
         @input=${(event: Event) => {
-          state.searchQuery = (event.target as HTMLInputElement).value;
-          requestUpdate();
+          search.change((event.target as HTMLInputElement).value);
         }}
       />
+      <span class="agent-chat__search-count" role="status" aria-live="polite">
+        ${search.loading
+          ? t("chat.thread.searching")
+          : search.error
+            ? t("chat.thread.searchFailed")
+            : search.query.trim()
+              ? t("chat.thread.searchCount", {
+                  current: String(search.index + 1),
+                  total: String(search.total),
+                })
+              : nothing}
+        ${search.partial ? t("chat.thread.searchPartial") : nothing}
+      </span>
+      ${search.error
+        ? html`<button class="btn btn--ghost" @click=${() => search.retry()}>
+            ${t("common.retry")}
+          </button>`
+        : nothing}
+      <button
+        class="btn btn--ghost"
+        aria-label=${t("chat.thread.previousMatch")}
+        title=${t("chat.thread.previousMatch")}
+        ?disabled=${search.loading || !search.total}
+        @click=${() => search.move(-1)}
+      >
+        ${icons.chevronUp}
+      </button>
+      <button
+        class="btn btn--ghost"
+        aria-label=${t("chat.thread.nextMatch")}
+        title=${t("chat.thread.nextMatch")}
+        ?disabled=${search.loading || !search.total}
+        @click=${() => search.move(1)}
+      >
+        ${icons.chevronDown}
+      </button>
       <openclaw-tooltip .content=${t("chat.thread.closeSearch")}>
         <button
           class="btn btn--ghost"
           aria-label=${t("chat.thread.closeSearch")}
           @click=${() => {
-            state.searchOpen = false;
-            state.searchQuery = "";
-            requestUpdate();
+            search.close();
           }}
         >
           ${icons.x}
@@ -926,13 +1122,17 @@ export function renderChatSearchBar(
   `;
 }
 
-export function toggleChatThreadSearch(paneId: string, requestUpdate: () => void): void {
-  const state = getChatThreadState(paneId);
-  state.searchOpen = !state.searchOpen;
-  if (!state.searchOpen) {
-    state.searchQuery = "";
+export function openChatThreadSearch(paneId: string, requestUpdate: () => void): void {
+  getChatThreadState(paneId).search.show(requestUpdate);
+}
+
+export function closeChatThreadSearch(paneId: string): boolean {
+  const search = getChatThreadState(paneId).search;
+  if (!search.open) {
+    return false;
   }
-  requestUpdate();
+  search.close();
+  return true;
 }
 
 export function renderChatPinnedMessages(
@@ -1437,6 +1637,7 @@ function renderChatThreadContents(
   transcript: ChatSessionVirtualizerHost,
 ): TemplateResult {
   const state = getChatThreadState(props.paneId);
+  state.searchRevealMessageId = props.searchRevealMessageId;
   const requestUpdate = props.onRequestUpdate ?? (() => {});
   const displayStream = props.stream ?? null;
   const sessionHost = props.sessionHost ?? null;
@@ -1462,7 +1663,9 @@ function renderChatThreadContents(
   };
   const deleted = getDeletedMessages(props.sessionKey);
   const locale = i18n.getLocale();
-  const searchFiltering = state.searchOpen && Boolean(state.searchQuery.trim());
+  const searchQuery = state.search.open ? state.search.query : (props.searchHighlightQuery ?? "");
+  const searchActive = Boolean(searchQuery.trim());
+  transcript.setSearchHighlight(searchQuery);
   const chatItems = buildCachedChatItems({
     paneId: props.paneId,
     sessionKey: props.sessionKey,
@@ -1482,14 +1685,12 @@ function renderChatThreadContents(
     planStatus: props.planStatus,
     questionPrompts: props.questionPrompts,
     loading: props.loading,
-    searchOpen: state.searchOpen,
-    searchQuery: state.searchQuery,
   });
   syncToolCardExpansionState(
     props.sessionKey,
     chatItems,
     Boolean(props.autoExpandToolCalls),
-    searchFiltering || !props.showToolCalls,
+    !props.showToolCalls,
   );
   const expandedToolCards = getExpandedToolCards(props.sessionKey);
   const expandedUserMessages = getExpandedUserMessages(props.sessionKey);
@@ -1541,6 +1742,9 @@ function renderChatThreadContents(
             : { status: "loaded", expanded: true, markdown, revision: revision + 1 },
         );
         requestUpdate();
+        if (state.searchRevealMessageId === messageId && markdown !== null) {
+          transcript.revealMessage(messageId);
+        }
       },
       () => {
         const pending = expandedAssistantMessages.get(messageId);
@@ -1552,16 +1756,40 @@ function renderChatThreadContents(
       },
     );
   };
-  const hasRealtimeTalkConversation = (props.realtimeTalkConversation?.length ?? 0) > 0;
-  const subagentWait = searchFiltering
-    ? null
-    : resolveChatSubagentWait({
-        ...props,
-        selectedSession:
-          props.selectedSession === undefined
-            ? activeSession
-            : (props.selectedSession ?? undefined),
+  const revealMessageId = props.searchRevealMessageId;
+  if (
+    revealMessageId &&
+    !expandedAssistantMessages.has(revealMessageId) &&
+    props.loadFullAssistantMessage
+  ) {
+    const message = props.messages.find(
+      (entry) => persistedMessageEntryId(entry) === revealMessageId,
+    );
+    if (
+      message &&
+      resolveMessageActionDetails({
+        message,
+        messageId: revealMessageId,
+        canFetchFullMessage: true,
+        senderLabel: props.assistantName,
+      })?.shouldFetchFullMessage
+    ) {
+      queueMicrotask(() => {
+        if (
+          state.searchRevealMessageId === revealMessageId &&
+          !expandedAssistantMessages.has(revealMessageId)
+        ) {
+          toggleAssistantMessageExpanded(revealMessageId);
+        }
       });
+    }
+  }
+  const hasRealtimeTalkConversation = (props.realtimeTalkConversation?.length ?? 0) > 0;
+  const subagentWait = resolveChatSubagentWait({
+    ...props,
+    selectedSession:
+      props.selectedSession === undefined ? activeSession : (props.selectedSession ?? undefined),
+  });
   const isEmpty =
     chatItems.length === 0 && !props.loading && !hasRealtimeTalkConversation && !subagentWait;
   transcript.setContentReady(!props.loading);
@@ -1622,7 +1850,8 @@ function renderChatThreadContents(
         );
         requestUpdate();
       },
-      isUserMessageExpanded: (messageId: string) => expandedUserMessages.get(messageId) ?? false,
+      isUserMessageExpanded: (messageId: string) =>
+        searchActive || (expandedUserMessages.get(messageId) ?? false),
       onToggleUserMessageExpanded: (messageId: string) => {
         setExpansionState(expandedUserMessages, messageId, !expandedUserMessages.get(messageId));
         requestUpdate();
@@ -1739,7 +1968,7 @@ function renderChatThreadContents(
   const collapsedItems = collapseCompletedTurnWork(coalesceStreamRuns(chatItems), {
     sessionKey: props.sessionKey,
     runWorking: Boolean(props.runWorking),
-    searchActive: searchFiltering,
+    searchActive,
   });
   // Watch/settle on actual indicator visibility (not runWorking): queued
   // sends show the claw before the run starts, and the recap must never
@@ -1847,6 +2076,7 @@ function renderChatThreadContents(
     Math.floor(Date.now() / 60_000),
     getToolTitlesVersion(),
     props.sessionKey,
+    searchQuery,
     props.gatewayUrl,
     props.boardProvider,
     props.boardProvider?.canPinWidgets,
@@ -1886,17 +2116,14 @@ function renderChatThreadContents(
               ? renderHistorySentinel(props.historyPagination.loading)
               : nothing}
             ${showLoadingSkeleton ? renderLoadingSkeleton() : nothing}
-            ${isEmpty && !state.searchOpen ? renderWelcomeState(props) : nothing}
-            ${isEmpty && state.searchOpen
-              ? html` <div class="agent-chat__empty">${t("chat.thread.noMatches")}</div> `
-              : nothing}
+            ${isEmpty ? renderWelcomeState(props) : nothing}
           </div>
         `
       : transcript.render(
           transcriptRows,
           (row) => (row.kind === "item" ? renderItem(row.item) : row.content),
           latestTranscriptAnnouncement(collapsedItems),
-          props.announceTranscript !== false && !state.searchOpen && !props.loading,
+          props.announceTranscript !== false && !state.search.open && !props.loading,
           props.historyPagination
             ? renderHistorySentinel(props.historyPagination.loading)
             : nothing,

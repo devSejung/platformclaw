@@ -52,6 +52,28 @@ openclaw-chat-page {
   width: 0;
 }
 
+.agent-chat__search-count {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.agent-chat__search-bar > button,
+.agent-chat__search-bar > openclaw-tooltip > button {
+  flex-shrink: 0;
+  padding: 4px;
+}
+
+.agent-chat__search-bar button svg {
+  width: 16px;
+  height: 16px;
+}
+
+::highlight(openclaw-search) {
+  color: var(--text-strong);
+  background-color: color-mix(in srgb, var(--accent) 35%, var(--bg));
+}
+
 /* Chat pane error alert. The pane strips its own padding, so the alert
    carries its own inset as a centered card instead of stretching into a
    full-bleed bar; visual language mirrors the connection pill (status dot

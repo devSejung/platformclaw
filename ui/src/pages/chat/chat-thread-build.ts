@@ -47,14 +47,12 @@ import {
   hasRenderableNormalizedMessage,
   insertionIndexesForBounds,
   messageKey,
-  messageMatchesSearchQuery,
   rawMessageTimestamp,
   safeNormalizeMessage,
   insertChatItemsByTimestamp,
   sanitizeStreamText,
   timestampAfterVisibleItems,
   transcriptPositionTimestamp,
-  turnHasMatchingAssistant,
   userTurnSendIdentity,
   type TurnInsertionBounds,
 } from "./chat-thread-items.ts";
@@ -91,8 +89,6 @@ export type BuildChatItemsProps = {
   questionPrompts?: readonly QuestionPrompt[];
   /** True while chat history is loading (initial load or background reload). */
   loading?: boolean;
-  searchOpen?: boolean;
-  searchQuery?: string;
 };
 
 function isUserChatItem(item: ChatItem): boolean {
@@ -207,14 +203,12 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
     const source = extractChatMessagePreview(message);
     return source ? [{ ...source, message, index }] : [];
   });
-  const searchFiltering = props.searchOpen === true && Boolean(props.searchQuery?.trim());
   const persistedCanvasIdentities = new Set<string>();
   const compaction = props.compactionStatus;
   const compactionKey = compaction
     ? `divider:compaction:live:${compaction.runId}:${compaction.itemId ?? "manual"}`
     : undefined;
   let hasPersistedCompaction = false;
-  const searchVisibleCanvasKeys = new Set<string>();
   for (const message of history) {
     const source = extractChatMessagePreview(message);
     if (!source) {
@@ -263,12 +257,8 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
 
     const isToolResult = normalized.role.toLowerCase() === "toolresult";
     const persistedCanvasSource = isToolResult ? extractChatMessagePreview(msg) : null;
-    const renderPersistedPreview =
-      persistedCanvasSource != null &&
-      (!searchFiltering || turnHasMatchingAssistant(history, i, props.searchQuery ?? ""));
-    if (persistedCanvasSource && renderPersistedPreview) {
+    if (persistedCanvasSource) {
       const canvasKey = `${itemKey}:canvas`;
-      searchVisibleCanvasKeys.add(canvasKey);
       items.push({
         kind: "message",
         key: canvasKey,
@@ -340,14 +330,6 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
     if (!message) {
       return;
     }
-    const searchQuery = props.searchQuery ?? "";
-    if (
-      props.searchOpen &&
-      searchQuery.trim() &&
-      !messageMatchesSearchQuery(message, searchQuery)
-    ) {
-      return;
-    }
     const queuedItem: ChatItem = {
       kind: "message",
       // Mirror buildMessageKeys for a send-identity source key so the pending
@@ -394,12 +376,8 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
       liftedCanvasSource.timestamp,
       canvasMinimumIndex,
       canvasMaximumIndex,
-      searchFiltering ? props.searchQuery : undefined,
     );
     if (assistantIndex == null) {
-      if (searchFiltering) {
-        continue;
-      }
       const insertionIndex = findCanvasInsertionIndex(
         items,
         liftedCanvasSource.timestamp,
@@ -426,7 +404,6 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
         toolKeys[liftedCanvasSource.index] ??
         messageKey(liftedCanvasSource.message, liftedCanvasSource.index + history.length)
       }:canvas`;
-      searchVisibleCanvasKeys.add(canvasKey);
       items.splice(insertionIndex, 0, {
         kind: "message",
         key: canvasKey,
@@ -624,7 +601,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
     appendQueuedSend(queued);
   }
 
-  // Pair and sanitize before visibility/search filtering: results may identify their call
+  // Pair and sanitize before visibility filtering: results may identify their call
   // by id alone. Filtering the call first can expose private orphan yield output.
   const projected = projectSessionsYieldItems(
     coalesceToolActivityMessages(items),
@@ -634,9 +611,6 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
     props.showToolCalls,
   );
   const visible = projected.filter((item) => {
-    if (item.kind === "notice") {
-      return !searchFiltering || messageMatchesSearchQuery(item, props.searchQuery ?? "");
-    }
     if (item.kind !== "message") {
       return true;
     }
@@ -646,11 +620,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
     ) {
       return false;
     }
-    return (
-      !searchFiltering ||
-      searchVisibleCanvasKeys.has(item.key) ||
-      messageMatchesSearchQuery(item.message, props.searchQuery ?? "")
-    );
+    return true;
   });
   return annotateToolTurnOutcome(groupMessages(collapseSequentialDuplicateMessages(visible)));
 }

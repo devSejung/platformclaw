@@ -103,7 +103,6 @@ export const CHAT_TEXT_ENTRY_SELECTOR =
   "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='combobox'], [role='listbox'], [role='textbox']";
 export const CHAT_SPACE_ACTIVATION_SELECTOR =
   "a[href], button, summary, [role='button'], [role='checkbox'], [role='link'], [role='radio'], [role='switch']";
-export const CHAT_MODAL_SELECTOR = "dialog[open], [aria-modal='true']";
 // One automatic page can fill a short initial tail without serially walking a
 // collapsed or sparse transcript to exhaustion.
 export const CHAT_HISTORY_BOOTSTRAP_PAGE_LIMIT = 1;

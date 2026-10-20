@@ -14,7 +14,7 @@ import {
   BROWSER_ANNOTATION_EVENT,
   type BrowserAnnotationDraft,
 } from "../../components/browser/browser-annotation.ts";
-import { resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
+import { MODAL_DIALOG_SELECTOR, resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
 import { resolveChatPaneObserverRunId } from "../../lib/observer-digest.ts";
 import { sessionPullRequestsForGateway } from "../../lib/session-pull-requests.ts";
 import { parseCatalogSessionKey } from "../../lib/sessions/catalog-key.ts";
@@ -25,7 +25,6 @@ import { invalidateChatAvatarCache, refreshChatAvatar } from "./chat-avatar.ts";
 import { ChatPaneSessionCreation } from "./chat-pane-session-create.ts";
 import {
   CHAT_COMPOSER_TEXTAREA_SELECTOR,
-  CHAT_MODAL_SELECTOR,
   CHAT_OPEN_DETAILS_SELECTOR,
   CHAT_SPACE_ACTIVATION_SELECTOR,
   CHAT_TEXT_ENTRY_SELECTOR,
@@ -41,6 +40,7 @@ import { resetChatViewState } from "./chat-view-state.ts";
 import { chatAttachmentFromDataUrl } from "./components/chat-attachments.ts";
 import { dismissConfirmedActionPopovers } from "./components/chat-message.ts";
 import { toggleSessionWorkspace } from "./components/chat-session-workspace.ts";
+import { openChatThreadSearch, closeChatThreadSearch } from "./components/chat-thread.ts";
 import { WIDGET_PROMPT_EVENT, type WidgetPromptEventDetail } from "./components/chat-tool-cards.ts";
 import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "./composer-persistence.ts";
 import { exportChatMarkdown } from "./export.ts";
@@ -157,6 +157,28 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
     if (
       this.active &&
       !event.defaultPrevented &&
+      !event.isComposing &&
+      event.keyCode !== 229 &&
+      !document.querySelector(MODAL_DIALOG_SELECTOR)
+    ) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        resolveAsciiShortcutKey(event) === "f"
+      ) {
+        event.preventDefault();
+        openChatThreadSearch(this.paneId, () => this.requestUpdate());
+        return;
+      }
+      if (event.key === "Escape" && closeChatThreadSearch(this.paneId)) {
+        event.preventDefault();
+        return;
+      }
+    }
+    if (
+      this.active &&
+      !event.defaultPrevented &&
       !event.altKey &&
       event.shiftKey &&
       event.metaKey &&
@@ -182,7 +204,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
       event.key.length === 1 &&
       !keyboardEventPathMatches(event, CHAT_TEXT_ENTRY_SELECTOR) &&
       !(event.key === " " && keyboardEventPathMatches(event, CHAT_SPACE_ACTIVATION_SELECTOR)) &&
-      !document.querySelector(CHAT_MODAL_SELECTOR)
+      !document.querySelector(MODAL_DIALOG_SELECTOR)
     ) {
       const composer = this.querySelector<HTMLTextAreaElement>(CHAT_COMPOSER_TEXTAREA_SELECTOR);
       if (composer && !composer.disabled && !composer.readOnly) {
@@ -456,6 +478,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
   }
 
   override updated(changedProperties: Map<PropertyKey, unknown> = new Map()) {
+    this.syncSearchTarget();
     if (changedProperties.has("focusComposer") && this.focusComposer) {
       const textarea = this.querySelector<HTMLTextAreaElement>(CHAT_COMPOSER_TEXTAREA_SELECTOR);
       const input = textarea?.closest<HTMLElement>(".agent-chat__input");

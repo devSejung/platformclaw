@@ -1493,6 +1493,61 @@ export async function loadChatHistory(
   return promise;
 }
 
+/** Initial hydration commits before any cached or fetched search hit is revealed. */
+export async function waitForPendingChatHistory(state: ChatState): Promise<void> {
+  await getChatHistoryPaneRequests(state).inFlightHistory?.promise;
+}
+
+/** Load a search anchor through the same pane/connection ownership fence as history. */
+export async function loadChatHistoryAnchor(
+  state: ChatState,
+  target: { sessionId: string; messageId: string },
+  isSearchCurrent: () => boolean = () => true,
+): Promise<boolean> {
+  const client = state.client;
+  const sessionKey = state.sessionKey;
+  const connectionEpoch = state.connectionEpoch;
+  if (!client || !state.connected) {
+    return false;
+  }
+  await waitForPendingChatHistory(state);
+  if (
+    state.client !== client ||
+    state.sessionKey !== sessionKey ||
+    state.connectionEpoch !== connectionEpoch ||
+    !isSearchCurrent()
+  ) {
+    return false;
+  }
+  const agentId = isUiSelectedGlobalSessionKey(state, sessionKey)
+    ? resolveUiSelectedSessionAgentId(state)
+    : undefined;
+  const ownership = beginChatHistoryRequest(state, client, connectionEpoch, sessionKey, agentId);
+  const result = await client.request<ChatHistoryResult>("chat.history", {
+    sessionKey,
+    ...(agentId ? { agentId } : {}),
+    sessionId: target.sessionId,
+    messageId: target.messageId,
+    limit: CHAT_HISTORY_REQUEST_LIMIT,
+  });
+  if (!shouldApplyChatHistoryResult(state, ownership) || !isSearchCurrent()) {
+    return false;
+  }
+  const messages = (result.messages ?? []).filter((message) => !shouldHideHistoryMessage(message));
+  if (!messages.some((message) => readSessionMessageIdentity(message)?.id === target.messageId)) {
+    return false;
+  }
+  reduceChatSessionProjection(state, {
+    type: "snapshotLoaded",
+    messages,
+    options: { shouldIncludeMessage: (message) => !shouldHideHistoryMessage(message) },
+  });
+  state.chatHistoryPagination = resolveChatHistoryPagination(result);
+  state.lastError = null;
+  state.requestUpdate?.();
+  return true;
+}
+
 export async function loadOlderChatHistoryPage(
   state: ChatState,
   offset: number,

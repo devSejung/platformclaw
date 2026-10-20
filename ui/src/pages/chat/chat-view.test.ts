@@ -56,7 +56,7 @@ import { ChatSessionRailElement } from "./components/chat-session-rail.ts";
 import {
   resetChatThreadPresentationState,
   resetChatThreadSessionPresentationState,
-  toggleChatThreadSearch,
+  openChatThreadSearch,
 } from "./components/chat-thread.ts";
 import { renderWelcomeState } from "./components/chat-welcome.ts";
 import { RealtimeTalkLevelSignal } from "./realtime-talk-level.ts";
@@ -2037,6 +2037,45 @@ describe("session rail open requests", () => {
 });
 
 describe("per-pane chat presentation state", () => {
+  it("passes the selected agent owner into current-thread global search", async () => {
+    vi.useFakeTimers();
+    const request = vi.fn().mockResolvedValue({ results: [], totalCount: 0, hasMore: false });
+    const container = document.createElement("div");
+    const props = createChatProps({
+      paneId: "global-find-owner",
+      sessionKey: "global",
+      currentAgentId: "research",
+      searchSessionId: "global-transcript",
+      gatewayClient: { request } as unknown as GatewayBrowserClient,
+      onRequestUpdate: () => draw(),
+    });
+    const draw = () => render(renderChat(props), container);
+    try {
+      draw();
+      openChatThreadSearch(props.paneId, draw);
+      const input = requireElement(
+        container,
+        ".agent-chat__search-bar input",
+        "find input",
+      ) as HTMLInputElement;
+      input.value = "배포";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(180);
+      expect(request).toHaveBeenCalledWith(
+        "sessions.search",
+        expect.objectContaining({
+          agentId: "research",
+          sessionKeys: ["global"],
+          sessionId: "global-transcript",
+          query: "배포",
+        }),
+      );
+    } finally {
+      resetChatThreadPresentationState(props.paneId);
+      vi.useRealTimers();
+    }
+  });
+
   it("opens thread search from the physical shortcut on a non-Latin layout", () => {
     const onRequestUpdate = vi.fn();
     const container = renderChatView({ onRequestUpdate });
@@ -2096,13 +2135,13 @@ describe("per-pane chat presentation state", () => {
       render(renderChat(createChatProps({ paneId, draft, getDraft: () => draft })), container);
     };
 
-    toggleChatThreadSearch("pane-a", vi.fn());
+    openChatThreadSearch("pane-a", vi.fn());
     renderPane(paneA, "pane-a", "");
     renderPane(paneB, "pane-b", "");
     expect(paneA.querySelector(".agent-chat__search-bar")).not.toBeNull();
     expect(paneB.querySelector(".agent-chat__search-bar")).toBeNull();
 
-    toggleChatThreadSearch("pane-b", vi.fn());
+    openChatThreadSearch("pane-b", vi.fn());
     resetChatThreadSessionPresentationState("pane-a");
     renderPane(paneA, "pane-a", "");
     renderPane(paneB, "pane-b", "");

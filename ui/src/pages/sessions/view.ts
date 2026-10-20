@@ -146,6 +146,7 @@ export type SessionsProps = {
   onDeselectAll: () => void;
   onDeleteSelected: () => void;
   onNavigateToChat?: (sessionKey: string) => void;
+  onNavigateToSearchHit?: (hit: SessionsSearchHit) => void;
   onOpenSessionMenu: (
     row: GatewaySessionRow,
     position: { x: number; y: number },
@@ -398,6 +399,7 @@ function renderSessionsOverview(
 function transcriptSearchSessionLabel(hit: SessionsSearchHit, rows: GatewaySessionRow[]): string {
   const row = rows.find((candidate) => candidate.key === hit.sessionKey);
   return (
+    normalizeOptionalString(hit.title) ??
     normalizeOptionalString(row?.label) ??
     normalizeOptionalString(row?.displayName) ??
     hit.sessionKey
@@ -525,7 +527,7 @@ function renderTranscriptSearch(props: SessionsProps, rows: GatewaySessionRow[])
                       <button
                         class="sessions-transcript-search__result"
                         type="button"
-                        @click=${() => props.onNavigateToChat?.(hit.sessionKey)}
+                        @click=${() => props.onNavigateToSearchHit?.(hit)}
                       >
                         <span class="sessions-transcript-search__result-header">
                           <strong>${transcriptSearchSessionLabel(hit, rows)}</strong>

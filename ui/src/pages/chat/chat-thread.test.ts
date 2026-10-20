@@ -708,8 +708,6 @@ describe("collapseCompletedTurnWork", () => {
               toolResult("call-1", 2_000),
               { role: "assistant", content: "All done.", timestamp: 3_000 },
             ],
-            searchOpen: true,
-            searchQuery: "ok",
           }),
         ),
       ),
@@ -1440,39 +1438,24 @@ describe("buildCachedChatItems", () => {
     expect(groups[0]?.messages).toHaveLength(3);
   });
 
-  it.each([
-    { searchQuery: "", matches: true },
-    { searchQuery: " COMMAND ", matches: true },
-    { searchQuery: "missing output", matches: false },
-  ])(
-    "filters system notices by visible text for query '$searchQuery'",
-    ({ searchQuery, matches }) => {
-      const items = buildCachedChatItems(
-        createProps({
-          searchOpen: true,
-          searchQuery,
-          messages: [
-            { role: "system", content: "Command output\n  indented", timestamp: 1000 },
-            { role: "system", content: "  \n", timestamp: 1001 },
-          ],
-        }),
-      );
-
-      expect(items).toEqual(
-        matches
-          ? [
-              {
-                kind: "notice",
-                key: expect.any(String),
-                text: "Command output\n  indented",
-                timestamp: 1000,
-              },
-            ]
-          : [],
-      );
-    },
-  );
-
+  it("preserves nonempty system notices in transcript context", () => {
+    const items = buildCachedChatItems(
+      createProps({
+        messages: [
+          { role: "system", content: "Command output\n  indented", timestamp: 1000 },
+          { role: "system", content: "  \n", timestamp: 1001 },
+        ],
+      }),
+    );
+    expect(items).toEqual([
+      {
+        kind: "notice",
+        key: expect.any(String),
+        text: "Command output\n  indented",
+        timestamp: 1000,
+      },
+    ]);
+  });
   it("attributes assistant groups to the latest user in multi-sender threads", () => {
     const groups = messageGroups({
       messages: [
@@ -3168,10 +3151,8 @@ describe("buildCachedChatItems", () => {
     expect(groups).toStrictEqual([]);
   });
 
-  it("filters submitted queued sends while chat search is active", () => {
+  it("preserves submitted queued sends together in transcript context", () => {
     const groups = messageGroups({
-      searchOpen: true,
-      searchQuery: "matching",
       queue: [
         {
           id: "pending-send-1",
@@ -3191,6 +3172,10 @@ describe("buildCachedChatItems", () => {
     });
 
     expect(groups).toHaveLength(1);
+    expect(groupAt(groups, 0).messages).toHaveLength(2);
+    expect(messageRecord(groupAt(groups, 0), 1).content).toStrictEqual([
+      { type: "text", text: "unrelated prompt" },
+    ]);
     expect(messageRecord(groupAt(groups, 0)).content).toStrictEqual([
       { type: "text", text: "matching prompt" },
     ]);
@@ -3259,19 +3244,17 @@ describe("buildCachedChatItems", () => {
     expect(canvasBlocksIn(groupAt(groups, 3))).toHaveLength(1);
   });
 
-  it("keeps a live App preview on an assistant search match", () => {
+  it("keeps a live App preview with its assistant context", () => {
     const groups = messageGroups({
       messages: [{ role: "assistant", content: "Matching preview", timestamp: 1_000 }],
       toolMessages: [mcpAppResult("mcp-app-search", "call-search", 1_001)],
-      searchOpen: true,
-      searchQuery: "matching",
       showToolCalls: false,
     });
 
     expect(canvasBlocksIn(groupAt(groups, 0))).toHaveLength(1);
   });
 
-  it("keeps a persisted App preview on an assistant search match", () => {
+  it("keeps a persisted App preview with its assistant context", () => {
     for (const showToolCalls of [false, true]) {
       const groups = messageGroups({
         messages: [
@@ -3280,8 +3263,6 @@ describe("buildCachedChatItems", () => {
           { role: "assistant", content: "Matching preview", timestamp: 1_002 },
         ],
         toolMessages: [],
-        searchOpen: true,
-        searchQuery: "matching",
         showToolCalls,
       });
 
@@ -3758,7 +3739,7 @@ describe("expansion-state render dependencies", () => {
     expect(getExpandedUserMessages("main").get("user-message")).toBe(false);
   });
 
-  it("keeps expanded disclosures while transcript search temporarily hides them", () => {
+  it("keeps expanded disclosures across unchanged transcript renders", () => {
     resetChatThreadState();
     const sessionKey = "search-preserves-disclosures";
     const messages = [
@@ -3790,11 +3771,9 @@ describe("expansion-state render dependencies", () => {
     const hiddenUserId = expectDefined(hiddenUserGroup.messages[0]?.key, "hidden user message");
     setExpansionState(users, hiddenUserId, true);
 
-    const filtered = buildCachedChatItems(
-      createProps({ sessionKey, messages, searchOpen: true, searchQuery: "needle" }),
-    );
-    expect(filtered).not.toBe(unfiltered);
-    expect(filtered.every((item) => item.kind !== "group" || item.role !== "assistant")).toBe(true);
+    const filtered = buildCachedChatItems(createProps({ sessionKey, messages }));
+    expect(filtered).toBe(unfiltered);
+    expect(JSON.stringify(filtered)).toContain("hidden assistant reply");
     syncToolCardExpansionState(sessionKey, filtered, false, true);
 
     expect(tools.get(cardId)).toBe(true);
@@ -3845,7 +3824,7 @@ describe("expansion-state render dependencies", () => {
     expect(getExpansionStateVersion(expanded)).toBe(filteredVersion + 1);
   });
 
-  it("auto-expands retained cards hidden while transcript search is active", () => {
+  it("auto-expands retained cards across unchanged transcript renders", () => {
     resetChatThreadState();
     const sessionKey = "search-auto-expands-hidden-cards";
     const messages = [
@@ -3872,9 +3851,7 @@ describe("expansion-state render dependencies", () => {
     const hiddenCardId = expectDefined(cardIds[0], "hidden retained card");
     const visibleCardId = expectDefined(cardIds[1], "visible retained card");
 
-    const filtered = buildCachedChatItems(
-      createProps({ sessionKey, messages, searchOpen: true, searchQuery: "needle" }),
-    );
+    const filtered = buildCachedChatItems(createProps({ sessionKey, messages }));
     syncToolCardExpansionState(sessionKey, filtered, false, true);
     expect(expanded.get(hiddenCardId)).toBe(false);
     expect(expanded.get(visibleCardId)).toBe(false);
@@ -4270,8 +4247,6 @@ describe("thread item cache", () => {
     const paneA = createProps({
       paneId: "pane-a",
       messages,
-      searchOpen: true,
-      searchQuery: "needle",
     });
     const paneB = createProps({ paneId: "pane-b", messages });
 

@@ -18,6 +18,7 @@ class AppTopbar extends OpenClawLightDomContentsElement {
   @property({ attribute: false }) onToggleDrawer?: (trigger: HTMLElement) => void;
   @property({ attribute: false }) onOpenPalette?: () => void;
   @property({ attribute: false }) searchDisabled = false;
+  @property({ attribute: false }) searchOnly = false;
 
   override render() {
     const drawerLabel = this.navDrawerOpen ? t("nav.collapse") : t("nav.expand");
@@ -59,12 +60,18 @@ class AppTopbar extends OpenClawLightDomContentsElement {
             </div>
           </div>
           <div class="topnav-shell__actions">
-            <openclaw-tooltip .content=${t("chat.commandPaletteTitle")}>
+            <openclaw-tooltip
+              .content=${t(
+                this.searchOnly ? "palette.conversationSearch" : "chat.commandPaletteTitle",
+              )}
+            >
               <button
                 class="topbar-search"
                 ?disabled=${this.searchDisabled || !this.onOpenPalette}
                 @click=${() => this.onOpenPalette?.()}
-                aria-label=${t("chat.openCommandPalette")}
+                aria-label=${t(
+                  this.searchOnly ? "palette.conversationSearch" : "chat.openCommandPalette",
+                )}
               >
                 ${icons.search}
               </button>
