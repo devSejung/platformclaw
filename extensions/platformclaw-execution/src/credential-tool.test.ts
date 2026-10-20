@@ -84,6 +84,38 @@ describe("PlatformClaw credential tool", () => {
     expect(duplicate.details).toEqual(first.details);
   });
 
+  it.each(["knox", "webchat", undefined])(
+    "provides a manual registration path without a button and rechecks after saving: %s",
+    async (messageChannel) => {
+      const metadata = runtime();
+      const tool = createPlatformClawCredentialTool(
+        { ...context, sessionKey: "agent:person_one:main", messageChannel },
+        Promise.resolve(metadata),
+      )!;
+      const input = { action: "request", envName: "REPORT_API_TOKEN" };
+      const missing = await tool.execute("missing-call", input);
+      expect(missing.details).toMatchObject({ status: "required", envName: input.envName });
+      expect(missing.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "If no button appears, sign in to PlatformClaw on a PC, open Settings > Credentials, save REPORT_API_TOKEN, then send a new message asking to continue in the original conversation.",
+          ),
+        }),
+      ]);
+      expect(JSON.stringify(missing.content)).toContain("Never paste a key in chat");
+      expect(JSON.stringify(missing.content)).toContain("saving alone does not restart the task");
+      expect(JSON.stringify(missing.content)).toContain("no tool call is suspended");
+
+      metadata.credentialMetadata.mockResolvedValue({
+        definitions: [{ envName: input.envName, configured: true }],
+      });
+      const saved = await tool.execute("continue-call", input);
+      expect(saved.details).toEqual({ status: "configured", envName: input.envName });
+      expect(metadata.credentialMetadata).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it.each([
     "agent:other:main",
     "agent:person_one:subagent:one",

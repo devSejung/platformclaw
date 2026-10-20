@@ -113,7 +113,7 @@ function createPlatformClawCredentialTool(
     name: PLATFORMCLAW_CREDENTIAL_TOOL_NAME,
     label: "Personal credentials",
     description:
-      "List allowed personal execution key names or check an exact key required by the current task and request the secure registration UI. Never read, accept, or print secret values. Determine the exact name from the task or integration instructions; ask if ambiguous. When required, explain the service and task, tell the user to use the registration button, end this turn, and wait for explicit Continue. Request one key at a time. Saved keys are not proof of service authentication.",
+      "List allowed personal execution key names or check an exact key required by the current task and provide secure registration instructions. Never read, accept, or print secret values. Determine the exact name from the task or integration instructions; ask if ambiguous. When required, explain the service and task, relay the returned registration instructions, end this turn, and wait for explicit user continuation. Request one key at a time. Saved keys are not proof of service authentication.",
     parameters: {
       type: "object",
       properties: {
@@ -175,7 +175,7 @@ function createPlatformClawCredentialTool(
       const requestId = requestIds.get(toolCallId) ?? randomUUID();
       requestIds.set(toolCallId, requestId);
       return textResult(
-        `${definition.envName} is not saved. Explain why the task needs it, ask the user to use the secure registration button (never paste a key in chat), then end this turn. Wait for the user's explicit Continue; no tool has been suspended or resumed.`,
+        `${definition.envName} is not saved. Explain why the task needs it. If a secure registration button appears, use it and select Continue after saving. If no button appears, sign in to PlatformClaw on a PC, open Settings > Credentials, save ${definition.envName}, then send a new message asking to continue in the original conversation. Never paste a key in chat. Relay these steps to the user, then end this turn. Wait for explicit user continuation; saving alone does not restart the task, and no tool call is suspended or automatically resumed.`,
         {
           status: "required",
           envName: definition.envName,
