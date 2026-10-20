@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isSupportedLocale } from "../ui/src/i18n/lib/locale-preferences.ts";
 import {
   loadControlUiTranslationMemory,
   materializeControlUiLocaleCatalog,
@@ -222,13 +223,9 @@ export async function syncControlUiCatalogFallbackBaseline(options: {
 }
 
 export async function verifyRuntimeLocaleConfig() {
-  const registryRaw = await readFile(
-    path.join(ROOT, "ui", "src", "i18n", "lib", "registry.ts"),
-    "utf8",
-  );
   const typesRaw = await readFile(path.join(ROOT, "ui", "src", "i18n", "lib", "types.ts"), "utf8");
   for (const entry of CONTROL_UI_LOCALE_ENTRIES) {
-    if (!registryRaw.includes(`"${entry.locale}"`) || !typesRaw.includes(`| "${entry.locale}"`)) {
+    if (!isSupportedLocale(entry.locale) || !typesRaw.includes(`| "${entry.locale}"`)) {
       throw new Error(`runtime locale config is missing ${entry.locale}`);
     }
   }

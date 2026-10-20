@@ -10,6 +10,7 @@ on:
       - ui/src/i18n/.i18n/*
       - ui/src/i18n/lib/types.ts
       - ui/src/i18n/lib/registry.ts
+      - ui/src/i18n/lib/locale-preferences.ts
       - ui/config/control-ui-locales.ts
       - scripts/control-ui-i18n.ts
       - scripts/control-ui-i18n-verify.ts
@@ -335,6 +336,7 @@ jobs:
             ui/src/i18n/.i18n/raw-copy-baseline.json
             ui/src/i18n/lib/types.ts
             ui/src/i18n/lib/registry.ts
+            ui/src/i18n/lib/locale-preferences.ts
             ui/config/control-ui-locales.ts
             scripts/control-ui-i18n.ts
             scripts/control-ui-i18n-verify.ts
