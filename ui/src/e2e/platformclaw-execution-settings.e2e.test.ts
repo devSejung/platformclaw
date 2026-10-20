@@ -561,7 +561,7 @@ suite("PlatformClaw coding agent settings", () => {
     });
     const renewal = vmCard.locator("form[data-action='update-credential']");
     expect(await vmCard.count()).toBe(1);
-    expect(await renewal.isVisible()).toBe(true);
+    await expect.poll(() => renewal.isVisible()).toBe(true);
     expect(await component.locator(".credentials-details").count()).toBe(0);
     await expect
       .poll(() => component.locator("[data-target='assigned_vm']").isDisabled())
@@ -637,9 +637,10 @@ suite("PlatformClaw coding agent settings", () => {
     await component.locator("[data-action='close']").click();
     await component.locator("[data-action='open']").click();
     await waitForProgressClosed(component);
+    // The settings modal exposes its form after its own initial focus frame.
+    await expect.poll(() => renewal.isVisible()).toBe(true);
     expect(await offer.count()).toBe(0);
     expect(await password.inputValue()).toBe("");
-    expect(await renewal.isVisible()).toBe(true);
     expect(await vmCard.locator("[data-vm-status][role='alert']").count()).toBe(0);
     expect(await component.locator("[data-current-target]").textContent()).toContain(
       "Basic server",
