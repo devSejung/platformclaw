@@ -125,8 +125,12 @@ export function installPlatformClawLoginMascot(
   let pendingPointer: { x: number; y: number } | null = null;
   let blinkTimeout = 0;
   let blinkEndTimeout = 0;
+  const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
 
   const updateCaret = () => {
+    if (reducedMotion?.matches) {
+      return;
+    }
     window.cancelAnimationFrame(caretFrame);
     caretFrame = window.requestAnimationFrame(() => {
       if (document.activeElement !== identifier) {
@@ -144,9 +148,12 @@ export function installPlatformClawLoginMascot(
   });
 
   const scheduleBlink = () => {
+    if (reducedMotion?.matches) {
+      return;
+    }
     blinkTimeout = window.setTimeout(
       () => {
-        if (root.dataset.loginMascotMode !== "password") {
+        if (!reducedMotion?.matches && root.dataset.loginMascotMode !== "password") {
           root.classList.add("is-blinking");
           blinkEndTimeout = window.setTimeout(
             () => root.classList.remove("is-blinking"),
@@ -159,9 +166,29 @@ export function installPlatformClawLoginMascot(
     );
   };
 
+  reducedMotion?.addEventListener(
+    "change",
+    () => {
+      window.clearTimeout(blinkTimeout);
+      window.clearTimeout(blinkEndTimeout);
+      window.cancelAnimationFrame(caretFrame);
+      window.cancelAnimationFrame(pointerFrame);
+      pointerFrame = 0;
+      pendingPointer = null;
+      root.classList.remove("is-blinking");
+      runner.classList.remove("is-waddling");
+      resetPose(elements);
+      scheduleBlink();
+    },
+    { signal },
+  );
+
   window.addEventListener(
     "pointermove",
     (event) => {
+      if (reducedMotion?.matches) {
+        return;
+      }
       if (document.activeElement === identifier || document.activeElement === secretInput) {
         return;
       }

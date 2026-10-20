@@ -22,6 +22,7 @@ describe("PlatformClaw login mascot", () => {
   afterEach(() => {
     document.body.replaceChildren();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("mounts the canonical fixed-grid SVG", () => {
@@ -70,5 +71,24 @@ describe("PlatformClaw login mascot", () => {
     expect(root.dataset.loginMascotMode).toBe("password");
     expect(root.style.getPropertyValue("--eye-open")).toBe("0.25");
     expect(root.style.getPropertyValue("--eye-x")).toBe("0px");
+  });
+
+  it("keeps a still pose with reduced motion while preserving password privacy", async () => {
+    const media = new EventTarget();
+    vi.stubGlobal("matchMedia", () => Object.assign(media, { matches: true }));
+    const { root, identifier, secretInput } = fixture();
+    const cleanup = installPlatformClawLoginMascot(root, identifier, secretInput);
+
+    window.dispatchEvent(new MouseEvent("pointermove", { clientX: 900, clientY: 80 }));
+    identifier.focus();
+    await nextAnimationFrame();
+
+    expect(root.style.getPropertyValue("--mascot-x")).toBe("0px");
+    expect(root.style.getPropertyValue("--eye-x")).toBe("0px");
+    expect(root.classList.contains("is-blinking")).toBe(false);
+    secretInput.focus();
+    expect(root.dataset.loginMascotMode).toBe("password");
+    expect(root.style.getPropertyValue("--eye-open")).toBe("0.25");
+    cleanup();
   });
 });

@@ -1,20 +1,22 @@
+@import "../styles/base.css" layer(theme);
+@import "../styles/platformclaw-theme.css" layer(theme);
+
 :root {
-  color-scheme: light;
-  --login-canvas: #faf9f5;
-  --login-surface: #f5f0e8;
-  --login-surface-strong: #e8e0d2;
-  --login-ink: #141413;
-  --login-body: #3d3d3a;
-  --login-muted: #6c6a64;
-  --login-muted-soft: #8e8b82;
-  --login-hairline: #e6dfd8;
-  --login-input-border: #d7d0c7;
-  --login-primary: #0f7c72;
-  --login-primary-active: #0b625a;
-  --login-focus: rgba(15, 124, 114, 0.15);
-  --login-error: #8d3030;
-  --login-error-border: rgba(198, 69, 69, 0.24);
-  --login-error-surface: rgba(198, 69, 69, 0.07);
+  --login-canvas: var(--bg);
+  --login-surface: var(--card);
+  --login-surface-strong: var(--bg-elevated);
+  --login-ink: var(--text-strong);
+  --login-body: var(--text);
+  --login-muted: var(--muted);
+  --login-muted-soft: var(--muted);
+  --login-hairline: var(--border);
+  --login-input-border: var(--border-strong);
+  --login-primary: var(--accent);
+  --login-primary-active: var(--accent-hover);
+  --login-focus: color-mix(in srgb, var(--ring) 30%, transparent);
+  --login-error: color-mix(in srgb, var(--danger) 70%, var(--text-strong));
+  --login-error-border: color-mix(in srgb, var(--danger) 30%, transparent);
+  --login-error-surface: color-mix(in srgb, var(--danger) 8%, var(--card));
   font-family:
     Inter,
     Pretendard,
@@ -27,22 +29,36 @@
   background: var(--login-canvas);
   font-synthesis: none;
 }
-
 * {
   box-sizing: border-box;
 }
 
 html,
 body {
+  height: auto;
   min-height: 100%;
   margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: auto;
 }
 
 body {
+  position: static;
   display: grid;
   min-height: 100dvh;
   overflow-x: hidden;
   background: var(--login-canvas);
+  font:
+    400 14px/1.5 Inter,
+    Pretendard,
+    "Noto Sans KR",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  user-select: text;
 }
 
 button,
@@ -52,17 +68,18 @@ input {
 
 .login-page {
   display: grid;
-  width: min(100% - 3rem, 66rem);
+  width: min(100% - 3rem, 68rem);
   margin: auto;
-  padding: 4rem 0;
+  padding: 1.75rem 0;
   align-items: start;
-  grid-template-columns: minmax(0, 35rem) minmax(24rem, 29rem);
-  gap: 2rem;
+  grid-template-columns: minmax(0, 1.35fr) minmax(22rem, 1fr);
+  gap: 1.5rem;
 }
 
 .login-security-notice {
+  display: grid;
   min-width: 0;
-  padding: 1rem 1.25rem;
+  padding: 0.85rem 1rem;
   order: -2;
   grid-column: 1 / -1;
   border: 1px solid var(--login-hairline);
@@ -71,20 +88,23 @@ input {
   color: var(--login-body);
   background: var(--login-surface);
   overflow-wrap: anywhere;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 2rem;
 }
 
 .login-security-notice h2 {
+  grid-column: 1 / -1;
   margin: 0;
   color: var(--login-ink);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.5;
 }
 
 .login-security-notice p {
   margin: 0.5rem 0 0;
-  font-size: 0.8125rem;
-  line-height: 1.65;
+  font-size: 0.75rem;
+  line-height: 1.6;
 }
 
 .login-hero {
@@ -95,71 +115,13 @@ input {
   min-width: 0;
 }
 
-.login-story {
-  padding: 1rem 0;
-}
-
-.login-eyebrow {
-  display: inline-flex;
-  min-height: 2rem;
-  margin: 0 0 2rem;
-  padding: 0 0.85rem;
-  align-items: center;
-  border: 1px solid #d8e5e1;
-  border-radius: 9999px;
-  color: #0f7c72;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.login-story h1 {
-  margin: 0;
-  max-width: 42rem;
-  font-family:
-    "Cormorant Garamond", "EB Garamond", "Noto Serif KR", "Nanum Myeongjo", Batang, Garamond,
-    "Times New Roman", serif;
-  font-size: clamp(3.4rem, 5vw, 4.5rem);
-  font-weight: 500;
-  letter-spacing: -0.045em;
-  line-height: 0.98;
-  text-wrap: balance;
-}
-
-.login-story__intro {
-  margin: 2rem 0 0;
-  max-width: 36rem;
-  color: #3d3d3a;
-  font-size: clamp(1rem, 1.5vw, 1.12rem);
-  line-height: 1.7;
-}
-
-.login-capabilities {
-  display: flex;
-  margin: 2rem 0 0;
-  padding: 0;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  list-style: none;
-}
-
-.login-capabilities li {
-  padding: 0.52rem 0.85rem;
-  border-radius: 9999px;
-  color: #3d3d3a;
-  background: #efe9de;
-  font-size: 0.78rem;
-  font-weight: 500;
-}
-
 .login-card {
   display: flex;
-  min-height: 43.75rem;
-  padding: clamp(2rem, 4vw, 2.75rem);
+  min-height: 590px;
+  padding: 1.75rem 2rem;
   flex-direction: column;
   border: 1px solid var(--login-hairline);
-  border-radius: 1rem;
+  border-radius: 1.5rem;
   background: var(--login-surface);
 }
 
@@ -171,23 +133,25 @@ input {
   position: relative;
   display: grid;
   width: 100%;
-  height: 8.25rem;
-  margin: -0.35rem auto 1.35rem;
-  place-items: center;
+  height: 5.5rem;
+  margin: 0 auto 0.75rem;
+  place-content: center;
   overflow: hidden;
 }
 
 .login-mascot__runner {
-  width: 8.25rem;
-  height: 8.25rem;
+  /* Keep the canonical 66-cell asset at 2x. The shorter viewport clips only
+     transparent canvas, preserving evenly sized pixels without a tall header. */
+  width: 132px;
+  height: 132px;
   transform: translateX(var(--mascot-x));
   transition: transform 300ms steps(8, end);
 }
 
 .login-mascot__svg {
   display: block;
-  width: 8.25rem;
-  height: 8.25rem;
+  width: 132px;
+  height: 132px;
   shape-rendering: crispEdges;
 }
 
@@ -228,18 +192,15 @@ input {
 }
 
 .login-card__heading {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   text-align: center;
 }
 
 .login-card__heading h2 {
   margin: 0;
-  font-family:
-    "Cormorant Garamond", "EB Garamond", "Noto Serif KR", "Nanum Myeongjo", Batang, Garamond,
-    "Times New Roman", serif;
-  font-size: 2rem;
-  font-weight: 500;
-  letter-spacing: -0.025em;
+  font-size: 1.65rem;
+  font-weight: 650;
+  letter-spacing: -0.055em;
   line-height: 1.2;
 }
 
@@ -297,8 +258,8 @@ button {
   margin-top: 0.25rem;
   border: 0;
   border-radius: 0.5rem;
-  color: #fff;
-  background: var(--login-primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
@@ -306,7 +267,7 @@ button {
 }
 
 button:active:not(:disabled) {
-  background: var(--login-primary-active);
+  background: var(--primary-hover, var(--primary));
 }
 
 button:focus-visible {
@@ -376,12 +337,16 @@ button:focus-visible {
   text-align: center;
 }
 
+.login-status:empty {
+  display: none;
+}
+
 .login-privacy {
   margin: auto 0 0;
-  padding-top: 1.15rem;
+  padding-top: 1rem;
   border-top: 1px solid var(--login-hairline);
   color: var(--login-muted-soft);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   line-height: 1.5;
   text-align: center;
 }
@@ -510,43 +475,18 @@ button:focus-visible {
   text-underline-offset: 0.2em;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --login-canvas: #181715;
-    --login-surface: #1f1e1b;
-    --login-surface-strong: #252320;
-    --login-ink: #faf9f5;
-    --login-body: #d8d5ce;
-    --login-muted: #a09d96;
-    --login-muted-soft: #8f8b84;
-    --login-hairline: #35322e;
-    --login-input-border: #49453f;
-    --login-primary: #4fb3a8;
-    --login-primary-active: #67c4ba;
-    --login-focus: rgba(79, 179, 168, 0.22);
-    --login-error: #efaaa4;
-    --login-error-border: rgba(223, 133, 123, 0.35);
-    --login-error-surface: rgba(198, 69, 69, 0.12);
-  }
-
-  button[type="submit"] {
-    color: #141413;
-  }
-}
-
 @media (max-width: 1050px) and (min-width: 801px) {
   .login-page {
     grid-template-columns: minmax(0, 1fr) minmax(22rem, 24rem);
     gap: 2rem;
   }
-
-  .login-story h1 {
-    font-size: 3.4rem;
-  }
 }
 
 @media (max-width: 960px) {
+  .login-security-notice {
+    grid-template-columns: 1fr;
+  }
+
   .login-page {
     width: min(100% - 2rem, 31rem);
     padding: 2.5rem 0;
@@ -564,18 +504,6 @@ button:focus-visible {
 
   .login-card {
     min-height: 0;
-  }
-
-  .login-eyebrow {
-    margin-bottom: 1.35rem;
-  }
-
-  .login-story h1 {
-    font-size: clamp(3rem, 13vw, 4.2rem);
-  }
-
-  .login-story__intro {
-    margin-top: 1.4rem;
   }
 }
 

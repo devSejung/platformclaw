@@ -3,9 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#181715" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light" />
+    <script type="module" blocking="render">
+      import { installPlatformClawLoginTheme } from "/src/platformclaw/login-theme.ts";
+      installPlatformClawLoginTheme();
+    </script>
     <meta name="robots" content="noindex,nofollow" />
     <base href="/platformclaw/" />
     <title>PlatformClaw 로그인</title>

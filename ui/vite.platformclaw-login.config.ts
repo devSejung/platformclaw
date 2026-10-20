@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin, UserConfig } from "vite";
-import { createControlUiPrecompressedAssetVariants } from "./vite.config.ts";
+import {
+  controlUiRenderBlockingBootstrapPlugin,
+  createControlUiPrecompressedAssetVariants,
+  resolveSourcePackageAliasesForVite,
+} from "./vite.config.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.resolve(here, "../dist/control-ui");
@@ -29,7 +33,11 @@ export default function platformclawLoginViteConfig(options: { outDir?: string }
   return {
     base: "./",
     publicDir: false,
-    plugins: [platformclawPrecompressedAssetsPlugin(buildOutDir)],
+    resolve: { alias: resolveSourcePackageAliasesForVite() },
+    plugins: [
+      controlUiRenderBlockingBootstrapPlugin(),
+      platformclawPrecompressedAssetsPlugin(buildOutDir),
+    ],
     build: {
       outDir: buildOutDir,
       emptyOutDir: false,
