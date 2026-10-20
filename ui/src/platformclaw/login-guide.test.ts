@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import loginHtml from "../../platformclaw-login.html?raw";
+import { applyPlatformClawLoginCopy } from "./login-copy.ts";
 import { installPlatformClawLoginGuide } from "./login-guide.ts";
 
 function credentialedGuideUrl(): string {
@@ -115,5 +116,21 @@ describe("login guide video", () => {
     button.click();
     expect(error.hidden).toBe(true);
     expect(video.src).toBe(sameOriginGuideUrl);
+  });
+  it("keeps English guide labels and media errors consistent without altering playback", () => {
+    const { button, dialog, close, video, error, link } = fixture(sameOriginGuideUrl);
+    applyPlatformClawLoginCopy(document.body, "en");
+    expect(button.textContent).toContain("Watch the guide");
+    expect(close.getAttribute("aria-label")).toBe("Close video");
+    expect(video.getAttribute("aria-label")).toBe("PlatformClaw guide video");
+    button.click();
+    video.dispatchEvent(new Event("error"));
+    expect(dialog.open).toBe(true);
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toBe(
+      "Could not load the video. Check your connection or open it in a new tab.",
+    );
+    expect(link.textContent).toBe("Open in a new tab ↗");
+    expect(link.href).toBe(sameOriginGuideUrl);
   });
 });

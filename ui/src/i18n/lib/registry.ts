@@ -1,33 +1,16 @@
 // Control UI i18n module implements registry behavior.
+import { DEFAULT_LOCALE, isSupportedLocale } from "./locale-preferences.ts";
 import type { Locale, TranslationMap } from "./types.ts";
+
+export {
+  DEFAULT_LOCALE,
+  SUPPORTED_LOCALES,
+  isSupportedLocale,
+  resolveNavigatorLocale,
+} from "./locale-preferences.ts";
 
 type LazyLocale = Exclude<Locale, "en">;
 type LocaleModule = Record<string, TranslationMap>;
-
-export const DEFAULT_LOCALE: Locale = "en";
-
-const LAZY_LOCALES: readonly LazyLocale[] = [
-  "zh-CN",
-  "zh-TW",
-  "pt-BR",
-  "de",
-  "es",
-  "ja-JP",
-  "ko",
-  "fr",
-  "hi",
-  "ar",
-  "it",
-  "tr",
-  "uk",
-  "id",
-  "pl",
-  "th",
-  "vi",
-  "nl",
-  "fa",
-  "ru",
-];
 
 const LAZY_LOCALE_REGISTRY: Record<LazyLocale, () => Promise<LocaleModule>> = {
   "zh-CN": () => import("../locales/zh-CN.ts"),
@@ -52,34 +35,8 @@ const LAZY_LOCALE_REGISTRY: Record<LazyLocale, () => Promise<LocaleModule>> = {
   ru: () => import("../locales/ru.ts"),
 };
 
-export const SUPPORTED_LOCALES: ReadonlyArray<Locale> = [DEFAULT_LOCALE, ...LAZY_LOCALES];
-
-export function isSupportedLocale(value: string | null | undefined): value is Locale {
-  return value !== null && value !== undefined && SUPPORTED_LOCALES.includes(value as Locale);
-}
-
 function isLazyLocale(locale: Locale): locale is LazyLocale {
-  return LAZY_LOCALES.includes(locale as LazyLocale);
-}
-
-export function resolveNavigatorLocale(browserLanguage: string): Locale {
-  const navLang = browserLanguage.toLowerCase();
-  if (navLang.startsWith("zh")) {
-    const [, ...subtags] = navLang.split("-");
-    if (subtags.includes("hant")) {
-      return "zh-TW";
-    }
-    if (subtags.includes("hans")) {
-      return "zh-CN";
-    }
-    return subtags.some((subtag) => subtag === "tw" || subtag === "hk" || subtag === "mo")
-      ? "zh-TW"
-      : "zh-CN";
-  }
-  return (
-    LAZY_LOCALES.find((locale) => navLang.startsWith(locale.split("-")[0]!.toLowerCase())) ??
-    DEFAULT_LOCALE
-  );
+  return locale !== DEFAULT_LOCALE && isSupportedLocale(locale);
 }
 
 export async function loadLazyLocaleTranslation(locale: Locale): Promise<TranslationMap | null> {

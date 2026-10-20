@@ -1,3 +1,9 @@
+import { LOCALE_STORAGE_KEY } from "../i18n/lib/locale-preferences.ts";
+import {
+  applyPlatformClawLoginCopy,
+  platformClawLoginT as t,
+  type LoginCopyKey,
+} from "./login-copy.ts";
 import { installPlatformClawLoginGuide } from "./login-guide.ts";
 import { installPlatformClawLoginHero } from "./login-hero.ts";
 import { installPlatformClawLoginMascot } from "./login-mascot.ts";
@@ -10,6 +16,7 @@ import {
 } from "./web-contract.ts";
 
 type LoginPhase = "checking" | "ready" | "submitting";
+type LoginError = { key: LoginCopyKey } | { message: string };
 
 type LoginElements = {
   hero: HTMLElement;
@@ -72,20 +79,21 @@ function readMessage(payload: unknown): string | null {
   return typeof payload.message === "string" ? payload.message.trim() || null : null;
 }
 
-function loginFailureMessage(status: number, payload: unknown): string {
+function loginFailureMessage(status: number, payload: unknown): LoginError {
   if (status === 401) {
-    return "아이디 또는 비밀번호를 확인해 주세요.";
+    return { key: "invalidCredentials" };
   }
   if (status === 429) {
-    return "로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.";
+    return { key: "rateLimited" };
   }
   if (status === 403) {
-    return "현재 계정으로는 접속할 수 없습니다. 관리자에게 문의해 주세요.";
+    return { key: "forbidden" };
   }
   if (status === 409) {
-    return "사용 가능한 로그인 세션 수를 초과했습니다. 관리자에게 문의해 주세요.";
+    return { key: "sessionLimit" };
   }
-  return readMessage(payload) ?? "로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  const message = readMessage(payload);
+  return message ? { message } : { key: "loginFailed" };
 }
 
 export class PlatformClawLoginController {
@@ -95,7 +103,31 @@ export class PlatformClawLoginController {
   private readonly navigate: (path: string) => void;
   private readonly sessionCheckTimeoutMs: number;
   private phase: LoginPhase = "checking";
-  private initialError?: string;
+  private initialError?: LoginCopyKey;
+  private error: LoginError | null = null;
+  private stopHero?: () => void;
+  private stopMascot?: () => void;
+  private readonly stopVisuals = (event?: PageTransitionEvent) => {
+    if (event?.persisted) {
+      return;
+    }
+    this.stopHero?.();
+    this.stopMascot?.();
+    this.stopHero = undefined;
+    this.stopMascot = undefined;
+  };
+  private readonly refreshLocale = (event: Event) => {
+    if (event instanceof StorageEvent && event.key !== null && event.key !== LOCALE_STORAGE_KEY) {
+      return;
+    }
+    applyPlatformClawLoginCopy(this.elements.form.ownerDocument);
+    if (this.elements.hero.shadowRoot) {
+      // Update copy in place: a language change must preserve ambient motion,
+      // focus, entered credentials, and the current authentication phase.
+      applyPlatformClawLoginCopy(this.elements.hero.shadowRoot);
+    }
+    this.render();
+  };
 
   constructor(root: ParentNode, options: PlatformClawLoginOptions = {}) {
     this.elements = readElements(root);
@@ -107,7 +139,7 @@ export class PlatformClawLoginController {
     this.returnTo = resolvePlatformClawReturnTo(location);
     const loginUrl = new URL(location.href);
     if (loginUrl.searchParams.get("adssoError") === "unavailable") {
-      this.initialError = "ADSSO 로그인 서비스를 사용할 수 없습니다. 관리자에게 문의해 주세요.";
+      this.initialError = "adssoUnavailable";
     }
     const ssoUrl = new URL(PLATFORMCLAW_ADSSO_PATH, location.origin);
     ssoUrl.searchParams.set("returnTo", this.returnTo);
@@ -118,9 +150,14 @@ export class PlatformClawLoginController {
   }
 
   start(): void {
+    applyPlatformClawLoginCopy(this.elements.form.ownerDocument);
+    const view = this.elements.form.ownerDocument.defaultView;
+    view?.addEventListener("storage", this.refreshLocale);
+    view?.addEventListener("languagechange", this.refreshLocale);
+    view?.addEventListener("pagehide", this.stopVisuals);
     installPlatformClawLoginGuide(this.elements.form.ownerDocument);
-    installPlatformClawLoginHero(this.elements.hero);
-    installPlatformClawLoginMascot(
+    this.stopHero = installPlatformClawLoginHero(this.elements.hero);
+    this.stopMascot = installPlatformClawLoginMascot(
       this.elements.mascot,
       this.elements.identifier,
       this.elements.secretInput,
@@ -132,21 +169,33 @@ export class PlatformClawLoginController {
     void this.checkSession();
   }
 
-  private render(error?: string): void {
+  dispose(): void {
+    this.stopVisuals();
+    const view = this.elements.form.ownerDocument.defaultView;
+    view?.removeEventListener("storage", this.refreshLocale);
+    view?.removeEventListener("languagechange", this.refreshLocale);
+    view?.removeEventListener("pagehide", this.stopVisuals);
+  }
+
+  private render(error: LoginError | null = this.error): void {
+    this.error = error;
     const busy = this.phase !== "ready";
     this.elements.identifier.disabled = busy;
     this.elements.secretInput.disabled = busy;
     this.elements.submit.disabled = busy;
-    this.elements.submit.textContent =
-      this.phase === "checking"
-        ? "세션 확인 중…"
-        : this.phase === "submitting"
-          ? "로그인 중…"
-          : "로그인";
-    this.elements.status.textContent =
-      this.phase === "checking" ? "기존 로그인 상태를 확인하고 있습니다." : "";
+    const submitKey =
+      this.phase === "checking" ? "checking" : this.phase === "submitting" ? "signingIn" : "signIn";
+    this.elements.submit.dataset.loginCopy = submitKey;
+    this.elements.submit.textContent = t(submitKey);
+    if (this.phase === "checking") {
+      this.elements.status.dataset.loginCopy = "checkingStatus";
+      this.elements.status.textContent = t("checkingStatus");
+    } else {
+      delete this.elements.status.dataset.loginCopy;
+      this.elements.status.textContent = "";
+    }
     this.elements.error.hidden = !error;
-    this.elements.error.textContent = error ?? "";
+    this.elements.error.textContent = error ? ("key" in error ? t(error.key) : error.message) : "";
   }
 
   private async checkSession(): Promise<void> {
@@ -170,7 +219,7 @@ export class PlatformClawLoginController {
     this.phase = "ready";
     const initialError = this.initialError;
     this.initialError = undefined;
-    this.render(initialError);
+    this.render(initialError ? { key: initialError } : null);
   }
 
   private async submit(event: SubmitEvent): Promise<void> {
@@ -179,7 +228,7 @@ export class PlatformClawLoginController {
       return;
     }
     this.phase = "submitting";
-    this.render();
+    this.render(null);
     try {
       const response = await this.fetchImpl(PLATFORMCLAW_LOGIN_API_PATH, {
         method: "POST",
@@ -201,7 +250,7 @@ export class PlatformClawLoginController {
       this.navigate(this.returnTo);
     } catch {
       this.phase = "ready";
-      this.render("로그인 서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.");
+      this.render({ key: "networkUnavailable" });
     }
   }
 }

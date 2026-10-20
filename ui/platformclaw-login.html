@@ -5,29 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light" />
     <script type="module" blocking="render">
+      import { applyPlatformClawLoginCopy } from "/src/platformclaw/login-copy.ts";
       import { installPlatformClawLoginTheme } from "/src/platformclaw/login-theme.ts";
       installPlatformClawLoginTheme();
+      applyPlatformClawLoginCopy(document);
     </script>
     <meta name="robots" content="noindex,nofollow" />
     <base href="/platformclaw/" />
-    <title>PlatformClaw 로그인</title>
+    <title data-login-copy="pageTitle">PlatformClaw 로그인</title>
     <link rel="icon" type="image/svg+xml" href="/src/platformclaw/platformclaw-pixel.svg" />
     <link rel="stylesheet" href="/src/platformclaw/login.css" />
   </head>
   <body>
     <main class="login-page" data-platformclaw-login>
-      <section class="login-hero" data-login-hero aria-hidden="true"></section>
+      <section class="login-hero" data-login-hero></section>
 
       <div class="login-access">
         <section class="login-card" aria-labelledby="login-title">
           <div class="login-mascot" data-login-mascot aria-hidden="true"></div>
           <div class="login-card__heading">
             <h2 id="login-title">PlatformClaw</h2>
-            <p>업무 계정으로 워크스페이스에 로그인하세요.</p>
+            <p data-login-copy="subtitle">업무 계정으로 워크스페이스에 로그인하세요.</p>
           </div>
           <form data-login-form novalidate>
             <label>
-              <span>계정</span>
+              <span data-login-copy="account">계정</span>
               <input
                 name="identifier"
                 type="text"
@@ -35,35 +37,49 @@
                 autocapitalize="none"
                 spellcheck="false"
                 placeholder="AD ID"
+                data-login-copy-placeholder="accountPlaceholder"
                 required
                 disabled
               />
             </label>
             <label>
-              <span>비밀번호</span>
+              <span data-login-copy="password">비밀번호</span>
               <input
                 name="password"
                 type="password"
                 autocomplete="current-password"
                 placeholder="비밀번호"
+                data-login-copy-placeholder="password"
                 required
                 disabled
               />
             </label>
             <p class="login-error" data-login-error role="alert" hidden></p>
-            <button type="submit" disabled>세션 확인 중</button>
+            <button type="submit" data-login-copy="checking" disabled>세션 확인 중…</button>
           </form>
-          <div class="login-divider" aria-hidden="true"><span>또는</span></div>
-          <a class="login-sso-button" data-login-adsso href="/employee/auth/adsso">
+          <div class="login-divider" aria-hidden="true"><span data-login-copy="or">또는</span></div>
+          <a
+            class="login-sso-button"
+            data-login-adsso
+            data-login-copy="adsso"
+            href="/employee/auth/adsso"
+          >
             ADSSO 로그인
           </a>
-          <p class="login-status" data-login-status aria-live="polite">
+          <p
+            class="login-status"
+            data-login-status
+            data-login-copy="checkingStatus"
+            aria-live="polite"
+          >
             기존 로그인 상태를 확인하고 있습니다.
           </p>
-          <p class="login-privacy">인증 정보는 브라우저에 저장되지 않습니다.</p>
+          <p class="login-privacy" data-login-copy="privacy">
+            인증 정보는 브라우저에 저장되지 않습니다.
+          </p>
         </section>
         <div class="login-guide" data-login-guide hidden>
-          <span>처음 사용하시나요?</span>
+          <span data-login-copy="firstVisit">처음 사용하시나요?</span>
           <button
             type="button"
             class="login-guide__button"
@@ -74,22 +90,20 @@
               <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5" />
               <path d="m10 8 6 4-6 4Z" fill="currentColor" />
             </svg>
-            가이드 영상 보기
+            <span data-login-copy="watchGuide">가이드 영상 보기</span>
           </button>
         </div>
       </div>
       <aside class="login-security-notice" aria-labelledby="login-security-title">
-        <h2 id="login-security-title">보안 안내 <span lang="en">/ Security notice</span></h2>
-        <p lang="ko">
-          기본 대화는 사내 LLM으로 처리되며, 외부 AI 서비스로 전송되지 않습니다.<br />
-          단, ACP로 사외 Claude를 사용하면 입력 내용이 외부로 전송될 수 있습니다. 사용 전 Claude
-          설정과 사내 보안 정책을 반드시 확인해 주세요.
-        </p>
-        <p lang="en">
-          Regular conversations are processed by our internal LLM and are not sent to external AI
-          services.<br />
-          However, when using external Claude via ACP, your input may be sent outside the company.
-          Be sure to check your Claude settings and your company’s security policy before use.
+        <h2 id="login-security-title" data-login-copy="securityTitle">보안 안내</h2>
+        <p>
+          <span data-login-copy="securityPrimary"
+            >기본 대화는 사내 LLM으로 처리되며, 외부 AI 서비스로 전송되지 않습니다.</span
+          ><br />
+          <span data-login-copy="securityExternal"
+            >단, ACP로 사외 Claude를 사용하면 입력 내용이 외부로 전송될 수 있습니다. 사용 전 Claude
+            설정과 사내 보안 정책을 반드시 확인해 주세요.</span
+          >
         </p>
       </aside>
       <dialog
@@ -100,14 +114,17 @@
       >
         <header class="login-guide-dialog__header">
           <div>
-            <h2 id="login-guide-title">PlatformClaw 사용 가이드</h2>
-            <p id="login-guide-description">시작하기부터 주요 기능까지, 영상으로 둘러보세요.</p>
+            <h2 id="login-guide-title" data-login-copy="guideTitle">PlatformClaw 사용 가이드</h2>
+            <p id="login-guide-description" data-login-copy="guideDescription">
+              시작하기부터 주요 기능까지, 영상으로 둘러보세요.
+            </p>
           </div>
           <button
             type="button"
             class="login-guide-dialog__close"
             data-login-guide-close
             aria-label="영상 닫기"
+            data-login-copy-aria-label="closeGuide"
             autofocus
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -127,13 +144,26 @@
           playsinline
           preload="none"
           aria-label="PlatformClaw 가이드 영상"
+          data-login-copy-aria-label="guideVideo"
         ></video>
-        <p class="login-guide-dialog__error" data-login-guide-error role="status" hidden>
+        <p
+          class="login-guide-dialog__error"
+          data-login-guide-error
+          data-login-copy="guideLoadError"
+          role="status"
+          hidden
+        >
           영상을 불러오지 못했습니다. 네트워크 연결을 확인하거나 새 탭에서 열어 주세요.
         </p>
         <footer class="login-guide-dialog__footer">
-          <span>전체 화면으로 더 크게 볼 수 있어요.</span>
-          <a data-login-guide-link target="_blank" rel="noopener noreferrer">새 탭에서 열기 ↗</a>
+          <span data-login-copy="guideFullscreen">전체 화면으로 더 크게 볼 수 있어요.</span>
+          <a
+            data-login-guide-link
+            data-login-copy="openNewTab"
+            target="_blank"
+            rel="noopener noreferrer"
+            >새 탭에서 열기 ↗</a
+          >
         </footer>
       </dialog>
     </main>

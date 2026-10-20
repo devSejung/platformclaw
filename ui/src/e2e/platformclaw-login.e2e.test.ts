@@ -1,217 +1,18 @@
-import { mkdir } from "node:fs/promises";
-import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  currentGatewaySelectionKeyForPage,
-  settingsKeyForGateway,
-} from "../app/settings-storage.ts";
-import type { ThemeMode, ThemeName } from "../app/theme.ts";
-import {
-  canRunPlaywrightChromium,
-  resolvePlaywrightChromiumExecutablePath,
-  startControlUiE2eServer,
-  type ControlUiE2eServer,
-} from "../test-helpers/control-ui-e2e.ts";
+import { afterAll, beforeAll, expect, it } from "vitest";
 import { createImportedCustomThemeFixture } from "../test-helpers/custom-theme.ts";
+import {
+  createPlatformClawLoginE2eFixture,
+  expectThemedFirstPaint,
+  heroFrame,
+} from "./platformclaw-login.test-support.ts";
 
-const executablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
-const chromiumAvailable = canRunPlaywrightChromium(executablePath);
-const allowMissingChromium = process.env.OPENCLAW_UI_E2E_ALLOW_MISSING_CHROMIUM === "1";
-const describeE2e = chromiumAvailable || !allowMissingChromium ? describe : describe.skip;
-const captureProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
-const captureVideo = process.env.OPENCLAW_CAPTURE_UI_VIDEO === "1";
-const artifactDir = path.join(process.cwd(), ".artifacts", "control-ui-e2e", "platformclaw-login");
-
-let browser: Browser;
-let server: ControlUiE2eServer;
-
-type LoginAppearance = {
-  theme?: ThemeName;
-  themeMode?: ThemeMode;
-  customTheme?: ReturnType<typeof createImportedCustomThemeFixture>;
-  reducedMotion?: "reduce" | "no-preference";
-};
-
-function appearanceStorage() {
-  const url = new URL("/platformclaw/app", server.baseUrl);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  const gatewayUrl = url.href;
-  return {
-    gatewayUrl,
-    settingsKey: settingsKeyForGateway(gatewayUrl),
-    selectionKey: currentGatewaySelectionKeyForPage(gatewayUrl),
-  };
-}
-
-async function openLogin(
-  colorScheme: "light" | "dark",
-  viewport: { width: number; height: number },
-  guideVideoUrl?: string,
-  appearance: LoginAppearance = {},
-): Promise<{ context: BrowserContext; page: Page }> {
-  const scopedStorage = appearanceStorage();
-  const context = await browser.newContext({
-    colorScheme,
-    reducedMotion: appearance.reducedMotion ?? "no-preference",
-    locale: "ko-KR",
-    recordVideo: captureVideo
-      ? { dir: path.join(artifactDir, "video"), size: viewport }
-      : undefined,
-    serviceWorkers: "block",
-    viewport,
-  });
-  // Reproduce the original order: the app persists its selected Gateway's
-  // appearance before the separate login document bootstraps.
-  await context.addInitScript(
-    ({ storage, preferences }) => {
-      if (!localStorage.getItem(storage.settingsKey)) {
-        localStorage.setItem(storage.settingsKey, JSON.stringify(preferences));
-        localStorage.setItem(storage.selectionKey, storage.gatewayUrl);
-      }
-      new MutationObserver((records, observer) => {
-        if (records.some((record) => record.target === document.documentElement)) {
-          document.documentElement.dataset.themeAppliedAt = String(performance.now());
-          observer.disconnect();
-        }
-      }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-theme"] });
-      new PerformanceObserver((entries) => {
-        const firstPaint = entries
-          .getEntries()
-          .find((entry) => entry.name === "first-contentful-paint");
-        if (firstPaint) {
-          document.documentElement.dataset.firstPaintAt = String(firstPaint.startTime);
-          document.documentElement.dataset.firstPaintTheme = document.documentElement.dataset.theme;
-        }
-      }).observe({ type: "paint", buffered: true });
-    },
-    {
-      storage: scopedStorage,
-      preferences: {
-        gatewayUrl: scopedStorage.gatewayUrl,
-        theme: appearance.theme ?? "platformclaw",
-        themeMode: appearance.themeMode ?? colorScheme,
-        customTheme: appearance.customTheme,
-      },
-    },
-  );
-  const page = await context.newPage();
-  await page.route("**/platformclaw/api/auth/session", async (route) => {
-    await route.fulfill({ contentType: "application/json", body: '{"authenticated":false}' });
-  });
-  if (guideVideoUrl) {
-    // The real ingress injects this deployment metadata; this suite owns UI behavior.
-    await page.route("**/platformclaw-login.html", async (route) => {
-      const response = await route.fetch();
-      const html = await response.text();
-      await route.fulfill({
-        response,
-        body: html.replace(
-          "<head>",
-          `<head><meta name="platformclaw-guide-video-url" content="${guideVideoUrl}">`,
-        ),
-      });
-    });
-  }
-  await page.goto(`${server.baseUrl}platformclaw-login.html`);
-  const identifier = page.locator('input[name="identifier"]');
-  await identifier.waitFor();
-  await expect.poll(() => identifier.isEnabled()).toBe(true);
-  const notice = page.getByRole("complementary", { name: "보안 안내 / Security notice" });
-  expect(await notice.isVisible()).toBe(true);
-  expect(await notice.locator('p[lang="ko"]').isVisible()).toBe(true);
-  expect(await notice.locator('p[lang="en"]').isVisible()).toBe(true);
-  const noticeBox = await notice.boundingBox();
-  const accessBox = await page.locator(".login-access").boundingBox();
-  expect(noticeBox).not.toBeNull();
-  expect(accessBox).not.toBeNull();
-  expect(noticeBox!.y).toBeGreaterThanOrEqual(accessBox!.y + accessBox!.height);
-  expect(
-    await notice.evaluate((element) => ({
-      background: getComputedStyle(element).backgroundColor,
-      border: getComputedStyle(element).borderTopWidth,
-    })),
-  ).toEqual({ background: "rgba(0, 0, 0, 0)", border: "0px" });
-  expect(noticeBox!.x).toBeGreaterThanOrEqual(0);
-  expect(noticeBox!.x + noticeBox!.width).toBeLessThanOrEqual(viewport.width);
-
-  return { context, page };
-}
-
-async function screenshot(page: Page, name: string): Promise<void> {
-  if (!captureProof) {
-    return;
-  }
-  await mkdir(artifactDir, { recursive: true });
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ fullPage: true, path: path.join(artifactDir, name) });
-}
-
-async function expectThemedFirstPaint(page: Page, theme: string): Promise<void> {
-  await expect.poll(() => page.locator("html").getAttribute("data-first-paint-theme")).toBe(theme);
-  const timing = await page.locator("html").evaluate((root) => ({
-    applied: Number((root as HTMLElement).dataset.themeAppliedAt),
-    painted: Number((root as HTMLElement).dataset.firstPaintAt),
-  }));
-  // Paint observer delivery can happen after bootstrap; compare the paint's
-  // own timestamp with the theme mutation, not only its later callback state.
-  expect(timing.applied).toBeGreaterThan(0);
-  expect(timing.applied).toBeLessThanOrEqual(timing.painted);
-}
-
-async function heroFrame(page: Page, time: number) {
-  return page.locator("[data-login-hero] .hero").evaluate((hero, currentTime) => {
-    const animations = hero.getAnimations({ subtree: true });
-    for (const animation of animations) {
-      animation.pause();
-      animation.currentTime = currentTime;
-    }
-    const svg = hero.querySelector<SVGSVGElement>("svg.workspace")!;
-    const content = svg.getBBox();
-    const bounds = hero.getBoundingClientRect();
-    const drawing = svg.getBoundingClientRect();
-    return {
-      finite:
-        animations.length > 0 &&
-        animations.every((animation) => {
-          const timing = animation.effect!.getComputedTiming();
-          return timing.iterations === 1 && Number(timing.endTime) <= 4_150;
-        }),
-      visible: Array.from(hero.querySelectorAll(".arrive")).every(
-        (element) => getComputedStyle(element).opacity === "1",
-      ),
-      tracesComplete: Array.from(hero.querySelectorAll(".trace")).every(
-        (element) => getComputedStyle(element).strokeDashoffset === "0px",
-      ),
-      completeOpacity: getComputedStyle(hero.querySelector(".complete")!).opacity,
-      sourceOpacity: getComputedStyle(hero.querySelector(".source-one")!).opacity,
-      contentFits:
-        content.x >= 0 &&
-        content.y >= 0 &&
-        content.x + content.width <= svg.viewBox.baseVal.width &&
-        content.y + content.height <= svg.viewBox.baseVal.height,
-      drawingFits:
-        drawing.left >= bounds.left &&
-        drawing.right <= bounds.right &&
-        drawing.top >= bounds.top &&
-        drawing.bottom <= bounds.bottom,
-    };
-  }, time);
-}
+const fixture = createPlatformClawLoginE2eFixture();
+const { openLogin, screenshot, appearanceStorage } = fixture;
+const describeE2e = fixture.describe;
 
 describeE2e("PlatformClaw login", () => {
-  beforeAll(async () => {
-    if (!chromiumAvailable) {
-      throw new Error(`Playwright Chromium is unavailable at ${executablePath}`);
-    }
-    server = await startControlUiE2eServer();
-    browser = await chromium.launch({ executablePath });
-  });
-
-  afterAll(async () => {
-    await browser?.close();
-    await server?.close();
-  });
+  beforeAll(() => fixture.start());
+  afterAll(() => fixture.close());
 
   it.each([
     ["platformclaw", "light", "platformclaw-light", "rgb(250, 249, 245)"],
@@ -306,7 +107,7 @@ describeE2e("PlatformClaw login", () => {
           body: "<!doctype html><title>Appearance fixture</title>",
         }),
       );
-      await writer.goto(`${server.baseUrl}appearance-fixture.html`);
+      await writer.goto(`${fixture.baseUrl}appearance-fixture.html`);
       await writer.evaluate(
         (storage) =>
           localStorage.setItem(
@@ -405,7 +206,9 @@ describeE2e("PlatformClaw login", () => {
   it.each(["light", "dark"] as const)(
     "renders the themed desktop surface in %s mode",
     async (mode) => {
-      const { context, page } = await openLogin(mode, { width: 1440, height: 960 });
+      const { context, page } = await openLogin(mode, { width: 1440, height: 960 }, undefined, {
+        pauseIntro: true,
+      });
       try {
         const hero = page.locator("[data-login-hero] .hero");
         await hero.waitFor();
@@ -447,17 +250,6 @@ describeE2e("PlatformClaw login", () => {
         expect(await adssoLogin.getAttribute("href")).toBe(
           "/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fchat",
         );
-        await expect
-          .poll(
-            () =>
-              hero.evaluate((element) =>
-                element
-                  .getAnimations({ subtree: true })
-                  .every((animation) => animation.playState === "finished"),
-              ),
-            { timeout: 6_000 },
-          )
-          .toBe(true);
         for (const time of [0, 800, 1_800, 3_200, 4_300]) {
           const frame = await heroFrame(page, time);
           expect(frame.finite).toBe(true);
@@ -488,7 +280,7 @@ describeE2e("PlatformClaw login", () => {
   ] as const)(
     "keeps the optional video guide secondary and accessible on $name",
     async (variant) => {
-      const guideVideoUrl = `${server.baseUrl}guide-fixture.mp4`;
+      const guideVideoUrl = `${fixture.baseUrl}guide-fixture.mp4`;
       const { context, page } = await openLogin(variant.mode, variant, guideVideoUrl);
       try {
         let mediaRequests = 0;
@@ -596,7 +388,9 @@ describeE2e("PlatformClaw login", () => {
   it.each([320, 390, 900, 961, 1280, 1440])(
     "keeps the login within a %spx viewport",
     async (width) => {
-      const { context, page } = await openLogin("light", { width, height: 900 });
+      const { context, page } = await openLogin("light", { width, height: 900 }, undefined, {
+        storedLocale: width === 320 || width === 961 ? "en" : "ko",
+      });
       try {
         expect(await page.locator("[data-login-hero]").isVisible()).toBe(width > 960);
         expect(await page.locator(".login-card").isVisible()).toBe(true);
@@ -636,59 +430,80 @@ describeE2e("PlatformClaw login", () => {
     }
   });
 
-  it("validates inputs, recovers from rejected logins, and follows login links on PC", async () => {
-    const { context, page } = await openLogin("light", { width: 1440, height: 900 });
-    try {
-      let status = 401;
-      let requestCount = 0;
-      await page.route("**/platformclaw/api/auth/login", async (route) => {
-        requestCount += 1;
-        await route.fulfill({ status, json: { authenticated: status === 200 } });
+  it.each(["ko", "en"] as const)(
+    "validates inputs, recovers from rejected logins, and follows login links in %s",
+    async (locale) => {
+      const { context, page } = await openLogin("light", { width: 1440, height: 900 }, undefined, {
+        storedLocale: locale,
+        browserLocale: locale === "en" ? "ko-KR" : "en-US",
       });
-      const account = page.locator('input[name="identifier"]');
-      const password = page.locator('input[name="password"]');
-      const submit = page.getByRole("button", { name: "로그인", exact: true });
-      await submit.click();
-      expect(
-        await account.evaluate((input) => (input as HTMLInputElement).validity.valueMissing),
-      ).toBe(true);
-      expect(requestCount).toBe(0);
-      await account.fill("person.one");
-      await submit.click();
-      expect(
-        await password.evaluate((input) => (input as HTMLInputElement).validity.valueMissing),
-      ).toBe(true);
-      expect(requestCount).toBe(0);
-      for (const [nextStatus, message] of [
-        [401, "아이디 또는 비밀번호"],
-        [403, "현재 계정"],
-        [409, "로그인 세션 수"],
-        [429, "로그인 시도가 많습니다"],
-        [503, "로그인하지 못했습니다"],
-      ] as const) {
-        status = nextStatus;
+      try {
+        let status = 401;
+        let requestCount = 0;
+        await page.route("**/platformclaw/api/auth/login", async (route) => {
+          requestCount += 1;
+          await route.fulfill({ status, json: { authenticated: status === 200 } });
+        });
+        const account = page.locator('input[name="identifier"]');
+        const password = page.locator('input[name="password"]');
+        const submit = page.getByRole("button", {
+          name: locale === "ko" ? "로그인" : "Sign in",
+          exact: true,
+        });
+        await submit.click();
+        expect(
+          await account.evaluate((input) => (input as HTMLInputElement).validity.valueMissing),
+        ).toBe(true);
+        expect(requestCount).toBe(0);
+        await account.fill("person.one");
+        await submit.click();
+        expect(
+          await password.evaluate((input) => (input as HTMLInputElement).validity.valueMissing),
+        ).toBe(true);
+        expect(requestCount).toBe(0);
+        const failures =
+          locale === "ko"
+            ? ([
+                [401, "아이디 또는 비밀번호"],
+                [403, "현재 계정"],
+                [409, "로그인 세션 수"],
+                [429, "로그인 시도가 많습니다"],
+                [503, "로그인하지 못했습니다"],
+              ] as const)
+            : ([
+                [401, "Check your account ID and password"],
+                [403, "This account cannot sign in"],
+                [409, "sign-in session limit"],
+                [429, "Too many sign-in attempts"],
+                [503, "Could not sign in"],
+              ] as const);
+        for (const [nextStatus, message] of failures) {
+          status = nextStatus;
+          await password.fill("fixture-only");
+          await password.press("Enter");
+          await expect.poll(() => page.getByRole("alert").textContent()).toContain(message);
+          expect(await password.inputValue()).toBe("");
+          expect(await password.evaluate((input) => document.activeElement === input)).toBe(true);
+        }
+        await screenshot(page, `PC-login-${locale}-rejected.png`);
+        await page.route("**/platformclaw/app/chat", (route) =>
+          route.fulfill({ contentType: "text/html", body: "<h1>Fixture workspace</h1>" }),
+        );
+        status = 200;
         await password.fill("fixture-only");
-        await password.press("Enter");
-        await expect.poll(() => page.getByRole("alert").textContent()).toContain(message);
-        expect(await password.inputValue()).toBe("");
-        expect(await password.evaluate((input) => document.activeElement === input)).toBe(true);
+        await submit.click();
+        await page.getByRole("heading", { name: "Fixture workspace" }).waitFor();
+        await page.goto(`${fixture.baseUrl}platformclaw-login.html`);
+        await page.route("**/employee/auth/adsso?**", (route) =>
+          route.fulfill({ contentType: "text/html", body: "<h1>Fixture SSO</h1>" }),
+        );
+        await page
+          .getByRole("link", { name: locale === "ko" ? "ADSSO 로그인" : "Sign in with ADSSO" })
+          .click();
+        await page.getByRole("heading", { name: "Fixture SSO" }).waitFor();
+      } finally {
+        await context.close();
       }
-      await screenshot(page, "PC-login-rejected.png");
-      await page.route("**/platformclaw/app/chat", (route) =>
-        route.fulfill({ contentType: "text/html", body: "<h1>Fixture workspace</h1>" }),
-      );
-      status = 200;
-      await password.fill("fixture-only");
-      await submit.click();
-      await page.getByRole("heading", { name: "Fixture workspace" }).waitFor();
-      await page.goto(`${server.baseUrl}platformclaw-login.html`);
-      await page.route("**/employee/auth/adsso?**", (route) =>
-        route.fulfill({ contentType: "text/html", body: "<h1>Fixture SSO</h1>" }),
-      );
-      await page.getByRole("link", { name: "ADSSO 로그인" }).click();
-      await page.getByRole("heading", { name: "Fixture SSO" }).waitFor();
-    } finally {
-      await context.close();
-    }
-  });
+    },
+  );
 });
