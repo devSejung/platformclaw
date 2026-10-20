@@ -126,6 +126,13 @@ export function installPlatformClawLoginMascot(
   let blinkTimeout = 0;
   let blinkEndTimeout = 0;
   const reducedMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)");
+  const inputFocused = () =>
+    document.activeElement === identifier || document.activeElement === secretInput;
+  const cancelPointer = () => {
+    window.cancelAnimationFrame(pointerFrame);
+    pointerFrame = 0;
+    pendingPointer = null;
+  };
 
   const updateCaret = () => {
     if (reducedMotion?.matches) {
@@ -172,9 +179,7 @@ export function installPlatformClawLoginMascot(
       window.clearTimeout(blinkTimeout);
       window.clearTimeout(blinkEndTimeout);
       window.cancelAnimationFrame(caretFrame);
-      window.cancelAnimationFrame(pointerFrame);
-      pointerFrame = 0;
-      pendingPointer = null;
+      cancelPointer();
       root.classList.remove("is-blinking");
       runner.classList.remove("is-waddling");
       resetPose(elements);
@@ -189,7 +194,7 @@ export function installPlatformClawLoginMascot(
       if (reducedMotion?.matches) {
         return;
       }
-      if (document.activeElement === identifier || document.activeElement === secretInput) {
+      if (inputFocused()) {
         return;
       }
       pendingPointer = { x: event.clientX, y: event.clientY };
@@ -200,7 +205,9 @@ export function installPlatformClawLoginMascot(
         pointerFrame = 0;
         const pointer = pendingPointer;
         pendingPointer = null;
-        if (!pointer) {
+        // Focus can change between pointer input and this frame. A queued idle
+        // pose must never reopen the eyes during password entry.
+        if (!pointer || inputFocused()) {
           return;
         }
         setMode(elements, "idle");
@@ -213,17 +220,26 @@ export function installPlatformClawLoginMascot(
   document.addEventListener(
     "pointerleave",
     () => {
-      if (document.activeElement !== identifier && document.activeElement !== secretInput) {
+      cancelPointer();
+      if (!inputFocused()) {
         resetPose(elements);
       }
     },
     { signal },
   );
-  window.addEventListener("resize", () => resetPose(elements), { signal, passive: true });
+  window.addEventListener(
+    "resize",
+    () => {
+      cancelPointer();
+      resetPose(elements);
+    },
+    { signal, passive: true },
+  );
 
   identifier.addEventListener(
     "focus",
     () => {
+      cancelPointer();
       setMode(elements, "account");
       updateCaret();
     },
@@ -252,6 +268,7 @@ export function installPlatformClawLoginMascot(
   secretInput.addEventListener(
     "focus",
     () => {
+      cancelPointer();
       setMode(elements, "password");
       root.style.setProperty("--eye-x", "0px");
       root.style.setProperty("--eye-y", "0px");
@@ -274,7 +291,7 @@ export function installPlatformClawLoginMascot(
   return () => {
     abort.abort();
     window.cancelAnimationFrame(caretFrame);
-    window.cancelAnimationFrame(pointerFrame);
+    cancelPointer();
     window.clearTimeout(blinkTimeout);
     window.clearTimeout(blinkEndTimeout);
     root.replaceChildren();

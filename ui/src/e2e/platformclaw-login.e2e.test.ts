@@ -122,10 +122,16 @@ async function openLogin(
   expect(await notice.locator('p[lang="ko"]').isVisible()).toBe(true);
   expect(await notice.locator('p[lang="en"]').isVisible()).toBe(true);
   const noticeBox = await notice.boundingBox();
-  const cardBox = await page.locator(".login-card").boundingBox();
+  const accessBox = await page.locator(".login-access").boundingBox();
   expect(noticeBox).not.toBeNull();
-  expect(cardBox).not.toBeNull();
-  expect(noticeBox!.y + noticeBox!.height).toBeLessThanOrEqual(cardBox!.y);
+  expect(accessBox).not.toBeNull();
+  expect(noticeBox!.y).toBeGreaterThanOrEqual(accessBox!.y + accessBox!.height);
+  expect(
+    await notice.evaluate((element) => ({
+      background: getComputedStyle(element).backgroundColor,
+      border: getComputedStyle(element).borderTopWidth,
+    })),
+  ).toEqual({ background: "rgba(0, 0, 0, 0)", border: "0px" });
   expect(noticeBox!.x).toBeGreaterThanOrEqual(0);
   expect(noticeBox!.x + noticeBox!.width).toBeLessThanOrEqual(viewport.width);
 
@@ -340,6 +346,57 @@ describeE2e("PlatformClaw login", () => {
       expect(frame.contentFits).toBe(true);
       expect(frame.drawingFits).toBe(true);
       await screenshot(page, "desktop-dark-reduced-motion.png");
+    } finally {
+      await context.close();
+    }
+  });
+
+  it("moves on the pixel grid, blinks, and masks its eyes for password entry", async () => {
+    const { context, page } = await openLogin("light", { width: 1280, height: 900 });
+    try {
+      const mascot = page.locator("[data-login-mascot]");
+      const runner = mascot.locator(".login-mascot__runner");
+      const bodyPosition = () =>
+        mascot.evaluate((element) =>
+          Number.parseInt((element as HTMLElement).style.getPropertyValue("--mascot-x"), 10),
+        );
+      const renderedPosition = () =>
+        runner.evaluate(
+          (element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).m41,
+        );
+      await page.mouse.move(120, 180);
+      await expect.poll(bodyPosition).toBeLessThan(0);
+      const left = await bodyPosition();
+      expect(Math.abs(left % 2)).toBe(0);
+      await expect.poll(renderedPosition).toBe(left);
+      await screenshot(page, "mascot-pointer-left.png");
+      await page.mouse.move(1160, 180);
+      await expect.poll(bodyPosition).toBeGreaterThan(0);
+      const right = await bodyPosition();
+      expect(right % 2).toBe(0);
+      await expect.poll(renderedPosition).toBe(right);
+      await screenshot(page, "mascot-pointer-right.png");
+      await page.waitForFunction(
+        () => document.querySelector("[data-login-mascot]")!.classList.contains("is-blinking"),
+        undefined,
+        { timeout: 6_000 },
+      );
+      await page.waitForFunction(
+        () => !document.querySelector("[data-login-mascot]")!.classList.contains("is-blinking"),
+      );
+      await page.locator('input[name="identifier"]').fill("person.one");
+      expect(await mascot.getAttribute("data-login-mascot-mode")).toBe("account");
+      const eyes = mascot.locator("#eyes");
+      await expect
+        .poll(() =>
+          eyes.evaluate((element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).d),
+        )
+        .toBe(1);
+      const openEyes = (await eyes.boundingBox())!.height;
+      await page.locator('input[name="password"]').focus();
+      expect(await mascot.getAttribute("data-login-mascot-mode")).toBe("password");
+      await expect.poll(async () => (await eyes.boundingBox())!.height).toBe(openEyes / 4);
+      await screenshot(page, "mascot-password.png");
     } finally {
       await context.close();
     }
