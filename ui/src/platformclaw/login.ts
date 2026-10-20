@@ -5,10 +5,10 @@ import {
   PLATFORMCLAW_ADSSO_PATH,
   PLATFORMCLAW_LOGIN_API_PATH,
   PLATFORMCLAW_SESSION_API_PATH,
+  PLATFORMCLAW_SESSION_CHECK_TIMEOUT_MS,
   resolvePlatformClawReturnTo,
 } from "./web-contract.ts";
 
-const SESSION_CHECK_TIMEOUT_MS = 5_000;
 type LoginPhase = "checking" | "ready" | "submitting";
 
 type LoginElements = {
@@ -113,7 +113,8 @@ export class PlatformClawLoginController {
     ssoUrl.searchParams.set("returnTo", this.returnTo);
     this.elements.ssoLink.href = `${ssoUrl.pathname}${ssoUrl.search}`;
     this.navigate = options.navigate ?? ((path) => window.location.assign(path));
-    this.sessionCheckTimeoutMs = options.sessionCheckTimeoutMs ?? SESSION_CHECK_TIMEOUT_MS;
+    this.sessionCheckTimeoutMs =
+      options.sessionCheckTimeoutMs ?? PLATFORMCLAW_SESSION_CHECK_TIMEOUT_MS;
   }
 
   start(): void {

@@ -3,7 +3,49 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
 import { createPlatformClawControlUiAdapter } from "./control-ui-adapter.ts";
 import { loadAllPlatformClawLocales } from "./i18n.ts";
-import { PLATFORMCLAW_WEB_DESCRIPTOR } from "./web-contract.ts";
+import {
+  PLATFORMCLAW_SESSION_CHECK_TIMEOUT_MS,
+  PLATFORMCLAW_WEB_DESCRIPTOR,
+  type PlatformClawSessionIdentity,
+} from "./web-contract.ts";
+
+const employeeIdentity: PlatformClawSessionIdentity = {
+  accountId: "person.one",
+  agentId: "person_one",
+  displayName: "Person One",
+  department: "Platform",
+  globalRole: "member",
+};
+
+function activeSession(identity = employeeIdentity): Response {
+  const { agentId, ...user } = identity;
+  return jsonResponse({ authenticated: true, user, agent: { agentId, state: "active" } });
+}
+
+function pendingResponse() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function recoveryAdapter(fetchImpl: typeof fetch) {
+  installDescriptor();
+  const navigate = vi.fn();
+  const adapter = createPlatformClawControlUiAdapter({
+    location: {
+      href: "https://platformclaw.example/platformclaw/app/chat?draft=1#composer",
+      origin: "https://platformclaw.example",
+      protocol: "https:",
+    },
+    fetchImpl,
+    navigate,
+  })!;
+  const options = adapter.applicationOptions(employeeIdentity, vi.fn());
+  const close = (code = 1006) => options.gateway!.onClose!({ code, reason: "", willRetry: true });
+  return { adapter, close, navigate };
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -23,6 +65,7 @@ describe("PlatformClawControlUiAdapter", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     document.head.replaceChildren();
     document.body.replaceChildren();
     await i18n.setLocale("en");
@@ -127,7 +170,7 @@ describe("PlatformClawControlUiAdapter", () => {
     );
   });
 
-  it("redirects an inactive session and rechecks after a policy close", async () => {
+  it.each([1006, 1008])("rechecks session authority after close %i", async (code) => {
     installDescriptor();
     const navigate = vi.fn();
     const fetchImpl = vi
@@ -156,7 +199,7 @@ describe("PlatformClawControlUiAdapter", () => {
     })!;
     const identity = await adapter.loadSession();
     adapter.applicationOptions(identity!, vi.fn()).gateway?.onClose?.({
-      code: 1008,
+      code,
       reason: "session expired",
       willRetry: true,
     });
@@ -167,6 +210,204 @@ describe("PlatformClawControlUiAdapter", () => {
       );
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces reconnect, policy-close, and explicit session checks", async () => {
+    const pending = pendingResponse();
+    const fetchImpl = vi.fn<typeof fetch>(() => pending.promise);
+    const { adapter, close, navigate } = recoveryAdapter(fetchImpl);
+    close();
+    close(1008);
+    const loading = adapter.loadSession();
+    expect(fetchImpl).toHaveBeenCalledOnce();
+
+    pending.resolve(jsonResponse({ authenticated: false }));
+    await loading;
+
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(
+      "/platformclaw/login?returnTo=%2Fplatformclaw%2Fapp%2Fchat%3Fdraft%3D1%23composer",
+    );
+  });
+
+  it("aborts a stalled probe without logging out and checks the next reconnect afresh", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        async (_input, init) =>
+          await new Promise<Response>((_resolve, reject) => {
+            signal = init?.signal ?? undefined;
+            signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("aborted", "AbortError")),
+              {
+                once: true,
+              },
+            );
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ authenticated: false }));
+    const { adapter, close, navigate } = recoveryAdapter(fetchImpl);
+    close();
+    const unavailable = expect(adapter.loadSession()).rejects.toThrow(
+      "session service is unavailable",
+    );
+
+    await vi.advanceTimersByTimeAsync(PLATFORMCLAW_SESSION_CHECK_TIMEOUT_MS - 1);
+    expect(signal?.aborted).toBe(false);
+    close(1008);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await unavailable;
+    expect(signal?.aborted).toBe(true);
+    expect(navigate).not.toHaveBeenCalled();
+
+    close();
+    await expect(adapter.loadSession()).resolves.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(navigate).toHaveBeenCalledOnce();
+  });
+
+  it("aborts disposal immediately and leaves a replacement probe owned by the new shell", async () => {
+    vi.useFakeTimers();
+    const first = pendingResponse();
+    const second = pendingResponse();
+    const signals: AbortSignal[] = [];
+    const fetchImpl = vi.fn<typeof fetch>((_input, init) => {
+      signals.push(init!.signal!);
+      return signals.length === 1 ? first.promise : second.promise;
+    });
+    const { adapter, close, navigate } = recoveryAdapter(fetchImpl);
+    close();
+    const stale = adapter.loadSession();
+    adapter.dispose();
+    expect(signals[0]?.aborted).toBe(true);
+    const replacement = adapter.applicationOptions(employeeIdentity, vi.fn());
+    const closeReplacement = () =>
+      replacement.gateway!.onClose!({ code: 1006, reason: "", willRetry: true });
+    closeReplacement();
+    const current = adapter.loadSession();
+
+    first.resolve(jsonResponse({ authenticated: false }));
+    await expect(stale).resolves.toBeNull();
+    closeReplacement();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(signals[1]?.aborted).toBe(false);
+    second.resolve(activeSession());
+    await expect(current).resolves.toEqual(employeeIdentity);
+    await vi.advanceTimersByTimeAsync(PLATFORMCLAW_SESSION_CHECK_TIMEOUT_MS);
+    expect(signals[1]?.aborted).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "active session",
+      response: () => Promise.resolve(activeSession()),
+      unavailable: false,
+    },
+    {
+      name: "service failure",
+      response: () => Promise.resolve(jsonResponse({}, 503)),
+      unavailable: true,
+    },
+    {
+      name: "network failure",
+      response: () => Promise.reject(new Error("offline")),
+      unavailable: true,
+    },
+    {
+      name: "malformed session",
+      response: () => Promise.resolve(jsonResponse({ authenticated: true })),
+      unavailable: true,
+    },
+  ])(
+    "preserves reconnect through $name and checks again after recovery",
+    async ({ response, unavailable }) => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockImplementationOnce(response)
+        .mockResolvedValueOnce(jsonResponse({ authenticated: false }));
+      const { adapter, close, navigate } = recoveryAdapter(fetchImpl);
+      close();
+      if (unavailable) {
+        await expect(adapter.loadSession()).rejects.toThrow("session service is unavailable");
+      } else {
+        await expect(adapter.loadSession()).resolves.toEqual(employeeIdentity);
+      }
+      expect(navigate).not.toHaveBeenCalled();
+      expect(fetchImpl).toHaveBeenCalledOnce();
+
+      close();
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["dispose", "replace", "logout"] as const)(
+    "ignores pending and old callbacks after %s",
+    async (action) => {
+      const pending = pendingResponse();
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValue(jsonResponse({ ok: true }));
+      const { adapter, close, navigate } = recoveryAdapter(fetchImpl);
+      close();
+      const loading = adapter.loadSession();
+      if (action === "dispose") {
+        adapter.dispose();
+      } else if (action === "replace") {
+        adapter.applicationOptions({ ...employeeIdentity, accountId: "person.two" }, vi.fn());
+      } else {
+        await adapter.logout(vi.fn());
+      }
+      pending.resolve(jsonResponse({ authenticated: false }));
+      await expect(loading).resolves.toBeNull();
+      close(1008);
+
+      expect(fetchImpl).toHaveBeenCalledTimes(action === "logout" ? 2 : 1);
+      if (action === "logout") {
+        expect(navigate).toHaveBeenCalledExactlyOnceWith("/platformclaw/login");
+      } else {
+        expect(navigate).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each([
+    { accountId: "person.two" },
+    { agentId: "person_two" },
+    { globalRole: "admin" as const },
+  ])("rebuilds the shell when authenticated authority changes: %j", async (changed) => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      activeSession({ ...employeeIdentity, ...changed }),
+    );
+    const { close, navigate } = recoveryAdapter(fetchImpl);
+    close();
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledExactlyOnceWith("/platformclaw/app/chat?draft=1#composer"),
+    );
+    close();
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "https://other.example/platformclaw/app/chat",
+    "https://platformclaw.example/platformclaw/application",
+  ])("excludes unsafe return locations: %s", async (href) => {
+    installDescriptor();
+    const navigate = vi.fn();
+    const adapter = createPlatformClawControlUiAdapter({
+      location: { href, origin: "https://platformclaw.example", protocol: "https:" },
+      fetchImpl: async () => jsonResponse({ authenticated: false }),
+      navigate,
+    })!;
+
+    await expect(adapter.loadSession()).resolves.toBeNull();
+    expect(navigate).toHaveBeenCalledExactlyOnceWith("/platformclaw/login");
   });
 
   it("loads standalone Memory for the assigned personal agent without global config", async () => {

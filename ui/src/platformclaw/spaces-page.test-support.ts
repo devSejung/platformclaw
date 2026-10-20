@@ -92,7 +92,7 @@ export async function mount(role = "owner", conversations: SpaceConversation[] =
     },
   );
   const gateway = {
-    snapshot: { phase: "connected", client: { request } },
+    snapshot: { phase: "connected", client: { request }, selfUser: { id: "alice" } },
     subscribe: () => () => {},
     subscribeEvents: (fn: (event: { event: string; payload?: unknown }) => void) => {
       listeners.add(fn);

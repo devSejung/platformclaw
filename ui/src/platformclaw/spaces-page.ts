@@ -7,14 +7,13 @@ import type {
   SpaceRole,
   SpaceConversation,
 } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
-import type { SpaceMessage } from "../../../packages/platformclaw-control-plane/src/space-service.js";
+import type { GatewayEventFrame } from "../api/gateway.ts";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT } from "./i18n.ts";
 import {
-  loadSpacePageHistory,
-  clearSpacePageHistory,
   SpaceConversationHistoryState,
+  SpacePageHistoryState,
   scrollSpacePageHistory,
 } from "./space-conversation-history.ts";
 import {
@@ -22,7 +21,9 @@ import {
   replaceSpaceSelection,
   spaceRouteMatchesSelection,
 } from "./space-conversation-route.ts";
+import { SpaceGatewayLifetime } from "./space-gateway-lifetime.ts";
 import {
+  canRetainSpaceDraftAfterFailure,
   requestSpaceGateway,
   spaceGatewayErrorMessage,
   normalizeSpaceSnapshot,
@@ -51,7 +52,6 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   @state() private spaces: Space[] = [];
   @state() private snapshot: SpaceSnapshot | null = null;
   @state() private page: SpacePage | null = null;
-  @state() private messages: SpaceMessage[] = [];
   @state() private conversation: SpaceConversation | null = null;
   @state() private sharedTab: "qa" | "notes" = "qa";
   @state() private postAnchor = "";
@@ -59,6 +59,23 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   private readonly conversationHistory = new SpaceConversationHistoryState(() =>
     this.requestUpdate(),
   );
+  private readonly history = new SpacePageHistoryState({
+    source: () => ({
+      page: this.page,
+      conversation: this.conversation,
+      authorized: this.snapshot !== null,
+      tab: this.sharedTab,
+      anchor: this.historyAnchor,
+      postAnchor: this.postAnchor,
+    }),
+    conversation: this.conversationHistory,
+    sharedPosts: this.qaPosts,
+    request: (method, params) => this.rpc(method, params),
+    changed: () => this.requestUpdate("history", undefined),
+    onError: (error) => {
+      this.error = spaceGatewayErrorMessage(error);
+    },
+  });
   @state() private expandedPages = new Set<string>();
   @state() private error = "";
   @state() private notice = "";
@@ -75,12 +92,10 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   @state() private pendingMember: { userId: string; label: string; role: SpaceRole | null } | null =
     null;
   private epoch = 0;
-  private historyEpoch = 0;
-  private unsubscribe: (() => void) | undefined;
-  private unsubscribeState: (() => void) | undefined;
-  private historyTimer: ReturnType<typeof setTimeout> | undefined;
-  private gatewayClient: unknown;
-  private gatewayConnected = false;
+  private readonly gatewayLifetime = new SpaceGatewayLifetime(
+    () => this.requestUpdate(),
+    (event) => this.handleGatewayEvent(event),
+  );
   private managementInvalidated = false;
   override connectedCallback() {
     super.connectedCallback();
@@ -89,12 +104,10 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   override disconnectedCallback() {
     this.peopleSearch.clear();
     this.management.clear();
+    this.editor.clear();
     this.epoch++;
-    this.historyEpoch++;
-    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
-    this.unsubscribe?.();
-    this.unsubscribeState?.();
-    clearTimeout(this.historyTimer);
+    this.history.clear();
+    this.gatewayLifetime.dispose();
     super.disconnectedCallback();
   }
   protected override updated(changed: PropertyValues) {
@@ -122,87 +135,89 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       // Back/forward must retire the old selection even while disconnected;
       // reconnect may otherwise prefer its stale snapshot over the new URL.
       this.epoch++;
-      this.historyEpoch++;
       this.loading = false;
       this.clearSensitive();
     }
-    const gateway = this.context.gateway;
-    const reconnected = !this.gatewayConnected && gateway.snapshot.phase === "connected";
-    const disconnected = this.gatewayConnected && gateway.snapshot.phase !== "connected";
-    this.gatewayConnected = gateway.snapshot.phase === "connected";
-    if (!this.unsubscribeState) {
-      this.unsubscribeState = gateway.subscribe(() => this.requestUpdate());
-    }
-    if (this.gatewayClient !== gateway.snapshot.client) {
-      this.gatewayClient = gateway.snapshot.client;
+    const transition = this.gatewayLifetime.update(this.context.gateway);
+    if (transition === "identity") {
       this.epoch++;
-      this.historyEpoch++;
       this.clearSensitive();
       this.spaces = [];
-      this.unsubscribe?.();
-      this.unsubscribe = gateway.subscribeEvents((event) => {
-        if (event.event === "platformclaw.spaces.invalidated") {
-          if (this.management.busy) {
-            this.managementInvalidated = true;
-            this.epoch++;
-            this.historyEpoch++;
-            this.loading = false;
-            this.clearSensitive(true);
-          } else {
-            void this.refresh(true);
-          }
-        }
-        if (event.event === "platformclaw.space.changed" && this.page) {
-          const payload = event.payload as { spaceId?: string; pageId?: string };
-          if (payload?.pageId === this.page.id && payload.spaceId === this.snapshot?.space.id) {
-            this.scheduleHistory();
-          }
-        }
-      });
-      if (gateway.snapshot.phase === "connected") {
+      if (this.gatewayLifetime.connected) {
         void this.refresh();
       }
-    } else if (reconnected) {
+    } else if (transition === "reconnected") {
       void this.refresh(true);
-    } else if (routeChanged && this.gatewayConnected) {
+    } else if (routeChanged && this.gatewayLifetime.connected) {
       void this.refresh();
     }
-    if (disconnected) {
-      this.clearSensitive();
-      this.historyEpoch++;
-      clearTimeout(this.historyTimer);
+    if (transition === "disconnected") {
+      this.epoch++;
+      this.loading = false;
+      this.suspendDraft();
+      this.clearSensitive(false, true);
+    }
+  }
+  private handleGatewayEvent(event: GatewayEventFrame) {
+    if (event.event === "platformclaw.spaces.invalidated") {
+      if (this.management.busy) {
+        this.managementInvalidated = true;
+        this.epoch++;
+        this.loading = false;
+        this.clearSensitive(true);
+      } else {
+        void this.refresh(true);
+      }
+    }
+    if (event.event === "platformclaw.space.changed") {
+      this.history.changed(event.payload);
     }
   }
   private rpc<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     return requestSpaceGateway<T>(() => this.context, method, params);
   }
-  private clearSensitive(keepConfirmation = false) {
+  private suspendDraft() {
+    const selection = new URL(location.href);
+    this.editor.suspend(
+      this.snapshot?.currentUserId ?? this.gatewayLifetime.userId,
+      selection.pathname + selection.search,
+      selection.searchParams.get("page"),
+    );
+  }
+  private clearSensitive(keepConfirmation = false, keepDraft = false) {
     // Hide revoked content immediately, but keep an in-flight action available for its acknowledgment.
     if (!keepConfirmation) {
       this.management.clear();
     }
     this.snapshot = null;
     this.page = null;
-    this.messages = [];
     this.conversation = null;
-    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
+    this.history.clear();
     this.hits = [];
     this.query = "";
     this.historyAnchor = "";
     this.postAnchor = "";
     this.sharedTab = "qa";
-    this.editor.clear();
+    if (!keepDraft) {
+      this.editor.clear();
+    }
     this.membersOpen = false;
     this.peopleSearch.clear();
     this.pendingMember = null;
   }
   private async refresh(revalidate = false, keepConfirmation = false) {
+    if (!this.gatewayLifetime.connected) {
+      return;
+    }
     this.peopleSearch.clear();
     this.pendingMember = null;
     const epoch = ++this.epoch;
     this.loading = true;
-    if (!revalidate) {
+    if (!revalidate || this.editor.suspended) {
       this.error = "";
+    }
+    if (revalidate && !this.editor.suspended) {
+      this.suspendDraft();
     }
     const selected = this.snapshot?.space.id ?? new URL(location.href).searchParams.get("space");
     try {
@@ -220,10 +235,15 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       } else if (selected) {
         this.clearSensitive(keepConfirmation);
         this.error = t("lostAccess");
+      } else if (this.editor.creating === "space") {
+        this.editor.resume(this.gatewayLifetime.userId, location.pathname + location.search);
       }
     } catch (error) {
       if (epoch === this.epoch) {
-        this.clearSensitive(keepConfirmation);
+        this.clearSensitive(
+          keepConfirmation,
+          this.editor.suspended && canRetainSpaceDraftAfterFailure(error),
+        );
         this.error = spaceGatewayErrorMessage(error);
       }
     } finally {
@@ -239,11 +259,12 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     const priorPage = this.snapshot?.space.id === id ? this.page?.id : undefined;
     const priorConversation = this.snapshot?.space.id === id ? this.conversation?.id : undefined;
     const url = spaceSelectionUrl({ spaceId: id });
-    this.historyEpoch++;
+    if (revalidate && !this.editor.suspended) {
+      this.suspendDraft();
+    }
     // Stop the personal pane immediately while an ACL invalidation is revalidated.
     this.conversation = null;
-    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
-    this.messages = [];
+    this.history.clear();
     this.snapshot = null;
     this.page = null;
     this.hits = [];
@@ -265,12 +286,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       this.snapshot = snapshot;
       const pageId = priorPage ?? url.searchParams.get("page");
       this.page = snapshot.pages.find((page) => page.id === pageId) ?? null;
-      if (
-        snapshot.space.role === "viewer" ||
-        (this.editor.editing && this.editor.editing.id !== this.page?.id)
-      ) {
-        this.editor.clear();
-      }
+      this.editor.revalidate(snapshot, this.page, location.pathname + location.search);
       replaceSpaceSelection(this.context, url);
       if (this.page) {
         this.historyAnchor = url.searchParams.get("message") ?? "";
@@ -291,7 +307,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       }
     } catch (error) {
       if (epoch === this.epoch) {
-        this.clearSensitive();
+        this.clearSensitive(false, this.editor.suspended && canRetainSpaceDraftAfterFailure(error));
         this.error = spaceGatewayErrorMessage(error);
       }
     } finally {
@@ -307,7 +323,6 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     }
     this.management.clear();
     this.epoch++;
-    this.historyEpoch++;
     this.loading = false;
     this.page = page;
     this.expandedPages = expandSpacePageAncestors(
@@ -315,7 +330,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       page,
       this.snapshot?.pages ?? [],
     );
-    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
+    this.history.clear();
     this.sharedTab = tab;
     this.postAnchor = postId;
     this.conversation =
@@ -326,7 +341,6 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.membersOpen = false;
     this.followConversation = true;
     this.historyAnchor = messageId;
-    this.messages = [];
     this.hits = [];
     replaceSpaceSelection(
       this.context,
@@ -346,12 +360,10 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     this.management.clear();
     this.epoch++;
     this.loading = false;
-    this.historyEpoch++;
     this.conversation = conversation;
     this.sharedTab = tab;
     this.postAnchor = "";
-    clearSpacePageHistory(this.conversationHistory, this.qaPosts);
-    this.messages = [];
+    this.history.clear();
     this.historyAnchor = "";
     replaceSpaceSelection(
       this.context,
@@ -359,44 +371,11 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     );
     void this.loadHistory();
   }
-  private scheduleHistory() {
-    clearTimeout(this.historyTimer);
-    this.historyTimer = setTimeout(() => void this.loadHistory(), 200);
-  }
-  private async loadHistory(older = false) {
-    if (
-      !this.page ||
-      !this.snapshot ||
-      (older && this.conversationHistory.loading) ||
-      (!this.conversation && this.sharedTab === "notes")
-    ) {
-      return;
-    }
-    const page = this.page;
-    const conversation = this.conversation;
-    const epoch = ++this.historyEpoch;
+  private loadHistory(older = false) {
     if (older) {
       this.error = "";
     }
-    await loadSpacePageHistory({
-      page,
-      conversation,
-      anchor: this.historyAnchor,
-      older,
-      history: this.conversationHistory,
-      sharedPosts: { state: this.qaPosts, anchor: this.postAnchor },
-      request: (method, params) => this.rpc(method, params),
-      isCurrent: () =>
-        epoch === this.historyEpoch &&
-        this.page?.id === page.id &&
-        this.conversation === conversation,
-      onMessages: (messages) => {
-        this.messages = messages;
-      },
-      onError: (error) => {
-        this.error = spaceGatewayErrorMessage(error);
-      },
-    });
+    return this.history.load(older);
   }
   private async action<T>(run: () => Promise<T>, isCurrent = () => true): Promise<T | null> {
     if (this.busy) {
@@ -417,6 +396,9 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     }
   }
   private openCreate(kind: "space" | "page" | "conversation", parentId?: string) {
+    if (!this.gatewayLifetime.connected || this.loading || this.editor.suspended) {
+      return;
+    }
     this.navigationOpen = this.membersOpen = false;
     this.editor.open(kind, parentId);
     this.notice = "";
@@ -429,6 +411,9 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     focusSpaceViewTarget(this, "[data-new-page]");
   }
   private save() {
+    if (!this.gatewayLifetime.connected || this.loading || this.editor.suspended) {
+      return;
+    }
     if (this.editor.creating === "conversation") {
       void this.createConversation(this.editor.title);
       return;
@@ -449,7 +434,13 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
   }
   private async createConversation(title = t("newConversation")): Promise<string | null> {
     const page = this.page;
-    if (this.busy || !page || !this.snapshot || this.snapshot.space.role === "viewer") {
+    if (
+      this.busy ||
+      this.editor.suspended ||
+      !page ||
+      !this.snapshot ||
+      this.snapshot.space.role === "viewer"
+    ) {
       return null;
     }
     const epoch = this.epoch;
@@ -493,7 +484,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     });
   }
   private get canManageMembers() {
-    return this.snapshot?.space.role === "owner" && !this.loading && this.gatewayConnected;
+    return this.snapshot?.space.role === "owner" && !this.loading && this.gatewayLifetime.connected;
   }
   private findPerson(query: string, immediate = false) {
     this.pendingMember = null;
@@ -552,7 +543,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       space,
       conversation: this.conversation,
       currentUserId: this.snapshot?.currentUserId,
-      disabled: this.busy || this.loading || !this.gatewayConnected,
+      disabled: this.busy || this.loading || !this.gatewayLifetime.connected,
     });
   }
   private async submitManagement(title: string) {
@@ -589,7 +580,7 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
     // Mutations invalidate access while their RPC is pending; revalidate once it settles.
     if (
       this.isConnected &&
-      this.gatewayConnected &&
+      this.gatewayLifetime.connected &&
       (result === "completed" || this.managementInvalidated)
     ) {
       const error = this.management.error;
@@ -606,12 +597,18 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       spaces: this.spaces,
       snapshot: this.snapshot,
       page: this.page,
-      messages: this.messages,
+      messages: this.history.messages,
       error: this.error,
-      notice: this.notice,
+      notice: this.gatewayLifetime.connected ? this.notice : t("disconnected"),
       historyAnchor: this.historyAnchor,
       loading: this.loading,
-      busy: this.busy || this.management.busy,
+      busy:
+        this.busy ||
+        this.management.busy ||
+        !this.gatewayLifetime.connected ||
+        this.editor.suspended,
+      refreshDisabled:
+        this.busy || this.management.busy || this.loading || !this.gatewayLifetime.connected,
       management: this.management,
       onSubmitManagement: (title) => void this.submitManagement(title),
       onRenameConversation: () => this.openManagement("rename"),
@@ -639,7 +636,8 @@ export class PlatformClawSpacesPage extends OpenClawLightDomElement {
       query: this.query,
       hits: this.hits,
       canManageMembers: this.canManageMembers,
-      membersBusy: this.busy || this.management.busy || this.loading || !this.gatewayConnected,
+      membersBusy:
+        this.busy || this.management.busy || this.loading || !this.gatewayLifetime.connected,
       peopleSearch: this.peopleSearch,
       pendingMember: this.pendingMember,
       onAccount: (value, immediate) => this.findPerson(value, immediate),

@@ -141,7 +141,7 @@ export class OpenClawApp extends OpenClawLightDomElement {
         }
         this.platformClawAdapter = adapter;
       }
-      identity = await adapter.loadSession(true);
+      identity = await adapter.loadSession();
     } catch {
       if (epoch === this.connectionEpoch && this.isConnected) {
         this.platformClawStartupError = true;
@@ -191,6 +191,7 @@ export class OpenClawApp extends OpenClawLightDomElement {
     this.subscriptions.clear();
     this.runtime?.stop();
     this.runtime = undefined;
+    this.platformClawAdapter?.dispose();
     this.platformClawAdapter = null;
     this.platformClawStartupError = false;
     this.loginGatewaySource = null;

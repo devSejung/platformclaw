@@ -27,7 +27,7 @@ export function scrollSpacePageHistory(
   anchor: string,
   follow: boolean,
 ): void {
-  if (!changed.has("messages") && !changed.has("page") && !changed.has("qaPosts")) {
+  if (!changed.has("history") && !changed.has("page") && !changed.has("qaPosts")) {
     return;
   }
   const history = host.querySelector<HTMLElement>(".pc-space-history");
@@ -120,7 +120,7 @@ export class SpaceConversationHistoryState {
 }
 
 /** Retire both shared and personal read generations when their page/access lifetime ends. */
-export function clearSpacePageHistory(
+function clearSpacePageHistory(
   history: SpaceConversationHistoryState,
   sharedPosts: SpaceQaPostsState,
 ) {
@@ -128,8 +128,75 @@ export function clearSpacePageHistory(
   sharedPosts.clear();
 }
 
+/** One selection owns its shared messages, delayed refresh and pending read generation. */
+export class SpacePageHistoryState {
+  messages: SpaceMessage[] = [];
+  private epoch = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  constructor(
+    private readonly options: {
+      source: () => {
+        page: SpacePage | null;
+        conversation: SpaceConversation | null;
+        authorized: boolean;
+        tab: "qa" | "notes";
+        anchor: string;
+        postAnchor: string;
+      };
+      conversation: SpaceConversationHistoryState;
+      sharedPosts: SpaceQaPostsState;
+      request: Parameters<typeof loadSpacePageHistory>[0]["request"];
+      changed: () => void;
+      onError: (error: unknown) => void;
+    },
+  ) {}
+  clear() {
+    this.epoch++;
+    clearTimeout(this.timer);
+    this.messages = [];
+    clearSpacePageHistory(this.options.conversation, this.options.sharedPosts);
+    this.options.changed();
+  }
+  changed(payload: unknown) {
+    const { page } = this.options.source();
+    const target = payload as { spaceId?: string; pageId?: string } | undefined;
+    if (page && target?.pageId === page.id && target.spaceId === page.spaceId) {
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => void this.load(), 200);
+    }
+  }
+  async load(older = false) {
+    const source = this.options.source();
+    const { page, conversation } = source;
+    if (
+      !source.authorized ||
+      !page ||
+      (older && this.options.conversation.loading) ||
+      (!conversation && source.tab === "notes")
+    ) {
+      return;
+    }
+    const epoch = ++this.epoch;
+    await loadSpacePageHistory({
+      page,
+      conversation,
+      anchor: source.anchor,
+      older,
+      history: this.options.conversation,
+      sharedPosts: { state: this.options.sharedPosts, anchor: source.postAnchor },
+      request: this.options.request,
+      isCurrent: () => epoch === this.epoch,
+      onMessages: (messages) => {
+        this.messages = messages;
+        this.options.changed();
+      },
+      onError: this.options.onError,
+    });
+  }
+}
+
 /** Shared Q&A and read-only personal history share the page selection's access lifetime. */
-export async function loadSpacePageHistory(options: {
+async function loadSpacePageHistory(options: {
   page: SpacePage;
   conversation: SpaceConversation | null;
   anchor: string;
