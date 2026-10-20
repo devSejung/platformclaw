@@ -435,6 +435,24 @@ function controlUiPrecompressedAssetsPlugin(buildOutDir: string): Plugin {
   };
 }
 
+export function controlUiRenderBlockingBootstrapPlugin(): Plugin {
+  return {
+    name: "control-ui-render-blocking-bootstrap",
+    apply: "build",
+    transformIndexHtml: {
+      order: "post",
+      handler(html, context) {
+        if (!fs.readFileSync(context.filename, "utf8").includes('blocking="render"')) {
+          return html;
+        }
+        // Vite recreates module entry tags and drops the source's blocking
+        // attribute. Preserve its first-paint contract on the emitted entries.
+        return html.replaceAll('<script type="module"', '<script blocking="render" type="module"');
+      },
+    },
+  };
+}
+
 export default function controlUiViteConfig(options: { outDir?: string } = {}): UserConfig {
   const envBase = process.env.OPENCLAW_CONTROL_UI_BASE_PATH?.trim();
   const base = envBase ? normalizeBase(envBase) : "./";
@@ -492,6 +510,7 @@ export default function controlUiViteConfig(options: { outDir?: string } = {}): 
       strictPort: true,
     },
     plugins: [
+      controlUiRenderBlockingBootstrapPlugin(),
       controlUiLocaleModulesPlugin(),
       controlUiBrowserOnlySharedModuleAliases(),
       controlUiPrecompressedAssetsPlugin(buildOutDir),

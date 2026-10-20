@@ -1,22 +1,12 @@
 // Control UI module implements storage behavior.
-const SETTINGS_KEY_PREFIX = "openclaw.control.settings.v1:";
 const LEGACY_SETTINGS_KEY = "openclaw.control.settings.v1";
 export const NAV_WIDTH_MIN = 240;
 export const NAV_WIDTH_MAX = 400;
 const NAV_WIDTH_DEFAULT = 258;
-const CURRENT_GATEWAY_SELECTION_KEY_PREFIX = "openclaw.control.currentGateway.v1:";
 const LOCAL_USER_IDENTITY_KEY = "openclaw.control.user.v1";
 const LEGACY_TOKEN_SESSION_KEY = "openclaw.control.token.v1";
 const TOKEN_SESSION_KEY_PREFIX = "openclaw.control.token.v1:";
 const MAX_SCOPED_SESSION_ENTRIES = 10;
-
-function settingsKeyForGateway(gatewayUrl: string): string {
-  return `${SETTINGS_KEY_PREFIX}${normalizeGatewayTokenScope(gatewayUrl)}`;
-}
-
-function currentGatewaySelectionKeyForPage(pageUrl: string): string {
-  return `${CURRENT_GATEWAY_SELECTION_KEY_PREFIX}${normalizeGatewayTokenScope(pageUrl)}`;
-}
 
 type ScopedSessionSelection = {
   sessionKey: string;
@@ -48,10 +38,18 @@ import {
 } from "../pages/chat/sidebar-layout-persistence.ts";
 import { normalizeChatSplitLayout, type ChatSplitLayout } from "../pages/chat/split-layout.ts";
 import { resolveControlUiBasePath } from "./browser.ts";
-import { parseImportedCustomTheme, type ImportedCustomTheme } from "./custom-theme.ts";
+import type { ImportedCustomTheme } from "./custom-theme.ts";
 import { normalizeGatewayTokenScope } from "./gateway-scope.ts";
 import { normalizePinnedAgentIds } from "./settings-normalizers.ts";
-import { parseThemeSelection, type ThemeMode, type ThemeName } from "./theme.ts";
+import {
+  currentGatewaySelectionKeyForPage,
+  deriveDefaultGatewayUrl,
+  readSelectedSettings,
+  readSettingsForGateway,
+  settingsKeyForGateway,
+} from "./settings-storage.ts";
+import { parseThemePreferences, THEME_PREFERENCE_DEFAULTS } from "./theme-preferences.ts";
+import type { ThemeMode, ThemeName } from "./theme.ts";
 import { normalizeLocalUserIdentity, type LocalUserIdentity } from "./user-identity.ts";
 
 export const TEXT_SCALE_STOPS = [90, 100, 110, 125, 140] as const;
@@ -168,8 +166,7 @@ export function normalizeTextScale(value: unknown, fallback: TextScaleStop = 100
 }
 
 export const UI_APPEARANCE_DEFAULTS = {
-  theme: "platformclaw",
-  themeMode: "light",
+  ...THEME_PREFERENCE_DEFAULTS,
   textScale: 100,
   terminalTextScale: 100,
   sidebarLiveActivity: true,
@@ -232,39 +229,13 @@ export function setLastActiveSessionKey(host: LastActiveSessionHost, next: strin
   host.applySettings({ ...host.settings, lastActiveSessionKey: trimmed });
 }
 
-function isViteDevPage(): boolean {
-  if (typeof document === "undefined") {
-    return false;
-  }
-  return Boolean(document.querySelector('script[src*="/@vite/client"]'));
-}
-
-function formatHostWithPort(hostname: string, port: string): string {
-  // location.hostname already carries brackets for IPv6 literals; wrapping
-  // again would produce an undialable ws://[[::1]]:port default.
-  const needsBrackets = hostname.includes(":") && !hostname.startsWith("[");
-  const normalizedHost = needsBrackets ? `[${hostname}]` : hostname;
-  return `${normalizedHost}:${port}`;
-}
-
-function deriveDefaultGatewayUrl(): { pageUrl: string; effectiveUrl: string } {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  const basePath = resolveControlUiBasePath(location.pathname);
-  const pageUrl = `${proto}://${location.host}${basePath}`;
-  if (!isViteDevPage()) {
-    return { pageUrl, effectiveUrl: pageUrl };
-  }
-  const effectiveUrl = `${proto}://${formatHostWithPort(location.hostname, "18789")}`;
-  return { pageUrl, effectiveUrl };
-}
-
 /**
  * Standalone documents are owned by the Gateway that served their URL. Do not
  * let the full app's persisted remote selection retarget a security decision.
  * Native auth and explicit URL overrides are applied after this default.
  */
 export function resolvePageGatewaySettings(settings: UiSettings): UiSettings {
-  const { effectiveUrl } = deriveDefaultGatewayUrl();
+  const { effectiveUrl } = deriveDefaultGatewayUrl(resolveControlUiBasePath(location.pathname));
   if (
     normalizeGatewayTokenScope(settings.gatewayUrl) === normalizeGatewayTokenScope(effectiveUrl)
   ) {
@@ -282,47 +253,6 @@ export function resolvePageGatewaySettings(settings: UiSettings): UiSettings {
 
 function getSessionStorage(): Storage | null {
   return getSafeSessionStorage();
-}
-
-type PersistedSettingsSource = {
-  gatewayUrl: string;
-  parsed: PersistedUiSettings;
-};
-
-function parsePersistedSettings(raw: string | null): PersistedUiSettings | null {
-  if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw) as PersistedUiSettings;
-  } catch {
-    return null;
-  }
-}
-
-function settingsMatchGatewayTarget(parsed: PersistedUiSettings, targetUrl: string): boolean {
-  const storedUrl = normalizeOptionalString(parsed.gatewayUrl);
-  if (!storedUrl) {
-    return false;
-  }
-  return normalizeGatewayTokenScope(storedUrl) === normalizeGatewayTokenScope(targetUrl);
-}
-
-function readSettingsForGateway(
-  storage: Storage | null,
-  targetUrl: string,
-): PersistedSettingsSource | null {
-  const scoped = parsePersistedSettings(storage?.getItem(settingsKeyForGateway(targetUrl)) ?? null);
-  if (
-    scoped &&
-    (!normalizeOptionalString(scoped.gatewayUrl) || settingsMatchGatewayTarget(scoped, targetUrl))
-  ) {
-    return {
-      gatewayUrl: normalizeOptionalString(scoped.gatewayUrl) ?? targetUrl,
-      parsed: scoped,
-    };
-  }
-  return null;
 }
 
 function tokenSessionKeyForGateway(gatewayUrl: string): string {
@@ -362,7 +292,9 @@ export function loadGatewaySessionSelection(gatewayUrl: string): ScopedSessionSe
   try {
     const storage = getSafeLocalStorage();
     const source = readSettingsForGateway(storage, gatewayUrl);
-    return source ? resolveScopedSessionSelection(gatewayUrl, source.parsed, fallback) : fallback;
+    return source
+      ? resolveScopedSessionSelection(gatewayUrl, source.parsed as PersistedUiSettings, fallback)
+      : fallback;
   } catch {
     return fallback;
   }
@@ -427,7 +359,9 @@ export function loadSettings(): UiSettings {
     // Gateway auth stays session-scoped; re-derive it instead of caching it.
     return { ...cached, token: loadSessionToken(cached.gatewayUrl) };
   }
-  const { pageUrl: pageDerivedUrl, effectiveUrl: defaultUrl } = deriveDefaultGatewayUrl();
+  const { pageUrl: pageDerivedUrl, effectiveUrl: defaultUrl } = deriveDefaultGatewayUrl(
+    resolveControlUiBasePath(location.pathname),
+  );
   const storage = getSafeLocalStorage();
 
   const defaults: UiSettings = {
@@ -452,26 +386,15 @@ export function loadSettings(): UiSettings {
   };
 
   try {
-    const selectedGatewayUrl = normalizeOptionalString(
-      storage?.getItem(currentGatewaySelectionKeyForPage(pageDerivedUrl)),
-    );
-    const selected = selectedGatewayUrl
-      ? readSettingsForGateway(storage, selectedGatewayUrl)
-      : null;
-    const defaultSource = readSettingsForGateway(storage, defaultUrl);
-    const source = selected ?? defaultSource;
+    const source = readSelectedSettings(storage, pageDerivedUrl, defaultUrl);
     if (!source) {
       return defaults;
     }
-    const parsed = source.parsed;
+    const parsed = source.parsed as PersistedUiSettings;
     const parsedGatewayUrl = source.gatewayUrl;
     const gatewayUrl = parsedGatewayUrl === pageDerivedUrl ? defaultUrl : parsedGatewayUrl;
     const scopedSessionSelection = resolveScopedSessionSelection(gatewayUrl, parsed, defaults);
-    const customTheme = parseImportedCustomTheme((parsed as { customTheme?: unknown }).customTheme);
-    const { theme, mode } = parseThemeSelection(
-      (parsed as { theme?: unknown }).theme,
-      (parsed as { themeMode?: unknown }).themeMode,
-    );
+    const { theme, themeMode, customTheme } = parseThemePreferences(parsed);
     const parsedRecord = parsed as unknown as Record<string, unknown>;
     const hasSidebarEntries = Object.hasOwn(parsedRecord, "sidebarEntries");
     // One-time read of the retired route-only shape; all writes use sidebarEntries.
@@ -497,8 +420,8 @@ export function loadSettings(): UiSettings {
       token: loadSessionToken(gatewayUrl),
       sessionKey: scopedSessionSelection.sessionKey,
       lastActiveSessionKey: scopedSessionSelection.lastActiveSessionKey,
-      theme: theme === "custom" && !customTheme ? UI_APPEARANCE_DEFAULTS.theme : theme,
-      themeMode: mode,
+      theme,
+      themeMode,
       chatShowThinking:
         typeof parsed.chatShowThinking === "boolean"
           ? parsed.chatShowThinking
@@ -627,7 +550,7 @@ function persistSettings(next: UiSettings, options: { selectGateway?: boolean } 
   try {
     const source = readSettingsForGateway(storage, next.gatewayUrl);
     if (source) {
-      const parsed = source.parsed;
+      const parsed = source.parsed as PersistedUiSettings;
       if (parsed.sessionsByGateway && typeof parsed.sessionsByGateway === "object") {
         existingSessionsByGateway = parsed.sessionsByGateway;
       }
@@ -714,7 +637,7 @@ function persistSettings(next: UiSettings, options: { selectGateway?: boolean } 
   const serialized = JSON.stringify(persisted);
   unpersistedSettings = next;
   try {
-    const { pageUrl } = deriveDefaultGatewayUrl();
+    const { pageUrl } = deriveDefaultGatewayUrl(resolveControlUiBasePath(location.pathname));
     const selectionKey = currentGatewaySelectionKeyForPage(pageUrl);
     storage?.setItem(scopedKey, serialized);
     if (options.selectGateway || storage?.getItem(selectionKey) == null) {

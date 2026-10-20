@@ -2,6 +2,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { settingsKeyForGateway } from "./settings-storage.ts";
+import { applyStoredTheme } from "./theme-bootstrap.ts";
 
 const indexHtmlPath = path.resolve(
   process.cwd(),
@@ -42,13 +44,9 @@ function installStartupPaintShell(window: TestWindow, html: string): void {
   window.document.head.innerHTML = parsed.head.innerHTML;
   window.document.body.innerHTML = parsed.body.innerHTML;
 
-  const startupScript = Array.from(
-    parsed.querySelectorAll<HTMLScriptElement>("script:not([src])"),
-  ).find((script) => script.textContent?.includes("var THEMES = { claw: 1, knot: 1, dash: 1 }"));
-  if (!startupScript?.textContent) {
-    throw new Error("Expected inline startup theme script in index.html");
-  }
-  window.eval(startupScript.textContent);
+  vi.stubGlobal("document", window.document);
+  vi.stubGlobal("localStorage", window.localStorage);
+  applyStoredTheme("");
 }
 
 function installFallbackShell(window: TestWindow, html: string): void {
@@ -89,6 +87,7 @@ describe("Control UI document shell", () => {
 
 describe("Control UI mount fallback", () => {
   afterEach(() => {
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
 
@@ -101,7 +100,9 @@ describe("Control UI mount fallback", () => {
     async (_name, settings, expectedTheme, expectedBackground) => {
       const frameWindow = createIsolatedWindow();
       frameWindow.localStorage.clear();
-      frameWindow.localStorage.setItem("openclaw.control.settings.v1", JSON.stringify(settings));
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const gateway = `${protocol}//${location.host}`;
+      frameWindow.localStorage.setItem(settingsKeyForGateway(gateway), JSON.stringify(settings));
       installStartupPaintShell(frameWindow, await readIndexHtmlWithDelay(1));
 
       expect(frameWindow.document.documentElement.dataset.theme).toBe(expectedTheme);

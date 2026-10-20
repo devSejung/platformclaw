@@ -1,11 +1,15 @@
 // @vitest-environment node
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
+import { build } from "vite";
 import { describe, expect, it, vi } from "vitest";
 import { controlUiLocaleModulesPlugin } from "../../config/control-ui-locales.ts";
 import controlUiViteConfig, {
   controlUiBrowserOnlySharedModuleAliases,
+  controlUiRenderBlockingBootstrapPlugin,
   createControlUiPrecompressedAssetVariants,
   resolveControlUiBuildInfo,
   resolveExternalPackageAliasesForVite,
@@ -27,6 +31,46 @@ function findStringAlias(key: string) {
 }
 
 describe("Control UI Vite config", () => {
+  it.each([true, false])(
+    "preserves an entry's render-blocking opt-in (%s) after a real build",
+    async (blocking) => {
+      const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "control-ui-bootstrap-")));
+      try {
+        writeFileSync(
+          path.join(root, "index.html"),
+          `<!doctype html><head>
+        <script type="module" ${blocking ? 'blocking="render"' : ""} src="./entry.js"></script>
+      </head><body>Fixture</body>`,
+        );
+        writeFileSync(
+          path.join(root, "entry.js"),
+          "document.documentElement.dataset.theme = 'dark';",
+        );
+        const result = await build({
+          root,
+          configFile: false,
+          logLevel: "silent",
+          plugins: [controlUiRenderBlockingBootstrapPlugin()],
+          build: { write: false },
+        });
+        const bundle = Array.isArray(result) ? result[0] : result;
+        if (!bundle || !("output" in bundle)) {
+          throw new Error("Expected a completed Vite build");
+        }
+        const html = bundle.output.find(
+          (output) => output.type === "asset" && output.fileName === "index.html",
+        );
+        if (!html || html.type !== "asset") {
+          throw new Error("Expected built index.html");
+        }
+        expect(String(html.source).includes('blocking="render"')).toBe(blocking);
+        expect(String(html.source)).toMatch(/<script[^>]+src="[^"]+\.js"/u);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("derives the default browser build ID without duplicating it in the bundle", () => {
     vi.stubEnv("GIT_COMMIT", "0123456789abcdef0123456789abcdef01234567");
     vi.stubEnv("OPENCLAW_BUILD_TIMESTAMP", "2026-07-10T12:34:56Z");

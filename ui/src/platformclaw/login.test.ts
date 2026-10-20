@@ -51,7 +51,7 @@ describe("PlatformClawLoginController", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps both security notices before sign-in while session bootstrap is pending", () => {
+  it("keeps both security notices after the login form while session bootstrap is pending", () => {
     const root = fixture();
     const notice = root.querySelector(".login-security-notice");
     const form = root.querySelector("form");
@@ -68,7 +68,7 @@ describe("PlatformClawLoginController", () => {
     expect(notice?.querySelector("button, input, a")).toBeNull();
     expect(notice?.hasAttribute("hidden")).toBe(false);
     expect(
-      notice && form && notice.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING,
+      notice && form && form.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(root.querySelector<HTMLInputElement>('input[name="identifier"]')?.disabled).toBe(true);
   });
