@@ -140,7 +140,6 @@ export class PlatformClawControlUiAdapter {
           <platformclaw-quick-actions
             .fetchImpl=${this.fetchImpl}
             .onUnauthenticated=${onUnauthenticated}
-            .admin=${identity.globalRole === "admin"}
             .vocEnabled=${this.descriptor.vocEnabled}
           ></platformclaw-quick-actions>
         `,
@@ -162,14 +161,8 @@ export class PlatformClawControlUiAdapter {
         ></platformclaw-organization-join-prompt>`,
       )
       .catch(() => nothing);
-    const announcements = import("./announcements.ts")
-      .then(
-        () => html`<platformclaw-announcements
-          .fetchImpl=${this.fetchImpl}
-          .onUnauthenticated=${onUnauthenticated}
-        ></platformclaw-announcements>`,
-      )
-      .catch(() => nothing);
+    // Keep the viewer owner mounted across routes so deferral changes preserve manual viewing.
+    void import("./announcements.ts").catch(() => undefined);
     void Promise.all([import("./page-help.ts"), loadPlatformClawLocale()]).catch(() => undefined);
     const renderPageHelpTrigger = (
       routeId: RouteId,
@@ -182,11 +175,6 @@ export class PlatformClawControlUiAdapter {
         .search=${currentLocation.search}
       ></platformclaw-page-help-trigger>`;
     };
-    if (identity.globalRole === "admin") {
-      void import("./vm-administration.ts").catch(() => {
-        // A stale deployment chunk must not break the upstream Control UI session.
-      });
-    }
     const shellSession: ApplicationShellSession = {
       primaryLabel: identity.displayName,
       secondaryLabel: identity.department || identity.accountId,
@@ -199,7 +187,7 @@ export class PlatformClawControlUiAdapter {
           quickActions,
           html`<p class="muted" role="status">${t("platformClaw.quickActions.loading")}</p>`,
         ),
-      renderMainBanner: () => html`
+      renderMainBanner: (routeId) => html`
         <style>
           /* A stack of notices must scroll rather than squeeze the chat controls out of view. */
           .content--chat:has(> platformclaw-announcements[data-active]) {
@@ -210,7 +198,12 @@ export class PlatformClawControlUiAdapter {
             flex-shrink: 0;
           }
         </style>
-        ${until(announcements, nothing)}${until(joinPrompt, nothing)}
+        <platformclaw-announcements
+          .fetchImpl=${this.fetchImpl}
+          .onUnauthenticated=${onUnauthenticated}
+          .deferAutomatic=${routeId === "announcements" || routeId === "vm-administration"}
+        ></platformclaw-announcements
+        >${until(joinPrompt, nothing)}
       `,
       renderPageHeaderAccessory: renderPageHelpTrigger,
       renderPageOverlay: (routeId, routeLocation) => {
@@ -225,7 +218,9 @@ export class PlatformClawControlUiAdapter {
       onLogout,
     };
     const enabledRouteIds = this.descriptor.enabledRoutes.filter(
-      (routeId) => routeId !== "plugins" || identity.globalRole === "admin",
+      (routeId) =>
+        !["plugins", "announcements", "vm-administration"].includes(routeId) ||
+        identity.globalRole === "admin",
     ) as readonly RouteId[];
     const sidebarEntries = [
       "route:spaces",
@@ -242,6 +237,53 @@ export class PlatformClawControlUiAdapter {
       enabledRouteIds,
       sessionCatalogFilter: (sessionKey) => !isSpaceConversationSession(sessionKey),
       routeOverrides: {
+        ...(identity.globalRole === "admin"
+          ? {
+              announcements: {
+                loader: async () => undefined,
+                component: () =>
+                  Promise.all([
+                    import("./announcement-administration.ts"),
+                    loadPlatformClawLocale(),
+                  ]).then(() => ({
+                    header: true,
+                    render: () => html`<section class="content-header">
+                        <div>
+                          <div class="page-title">${t("platformClaw.announcements.manage")}</div>
+                          <div class="page-subtitle">${t("platformClaw.announcements.scope")}</div>
+                        </div>
+                      </section>
+                      <main class="settings-page">
+                        <platformclaw-announcement-administration
+                          .fetchImpl=${this.fetchImpl}
+                          .onUnauthenticated=${onUnauthenticated}
+                        ></platformclaw-announcement-administration>
+                      </main>`,
+                  })),
+              },
+              "vm-administration": {
+                loader: async () => undefined,
+                component: () =>
+                  Promise.all([import("./vm-administration.ts"), loadPlatformClawLocale()]).then(
+                    () => ({
+                      header: true,
+                      render: () => html`<section class="content-header">
+                          <div>
+                            <div class="page-title">${t("platformClaw.vmAdmin.title")}</div>
+                            <div class="page-subtitle">${t("platformClaw.vmAdmin.intro")}</div>
+                          </div>
+                        </section>
+                        <main class="settings-page">
+                          <platformclaw-vm-administration
+                            .fetchImpl=${this.fetchImpl}
+                            .onUnauthenticated=${onUnauthenticated}
+                          ></platformclaw-vm-administration>
+                        </main>`,
+                    }),
+                  ),
+              },
+            }
+          : {}),
         usage: {
           loaderDeps: (_context, location) => location.search,
           loader: async (context, options) =>
@@ -463,6 +505,14 @@ export class PlatformClawControlUiAdapter {
         sidebarEntries,
         settingsNavigationMode: "takeover",
         routeCopy: {
+          announcements: {
+            title: () => t("platformClaw.announcements.manage"),
+            subtitle: () => t("platformClaw.announcements.scope"),
+          },
+          "vm-administration": {
+            title: () => t("platformClaw.vmAdmin.title"),
+            subtitle: () => t("platformClaw.vmAdmin.intro"),
+          },
           credentials: {
             title: () => t("platformClaw.execCredentials.pageTitle"),
             subtitle: () => t("platformClaw.execCredentials.intro"),

@@ -4,7 +4,7 @@ import { html } from "lit";
 import { routePageSpec } from "../../app-route-paths.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
-import { loadSkillStatusReport } from "../../lib/skills/index.ts";
+import { loadSkillStatusReport } from "../../lib/skills/status.ts";
 import type { SkillsRouteData } from "./skills-page.ts";
 
 async function loadSkillsRouteData(context: ApplicationContext): Promise<SkillsRouteData> {

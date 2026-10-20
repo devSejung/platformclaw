@@ -1,11 +1,9 @@
 import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
-import { ref } from "lit/directives/ref.js";
 import {
   ANNOUNCEMENTS_ADMIN_PATH,
   type AnnouncementAdministrationSnapshot,
 } from "../../../packages/platformclaw-control-plane/src/announcement-contracts.js";
-import { OpenClawModalDialog } from "../components/modal-dialog.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 import { platformClawT as t } from "./i18n.ts";
 
@@ -17,7 +15,6 @@ function localTime(timestamp: number): string {
 class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => {};
-  @state() private opened = false;
   @state() private busy = false;
   @state() private error = "";
   @state() private message = "";
@@ -30,17 +27,15 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
   @state() private editing = false;
   @state() private preview: "publish" | "update" | "cancel" | null = null;
   private generation = 0;
-  private returnFocus: HTMLElement | null = null;
+
+  override connectedCallback() {
+    super.connectedCallback();
+    void this.load();
+  }
 
   override disconnectedCallback() {
     this.generation++;
     super.disconnectedCallback();
-  }
-
-  private close() {
-    this.generation++;
-    this.opened = false;
-    this.busy = false;
   }
 
   static override styles = css`
@@ -65,25 +60,12 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
       outline: 2px solid var(--accent, #4385ed);
       outline-offset: 2px;
     }
-    .launcher {
-      width: 100%;
-      border: 0;
-      background: transparent;
-      text-align: left;
-      font-size: 13px;
-    }
     .panel {
       padding: 20px;
-      max-height: 85dvh;
-      overflow: auto;
       border: 1px solid var(--border);
       border-radius: 14px;
       background: var(--bg);
       color: var(--text);
-    }
-    h2 {
-      margin: 0 0 12px;
-      font-size: 20px;
     }
     p {
       margin: 8px 0;
@@ -139,6 +121,7 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
   private async request(
     body?: Record<string, unknown>,
   ): Promise<AnnouncementAdministrationSnapshot> {
+    const generation = this.generation;
     const response = await this.fetchImpl(ANNOUNCEMENTS_ADMIN_PATH, {
       credentials: "same-origin",
       cache: "no-store",
@@ -150,7 +133,7 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
           }
         : {}),
     });
-    if (response.status === 401) {
+    if (response.status === 401 && this.isConnected && generation === this.generation) {
       this.onUnauthenticated();
     }
     if (!response.ok) {
@@ -255,203 +238,173 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
   override render() {
     const current = this.snapshot?.current;
     return html`
-      <button
-        class="launcher"
-        @click=${(event: Event) => {
-          this.returnFocus = event.currentTarget as HTMLElement;
-          this.opened = true;
-          void this.load();
-        }}
-      >
-        ${t("platformClaw.announcements.manage")}
-      </button>
-      ${this.opened
-        ? html`<openclaw-modal-dialog
-            ${ref((element) => {
-              (element as OpenClawModalDialog | undefined)?.setReturnFocusTarget(this.returnFocus);
-            })}
-            .label=${t("platformClaw.announcements.manage")}
-            @modal-cancel=${() => this.close()}
-          >
-            <section class="panel">
-              <h2>${t("platformClaw.announcements.manage")}</h2>
-              <p class="hint">${t("platformClaw.announcements.scope")}</p>
-              ${current
-                ? html`<p class="hint">
-                    ${t(
-                      current.cancelled
-                        ? "platformClaw.announcements.cancelled"
-                        : this.snapshot?.announcement
-                          ? "platformClaw.announcements.active"
-                          : "platformClaw.announcements.expired",
-                    )}
-                    · revision ${current.revision}
-                  </p>`
-                : nothing}
-              ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
-              ${this.message ? html`<p role="status">${this.message}</p>` : nothing}
-              ${this.preview
-                ? html`<section
-                    class="preview"
-                    aria-label=${t("platformClaw.announcements.preview")}
-                  >
-                    <h3>
+      <section class="panel">
+        ${current
+          ? html`<p class="hint">
+              ${t(
+                current.cancelled
+                  ? "platformClaw.announcements.cancelled"
+                  : this.snapshot?.announcement
+                    ? "platformClaw.announcements.active"
+                    : "platformClaw.announcements.expired",
+              )}
+              · revision ${current.revision}
+            </p>`
+          : nothing}
+        ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
+        ${this.message ? html`<p role="status">${this.message}</p>` : nothing}
+        ${this.preview
+          ? html`<section class="preview" aria-label=${t("platformClaw.announcements.preview")}>
+              <h3>
+                ${t(
+                  this.preview === "cancel"
+                    ? "platformClaw.announcements.cancelConfirm"
+                    : "platformClaw.announcements.preview",
+                )}
+              </h3>
+              <strong>${this.preview === "cancel" ? current?.title : this.draftTitle}</strong>
+              <p class="body">${this.preview === "cancel" ? current?.body : this.body}</p>
+              ${this.preview !== "cancel"
+                ? html`<p>
                       ${t(
-                        this.preview === "cancel"
-                          ? "platformClaw.announcements.cancelConfirm"
-                          : "platformClaw.announcements.preview",
+                        this.kind === "maintenance"
+                          ? "platformClaw.announcements.maintenance"
+                          : "platformClaw.announcements.general",
                       )}
-                    </h3>
-                    <strong>${this.preview === "cancel" ? current?.title : this.draftTitle}</strong>
-                    <p class="body">${this.preview === "cancel" ? current?.body : this.body}</p>
-                    ${this.preview !== "cancel"
-                      ? html`<p>
-                            ${t(
-                              this.kind === "maintenance"
-                                ? "platformClaw.announcements.maintenance"
-                                : "platformClaw.announcements.general",
-                            )}
-                          </p>
-                          ${this.kind === "maintenance"
-                            ? html`<p>
-                                ${t("platformClaw.announcements.maintenanceAt")}:
-                                ${new Date(this.maintenanceAt).toLocaleString()}
-                              </p>`
-                            : nothing}
-                          <p>
-                            ${t("platformClaw.announcements.expiresAt")}:
-                            ${new Date(this.expiresAt).toLocaleString()}
-                          </p>`
-                      : nothing}
-                    <div class="actions">
-                      <button ?disabled=${this.busy} @click=${() => void this.save()}>
-                        ${t(
-                          this.preview === "cancel"
-                            ? "platformClaw.announcements.cancel"
-                            : this.preview === "update"
-                              ? "platformClaw.announcements.update"
-                              : "platformClaw.announcements.publish",
-                        )}
-                      </button>
-                      <button
-                        ?disabled=${this.busy}
-                        @click=${() => {
-                          this.preview = null;
-                        }}
-                      >
-                        ${t("platformClaw.announcements.back")}
-                      </button>
-                    </div>
-                  </section>`
-                : html`<form @submit=${(event: SubmitEvent) => this.prepare(event)}>
-                    <label
-                      >${t("platformClaw.announcements.title")}<input
-                        name="title"
-                        ?disabled=${this.busy || !this.snapshot}
-                        autofocus
-                        required
-                        maxlength="160"
-                        .value=${this.draftTitle}
-                        @input=${(e: Event) => {
-                          this.draftTitle = (e.target as HTMLInputElement).value;
-                        }}
-                    /></label>
-                    <label
-                      >${t("platformClaw.announcements.body")}<textarea
-                        name="body"
-                        ?disabled=${this.busy || !this.snapshot}
-                        required
-                        maxlength="8000"
-                        .value=${this.body}
-                        @input=${(e: Event) => {
-                          this.body = (e.target as HTMLTextAreaElement).value;
-                        }}
-                      ></textarea>
-                    </label>
-                    <label
-                      >${t("platformClaw.announcements.kind")}<select
-                        name="kind"
-                        ?disabled=${this.busy || !this.snapshot}
-                        .value=${this.kind}
-                        @change=${(e: Event) => {
-                          this.kind = (e.target as HTMLSelectElement).value as
-                            | "general"
-                            | "maintenance";
-                        }}
-                      >
-                        <option value="general">${t("platformClaw.announcements.general")}</option>
-                        <option value="maintenance">
-                          ${t("platformClaw.announcements.maintenance")}
-                        </option>
-                      </select></label
-                    >
-                    ${this.kind === "maintenance"
-                      ? html`<label
-                          >${t("platformClaw.announcements.maintenanceAt")}<input
-                            name="maintenanceAt"
-                            ?disabled=${this.busy || !this.snapshot}
-                            type="datetime-local"
-                            required
-                            .value=${this.maintenanceAt}
-                            @input=${(e: Event) => {
-                              this.maintenanceAt = (e.target as HTMLInputElement).value;
-                            }}
-                        /></label>`
-                      : nothing}
-                    <label
-                      >${t("platformClaw.announcements.expiresAt")}<input
-                        name="expiresAt"
-                        ?disabled=${this.busy || !this.snapshot}
-                        type="datetime-local"
-                        required
-                        .value=${this.expiresAt}
-                        @input=${(e: Event) => {
-                          this.expiresAt = (e.target as HTMLInputElement).value;
-                        }}
-                    /></label>
-                    <p class="hint">
-                      ${t("platformClaw.announcements.localTime")}
-                      (${Intl.DateTimeFormat().resolvedOptions().timeZone})
                     </p>
-                    <button type="submit" ?disabled=${this.busy || !this.snapshot}>
-                      ${t("platformClaw.announcements.preview")}
-                    </button>
-                  </form>`}
+                    ${this.kind === "maintenance"
+                      ? html`<p>
+                          ${t("platformClaw.announcements.maintenanceAt")}:
+                          ${new Date(this.maintenanceAt).toLocaleString()}
+                        </p>`
+                      : nothing}
+                    <p>
+                      ${t("platformClaw.announcements.expiresAt")}:
+                      ${new Date(this.expiresAt).toLocaleString()}
+                    </p>`
+                : nothing}
               <div class="actions">
-                ${current && !current.cancelled && !this.preview
-                  ? html`<button
-                      ?disabled=${this.busy}
-                      @click=${() => {
-                        this.preview = "cancel";
-                      }}
-                    >
-                      ${t("platformClaw.announcements.cancel")}
-                    </button>`
-                  : nothing}
-                <button ?disabled=${this.busy} @click=${() => void this.load()}>
-                  ${t("platformClaw.announcements.reload")}
+                <button ?disabled=${this.busy} @click=${() => void this.save()}>
+                  ${t(
+                    this.preview === "cancel"
+                      ? "platformClaw.announcements.cancel"
+                      : this.preview === "update"
+                        ? "platformClaw.announcements.update"
+                        : "platformClaw.announcements.publish",
+                  )}
                 </button>
                 <button
                   ?disabled=${this.busy}
                   @click=${() => {
-                    this.editing = false;
-                    this.draftTitle = "";
-                    this.body = "";
-                    this.maintenanceAt = "";
-                    this.expiresAt = "";
                     this.preview = null;
-                    this.message = "";
                   }}
                 >
-                  ${t("platformClaw.announcements.new")}
-                </button>
-                <button @click=${() => this.close()}>
-                  ${t("platformClaw.announcements.close")}
+                  ${t("platformClaw.announcements.back")}
                 </button>
               </div>
-            </section>
-          </openclaw-modal-dialog>`
-        : nothing}
+            </section>`
+          : html`<form @submit=${(event: SubmitEvent) => this.prepare(event)}>
+              <label
+                >${t("platformClaw.announcements.title")}<input
+                  name="title"
+                  ?disabled=${this.busy || !this.snapshot}
+                  autofocus
+                  required
+                  maxlength="160"
+                  .value=${this.draftTitle}
+                  @input=${(e: Event) => {
+                    this.draftTitle = (e.target as HTMLInputElement).value;
+                  }}
+              /></label>
+              <label
+                >${t("platformClaw.announcements.body")}<textarea
+                  name="body"
+                  ?disabled=${this.busy || !this.snapshot}
+                  required
+                  maxlength="8000"
+                  .value=${this.body}
+                  @input=${(e: Event) => {
+                    this.body = (e.target as HTMLTextAreaElement).value;
+                  }}
+                ></textarea>
+              </label>
+              <label
+                >${t("platformClaw.announcements.kind")}<select
+                  name="kind"
+                  ?disabled=${this.busy || !this.snapshot}
+                  .value=${this.kind}
+                  @change=${(e: Event) => {
+                    this.kind = (e.target as HTMLSelectElement).value as "general" | "maintenance";
+                  }}
+                >
+                  <option value="general">${t("platformClaw.announcements.general")}</option>
+                  <option value="maintenance">
+                    ${t("platformClaw.announcements.maintenance")}
+                  </option>
+                </select></label
+              >
+              ${this.kind === "maintenance"
+                ? html`<label
+                    >${t("platformClaw.announcements.maintenanceAt")}<input
+                      name="maintenanceAt"
+                      ?disabled=${this.busy || !this.snapshot}
+                      type="datetime-local"
+                      required
+                      .value=${this.maintenanceAt}
+                      @input=${(e: Event) => {
+                        this.maintenanceAt = (e.target as HTMLInputElement).value;
+                      }}
+                  /></label>`
+                : nothing}
+              <label
+                >${t("platformClaw.announcements.expiresAt")}<input
+                  name="expiresAt"
+                  ?disabled=${this.busy || !this.snapshot}
+                  type="datetime-local"
+                  required
+                  .value=${this.expiresAt}
+                  @input=${(e: Event) => {
+                    this.expiresAt = (e.target as HTMLInputElement).value;
+                  }}
+              /></label>
+              <p class="hint">
+                ${t("platformClaw.announcements.localTime")}
+                (${Intl.DateTimeFormat().resolvedOptions().timeZone})
+              </p>
+              <button type="submit" ?disabled=${this.busy || !this.snapshot}>
+                ${t("platformClaw.announcements.preview")}
+              </button>
+            </form>`}
+        <div class="actions">
+          ${current && !current.cancelled && !this.preview
+            ? html`<button
+                ?disabled=${this.busy}
+                @click=${() => {
+                  this.preview = "cancel";
+                }}
+              >
+                ${t("platformClaw.announcements.cancel")}
+              </button>`
+            : nothing}
+          <button ?disabled=${this.busy} @click=${() => void this.load()}>
+            ${t("platformClaw.announcements.reload")}
+          </button>
+          <button
+            ?disabled=${this.busy}
+            @click=${() => {
+              this.editing = false;
+              this.draftTitle = "";
+              this.body = "";
+              this.maintenanceAt = "";
+              this.expiresAt = "";
+              this.preview = null;
+              this.message = "";
+            }}
+          >
+            ${t("platformClaw.announcements.new")}
+          </button>
+        </div>
+      </section>
     `;
   }
 }

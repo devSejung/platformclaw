@@ -12,6 +12,22 @@ Only an active PlatformClaw administrator can open the VM administration
 surface or call its browser API. The control-plane store repeats the same role
 check so bypassing the UI does not bypass authorization.
 
+Open **Settings > Administration > VM administration**. The Administration group
+also contains **Web announcements** and is hidden from employees. Both pages
+support direct links; VM administration uses `/platformclaw/app/settings/vms`.
+
+The overview opens on the development VM list. Separate tabs show SafeConnect
+connections, employee assignments, and recent activity. Counts describe the
+configured catalog and assignments, not live SSH health. Add or edit an item in
+its focused dialog; **Build environment** remains available for enabled VMs.
+
+Connection registration separates the connection check from explicit host-key
+approval. During a request, closing the progress dialog only hides it: the page
+keeps the operation visible and lets you reopen progress. Success updates the
+list and closes the dialog automatically. Errors keep the draft available for
+correction or retry. Leaving the page prevents a retired request from starting
+another write.
+
 ## Setup order
 
 1. Add the SafeConnect endpoint host, SSH port, and AD domain.
@@ -58,6 +74,7 @@ state changes; they do not delete database history or remote files.
 Revoke active assignments before disabling a VM. Disable all active VMs before
 disabling their endpoint. A user may release their own allocation only from the
 basic workspace. The same run-boundary guard applies to administrator
-revocation, so running work is never silently moved. Re-enable and hard-delete
-flows are intentionally absent from the first release; register a new record
-when replacing infrastructure.
+revocation, so running work is never silently moved. An endpoint with an approved
+host key can be re-enabled. Re-enable its endpoint before re-enabling a VM.
+Disabled records can be edited; changed endpoint details require another
+connection probe and explicit host-key approval. Hard deletion remains unavailable.

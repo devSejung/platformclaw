@@ -55,6 +55,8 @@ describe("PlatformClaw Web descriptor", () => {
         "memory",
         "organization",
         "mcp",
+        "announcements",
+        "vm-administration",
       ]),
     );
   });

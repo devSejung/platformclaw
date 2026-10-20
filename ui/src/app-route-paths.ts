@@ -51,6 +51,8 @@ const APP_ROUTE_DEFINITIONS = {
   mcp: { path: "/settings/mcp", aliases: ["/mcp"] },
   memory: { path: "/settings/memory" },
   organization: { path: "/settings/organization" },
+  announcements: { path: "/settings/announcements" },
+  "vm-administration": { path: "/settings/vms" },
   spaces: { path: "/spaces" },
   talk: { path: "/settings/talk" },
   infrastructure: { path: "/settings/infrastructure", aliases: ["/infrastructure"] },
@@ -82,10 +84,13 @@ const APP_ROUTE_DEFINITIONS = {
 
 export type RouteId = keyof typeof APP_ROUTE_DEFINITIONS;
 const ALL_APP_ROUTE_IDS = Object.keys(APP_ROUTE_DEFINITIONS) as RouteId[];
-// Product-owned credentials, organization and Spaces are opt-in embedder routes.
+// Product-owned settings and Spaces are opt-in embedder routes.
 // Products enable them with route overrides; the stock Control UI stays unchanged.
 export const APP_ROUTE_IDS = ALL_APP_ROUTE_IDS.filter(
-  (routeId) => routeId !== "credentials" && routeId !== "organization" && routeId !== "spaces",
+  (routeId) =>
+    !["credentials", "organization", "spaces", "announcements", "vm-administration"].includes(
+      routeId,
+    ),
 );
 
 export function isRouteId(routeId: string): routeId is RouteId {

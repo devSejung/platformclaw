@@ -17,13 +17,10 @@ const BASIC_EXECUTION_SETTINGS = {
   availableVms: [],
 };
 
-async function mount(
-  options: { admin?: boolean; fetchImpl?: typeof fetch; vocEnabled?: boolean } = {},
-) {
+async function mount(options: { fetchImpl?: typeof fetch; vocEnabled?: boolean } = {}) {
   const element = document.createElement(
     "platformclaw-quick-actions",
   ) as PlatformClawQuickActionsElement;
-  element.admin = options.admin ?? false;
   element.fetchImpl =
     options.fetchImpl ?? vi.fn<typeof fetch>(async () => jsonResponse(BASIC_EXECUTION_SETTINGS));
   element.vocEnabled = options.vocEnabled ?? false;
@@ -43,23 +40,21 @@ describe("platformclaw-quick-actions", () => {
     await i18n.setLocale("en");
   });
 
-  it("keeps role-aware account actions without the retired Guide", async () => {
-    const admin = await mount({ admin: true, vocEnabled: true });
+  it("keeps only personal work-location and VOC actions in the footer", async () => {
+    const element = await mount({ vocEnabled: true });
 
-    expect(admin.shadowRoot?.querySelector('[aria-label="Guide"]')).toBeNull();
-    expect(admin.shadowRoot?.querySelector(".tour-popover")).toBeNull();
-    expect(admin.shadowRoot?.querySelector("platformclaw-vm-administration")).not.toBeNull();
-    const adminItems = [...(admin.shadowRoot?.querySelector(".grid")?.children ?? [])];
-    expect(adminItems.map((item) => item.localName)).toEqual([
-      "button",
-      "button",
-      "platformclaw-vm-administration",
-      "platformclaw-announcement-administration",
-    ]);
+    expect(element.shadowRoot?.querySelector('[aria-label="Guide"]')).toBeNull();
+    expect(element.shadowRoot?.querySelector(".tour-popover")).toBeNull();
+    expect(element.shadowRoot?.querySelector("platformclaw-vm-administration")).toBeNull();
+    expect(
+      element.shadowRoot?.querySelector("platformclaw-announcement-administration"),
+    ).toBeNull();
+    const items = [...(element.shadowRoot?.querySelector(".grid")?.children ?? [])];
+    expect(items.map((item) => item.localName)).toEqual(["button", "button"]);
 
-    admin.shadowRoot?.querySelector<HTMLButtonElement>('[aria-label="VOC"]')?.click();
-    await admin.updateComplete;
-    expect(admin.shadowRoot?.querySelector("platformclaw-voc-dialog")).not.toBeNull();
+    element.shadowRoot?.querySelector<HTMLButtonElement>('[aria-label="VOC"]')?.click();
+    await element.updateComplete;
+    expect(element.shadowRoot?.querySelector("platformclaw-voc-dialog")).not.toBeNull();
   });
 
   it("uses the PlatformClaw-owned Korean work-location copy", async () => {

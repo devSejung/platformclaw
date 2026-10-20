@@ -39,6 +39,7 @@ describe("PlatformClaw product translations", () => {
     const original = structuredClone(base);
     await Promise.all([i18n.setLocale("ko"), loadAllPlatformClawLocales()]);
 
+    expect(t("nav.settingsGroupAdministration")).toBe("관리");
     expect(t("execApproval.execApprovalNeeded")).toBe("명령 실행 승인 필요");
     expect(t("execApproval.allowOnce")).toBe("한 번 허용");
     expect(t("execApproval.alwaysAllow")).toBe("항상 허용");
@@ -80,6 +81,7 @@ describe("PlatformClaw product translations", () => {
     expect(t("execApproval.allowOnce")).toBe("한 번 허용");
 
     await i18n.setLocale("en");
+    expect(t("nav.settingsGroupAdministration")).toBe("Administration");
     expect(t("execApproval.allowOnce")).toBe("Allow once");
     expect(t("chat.runControls.sendMessage")).toBe("Send message");
     expect(t("chat.waitingOnSubagents")).toBe("Waiting on subagents");

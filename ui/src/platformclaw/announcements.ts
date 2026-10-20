@@ -18,6 +18,7 @@ import { platformClawT as t } from "./i18n.ts";
 export class PlatformClawAnnouncements extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => {};
+  @property({ type: Boolean }) deferAutomatic = false;
   @consume({ context: applicationContext, subscribe: true }) private context?: ApplicationContext;
   private readonly notice = new AnnouncementState();
   @state() private popupRevision: number | null = null;
@@ -152,6 +153,9 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
       this.stopState = gateway.subscribe(observe);
       observe();
     }
+    if (_changes.has("deferAutomatic") && !this.deferAutomatic) {
+      this.tryPresent();
+    }
   }
 
   private resume = () => {
@@ -222,7 +226,7 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
 
   private tryPresent() {
     const active = this.notice.active(performance.now());
-    if (active?.kind !== "maintenance" || hasOpenModalDialog()) {
+    if (this.deferAutomatic || active?.kind !== "maintenance" || hasOpenModalDialog()) {
       return;
     }
     if (this.pendingPopupRevision === active.revision) {

@@ -49,6 +49,8 @@ const PLATFORMCLAW_ENABLED_ROUTES = [
   "skill-hub",
   "plugins",
   "mcp",
+  "announcements",
+  "vm-administration",
 ] as const satisfies readonly RouteId[];
 
 export type PlatformClawWebDescriptor = {

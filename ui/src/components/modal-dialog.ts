@@ -35,10 +35,15 @@ export class OpenClawModalDialog extends OpenClawLitElement {
   private syncGeneration = 0;
   private suppressNextCancel = false;
   private hiding = false;
+  private focusGeneration = 0;
 
   static override styles = css`
     :host {
       display: contents;
+    }
+
+    slot[data-focus-pending] {
+      visibility: hidden;
     }
 
     wa-dialog {
@@ -127,6 +132,8 @@ export class OpenClawModalDialog extends OpenClawLitElement {
 
   override disconnectedCallback() {
     this.syncGeneration += 1;
+    this.focusGeneration += 1;
+    this.setContentReady(false);
     this.hiding = false;
     this.suppressNextCancel = false;
     OpenClawModalDialog.#openDialogs.delete(this);
@@ -159,7 +166,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
         @wa-after-hide=${this.handleAfterHide}
         @wa-hide=${this.handleHide}
       >
-        <slot></slot>
+        <slot inert data-focus-pending></slot>
       </wa-dialog>
     `;
   }
@@ -219,11 +226,19 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     }
   }
 
+  private setContentReady(ready: boolean): void {
+    const slot = this.shadowRoot?.querySelector("slot");
+    if (slot) {
+      slot.inert = !ready;
+      slot.toggleAttribute("data-focus-pending", !ready);
+    }
+  }
+
   private handleAfterShow = (event?: Event) => {
     if (event && event.target !== event.currentTarget) {
       return;
     }
-    if (!this.isConnected) {
+    if (!this.isConnected || this.shadowRoot?.querySelector("slot[data-focus-pending]")) {
       return;
     }
     // Both the scheduled show hook and wa-after-show land here, and the second
@@ -245,13 +260,23 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     if (event.target !== event.currentTarget) {
       return;
     }
-    // Web Awesome cannot see autofocus targets through this adapter's slot.
+    // Web Awesome focuses native chrome in its first animation frame because it
+    // cannot see slotted autofocus fields. Expose inputs only after that frame
+    // so its focus cannot redirect typing into the wrong field.
+    const generation = ++this.focusGeneration;
+    this.setContentReady(false);
     queueMicrotask(() => {
       // A different owner may cancel wa-show after this adapter observes it.
       if (!event.defaultPrevented && this.isConnected) {
         OpenClawModalDialog.#openDialogs.add(this);
       }
-      requestAnimationFrame(() => this.handleAfterShow());
+      requestAnimationFrame(() => {
+        if (event.defaultPrevented || !this.isConnected || generation !== this.focusGeneration) {
+          return;
+        }
+        this.setContentReady(true);
+        this.handleAfterShow();
+      });
     });
   };
 
@@ -260,6 +285,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
       return;
     }
     this.hiding = false;
+    this.setContentReady(false);
     OpenClawModalDialog.#openDialogs.delete(this);
     const returnFocus = this.returnFocusOverride;
     const originalReturnFocus = this.returnFocus;
@@ -289,6 +315,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
       return;
     }
     if (this.suppressNextCancel) {
+      this.focusGeneration += 1;
       this.suppressNextCancel = false;
       this.hiding = true;
       return;
@@ -303,6 +330,7 @@ export class OpenClawModalDialog extends OpenClawLitElement {
       event.preventDefault();
       return;
     }
+    this.focusGeneration += 1;
     this.hiding = true;
   };
 
