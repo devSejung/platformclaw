@@ -50,28 +50,64 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function click(root: ShadowRoot, selector: string): void {
+  const button = root.querySelector<HTMLButtonElement>(selector);
+  if (!button) {
+    throw new Error(`Missing administration control: ${selector}`);
+  }
+  button.click();
+}
+
+async function openEditor(root: ShadowRoot, selector: string, tab = "hosts") {
+  await vi.waitFor(() =>
+    expect(root.querySelector(".metric strong")?.textContent).toMatch(/^\d+$/u),
+  );
+  await vi.waitFor(() =>
+    expect(root.querySelector<HTMLButtonElement>("[data-refresh]")?.disabled).toBe(false),
+  );
+  click(root, `[data-admin-tab='${tab}']`);
+  await vi.waitFor(() => expect(root.querySelector(selector)).not.toBeNull());
+  click(root, selector);
+  await vi.waitFor(() =>
+    expect(
+      (root.querySelector("[data-admin-modal]") as HTMLElement & { open: boolean })?.open,
+    ).toBe(true),
+  );
+}
+
 describe("PlatformClaw VM administration", () => {
   afterEach(async () => {
     document.querySelector("platformclaw-vm-administration")?.remove();
+    vi.useRealTimers();
     await i18n.setLocale("en");
   });
 
-  it("loads administration state when its page connects without a launcher or modal", async () => {
+  it("loads the VM overview with a closed editor and no expanded forms", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SNAPSHOT));
     mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-vm-administration")!;
 
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
     await vi.waitFor(() =>
-      expect(element.shadowRoot?.textContent).toContain("Employee assignments"),
+      expect(element.shadowRoot?.querySelector<HTMLButtonElement>("[data-refresh]")?.disabled).toBe(
+        false,
+      ),
     );
 
+    expect(
+      element.shadowRoot?.querySelector("[data-admin-tab='hosts'][aria-selected='true']"),
+    ).not.toBeNull();
     expect(fetchImpl).toHaveBeenCalledWith(
       "/platformclaw/api/admin/vm",
       expect.objectContaining({ credentials: "same-origin" }),
     );
-    expect(element.shadowRoot?.textContent).toContain("SafeConnect endpoints");
-    expect(element.shadowRoot?.textContent).toContain("Employee assignments");
-    expect(element.shadowRoot?.querySelector("[data-open], openclaw-modal-dialog")).toBeNull();
+    expect(element.shadowRoot?.querySelectorAll("[role='tab']")).toHaveLength(4);
+    expect(element.shadowRoot?.querySelector(".overview")).not.toBeNull();
+    expect(
+      (element.shadowRoot!.querySelector("[data-admin-modal]") as HTMLElement & { open: boolean })
+        .open,
+    ).toBe(false);
+    expect(element.shadowRoot?.querySelector("form")).toBeNull();
   });
 
   it("checks connectivity before saving and approving a new endpoint", async () => {
@@ -112,6 +148,7 @@ describe("PlatformClaw VM administration", () => {
     mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-vm-administration")!;
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    await openEditor(element.shadowRoot!, "[data-add-endpoint]", "endpoints");
     await vi.waitFor(() =>
       expect(
         element.shadowRoot?.querySelector<HTMLInputElement>(
@@ -144,6 +181,9 @@ describe("PlatformClaw VM administration", () => {
     );
     element.shadowRoot?.querySelector<HTMLElement>("[data-approve-probe]")?.click();
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(5));
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector("[data-operation-phase='error']")).not.toBeNull(),
+    );
     const createInit = fetchImpl.mock.calls[2]?.[1];
     const recoveryInit = fetchImpl.mock.calls[3]?.[1];
     const approveInit = fetchImpl.mock.calls[4]?.[1];
@@ -194,6 +234,12 @@ describe("PlatformClaw VM administration", () => {
     mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-vm-administration")!;
     await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector<HTMLButtonElement>("[data-refresh]")?.disabled).toBe(
+        false,
+      ),
+    );
+    click(element.shadowRoot!, "[data-admin-tab='allocations']");
+    await vi.waitFor(() =>
       expect(
         element.shadowRoot?.querySelector("[data-mutation='revoke-allocation']"),
       ).not.toBeNull(),
@@ -201,7 +247,9 @@ describe("PlatformClaw VM administration", () => {
 
     element.shadowRoot?.querySelector<HTMLElement>("[data-mutation='revoke-allocation']")?.click();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(element.shadowRoot?.querySelector("[data-confirm-mutation]")).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector("[data-confirm-mutation]")).not.toBeNull(),
+    );
     element.shadowRoot?.querySelector<HTMLElement>("[data-confirm-mutation]")?.click();
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
 
@@ -233,14 +281,15 @@ describe("PlatformClaw VM administration", () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot));
     mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-vm-administration")!;
+    await openEditor(element.shadowRoot!, "[data-edit-environment='vm-two']");
     await vi.waitFor(() =>
       expect(
         element.shadowRoot?.querySelector("form[data-action='update-host-execution-environment']"),
       ).not.toBeNull(),
     );
-    const form = element.shadowRoot?.querySelectorAll<HTMLFormElement>(
+    const form = element.shadowRoot?.querySelector<HTMLFormElement>(
       "form[data-action='update-host-execution-environment']",
-    )[1];
+    );
     if (!form) {
       throw new Error("VM environment form is missing");
     }
@@ -308,7 +357,9 @@ describe("PlatformClaw VM administration", () => {
     const root = document.querySelector("platformclaw-vm-administration")!.shadowRoot!;
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
     const controls = [
-      ...root.querySelectorAll<HTMLInputElement | HTMLButtonElement>("main input, main button"),
+      ...root.querySelectorAll<HTMLInputElement | HTMLButtonElement>(
+        "[data-add-host], [data-add-endpoint], [data-refresh]",
+      ),
     ];
     expect(controls.length).toBeGreaterThan(0);
     expect(controls.every((control) => control.disabled)).toBe(true);
@@ -330,9 +381,13 @@ describe("PlatformClaw VM administration", () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot));
     const element = mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
     const root = element.shadowRoot!;
+    await vi.waitFor(() =>
+      expect(root.querySelector<HTMLButtonElement>("[data-refresh]")?.disabled).toBe(false),
+    );
+    click(root, "[data-admin-tab='allocations']");
     await vi.waitFor(() => expect(root.querySelector("[data-mutation]")).not.toBeNull());
     root.querySelector<HTMLButtonElement>("[data-mutation]")!.click();
-    expect(root.querySelector("[data-confirm-mutation]")).not.toBeNull();
+    await vi.waitFor(() => expect(root.querySelector("[data-confirm-mutation]")).not.toBeNull());
     element.remove();
     document.body.append(element);
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
@@ -351,6 +406,7 @@ describe("PlatformClaw VM administration", () => {
     await vi.waitFor(() =>
       expect(root.querySelector<HTMLButtonElement>("[data-refresh]")?.disabled).toBe(false),
     );
+    await openEditor(root, "[data-add-endpoint]", "endpoints");
     for (const [name, value] of Object.entries({
       label: "Draft endpoint",
       host: "draft.test",
@@ -368,7 +424,7 @@ describe("PlatformClaw VM administration", () => {
     await loadPlatformClawLocale();
     pending.resolve(jsonResponse({ error: "Probe unavailable" }, 503));
     await vi.waitFor(() =>
-      expect(root.querySelector("[role='alert']")?.textContent).toBe("Probe unavailable"),
+      expect(root.querySelector("[role='alert']")?.textContent).toContain("Probe unavailable"),
     );
     expect(root.querySelector<HTMLInputElement>("[name='host']")?.value).toBe("draft.test");
     expect(root.querySelector<HTMLInputElement>("[name='label']")?.value).toBe("Draft endpoint");
@@ -399,6 +455,7 @@ describe("PlatformClaw VM administration", () => {
     await vi.waitFor(() =>
       expect(root.querySelector<HTMLButtonElement>("[data-refresh]")?.disabled).toBe(false),
     );
+    await openEditor(root, "[data-add-endpoint]", "endpoints");
     const form = root.querySelector<HTMLFormElement>("form[data-endpoint-probe]")!;
     for (const [name, value] of Object.entries({
       label: "Access",
@@ -449,4 +506,216 @@ describe("PlatformClaw VM administration", () => {
       },
     ]);
   });
+
+  it("keeps VM activation unavailable until its parent connection is enabled", async () => {
+    const snapshot = {
+      ...SNAPSHOT,
+      endpoints: [
+        {
+          id: "endpoint-one",
+          label: "Connection",
+          host: "access.test",
+          port: 22,
+          adDomain: "test",
+          status: "disabled",
+        },
+      ],
+      hosts: [
+        {
+          id: "vm-one",
+          endpointId: "endpoint-one",
+          label: "VM",
+          targetAddress: "192.0.2.10",
+          status: "disabled",
+        },
+      ],
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot));
+    const element = mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+    const root = element.shadowRoot!;
+    await vi.waitFor(() =>
+      expect(root.querySelector<HTMLButtonElement>("[data-refresh]")?.disabled).toBe(false),
+    );
+    const activate = root.querySelector<HTMLButtonElement>(
+      "[data-host-id='vm-one'] [data-mutation='enable-host']",
+    )!;
+    expect(activate.disabled).toBe(true);
+    activate.click();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect((root.querySelector("[data-admin-modal]") as HTMLElement & { open: boolean }).open).toBe(
+      false,
+    );
+    expect(root.querySelector<HTMLButtonElement>("[data-edit-host='vm-one']")!.disabled).toBe(true);
+    snapshot.endpoints.push({
+      id: "endpoint-two",
+      label: "Available connection",
+      host: "available.test",
+      port: 22,
+      adDomain: "test",
+      status: "active",
+    });
+    click(root, "[data-refresh]");
+    await vi.waitFor(() =>
+      expect(root.querySelector<HTMLButtonElement>("[data-edit-host='vm-one']")?.disabled).toBe(
+        false,
+      ),
+    );
+    expect(
+      root.querySelector<HTMLButtonElement>(
+        "[data-host-id='vm-one'] [data-mutation='enable-host']",
+      )!.disabled,
+    ).toBe(true);
+    expect(root.querySelector<HTMLButtonElement>("[data-edit-host='vm-one']")!.disabled).toBe(
+      false,
+    );
+    await openEditor(root, "[data-edit-host='vm-one']");
+    const form = root.querySelector<HTMLFormElement>("form[data-action='update-host']")!;
+    expect((form.elements.namedItem("endpointId") as HTMLSelectElement).value).toBe("endpoint-two");
+    form.requestSubmit();
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3));
+    expect(parseRequestBody(fetchImpl.mock.calls[2]?.[1])).toEqual({
+      action: "update-host",
+      vmHostId: "vm-one",
+      endpointId: "endpoint-two",
+      label: "VM",
+      targetAddress: "192.0.2.10",
+    });
+    await vi.waitFor(() =>
+      expect(root.querySelector("[data-operation-phase='success']")).not.toBeNull(),
+    );
+    click(root, "[data-close-admin]");
+    await vi.waitFor(() =>
+      expect(
+        (root.querySelector("[data-admin-modal]") as HTMLElement & { open: boolean }).open,
+      ).toBe(false),
+    );
+    snapshot.endpoints[0]!.status = "active";
+    snapshot.hosts[0]!.endpointId = "endpoint-two";
+    click(root, "[data-refresh]");
+    await vi.waitFor(() =>
+      expect(root.querySelector("[data-host-id='vm-one']")?.textContent).toContain(
+        "Available connection",
+      ),
+    );
+    await openEditor(root, "[data-edit-host='vm-one']");
+    const select = root.querySelector<HTMLSelectElement>(
+      "form[data-action='update-host'] [name='endpointId']",
+    )!;
+    expect(
+      [...select.options].filter((option) => !option.disabled).map((option) => option.value),
+    ).toEqual(["endpoint-one", "endpoint-two"]);
+    expect(select.value).toBe("endpoint-two");
+  });
+
+  it("keeps a hidden connection check pending for explicit key approval", async () => {
+    const probe = deferred<Response>();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(SNAPSHOT))
+      .mockReturnValueOnce(probe.promise);
+    const element = mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+    const root = element.shadowRoot!;
+    await openEditor(root, "[data-add-endpoint]", "endpoints");
+    const form = root.querySelector<HTMLFormElement>("form[data-endpoint-probe]")!;
+    for (const [name, value] of Object.entries({
+      label: "Access",
+      host: "access.test",
+      adDomain: "test",
+    })) {
+      (form.elements.namedItem(name) as HTMLInputElement).value = value;
+    }
+    form.requestSubmit();
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    click(root, "[data-close-admin]");
+    const modal = root.querySelector("[data-admin-modal]") as HTMLElement & { open: boolean };
+    await vi.waitFor(() => expect(modal.open).toBe(false));
+    probe.resolve(
+      jsonResponse({
+        ...SNAPSHOT,
+        probe: {
+          host: "access.test",
+          port: 44422,
+          resolvedAddresses: ["192.0.2.20"],
+          sshBanner: "SSH-2.0-Test",
+          algorithm: "ssh-ed25519",
+          publicKey: "key",
+          fingerprint: "SHA256:verified",
+        },
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(root.querySelector("[data-operation-phase='review']")).not.toBeNull(),
+    );
+    expect(root.querySelector("[data-view-progress]")).not.toBeNull();
+    expect(modal.open).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    click(root, "[data-view-progress]");
+    expect(root.querySelector("[data-admin-modal]")).toBe(modal);
+    await vi.waitFor(() => expect(modal.open).toBe(true));
+    expect(root.querySelector(".probe-facts")?.textContent).toContain("SHA256:verified");
+    expect(root.querySelector<HTMLButtonElement>("[data-approve-probe]")!.disabled).toBe(false);
+    expect(
+      fetchImpl.mock.calls
+        .filter(([, init]) => init?.method === "POST")
+        .map(([, init]) => parseRequestBody(init)),
+    ).toEqual([{ action: "probe-endpoint", host: "access.test", port: 44422 }]);
+  });
+
+  it.each([true, false])(
+    "clears a completed background save after refresh (reopened: %s)",
+    async (reopen) => {
+      const save = deferred<Response>();
+      const snapshot = {
+        ...SNAPSHOT,
+        hosts: [
+          {
+            id: "vm-one",
+            endpointId: "endpoint-one",
+            label: "VM",
+            targetAddress: "192.0.2.10",
+            status: "active",
+          },
+        ],
+      };
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(jsonResponse(snapshot))
+        .mockReturnValueOnce(save.promise)
+        .mockResolvedValueOnce(jsonResponse(snapshot));
+      const element = mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+      const root = element.shadowRoot!;
+      await openEditor(root, "[data-edit-environment='vm-one']");
+      const modal = root.querySelector("[data-admin-modal]") as HTMLElement & { open: boolean };
+      vi.useFakeTimers();
+      root
+        .querySelector<HTMLFormElement>("form[data-action='update-host-execution-environment']")!
+        .requestSubmit();
+      expect(root.querySelector("[data-admin-modal]")).toBe(modal);
+      await vi.waitFor(() =>
+        expect(root.querySelector("[data-stage='save-environment']")).not.toBeNull(),
+      );
+      expect(root.querySelector<HTMLButtonElement>("[data-close-admin]")!.disabled).toBe(false);
+      click(root, "[data-close-admin]");
+      await vi.waitFor(() => expect(modal.open).toBe(false));
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      if (reopen) {
+        click(root, "[data-view-progress]");
+        expect(root.querySelector("[data-admin-modal]")).toBe(modal);
+        await vi.waitFor(() => expect(modal.open).toBe(true));
+      }
+      save.resolve(jsonResponse(snapshot));
+      await vi.waitFor(() =>
+        expect(root.querySelector("[data-operation-phase='success']")).not.toBeNull(),
+      );
+      expect(modal.open).toBe(reopen);
+      click(root, "[data-refresh]");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      expect(root.querySelector<HTMLButtonElement>("[data-refresh]")!.disabled).toBe(false);
+      await vi.advanceTimersByTimeAsync(800);
+      expect(modal.open).toBe(false);
+      expect(root.querySelector("[data-view-progress], .admin-dialog")).toBeNull();
+      expect(root.querySelector("[data-admin-modal]")).toBe(modal);
+    },
+  );
 });

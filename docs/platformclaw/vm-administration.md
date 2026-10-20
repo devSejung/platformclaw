@@ -16,6 +16,18 @@ Open **Settings > Administration > VM administration**. The Administration group
 also contains **Web announcements** and is hidden from employees. Both pages
 support direct links; VM administration uses `/platformclaw/app/settings/vms`.
 
+The overview opens on the development VM list. Separate tabs show SafeConnect
+connections, employee assignments, and recent activity. Counts describe the
+configured catalog and assignments, not live SSH health. Add or edit an item in
+its focused dialog; **Build environment** remains available for enabled VMs.
+
+Connection registration separates the connection check from explicit host-key
+approval. During a request, closing the progress dialog only hides it: the page
+keeps the operation visible and lets you reopen progress. Success updates the
+list and closes the dialog automatically. Errors keep the draft available for
+correction or retry. Leaving the page prevents a retired request from starting
+another write.
+
 ## Setup order
 
 1. Add the SafeConnect endpoint host, SSH port, and AD domain.

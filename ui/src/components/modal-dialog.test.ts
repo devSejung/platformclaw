@@ -77,6 +77,38 @@ describe("openclaw-modal-dialog", () => {
     expect(document.activeElement).toBe(container.querySelector("#autofocus-target"));
   });
 
+  it("keeps inputs unavailable until the dependency finishes its initial focus frame", async () => {
+    render(
+      html`<openclaw-modal-dialog label="Edit"
+        ><input autofocus /><textarea></textarea>
+      </openclaw-modal-dialog>`,
+      container,
+    );
+    const { modal, webAwesomeDialog, dialog } = await getRenderedModalDialog(container);
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    webAwesomeDialog.dispatchEvent(new Event("wa-show"));
+    await Promise.resolve();
+    const slot = modal.shadowRoot!.querySelector("slot")!;
+    expect(slot.inert).toBe(true);
+    expect(slot.hasAttribute("data-focus-pending")).toBe(true);
+    webAwesomeDialog.dispatchEvent(new Event("wa-after-show"));
+    dialog.focus();
+    for (const frame of frames) {
+      frame(0);
+    }
+    expect(slot.inert).toBe(false);
+    expect(slot.hasAttribute("data-focus-pending")).toBe(false);
+    expect(document.activeElement).toBe(container.querySelector("input"));
+    const notes = container.querySelector("textarea")!;
+    notes.focus();
+    webAwesomeDialog.dispatchEvent(new Event("wa-after-show"));
+    expect(document.activeElement).toBe(notes);
+  });
+
   it("keeps focus on a field the user selected when the show animation settles", async () => {
     render(
       html`<openclaw-modal-dialog label="Edit">

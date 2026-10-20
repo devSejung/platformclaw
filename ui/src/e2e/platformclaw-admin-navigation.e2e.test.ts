@@ -170,7 +170,21 @@ suite("PlatformClaw administration settings navigation", () => {
         await expect.poll(() => link.getAttribute("aria-current")).toBe("page");
         expect(await page.locator(".content-header .page-title").textContent()).toBe(titles[index]);
         await expect.poll(() => page.locator(entry.tag).isVisible()).toBe(true);
-        expect(await page.locator(`${entry.tag} openclaw-modal-dialog`).count()).toBe(0);
+        if (entry.routeId === "vm-administration") {
+          const component = page.locator(entry.tag);
+          await expect.poll(() => component.locator("[data-refresh]").isEnabled()).toBe(true);
+          expect(await component.locator("form").count()).toBe(0);
+          expect(
+            await component.locator("[data-admin-tab='hosts']").getAttribute("aria-selected"),
+          ).toBe("true");
+          expect(
+            await component
+              .locator("[data-admin-modal] dialog")
+              .evaluate((dialog) => (dialog as HTMLDialogElement).open),
+          ).toBe(false);
+        } else {
+          expect(await page.locator(`${entry.tag} openclaw-modal-dialog`).count()).toBe(0);
+        }
         expect(await link.locator("svg").evaluate((svg) => svg.namespaceURI)).toBe(
           "http://www.w3.org/2000/svg",
         );
