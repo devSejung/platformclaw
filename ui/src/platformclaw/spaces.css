@@ -498,6 +498,22 @@ platformclaw-spaces-page {
   border-left: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-elevated) 85%, transparent);
 }
+/* Only bridge pointer-opened desktop panels. Conditional removal must stay immediate
+   so closing or losing access never leaves private content alive for an exit effect. */
+@media (min-width: 1201px) and (prefers-reduced-motion: no-preference) {
+  .pc-spaces[data-pointer-input] > .pc-space-panel {
+    opacity: 1;
+    transform: translateX(0);
+    transition:
+      transform var(--duration-normal) var(--ease-out),
+      opacity var(--duration-normal) var(--ease-out);
+
+    @starting-style {
+      opacity: 0.85;
+      transform: translateX(8px);
+    }
+  }
+}
 .pc-space-panel-header {
   display: flex;
   align-items: center;

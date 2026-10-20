@@ -104,6 +104,7 @@ describeControlUiE2e("Control UI chat background-tasks rail mocked Gateway E2E",
     await mkdir(artifactDir, { recursive: true });
     const context = await browser.newContext({
       locale: "en-US",
+      reducedMotion: "no-preference",
       serviceWorkers: "block",
       viewport: { width: 1440, height: 900 },
     });
@@ -186,6 +187,22 @@ describeControlUiE2e("Control UI chat background-tasks rail mocked Gateway E2E",
       await page.screenshot({ path: path.join(artifactDir, "01-rail-open.png"), fullPage: true });
 
       const chatUrl = page.url();
+      await rail.evaluate((element) => {
+        element.dataset.detailTransitions = "[]";
+        element.addEventListener("transitionrun", (event) => {
+          const target = event.target;
+          if (
+            !(event instanceof TransitionEvent) ||
+            !(target instanceof HTMLElement) ||
+            !target.matches(".chat-tasks-rail__detail")
+          ) {
+            return;
+          }
+          const transitions = JSON.parse(element.dataset.detailTransitions ?? "[]") as string[];
+          transitions.push(`${event.propertyName}:${getComputedStyle(target).transitionDuration}`);
+          element.dataset.detailTransitions = JSON.stringify(transitions);
+        });
+      });
       await rail
         .locator('[data-task-id="task-subagent"]')
         .getByRole("button", { name: "Show details for Map model routing code" })
@@ -198,6 +215,18 @@ describeControlUiE2e("Control UI chat background-tasks rail mocked Gateway E2E",
       await page.getByText("Background tasks rail proof.").waitFor({ state: "visible" });
       const detailRequest = await gateway.waitForRequest("tasks.get");
       expect(detailRequest.params).toEqual({ taskId: "task-subagent" });
+      const detail = rail.locator('[data-task-detail="task-subagent"]');
+      expect(await detail.getAttribute("data-pointer-motion")).not.toBeNull();
+      await expect
+        .poll(async () => JSON.parse((await rail.getAttribute("data-detail-transitions")) ?? "[]"))
+        .toEqual(["opacity:0.1s, 0.1s", "transform:0.1s, 0.1s"]);
+      await expect
+        .poll(() =>
+          rail
+            .getByRole("button", { name: "Back to background tasks" })
+            .evaluate((button) => document.activeElement === button),
+        )
+        .toBe(true);
       await page.screenshot({
         path: path.join(artifactDir, "02-task-detail.png"),
         fullPage: true,
@@ -213,6 +242,10 @@ describeControlUiE2e("Control UI chat background-tasks rail mocked Gateway E2E",
         },
       });
       await rail.getByText("Routing map complete").waitFor({ state: "visible" });
+      // Live progress changes the existing surface and must not replay entry.
+      expect(JSON.parse((await rail.getAttribute("data-detail-transitions")) ?? "[]")).toHaveLength(
+        2,
+      );
       await page.screenshot({
         path: path.join(artifactDir, "03-pushed-completion.png"),
         fullPage: true,
@@ -225,6 +258,38 @@ describeControlUiE2e("Control UI chat background-tasks rail mocked Gateway E2E",
       await rail
         .locator('[data-tasks-section="running"] [data-task-id="task-subagent"]')
         .waitFor({ state: "detached" });
+
+      const completedDisclosure = rail
+        .locator('[data-task-id="task-subagent"]')
+        .getByRole("button", { name: "Show details for Map model routing code" });
+      await completedDisclosure.focus();
+      await completedDisclosure.press("Enter");
+      await detail.waitFor({ state: "visible" });
+      expect(await detail.getAttribute("data-pointer-motion")).toBeNull();
+      expect(await detail.evaluate((element) => element.getAnimations().length)).toBe(0);
+      await rail.getByRole("button", { name: "Back to background tasks" }).click();
+
+      // Synthetic activation stays instant even immediately after a pointer click.
+      await completedDisclosure.evaluate((button) => {
+        if (!(button instanceof HTMLButtonElement)) {
+          throw new Error("expected task disclosure button");
+        }
+        button.click();
+      });
+      await detail.waitFor({ state: "visible" });
+      expect(await detail.getAttribute("data-pointer-motion")).toBeNull();
+      expect(await detail.evaluate((element) => element.getAnimations().length)).toBe(0);
+      await rail.getByRole("button", { name: "Back to background tasks" }).click();
+
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await completedDisclosure.click();
+      await detail.waitFor({ state: "visible" });
+      expect(await detail.evaluate((element) => getComputedStyle(element).transform)).toBe("none");
+      expect(await detail.evaluate((element) => element.getAnimations().length)).toBe(0);
+      expect(JSON.parse((await rail.getAttribute("data-detail-transitions")) ?? "[]")).toHaveLength(
+        2,
+      );
+      await rail.getByRole("button", { name: "Back to background tasks" }).click();
 
       await rail
         .locator('[data-task-id="task-cron"]')

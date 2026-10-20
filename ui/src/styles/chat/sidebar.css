@@ -1195,6 +1195,22 @@ openclaw-chat-sidebar-region,
   padding: 14px 12px 18px;
 }
 
+/* Only the mounted detail enters; live progress updates keep the same surface. */
+@media (prefers-reduced-motion: no-preference) {
+  .chat-tasks-rail__detail[data-pointer-motion] {
+    opacity: 1;
+    transform: translateX(0);
+    transition:
+      opacity var(--duration-fast) var(--ease-out),
+      transform var(--duration-fast) var(--ease-out);
+
+    @starting-style {
+      opacity: 0.85;
+      transform: translateX(2px);
+    }
+  }
+}
+
 .chat-tasks-rail__detail-summary {
   display: flex;
   align-items: flex-start;

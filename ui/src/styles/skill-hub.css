@@ -331,6 +331,22 @@
   white-space: normal;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .skill-hub-destination__completion {
+    display: inline-block;
+    opacity: 1;
+    transform: translateY(0);
+    transition:
+      opacity var(--duration-normal) var(--ease-out),
+      transform var(--duration-normal) var(--ease-out);
+
+    @starting-style {
+      opacity: 0.85;
+      transform: translateY(2px);
+    }
+  }
+}
+
 .skill-hub-badge {
   padding: 5px 9px;
   font-size: 0.72rem;

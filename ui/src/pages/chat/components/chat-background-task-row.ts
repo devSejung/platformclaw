@@ -4,6 +4,7 @@ import { icons } from "../../../components/icons.ts";
 import "../../../components/tooltip.ts";
 import { t } from "../../../i18n/index.ts";
 import { formatDurationCompact, formatMs, formatRelativeTimestamp } from "../../../lib/format.ts";
+import { wasPointerActivation } from "../../../lib/pointer-activation.ts";
 import {
   isActiveTask,
   taskDetail,
@@ -179,7 +180,11 @@ export function renderTaskDetail(task: TaskSummary, props: BackgroundTasksProps)
   const detailError = props.taskDetailErrors.get(task.id);
   const cancelling = props.cancellingTaskIds.has(task.id);
   return html`
-    <div class="chat-tasks-rail__detail" data-task-detail=${task.id}>
+    <div
+      class="chat-tasks-rail__detail"
+      data-task-detail=${task.id}
+      ?data-pointer-motion=${wasPointerActivation()}
+    >
       <div class="chat-tasks-rail__detail-summary">
         <div class="chat-tasks-rail__detail-status-line">
           ${newest.status === "running"
