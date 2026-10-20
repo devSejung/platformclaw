@@ -12,7 +12,7 @@ const suite = createControlUiE2eSuite({
 type CompletionTransition = {
   target: string | undefined;
   property: string;
-  duration: number | string;
+  duration: number;
   easing: string;
   from: number | null;
   to: number | null;
@@ -46,6 +46,10 @@ async function recordCompletionTransitions(page: Page) {
       if (!(effect instanceof KeyframeEffect)) {
         return;
       }
+      const { duration, easing } = effect.getTiming();
+      if (typeof duration !== "number" || typeof easing !== "string") {
+        throw new Error("Expected CSS transition timing in milliseconds with easing.");
+      }
       const frames = effect.getKeyframes();
       const value = (frame: ComputedKeyframe) => {
         if (event.propertyName === "opacity") {
@@ -56,8 +60,8 @@ async function recordCompletionTransitions(page: Page) {
       window.skillHubCompletionTransitions.push({
         target: element.closest<HTMLElement>("[data-install-target]")?.dataset.installTarget,
         property: event.propertyName,
-        duration: effect.getTiming().duration,
-        easing: effect.getTiming().easing,
+        duration,
+        easing,
         from: frames[0] ? value(frames[0]) : null,
         to: frames.at(-1) ? value(frames.at(-1)!) : null,
       });

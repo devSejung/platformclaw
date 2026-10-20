@@ -218,7 +218,11 @@ describeControlUiE2e("Control UI chat background-tasks rail mocked Gateway E2E",
       const detail = rail.locator('[data-task-detail="task-subagent"]');
       expect(await detail.getAttribute("data-pointer-motion")).not.toBeNull();
       await expect
-        .poll(async () => JSON.parse((await rail.getAttribute("data-detail-transitions")) ?? "[]"))
+        .poll(async () =>
+          (
+            JSON.parse((await rail.getAttribute("data-detail-transitions")) ?? "[]") as string[]
+          ).sort(),
+        )
         .toEqual(["opacity:0.1s, 0.1s", "transform:0.1s, 0.1s"]);
       await expect
         .poll(() =>

@@ -37,6 +37,7 @@ async function installationFixture(installedVersion?: string) {
   const controller = new SkillHubInstallController(
     {
       addController: vi.fn(),
+      removeController: vi.fn(),
       requestUpdate: () => update(),
       updateComplete: Promise.resolve(true),
     },

@@ -34,30 +34,29 @@ suite.define(() => {
     await open.waitFor();
     const transitions = await page.evaluateHandle(() => {
       const properties: string[] = [];
+      const observedBodies = new WeakSet<Element>();
+      const sourceDialog = (event: Event) => {
+        const source = event.composedPath()[0];
+        return source instanceof HTMLElement && source.localName === "wa-dialog" ? source : null;
+      };
       document.addEventListener("wa-show", (event) => {
-        const wa = event
-          .composedPath()
-          .find((node) => node instanceof Element && node.localName === "wa-dialog") as
-          | HTMLElement
-          | undefined;
-        wa?.shadowRoot?.querySelector("dialog")?.addEventListener("transitionrun", (transition) => {
-          const target = transition.target as Element;
+        const body = sourceDialog(event)?.shadowRoot?.querySelector('[part="body"]');
+        // Nested overlays share lifecycle names; retained dialogs must keep one recorder.
+        if (!body || observedBodies.has(body)) {
+          return;
+        }
+        observedBodies.add(body);
+        body.addEventListener("transitionrun", (transition) => {
           const property = (transition as TransitionEvent).propertyName;
-          if (
-            target.getAttribute("part") === "body" &&
-            ["opacity", "transform"].includes(property)
-          ) {
+          if (transition.target === body && ["opacity", "transform"].includes(property)) {
             properties.push(property);
           }
         });
       });
       document.addEventListener("wa-after-show", (event) => {
-        const modal = event
-          .composedPath()
-          .find((node) => node instanceof Element && node.localName === "openclaw-modal-dialog") as
-          | HTMLElement
-          | undefined;
-        if (modal) {
+        const root = sourceDialog(event)?.getRootNode();
+        const modal = root instanceof ShadowRoot ? root.host : null;
+        if (modal instanceof HTMLElement && modal.localName === "openclaw-modal-dialog") {
           modal.dataset.afterShow = String(Number(modal.dataset.afterShow ?? 0) + 1);
         }
       });
@@ -72,7 +71,9 @@ suite.define(() => {
     const modal = page.locator("openclaw-modal-dialog");
     const dialog = modal.locator("dialog");
     const body = modal.locator('[part="body"]');
-    await expect.poll(() => transitions.jsonValue()).toEqual(["opacity", "transform"]);
+    await expect
+      .poll(async () => (await transitions.jsonValue()).sort())
+      .toEqual(["opacity", "transform"]);
     expect(await dialog.evaluate((element) => getComputedStyle(element).animationName)).toBe(
       "none",
     );
@@ -91,7 +92,7 @@ suite.define(() => {
   });
 
   it("moves a right-edge drawer horizontally and keeps command surfaces instant", async () => {
-    const { page } = await setup();
+    const { page, transitions } = await setup();
     for (const kind of ["drawer", "palette", "nav-drawer"]) {
       await page.evaluate((className) => {
         const trigger = document.createElement("button");
@@ -120,6 +121,7 @@ suite.define(() => {
       const dialog = modal.locator("dialog");
       const body = modal.locator('[part="body"]');
       await dialog.waitFor();
+      await expect.poll(() => modal.getAttribute("data-after-show")).toBe("1");
       if (kind === "drawer") {
         expect(await modal.getAttribute("data-pointer-motion")).not.toBeNull();
         expect(await body.evaluate((element) => getComputedStyle(element).transitionDuration)).toBe(
@@ -129,6 +131,16 @@ suite.define(() => {
         expect(
           await body.evaluate((element) => new DOMMatrix(getComputedStyle(element).transform).a),
         ).toBe(1);
+        await expect
+          .poll(async () => (await transitions.jsonValue()).sort())
+          .toEqual(["opacity", "transform"]);
+        // Child lifecycle events must neither reattach the recorder nor count as dialog shows.
+        await modal.locator("button").evaluate((button) => {
+          for (const name of ["wa-show", "wa-after-show"]) {
+            button.dispatchEvent(new Event(name, { bubbles: true, composed: true }));
+          }
+        });
+        expect(await modal.getAttribute("data-after-show")).toBe("1");
       } else {
         expect(await modal.getAttribute("data-pointer-motion")).toBeNull();
         expect(await dialog.evaluate((element) => element.getAnimations().length)).toBe(0);
@@ -141,6 +153,9 @@ suite.define(() => {
       await trigger.click();
       await dialog.waitFor({ state: "visible" });
       await expect.poll(() => modal.getAttribute("data-after-show")).toBe("2");
+      await expect
+        .poll(async () => (await transitions.jsonValue()).sort())
+        .toEqual(["opacity", "opacity", "transform", "transform"]);
       expect(await dialog.evaluate((element) => element.classList.contains("show"))).toBe(false);
       await page.keyboard.press("Escape");
       await dialog.waitFor({ state: "hidden" });
