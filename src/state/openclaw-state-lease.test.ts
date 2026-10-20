@@ -188,7 +188,8 @@ describe("OpenClaw state lease", () => {
         key: "live-process-owner",
         database: { scope: "shared" as const },
         leaseMs: 1_000,
-        waitMs: 500,
+        // Owner setup is uncontended; only the contender below needs a wait budget.
+        waitMs: 0,
         processOwner,
       };
 
