@@ -474,6 +474,9 @@ const config = {
         "index.html!",
         // Vite builds and serves the standalone PlatformClaw login shell separately.
         "platformclaw-login.html!",
+        // HTML shells import these render-blocking theme bootstraps inline.
+        "src/app/theme-bootstrap.ts!",
+        "src/platformclaw/login-theme.ts!",
         // The login shell imports this absolute module URL at runtime.
         "src/platformclaw/login.ts!",
         "src/main.ts!",
