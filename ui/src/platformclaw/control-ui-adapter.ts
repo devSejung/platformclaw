@@ -11,6 +11,8 @@ import { loadAllPlatformClawLocales, loadPlatformClawLocale, platformClawT as t 
 import { loadPlatformClawChatRoute } from "./space-conversation-route.ts";
 import {
   PLATFORMCLAW_APP_PATH,
+  PLATFORMCLAW_DEFAULT_APP_PATH,
+  PLATFORMCLAW_SESSION_CHECK_TIMEOUT_MS,
   PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME,
   type PlatformClawSessionIdentity,
   type PlatformClawWebDescriptor,
@@ -90,7 +92,12 @@ function browserSessionStorage(): Pick<Storage, "getItem" | "setItem" | "removeI
 }
 
 export class PlatformClawControlUiAdapter {
-  private sessionCheck: Promise<PlatformClawSessionCheck> | null = null;
+  private sessionCheck: {
+    promise: Promise<PlatformClawSessionCheck>;
+    controller: AbortController;
+    timer: number;
+  } | null = null;
+  private sessionEpoch = 0;
   private credentialFlow: PlatformClawCredentialFlow | null = null;
 
   constructor(
@@ -101,12 +108,14 @@ export class PlatformClawControlUiAdapter {
     private readonly sessionStorage: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null,
   ) {}
 
-  async loadSession(refresh = false): Promise<PlatformClawSessionIdentity | null> {
-    if (refresh) {
-      this.sessionCheck = null;
-    }
+  async loadSession(): Promise<PlatformClawSessionIdentity | null> {
+    const epoch = this.sessionEpoch;
     const result = await this.checkSession();
+    if (epoch !== this.sessionEpoch) {
+      return null;
+    }
     if (result.status === "inactive") {
+      this.dispose();
       this.clearBrowserSessionState();
       this.redirectToLogin(true);
       return null;
@@ -117,20 +126,24 @@ export class PlatformClawControlUiAdapter {
     await loadAllPlatformClawLocales().catch(() => {
       // Product copy must not turn an otherwise valid employee session into an auth failure.
     });
-    return result.payload.user;
+    return epoch === this.sessionEpoch ? result.payload.user : null;
   }
 
   applicationOptions(
     identity: PlatformClawSessionIdentity,
     onLogout: () => Promise<void>,
   ): ApplicationBootstrapOptions {
-    this.credentialFlow?.dispose();
+    this.dispose();
+    const epoch = this.sessionEpoch;
     const credentialFlow = new PlatformClawCredentialFlow(identity, this.fetchImpl, () =>
-      this.loadSession(true),
+      this.loadSession(),
     );
     this.credentialFlow = credentialFlow;
     const onUnauthenticated = () => {
-      credentialFlow.dispose();
+      if (epoch !== this.sessionEpoch) {
+        return;
+      }
+      this.dispose();
       this.clearBrowserSessionState();
       this.redirectToLogin(true);
     };
@@ -496,8 +509,10 @@ export class PlatformClawControlUiAdapter {
         // signed BFF relay advertised by the Gateway hello.
         canvasSurfaceRelayRequired: true,
         onClose: (info) => {
-          if (info.code === 1008) {
-            void this.verifySessionAfterPolicyClose();
+          // Rejected HTTP upgrades surface as 1006, including expired cookies after sleep.
+          // Only the session endpoint can distinguish them from a temporary transport loss.
+          if (info.code === 1006 || info.code === 1008) {
+            void this.verifySessionAfterDisconnect(epoch, identity);
           }
         },
       },
@@ -540,6 +555,7 @@ export class PlatformClawControlUiAdapter {
   }
 
   async logout(stopApplication: () => void): Promise<void> {
+    this.dispose();
     try {
       await this.fetchImpl(this.descriptor.logoutPath, {
         method: "POST",
@@ -548,28 +564,69 @@ export class PlatformClawControlUiAdapter {
     } catch {
       // Local teardown and navigation must not depend on the logout response.
     } finally {
-      this.credentialFlow?.dispose();
-      this.credentialFlow = null;
       stopApplication();
       this.clearBrowserSessionState();
       this.redirectToLogin(false);
     }
   }
 
-  private async verifySessionAfterPolicyClose(): Promise<void> {
+  dispose(): void {
+    // Old account callbacks and pending auth reads must not redirect a replacement shell.
+    this.sessionEpoch++;
+    const probe = this.sessionCheck;
     this.sessionCheck = null;
+    if (probe) {
+      window.clearTimeout(probe.timer);
+      probe.controller.abort();
+    }
+    this.credentialFlow?.dispose();
+    this.credentialFlow = null;
+  }
+
+  private async verifySessionAfterDisconnect(
+    epoch: number,
+    identity: PlatformClawSessionIdentity,
+  ): Promise<void> {
+    if (epoch !== this.sessionEpoch) {
+      return;
+    }
     const result = await this.checkSession();
+    if (epoch !== this.sessionEpoch) {
+      return;
+    }
     if (result.status === "inactive") {
+      this.dispose();
       this.clearBrowserSessionState();
       this.redirectToLogin(true);
+    } else if (
+      result.status === "active" &&
+      (result.payload.user.accountId !== identity.accountId ||
+        result.payload.user.agentId !== identity.agentId ||
+        result.payload.user.globalRole !== identity.globalRole)
+    ) {
+      // Another tab can replace the cookie while this shell retains account-scoped state.
+      this.dispose();
+      this.clearBrowserSessionState();
+      this.navigate(this.applicationReturnTo() ?? PLATFORMCLAW_DEFAULT_APP_PATH);
     }
   }
 
   private checkSession(): Promise<PlatformClawSessionCheck> {
-    const check = (this.sessionCheck ??= this.fetchImpl(this.descriptor.sessionPath, {
+    if (this.sessionCheck) {
+      return this.sessionCheck.promise;
+    }
+    const controller = new AbortController();
+    // Bound recovery to the same budget as sign-in so a stalled probe cannot pin reconnects.
+    const timer = window.setTimeout(
+      () => controller.abort(),
+      PLATFORMCLAW_SESSION_CHECK_TIMEOUT_MS,
+    );
+    const promise = this.fetchImpl(this.descriptor.sessionPath, {
       method: "GET",
       credentials: "same-origin",
       headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
     })
       .then(async (response): Promise<PlatformClawSessionCheck> => {
         if (!response.ok) {
@@ -584,23 +641,34 @@ export class PlatformClawControlUiAdapter {
           ? { status: "inactive" }
           : { status: "unavailable" };
       })
-      .catch((): PlatformClawSessionCheck => ({ status: "unavailable" })));
-    return check;
+      .catch((): PlatformClawSessionCheck => ({ status: "unavailable" }))
+      .finally(() => {
+        window.clearTimeout(timer);
+        // An aborted older probe must not clear a replacement account's in-flight check.
+        if (this.sessionCheck?.controller === controller) {
+          this.sessionCheck = null;
+        }
+      });
+    this.sessionCheck = { promise, controller, timer };
+    return promise;
   }
 
   private redirectToLogin(includeReturnTo: boolean): void {
     const login = new URL(this.descriptor.loginPath, this.location.origin);
-    if (includeReturnTo) {
-      const current = new URL(this.location.href);
-      if (
-        current.origin === this.location.origin &&
-        (current.pathname === PLATFORMCLAW_APP_PATH ||
-          current.pathname.startsWith(`${PLATFORMCLAW_APP_PATH}/`))
-      ) {
-        login.searchParams.set("returnTo", `${current.pathname}${current.search}${current.hash}`);
-      }
+    const returnTo = includeReturnTo ? this.applicationReturnTo() : null;
+    if (returnTo) {
+      login.searchParams.set("returnTo", returnTo);
     }
     this.navigate(`${login.pathname}${login.search}`);
+  }
+
+  private applicationReturnTo(): string | null {
+    const current = new URL(this.location.href);
+    return current.origin === this.location.origin &&
+      (current.pathname === PLATFORMCLAW_APP_PATH ||
+        current.pathname.startsWith(`${PLATFORMCLAW_APP_PATH}/`))
+      ? `${current.pathname}${current.search}${current.hash}`
+      : null;
   }
 
   private clearBrowserSessionState(): void {

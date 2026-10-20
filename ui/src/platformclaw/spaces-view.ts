@@ -49,6 +49,7 @@ type SpacesViewProps = {
   historyAnchor: string;
   loading: boolean;
   busy: boolean;
+  refreshDisabled: boolean;
   editor: SpaceEditor | null;
   panel: "members" | null;
   sharedTab: "qa" | "notes";
@@ -281,7 +282,7 @@ function renderSidebar(p: SpacesViewProps) {
       </button>
       <button
         class="pc-space-icon-button"
-        ?disabled=${p.busy || p.loading}
+        ?disabled=${p.refreshDisabled}
         @click=${p.onRefresh}
         aria-label=${t("refresh")}
         title=${t("refresh")}
@@ -615,7 +616,7 @@ export function renderSpacesView(p: SpacesViewProps) {
                 ? html`<span> ${t("refreshDraftHint")}</span>`
                 : nothing}<button
                 class="pc-space-text-button"
-                ?disabled=${p.busy}
+                ?disabled=${p.refreshDisabled}
                 @click=${p.onRefresh}
               >
                 ${t("refresh")}

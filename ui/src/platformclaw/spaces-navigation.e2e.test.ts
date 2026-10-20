@@ -75,7 +75,7 @@ async function installDocument(page: Page) {
   );
 }
 
-async function installScenario(page: Page) {
+async function installScenario(page: Page, role: "owner" | "viewer" = "owner") {
   await installDocument(page);
   const historyResponses = {
     cases: [
@@ -101,11 +101,12 @@ async function installScenario(page: Page) {
     sessionKey: mainKey,
     featureMethods: [...PLATFORMCLAW_WEB_GATEWAY_METHODS],
     historyMessages: [{ role: "assistant", content: "Synthetic conversation ready." }],
+    presenceUsers: [{ id: "alice", name: "Alice", self: true }],
     methodResponses: {
       "sessions.list": { ts: 100, path: "", count: 1, sessions: [personalRow], defaults: {} },
-      "platformclaw.spaces.list": [space],
+      "platformclaw.spaces.list": [{ ...space, role }],
       "platformclaw.spaces.get": {
-        space,
+        space: { ...space, role },
         pages: [issue],
         members: [],
         conversations: [conversation],
@@ -124,6 +125,174 @@ async function installScenario(page: Page) {
 }
 
 suite.define(() => {
+  it("lets a viewer finish creating their own Space after reconnect", async () => {
+    const context = await suite.newBrowserContext({ locale: "en-US", serviceWorkers: "block" });
+    try {
+      const page = await context.newPage();
+      const gateway = await installScenario(page, "viewer");
+      const viewerSpace = { ...space, role: "viewer" };
+      await page.goto(
+        `${suite.server.baseUrl}platformclaw/app/spaces?space=${space.id}&page=${issue.id}&tab=notes`,
+      );
+      const spaces = page.locator("platformclaw-spaces-page");
+      await spaces.locator(".pc-space-notes").getByText(issue.body).waitFor();
+      await spaces.getByRole("button", { name: "Create Space", exact: true }).click();
+      await spaces.locator("[data-title]").fill("Viewer's own project");
+      await gateway.setOnline(false);
+      await expect.poll(() => spaces.locator("[data-title]").count()).toBe(0);
+      await gateway.setOnline(true);
+      await spaces.locator("[data-title]").waitFor();
+      expect(await spaces.locator("[data-title]").inputValue()).toBe("Viewer's own project");
+      const created = { ...space, id: "viewer-created-space", name: "Viewer's own project" };
+      await gateway.setMethodResponse("platformclaw.spaces.create", created);
+      await gateway.setMethodResponse("platformclaw.spaces.list", [viewerSpace, created]);
+      await gateway.setMethodResponse("platformclaw.spaces.get", {
+        cases: [
+          {
+            match: { spaceId: created.id },
+            response: {
+              space: created,
+              pages: [],
+              members: [],
+              conversations: [],
+              currentUserId: "alice",
+            },
+          },
+          {
+            match: { spaceId: space.id },
+            response: {
+              space: viewerSpace,
+              pages: [issue],
+              members: [],
+              conversations: [],
+              currentUserId: "alice",
+            },
+          },
+        ],
+      });
+      await spaces.getByRole("button", { name: "Save", exact: true }).click();
+      const create = await gateway.waitForRequest("platformclaw.spaces.create");
+      expect(create.params).toEqual({ name: created.name, requestId: expect.any(String) });
+      await expect.poll(() => new URL(page.url()).searchParams.get("space")).toBe(created.id);
+      await spaces.locator(".pc-space-heading").getByText(created.name, { exact: true }).waitFor();
+    } finally {
+      await suite.closeBrowserContext(context);
+    }
+  });
+
+  it.each(["authorized", "viewer", "revoked"] as const)(
+    "revalidates a disconnected Notes draft before %s recovery",
+    async (access) => {
+      const capture = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
+      if (capture) {
+        await mkdir(proofDir, { recursive: true });
+      }
+      const context = await suite.newBrowserContext({
+        locale: "en-US",
+        serviceWorkers: "block",
+        viewport: { width: 1440, height: 1000 },
+        ...(capture ? { recordVideo: { dir: proofDir } } : {}),
+      });
+      try {
+        const page = await context.newPage();
+        const screenshot = async (stage: string) => {
+          if (capture) {
+            await page.screenshot({
+              path: path.join(proofDir, `draft-${access}-${stage}.png`),
+              fullPage: true,
+            });
+          }
+        };
+        const gateway = await installScenario(page);
+        await page.goto(
+          `${suite.server.baseUrl}platformclaw/app/spaces?space=${space.id}&page=${issue.id}&tab=notes`,
+        );
+        const spaces = page.locator("platformclaw-spaces-page");
+        await spaces.getByRole("button", { name: "Edit page", exact: true }).click();
+        await spaces.locator("[data-title]").fill("Unsent issue draft");
+        await spaces
+          .locator(".pc-space-editor textarea")
+          .fill("Notes typed before the network interruption");
+        await screenshot("typed");
+        const reads = (await gateway.getRequests("platformclaw.spaces.get")).length;
+        await gateway.setOnline(false);
+        await expect.poll(() => spaces.locator("[data-title]").count()).toBe(0);
+        expect(await spaces.textContent()).not.toContain(
+          "Notes typed before the network interruption",
+        );
+        await screenshot("offline");
+        if (access === "revoked") {
+          await gateway.setMethodResponse("platformclaw.spaces.list", []);
+        } else {
+          await gateway.deferNext("platformclaw.spaces.get");
+        }
+        await gateway.setOnline(true);
+        if (access === "revoked") {
+          await spaces
+            .getByRole("alert")
+            .getByText("This Space is no longer available to you.", { exact: false })
+            .waitFor();
+        } else {
+          await expect
+            .poll(async () => (await gateway.getRequests("platformclaw.spaces.get")).length)
+            .toBeGreaterThan(reads);
+          expect(await spaces.locator("[data-title]").count()).toBe(0);
+          await gateway.resolveDeferred("platformclaw.spaces.get", {
+            space: { ...space, role: access === "viewer" ? "viewer" : "owner" },
+            pages: [issue],
+            members: [],
+            conversations: [conversation],
+            currentUserId: "alice",
+          });
+          if (access === "authorized") {
+            await expect
+              .poll(() => spaces.locator("[data-title]").inputValue())
+              .toBe("Unsent issue draft");
+            await screenshot("revalidated");
+            const saved = {
+              ...issue,
+              title: "Unsent issue draft",
+              body: "Notes typed before the network interruption",
+              revision: 2,
+            };
+            await gateway.setMethodResponse("platformclaw.spaces.page.save", saved);
+            await gateway.setMethodResponse("platformclaw.spaces.get", {
+              space,
+              pages: [saved],
+              members: [],
+              conversations: [conversation],
+              currentUserId: "alice",
+            });
+            await spaces.getByRole("button", { name: "Save", exact: true }).click();
+            const save = await gateway.waitForRequest("platformclaw.spaces.page.save");
+            expect(save.params).toMatchObject({
+              spaceId: space.id,
+              pageId: issue.id,
+              title: "Unsent issue draft",
+              body: "Notes typed before the network interruption",
+              expectedRevision: 1,
+            });
+            await spaces
+              .locator(".pc-space-notes")
+              .getByText(saved.body, { exact: true })
+              .waitFor();
+            await screenshot("saved");
+          } else {
+            await spaces.locator(".pc-space-notes").getByText("Shared project notes").waitFor();
+          }
+        }
+        if (access !== "authorized") {
+          expect(await spaces.locator("[data-title]").count()).toBe(0);
+          expect(await spaces.textContent()).not.toContain("Unsent issue draft");
+          expect(await gateway.getRequests("platformclaw.spaces.page.save")).toHaveLength(0);
+          await screenshot("denied");
+        }
+      } finally {
+        await suite.closeBrowserContext(context);
+      }
+    },
+  );
+
   it("opens old native Space links in their Space and preserves back navigation", async () => {
     const context = await suite.newBrowserContext({ locale: "en-US", serviceWorkers: "block" });
     try {

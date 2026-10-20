@@ -4,6 +4,7 @@ import type {
   SpaceMember,
   SpacePage,
 } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
+import { GatewayRequestError } from "../api/gateway.ts";
 import type { ApplicationContext } from "../app/context.ts";
 import { platformClawT } from "./i18n.ts";
 
@@ -38,6 +39,11 @@ export async function requestSpaceGateway<T>(
 
 export function spaceGatewayErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : platformClawT("platformClaw.spaces.failed");
+}
+
+/** Keep only an unreadable local draft while transport or service recovery is pending. */
+export function canRetainSpaceDraftAfterFailure(error: unknown): boolean {
+  return !(error instanceof GatewayRequestError) || error.gatewayCode === "UNAVAILABLE";
 }
 
 /** Narrow server snapshots before rendering user-specific tabs or management actions. */

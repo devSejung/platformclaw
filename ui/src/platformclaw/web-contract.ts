@@ -15,6 +15,7 @@ export const PLATFORMCLAW_LOGIN_API_PATH = "/platformclaw/api/auth/login";
 export const PLATFORMCLAW_ADSSO_PATH = "/employee/auth/adsso";
 const PLATFORMCLAW_LOGOUT_API_PATH = "/platformclaw/api/auth/logout";
 export const PLATFORMCLAW_SESSION_API_PATH = "/platformclaw/api/auth/session";
+export const PLATFORMCLAW_SESSION_CHECK_TIMEOUT_MS = 5_000;
 const PLATFORMCLAW_GATEWAY_PATH = "/platformclaw/gateway";
 export const PLATFORMCLAW_EXECUTION_API_PATH = "/platformclaw/api/execution";
 export const PLATFORMCLAW_MCP_API_PATH = "/platformclaw/api/mcp";
