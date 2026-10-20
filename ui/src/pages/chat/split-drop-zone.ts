@@ -1,7 +1,7 @@
 import type { ChatSplitEdge } from "./split-layout.ts";
 
 export type SplitDropZone = { kind: "edge"; edge: ChatSplitEdge } | { kind: "center" };
-export type SplitDropRect = { left: number; top: number; width: number; height: number };
+type SplitDropRect = { left: number; top: number; width: number; height: number };
 export type SplitDropIndicator = { paneId: string; zone: SplitDropZone; rect: SplitDropRect };
 
 const EDGE_BAND = 0.3;
@@ -46,7 +46,7 @@ export function resolveSplitDropZone(rect: SplitDropRect, x: number, y: number):
   return nearest ? { kind: "edge", edge: nearest.edge } : { kind: "center" };
 }
 
-export function splitDropIndicatorRect(rect: SplitDropRect, zone: SplitDropZone): SplitDropRect {
+function splitDropIndicatorRect(rect: SplitDropRect, zone: SplitDropZone): SplitDropRect {
   const fullRect = {
     left: rect.left,
     top: rect.top,

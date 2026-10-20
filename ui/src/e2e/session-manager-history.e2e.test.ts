@@ -39,6 +39,12 @@ suite.define(() => {
     const timestamp = Date.parse("2026-08-03T09:00:00.000Z");
     const main = sessionRow("agent:main:main", "Main", timestamp);
     const research = sessionRow("agent:main:research", "Research notes", timestamp - 60_000);
+    const researchMessage = {
+      role: "assistant",
+      __openclaw: { id: "message-research", seq: 1 },
+      content: [{ type: "text", text: "The deployment history is ready to review." }],
+      timestamp,
+    };
     const context = await suite.newBrowserContext({
       locale: "en-US",
       serviceWorkers: "block",
@@ -47,17 +53,14 @@ suite.define(() => {
     const page = await context.newPage();
     const gateway = await installMockGateway(page, {
       featureMethods: ["chat.metadata", "chat.startup", "sessions.patch", "sessions.search"],
-      historyMessages: [
-        {
-          role: "assistant",
-          content: [{ type: "text", text: "The deployment history is ready to review." }],
-          timestamp,
-        },
-      ],
+      historyMessages: [researchMessage],
       methodResponses: {
+        "chat.history": { messages: [researchMessage], sessionId: "research" },
         "sessions.list": sessionsListResponse([main, research]),
         "sessions.patch": {},
         "sessions.search": {
+          totalCount: 1,
+          hasMore: false,
           results: [
             {
               messageId: "message-research",
@@ -105,16 +108,25 @@ suite.define(() => {
         agentId: "main",
         limit: 25,
         query: "deployment history",
-        sessionKeys: [main.key, research.key],
+        mode: "substring",
+        scope: "agent",
+        offset: 0,
       });
       await result.click();
       await expect
         .poll(() => new URL(page.url()).pathname)
         .toBe(controlUiSessionPath(research.key));
       await page
-        .locator(".chat-group.assistant")
-        .getByText("The deployment history is ready to review.", { exact: true })
+        .locator('.chat-bubble[data-entry-id="message-research"]')
+        .getByRole("paragraph")
+        .filter({ hasText: "The deployment history is ready to review." })
         .waitFor({ state: "visible", timeout: 10_000 });
+      const searchTarget = new URLSearchParams(new URL(page.url()).hash.slice(1));
+      expect(Object.fromEntries(searchTarget)).toEqual({
+        transcript: "research",
+        message: "message-research",
+        find: "deployment history",
+      });
       await captureUiProof(page, "02-session-history.png");
 
       await page.goto(`${suite.server.baseUrl}sessions`);

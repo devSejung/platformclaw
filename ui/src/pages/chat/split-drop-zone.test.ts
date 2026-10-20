@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSplitDropZone, splitDropIndicatorRect } from "./split-drop-zone.ts";
+import { resolveSplitDropIndicator, resolveSplitDropZone } from "./split-drop-zone.ts";
 
 const rect = { left: 100, top: 200, width: 400, height: 200 };
 
@@ -21,40 +21,28 @@ describe("split drop zones", () => {
     expect(resolveSplitDropZone(rect, 490, 370)).toEqual({ kind: "edge", edge: "right" });
   });
 
-  it("returns half-pane edge indicators and a full-pane center indicator", () => {
-    expect(splitDropIndicatorRect(rect, { kind: "edge", edge: "left" })).toEqual({
-      left: 100,
-      top: 200,
-      width: 200,
-      height: 200,
-    });
-    expect(splitDropIndicatorRect(rect, { kind: "edge", edge: "right" })).toEqual({
-      left: 300,
-      top: 200,
-      width: 200,
-      height: 200,
-    });
-    expect(splitDropIndicatorRect(rect, { kind: "edge", edge: "up" })).toEqual({
-      left: 100,
-      top: 200,
-      width: 400,
-      height: 100,
-    });
-    expect(splitDropIndicatorRect(rect, { kind: "edge", edge: "down" })).toEqual({
-      left: 100,
-      top: 300,
-      width: 400,
-      height: 100,
-    });
-    expect(splitDropIndicatorRect(rect, { kind: "center" })).toEqual(rect);
+  it.each([
+    [110, 300, { left: 100, top: 200, width: 200, height: 200 }],
+    [490, 300, { left: 300, top: 200, width: 200, height: 200 }],
+    [300, 210, { left: 100, top: 200, width: 400, height: 100 }],
+    [300, 390, { left: 100, top: 300, width: 400, height: 100 }],
+    [300, 300, rect],
+  ] as const)("positions the pane indicator at %d, %d", (x, y, expected) => {
+    const container = { left: 0, top: 0, width: 800, height: 600 };
+    expect(resolveSplitDropIndicator("pane-1", rect, container, x, y).rect).toEqual(expected);
   });
 
-  it("copies non-enumerable DOMRect fields into the indicator rect", () => {
+  it("copies non-enumerable DOMRect fields and translates to the drop container", () => {
     const domRect = Object.create(rect) as typeof rect;
-    expect(splitDropIndicatorRect(domRect, { kind: "center" })).toEqual(rect);
-    expect(splitDropIndicatorRect(domRect, { kind: "edge", edge: "down" })).toEqual({
-      left: 100,
-      top: 300,
+    const container = { left: 10, top: 20, width: 800, height: 600 };
+    expect(resolveSplitDropIndicator("pane-1", domRect, container, 300, 300)).toEqual({
+      paneId: "pane-1",
+      zone: { kind: "center" },
+      rect: { left: 90, top: 180, width: 400, height: 200 },
+    });
+    expect(resolveSplitDropIndicator("pane-1", domRect, container, 300, 390).rect).toEqual({
+      left: 90,
+      top: 280,
       width: 400,
       height: 100,
     });

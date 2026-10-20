@@ -23,7 +23,7 @@ const SEARCH_SNIPPET_MAX_CHARS = 500;
 const SEARCH_LIMIT_MAX = 25;
 const SEARCH_QUERY_MAX_CHARS = 4096;
 
-export type SessionTranscriptSearchHit = {
+type SessionTranscriptSearchHit = {
   sessionKey: string;
   sessionId: string;
   messageId: string;

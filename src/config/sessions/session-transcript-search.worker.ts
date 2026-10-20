@@ -39,7 +39,5 @@ parentPort?.on("message", (message: { id: number; params: SessionTranscriptSubst
     // Read-only handles avoid creating registry rows or migrating runtime state.
     db?.close();
   }
-  // Node MessagePort.postMessage has a transfer list, not the browser targetOrigin contract.
-  // oxlint-disable-next-line unicorn/require-post-message-target-origin
-  parentPort?.postMessage(response);
+  parentPort?.postMessage(response, []);
 });

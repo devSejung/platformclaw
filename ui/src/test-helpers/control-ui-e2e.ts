@@ -1544,6 +1544,8 @@ function installControlUiMockGateway(
           },
           params,
         );
+      case "sessions.search":
+        return { results: [], totalCount: 0, hasMore: false };
       case "sessions.groups.list":
         return groupsPayload();
       case "sessions.groups.put": {

@@ -2,6 +2,8 @@ const ASCII_SHORTCUT_KEY = /^[a-z0-9]$/;
 const PHYSICAL_LETTER_KEY = /^Key([A-Z])$/;
 const PHYSICAL_DIGIT_KEY = /^Digit([0-9])$/;
 
+export const MODAL_DIALOG_SELECTOR = "dialog[open], [aria-modal='true']";
+
 export function resolveAsciiShortcutKey(event: KeyboardEvent): string | null {
   if (event.isComposing || event.keyCode === 229) {
     return null;

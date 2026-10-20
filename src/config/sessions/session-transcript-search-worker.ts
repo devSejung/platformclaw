@@ -88,9 +88,7 @@ export async function searchSessionTranscriptSubstrings(
   const result = await new Promise<SessionTranscriptSubstringResult>((resolve, reject) => {
     pending.set(id, { resolve, reject });
     current.ref();
-    // Node Worker.postMessage has a transfer list, not the browser targetOrigin contract.
-    // oxlint-disable-next-line unicorn/require-post-message-target-origin
-    current.postMessage({ id, params });
+    current.postMessage({ id, params }, []);
   });
   if (result.indexing) {
     startSessionTranscriptIndexReconcile({

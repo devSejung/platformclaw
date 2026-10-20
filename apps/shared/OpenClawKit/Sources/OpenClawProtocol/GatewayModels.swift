@@ -4740,6 +4740,7 @@ public struct SessionsSearchHit: Codable, Sendable {
     public let timestamp: Int
     public let snippet: String
     public let score: Double
+    public let title: String?
 
     public init(
         sessionkey: String,
@@ -4748,7 +4749,8 @@ public struct SessionsSearchHit: Codable, Sendable {
         role: AnyCodable,
         timestamp: Int,
         snippet: String,
-        score: Double)
+        score: Double,
+        title: String? = nil)
     {
         self.sessionkey = sessionkey
         self.sessionid = sessionid
@@ -4757,6 +4759,7 @@ public struct SessionsSearchHit: Codable, Sendable {
         self.timestamp = timestamp
         self.snippet = snippet
         self.score = score
+        self.title = title
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -4767,23 +4770,39 @@ public struct SessionsSearchHit: Codable, Sendable {
         case timestamp
         case snippet
         case score
+        case title
     }
 }
 
 public struct SessionsSearchParams: Codable, Sendable {
     public let agentid: String?
     public let sessionkeys: [String]?
+    public let scope: String?
+    public let mode: String?
+    public let sessionid: String?
+    public let offset: Int?
+    public let excludesessionkeyprefixes: [String]?
     public let query: String
     public let limit: Int?
 
     public init(
         agentid: String? = nil,
         sessionkeys: [String]? = nil,
+        scope: String? = nil,
+        mode: String? = nil,
+        sessionid: String? = nil,
+        offset: Int? = nil,
+        excludesessionkeyprefixes: [String]? = nil,
         query: String,
         limit: Int? = nil)
     {
         self.agentid = agentid
         self.sessionkeys = sessionkeys
+        self.scope = scope
+        self.mode = mode
+        self.sessionid = sessionid
+        self.offset = offset
+        self.excludesessionkeyprefixes = excludesessionkeyprefixes
         self.query = query
         self.limit = limit
     }
@@ -4791,6 +4810,11 @@ public struct SessionsSearchParams: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case agentid = "agentId"
         case sessionkeys = "sessionKeys"
+        case scope
+        case mode
+        case sessionid = "sessionId"
+        case offset
+        case excludesessionkeyprefixes = "excludeSessionKeyPrefixes"
         case query
         case limit
     }
@@ -4800,21 +4824,29 @@ public struct SessionsSearchResult: Codable, Sendable {
     public let results: [SessionsSearchHit]
     public let indexing: Bool?
     public let truncated: Bool?
+    public let totalcount: Int?
+    public let hasmore: Bool?
 
     public init(
         results: [SessionsSearchHit],
         indexing: Bool? = nil,
-        truncated: Bool? = nil)
+        truncated: Bool? = nil,
+        totalcount: Int? = nil,
+        hasmore: Bool? = nil)
     {
         self.results = results
         self.indexing = indexing
         self.truncated = truncated
+        self.totalcount = totalcount
+        self.hasmore = hasmore
     }
 
     private enum CodingKeys: String, CodingKey {
         case results
         case indexing
         case truncated
+        case totalcount = "totalCount"
+        case hasmore = "hasMore"
     }
 }
 

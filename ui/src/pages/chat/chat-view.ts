@@ -30,12 +30,11 @@ import type {
 } from "../../lib/chat/chat-types.ts";
 import type { ControlUiFollowUpMode } from "../../lib/chat/follow-up-mode.ts";
 import type { CanvasPluginSurfaceRoute, EmbedSandboxMode } from "../../lib/chat/tool-display.ts";
-import { resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
+import { MODAL_DIALOG_SELECTOR, resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
 import type { ProviderUsageDisplayProps } from "../../lib/provider-quota-summary.ts";
 import type { SessionSearchTarget } from "../../lib/session-search-navigation.ts";
 import type { SessionToolOverrides } from "../../lib/sessions/patch.ts";
 import type { UiSessionDefaultsHost } from "../../lib/sessions/session-key.ts";
-import { CHAT_MODAL_SELECTOR } from "./chat-pane-shared.ts";
 import type { ChatRunStartupStatus } from "./chat-run-startup.ts";
 import type { ChatSessionCompanionThread } from "./chat-session-companion.ts";
 import { renderChatViewNotices } from "./chat-view-notices.ts";
@@ -557,7 +556,7 @@ export function renderChat(props: ChatProps) {
           (event.metaKey || event.ctrlKey) &&
           !event.altKey &&
           !event.shiftKey &&
-          !document.querySelector(CHAT_MODAL_SELECTOR) &&
+          !document.querySelector(MODAL_DIALOG_SELECTOR) &&
           resolveAsciiShortcutKey(event) === "f"
         ) {
           event.preventDefault();

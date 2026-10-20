@@ -5,7 +5,7 @@ import { parseAgentSessionKey } from "./sessions/session-key.ts";
 
 export type SessionTranscriptSearchHit = SessionsSearchResult["results"][number];
 
-export type SessionTranscriptSearchOptions = {
+type SessionTranscriptSearchOptions = {
   query: string;
   agentId?: string;
   agentIds?: string[];

@@ -115,10 +115,10 @@ suite.define(() => {
       methodResponses: {
         "sessions.list": {
           cases: [
-            ...[50, 100, 150].map((offset) => ({
+            ...[10, 20, 30].map((offset) => ({
               match: { offset, search: "helpers" },
               response: sessionsListResponse(
-                Array.from({ length: 50 }, (_, index) =>
+                Array.from({ length: 10 }, (_, index) =>
                   sessionRow(
                     `agent:main:hidden-helper-${offset + index}`,
                     `Hidden helper ${offset + index}`,
@@ -126,13 +126,13 @@ suite.define(() => {
                     { spawnedBy: "agent:main:main" },
                   ),
                 ),
-                { hasMore: true, nextOffset: offset + 50, offset, totalCount: 250 },
+                { hasMore: true, nextOffset: offset + 10, offset, totalCount: 50 },
               ),
             })),
             {
               match: { search: "helpers" },
               response: sessionsListResponse(
-                Array.from({ length: 50 }, (_, index) =>
+                Array.from({ length: 10 }, (_, index) =>
                   sessionRow(
                     `agent:main:hidden-helper-${index}`,
                     `Hidden helper ${index}`,
@@ -140,20 +140,20 @@ suite.define(() => {
                     { spawnedBy: "agent:main:main" },
                   ),
                 ),
-                { hasMore: true, nextOffset: 50, totalCount: 250 },
+                { hasMore: true, nextOffset: 10, totalCount: 50 },
               ),
             },
             {
-              match: { offset: 50, search: "release" },
+              match: { offset: 10, search: "release" },
               response: sessionsListResponse(
                 [sessionRow("agent:main:release", "Release planning", baseTime - 60_000)],
-                { offset: 50, totalCount: 51 },
+                { offset: 10, totalCount: 11 },
               ),
             },
             {
               match: { search: "release" },
               response: sessionsListResponse(
-                Array.from({ length: 50 }, (_, index) =>
+                Array.from({ length: 10 }, (_, index) =>
                   sessionRow(
                     `agent:main:release-helper-${index}`,
                     `Release helper ${index}`,
@@ -161,7 +161,7 @@ suite.define(() => {
                     { spawnedBy: "agent:main:main" },
                   ),
                 ),
-                { hasMore: true, nextOffset: 50, totalCount: 51 },
+                { hasMore: true, nextOffset: 10, totalCount: 11 },
               ),
             },
             {
@@ -284,8 +284,8 @@ suite.define(() => {
       await page.getByRole("button", { name: "Open command palette" }).click();
       const paletteInput = page.locator(".cmd-palette__input");
       await paletteInput.waitFor({ state: "visible", timeout: 10_000 });
-      // Automatic search is intentionally bounded: an all-hidden result set
-      // must not scan the entire session store from one palette query.
+      // Each search loads one page. Hidden child sessions must leave an
+      // explicit paging action instead of scanning the entire store.
       await paletteInput.fill("helpers");
       await expect
         .poll(async () => {
@@ -293,22 +293,50 @@ suite.define(() => {
           return requests.filter((request) => requireRecord(request.params).search === "helpers")
             .length;
         })
-        .toBe(4);
+        .toBe(1);
+      const showMore = page.getByRole("button", { name: "Show more results" });
+      await showMore.waitFor({ state: "visible" });
+      expect(
+        await page.locator(".cmd-palette__item").filter({ hasText: "Hidden helper" }).count(),
+      ).toBe(0);
       await page.clock.runFor(400);
       const boundedSearchRequests = await gateway.getRequests("sessions.list");
       expect(
         boundedSearchRequests.filter(
           (request) => requireRecord(request.params).search === "helpers",
         ),
-      ).toHaveLength(4);
+      ).toHaveLength(1);
+      await showMore.click();
+      await expect
+        .poll(async () => {
+          const requests = await gateway.getRequests("sessions.list");
+          return requests.filter((request) => requireRecord(request.params).search === "helpers")
+            .length;
+        })
+        .toBe(2);
+      expect(
+        (await gateway.getRequests("sessions.list")).some((request) => {
+          const params = requireRecord(request.params);
+          return params.search === "helpers" && params.offset === 10;
+        }),
+      ).toBe(true);
 
       await paletteInput.fill("release");
+      await expect
+        .poll(async () => {
+          const requests = await gateway.getRequests("sessions.list");
+          return requests.filter((request) => requireRecord(request.params).search === "release")
+            .length;
+        })
+        .toBe(1);
+      await showMore.waitFor({ state: "visible" });
+      await showMore.click();
       const paletteOption = page
         .locator(".cmd-palette__item")
         .filter({ hasText: "Release planning" });
       await paletteOption.waitFor({ state: "visible", timeout: 10_000 });
-      // The first result page contains 50 hidden child sessions; search must
-      // follow nextOffset before exposing the visible chat on page two.
+      // Explicit paging follows nextOffset and exposes the visible chat on
+      // page two without showing any hidden child sessions.
       await expect
         .poll(() =>
           page.locator(".cmd-palette__item").filter({ hasText: "Release helper" }).count(),
@@ -318,7 +346,7 @@ suite.define(() => {
       expect(
         searchRequests.some((request) => {
           const params = requireRecord(request.params);
-          return params.search === "release" && params.offset === 50;
+          return params.search === "release" && params.offset === 10;
         }),
       ).toBe(true);
       await captureUiProof(page, "command-palette-session-search.png");
