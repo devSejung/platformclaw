@@ -30,6 +30,17 @@ vi.mock("../../agents/embedded-agent-runner/model.js", () => ({
   })),
 }));
 
+vi.mock("../../agents/prepared-model-runtime.js", () => ({
+  acquireAgentRunPreparedModelRuntime: vi.fn(async (input) => ({
+    snapshot: {
+      ...input,
+      metadataSnapshot: { plugins: [] },
+      createStores: () => ({ authStorage: {}, modelRegistry: {} }),
+    },
+    release: vi.fn(),
+  })),
+}));
+
 vi.mock("../../agents/embedded-agent-runner/runs.js", () => ({
   isEmbeddedAgentRunActive: vi.fn(() => false),
 }));
