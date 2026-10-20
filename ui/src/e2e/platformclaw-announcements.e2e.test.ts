@@ -5,10 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  ANNOUNCEMENTS_CHANGED,
-  type AnnouncementAdministrationSnapshot,
-} from "../../../packages/platformclaw-control-plane/src/announcement-contracts.js";
+import { ANNOUNCEMENTS_CHANGED } from "../../../packages/platformclaw-control-plane/src/announcement-contracts.js";
 import { BrowserAnnouncementService } from "../../../packages/platformclaw-control-plane/src/browser-announcements-http.js";
 import type { BrowserAuthService } from "../../../packages/platformclaw-control-plane/src/browser-auth-service.js";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.js";
@@ -19,7 +16,6 @@ import {
   type PlatformClawBrowserGatewayPolicy,
 } from "../../../packages/platformclaw-control-plane/src/web-ingress-server.js";
 import { FakeGateway } from "../../../packages/platformclaw-control-plane/src/web-ingress-test-harness.js";
-import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import {
   installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
@@ -27,6 +23,10 @@ import {
   type ControlUiE2eServer,
   type ControlUiMockGatewayScenario,
 } from "../test-helpers/control-ui-e2e.ts";
+import {
+  installPlatformClawDocument,
+  settlePlatformClawRendering as settleRendering,
+} from "./platformclaw-document.test-support.ts";
 
 const ORIGIN = "https://announcements.example.test";
 const proof = path.join(process.cwd(), ".artifacts/control-ui-e2e/web-announcements");
@@ -51,15 +51,6 @@ async function shot(page: Page, name: string) {
   }
 }
 
-async function settleRendering(page: Page) {
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      }),
-  );
-}
-
 async function newPage(
   user: string,
   scenario: ControlUiMockGatewayScenario = {},
@@ -73,16 +64,7 @@ async function newPage(
   });
   contexts.push(context);
   const page = await context.newPage();
-  const documentSource = await (await page.request.get(ui.baseUrl)).text();
-  await page.route("**/platformclaw/app/**", (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: documentSource.replace(
-        "</head>",
-        `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR)}'></head>`,
-      ),
-    }),
-  );
+  await installPlatformClawDocument(page, ui.baseUrl);
   await page.route("**/platformclaw/api/**", async (route) => {
     const pathname = new URL(route.request().url()).pathname;
     if (pathname.includes("/announcements")) {
@@ -129,10 +111,15 @@ async function newPage(
 }
 
 async function openAdmin(page: Page) {
+  await page.goto(`${ui.baseUrl}platformclaw/app/settings/announcements`);
   const admin = page.locator("platformclaw-announcement-administration");
-  await admin.getByRole("button", { name: "Web announcements", exact: true }).click();
   await admin.locator('[name="title"]').waitFor();
   return admin;
+}
+
+async function leaveAdmin(page: Page) {
+  await page.locator(".settings-sidebar__back").click();
+  await page.locator("platformclaw-announcement-administration").waitFor({ state: "detached" });
 }
 
 beforeAll(async () => {
@@ -205,8 +192,7 @@ afterAll(async () => {
 describe("global web announcements", () => {
   it("records Korean preview, general notice, maintenance popup and scheduled state", async () => {
     const adminUser = await newPage("admin.test", {}, "ko-KR");
-    const admin = adminUser.page.locator("platformclaw-announcement-administration");
-    await admin.locator(".launcher").click();
+    const admin = await openAdmin(adminUser.page);
     await admin.locator('[name="title"]').fill("서비스 이용 안내");
     await admin
       .locator('[name="body"]')
@@ -218,7 +204,7 @@ describe("global web announcements", () => {
     await shot(adminUser.page, "ko-01-admin-preview.png");
     await admin.getByRole("button", { name: "게시", exact: true }).click();
     await expect.poll(() => admin.getByRole("status").textContent()).toContain("저장했습니다");
-    await admin.getByRole("button", { name: "닫기", exact: true }).click();
+    await leaveAdmin(adminUser.page);
     const member = await newPage(
       "member.one",
       {
@@ -239,7 +225,8 @@ describe("global web announcements", () => {
     const notice = member.page.locator("platformclaw-announcements");
     await expect.poll(() => notice.locator("aside").textContent()).toContain("서비스 이용 안내");
     await shot(member.page, "ko-02-general-banner.png");
-    await admin.locator(".launcher").click();
+    await openAdmin(adminUser.page);
+    expect(await admin.locator('[name="title"]').inputValue()).toBe("서비스 이용 안내");
     await admin.locator('[name="title"]').fill("서버 점검 안내");
     await admin
       .locator('[name="body"]')
@@ -257,7 +244,13 @@ describe("global web announcements", () => {
     expect(store.announcements.snapshot(now).announcement?.body).toBe(
       "10분 뒤 서버 점검으로 잠시 연결이 끊깁니다.\n진행 중인 작업을 저장해 주세요.",
     );
-    await admin.getByRole("button", { name: "닫기", exact: true }).click();
+    const ownPopup = adminUser.page.locator("platformclaw-announcements openclaw-modal-dialog");
+    await adminUser.gateway.emitGatewayEvent(ANNOUNCEMENTS_CHANGED, {});
+    await settleRendering(adminUser.page);
+    expect(await ownPopup.count()).toBe(0);
+    await leaveAdmin(adminUser.page);
+    await ownPopup.waitFor();
+    await adminUser.page.keyboard.press("Escape");
     await member.gateway.emitGatewayEvent(ANNOUNCEMENTS_CHANGED, {});
     await notice.locator("openclaw-modal-dialog").waitFor();
     await shot(member.page, "ko-03-maintenance-dialog.png");
@@ -470,14 +463,7 @@ describe("global web announcements", () => {
       await shot(adminUser.page, `${iteration}-01-admin-preview.png`);
       await admin.getByRole("button", { name: "Publish", exact: true }).click();
       await expect.poll(() => admin.getByRole("status").textContent()).toContain("Saved");
-      await admin.getByRole("button", { name: "Close", exact: true }).click();
-      await expect
-        .poll(() =>
-          admin
-            .locator(".launcher")
-            .evaluate((element) => (element.getRootNode() as ShadowRoot).activeElement === element),
-        )
-        .toBe(true);
+      await leaveAdmin(adminUser.page);
       for (const client of [one, two]) {
         await client.gateway.emitGatewayEvent(ANNOUNCEMENTS_CHANGED, {});
         await client.gateway.emitGatewayEvent(ANNOUNCEMENTS_CHANGED, {});
@@ -508,13 +494,14 @@ describe("global web announcements", () => {
         .toBe(true);
       expect(await two.page.locator("platformclaw-organization-join-prompt").count()).toBe(1);
       await openAdmin(adminUser.page);
+      expect(await admin.locator('[name="title"]').inputValue()).toBe("Synthetic global notice");
       await admin.locator('[name="title"]').fill("Planned synthetic maintenance");
       await admin.locator('[name="kind"]').selectOption("maintenance");
       await admin.locator('[name="maintenanceAt"]').fill(localTime(now + 120_000));
       await admin.getByRole("button", { name: "Preview", exact: true }).click();
       await admin.getByRole("button", { name: "Update announcement", exact: true }).click();
       await expect.poll(() => admin.getByRole("status").textContent()).toContain("Saved");
-      await admin.getByRole("button", { name: "Close", exact: true }).click();
+      await leaveAdmin(adminUser.page);
       for (const client of [one, two]) {
         await client.gateway.emitGatewayEvent(ANNOUNCEMENTS_CHANGED, {});
         await expect
@@ -572,7 +559,7 @@ describe("global web announcements", () => {
         .poll(() => one.page.locator("platformclaw-announcements .countdown").textContent())
         .toContain("scheduled time reached");
       await shot(one.page, `${iteration}-04-scheduled-banner.png`);
-      // The admin's own automatic popup is also eligible after its editor closes.
+      // The admin's own automatic popup resumes after leaving its settings page.
       const ownPopup = adminUser.page.locator("platformclaw-announcements openclaw-modal-dialog");
       if (await ownPopup.count()) {
         await adminUser.page.keyboard.press("Escape");
@@ -717,63 +704,5 @@ describe("global web announcements", () => {
     await expect
       .poll(() => notice.locator("aside").textContent(), { timeout: 20_000 })
       .toContain("Poll recovery");
-  });
-
-  it("keeps new editor input when an earlier open finishes last", async () => {
-    const context = await browser.newContext({ locale: "en-US" });
-    contexts.push(context);
-    const page = await context.newPage();
-    let release!: () => void;
-    const blocked = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let reads = 0;
-    const empty: AnnouncementAdministrationSnapshot = {
-      revision: 0,
-      serverNow: now,
-      announcement: null,
-      current: null,
-    };
-    await page.route("**/platformclaw/api/admin/announcements", async (route) => {
-      reads++;
-      if (reads === 1) {
-        await blocked;
-      }
-      await route.fulfill({ json: empty });
-    });
-    await page.goto(new URL("sw.js", ui.baseUrl).href);
-    await page.setContent("<!doctype html><html><body></body></html>");
-    await page.addScriptTag({
-      type: "module",
-      url: `${ui.baseUrl}src/platformclaw/announcement-administration.ts`,
-    });
-    await page.addScriptTag({
-      type: "module",
-      content: `import { loadPlatformClawLocale } from "/src/platformclaw/i18n.ts";
-        await loadPlatformClawLocale();
-        await customElements.whenDefined("platformclaw-announcement-administration");
-        document.body.append(document.createElement("platformclaw-announcement-administration"));`,
-    });
-    const admin = page.locator("platformclaw-announcement-administration");
-    await admin.locator(".launcher").click();
-    await expect.poll(() => reads).toBe(1);
-    await admin.getByRole("button", { name: "Close", exact: true }).click();
-    await admin.locator(".launcher").click();
-    await admin.locator('[name="title"]').fill("Keep my new draft");
-    const staleResponse = page.waitForResponse((response) =>
-      response.url().endsWith("/admin/announcements"),
-    );
-    release();
-    await staleResponse;
-    await settleRendering(page);
-    await expect.poll(() => admin.locator('[name="title"]').inputValue()).toBe("Keep my new draft");
-    await page.keyboard.press("Escape");
-    await expect
-      .poll(() =>
-        admin
-          .locator(".launcher")
-          .evaluate((element) => (element.getRootNode() as ShadowRoot).activeElement === element),
-      )
-      .toBe(true);
   });
 });

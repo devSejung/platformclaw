@@ -86,14 +86,16 @@ describeE2e("PlatformClaw VM administration", () => {
       type: "module",
       url: `${server.baseUrl}src/platformclaw/vm-administration.ts`,
     });
+    const initialRefresh = page.waitForResponse("**/platformclaw/api/admin/vm");
     await page.evaluate(async () => {
       await customElements.whenDefined("platformclaw-vm-administration");
       document.body.replaceChildren(document.createElement("platformclaw-vm-administration"));
     });
     const component = page.locator("platformclaw-vm-administration");
-    const initialRefresh = page.waitForResponse("**/platformclaw/api/admin/vm");
-    await component.locator("[data-open]").evaluate((button: HTMLElement) => button.click());
     await initialRefresh;
+    expect(
+      await component.locator("openclaw-modal-dialog, [data-open], [data-close]").count(),
+    ).toBe(0);
     await expect
       .poll(async () =>
         component.locator("strong").filter({ hasText: "Corporate access" }).isVisible(),
@@ -153,6 +155,9 @@ describeE2e("PlatformClaw VM administration", () => {
         if (body.action === "disable-host") {
           snapshot.hosts[0].status = "disabled";
         }
+        if (body.action === "update-host-execution-environment") {
+          snapshot.hosts[0].executionEnvironment = body.executionEnvironment;
+        }
       }
       await route.fulfill({ json: snapshot });
     });
@@ -160,9 +165,10 @@ describeE2e("PlatformClaw VM administration", () => {
     await component.locator("[data-cancel-mutation]").click();
     expect(mutations).toEqual([]);
     await component.getByRole("button", { name: "Enable endpoint", exact: true }).click();
-    await page.keyboard.press("Escape");
-    await expect.poll(() => component.getByRole("dialog").count()).toBe(0);
-    await component.locator("[data-open]").click();
+    await component.evaluate((element) => {
+      element.remove();
+      document.body.append(element);
+    });
     await expect.poll(() => component.locator("[data-refresh]").isEnabled()).toBe(true);
     expect(await component.locator("[data-confirm-mutation]").count()).toBe(0);
     await component.getByRole("button", { name: "Enable endpoint", exact: true }).click();
@@ -173,7 +179,7 @@ describeE2e("PlatformClaw VM administration", () => {
     await component.locator("[data-confirm-mutation]").click();
     expect(await component.locator("[data-refresh]").isDisabled()).toBe(true);
     expect(await component.locator("main button:enabled").count()).toBe(0);
-    expect(await component.locator("[data-close]").isEnabled()).toBe(true);
+    expect(await component.isVisible()).toBe(true);
     release();
     await expect
       .poll(() =>
@@ -194,6 +200,18 @@ describeE2e("PlatformClaw VM administration", () => {
     await environmentForm.locator("button").click();
     await expect.poll(() => mutations.at(-1)).toBe("update-host-execution-environment");
     await expect.poll(() => component.locator("[data-refresh]").isEnabled()).toBe(true);
+    await component.evaluate((element) => {
+      element.remove();
+      document.body.append(element);
+    });
+    await expect.poll(() => component.locator("[data-refresh]").isEnabled()).toBe(true);
+    await component.getByText("Build environment", { exact: true }).click();
+    expect(await environmentForm.locator("textarea[name='pathPrepend']").inputValue()).toBe(
+      "/opt/fixture/bin",
+    );
+    expect(
+      await environmentForm.locator("textarea[name='environmentVariables']").inputValue(),
+    ).toBe("FIXTURE=1");
     failNext = true;
     await component.locator("[data-refresh]").click();
     await component.getByText("Fixture administration unavailable", { exact: true }).waitFor();

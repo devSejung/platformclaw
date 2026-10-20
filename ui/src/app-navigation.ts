@@ -221,6 +221,10 @@ export const SETTINGS_NAVIGATION_GROUPS = [
     routes: ["security", "approvals"],
   },
   {
+    labelKey: "nav.settingsGroupAdministration",
+    routes: ["announcements", "vm-administration"],
+  },
+  {
     labelKey: "nav.settingsGroupSystem",
     routes: ["infrastructure", "advanced", "debug", "logs", "about"],
   },
@@ -281,6 +285,8 @@ const NAVIGATION_ICONS: NavigationItem = {
   mcp: "wrench",
   memory: "book",
   organization: "users",
+  announcements: "megaphone",
+  "vm-administration": "server",
   spaces: "users",
   talk: "mic",
   infrastructure: "globe",
@@ -399,8 +405,10 @@ const NAVIGATION_COPY: Record<NavigationRouteId, { titleKey: string; subtitleKey
   automation: { titleKey: "tabs.automation", subtitleKey: "subtitles.automation" },
   mcp: { titleKey: "tabs.mcp", subtitleKey: "subtitles.mcp" },
   memory: { titleKey: "tabs.memory", subtitleKey: "subtitles.memory" },
-  // Organization is opt-in. Embedders enabling it provide product-local copy.
+  // Opt-in product pages get their visible copy from the embedder.
   organization: { titleKey: "nav.settings", subtitleKey: "subtitles.config" },
+  announcements: { titleKey: "nav.settings", subtitleKey: "subtitles.config" },
+  "vm-administration": { titleKey: "nav.settings", subtitleKey: "subtitles.config" },
   spaces: { titleKey: "nav.settings", subtitleKey: "subtitles.config" },
   talk: { titleKey: "tabs.talk", subtitleKey: "subtitles.talk" },
   infrastructure: { titleKey: "tabs.infrastructure", subtitleKey: "subtitles.infrastructure" },

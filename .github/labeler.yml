@@ -266,6 +266,7 @@
       - any-glob-to-any-file:
           - "ui/**"
           - "packages/platformclaw-control-plane/src/*dashboard*"
+          - "packages/platformclaw-control-plane/src/web-assets*.ts"
           - "src/gateway/control-ui.ts"
           - "src/gateway/control-ui-shared.ts"
           - "packages/gateway-protocol/src/**"

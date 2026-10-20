@@ -48,6 +48,21 @@ describe("sidebar entries", () => {
     expect(normalizeSidebarEntries(["route:worktrees", "route:usage"])).toEqual([]);
   });
 
+  it("keeps opt-in administration pages together before system settings", () => {
+    const index = SETTINGS_NAVIGATION_GROUPS.findIndex(
+      (group) => group.labelKey === "nav.settingsGroupAdministration",
+    );
+    expect(SETTINGS_NAVIGATION_GROUPS[index]?.routes).toEqual([
+      "announcements",
+      "vm-administration",
+    ]);
+    expect(SETTINGS_NAVIGATION_GROUPS[index + 1]?.labelKey).toBe("nav.settingsGroupSystem");
+    for (const routeId of ["announcements", "vm-administration"] as const) {
+      expect(isSettingsNavigationRoute(routeId)).toBe(true);
+      expect(SIDEBAR_NAV_ROUTES).not.toContain(routeId);
+    }
+  });
+
   it("keeps settings pages out of the customizable sidebar", () => {
     for (const routeId of [
       "custodian",

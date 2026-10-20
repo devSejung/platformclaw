@@ -2117,6 +2117,7 @@ export const en: TranslationMap = {
     settingsGroupChatSessions: "Chat & Sessions",
     settingsGroupAgents: "Agents & Tools",
     settingsGroupSecurity: "Privacy & Security",
+    settingsGroupAdministration: "Administration",
     settingsGroupSystem: "System",
     settingsSearchLabel: "Search settings",
     settingsSearchPlaceholder: "Search settings…",

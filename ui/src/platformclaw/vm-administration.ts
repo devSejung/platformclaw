@@ -1,4 +1,3 @@
-import "../components/modal-dialog.ts";
 import { i18n } from "../i18n/index.ts";
 import { loadPlatformClawLocale, platformClawStatus, platformClawT as t } from "./i18n.ts";
 import { PLATFORMCLAW_VM_ADMIN_API_PATH } from "./web-contract.ts";
@@ -124,13 +123,16 @@ class VmAdministrationHttpError extends Error {}
 class PlatformClawVmAdministrationElement extends HTMLElement {
   private readonly root = this.attachShadow({ mode: "open" });
   private snapshot: VmAdministrationSnapshot | null = null;
-  private opened = false;
   private loading = false;
   private message = "";
+  private messageKind: "error" | "success" = "success";
   private pendingMutation: PendingMutation | null = null;
   private endpointDraft: EndpointDraft | null = null;
   private probe: SafeConnectProbe | null = null;
   private unsubscribeLocale = () => {};
+  private generation = 0;
+  private readonly formDrafts = new Map<string, Record<string, string>>();
+  private readonly expandedForms = new Set<string>();
 
   declare fetchImpl: typeof fetch;
   declare onUnauthenticated: () => void;
@@ -143,21 +145,37 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
 
   connectedCallback(): void {
     this.unsubscribeLocale = i18n.subscribe(() => void this.renderLocale());
-    void this.renderLocale();
+    void this.renderLocale(true);
   }
 
   disconnectedCallback(): void {
     this.unsubscribeLocale();
+    this.generation++;
+    this.loading = false;
+    this.pendingMutation = null;
+    this.endpointDraft = null;
+    this.probe = null;
+    this.formDrafts.clear();
+    this.expandedForms.clear();
   }
 
-  private async renderLocale(): Promise<void> {
+  private isCurrent(generation: number): boolean {
+    return this.isConnected && generation === this.generation;
+  }
+
+  private async renderLocale(load = false): Promise<void> {
+    const generation = this.generation;
     await loadPlatformClawLocale();
-    if (this.isConnected) {
+    if (this.isCurrent(generation)) {
       this.render();
+      if (load) {
+        await this.refresh();
+      }
     }
   }
 
   private async request(init?: RequestInit): Promise<VmAdministrationSnapshot> {
+    const generation = this.generation;
     const response = await this.fetchImpl(PLATFORMCLAW_VM_ADMIN_API_PATH, {
       credentials: "same-origin",
       headers: {
@@ -167,7 +185,9 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
       ...init,
     });
     if (response.status === 401) {
-      this.onUnauthenticated();
+      if (this.isCurrent(generation)) {
+        this.onUnauthenticated();
+      }
       throw new VmAdministrationHttpError(t("platformClaw.execution.sessionExpired"));
     }
     const body = (await response.json()) as Record<string, unknown>;
@@ -180,36 +200,70 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
   }
 
   private async refresh(): Promise<void> {
+    if (this.loading) {
+      return;
+    }
+    const generation = ++this.generation;
     this.loading = true;
     this.render();
     try {
-      this.snapshot = await this.request();
+      const snapshot = await this.request();
+      if (!this.isCurrent(generation)) {
+        return;
+      }
+      this.snapshot = snapshot;
       this.message = "";
     } catch (error) {
-      this.message =
-        error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+      if (this.isCurrent(generation)) {
+        this.messageKind = "error";
+        this.message =
+          error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+      }
     } finally {
-      this.loading = false;
-      this.render();
+      if (this.isCurrent(generation)) {
+        this.loading = false;
+        this.render();
+      }
     }
   }
 
-  private async mutate(body: Record<string, unknown>): Promise<void> {
+  private async mutate(body: Record<string, unknown>, draftKey?: string): Promise<void> {
+    if (this.loading) {
+      return;
+    }
+    const generation = ++this.generation;
     this.loading = true;
     this.render();
     try {
-      this.snapshot = await this.request({ method: "POST", body: JSON.stringify(body) });
+      const snapshot = await this.request({ method: "POST", body: JSON.stringify(body) });
+      if (!this.isCurrent(generation)) {
+        return;
+      }
+      this.snapshot = snapshot;
+      if (draftKey) {
+        this.formDrafts.delete(draftKey);
+      }
+      this.messageKind = "success";
       this.message = t("platformClaw.vmAdmin.saved");
     } catch (error) {
-      this.message =
-        error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+      if (this.isCurrent(generation)) {
+        this.messageKind = "error";
+        this.message =
+          error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+      }
     } finally {
-      this.loading = false;
-      this.render();
+      if (this.isCurrent(generation)) {
+        this.loading = false;
+        this.render();
+      }
     }
   }
 
   private async probeEndpoint(draft: EndpointDraft): Promise<void> {
+    if (this.loading) {
+      return;
+    }
+    const generation = ++this.generation;
     this.loading = true;
     this.render();
     try {
@@ -217,53 +271,80 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
         method: "POST",
         body: JSON.stringify({ action: "probe-endpoint", host: draft.host, port: draft.port }),
       });
+      if (!this.isCurrent(generation)) {
+        return;
+      }
       this.snapshot = response;
       this.endpointDraft = draft;
       this.probe = response.probe ?? null;
+      this.messageKind = "success";
       this.message = this.probe ? t("platformClaw.vmAdmin.probeSucceeded") : "";
     } catch (error) {
-      this.endpointDraft = null;
-      this.probe = null;
-      this.message =
-        error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+      if (this.isCurrent(generation)) {
+        this.endpointDraft = null;
+        this.probe = null;
+        this.messageKind = "error";
+        this.message =
+          error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+      }
     } finally {
-      this.loading = false;
-      this.render();
+      if (this.isCurrent(generation)) {
+        this.loading = false;
+        this.render();
+      }
     }
   }
 
   private async approveProbedEndpoint(): Promise<void> {
     const draft = this.endpointDraft;
     const probe = this.probe;
-    if (!draft || !probe) {
+    if (!draft || !probe || this.loading) {
       return;
     }
+    const generation = ++this.generation;
     this.loading = true;
     this.render();
     try {
+      // Each awaited stage must still belong to this page before another write starts.
+      // Leaving Settings can retire a create request that the server already committed.
       let endpointId = draft.endpointId;
       if (endpointId && !draft.persisted) {
-        this.snapshot = await this.request({
+        const snapshot = await this.request({
           method: "POST",
           body: JSON.stringify({ action: "update-endpoint", ...draft }),
         });
+        if (!this.isCurrent(generation)) {
+          return;
+        }
+        this.snapshot = snapshot;
       } else if (!endpointId) {
         const findCreatedEndpoint = (snapshot: VmAdministrationSnapshot) =>
           snapshot.endpoints.find(
             (endpoint) => endpoint.host === probe.host && endpoint.port === probe.port,
           )?.id;
         try {
-          this.snapshot = await this.request({
+          const snapshot = await this.request({
             method: "POST",
             body: JSON.stringify({ action: "endpoints", ...draft }),
           });
+          if (!this.isCurrent(generation)) {
+            return;
+          }
+          this.snapshot = snapshot;
           endpointId = findCreatedEndpoint(this.snapshot);
         } catch (createError) {
+          if (!this.isCurrent(generation)) {
+            return;
+          }
           if (createError instanceof VmAdministrationHttpError) {
             throw createError;
           }
           try {
-            this.snapshot = await this.request();
+            const snapshot = await this.request();
+            if (!this.isCurrent(generation)) {
+              return;
+            }
+            this.snapshot = snapshot;
             endpointId = findCreatedEndpoint(this.snapshot);
           } catch {
             throw createError;
@@ -277,7 +358,7 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
         throw new Error(t("platformClaw.vmAdmin.requestFailed"));
       }
       this.endpointDraft = { ...draft, endpointId, persisted: true };
-      this.snapshot = await this.request({
+      const snapshot = await this.request({
         method: "POST",
         body: JSON.stringify({
           action: "host-key",
@@ -287,48 +368,104 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
           fingerprint: probe.fingerprint,
         }),
       });
+      if (!this.isCurrent(generation)) {
+        return;
+      }
+      this.snapshot = snapshot;
+      this.formDrafts.delete(`endpoint:${draft.endpointId ?? "new"}`);
       this.endpointDraft = null;
       this.probe = null;
+      this.messageKind = "success";
       this.message = t("platformClaw.vmAdmin.saved");
     } catch (error) {
-      this.message =
-        error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+      if (this.isCurrent(generation)) {
+        this.messageKind = "error";
+        this.message =
+          error instanceof Error ? error.message : t("platformClaw.vmAdmin.requestFailed");
+      }
     } finally {
-      this.loading = false;
-      this.render();
+      if (this.isCurrent(generation)) {
+        this.loading = false;
+        this.render();
+      }
     }
   }
 
+  private formKey(form: HTMLFormElement): string {
+    const id = form.elements.namedItem(
+      form.hasAttribute("data-endpoint-probe") ? "endpointId" : "vmHostId",
+    );
+    const identity = id instanceof HTMLInputElement ? id.value : "new";
+    return form.hasAttribute("data-endpoint-probe")
+      ? `endpoint:${identity}`
+      : `${form.dataset.action}:${identity}`;
+  }
+
+  private saveFormDraft(form: HTMLFormElement): void {
+    if (this.loading) {
+      return;
+    }
+    const key = this.formKey(form);
+    if (form.closest("details")?.open) {
+      this.expandedForms.add(key);
+    }
+    this.formDrafts.set(
+      key,
+      Object.fromEntries(
+        [...new FormData(form)].filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      ),
+    );
+  }
+
   private bindForm(action: string, mapper: (form: FormData) => Record<string, unknown>): void {
-    this.root
-      .querySelector<HTMLFormElement>(`form[data-action='${action}']`)
-      ?.addEventListener("submit", (event) => {
+    for (const form of this.root.querySelectorAll<HTMLFormElement>(
+      `form[data-action='${action}']`,
+    )) {
+      form.addEventListener("submit", (event) => {
         event.preventDefault();
-        void this.mutate({
-          action,
-          ...mapper(new FormData(event.currentTarget as HTMLFormElement)),
-        });
+        this.saveFormDraft(event.currentTarget as HTMLFormElement);
+        void this.mutate({ action, ...mapper(new FormData(form)) }, this.formKey(form));
       });
+    }
   }
 
   private bindEvents(): void {
-    const closeDialog = () => {
-      this.opened = false;
-      this.pendingMutation = null;
-      this.endpointDraft = null;
-      this.probe = null;
-      this.render();
-    };
-    this.root.querySelector("[data-open]")?.addEventListener("click", () => {
-      this.opened = true;
-      void this.refresh();
-    });
-    this.root.querySelector("[data-close]")?.addEventListener("click", closeDialog);
-    this.root.querySelector("openclaw-modal-dialog")?.addEventListener("modal-cancel", closeDialog);
+    // Drafts belong to forms, not the replacement DOM used for locale/status rendering.
+    for (const form of this.root.querySelectorAll<HTMLFormElement>("form")) {
+      const key = this.formKey(form);
+      const draft = this.formDrafts.get(key);
+      for (const control of form.querySelectorAll<
+        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      >("input, select, textarea")) {
+        const value = draft?.[control.name];
+        if (value !== undefined) {
+          control.value = value;
+        }
+      }
+      form.addEventListener("input", () => this.saveFormDraft(form));
+      form.addEventListener("change", () => this.saveFormDraft(form));
+      const details = form.closest("details");
+      if (details) {
+        details.open = this.expandedForms.has(key);
+        details.addEventListener("toggle", () => {
+          if (!details.isConnected) {
+            return;
+          }
+          if (details.open) {
+            this.expandedForms.add(key);
+          } else {
+            this.expandedForms.delete(key);
+          }
+        });
+      }
+    }
     this.root.querySelector("[data-refresh]")?.addEventListener("click", () => void this.refresh());
     for (const form of this.root.querySelectorAll<HTMLFormElement>("form[data-endpoint-probe]")) {
       form.addEventListener("submit", (event) => {
         event.preventDefault();
+        this.saveFormDraft(form);
         const data = new FormData(form);
         void this.probeEndpoint({
           ...(field(data, "endpointId") ? { endpointId: field(data, "endpointId") } : {}),
@@ -432,25 +569,17 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
       <style>
         :host { display: block; color: var(--text); font: 13px/1.45 var(--font-sans, system-ui, sans-serif); }
         button, input, select, textarea { font: inherit; }
-        .open { box-sizing: border-box; width: 100%; min-height: 34px; padding: 7px 9px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--muted-strong); cursor: pointer; text-align: left; transition: background var(--duration-fast) ease, color var(--duration-fast) ease; }
-        .open:hover, .open:focus-visible { background: var(--bg-hover); color: var(--text); outline: none; }
-        .modal { --openclaw-modal-width: min(1040px, calc(100vw - 48px)); --openclaw-modal-max-height: min(860px, calc(100dvh - 48px)); }
-        .dialog { width: min(1040px, 100%); max-height: min(860px, calc(100vh - 48px)); overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--bg); color: var(--text); box-shadow: var(--shadow-xl); }
-        header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; gap: 16px; padding: 18px 22px; border-bottom: 1px solid var(--border); background: var(--bg-elevated); }
+        .administration { min-width: 0; color: var(--text); }
         h2, h3 { margin: 0; } main { display: grid; gap: 16px; padding: 20px; } .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
         .card { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); } form { display: grid; gap: 10px; margin-top: 14px; } label { display: grid; gap: 5px; color: var(--muted-strong); }
         input, select, textarea { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-elevated); color: var(--text); } textarea { min-height: 72px; resize: vertical; }
         input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none; box-shadow: var(--focus-ring); }
         button { padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-elevated); color: var(--text); cursor: pointer; } button:hover:not(:disabled), button:focus-visible { background: var(--bg-hover); border-color: var(--border-hover); outline: none; } button.primary { background: var(--accent); color: var(--accent-foreground); border-color: var(--accent); } button.primary:hover:not(:disabled), button.primary:focus-visible { background: var(--accent-hover); border-color: var(--accent-hover); } button.primary:focus-visible { box-shadow: var(--focus-ring); } button:disabled { opacity: .5; cursor: not-allowed; }
         ul { display: grid; gap: 8px; padding: 0; list-style: none; } li { padding: 9px 10px; border-radius: var(--radius-md); background: var(--bg-muted); } .muted { color: var(--muted); } .message { padding: 10px; border-radius: var(--radius-md); background: var(--accent-subtle); } .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; } details { margin-top: 8px; } summary { cursor: pointer; color: var(--muted-strong); } dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; } dt { color: var(--muted); } dd { margin: 0; min-width: 0; overflow-wrap: anywhere; } code { font-family: var(--font-mono, monospace); }
-        @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .modal { --openclaw-modal-width: calc(100vw - 16px); --openclaw-modal-max-height: calc(100dvh - 16px); } }
+        @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
       </style>
-      <button class="open" data-open>${escapeHtml(t("platformClaw.vmAdmin.open"))}</button>
-      ${
-        this.opened
-          ? `<openclaw-modal-dialog class="modal" label="${escapeHtml(t("platformClaw.vmAdmin.title"))}"><section class="dialog">
-            <header><div><h2>${escapeHtml(t("platformClaw.vmAdmin.title"))}</h2><div class="muted">${escapeHtml(t("platformClaw.vmAdmin.intro"))}</div></div><button data-close aria-label="${escapeHtml(t("platformClaw.vmAdmin.close"))}">×</button></header>
-            <main>${this.loading ? `<p>${escapeHtml(t("platformClaw.vmAdmin.loading"))}</p>` : ""}${this.message ? `<div class="message">${escapeHtml(this.message)}</div>` : ""}
+      <section class="administration">
+            <main aria-busy="${this.loading}">${this.loading ? `<p role="status">${escapeHtml(t("platformClaw.vmAdmin.loading"))}</p>` : ""}${this.message ? `<div class="message" role="${this.messageKind === "error" ? "alert" : "status"}">${escapeHtml(this.message)}</div>` : ""}
               <div class="grid">
                 <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.endpoints"))}</h3><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.endpointHelp"))}</p>${rows(data?.endpoints.map((endpoint) => `<strong>${escapeHtml(endpoint.label)}</strong> · ${escapeHtml(endpoint.host)}:${endpoint.port} · ${escapeHtml(platformClawStatus(endpoint.status))}${endpoint.hostKeyFingerprint ? `<br><small>${escapeHtml(endpoint.hostKeyFingerprint)}</small>` : ""}<div class="actions">${endpoint.status === "active" ? `<button type="button" data-mutation="disable-endpoint" data-field="endpointId" data-id="${escapeHtml(endpoint.id)}" data-label="${escapeHtml(endpoint.label)}">${escapeHtml(t("platformClaw.vmAdmin.disableEndpoint"))}</button>` : endpoint.hostKeyFingerprint ? `<button type="button" data-mutation="enable-endpoint" data-field="endpointId" data-id="${escapeHtml(endpoint.id)}" data-label="${escapeHtml(endpoint.label)}">${escapeHtml(t("platformClaw.vmAdmin.enableEndpoint"))}</button>` : ""}</div>${endpoint.status !== "active" ? `<details><summary>${escapeHtml(t("platformClaw.vmAdmin.editAndVerify"))}</summary><form data-endpoint-probe><input type="hidden" name="endpointId" value="${escapeHtml(endpoint.id)}"><label>${escapeHtml(t("platformClaw.vmAdmin.label"))}<input name="label" value="${escapeHtml(endpoint.label)}" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.endpointHost"))}<input name="host" value="${escapeHtml(endpoint.host)}" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.port"))}<input name="port" type="number" min="1" max="65535" value="${endpoint.port}" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.adDomain"))}<input name="adDomain" value="${escapeHtml(endpoint.adDomain)}" required></label><button class="primary">${escapeHtml(t("platformClaw.vmAdmin.probeEndpoint"))}</button></form></details>` : ""}`) ?? [])}
                   <form data-endpoint-probe><label>${escapeHtml(t("platformClaw.vmAdmin.label"))}<input name="label" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.endpointHost"))}<input name="host" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.port"))}<input name="port" type="number" min="1" max="65535" value="44422" required></label><label>${escapeHtml(t("platformClaw.vmAdmin.adDomain"))}<input name="adDomain" required></label><button class="primary">${escapeHtml(t("platformClaw.vmAdmin.probeBeforeSave"))}</button></form>
@@ -461,9 +590,7 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
                 <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.allocations"))}</h3><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.allocationHelp"))}</p>${rows(data?.allocations.map((allocation) => `<strong>${escapeHtml(allocation.displayName ?? allocation.accountId)}</strong> · ${escapeHtml(allocation.vmLabel)} · ${escapeHtml(allocation.linuxAccount)} · ${escapeHtml(platformClawStatus(allocation.status))}<div class="actions"><button type="button" data-mutation="revoke-allocation" data-field="allocationId" data-id="${escapeHtml(allocation.id)}" data-label="${escapeHtml(allocation.displayName ?? allocation.accountId)}">${escapeHtml(t("platformClaw.vmAdmin.revokeAllocation"))}</button></div>`) ?? [])}</section>
                 <section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.audit"))}</h3>${rows(data?.auditEvents.map((event) => `<strong>${escapeHtml(event.eventType)}</strong> · ${escapeHtml(event.targetType)} · ${escapeHtml(new Date(event.createdAt).toLocaleString())}`) ?? [])}</section>
               </div>${this.probe ? `<section class="card probe"><h3>${escapeHtml(t("platformClaw.vmAdmin.verifyHostKey"))}</h3><p>${escapeHtml(t("platformClaw.vmAdmin.hostKeyTargetHelp"))}</p><dl><dt>DNS</dt><dd>${escapeHtml(this.probe.resolvedAddresses.join(", "))}</dd><dt>SSH</dt><dd>${escapeHtml(this.probe.sshBanner)}</dd><dt>${escapeHtml(t("platformClaw.vmAdmin.fingerprint"))}</dt><dd><code>${escapeHtml(this.probe.fingerprint)}</code></dd></dl><p class="muted">${escapeHtml(t("platformClaw.vmAdmin.keyCommentHelp"))}</p><div class="actions"><button type="button" class="primary" data-approve-probe>${escapeHtml(t("platformClaw.vmAdmin.approveAndSave"))}</button><button type="button" data-cancel-probe>${escapeHtml(t("platformClaw.vmAdmin.cancel"))}</button></div></section>` : ""}${this.pendingMutation ? `<section class="card"><h3>${escapeHtml(t("platformClaw.vmAdmin.confirmTitle"))}</h3><p>${escapeHtml(t("platformClaw.vmAdmin.confirmBody", { label: this.pendingMutation.label }))}</p><div class="actions"><button type="button" class="primary" data-confirm-mutation>${escapeHtml(t("platformClaw.vmAdmin.confirm"))}</button><button type="button" data-cancel-mutation>${escapeHtml(t("platformClaw.vmAdmin.cancel"))}</button></div></section>` : ""}<button data-refresh>${escapeHtml(t("platformClaw.vmAdmin.refresh"))}</button>
-            </main></section></openclaw-modal-dialog>`
-          : ""
-      }`;
+            </main></section>`;
     // A pending request must not leave duplicate submit or mutation controls active.
     if (this.loading) {
       for (const control of this.root.querySelectorAll<
@@ -479,23 +606,4 @@ class PlatformClawVmAdministrationElement extends HTMLElement {
 const ELEMENT_NAME = "platformclaw-vm-administration";
 if (!customElements.get(ELEMENT_NAME)) {
   customElements.define(ELEMENT_NAME, PlatformClawVmAdministrationElement);
-}
-
-export function mountPlatformClawVmAdministration(options: {
-  fetchImpl: typeof fetch;
-  onUnauthenticated: () => void;
-}): () => void {
-  const existing = document.querySelector<PlatformClawVmAdministrationElement>(ELEMENT_NAME);
-  const element =
-    existing ?? (document.createElement(ELEMENT_NAME) as PlatformClawVmAdministrationElement);
-  element.fetchImpl = options.fetchImpl;
-  element.onUnauthenticated = options.onUnauthenticated;
-  if (!existing) {
-    document.body.append(element);
-  }
-  return () => {
-    if (!existing) {
-      element.remove();
-    }
-  };
 }

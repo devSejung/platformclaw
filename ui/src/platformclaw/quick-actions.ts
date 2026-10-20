@@ -4,12 +4,10 @@ import { icons } from "../components/icons.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import "./voc-dialog.ts";
-import "./announcement-administration.ts";
 
 export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => undefined;
-  @property({ type: Boolean }) admin = false;
   @property({ type: Boolean }) vocEnabled = false;
   @state() private executionSettingsLoaded = false;
   @state() private executionTarget: "platform_server" | "assigned_vm" | null = null;
@@ -30,7 +28,6 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       gap: 4px;
     }
     platformclaw-execution-settings,
-    platformclaw-vm-administration,
     .action {
       min-width: 0;
     }
@@ -140,13 +137,13 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
           : null}
         ${this.executionSettingsLoaded
           ? html`<platformclaw-execution-settings
-              class=${this.admin ? "" : "span-two"}
+              class="span-two"
               .fetchImpl=${this.fetchImpl}
               .onUnauthenticated=${this.onUnauthenticated}
               .initialSettings=${this.executionSettingsSnapshot}
             ></platformclaw-execution-settings>`
           : html`<button
-              class="action ${this.admin ? "" : "span-two"}"
+              class="action span-two"
               type="button"
               data-action="work-location"
               @click=${() => void this.openExecutionSettings()}
@@ -163,18 +160,6 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
                 )}</span
               >
             </button>`}
-        ${this.admin
-          ? html`<platformclaw-vm-administration
-              .fetchImpl=${this.fetchImpl}
-              .onUnauthenticated=${this.onUnauthenticated}
-            ></platformclaw-vm-administration>`
-          : null}
-        ${this.admin
-          ? html`<platformclaw-announcement-administration
-              .fetchImpl=${this.fetchImpl}
-              .onUnauthenticated=${this.onUnauthenticated}
-            ></platformclaw-announcement-administration>`
-          : null}
       </div>
       ${this.vocOpen
         ? html`<platformclaw-voc-dialog

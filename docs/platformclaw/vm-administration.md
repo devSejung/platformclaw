@@ -12,6 +12,10 @@ Only an active PlatformClaw administrator can open the VM administration
 surface or call its browser API. The control-plane store repeats the same role
 check so bypassing the UI does not bypass authorization.
 
+Open **Settings > Administration > VM administration**. The Administration group
+also contains **Web announcements** and is hidden from employees. Both pages
+support direct links; VM administration uses `/platformclaw/app/settings/vms`.
+
 ## Setup order
 
 1. Add the SafeConnect endpoint host, SSH port, and AD domain.
@@ -58,6 +62,7 @@ state changes; they do not delete database history or remote files.
 Revoke active assignments before disabling a VM. Disable all active VMs before
 disabling their endpoint. A user may release their own allocation only from the
 basic workspace. The same run-boundary guard applies to administrator
-revocation, so running work is never silently moved. Re-enable and hard-delete
-flows are intentionally absent from the first release; register a new record
-when replacing infrastructure.
+revocation, so running work is never silently moved. An endpoint with an approved
+host key can be re-enabled. Re-enable its endpoint before re-enabling a VM.
+Disabled records can be edited; changed endpoint details require another
+connection probe and explicit host-key approval. Hard deletion remains unavailable.

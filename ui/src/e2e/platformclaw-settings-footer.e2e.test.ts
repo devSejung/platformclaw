@@ -3,7 +3,6 @@ import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
-import { PLATFORMCLAW_WEB_DESCRIPTOR } from "../platformclaw/web-contract.ts";
 import {
   canRunPlaywrightChromium,
   installMockGateway,
@@ -11,6 +10,7 @@ import {
   startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
+import { installPlatformClawDocument } from "./platformclaw-document.test-support.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
@@ -36,20 +36,6 @@ async function newPage(): Promise<{ context: BrowserContext; page: Page }> {
   });
   contexts.add(context);
   return { context, page: await context.newPage() };
-}
-
-async function installPlatformClawDocument(page: Page): Promise<void> {
-  const response = await page.request.get(server.baseUrl);
-  const source = await response.text();
-  const headers = response.headers();
-  await page.route("**/platformclaw/app/**", async (route) => {
-    const descriptor = `<meta name="platformclaw-web-descriptor" content='${JSON.stringify(PLATFORMCLAW_WEB_DESCRIPTOR)}'>`;
-    await route.fulfill({
-      body: source.replace("</head>", `${descriptor}</head>`),
-      headers,
-      status: response.status(),
-    });
-  });
 }
 
 async function openSettings(page: Page): Promise<void> {
@@ -123,7 +109,7 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
 
     for (const globalRole of roles) {
       const { page } = await newPage();
-      await installPlatformClawDocument(page);
+      await installPlatformClawDocument(page, server.baseUrl);
       await page.route("**/platformclaw/api/auth/session", (route) =>
         route.fulfill({ json: session(globalRole), status: 200 }),
       );
@@ -177,21 +163,10 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
         .evaluate((element) => element.getClientRects().length);
       expect(workLabelLineCount).toBe(1);
 
-      const vmAdministration = quickActions.locator("platformclaw-vm-administration");
-      if (globalRole === "admin") {
-        await page.evaluate(() => customElements.whenDefined("platformclaw-vm-administration"));
-        const vmAdministrationButton = vmAdministration.getByRole("button", {
-          name: "VM administration",
-        });
-        await expect.poll(() => vmAdministrationButton.isVisible()).toBe(true);
-        await expect
-          .poll(() =>
-            vmAdministrationButton.evaluate((button) => button.getBoundingClientRect().height),
-          )
-          .toBeLessThanOrEqual(40);
-      } else {
-        expect(await vmAdministration.count()).toBe(0);
-      }
+      expect(await quickActions.locator("platformclaw-vm-administration").count()).toBe(0);
+      expect(await quickActions.locator("platformclaw-announcement-administration").count()).toBe(
+        0,
+      );
 
       if (captureUiProofEnabled) {
         await page.screenshot({

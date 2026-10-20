@@ -48,8 +48,7 @@ Use another browser profile or sign out between the two roles:
 
 1. Sign in once as `person.one`, then sign out. This provisions the employee's
    personal Agent.
-2. Sign in as `admin.user` and open **VM administration** from the profile
-   menu.
+2. Sign in as `admin.user` and open **Settings > Administration > VM administration**.
 3. Register the endpoint and host key printed by the launcher.
 4. Register target VM `10.0.0.10`.
 5. Sign out and sign in as `person.one`.

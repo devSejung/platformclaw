@@ -1,6 +1,8 @@
 import { render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { i18n } from "../i18n/index.ts";
 import { createPlatformClawControlUiAdapter } from "./control-ui-adapter.ts";
+import { loadAllPlatformClawLocales } from "./i18n.ts";
 import { PLATFORMCLAW_WEB_DESCRIPTOR } from "./web-contract.ts";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -20,9 +22,10 @@ describe("PlatformClawControlUiAdapter", () => {
     document.body.innerHTML = "";
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     document.head.replaceChildren();
     document.body.replaceChildren();
+    await i18n.setLocale("en");
   });
 
   it("stays inactive for the unmodified upstream Control UI document", () => {
@@ -314,6 +317,46 @@ describe("PlatformClawControlUiAdapter", () => {
     );
   });
 
+  it("defers automatic announcement dialogs only on administration pages and keeps localized route labels", async () => {
+    installDescriptor();
+    await loadAllPlatformClawLocales();
+    const options = createPlatformClawControlUiAdapter()!.applicationOptions(
+      {
+        accountId: "admin.user",
+        agentId: "admin_user",
+        displayName: "Administrator",
+        department: "Platform",
+        globalRole: "admin",
+      },
+      vi.fn(),
+    );
+    await customElements.whenDefined("platformclaw-announcements");
+    const banner = document.createElement("div");
+    let viewer: Element | null = null;
+    for (const routeId of ["announcements", "vm-administration", "chat"] as const) {
+      render(options.shellSession?.renderMainBanner?.(routeId, undefined), banner);
+      const nextViewer = banner.querySelector<HTMLElement & { deferAutomatic: boolean }>(
+        "platformclaw-announcements",
+      )!;
+      expect(nextViewer.deferAutomatic).toBe(routeId !== "chat");
+      if (viewer) {
+        expect(nextViewer).toBe(viewer);
+      }
+      viewer = nextViewer;
+    }
+    const copy = options.navigation?.routeCopy;
+    const title = (routeId: "announcements" | "vm-administration") => {
+      const value = copy?.[routeId]?.title;
+      return typeof value === "function" ? value() : value;
+    };
+    await i18n.setLocale("en");
+    expect(title("announcements")).toBe("Web announcements");
+    expect(title("vm-administration")).toBe("VM administration");
+    await i18n.setLocale("ko");
+    expect(title("announcements")).toBe("웹 공지 관리");
+    expect(title("vm-administration")).toBe("VM 관리");
+  });
+
   it("keeps account accessories compact and exposes the MCP route by role", async () => {
     installDescriptor();
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {
@@ -356,6 +399,8 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(adminOptions.enabledRouteIds).toContain("plugins");
     expect(adminOptions.enabledRouteIds).toContain("mcp");
     expect(adminOptions.enabledRouteIds).toContain("credentials");
+    expect(adminOptions.enabledRouteIds).toContain("announcements");
+    expect(adminOptions.enabledRouteIds).toContain("vm-administration");
     expect(adminOptions.navigation?.sidebarEntries).toEqual([
       "route:spaces",
       "route:cron",
@@ -377,17 +422,29 @@ describe("PlatformClawControlUiAdapter", () => {
       adminQuickActions.shadowRoot?.querySelectorAll('[data-action="work-location"]'),
     ).toHaveLength(1);
     expect(
-      adminQuickActions.shadowRoot?.querySelectorAll("platformclaw-vm-administration"),
-    ).toHaveLength(1);
-    await customElements.whenDefined("platformclaw-vm-administration");
-    const administration = adminQuickActions.shadowRoot?.querySelector(
-      "platformclaw-vm-administration",
-    ) as HTMLElement & {
-      fetchImpl: typeof fetch;
-      onUnauthenticated: () => void;
-    };
-    expect(administration.fetchImpl).toBe(fetchImpl);
-    administration.onUnauthenticated();
+      adminQuickActions.shadowRoot?.querySelector("platformclaw-vm-administration"),
+    ).toBeNull();
+    expect(
+      adminQuickActions.shadowRoot?.querySelector("platformclaw-announcement-administration"),
+    ).toBeNull();
+    const administrationPages = document.createElement("div");
+    for (const [routeId, tag] of [
+      ["announcements", "platformclaw-announcement-administration"],
+      ["vm-administration", "platformclaw-vm-administration"],
+    ] as const) {
+      const module = await adminOptions.routeOverrides?.[routeId]?.component?.();
+      render(module?.render(undefined), administrationPages);
+      const page = administrationPages.querySelector<
+        HTMLElement & {
+          fetchImpl: typeof fetch;
+          onUnauthenticated: () => void;
+        }
+      >(tag)!;
+      expect(page).not.toBeNull();
+      expect(page.fetchImpl).toBe(fetchImpl);
+      expect(administrationPages.querySelectorAll(".page-title")).toHaveLength(1);
+      page.onUnauthenticated();
+    }
     expect(navigate).toHaveBeenCalledWith("/platformclaw/login");
     const adminCredentialsModule = await adminOptions.routeOverrides?.credentials?.component?.();
     render(adminCredentialsModule?.render(undefined), document.body);
@@ -409,6 +466,10 @@ describe("PlatformClawControlUiAdapter", () => {
       vi.fn(),
     );
     expect(memberOptions.enabledRouteIds).not.toContain("plugins");
+    for (const routeId of ["announcements", "vm-administration"] as const) {
+      expect(memberOptions.enabledRouteIds).not.toContain(routeId);
+      expect(memberOptions.routeOverrides?.[routeId]).toBeUndefined();
+    }
     expect(memberOptions.enabledRouteIds).toContain("mcp");
     expect(memberOptions.enabledRouteIds).toContain("credentials");
     expect(memberOptions.navigation?.sidebarEntries).toEqual([

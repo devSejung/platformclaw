@@ -32,6 +32,28 @@ describe("application router registration", () => {
     }
   });
 
+  it.each([
+    ["announcements", "/settings/announcements"],
+    ["vm-administration", "/settings/vms"],
+  ] as const)(
+    "registers %s only for the product that enables and supplies it",
+    (routeId, pathname) => {
+      expect(APP_ROUTE_IDS).not.toContain(routeId);
+      expect(router.getRoute(routeId)).toBeNull();
+      const component = async () => ({ render: () => routeId });
+      const embedded = createApplicationRouter([routeId], { [routeId]: { component } });
+      expect(embedded.getRoute(routeId)?.path).toBe(pathname);
+      expect(embedded.routeIdFromPath(`/platformclaw/app${pathname}`, "/platformclaw/app")).toBe(
+        routeId,
+      );
+      expect(pathForRoute(routeId, "/platformclaw/app")).toBe(`/platformclaw/app${pathname}`);
+      expect(
+        router.routeIdFromPath(`/platformclaw/app${pathname}`, "/platformclaw/app"),
+      ).toBeNull();
+      expect(createApplicationRouter([routeId]).getRoute(routeId)).toBeNull();
+    },
+  );
+
   it("keeps chat registered as the restricted-route fallback", () => {
     const restricted = createApplicationRouter(["new-session"]);
 

@@ -115,6 +115,66 @@ describe("settings sidebar search", () => {
     expect(labels()).toEqual([]);
   });
 
+  it.each([true, false])(
+    "renders and searches administration pages only when enabled (%s)",
+    (enabled) => {
+      const onNavigate = vi.fn();
+      const show = (searchQuery: string) =>
+        render(
+          renderSettingsSidebar({
+            basePath: "/platformclaw/app",
+            activeRouteId: "vm-administration",
+            offline: false,
+            lastError: null,
+            gatewayVersion: "",
+            updateAvailable: null,
+            updateRunning: false,
+            onUpdate: vi.fn(),
+            searchQuery,
+            onExit: vi.fn(),
+            onRetryConnect: vi.fn(),
+            onNavigate,
+            onSearchQueryChange: vi.fn(),
+            preloadTimers: new Map(),
+            saveIndicator: saveIndicator(),
+            isRouteEnabled: (routeId) =>
+              enabled && (routeId === "announcements" || routeId === "vm-administration"),
+            navigationCopy: {
+              announcements: {
+                title: "Web announcements",
+                subtitle: "Announcements for web users",
+              },
+              "vm-administration": {
+                title: "VM administration",
+                subtitle: "SafeConnect and VM hosts",
+              },
+            },
+          }),
+          container,
+        );
+      const labels = () =>
+        [...container.querySelectorAll(".settings-sidebar__item-label")].map((element) =>
+          element.textContent?.trim(),
+        );
+      show("");
+      expect(labels()).toEqual(enabled ? ["Web announcements", "VM administration"] : []);
+      expect(container.textContent?.includes("Administration")).toBe(enabled);
+      if (enabled) {
+        const vmLink = container.querySelector<HTMLAnchorElement>(
+          '[href="/platformclaw/app/settings/vms"]',
+        )!;
+        expect(vmLink.getAttribute("aria-current")).toBe("page");
+        expect(vmLink.querySelector("svg")?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+        vmLink.click();
+        expect(onNavigate).toHaveBeenCalledWith("vm-administration");
+      }
+      show("administration");
+      expect(labels()).toEqual(enabled ? ["VM administration", "Web announcements"] : []);
+      show("announcements");
+      expect(labels()).toEqual(enabled ? ["Web announcements"] : []);
+    },
+  );
+
   it("keeps Models selected while its setup flow is open", () => {
     render(
       renderSettingsSidebar({

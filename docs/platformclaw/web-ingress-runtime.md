@@ -460,12 +460,12 @@ flag and never receives the Jira URL or credential.
 
 ## Publish a web announcement
 
-Open **Web announcements** in the administrator menu. Enter a title, plain text
+Open **Settings > Administration > Web announcements**. Enter a title, plain text
 message, type, and exposure end time, then select **Preview** and **Publish**.
 Maintenance notices also require a scheduled maintenance time. Times are entered
 in the browser's displayed local time zone and stored as UTC timestamps. There
 is one current announcement; publishing a new one replaces it. Reopen the same
-menu to preview an edit or confirm cancellation. Reload after a revision conflict
+page to preview an edit or confirm cancellation. Reload after a revision conflict
 before editing again.
 
 General notices appear above every signed-in web page. Maintenance notices also
@@ -490,7 +490,9 @@ authenticated, Origin-checked `POST /platformclaw/api/announcements/seen` and
 serialize competing tabs/devices through SQLite. Claims prioritize at-most-once
 automatic display: if the response is lost or the tab closes before rendering,
 the automatic dialog may be skipped. The persistent banner and manual reopen
-remain available. Dialogs wait for an existing modal to close.
+remain available. Automatic dialogs wait for an existing modal to close and
+while either Administration settings page is open. Leaving administration
+resumes eligible automatic presentation; manual viewing remains available.
 
 The shipped Compose profile runs one `platformclaw-control` BFF with a persistent
 control database volume. Local BFF WebSocket signals carry no announcement
