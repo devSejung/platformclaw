@@ -120,26 +120,44 @@ export const vmAdministrationStyles = css`
   }
   .tabs {
     max-width: 100%;
-    display: flex;
-    gap: 5px;
-    overflow: auto;
     min-width: 0;
-    border-bottom: 1px solid var(--border);
+    --indicator-color: transparent;
+    --track-color: var(--border);
+    --track-width: 1px;
+  }
+  .tabs::part(body) {
+    display: none;
+  }
+  .tabs::part(tabs) {
+    gap: 5px;
     padding-bottom: 9px;
   }
-  .tabs button {
-    flex: none;
-    background: transparent;
-    border-color: transparent;
+  .tabs wa-tab {
+    font: inherit;
     color: var(--muted);
-    padding: 7px 9px;
   }
-  .tabs button[aria-selected="true"] {
+  .tabs wa-tab::part(base) {
+    gap: 7px;
+    padding: 7px 9px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    font: inherit;
+    color: inherit;
+  }
+  .tabs wa-tab[active]::part(base) {
     background: var(--accent-subtle);
     color: var(--accent);
     border-color: var(--border);
   }
-  .count {
+  .tabs wa-tab:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+    border-radius: var(--radius-md);
+  }
+  .tabs wa-tab:focus-visible::part(base) {
+    outline: none;
+  }
+  .hub-tab__badge {
     font-size: 11px;
     border-radius: var(--radius-full);
     padding: 1px 5px;
@@ -556,7 +574,7 @@ export const vmAdministrationStyles = css`
       max-width: 100%;
       margin-inline: -2px;
     }
-    .tabs button {
+    .tabs wa-tab::part(base) {
       padding: 7px 6px;
       font-size: 12px;
     }

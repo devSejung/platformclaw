@@ -1,5 +1,4 @@
 export const vmAdminTranslations: Readonly<Record<string, string>> = {
-  "platformClaw.vmAdmin.open": "VM 관리",
   "platformClaw.vmAdmin.title": "VM 관리",
   "platformClaw.vmAdmin.intro": "신뢰할 연결, 개발 VM, 사용자 할당을 관리합니다.",
   "platformClaw.vmAdmin.overview": "VM 관리 현황",
@@ -76,21 +75,15 @@ export const vmAdminTranslations: Readonly<Record<string, string>> = {
     "이 VM의 SafeConnect 연결 지점을 먼저 사용 설정하세요.",
   "platformClaw.vmAdmin.revokeAllocation": "할당 회수",
   "platformClaw.vmAdmin.confirmTitle": "변경 확인",
-  "platformClaw.vmAdmin.confirmBody":
-    "{label}에 이 변경을 적용할까요? 실행 중인 작업은 자동으로 이동하지 않습니다.",
   "platformClaw.vmAdmin.confirm": "확인",
   "platformClaw.vmAdmin.cancel": "취소",
   "platformClaw.vmAdmin.audit": "최근 VM 감사 기록",
-  "platformClaw.vmAdmin.noItems": "아직 설정된 항목이 없습니다.",
   "platformClaw.vmAdmin.label": "이름",
   "platformClaw.vmAdmin.endpointHost": "SafeConnect 호스트",
   "platformClaw.vmAdmin.port": "SSH 포트",
   "platformClaw.vmAdmin.adDomain": "AD 도메인",
   "platformClaw.vmAdmin.createEndpoint": "연결 지점 추가",
   "platformClaw.vmAdmin.probeBeforeSave": "저장 전 연결 검사",
-  "platformClaw.vmAdmin.probeEndpoint": "연결 및 호스트 키 검사",
-  "platformClaw.vmAdmin.probeSucceeded":
-    "DNS, TCP, SSH 배너, ED25519 호스트 키 검사를 통과했습니다.",
   "platformClaw.vmAdmin.verifyHostKey": "SafeConnect 호스트 키 확인",
   "platformClaw.vmAdmin.hostKeyTargetHelp":
     "이 키는 개발 VM 키가 아니라 SafeConnect SSH 서버의 키입니다. 승인 전 신뢰할 수 있는 경로로 지문을 확인하세요.",
@@ -101,10 +94,7 @@ export const vmAdminTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vmAdmin.edit": "수정",
   "platformClaw.vmAdmin.saveChanges": "변경 저장",
   "platformClaw.vmAdmin.endpoint": "연결 지점",
-  "platformClaw.vmAdmin.algorithm": "호스트 키 알고리즘",
-  "platformClaw.vmAdmin.publicKey": "호스트 공개 키",
   "platformClaw.vmAdmin.fingerprint": "확인된 지문",
-  "platformClaw.vmAdmin.approveKey": "호스트 키 승인",
   "platformClaw.vmAdmin.vmLabel": "VM 이름",
   "platformClaw.vmAdmin.targetAddress": "대상 VM 주소",
   "platformClaw.vmAdmin.executionEnvironment": "빌드 환경",
@@ -116,7 +106,4 @@ export const vmAdminTranslations: Readonly<Record<string, string>> = {
     "비밀이 아닌 빌드 설정만 입력하세요. 셸, 로더, OpenClaw, PlatformClaw 예약 변수는 거부됩니다.",
   "platformClaw.vmAdmin.saveEnvironment": "빌드 환경 저장",
   "platformClaw.vmAdmin.createHost": "VM 추가",
-  "platformClaw.vmAdmin.employee": "사용자",
-  "platformClaw.vmAdmin.vm": "개발 VM",
-  "platformClaw.vmAdmin.linuxAccount": "Linux 계정",
 };

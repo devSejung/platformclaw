@@ -55,7 +55,7 @@ function click(root: ShadowRoot, selector: string): void {
   if (!button) {
     throw new Error(`Missing administration control: ${selector}`);
   }
-  button.click();
+  button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
 }
 
 async function openEditor(root: ShadowRoot, selector: string, tab = "hosts") {
@@ -65,7 +65,7 @@ async function openEditor(root: ShadowRoot, selector: string, tab = "hosts") {
   await vi.waitFor(() =>
     expect(root.querySelector<HTMLButtonElement>("[data-refresh]")?.disabled).toBe(false),
   );
-  click(root, `[data-admin-tab='${tab}']`);
+  click(root, `wa-tab[panel='${tab}']`);
   await vi.waitFor(() => expect(root.querySelector(selector)).not.toBeNull());
   click(root, selector);
   await vi.waitFor(() =>
@@ -95,7 +95,7 @@ describe("PlatformClaw VM administration", () => {
     );
 
     expect(
-      element.shadowRoot?.querySelector("[data-admin-tab='hosts'][aria-selected='true']"),
+      element.shadowRoot?.querySelector("wa-tab[panel='hosts'][aria-selected='true']"),
     ).not.toBeNull();
     expect(fetchImpl).toHaveBeenCalledWith(
       "/platformclaw/api/admin/vm",
@@ -238,7 +238,7 @@ describe("PlatformClaw VM administration", () => {
         false,
       ),
     );
-    click(element.shadowRoot!, "[data-admin-tab='allocations']");
+    click(element.shadowRoot!, "wa-tab[panel='allocations']");
     await vi.waitFor(() =>
       expect(
         element.shadowRoot?.querySelector("[data-mutation='revoke-allocation']"),
@@ -384,7 +384,7 @@ describe("PlatformClaw VM administration", () => {
     await vi.waitFor(() =>
       expect(root.querySelector<HTMLButtonElement>("[data-refresh]")?.disabled).toBe(false),
     );
-    click(root, "[data-admin-tab='allocations']");
+    click(root, "wa-tab[panel='allocations']");
     await vi.waitFor(() => expect(root.querySelector("[data-mutation]")).not.toBeNull());
     root.querySelector<HTMLButtonElement>("[data-mutation]")!.click();
     await vi.waitFor(() => expect(root.querySelector("[data-confirm-mutation]")).not.toBeNull());

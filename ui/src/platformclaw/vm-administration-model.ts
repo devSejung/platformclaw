@@ -13,8 +13,8 @@ export type VmAdminHost = Pick<
   Host,
   "id" | "endpointId" | "label" | "targetAddress" | "status" | "executionEnvironment"
 >;
-export type VmAdminAllocation = AdministrationSnapshot["allocations"][number];
-export type VmAdminProbe = SafeConnectProbeResult;
+type VmAdminAllocation = AdministrationSnapshot["allocations"][number];
+type VmAdminProbe = SafeConnectProbeResult;
 export type VmAdminSnapshot = {
   endpoints: VmAdminEndpoint[];
   hosts: VmAdminHost[];
@@ -30,7 +30,7 @@ export type VmAdminSnapshot = {
 };
 export type VmAdminTab = "hosts" | "endpoints" | "allocations" | "audit";
 export type VmEnvironmentDraft = { pathPrepend: string; environmentVariables: string };
-export type VmHostDraft = VmEnvironmentDraft & {
+type VmHostDraft = VmEnvironmentDraft & {
   endpointId: string;
   label: string;
   targetAddress: string;

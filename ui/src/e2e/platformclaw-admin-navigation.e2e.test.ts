@@ -175,7 +175,7 @@ suite("PlatformClaw administration settings navigation", () => {
           await expect.poll(() => component.locator("[data-refresh]").isEnabled()).toBe(true);
           expect(await component.locator("form").count()).toBe(0);
           expect(
-            await component.locator("[data-admin-tab='hosts']").getAttribute("aria-selected"),
+            await component.locator("wa-tab[panel='hosts']").getAttribute("aria-selected"),
           ).toBe("true");
           expect(
             await component

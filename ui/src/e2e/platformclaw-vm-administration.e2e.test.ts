@@ -281,10 +281,23 @@ suite("PlatformClaw VM administration", () => {
         const component = page.locator("platformclaw-vm-administration");
         const modal = component.locator("[data-admin-modal]");
         await expect.poll(() => component.locator("[data-refresh]").isEnabled()).toBe(true);
-        expect(
-          await component.locator("[data-admin-tab='hosts']").getAttribute("aria-selected"),
-        ).toBe("true");
+        expect(await component.locator("wa-tab[panel='hosts']").getAttribute("aria-selected")).toBe(
+          "true",
+        );
         expect(await component.locator("[role='tab']").count()).toBe(4);
+        const hostsTab = component.locator("wa-tab[panel='hosts']");
+        const endpointsTab = component.locator("wa-tab[panel='endpoints']");
+        await hostsTab.press("ArrowRight");
+        expect(await hostsTab.getAttribute("aria-selected")).toBe("true");
+        await endpointsTab.press("Enter");
+        await expect.poll(() => endpointsTab.getAttribute("aria-selected")).toBe("true");
+        expect(await component.locator("#admin-panel").getAttribute("aria-labelledby")).toBe(
+          "admin-tab-endpoints",
+        );
+        await endpointsTab.press("Home");
+        await hostsTab.press("Enter");
+        await expect.poll(() => hostsTab.getAttribute("aria-selected")).toBe("true");
+
         expect(await component.locator("form").count()).toBe(0);
         await closed(component);
         expect(
@@ -294,7 +307,7 @@ suite("PlatformClaw VM administration", () => {
         ).toBe(true);
         expect(await component.textContent()).not.toContain("platformClaw.vmAdmin.");
         await screenshot(page, `${name}-01-overview.png`);
-        await component.locator("[data-admin-tab='endpoints']").click();
+        await component.locator("wa-tab[panel='endpoints']").click();
         await expect
           .poll(() =>
             component.locator("[data-endpoint-id='endpoint-pending'] .badge").textContent(),
@@ -321,7 +334,7 @@ suite("PlatformClaw VM administration", () => {
         await expect.poll(() => component.locator("[data-refresh]").isEnabled()).toBe(true);
         await closed(component);
         expect(await component.locator("[data-confirm-mutation]").count()).toBe(0);
-        await component.locator("[data-admin-tab='endpoints']").click();
+        await component.locator("wa-tab[panel='endpoints']").click();
         await enableEndpoint.click();
         const native = await modal.locator("dialog").elementHandle();
         expect(native).not.toBeNull();
@@ -370,7 +383,7 @@ suite("PlatformClaw VM administration", () => {
             .locator("[data-endpoint-id='endpoint-1'] [data-mutation='disable-endpoint']")
             .isEnabled(),
         ).toBe(true);
-        await component.locator("[data-admin-tab='hosts']").click();
+        await component.locator("wa-tab[panel='hosts']").click();
         await component.locator("[data-add-host]").click();
         expect(
           await modal.locator("form[data-action='hosts'] [name='endpointId']").inputValue(),
@@ -443,7 +456,7 @@ suite("PlatformClaw VM administration", () => {
         await page.keyboard.press("Escape");
         await closed(component);
         expect(await component.locator("[data-add-host]").isDisabled()).toBe(true);
-        expect(await component.locator("[data-admin-tab='audit']").isEnabled()).toBe(true);
+        expect(await component.locator("wa-tab[panel='audit']").isEnabled()).toBe(true);
         await component.locator("[data-view-progress]").click();
         await expect
           .poll(() =>

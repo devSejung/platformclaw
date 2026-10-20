@@ -1,5 +1,6 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { ref } from "lit/directives/ref.js";
+import { renderHubTabs } from "../components/hub-tabs.ts";
 import { icons } from "../components/icons.ts";
 import type { OpenClawModalDialog } from "../components/modal-dialog.ts";
 import { i18n } from "../i18n/index.ts";
@@ -292,40 +293,15 @@ export function renderVmAdministrationPage(options: VmAdminViewOptions) {
       </div>
     </section>
     <div class="toolbar">
-      <div class="tabs" role="tablist" aria-label=${copy("sections")}>
-        ${tabs.map(
-          (tab) =>
-            html`<button
-              role="tab"
-              id=${`admin-tab-${tab.id}`}
-              data-admin-tab=${tab.id}
-              aria-selected=${String(options.tab === tab.id)}
-              aria-controls="admin-panel"
-              tabindex=${options.tab === tab.id ? 0 : -1}
-              @click=${() => options.onTab(tab.id)}
-              @keydown=${(event: KeyboardEvent) => {
-                const direction =
-                  event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-                if (!direction && event.key !== "Home" && event.key !== "End") {
-                  return;
-                }
-                event.preventDefault();
-                const index =
-                  event.key === "Home"
-                    ? 0
-                    : event.key === "End"
-                      ? tabs.length - 1
-                      : (tabs.indexOf(tab) + direction + tabs.length) % tabs.length;
-                options.onTab(tabs[index]!.id);
-                (event.currentTarget as HTMLElement).parentElement
-                  ?.querySelector<HTMLButtonElement>(`[data-admin-tab='${tabs[index]!.id}']`)
-                  ?.focus();
-              }}
-            >
-              ${copy(tab.label)}<span class="count">${tab.count}</span>
-            </button>`,
-        )}
-      </div>
+      ${renderHubTabs({
+        id: "admin",
+        active: options.tab,
+        tabs: tabs.map((tab) => ({ value: tab.id, label: copy(tab.label), count: tab.count })),
+        ariaLabel: copy("sections"),
+        panelId: "admin-panel",
+        className: "tabs",
+        onSelect: options.onTab,
+      })}
       <button data-refresh ?disabled=${options.busy} @click=${options.onRefresh}>
         ${copy("refresh")}
       </button>
@@ -392,7 +368,7 @@ export function renderVmAdministrationPage(options: VmAdminViewOptions) {
   </main>`;
 }
 
-export function vmAdminDialogTitle(dialog: VmAdminDialog | null): string {
+function vmAdminDialogTitle(dialog: VmAdminDialog | null): string {
   if (!dialog) {
     return copy("title");
   }
