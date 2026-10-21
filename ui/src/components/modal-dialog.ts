@@ -1,10 +1,27 @@
 // Control UI adapter for Web Awesome's accessible modal dialog.
 import "@awesome.me/webawesome/dist/components/dialog/dialog.js";
 import type WaDialog from "@awesome.me/webawesome/dist/components/dialog/dialog.js";
-import { css, html } from "lit";
+import { css, html, nothing } from "lit";
 import { property, query } from "lit/decorators.js";
 import { wasPointerActivation } from "../lib/pointer-activation.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
+
+/** Keep one modal instance while an owner switches loading, error, and content templates. */
+export function renderModalDialog(options: {
+  label: string;
+  className?: string;
+  style?: string;
+  onCancel: (event: Event) => unknown;
+  content: unknown;
+}) {
+  return html`<openclaw-modal-dialog
+    label=${options.label}
+    class=${options.className ?? nothing}
+    style=${options.style ?? nothing}
+    @modal-cancel=${options.onCancel}
+    >${options.content}</openclaw-modal-dialog
+  >`;
+}
 
 // Settings Escape must still see a pending modal after disabling its focused
 // action moves focus to body; the native dialog itself lives in a shadow root.
