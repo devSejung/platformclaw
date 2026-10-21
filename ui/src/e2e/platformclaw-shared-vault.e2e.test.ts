@@ -230,14 +230,17 @@ suite("Shared Knowledge Vault browser experience", () => {
         expect(await reader.locator("[data-knowledge-document]").getAttribute("class")).toBe(
           personalClasses,
         );
-        expect(
-          await reader
-            .getByRole("button", {
-              name: owner ? "Markdown 다운로드" : "Download Markdown",
-              exact: true,
-            })
-            .count(),
-        ).toBe(1);
+        // The reader DOM precedes the modal's first-frame accessibility handoff.
+        await expect
+          .poll(() =>
+            reader
+              .getByRole("button", {
+                name: owner ? "Markdown 다운로드" : "Download Markdown",
+                exact: true,
+              })
+              .count(),
+          )
+          .toBe(1);
         await screenshot(page, `${name}-shared-reader.png`, reader);
         const bounds = await reader.locator("[data-knowledge-document]").boundingBox();
         expect(bounds!.width).toBeLessThanOrEqual(width);

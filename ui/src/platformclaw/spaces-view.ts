@@ -10,6 +10,7 @@ import { renderCopyButton } from "../components/copy-button.ts";
 import { renderHubTabs } from "../components/hub-tabs.ts";
 import { icons } from "../components/icons.ts";
 import { toSanitizedMarkdownHtml } from "../components/markdown.ts";
+import { wasPointerActivation } from "../lib/pointer-activation.ts";
 import { platformClawT } from "./i18n.ts";
 import {
   renderSpaceConversation,
@@ -566,7 +567,9 @@ export function renderSpacesView(p: SpacesViewProps) {
     class="pc-spaces ${p.navigationOpen ? "pc-spaces--navigation" : ""} ${hasPanel
       ? "pc-spaces--panel"
       : ""}"
+    ?data-pointer-input=${wasPointerActivation()}
     @keydown=${(event: KeyboardEvent) => {
+      (event.currentTarget as HTMLElement).removeAttribute("data-pointer-input");
       if (event.key === "Escape" && !p.busy) {
         if (hasPanel) {
           p.onClosePanel();

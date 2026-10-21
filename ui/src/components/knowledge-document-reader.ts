@@ -1,5 +1,5 @@
 import { html, nothing } from "lit";
-import "./modal-dialog.ts";
+import { renderModalDialog } from "./modal-dialog.ts";
 import "../styles/dreams.css";
 import "../styles/knowledge-document.css";
 
@@ -12,12 +12,11 @@ export function renderKnowledgeDocumentReader(options: {
   closeLabel: string;
   onClose: () => void;
 }) {
-  return html`<openclaw-modal-dialog
-    label=${options.title}
-    style="--openclaw-modal-width:1120px"
-    @modal-cancel=${options.onClose}
-  >
-    <div
+  return renderModalDialog({
+    label: options.title,
+    style: "--openclaw-modal-width:1120px",
+    onCancel: options.onClose,
+    content: html`<div
       class="wiki-hub__preview dreams-diary__preview-panel"
       data-knowledge-document
       data-vault-document=${options.vaultDocument ? "" : nothing}
@@ -37,6 +36,6 @@ export function renderKnowledgeDocumentReader(options: {
         </div>
       </header>
       <div class="wiki-hub__preview-body dreams-diary__preview-body">${options.content}</div>
-    </div></openclaw-modal-dialog
-  >`;
+    </div>`,
+  });
 }

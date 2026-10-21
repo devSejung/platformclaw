@@ -1,9 +1,27 @@
 // Control UI adapter for Web Awesome's accessible modal dialog.
 import "@awesome.me/webawesome/dist/components/dialog/dialog.js";
 import type WaDialog from "@awesome.me/webawesome/dist/components/dialog/dialog.js";
-import { css, html } from "lit";
+import { css, html, nothing } from "lit";
 import { property, query } from "lit/decorators.js";
+import { wasPointerActivation } from "../lib/pointer-activation.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
+
+/** Keep one modal instance while an owner switches loading, error, and content templates. */
+export function renderModalDialog(options: {
+  label: string;
+  className?: string;
+  style?: string;
+  onCancel: (event: Event) => unknown;
+  content: unknown;
+}) {
+  return html`<openclaw-modal-dialog
+    label=${options.label}
+    class=${options.className ?? nothing}
+    style=${options.style ?? nothing}
+    @modal-cancel=${options.onCancel}
+    >${options.content}</openclaw-modal-dialog
+  >`;
+}
 
 // Settings Escape must still see a pending modal after disabling its focused
 // action moves focus to body; the native dialog itself lives in a shadow root.
@@ -60,6 +78,37 @@ export class OpenClawModalDialog extends OpenClawLitElement {
       background: transparent;
       color: var(--text);
       overflow: visible;
+      /* Web Awesome waits for animationend on this node, not transitionend.
+         Keep entry on its body so show/hide always finish their native lifecycle. */
+      animation: none;
+    }
+
+    wa-dialog::part(dialog)::backdrop {
+      animation: none;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      :host([data-pointer-motion]) wa-dialog::part(body) {
+        opacity: 1;
+        transform: scale(1);
+        transition:
+          transform var(--duration-normal) var(--ease-out),
+          opacity var(--duration-normal) var(--ease-out);
+
+        @starting-style {
+          opacity: 0;
+          transform: scale(0.97);
+        }
+      }
+
+      :host(.drawer[data-pointer-motion]) wa-dialog::part(body) {
+        transform: translateX(0);
+
+        @starting-style {
+          opacity: 0.85;
+          transform: translateX(8px);
+        }
+      }
     }
 
     wa-dialog::part(body) {
@@ -260,6 +309,10 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     if (event.target !== event.currentTarget) {
       return;
     }
+    this.toggleAttribute(
+      "data-pointer-motion",
+      wasPointerActivation() && !this.matches(".palette, .nav-drawer"),
+    );
     // Web Awesome focuses native chrome in its first animation frame because it
     // cannot see slotted autofocus fields. Expose inputs only after that frame
     // so its focus cannot redirect typing into the wrong field.
@@ -314,6 +367,8 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     if (event.target !== event.currentTarget) {
       return;
     }
+    // Closing retires visual entry immediately; no private content is retained for exit.
+    this.removeAttribute("data-pointer-motion");
     if (this.suppressNextCancel) {
       this.focusGeneration += 1;
       this.suppressNextCancel = false;

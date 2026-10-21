@@ -526,7 +526,10 @@ describeConformance("MCP App Control UI and standalone host conformance", () => 
   }, 120_000);
 
   it("drives the authenticated Control UI and ticketed standalone bridges", async () => {
-    const controlContext = await browser.newContext({ permissions: ["local-network-access"] });
+    const controlContext = await browser.newContext({
+      locale: "en-US",
+      permissions: ["local-network-access"],
+    });
     openContexts.add(controlContext);
     const controlPage = await controlContext.newPage();
     const browserDiagnostics: string[] = [];
@@ -629,7 +632,10 @@ describeConformance("MCP App Control UI and standalone host conformance", () => 
     expect(detachedDiagnostic).toBeGreaterThan(teardownDiagnostic);
     await expect.poll(() => controlPage.frames().length).toBe(1);
 
-    const standaloneContext = await browser.newContext({ permissions: ["local-network-access"] });
+    const standaloneContext = await browser.newContext({
+      locale: "en-US",
+      permissions: ["local-network-access"],
+    });
     openContexts.add(standaloneContext);
     const authorizationHeaders: string[] = [];
     const requestUrls: string[] = [];

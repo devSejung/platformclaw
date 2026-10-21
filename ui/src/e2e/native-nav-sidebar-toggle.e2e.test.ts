@@ -316,7 +316,7 @@ describeControlUiE2e("Control UI native-nav sidebar toggle E2E", () => {
       .toBe(true);
   });
 
-  it("keeps the mobile drawer modal, keyboard-contained, and focus-restoring", async () => {
+  it("keeps the mobile drawer native-modal, keyboard-accessible, and focus-restoring", async () => {
     const page = await openPage({
       nativeNav: false,
       scenario: {
@@ -356,9 +356,30 @@ describeControlUiE2e("Control UI native-nav sidebar toggle E2E", () => {
 
     for (const key of ["Tab", "Tab", "Shift+Tab", "Shift+Tab"] as const) {
       await page.keyboard.press(key);
+      // Native dialogs include browser chrome in their focus cycle (whatwg/html#8339).
+      // The page behind the dialog must stay inert; browser UI is not a page focus leak.
       await expect
-        .poll(() => navigation.evaluate((element) => element.contains(document.activeElement)))
+        .poll(() =>
+          navigation.evaluate(
+            (element) =>
+              element.contains(document.activeElement) ||
+              (document.activeElement === document.body && !document.hasFocus()),
+          ),
+        )
         .toBe(true);
+      expect(await dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+      expect(
+        await page.locator("#control-ui-main").evaluate((element) => {
+          element.focus();
+          return element === document.activeElement;
+        }),
+      ).toBe(false);
+      if (await page.evaluate(() => !document.hasFocus())) {
+        await page.keyboard.press("Tab");
+        await expect
+          .poll(() => navigation.evaluate((element) => element.contains(document.activeElement)))
+          .toBe(true);
+      }
     }
 
     expect(

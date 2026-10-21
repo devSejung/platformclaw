@@ -65,8 +65,31 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
   private request = 0;
   private requestedDocumentId = "";
   private requestedHeading = "";
+  private focusedReaderControl: HTMLElement | null = null;
+
+  protected override willUpdate() {
+    const active = this.ownerDocument.activeElement;
+    this.focusedReaderControl =
+      active instanceof HTMLElement &&
+      this.querySelector(":scope > openclaw-modal-dialog")?.contains(active)
+        ? active
+        : null;
+  }
 
   protected override updated(changed: PropertyValues) {
+    const focused = this.focusedReaderControl;
+    this.focusedReaderControl = null;
+    // Reader states replace controls inside the same modal. Restore only
+    // focus lost with that control; never steal focus the user moved elsewhere.
+    if (
+      focused &&
+      !focused.isConnected &&
+      this.ownerDocument.activeElement === this.ownerDocument.body
+    ) {
+      this.querySelector<HTMLElement>(
+        ".wiki-document__actions button:last-child, .vaults__heading button",
+      )?.focus({ preventScroll: true });
+    }
     const identityChanged = ["client", "agentId", "selection"].some((key) => changed.has(key));
     if (identityChanged) {
       this.request++;
@@ -238,6 +261,8 @@ class PlatformClawVaultReader extends OpenClawLightDomElement {
         onClose: () => {
           this.deleting = false;
           this.error = "";
+          // Dismiss the confirmation while keeping the reader's retained modal open.
+          return false;
         },
         content: html`<p><strong>${this.document.title}</strong></p>
           <p>${t("deleteDocumentHint")}</p>

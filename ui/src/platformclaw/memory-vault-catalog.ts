@@ -4,7 +4,7 @@ import type { GatewayBrowserClient } from "../api/gateway.ts";
 import "../pages/config/memory-memories.ts";
 import { renderHubTabs } from "../components/hub-tabs.ts";
 import { icons } from "../components/icons.ts";
-import "../components/modal-dialog.ts";
+import { renderModalDialog } from "../components/modal-dialog.ts";
 import { renderSettingsToggle } from "../components/settings-ui.ts";
 import { platformClawT } from "./i18n.ts";
 
@@ -168,18 +168,17 @@ export function renderVaultDialog(options: {
   error: string;
   onClose: () => boolean | void;
 }) {
-  return html`<openclaw-modal-dialog
-    class="vaults__modal"
-    label=${options.title}
-    @modal-cancel=${(event: Event) => {
+  return renderModalDialog({
+    className: "vaults__modal",
+    label: options.title,
+    onCancel: (event) => {
       if (options.busy) {
         event.preventDefault();
       } else if (options.onClose() === false) {
         event.preventDefault();
       }
-    }}
-  >
-    <section class="vaults__dialog">
+    },
+    content: html`<section class="vaults__dialog">
       <header class="vaults__heading">
         <h2>${options.title}</h2>
         <button
@@ -194,8 +193,8 @@ export function renderVaultDialog(options: {
       </header>
       ${options.error ? html`<p class="callout danger" role="alert">${options.error}</p>` : nothing}
       ${options.content}
-    </section>
-  </openclaw-modal-dialog>`;
+    </section>`,
+  });
 }
 
 export function renderVaultSearch(options: {

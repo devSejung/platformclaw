@@ -1,5 +1,7 @@
 import { html, nothing, type ReactiveController, type ReactiveControllerHost } from "lit";
+import { keyed } from "lit/directives/keyed.js";
 import { t } from "../../i18n/index.ts";
+import { wasPointerActivation } from "../../lib/pointer-activation.ts";
 import {
   installPlatformClawHubSkill,
   loadPlatformClawSkillHubConfig,
@@ -20,7 +22,11 @@ import {
 type InstallState =
   | { status: "checking" }
   | { status: "unavailable"; reason: string }
-  | { status: "ready"; installed?: PlatformClawSkillHubWorkspaceSkill };
+  | {
+      status: "ready";
+      installed?: PlatformClawSkillHubWorkspaceSkill;
+      animateCompletion?: true;
+    };
 
 const targets = ["platform_server", "assigned_vm"] as const;
 
@@ -177,6 +183,7 @@ export class SkillHubInstallController implements ReactiveController {
                   ? "skillHubPage.installBasic"
                   : "skillHubPage.installVm",
               );
+    // Key only status text so completion enters without replacing controls or the live region.
     return html`<article
       class="skill-hub-destination"
       data-install-target=${target}
@@ -190,7 +197,17 @@ export class SkillHubInstallController implements ReactiveController {
             : "skillHubPage.developmentVmHelp",
         )}
       </p>
-      <p class="skill-hub-destination__status" role="status">${status}</p>
+      <p class="skill-hub-destination__status" role="status">
+        ${keyed(
+          state,
+          html`<span
+            class=${state.status === "ready" && state.animateCompletion
+              ? "skill-hub-destination__completion"
+              : ""}
+            >${status}</span
+          >`,
+        )}
+      </p>
       <button
         class="btn ${target === "platform_server" ? "primary" : ""}"
         ?disabled=${blocked}
@@ -242,6 +259,8 @@ export class SkillHubInstallController implements ReactiveController {
       return;
     }
     const generation = this.generation;
+    // Capture the initiating action before network work; later input may belong to another control.
+    const animateCompletion = wasPointerActivation();
     this.installing = target;
     this.setMessage(null);
     this.host.requestUpdate();
@@ -264,6 +283,7 @@ export class SkillHubInstallController implements ReactiveController {
       this.states[target] = {
         status: "ready",
         installed: { skillKey: result.slug, version: result.version },
+        ...(animateCompletion ? { animateCompletion: true as const } : {}),
       };
       this.setMessage({
         kind: "success",
