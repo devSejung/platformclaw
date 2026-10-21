@@ -52,6 +52,7 @@ function createService() {
     idFactory: ids(),
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
   });
+  const syncOrganization = vi.fn(async () => undefined);
   const authService = new BrowserAuthService({
     store,
     authenticator: {
@@ -62,9 +63,11 @@ function createService() {
     provisioner: { provisionOrRefresh: vi.fn(async () => undefined) },
     now: () => nowMs,
     tokenFactory: () => "sso-browser-session",
+    syncOrganization,
   });
   return {
     store,
+    syncOrganization,
     service: new EmployeeSsoService({
       authService,
       config: { loginUrl: "https://auth.example.test/adsso", handoffSecret },
@@ -75,8 +78,9 @@ function createService() {
 
 describe("EmployeeSsoService", () => {
   it("accepts the PlatformClaw 1.0 handoff and creates a 2.0 SAML session", async () => {
-    const { service, store } = createService();
-    const token = sign(payload());
+    const { service, store, syncOrganization } = createService();
+    const org = { version: 1, source: "aicm", part: { id: "42", name: "Part" } };
+    const token = sign(payload({ org }));
 
     await expect(service.complete(token)).resolves.toMatchObject({
       status: "authenticated",
@@ -88,6 +92,12 @@ describe("EmployeeSsoService", () => {
       accountId: "person.one",
     });
     await expect(service.complete(token)).resolves.toEqual({ status: "invalid-handoff" });
+    expect(syncOrganization).toHaveBeenCalledExactlyOnceWith({
+      userId: "user-1",
+      org,
+      isTestAccount: false,
+      syncedAt: nowMs,
+    });
   });
 
   it.each([
@@ -97,16 +107,33 @@ describe("EmployeeSsoService", () => {
     ["expiry before issue", { iat: nowSeconds + 20, exp: nowSeconds + 10 }],
     ["missing legacy agent", { agentId: undefined }],
   ])("rejects %s", async (_name, overrides) => {
-    const { service } = createService();
-    await expect(service.complete(sign(payload(overrides)))).resolves.toEqual({
+    const { service, syncOrganization } = createService();
+    await expect(
+      service.complete(sign(payload({ org: { version: 1 }, ...overrides }))),
+    ).resolves.toEqual({
       status: "invalid-handoff",
     });
+    expect(syncOrganization).not.toHaveBeenCalled();
   });
 
   it("rejects a token signed by another secret", async () => {
-    const { service } = createService();
+    const { service, syncOrganization } = createService();
     await expect(service.complete(sign(payload(), "x".repeat(32)))).resolves.toEqual({
       status: "invalid-handoff",
+    });
+    expect(syncOrganization).not.toHaveBeenCalled();
+  });
+
+  it("forwards signed test-account and malformed organization data without rejecting login", async () => {
+    const { service, syncOrganization } = createService();
+    await expect(
+      service.complete(sign(payload({ org: "invalid", isTestAccount: true }))),
+    ).resolves.toMatchObject({ status: "authenticated" });
+    expect(syncOrganization).toHaveBeenCalledWith({
+      userId: "user-1",
+      org: "invalid",
+      isTestAccount: true,
+      syncedAt: nowMs,
     });
   });
 

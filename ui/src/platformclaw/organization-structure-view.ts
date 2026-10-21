@@ -2,10 +2,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { renderSettingsRow } from "../components/settings-ui.ts";
 import { platformClawT as t } from "./i18n.ts";
 import type { OrganizationScopeKind, OrganizationScopeResult } from "./organization-api.ts";
-
-function lineageLabel(scope: OrganizationScopeResult): string {
-  return scope.lineage.map((entry) => entry.name).join(" / ");
-}
+import { organizationScopeLabel } from "./organization-scope-label.ts";
 
 function formText(data: FormData, name: string): string {
   const value = data.get(name);
@@ -53,7 +50,10 @@ export function renderOrganizationStructure(options: {
           <select name="parentScopeId" required>
             <option value="">${t("platformClaw.organization.structure.chooseParent")}</option>
             ${parents.map(
-              (scope) => html`<option value=${scope.id}>${lineageLabel(scope)}</option>`,
+              (scope) =>
+                html`<option value=${scope.id}>
+                  ${organizationScopeLabel(scope, scope.lineage)}
+                </option>`,
             )}
           </select>
         </label>`}
@@ -77,7 +77,7 @@ export function renderOrganizationStructure(options: {
     ${options.selected?.capabilities.canManageStructure
       ? renderSettingsRow({
           title: t("platformClaw.organization.structure.selected"),
-          description: lineageLabel(options.selected),
+          description: organizationScopeLabel(options.selected, options.selected.lineage),
           control: html`<div class="settings-row__controls">
             <button
               class="btn btn--sm"

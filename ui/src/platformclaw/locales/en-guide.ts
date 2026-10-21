@@ -8,6 +8,12 @@ import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.organization.automatic": "Automatically managed",
+  "platformClaw.organization.automatic.description":
+    "Organization names and hierarchy are synchronized at login. Automatic membership changes preserve manual grants.",
+  "platformClaw.organization.manualRetained": "Manual membership retained",
+  "platformClaw.organization.members.retainManually": "Keep manual membership",
+  "platformClaw.organization.action.retainManually": "Confirm manual membership",
   "platformClaw.credentialFlow.requiredTitle": "A personal key is needed",
   "platformClaw.credentialFlow.requiredBody":
     "This task needs {envName}. Enter the key in Credentials, not in chat.",
@@ -188,6 +194,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.organization.audit.outcome.recorded": "Recorded",
   "platformClaw.organization.audit.action.scope.created": "Scope created",
   "platformClaw.organization.audit.action.scope.renamed": "Scope renamed",
+  "platformClaw.organization.audit.action.scope.moved": "Scope parent changed",
   "platformClaw.organization.audit.action.scope.archived": "Scope archived",
   "platformClaw.organization.audit.action.scope.membership.set": "Membership updated",
   "platformClaw.organization.audit.action.scope.membership.removed": "Membership removed",

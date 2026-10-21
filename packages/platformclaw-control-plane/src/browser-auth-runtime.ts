@@ -59,6 +59,7 @@ export function createEmployeeBrowserAuthRuntime(
     store,
     authenticator,
     provisioner: options.provisioner,
+    syncOrganization: (params) => store.syncDirectoryOrganization(params),
     ...(options.now ? { now: options.now } : {}),
     ...(options.tokenFactory ? { tokenFactory: options.tokenFactory } : {}),
     ...(options.onLogoutAgent ? { onLogoutAgent: options.onLogoutAgent } : {}),

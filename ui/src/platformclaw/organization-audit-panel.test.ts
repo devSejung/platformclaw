@@ -168,4 +168,29 @@ describe("PlatformClaw organization audit", () => {
     expect(element.textContent).toContain("분류");
     expect(element.querySelector("time")?.textContent?.trim()).toBe(formatDateTimeMs(1_000));
   });
+
+  it.each(["en", "ko"] as const)("shows directory parent moves in %s", async (locale) => {
+    await i18n.setLocale(locale);
+    const element = document.createElement("platformclaw-organization-audit-panel") as AuditPanel;
+    element.fetchImpl = vi.fn(async () =>
+      json({
+        items: [
+          {
+            ...auditItem("move"),
+            action: "scope.moved",
+            change: {
+              priorScope: { kind: "team", name: "Platform", status: "active" },
+              resultScope: { kind: "team", name: "Engineering", status: "active" },
+            },
+          },
+        ],
+      }),
+    );
+    document.body.append(element);
+    await settle(element);
+    expect(element.textContent).toContain(
+      locale === "ko" ? "상위 조직 변경" : "Scope parent changed",
+    );
+    expect(element.textContent).toContain("Platform → Engineering");
+  });
 });

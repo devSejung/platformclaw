@@ -2,12 +2,14 @@ export { SPACE_SCHEMA, ensureSpaceSchema } from "./sqlite-schema-spaces.js";
 import { randomUUID } from "node:crypto";
 import { chmodSync, unlinkSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
+import { DIRECTORY_ORGANIZATION_SCHEMA } from "./sqlite-schema-directory-organizations.js";
 import {
   ORGANIZATION_MEMORY_SCHEMA,
   ORGANIZATION_MEMORY_LIFECYCLE_SCHEMA,
   SKILL_HUB_STATE_SCHEMA,
 } from "./sqlite-schema-feature-state.js";
 import { SCHEMA_V2 } from "./sqlite-schema-v2.js";
+export { ensureDirectoryOrganizationSchema } from "./sqlite-schema-directory-organizations.js";
 export {
   ORGANIZATION_KNOWLEDGE_SCHEMA,
   ensureOrganizationKnowledgeSchema,
@@ -114,6 +116,9 @@ CREATE TABLE managed_scopes (
   kind TEXT NOT NULL CHECK (kind IN ('team', 'group', 'part')),
   name TEXT NOT NULL,
   normalized_name TEXT NOT NULL,
+  external_key TEXT,
+  managed_by TEXT CHECK (managed_by IN ('ldap-login')),
+  directory_updated_at INTEGER,
   parent_scope_id TEXT REFERENCES managed_scopes(id),
   system_kind TEXT CHECK (system_kind IN ('unassigned-team')),
   system_provenance TEXT CHECK (system_provenance IN ('migration-v2-v3')),
@@ -131,9 +136,10 @@ CREATE TABLE managed_scopes (
   )
 ) STRICT;
 CREATE UNIQUE INDEX managed_scopes_team_name
-  ON managed_scopes(normalized_name) WHERE kind = 'team';
+  ON managed_scopes(normalized_name) WHERE kind = 'team' AND external_key IS NULL;
 CREATE UNIQUE INDEX managed_scopes_child_name
-  ON managed_scopes(parent_scope_id, kind, normalized_name) WHERE kind IN ('group', 'part');
+  ON managed_scopes(parent_scope_id, kind, normalized_name)
+  WHERE kind IN ('group', 'part') AND external_key IS NULL;
 CREATE UNIQUE INDEX managed_scopes_system_kind
   ON managed_scopes(system_kind) WHERE system_kind IS NOT NULL;
 CREATE TRIGGER managed_scopes_parent_kind_insert
@@ -161,11 +167,15 @@ CREATE TABLE managed_scope_memberships (
   scope_id TEXT NOT NULL REFERENCES managed_scopes(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('member', 'leader')),
+  managed_by TEXT CHECK (managed_by IN ('ldap-login')),
+  manual_role TEXT CHECK (manual_role IN ('member', 'leader')),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (scope_id, user_id)
 ) STRICT;
 CREATE INDEX managed_scope_memberships_user ON managed_scope_memberships(user_id);
+
+${DIRECTORY_ORGANIZATION_SCHEMA}
 
 CREATE TABLE managed_scope_primary_memberships (
   user_id TEXT PRIMARY KEY REFERENCES platform_users(id) ON DELETE CASCADE,

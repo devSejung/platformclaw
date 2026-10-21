@@ -15,6 +15,7 @@ import { organizationErrorMessage } from "./organization-errors.ts";
 const knownActions = new Set([
   "scope.created",
   "scope.renamed",
+  "scope.moved",
   "scope.archived",
   "scope.membership.set",
   "scope.membership.removed",

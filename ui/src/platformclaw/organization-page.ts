@@ -25,11 +25,12 @@ import {
   renderOrganizationRoster,
 } from "./organization-members-view.ts";
 import { renderOrganizationOverview } from "./organization-overview-view.ts";
+import { organizationScopeLabel } from "./organization-scope-label.ts";
 import { renderOrganizationScopePicker } from "./organization-scope-picker.ts";
 import { renderOrganizationStructure } from "./organization-structure-view.ts";
 
 function lineageLabel(scope: OrganizationScopeResult): string {
-  return scope.lineage.map((entry) => entry.name).join(" / ");
+  return organizationScopeLabel(scope, scope.lineage);
 }
 
 class PlatformClawOrganizationPage extends OpenClawLightDomElement {

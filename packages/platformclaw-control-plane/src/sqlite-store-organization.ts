@@ -14,10 +14,10 @@ import {
   boundedOrganizationScopeName,
 } from "./organization-validation.js";
 import { normalizeScopeName, required, rowToMembership, rowToScope } from "./sqlite-store-core.js";
-import { SqliteControlPlaneOrganizationMutationStore } from "./sqlite-store-organization-mutation.js";
+import { SqliteDirectoryOrganizationStore } from "./sqlite-store-directory-organization.js";
 import type { ManagedScopeRow } from "./sqlite-store-types.js";
 
-export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlPlaneOrganizationMutationStore {
+export abstract class SqliteControlPlaneOrganizationStore extends SqliteDirectoryOrganizationStore {
   async createManagedScope(params: {
     actorUserId: string;
     kind: ManagedScopeKind;
@@ -64,6 +64,9 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
           created_by_user_id: params.actorUserId,
           created_at: params.createdAt,
           updated_at: params.createdAt,
+          external_key: null,
+          managed_by: null,
+          directory_updated_at: null,
         };
         this.assertScopeNameAvailable(row);
         executeSync(this.db, this.query.insertInto("managed_scopes").values(row));
@@ -106,6 +109,9 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
       () => {
         this.requireAdmin(params.actorUserId);
         const scope = this.requireScopeRow(params.scopeId);
+        if (scope.managed_by) {
+          throw new ControlPlaneStateError("organization structure is managed by ldap-login");
+        }
         assertOrganizationScopeRevision(scope.updated_at, params.expectedRevision);
         if (scope.status !== "active") {
           throw new ControlPlaneStateError("archived scopes cannot be renamed");
@@ -158,6 +164,9 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
       () => {
         this.requireAdmin(params.actorUserId);
         const scope = this.requireScopeRow(params.scopeId);
+        if (scope.managed_by) {
+          throw new ControlPlaneStateError("organization structure is managed by ldap-login");
+        }
         assertOrganizationScopeRevision(scope.updated_at, params.expectedRevision);
         const auditReason = boundedOrganizationReason(params.reason, "reason");
         const archiveAuthorization = this.resolveOrganizationAuthorizationSnapshot(
@@ -318,7 +327,12 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
             this.db,
             this.query
               .updateTable("managed_scope_memberships")
-              .set({ role: params.role, updated_at: params.changedAt })
+              .set({
+                role: params.role,
+                // An explicit assignment retains this role after the directory source moves.
+                manual_role: existing.managed_by ? params.role : null,
+                updated_at: params.changedAt,
+              })
               .where("scope_id", "=", scope.id)
               .where("user_id", "=", params.userId),
           );
@@ -331,6 +345,8 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteControlP
               role: params.role,
               created_at: params.changedAt,
               updated_at: params.changedAt,
+              managed_by: null,
+              manual_role: null,
             }),
           );
         }

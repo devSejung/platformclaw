@@ -132,6 +132,9 @@ function verifyHandoff(
     expiresAtSeconds: expiresAt,
     auth: {
       status: "authenticated",
+      // Only verified signed payloads may supply organization authority.
+      org: record.org,
+      isTestAccount: record.isTestAccount === true,
       principal: {
         provider: "saml",
         // Contract v1 has no separate NameID field; its canonical login ID is stable.

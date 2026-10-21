@@ -8,6 +8,7 @@ import type {
   OrganizationScopeResult,
   OrganizationUserSearch,
 } from "./organization-api.ts";
+import { renderOrganizationManagedBadge } from "./organization-scope-label.ts";
 
 export function renderOrganizationAddMember(options: {
   selected?: OrganizationScopeResult;
@@ -73,7 +74,7 @@ export function renderOrganizationRoster(options: {
       : options.management.members.map((member) =>
           renderSettingsRow({
             title: member.user.displayName ?? member.user.accountId,
-            description: member.user.accountId,
+            description: html`${member.user.accountId} ${renderOrganizationManagedBadge(member)}`,
             control: html`<div class="settings-row__controls">
               <select
                 aria-label=${t("platformClaw.organization.members.role")}
@@ -99,6 +100,21 @@ export function renderOrganizationRoster(options: {
                   ${t("platformClaw.organization.role.leader")}
                 </option>
               </select>
+              ${member.managedBy && !member.manualRole
+                ? html`<button
+                    class="btn btn--sm"
+                    ?disabled=${options.busy}
+                    @click=${() =>
+                      options.onRoleChange(
+                        member.user.id,
+                        member.user.displayName ?? member.user.accountId,
+                        member.role,
+                        member.role,
+                      )}
+                  >
+                    ${t("platformClaw.organization.members.retainManually")}
+                  </button>`
+                : nothing}
               ${options.selected?.capabilities.canManageLeaders ||
               (member.role === "member" && member.user.id !== options.actorUserId)
                 ? html`<button

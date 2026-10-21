@@ -15,6 +15,7 @@ import {
   type OrganizationJoinAction,
 } from "./organization-join-dialog.ts";
 import { renderOrganizationJoin, type OrganizationJoinSection } from "./organization-join-view.ts";
+import { organizationScopeLabel } from "./organization-scope-label.ts";
 
 class PlatformClawOrganizationJoinPanel extends OpenClawLightDomElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
@@ -236,23 +237,21 @@ class PlatformClawOrganizationJoinPanel extends OpenClawLightDomElement {
         this.pending = {
           kind: "request",
           id: scope.id,
-          target: scope.lineage.map((item) => item.name).join(" / "),
+          target: organizationScopeLabel(scope, scope.lineage),
         };
       },
       onCancel: (item) => {
         this.pending = {
           kind: "cancel",
           id: item.request.id,
-          target: item.lineage.map((scope) => scope.name).join(" / "),
+          target: organizationScopeLabel(item.scope, item.lineage),
         };
       },
       onDecision: (item, decision) => {
         this.pending = {
           kind: decision === "approved" ? "approve" : "reject",
           id: item.request.id,
-          target: `${item.applicant.displayName ?? item.applicant.accountId} · ${item.lineage
-            .map((scope) => scope.name)
-            .join(" / ")}`,
+          target: `${item.applicant.displayName ?? item.applicant.accountId} · ${organizationScopeLabel(item.scope, item.lineage)}`,
         };
       },
       onMoreOwn: (offset) => this.loadMore("own", offset),

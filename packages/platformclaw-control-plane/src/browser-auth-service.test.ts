@@ -19,7 +19,7 @@ function createIdFactory(): ControlPlaneIdFactory {
   };
 }
 
-function authResult(): EmployeeAuthenticationResult {
+function authResult(): Extract<EmployeeAuthenticationResult, { status: "authenticated" }> {
   return {
     status: "authenticated",
     principal: {
@@ -53,19 +53,35 @@ function createHarness() {
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
   });
   const authenticator = {
-    async authenticatePassword() {
+    async authenticatePassword(): Promise<EmployeeAuthenticationResult> {
       return authResult();
     },
   };
   const provisioner = { provisionOrRefresh: vi.fn(async () => undefined) };
+  const syncOrganization = vi.fn(
+    async (_params: {
+      userId: string;
+      org: unknown;
+      isTestAccount: boolean;
+      syncedAt: number;
+    }): Promise<void> => undefined,
+  );
   const service = new BrowserAuthService({
     store,
     authenticator,
     provisioner,
     now: () => now,
     tokenFactory: () => "test-token-factory",
+    syncOrganization,
   });
-  return { service, store, authenticator, provisioner, setNow: (value: number) => (now = value) };
+  return {
+    service,
+    store,
+    authenticator,
+    provisioner,
+    syncOrganization,
+    setNow: (value: number) => (now = value),
+  };
 }
 
 describe("BrowserAuthService", () => {
@@ -113,7 +129,7 @@ describe("BrowserAuthService", () => {
   });
 
   it("reuses the current session when the same user signs in again", async () => {
-    const { service } = createHarness();
+    const { service, syncOrganization, setNow } = createHarness();
     const first = await service.loginPassword({
       login: { identifier: "seungon.jung", password: "test-password" },
     });
@@ -121,6 +137,7 @@ describe("BrowserAuthService", () => {
     if (first.status !== "authenticated") {
       throw new Error("expected authenticated test session");
     }
+    setNow(2_000);
     const second = await service.loginPassword({
       login: { identifier: "seungon.jung", password: "test-password" },
       currentSession: { value: first.token },
@@ -132,7 +149,98 @@ describe("BrowserAuthService", () => {
     if (second.status === "authenticated") {
       expect(second.token).toBe(first.token);
     }
+    expect(syncOrganization).toHaveBeenCalledTimes(2);
+    expect(syncOrganization).toHaveBeenLastCalledWith({
+      userId: first.user.id,
+      org: undefined,
+      isTestAccount: false,
+      syncedAt: 2_000,
+    });
   });
+
+  it("synchronizes only after a successful session using the canonical user id", async () => {
+    const { service, store, authenticator, syncOrganization } = createHarness();
+    const org = { version: 1, source: "aicm", part: { id: "42", name: "Part" } };
+    vi.spyOn(authenticator, "authenticatePassword").mockResolvedValue({ ...authResult(), org });
+    syncOrganization.mockImplementation(async ({ userId }) => {
+      await expect(
+        store.resolveBrowserSession({
+          tokenHash: hashBrowserSessionToken("test-token-factory"),
+          resolvedAt: 1_000,
+        }),
+      ).resolves.toMatchObject({ status: "active", user: { id: userId } });
+    });
+    await expect(
+      service.loginPassword({
+        login: { identifier: "seungon.jung", password: "test-password" },
+      }),
+    ).resolves.toMatchObject({ status: "authenticated" });
+    expect(syncOrganization).toHaveBeenCalledExactlyOnceWith({
+      userId: "user-1",
+      org,
+      isTestAccount: false,
+      syncedAt: 1_000,
+    });
+  });
+
+  it("keeps login successful and redacts organization sync failures", async () => {
+    const { service, syncOrganization } = createHarness();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    syncOrganization.mockRejectedValueOnce(new Error("private directory payload"));
+    try {
+      await expect(
+        service.loginPassword({
+          login: { identifier: "seungon.jung", password: "test-password" },
+        }),
+      ).resolves.toMatchObject({ status: "authenticated" });
+      await expect(service.authenticateToken("test-token-factory")).resolves.toMatchObject({
+        status: "active",
+      });
+      expect(warning).toHaveBeenCalledExactlyOnceWith("directory_organization_sync_failed", {
+        userId: "user-1",
+      });
+      await expect(
+        service.loginPassword({
+          login: { identifier: "seungon.jung", password: "test-password" },
+          currentSession: { value: "test-token-factory" },
+        }),
+      ).resolves.toMatchObject({ status: "authenticated" });
+      expect(syncOrganization).toHaveBeenCalledTimes(2);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it.each(["rejected", "unavailable", "disabled", "session-limit"])(
+    "does not synchronize when login ends with %s",
+    async (failure) => {
+      const { service, store, authenticator, syncOrganization } = createHarness();
+      if (failure === "rejected" || failure === "unavailable") {
+        vi.spyOn(authenticator, "authenticatePassword").mockResolvedValue({
+          status: failure,
+          message: "auth failed",
+        });
+      } else if (failure === "disabled") {
+        const user = await store.upsertPrincipal(authResult().principal, 1_000);
+        const binding = await store.reservePersonalAgent(user.user.id, 1_000);
+        await store.transitionAgent({
+          bindingId: binding.binding.id,
+          state: "disabled",
+          changedAt: 1_000,
+        });
+      } else {
+        vi.spyOn(store, "createBrowserSession").mockResolvedValue({
+          status: "limit-reached",
+          activeSessionCount: 5,
+        });
+      }
+      const result = await service.loginPassword({
+        login: { identifier: "seungon.jung", password: "test-password" },
+      });
+      expect(result.status).not.toBe("authenticated");
+      expect(syncOrganization).not.toHaveBeenCalled();
+    },
+  );
 
   it("single-flights concurrent provisioning for one personal binding", async () => {
     const store = new InMemoryControlPlaneStore({
@@ -172,7 +280,7 @@ describe("BrowserAuthService", () => {
   });
 
   it("marks a new binding failed when workspace provisioning fails", async () => {
-    const { service, store, provisioner } = createHarness();
+    const { service, store, provisioner, syncOrganization } = createHarness();
     provisioner.provisionOrRefresh.mockRejectedValueOnce(new Error("workspace unavailable"));
 
     await expect(
@@ -185,6 +293,7 @@ describe("BrowserAuthService", () => {
     expect(user).not.toBeNull();
     const binding = await store.reservePersonalAgent(user!.id, 2_000);
     expect(binding.binding).toMatchObject({ state: "failed", failureCode: "provisioner_error" });
+    expect(syncOrganization).not.toHaveBeenCalled();
   });
 
   it("marks a stale active binding failed when Gateway revalidation fails", async () => {

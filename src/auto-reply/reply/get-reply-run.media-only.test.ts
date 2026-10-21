@@ -383,6 +383,9 @@ function requireLastRunReplyAgentCall() {
 
 describe("runPreparedReply media-only handling", () => {
   const cleanupPaths: string[] = [];
+  const resolveDiscordReplyToMode = vi.fn(({ accountId }: { accountId?: string | null }) =>
+    accountId === "work" ? "first" : "all",
+  );
   let pluginRegistrySnapshot: ReturnType<typeof captureActivePluginRegistrySnapshot>;
 
   beforeAll(async () => {
@@ -397,16 +400,27 @@ describe("runPreparedReply media-only handling", () => {
 
   beforeEach(async () => {
     pluginRegistrySnapshot = captureActivePluginRegistrySnapshot();
-    // The real Knox gateway has registered its channel before answering. Model
-    // that precondition while retaining the actual threading/queue lookup path.
+    // Inbound channels are registered before reply admission. Missing fixtures
+    // fall through to cold bundled-plugin loading instead of testing routing.
     setActivePluginRegistry(
       createTestRegistry([
-        {
-          pluginId: "knox",
+        ...(["knox", "slack"] as const).map((id) => ({
+          pluginId: id,
           plugin: createChannelTestPluginBase({
-            id: "knox",
+            id,
             capabilities: { chatTypes: ["direct", "group"] },
           }),
+          source: "test",
+        })),
+        {
+          pluginId: "discord",
+          plugin: {
+            ...createChannelTestPluginBase({
+              id: "discord",
+              capabilities: { chatTypes: ["direct", "group"] },
+            }),
+            threading: { resolveReplyToMode: resolveDiscordReplyToMode },
+          },
           source: "test",
         },
       ]),
@@ -3724,6 +3738,10 @@ describe("runPreparedReply media-only handling", () => {
     const call = requireRunReplyAgentCall();
     expect(call?.followupRun.originatingAccountId).toBe("work");
     expect(call?.followupRun.originatingReplyToId).toBe("reply-24680");
+    expect(resolveDiscordReplyToMode).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "work", chatType: "group" }),
+    );
+    expect(call.followupRun.originatingReplyToMode).toBe("first");
   });
 
   it("captures the prepared reply policy for queued Slack runs", async () => {

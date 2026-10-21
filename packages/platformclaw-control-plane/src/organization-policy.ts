@@ -117,7 +117,7 @@ export function prepareOrganizationAuthorizationContext(params: {
         return {
           canRead: true,
           canManageMembers: true,
-          canManageStructure: true,
+          canManageStructure: !targetScope.managedBy,
           canManageLeaders: true,
           facts: { source: "administrator", scopeIds: [targetScope.id] },
         };

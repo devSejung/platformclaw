@@ -49,10 +49,61 @@ contracts. A future approved migration may insert another managed level without
 requiring Memory, Skill Hub, Agent, VM, MCP, or Knox to invent another role
 store. It does not make arbitrary or cyclic hierarchies valid today.
 
-Directory attributes such as LDAP/SAML department, part, and groups are identity
-metadata and future synchronization inputs. PlatformClaw managed scopes and
-memberships remain authorization authority. The first rollout does not
-automatically grant access from a directory claim.
+Legacy LDAP/SAML department, part, and groups remain identity metadata. Only the
+trusted, structured `org` claim described below supplies automatic membership.
+PlatformClaw managed scopes and memberships remain authorization authority.
+
+### Directory organization synchronization
+
+Successful LDAP and SAML browser sign-in synchronizes version-1 `org` claims
+from ldap-login when `source` is `aicm` and `part.id` is present. SAML claims
+are consumed only after signature, issuer, audience, lifetime and replay
+validation. Test-account sign-in never changes organizations or memberships.
+Missing claims, unknown versions, mapping claims and missing parts leave
+existing membership intact; legacy part strings are not parsed for this feature.
+
+Automatic scope keys are `team:<team name>`, `group:<group.id>` and
+`aicm-part:<part.id>`. Stable IDs preserve scope identity across display-name
+changes. Team names are their keys, so a renamed Team creates a new Team.
+Different external keys may have equal display names; Settings shows their
+full path and external key. Existing manually created scopes are not adopted
+by matching their names, and manual-only name uniqueness remains enforced.
+
+The hierarchy stays Team > Group > Part. Known existing parents complete
+partial claims. A missing Group preserves the existing Part parent. If a new
+scope's required parent cannot be resolved, the entire synchronization is
+deferred without creating partial scopes or changing membership. A later
+successful sign-in can complete it. Source timestamps are checked per user
+and per shared scope; older or conflicting same-timestamp changes do not
+overwrite newer names, parentage or assignments.
+
+Only a direct Part membership is added. Group and Team access uses the existing
+ancestor policy. Moving employees removes only their ldap-login membership
+source. Existing manual memberships and leader roles survive, including when
+an administrator explicitly retains an automatic membership through Settings.
+Removing the last source clears its primary-scope selection; a retained manual
+membership keeps that selection. Satisfied pending join requests are cancelled
+with an explicit directory-supplied-membership reason, without inventing a
+human approval. Shared Wiki access is reconciled in the same transaction.
+
+Settings marks automatic scopes and memberships as managed by ldap-login.
+Automatic scope names and structure cannot be edited or archived through the
+management API, and empty scopes are retained. An inactive lineage is never
+automatically restored. Directory parent changes update effective ancestor and
+leader authority for every affected member; consumer authorization continues
+to use current scope IDs and lineage.
+
+Organization changes, membership movement and successful-sync timestamps commit
+atomically after browser-session success. Failures roll back organization
+changes, log a redacted diagnostic, and leave sign-in successful. Retry occurs
+on the next successful sign-in; there is no background queue or bulk backfill.
+
+This feature retains control schema v3. Nullable identity/provenance columns,
+a user sync-state table and manual-only name indexes preserve existing IDs,
+roles and hierarchy for older readers. Older applications do not enforce the
+new automatic-management protections or preserve directory provenance when
+performing writes; downgrading loses those feature guarantees. No legacy state
+files or parallel organization authority are introduced.
 
 ### Direct and effective membership
 
@@ -256,9 +307,10 @@ Normal deletion is lifecycle-based:
 
 Scopes and organization records are not hard-deleted during normal operation.
 Privacy or security purge is administrator-only and must preserve a redacted
-audit tombstone where policy permits. Restoring or moving a scope is an explicit
-administrator action that revalidates parentage, names, dependent assets, and
-effective memberships; it is not a side effect of login or directory sync.
+audit tombstone where policy permits. Restoring a scope or moving a manually
+managed scope requires an explicit administrator action that revalidates parentage, names, dependent assets, and
+effective memberships. Trusted directory synchronization owns the automatic
+parent changes above; manual scope move and restore remain deferred.
 
 Audit records cover at least:
 
@@ -403,7 +455,7 @@ credentials, personal Memory, paths, and generic audit details. Request IDs
 outside the actor's review subtree behave like absent resources, so the API
 does not reveal foreign request state.
 
-Scope move and restore remain deferred. Moving an active subtree changes
+Manual scope move and restore remain deferred. Moving an active subtree changes
 effective Memory and Skill Hub lineage, reviewer authority, and ownership
 reach; those operations will ship only with cross-consumer lifecycle proof.
 

@@ -23,6 +23,14 @@ describe("createEmployeeBrowserAuthRuntime", () => {
             accountId: "account.name",
             name: "Account Name",
             department: "Platform",
+            org: {
+              version: 1,
+              source: "aicm",
+              updatedAt: "2026-10-20T01:00:00Z",
+              team: "Platform",
+              group: { id: "engineering", name: "Engineering" },
+              part: { id: "42", name: "Agents" },
+            },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
@@ -49,6 +57,21 @@ describe("createEmployeeBrowserAuthRuntime", () => {
       binding: { agentId: "account_name", state: "active" },
     });
     expect(provisioner.provisionOrRefresh).toHaveBeenCalledOnce();
+    const scopes = await runtime.store.listManagedScopes();
+    expect(scopes.map(({ kind, name }) => ({ kind, name }))).toEqual(
+      expect.arrayContaining([
+        { kind: "team", name: "Platform" },
+        { kind: "group", name: "Engineering" },
+        { kind: "part", name: "Agents" },
+      ]),
+    );
+    expect(scopes).toHaveLength(3);
+    if (login.status !== "authenticated") {
+      throw new Error("expected authenticated session");
+    }
+    expect(await runtime.store.listUserManagedScopeMemberships(login.user.id)).toMatchObject([
+      { scopeId: scopes.find((scope) => scope.kind === "part")?.id, role: "member" },
+    ]);
     await expect(runtime.service.authenticateToken(sessionValue, false)).resolves.toMatchObject({
       status: "active",
       user: { accountId: "account.name" },
