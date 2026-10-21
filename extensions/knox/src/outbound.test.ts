@@ -103,9 +103,11 @@ describe("sendKnoxOutbound", () => {
   });
 
   it.each([
-    ["assigned_vm", "🟢 VM 사용 중\n\nanswer"],
-    ["platform_server", "🟠 PlatformClaw 서버 사용 중\n\nanswer"],
-  ] as const)("adds a user-visible %s indicator to DM delivery only", async (target, expected) => {
+    ["assigned_vm", "question", "🟢 Using VM\n\nanswer"],
+    ["platform_server", "question", "🟠 Using PlatformClaw server\n\nanswer"],
+    ["assigned_vm", "질문", "🟢 VM 사용 중\n\nanswer"],
+    ["platform_server", "question 한", "🟠 PlatformClaw 서버 사용 중\n\nanswer"],
+  ] as const)("adds a localized %s indicator for %s", async (target, request, expected) => {
     const fetchImpl = vi.fn(
       async (_input: string | URL | Request, _init?: RequestInit) =>
         new Response(JSON.stringify({ ok: true, messageId: "out-dm" }), {
@@ -117,7 +119,7 @@ describe("sendKnoxOutbound", () => {
     await sendKnoxOutbound({
       context: {
         account,
-        inbound: dmInbound,
+        inbound: { ...dmInbound, message: { type: "text", text: request } },
         agentId: "personal-24",
         sessionKey: "agent:personal-24:main",
         runId: "knox:dm-24",
@@ -165,7 +167,7 @@ describe("sendKnoxOutbound", () => {
     if (typeof init?.body !== "string") {
       throw new Error("expected string request body");
     }
-    expect(JSON.parse(init.body).text).toBe("🟢 VM 사용 중\n\nanswer");
+    expect(JSON.parse(init.body).text).toBe("🟢 Using VM\n\nanswer");
   });
 
   it("rejects a 2xx response without an explicit acknowledgement", async () => {

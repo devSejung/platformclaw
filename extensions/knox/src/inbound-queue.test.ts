@@ -45,7 +45,7 @@ function roomMessage(id: number): KnoxInboundMessage {
     occurredAt: new Date(id).toISOString(),
     sender: { knoxUserId: `person.${id}`, displayName: `Person ${id}` },
     conversation: { type: "room", providerType: "GROUP", conversationId: "room-1" },
-    message: { type: "text", text: `@platformclaw question ${id}` },
+    message: { type: "text", text: `@platformclaw 질문 ${id}` },
   };
 }
 function installRuntime(
@@ -55,6 +55,7 @@ function installRuntime(
 ) {
   setKnoxRuntime({
     config: { current: () => ({}) },
+    events: { onAgentEvent: () => () => {} },
     channel: {
       inbound: {
         buildContext: () => ({}),

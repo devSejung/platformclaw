@@ -443,11 +443,21 @@ progress update is a new visible message.
 
 PlatformClaw uses this bounded policy:
 
-1. Start a three-to-five-second delay with the turn.
+1. Start a ten-second delay after the turn adopts its request. An explicit
+   `channels.knox.progressDelayMs` still overrides this first delay.
 2. Suppress progress if the final response arrives before the delay.
-3. Otherwise send one `progress` message such as `Processing your request.`
-4. Do not forward token chunks, tool details, queue depth, or compaction events.
-5. Send the final response as a separate `final` message.
+3. Otherwise send `Processing your request.` or the current approval wait when
+   approval is already pending. Use Korean notices when the raw request contains
+   any Hangul character, including Jamo; use English otherwise.
+4. On subsequent ten-second ticks, send a new notice only when the displayed
+   tool name or observed state changes. Pending approval takes priority over
+   running calls. A completed call does not imply its background work finished;
+   ending an approval wait does not imply approval was granted.
+5. Do not forward token chunks, tool arguments, command output, model reasoning,
+   or compaction events. State comes from request-correlated runtime events.
+6. Stop timers, unsubscribe observers, and abort pending notice delivery on
+   completion or cancellation. Send the final response separately. A relay
+   message already accepted before cancellation cannot be recalled.
 
 CDEP adds `progress` to its outbound schema and sends its text as a normal Knox
 message. It also sends user-safe `error` and `timeout` text instead of silently
@@ -456,8 +466,10 @@ returning success without delivery.
 For DM replies only, PlatformClaw prepends the selected execution target at the
 final outbound boundary:
 
-- `🟢 VM 사용 중` for an assigned personal VM;
-- `🟠 PlatformClaw 서버 사용 중` for the PlatformClaw server.
+- `🟢 VM 사용 중` / `🟢 Using VM` for an assigned personal VM;
+- `🟠 PlatformClaw 서버 사용 중` / `🟠 Using PlatformClaw server` for the server.
+
+The indicator uses the same raw-request language rule as progress notices.
 
 A blank line separates the indicator from the reply. The indicator applies to
 `progress`, `final`, `error`, and `timeout` delivery, but not room messages or
@@ -598,7 +610,10 @@ Before cutover, prove:
 - CDEP commands never reach an agent;
 - restart and duplicate inbound delivery cannot lose an accepted event;
 - restart and duplicate outbound delivery cannot create two Knox messages;
-- fast runs suppress progress and slow runs emit exactly one progress message;
+- fast runs suppress progress; slow runs emit the first notice after ten seconds
+  and only changed observed states on later ten-second ticks;
+- approval waits override running state, concurrent calls remain independent,
+  and completion/cancellation stops notices without cross-request leakage;
 - final, error, timeout, rate-limit, and partial-chunk results remain visible;
 - RTF respects size limits and escapes hostile display/text input;
 - health and readiness probes call real routes and fail when dependencies are

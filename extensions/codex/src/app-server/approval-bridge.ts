@@ -31,6 +31,7 @@ import {
   waitForPluginApprovalDecision,
 } from "./plugin-approval-roundtrip.js";
 import { isJsonObject, type JsonObject, type JsonValue } from "./protocol.js";
+import { emitCodexAppServerEvent } from "./run-attempt-lifecycle.js";
 
 const PERMISSION_DESCRIPTION_MAX_LENGTH = 700;
 const PERMISSION_SAMPLE_LIMIT = 2;
@@ -1212,7 +1213,8 @@ function approvalKindForMethod(method: string): AgentApprovalEventData["kind"] {
 }
 
 function emitApprovalEvent(params: EmbeddedRunAttemptParams, data: AgentApprovalEventData): void {
-  void params.onAgentEvent?.({
+  // Publish the run-owned fact before detached channel callbacks can wait on delivery.
+  void emitCodexAppServerEvent(params, {
     stream: "approval",
     data: data as unknown as Record<string, unknown>,
   });

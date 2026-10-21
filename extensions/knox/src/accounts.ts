@@ -103,7 +103,7 @@ export function resolveKnoxAccount(
     outboundUrl,
     serviceToken,
     controlPlaneUrl,
-    progressDelayMs: merged.progressDelayMs ?? 4_000,
+    progressDelayMs: merged.progressDelayMs ?? 10_000,
   };
   resolved.configured = Boolean(
     resolved.webhookSecret &&

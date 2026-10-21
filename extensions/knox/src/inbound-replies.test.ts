@@ -3,6 +3,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  emitAgentEvent,
+  onAgentEvent,
+  resetAgentEventsForTest,
+} from "openclaw/plugin-sdk/agent-harness-runtime";
+import {
   buildChannelInboundEventContext,
   runChannelInboundEvent,
   type ChannelInboundEventRunnerParams,
@@ -26,7 +31,24 @@ import { dispatchKnoxInbound } from "./inbound.js";
 import { setKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 
+const { resolvePinnedHostnameWithPolicy } = vi.hoisted(() => ({
+  resolvePinnedHostnameWithPolicy: vi.fn(),
+}));
+
+vi.mock("openclaw/plugin-sdk/ssrf-runtime", async () => {
+  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/ssrf-runtime")>(
+    "openclaw/plugin-sdk/ssrf-runtime",
+  );
+  return { ...actual, resolvePinnedHostnameWithPolicy };
+});
+
 type ReplyResolver = NonNullable<ChannelInboundTurnPlan["replyResolver"]>;
+type ReplyOptions = NonNullable<Parameters<ReplyResolver>[1]>;
+type BoundaryOptions = {
+  text?: string;
+  controller?: AbortController;
+  progressDelayMs?: number;
+};
 type SentReply = { status: string; text: string; final: boolean; requestId: string };
 type ReplyOutcome = {
   event: string;
@@ -53,8 +75,14 @@ let recoveryReasons: Array<NoVisibleReplyReason | undefined>;
 let cfg: OpenClawConfig;
 let outcomes: ReplyOutcome[];
 let relayFailure: "rejected" | "ack-loss" | undefined;
+let holdProgressRelay: boolean;
+let heldProgressSignal: AbortSignal | undefined;
+let pendingProgressTurns: Array<() => Promise<void>>;
 
 beforeEach(async () => {
+  resetAgentEventsForTest();
+  resolvePinnedHostnameWithPolicy.mockReset();
+  resolvePinnedHostnameWithPolicy.mockResolvedValue({ addresses: ["93.184.216.34"] });
   stateDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "knox-reply-boundary-")));
   vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
   vi.stubEnv("OPENCLAW_CONFIG_PATH", path.join(stateDir, "openclaw.json"));
@@ -67,6 +95,9 @@ beforeEach(async () => {
   recoveryReasons = [];
   outcomes = [];
   relayFailure = undefined;
+  holdProgressRelay = false;
+  heldProgressSignal = undefined;
+  pendingProgressTurns = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init: RequestInit) => {
@@ -83,7 +114,25 @@ beforeEach(async () => {
       if (typeof init.body !== "string") {
         throw new Error("Expected a relay JSON body");
       }
-      sent.push(JSON.parse(init.body) as SentReply);
+      const reply = JSON.parse(init.body) as SentReply;
+      sent.push(reply);
+      if (holdProgressRelay && !reply.final) {
+        const signal = init.signal;
+        if (!signal) {
+          throw new Error("Expected cancellation for a progress request");
+        }
+        heldProgressSignal = signal;
+        return await new Promise<Response>((_resolve, reject) => {
+          const fail = () =>
+            reject(
+              signal.reason instanceof Error ? signal.reason : new Error("Mock relay aborted"),
+            );
+          signal.addEventListener("abort", fail, { once: true });
+          if (signal.aborted) {
+            fail();
+          }
+        });
+      }
       if (relayFailure === "ack-loss") {
         throw new Error("Relay acknowledgement connection lost");
       }
@@ -99,6 +148,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  for (const finish of pendingProgressTurns) {
+    await finish();
+  }
+  vi.useRealTimers();
+  resetAgentEventsForTest();
   closeOpenClawStateDatabaseForTest();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -110,12 +164,14 @@ async function runReplyBoundary(
   replyResolver: ReplyResolver,
   messageId = randomUUID(),
   conversationType: "dm" | "room" = "room",
+  options: BoundaryOptions = {},
 ): Promise<void> {
   await fs.writeFile(path.join(stateDir, "openclaw.json"), JSON.stringify(cfg));
   // Inject only the model result. Admission, source policy, dispatch settlement,
   // the Knox adapter, and relay acknowledgement remain the real production flow.
   setKnoxRuntime({
     config: { current: () => cfg },
+    events: { onAgentEvent },
     channel: {
       inbound: {
         buildContext: buildChannelInboundEventContext,
@@ -152,7 +208,7 @@ async function runReplyBoundary(
     },
   } as unknown as PluginRuntime);
   await dispatchKnoxInbound({
-    account,
+    account: { ...account, progressDelayMs: options.progressDelayMs ?? account.progressDelayMs },
     message: {
       schemaVersion: 1,
       eventId: `event:${messageId}`,
@@ -164,11 +220,11 @@ async function runReplyBoundary(
         providerType: conversationType === "room" ? "GROUP" : "SINGLE",
         conversationId: "boundary-room",
       },
-      message: { type: "text", text: "작업을 진행해주세요" },
+      message: { type: "text", text: options.text ?? "작업을 진행해주세요" },
     },
     lifecycle: {
       admission: "exclusive",
-      abortSignal: new AbortController().signal,
+      abortSignal: (options.controller ?? new AbortController()).signal,
       onAdopted: vi.fn(),
       onDeferred: vi.fn(),
       onAbandoned: vi.fn(),
@@ -176,6 +232,352 @@ async function runReplyBoundary(
     log: { info: (message) => outcomes.push(JSON.parse(message) as ReplyOutcome) },
   });
 }
+
+async function startProgressBoundary(options: BoundaryOptions = {}) {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const runId = randomUUID();
+  const controller = options.controller ?? new AbortController();
+  let finish!: (reply: ReplyPayload) => void;
+  let ready!: (callbacks: ReplyOptions) => void;
+  const result = new Promise<ReplyPayload>((resolve) => {
+    finish = resolve;
+  });
+  const started = new Promise<ReplyOptions>((resolve) => {
+    ready = resolve;
+  });
+  const done = runReplyBoundary(
+    async (_ctx, callbacks) => {
+      if (!callbacks) {
+        throw new Error("Expected real dispatch reply callbacks");
+      }
+      callbacks.onAgentRunStart?.(runId);
+      await callbacks.turnAdoptionLifecycle?.onAdopted();
+      ready(callbacks);
+      return await result;
+    },
+    randomUUID(),
+    "room",
+    { progressDelayMs: 10_000, ...options, controller },
+  );
+  const callbacks = await started;
+  const finishTurn = async (reply: ReplyPayload = { text: "Final answer" }) => {
+    finish(reply);
+    await done;
+  };
+  pendingProgressTurns.push(async () => {
+    controller.abort();
+    await finishTurn();
+  });
+  return {
+    done,
+    callbacks,
+    controller,
+    runId,
+    emit(stream: string, data: Record<string, unknown>, eventRunId = runId) {
+      emitAgentEvent({ runId: eventRunId, stream, data, sessionKey: "agent:test-agent:main" });
+    },
+    finish: finishTurn,
+  };
+}
+
+describe("Knox progress through the core dispatch and mock relay", () => {
+  it.each([
+    { text: "Please inspect this", first: "Processing your request.", running: "Calling exec." },
+    {
+      text: "Please inspect 한",
+      first: "요청을 처리 중입니다.",
+      running: "exec 호출 진행 중입니다.",
+    },
+  ])(
+    "uses raw request language and sends changed state at ten-second ticks: $text",
+    async ({ text, first, running }) => {
+      const turn = await startProgressBoundary({ text });
+      turn.emit("tool", {
+        phase: "start",
+        toolCallId: "exec-1",
+        name: "exec",
+        args: { command: "private-secret-command" },
+      });
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(sent).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sent.map((reply) => reply.text)).toEqual([first]);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sent.map((reply) => reply.text)).toEqual([first, running]);
+      turn.emit("command_output", { toolCallId: "exec-1", output: "private-secret-output" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sent).toHaveLength(2);
+      turn.emit("tool", {
+        phase: "result",
+        toolCallId: "exec-1",
+        name: "exec",
+        status: "completed",
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sent.at(-1)?.text).toBe(
+        text.includes("한") ? "exec 호출이 완료됐습니다." : "exec call completed.",
+      );
+      expect(new Set(sent.map((reply) => reply.requestId)).size).toBe(3);
+      expect(JSON.stringify(sent)).not.toContain("private-secret");
+      await turn.finish();
+      const settledCount = sent.length;
+      turn.emit("tool", { phase: "start", toolCallId: "late", name: "late-tool" });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(sent).toHaveLength(settledCount);
+      expect(sent.at(-1)).toMatchObject({ text: "Final answer", final: true });
+    },
+  );
+
+  it.each([
+    { status: "approved", text: "exec execution approved." },
+    { status: "denied", text: "exec execution denied." },
+    { status: "unavailable", text: "Approval unavailable for exec." },
+  ] as const)(
+    "observes native approval $status with verbose disabled",
+    async ({ status, text }) => {
+      const turn = await startProgressBoundary({ text: "Run the command" });
+      turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
+      turn.emit("approval", {
+        phase: "requested",
+        status: "pending",
+        kind: "exec",
+        approvalId: "approval-1",
+        toolCallId: "exec-1",
+        command: "private-secret-command",
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sent.map((reply) => reply.text)).toEqual(["Awaiting approval for exec."]);
+      turn.emit("approval", {
+        phase: "resolved",
+        status,
+        kind: "exec",
+        approvalId: "approval-1",
+        toolCallId: "exec-1",
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sent.at(-1)?.text).toBe(text);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(sent).toHaveLength(2);
+      expect(JSON.stringify(sent)).not.toContain("private-secret");
+      await turn.finish();
+    },
+  );
+
+  it("keeps retired approval callbacks from overwriting a same-run fallback", async () => {
+    const turn = await startProgressBoundary({ text: "Run the command" });
+    turn.emit("tool", { phase: "start", toolCallId: "old-call", name: "bash" });
+    turn.emit("approval", {
+      phase: "requested",
+      status: "pending",
+      itemId: "old-call",
+      approvalId: "old-approval",
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent.at(-1)?.text).toBe("Awaiting approval for bash.");
+    turn.emit("approval", {
+      phase: "resolved",
+      status: "denied",
+      itemId: "old-call",
+      approvalId: "old-approval",
+    });
+    turn.emit("lifecycle", { phase: "finishing" });
+    turn.emit("lifecycle", { phase: "start", startedAt: Date.now() });
+    // Shared producer events are authoritative. A callback held behind an old
+    // block acknowledgement can finish after the next attempt has started.
+    await turn.callbacks.onApprovalEvent?.({
+      phase: "requested",
+      status: "pending",
+      itemId: "old-call",
+      approvalId: "old-approval",
+    });
+    await turn.callbacks.onApprovalEvent?.({
+      phase: "resolved",
+      status: "denied",
+      itemId: "old-call",
+      approvalId: "old-approval",
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent.at(-1)?.text).toBe("Processing your request.");
+    turn.emit("tool", { phase: "start", toolCallId: "new-call", name: "read" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent.at(-1)?.text).toBe("Calling read.");
+    await turn.finish();
+  });
+
+  it("prioritizes inline approval over parallel tools and clears only the resolved approval", async () => {
+    const turn = await startProgressBoundary({ text: "Run tools" });
+    turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
+    turn.emit("lifecycle", {
+      phase: "waiting-approval",
+      approvalId: "inline-1",
+      toolCallId: "exec-1",
+    });
+    turn.emit("item", { phase: "start", kind: "tool", toolCallId: "web-1", name: "web" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent.at(-1)?.text).toBe("Awaiting approval for exec.");
+    turn.emit("item", {
+      phase: "end",
+      kind: "tool",
+      toolCallId: "web-1",
+      name: "web",
+      status: "completed",
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent).toHaveLength(1);
+    turn.emit("lifecycle", { phase: "approval-resolved", approvalId: "unrelated-approval" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent).toHaveLength(1);
+    turn.emit("lifecycle", {
+      phase: "approval-resolved",
+      approvalId: "inline-1",
+      toolCallId: "exec-1",
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent.at(-1)?.text).toBe("Approval wait ended for exec.");
+    await turn.finish();
+  });
+
+  it("keeps a still-running sibling visible when the newest parallel call finishes", async () => {
+    const turn = await startProgressBoundary({ text: "Run tools" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
+    turn.emit("tool", { phase: "start", toolCallId: "web-1", name: "web" });
+    turn.emit("tool", { phase: "result", toolCallId: "web-1", name: "web", status: "completed" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent.at(-1)?.text).toBe("Calling exec.");
+    turn.emit("tool", { phase: "result", toolCallId: "exec-1", name: "exec", isError: true });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent.at(-1)?.text).toBe("exec call failed.");
+    await turn.finish();
+  });
+
+  it("stops progress before awaiting final attachment DNS validation", async () => {
+    const turn = await startProgressBoundary({ text: "Produce a report" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
+    let enterDns!: () => void;
+    let releaseDns!: () => void;
+    const enteredDns = new Promise<void>((resolve) => {
+      enterDns = resolve;
+    });
+    const dns = new Promise<void>((resolve) => {
+      releaseDns = resolve;
+    });
+    resolvePinnedHostnameWithPolicy.mockImplementationOnce(async () => {
+      enterDns();
+      await dns;
+      return { addresses: ["93.184.216.34"] };
+    });
+    const finishing = turn.finish({
+      text: "Final report",
+      mediaUrl: "https://example.com/report.pdf",
+    });
+    await enteredDns;
+    try {
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(sent.map((reply) => reply.text)).toEqual(["Processing your request."]);
+    } finally {
+      releaseDns();
+      await finishing;
+    }
+    expect(sent.at(-1)).toMatchObject({ final: true });
+  });
+
+  it.each(["abort", "end", "error"] as const)(
+    "stops immediately on %s while the resolver remains pending",
+    async (stop) => {
+      const turn = await startProgressBoundary({ text: "Run tools" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      if (stop === "abort") {
+        turn.controller.abort();
+      } else {
+        turn.emit("lifecycle", { phase: stop });
+      }
+      turn.emit("tool", { phase: "start", toolCallId: "late", name: "late-tool" });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(sent.map((reply) => reply.text)).toEqual(["Processing your request."]);
+      await turn.finish();
+    },
+  );
+
+  it("keeps periodic tool updates after a nonterminal block reply", async () => {
+    const turn = await startProgressBoundary({ text: "Run tools" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await turn.callbacks.onBlockReply?.({ text: "Intermediate result" });
+    turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent.map((reply) => reply.text)).toEqual([
+      "Processing your request.",
+      "Intermediate result",
+      "Calling exec.",
+    ]);
+    expect(sent.every((reply) => !reply.final)).toBe(true);
+    await turn.finish();
+  });
+
+  it("does not inherit old run state or language across requests sharing a session", async () => {
+    const first = await startProgressBoundary({ text: "한국어 요청" });
+    first.emit("tool", { phase: "start", toolCallId: "old-tool", name: "old-private-tool" });
+    first.emit("lifecycle", {
+      phase: "waiting-approval",
+      approvalId: "old-approval",
+      toolCallId: "old-tool",
+    });
+    first.controller.abort();
+    await first.finish();
+    sent = [];
+    const second = await startProgressBoundary({ text: "English request" });
+    second.emit(
+      "tool",
+      { phase: "start", toolCallId: "old-tool", name: "old-private-tool" },
+      first.runId,
+    );
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(sent.map((reply) => reply.text)).toEqual(["Processing your request."]);
+    second.emit("tool", { phase: "start", toolCallId: "new-tool", name: "web" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent.at(-1)?.text).toBe("Calling web.");
+    expect(JSON.stringify(sent)).not.toContain("old-private-tool");
+    await second.finish();
+  });
+
+  it.each(["deny", "message-tool-only"] as const)(
+    "keeps automatic progress suppressed under %s",
+    async (policy) => {
+      if (policy === "deny") {
+        cfg.session = { ...cfg.session, sendPolicy: { default: "deny" } };
+      } else {
+        cfg.messages = { visibleReplies: "message_tool" };
+      }
+      const turn = await startProgressBoundary({ text: "Run tools" });
+      turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
+      turn.emit("approval", {
+        phase: "requested",
+        status: "pending",
+        approvalId: "approval-1",
+        toolCallId: "exec-1",
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(sent).toEqual([]);
+      await turn.finish();
+      expect(sent).toEqual([]);
+    },
+  );
+
+  it("cancels an outstanding progress relay request and starts no further sends after abort", async () => {
+    holdProgressRelay = true;
+    const turn = await startProgressBoundary({ text: "Run tools" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sent).toHaveLength(1);
+    expect(heldProgressSignal?.aborted).toBe(false);
+    turn.controller.abort();
+    expect(heldProgressSignal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(sent).toHaveLength(1);
+    holdProgressRelay = false;
+    await turn.finish();
+  });
+});
 
 describe("Knox reply delivery through the core dispatch boundary", () => {
   it.each(["empty-result", "timeout"] as const)(

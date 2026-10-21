@@ -5,8 +5,10 @@ import path from "node:path";
 import { reviewExecRequestWithConfiguredModel } from "openclaw/plugin-sdk/agent-harness-exec-review-runtime";
 import {
   callGatewayTool,
+  emitAgentEvent,
   hasNativeHookRelayInvocation,
   invokeNativeHookRelay,
+  onAgentEvent as subscribeAgentEvents,
   resolveNativeHookRelayDeferredToolApproval,
   runBeforeToolCallHook,
   type EmbeddedRunAttemptParams,
@@ -139,6 +141,103 @@ describe("Codex app-server approval bridge", () => {
       params,
     }));
   });
+
+  it.each([
+    ["allow-once", "approved", "accept"],
+    ["deny", "denied", "decline"],
+  ] as const)(
+    "publishes pending and %s approval facts before blocked channel callbacks settle",
+    async (decision, status, expectedDecision) => {
+      const params = createParams();
+      params.runId = `approval-publication-${decision}`;
+      let releaseChannel = () => {};
+      const channelDelivery = new Promise<void>((resolve) => {
+        releaseChannel = resolve;
+      });
+      let resolveDecision = (_value: { id: string; decision: string }) => {};
+      const approvalDecision = new Promise<{ id: string; decision: string }>((resolve) => {
+        resolveDecision = resolve;
+      });
+      let noteDecisionWait = () => {};
+      const decisionWaitStarted = new Promise<void>((resolve) => {
+        noteDecisionWait = resolve;
+      });
+      const publicationOrder: string[] = [];
+      const approvalFacts: Record<string, unknown>[] = [];
+      const stopObserving = subscribeAgentEvents((event) => {
+        if (event.runId !== params.runId || event.stream !== "approval") {
+          return;
+        }
+        expect(event.sessionKey).toBe(params.sessionKey);
+        approvalFacts.push(event.data);
+        publicationOrder.push(`shared:${String(event.data.phase)}`);
+      });
+      let channelSettled = 0;
+      const channelCallback = vi.fn(async (event: { data: Record<string, unknown> }) => {
+        publicationOrder.push(`channel:${String(event.data.phase)}`);
+        await channelDelivery;
+        channelSettled += 1;
+      });
+      params.onAgentEvent = channelCallback;
+      mockCallGatewayTool
+        .mockResolvedValueOnce({ id: "plugin:approval-publication", status: "accepted" })
+        .mockImplementationOnce(async () => {
+          noteDecisionWait();
+          return approvalDecision;
+        });
+
+      const request = handleCodexAppServerApprovalRequest({
+        method: "item/commandExecution/requestApproval",
+        requestParams: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "command-publication",
+          command: "node --version",
+        },
+        paramsForRun: params,
+        threadId: "thread-1",
+        turnId: "turn-1",
+      });
+      try {
+        await decisionWaitStarted;
+        expect(approvalFacts).toMatchObject([
+          { phase: "requested", status: "pending", approvalId: "plugin:approval-publication" },
+        ]);
+        resolveDecision({ id: "plugin:approval-publication", decision });
+        await expect(request).resolves.toEqual({ decision: expectedDecision });
+        expect(approvalFacts).toMatchObject([
+          { phase: "requested", status: "pending", itemId: "command-publication" },
+          { phase: "resolved", status, itemId: "command-publication" },
+        ]);
+        expect(publicationOrder).toEqual([
+          "shared:requested",
+          "channel:requested",
+          "shared:resolved",
+          "channel:resolved",
+        ]);
+        expect(channelSettled).toBe(0);
+
+        // Channel delivery can outlive its attempt. Releasing that old work
+        // after fallback begins must never republish an obsolete approval fact.
+        emitAgentEvent({ runId: params.runId, stream: "lifecycle", data: { phase: "finishing" } });
+        emitAgentEvent({
+          runId: params.runId,
+          stream: "lifecycle",
+          data: { phase: "start", startedAt: Date.now() },
+        });
+        releaseChannel();
+        await Promise.all(channelCallback.mock.results.map((result) => result.value));
+        expect(channelSettled).toBe(2);
+        expect(approvalFacts).toHaveLength(2);
+      } finally {
+        resolveDecision({ id: "plugin:approval-publication", decision });
+        releaseChannel();
+        await request;
+        await Promise.all(channelCallback.mock.results.map((result) => result.value));
+        stopObserving();
+      }
+    },
+  );
 
   it("auto-accepts app-server command approvals in yolo mode without opening plugin approvals", async () => {
     const params = createParams();
