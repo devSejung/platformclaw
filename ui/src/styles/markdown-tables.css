@@ -1,0 +1,40 @@
+/* Shared by chat and document readers so theme radii and table scrolling agree. */
+:is(.chat-text, .sidebar-markdown) :where(table) {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 0.75em;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--bg);
+  font-size: 13px;
+}
+
+:is(.chat-text, .sidebar-markdown) :where(th, td) {
+  min-width: 6rem;
+  padding: 10px 14px;
+  border: 0;
+  text-align: start;
+  vertical-align: top;
+}
+
+:is(.chat-text, .sidebar-markdown) :where(th) {
+  background: var(--bg-muted);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+:is(.chat-text, .sidebar-markdown) :where(tbody td) {
+  border-top: 1px solid var(--border);
+}
+
+:is(.chat-text, .sidebar-markdown) :where(thead + tbody > tr:first-child > td) {
+  border-top-color: var(--border-strong);
+}
+
+:is(.chat-text, .sidebar-markdown) :where(tbody tr:hover) {
+  background: var(--bg-hover);
+}

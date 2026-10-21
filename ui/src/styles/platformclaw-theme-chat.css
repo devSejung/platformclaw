@@ -2,9 +2,9 @@
    surface overrides last without changing upstream chat component rules. */
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .chat-text :where(pre),
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .sidebar-markdown pre {
-  border-color: var(--platformclaw-product-border);
-  background: var(--platformclaw-product-bg-soft);
-  color: var(--platformclaw-product-text);
+  border-color: var(--border);
+  background: var(--bg-accent);
+  color: var(--text-strong);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
@@ -13,7 +13,7 @@
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
   .sidebar-markdown
   :where(pre code.markdown-block-art) {
-  color: var(--platformclaw-product-text);
+  color: var(--text-strong);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])

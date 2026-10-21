@@ -998,16 +998,9 @@
   box-sizing: border-box;
 }
 
-.cron-run-entry__body pre,
-.cron-run-entry__body table {
+.cron-run-entry__body pre {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-}
-
-/* Cron markdown overrides out-specify the base .chat-text rules in chat/text.css. */
-.cron-run-entry__body.chat-text table {
-  display: table;
-  width: 100%;
 }
 
 .cron-run-entry__body.chat-text pre,
@@ -1015,33 +1008,6 @@
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-}
-
-.cron-run-entry__body.chat-text pre + p,
-.cron-run-entry__body.chat-text blockquote + p,
-.cron-run-entry__body.chat-text table + p,
-.cron-run-entry__body.chat-text p + pre,
-.cron-run-entry__body.chat-text p + blockquote,
-.cron-run-entry__body.chat-text p + table {
-  margin-top: 0.75em;
-}
-
-.cron-run-entry__body.chat-text pre,
-.cron-run-entry__body.chat-text blockquote,
-.cron-run-entry__body.chat-text table {
-  margin-bottom: 0.75em;
-}
-
-.cron-run-entry__body.chat-text > :last-child {
-  margin-bottom: 0;
-}
-
-@media (max-width: 600px) {
-  .cron-run-entry__body table {
-    display: block;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
 }
 
 /* ── Responsive ── */

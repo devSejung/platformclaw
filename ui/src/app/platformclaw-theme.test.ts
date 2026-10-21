@@ -69,15 +69,27 @@ describe("PlatformClaw theme contract", () => {
     });
   });
 
-  it("keeps product chrome charcoal in both color modes", () => {
+  it("keeps code text and syntax readable in both modes", () => {
     for (const theme of ["platformclaw", "platformclaw-light"] as const) {
-      expect(Object.fromEntries(themeTokens(theme))).toMatchObject({
-        "platformclaw-product-bg": "#181715",
-        "platformclaw-product-bg-soft": "#1f1e1b",
-        "platformclaw-product-bg-elevated": "#252320",
-        "platformclaw-product-text": "#faf9f5",
-        "platformclaw-product-muted": "#a09d96",
-      });
+      const tokens = themeTokens(theme);
+      for (const token of [
+        "text-strong",
+        "muted",
+        "platformclaw-code-keyword",
+        "platformclaw-code-number",
+        "platformclaw-code-string",
+        "platformclaw-code-title",
+        "platformclaw-code-attribute",
+        "platformclaw-code-meta",
+      ]) {
+        expect(
+          contrastRatio(tokens.get(token)!, tokens.get("bg-accent")!),
+          theme + "/" + token,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(
+        contrastRatio(tokens.get("muted-strong")!, tokens.get("bg-elevated")!),
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 
