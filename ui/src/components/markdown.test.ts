@@ -46,8 +46,30 @@ describe("toSanitizedMarkdownHtml", () => {
       ].join("\n"),
     );
     expect(html).toBe(
-      '&lt;script&gt;alert(1)&lt;/script&gt;\n\n<p><a>x</a></p>\n<p><a href="https://example.com" rel="noreferrer noopener" target="_blank">ok</a></p>\n',
+      '&lt;script&gt;alert(1)&lt;/script&gt;\n\n<p><a>x</a></p>\n<p><a href="https://example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">ok</a></p>\n',
     );
+  });
+
+  it.each([
+    ["[External](https://outside.example/path)", true],
+    ["https://outside.example/bare", true],
+    ["[Protocol relative](//outside.example/path)", true],
+    ["[Same origin](" + window.location.origin + "/chat)", false],
+    ["[Internal](/chat)", false],
+    ["[Fragment](#section)", false],
+    ["[Email](mailto:owner@example.com)", false],
+    ["[Unsafe](javascript:alert(1))", false],
+    ["[File](src/index.ts)", false],
+  ])("marks only external web destinations: %s", (source, external) => {
+    const link = htmlFragment(toSanitizedMarkdownHtml(source, { fileLinks: true })).querySelector(
+      "a",
+    );
+    expect(link).not.toBeNull();
+    expect(link?.classList.contains("markdown-external-link")).toBe(external);
+    if (external) {
+      expect(link?.getAttribute("target")).toBe("_blank");
+      expect(link?.getAttribute("rel")).toBe("noreferrer noopener");
+    }
   });
 
   it("strips unsupported citation control markers before display", () => {
@@ -82,59 +104,59 @@ describe("toSanitizedMarkdownHtml", () => {
     it("links www.example.com", () => {
       const html = toSanitizedMarkdownHtml("Visit www.example.com today");
       expect(html).toBe(
-        '<p>Visit <a href="http://www.example.com" rel="noreferrer noopener" target="_blank">www.example.com</a> today</p>\n',
+        '<p>Visit <a href="http://www.example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com</a> today</p>\n',
       );
     });
 
     it("links www.example.com with path, query, and fragment", () => {
       const html = toSanitizedMarkdownHtml("See www.example.com/path?a=1#section");
       expect(html).toBe(
-        '<p>See <a href="http://www.example.com/path?a=1#section" rel="noreferrer noopener" target="_blank">www.example.com/path?a=1#section</a></p>\n',
+        '<p>See <a href="http://www.example.com/path?a=1#section" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com/path?a=1#section</a></p>\n',
       );
     });
 
     it("links www.example.com with port", () => {
       const html = toSanitizedMarkdownHtml("Visit www.example.com:8080/foo");
       expect(html).toBe(
-        '<p>Visit <a href="http://www.example.com:8080/foo" rel="noreferrer noopener" target="_blank">www.example.com:8080/foo</a></p>\n',
+        '<p>Visit <a href="http://www.example.com:8080/foo" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com:8080/foo</a></p>\n',
       );
     });
 
     it("links www.localhost and other single-label hosts", () => {
       const html = toSanitizedMarkdownHtml("Visit www.localhost:3000/path for dev");
       expect(html).toBe(
-        '<p>Visit <a href="http://www.localhost:3000/path" rel="noreferrer noopener" target="_blank">www.localhost:3000/path</a> for dev</p>\n',
+        '<p>Visit <a href="http://www.localhost:3000/path" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.localhost:3000/path</a> for dev</p>\n',
       );
     });
 
     it("links Unicode/IDN domains like www.münich.de", () => {
       const html1 = toSanitizedMarkdownHtml("Visit www.münich.de");
       expect(html1).toBe(
-        '<p>Visit <a href="http://www.xn--mnich-kva.de" rel="noreferrer noopener" target="_blank">www.münich.de</a></p>\n',
+        '<p>Visit <a href="http://www.xn--mnich-kva.de" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.münich.de</a></p>\n',
       );
 
       const html2 = toSanitizedMarkdownHtml("Visit www.café.example");
       expect(html2).toBe(
-        '<p>Visit <a href="http://www.xn--caf-dma.example" rel="noreferrer noopener" target="_blank">www.café.example</a></p>\n',
+        '<p>Visit <a href="http://www.xn--caf-dma.example" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.café.example</a></p>\n',
       );
     });
 
     it("links www.foo_bar.example.com with underscores", () => {
       const html = toSanitizedMarkdownHtml("Visit www.foo_bar.example.com");
       expect(html).toBe(
-        '<p>Visit <a href="http://www.foo_bar.example.com" rel="noreferrer noopener" target="_blank">www.foo_bar.example.com</a></p>\n',
+        '<p>Visit <a href="http://www.foo_bar.example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.foo_bar.example.com</a></p>\n',
       );
     });
 
     it("strips trailing punctuation from links", () => {
       const html1 = toSanitizedMarkdownHtml("Check www.example.com/help.");
       expect(html1).toBe(
-        '<p>Check <a href="http://www.example.com/help" rel="noreferrer noopener" target="_blank">www.example.com/help</a>.</p>\n',
+        '<p>Check <a href="http://www.example.com/help" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com/help</a>.</p>\n',
       );
 
       const html2 = toSanitizedMarkdownHtml("See www.example.com!");
       expect(html2).toBe(
-        '<p>See <a href="http://www.example.com" rel="noreferrer noopener" target="_blank">www.example.com</a>!</p>\n',
+        '<p>See <a href="http://www.example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com</a>!</p>\n',
       );
     });
 
@@ -142,13 +164,13 @@ describe("toSanitizedMarkdownHtml", () => {
       // &hl; looks like an entity reference, so strip it
       const html1 = toSanitizedMarkdownHtml("www.google.com/search?q=commonmark&hl;");
       expect(html1).toBe(
-        '<p><a href="http://www.google.com/search?q=commonmark" rel="noreferrer noopener" target="_blank">www.google.com/search?q=commonmark</a>&amp;hl;</p>\n',
+        '<p><a href="http://www.google.com/search?q=commonmark" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.google.com/search?q=commonmark</a>&amp;hl;</p>\n',
       );
 
       // &amp; is also entity-like
       const html2 = toSanitizedMarkdownHtml("www.example.com/path&amp;");
       expect(html2).toBe(
-        '<p><a href="http://www.example.com/path" rel="noreferrer noopener" target="_blank">www.example.com/path</a>&amp;</p>\n',
+        '<p><a href="http://www.example.com/path" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com/path</a>&amp;</p>\n',
       );
     });
 
@@ -156,19 +178,19 @@ describe("toSanitizedMarkdownHtml", () => {
       // Quoted URL — trailing unbalanced " is stripped
       const html1 = toSanitizedMarkdownHtml('"www.example.com"');
       expect(html1).toBe(
-        '<p>"<a href="http://www.example.com" rel="noreferrer noopener" target="_blank">www.example.com</a>"</p>\n',
+        '<p>"<a href="http://www.example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com</a>"</p>\n',
       );
 
       // Balanced quotes inside path — preserved
       const html2 = toSanitizedMarkdownHtml('www.example.com/path"with"quotes');
       expect(html2).toBe(
-        '<p><a href="http://www.example.com/path%22with%22quotes" rel="noreferrer noopener" target="_blank">www.example.com/path"with"quotes</a></p>\n',
+        '<p><a href="http://www.example.com/path%22with%22quotes" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com/path"with"quotes</a></p>\n',
       );
 
       // Trailing unbalanced " — stripped
       const html3 = toSanitizedMarkdownHtml('www.example.com/path"');
       expect(html3).toBe(
-        '<p><a href="http://www.example.com/path" rel="noreferrer noopener" target="_blank">www.example.com/path</a>"</p>\n',
+        '<p><a href="http://www.example.com/path" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com/path</a>"</p>\n',
       );
     });
 
@@ -183,7 +205,7 @@ describe("toSanitizedMarkdownHtml", () => {
     it("handles balanced parentheses in URLs", () => {
       const html = toSanitizedMarkdownHtml("(see www.example.com/foo(bar))");
       expect(html).toBe(
-        '<p>(see <a href="http://www.example.com/foo(bar)" rel="noreferrer noopener" target="_blank">www.example.com/foo(bar)</a>)</p>\n',
+        '<p>(see <a href="http://www.example.com/foo(bar)" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com/foo(bar)</a>)</p>\n',
       );
     });
 
@@ -191,13 +213,13 @@ describe("toSanitizedMarkdownHtml", () => {
       // Stops at < character
       const html1 = toSanitizedMarkdownHtml("Visit www.example.com/path<test");
       expect(html1).toBe(
-        '<p>Visit <a href="http://www.example.com/path" rel="noreferrer noopener" target="_blank">www.example.com/path</a>&lt;test</p>\n',
+        '<p>Visit <a href="http://www.example.com/path" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com/path</a>&lt;test</p>\n',
       );
 
       // <tag> pattern — stops before <
       const html2 = toSanitizedMarkdownHtml("Visit www.example.com/<token> here");
       expect(html2).toBe(
-        '<p>Visit <a href="http://www.example.com/" rel="noreferrer noopener" target="_blank">www.example.com/</a>&lt;token&gt; here</p>\n',
+        '<p>Visit <a href="http://www.example.com/" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com/</a>&lt;token&gt; here</p>\n',
       );
     });
 
@@ -219,14 +241,14 @@ describe("toSanitizedMarkdownHtml", () => {
     it("keeps adjacent trailing CJK text outside www auto-links", () => {
       const html = toSanitizedMarkdownHtml("www.example.com重新解读");
       expect(html).toBe(
-        '<p><a href="http://www.example.com" rel="noreferrer noopener" target="_blank">www.example.com</a>重新解读</p>\n',
+        '<p><a href="http://www.example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com</a>重新解读</p>\n',
       );
     });
 
     it("keeps Japanese text outside www auto-links", () => {
       const html = toSanitizedMarkdownHtml("www.example.comテスト");
       expect(html).toBe(
-        '<p><a href="http://www.example.com" rel="noreferrer noopener" target="_blank">www.example.com</a>テスト</p>\n',
+        '<p><a href="http://www.example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">www.example.com</a>テスト</p>\n',
       );
     });
   });
@@ -235,14 +257,14 @@ describe("toSanitizedMarkdownHtml", () => {
     it("links https:// URLs", () => {
       const html = toSanitizedMarkdownHtml("Visit https://example.com");
       expect(html).toBe(
-        '<p>Visit <a href="https://example.com" rel="noreferrer noopener" target="_blank">https://example.com</a></p>\n',
+        '<p>Visit <a href="https://example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">https://example.com</a></p>\n',
       );
     });
 
     it("links http:// URLs", () => {
       const html = toSanitizedMarkdownHtml("Visit http://github.com/openclaw");
       expect(html).toBe(
-        '<p>Visit <a href="http://github.com/openclaw" rel="noreferrer noopener" target="_blank">http://github.com/openclaw</a></p>\n',
+        '<p>Visit <a href="http://github.com/openclaw" class="markdown-external-link" rel="noreferrer noopener" target="_blank">http://github.com/openclaw</a></p>\n',
       );
     });
 
@@ -256,14 +278,14 @@ describe("toSanitizedMarkdownHtml", () => {
     it("keeps adjacent trailing CJK text outside https:// auto-links", () => {
       const html = toSanitizedMarkdownHtml("https://example.com重新解读");
       expect(html).toBe(
-        '<p><a href="https://example.com" rel="noreferrer noopener" target="_blank">https://example.com</a>重新解读</p>\n',
+        '<p><a href="https://example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">https://example.com</a>重新解读</p>\n',
       );
     });
 
     it("keeps CJK text outside https:// links with path", () => {
       const html = toSanitizedMarkdownHtml("https://example.com/path重新解读");
       expect(html).toBe(
-        '<p><a href="https://example.com/path" rel="noreferrer noopener" target="_blank">https://example.com/path</a>重新解读</p>\n',
+        '<p><a href="https://example.com/path" class="markdown-external-link" rel="noreferrer noopener" target="_blank">https://example.com/path</a>重新解读</p>\n',
       );
     });
 
@@ -271,7 +293,7 @@ describe("toSanitizedMarkdownHtml", () => {
       // CJK in the middle of a URL path (not trailing) must not be trimmed
       const html = toSanitizedMarkdownHtml("https://example.com/你/test");
       expect(html).toBe(
-        '<p><a href="https://example.com/%E4%BD%A0/test" rel="noreferrer noopener" target="_blank">https://example.com/你/test</a></p>\n',
+        '<p><a href="https://example.com/%E4%BD%A0/test" class="markdown-external-link" rel="noreferrer noopener" target="_blank">https://example.com/你/test</a></p>\n',
       );
     });
 
@@ -279,7 +301,7 @@ describe("toSanitizedMarkdownHtml", () => {
       // Percent-encoded paths without raw CJK are preserved as-is
       const html = toSanitizedMarkdownHtml("https://example.com/path/%E4%BD%A0%E5%A5%BD");
       expect(html).toBe(
-        '<p><a href="https://example.com/path/" rel="noreferrer noopener" target="_blank">https://example.com/path/</a>你好</p>\n',
+        '<p><a href="https://example.com/path/" class="markdown-external-link" rel="noreferrer noopener" target="_blank">https://example.com/path/</a>你好</p>\n',
       );
       // markdown-it linkify decodes percent-encoded CJK for display, then our
       // CJK trim rule splits at the first raw CJK char. This is acceptable
@@ -289,7 +311,7 @@ describe("toSanitizedMarkdownHtml", () => {
     it("does NOT rewrite explicit markdown links with CJK display text", () => {
       const html = toSanitizedMarkdownHtml("[OpenClaw中文](https://docs.openclaw.ai)");
       expect(html).toBe(
-        '<p><a href="https://docs.openclaw.ai" rel="noreferrer noopener" target="_blank">OpenClaw中文</a></p>\n',
+        '<p><a href="https://docs.openclaw.ai" class="markdown-external-link" rel="noreferrer noopener" target="_blank">OpenClaw中文</a></p>\n',
       );
     });
 
@@ -344,7 +366,7 @@ describe("toSanitizedMarkdownHtml", () => {
     it("renders links inside task items", () => {
       const html = toSanitizedMarkdownHtml("- [ ] Task with [link](https://example.com)");
       expect(html).toBe(
-        '<ul class="contains-task-list">\n<li class="task-list-item"><input class="task-list-item-checkbox" disabled="" type="checkbox"> Task with <a href="https://example.com" rel="noreferrer noopener" target="_blank">link</a></li>\n</ul>\n',
+        '<ul class="contains-task-list">\n<li class="task-list-item"><input class="task-list-item-checkbox" disabled="" type="checkbox"> Task with <a href="https://example.com" class="markdown-external-link" rel="noreferrer noopener" target="_blank">link</a></li>\n</ul>\n',
       );
     });
 
@@ -940,7 +962,7 @@ PY
         "[workspace](/concepts/agent-workspace) [hooks](/automation/hooks#session-memory) [telegram](/channels/telegram?tab=setup) [shortlink](/telegram) [openai](/openai) [images](/images) [groups](/groups) [camera](/nodes/camera) [macOS](/platforms/macos) [cliSessions](/cli/sessions) [toolSkills](/tools/skills) [pluginDocs](/plugins/reference/diffs) [prose](/prose) [access](/channels/access-groups)",
       );
       expect(html).toBe(
-        '<p><a href="https://docs.openclaw.ai/concepts/agent-workspace" rel="noreferrer noopener" target="_blank">workspace</a> <a href="https://docs.openclaw.ai/automation/hooks#session-memory" rel="noreferrer noopener" target="_blank">hooks</a> <a href="https://docs.openclaw.ai/channels/telegram?tab=setup" rel="noreferrer noopener" target="_blank">telegram</a> <a href="https://docs.openclaw.ai/telegram" rel="noreferrer noopener" target="_blank">shortlink</a> <a href="https://docs.openclaw.ai/openai" rel="noreferrer noopener" target="_blank">openai</a> <a href="https://docs.openclaw.ai/images" rel="noreferrer noopener" target="_blank">images</a> <a href="https://docs.openclaw.ai/groups" rel="noreferrer noopener" target="_blank">groups</a> <a href="https://docs.openclaw.ai/nodes/camera" rel="noreferrer noopener" target="_blank">camera</a> <a href="https://docs.openclaw.ai/platforms/macos" rel="noreferrer noopener" target="_blank">macOS</a> <a href="https://docs.openclaw.ai/cli/sessions" rel="noreferrer noopener" target="_blank">cliSessions</a> <a href="https://docs.openclaw.ai/tools/skills" rel="noreferrer noopener" target="_blank">toolSkills</a> <a href="https://docs.openclaw.ai/plugins/reference/diffs" rel="noreferrer noopener" target="_blank">pluginDocs</a> <a href="https://docs.openclaw.ai/prose" rel="noreferrer noopener" target="_blank">prose</a> <a href="https://docs.openclaw.ai/channels/access-groups" rel="noreferrer noopener" target="_blank">access</a></p>\n',
+        '<p><a href="https://docs.openclaw.ai/concepts/agent-workspace" class="markdown-external-link" rel="noreferrer noopener" target="_blank">workspace</a> <a href="https://docs.openclaw.ai/automation/hooks#session-memory" class="markdown-external-link" rel="noreferrer noopener" target="_blank">hooks</a> <a href="https://docs.openclaw.ai/channels/telegram?tab=setup" class="markdown-external-link" rel="noreferrer noopener" target="_blank">telegram</a> <a href="https://docs.openclaw.ai/telegram" class="markdown-external-link" rel="noreferrer noopener" target="_blank">shortlink</a> <a href="https://docs.openclaw.ai/openai" class="markdown-external-link" rel="noreferrer noopener" target="_blank">openai</a> <a href="https://docs.openclaw.ai/images" class="markdown-external-link" rel="noreferrer noopener" target="_blank">images</a> <a href="https://docs.openclaw.ai/groups" class="markdown-external-link" rel="noreferrer noopener" target="_blank">groups</a> <a href="https://docs.openclaw.ai/nodes/camera" class="markdown-external-link" rel="noreferrer noopener" target="_blank">camera</a> <a href="https://docs.openclaw.ai/platforms/macos" class="markdown-external-link" rel="noreferrer noopener" target="_blank">macOS</a> <a href="https://docs.openclaw.ai/cli/sessions" class="markdown-external-link" rel="noreferrer noopener" target="_blank">cliSessions</a> <a href="https://docs.openclaw.ai/tools/skills" class="markdown-external-link" rel="noreferrer noopener" target="_blank">toolSkills</a> <a href="https://docs.openclaw.ai/plugins/reference/diffs" class="markdown-external-link" rel="noreferrer noopener" target="_blank">pluginDocs</a> <a href="https://docs.openclaw.ai/prose" class="markdown-external-link" rel="noreferrer noopener" target="_blank">prose</a> <a href="https://docs.openclaw.ai/channels/access-groups" class="markdown-external-link" rel="noreferrer noopener" target="_blank">access</a></p>\n',
       );
     });
 
