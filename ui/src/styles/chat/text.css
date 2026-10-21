@@ -83,14 +83,8 @@
 }
 
 .chat-text :where(a.markdown-file-link) {
-  /* File links are action anchors; keep their existing click affordance. */
+  /* File links are action anchors rather than native href links. */
   cursor: pointer;
-  text-decoration: none;
-}
-
-.chat-text :where(a.markdown-file-link:hover) {
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
 }
 
 .chat-text :where(a.markdown-file-link > code) {

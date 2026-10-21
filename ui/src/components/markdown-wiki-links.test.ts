@@ -55,6 +55,20 @@ describe("Wiki markdown links", () => {
     expect(wiki.querySelector("pre")?.textContent).toContain("[[fenced-code]]");
     expect(wiki.querySelector("code [data-wiki-lookup]")).toBeNull();
   });
+  it("distinguishes Wiki lookups from external web links", () => {
+    const fragment = htmlFragment(
+      toSanitizedMarkdownHtml(
+        "[[https://outside.example|Wiki lookup]] [Web](https://outside.example) [Root](/concepts/start)",
+        { wikiLinks: true },
+      ),
+    );
+    const links = [...fragment.querySelectorAll("a")];
+    expect(links.map((link) => link.classList.contains("markdown-external-link"))).toEqual([
+      false,
+      true,
+      false,
+    ]);
+  });
   it("preserves Wiki-relative paths without changing chat docs links or URL safety", () => {
     const source = [
       "[Root](/concepts/setup.md#start) [Relative](../other.md#details) [Local](#start)",

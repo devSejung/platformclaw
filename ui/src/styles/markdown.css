@@ -117,15 +117,33 @@
 }
 
 :is(.chat-text, .sidebar-markdown) :where(a) {
-  /* Raised quotes and hovered rows need more contrast than the page accent. */
-  color: color-mix(in srgb, var(--accent) 80%, var(--text-strong));
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
-  text-underline-offset: 2px;
+  /* Inherit readable text on quotes, table headers, and user message surfaces. */
+  color: inherit;
 }
 
-:is(.chat-text, .sidebar-markdown) :where(a:hover) {
-  text-decoration-color: var(--accent);
+:is(.chat-text, .sidebar-markdown) :where(a[href], a.markdown-file-link) {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+:is(.chat-text, .sidebar-markdown)
+  :where(a[href], a.markdown-file-link):is(:hover, :focus-visible) {
+  text-decoration-style: solid;
+}
+
+:is(.chat-text, .sidebar-markdown) :where(a.markdown-external-link:not(:has(img)))::after {
+  /* Empty alternative text keeps the decorative arrow out of the link name. */
+  content: "↗" / "";
+  display: inline-block;
+  margin-inline-start: 0.2em;
+  font-size: 0.8em;
+  line-height: 1;
+}
+
+:is(.chat-text, .sidebar-markdown) :where(a:has(img)) {
+  text-decoration: none;
 }
 
 :is(.chat-text, .sidebar-markdown) :where(code) {

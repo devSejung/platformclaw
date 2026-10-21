@@ -466,6 +466,11 @@ function installHooks() {
         node.removeAttribute("href");
         return;
       }
+      // Classify the final destination, including normalized docs links, rather
+      // than target=_blank (also used by internal links and email).
+      if (!wikiLink && url.protocol !== "mailto:" && url.origin !== window.location.origin) {
+        node.classList.add("markdown-external-link");
+      }
     } catch {
       // Relative URLs are fine; malformed absolute URLs with dangerous schemes
       // will fail to parse and keep their href — but DOMPurify already strips
