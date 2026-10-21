@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { usesKnoxKoreanNotices } from "./progress.js";
 import type { KnoxConversationType, KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 
 type KnoxOutboundStatus = "progress" | "final" | "error" | "timeout";
@@ -128,8 +129,15 @@ function formatKnoxOutboundText(context: KnoxOutboundContext, text: string): str
   if (context.inbound.conversation.type !== "dm" || !context.executionTarget) {
     return text;
   }
+  const korean = usesKnoxKoreanNotices(context.inbound.message.text);
   const statusLine =
-    context.executionTarget === "assigned_vm" ? "🟢 VM 사용 중" : "🟠 PlatformClaw 서버 사용 중";
+    context.executionTarget === "assigned_vm"
+      ? korean
+        ? "🟢 VM 사용 중"
+        : "🟢 Using VM"
+      : korean
+        ? "🟠 PlatformClaw 서버 사용 중"
+        : "🟠 Using PlatformClaw server";
   const lines = text.split(/\r\n|[\r\n]/u);
   let bodyStart = 0;
   while (lines[bodyStart]?.trim() === "") {
@@ -155,7 +163,12 @@ function formatKnoxOutboundText(context: KnoxOutboundContext, text: string): str
 
 function isKnoxExecutionStatusLine(line: string | undefined): boolean {
   const normalized = line?.trim();
-  return normalized === "🟢 VM 사용 중" || normalized === "🟠 PlatformClaw 서버 사용 중";
+  return (
+    normalized === "🟢 VM 사용 중" ||
+    normalized === "🟠 PlatformClaw 서버 사용 중" ||
+    normalized === "🟢 Using VM" ||
+    normalized === "🟠 Using PlatformClaw server"
+  );
 }
 
 async function readBoundedResponse(response: Response): Promise<string> {

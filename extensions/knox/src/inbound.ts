@@ -16,6 +16,7 @@ import {
   sendKnoxOutbound,
   type KnoxOutboundContext,
 } from "./outbound.js";
+import { createKnoxProgress, usesKnoxKoreanNotices } from "./progress.js";
 import { formatKnoxReplyFailure, type KnoxReplyFailureReason } from "./reply-notice.js";
 import { renderKnoxReplyText } from "./reply-text.js";
 import { KnoxRoutingClient } from "./routing-client.js";
@@ -114,7 +115,9 @@ export async function sendKnoxQueuedNotice(params: {
     },
     status: "progress",
     final: false,
-    text: `앞선 요청 ${params.aheadCount}건 처리 후 이어서 진행합니다.`,
+    text: usesKnoxKoreanNotices(params.message.message.text)
+      ? `앞선 요청 ${params.aheadCount}건 처리 후 이어서 진행합니다.`
+      : `Your request will proceed after ${params.aheadCount} earlier request(s).`,
     requestId: `queued:${params.message.messageId}`,
     abortSignal: params.abortSignal,
   });
@@ -254,7 +257,6 @@ export async function dispatchKnoxInbound(params: {
   };
   let finalSent = false;
   let visibleReplySent = false;
-  let processingNoticeSent = false;
   let recoveryReason: KnoxReplyFailureReason = "unknown";
   let deliveryFailure: Error | undefined;
   let deliveryPolicyResolved = false;
@@ -267,9 +269,30 @@ export async function dispatchKnoxInbound(params: {
     | undefined;
   let finalOrdinal = 0;
   let turnFinished = false;
-  let progressTask: Promise<void> | undefined;
-  let progressTimer: ReturnType<typeof setTimeout> | undefined;
-  let adopted = false;
+  const progress = createKnoxProgress({
+    text: params.message.message.text,
+    delayMs: params.account.progressDelayMs,
+    abortSignal: params.lifecycle.abortSignal,
+    subscribe: runtime.events.onAgentEvent,
+    canSend: () => !turnFinished && deliveryPolicyResolved && !automaticReplySuppression,
+    send: async (text, ordinal, abortSignal) => {
+      await sendKnoxOutbound({
+        context: outboundContext,
+        status: "progress",
+        text,
+        final: false,
+        requestId:
+          ordinal === 0
+            ? `progress:${params.message.messageId}`
+            : `progress:${params.message.messageId}:${ordinal}`,
+        abortSignal,
+      });
+    },
+    warn: (error) =>
+      params.log?.warn?.(
+        `Knox progress delivery failed: ${redactSensitiveText(formatErrorMessage(error)).slice(0, 1_000)}`,
+      ),
+  });
   let deferred = false;
   let abandoned = false;
   let settleDeferredTurn = () => {};
@@ -278,65 +301,30 @@ export async function dispatchKnoxInbound(params: {
   });
   const abandonDeferredWait = () => settleDeferredTurn();
   params.lifecycle.abortSignal.addEventListener("abort", abandonDeferredWait, { once: true });
-  const startProgressTimer = () => {
-    // Waiting and processing are distinct phases; adoption starts this delay.
-    if (
-      adopted ||
-      turnFinished ||
-      visibleReplySent ||
-      !deliveryPolicyResolved ||
-      automaticReplySuppression ||
-      params.lifecycle.abortSignal.aborted
-    ) {
-      return;
-    }
-    adopted = true;
-    progressTimer = setTimeout(() => {
-      if (
-        turnFinished ||
-        !deliveryPolicyResolved ||
-        automaticReplySuppression ||
-        params.lifecycle.abortSignal.aborted
-      ) {
-        return;
-      }
-      progressTask = sendKnoxOutbound({
-        context: outboundContext,
-        status: "progress",
-        text: "요청을 처리 중입니다.",
-        final: false,
-        requestId: `progress:${params.message.messageId}`,
-      })
-        .then(() => {
-          processingNoticeSent = true;
-        })
-        .catch((error: unknown) =>
-          params.log?.warn?.(`Knox progress delivery failed: ${String(error)}`),
-        );
-    }, params.account.progressDelayMs);
-    progressTimer.unref?.();
-  };
-
   try {
     const turnAdoptionLifecycle: KnoxIngressLifecycle & { onSettled: () => void } = {
       ...params.lifecycle,
       onAdopted: async () => {
         await params.lifecycle.onAdopted();
-        startProgressTimer();
+        progress.start();
       },
       onDeferred: () => {
         deferred = true;
         // The followup owner reloads policy when it adopts the queued turn.
         // The initial allow decision cannot authorize its later progress/errors.
         deliveryPolicyResolved = false;
-        clearTimeout(progressTimer);
+        progress.suspend();
         params.lifecycle.onDeferred();
       },
       onAbandoned: () => {
         abandoned = true;
+        progress.stop();
         return params.lifecycle.onAbandoned();
       },
-      onSettled: settleDeferredTurn,
+      onSettled: () => {
+        progress.stop();
+        settleDeferredTurn();
+      },
     };
     const result = await runtime.channel.inbound.run({
       channel: "knox",
@@ -359,6 +347,7 @@ export async function dispatchKnoxInbound(params: {
           route,
           ctxPayload,
           replyOptions: {
+            ...progress.replyOptions,
             ...(params.questionAnswerBinding
               ? {
                   questionAnswerBinding: {
@@ -368,6 +357,7 @@ export async function dispatchKnoxInbound(params: {
                 }
               : {}),
             onAgentRunFailure: (outcome, reason) => {
+              progress.stop();
               // Followups can fail after dispatch returned its queue admission.
               // Keep the owner's fact until the deferred lifecycle settles.
               observedSourceFailure = { outcome, reason: reason ?? observedSourceFailure?.reason };
@@ -381,6 +371,9 @@ export async function dispatchKnoxInbound(params: {
                 : sourceReplyDeliveryMode === "message_tool_only"
                   ? "message-tool-only"
                   : undefined;
+              if (automaticReplySuppression) {
+                progress.suspend();
+              }
             },
           },
           delivery: {
@@ -401,18 +394,19 @@ export async function dispatchKnoxInbound(params: {
                 terminalOutcome && terminalOutcome.status !== "ok"
                   ? describeSourceFailure(terminalOutcome, knownReason)
                   : knownReason;
-              const rendered = reason ? undefined : await renderKnoxReplyText(payload);
-              const diagnosis = reason ?? (!rendered ? "unrenderable-result" : undefined);
-              const text = diagnosis ? formatKnoxReplyFailure(diagnosis, reference) : rendered!;
               const question = isRecord(payload.channelData?.askUser);
-              // A prompt or tool/block reply is visible progress, not completion.
-              // Only the terminal reply may suppress a later execution failure.
+              // Stop at receipt: rendering public links can await DNS beyond the next tick.
+              // Prompts and tool/block replies remain visible progress, not completion.
               const terminal = info.kind === "final" && !question;
               if (terminal) {
                 turnFinished = true;
+                progress.stop();
               }
-              clearTimeout(progressTimer);
-              await progressTask;
+              progress.visibleReply();
+              await progress.drain();
+              const rendered = reason ? undefined : await renderKnoxReplyText(payload);
+              const diagnosis = reason ?? (!rendered ? "unrenderable-result" : undefined);
+              const text = diagnosis ? formatKnoxReplyFailure(diagnosis, reference) : rendered!;
               const deliveryOrdinal = finalOrdinal++;
               const messageId = await sendKnoxOutbound({
                 context: outboundContext,
@@ -451,7 +445,8 @@ export async function dispatchKnoxInbound(params: {
       await deferredTurn;
     }
     // A started processing notice must acknowledge before its UI can be closed.
-    await progressTask;
+    progress.stop();
+    await progress.drain();
     if (deliveryFailure !== undefined) {
       throw deliveryFailure;
     }
@@ -492,7 +487,7 @@ export async function dispatchKnoxInbound(params: {
       // dispatch owner's settled fact closes them; questions and adopted input do not.
       if (
         !finalSent &&
-        (visibleReplySent || processingNoticeSent) &&
+        (visibleReplySent || progress.sent) &&
         !abandoned &&
         !params.lifecycle.abortSignal.aborted &&
         !sourceFailure &&
@@ -502,7 +497,9 @@ export async function dispatchKnoxInbound(params: {
         await sendKnoxOutbound({
           context: outboundContext,
           status: "final",
-          text: "요청 처리가 끝났습니다.",
+          text: usesKnoxKoreanNotices(params.message.message.text)
+            ? "요청 처리가 끝났습니다."
+            : "Your request is complete.",
           final: true,
           requestId: `complete:${params.message.messageId}`,
         });
@@ -520,8 +517,8 @@ export async function dispatchKnoxInbound(params: {
     }
   } catch (error) {
     turnFinished = true;
-    clearTimeout(progressTimer);
-    await progressTask;
+    progress.stop();
+    await progress.drain();
     // Preserve the native failure for ingress; a second notice could contradict
     // a partially acknowledged final after an ambiguous transport timeout.
     if (error instanceof KnoxOutboundError || isGatewayDrainingError(error)) {
@@ -555,9 +552,9 @@ export async function dispatchKnoxInbound(params: {
   } finally {
     params.lifecycle.abortSignal.removeEventListener("abort", abandonDeferredWait);
     turnFinished = true;
-    clearTimeout(progressTimer);
+    progress.stop();
     // Keep the ingress lane until any started progress delivery has also settled.
-    await progressTask;
+    await progress.drain();
   }
   if (!finalSent) {
     recordOutcome(recoveryReason);

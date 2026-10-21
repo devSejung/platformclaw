@@ -6,6 +6,7 @@ import { completeFollowupRunLifecycle } from "../../auto-reply/reply/queue/types
 import type { OpenClawConfig } from "../../config/config.js";
 import { withPluginHttpRouteRegistry } from "../../plugins/http-registry.js";
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
+import { createRuntimeEvents } from "../../plugins/runtime/runtime-events.js";
 import * as pluginRuntimeBoundary from "../../plugins/runtime/runtime-plugin-boundary.js";
 import type { PluginRuntime } from "../../plugins/runtime/types.js";
 import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db.js";
@@ -111,7 +112,9 @@ describe("sequenced admission notification", () => {
     }
   });
 
-  it("retries an abandoned Knox followup without sending a contradictory terminal error", async () => {
+  it("retries an abandoned Knox followup without sending a contradictory terminal error", async ({
+    onTestFinished,
+  }) => {
     const sourceRoot = fileURLToPath(new URL("../../../extensions", import.meta.url));
     vi.stubEnv("OPENCLAW_BUNDLED_PLUGINS_DIR", sourceRoot);
     const resolveArtifact = vi.spyOn(pluginRuntimeBoundary, "resolvePluginRuntimeModulePath");
@@ -184,6 +187,7 @@ describe("sequenced admission notification", () => {
         return Response.json({ ok: true, messageId: "synthetic-receipt" });
       }),
     );
+    const firstAttemptStarted = createDeferred<void>();
     let attempts = 0;
     const abandoned = vi.fn();
     const run = async (params: {
@@ -193,6 +197,7 @@ describe("sequenced admission notification", () => {
     }) => {
       expect(params.raw).toEqual(message);
       attempts += 1;
+      firstAttemptStarted.resolve();
       const lifecycle = params.turnAdoptionLifecycle;
       if (attempts === 1) {
         const originalAbandoned = lifecycle.onAbandoned;
@@ -224,6 +229,7 @@ describe("sequenced admission notification", () => {
     };
     setKnoxRuntime({
       config: { current: () => cfg },
+      events: createRuntimeEvents(),
       state: { openChannelIngressQueue: () => queue },
       channel: { inbound: { buildContext: buildChannelInboundEventContext, run } },
     } as unknown as PluginRuntime);
@@ -246,7 +252,15 @@ describe("sequenced admission notification", () => {
         setStatus: vi.fn(),
       }),
     );
+    const stopGateway = async () => {
+      abort.abort();
+      await gateway;
+    };
+    // A startup timeout must still release the real monitor and its route.
+    onTestFinished(stopGateway);
     try {
+      // Lazy module startup is outside the retry/backoff assertion's deadline.
+      await firstAttemptStarted.promise;
       // Real abandonment backoff is 1s; Knox polls every 500ms.
       await vi.waitFor(
         () =>
@@ -257,8 +271,7 @@ describe("sequenced admission notification", () => {
         { timeout: 3_000 },
       );
     } finally {
-      abort.abort();
-      await gateway;
+      await stopGateway();
     }
     expect(attempts).toBe(2);
     expect(abandoned).toHaveBeenCalledOnce();

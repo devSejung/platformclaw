@@ -57,6 +57,7 @@ function installRuntime(run: ReturnType<typeof vi.fn>) {
   const buildContext = vi.fn(() => ({}));
   setKnoxRuntime({
     config: { current: () => ({}) },
+    events: { onAgentEvent: () => () => {} },
     channel: {
       inbound: {
         buildContext,
