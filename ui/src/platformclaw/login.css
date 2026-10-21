@@ -83,8 +83,7 @@ input {
   grid-column: 1 / -1;
   color: var(--login-muted);
   overflow-wrap: anywhere;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 2rem;
+  grid-template-columns: 1fr;
 }
 
 .login-security-notice h2 {

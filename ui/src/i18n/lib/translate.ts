@@ -1,6 +1,7 @@
 // Control UI i18n module implements translate behavior.
 import { getSafeLocalStorage } from "../../local-storage.ts";
 import { en } from "../locales/en.ts";
+import { LOCALE_STORAGE_KEY, resolveInitialLocalePreference } from "./locale-preferences.ts";
 import {
   DEFAULT_LOCALE,
   SUPPORTED_LOCALES,
@@ -51,25 +52,13 @@ class I18nManager {
     this.loadLocale();
   }
 
-  private readStoredLocale(): string | null {
-    const storage = getSafeLocalStorage();
-    if (!storage) {
-      return null;
-    }
-    try {
-      return storage.getItem("openclaw.i18n.locale");
-    } catch {
-      return null;
-    }
-  }
-
   private persistLocale(locale: Locale) {
     const storage = getSafeLocalStorage();
     if (!storage) {
       return;
     }
     try {
-      storage.setItem("openclaw.i18n.locale", locale);
+      storage.setItem(LOCALE_STORAGE_KEY, locale);
     } catch {
       // Ignore storage write failures in private/blocked contexts.
     }
@@ -81,24 +70,14 @@ class I18nManager {
       return;
     }
     try {
-      storage.removeItem("openclaw.i18n.locale");
+      storage.removeItem(LOCALE_STORAGE_KEY);
     } catch {
       // Ignore storage write failures in private/blocked contexts.
     }
   }
 
-  private resolveInitialLocale(): { locale: Locale; shouldPersist: boolean } {
-    const saved = this.readStoredLocale();
-    if (isSupportedLocale(saved)) {
-      return { locale: saved, shouldPersist: true };
-    }
-    const language =
-      typeof globalThis.navigator?.language === "string" ? globalThis.navigator.language : null;
-    return { locale: resolveNavigatorLocale(language ?? ""), shouldPersist: false };
-  }
-
   private loadLocale() {
-    const initial = this.resolveInitialLocale();
+    const initial = resolveInitialLocalePreference();
     if (initial.locale === DEFAULT_LOCALE) {
       this.locale = DEFAULT_LOCALE;
       syncDocumentLocale(DEFAULT_LOCALE);

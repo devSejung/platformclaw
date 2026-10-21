@@ -22,12 +22,15 @@ Personal agents · Team Spaces · Wiki Hub · Skill Hub · Managed execution
 
 </div>
 
-![PlatformClaw login and workflow](docs/assets/platformclaw-ui-login-light.png#gh-light-mode-only)
-![PlatformClaw login and workflow](docs/assets/platformclaw-ui-login-dark.png#gh-dark-mode-only)
+![PlatformClaw login with the workspace illustration in light mode](docs/assets/platformclaw-ui-login-light.png#gh-light-mode-only)
+![PlatformClaw login with the workspace illustration in dark mode](docs/assets/platformclaw-ui-login-dark.png#gh-dark-mode-only)
 
 PlatformClaw turns OpenClaw into a governed, multi-user workspace with enterprise identity,
 personal agents, team Spaces, shared knowledge, reusable skills, and managed execution — without turning the
 upstream runtime into an enterprise fork.
+
+The login page follows your saved appearance and English/Korean language choice. Its workspace
+illustration keeps moving subtly and can be paused.
 
 ## One workspace, from request to reusable knowledge
 

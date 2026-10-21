@@ -184,7 +184,7 @@ describeE2e("PlatformClaw native WebSocket session recovery", () => {
     );
     expect(origin.rejectedUpgrades).toBeGreaterThan(0);
     expect(origin.sessionRequests).toBeGreaterThan(1);
-    await page.getByRole("button", { name: "로그인", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Sign in", exact: true }).waitFor();
     await capture(page, "01-expired-upgrade-sign-in");
   });
 
@@ -209,7 +209,7 @@ describeE2e("PlatformClaw native WebSocket session recovery", () => {
     await expect
       .poll(() => new URL(page.url()).pathname, { timeout: 10_000 })
       .toBe("/platformclaw/login");
-    await page.getByRole("button", { name: "로그인", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Sign in", exact: true }).waitFor();
     await capture(page, "03-session-service-recovered-sign-in");
   });
 });

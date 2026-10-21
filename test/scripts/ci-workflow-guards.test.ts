@@ -1436,6 +1436,7 @@ NODE
     const controlUiPublishStep = controlUiFinalize.steps.find(
       (step: { name?: string }) => step.name === "Open or update generated locale PR",
     );
+    expect(controlUiWorkflow.on.push.paths).toContain("ui/src/i18n/lib/locale-preferences.ts");
     expect(controlUiPublishStep.with["generated-paths"].trim().split("\n")).toEqual([
       "ui/src/i18n/.i18n/*.tm.jsonl",
       "ui/src/i18n/.i18n/*.meta.json",
@@ -1448,6 +1449,9 @@ NODE
       "scripts/lib/control-ui-i18n-sync-plan.ts",
     );
     expect(controlUiPublishStep.with["invalidation-paths"]).toContain("ui/src/i18n/locales/*.ts");
+    expect(controlUiPublishStep.with["invalidation-paths"]).toContain(
+      "ui/src/i18n/lib/locale-preferences.ts",
+    );
     expect(controlUiPublishStep.with["invalidation-paths"]).toContain(
       "ui/src/i18n/locales/en-agents.ts",
     );
