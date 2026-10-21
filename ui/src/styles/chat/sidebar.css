@@ -1887,10 +1887,6 @@ openclaw-session-discussion {
   font-size: 1.5em;
 }
 
-.sidebar-markdown-reader.sidebar-markdown :where(p, ul, ol, pre, blockquote, table, details) {
-  margin-bottom: 0.95em;
-}
-
 @media (max-width: 720px) {
   .sidebar-markdown-shell__toolbar {
     flex-direction: column;

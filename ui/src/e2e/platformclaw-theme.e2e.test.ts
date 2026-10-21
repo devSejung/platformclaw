@@ -53,7 +53,7 @@ describeControlUiE2e("PlatformClaw theme mocked Gateway E2E", () => {
     await server?.close();
   });
 
-  it("boots fresh profiles on cream surfaces and keeps code chrome charcoal", async () => {
+  it("boots on cream surfaces and switches code chrome with light and dark modes", async () => {
     const context = await browser.newContext({
       locale: "en-US",
       recordVideo: captureUiVideoEnabled
@@ -65,6 +65,12 @@ describeControlUiE2e("PlatformClaw theme mocked Gateway E2E", () => {
     const page = await context.newPage();
     await installMockGateway(page, {
       historyMessages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "~~~ts\n// Headerless user code\nconst ready = true;\n~~~" },
+          ],
+        },
         {
           role: "assistant",
           content: [
@@ -126,12 +132,32 @@ describeControlUiE2e("PlatformClaw theme mocked Gateway E2E", () => {
         };
       });
       expect(codeSurface).toEqual({
-        background: "rgb(31, 30, 27)",
-        border: "rgb(53, 50, 46)",
-        color: "rgb(250, 249, 245)",
+        background: "rgb(245, 240, 232)",
+        border: "rgb(230, 223, 216)",
+        color: "rgb(20, 20, 19)",
         overflowX: "auto",
       });
       await captureUiProof(page, "02-chat-code-surface.png");
+
+      for (const mode of ["dark", "light"] as const) {
+        await page.goto(`${server.baseUrl}settings/appearance`);
+        await page.locator(`wa-radio[value="${mode}"]`).click();
+        await expect
+          .poll(() => page.evaluate(() => document.documentElement.dataset.themeMode))
+          .toBe(mode);
+        await page.goto(`${server.baseUrl}chat`);
+        const code = page.locator(".code-block-wrapper pre").first();
+        await code.waitFor();
+        expect(await code.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+          mode === "dark" ? "rgb(31, 30, 27)" : "rgb(245, 240, 232)",
+        );
+        const userKeyword = page.locator(".chat-text > pre code.hljs .hljs-keyword");
+        await userKeyword.waitFor();
+        expect(await userKeyword.evaluate((element) => getComputedStyle(element).color)).toBe(
+          mode === "dark" ? "rgb(239, 140, 112)" : "rgb(165, 59, 42)",
+        );
+        await captureUiProof(page, `code-mode-${mode}.png`);
+      }
 
       await page.setViewportSize({ height: 844, width: 390 });
       await page.goto(`${server.baseUrl}settings/appearance`);

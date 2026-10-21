@@ -1,14 +1,6 @@
 /* PlatformClaw owns this additive theme file. Keeping downstream tokens out of
    upstream base.css makes theme divergence easy to audit during syncs. */
 :root[data-theme="platformclaw"] {
-  /* Product surfaces stay charcoal in both modes, matching design.md's
-     cream/content vs. dark/product pacing contract. */
-  --platformclaw-product-bg: #181715;
-  --platformclaw-product-bg-soft: #1f1e1b;
-  --platformclaw-product-bg-elevated: #252320;
-  --platformclaw-product-text: #faf9f5;
-  --platformclaw-product-muted: #a09d96;
-  --platformclaw-product-border: #35322e;
   --platformclaw-code-keyword: #ef8c70;
   --platformclaw-code-number: #e8a55a;
   --platformclaw-code-string: #8bc8bf;
@@ -99,18 +91,12 @@
 }
 
 :root[data-theme="platformclaw-light"] {
-  --platformclaw-product-bg: #181715;
-  --platformclaw-product-bg-soft: #1f1e1b;
-  --platformclaw-product-bg-elevated: #252320;
-  --platformclaw-product-text: #faf9f5;
-  --platformclaw-product-muted: #a09d96;
-  --platformclaw-product-border: #35322e;
-  --platformclaw-code-keyword: #ef8c70;
-  --platformclaw-code-number: #e8a55a;
-  --platformclaw-code-string: #8bc8bf;
-  --platformclaw-code-title: #f0c28c;
-  --platformclaw-code-attribute: #82bd8f;
-  --platformclaw-code-meta: #c7c2b9;
+  --platformclaw-code-keyword: #a53b2a;
+  --platformclaw-code-number: #81520d;
+  --platformclaw-code-string: #0f675e;
+  --platformclaw-code-title: #7542c7;
+  --platformclaw-code-attribute: #2d6b3e;
+  --platformclaw-code-meta: #625c54;
 
   --bg: #faf9f5;
   --bg-accent: #f5f0e8;
@@ -211,71 +197,88 @@
   background: var(--primary-hover);
 }
 
-/* Code windows are product chrome, not cream content cards. */
+/* Code surfaces follow the selected mode; syntax colors share that palette. */
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block,
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block-wrapper pre {
-  border-color: var(--platformclaw-product-border);
-  background: var(--platformclaw-product-bg-soft);
-  color: var(--platformclaw-product-text);
+  border-color: var(--border);
+  background: var(--bg-accent);
+  color: var(--text-strong);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block-header {
-  background: var(--platformclaw-product-bg-elevated);
-  color: var(--platformclaw-product-muted);
+  background: var(--bg-elevated);
+  color: var(--muted-strong);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
-  :is(.code-block .hljs, .code-block-wrapper pre code.hljs) {
-  color: var(--platformclaw-product-text);
+  :is(.code-block .hljs, pre code.hljs) {
+  color: var(--text-strong);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
-  :is(.code-block, .code-block-wrapper pre code.hljs)
+  :is(.code-block, pre code.hljs)
   :is(.hljs-comment, .hljs-quote) {
-  color: var(--platformclaw-product-muted);
+  color: var(--muted);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
-  :is(.code-block, .code-block-wrapper pre code.hljs)
-  :is(.hljs-keyword, .hljs-selector-tag, .hljs-subst) {
+  :is(.code-block, pre code.hljs)
+  :is(.hljs-keyword, .hljs-selector-tag, .hljs-subst, .hljs-deletion) {
   color: var(--platformclaw-code-keyword);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
-  :is(.code-block, .code-block-wrapper pre code.hljs)
-  :is(.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable) {
+  :is(.code-block, pre code.hljs)
+  :is(
+    .hljs-number,
+    .hljs-literal,
+    .hljs-variable,
+    .hljs-template-variable,
+    .hljs-type,
+    .hljs-built_in,
+    .hljs-builtin-name
+  ) {
   color: var(--platformclaw-code-number);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
-  :is(.code-block, .code-block-wrapper pre code.hljs)
+  :is(.code-block, pre code.hljs)
   :is(.hljs-string, .hljs-doctag) {
   color: var(--platformclaw-code-string);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
-  :is(.code-block, .code-block-wrapper pre code.hljs)
+  :is(.code-block, pre code.hljs)
   :is(.hljs-title, .hljs-section, .hljs-selector-id) {
   color: var(--platformclaw-code-title);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
-  :is(.code-block, .code-block-wrapper pre code.hljs)
-  :is(.hljs-attr, .hljs-attribute, .hljs-name, .hljs-selector-class) {
+  :is(.code-block, pre code.hljs)
+  :is(
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-name,
+    .hljs-selector-class,
+    .hljs-selector-attr,
+    .hljs-selector-pseudo,
+    .hljs-addition
+  ) {
   color: var(--platformclaw-code-attribute);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
-  :is(.code-block, .code-block-wrapper pre code.hljs)
-  .hljs-meta {
+  :is(.code-block, pre code.hljs)
+  :is(.hljs-meta, .hljs-symbol, .hljs-bullet, .hljs-link) {
   color: var(--platformclaw-code-meta);
 }
 
-:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block-copy {
-  color: var(--platformclaw-product-muted);
+:root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"])
+  :is(.code-block-lang, .code-block-copy) {
+  color: var(--muted-strong);
 }
 
 :root:is([data-theme="platformclaw"], [data-theme="platformclaw-light"]) .code-block-copy:hover {
   background: transparent;
-  color: var(--platformclaw-product-text);
+  color: var(--text-strong);
 }
