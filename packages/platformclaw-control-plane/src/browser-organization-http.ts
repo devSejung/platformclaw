@@ -151,7 +151,10 @@ function decodeId(value: string): string {
 }
 
 function projectScope(
-  scope: Pick<ManagedScope, "id" | "kind" | "name" | "parentScopeId" | "status">,
+  scope: Pick<
+    ManagedScope,
+    "id" | "kind" | "name" | "parentScopeId" | "status" | "managedBy" | "externalKey"
+  >,
 ) {
   return {
     id: scope.id,
@@ -159,6 +162,8 @@ function projectScope(
     name: scope.name,
     ...(scope.parentScopeId ? { parentScopeId: scope.parentScopeId } : {}),
     status: scope.status,
+    ...(scope.managedBy ? { managedBy: scope.managedBy } : {}),
+    ...(scope.externalKey ? { externalKey: scope.externalKey } : {}),
   };
 }
 
@@ -211,6 +216,8 @@ export class BrowserOrganizationService {
       directMemberships: snapshot.directMemberships.map((membership) => ({
         scopeId: membership.scopeId,
         role: membership.role,
+        ...(membership.managedBy ? { managedBy: membership.managedBy } : {}),
+        ...(membership.manualRole ? { manualRole: membership.manualRole } : {}),
       })),
       directMembershipsHasMore: snapshot.directMembershipsHasMore,
       directScopeLineages: snapshot.directScopeLineages.map((entry) => ({
@@ -292,6 +299,8 @@ export class BrowserOrganizationService {
       members: members.slice(0, limit).map(({ membership, user }) => ({
         user,
         role: membership.role,
+        managedBy: membership.managedBy,
+        manualRole: membership.manualRole,
         createdAt: membership.createdAt,
         updatedAt: membership.updatedAt,
       })),

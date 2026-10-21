@@ -36,6 +36,8 @@ export type EmployeeAuthenticationResult =
       status: "authenticated";
       principal: EnterprisePrincipal;
       profile: EmployeeDirectoryProfile;
+      org?: unknown;
+      isTestAccount?: boolean;
     }
   | { status: "rejected"; message: string }
   | { status: "unavailable"; message: string };
@@ -63,6 +65,8 @@ type ExternalAuthFailure = {
 
 type ExternalAuthSuccess = {
   authenticated: true;
+  org?: unknown;
+  isTestAccount?: boolean;
   employeeId: string;
   accountId?: string;
   subject?: string;
@@ -132,6 +136,8 @@ function parseResponse(value: unknown): ExternalAuthResponse | null {
   }
   return {
     authenticated: true,
+    org: record.org,
+    isTestAccount: record.isTestAccount === true,
     employeeId,
     accountId: optionalString(record.accountId),
     subject: optionalString(record.subject),
@@ -285,6 +291,8 @@ export class HttpEmployeeAuthenticator implements EmployeeAuthenticator {
     };
     return {
       status: "authenticated",
+      org: parsed.org,
+      isTestAccount: parsed.isTestAccount,
       profile,
       principal: {
         provider: this.config.provider,

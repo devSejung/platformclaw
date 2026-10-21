@@ -10,7 +10,7 @@ import { executeSync, runReadTransaction } from "./kysely-sync.js";
 import { SqliteControlPlaneSkillHubEditStore } from "./sqlite-store-skill-hub-edit.js";
 
 function auditCategory(action: string): OrganizationAuditRecord["category"] {
-  if (/^scope\.(create|rename|archive)/u.test(action)) {
+  if (/^scope\.(create|rename|move|archive)/u.test(action)) {
     return "scope";
   }
   if (action.startsWith("scope.membership.")) {
@@ -31,6 +31,9 @@ function normalizedAction(action: string): string {
   }
   if (action.startsWith("scope.rename")) {
     return "scope.renamed";
+  }
+  if (action.startsWith("scope.move")) {
+    return "scope.moved";
   }
   if (action.startsWith("scope.archive")) {
     return "scope.archived";
@@ -150,6 +153,7 @@ export abstract class SqliteControlPlaneOrganizationAuditStore extends SqliteCon
           expression.and([
             expression("event_type", "not like", "scope.create%"),
             expression("event_type", "not like", "scope.rename%"),
+            expression("event_type", "not like", "scope.move%"),
             expression("event_type", "not like", "scope.archive%"),
             expression("event_type", "not like", "scope.membership.%"),
             expression("event_type", "not like", "scope.primary.%"),
@@ -170,6 +174,7 @@ export abstract class SqliteControlPlaneOrganizationAuditStore extends SqliteCon
             expression.or([
               expression("event_type", "like", prefix),
               expression("event_type", "like", "scope.rename%"),
+              expression("event_type", "like", "scope.move%"),
               expression("event_type", "like", "scope.archive%"),
             ]),
           );

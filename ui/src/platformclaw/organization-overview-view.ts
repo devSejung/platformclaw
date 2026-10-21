@@ -2,18 +2,18 @@ import { html, nothing, type TemplateResult } from "lit";
 import { renderSettingsRow, renderSettingsSection } from "../components/settings-ui.ts";
 import { platformClawT as t } from "./i18n.ts";
 import type { OrganizationContext, OrganizationScopeResult } from "./organization-api.ts";
-
-function lineageLabel(scope: OrganizationScopeResult): string {
-  return scope.lineage.map((entry) => entry.name).join(" / ");
-}
+import {
+  organizationScopeLabel,
+  renderOrganizationManagedBadge,
+} from "./organization-scope-label.ts";
 
 function contextLineageLabel(scopeId: string, context: OrganizationContext): string | undefined {
   const explicit = context.directScopeLineages.find((entry) => entry.scopeId === scopeId)?.lineage;
   if (explicit?.length) {
-    return explicit.map((scope) => scope.name).join(" / ");
+    return organizationScopeLabel(explicit[explicit.length - 1]!, explicit);
   }
   if (context.primaryScope?.id === scopeId && context.primaryScopeLineage.length > 0) {
-    return context.primaryScopeLineage.map((scope) => scope.name).join(" / ");
+    return organizationScopeLabel(context.primaryScope, context.primaryScopeLineage);
   }
   const byId = new Map(context.effectiveScopes.map((access) => [access.scope.id, access.scope]));
   const names: string[] = [];
@@ -24,7 +24,13 @@ function contextLineageLabel(scopeId: string, context: OrganizationContext): str
     names.unshift(current.name);
     current = current.parentScopeId ? byId.get(current.parentScopeId) : undefined;
   }
-  return names.length > 0 ? names.join(" / ") : undefined;
+  const scope = byId.get(scopeId);
+  return scope
+    ? organizationScopeLabel(
+        scope,
+        names.map((name) => ({ name })),
+      )
+    : undefined;
 }
 
 export function renderOrganizationOverview(options: {
@@ -65,10 +71,11 @@ export function renderOrganizationOverview(options: {
         })
       : directScopes.map(({ membership, scope }) =>
           renderSettingsRow({
-            title: contextLineageLabel(scope.id, context) ?? scope.name,
-            description: `${t(`platformClaw.organization.role.${membership.role}`)} · ${t(
-              `platformClaw.organization.kind.${scope.kind}`,
-            )}`,
+            title: html`${contextLineageLabel(scope.id, context) ?? scope.name}
+            ${renderOrganizationManagedBadge(scope)}`,
+            description: html`${t(`platformClaw.organization.role.${membership.role}`)} ·
+            ${t(`platformClaw.organization.kind.${scope.kind}`)}
+            ${renderOrganizationManagedBadge(membership)}`,
           }),
         )}
     ${renderSettingsRow({
@@ -147,7 +154,8 @@ export function renderOrganizationOverview(options: {
           })
         : options.scopes.map((scope) =>
             renderSettingsRow({
-              title: lineageLabel(scope),
+              title: html`${organizationScopeLabel(scope, scope.lineage)}
+              ${renderOrganizationManagedBadge(scope)}`,
               description: t(`platformClaw.organization.kind.${scope.kind}`),
             }),
           )}

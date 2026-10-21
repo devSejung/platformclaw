@@ -77,13 +77,8 @@ export abstract class SqliteControlPlaneOrganizationMutationStore extends Sqlite
     },
     operation: () => T,
   ): T {
-    ensureKnowledgeVaultSchema(this.db);
     try {
-      return runImmediateTransaction(this.db, () => {
-        const result = operation();
-        reconcileWikiAccess(this.db);
-        return result;
-      });
+      return this.commitOrganizationMutation(operation);
     } catch (error) {
       if (
         error instanceof ControlPlaneAuthorizationError ||
@@ -100,5 +95,16 @@ export abstract class SqliteControlPlaneOrganizationMutationStore extends Sqlite
       }
       throw error;
     }
+  }
+
+  // Both trusted directory sync and operator mutations must revoke stale Wiki
+  // connections in the membership commit, before another request can observe it.
+  protected commitOrganizationMutation<T>(operation: () => T): T {
+    ensureKnowledgeVaultSchema(this.db);
+    return runImmediateTransaction(this.db, () => {
+      const result = operation();
+      reconcileWikiAccess(this.db);
+      return result;
+    });
   }
 }

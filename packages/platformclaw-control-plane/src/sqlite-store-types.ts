@@ -65,6 +65,9 @@ export type ManagedScopeRow = {
   created_by_user_id: string;
   created_at: number;
   updated_at: number;
+  external_key: string | null;
+  managed_by: "ldap-login" | null;
+  directory_updated_at: number | null;
 };
 type ManagedScopePrimaryMembershipRow = {
   user_id: string;
@@ -93,6 +96,8 @@ export type ManagedScopeMembershipRow = {
   role: ManagedScopeRole;
   created_at: number;
   updated_at: number;
+  managed_by: "ldap-login" | null;
+  manual_role: ManagedScopeRole | null;
 };
 type AuditEventRow = {
   id: string;
@@ -337,6 +342,11 @@ type BaseballIdempotencyRow = {
 };
 
 export type ControlPlaneDatabase = {
+  directory_organization_sync: {
+    user_id: string;
+    scope_id: string;
+    source_updated_at: number;
+  };
   platform_users: PlatformUserRow;
   enterprise_identities: EnterpriseIdentityRow;
   user_directory_groups: DirectoryGroupRow;

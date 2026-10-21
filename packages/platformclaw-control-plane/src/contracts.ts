@@ -56,6 +56,8 @@ export type ManagedScope = {
   createdByUserId: string;
   createdAt: number;
   updatedAt: number;
+  managedBy?: "ldap-login";
+  externalKey?: string;
 };
 
 export type EffectiveManagedScopeAccess = {
@@ -81,6 +83,8 @@ export type ManagedScopeMembership = {
   role: ManagedScopeRole;
   createdAt: number;
   updatedAt: number;
+  managedBy?: "ldap-login";
+  manualRole?: ManagedScopeRole;
 };
 
 export type OrganizationUserSummary = {

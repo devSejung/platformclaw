@@ -44,6 +44,8 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
           "parent.created_by_user_id as parent_created_by_user_id",
           "parent.created_at as parent_created_at",
           "parent.updated_at as parent_updated_at",
+          "parent.external_key as parent_external_key",
+          "parent.managed_by as parent_managed_by",
           "grandparent.id as grandparent_id",
           "grandparent.kind as grandparent_kind",
           "grandparent.name as grandparent_name",
@@ -52,6 +54,8 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
           "grandparent.created_by_user_id as grandparent_created_by_user_id",
           "grandparent.created_at as grandparent_created_at",
           "grandparent.updated_at as grandparent_updated_at",
+          "grandparent.external_key as grandparent_external_key",
+          "grandparent.managed_by as grandparent_managed_by",
         ])
         .where("scope.status", "=", "active")
         .where((expression) =>
@@ -111,6 +115,8 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
             createdByUserId: row.parent_created_by_user_id,
             createdAt: row.parent_created_at,
             updatedAt: row.parent_updated_at,
+            ...(row.parent_managed_by ? { managedBy: row.parent_managed_by } : {}),
+            ...(row.parent_external_key ? { externalKey: row.parent_external_key } : {}),
           });
         }
         if (
@@ -133,6 +139,8 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
             createdByUserId: row.grandparent_created_by_user_id,
             createdAt: row.grandparent_created_at,
             updatedAt: row.grandparent_updated_at,
+            ...(row.grandparent_managed_by ? { managedBy: row.grandparent_managed_by } : {}),
+            ...(row.grandparent_external_key ? { externalKey: row.grandparent_external_key } : {}),
           });
         }
       }

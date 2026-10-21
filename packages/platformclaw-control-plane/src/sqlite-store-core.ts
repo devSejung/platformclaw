@@ -30,6 +30,7 @@ import {
 } from "./organization-policy.js";
 import { retireOrganizationKnowledge } from "./sqlite-retire-organization-knowledge.js";
 import { migrateVmAllocationCodingAgentSchema } from "./sqlite-schema-coding-agents.js";
+import { ensureDirectoryOrganizationSchema } from "./sqlite-schema-directory-organizations.js";
 import {
   ensureVmHostExecutionEnvironmentSchema,
   initializeControlPlaneSchema,
@@ -151,6 +152,8 @@ export function rowToScope(row: ManagedScopeRow): ManagedScope {
     createdByUserId: row.created_by_user_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(row.managed_by ? { managedBy: row.managed_by } : {}),
+    ...(row.external_key ? { externalKey: row.external_key } : {}),
   };
 }
 
@@ -161,6 +164,8 @@ export function rowToMembership(row: ManagedScopeMembershipRow): ManagedScopeMem
     role: row.role,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(row.managed_by ? { managedBy: row.managed_by } : {}),
+    ...(row.manual_role ? { manualRole: row.manual_role } : {}),
   };
 }
 
@@ -185,6 +190,7 @@ export abstract class SqliteControlPlaneStoreCore {
     }
     this.db = openNodeSqliteDatabase(options.databasePath);
     initializeControlPlaneSchema(this.db, options.databasePath);
+    ensureDirectoryOrganizationSchema(this.db);
     retireOrganizationKnowledge(this.db);
     migrateVmAllocationCodingAgentSchema(this.db);
     if (process.platform !== "win32") {
@@ -423,10 +429,14 @@ export abstract class SqliteControlPlaneStoreCore {
   }
 
   protected assertScopeNameAvailable(scope: ManagedScopeRow, excludeScopeId?: string): void {
+    if (scope.external_key) {
+      return;
+    }
     let query = this.query
       .selectFrom("managed_scopes")
       .select("id")
       .where("kind", "=", scope.kind)
+      .where("external_key", "is", null)
       .where("normalized_name", "=", scope.normalized_name);
     query =
       scope.kind === "team"

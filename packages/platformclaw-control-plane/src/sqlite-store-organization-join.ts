@@ -163,6 +163,8 @@ export abstract class SqliteControlPlaneOrganizationJoinStore extends SqliteCont
                 role: "member",
                 created_at: params.decidedAt,
                 updated_at: params.decidedAt,
+                managed_by: null,
+                manual_role: null,
               })
               .onConflict((conflict) => conflict.columns(["scope_id", "user_id"]).doNothing()),
           );

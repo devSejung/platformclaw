@@ -2,10 +2,10 @@ import { html, nothing, type TemplateResult } from "lit";
 import { renderSettingsRow } from "../components/settings-ui.ts";
 import { platformClawT as t } from "./i18n.ts";
 import type { OrganizationScopeResult } from "./organization-api.ts";
-
-function label(scope: OrganizationScopeResult): string {
-  return scope.lineage.map((entry) => entry.name).join(" / ");
-}
+import {
+  organizationScopeLabel,
+  renderOrganizationManagedBadge,
+} from "./organization-scope-label.ts";
 
 export function renderOrganizationScopePicker(options: {
   scopes: readonly OrganizationScopeResult[];
@@ -22,9 +22,13 @@ export function renderOrganizationScopePicker(options: {
   );
   return renderSettingsRow({
     title: t("platformClaw.organization.management.scope"),
-    description: t("platformClaw.organization.management.scopeDescription"),
-    control: html`<form
-        class="settings-row__controls"
+    description: html`${t("platformClaw.organization.management.scopeDescription")}
+    ${renderOrganizationManagedBadge(
+      manageable.find((scope) => scope.id === options.selectedScopeId) ?? {},
+    )}`,
+    stacked: true,
+    control: html`<div class="platformclaw-organization-picker">
+      <form
         @submit=${(event: SubmitEvent) => {
           event.preventDefault();
           const value = new FormData(event.currentTarget as HTMLFormElement).get("query");
@@ -42,6 +46,7 @@ export function renderOrganizationScopePicker(options: {
             >${t("platformClaw.organization.management.noneDescription")}</span
           >`
         : html`<select
+            class="settings-select"
             aria-label=${t("platformClaw.organization.management.scope")}
             @change=${(event: Event) =>
               options.onSelect((event.currentTarget as HTMLSelectElement).value)}
@@ -51,7 +56,7 @@ export function renderOrganizationScopePicker(options: {
                 value=${scope.id}
                 ?selected=${scope.id === options.selectedScopeId}
               >
-                ${label(scope)}
+                ${organizationScopeLabel(scope, scope.lineage)}
               </option>`,
             )}
           </select>`}
@@ -59,6 +64,7 @@ export function renderOrganizationScopePicker(options: {
         ? html`<span class="muted" role="status"
             >${t("platformClaw.organization.management.searchHasMore")}</span
           >`
-        : nothing}`,
+        : nothing}
+    </div>`,
   });
 }

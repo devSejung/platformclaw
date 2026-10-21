@@ -70,6 +70,8 @@ describe("HttpEmployeeAuthenticator", () => {
 
     expect(result).toEqual({
       status: "authenticated",
+      org: undefined,
+      isTestAccount: false,
       principal: {
         provider: "ldap",
         subject: "seungon.jung",
@@ -112,6 +114,32 @@ describe("HttpEmployeeAuthenticator", () => {
       userAgent: "browser",
     });
   });
+
+  it.each([undefined, null, "invalid organization", { version: 2 }])(
+    "preserves optional organization data without rejecting authentication: %j",
+    async (org) => {
+      const authenticator = new HttpEmployeeAuthenticator(
+        { loginUrl: "https://auth.test/login" },
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                authenticated: true,
+                employeeId: "person.one",
+                org,
+                isTestAccount: true,
+              }),
+            ),
+        ),
+      );
+      await expect(
+        authenticator.authenticatePassword({
+          login: { identifier: "person.one", password: "test-password" },
+          context: {},
+        }),
+      ).resolves.toMatchObject({ status: "authenticated", org, isTestAccount: true });
+    },
+  );
 
   it("separates credential rejection from an invalid upstream response", async () => {
     const rejected = new HttpEmployeeAuthenticator(

@@ -3,13 +3,15 @@ const PLATFORMCLAW_ORGANIZATION_API_PATH = "/platformclaw/api/organization";
 export type OrganizationScopeKind = "team" | "group" | "part";
 export type OrganizationMemberRole = "member" | "leader";
 
-type OrganizationScope = {
+export type OrganizationScope = {
   id: string;
   kind: OrganizationScopeKind;
   name: string;
   parentScopeId?: string;
   status: "active" | "archived";
   revision?: number;
+  managedBy?: "ldap-login";
+  externalKey?: string;
 };
 
 type OrganizationScopeCapabilities = {
@@ -28,7 +30,12 @@ export type OrganizationScopeResult = OrganizationScope & {
 
 export type OrganizationContext = {
   actor: { id: string; displayName?: string; isAdministrator: boolean };
-  directMemberships: Array<{ scopeId: string; role: OrganizationMemberRole }>;
+  directMemberships: Array<{
+    scopeId: string;
+    role: OrganizationMemberRole;
+    managedBy?: "ldap-login";
+    manualRole?: OrganizationMemberRole;
+  }>;
   directMembershipsHasMore: boolean;
   directScopeLineages: Array<{ scopeId: string; lineage: OrganizationScope[] }>;
   effectiveScopes: Array<{
@@ -50,6 +57,8 @@ export type OrganizationContext = {
 type OrganizationMember = {
   user: { id: string; accountId: string; displayName?: string; status: "active" | "disabled" };
   role: OrganizationMemberRole;
+  managedBy?: "ldap-login";
+  manualRole?: OrganizationMemberRole;
 };
 
 export type OrganizationManagement = {

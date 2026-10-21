@@ -49,6 +49,7 @@ function fixtureFetch(options?: {
   membershipConflict?: boolean;
   conflictRefresh?: Promise<void>;
   refreshFailsAfterMutation?: boolean;
+  automatic?: boolean;
 }) {
   let mutationCommitted = false;
   let membershipConflictObserved = false;
@@ -59,10 +60,19 @@ function fixtureFetch(options?: {
     name: "Runtime",
     parentScopeId: team.id,
     status: "active" as const,
+    ...(options?.automatic
+      ? { managedBy: "ldap-login" as const, externalKey: "group:runtime" }
+      : {}),
   };
-  const managed = options?.manager
-    ? { canManageMembers: true, canManageStructure: false, canManageLeaders: false }
-    : none;
+  const secondGroup = { ...group, id: "group-2", externalKey: "group:runtime-two" };
+  const managed =
+    options?.manager || options?.administrator
+      ? {
+          canManageMembers: true,
+          canManageStructure: !options?.automatic && options?.administrator === true,
+          canManageLeaders: options?.administrator === true,
+        }
+      : none;
   return vi.fn<typeof fetch>(async (input) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.endsWith("/memberships") && options?.membershipConflict) {
@@ -91,9 +101,25 @@ function fixtureFetch(options?: {
         },
         directMemberships: options?.empty
           ? []
-          : [{ scopeId: group.id, role: options?.manager ? "leader" : "member" }],
+          : [
+              {
+                scopeId: group.id,
+                role: options?.manager ? "leader" : "member",
+                ...(options?.automatic ? { managedBy: "ldap-login" } : {}),
+              },
+              ...(options?.automatic
+                ? [{ scopeId: secondGroup.id, role: "member", managedBy: "ldap-login" }]
+                : []),
+            ],
         directMembershipsHasMore: false,
-        directScopeLineages: options?.empty ? [] : [{ scopeId: group.id, lineage: [team, group] }],
+        directScopeLineages: options?.empty
+          ? []
+          : [
+              { scopeId: group.id, lineage: [team, group] },
+              ...(options?.automatic
+                ? [{ scopeId: secondGroup.id, lineage: [team, secondGroup] }]
+                : []),
+            ],
         effectiveScopes: options?.empty
           ? []
           : [
@@ -103,6 +129,9 @@ function fixtureFetch(options?: {
                 directRole: options?.manager ? "leader" : "member",
               },
               { scope: team, source: "ancestor" },
+              ...(options?.automatic
+                ? [{ scope: secondGroup, source: "direct", directRole: "member" }]
+                : []),
             ],
         effectiveScopesHasMore: false,
         primaryScope: options?.empty ? null : group,
@@ -118,14 +147,37 @@ function fixtureFetch(options?: {
           ? []
           : [
               scope(team.id, "team", team.name, [team], none),
-              scope(group.id, "group", group.name, [team, group], managed),
+              {
+                ...scope(group.id, "group", group.name, [team, group], managed),
+                ...(options?.automatic
+                  ? { managedBy: group.managedBy, externalKey: group.externalKey }
+                  : {}),
+              },
+              ...(options?.automatic
+                ? [
+                    {
+                      ...scope(
+                        secondGroup.id,
+                        "group",
+                        secondGroup.name,
+                        [team, secondGroup],
+                        managed,
+                      ),
+                      managedBy: secondGroup.managedBy,
+                      externalKey: secondGroup.externalKey,
+                    },
+                  ]
+                : []),
             ],
         hasMore: false,
       });
     }
-    if (url.includes("/management/scopes/group-1?")) {
+    if (
+      url.includes("/management/scopes/group-1?") ||
+      url.includes("/management/scopes/group-2?")
+    ) {
       return json({
-        scope: group,
+        scope: url.includes("/group-2?") ? secondGroup : group,
         members: [
           {
             user: {
@@ -135,6 +187,9 @@ function fixtureFetch(options?: {
               status: "active",
             },
             role: options?.manager ? "leader" : "member",
+            ...(options?.automatic
+              ? { managedBy: "ldap-login", ...(mutationCommitted ? { manualRole: "member" } : {}) }
+              : {}),
           },
         ],
       });
@@ -204,6 +259,71 @@ describe("PlatformClaw Organization settings", () => {
     await vi.waitFor(() => expect(element.textContent).toContain("내 조직"));
     expect(element.textContent).toContain("Group");
     expect(element.textContent).toContain("멤버");
+  });
+
+  it("distinguishes identical directory paths and keeps their structure read-only for admins", async () => {
+    const fetchImpl = fixtureFetch({ administrator: true, automatic: true });
+    const element = await mount(fetchImpl);
+    expect(element.textContent).toContain("Automatically managed");
+    const primary = element.querySelector<HTMLSelectElement>('select[aria-label="Primary scope"]')!;
+    expect(
+      [...primary.options]
+        .filter((option) => option.value)
+        .map((option) => option.textContent?.trim()),
+    ).toEqual(["Platform / Runtime (group:runtime)", "Platform / Runtime (group:runtime-two)"]);
+
+    await selectTab(element, "management");
+    const picker = element.querySelector<HTMLSelectElement>('select[aria-label="Managed scope"]')!;
+    expect([...picker.options].map((option) => option.value)).toEqual(["group-1", "group-2"]);
+    expect([...picker.options].map((option) => option.textContent?.trim())).toEqual([
+      "Platform / Runtime (group:runtime)",
+      "Platform / Runtime (group:runtime-two)",
+    ]);
+    expect(element.textContent).toContain("Automatically managed");
+    expect(
+      [...element.querySelectorAll("button")].map((button) => button.textContent?.trim()),
+    ).not.toContain("Rename");
+    expect(
+      [...element.querySelectorAll("button")].map((button) => button.textContent?.trim()),
+    ).not.toContain("Archive");
+    picker.value = "group-2";
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(fetchImpl).toHaveBeenCalledWith(
+        expect.stringContaining("/management/scopes/group-2?"),
+        expect.objectContaining({ credentials: "same-origin" }),
+      ),
+    );
+    expect(element.textContent).toContain("Add a member");
+  });
+
+  it("lets an administrator retain an automatic membership without changing its role", async () => {
+    const fetchImpl = fixtureFetch({ administrator: true, automatic: true });
+    const element = await mount(fetchImpl);
+    await selectTab(element, "management");
+    await vi.waitFor(() => expect(element.textContent).toContain("Keep manual membership"));
+    [...element.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Keep manual membership")!
+      .click();
+    await element.updateComplete;
+    const dialog = element.querySelector("openclaw-modal-dialog")!;
+    expect(dialog.textContent).toContain("Confirm manual membership");
+    dialog.querySelector("textarea")!.value = "Keep project access after directory moves";
+    dialog.querySelector("form")!.dispatchEvent(new SubmitEvent("submit", { bubbles: true }));
+    await vi.waitFor(() => expect(element.textContent).toContain("Manual membership retained"));
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining("/memberships"),
+      expect.objectContaining({
+        body: JSON.stringify({
+          scopeId: "group-1",
+          userId: "user-1",
+          role: "member",
+          expectedRole: "member",
+          reason: "Keep project access after directory moves",
+        }),
+      }),
+    );
+    expect(element.textContent).not.toContain("Keep manual membership");
   });
 
   it("lets an administrator bootstrap the first Team without invalid parent controls", async () => {

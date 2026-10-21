@@ -75,6 +75,12 @@ export class BrowserAuthService {
       now?: () => number;
       tokenFactory?: () => string;
       onLogoutAgent?: (agentId: string) => Promise<void>;
+      syncOrganization?: (params: {
+        userId: string;
+        org: unknown;
+        isTestAccount: boolean;
+        syncedAt: number;
+      }) => Promise<unknown>;
     },
   ) {}
 
@@ -149,6 +155,7 @@ export class BrowserAuthService {
       currentSession?.status === "active" &&
       currentSession.user.id === upserted.user.id
     ) {
+      await this.syncDirectoryOrganization(auth, upserted.user.id, sessionAt);
       return {
         status: "authenticated",
         token: currentSessionToken,
@@ -175,6 +182,7 @@ export class BrowserAuthService {
     if (currentSession?.status === "active") {
       await this.options.store.revokeBrowserSession(currentSession.session.id, sessionAt);
     }
+    await this.syncDirectoryOrganization(auth, upserted.user.id, sessionAt);
     return {
       status: "authenticated",
       token,
@@ -184,6 +192,24 @@ export class BrowserAuthService {
       createdUser: upserted.createdUser,
       createdBinding: reservation.created,
     };
+  }
+
+  private async syncDirectoryOrganization(
+    auth: EmployeeAuthenticationSuccess,
+    userId: string,
+    syncedAt: number,
+  ): Promise<void> {
+    try {
+      // Sessions must succeed first; directory failures leave login and old access intact.
+      await this.options.syncOrganization?.({
+        userId,
+        org: auth.org,
+        isTestAccount: auth.isTestAccount === true,
+        syncedAt,
+      });
+    } catch {
+      console.warn("directory_organization_sync_failed", { userId });
+    }
   }
 
   private provisionPersonalAgent(params: PersonalAgentProvisioningRequest & { changedAt: number }) {

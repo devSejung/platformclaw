@@ -45,7 +45,11 @@ export function renderOrganizationActionDialog(options: {
   if (!action) {
     return nothing;
   }
-  const title = t(`platformClaw.organization.action.${action.kind}`);
+  const title = t(
+    action.kind === "role" && action.role === action.expectedRole
+      ? "platformClaw.organization.action.retainManually"
+      : `platformClaw.organization.action.${action.kind}`,
+  );
   return html`<openclaw-modal-dialog
     label=${title}
     description=${action.target}

@@ -7,12 +7,12 @@ import type {
   OrganizationReviewRequestDetail,
   OrganizationScopeResult,
 } from "./organization-api.ts";
+import {
+  organizationScopeLabel,
+  renderOrganizationManagedBadge,
+} from "./organization-scope-label.ts";
 
 export type OrganizationJoinSection = "mine" | "review";
-
-function lineageLabel(lineage: Array<{ name: string }>): string {
-  return lineage.map((scope) => scope.name).join(" / ");
-}
 
 function requestStatus(detail: OrganizationJoinRequestDetail) {
   return html`<span class="badge"
@@ -55,7 +55,8 @@ function renderBrowse(props: {
             ${props.scopes.map(
               (scope) => html`<li>
                 <div>
-                  <strong>${lineageLabel(scope.lineage)}</strong>
+                  <strong>${organizationScopeLabel(scope, scope.lineage)}</strong>
+                  ${renderOrganizationManagedBadge(scope)}
                   <span class="muted">${t(`platformClaw.organization.kind.${scope.kind}`)}</span>
                   ${scope.requestState === "eligible"
                     ? nothing
@@ -98,8 +99,8 @@ function renderMine(props: {
             ${props.items.map(
               (item) => html`<li>
                 <div>
-                  <strong>${lineageLabel(item.lineage)}</strong>
-                  ${requestStatus(item)}
+                  <strong>${organizationScopeLabel(item.scope, item.lineage)}</strong>
+                  ${renderOrganizationManagedBadge(item.scope)} ${requestStatus(item)}
                   <p>${item.request.reason}</p>
                   ${item.request.decisionReason
                     ? html`<p class="muted">${item.request.decisionReason}</p>`
@@ -150,7 +151,8 @@ function renderReview(props: {
               (item) => html`<li>
                 <div>
                   <strong>${item.applicant.displayName ?? item.applicant.accountId}</strong>
-                  <span class="muted">${lineageLabel(item.lineage)}</span>
+                  <span class="muted">${organizationScopeLabel(item.scope, item.lineage)}</span>
+                  ${renderOrganizationManagedBadge(item.scope)}
                   <p>${item.request.reason}</p>
                 </div>
                 <div class="organization-request-actions">
