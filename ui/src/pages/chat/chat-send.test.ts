@@ -7677,6 +7677,82 @@ describe("handleSendChat", () => {
     },
   );
 
+  it.each(["error", "aborted"] as const)(
+    "reconciles an interrupted %s before an immediate foreground retry without a session message",
+    async (terminalState) => {
+      const history = createDeferred<unknown>();
+      const host = makeHost({
+        requestHandlers: {
+          "chat.history": () => history.promise,
+          "chat.send": (params: unknown) => {
+            const payload = requireRecord(params, "interrupted follow-up payload");
+            return { runId: payload.idempotencyKey, status: "started" };
+          },
+        },
+        chatDisplayedLeafEntryId: null,
+        chatRunId: "interrupted-run",
+        chatMessage: "try again",
+      });
+      const terminal = {
+        type: "event" as const,
+        event: "chat",
+        payload: {
+          sessionKey: host.sessionKey,
+          runId: "interrupted-run",
+          state: terminalState,
+          errorMessage: "The response service was interrupted.",
+        },
+      };
+      handlePageGatewayEvent(asChatPageHost(host), terminal);
+      handlePageGatewayEvent(asChatPageHost(host), terminal);
+
+      expect(host.chatRunId).toBeNull();
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.history")).toHaveLength(
+        1,
+      );
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
+      const sending = handleSendChat(host);
+      await Promise.resolve();
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
+      history.resolve({
+        messages: [{ role: "user", content: [{ type: "text", text: "first request" }] }],
+        sessionInfo: {
+          activeLeafEntryId: "persisted-interrupted-user",
+          key: host.sessionKey,
+          sessionId: "session-main",
+        },
+      });
+      await sending;
+
+      expect(
+        findRequestPayload(host.request as unknown as MockCallSource, "chat.send", "manual retry"),
+      ).toMatchObject({ message: "try again", expectedLeafEntryId: "persisted-interrupted-user" });
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(1);
+    },
+  );
+
+  it.each(["error", "aborted"] as const)(
+    "does not refresh a newer run for a delayed interrupted %s",
+    async (terminalState) => {
+      const host = makeHost({ requestHandlers: {}, chatRunId: "newer-run" });
+      handlePageGatewayEvent(asChatPageHost(host), {
+        type: "event",
+        event: "chat",
+        payload: {
+          sessionKey: host.sessionKey,
+          runId: "older-run",
+          state: terminalState,
+        },
+      });
+      await Promise.resolve();
+
+      expect(host.chatRunId).toBe("newer-run");
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.history")).toHaveLength(
+        0,
+      );
+    },
+  );
+
   it("preserves the composer when a failed history refresh still cannot recover", async () => {
     const attachment = {
       id: "draft-image",

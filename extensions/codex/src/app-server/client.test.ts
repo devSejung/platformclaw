@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CodexAppServerClient,
   isCodexAppServerApprovalRequest,
+  isCodexAppServerConnectionClosedError,
   isCodexAppServerIndeterminateTransportError,
 } from "./client.js";
 import { resetSharedCodexAppServerClientForTests } from "./shared-client.js";
@@ -27,14 +28,19 @@ describe("CodexAppServerClient", () => {
     return { harness, initializing, outbound };
   }
 
-  afterEach(() => {
+  afterEach(async () => {
     resetSharedCodexAppServerClientForTests();
-    vi.restoreAllMocks();
     vi.useRealTimers();
     for (const client of clients) {
       client.close();
     }
     clients.length = 0;
+    // Fake child exits follow stdin destruction on the next event-loop turn.
+    // Drain them before another test installs an exit-diagnostic observer.
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    vi.restoreAllMocks();
   });
 
   it("routes request responses by id", async () => {
@@ -456,15 +462,24 @@ describe("CodexAppServerClient", () => {
   });
 
   it("handles stdin write errors without crashing the process", async () => {
+    const warn = vi.spyOn(embeddedAgentLog, "warn").mockImplementation(() => undefined);
     const harness = createClientHarness();
     clients.push(harness.client);
+    Object.assign(harness.process, { pid: 4321 });
+    const pipeError = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    vi.spyOn(harness.process.stdin, "write").mockImplementationOnce((...args) => {
+      const callback = args.at(-1);
+      if (typeof callback === "function") {
+        callback(pipeError);
+      }
+      return false;
+    });
 
     // Start a pending request so we can verify it gets properly rejected.
     const pending = harness.client.request("test/method");
 
     // Simulate the child process closing its pipe: stdin emits an asynchronous
     // EPIPE error before the transport observes a process exit.
-    const pipeError = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
     harness.process.stdin.emit("error", pipeError);
 
     // The pending request must be rejected with the pipe error rather than
@@ -473,10 +488,75 @@ describe("CodexAppServerClient", () => {
     expect(pendingError).toBeInstanceOf(Error);
     expect((pendingError as Error).message).toContain("write EPIPE");
     expect(isCodexAppServerIndeterminateTransportError(pendingError)).toBe(true);
+    expect(isCodexAppServerConnectionClosedError(pendingError)).toBe(true);
+    expect(warn).toHaveBeenCalledWith("codex app-server write failed", {
+      error: pipeError,
+      id: 1,
+      method: "test/method",
+      clientInstanceId: harness.client.getInstanceId(),
+      pid: 4321,
+      consoleMessage: expect.stringContaining("method=test/method id=1 write EPIPE"),
+    });
 
     // Subsequent requests keep the original close reason so startup logs stay actionable.
-    await expect(harness.client.request("another/method")).rejects.toThrow("write EPIPE");
+    const closedError = await harness.client
+      .request("another/method")
+      .catch((error: unknown) => error);
+    expect(closedError).toBe(pipeError);
+    expect(isCodexAppServerConnectionClosedError(closedError)).toBe(true);
   });
+
+  it.each([
+    { code: 1, signal: null },
+    { code: null, signal: "SIGKILL" },
+  ])("records redacted process exit after EPIPE: $code/$signal", async ({ code, signal }) => {
+    const warn = vi.spyOn(embeddedAgentLog, "warn").mockImplementation(() => undefined);
+    const harness = createClientHarness();
+    clients.push(harness.client);
+    Object.assign(harness.process, { pid: 4321 });
+    const pipeError = Object.assign(new Error('write EPIPE token="pipe-secret"'), {
+      code: "EPIPE",
+    });
+    harness.process.stderr.write(`fatal token="secret-value" ${"x".repeat(1_000)}\n`);
+    harness.process.stdin.emit("error", pipeError);
+    harness.process.emit("exit", code, signal);
+
+    expect(harness.client.getCloseError()).toBe(pipeError);
+    expect(warn).toHaveBeenCalledWith("codex app-server exited unexpectedly", {
+      clientInstanceId: harness.client.getInstanceId(),
+      pid: 4321,
+      code: String(code),
+      signal: String(signal),
+      afterTransportFailure: true,
+      priorErrorCode: "EPIPE",
+      priorErrorMessage: 'write EPIPE token="<redacted>"',
+      error: expect.stringContaining('stderr="fatal token=\\"<redacted>\\"'),
+      consoleMessage: expect.stringContaining('"afterTransportFailure":true'),
+    });
+    const metadata = warn.mock.calls[0]?.[1] as { error: string };
+    expect(metadata.error.length).toBeLessThan(650);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret-value");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("pipe-secret");
+    await expect(harness.client.request("after/exit")).rejects.toBe(pipeError);
+  });
+
+  it.each(["close", "closeAndWait"] as const)(
+    "keeps requested shutdown quiet through %s",
+    async (method) => {
+      const warn = vi.spyOn(embeddedAgentLog, "warn").mockImplementation(() => undefined);
+      const harness = createClientHarness();
+      clients.push(harness.client);
+
+      const closing = harness.client[method]();
+      harness.process.emit("exit", 0, null);
+      await closing;
+
+      expect(warn).not.toHaveBeenCalledWith(
+        "codex app-server exited unexpectedly",
+        expect.anything(),
+      );
+    },
+  );
 
   it("handles stdout stream errors without crashing the process", async () => {
     const harness = createClientHarness();

@@ -3630,6 +3630,7 @@ describe("agent event handler", () => {
     emitAgentEvent(handler, "run-terminal-final-failure", "lifecycle", {
       phase: "error",
       error: "LLM request failed: network connection error.",
+      errorDetails: "Reference: run-terminal-final-failure\nError code: EPIPE",
       fallbackExhaustedFailure: true,
     });
 
@@ -3637,10 +3638,14 @@ describe("agent event handler", () => {
       state?: string;
       runId?: string;
       errorMessage?: string;
+      errorDetails?: string;
     };
     expect(finalPayload.state).toBe("error");
     expect(finalPayload.runId).toBe("run-terminal-final-failure");
     expect(finalPayload.errorMessage).toContain("network connection error");
+    expect(finalPayload.errorDetails).toBe(
+      "Reference: run-terminal-final-failure\nError code: EPIPE",
+    );
     expect(clearAgentRunContext).toHaveBeenCalledWith("run-terminal-final-failure");
     expect(agentRunSeq.has("run-terminal-final-failure")).toBe(false);
     expect(

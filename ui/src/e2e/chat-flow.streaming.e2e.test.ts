@@ -136,16 +136,39 @@ suite.define(() => {
   });
 
   it.each([
-    { label: "desktop", initialFocus: "composer", viewport: { height: 900, width: 1280 } },
-    { label: "mobile", initialFocus: "composer", viewport: { height: 844, width: 390 } },
+    {
+      label: "desktop",
+      mode: "light",
+      initialFocus: "composer",
+      viewport: { height: 900, width: 1280 },
+    },
+    {
+      label: "mobile",
+      mode: "light",
+      initialFocus: "composer",
+      viewport: { height: 844, width: 390 },
+    },
     {
       label: "mobile from transcript",
+      mode: "light",
       initialFocus: "transcript",
+      viewport: { height: 844, width: 390 },
+    },
+    {
+      label: "desktop dark",
+      mode: "dark",
+      initialFocus: "composer",
+      viewport: { height: 900, width: 1280 },
+    },
+    {
+      label: "mobile dark",
+      mode: "dark",
+      initialFocus: "composer",
       viewport: { height: 844, width: 390 },
     },
   ])(
     "keeps streamed text visible when a chat error terminates the turn on $label",
-    async ({ viewport, initialFocus }) => {
+    async ({ viewport, initialFocus, mode }) => {
       const context = await suite.newBrowserContext({
         hasTouch: viewport.width < 480,
         isMobile: viewport.width < 480,
@@ -159,6 +182,14 @@ suite.define(() => {
 
       try {
         await page.goto(`${suite.server.baseUrl}chat`);
+        if (mode === "dark") {
+          await page.goto(`${suite.server.baseUrl}settings/appearance`);
+          await page.locator('wa-radio[value="dark"]').click();
+          await page.goto(`${suite.server.baseUrl}chat`);
+        }
+        await expect
+          .poll(() => page.evaluate(() => document.documentElement.dataset.themeMode))
+          .toBe(mode);
         if (initialFocus === "transcript") {
           await page.addStyleTag({ content: ":root { --safe-area-bottom: 34px !important; }" });
         }
@@ -188,10 +219,15 @@ suite.define(() => {
           .waitFor({ timeout: 10_000 });
 
         const gatewayErrorText =
-          "⚠️ Model login expired on the gateway for openai. Send `/login codex` from a private chat or Web UI session to pair a new Codex login, or re-auth with `openclaw models auth login --provider openai` in a terminal, then try again.";
-        const errorText = gatewayErrorText.replace(/^⚠️\s*/u, "");
+          "⚠️ The connection to the response service was interrupted, so I couldn't finish your reply. Some actions may already have completed. Check their results before trying again.\nReference: example-run\n\nWeb fetch completed.";
+        const errorText = requireString(
+          gatewayErrorText.replace(/^⚠️\s*/u, "").split("\n")[0],
+          "failure summary",
+        );
+        const errorReport = `OpenClaw error report\nReference ID: ${runId}\nCode: EPIPE`;
         await gateway.emitGatewayEvent("chat", {
           errorMessage: gatewayErrorText,
+          errorDetails: errorReport,
           message: {
             content: [{ text: gatewayErrorText, type: "text" }],
             role: "assistant",
@@ -208,18 +244,39 @@ suite.define(() => {
           .waitFor({ timeout: 10_000 });
         const alert = page.locator(".chat-run-error");
         await alert.waitFor({ timeout: 10_000 });
+        const surface = await alert.evaluate((element) => {
+          const composer = element.nextElementSibling?.querySelector(".agent-chat__input");
+          if (!composer) {
+            throw new Error("Expected the adjacent composer");
+          }
+          const noticeStyle = getComputedStyle(element);
+          const composerStyle = getComputedStyle(composer);
+          return {
+            background: noticeStyle.backgroundColor,
+            composerBackground: composerStyle.backgroundColor,
+            radius: noticeStyle.borderRadius,
+            composerRadius: composerStyle.borderRadius,
+            overflow: document.documentElement.scrollWidth > innerWidth,
+          };
+        });
+        expect(surface.background).toBe(surface.composerBackground);
+        expect(surface.radius).toBe(surface.composerRadius);
+        expect(surface.overflow).toBe(false);
         const details = alert.locator("details");
         const summary = alert.locator("summary");
         const diagnostic = alert.getByLabel("Error details", { exact: true });
-        expect(await summary.locator("strong").textContent()).toBe(`${errorText.slice(0, 119)}…`);
+        expect(await alert.locator("strong").textContent()).toBe(errorText);
         expect(await details.getAttribute("open")).toBeNull();
         expect(await diagnostic.isVisible()).toBe(false);
-        const copy = alert.getByRole("button", { name: "Copy error", exact: true });
+        const copy = alert.locator(".chat-copy-btn");
         expect(await copy.count()).toBe(1);
+        expect(await copy.textContent()).toContain("Copy error details");
         if (initialFocus === "transcript") {
           await page.locator(".chat-thread-inner").getByText(partialText, { exact: true }).tap();
           expect(
-            await page.locator("textarea").evaluate((input) => document.activeElement === input),
+            await page
+              .locator(".agent-chat__composer-combobox textarea")
+              .evaluate((input) => document.activeElement === input),
           ).toBe(false);
         }
         const copyBounds = await copy.boundingBox();
@@ -230,8 +287,8 @@ suite.define(() => {
         }
         await expect
           .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-          .toBe(errorText);
-        const copiedBounds = await summary.getByRole("button").boundingBox();
+          .toBe(errorReport);
+        const copiedBounds = await copy.boundingBox();
         expect(copyBounds).not.toBeNull();
         expect(copiedBounds).not.toBeNull();
         expect(Math.abs((copyBounds?.y ?? 0) - (copiedBounds?.y ?? 0))).toBeLessThanOrEqual(1.5);
@@ -239,12 +296,12 @@ suite.define(() => {
         await summary.focus();
         await summary.press("Enter");
         await diagnostic.waitFor({ timeout: 10_000 });
-        expect(await diagnostic.textContent()).toBe(errorText);
+        expect(await diagnostic.inputValue()).toBe(errorReport);
         await page.evaluate(() => navigator.clipboard.writeText("Before expanded copy."));
-        await summary.getByRole("button").press("Enter");
+        await copy.press("Enter");
         await expect
           .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-          .toBe(errorText);
+          .toBe(errorReport);
         expect(await details.getAttribute("open")).not.toBeNull();
         await summary.press("Space");
         await diagnostic.waitFor({ state: "hidden" });
@@ -252,6 +309,51 @@ suite.define(() => {
         expect(await alert.getByRole("button", { name: "Refresh", exact: true }).count()).toBe(1);
         expect(await alert.getByRole("button", { name: "Retry", exact: true }).count()).toBe(0);
         expect(await alert.getByRole("button", { name: "Dismiss error" }).count()).toBe(0);
+        await page.evaluate(() => {
+          Object.defineProperty(navigator.clipboard, "writeText", {
+            configurable: true,
+            value: async () => {
+              throw new Error("Clipboard permission denied");
+            },
+          });
+          Object.defineProperty(document, "execCommand", {
+            configurable: true,
+            value: () => false,
+          });
+        });
+        await copy.click();
+        await alert.getByRole("status").waitFor({ state: "visible" });
+        expect(await alert.getByRole("status").textContent()).toContain(
+          "Select and copy the report below",
+        );
+        expect(
+          await diagnostic.evaluate((input) => {
+            const textarea = input as HTMLTextAreaElement;
+            return textarea.value.slice(textarea.selectionStart, textarea.selectionEnd);
+          }),
+        ).toBe(errorReport);
+        const reportStyle = await diagnostic.evaluate((input) => {
+          const style = getComputedStyle(input);
+          return {
+            radius: Number.parseFloat(style.borderTopLeftRadius),
+            padding: Number.parseFloat(style.paddingInlineStart),
+            fontSize: Number.parseFloat(style.fontSize),
+          };
+        });
+        expect(reportStyle.radius).toBeGreaterThan(0);
+        expect(reportStyle.padding).toBeGreaterThan(0);
+        if (viewport.width < 480) {
+          expect(reportStyle.fontSize).toBeGreaterThanOrEqual(16);
+        }
+        expect(await copy.evaluate((button) => getComputedStyle(button).color)).toBe(
+          await alert.evaluate((element) => getComputedStyle(element).color),
+        );
+        await page.evaluate(() => {
+          Reflect.deleteProperty(navigator.clipboard, "writeText");
+          Reflect.deleteProperty(document, "execCommand");
+        });
+        await summary.press("Space");
+        await diagnostic.waitFor({ state: "hidden" });
         await expectRequestCountStable(gateway, "chat.send", 1);
         expect(
           await page.locator(".chat-thread-inner").getByText(partialText, { exact: true }).count(),
@@ -336,7 +438,7 @@ suite.define(() => {
           state: "error",
         });
         await alert.waitFor({ timeout: 10_000 });
-        expect(await summary.locator("strong").textContent()).toBe(`Error: ${recovery}`);
+        expect(await alert.locator("strong").textContent()).toBe(`Error: ${recovery}`);
         if (initialFocus === "transcript") {
           const input = page.locator(".agent-chat__composer-combobox textarea");
           await input.focus();
@@ -346,15 +448,15 @@ suite.define(() => {
               .locator(".agent-chat__composer-shell")
               .evaluate((element) => getComputedStyle(element).marginBottom),
           ).toBe("48px");
-          await alert.getByRole("button", { name: "Copy error", exact: true }).tap();
+          await copy.tap();
           await expect
             .poll(() => page.evaluate(() => navigator.clipboard.readText()))
             .toBe(`Error: ${refreshError}`);
         }
         await summary.press("Enter");
         await diagnostic.waitFor({ timeout: 10_000 });
-        expect(await diagnostic.textContent()).toBe(`Error: ${refreshError}`);
-        await alert.getByRole("button", { name: "Copy error", exact: true }).click();
+        expect(await diagnostic.inputValue()).toBe(`Error: ${refreshError}`);
+        await copy.click();
         await expect
           .poll(() => page.evaluate(() => navigator.clipboard.readText()))
           .toBe(`Error: ${refreshError}`);
@@ -376,7 +478,7 @@ suite.define(() => {
         }
         await waitForRequests(gateway, "chat.history", historyCount + 1);
         await page.getByText(refreshedText, { exact: true }).waitFor({ timeout: 10_000 });
-        expect(await summary.locator("strong").textContent()).toBe(`Error: ${recovery}`);
+        expect(await alert.locator("strong").textContent()).toBe(`Error: ${recovery}`);
         expect(await input.inputValue()).toBe("A newer draft stays here");
         expect(
           await page.locator(".chat-thread-inner").getByText(prompt, { exact: true }).count(),

@@ -37,6 +37,15 @@ describe("ChatStatusEventSchema", () => {
   });
 });
 
+describe("chat failure support details", () => {
+  it("accepts an optional bounded report without requiring it from older servers", () => {
+    const error = { runId: "run-1", sessionKey: "agent:main:main", seq: 1, state: "error" };
+    expect(Value.Check(ChatEventSchema, error)).toBe(true);
+    expect(Value.Check(ChatEventSchema, { ...error, errorDetails: "x".repeat(4096) })).toBe(true);
+    expect(Value.Check(ChatEventSchema, { ...error, errorDetails: "x".repeat(4097) })).toBe(false);
+  });
+});
+
 describe("ChatSendParamsSchema", () => {
   const send = {
     sessionKey: "agent:main:main",

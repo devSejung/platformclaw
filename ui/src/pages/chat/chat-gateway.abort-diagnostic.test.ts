@@ -121,6 +121,28 @@ describe("aborted chat diagnostics", () => {
     expect(state.chatRunId).toBeNull();
   });
 
+  it("retains a safe report supplied after an already published error summary", () => {
+    const state = createAbortDiagnosticState();
+    const failure: ChatEventPayload = {
+      runId: "run-validation-abort",
+      sessionKey: "main",
+      state: "error",
+      errorMessage: "The agent connection closed. Reference ID: run-validation-abort",
+    };
+    handleChatGatewayEvent(state, failure);
+    const errorDetails = "OpenClaw error report\nReference ID: run-validation-abort\nCode: EPIPE";
+    handleChatGatewayEvent(state, { ...failure, errorDetails });
+    const displayed = state.chatRunError;
+    expect(displayed).toEqual({ summary: `Error: ${failure.errorMessage}`, details: errorDetails });
+    handleChatGatewayEvent(state, { ...failure, errorDetails });
+    expect(state.chatRunError).toBe(displayed);
+
+    state.chatRunId = "new-run";
+    state.chatRunError = null;
+    handleChatGatewayEvent(state, { ...failure, errorDetails });
+    expect(state.chatRunError).toBeNull();
+  });
+
   it("does not publish a late aborted diagnostic over a newer active run", () => {
     const state = createAbortDiagnosticState("run-old");
     expect(

@@ -215,7 +215,13 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
 
     expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(1);
     expect(result.payloads).toEqual([
-      { text: "⚠️ Agent couldn't generate a response. Please try again.", isError: true },
+      {
+        text:
+          "⚠️ Agent couldn't generate a response. Please try again. " +
+          "The reply was interrupted before it could finish.\n" +
+          "Reference: run-internal-abort-tool-use-incomplete",
+        isError: true,
+      },
     ]);
     expect(result.meta?.livenessState).toBe("abandoned");
   });
@@ -484,8 +490,10 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
     expect(result.payloads).toEqual([
       {
         text:
-          "Web fetch completed.\nOrigin: https://example.com\nStatus: 200\n\n" +
-          "⚠️ Agent couldn't generate a response. Please try again.",
+          "⚠️ Agent couldn't generate a response. Please try again. " +
+          "The assistant stopped after a step without completing its answer.\n" +
+          "Reference: run-structured-terminal-presentation\n\n" +
+          "Web fetch completed.\nOrigin: https://example.com\nStatus: 200",
         isError: true,
       },
     ]);
@@ -541,8 +549,10 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
     expect(result.payloads).toEqual([
       {
         text:
-          "Automations scheduler status.\nEnabled: yes\n\n" +
-          "⚠️ Agent couldn't generate a response. Please try again.",
+          "⚠️ Agent couldn't generate a response. Please try again. " +
+          "The assistant stopped after a step without completing its answer.\n" +
+          "Reference: run-read-only-cron-terminal-presentation\n\n" +
+          "Automations scheduler status.\nEnabled: yes",
         isError: true,
       },
     ]);
@@ -604,8 +614,10 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
     expect(result.payloads).toEqual([
       {
         text:
-          "Web fetch completed.\nOrigin: https://example.com\nStatus: 200\n\n" +
-          "⚠️ Agent couldn't generate a response. Please try again.",
+          "⚠️ Agent couldn't generate a response. Please try again. " +
+          "The AI service returned an empty answer.\n" +
+          "Reference: run-preserved-terminal-presentation\n\n" +
+          "Web fetch completed.\nOrigin: https://example.com\nStatus: 200",
         isError: true,
       },
     ]);
@@ -2522,10 +2534,12 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
   });
 
   it("surfaces an error after exhausting empty-response retries", async () => {
+    const diagnosticTrace = { traceId: "a".repeat(32), spanId: "b".repeat(16) };
     mockedClassifyFailoverReason.mockReturnValue(null);
     mockedRunEmbeddedAttempt.mockResolvedValue(
       makeAttemptResult({
         assistantTexts: [],
+        diagnosticTrace,
         lastAssistant: {
           role: "assistant",
           stopReason: "end_turn",
@@ -2546,6 +2560,11 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
     expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(2);
     expect(result.payloads?.[0]?.isError).toBe(true);
     expect(result.payloads?.[0]?.text).toContain("Please try again");
+    expect(result.payloads?.[0]?.text).toContain("The AI service returned an empty answer.");
+    expect(result.payloads?.[0]?.text).toContain("Reference: run-empty-response-exhausted");
+    expect(result.payloads?.[0]?.text).not.toContain("openclaw logs");
+    expect(result.diagnosticTrace).toEqual(diagnosticTrace);
+    expect(Object.isFrozen(result.diagnosticTrace)).toBe(true);
     expectWarnMessageWith("empty response retries exhausted");
   });
 
@@ -2584,6 +2603,11 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
     expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(3);
     expect(result.payloads?.[0]?.isError).toBe(true);
     expect(result.payloads?.[0]?.text).toContain("Please try again");
+    expect(result.payloads?.[0]?.text).toContain(
+      "The AI service finished processing but did not return an answer.",
+    );
+    expect(result.payloads?.[0]?.text).toContain("Reference: run-reasoning-only-exhausted");
+    expect(result.payloads?.[0]?.text).not.toContain("internal reasoning");
     expectWarnMessageWith("reasoning-only retries exhausted");
   });
 
@@ -2641,8 +2665,10 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
     expect(result.payloads).toEqual([
       {
         text:
-          "Web fetch completed.\nOrigin: https://example.com\nStatus: 200\n\n" +
-          "⚠️ Agent couldn't generate a response. Please try again.",
+          "⚠️ Agent couldn't generate a response. Please try again. " +
+          "The AI service finished processing but did not return an answer.\n" +
+          "Reference: run-reasoning-terminal-presentation\n\n" +
+          "Web fetch completed.\nOrigin: https://example.com\nStatus: 200",
         isError: true,
       },
     ]);

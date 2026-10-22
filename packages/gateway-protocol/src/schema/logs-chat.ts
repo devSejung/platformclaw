@@ -243,6 +243,8 @@ export const ChatErrorEventSchema = closedObject({
   state: Type.Literal("error"),
   message: Type.Optional(Type.Unknown()),
   errorMessage: Type.Optional(Type.String()),
+  /** Safe support report kept separate from the user-facing explanation. */
+  errorDetails: Type.Optional(Type.String({ maxLength: 4096 })),
   errorKind: Type.Optional(ChatEventErrorKindSchema),
   usage: Type.Optional(Type.Unknown()),
   stopReason: Type.Optional(Type.String()),

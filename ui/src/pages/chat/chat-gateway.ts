@@ -46,8 +46,8 @@ type AssistantMessageNormalizationOptions = {
   allowTextField?: boolean;
 };
 
-function setChatRunError(state: ChatState, summary: string) {
-  state.chatRunError = { summary };
+function setChatRunError(state: ChatState, summary: string, details?: string) {
+  state.chatRunError = { summary, ...(details?.trim() ? { details } : {}) };
 }
 
 function chatEventSessionMatches(state: ChatState, payload: ChatEventPayload): boolean {
@@ -280,11 +280,12 @@ function handleChatEvent(
       if (
         diagnosticOwnerRunId === payload.runId &&
         payload.errorMessage?.trim() &&
-        projectedRun.currentRun?.errorMessage !== previousTerminalRun.errorMessage
+        (projectedRun.currentRun?.errorMessage !== previousTerminalRun.errorMessage ||
+          (payload.errorDetails && payload.errorDetails !== state.chatRunError?.details))
       ) {
         // Late diagnostics belong to the active, pending, or latest locally terminal run;
         // publishing them over a newer response falsely marks the new run failed.
-        setChatRunError(state, resolveGatewayErrorText(payload, null));
+        setChatRunError(state, resolveGatewayErrorText(payload, null), payload.errorDetails);
       }
       if (payload.state === "error") {
         return "error";
@@ -427,7 +428,7 @@ function handleChatEvent(
       state.chatMessages = materializeVisibleStream();
     }
     if (payload.errorMessage?.trim()) {
-      setChatRunError(state, resolveGatewayErrorText(payload, null));
+      setChatRunError(state, resolveGatewayErrorText(payload, null), payload.errorDetails);
     }
     reconcileTerminalRun("interrupted", "killed");
   } else if (payload.state === "error") {
@@ -479,6 +480,7 @@ function handleChatEvent(
     setChatRunError(
       state,
       resolveGatewayErrorText(payload, projectedErrorMessage ? visiblePayloadMessage : null),
+      payload.errorDetails,
     );
   }
   return payload.state;
