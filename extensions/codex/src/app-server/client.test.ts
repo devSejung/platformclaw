@@ -37,7 +37,9 @@ describe("CodexAppServerClient", () => {
     clients.length = 0;
     // Fake child exits follow stdin destruction on the next event-loop turn.
     // Drain them before another test installs an exit-diagnostic observer.
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
     vi.restoreAllMocks();
   });
 
@@ -497,7 +499,9 @@ describe("CodexAppServerClient", () => {
     });
 
     // Subsequent requests keep the original close reason so startup logs stay actionable.
-    const closedError = await harness.client.request("another/method").catch((error) => error);
+    const closedError = await harness.client
+      .request("another/method")
+      .catch((error: unknown) => error);
     expect(closedError).toBe(pipeError);
     expect(isCodexAppServerConnectionClosedError(closedError)).toBe(true);
   });

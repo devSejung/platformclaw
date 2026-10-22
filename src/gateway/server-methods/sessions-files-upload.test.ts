@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { WorkerOptions } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_TERMINAL_UPLOAD_BASE64_LENGTH,
@@ -23,7 +24,23 @@ const hoisted = vi.hoisted(() => ({
   loadSessionEntryReadOnly: vi.fn(),
   resolveAgentWorkspaceDir: vi.fn(),
   resolveDefaultAgentId: vi.fn(),
+  workerExits: [] as Promise<number>[],
 }));
+vi.mock("node:worker_threads", async () => {
+  const actual = await vi.importActual<typeof import("node:worker_threads")>("node:worker_threads");
+  return {
+    ...actual,
+    Worker: vi.fn(function createUploadWorker(url: URL, options: WorkerOptions) {
+      const worker = new actual.Worker(url, options);
+      hoisted.workerExits.push(
+        new Promise((resolve) => {
+          worker.once("exit", resolve);
+        }),
+      );
+      return worker;
+    }),
+  };
+});
 vi.mock("../session-utils.js", () => ({
   loadSessionEntryReadOnly: hoisted.loadSessionEntryReadOnly,
 }));
@@ -59,7 +76,10 @@ describe("session workspace uploads", { timeout: 20_000 }, () => {
     hoisted.resolveAgentWorkspaceDir.mockReturnValue(workspaceRoot);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Rejected READY checks respond before cancellation finishes. Join each real
+    // Worker so its exit releases admission before the next test or root removal.
+    await Promise.all(hoisted.workerExits.splice(0));
     vi.restoreAllMocks();
     fs.rmSync(workspaceRoot, { recursive: true, force: true });
     fs.rmSync(outsideRoot, { recursive: true, force: true });
