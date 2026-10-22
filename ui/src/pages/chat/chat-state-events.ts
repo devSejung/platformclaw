@@ -472,6 +472,9 @@ export function handlePageGatewayEvent(state: ChatPageHost, event: GatewayEventF
       shouldCelebrateFirstReply && finalAssistantReplyHasPullRequestLink(state, payload);
     const terminal =
       payload?.state === "final" || payload?.state === "aborted" || payload?.state === "error";
+    const refreshInterruptedHistory =
+      (payload?.state === "error" || payload?.state === "aborted") &&
+      terminalOwnsActiveChatStream(state, payload);
     const delivered = terminal ? rememberDeliveredQueuedUserTurn(state, payload?.runId) : null;
     if (delivered) {
       // The queued projection is the only local copy until history catches up.
@@ -484,6 +487,11 @@ export function handlePageGatewayEvent(state: ChatPageHost, event: GatewayEventF
     }
     if (shouldRefreshPullRequests) {
       void state.refreshSessionPullRequests?.({ refresh: true });
+    }
+    if (refreshInterruptedHistory) {
+      // Interrupted runs can advance the persisted leaf without an assistant
+      // session.message. Supersede earlier snapshots before sends reuse this read.
+      void loadChatHistory(state, { refresh: true }).finally(() => state.requestUpdate?.());
     }
     replayPendingSessionMessageReload(state, payload);
     if (terminal) {
