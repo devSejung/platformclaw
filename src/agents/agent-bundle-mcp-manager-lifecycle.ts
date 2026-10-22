@@ -18,12 +18,18 @@ type ManagerCreateInFlight = {
   workspaceDir: string;
   agentDir?: string;
   configFingerprint: string;
+  generation: SessionMcpConfigGeneration;
 };
 
 type AdvertisedScopedCatalogEntry = {
   servers: Map<string, McpServerCatalog>;
   toolsByServer: Map<string, McpCatalogTool[]>;
   signaturesByServer: Map<string, string>;
+};
+
+export type SessionMcpConfigGeneration = {
+  digest: string;
+  retirement: Promise<void>;
 };
 
 type SessionMcpRuntimeManagerStore = {
@@ -35,8 +41,14 @@ type SessionMcpRuntimeManagerStore = {
   requiredRetirementSessionIds: Set<string>;
   connectionMetaByRuntimeKey: Map<
     string,
-    { connectionHash: string; resolvedAt: number; expiresAt?: number }
+    {
+      connectionHash: string;
+      resolvedAt: number;
+      expiresAt?: number;
+      generation: SessionMcpConfigGeneration;
+    }
   >;
+  configGenerationBySessionId: Map<string, SessionMcpConfigGeneration>;
   advertisedScopedCatalogBySessionId: Map<string, AdvertisedScopedCatalogEntry>;
   requesterWorkChains: Map<string, Promise<unknown>>;
   createInFlight: Map<string, ManagerCreateInFlight>;
@@ -82,6 +94,7 @@ export function createSessionMcpRuntimeManagerStore(
     requiredRetirementSessionIds: new Set<string>(),
     // Manager-side only: connection hash + resolve time. Never stores raw url/headers.
     connectionMetaByRuntimeKey: new Map(),
+    configGenerationBySessionId: new Map(),
     /**
      * Session-stable advertised catalogs for requester-scoped servers.
      * Keyed by sessionId → serverName. Specs must not vary per sender or shared
@@ -89,14 +102,14 @@ export function createSessionMcpRuntimeManagerStore(
      */
     advertisedScopedCatalogBySessionId: new Map(),
     /**
-     * Per-runtimeKey serialization for requester resolve+install and dispose.
-     * Sections never overlap for one key, so a slow resolve cannot clobber a newer install.
-     * Entries are removed when their chain drains.
+     * Per-key serialization for requester resolve/install and cleanup drains.
+     * Eager detach revokes ownership before a blocked chain drains; generation
+     * checks prevent its remaining work from publishing into a replacement.
      */
     requesterWorkChains: new Map(),
     createRuntime: opts.createRuntime ?? createSessionMcpRuntime,
     now: opts.now ?? Date.now,
-    // Static bare-sessionId create dedup only. Requester keys use requesterWorkChains exclusively.
+    // Creation claims span static and scoped keys; requester resolution also serializes above.
     createInFlight: new Map(),
     idleSweepIntervalMs: opts.idleSweepIntervalMs ?? SESSION_MCP_RUNTIME_SWEEP_INTERVAL_MS,
     maxIdleRequesterRuntimes:
@@ -109,20 +122,25 @@ export function createSessionMcpRuntimeManagerStore(
 
 export type SessionMcpRuntimeManagerLifecycle = {
   store: SessionMcpRuntimeManagerStore;
-  forgetSessionKeysForSessionId: (sessionId: string) => void;
   runtimeKeysForSessionId: (sessionId: string) => string[];
   totalActiveLeasesForSessionId: (sessionId: string) => number;
   runExclusiveOnRuntimeKey: <T>(runtimeKey: string, work: () => Promise<T>) => Promise<T>;
+  retainRuntimeKeyCleanup: (runtimeKey: string, cleanup: Promise<void>) => Promise<void>;
   sweepIdleRuntimes: () => Promise<number>;
   enforceRequesterRuntimeCap: (sessionId: string, keepRuntimeKey: string) => Promise<void>;
   ensureIdleSweepTimer: () => void;
-  clearIdleSweepTimer: () => void;
   disposeRuntimeKeyNow: (runtimeKey: string) => Promise<void>;
+  disposeRuntimeKey: (runtimeKey: string) => Promise<void>;
   disposeManagedSession: (
     sessionId: string,
     opts?: { preserveRequiredRetirement?: boolean },
   ) => Promise<void>;
-  rememberAdvertisedScopedCatalog: (sessionId: string, catalog: McpToolCatalog) => void;
+  disposeAllManagedSessions: () => Promise<void>;
+  rememberAdvertisedScopedCatalog: (
+    sessionId: string,
+    catalog: McpToolCatalog,
+    generation: SessionMcpConfigGeneration,
+  ) => void;
   getAdvertisedScopedCatalog: (sessionId: string) => McpToolCatalog | null;
 };
 
@@ -187,9 +205,18 @@ export function createSessionMcpRuntimeManagerLifecycle(
     return run;
   };
 
+  const retainRuntimeKeyCleanup = (runtimeKey: string, cleanup: Promise<void>): Promise<void> => {
+    // Detached teardown remains discoverable to every revocation path. Only
+    // the key's drain waits for prior resolver work; eager cleanup does not.
+    const settled = cleanup.catch(() => undefined);
+    void runExclusiveOnRuntimeKey(runtimeKey, () => settled);
+    return cleanup;
+  };
+
   const sweepIdleRuntimes = async (): Promise<number> => {
     const nowMs = store.now();
-    const expired: SessionMcpRuntime[] = [];
+    const expired: Promise<void>[] = [];
+    const touchedSessionIds = new Set<string>();
     for (const [runtimeKey, runtime] of store.runtimesBySessionId.entries()) {
       const connectionExpiresAt = store.connectionMetaByRuntimeKey.get(runtimeKey)?.expiresAt;
       const credentialNearExpiry =
@@ -210,16 +237,21 @@ export function createSessionMcpRuntimeManagerLifecycle(
       store.runtimesBySessionId.delete(runtimeKey);
       store.idleTtlMsBySessionId.delete(runtimeKey);
       store.connectionMetaByRuntimeKey.delete(runtimeKey);
-      expired.push(runtime);
+      touchedSessionIds.add(runtime.sessionId);
+      expired.push(
+        retainRuntimeKeyCleanup(
+          runtimeKey,
+          Promise.resolve().then(() => runtime.dispose()),
+        ),
+      );
     }
-    const touchedSessionIds = new Set(expired.map((runtime) => runtime.sessionId));
     for (const sessionId of touchedSessionIds) {
       if (runtimeKeysForSessionId(sessionId).length === 0) {
         store.deferredRetirementSessionIds.delete(sessionId);
         forgetSessionKeysForSessionId(sessionId);
       }
     }
-    await Promise.allSettled(expired.map((runtime) => runtime.dispose()));
+    await Promise.allSettled(expired);
     return expired.length;
   };
 
@@ -300,27 +332,54 @@ export function createSessionMcpRuntimeManagerLifecycle(
   const disposeRuntimeKeyNow = async (runtimeKey: string): Promise<void> => {
     const inFlight = store.createInFlight.get(runtimeKey);
     store.createInFlight.delete(runtimeKey);
-    let runtime = store.runtimesBySessionId.get(runtimeKey);
-    if (!runtime && inFlight) {
-      runtime = await inFlight.promise.catch(() => undefined);
-    }
+    const runtime = store.runtimesBySessionId.get(runtimeKey);
+    // Detach before draining; a replacement may reuse this key during teardown.
     store.runtimesBySessionId.delete(runtimeKey);
     store.idleTtlMsBySessionId.delete(runtimeKey);
     store.connectionMetaByRuntimeKey.delete(runtimeKey);
-    if (runtime) {
-      await runtime.dispose();
-    }
+    const lateRuntime = await inFlight?.promise.catch(() => undefined);
+    await Promise.all(
+      [...new Set([runtime, lateRuntime])].map((entry) => Promise.resolve(entry?.dispose())),
+    );
+  };
+
+  const disposeRuntimeKey = (runtimeKey: string): Promise<void> => {
+    const sessionId = parseRuntimeCacheSessionId(runtimeKey);
+    const generation = store.configGenerationBySessionId.get(sessionId);
+    // Capture existing cleanup now; a new generation can detach the runtime
+    // while this key's resolver is still blocked. The queue retains that drain.
+    const captured = Promise.allSettled([disposeRuntimeKeyNow(runtimeKey)]);
+    return runExclusiveOnRuntimeKey(runtimeKey, async () => {
+      // Same-generation revalidation may install after the eager detach.
+      // Old disposal must never remove work from a newer generation.
+      const late = Promise.allSettled([
+        store.configGenerationBySessionId.get(sessionId) === generation
+          ? disposeRuntimeKeyNow(runtimeKey)
+          : Promise.resolve(),
+      ]);
+      const outcomes = [...(await captured), ...(await late)];
+      for (const outcome of outcomes) {
+        if (outcome.status === "rejected") {
+          throw outcome.reason;
+        }
+      }
+    });
   };
 
   const disposeManagedSession = async (
     sessionId: string,
     opts?: { preserveRequiredRetirement?: boolean },
   ): Promise<void> => {
+    // Invalidate before draining: a late resolver/catalog must not republish
+    // the retired session, even when a new generation reuses its session id.
+    const retirement = store.configGenerationBySessionId.get(sessionId)?.retirement;
+    store.configGenerationBySessionId.delete(sessionId);
     store.deferredRetirementSessionIds.delete(sessionId);
     if (opts?.preserveRequiredRetirement !== true) {
       store.requiredRetirementSessionIds.delete(sessionId);
     }
     store.advertisedScopedCatalogBySessionId.delete(sessionId);
+    forgetSessionKeysForSessionId(sessionId);
     const runtimeKeys = new Set(runtimeKeysForSessionId(sessionId));
     for (const runtimeKey of store.createInFlight.keys()) {
       if (parseRuntimeCacheSessionId(runtimeKey) === sessionId) {
@@ -332,18 +391,37 @@ export function createSessionMcpRuntimeManagerLifecycle(
         runtimeKeys.add(runtimeKey);
       }
     }
-    // Serialize disposal with in-flight requester work for composite keys.
-    await Promise.allSettled(
-      [...runtimeKeys].map((runtimeKey) =>
-        runtimeKey.startsWith("{")
-          ? runExclusiveOnRuntimeKey(runtimeKey, () => disposeRuntimeKeyNow(runtimeKey))
-          : disposeRuntimeKeyNow(runtimeKey),
-      ),
-    );
-    forgetSessionKeysForSessionId(sessionId);
+    await Promise.allSettled([
+      retirement,
+      ...[...runtimeKeys].map((runtimeKey) => disposeRuntimeKey(runtimeKey)),
+    ]);
   };
 
-  const rememberAdvertisedScopedCatalog = (sessionId: string, catalog: McpToolCatalog): void => {
+  const disposeAllManagedSessions = async (): Promise<void> => {
+    clearIdleSweepTimer();
+    const sessionIds = new Set([
+      ...store.configGenerationBySessionId.keys(),
+      ...store.sessionIdBySessionKey.values(),
+      ...store.deferredRetirementSessionIds,
+      ...store.requiredRetirementSessionIds,
+      ...Array.from(store.runtimesBySessionId.values(), (runtime) => runtime.sessionId),
+      ...[...store.createInFlight.keys(), ...store.requesterWorkChains.keys()].map(
+        parseRuntimeCacheSessionId,
+      ),
+    ]);
+    // Global shutdown uses the same eager, discoverable per-session cleanup.
+    // Clearing ownership maps first would hide live transports from agent revocation.
+    await Promise.allSettled([...sessionIds].map((sessionId) => disposeManagedSession(sessionId)));
+  };
+
+  const rememberAdvertisedScopedCatalog = (
+    sessionId: string,
+    catalog: McpToolCatalog,
+    generation: SessionMcpConfigGeneration,
+  ): void => {
+    if (store.configGenerationBySessionId.get(sessionId) !== generation) {
+      return;
+    }
     let entry = store.advertisedScopedCatalogBySessionId.get(sessionId);
     if (!entry) {
       entry = {
@@ -403,16 +481,17 @@ export function createSessionMcpRuntimeManagerLifecycle(
 
   return {
     store,
-    forgetSessionKeysForSessionId,
     runtimeKeysForSessionId,
     totalActiveLeasesForSessionId,
     runExclusiveOnRuntimeKey,
+    retainRuntimeKeyCleanup,
     sweepIdleRuntimes,
     enforceRequesterRuntimeCap,
     ensureIdleSweepTimer,
-    clearIdleSweepTimer,
     disposeRuntimeKeyNow,
+    disposeRuntimeKey,
     disposeManagedSession,
+    disposeAllManagedSessions,
     rememberAdvertisedScopedCatalog,
     getAdvertisedScopedCatalog,
   };

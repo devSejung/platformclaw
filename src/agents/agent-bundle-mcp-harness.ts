@@ -13,7 +13,6 @@ import {
 import {
   getAdvertisedScopedMcpCatalog,
   getOrCreateRequesterScopedMcpRuntime,
-  rememberAdvertisedScopedMcpCatalog,
 } from "./agent-bundle-mcp-runtime.js";
 import {
   resolveConversationCapabilityProfile,
@@ -125,7 +124,7 @@ function applyHarnessToolPolicy(
 
 /**
  * Materialize requester-scoped MCP tools for a harness run (e.g. Codex dynamic tools).
- * Updates the session advertised-catalog cache when a requester resolves a catalog.
+ * The manager publishes catalogs only while their declared configuration is current.
  * Before any requester resolves in the session, returns undefined (nothing to advertise).
  */
 export async function materializeRequesterScopedMcpToolsForHarnessRun(
@@ -151,8 +150,6 @@ export async function materializeRequesterScopedMcpToolsForHarnessRun(
       runtime: scopedRuntime,
       reservedToolNames: params.reservedToolNames,
     });
-    const catalog = scopedRuntime.peekCatalog() ?? (await scopedRuntime.getCatalog());
-    rememberAdvertisedScopedMcpCatalog(params.sessionId, catalog);
   }
 
   const advertisedCatalog = getAdvertisedScopedMcpCatalog(params.sessionId);

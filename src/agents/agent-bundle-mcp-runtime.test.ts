@@ -3929,6 +3929,10 @@ describe("requester-scoped MCP connection resolution", () => {
   });
 
   it("serializes disposeSession with in-flight requester resolve", async () => {
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
     let releaseResolve: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => {
       releaseResolve = resolve;
@@ -3938,6 +3942,7 @@ describe("requester-scoped MCP connection resolution", () => {
       {
         serverName: "user-mail",
         resolve: async () => {
+          resolveStarted();
           await gate;
           return { url: "https://mcp.example.test/user" };
         },
@@ -3968,12 +3973,11 @@ describe("requester-scoped MCP connection resolution", () => {
     });
 
     // Static may install; dispose is chained after the exclusive requester section.
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
+    await started;
     const disposePromise = manager.disposeSession("session-race-dispose");
+    const rejected = expect(pending).rejects.toThrow(/superseded/);
     releaseResolve?.();
-    await pending;
+    await rejected;
     await disposePromise;
     expect(manager.listRuntimeKeys()).toEqual([]);
     expect(testing.getBookkeepingSizes(manager).requesterWorkChains).toBe(0);
@@ -4112,6 +4116,7 @@ describe("requester-scoped MCP connection resolution", () => {
       idleTtl: 0,
       deferredRetirement: 0,
       advertisedScopedCatalogs: 0,
+      configGenerations: 0,
     });
   });
 
@@ -4735,9 +4740,6 @@ describe("requester-scoped MCP connection resolution", () => {
       messageChannel: "telegram",
     });
     expect(authed).toBeDefined();
-    const catalog = await authed!.getCatalog();
-    manager.rememberAdvertisedScopedCatalog("session-adv", catalog);
-
     const advertised = manager.getAdvertisedScopedCatalog("session-adv");
     expect(advertised?.tools.map((tool) => tool.toolName)).toEqual(["inbox"]);
 

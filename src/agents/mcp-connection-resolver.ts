@@ -326,6 +326,17 @@ export function applyMcpConnectionOverride(
   override: McpServerConnectionResolved,
 ): Record<string, unknown> {
   const base = isMcpConfigRecord(rawServer) ? { ...rawServer } : {};
+  // URL-only declarations default to SSE in resolveMcpTransportConfig. Select
+  // that default before replacing the URL; attaching credentials must not switch
+  // protocols. Stdio/empty resolver placeholders still become Streamable HTTP.
+  const defaultTransport =
+    typeof base.url === "string" &&
+    base.url.trim() &&
+    !base.command &&
+    !base.transport &&
+    !base.type
+      ? "sse"
+      : "streamable-http";
   base.url = override.url;
   if (override.headers) {
     base.headers = { ...override.headers };
@@ -339,7 +350,7 @@ export function applyMcpConnectionOverride(
       ? resolveOpenClawMcpTransportAlias(base.transport)
       : undefined;
   const fromType = resolveOpenClawMcpTransportAlias(base.type);
-  base.transport = fromTransport ?? fromType ?? "streamable-http";
+  base.transport = fromTransport ?? fromType ?? defaultTransport;
   // Resolver-supplied headers are the auth surface; strip static OAuth so the
   // transport layer does not drop Authorization from overrides.
   delete base.auth;
