@@ -9,7 +9,11 @@ export type McpAppHostSandboxCsp = NonNullable<
 
 /** Bubbling event handled by the owning chat pane through its normal send path. */
 export const WIDGET_PROMPT_EVENT = "openclaw-widget-prompt";
-export type WidgetPromptEventDetail = { text: string };
+export type WidgetPromptEventDetail = {
+  text: string;
+  sessionKey?: string;
+  respondWith: (result: Promise<boolean>) => boolean;
+};
 export const MCP_APP_VIEW_EXPIRED_EVENT = "openclaw-mcp-app-view-expired";
 
 const WIDGET_PROMPT_MAX_CHARS = 4_000;
@@ -73,12 +77,13 @@ function isWidgetFrameInteractable(frame: HTMLIFrameElement): boolean {
  * Agent-authored frames may submit only user-focused conversational text.
  * The shared event preserves pane routing and prevents privileged shortcuts.
  */
-export function dispatchWidgetPrompt(
+export async function dispatchWidgetPrompt(
   frame: HTMLIFrameElement,
   raw: unknown,
   rateKey: string,
   confirmPrompt?: (text: string) => boolean,
-): boolean {
+  sessionKey?: string,
+): Promise<boolean> {
   const text = resolveWidgetPromptText(raw);
   if (
     !text ||
@@ -88,14 +93,30 @@ export function dispatchWidgetPrompt(
   ) {
     return false;
   }
+  let response: Promise<boolean> | undefined;
+  let dispatching = true;
   frame.dispatchEvent(
     new CustomEvent<WidgetPromptEventDetail>(WIDGET_PROMPT_EVENT, {
       bubbles: true,
       composed: true,
-      detail: { text },
+      detail: {
+        text,
+        ...(sessionKey !== undefined ? { sessionKey } : {}),
+        respondWith: (result) => {
+          const acknowledgement = result.catch(() => false);
+          if (!dispatching || response) {
+            return false;
+          }
+          response = acknowledgement;
+          return true;
+        },
+      },
     }),
   );
-  return true;
+  dispatching = false;
+  // An event reaching the DOM is not delivery. Only the owning pane can
+  // acknowledge queue admission; surfaces without that owner must reject.
+  return response ? await response : false;
 }
 
 export function buildMcpAppHostCapabilities(

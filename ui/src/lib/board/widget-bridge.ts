@@ -146,7 +146,7 @@ export class BoardWidgetBridgeController {
         if (options.isCurrent?.() === false) {
           throw new Error("widget prompt request is no longer current");
         }
-        const accepted = this.dispatchPrompt(
+        const accepted = await this.dispatchPrompt(
           this.frame,
           text,
           this.rateKey,

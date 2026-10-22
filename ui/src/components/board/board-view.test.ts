@@ -561,11 +561,15 @@ describe("openclaw-board-view", () => {
     });
 
     await vi.waitFor(() => expect(view.querySelector("mcp-app-view")).not.toBeNull());
-    const app = view.querySelector<HTMLElement & { sessionKey: string; viewId: string }>(
-      "mcp-app-view",
-    );
+    const app = view.querySelector<
+      HTMLElement & { sessionKey: string; viewId: string; messageEnabled: boolean }
+    >("mcp-app-view");
     expect(app?.sessionKey).toBe("agent:main:main");
     expect(app?.viewId).toBe("mcp-app-board");
+    expect(app?.messageEnabled).toBe(true);
+    view.messageEnabled = false;
+    await settleCells(view);
+    expect(app?.messageEnabled).toBe(false);
     expect(view.querySelector('[data-test-id="board-pending"]')).not.toBeNull();
     expect(view.querySelector("iframe")).toBeNull();
     app?.dispatchEvent(

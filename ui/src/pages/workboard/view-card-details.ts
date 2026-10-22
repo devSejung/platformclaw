@@ -323,6 +323,8 @@ export function renderCardDetailsPanel(props: WorkboardProps) {
                   .connected=${props.connected}
                   .canMutate=${props.canWrite !== false}
                   .canGrant=${props.canGrant === true}
+                  .onOpenDashboard=${(sessionKey: string) =>
+                    props.onOpenSession(sessionKey, { face: "dashboard" })}
                 ></openclaw-workboard-card-dashboard>
               `
             : nothing}

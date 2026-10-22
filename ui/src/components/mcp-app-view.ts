@@ -9,7 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { isMcpAppViewExpiredError } from "@openclaw/gateway-protocol";
 import { LitElement, css, html, nothing, type PropertyValues } from "lit";
-import { property } from "lit/decorators.js";
+import { property, state } from "lit/decorators.js";
 import { createRef, ref } from "lit/directives/ref.js";
 import { applicationContext, type ApplicationContext } from "../app/context.ts";
 import { I18nController, t } from "../i18n/index.ts";
@@ -151,7 +151,9 @@ export class McpAppView extends LitElement {
   @property({ attribute: false }) viewId = "";
   @property({ type: Number }) height = 600;
   @property({ type: Boolean }) fixedHeight = false;
+  @property({ type: Boolean }) messageEnabled = true;
   @property() override title = "";
+  @state() private messageRejected = false;
   protected readonly i18nController = new I18nController(this);
   private readonly mount = createRef<HTMLDivElement>();
   private resources: McpAppResources | null = null;
@@ -160,8 +162,14 @@ export class McpAppView extends LitElement {
   private readonly setupTask = new Task(this, {
     autoRun: "afterUpdate",
     args: () =>
-      [this.context?.gateway.snapshot.client ?? null, this.sessionKey, this.viewId] as const,
+      [
+        this.context?.gateway.snapshot.client ?? null,
+        this.sessionKey,
+        this.viewId,
+        this.messageEnabled,
+      ] as const,
     task: async ([client, sessionKey, viewId], { signal }) => {
+      this.messageRejected = false;
       await this.teardownResources(this.resources);
       if (!sessionKey || !viewId) {
         return null;
@@ -366,7 +374,7 @@ export class McpAppView extends LitElement {
         { name: "OpenClaw", version: "1.0.0" },
         buildMcpAppHostCapabilities(
           payload.csp,
-          payload.messageSupported === true,
+          payload.messageSupported === true && this.messageEnabled,
           payload.updateModelContextSupported === true,
         ),
         { hostContext: hostContext(mount, this.height) },
@@ -383,14 +391,28 @@ export class McpAppView extends LitElement {
           bridge.onrequestteardown = undefined;
         }
       });
-      if (payload.messageSupported === true) {
+      if (payload.messageSupported === true && this.messageEnabled) {
         const promptRateKey = `${sessionKey}\0${viewId}`;
         bridge.setMessageHandler(async ({ content }) => {
           const block = content.length === 1 ? content[0] : undefined;
           const text = block?.type === "text" ? block.text : null;
-          const accepted = dispatchWidgetPrompt(iframe, text, promptRateKey, (prompt) =>
-            window.confirm(`${t("common.confirm")}:\n\n${prompt}`),
+          if (signal.aborted || this.resources !== createdResources) {
+            return { isError: true };
+          }
+          let cancelled = false;
+          const accepted = await dispatchWidgetPrompt(
+            iframe,
+            text,
+            promptRateKey,
+            (prompt) => {
+              cancelled = !window.confirm(`${t("common.confirm")}:\n\n${prompt}`);
+              return !cancelled;
+            },
+            sessionKey,
           );
+          if (!signal.aborted && this.resources === createdResources) {
+            this.messageRejected = !accepted && !cancelled;
+          }
           return accepted ? {} : { isError: true };
         });
       }
@@ -507,6 +529,9 @@ export class McpAppView extends LitElement {
         })
       : null;
     return html`<div ${ref(this.mount)} class="mount"></div>
+      ${this.messageRejected
+        ? html`<div class="error" role="alert">${t("mcpApp.messageRejected")}</div>`
+        : nothing}
       ${errorText ? html`<div class="error">${errorText}</div>` : nothing}`;
   }
 }

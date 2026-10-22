@@ -73,6 +73,8 @@ import {
 } from "./steer-lifecycle.ts";
 
 type ChatSendOptions = {
+  /** App messages are conversational text, even when they match a stop alias. */
+  literalMessage?: boolean;
   runId?: string;
   actionScope?: ChatSendActionScope;
   ignoreReplyTarget?: boolean;
@@ -238,7 +240,7 @@ export async function handleSendChat(
     return;
   }
 
-  if (!skillWorkshopRevision && !actionScope) {
+  if (!skillWorkshopRevision && !actionScope && !opts?.literalMessage) {
     // Natural stop aliases require a run; explicit /stop is always available.
     if (
       isChatStopCommand(message) &&

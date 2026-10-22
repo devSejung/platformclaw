@@ -1402,6 +1402,15 @@ openclaw-workboard-card-dashboard {
   display: none;
 }
 
+.workboard-detail__section p.workboard-card-dashboard__message-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  white-space: normal;
+}
+
 .workboard-card-dashboard__body .board-view {
   gap: 9px;
 }

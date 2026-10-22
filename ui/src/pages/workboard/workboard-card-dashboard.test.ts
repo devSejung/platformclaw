@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import { loadSettings } from "../../app/settings.ts";
 import {
   acquireBoardProviderForSession,
   type BoardProvider,
@@ -255,6 +256,43 @@ describe("Workboard card dashboard", () => {
     expect(element.querySelector("openclaw-board-view")).not.toBeNull();
   });
 
+  it("explains message availability and opens the linked dashboard without enabling app messages", async () => {
+    const sessionKey = "agent:main:workboard-app-messages";
+    const { client } = createClient([
+      {
+        name: "status",
+        tabId: "main",
+        title: "Status",
+        contentKind: "html",
+        sizeW: 12,
+        sizeH: 2,
+        position: 0,
+        grantState: "none",
+        revision: 1,
+      },
+    ]);
+    const element = await mountDashboard(sessionKey, client, { canMutate: true, canGrant: true });
+    const onOpenDashboard = vi.fn();
+    element.onOpenDashboard = onOpenDashboard;
+
+    await vi.waitFor(() => expect(element.querySelector("openclaw-board-view")).not.toBeNull());
+    const board = element.querySelector("openclaw-board-view")!;
+    await board.updateComplete;
+    expect(board.messageEnabled).toBe(false);
+    expect(board.querySelector("openclaw-board-widget-cell")?.messageEnabled).toBe(false);
+    expect(board.canMutate).toBe(true);
+    expect(board.canGrant).toBe(true);
+    expect(element.querySelector(".workboard-card-dashboard__message-hint")?.textContent).toContain(
+      "To send messages from apps or widgets, open the full dashboard.",
+    );
+
+    element
+      .querySelector<HTMLButtonElement>(".workboard-card-dashboard__message-hint button")
+      ?.click();
+
+    expect(onOpenDashboard).toHaveBeenCalledExactlyOnceWith(sessionKey);
+  });
+
   it("disables widget ticket refresh while the dashboard is collapsed", async () => {
     const { client } = createClient([
       {
@@ -336,6 +374,16 @@ describe("Workboard card dashboard", () => {
       ).not.toBeNull(),
     );
     expect(element.querySelector('[data-board-tab-id="main"]')?.getAttribute("active")).toBeNull();
+    const onOpenDashboard = vi.fn();
+    element.onOpenDashboard = onOpenDashboard;
+    await element.updateComplete;
+    element
+      .querySelector<HTMLButtonElement>(".workboard-card-dashboard__message-hint button")
+      ?.click();
+    expect(onOpenDashboard).toHaveBeenCalledExactlyOnceWith("agent:main:workboard-tabs");
+    expect(loadSettings().boardSessionViews?.["agent:main:workboard-tabs"]?.activeTabId).toBe(
+      "research",
+    );
   });
 
   it("releases its shared provider lease when removed", async () => {

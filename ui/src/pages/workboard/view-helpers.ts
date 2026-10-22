@@ -32,7 +32,7 @@ export type WorkboardProps = {
   sessions: GatewaySessionRow[];
   scopeAgentId?: string | null;
   showAgentFilter?: boolean;
-  onOpenSession: (sessionKey: string) => void;
+  onOpenSession: (sessionKey: string, options?: { face: "dashboard" }) => void;
   onBoardFilterChange?: (boardFilter: string) => void;
   onReloadConfig?: () => void;
   onRequestUpdate?: () => void;

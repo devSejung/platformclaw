@@ -242,6 +242,11 @@ export class ChatPane extends ChatPaneHeader {
       onFork: (entryId) => this.forkFromMessage(entryId),
       onReset: () => void clearChatHistory(state),
     });
+    const canSend = catalogKey
+      ? this.catalogSession?.canContinue === true
+      : !modelSetupRequired &&
+        !selectedSessionArchived &&
+        (!sessionParticipationBlocked || suggestionViewer);
     const props: ChatProps = {
       chatAccessory: this.context.renderChatAccessory?.(state),
       transcript: this.transcript,
@@ -287,8 +292,7 @@ export class ChatPane extends ChatPaneHeader {
           this.sessionRailMode = mode;
         }
       },
-      // Unconditional: catalog chats never render the rail (sessionRailReady is
-      // forced false), and a hide/show from any surface must reach the gateway.
+      // Catalog chats hide the rail; visibility changes still must reach the Gateway.
       onObserverVisibilityChange: this.setSessionObserverVisibility,
       gatewayQuestionPrompts: catalogKey || sessionParticipationBlocked ? [] : this.questionPrompts,
       onGatewayQuestionChange: () => {
@@ -334,11 +338,7 @@ export class ChatPane extends ChatPaneHeader {
       suggestionComposer: suggestionViewer,
       typingLabel: multiIdentity ? this.typingLabel() : null,
       onTypingChange: typingEnabled ? (typing) => this.sendTypingState(typing) : undefined,
-      canSend: catalogKey
-        ? this.catalogSession?.canContinue === true
-        : !modelSetupRequired &&
-          !selectedSessionArchived &&
-          (!sessionParticipationBlocked || suggestionViewer),
+      canSend,
       disabledReason: catalogDisabledReason ?? disabledReason,
       disabledBanner:
         selectedSessionArchived && !catalogDisabledReason
@@ -480,12 +480,7 @@ export class ChatPane extends ChatPaneHeader {
         state.chatAttachments = next;
         state.requestUpdate?.();
       },
-      onSend: () =>
-        catalogKey
-          ? void this.continueCatalogSession(catalogKey)
-          : suggestionViewer
-            ? void this.addCurrentSessionSuggestion()
-            : void state.handleSendChat(),
+      onSend: this.prepareChatSubmit(state, catalogKey, suggestionViewer, canSend),
       onCompact: sessionActionCallbacks.onCompact,
       onOpenSessionCheckpoints: this.embedded
         ? undefined
