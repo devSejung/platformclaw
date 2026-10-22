@@ -35,6 +35,7 @@ import {
   skillHubVisibilityLabel,
 } from "./labels.ts";
 import { renderSkillHubManagement } from "./management.ts";
+import { SkillHubNamespaceController } from "./namespace-controller.ts";
 import * as pageSupport from "./page-support.ts";
 import { SkillHubUploadController } from "./upload-controller.ts";
 import { SkillHubWorkspacePublishController } from "./workspace-publish-controller.ts";
@@ -66,6 +67,12 @@ class SkillHubPage extends SkillHubAdminController {
   );
   private readonly workspacePublish = new SkillHubWorkspacePublishController(this, {
     refresh: () => this.search(),
+    setMessage: (message) => (this.message = message),
+  });
+  private readonly namespaceCreate = new SkillHubNamespaceController(this, {
+    refresh: async () => {
+      this.config = await loadPlatformClawSkillHubConfig();
+    },
     setMessage: (message) => (this.message = message),
   });
   private readonly skillDelete = new SkillHubDeleteController(this, {
@@ -404,6 +411,7 @@ class SkillHubPage extends SkillHubAdminController {
         </div>
         <div class="skill-hub-header-actions">
           ${this.workspacePublish.renderAction(this.config)}
+          ${this.namespaceCreate.renderAction(this.config)}
           ${this.config?.admin
             ? html`<button class="btn" @click=${() => this.openAdmin()}>
                 ${t("skillHubPage.admin")}
@@ -497,7 +505,7 @@ class SkillHubPage extends SkillHubAdminController {
           onClose: () => (this.notificationsOpen = false),
           onMarkAllRead: () => void this.markAllNotificationsRead(),
         })}
-        ${this.workspacePublish.renderDialog(this.config)}
+        ${this.workspacePublish.renderDialog(this.config)} ${this.namespaceCreate.renderDialog()}
         ${this.skillUpload.renderDialog(this.config)}
         ${renderSkillHubAdmin({
           open: this.adminOpen,

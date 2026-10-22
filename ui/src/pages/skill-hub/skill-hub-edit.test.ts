@@ -62,6 +62,8 @@ function setup(
     if (url.endsWith("/config")) {
       return jsonResponse({
         namespaces: ["platform"],
+        defaultNamespace: "platform",
+        namespaceOptions: [{ namespace: "platform", scopeKind: "global" }],
         maxPackageBytes: 1024,
         admin: options.admin,
       });

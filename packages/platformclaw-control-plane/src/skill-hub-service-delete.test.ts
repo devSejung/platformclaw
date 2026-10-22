@@ -12,7 +12,11 @@ function deferred() {
 
 describe("SkillHubService registry deletion", () => {
   it("deletes only the registry copy for its owner and cleans PlatformClaw management state", async () => {
-    const { service, actor, adapterMocks, store, adminRpcCall } = await fixture();
+    const { service, actor, adapterMocks, store, adminRpcCall } = await fixture(
+      undefined,
+      undefined,
+      { registrySkill: "absent" },
+    );
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",
@@ -43,7 +47,9 @@ describe("SkillHubService registry deletion", () => {
   });
 
   it("rejects stale registry deletion before calling the upstream hard-delete", async () => {
-    const { service, actor, adapterMocks, store } = await fixture();
+    const { service, actor, adapterMocks, store } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
+    });
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",
@@ -69,7 +75,9 @@ describe("SkillHubService registry deletion", () => {
   });
 
   it("recovers local management state when a prior remote delete already removed the registry copy", async () => {
-    const { service, actor, adapterMocks, store } = await fixture();
+    const { service, actor, adapterMocks, store } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
+    });
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",
@@ -91,7 +99,9 @@ describe("SkillHubService registry deletion", () => {
   });
 
   it("retains local management state when remote delete is ambiguous and the skill still resolves", async () => {
-    const { service, actor, adapterMocks, store } = await fixture();
+    const { service, actor, adapterMocks, store } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
+    });
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",
@@ -112,7 +122,9 @@ describe("SkillHubService registry deletion", () => {
   });
 
   it("retains local management state when the upstream delete fails", async () => {
-    const { service, actor, adapterMocks, store } = await fixture();
+    const { service, actor, adapterMocks, store } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
+    });
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",
@@ -138,9 +150,11 @@ describe("SkillHubService registry deletion", () => {
       await releaseApproval.promise;
       return { reviewId: 42, status: "APPROVED" };
     });
-    const { service, actor, adapterMocks, store } = await fixture(["engineering"], {
-      approvePendingReview,
-    });
+    const { service, actor, adapterMocks, store } = await fixture(
+      ["engineering"],
+      { approvePendingReview },
+      { registrySkill: "absent" },
+    );
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",
@@ -173,9 +187,11 @@ describe("SkillHubService registry deletion", () => {
     "checks the exact force-publish version outside the catalog page (exists: %s)",
     async (exists) => {
       const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-      const { service, actor, adapterMocks } = await fixture(["engineering"], {
-        approvePendingReview,
-      });
+      const { service, actor, adapterMocks } = await fixture(
+        ["engineering"],
+        { approvePendingReview },
+        { registrySkill: "absent" },
+      );
       await service.publish(actor, {
         skill: "demo-skill",
         namespace: "engineering",
@@ -224,9 +240,11 @@ describe("SkillHubService registry deletion", () => {
 
   it("rechecks exact version identity after scanning before automatic approval", async () => {
     const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-    const { service, actor, adapterMocks, store } = await fixture(["engineering"], {
-      approvePendingReview,
-    });
+    const { service, actor, adapterMocks, store } = await fixture(
+      ["engineering"],
+      { approvePendingReview },
+      { registrySkill: "absent" },
+    );
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",
@@ -270,9 +288,11 @@ describe("SkillHubService registry deletion", () => {
     const deleteStarted = deferred();
     const releaseDelete = deferred();
     const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-    const { service, actor, adapterMocks, store } = await fixture(["engineering"], {
-      approvePendingReview,
-    });
+    const { service, actor, adapterMocks, store } = await fixture(
+      ["engineering"],
+      { approvePendingReview },
+      { registrySkill: "absent" },
+    );
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",
@@ -311,9 +331,11 @@ describe("SkillHubService registry deletion", () => {
     const scanStarted = deferred();
     const releaseScan = deferred();
     const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-    const { service, actor, adapterMocks, store } = await fixture(["engineering"], {
-      approvePendingReview,
-    });
+    const { service, actor, adapterMocks, store } = await fixture(
+      ["engineering"],
+      { approvePendingReview },
+      { registrySkill: "absent" },
+    );
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",

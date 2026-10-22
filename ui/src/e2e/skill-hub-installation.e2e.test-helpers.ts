@@ -55,6 +55,8 @@ export async function installSkillHubFixture(page: Page, baseUrl: string) {
   );
   const config: PlatformClawSkillHubConfig = {
     namespaces: ["engineering"],
+    defaultNamespace: "engineering",
+    namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
     maxPackageBytes: 1024 * 1024,
     activeTarget: "assigned_vm",
     installTargets: [

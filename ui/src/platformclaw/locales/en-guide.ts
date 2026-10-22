@@ -8,6 +8,33 @@ import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.skillHub.namespace.create": "Create namespace",
+  "platformClaw.skillHub.namespace.description":
+    "Create a place to share skills company-wide or with one of your teams, groups, or parts.",
+  "platformClaw.skillHub.namespace.nameHelp":
+    "Use 2–64 lowercase ASCII letters, numbers, or hyphens. Start and end with a letter or number; consecutive hyphens are not allowed.",
+  "platformClaw.skillHub.namespace.scope": "Sharing scope",
+  "platformClaw.skillHub.namespace.noScopes":
+    "No sharing scope is available. Check your organization membership or contact an administrator.",
+  "platformClaw.skillHub.namespace.creating": "Creating namespace…",
+  "platformClaw.skillHub.namespace.created":
+    "Created namespace {namespace}. You can now select it when publishing.",
+  "platformClaw.skillHub.namespace.createdReloadFailed":
+    "Created namespace {namespace}, but publishing options could not be refreshed. Reload the page before publishing.",
+  "platformClaw.skillHub.namespace.conflict":
+    "That namespace already exists or is reserved. Choose another name.",
+  "platformClaw.skillHub.namespace.invalidName":
+    "That namespace name is invalid or reserved. Choose another name with 2–64 lowercase ASCII letters, numbers, or hyphens; start and end with a letter or number and avoid consecutive hyphens.",
+  "platformClaw.skillHub.namespace.forbidden":
+    "You no longer have permission for this scope. Reopen this dialog to refresh your available scopes.",
+  "platformClaw.skillHub.namespace.unavailable":
+    "Creation could not be completed. Retry with the same namespace and scope to check and finish it.",
+  "platformClaw.skillHub.namespace.incomplete": "Unfinished namespaces",
+  "platformClaw.skillHub.namespace.failed": "Creation needs attention.",
+  "platformClaw.skillHub.namespace.pending": "Setup is incomplete.",
+  "platformClaw.skillHub.namespace.inProgress":
+    "Creation is already in progress. Wait briefly, then retry with the same namespace and scope.",
+  "platformClaw.skillHub.namespace.resume": "Use these values to retry",
   "platformClaw.organization.automatic": "Automatically managed",
   "platformClaw.organization.automatic.description":
     "Organization names and hierarchy are synchronized at login. Automatic membership changes preserve manual grants.",
@@ -144,6 +171,10 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.skillHub.publish.description":
     "Choose a skill from your Basic workspace or assigned VM. Your current work location will not change.",
   "platformClaw.skillHub.publish.source": "Workspace source",
+  "platformClaw.skillHub.publish.destination": "Publish to",
+  "platformClaw.skillHub.publish.chooseDestination": "Choose a publish destination",
+  "platformClaw.skillHub.publish.global": "Company-wide",
+  "platformClaw.skillHub.scopeTeam": "Team",
   "platformClaw.skillHub.publish.sourceBasic": "Basic workspace",
   "platformClaw.skillHub.publish.sourceVm": "My VM workspace",
   "platformClaw.skillHub.publish.skill": "Workspace skill",

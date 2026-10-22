@@ -38,7 +38,7 @@ export class SkillHubUploadController {
     const skill = detail?.skill;
     this.existing = skill ? { namespace: skill.namespace, slug: skill.slug } : null;
     this.slug = skill?.slug ?? "";
-    this.namespace = skill?.namespace ?? config?.namespaces[0] ?? "";
+    this.namespace = skill?.namespace ?? config?.defaultNamespace ?? "";
     this.visibility = skill?.visibility ?? "NAMESPACE_ONLY";
     this.version = skill ? "" : "1.0.0";
     this.file = null;

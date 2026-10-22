@@ -61,7 +61,7 @@ describe("SkillHubService", () => {
   });
 
   it("allows effective scope reads but requires direct membership or leadership to publish", async () => {
-    const { service, actor, adapterMocks, authorizeManagedScope } = await fixture();
+    const { service, actor, adapterMocks, authorizeManagedScope, store } = await fixture();
     adapterMocks.getSkill.mockResolvedValue({
       id: 10,
       namespace: "engineering",
@@ -97,6 +97,17 @@ describe("SkillHubService", () => {
       canManageStructure: false,
       canManageLeaders: false,
       facts: { source: "leadership", scopeIds: ["ancestor-team"] },
+    });
+    await store.recordSkillHubPublication({
+      namespace: "engineering",
+      slug: "demo-skill",
+      ownerUserId: actor.user.id,
+      expectedOwnerUserId: null,
+      expectedOwnerUpdatedAt: null,
+      expectedBindingUpdatedAt: 1,
+      visibility: "NAMESPACE_ONLY",
+      version: "1.0.0",
+      changedAt: 1,
     });
     await expect(
       service.publish(actor, {
@@ -140,9 +151,13 @@ describe("SkillHubService", () => {
   });
 
   it("surfaces post-registry ownership reconciliation and queues governance without an owner", async () => {
-    const { service, actor, store } = await fixture(["engineering"], {
-      approvePendingReview: vi.fn(async () => ({ reviewId: 1, status: "APPROVED" })),
-    });
+    const { service, actor, store } = await fixture(
+      ["engineering"],
+      {
+        approvePendingReview: vi.fn(async () => ({ reviewId: 1, status: "APPROVED" })),
+      },
+      { registrySkill: "absent" },
+    );
     vi.spyOn(store, "recordSkillHubPublication").mockResolvedValue({
       namespace: "engineering",
       slug: "demo-skill",
@@ -165,49 +180,8 @@ describe("SkillHubService", () => {
     expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: null }));
   });
 
-  it("keeps Global restricted until activation and reserves Global publish for admins", async () => {
-    const { service, actor, adapterMocks, getSkillHubNamespaceBinding, authorizeManagedScope } =
-      await fixture();
-    adapterMocks.getSkill.mockResolvedValue({
-      id: 10,
-      namespace: "engineering",
-      slug: "demo-skill",
-      displayName: "Demo Skill",
-      summary: "Demo",
-      visibility: "NAMESPACE_ONLY",
-      status: "PUBLISHED",
-    });
-    const binding = {
-      namespace: "engineering",
-      scopeKind: "global" as const,
-      accessState: "restricted" as const,
-      visibilityCeiling: "PUBLIC" as const,
-      createdByUserId: "admin-1",
-      createdAt: 1,
-      updatedAt: 1,
-    };
-    getSkillHubNamespaceBinding.mockResolvedValue(binding);
-    await expect(service.detail(actor.user, "engineering", "demo-skill")).rejects.toMatchObject({
-      statusCode: 404,
-    });
-
-    getSkillHubNamespaceBinding.mockResolvedValue({ ...binding, accessState: "active" });
-    await expect(service.detail(actor.user, "engineering", "demo-skill")).resolves.toMatchObject({
-      skill: { slug: "demo-skill" },
-    });
-    await expect(
-      service.publish(actor, {
-        skill: "demo-skill",
-        namespace: "engineering",
-        version: "1.2.3",
-        visibility: "NAMESPACE_ONLY",
-      }),
-    ).rejects.toMatchObject({ statusCode: 403 });
-    expect(authorizeManagedScope).not.toHaveBeenCalled();
-  });
-
   it("projects management mutations without internal audit and ownership fields", async () => {
-    const { service, actor } = await fixture();
+    const { service, actor } = await fixture(undefined, undefined, { registrySkill: "absent" });
     await service.publish(actor, {
       skill: "demo-skill",
       namespace: "engineering",
@@ -317,7 +291,11 @@ describe("SkillHubService", () => {
   });
 
   it("packages the real workspace skill and overrides only the published version", async () => {
-    const { service, actor, adapterMocks, skillDir, recordAuditEvent } = await fixture();
+    const { service, actor, adapterMocks, skillDir, recordAuditEvent } = await fixture(
+      undefined,
+      undefined,
+      { registrySkill: "absent" },
+    );
     await writeFile(path.join(skillDir, ".env"), "RUNTIME_MODE=production");
     await writeFile(path.join(skillDir, "client.pem"), "must-not-publish");
     await mkdir(path.join(skillDir, ".openclaw"));
@@ -371,7 +349,9 @@ describe("SkillHubService", () => {
   });
 
   it("rejects a workspace symbolic link instead of packaging its target", async () => {
-    const { service, actor, skillDir } = await fixture();
+    const { service, actor, skillDir } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
+    });
     const outside = path.join(path.dirname(path.dirname(skillDir)), "outside");
     await mkdir(outside);
     await writeFile(path.join(outside, "secret.txt"), "secret");
@@ -390,7 +370,9 @@ describe("SkillHubService", () => {
   it.runIf(process.platform !== "win32")(
     "rejects a workspace hardlink instead of publishing aliased content",
     async () => {
-      const { service, actor, skillDir } = await fixture();
+      const { service, actor, skillDir } = await fixture(undefined, undefined, {
+        registrySkill: "absent",
+      });
       const outside = path.join(path.dirname(path.dirname(skillDir)), "outside-secret.txt");
       await writeFile(outside, "secret");
       await link(outside, path.join(skillDir, "aliased-secret.txt"));
@@ -740,7 +722,9 @@ describe("SkillHubService", () => {
   });
 
   it("rejects a mismatched publish response before recording success", async () => {
-    const { service, actor, adapterMocks, recordAuditEvent } = await fixture();
+    const { service, actor, adapterMocks, recordAuditEvent } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
+    });
     adapterMocks.publish.mockResolvedValue({
       namespace: "engineering",
       slug: "other-skill",

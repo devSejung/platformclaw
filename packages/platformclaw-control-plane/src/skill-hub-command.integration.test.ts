@@ -311,7 +311,18 @@ describe("Knox Skill Hub command transport", () => {
         version: "1.0.0",
         visibility: "NAMESPACE_ONLY",
       });
-      expect((await f.run("publish demo-skill")).text).toContain("게시 완료");
+      await f.store.recordSkillHubPublication({
+        namespace: "engineering",
+        slug: "demo-skill",
+        ownerUserId: f.actor.user.id,
+        expectedOwnerUserId: null,
+        expectedOwnerUpdatedAt: null,
+        expectedBindingUpdatedAt: 1,
+        visibility: "NAMESPACE_ONLY",
+        version: "1.0.0",
+        changedAt: 1,
+      });
+      expect((await f.run("publish engineering/demo-skill")).text).toContain("게시 완료");
       expect((await f.run("delete demo-skill")).isError).toBe(true);
       expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.uninstall", expect.anything());
       expect((await f.run("delete demo-skill --confirm")).text).toContain("설치 제거 완료");
@@ -339,6 +350,22 @@ describe("Knox Skill Hub command transport", () => {
       }
     },
   );
+
+  it("explains untracked registry ownership through Knox before any publication", async () => {
+    const f = await setup();
+    f.adminRpcCall.mockResolvedValue({
+      skills: [
+        { source: "openclaw-workspace", baseDir: "/workspace/skills/demo-skill", version: "1.2.3" },
+      ],
+    });
+    const reply = await f.run("publish engineering/demo-skill");
+    expect(reply).toMatchObject({ isError: true });
+    expect(reply.text).toContain("관리자");
+    expect(reply.text).toContain("소유권 이전");
+    expect(f.adapterMocks.publish).not.toHaveBeenCalled();
+    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.upload.begin", expect.anything());
+    await expect(f.store.getSkillHubOwnership("engineering", "demo-skill")).resolves.toBeNull();
+  });
 
   it("denies unauthorized senders and mismatched room targets before private queries or mutation", async () => {
     const f = await setup();

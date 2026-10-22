@@ -595,9 +595,7 @@ export abstract class SqliteControlPlaneSkillHubStore extends SqliteControlPlane
           return [];
         }
         ownerBinding = binding;
-        if (binding.scope_kind === "global") {
-          candidates = candidates.where("global_role", "=", "admin");
-        } else {
+        if (binding.scope_kind !== "global") {
           const scope = this.requireScopeRow(binding.scope_id!);
           const lineage = this.scopeLineageRows(scope);
           const eligible = executeSync(

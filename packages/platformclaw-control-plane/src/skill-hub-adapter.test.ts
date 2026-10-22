@@ -15,6 +15,29 @@ function requestUrl(input: string | URL | Request): URL {
 }
 
 describe("IflytekSkillHubAdapter", () => {
+  it.each([
+    ["Skill not found: demo-skill", 404],
+    ["Skill not found: another-skill", 400],
+    ["request denied by a proxy", 400],
+  ])(
+    "normalizes only the pinned native detail absence envelope: %s",
+    async (message, statusCode) => {
+      const adapter = new IflytekSkillHubAdapter({
+        baseUrl: "http://registry.example.test",
+        token: "test-token",
+        maxArchiveBytes: 1024,
+        fetchImpl: async (input, init) => {
+          expect(requestUrl(input).pathname).toBe("/api/v1/skills/engineering/demo-skill");
+          expect(new Headers(init?.headers).get("Accept-Language")).toBe("en");
+          return json({ code: 400, msg: message, data: null }, 400);
+        },
+      });
+      await expect(adapter.getSkill("engineering", "demo-skill")).rejects.toMatchObject({
+        statusCode,
+      });
+    },
+  );
+
   it("distinguishes a terminal task failure from a completed security scan", async () => {
     const adapter = new IflytekSkillHubAdapter({
       baseUrl: "http://registry.example.test",

@@ -194,9 +194,25 @@ hierarchy and namespace-binding constraint. Existing `team` bindings with no
 scope ID migrated to `global` with no scope ID; a real Team binding uses `team`
 plus a managed Team ID. The migration preserved skill ownership, ACL, scan,
 notification, and registry data and introduced no fallback reader or dual
-write. Migrated Global bindings start restricted until an administrator
-explicitly reviews and activates read/install policy. Global publication and
-curation remain administrator-only.
+write. That migration left Global bindings restricted until administrator
+activation; those persisted restrictions remain effective. New Global bindings
+start active, and all active employees may publish and own skills in active
+Global namespaces. The managed allowlisted `global` binding is provisioned once
+on first authenticated Skill Hub use if missing, without changing an existing
+binding. Configuration projects the authorized Global default and each allowed
+destination's scope so browser and Knox publication share the same default.
+Namespace administration and other employees' skills remain protected by their
+existing administrator and owner boundaries.
+
+Employee-created namespaces reuse the registry's native namespace API through
+the server-owned governance session. A dedicated additive SQLite creation ledger
+reserves names and records each actor, authorized scope, opaque operation marker,
+registry receipt, and completion. Exact-request recovery compares the recorded
+marker with the native registry namespace description before accepting a remote
+result. No existing namespace is adopted from its name alone. Successful
+activation rechecks current scope authority and atomically commits the binding
+and completed creation; only completed creations extend the process snapshot.
+The bootstrap environment allowlist remains authoritative for other namespaces.
 
 Package blobs are named product artifacts. Audit and lifecycle state belong in
 the appropriate database owner, not JSON sidecars. Secrets remain in server-only

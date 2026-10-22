@@ -2,6 +2,12 @@ import { PLATFORMCLAW_SKILL_HUB_API_PATH } from "./web-contract.ts";
 
 export type PlatformClawSkillHubConfig = {
   namespaces: string[];
+  defaultNamespace: string | null;
+  namespaceOptions: Array<{
+    namespace: string;
+    scopeKind: "global" | "team" | "group" | "part";
+    scopeName?: string;
+  }>;
   maxPackageBytes: number;
   maxUploadBytes?: number;
   activeTarget?: PlatformClawSkillHubWorkspaceTarget;
@@ -12,6 +18,7 @@ export type PlatformClawSkillHubConfig = {
     accessControl: boolean;
     notifications: boolean;
     zipUpload: boolean;
+    namespaceCreate: boolean;
   };
   installTargets?: Array<{
     target: PlatformClawSkillHubWorkspaceTarget;
@@ -110,6 +117,18 @@ export type PlatformClawSkillHubNamespaceBinding = {
   updatedAt: number;
 };
 
+export type PlatformClawSkillHubNamespaceScope = {
+  scopeKind: "global" | "team" | "group" | "part";
+  scopeId?: string;
+  scopeName?: string;
+};
+
+export type PlatformClawSkillHubNamespaceCreation = PlatformClawSkillHubNamespaceScope & {
+  namespace: string;
+  state: "pending" | "registry-created" | "uncertain" | "failed";
+  updatedAt: number;
+};
+
 export type PlatformClawManagedScope = {
   id: string;
   kind: "team" | "group" | "part";
@@ -176,6 +195,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function loadPlatformClawSkillHubConfig(): Promise<PlatformClawSkillHubConfig> {
   return request("/config");
+}
+
+export function loadPlatformClawSkillHubNamespaceScopes(): Promise<{
+  scopes: PlatformClawSkillHubNamespaceScope[];
+  creations: PlatformClawSkillHubNamespaceCreation[];
+}> {
+  return request("/namespaces");
+}
+
+export function createPlatformClawSkillHubNamespace(
+  params: { namespace: string } & Pick<PlatformClawSkillHubNamespaceScope, "scopeKind" | "scopeId">,
+): Promise<PlatformClawSkillHubNamespaceBinding> {
+  return request("/namespaces", { method: "POST", body: JSON.stringify(params) });
 }
 
 export function loadPlatformClawWorkspaceSkills(

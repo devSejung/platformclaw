@@ -42,7 +42,7 @@ type ResolvedSkillHubNamespaceCapabilities = SkillHubNamespaceCapabilities & {
 
 export abstract class SkillHubServiceBase {
   protected readonly workspaceRoot: string;
-  protected readonly namespaces: ReadonlySet<string>;
+  protected readonly namespaces: Set<string>;
   protected governanceProcessing = false;
   protected governanceTimer?: NodeJS.Timeout;
   protected governanceClosed = false;
@@ -236,6 +236,26 @@ export abstract class SkillHubServiceBase {
     await this.assertNoPendingSkillEdit(namespace, slug);
     await this.reconcileOwners();
     const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
+    if (!ownership && user.globalRole !== "admin") {
+      try {
+        const existing = await this.adapterCall(() =>
+          this.options.adapter.getSkill(namespace, slug),
+        );
+        this.validateSkillIdentity(existing.namespace, existing.slug, namespace, slug);
+      } catch (error) {
+        if (error instanceof SkillHubServiceError && error.statusCode === 404) {
+          return null;
+        }
+        throw error;
+      }
+      // The registry sees one service publisher for every employee. An untracked
+      // native skill therefore needs administrator ownership assignment before reuse.
+      throw new SkillHubServiceError(
+        "Existing registry skill has no PlatformClaw owner; choose a new skill name or ask an administrator to publish it and transfer ownership",
+        403,
+        { code: "skill-hub-untracked-skill" },
+      );
+    }
     if (ownership && user.globalRole !== "admin" && ownership.ownerUserId !== user.id) {
       throw new SkillHubServiceError("Skill Hub skill owner or administrator required", 403);
     }

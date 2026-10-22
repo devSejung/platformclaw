@@ -313,6 +313,18 @@ export type SkillHubNamespaceBindingRow = {
   updated_at: number;
 };
 
+export type SkillHubNamespaceCreationRow = {
+  namespace: string;
+  operation_id: string;
+  actor_user_id: string;
+  scope_kind: SkillHubNamespaceBindingRow["scope_kind"];
+  scope_id: string | null;
+  state: "pending" | "registry-created" | "completed" | "uncertain" | "failed";
+  registry_namespace_id: number | null;
+  created_at: number;
+  updated_at: number;
+};
+
 type BaseballGameProgressRow = {
   user_id: string;
   gold: number;
@@ -376,6 +388,7 @@ export type ControlPlaneDatabase = {
   skill_hub_notifications: SkillHubNotificationRow;
   skill_hub_governance_jobs: SkillHubGovernanceJobRow;
   skill_hub_namespace_bindings: SkillHubNamespaceBindingRow;
+  skill_hub_namespace_creations: SkillHubNamespaceCreationRow;
   baseball_game_progress: BaseballGameProgressRow;
   baseball_owned_bats: BaseballOwnedBatRow;
   baseball_home_run_streaks: BaseballHomeRunStreakRow;

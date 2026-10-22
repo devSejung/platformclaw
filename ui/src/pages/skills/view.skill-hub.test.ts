@@ -11,7 +11,12 @@ describe("renderSkills Skill Hub publishing", () => {
     const container = document.createElement("div");
     const onSkillHubPublishClose = vi.fn();
     const props = createProps({
-      skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+      skillHubConfig: {
+        namespaces: ["engineering"],
+        defaultNamespace: "engineering",
+        namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+        maxPackageBytes: 1024,
+      },
       skillHubPublishSkill: "demo",
       skillHubPublishNamespace: "engineering",
       skillHubPublishVersion: "1.0.0",
@@ -51,7 +56,12 @@ describe("renderSkills Skill Hub publishing", () => {
       personalAccess: true,
       canUpdate: false,
       canInstall: false,
-      skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+      skillHubConfig: {
+        namespaces: ["engineering"],
+        defaultNamespace: "engineering",
+        namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+        maxPackageBytes: 1024,
+      },
       onSkillHubPublishOpen,
     });
     props.report = {
@@ -78,7 +88,12 @@ describe("renderSkills Skill Hub publishing", () => {
       personalAccess: true,
       canUpdate: false,
       canInstall: false,
-      skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+      skillHubConfig: {
+        namespaces: ["engineering"],
+        defaultNamespace: "engineering",
+        namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+        maxPackageBytes: 1024,
+      },
       onSkillHubPublishOpen,
     });
     props.report = {
@@ -103,7 +118,12 @@ describe("renderSkills Skill Hub publishing", () => {
     const container = document.createElement("div");
     const props = createProps({
       personalAccess: true,
-      skillHubConfig: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+      skillHubConfig: {
+        namespaces: ["engineering"],
+        defaultNamespace: "engineering",
+        namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+        maxPackageBytes: 1024,
+      },
       skillHubPublishSkill: "vm-skill",
       skillHubPublishNamespace: "engineering",
     });

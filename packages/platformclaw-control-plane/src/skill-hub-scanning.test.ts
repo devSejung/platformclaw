@@ -5,7 +5,11 @@ import type { SkillHubGovernanceJob } from "./skill-hub-state.js";
 
 async function scanningFixture() {
   const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-  const fixture = await createSkillHubServiceFixture(["engineering"], { approvePendingReview });
+  const fixture = await createSkillHubServiceFixture(
+    ["engineering"],
+    { approvePendingReview },
+    { registrySkill: "absent" },
+  );
   await fixture.service.publish(fixture.actor, {
     skill: "demo-skill",
     namespace: "engineering",

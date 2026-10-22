@@ -89,7 +89,7 @@ export class SkillHubWorkspacePublishController implements ReactiveController {
       config.installTargets?.some((target) => target.target === "assigned_vm" && target.available)
         ? "assigned_vm"
         : "platform_server";
-    this.namespace = config.namespaces[0] ?? "";
+    this.namespace = config.defaultNamespace ?? "";
     this.version = "1.0.0";
     this.visibility = "NAMESPACE_ONLY";
     this.open = true;

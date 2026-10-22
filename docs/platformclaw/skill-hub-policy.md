@@ -102,15 +102,49 @@ Scope access is capability-specific:
 
 - Global catalog read/install is available to active employees only when the
   selected skill visibility permits it;
-- Global publish and curation are PlatformClaw-administrator-only;
+- Global is the default publication destination for every active employee,
+  including employees without a Team, Group, or Part membership. The publisher
+  becomes the accountable owner; other employees cannot overwrite that skill.
+  Changing existing Global namespace policy remains PlatformClaw-administrator-only;
 - Team, Group, and Part read/install uses effective upward access. Publishing
   requires an exact direct membership, leadership of the target or an ancestor,
   or administrator authority. Curation remains owner/administrator controlled;
   and
 - no read or install capability implies publish, force, transfer, or curation.
 
-Global bindings start restricted. An administrator must provide a reason and
-the current binding revision to activate organization-wide access.
+An employee's first publication requires an unused registry coordinate. An
+existing registry skill without a PlatformClaw ownership record cannot be claimed
+through ordinary publication. An administrator may establish its accountable
+owner through publication and then use the existing ownership-transfer flow.
+
+New Global bindings start active. When the managed registry allowlist includes
+the canonical `global` namespace, the first authenticated Skill Hub use persists
+its missing Global binding automatically. Existing bindings, including explicit
+restrictions, are preserved. Administrators can restrict or reactivate a Global
+binding with a reason and the current binding revision.
+The canonical `global` binding cannot be removed: restrict its access instead
+so a restart cannot reinterpret an administrator's removal as first-time setup.
+
+Publication dialogs select an authorized Global destination by default. Team,
+Group, and Part destinations are explicit alternatives; opening a new publication
+does not reuse an earlier organizational destination. If no Global destination
+is authorized, the employee must explicitly choose an available destination.
+
+## Namespace creation
+
+Active employees may create namespaces from the Skill Hub page. Global creation
+is available without organization membership. Team, Group, and Part creation
+uses the same direct-membership, leadership, or administrator publication
+authority as an existing destination. Creation never rebinds an existing
+namespace and does not grant namespace-administration or cross-owner skill rights.
+
+The control plane reserves each creation in SQLite before calling the existing
+registry API. An opaque recorded operation marker identifies the remote namespace
+for exact-request recovery after an uncertain response or restart. Only completed
+self-service creations extend the configured namespace snapshot; existing
+administrator bindings outside the bootstrap allowlist do not gain access from
+this feature. Failed or incomplete operations remain visible to their caller,
+and activation revalidates the current employee and organization authority.
 
 ## Scan and publication policy
 
@@ -170,10 +204,12 @@ an unavailable allocation or stale target revision fails visibly.
 Publishing is available for real personal skills in either the Basic workspace
 or the employee's assigned VM. The Skills tab publishes from its displayed work
 location; the Skill Hub tab selects Basic or My development VM explicitly.
-Knox `/skillhub publish <slug>` uses the current work location, the first
-authorized namespace, the installed version (or `0.1.0` when absent), and
-Namespace-only visibility unless that namespace requires Private. VM archives
-travel only over server-owned SSH and bounded private Gateway RPC chunks; no
+Knox `/skillhub publish <slug>` uses the current work location, the authorized
+Global default, the installed version (or `0.1.0` when absent), and
+Namespace-only visibility unless that namespace requires Private.
+An explicit `/skillhub publish <namespace/slug>` selects another authorized
+destination without changing the default for subsequent publications.
+VM archives travel only over server-owned SSH and bounded private Gateway RPC chunks; no
 browser attachment, shared cross-container mount, target switch, or Basic
 workspace fallback is involved.
 

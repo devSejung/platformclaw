@@ -24,7 +24,7 @@ describe("Skill Hub workspace publication", () => {
         getPersonalExecutionProfile,
         getVmAllocationForAgent,
         recordAuditEvent,
-      } = await fixture();
+      } = await fixture(undefined, undefined, { registrySkill: "absent" });
       getPersonalExecutionProfile.mockResolvedValue({
         agentBindingId: "binding-1",
         activeTarget: "assigned_vm",
@@ -98,7 +98,11 @@ describe("Skill Hub workspace publication", () => {
   );
 
   it("publishes explicit Basic source without switching an active VM target", async () => {
-    const { service, actor, getPersonalExecutionProfile, adminRpcCall } = await fixture();
+    const { service, actor, getPersonalExecutionProfile, adminRpcCall } = await fixture(
+      undefined,
+      undefined,
+      { registrySkill: "absent" },
+    );
     getPersonalExecutionProfile.mockResolvedValue({
       agentBindingId: "binding-1",
       activeTarget: "assigned_vm",
@@ -119,7 +123,9 @@ describe("Skill Hub workspace publication", () => {
   });
 
   it("rejects unavailable VM publication without Basic workspace fallback", async () => {
-    const { service, actor, adapterMocks } = await fixture();
+    const { service, actor, adapterMocks } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
+    });
     await expect(
       service.publish(actor, {
         skill: "demo-skill",
@@ -133,7 +139,20 @@ describe("Skill Hub workspace publication", () => {
   });
 
   it("publishes the active workspace skill from a Knox slash command", async () => {
-    const { service, adminRpcCall, adapterMocks } = await fixture();
+    const { service, adminRpcCall, adapterMocks, getSkillHubNamespaceBinding } = await fixture(
+      undefined,
+      undefined,
+      { registrySkill: "absent" },
+    );
+    getSkillHubNamespaceBinding.mockResolvedValue({
+      namespace: "engineering",
+      scopeKind: "global",
+      accessState: "active",
+      visibilityCeiling: "NAMESPACE_ONLY",
+      createdByUserId: "admin-1",
+      createdAt: 1,
+      updatedAt: 1,
+    });
     adminRpcCall.mockResolvedValue({
       skills: [
         {
@@ -150,8 +169,33 @@ describe("Skill Hub workspace publication", () => {
     expect(adapterMocks.publish).toHaveBeenCalledOnce();
   });
 
+  it("requires explicit managed namespace selection when no Global default is authorized", async () => {
+    const { service, actor, adminRpcCall, adapterMocks } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
+    });
+    await expect(service.config(actor)).resolves.toMatchObject({ defaultNamespace: null });
+    adminRpcCall.mockResolvedValue({
+      skills: [
+        { source: "openclaw-workspace", baseDir: "/workspace/skills/demo-skill", version: "1.2.3" },
+      ],
+    });
+    await expect(service.command("person.one", "publish demo-skill")).rejects.toMatchObject({
+      statusCode: 403,
+      message: expect.stringContaining("specify namespace/slug"),
+    });
+    expect(adminRpcCall).not.toHaveBeenCalled();
+    await expect(
+      service.command("person.one", "publish engineering/demo-skill"),
+    ).resolves.toMatchObject({ text: expect.stringContaining("`engineering/demo-skill`") });
+    expect(adapterMocks.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ namespace: "engineering" }),
+    );
+  });
+
   it("lists only owner workspace skills for the explicitly selected source", async () => {
-    const { service, actor, adminRpcCall } = await fixture();
+    const { service, actor, adminRpcCall } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
+    });
     adminRpcCall.mockResolvedValue({
       skills: [
         {

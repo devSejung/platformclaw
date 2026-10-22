@@ -121,6 +121,33 @@ export const nativeTranslations = {
 } satisfies TranslationMap;
 
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.skillHub.namespace.create": "네임스페이스 만들기",
+  "platformClaw.skillHub.namespace.description":
+    "전사 공용 또는 소속 팀·그룹·파트에서 스킬을 공유할 공간을 만듭니다.",
+  "platformClaw.skillHub.namespace.nameHelp":
+    "영문 소문자(a–z), 숫자, 하이픈으로 2~64자를 입력하세요. 영문 소문자나 숫자로 시작하고 끝내며 하이픈을 연속해서 사용할 수 없습니다.",
+  "platformClaw.skillHub.namespace.scope": "공유 범위",
+  "platformClaw.skillHub.namespace.noScopes":
+    "선택할 수 있는 공유 범위가 없습니다. 조직 소속을 확인하거나 관리자에게 문의하세요.",
+  "platformClaw.skillHub.namespace.creating": "네임스페이스 생성 중…",
+  "platformClaw.skillHub.namespace.created":
+    "네임스페이스 {namespace}을(를) 만들었습니다. 게시할 때 선택할 수 있습니다.",
+  "platformClaw.skillHub.namespace.createdReloadFailed":
+    "네임스페이스 {namespace}을(를) 만들었지만 게시 위치를 새로 불러오지 못했습니다. 페이지를 새로고침한 뒤 게시하세요.",
+  "platformClaw.skillHub.namespace.conflict":
+    "이미 있거나 예약된 네임스페이스입니다. 다른 이름을 입력하세요.",
+  "platformClaw.skillHub.namespace.invalidName":
+    "사용할 수 없거나 예약된 이름입니다. 영문 소문자(a–z), 숫자, 하이픈으로 2~64자의 다른 이름을 입력하세요. 영문 소문자나 숫자로 시작하고 끝내며 하이픈을 연속해서 사용할 수 없습니다.",
+  "platformClaw.skillHub.namespace.forbidden":
+    "이 범위에 대한 권한이 변경되었습니다. 창을 다시 열어 선택 가능한 범위를 확인하세요.",
+  "platformClaw.skillHub.namespace.unavailable":
+    "생성을 완료하지 못했습니다. 같은 이름과 공유 범위로 다시 시도하면 상태를 확인하고 이어서 완료합니다.",
+  "platformClaw.skillHub.namespace.incomplete": "생성이 완료되지 않은 네임스페이스",
+  "platformClaw.skillHub.namespace.failed": "생성 상태를 확인해야 합니다.",
+  "platformClaw.skillHub.namespace.pending": "설정이 완료되지 않았습니다.",
+  "platformClaw.skillHub.namespace.inProgress":
+    "이미 생성 중입니다. 잠시 기다린 뒤 같은 이름과 공유 범위로 다시 시도하세요.",
+  "platformClaw.skillHub.namespace.resume": "이 값으로 다시 시도",
   "platformClaw.waitingTips.request": "독심술은 아직이에요. 원하는 결과 형식도 함께 알려주세요.",
   "platformClaw.waitingTips.newChat": "주제가 바뀌면 새 대화로. 맥락도 환기가 필요해요.",
   "platformClaw.waitingTips.history": "지난 대화는 퇴근하지 않아요. 다시 열어 이어가세요.",
@@ -156,6 +183,10 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.skillHub.publish.description":
     "기본 작업 공간이나 내 VM에서 스킬을 선택합니다. 현재 작업 위치는 변경되지 않습니다.",
   "platformClaw.skillHub.publish.source": "스킬 위치",
+  "platformClaw.skillHub.publish.destination": "게시 위치",
+  "platformClaw.skillHub.publish.chooseDestination": "게시 위치 선택",
+  "platformClaw.skillHub.publish.global": "전사 공용",
+  "platformClaw.skillHub.scopeTeam": "팀",
   "platformClaw.skillHub.publish.sourceBasic": "기본 작업 공간",
   "platformClaw.skillHub.publish.sourceVm": "내 VM 작업 공간",
   "platformClaw.skillHub.publish.skill": "작업 공간 스킬",

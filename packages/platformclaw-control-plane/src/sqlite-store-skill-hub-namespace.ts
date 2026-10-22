@@ -5,10 +5,12 @@ import {
   ControlPlaneStateError,
 } from "./contracts.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
-import { resolveSkillHubNamespaceCapabilities } from "./skill-hub-organization-policy.js";
+import {
+  DEFAULT_SKILL_HUB_NAMESPACE,
+  resolveSkillHubNamespaceCapabilities,
+} from "./skill-hub-organization-policy.js";
 import type { SkillHubNamespaceBinding, SkillHubStateStore } from "./skill-hub-state.js";
-import { ensureSkillHubStateSchema } from "./sqlite-schema.js";
-import { SqliteControlPlaneMcpStore } from "./sqlite-store-mcp.js";
+import { SqliteControlPlaneSkillHubNamespaceCreationStore } from "./sqlite-store-skill-hub-namespace-create.js";
 import type { SkillHubNamespaceBindingRow } from "./sqlite-store-types.js";
 
 function namespaceBinding(row: SkillHubNamespaceBindingRow): SkillHubNamespaceBinding {
@@ -24,17 +26,7 @@ function namespaceBinding(row: SkillHubNamespaceBindingRow): SkillHubNamespaceBi
   };
 }
 
-export abstract class SqliteControlPlaneSkillHubNamespaceStore extends SqliteControlPlaneMcpStore {
-  private skillHubStateSchemaReady = false;
-
-  protected ensureSkillHubStateSchema(): void {
-    if (this.skillHubStateSchemaReady) {
-      return;
-    }
-    ensureSkillHubStateSchema(this.db);
-    this.skillHubStateSchemaReady = true;
-  }
-
+export abstract class SqliteControlPlaneSkillHubNamespaceStore extends SqliteControlPlaneSkillHubNamespaceCreationStore {
   protected isSkillHubNamespaceOwnerEligible(userId: string, binding: SkillHubNamespaceBindingRow) {
     const user = this.selectUserById(userId);
     if (!user) {
@@ -146,13 +138,8 @@ export abstract class SqliteControlPlaneSkillHubNamespaceStore extends SqliteCon
       if (params.scopeKind === "global" ? params.scopeId !== undefined : !params.scopeId) {
         throw new ControlPlaneStateError("Skill Hub namespace scope binding is invalid");
       }
-      if (
-        (params.scopeKind === "global" && params.accessState !== "restricted") ||
-        (params.scopeKind !== "global" && params.accessState !== "active")
-      ) {
-        throw new ControlPlaneStateError(
-          "Global namespaces start restricted and managed namespaces start active",
-        );
+      if (params.scopeKind !== "global" && params.accessState !== "active") {
+        throw new ControlPlaneStateError("Managed namespaces start active");
       }
       if (params.scopeId) {
         const scope = this.requireScopeRow(params.scopeId);
@@ -356,6 +343,13 @@ export abstract class SqliteControlPlaneSkillHubNamespaceStore extends SqliteCon
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
       this.requireAdmin(params.actorUserId);
+      // Missing canonical metadata is initialized on process startup. Preserve an
+      // administrator's disablement through the existing restricted state instead.
+      if (params.namespace === DEFAULT_SKILL_HUB_NAMESPACE) {
+        throw new ControlPlaneStateError(
+          "The default Global namespace binding cannot be removed; restrict its access instead",
+        );
+      }
       const reason = params.reason.trim();
       if (!reason || reason.length > 500) {
         throw new ControlPlaneStateError(

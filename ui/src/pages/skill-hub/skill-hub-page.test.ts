@@ -20,7 +20,12 @@ describe("SkillHubPage", () => {
       const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
         const url = input instanceof Request ? input.url : input.toString();
         if (url.endsWith("/config")) {
-          return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 });
+          return jsonResponse({
+            namespaces: ["engineering"],
+            defaultNamespace: "engineering",
+            namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+            maxPackageBytes: 1024,
+          });
         }
         if (url.includes("/notifications")) {
           if (fail && (operation === "load" || url.endsWith("/read"))) {
@@ -72,7 +77,14 @@ describe("SkillHubPage", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(jsonResponse({ namespaces: [], maxPackageBytes: 1024 }))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            namespaces: [],
+            defaultNamespace: null,
+            namespaceOptions: [],
+            maxPackageBytes: 1024,
+          }),
+        )
         .mockResolvedValueOnce(jsonResponse({ total: 0, items: [] })),
     );
     const page = document.createElement("openclaw-skill-hub-page");
@@ -86,7 +98,12 @@ describe("SkillHubPage", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 524_288_000 }),
+        jsonResponse({
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 524_288_000,
+        }),
       )
       .mockResolvedValueOnce(
         jsonResponse({
@@ -167,6 +184,8 @@ describe("SkillHubPage", () => {
       if (url.endsWith("/config")) {
         return jsonResponse({
           namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
           maxPackageBytes: 524_288_000,
           activeTarget: "platform_server",
           installTargets: [
@@ -238,50 +257,14 @@ describe("SkillHubPage", () => {
     ).toBe(false);
   });
 
-  it("defaults workspace publishing to the active assigned VM", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = input instanceof Request ? input.url : String(input);
-      if (url.endsWith("/config")) {
-        return jsonResponse({
-          namespaces: ["engineering"],
-          maxPackageBytes: 1024,
-          activeTarget: "assigned_vm",
-          installTargets: [
-            { target: "platform_server", available: true, status: "ready" },
-            { target: "assigned_vm", available: true, status: "ready" },
-          ],
-        });
-      }
-      if (url.includes("/workspace-skills")) {
-        return jsonResponse({ source: "assigned_vm", items: [{ skillKey: "vm-only" }] });
-      }
-      return jsonResponse({ total: 0, items: [] });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const page = document.createElement("openclaw-skill-hub-page");
-    document.body.append(page);
-    await waitForFast(() => expect(page.textContent).toContain("Publish workspace skill"));
-
-    [...page.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Publish workspace skill"))
-      ?.click();
-    await waitForFast(() => expect(page.textContent).toContain("vm-only"));
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/workspace-skills?source=assigned_vm"),
-      expect.any(Object),
-    );
-    expect(
-      page.querySelector<HTMLSelectElement>(".skill-hub-workspace-publish select")?.value,
-    ).toBe("assigned_vm");
-  });
-
   it("opens the persistent notification inbox and marks all items read", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         jsonResponse({
           namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
           maxPackageBytes: 1024,
           notifications: { unreadCount: 1 },
         }),
@@ -334,7 +317,12 @@ describe("SkillHubPage", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 524_288_000 }),
+        jsonResponse({
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 524_288_000,
+        }),
       )
       .mockResolvedValueOnce(
         jsonResponse({
@@ -441,6 +429,8 @@ describe("SkillHubPage", () => {
       if (url.endsWith("/config")) {
         return jsonResponse({
           namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
           maxPackageBytes: 524_288_000,
           admin: true,
           unassignedOwnerCount: 1,
@@ -494,7 +484,13 @@ describe("SkillHubPage", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith("/config")) {
-        return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024, admin: true });
+        return jsonResponse({
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+          admin: true,
+        });
       }
       if (url.endsWith("/admin/namespaces") && !init?.method) {
         return jsonResponse({ bindings: removed ? [] : [binding], scopes: [] });
@@ -582,7 +578,12 @@ describe("SkillHubPage", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith("/config")) {
-        return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 });
+        return jsonResponse({
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+        });
       }
       if (url.includes("/management-users")) {
         return await pendingCandidates;
@@ -644,7 +645,12 @@ describe("SkillHubPage", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith("/config")) {
-        return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 });
+        return jsonResponse({
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+        });
       }
       if (url.endsWith("/skills/engineering/demo-skill") && init?.method === "DELETE") {
         deleteAttempts += 1;
@@ -759,7 +765,12 @@ describe("SkillHubPage", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.endsWith("/config")) {
-        return jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 });
+        return jsonResponse({
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+        });
       }
       if (url.endsWith("/skills/engineering/untracked")) {
         return jsonResponse({
@@ -805,7 +816,14 @@ describe("SkillHubPage", () => {
   it("warns when a ZIP reaches the registry but needs ownership review", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+        }),
+      )
       .mockResolvedValueOnce(jsonResponse({ total: 0, items: [] }))
       .mockResolvedValueOnce(
         jsonResponse({
@@ -844,7 +862,14 @@ describe("SkillHubPage", () => {
   it("shows a ZIP publishing failure inside the open upload dialog and keeps the draft", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ namespaces: ["engineering"], maxPackageBytes: 1024 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+        }),
+      )
       .mockResolvedValueOnce(jsonResponse({ total: 0, items: [] }))
       .mockResolvedValueOnce(
         jsonResponse({ error: "Archive scanner is unavailable. Try again." }, 503),

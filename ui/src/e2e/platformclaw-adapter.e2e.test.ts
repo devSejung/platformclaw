@@ -296,6 +296,8 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       route.fulfill({
         json: {
           namespaces: ["platform"],
+          defaultNamespace: "platform",
+          namespaceOptions: [{ namespace: "platform", scopeKind: "global" }],
           maxPackageBytes: 10_000_000,
           capabilities: {
             scanner: true,
@@ -304,6 +306,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
             accessControl: false,
             notifications: true,
             zipUpload: true,
+            namespaceCreate: true,
           },
           installTargets: [
             { target: "platform_server", available: true, status: "ready" },

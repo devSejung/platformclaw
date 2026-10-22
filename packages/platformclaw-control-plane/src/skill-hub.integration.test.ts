@@ -39,6 +39,7 @@ describe("PlatformClaw Skill Hub integration", () => {
       compression: "DEFLATE",
       platform: "UNIX",
     });
+    let registryPublished = false;
     const requests: Array<{
       method: string;
       url: string;
@@ -57,6 +58,7 @@ describe("PlatformClaw Skill Hub integration", () => {
           : {}),
       });
       if (req.method === "POST" && req.url === "/api/cli/v1/skills/engineering/publish") {
+        registryPublished = true;
         req.resume();
         res.setHeader("Content-Type", "application/json");
         res.end(
@@ -75,6 +77,11 @@ describe("PlatformClaw Skill Hub integration", () => {
       }
       if (req.method === "GET" && req.url === "/api/v1/skills/engineering/demo-skill") {
         res.setHeader("Content-Type", "application/json");
+        if (!registryPublished) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ code: 400, msg: "Skill not found: demo-skill", data: null }));
+          return;
+        }
         res.end(
           JSON.stringify({
             code: 0,
@@ -152,6 +159,7 @@ describe("PlatformClaw Skill Hub integration", () => {
       })),
     } as unknown as BrowserAuthService;
     const store = {
+      listCompletedSkillHubNamespaces: vi.fn(async () => []),
       getSkillHubPendingEdit: vi.fn(async () => null),
       getUserById: vi.fn(async () => ({
         id: "user-one",
@@ -244,6 +252,8 @@ describe("PlatformClaw Skill Hub integration", () => {
     ).resolves.toMatchObject({ ok: true });
 
     expect(requests).toEqual([
+      expect.objectContaining({ method: "GET", url: "/api/v1/skills/engineering/demo-skill" }),
+      expect.objectContaining({ method: "GET", url: "/api/v1/skills/engineering/demo-skill" }),
       expect.objectContaining({
         method: "POST",
         url: "/api/cli/v1/skills/engineering/publish",

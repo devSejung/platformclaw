@@ -1,6 +1,9 @@
 import type { OrganizationAuthorization, PlatformUser } from "./contracts.js";
 import type { SkillHubNamespaceBinding } from "./skill-hub-state.js";
 
+// The managed registry provisions `global` as the company-wide namespace.
+export const DEFAULT_SKILL_HUB_NAMESPACE = "global";
+
 export type SkillHubNamespaceCapabilities = {
   canReadInstall: boolean;
   canPublish: boolean;
@@ -24,21 +27,39 @@ export function resolveSkillHubNamespaceCapabilities(params: {
   if (!binding || binding.accessState !== "active" || user.status !== "active") {
     return DENIED;
   }
-  if (binding.scopeKind === "global") {
+  return resolveSkillHubScopeCapabilities({
+    user,
+    scopeKind: binding.scopeKind,
+    scopeId: binding.scopeId,
+    organizationAuthorization: params.organizationAuthorization,
+  });
+}
+
+export function resolveSkillHubScopeCapabilities(params: {
+  user: Pick<PlatformUser, "id" | "status" | "globalRole">;
+  scopeKind: SkillHubNamespaceBinding["scopeKind"];
+  scopeId?: string;
+  organizationAuthorization?: OrganizationAuthorization;
+}): SkillHubNamespaceCapabilities {
+  const { user } = params;
+  if (user.status !== "active") {
+    return DENIED;
+  }
+  if (params.scopeKind === "global") {
     const admin = user.globalRole === "admin";
     return {
       canReadInstall: true,
-      canPublish: admin,
+      canPublish: true,
       canCurate: admin,
-      canOwn: admin,
+      canOwn: true,
     };
   }
   const authorization = params.organizationAuthorization;
-  if (!binding.scopeId || !authorization) {
+  if (!params.scopeId || !authorization) {
     return DENIED;
   }
   const admin = authorization.facts.source === "administrator";
-  const directMember = authorization.facts.scopeIds.includes(binding.scopeId);
+  const directMember = authorization.facts.scopeIds.includes(params.scopeId);
   const canPublish = admin || authorization.canManageMembers || directMember;
   return {
     canReadInstall: authorization.canRead,

@@ -1,4 +1,18 @@
 import { t } from "../../i18n/index.ts";
+import { platformClawT } from "../../platformclaw/i18n.ts";
+import type { PlatformClawSkillHubConfig } from "../../platformclaw/skill-hub.ts";
+
+export function skillHubPublishNamespaceLabel(
+  option: PlatformClawSkillHubConfig["namespaceOptions"][number],
+): string {
+  if (option.scopeKind === "global") {
+    return `${platformClawT("platformClaw.skillHub.publish.global")} (${option.namespace})`;
+  }
+  const scope = skillHubScopeKindLabel(option.scopeKind);
+  return option.scopeName && option.scopeName !== option.namespace
+    ? `${scope}: ${option.scopeName} (${option.namespace})`
+    : `${scope}: ${option.namespace}`;
+}
 
 export function skillHubVisibilityLabel(value: string | undefined): string {
   switch (value) {
@@ -18,7 +32,7 @@ export function skillHubScopeKindLabel(value: "global" | "team" | "group" | "par
     case "global":
       return "Global";
     case "team":
-      return t("skillHubPage.scopeTeam");
+      return platformClawT("platformClaw.skillHub.scopeTeam");
     case "group":
       return t("skillHubPage.scopeGroup");
     case "part":

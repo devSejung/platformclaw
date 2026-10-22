@@ -665,6 +665,39 @@ organization knowledge, including Global, with explicit reason and audit; they
 may review personal content only after its owner submits a promotion claim.
 Dreaming never publishes organization knowledge automatically.
 
+### PC-129 Allow employee Skill Hub publication and namespace creation
+
+Global Skill Hub publication is available to every active employee, including
+employees without an organization membership. New publications default to an
+authorized Global namespace; Team, Group, and Part remain explicit destinations
+subject to the existing membership and leadership policy. This applies to the
+Skill Hub dialog, workspace Skills publication, ZIP upload, and Knox commands.
+
+The publisher remains the accountable skill owner. Updating a skill, transferring
+ownership, force publication, and namespace administration retain their owner
+and administrator checks for existing resources. General publication authority does not allow an
+employee to overwrite another employee's skill.
+
+First publication also checks the registry when no local ownership record
+exists. Ordinary employees may use only an unused coordinate; an administrator
+can establish ownership through publication and transfer it explicitly.
+
+When the managed registry allowlist includes `global`, first authenticated use
+persists a missing active Global binding without requiring an administrator
+login or organization setup. New administrator-created Global bindings also
+start active. Existing bindings and explicit restrictions are preserved; this
+change neither rebuilds stored data nor bumps the SQLite schema version.
+
+Every active employee may create a new Global namespace. Creating a Team, Group,
+or Part namespace requires the same scoped publication authority as using that
+destination. Registry namespace creation uses the existing governance session,
+while SQLite owns the creation reservation, caller, organization, operation
+marker, and completion state. Exact-request retries recover recorded outcomes
+without taking over existing registry names. Only completed self-service
+creations extend the process namespace snapshot and survive restart as available
+destinations. This adds an idempotently ensured SQLite table without a schema
+version bump; existing restrictions and administrator policy remain authoritative.
+
 ## Open operational decisions
 
 No remaining product decision blocks the implemented SQLite v2 store or the
