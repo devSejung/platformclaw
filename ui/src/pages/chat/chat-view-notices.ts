@@ -59,45 +59,49 @@ export function renderChatRunErrorNotice(props: {
   return keyed(
     report,
     html`<div class="chat-run-error" role="alert">
-      <span class="chat-run-error__icon" aria-hidden="true">${icons.alertTriangle}</span>
+      <span class="chat-run-error__icon" aria-hidden="true">${icons.messageSquare}</span>
       <div class="chat-run-error__content">
         <strong class="chat-run-error__summary">${summary}</strong>
         <p class="chat-run-error__help">${t("chat.errorShareHelp")}</p>
-        <button
-          class="btn btn--sm chat-copy-btn"
-          type="button"
-          aria-label=${copyLabel}
-          @click=${copyReport}
-        >
-          <span class="chat-copy-btn__icon" aria-hidden="true">
-            <span class="chat-copy-btn__icon-copy">${icons.copy}</span>
-            <span class="chat-copy-btn__icon-check">${icons.check}</span>
-          </span>
-          <span data-copy-label>${copyLabel}</span>
-        </button>
+        <div class="chat-run-error__actions">
+          <button
+            class="btn btn--sm chat-copy-btn"
+            type="button"
+            aria-label=${copyLabel}
+            @click=${copyReport}
+          >
+            <span class="chat-copy-btn__icon" aria-hidden="true">
+              <span class="chat-copy-btn__icon-copy">${icons.copy}</span>
+              <span class="chat-copy-btn__icon-check">${icons.check}</span>
+            </span>
+            <span data-copy-label>${copyLabel}</span>
+          </button>
+          ${props.onRefresh
+            ? html`<button
+                class="btn btn--sm chat-run-error__refresh"
+                type="button"
+                ?disabled=${!props.connected}
+                @click=${props.onRefresh}
+              >
+                ${t("common.refresh")}
+              </button>`
+            : nothing}
+        </div>
         <span class="agent-chat__sr-only" role="status" aria-live="polite"></span>
         <details class="chat-run-error__details">
           <summary>${t("chat.errorDetails")}</summary>
-          <textarea
-            class="chat-run-error__diagnostic"
-            readonly
-            rows="6"
-            aria-label=${t("chat.errorDetails")}
-            .value=${report}
-            @focus=${(event: FocusEvent) => (event.target as HTMLTextAreaElement).select()}
-          ></textarea>
+          <div class="field chat-run-error__report">
+            <textarea
+              class="chat-run-error__diagnostic"
+              readonly
+              rows="6"
+              aria-label=${t("chat.errorDetails")}
+              .value=${report}
+              @focus=${(event: FocusEvent) => (event.target as HTMLTextAreaElement).select()}
+            ></textarea>
+          </div>
         </details>
       </div>
-      ${props.onRefresh
-        ? html`<button
-            class="btn btn--sm chat-run-error__refresh"
-            type="button"
-            ?disabled=${!props.connected}
-            @click=${props.onRefresh}
-          >
-            ${t("common.refresh")}
-          </button>`
-        : nothing}
     </div>`,
   );
 }

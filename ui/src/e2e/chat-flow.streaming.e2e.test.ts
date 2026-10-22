@@ -136,16 +136,39 @@ suite.define(() => {
   });
 
   it.each([
-    { label: "desktop", initialFocus: "composer", viewport: { height: 900, width: 1280 } },
-    { label: "mobile", initialFocus: "composer", viewport: { height: 844, width: 390 } },
+    {
+      label: "desktop",
+      mode: "light",
+      initialFocus: "composer",
+      viewport: { height: 900, width: 1280 },
+    },
+    {
+      label: "mobile",
+      mode: "light",
+      initialFocus: "composer",
+      viewport: { height: 844, width: 390 },
+    },
     {
       label: "mobile from transcript",
+      mode: "light",
       initialFocus: "transcript",
+      viewport: { height: 844, width: 390 },
+    },
+    {
+      label: "desktop dark",
+      mode: "dark",
+      initialFocus: "composer",
+      viewport: { height: 900, width: 1280 },
+    },
+    {
+      label: "mobile dark",
+      mode: "dark",
+      initialFocus: "composer",
       viewport: { height: 844, width: 390 },
     },
   ])(
     "keeps streamed text visible when a chat error terminates the turn on $label",
-    async ({ viewport, initialFocus }) => {
+    async ({ viewport, initialFocus, mode }) => {
       const context = await suite.newBrowserContext({
         hasTouch: viewport.width < 480,
         isMobile: viewport.width < 480,
@@ -159,6 +182,14 @@ suite.define(() => {
 
       try {
         await page.goto(`${suite.server.baseUrl}chat`);
+        if (mode === "dark") {
+          await page.goto(`${suite.server.baseUrl}settings/appearance`);
+          await page.locator('wa-radio[value="dark"]').click();
+          await page.goto(`${suite.server.baseUrl}chat`);
+        }
+        await expect
+          .poll(() => page.evaluate(() => document.documentElement.dataset.themeMode))
+          .toBe(mode);
         if (initialFocus === "transcript") {
           await page.addStyleTag({ content: ":root { --safe-area-bottom: 34px !important; }" });
         }
@@ -213,6 +244,24 @@ suite.define(() => {
           .waitFor({ timeout: 10_000 });
         const alert = page.locator(".chat-run-error");
         await alert.waitFor({ timeout: 10_000 });
+        const surface = await alert.evaluate((element) => {
+          const composer = element.nextElementSibling?.querySelector(".agent-chat__input");
+          if (!composer) {
+            throw new Error("Expected the adjacent composer");
+          }
+          const noticeStyle = getComputedStyle(element);
+          const composerStyle = getComputedStyle(composer);
+          return {
+            background: noticeStyle.backgroundColor,
+            composerBackground: composerStyle.backgroundColor,
+            radius: noticeStyle.borderRadius,
+            composerRadius: composerStyle.borderRadius,
+            overflow: document.documentElement.scrollWidth > innerWidth,
+          };
+        });
+        expect(surface.background).toBe(surface.composerBackground);
+        expect(surface.radius).toBe(surface.composerRadius);
+        expect(surface.overflow).toBe(false);
         const details = alert.locator("details");
         const summary = alert.locator("summary");
         const diagnostic = alert.getByLabel("Error details", { exact: true });
@@ -283,6 +332,22 @@ suite.define(() => {
             return textarea.value.slice(textarea.selectionStart, textarea.selectionEnd);
           }),
         ).toBe(errorReport);
+        const reportStyle = await diagnostic.evaluate((input) => {
+          const style = getComputedStyle(input);
+          return {
+            radius: Number.parseFloat(style.borderTopLeftRadius),
+            padding: Number.parseFloat(style.paddingInlineStart),
+            fontSize: Number.parseFloat(style.fontSize),
+          };
+        });
+        expect(reportStyle.radius).toBeGreaterThan(0);
+        expect(reportStyle.padding).toBeGreaterThan(0);
+        if (viewport.width < 480) {
+          expect(reportStyle.fontSize).toBeGreaterThanOrEqual(16);
+        }
+        expect(await copy.evaluate((button) => getComputedStyle(button).color)).toBe(
+          await alert.evaluate((element) => getComputedStyle(element).color),
+        );
         await page.evaluate(() => {
           Reflect.deleteProperty(navigator.clipboard, "writeText");
           Reflect.deleteProperty(document, "execCommand");
