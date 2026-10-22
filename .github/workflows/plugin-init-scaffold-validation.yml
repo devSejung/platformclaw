@@ -45,6 +45,8 @@ jobs:
       - name: Setup Node environment
         uses: ./.github/actions/setup-node-env
         with:
+          # Published OpenClaw enforces this floor; cached 24.x may be older.
+          node-version: "24.22.1"
           install-bun: "false"
 
       - name: Generate and validate provider scaffold
