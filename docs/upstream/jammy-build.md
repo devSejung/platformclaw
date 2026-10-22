@@ -91,6 +91,42 @@ workspace virtual environment uses the approved indexes. Do not put passwords,
 tokens, or credential-bearing repository URLs in this file; image readers can
 extract its contents. Keep the file outside Git.
 
+The build copies this file verbatim; the deployment bundle does not discover or
+replace company mirror addresses. Replace obsolete indexes in the local file
+before rebuilding. For a single approved HTTP mirror, use this shape:
+
+```ini
+[global]
+index-url = http://<approved-package-host>/<approved-simple-index-path>/simple
+trusted-host = <approved-package-host>
+```
+
+Keep `trusted-host` in `[global]` so it also applies to `pip download` and
+`pip index`. Remove old `extra-index-url` and `find-links` entries when the new
+mirror replaces them. The pip config content hash invalidates the image build
+cache when the file changes; a successful build proves the included bytes, not
+connectivity to the company mirror from the deployment network.
+
+Transfer the newly built image archive together with its matching deployment
+bundle, then run `platformclaw-deploy image update` with the archive and image
+refs. Both `image set` and `image update` retire existing sandboxes even when
+the refs are unchanged, so the next agent run uses the loaded image. Updating
+the deployment bundle alone does not change an already baked `/etc/pip.conf`.
+
+After deployment, verify from an agent sandbox on the company network:
+
+```bash
+python3 -m pip config debug
+python3 -m venv /workspace/.venv
+/workspace/.venv/bin/python -m pip install <approved-package>
+```
+
+Use a workspace virtual environment because the sandbox root filesystem is
+read-only. `/etc/pip.conf` applies to all sandbox users and fresh virtual
+environments; existing user/site config, `PIP_*` environment variables, and
+command-line options can override it. Inspect those if the effective index
+still differs from the approved mirror.
+
 The sandbox image also preinstalls `python-is-python3` plus pinned `urllib3`,
 `Markdown`, `markdownify`, and `Pygments` packages. These are image dependencies,
 so every sandbox receives the same versions without installing them at runtime.

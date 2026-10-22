@@ -397,7 +397,10 @@ first; preserve the existing `deployment.env` and data directories.
 The deployment
 helper loads it into rootful and rootless daemons, switches both refs, waits for
 health, recreates existing agent sandboxes with the new image, and restores the
-prior environment on failure. Before startup it stops the stack, saves a full
+prior environment on failure. Sandboxes are retired even when the image refs
+are unchanged: an external build input such as `pip.conf` can change the loaded
+image under the same source tag. New runs create sandboxes from that image.
+Before startup it stops the stack, saves a full
 Gateway-state snapshot, and runs
 `openclaw doctor --fix --yes --non-interactive --repair-only` with the new image.
 This preserves repairs and migrations while deferring diagnostic-only checks.
