@@ -1,5 +1,5 @@
 import type { RuntimeEnv } from "../runtime.js";
-import { defaultRuntime } from "../runtime.js";
+import { defaultRuntime, restoreRuntimeTerminalState } from "../runtime.js";
 
 type VitestWorkerMarkers = {
   tinypoolState?: unknown;
@@ -7,7 +7,7 @@ type VitestWorkerMarkers = {
 };
 
 const SYSTEM_CA_FLAG = "--use-system-ca";
-const ONE_SHOT_EXIT_DRAIN_TIMEOUT_MS = 5_000;
+const ONE_SHOT_EXIT_TIMEOUT_MS = 5_000;
 
 let requestedExitCode: number | "process" | undefined;
 
@@ -132,24 +132,11 @@ function flushExitAfterOneShotOutput(
     return;
   }
 
-  const exit = () =>
-    runtime.exit(requestedCode === "process" ? resolveProcessExitCode() : requestedCode);
-  let pendingStreams = 2;
+  process.exitCode = requestedCode === "process" ? resolveProcessExitCode() : requestedCode;
+  restoreRuntimeTerminalState("runtime exit", { resumeStdinIfPaused: false });
 
-  // A missing pipe callback must not leave a completed one-shot command alive forever.
-  const fallback = setTimeout(exit, ONE_SHOT_EXIT_DRAIN_TIMEOUT_MS);
-  fallback.unref();
-
-  const drain = (stream: NodeJS.WriteStream) => {
-    stream.write("", () => {
-      pendingStreams -= 1;
-      if (pendingStreams === 0) {
-        clearTimeout(fallback);
-        setImmediate(exit);
-      }
-    });
-  };
-
-  drain(process.stdout);
-  drain(process.stderr);
+  // Output callbacks do not mean native work has drained. Natural exit lets Node
+  // dispose it safely; forcing early can deadlock V8 worker shutdown (nodejs/node#64274).
+  // Retained handles still get the existing deadline; later failures may update the code.
+  setTimeout(() => runtime.exit(resolveProcessExitCode()), ONE_SHOT_EXIT_TIMEOUT_MS).unref();
 }

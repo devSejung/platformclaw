@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { installedPluginRoot } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { hashConfigIncludeRaw } from "../config/includes.js";
 import {
@@ -44,6 +45,7 @@ import {
 } from "./plugins-cli-test-helpers.js";
 
 const CLI_STATE_ROOT = "/tmp/openclaw-state";
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const ORIGINAL_OPENCLAW_STATE_DIR = process.env.OPENCLAW_STATE_DIR;
 const ORIGINAL_OPENCLAW_NIX_MODE = process.env.OPENCLAW_NIX_MODE;
 const ORIGINAL_STDIN_TTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
@@ -2071,7 +2073,12 @@ describe("plugins cli install", () => {
 
   it("uses bundled OpenClaw package specs instead of pinning stale managed npm overrides", async () => {
     primeSuccessfulPluginPersistence("discord");
-    const bundledPath = "/app/dist/extensions/discord";
+    const bundledPath = path.join(
+      tempDirs.make("openclaw-bundled-package-"),
+      "dist",
+      "extensions",
+      "discord",
+    );
     findBundledPluginSourceMock.mockImplementation((params: unknown) => {
       const { lookup } = params as {
         lookup: { kind: "pluginId" | "npmSpec"; value: string };
