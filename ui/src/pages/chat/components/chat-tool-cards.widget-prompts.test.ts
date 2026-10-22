@@ -5,6 +5,7 @@
 
 import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { bumpCanvasWidgetFrameConnectionGeneration } from "../../../lib/chat/canvas-widget-frame-generation.ts";
 import {
   renderToolPreview,
   WIDGET_PROMPT_EVENT,
@@ -13,8 +14,10 @@ import {
 
 const containers = new Set<HTMLElement>();
 const ports = new Set<MessagePort>();
+const schedulePortTask = globalThis.setTimeout;
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   for (const port of ports) {
     port.close();
@@ -88,7 +91,7 @@ async function flushPorts() {
   // Port delivery may take more than one macrotask on loaded CI workers.
   for (let index = 0; index < 5; index += 1) {
     await new Promise((resolve) => {
-      setTimeout(resolve, 0);
+      schedulePortTask(resolve, 0);
     });
   }
 }
@@ -115,6 +118,241 @@ function restoreActiveElement() {
 }
 
 describe("widget prompts", () => {
+  function delayFrameFocus(frame: HTMLIFrameElement) {
+    const schedule = window.setTimeout;
+    const clear = window.clearTimeout;
+    const view = frame.contentWindow!.parent;
+    // Vitest rewrites defaultView to its Node global, while jsdom dispatches
+    // Window events on the real DOM Window. Keep browser identity and the
+    // test's real/fake scheduler together without changing the host guard.
+    vi.spyOn(view, "setTimeout").mockImplementation(schedule);
+    vi.spyOn(view, "clearTimeout").mockImplementation(clear);
+    vi.spyOn(document, "defaultView", "get").mockReturnValue(
+      view as NonNullable<Document["defaultView"]>,
+    );
+    const input = document.createElement("textarea");
+    frame.parentElement!.append(input);
+    let active: Element = input;
+    frame.checkVisibility = () => true;
+    vi.spyOn(document, "activeElement", "get").mockImplementation(() => active);
+    return {
+      focusFrame: () => {
+        // Window capture also sees the textarea's nonbubbling blur while
+        // activeElement is BODY; only the later window event confirms focus.
+        active = document.body;
+        input.dispatchEvent(new FocusEvent("blur"));
+        active = frame;
+        // Chromium can notify the parent with window blur after the child's
+        // private-port message, without an iframe focusin event.
+        view.dispatchEvent(new Event("blur"));
+      },
+    };
+  }
+
+  it("admits a private-port prompt after the parent's delayed window-blur focus notification", async () => {
+    const { container, frame } = renderWidgetPreviewFrame(
+      "/__openclaw__/canvas/documents/cv_focus_handoff/index.html",
+    );
+    const port = offerPromptPort(frame);
+    const messages = collectHostMessages(port);
+    frame.dispatchEvent(new Event("load"));
+    const { focusFrame } = delayFrameFocus(frame);
+    const received = collectPromptEvents(container);
+
+    postPrompt(port, "Show details", "delayed-focus");
+    await flushPorts();
+    expect(received).toEqual([]);
+    expect(messages).toEqual([{ type: "openclaw:widget-prompt-host-ready" }]);
+    focusFrame();
+    await flushPorts();
+
+    expect(received).toEqual(["Show details"]);
+    expect(messages).toContainEqual({
+      type: "openclaw:widget-prompt-response",
+      id: "delayed-focus",
+      accepted: true,
+    });
+    expect(promptStatus(container).hidden).toBe(true);
+  });
+
+  it("expires an unfocused request so a later click cannot replay it", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container, frame } = renderWidgetPreviewFrame(
+      "/__openclaw__/canvas/documents/cv_focus_expiry/index.html",
+    );
+    const port = offerPromptPort(frame);
+    const messages = collectHostMessages(port);
+    frame.dispatchEvent(new Event("load"));
+    const { focusFrame } = delayFrameFocus(frame);
+    const received = collectPromptEvents(container);
+
+    postPrompt(port, "Expired selection", "expired-focus");
+    await flushPorts();
+    await vi.advanceTimersByTimeAsync(2_001);
+    await flushPorts();
+    focusFrame();
+    await flushPorts();
+
+    expect(received).toEqual([]);
+    expect(messages).toContainEqual({
+      type: "openclaw:widget-prompt-response",
+      id: "expired-focus",
+      accepted: false,
+    });
+    expect(promptStatus(container).getAttribute("role")).toBe("alert");
+  });
+
+  it("checks the monotonic expiry even when the cleanup timer has not run", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(100);
+    const { container, frame } = renderWidgetPreviewFrame(
+      "/__openclaw__/canvas/documents/cv_focus_late_timer/index.html",
+    );
+    const port = offerPromptPort(frame);
+    const messages = collectHostMessages(port);
+    frame.dispatchEvent(new Event("load"));
+    const { focusFrame } = delayFrameFocus(frame);
+    const received = collectPromptEvents(container);
+
+    postPrompt(port, "Expired before cleanup", "expired-before-timer");
+    await flushPorts();
+    now.mockReturnValue(2_101);
+    focusFrame();
+    await flushPorts();
+
+    expect(received).toEqual([]);
+    expect(messages).toContainEqual({
+      type: "openclaw:widget-prompt-response",
+      id: "expired-before-timer",
+      accepted: false,
+    });
+  });
+
+  it.each([
+    "detach",
+    "shadow-host-detach",
+    "load",
+    "src",
+    "sandbox",
+    "generation",
+    "pointerdown",
+    "keydown",
+    "pagehide",
+  ] as const)("cancels a pending focus handoff on %s before later focus", async (reason) => {
+    const { container, frame } = renderWidgetPreviewFrame(
+      `/__openclaw__/canvas/documents/cv_focus_cancel_${reason}/index.html`,
+    );
+    let shadowHost: HTMLElement | undefined;
+    if (reason === "shadow-host-detach") {
+      shadowHost = document.createElement("div");
+      containers.add(shadowHost);
+      document.body.append(shadowHost);
+      shadowHost.attachShadow({ mode: "open" }).append(container);
+      expect(frame.contentWindow).not.toBeNull();
+    }
+    const port = offerPromptPort(frame);
+    const messages = collectHostMessages(port);
+    frame.dispatchEvent(new Event("load"));
+    const { focusFrame } = delayFrameFocus(frame);
+    const received = collectPromptEvents(container);
+
+    postPrompt(port, "Canceled selection", "canceled-focus");
+    await flushPorts();
+    if (reason === "detach") {
+      container.remove();
+    } else if (reason === "shadow-host-detach") {
+      shadowHost!.remove();
+    } else if (reason === "generation") {
+      bumpCanvasWidgetFrameConnectionGeneration();
+    } else if (reason === "src" || reason === "sandbox") {
+      frame.setAttribute(reason, reason === "src" ? "/replacement.html" : "");
+    } else if (reason === "load") {
+      frame.dispatchEvent(new Event("load"));
+    } else if (reason === "pagehide") {
+      window.dispatchEvent(new Event("pagehide"));
+    } else {
+      document.dispatchEvent(new Event(reason, { bubbles: true }));
+    }
+    await flushPorts();
+    focusFrame();
+    await flushPorts();
+
+    expect(received).toEqual([]);
+    expect(
+      messages.filter((message) => (message as { id?: string }).id === "canceled-focus"),
+    ).toEqual([{ type: "openclaw:widget-prompt-response", id: "canceled-focus", accepted: false }]);
+  });
+
+  it("retains only the latest pending request for a frame", async () => {
+    const { container, frame } = renderWidgetPreviewFrame(
+      "/__openclaw__/canvas/documents/cv_focus_replace/index.html",
+    );
+    const port = offerPromptPort(frame);
+    const messages = collectHostMessages(port);
+    frame.dispatchEvent(new Event("load"));
+    const { focusFrame } = delayFrameFocus(frame);
+    const received = collectPromptEvents(container);
+
+    postPrompt(port, "Older selection", "older-focus");
+    await flushPorts();
+    postPrompt(port, "Latest selection", "latest-focus");
+    await flushPorts();
+    focusFrame();
+    await flushPorts();
+
+    expect(received).toEqual(["Latest selection"]);
+    expect(messages).toContainEqual({
+      type: "openclaw:widget-prompt-response",
+      id: "older-focus",
+      accepted: false,
+    });
+    expect(messages).toContainEqual({
+      type: "openclaw:widget-prompt-response",
+      id: "latest-focus",
+      accepted: true,
+    });
+  });
+
+  it.each(["src", "sandbox", "load", "generation"] as const)(
+    "rejects a %s change after focus notification but before asynchronous dispatch",
+    async (change) => {
+      const { container, frame } = renderWidgetPreviewFrame(
+        `/__openclaw__/canvas/documents/cv_focus_changed_${change}/index.html`,
+      );
+      const port = offerPromptPort(frame);
+      const messages = collectHostMessages(port);
+      frame.dispatchEvent(new Event("load"));
+      const { focusFrame } = delayFrameFocus(frame);
+      const received = collectPromptEvents(container);
+
+      postPrompt(port, "Changed document selection", "changed-focus");
+      await flushPorts();
+      // This listener runs after the owner's focus observer resolves. The
+      // awaiting continuation must revalidate the document before dispatch.
+      window.addEventListener(
+        "blur",
+        () => {
+          if (change === "load") {
+            frame.dispatchEvent(new Event("load"));
+          } else if (change === "generation") {
+            bumpCanvasWidgetFrameConnectionGeneration();
+          } else {
+            frame.setAttribute(change, change === "src" ? "/replacement.html" : "");
+          }
+        },
+        { once: true },
+      );
+      focusFrame();
+      await flushPorts();
+
+      expect(received).toEqual([]);
+      expect(messages).toContainEqual({
+        type: "openclaw:widget-prompt-response",
+        id: "changed-focus",
+        accepted: false,
+      });
+    },
+  );
+
   it("returns the private request id only after the owning chat admits the message", async () => {
     const { container, frame } = renderWidgetPreviewFrame(
       "/__openclaw__/canvas/documents/cv_admission/index.html",
