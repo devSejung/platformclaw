@@ -45,17 +45,25 @@ export default definePluginEntry({
       return;
     }
     const policies = parseUserMcpServerPolicies(api.pluginConfig);
-    const catalog = policies.map((policy) => ({
-      ...policy,
-      url: configuredRemoteUrl(api.config, policy.serverName, policy.auth),
-    }));
+    const catalogForConfig = (config: unknown) =>
+      policies.map((policy) => ({
+        ...policy,
+        url: configuredRemoteUrl(config, policy.serverName, policy.auth),
+      }));
+    catalogForConfig(api.config);
     const runtime = policies.length > 0 ? createUserMcpConnectionRuntime() : undefined;
     for (const policy of policies) {
-      const url = catalog.find((entry) => entry.serverName === policy.serverName)!.url;
       api.registerMcpServerConnectionResolver({
         serverName: policy.serverName,
         resolve: async () => null,
         resolveForAgent: async ({ agentId }) => {
+          // MCP definitions hot-reload without replacing plugin registrations.
+          // Pin one current URL across the broker request and its credential result.
+          const url = configuredRemoteUrl(
+            api.runtime.config.current(),
+            policy.serverName,
+            policy.auth,
+          );
           const connection = await runtime?.resolve(agentId, policy.serverName, url);
           return connection
             ? { url, headers: connection.headers, expiresAt: connection.expiresAt }
@@ -65,7 +73,8 @@ export default definePluginEntry({
     }
     api.registerGatewayMethod(
       "platformclaw-user-mcp.catalog",
-      ({ respond }) => respond(true, { servers: catalog }),
+      ({ context, respond }) =>
+        respond(true, { servers: catalogForConfig(context.getRuntimeConfig()) }),
       { scope: "operator.admin" },
     );
     api.registerGatewayMethod(

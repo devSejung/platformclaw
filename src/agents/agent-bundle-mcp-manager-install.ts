@@ -2,7 +2,10 @@ import type { SessionToolOverrides } from "../config/sessions/types.js";
 /** Session MCP runtime manager install path: static get-or-create + requester resolve/install. */
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
-import type { SessionMcpRuntimeManagerLifecycle } from "./agent-bundle-mcp-manager-lifecycle.js";
+import type {
+  SessionMcpRuntimeManagerLifecycle,
+  SessionMcpConfigGeneration,
+} from "./agent-bundle-mcp-manager-lifecycle.js";
 import { loadSessionMcpConfig } from "./agent-bundle-mcp-runtime-config.js";
 import { SESSION_MCP_RUNTIME_SWEEP_INTERVAL_MS } from "./agent-bundle-mcp-runtime-shared.js";
 import type { SessionMcpRequesterScope, SessionMcpRuntime } from "./agent-bundle-mcp-types.js";
@@ -13,6 +16,8 @@ import {
   resolveRequesterScopedMcpConnections,
   type McpServerConnectionResolved,
 } from "./mcp-connection-resolver.js";
+
+export class SessionMcpRuntimeSupersededError extends Error {}
 
 type RuntimeEntryParams = {
   runtimeKey: string;
@@ -30,6 +35,7 @@ type RuntimeEntryParams = {
   redactConnectionServerNames?: ReadonlySet<string>;
   requesterScope?: SessionMcpRequesterScope;
   configFingerprint?: string;
+  generation: SessionMcpConfigGeneration;
   toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
 };
 
@@ -48,6 +54,7 @@ type SessionMcpRuntimeManagerInstall = {
     scopedNameSet: ReadonlySet<string>;
     safeServerNamesByServer: ReadonlyMap<string, string>;
     fullScopedFingerprint: string;
+    generation: SessionMcpConfigGeneration;
     requesterSenderId?: string;
     agentId?: string;
     agentAccountId?: string | null;
@@ -87,6 +94,11 @@ export function createSessionMcpRuntimeManagerInstall(
   const getOrCreateRuntimeEntry = async (
     params: RuntimeEntryParams,
   ): Promise<SessionMcpRuntime> => {
+    const isCurrent = () =>
+      store.configGenerationBySessionId.get(params.sessionId) === params.generation;
+    if (!isCurrent()) {
+      throw new SessionMcpRuntimeSupersededError("Session MCP runtime creation superseded");
+    }
     const nextFingerprint =
       params.configFingerprint ??
       loadSessionMcpConfig({
@@ -101,47 +113,51 @@ export function createSessionMcpRuntimeManagerInstall(
         toolOverrides: params.toolOverrides,
       }).fingerprint;
     const existing = store.runtimesBySessionId.get(params.runtimeKey);
-    if (existing) {
-      if (
-        !matchesStaticReuse({
-          workspaceDir: params.workspaceDir,
-          agentDir: params.agentDir,
-          configFingerprint: nextFingerprint,
-          candidate: existing,
-        })
-      ) {
-        store.runtimesBySessionId.delete(params.runtimeKey);
-        store.idleTtlMsBySessionId.delete(params.runtimeKey);
-        store.connectionMetaByRuntimeKey.delete(params.runtimeKey);
-        await existing.dispose();
-      } else {
-        reconcileReusableRetirement(params.sessionId, existing);
-        existing.markUsed();
-        store.idleTtlMsBySessionId.set(params.runtimeKey, params.idleTtlMs);
-        return existing;
-      }
+    if (
+      existing &&
+      matchesStaticReuse({
+        workspaceDir: params.workspaceDir,
+        agentDir: params.agentDir,
+        configFingerprint: nextFingerprint,
+        candidate: existing,
+      })
+    ) {
+      reconcileReusableRetirement(params.sessionId, existing);
+      existing.markUsed();
+      store.idleTtlMsBySessionId.set(params.runtimeKey, params.idleTtlMs);
+      return existing;
     }
     const inFlight = store.createInFlight.get(params.runtimeKey);
-    if (inFlight) {
-      if (
-        matchesStaticReuse({
-          workspaceDir: params.workspaceDir,
-          agentDir: params.agentDir,
-          configFingerprint: nextFingerprint,
-          candidate: inFlight,
-        })
-      ) {
-        return inFlight.promise;
-      }
-      store.createInFlight.delete(params.runtimeKey);
-      const staleRuntime = await inFlight.promise.catch(() => undefined);
-      store.runtimesBySessionId.delete(params.runtimeKey);
-      store.idleTtlMsBySessionId.delete(params.runtimeKey);
-      store.connectionMetaByRuntimeKey.delete(params.runtimeKey);
-      await staleRuntime?.dispose();
+    if (
+      inFlight?.generation === params.generation &&
+      matchesStaticReuse({
+        workspaceDir: params.workspaceDir,
+        agentDir: params.agentDir,
+        configFingerprint: nextFingerprint,
+        candidate: inFlight,
+      })
+    ) {
+      return inFlight.promise;
     }
-    const created = Promise.resolve(
-      store.createRuntime({
+    store.runtimesBySessionId.delete(params.runtimeKey);
+    store.idleTtlMsBySessionId.delete(params.runtimeKey);
+    store.connectionMetaByRuntimeKey.delete(params.runtimeKey);
+    // Claim before teardown awaits. A newer replacement owns the key immediately;
+    // losing claims still drain their captured resources before rejecting.
+    const created: Promise<SessionMcpRuntime> = Promise.resolve().then(async () => {
+      const teardown = await Promise.allSettled([
+        existing?.dispose(),
+        inFlight?.promise.catch(() => undefined),
+      ]);
+      if (teardown[0]?.status === "rejected") {
+        throw teardown[0].reason;
+      }
+      const ownsClaim = () =>
+        store.createInFlight.get(params.runtimeKey)?.promise === created && isCurrent();
+      if (!ownsClaim()) {
+        throw new SessionMcpRuntimeSupersededError("Session MCP runtime creation superseded");
+      }
+      const runtime = store.createRuntime({
         sessionId: params.sessionId,
         sessionKey: params.sessionKey,
         workspaceDir: params.workspaceDir,
@@ -156,8 +172,13 @@ export function createSessionMcpRuntimeManagerInstall(
         requesterScope: params.requesterScope,
         configFingerprint: nextFingerprint,
         toolOverrides: params.toolOverrides,
-      }),
-    ).then((runtime) => {
+      });
+      // Disposal and newer definitions may win while creation is pending.
+      // Never install that retired runtime into a replacement generation.
+      if (!ownsClaim()) {
+        await runtime.dispose();
+        throw new SessionMcpRuntimeSupersededError("Session MCP runtime creation superseded");
+      }
       reconcileReusableRetirement(params.sessionId, runtime);
       runtime.markUsed();
       store.runtimesBySessionId.set(params.runtimeKey, runtime);
@@ -169,11 +190,14 @@ export function createSessionMcpRuntimeManagerInstall(
       workspaceDir: params.workspaceDir,
       agentDir: params.agentDir,
       configFingerprint: nextFingerprint,
+      generation: params.generation,
     });
     try {
       return await created;
     } finally {
-      store.createInFlight.delete(params.runtimeKey);
+      if (store.createInFlight.get(params.runtimeKey)?.promise === created) {
+        store.createInFlight.delete(params.runtimeKey);
+      }
     }
   };
 
@@ -194,6 +218,7 @@ export function createSessionMcpRuntimeManagerInstall(
     connectionOverrides: Map<string, McpServerConnectionResolved>;
     redactConnectionServerNames: ReadonlySet<string>;
     requesterScope: SessionMcpRequesterScope;
+    generation: SessionMcpConfigGeneration;
     toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
   }): Promise<SessionMcpRuntime> => {
     const expiresAt = [...params.connectionOverrides.values()].reduce<number | undefined>(
@@ -221,6 +246,7 @@ export function createSessionMcpRuntimeManagerInstall(
     const meta = store.connectionMetaByRuntimeKey.get(params.runtimeKey);
     if (
       existing &&
+      meta?.generation === params.generation &&
       meta?.connectionHash === connectionHash &&
       matchesStaticReuse({
         workspaceDir: params.workspaceDir,
@@ -234,6 +260,7 @@ export function createSessionMcpRuntimeManagerInstall(
       store.idleTtlMsBySessionId.set(params.runtimeKey, params.idleTtlMs);
       store.connectionMetaByRuntimeKey.set(params.runtimeKey, {
         connectionHash,
+        generation: params.generation,
         resolvedAt: store.now(),
         ...(expiresAt === undefined ? {} : { expiresAt }),
       });
@@ -244,6 +271,9 @@ export function createSessionMcpRuntimeManagerInstall(
       store.idleTtlMsBySessionId.delete(params.runtimeKey);
       store.connectionMetaByRuntimeKey.delete(params.runtimeKey);
       await existing.dispose();
+    }
+    if (store.configGenerationBySessionId.get(params.sessionId) !== params.generation) {
+      throw new SessionMcpRuntimeSupersededError("Session MCP connection resolution superseded");
     }
     const runtime = await getOrCreateRuntimeEntry({
       runtimeKey: params.runtimeKey,
@@ -260,10 +290,16 @@ export function createSessionMcpRuntimeManagerInstall(
       redactConnectionServerNames: params.redactConnectionServerNames,
       requesterScope: params.requesterScope,
       configFingerprint: resolvedFingerprint,
+      generation: params.generation,
       toolOverrides: params.toolOverrides,
     });
+    if (store.configGenerationBySessionId.get(params.sessionId) !== params.generation) {
+      await runtime.dispose();
+      throw new SessionMcpRuntimeSupersededError("Session MCP connection resolution superseded");
+    }
     store.connectionMetaByRuntimeKey.set(params.runtimeKey, {
       connectionHash,
+      generation: params.generation,
       resolvedAt: store.now(),
       ...(expiresAt === undefined ? {} : { expiresAt }),
     });
@@ -292,6 +328,7 @@ export function createSessionMcpRuntimeManagerInstall(
     scopedNameSet: ReadonlySet<string>;
     safeServerNamesByServer: ReadonlyMap<string, string>;
     fullScopedFingerprint: string;
+    generation: SessionMcpConfigGeneration;
     requesterSenderId?: string;
     agentId?: string;
     agentAccountId?: string | null;
@@ -299,6 +336,9 @@ export function createSessionMcpRuntimeManagerInstall(
     requesterScope: SessionMcpRequesterScope;
     toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
   }): Promise<SessionMcpRuntime | undefined> => {
+    if (store.configGenerationBySessionId.get(params.sessionId) !== params.generation) {
+      return undefined;
+    }
     const existing = store.runtimesBySessionId.get(params.runtimeKey);
     const meta = store.connectionMetaByRuntimeKey.get(params.runtimeKey);
     const revalidateMs = resolveMcpConnectionRevalidateMs();
@@ -312,6 +352,7 @@ export function createSessionMcpRuntimeManagerInstall(
         store.now() + SESSION_MCP_RUNTIME_SWEEP_INTERVAL_MS < meta.expiresAt);
     if (
       withinRevalidateWindow &&
+      meta?.generation === params.generation &&
       existing &&
       matchesStaticReuse({
         workspaceDir: params.workspaceDir,
@@ -333,6 +374,9 @@ export function createSessionMcpRuntimeManagerInstall(
       agentAccountId: params.agentAccountId,
       messageChannel: params.messageChannel,
     });
+    if (store.configGenerationBySessionId.get(params.sessionId) !== params.generation) {
+      return undefined;
+    }
     if (connectionOverrides.size === 0) {
       // Empty re-resolution revokes cached scoped credentials.
       // Leases do not block: this is an authorization boundary.
@@ -356,21 +400,29 @@ export function createSessionMcpRuntimeManagerInstall(
       await revokeRequesterRuntime(params.runtimeKey);
       return undefined;
     }
-    return await installRequesterRuntime({
-      runtimeKey: params.runtimeKey,
-      sessionId: params.sessionId,
-      sessionKey: params.sessionKey,
-      workspaceDir: params.workspaceDir,
-      agentDir: params.agentDir,
-      cfg: params.cfg,
-      manifestRegistry: params.manifestRegistry,
-      idleTtlMs: params.idleTtlMs,
-      safeServerNamesByServer: params.safeServerNamesByServer,
-      connectionOverrides,
-      redactConnectionServerNames: params.scopedNameSet,
-      requesterScope: params.requesterScope,
-      toolOverrides: params.toolOverrides,
-    });
+    try {
+      return await installRequesterRuntime({
+        runtimeKey: params.runtimeKey,
+        sessionId: params.sessionId,
+        sessionKey: params.sessionKey,
+        workspaceDir: params.workspaceDir,
+        agentDir: params.agentDir,
+        cfg: params.cfg,
+        manifestRegistry: params.manifestRegistry,
+        idleTtlMs: params.idleTtlMs,
+        safeServerNamesByServer: params.safeServerNamesByServer,
+        connectionOverrides,
+        redactConnectionServerNames: params.scopedNameSet,
+        requesterScope: params.requesterScope,
+        generation: params.generation,
+        toolOverrides: params.toolOverrides,
+      });
+    } catch (error) {
+      if (error instanceof SessionMcpRuntimeSupersededError) {
+        return undefined;
+      }
+      throw error;
+    }
   };
 
   return {

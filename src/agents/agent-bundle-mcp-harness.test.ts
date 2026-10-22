@@ -1,25 +1,10 @@
 /** Behavior tests for harness-facing requester-scoped MCP materialization. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionMcpRuntime } from "./agent-bundle-mcp-types.js";
+import type { McpToolCatalog, SessionMcpRuntime } from "./agent-bundle-mcp-types.js";
 
 const mocks = vi.hoisted(() => {
   type Runtime = SessionMcpRuntime;
-  const advertised = new Map<
-    string,
-    {
-      version: number;
-      generatedAt: number;
-      servers: Record<string, { serverName: string; launchSummary: string; toolCount: number }>;
-      tools: Array<{
-        serverName: string;
-        safeServerName: string;
-        toolName: string;
-        description: string;
-        inputSchema: Record<string, unknown>;
-        fallbackDescription: string;
-      }>;
-    }
-  >();
+  const advertised = new Map<string, McpToolCatalog>();
   const runtimes = new Map<string, Runtime>();
   let resolveImpl:
     | ((params: {
@@ -37,14 +22,13 @@ const mocks = vi.hoisted(() => {
     getOrCreateRequesterScopedMcpRuntime: vi.fn(
       async (params: { sessionId: string; requesterSenderId?: string | null }) => {
         if (resolveImpl) {
-          return resolveImpl(params);
+          const runtime = await resolveImpl(params);
+          if (runtime) {
+            advertised.set(params.sessionId, await runtime.getCatalog());
+          }
+          return runtime;
         }
         return undefined;
-      },
-    ),
-    rememberAdvertisedScopedMcpCatalog: vi.fn(
-      (sessionId: string, catalog: typeof advertised extends Map<string, infer V> ? V : never) => {
-        advertised.set(sessionId, catalog);
       },
     ),
     getAdvertisedScopedMcpCatalog: vi.fn((sessionId: string) => advertised.get(sessionId) ?? null),
@@ -61,7 +45,6 @@ vi.mock("./agent-bundle-mcp-runtime.js", async (importOriginal) => {
   return {
     ...actual,
     getOrCreateRequesterScopedMcpRuntime: mocks.getOrCreateRequesterScopedMcpRuntime,
-    rememberAdvertisedScopedMcpCatalog: mocks.rememberAdvertisedScopedMcpCatalog,
     getAdvertisedScopedMcpCatalog: mocks.getAdvertisedScopedMcpCatalog,
   };
 });
@@ -137,7 +120,6 @@ function makeRuntime(params: { sessionId: string; requesterSenderId: string }): 
 beforeEach(() => {
   mocks.reset();
   mocks.getOrCreateRequesterScopedMcpRuntime.mockClear();
-  mocks.rememberAdvertisedScopedMcpCatalog.mockClear();
   mocks.getAdvertisedScopedMcpCatalog.mockClear();
 });
 
@@ -154,7 +136,7 @@ describe("materializeRequesterScopedMcpToolsForHarnessRun", () => {
       requesterSenderId: "guest",
     });
     expect(result).toBeUndefined();
-    expect(mocks.rememberAdvertisedScopedMcpCatalog).not.toHaveBeenCalled();
+    expect(mocks.advertised.size).toBe(0);
   });
 
   it("keeps advertised specs stable and returns not-connected for unauthed senders", async () => {

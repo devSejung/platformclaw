@@ -59,13 +59,6 @@ export async function getOrCreateRequesterScopedMcpRuntime(params: {
   return await getSessionMcpRuntimeManager().getOrCreateRequesterScoped(params);
 }
 
-export function rememberAdvertisedScopedMcpCatalog(
-  sessionId: string,
-  catalog: McpToolCatalog,
-): void {
-  getSessionMcpRuntimeManager().rememberAdvertisedScopedCatalog(sessionId, catalog);
-}
-
 export function getAdvertisedScopedMcpCatalog(sessionId: string): McpToolCatalog | null {
   return getSessionMcpRuntimeManager().getAdvertisedScopedCatalog(sessionId);
 }

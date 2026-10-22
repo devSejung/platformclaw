@@ -5,6 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SessionToolOverrides } from "../config/sessions/types.js";
@@ -15,19 +16,52 @@ import {
   disposeAgentScopedMcpRuntimes,
   disposeAllSessionMcpRuntimes,
 } from "./agent-bundle-mcp-manager-api.js";
+import { createSessionMcpRuntime } from "./agent-bundle-mcp-runtime.js";
 import { testing } from "./mcp-connection-resolver.js";
 
 async function startPersonalMcpServer() {
   const transports = new Map<string, StreamableHTTPServerTransport>();
+  const sseTransports = new Map<string, SSEServerTransport>();
   const servers: McpServer[] = [];
   const calls: string[] = [];
   let unauthorized = 0;
+  function createMcpServer(owner: string) {
+    const mcp = new McpServer({ name: "personal-mcp-proof", version: "1" });
+    for (const name of ["read_record", "write_record"]) {
+      mcp.registerTool(name, { description: name }, async () => {
+        calls.push(`${owner}:${name}`);
+        return { content: [{ type: "text" as const, text: `${owner}:${name}` }] };
+      });
+    }
+    mcp.registerResource("record", "fixture://record", {}, async (uri) => ({
+      contents: [{ uri: uri.href, text: owner }],
+    }));
+    servers.push(mcp);
+    return mcp;
+  }
   const server = http.createServer((req, res) => {
     void (async () => {
-      const owner = req.url?.slice(1);
+      const url = new URL(req.url ?? "/", "http://fixture");
+      const isSse = url.pathname.startsWith("/sse/");
+      const owner = url.pathname.slice(isSse ? 5 : 1);
       if (!owner || req.headers.authorization !== `Bearer fixture-${owner}`) {
         unauthorized += 1;
         res.writeHead(401).end();
+        return;
+      }
+      if (isSse) {
+        if (req.method === "GET") {
+          const transport = new SSEServerTransport(url.pathname, res);
+          sseTransports.set(transport.sessionId, transport);
+          await createMcpServer(owner).connect(transport);
+        } else {
+          const transport = sseTransports.get(url.searchParams.get("sessionId") ?? "");
+          if (req.method !== "POST" || !transport) {
+            res.writeHead(400).end();
+            return;
+          }
+          await transport.handlePostMessage(req, res);
+        }
         return;
       }
       const sessionId = req.headers["mcp-session-id"];
@@ -37,16 +71,7 @@ async function startPersonalMcpServer() {
           res.writeHead(405).end();
           return;
         }
-        const mcp = new McpServer({ name: "personal-mcp-proof", version: "1" });
-        for (const name of ["read_record", "write_record"]) {
-          mcp.registerTool(name, { description: name }, async () => {
-            calls.push(`${owner}:${name}`);
-            return { content: [{ type: "text" as const, text: `${owner}:${name}` }] };
-          });
-        }
-        mcp.registerResource("record", "fixture://record", {}, async (uri) => ({
-          contents: [{ uri: uri.href, text: owner }],
-        }));
+        const mcp = createMcpServer(owner);
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: randomUUID,
           onsessioninitialized: (id) => {
@@ -54,7 +79,6 @@ async function startPersonalMcpServer() {
           },
         });
         await mcp.connect(transport);
-        servers.push(mcp);
       }
       await transport.handleRequest(req, res);
     })().catch(() => {
@@ -71,7 +95,8 @@ async function startPersonalMcpServer() {
     throw new Error("MCP test server did not acquire a port");
   }
   return {
-    url: (owner: string) => `http://127.0.0.1:${address.port}/${owner}`,
+    url: (owner: string, transport?: "sse") =>
+      `http://127.0.0.1:${address.port}/${transport === "sse" ? "sse/" : ""}${owner}`,
     calls,
     get unauthorized() {
       return unauthorized;
@@ -86,7 +111,7 @@ async function startPersonalMcpServer() {
   };
 }
 
-describe("harness MCP identity and policy over Streamable HTTP", () => {
+describe("harness MCP identity, policy, and config over real transports", () => {
   let fixture: Awaited<ReturnType<typeof startPersonalMcpServer>>;
   let workspaceDir: string;
   let cfg: OpenClawConfig;
@@ -138,8 +163,8 @@ describe("harness MCP identity and policy over Streamable HTTP", () => {
       Awaited<ReturnType<typeof materializeRequesterScopedMcpToolsForHarnessRun>>
     >,
   ) => ({
-    executable: runtime.tools.map((tool) => tool.name),
-    advertised: runtime.advertisedTools.map((tool) => tool.name),
+    executable: runtime?.tools.map((tool) => tool.name) ?? [],
+    advertised: runtime?.advertisedTools.map((tool) => tool.name) ?? [],
   });
 
   async function materialize(params: {
@@ -155,6 +180,138 @@ describe("harness MCP identity and policy over Streamable HTTP", () => {
       ...params,
     });
   }
+
+  it("keeps a URL-only SSE server working after personal credentials are attached", async () => {
+    cfg = {
+      plugins: { enabled: false },
+      mcp: {
+        servers: {
+          personal: {
+            url: fixture.url("alice", "sse"),
+            headers: { Authorization: "Bearer fixture-alice" },
+          },
+        },
+      },
+    };
+    const before = createSessionMcpRuntime({
+      sessionId: "static-sse",
+      workspaceDir,
+      cfg,
+      manifestRegistry,
+    });
+    try {
+      expect((await before.getCatalog()).tools.map((tool) => tool.toolName)).toContain(
+        "read_record",
+      );
+    } finally {
+      await before.dispose();
+    }
+    testing.setMcpServerConnectionResolversForTest([
+      {
+        serverName: "personal",
+        resolve: async () => null,
+        resolveForAgent: async () => ({
+          url: fixture.url("alice", "sse"),
+          headers: { Authorization: "Bearer fixture-alice" },
+        }),
+      },
+    ]);
+    const after = await materialize({ agentId: "alice" });
+    const read = after?.tools.find((tool) => tool.name === "personal__read_record");
+    expect(read).toBeDefined();
+    expect((await read!.execute("sse", {})).content).toEqual([
+      { type: "text", text: "alice:read_record" },
+    ]);
+    expect(fixture.unauthorized).toBe(0);
+    await after!.dispose();
+  });
+
+  it.each(["removed", "disabled", "filter", "url", "headers"] as const)(
+    "drops the old advertised catalog after the declaration is %s without credentials",
+    async (change) => {
+      const initial = await materialize({ agentId: "alice" });
+      expect(names(initial!).advertised).toContain("personal__write_record");
+      await initial!.dispose();
+      const declaration = cfg.mcp!.servers!.personal;
+      cfg = {
+        ...cfg,
+        mcp: {
+          servers:
+            change === "removed"
+              ? {}
+              : {
+                  personal: {
+                    ...declaration,
+                    ...(change === "disabled" ? { enabled: false } : {}),
+                    ...(change === "filter" ? { toolFilter: { include: ["read_record"] } } : {}),
+                    ...(change === "url" ? { url: fixture.url("changed") } : {}),
+                    ...(change === "headers" ? { headers: { "X-Config": "changed" } } : {}),
+                  },
+                },
+        },
+      };
+      available = false;
+      const next = await materialize({});
+      expect(next?.advertisedTools ?? []).toEqual([]);
+      expect(next?.tools ?? []).toEqual([]);
+      await next?.dispose();
+    },
+  );
+
+  it("uses a replaced declared endpoint immediately within credential revalidation", async () => {
+    cfg = {
+      plugins: { enabled: false },
+      mcp: {
+        servers: {
+          personal: {
+            transport: "streamable-http",
+            url: fixture.url("alice"),
+            headers: { Authorization: "Bearer fixture-alice" },
+          },
+        },
+      },
+    };
+    testing.setMcpServerConnectionResolversForTest([
+      {
+        serverName: "personal",
+        resolve: async () => null,
+        resolveForAgent: async () => ({
+          url: cfg.mcp!.servers!.personal!.url!,
+          headers: Object.fromEntries(
+            Object.entries(cfg.mcp!.servers!.personal!.headers ?? {}).map(([name, value]) => [
+              name,
+              String(value),
+            ]),
+          ),
+        }),
+      },
+    ]);
+    const initial = await materialize({ agentId: "same-agent" });
+    const read = (runtime: NonNullable<typeof initial>) =>
+      runtime.tools.find((tool) => tool.name === "personal__read_record")!;
+    expect((await read(initial!).execute("initial", {})).content).toEqual([
+      { type: "text", text: "alice:read_record" },
+    ]);
+    cfg = {
+      ...cfg,
+      mcp: {
+        servers: {
+          personal: {
+            transport: "streamable-http",
+            url: fixture.url("bob"),
+            headers: { Authorization: "Bearer fixture-bob" },
+          },
+        },
+      },
+    };
+    const replaced = await materialize({ agentId: "same-agent" });
+    expect((await read(replaced!).execute("replaced", {})).content).toEqual([
+      { type: "text", text: "bob:read_record" },
+    ]);
+    expect(fixture.calls).toEqual(["alice:read_record", "bob:read_record"]);
+    expect(fixture.unauthorized).toBe(0);
+    await Promise.all([initial!.dispose(), replaced!.dispose()]);
+  });
 
   it("uses host-selected agent identity without a sender and preserves sender-only resolvers", async () => {
     const alice = await materialize({ agentId: "alice" });
@@ -219,7 +376,7 @@ describe("harness MCP identity and policy over Streamable HTTP", () => {
       toolOverrides: { mcpServers: { personal: false } },
     });
     expect(names(disabled!)).toEqual({ executable: [], advertised: [] });
-    await disabled!.dispose();
+    await disabled?.dispose();
     available = true;
     const restored = await materialize({ agentId: "alice", requesterSenderId: "alice" });
     const write = restored!.tools.find((tool) => tool.name === "personal__write_record")!;

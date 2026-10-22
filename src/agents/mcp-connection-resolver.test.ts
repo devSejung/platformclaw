@@ -724,6 +724,25 @@ describe("mcp connection resolver helpers", () => {
     expect(sseCase.transport).toBe("sse");
   });
 
+  it.each([
+    [{ url: "https://declared.example/sse" }, "sse"],
+    [{ url: "https://declared.example/http", transport: "streamable-http" }, "streamable-http"],
+    [{ url: "https://declared.example/http", type: "http" }, "streamable-http"],
+    [{ transport: "sse", type: "http" }, "sse"],
+    [{ command: "node", url: "https://placeholder.example" }, "streamable-http"],
+    [{ transport: "stdio", url: "https://placeholder.example" }, "streamable-http"],
+    [{}, "streamable-http"],
+  ])("preserves the declared remote protocol for %j", (declaration, transport) => {
+    const original = structuredClone(declaration);
+    const applied = applyMcpConnectionOverride(declaration, {
+      url: "https://resolved.example/connection",
+      headers: { Authorization: "Bearer fixture-token" },
+    });
+    expect(applied.transport).toBe(transport);
+    expect(applied.url).toBe("https://resolved.example/connection");
+    expect(declaration).toEqual(original);
+  });
+
   it("builds stable requester cache keys", () => {
     expect(
       buildMcpRequesterRuntimeCacheKey({
