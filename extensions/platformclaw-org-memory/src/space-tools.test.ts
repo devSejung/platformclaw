@@ -343,18 +343,22 @@ describe("Space recall tools", () => {
       "sessions_send",
       "sessions_spawn",
     ].map((toolName) => ({ toolName, action: undefined, blocked: true })),
-    ...["automations", "cron"].flatMap((toolName) => [
-      ...["add", "update", "run", "wake"].map((action) => ({ toolName, action, blocked: true })),
-      ...["get", "list", "remove", "runs", "status"].map((action) => ({
-        toolName,
-        action,
-        blocked: false,
-      })),
-    ]),
-    ...["image_generate", "music_generate", "video_generate"].flatMap((toolName) => [
-      ...[undefined, "generate"].map((action) => ({ toolName, action, blocked: true })),
-      ...["list", "status"].map((action) => ({ toolName, action, blocked: false })),
-    ]),
+    ...["automations", "cron"].flatMap((toolName) =>
+      ["add", "update", "run", "wake"]
+        .map((action) => ({ toolName, action, blocked: true }))
+        .concat(
+          ["get", "list", "remove", "runs", "status"].map((action) => ({
+            toolName,
+            action,
+            blocked: false,
+          })),
+        ),
+    ),
+    ...["image_generate", "music_generate", "video_generate"].flatMap((toolName) =>
+      [undefined, "generate"]
+        .map((action) => ({ toolName, action, blocked: true }))
+        .concat(["list", "status"].map((action) => ({ toolName, action, blocked: false }))),
+    ),
     ...[undefined, "cancel", "list"].map((action) => ({
       toolName: "subagents",
       action,
