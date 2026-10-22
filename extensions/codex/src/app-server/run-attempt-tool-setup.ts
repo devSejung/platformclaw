@@ -153,6 +153,8 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
     agentDir: agentDir ?? resolveAgentDir(params.config ?? {}, sessionAgentId),
     cfg: params.config,
     requesterSenderId: params.senderId,
+    agentId: sessionAgentId,
+    toolOverrides: params.toolOverrides,
     agentAccountId: params.agentAccountId,
     messageChannel: params.messageChannel ?? params.messageProvider,
     reservedToolNames: [

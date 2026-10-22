@@ -364,11 +364,12 @@ export function createSessionMcpRuntimeManagerLifecycle(
         a.toolName.localeCompare(b.toolName),
       );
       const signature = scopedCatalogToolsSignature(tools);
+      // Utility permissions can change without changing listed MCP tools.
+      entry.servers.set(serverName, server);
       // Identity compare: overwrite only when the listed tool surface changes.
       if (entry.signaturesByServer.get(serverName) === signature) {
         continue;
       }
-      entry.servers.set(serverName, server);
       entry.toolsByServer.set(serverName, tools);
       entry.signaturesByServer.set(serverName, signature);
     }
