@@ -4,12 +4,18 @@ import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE } from "../../../src/gateway/control-ui-contract.js";
+import {
+  CONTROL_UI_BOOTSTRAP_CONFIG_PATH,
+  CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE,
+} from "../../../src/gateway/control-ui-contract.js";
 import { PLATFORMCLAW_GUIDE_VIDEO_PATH, proxyPlatformClawGuideVideo } from "./guide-video-proxy.js";
 import type { PlatformClawGuideVideoRequestHeaders } from "./guide-video-s3.js";
 
 export const PLATFORMCLAW_WEB_LOGIN_PATH = "/platformclaw/login";
 export const PLATFORMCLAW_WEB_APP_PATH = "/platformclaw/app";
+// PlatformClaw provides the personal execution terminal independently of the
+// Gateway operator terminal. Bootstrap and document CSP must agree on this bit.
+export const PLATFORMCLAW_WEB_TERMINAL_ENABLED = true;
 export const PLATFORMCLAW_WEB_DEFAULT_APP_PATH = `${PLATFORMCLAW_WEB_APP_PATH}/chat`;
 export const PLATFORMCLAW_WEB_ASSET_PREFIX = "/platformclaw/assets/";
 export const PLATFORMCLAW_WEB_DESCRIPTOR_META_NAME = "platformclaw-web-descriptor";
@@ -161,8 +167,14 @@ function preparePlatformClawPublicAssets(assets: Map<string, WebAsset>): string 
     },
     {
       expected: 'url.pathname.startsWith("/api/") ||',
-      replacement:
-        'url.pathname.startsWith("/api/") ||\n    url.pathname.startsWith("/platformclaw/api/") ||\n    url.pathname.startsWith("/platformclaw/app/__openclaw__/") ||',
+      // Bootstrap carries per-account identity and policy. Cache API ignores
+      // no-store, so this route must bypass both writes and offline cache reads.
+      replacement: [
+        'url.pathname.startsWith("/api/") ||',
+        `    url.pathname === ${JSON.stringify(`${PLATFORMCLAW_WEB_APP_PATH}${CONTROL_UI_BOOTSTRAP_CONFIG_PATH}`)} ||`,
+        '    url.pathname.startsWith("/platformclaw/api/") ||',
+        '    url.pathname.startsWith("/platformclaw/app/__openclaw__/") ||',
+      ].join("\n"),
       label: "service worker managed private-route exclusion",
     },
   ] as const;
@@ -385,9 +397,12 @@ function prepareApplicationDocument(
   const documentWithTerminal = terminalAttributePattern.test(brandedSource)
     ? brandedSource.replace(
         terminalAttributePattern,
-        ` ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="true"`,
+        ` ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="${PLATFORMCLAW_WEB_TERMINAL_ENABLED}"`,
       )
-    : brandedSource.replace(/<html\b/i, `<html ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="true"`);
+    : brandedSource.replace(
+        /<html\b/i,
+        `<html ${CONTROL_UI_TERMINAL_ENABLED_ATTRIBUTE}="${PLATFORMCLAW_WEB_TERMINAL_ENABLED}"`,
+      );
   const adjustedHeadOpen = /<head(?:\s[^>]*)?>/i.exec(documentWithTerminal);
   const adjustedInjectionIndex =
     (adjustedHeadOpen?.index ?? headOpen.index) +

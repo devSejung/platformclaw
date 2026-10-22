@@ -2,6 +2,31 @@ import { describe, expect, it } from "vitest";
 import { setupBrowserGatewayProxyTest as setup } from "./browser-gateway-proxy.test-harness.js";
 
 describe("BrowserGatewayProxy session lifecycle", () => {
+  it("preserves cleared and owned lineage in session reads and nested change snapshots", async () => {
+    const { binding, proxy, request, token } = await setup();
+    const sessionKey = `agent:${binding.agentId}:main`;
+    for (const value of [null, `agent:${binding.agentId}:child`]) {
+      const session = {
+        key: sessionKey,
+        parentSessionKey: value,
+        childSessionKey: value,
+        spawnedBy: value,
+        controlOwnerSessionKey: value,
+      };
+      request.mockResolvedValueOnce({ session });
+      await expect(proxy.request(token, "sessions.describe", { key: sessionKey })).resolves.toEqual(
+        {
+          session,
+        },
+      );
+      const event = {
+        event: "sessions.changed",
+        payload: { sessionKey, ...session, session },
+      };
+      await expect(proxy.filterEvent(token, event)).resolves.toEqual(event);
+    }
+  });
+
   it("pins whole-agent literal search to the browser owner before paging and counts", async () => {
     const { binding, proxy, request, token } = await setup();
     const key = `agent:${binding.agentId}:main`;

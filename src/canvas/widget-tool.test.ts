@@ -225,13 +225,15 @@ describe("show_widget", () => {
 
     const widgetCode = '<img src="pixel.png">';
     await writeFile(path.join(workspaceDir, "page.html"), `${widgetCode}\n`);
-    await expect(
-      relativeTool.execute("stale", {
-        title: "Stale",
-        widget_code: widgetCode,
-        widget_path: "page.html",
-      }),
-    ).rejects.toThrow("must exactly match widget_code");
+    const stale = relativeTool.execute("stale", {
+      title: "Stale",
+      widget_code: widgetCode,
+      widget_path: "page.html",
+    });
+    await expect(stale).rejects.toThrow("must exactly match widget_code");
+    await expect(stale).rejects.toThrow(
+      /raw HTML string.*leading and trailing whitespace.*JSON\.parse/u,
+    );
     await writeFile(path.join(workspaceDir, "page.html"), widgetCode);
     await expect(
       relativeTool.execute("invalid-image", {

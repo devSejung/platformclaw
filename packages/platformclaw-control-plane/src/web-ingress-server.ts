@@ -18,6 +18,7 @@ import {
   handlePlatformClawBrowserAuthRequest,
   readPlatformClawSessionCookie,
 } from "./browser-auth-http.js";
+import { handlePlatformClawBrowserBootstrapRequest } from "./browser-bootstrap-http.js";
 import { handlePlatformClawDashboardRequest } from "./browser-dashboard-http.js";
 import { handlePlatformClawExecCredentialRequest } from "./browser-exec-credentials-http.js";
 import { handlePlatformClawEmployeeExecutionRequest } from "./browser-execution-http.js";
@@ -81,11 +82,6 @@ function normalizePublicOrigin(value: string): string {
     );
   }
   return parsed.origin;
-}
-
-function requestOrigin(req: IncomingMessage): string | undefined {
-  const value = req.headers.origin;
-  return Array.isArray(value) ? value[0] : value;
 }
 
 function rejectUpgrade(socket: Duplex, statusCode: number, statusText: string): void {
@@ -216,7 +212,8 @@ export class PlatformClawWebIngressServer {
   }
 
   private isOriginAllowed(req: IncomingMessage): boolean {
-    const origin = requestOrigin(req);
+    const { origin: header } = req.headers;
+    const origin = Array.isArray(header) ? header[0] : header;
     if (!origin) {
       return false;
     }
@@ -239,7 +236,7 @@ export class PlatformClawWebIngressServer {
         rateLimiter: this.options.loginRateLimiter,
         ...(this.options.employeeSsoService ? { ssoService: this.options.employeeSsoService } : {}),
       });
-      if (handled) {
+      if (handled || (await handlePlatformClawBrowserBootstrapRequest(req, res, this.options))) {
         return;
       }
       if (await handleKnowledgeVaultHttp(req, res, this.options, this.isOriginAllowed.bind(this))) {

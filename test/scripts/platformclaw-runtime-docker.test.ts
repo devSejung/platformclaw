@@ -18,10 +18,13 @@ import {
 } from "../../docker/platformclaw-runtime/validate-managed-config.mjs";
 import { registerPlatformClawCredentialTool } from "../../extensions/platformclaw-execution/api.js";
 import { mainLanes } from "../../scripts/lib/docker-e2e-scenarios.mjs";
+import { createOpenClawTools } from "../../src/agents/openclaw-tools.js";
+import { pickSandboxToolPolicy } from "../../src/agents/sandbox-tool-policy.js";
 import {
   isToolAllowed,
   resolveSandboxToolPolicyForAgent,
 } from "../../src/agents/sandbox/tool-policy.js";
+import { applyToolPolicyPipeline } from "../../src/agents/tool-policy-pipeline.js";
 import type { OpenClawConfig } from "../../src/config/config.js";
 import { buildRealtimeInstructions } from "../../src/gateway/server-methods/talk-shared.js";
 import { resolvePluginTools } from "../../src/plugins/tools.js";
@@ -65,7 +68,138 @@ function readRepoFile(filePath: string): string {
   return readFileSync(new URL(`../../${filePath}`, import.meta.url), "utf8");
 }
 
+function resolveManagedCoreToolNames(config: OpenClawConfig, clientCaps: string[]): string[] {
+  const tools = createOpenClawTools({
+    config,
+    agentSessionKey: "agent:person_one:dashboard:synthetic",
+    sessionId: "synthetic-session",
+    sandboxed: true,
+    workspaceDir: tempDirs.make("platformclaw-widget-policy-"),
+    clientCaps,
+    disablePluginTools: true,
+    wrapBeforeToolCallHook: false,
+  });
+  return applyToolPolicyPipeline({
+    tools,
+    toolMeta: () => undefined,
+    warn: () => {},
+    steps: [
+      { label: "tools.allow", policy: pickSandboxToolPolicy(config.tools) },
+      {
+        label: "sandbox tools policy",
+        policy: resolveSandboxToolPolicyForAgent(config, "person_one"),
+      },
+    ],
+  }).map((tool) => tool.name);
+}
+
 describe("PlatformClaw Docker runtime", () => {
+  it.each(["initial", "inherited", "alsoAllow", "allow"] as const)(
+    "exposes the core widget through the %s managed sandbox gate",
+    (gate) => {
+      const source = JSON.parse(
+        readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+      ) as OpenClawConfig;
+      if (gate !== "initial") {
+        source.tools!.alsoAllow = source.tools!.alsoAllow!.filter((id) => id !== "canvas");
+        source.tools!.sandbox!.tools!.alsoAllow = source.tools!.sandbox!.tools!.alsoAllow!.filter(
+          (id) => id !== "canvas",
+        );
+        if (gate !== "inherited") {
+          source.agents!.entries = {
+            person_one: {
+              tools: {
+                sandbox: { tools: gate === "allow" ? { allow: ["read"] } : { alsoAllow: [] } },
+              },
+            },
+          };
+        }
+        expect(resolveManagedCoreToolNames(source, ["inline-widgets"])).not.toContain(
+          "show_widget",
+        );
+      }
+      const { config } =
+        gate === "initial"
+          ? { config: source }
+          : reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+      const toolNames = resolveManagedCoreToolNames(config, ["inline-widgets"]);
+      expect(toolNames).toContain("show_widget");
+      expect(resolveManagedCoreToolNames(config, [])).not.toContain("show_widget");
+      expect(toolNames).not.toContain("nodes");
+      expect(config.plugins?.entries?.canvas).toMatchObject({
+        enabled: false,
+        config: { host: { enabled: true } },
+      });
+      if (gate !== "initial") {
+        expect(() => validateManagedConfig(config, "platformclaw-sandbox:test")).not.toThrow();
+        expect(reconcileManagedConfig(config, "platformclaw-sandbox:test").changed).toBe(false);
+      }
+    },
+  );
+
+  it.each([
+    ["global", "allow"],
+    ["global", "alsoAllow"],
+    ["agent", "allow"],
+    ["agent", "alsoAllow"],
+  ] as const)("accepts normalized managed %s sandbox %s entries", (scope, key) => {
+    for (const format of ["uppercase", "whitespace"]) {
+      const source = JSON.parse(
+        readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+      ) as OpenClawConfig;
+      const formatEntries = (entries: string[]) =>
+        entries.map((id) => (format === "uppercase" ? id.toUpperCase() : ` ${id} `));
+      source.agents!.defaults!.sandbox!.docker!.image = "platformclaw-sandbox:test";
+      source.tools!.alsoAllow = formatEntries(source.tools!.alsoAllow!);
+      const policy = { [key]: formatEntries(REQUIRED_MANAGED_SANDBOX_TOOL_IDS) };
+      if (scope === "global") {
+        source.tools!.sandbox!.tools = policy;
+      } else {
+        source.agents!.entries = {
+          person_one: { tools: { sandbox: { tools: policy } } },
+        };
+      }
+
+      expect(resolveManagedCoreToolNames(source, ["inline-widgets"])).toContain("show_widget");
+      expect(() => validateManagedConfig(source, "platformclaw-sandbox:test")).not.toThrow();
+      const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+      expect(result.config).toEqual(source);
+      expect(result.changed).toBe(false);
+      expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test").changed).toBe(
+        false,
+      );
+    }
+  });
+
+  it.each(["tools", "global-sandbox", "agent-sandbox"] as const)(
+    "preserves intentional widget denies in %s during managed config reconciliation",
+    (scope) => {
+      for (const deny of [["canvas"], ["show_widget"], ["show_*"]]) {
+        const source = JSON.parse(
+          readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+        ) as OpenClawConfig;
+        source.tools!.sandbox!.tools!.allow = [];
+        if (scope === "tools") {
+          source.tools!.deny = [...source.tools!.deny!, ...deny];
+        } else if (scope === "global-sandbox") {
+          source.tools!.sandbox!.tools!.deny = deny;
+        } else {
+          source.agents!.entries = {
+            person_one: { tools: { sandbox: { tools: { allow: [], alsoAllow: [], deny } } } },
+          };
+        }
+        const { config } = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+
+        expect(() => validateManagedConfig(config, "platformclaw-sandbox:test")).not.toThrow();
+        expect(resolveManagedCoreToolNames(config, ["inline-widgets"])).not.toContain(
+          "show_widget",
+        );
+        expect(reconcileManagedConfig(config, "platformclaw-sandbox:test").changed).toBe(false);
+      }
+    },
+  );
+
   it("materializes the real registered credential tool through the managed personal sandbox policy", async () => {
     const seeded = JSON.parse(
       readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
@@ -1594,22 +1728,53 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
     expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test").changed).toBe(false);
   });
 
-  it("preserves an unrestricted empty sandbox allowlist", () => {
-    const source = JSON.parse(
-      readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
-    ) as {
-      agents: { defaults: { sandbox: { docker: { image: string } } } };
-      tools: { sandbox: { tools: { allow?: string[]; alsoAllow?: string[] } } };
-    };
-    source.agents.defaults.sandbox.docker.image = "platformclaw-sandbox:test";
-    source.tools.sandbox.tools = { allow: [] };
+  it.each(["global", "agent-inherited", "agent-override"] as const)(
+    "re-allows widgets while preserving an unrestricted %s sandbox allowlist",
+    (scope) => {
+      const source = JSON.parse(
+        readRepoFile("docker/platformclaw-runtime/openclaw.initial.json"),
+      ) as OpenClawConfig;
+      source.agents!.defaults!.sandbox!.docker!.image = "platformclaw-sandbox:test";
+      if (scope === "global") {
+        source.tools!.sandbox!.tools = { allow: [] };
+      } else {
+        if (scope === "agent-inherited") {
+          source.tools!.sandbox!.tools!.alsoAllow = source.tools!.sandbox!.tools!.alsoAllow!.filter(
+            (id) => id !== "canvas",
+          );
+        }
+        source.agents!.entries = {
+          person_one: {
+            tools: {
+              sandbox: {
+                tools: { allow: [], ...(scope === "agent-override" ? { alsoAllow: [] } : {}) },
+              },
+            },
+          },
+        };
+      }
+      expect(resolveManagedCoreToolNames(source, ["inline-widgets"])).not.toContain("show_widget");
+      expect(() => validateManagedConfig(source, "platformclaw-sandbox:test")).toThrow(
+        "managed PlatformClaw execution policy",
+      );
 
-    const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+      const result = reconcileManagedConfig(source, "platformclaw-sandbox:test");
+      const policy =
+        scope === "global"
+          ? result.config.tools!.sandbox!.tools
+          : result.config.agents!.entries!.person_one!.tools!.sandbox!.tools;
+      const toolNames = resolveManagedCoreToolNames(result.config, ["inline-widgets"]);
 
-    expect(result.changed).toBe(false);
-    expect(result.config.tools.sandbox.tools).toEqual({ allow: [] });
-    expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
-  });
+      expect(result.changed).toBe(true);
+      expect(policy!.allow).toEqual([]);
+      expect(toolNames).toContain("show_widget");
+      expect(toolNames).toContain("tts");
+      expect(() => validateManagedConfig(result.config, "platformclaw-sandbox:test")).not.toThrow();
+      expect(reconcileManagedConfig(result.config, "platformclaw-sandbox:test").changed).toBe(
+        false,
+      );
+    },
+  );
 
   it("adds managed agent tools to config created before the managed gate existed", () => {
     const source = JSON.parse(

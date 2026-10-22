@@ -91,6 +91,8 @@ Discord also accepts optional `button_label` text for the Activity launch button
 
 For Canvas, pass `widget_path` when rendering a saved HTML file. Its contents must exactly match `widget_code`. Relative image URLs are embedded from the HTML file's directory through the active workspace's file access. Assigned-VM source paths also accept `~/` for the VM account's home directory; `~` inside an HTML image URL remains a literal relative path.
 
+Preserve all leading and trailing whitespace in `widget_code`. Command output may trim it; retain the exact string saved to the file, or JSON-encode the complete file text when reading and decode it with `JSON.parse` before passing it. Creating the file alone does not display a widget; correct any tool error and retry `show_widget`.
+
 The core Canvas tool accepts these optional dashboard placement fields:
 
 - `pin`: also place the widget on the session dashboard.

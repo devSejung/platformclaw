@@ -187,7 +187,7 @@ export async function embedWidgetWorkspaceImages(params: {
   });
   if (!source.equals(Buffer.from(params.widgetCode, "utf8"))) {
     throw new WidgetHtmlInputError(
-      "widget_path content must exactly match widget_code. Read the saved HTML file again and pass its unchanged contents.",
+      "widget_path content must exactly match widget_code. Pass the saved file's raw HTML string, not the full command/tool response or its metadata. Preserve all leading and trailing whitespace. Command output may trim whitespace: retain the exact saved string, or JSON-encode the complete file text when reading it and JSON.parse the result before passing widget_code. Do not pass Markdown fences, a JSON-encoded string, or truncated file text. Correct the string and retry show_widget; creating the file alone does not render it.",
     );
   }
   if (localReferences.length === 0) {

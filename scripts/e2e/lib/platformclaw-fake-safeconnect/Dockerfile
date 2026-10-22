@@ -10,6 +10,7 @@ RUN apt-get update \
     && useradd --uid 2002 --home-dir /appdata/person_two --create-home --shell /bin/bash person_two
 
 COPY scripts/e2e/lib/platformclaw-fake-safeconnect/server.py /fixture/server.py
+COPY scripts/e2e/lib/platformclaw-fake-safeconnect/test_server.py /fixture/test_server.py
 COPY scripts/e2e/lib/platformclaw-fake-safeconnect/allocations.json /fixture/allocations.json
 
 ENTRYPOINT ["python", "/fixture/server.py"]

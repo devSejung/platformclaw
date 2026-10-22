@@ -43,7 +43,9 @@ function secondaryLineageBelongsToAccess(
   record: JsonObject,
 ): boolean {
   for (const field of SECONDARY_SESSION_KEY_FIELDS) {
-    if (record[field] === undefined) {
+    // Gateway snapshots use null to clear optional lineage; a clear names no
+    // secondary owner and must not suppress the committed transcript event.
+    if (record[field] === undefined || record[field] === null) {
       continue;
     }
     const sessionKey = optionalString(record[field]);
@@ -102,7 +104,8 @@ export function projectBrowserSessionPayloadForAccess(
     delete projected[field];
   };
   for (const field of SECONDARY_SESSION_KEY_FIELDS) {
-    if (record[field] === undefined) {
+    // Preserve explicit clears so live merges can retire an earlier owned link.
+    if (record[field] === undefined || record[field] === null) {
       continue;
     }
     const sessionKey = optionalString(record[field]);
