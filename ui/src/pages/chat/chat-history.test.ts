@@ -8,6 +8,7 @@ import {
 } from "./chat-history.test-support.ts";
 import {
   loadChatHistory,
+  needsChatHistoryRefresh,
   rewindChatHistory,
   syncSelectedSessionMessageSubscription,
   switchChatHistoryBranch,
@@ -44,6 +45,50 @@ function activeHistory(
     },
   } satisfies ChatHistoryResult;
 }
+
+describe("failed chat history reconciliation", () => {
+  it("keeps failure until an authoritative read succeeds without changing the displayed cursor", async () => {
+    const state = createState({ messages: [] });
+    state.chatDisplayedLeafEntryId = null;
+    const request = vi.spyOn(state.client!, "request");
+    request.mockRejectedValueOnce(new Error("history unavailable"));
+
+    await loadChatHistory(state, { deferBranches: true });
+    expect(state.chatLoading).toBe(false);
+    expect(state.chatDisplayedLeafEntryId).toBeNull();
+    expect(needsChatHistoryRefresh(state)).toBe(true);
+
+    await loadChatHistory(state, { deferBranches: true });
+    expect(needsChatHistoryRefresh(state)).toBe(false);
+  });
+
+  it.each(["pane", "session", "connection", "agent"])(
+    "does not carry a failure into another %s",
+    async (scope) => {
+      const state = createState({ messages: [] });
+      state.sessionKey = "global";
+      state.assistantAgentId = "main";
+      vi.spyOn(state.client!, "request").mockRejectedValueOnce(new Error("history unavailable"));
+      await loadChatHistory(state, { deferBranches: true });
+      expect(needsChatHistoryRefresh(state)).toBe(true);
+
+      if (scope === "pane") {
+        expect(needsChatHistoryRefresh({ ...state })).toBe(false);
+        return;
+      }
+      if (scope === "session") {
+        state.sessionKey = "agent:main:other";
+      }
+      if (scope === "connection") {
+        state.connectionEpoch += 1;
+      }
+      if (scope === "agent") {
+        state.assistantAgentId = "other";
+      }
+      expect(needsChatHistoryRefresh(state)).toBe(false);
+    },
+  );
+});
 
 describe("syncSelectedSessionMessageSubscription", () => {
   it("requests and adopts approval replay when the Gateway advertises session approvals", async () => {

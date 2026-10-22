@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as runtimeModule from "../runtime.js";
 import { defaultRuntime } from "../runtime.js";
 import { requestExitAfterOneShotOutput, runCliWithExitFinalization } from "./one-shot-exit.js";
 
@@ -7,8 +7,21 @@ const successfulRun = async () => {};
 const ignoreError = () => {};
 
 describe("one-shot CLI exit", () => {
+  let previousExitCode: typeof process.exitCode;
+
+  beforeEach(() => {
+    previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    vi.useFakeTimers();
+    vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
+    vi.spyOn(runtimeModule, "restoreRuntimeTerminalState").mockImplementation(() => undefined);
+  });
+
   afterEach(() => {
+    vi.clearAllTimers();
+    process.exitCode = previousExitCode;
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it.each([
@@ -18,33 +31,31 @@ describe("one-shot CLI exit", () => {
     ["NODE_OPTIONS", { NODE_OPTIONS: "'--use-system-ca'" }, []],
     ["underscored NODE_OPTIONS", { NODE_OPTIONS: "--use_system_ca" }, []],
   ] as const)(
-    "exits after macOS system CA command completion from %s",
+    "allows natural macOS system CA command completion from %s",
     async (_label, env, execArgv) => {
-      const previousExitCode = process.exitCode;
-      const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
-      try {
-        process.exitCode = 3;
-        await runCliWithExitFinalization({
-          run: successfulRun,
-          onError: ignoreError,
-          env: env as NodeJS.ProcessEnv,
-          execArgv,
-          platform: "darwin",
-          markers: {},
-        });
-        await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(3));
-      } finally {
-        process.exitCode = previousExitCode;
-      }
+      process.exitCode = 3;
+      await runCliWithExitFinalization({
+        run: successfulRun,
+        onError: ignoreError,
+        env: env as NodeJS.ProcessEnv,
+        execArgv,
+        platform: "darwin",
+        markers: {},
+      });
+
+      expect(process.exitCode).toBe(3);
+      expect(defaultRuntime.exit).not.toHaveBeenCalled();
+      expect(runtimeModule.restoreRuntimeTerminalState).toHaveBeenCalledExactlyOnceWith(
+        "runtime exit",
+        { resumeStdinIfPaused: false },
+      );
     },
   );
 
   it.each([
     ["non-macOS", "linux" as const, { NODE_USE_SYSTEM_CA: "1" }, []],
     ["system CA disabled", "darwin" as const, { NODE_USE_SYSTEM_CA: "0" }, []],
-  ])("does not exit after completion when %s", async (_label, platform, env, execArgv) => {
-    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
-
+  ])("does not finalize after completion when %s", async (_label, platform, env, execArgv) => {
     await runCliWithExitFinalization({
       run: successfulRun,
       onError: ignoreError,
@@ -53,15 +64,14 @@ describe("one-shot CLI exit", () => {
       platform,
       markers: {},
     });
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
 
-    expect(exit).not.toHaveBeenCalled();
+    expect(process.exitCode).toBeUndefined();
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
+    expect(runtimeModule.restoreRuntimeTerminalState).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("does not finalize a long-lived command until its run promise settles", async () => {
-    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
     let finishRun: (() => void) | undefined;
     const runPromise = runCliWithExitFinalization({
       run: async () =>
@@ -75,73 +85,61 @@ describe("one-shot CLI exit", () => {
       markers: {},
     });
 
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-    expect(exit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(process.exitCode).toBeUndefined();
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
+    expect(runtimeModule.restoreRuntimeTerminalState).not.toHaveBeenCalled();
 
     finishRun?.();
     await runPromise;
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(process.exitCode).toBe(0);
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
+    expect(runtimeModule.restoreRuntimeTerminalState).toHaveBeenCalledOnce();
   });
 
-  it("reports failures and replaces a pending successful exit before draining", async () => {
-    const previousExitCode = process.exitCode;
+  it("reports failures and replaces a pending successful exit before finalizing", async () => {
     const order: string[] = [];
-    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation((code) => {
-      order.push(`exit:${String(code)}`);
+    vi.mocked(runtimeModule.restoreRuntimeTerminalState).mockImplementation(() => {
+      order.push(`finalized:${String(process.exitCode)}`);
+    });
+    requestExitAfterOneShotOutput(defaultRuntime, 0);
+
+    await runCliWithExitFinalization({
+      run: async () => {
+        throw new Error("command failed");
+      },
+      onError: async () => {
+        await Promise.resolve();
+        order.push("reported");
+        process.exitCode = 6;
+      },
+      env: { NODE_USE_SYSTEM_CA: "1" },
+      execArgv: [],
+      platform: "darwin",
+      markers: {},
     });
 
-    try {
-      process.exitCode = undefined;
-      requestExitAfterOneShotOutput(defaultRuntime, 0);
-      await runCliWithExitFinalization({
-        run: async () => {
-          throw new Error("command failed");
-        },
-        onError: async () => {
-          await new Promise<void>((resolve) => {
-            setImmediate(resolve);
-          });
-          order.push("reported");
-          process.exitCode = 6;
-        },
-        env: { NODE_USE_SYSTEM_CA: "1" },
-        execArgv: [],
-        platform: "darwin",
-        markers: {},
-      });
-
-      await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(6));
-      expect(order).toEqual(["reported", "exit:6"]);
-    } finally {
-      process.exitCode = previousExitCode;
-    }
+    expect(process.exitCode).toBe(6);
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
+    expect(order).toEqual(["reported", "finalized:6"]);
   });
 
   it("normalizes a Node integer-string process exit code", async () => {
-    const previousExitCode = process.exitCode;
-    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
+    process.exitCode = "9";
+    await runCliWithExitFinalization({
+      run: successfulRun,
+      onError: ignoreError,
+      env: { NODE_USE_SYSTEM_CA: "1" },
+      execArgv: [],
+      platform: "darwin",
+      markers: {},
+    });
 
-    try {
-      process.exitCode = "9";
-      await runCliWithExitFinalization({
-        run: successfulRun,
-        onError: ignoreError,
-        env: { NODE_USE_SYSTEM_CA: "1" },
-        execArgv: [],
-        platform: "darwin",
-        markers: {},
-      });
-      await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(9));
-    } finally {
-      process.exitCode = previousExitCode;
-    }
+    expect(process.exitCode).toBe(9);
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
   });
 
   it("preserves a command-specific exit code when system CA completion also requests exit", async () => {
-    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
-
     requestExitAfterOneShotOutput(defaultRuntime, 7);
     await runCliWithExitFinalization({
       run: successfulRun,
@@ -152,17 +150,16 @@ describe("one-shot CLI exit", () => {
       markers: {},
     });
 
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(7));
+    expect(process.exitCode).toBe(7);
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
   });
 
   it("defers a requested exit until the outer finalizer", async () => {
-    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
-
     expect(requestExitAfterOneShotOutput(defaultRuntime, 2)).toBe(true);
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-    expect(exit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(process.exitCode).toBeUndefined();
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
+    expect(runtimeModule.restoreRuntimeTerminalState).not.toHaveBeenCalled();
 
     await runCliWithExitFinalization({
       run: successfulRun,
@@ -172,12 +169,12 @@ describe("one-shot CLI exit", () => {
       platform: "linux",
       markers: {},
     });
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(2));
+    expect(process.exitCode).toBe(2);
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
   });
 
   it("does not request exits for embedded custom runtimes", async () => {
     const runtime = { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
-
     expect(requestExitAfterOneShotOutput(runtime)).toBe(false);
     await runCliWithExitFinalization({
       run: successfulRun,
@@ -188,18 +185,16 @@ describe("one-shot CLI exit", () => {
       platform: "darwin",
       markers: {},
     });
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
 
+    expect(process.exitCode).toBeUndefined();
     expect(runtime.exit).not.toHaveBeenCalled();
+    expect(runtimeModule.restoreRuntimeTerminalState).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("suppresses exits inside Vitest workers but not spawned CLI children", async () => {
-    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
+  it("suppresses finalization inside Vitest workers but not spawned CLI children", async () => {
     const inheritedTestEnv = { VITEST: "1", VITEST_WORKER_ID: "1" } as NodeJS.ProcessEnv;
-
-    requestExitAfterOneShotOutput(defaultRuntime);
+    requestExitAfterOneShotOutput(defaultRuntime, 7);
     await runCliWithExitFinalization({
       run: successfulRun,
       onError: ignoreError,
@@ -208,9 +203,12 @@ describe("one-shot CLI exit", () => {
       platform: "linux",
       markers: { tinypoolState: {} },
     });
-    expect(exit).not.toHaveBeenCalled();
+    expect(process.exitCode).toBeUndefined();
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
+    expect(runtimeModule.restoreRuntimeTerminalState).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
 
-    requestExitAfterOneShotOutput(defaultRuntime);
+    requestExitAfterOneShotOutput(defaultRuntime, 7);
     await runCliWithExitFinalization({
       run: successfulRun,
       onError: ignoreError,
@@ -219,26 +217,13 @@ describe("one-shot CLI exit", () => {
       platform: "linux",
       markers: {},
     });
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(process.exitCode).toBe(7);
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
+    expect(runtimeModule.restoreRuntimeTerminalState).toHaveBeenCalledOnce();
   });
 
-  it("waits for stream callbacks even when writableLength is zero", async () => {
-    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
-    vi.spyOn(process.stdout, "writableLength", "get").mockReturnValue(0);
-    vi.spyOn(process.stderr, "writableLength", "get").mockReturnValue(0);
-
-    let flushStdout: (() => void) | undefined;
-    let flushStderr: (() => void) | undefined;
-    vi.spyOn(process.stdout, "write").mockImplementation(((...args: unknown[]) => {
-      flushStdout = args.find((arg): arg is () => void => typeof arg === "function");
-      return true;
-    }) as typeof process.stdout.write);
-    vi.spyOn(process.stderr, "write").mockImplementation(((...args: unknown[]) => {
-      flushStderr = args.find((arg): arg is () => void => typeof arg === "function");
-      return true;
-    }) as typeof process.stderr.write);
-
-    requestExitAfterOneShotOutput(defaultRuntime);
+  it("forces the current exit code only when a completed command remains alive for five seconds", async () => {
+    requestExitAfterOneShotOutput(defaultRuntime, 5);
     await runCliWithExitFinalization({
       run: successfulRun,
       onError: ignoreError,
@@ -248,193 +233,11 @@ describe("one-shot CLI exit", () => {
       markers: {},
     });
 
-    expect(exit).not.toHaveBeenCalled();
-    flushStdout?.();
-    expect(exit).not.toHaveBeenCalled();
-    flushStderr?.();
-    expect(exit).not.toHaveBeenCalled();
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-    expect(exit).toHaveBeenCalledWith(0);
-  });
-
-  it.each(["stdout", "stderr", "both"] as const)(
-    "finishes a completed command when %s drain callbacks never settle",
-    async (missing) => {
-      vi.useFakeTimers();
-      const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
-      for (const name of ["stdout", "stderr"] as const) {
-        vi.spyOn(process[name], "write").mockImplementation(((...args: unknown[]) => {
-          if (missing !== "both" && missing !== name) {
-            args.find((arg): arg is () => void => typeof arg === "function")?.();
-          }
-          return true;
-        }) as typeof process.stdout.write);
-      }
-      try {
-        requestExitAfterOneShotOutput(defaultRuntime, 5);
-        await runCliWithExitFinalization({
-          run: successfulRun,
-          onError: ignoreError,
-          env: {},
-          execArgv: [],
-          platform: "linux",
-          markers: {},
-        });
-        await vi.advanceTimersByTimeAsync(4_999);
-        expect(exit).not.toHaveBeenCalled();
-        await vi.advanceTimersByTimeAsync(1);
-        expect(exit).toHaveBeenCalledExactlyOnceWith(5);
-      } finally {
-        vi.useRealTimers();
-      }
-    },
-  );
-
-  it("cancels the drain deadline after both stream callbacks settle", async () => {
-    vi.useFakeTimers();
-    const exit = vi.spyOn(defaultRuntime, "exit").mockImplementation(() => undefined);
-    for (const stream of [process.stdout, process.stderr]) {
-      vi.spyOn(stream, "write").mockImplementation(((...args: unknown[]) => {
-        args.find((arg): arg is () => void => typeof arg === "function")?.();
-        return true;
-      }) as typeof process.stdout.write);
-    }
-    try {
-      requestExitAfterOneShotOutput(defaultRuntime, 7);
-      await runCliWithExitFinalization({
-        run: successfulRun,
-        onError: ignoreError,
-        env: {},
-        execArgv: [],
-        platform: "linux",
-        markers: {},
-      });
-      await vi.runAllTimersAsync();
-      expect(exit).toHaveBeenCalledExactlyOnceWith(7);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("drains large piped stdout before a requested nonzero exit", () => {
-    const env = { ...process.env };
-    delete env.VITEST;
-    delete env.VITEST_POOL_ID;
-    delete env.VITEST_WORKER_ID;
-    const oneShotExitUrl = new URL("./one-shot-exit.ts", import.meta.url).href;
-    const runtimeUrl = new URL("../runtime.ts", import.meta.url).href;
-    const payloadBytes = 1024 * 1024;
-    const script = `
-      import { requestExitAfterOneShotOutput, runCliWithExitFinalization } from ${JSON.stringify(oneShotExitUrl)};
-      import { defaultRuntime } from ${JSON.stringify(runtimeUrl)};
-      await runCliWithExitFinalization({
-        run: async () => {
-          process.stdout.write("x".repeat(${payloadBytes}));
-          requestExitAfterOneShotOutput(defaultRuntime, 7);
-        },
-        onError: (error) => { throw error; },
-      });
-    `;
-
-    const result = spawnSync(
-      process.execPath,
-      ["--import", "tsx", "--input-type=module", "--eval", script],
-      {
-        encoding: "utf8",
-        env,
-        maxBuffer: 2 * payloadBytes,
-        timeout: 30_000,
-      },
-    );
-
-    expect(result.error).toBeUndefined();
-    expect(result.status).toBe(7);
-    expect(result.signal).toBeNull();
-    expect(result.stderr).toBe("");
-    expect(result.stdout).toHaveLength(payloadBytes);
-  });
-
-  it.each([
-    { name: "deferred hooks success", exitCode: 0, explicitRequest: true },
-    { name: "deferred hooks failure", exitCode: 1, explicitRequest: true },
-    { name: "automatic macOS system-CA success", exitCode: 0, explicitRequest: false },
-  ])("keeps real dual-TTY JSON clean for $name", ({ exitCode, explicitRequest }) => {
-    const env = { ...process.env };
-    delete env.VITEST;
-    delete env.VITEST_POOL_ID;
-    delete env.VITEST_WORKER_ID;
-    const oneShotExitUrl = new URL("./one-shot-exit.ts", import.meta.url).href;
-    const runtimeUrl = new URL("../runtime.ts", import.meta.url).href;
-    const loggingStateUrl = new URL("../logging/state.ts", import.meta.url).href;
-    const script = `
-      import { requestExitAfterOneShotOutput, runCliWithExitFinalization } from ${JSON.stringify(oneShotExitUrl)};
-      import { defaultRuntime } from ${JSON.stringify(runtimeUrl)};
-      import { loggingState } from ${JSON.stringify(loggingStateUrl)};
-      Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
-      Object.defineProperty(process.stderr, "isTTY", { value: true, configurable: true });
-      loggingState.forceConsoleToStderr = true;
-      await runCliWithExitFinalization({
-        run: async () => {
-          defaultRuntime.writeStdout(JSON.stringify({ ok: ${exitCode === 0} }));
-          ${explicitRequest ? `requestExitAfterOneShotOutput(defaultRuntime, ${exitCode});` : ""}
-        },
-        onError: (error) => { throw error; },
-        ${explicitRequest ? "" : 'env: { NODE_USE_SYSTEM_CA: "1" }, execArgv: [], platform: "darwin", markers: {},'}
-      });
-    `;
-
-    const result = spawnSync(
-      process.execPath,
-      ["--import", "tsx", "--input-type=module", "--eval", script],
-      { encoding: "utf8", env, timeout: 30_000 },
-    );
-
-    expect(result.error).toBeUndefined();
-    expect(result.status).toBe(exitCode);
-    expect(result.signal).toBeNull();
-    expect(JSON.parse(result.stdout)).toEqual({ ok: exitCode === 0 });
-    expect(result.stderr).toContain("\x1b[?25h");
-  });
-
-  it.each([
-    { name: "fatal unhandled rejection", errorCode: "ERR_OUT_OF_MEMORY", exitCode: 1 },
-    { name: "invalid configuration rejection", errorCode: "INVALID_CONFIG", exitCode: 78 },
-  ])("keeps real dual-TTY JSON clean after $name", ({ errorCode, exitCode }) => {
-    const env = { ...process.env };
-    delete env.VITEST;
-    delete env.VITEST_POOL_ID;
-    delete env.VITEST_WORKER_ID;
-    const runtimeUrl = new URL("../runtime.ts", import.meta.url).href;
-    const loggingStateUrl = new URL("../logging/state.ts", import.meta.url).href;
-    const unhandledRejectionsUrl = new URL("../infra/unhandled-rejections.ts", import.meta.url)
-      .href;
-    const script = `
-      import { defaultRuntime } from ${JSON.stringify(runtimeUrl)};
-      import { loggingState } from ${JSON.stringify(loggingStateUrl)};
-      import { installUnhandledRejectionHandler } from ${JSON.stringify(unhandledRejectionsUrl)};
-      Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
-      Object.defineProperty(process.stderr, "isTTY", { value: true, configurable: true });
-      loggingState.forceConsoleToStderr = true;
-      installUnhandledRejectionHandler();
-      defaultRuntime.writeJson({ ok: false });
-      const error = Object.assign(new Error("expected fatal test"), {
-        code: ${JSON.stringify(errorCode)},
-      });
-      process.emit("unhandledRejection", error, Promise.resolve());
-    `;
-
-    const result = spawnSync(
-      process.execPath,
-      ["--import", "tsx", "--input-type=module", "--eval", script],
-      { encoding: "utf8", env, timeout: 30_000 },
-    );
-
-    expect(result.error).toBeUndefined();
-    expect(result.status).toBe(exitCode);
-    expect(result.signal).toBeNull();
-    expect(JSON.parse(result.stdout)).toEqual({ ok: false });
-    expect(result.stderr).toContain("\x1b[?25h");
+    expect(process.exitCode).toBe(5);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(defaultRuntime.exit).not.toHaveBeenCalled();
+    process.exitCode = 6;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(defaultRuntime.exit).toHaveBeenCalledExactlyOnceWith(6);
   });
 });

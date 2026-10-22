@@ -2724,12 +2724,15 @@ describe("scripts/test-projects changed-target routing", () => {
     ]);
   });
 
-  it("routes CLI process tests through their isolated project", () => {
-    expectSingleVitestRunPlan(buildVitestRunPlans(["src/cli/help-exit.process.test.ts"]), {
-      config: "test/vitest/vitest.cli-process.config.ts",
-      includePatterns: ["src/cli/help-exit.process.test.ts"],
-    });
-  });
+  it.each(["src/cli/help-exit.process.test.ts", "src/cli/one-shot-exit.process.test.ts"])(
+    "routes %s through the isolated CLI process project",
+    (file) => {
+      expectSingleVitestRunPlan(buildVitestRunPlans([file]), {
+        config: "test/vitest/vitest.cli-process.config.ts",
+        includePatterns: [file],
+      });
+    },
+  );
 
   it("adds the CLI process project for broad CLI targets", () => {
     const plans = buildVitestRunPlans(["src/cli"]);

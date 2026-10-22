@@ -108,6 +108,7 @@ type ChatHistoryPaneRequests = {
   subscriptionGeneration: number;
   pendingSubscriptionReleases: Set<SessionMessageSubscription>;
   inFlightHistory?: InFlightChatHistoryRequest;
+  failedHistory?: ChatHistoryRequestOwnership;
 };
 
 const chatHistoryPaneRequests = new WeakMap<object, ChatHistoryPaneRequests>();
@@ -178,6 +179,7 @@ function resetChatHistoryProjection(state: ChatState, agentId?: string): void {
   // snapshot owner and its coalesced request before creating the next epoch.
   requests.historyVersion += 1;
   requests.inFlightHistory = undefined;
+  requests.failedHistory = undefined;
   state.chatLoading = false;
   const scope = readChatSessionProjectionScope(state, { agentId });
   // Destructive operations keep the public session key, so only an explicit
@@ -1493,6 +1495,23 @@ export async function loadChatHistory(
   return promise;
 }
 
+/** Failed reconciliation must be recovered before a foreground send uses its old cursor. */
+export function needsChatHistoryRefresh(state: ChatState): boolean {
+  const failed = getChatHistoryPaneRequests(state).failedHistory;
+  return (
+    state.chatLoading ||
+    Boolean(
+      failed &&
+      state.connected &&
+      state.client === failed.client &&
+      state.connectionEpoch === failed.connectionEpoch &&
+      state.sessionKey === failed.sessionKey &&
+      (!isUiSelectedGlobalSessionKey(state, failed.sessionKey) ||
+        resolveUiSelectedSessionAgentId(state) === failed.agentId),
+    )
+  );
+}
+
 /** Initial hydration commits before any cached or fetched search hit is revealed. */
 export async function waitForPendingChatHistory(state: ChatState): Promise<void> {
   await getChatHistoryPaneRequests(state).inFlightHistory?.promise;
@@ -1908,6 +1927,7 @@ async function loadChatHistoryUncached(
       visibleMessageCount: visibleMessages.length,
       resetStream,
     });
+    getChatHistoryPaneRequests(state).failedHistory = undefined;
     return res;
   } catch (err) {
     if (!shouldApplyChatHistoryResult(state, ownership)) {
@@ -1933,6 +1953,9 @@ async function loadChatHistoryUncached(
       state.chatVerboseLevel = null;
       setChatError(state, formatMissingOperatorReadScopeMessage("existing chat history"));
     } else {
+      // Loading ending does not make the retained transcript authoritative.
+      // Keep the failed read scoped to this pane, connection, and selected thread.
+      getChatHistoryPaneRequests(state).failedHistory = ownership;
       setChatError(state, String(err));
     }
   } finally {

@@ -19,7 +19,7 @@ import {
   requireChatSessionAction,
   shouldQueueLocalSlashCommand,
 } from "./chat-commands.ts";
-import { loadChatHistory, type ChatState } from "./chat-history.ts";
+import { loadChatHistory, needsChatHistoryRefresh, type ChatState } from "./chat-history.ts";
 import {
   admitQueuedMessageForSession,
   enqueueChatMessage,
@@ -211,6 +211,8 @@ export async function handleSendChat(
   const message = (messageOverride ?? host.chatMessage).trim();
   const submittedAtMs = controlUiNowMs();
   const submittedSessionKey = host.sessionKey;
+  const submittedAgentId = resolveStoredChatOutboxScope(host, submittedSessionKey).agentId;
+  const submittedSessionId = (host as unknown as ChatState).currentSessionId;
   const actionScope = opts?.actionScope;
   const actionConnectionIsCurrent = captureChatConnectionOwner(host);
   let expectedLeafEntryId = actionScope
@@ -433,10 +435,25 @@ export async function handleSendChat(
     opts?.runId ??
     chatSubmitKey(host, "message", effectiveMessage, attachmentsToSend, skillWorkshopRevision);
   await withChatSubmitGuard(host, submitKey, async () => {
-    if (host.chatLoading) {
-      // A terminal event can render before its authoritative leaf arrives.
-      // Reuse the in-flight history request before fencing the follow-up send.
+    if (needsChatHistoryRefresh(host as unknown as ChatState)) {
+      // Terminal delivery can precede its history read, which can also fail.
+      // Reuse or recover that read before fencing the follow-up send.
       if (!(await loadChatHistory(host as unknown as ChatState))) {
+        return;
+      }
+      if (
+        !actionConnectionIsCurrent() ||
+        !visibleSessionMatches(host, submittedSessionKey, submittedAgentId)
+      ) {
+        return;
+      }
+      // A branch can rotate transcript identity while keeping the same route.
+      // Never move the submitted draft into that replacement transcript.
+      if (
+        submittedSessionId &&
+        submittedSessionId !== (host as unknown as ChatState).currentSessionId
+      ) {
+        setChatError(host, t("chat.sendErrors.activeLeafChanged"));
         return;
       }
       if (!actionScope) {
