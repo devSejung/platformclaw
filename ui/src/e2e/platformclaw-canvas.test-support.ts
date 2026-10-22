@@ -28,9 +28,12 @@ export function canvasPromptProbeMarkup(): string {
     .join("")}
 <script>
 const prompts = ${JSON.stringify(prompts)};
+const proofDocumentId = Date.now() + "-" + Math.random();
 for (const button of document.querySelectorAll("[data-proof-prompt]")) {
+  button.dataset.proofDocumentId = proofDocumentId;
   button.onclick = async () => {
     button.dataset.proofClicks = String(Number(button.dataset.proofClicks || 0) + 1);
+    button.dataset.proofClickAck = proofDocumentId + ":" + button.dataset.proofClicks;
     const name = button.dataset.proofPrompt;
     const output = document.querySelector('[data-proof-result="' + name + '"]');
     output.textContent = "sending";
@@ -88,9 +91,40 @@ export async function exerciseCanvasPromptDelivery(params: {
     page.screenshot({ path: path.join(params.proofDir, `${target}-${name}.png`), fullPage: true });
   const clickPrompt = async (name: PromptName) => {
     const button = frame.locator(`[data-proof-prompt="${name}"]`);
-    const clicks = Number((await button.getAttribute("data-proof-clicks")) ?? 0);
+    const observation = () =>
+      button.evaluate((element) => ({
+        documentId: element.getAttribute("data-proof-document-id"),
+        clicks: Number(element.getAttribute("data-proof-clicks") ?? 0),
+        ack: element.getAttribute("data-proof-click-ack"),
+      }));
+    // Composer access changes can move the outer frame while its inner button
+    // remains stable. Wait for both pointing surfaces before the one real click.
+    await button.scrollIntoViewIfNeeded();
+    const outerFrame = await preview.locator("iframe").elementHandle();
+    if (!outerFrame) {
+      throw new Error("Canvas iframe disappeared before the widget click");
+    }
+    try {
+      await outerFrame.waitForElementState("stable");
+    } finally {
+      await outerFrame.dispose();
+    }
+    const before = await observation();
     await button.click();
-    await expect.poll(() => button.getAttribute("data-proof-clicks")).toBe(String(clicks + 1));
+    // Each iframe document owns its click counter; native locator actionability
+    // may resolve a replacement document before dispatching this click.
+    await expect
+      .poll(async () => {
+        const current = await observation();
+        const expectedClicks = current.documentId === before.documentId ? before.clicks + 1 : 1;
+        return (
+          Boolean(current.documentId && current.ack) &&
+          current.ack !== before.ack &&
+          current.clicks === expectedClicks &&
+          current.ack === `${current.documentId}:${expectedClicks}`
+        );
+      })
+      .toBe(true);
   };
   const complete = async (request: SendParams, result: string) => {
     history.push(
@@ -116,6 +150,19 @@ export async function exerciseCanvasPromptDelivery(params: {
     await page.locator(".chat-thread-inner").getByText(result, { exact: true }).waitFor();
   };
   const clickAndAdmit = async (name: PromptName): Promise<SendParams> => {
+    // A rendered final reply can precede the sending/run projection settling.
+    // This scenario proves a new idle turn, so wait for its real composer action.
+    await expect
+      .poll(async () => {
+        const send = page.getByRole("button", { name: "Send message", exact: true });
+        return (
+          (await page.locator(".chat-send-btn--stop:visible").count()) === 0 &&
+          (await send.count()) === 1 &&
+          (await send.isVisible()) &&
+          (await send.isEnabled())
+        );
+      })
+      .toBe(true);
     const before = (await gateway.getRequests("chat.send")).length;
     await gateway.deferNext("chat.send");
     await clickPrompt(name);
