@@ -775,6 +775,12 @@ openclaw-session-owner-chip {
   box-shadow: var(--shadow-lg);
 }
 
+.app-toast--bottom-right {
+  right: 20px;
+  left: auto;
+  transform: none;
+}
+
 .app-toast__message {
   min-width: 0;
   overflow: hidden;

@@ -8,6 +8,7 @@ type ToastOptions = {
   actionLabel?: string;
   onAction?: () => void;
   durationMs?: number;
+  placement?: "bottom-right";
 };
 
 const DEFAULT_TOAST_DURATION_MS = 6_000;
@@ -48,7 +49,14 @@ class OpenClawToastHost extends OpenClawLightDomContentsElement {
       return nothing;
     }
     return html`
-      <div class="app-toast" role="status" aria-live="polite" aria-atomic="true">
+      <div
+        class=${toast.placement === "bottom-right"
+          ? "app-toast app-toast--bottom-right"
+          : "app-toast"}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <span class="app-toast__message">${toast.message}</span>
         ${toast.actionLabel && toast.onAction
           ? html`

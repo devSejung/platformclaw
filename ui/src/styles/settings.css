@@ -2,6 +2,10 @@
   --settings-control-height: 32px;
 }
 
+.settings-docs-link {
+  white-space: nowrap;
+}
+
 /* ── Settings design language ──────────────────────────────────────────────
  *
  * One structural pattern for every settings surface:

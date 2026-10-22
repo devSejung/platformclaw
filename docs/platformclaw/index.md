@@ -76,12 +76,17 @@ configure.
 
 ## Personal keys during chat
 
-In a personal PC chat, the `platformclaw_credentials` plugin tool can request an
-administrator-approved environment variable by its exact name. **Add key** opens
-the matching input in **Settings > Credentials**. Save the value there, select
-**Return to conversation**, and select **Continue** to send a new turn in the
-original session. Never paste a key into chat. Cancel, an account or session
-change, reconnect, or an expired request ends the handoff without sending a turn.
+In a personal PC chat, the `platformclaw_credentials` plugin tool can list allowed
+environment variable names, check their saved state, or request registration or
+replacement of an exact administrator-approved name. **Add key** opens the
+matching input in **Settings > Credentials**. Saving completes registration and
+closes the request notice while keeping the Credentials page open. When opened
+from chat, a temporary **Back to chat** notification returns to the source
+conversation without sending a message. Direct settings saves show no return
+shortcut. No extra confirmation or chat turn is required. To resume another
+task, send a normal message in its conversation. Never paste a key into chat. Cancel, an
+account or session change, reconnect, or an expired request ends the handoff
+without sending a turn.
 
 Saved means that the encrypted value was stored; it does not verify service
 authentication. Existing personal Basic and assigned-VM exec processes receive

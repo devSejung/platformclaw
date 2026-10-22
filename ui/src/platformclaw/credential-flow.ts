@@ -1,5 +1,5 @@
+import { readSessionMessageIdentity } from "@openclaw/gateway-client/browser";
 import { html, nothing } from "lit";
-import { ref } from "lit/directives/ref.js";
 import { isSpaceConversationSession } from "../../../packages/platformclaw-control-plane/src/space-contracts.js";
 import type { RouteId } from "../app-route-paths.ts";
 import { selectApplicationSession } from "../app/agent-selection.ts";
@@ -11,6 +11,7 @@ import {
   parseAgentSessionKey,
   resolveUiSelectedSessionAgentId,
 } from "../lib/sessions/session-key.ts";
+import { showToast } from "../lib/toast.ts";
 import type { ChatHistoryResult } from "../pages/chat/chat-history.ts";
 import type { PlatformClawExecCredentialsElement } from "./exec-credentials.ts";
 import { platformClawT as t } from "./i18n.ts";
@@ -25,7 +26,6 @@ type FlowIdentity = {
   targetKey: string;
   agentId: string;
   sessionKey: string;
-  sourceRunId: string;
   sourceUserTurnId: string;
   expiresAt: number;
 };
@@ -34,17 +34,10 @@ type PendingFlow = FlowIdentity &
   (
     | { phase: "awaiting-source"; sessionId?: string }
     | { phase: "required" | "editing"; sessionId: string; expectedLeafEntryId: string }
-    | {
-        phase: "saved" | "submitting";
-        sessionId: string;
-        expectedLeafEntryId: string;
-        revision: number;
-      }
   );
 
 type FlowState =
   | PendingFlow
-  | { phase: "submitted"; requestId: string }
   | {
       phase: "inactive";
       reason: "expired" | "accountChanged";
@@ -64,13 +57,7 @@ function latestUserTurn(messages: unknown[]): string | null {
     if (message?.role !== "user") {
       continue;
     }
-    const meta = record(message["__openclaw"]);
-    for (const id of [meta?.idempotencyKey, message.messageId, meta?.id, message.id]) {
-      if (typeof id === "string" && id.trim()) {
-        return id.trim();
-      }
-    }
-    return typeof message.timestamp === "number" ? `timestamp:${message.timestamp}` : null;
+    return readSessionMessageIdentity(message)?.runId ?? null;
   }
   return null;
 }
@@ -101,12 +88,11 @@ export class PlatformClawCredentialFlow {
   private host: ChatAccessoryHost | null = null;
   private state: FlowState | null = null;
   private busy = false;
-  private error: "unconfirmed" | "expired" | null = null;
+  private error: "unconfirmed" | null = null;
   private probeKey: string | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private route: RouteId = "chat";
   private form: PlatformClawExecCredentialsElement | null = null;
-  private focusOnReturn = false;
   private generation = 0;
   private lastRequestId: string | null = null;
 
@@ -208,9 +194,8 @@ export class PlatformClawCredentialFlow {
       agentId,
       sessionKey: host.sessionKey,
       ...(host.currentSessionId ? { sessionId: host.currentSessionId } : {}),
-      sourceRunId: result.runId,
       // The pending user row can still live only in the chat projection here.
-      // chat.send's run id is the persisted user turn's idempotency key.
+      // Shared message identity maps its persisted `:user` key back to this run.
       sourceUserTurnId: result.runId,
       expiresAt: Date.now() + FLOW_TTL_MS,
     };
@@ -222,7 +207,7 @@ export class PlatformClawCredentialFlow {
 
   get target(): { requestId: string; envName: string; expectedAccountId: string } | undefined {
     const state = this.pending();
-    return state && (state.phase === "editing" || state.phase === "saved")
+    return state?.phase === "editing"
       ? {
           requestId: state.requestId,
           envName: state.targetKey,
@@ -243,53 +228,48 @@ export class PlatformClawCredentialFlow {
     ) {
       return;
     }
-    this.state = { ...state, phase: "saved", revision: ack.revision };
+    this.state = null;
+    this.owner = null;
+    this.generation++;
+    this.busy = false;
+    this.error = null;
+    this.probeKey = null;
+    this.clearTimer();
+    if (this.form) {
+      this.form.target = undefined;
+    }
     this.host?.requestUpdate?.();
+    const generation = this.generation;
+    // Saving ends the handoff; this optional shortcut only restores its source route.
+    showToast({
+      message: t("platformClaw.execCredentials.saved"),
+      actionLabel: t("platformClaw.credentialFlow.return"),
+      placement: "bottom-right",
+      durationMs: 15_000,
+      onAction: () => {
+        if (this.generation === generation && this.route === "credentials") {
+          this.navigateToConversation(state);
+        }
+      },
+    });
   };
 
   cancel = (): void => {
     const state = this.pending();
     this.invalidate("expired");
-    if (state && this.route === "credentials" && this.application) {
-      selectApplicationSession({
-        selection: this.application.agentSelection,
-        gateway: this.application.gateway,
-        agentId: state.agentId,
-        sessionKey: state.sessionKey,
-      });
-      this.application.navigate(
-        "chat",
-        sessionNavigationTarget({
-          context: this.application,
-          face: "chat",
-          sessionKey: state.sessionKey,
-          agentId: state.agentId,
-        }).options,
-      );
+    if (state && this.route === "credentials") {
+      this.navigateToConversation(state);
     }
   };
 
-  returnToConversation = async (): Promise<void> => {
-    const state = this.pending();
-    if (!state || this.busy || !this.application) {
-      return;
-    }
-    const generation = this.generation;
-    this.busy = true;
-    try {
-      if (!(await this.checkIdentity(state)) || !(await this.readSource(state))) {
-        return;
-      }
-      if (this.state !== state) {
-        return;
-      }
+  private navigateToConversation(state: Pick<FlowIdentity, "agentId" | "sessionKey">): void {
+    if (this.application) {
       selectApplicationSession({
         selection: this.application.agentSelection,
         gateway: this.application.gateway,
         agentId: state.agentId,
         sessionKey: state.sessionKey,
       });
-      this.focusOnReturn = true;
       this.application.navigate(
         "chat",
         sessionNavigationTarget({
@@ -299,21 +279,12 @@ export class PlatformClawCredentialFlow {
           agentId: state.agentId,
         }).options,
       );
-    } catch {
-      if (generation === this.generation) {
-        this.error = "unconfirmed";
-      }
-    } finally {
-      if (generation === this.generation) {
-        this.busy = false;
-      }
-      this.host?.requestUpdate?.();
     }
-  };
+  }
 
   render(host: ChatAccessoryHost): unknown {
     const state = this.state;
-    if (!state || state.phase === "submitted") {
+    if (!state) {
       return nothing;
     }
     if (
@@ -328,7 +299,7 @@ export class PlatformClawCredentialFlow {
       this.invalidate("expired");
     }
     const current = this.state;
-    if (!current || current.phase === "submitted") {
+    if (!current) {
       return nothing;
     }
     if (current.phase === "awaiting-source" && !host.chatRunId && !host.chatLoading && !this.busy) {
@@ -338,7 +309,6 @@ export class PlatformClawCredentialFlow {
         void this.confirmSource(current);
       }
     }
-    const saved = current.phase === "saved" || current.phase === "submitting";
     const inactive = current.phase === "inactive";
     const disabled =
       this.busy ||
@@ -373,15 +343,8 @@ export class PlatformClawCredentialFlow {
           }
         </style>
         <strong
-          tabindex="-1"
-          ${ref((element) => {
-            if (element instanceof HTMLElement && this.focusOnReturn && saved) {
-              this.focusOnReturn = false;
-              element.focus();
-            }
-          })}
           >${t(
-            `platformClaw.credentialFlow.${inactive ? current.reason : saved ? "saved" : "requiredTitle"}`,
+            `platformClaw.credentialFlow.${inactive ? current.reason : "requiredTitle"}`,
           )}</strong
         >
         ${inactive
@@ -390,9 +353,6 @@ export class PlatformClawCredentialFlow {
                 ${t("platformClaw.credentialFlow.requiredBody", { envName: current.targetKey })}
               </p>
               <code>${current.targetKey}</code>`}
-        ${saved
-          ? html`<p class="muted">${t("platformClaw.credentialFlow.continueHint")}</p>`
-          : nothing}
         ${this.error
           ? html`<p role="status">${t(`platformClaw.credentialFlow.${this.error}`)}</p>`
           : nothing}
@@ -413,15 +373,6 @@ export class PlatformClawCredentialFlow {
                 @click=${() => void this.confirmSource(current)}
               >
                 ${t("platformClaw.credentialFlow.recheckStatus")}
-              </button>`
-            : nothing}
-          ${saved
-            ? html`<button
-                class="btn primary"
-                ?disabled=${disabled || current.phase === "submitting"}
-                @click=${() => void this.continueConversation(host)}
-              >
-                ${t("platformClaw.credentialFlow.continue")}
               </button>`
             : nothing}
           ${inactive
@@ -451,7 +402,7 @@ export class PlatformClawCredentialFlow {
 
   private pending(): PendingFlow | null {
     const state = this.state;
-    return state && state.phase !== "inactive" && state.phase !== "submitted" ? state : null;
+    return state && state.phase !== "inactive" ? state : null;
   }
 
   private connectionCurrent(): boolean {
@@ -570,7 +521,7 @@ export class PlatformClawCredentialFlow {
     }
   }
 
-  private async configured(state: PendingFlow, revision?: number): Promise<boolean> {
+  private async targetAvailable(state: PendingFlow): Promise<boolean> {
     const response = await this.fetchImpl(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
@@ -595,9 +546,7 @@ export class PlatformClawCredentialFlow {
       this.invalidate("expired");
       return false;
     }
-    return (
-      revision === undefined || (definition.configured === true && definition.revision === revision)
-    );
+    return true;
   }
 
   private async configure(state: PendingFlow): Promise<void> {
@@ -615,85 +564,13 @@ export class PlatformClawCredentialFlow {
       if (
         (await this.checkIdentity(state)) &&
         (await this.readSource(state)) &&
-        (await this.configured(state)) &&
+        (await this.targetAvailable(state)) &&
         this.state === state
       ) {
         this.state = { ...state, phase: "editing" };
         this.application.navigate("credentials");
       }
     } catch {
-      if (generation === this.generation) {
-        this.error = "unconfirmed";
-      }
-    } finally {
-      if (generation === this.generation) {
-        this.busy = false;
-      }
-      this.host?.requestUpdate?.();
-    }
-  }
-
-  private async continueConversation(host: ChatAccessoryHost): Promise<void> {
-    const state = this.pending();
-    if (
-      state?.phase !== "saved" ||
-      this.busy ||
-      !this.hostCurrent(host, state) ||
-      host.chatRunId ||
-      host.chatSending ||
-      host.chatQueue.length
-    ) {
-      return;
-    }
-    const generation = this.generation;
-    this.busy = true;
-    this.host = host;
-    host.requestUpdate?.();
-    try {
-      if (
-        !(await this.checkIdentity(state)) ||
-        !(await this.readSource(state)) ||
-        !(await this.configured(state, state.revision)) ||
-        this.state !== state ||
-        !this.hostCurrent(host, state)
-      ) {
-        if (generation === this.generation) {
-          this.error = "expired";
-        }
-        return;
-      }
-      this.state = { ...state, phase: "submitting" };
-      await host.handleSendChat(
-        t("platformClaw.credentialFlow.continueMessage", { envName: state.targetKey }),
-        {
-          runId: state.requestId,
-          actionScope: {
-            agentId: state.agentId,
-            sessionKey: state.sessionKey,
-            sessionId: state.sessionId,
-            expectedLeafEntryId: state.expectedLeafEntryId,
-          },
-          ignoreReplyTarget: true,
-          onAdmitted: () => {
-            if (
-              generation === this.generation &&
-              this.state?.phase === "submitting" &&
-              this.state.requestId === state.requestId
-            ) {
-              this.state = { phase: "submitted", requestId: state.requestId };
-              this.clearTimer();
-            }
-          },
-        },
-      );
-      if (this.state?.phase === "submitting") {
-        this.state = state;
-        this.error = "unconfirmed";
-      }
-    } catch {
-      if (this.state?.phase === "submitting") {
-        this.state = state;
-      }
       if (generation === this.generation) {
         this.error = "unconfirmed";
       }

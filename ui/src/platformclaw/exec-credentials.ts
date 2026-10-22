@@ -63,14 +63,12 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
   private focusedTarget = false;
   private currentTarget?: CredentialTarget;
   private pendingAcknowledgement?: SaveAcknowledgement;
-  private confirmedAcknowledgement?: PersonalCredentialSaved;
   private readonly secretDrafts = new Map<string, string>();
   private unsubscribeLocale = () => {};
   admin = false;
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   onUnauthenticated: () => void = () => {};
   onPersonalSaved?: (ack: PersonalCredentialSaved) => void;
-  onReturnToConversation?: () => void;
   onCancelFlow?: () => void;
 
   get target(): CredentialTarget | undefined {
@@ -90,7 +88,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
     this.currentTarget = value ? { ...value } : undefined;
     this.secretDrafts.clear();
     this.pendingAcknowledgement = undefined;
-    this.confirmedAcknowledgement = undefined;
     this.focusedTarget = false;
     this.cancelled = false;
     this.accountInvalid = false;
@@ -113,7 +110,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
     this.unsubscribeLocale();
     this.secretDrafts.clear();
     this.pendingAcknowledgement = undefined;
-    this.confirmedAcknowledgement = undefined;
     this.busy = "";
     // The detached password DOM must lose the value along with the volatile map.
     this.querySelectorAll<HTMLInputElement>("[data-value]").forEach((input) => {
@@ -173,7 +169,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
       this.accountInvalid = true;
       this.secretDrafts.clear();
       this.pendingAcknowledgement = undefined;
-      this.confirmedAcknowledgement = undefined;
       if (this.messageKey === "platformClaw.execCredentials.sessionExpired") {
         this.onUnauthenticated();
       }
@@ -232,7 +227,10 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
             envName: acknowledgement.envName,
             revision: acknowledgement.revision,
           };
-          this.confirmedAcknowledgement = confirmed;
+          // The confirmed save completes this handoff in place. Retire the
+          // target without its setter's refresh so the saved status survives.
+          this.currentTarget = undefined;
+          this.focusedTarget = false;
           this.messageKey = "platformClaw.credentialFlow.saved";
           this.onPersonalSaved?.(confirmed);
         } else {
@@ -277,7 +275,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
     const generation = this.generation;
     this.busy = body.envName;
     this.messageKey = "";
-    this.confirmedAcknowledgement = undefined;
     this.render();
     try {
       const result = await this.request(path, {
@@ -337,7 +334,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
     this.cancelled = true;
     this.secretDrafts.clear();
     this.pendingAcknowledgement = undefined;
-    this.confirmedAcknowledgement = undefined;
     this.busy = "";
     this.loading = false;
     this.render();
@@ -539,19 +535,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
               { envName: this.target.envName },
             ),
             control: html`
-              <button
-                type="button"
-                class="btn primary"
-                data-flow-return
-                ?disabled=${!this.confirmedAcknowledgement || this.controlsBlocked}
-                @click=${() => {
-                  if (this.confirmedAcknowledgement && !this.controlsBlocked) {
-                    this.onReturnToConversation?.();
-                  }
-                }}
-              >
-                ${t("platformClaw.credentialFlow.return")}
-              </button>
               <button
                 type="button"
                 class="btn"

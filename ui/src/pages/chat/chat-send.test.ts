@@ -7621,6 +7621,192 @@ describe("handleSendChat", () => {
     ).toHaveProperty("expectedLeafEntryId", null);
   });
 
+  it.each(["final", "aborted", "error"] as const)(
+    "refreshes a new conversation's empty cursor after a live %s before the next send",
+    async (terminal) => {
+      const sessionId = "new-conversation-session";
+      const sessionKey = "agent:main:new-conversation";
+      const reply = {
+        role: "assistant",
+        content: [{ type: "text", text: "First reply" }],
+        __openclaw: { id: "first-reply", seq: 2 },
+      };
+      let completed = false;
+      const host = makeHost({
+        requestHandlers: {
+          "chat.history": () => ({
+            messages: completed ? [reply] : [],
+            sessionInfo: {
+              key: sessionKey,
+              sessionId,
+              activeLeafEntryId: completed ? "first-reply-leaf" : null,
+              hasActiveRun: false,
+            },
+          }),
+          "chat.send": (params: unknown) => {
+            const payload = requireRecord(params, "new conversation send");
+            return { runId: payload.idempotencyKey, status: "started" };
+          },
+        },
+        sessionKey,
+        chatMessage: "First prompt",
+      });
+      await loadChatHistory(host as unknown as Parameters<typeof loadChatHistory>[0]);
+      expect(host.chatDisplayedLeafEntryId).toBeNull();
+
+      await handleSendChat(host);
+      const firstSend = findRequestPayload(
+        host.request as unknown as MockCallSource,
+        "chat.send",
+        "first conversation send",
+      );
+      expect(firstSend).toMatchObject({ sessionId, expectedLeafEntryId: null });
+
+      // Some connections deliver chat terminals without a session.message subscription.
+      // The live reply must still reconcile the cursor owned by authoritative history.
+      completed = true;
+      handlePageGatewayEvent(asChatPageHost(host), {
+        type: "event",
+        event: "chat",
+        payload: {
+          state: terminal,
+          runId: String(firstSend.idempotencyKey),
+          sessionKey,
+          message: reply,
+        },
+      });
+      expect(host.chatRunId).toBeNull();
+      host.chatMessage = "Follow up after the reply";
+
+      await handleSendChat(host);
+
+      const sends = host.request.mock.calls.filter(([method]) => method === "chat.send");
+      expect(sends).toHaveLength(2);
+      expect(sends[1]?.[1]).toMatchObject({
+        sessionId,
+        expectedLeafEntryId: "first-reply-leaf",
+        message: "Follow up after the reply",
+      });
+      expect(host.chatError).toBeNull();
+    },
+  );
+
+  it.each(["before", "after"] as const)(
+    "fences pre-terminal history resolving %s the terminal snapshot before the next send",
+    async (resolutionOrder) => {
+      const sessionId = "new-conversation-session";
+      const sessionKey = "agent:main:new-conversation";
+      const emptyHistory = {
+        messages: [],
+        sessionInfo: { key: sessionKey, sessionId, activeLeafEntryId: null, hasActiveRun: false },
+      };
+      const oldHistory = createDeferred<unknown>();
+      const terminalHistory = createDeferred<unknown>();
+      let historyReads = 0;
+      const host = makeHost({
+        requestHandlers: {
+          "chat.history": () => {
+            historyReads += 1;
+            return historyReads === 1
+              ? emptyHistory
+              : historyReads === 2
+                ? oldHistory.promise
+                : terminalHistory.promise;
+          },
+          "chat.send": (params: unknown) => {
+            const payload = requireRecord(params, "new conversation send");
+            return { runId: payload.idempotencyKey, status: "started" };
+          },
+        },
+        sessionKey,
+        chatMessage: "First prompt",
+      });
+      const state = host as unknown as Parameters<typeof loadChatHistory>[0];
+      await loadChatHistory(state);
+      await handleSendChat(host);
+      const firstSend = findRequestPayload(
+        host.request as unknown as MockCallSource,
+        "chat.send",
+        "first conversation send",
+      );
+      const preTerminalLoad = loadChatHistory(state);
+
+      handlePageGatewayEvent(asChatPageHost(host), {
+        type: "event",
+        event: "chat",
+        payload: {
+          state: "final",
+          runId: String(firstSend.idempotencyKey),
+          sessionKey,
+          message: { role: "assistant", content: [{ type: "text", text: "First reply" }] },
+        },
+      });
+      expect(historyReads).toBe(3);
+      host.chatMessage = "Follow up after the reply";
+      const sending = handleSendChat(host);
+      if (resolutionOrder === "before") {
+        oldHistory.resolve(emptyHistory);
+        await preTerminalLoad;
+        expect(host.chatLoading).toBe(true);
+        expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(
+          1,
+        );
+      }
+      terminalHistory.resolve({
+        messages: [],
+        sessionInfo: {
+          ...emptyHistory.sessionInfo,
+          activeLeafEntryId: "first-reply-leaf",
+        },
+      });
+      await sending;
+      if (resolutionOrder === "after") {
+        oldHistory.resolve(emptyHistory);
+        await preTerminalLoad;
+      }
+
+      const sends = host.request.mock.calls.filter(([method]) => method === "chat.send");
+      expect(sends).toHaveLength(2);
+      expect(sends[1]?.[1]).toMatchObject({ sessionId, expectedLeafEntryId: "first-reply-leaf" });
+      expect(host.chatDisplayedLeafEntryId).toBe("first-reply-leaf");
+      expect(host.chatError).toBeNull();
+    },
+  );
+
+  it.each([
+    {
+      name: "conversation",
+      selectedKey: "agent:main",
+      eventKey: "agent:main:other",
+      agentId: "main",
+    },
+    { name: "global agent", selectedKey: "global", eventKey: "global", agentId: "other" },
+  ])("does not refresh the selected history for another $name's terminal", (scope) => {
+    const host = makeHost({
+      requestHandlers: {},
+      sessionKey: scope.selectedKey,
+      assistantAgentId: "main",
+      chatDisplayedLeafEntryId: "selected-leaf",
+    });
+
+    handlePageGatewayEvent(asChatPageHost(host), {
+      type: "event",
+      event: "chat",
+      payload: {
+        state: "final",
+        runId: "other-conversation-run",
+        sessionKey: scope.eventKey,
+        agentId: scope.agentId,
+        message: { role: "assistant", content: [{ type: "text", text: "Other reply" }] },
+      },
+    });
+
+    expect(host.request.mock.calls.filter(([method]) => method === "chat.history")).toHaveLength(0);
+    expect(host.chatDisplayedLeafEntryId).toBe("selected-leaf");
+    expect(host.chatMessages).toEqual([]);
+    expect(host.chatRunId).toBeNull();
+  });
+
   it.each([false, true])(
     "waits for terminal history reconciliation after a failed read: %s",
     async (failedRead) => {
@@ -7730,6 +7916,59 @@ describe("handleSendChat", () => {
       expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(1);
     },
   );
+
+  it("refreshes newly accepted peer finals while ignoring exact terminal replays", async () => {
+    const history = createDeferred<unknown>();
+    const host = makeHost({
+      requestHandlers: { "chat.history": () => history.promise },
+      chatDisplayedLeafEntryId: null,
+      chatRunId: null,
+    });
+    const first = {
+      role: "assistant",
+      content: [{ type: "text", text: "First peer reply" }],
+      __openclaw: { id: "peer-first", seq: 1 },
+    };
+    const terminal = {
+      type: "event" as const,
+      event: "chat",
+      payload: {
+        sessionKey: host.sessionKey,
+        runId: "peer-run",
+        state: "final" as const,
+        message: first,
+      },
+    };
+    handlePageGatewayEvent(asChatPageHost(host), terminal);
+    handlePageGatewayEvent(asChatPageHost(host), terminal);
+
+    expect(host.chatRunId).toBeNull();
+    expect(host.request.mock.calls.filter(([method]) => method === "chat.history")).toHaveLength(1);
+
+    handlePageGatewayEvent(asChatPageHost(host), {
+      ...terminal,
+      payload: {
+        ...terminal.payload,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Another valid peer reply" }],
+          __openclaw: { id: "peer-next", seq: 2 },
+        },
+      },
+    });
+    expect(host.request.mock.calls.filter(([method]) => method === "chat.history")).toHaveLength(2);
+    expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
+
+    history.resolve({
+      messages: [],
+      sessionInfo: {
+        activeLeafEntryId: "peer-latest-leaf",
+        key: host.sessionKey,
+        sessionId: "session-main",
+      },
+    });
+    await vi.waitFor(() => expect(host.chatDisplayedLeafEntryId).toBe("peer-latest-leaf"));
+  });
 
   it.each(["error", "aborted"] as const)(
     "does not refresh a newer run for a delayed interrupted %s",

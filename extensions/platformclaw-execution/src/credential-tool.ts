@@ -73,7 +73,9 @@ function unsupportedResult(code: "scope" | "not-allowed") {
 function listResult(definitions: CredentialDefinition[]) {
   const selected: CredentialDefinition[] = [];
   const message =
-    "Use an exact known name, or view Credentials for the full list. Stored does not mean authenticated.";
+    definitions.length === 0
+      ? "No personal execution keys are allowed by the administrator. Registration cannot start until an administrator allows the intended key. Do not invent key names, navigation paths, or OAuth connections. Never ask for secret values in chat."
+      : "Offer these allowed names and ask which key to add or replace. Registration itself is enough; do not require another task or service. Use status to check a selected name, or request to open its secure add/replacement form even if saved. Stored does not mean authenticated.";
   const build = (truncated: boolean) => {
     const outcome = { status: "available", definitions: selected, truncated };
     return textResult(JSON.stringify({ ...outcome, message }), outcome);
@@ -92,7 +94,7 @@ function listResult(definitions: CredentialDefinition[]) {
 
 function createPlatformClawCredentialTool(
   context: OpenClawPluginToolContext,
-  runtime: Promise<PlatformClawCredentialRuntime>,
+  runtime: () => Promise<PlatformClawCredentialRuntime>,
 ) {
   const { agentId, sessionKey, sessionId, runId } = context;
   const parsed = sessionKey ? parseAgentSessionKey(sessionKey) : null;
@@ -107,22 +109,22 @@ function createPlatformClawCredentialTool(
   ) {
     return null;
   }
-  // A duplicate delivery of one tool call must keep the same continuation id.
+  // A duplicate delivery of one tool call must keep the same registration request id.
   const requestIds = new Map<string, string>();
   return {
     name: PLATFORMCLAW_CREDENTIAL_TOOL_NAME,
     label: "Personal credentials",
     description:
-      "List allowed personal execution key names or check an exact key required by the current task and provide secure registration instructions. Never read, accept, or print secret values. Determine the exact name from the task or integration instructions; ask if ambiguous. When required, explain the service and task, relay the returned registration instructions, end this turn, and wait for explicit user continuation. Request one key at a time. Saved keys are not proof of service authentication.",
+      "Use first for any PlatformClaw credential registration, replacement, or saved-state question. Supports administrator-allowed personal execution environment keys, not model-provider, MCP, or OAuth credentials. Registration is itself a complete task; never require another service, task, or destination first. Without an exact name, list allowed names and ask which key to add or replace. Use status to check an exact key without opening a form. Use request to open secure registration or replacement for a selected key, even if already saved. For a task requiring a key, check status and request it if missing. Never invent names, navigation paths, OAuth flows, or connection support. Never inspect shell/environment, memory, or session history to manage or check these keys. Never read, accept, or print secret values. After request, relay the returned instructions and end this turn. Saving completes registration; no further confirmation message is needed. Saving never sends a message or automatically resumes a task. Request one key at a time. Saved does not mean authenticated.",
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "request"] },
+        action: { type: "string", enum: ["list", "status", "request"] },
         envName: {
           type: "string",
           maxLength: 128,
           description:
-            "Exact allowed environment variable name; required for request, omitted for list. Never a secret value.",
+            "Exact allowed environment variable name; required for status or request, omitted for list. Never a secret value.",
         },
       },
       required: ["action"],
@@ -135,9 +137,9 @@ function createPlatformClawCredentialTool(
       const args = input as Record<string, unknown>;
       if (
         Object.keys(args).some((key) => key !== "action" && key !== "envName") ||
-        (args.action !== "list" && args.action !== "request") ||
+        (args.action !== "list" && args.action !== "status" && args.action !== "request") ||
         (args.action === "list" && args.envName !== undefined) ||
-        (args.action === "request" &&
+        (args.action !== "list" &&
           (typeof args.envName !== "string" || !ENV_NAME.test(args.envName)))
       ) {
         return unsupportedResult("not-allowed");
@@ -145,7 +147,7 @@ function createPlatformClawCredentialTool(
       let metadata: PlatformClawCredentialMetadata;
       try {
         metadata = parseCredentialMetadata(
-          await (await runtime).credentialMetadata({ agentId, sessionKey }),
+          await (await runtime()).credentialMetadata({ agentId, sessionKey }),
         );
       } catch {
         return unavailableResult();
@@ -160,11 +162,13 @@ function createPlatformClawCredentialTool(
       if (!definition) {
         return unsupportedResult("not-allowed");
       }
-      if (definition.configured) {
+      if (args.action === "status") {
         return textResult(
-          `${definition.envName} is saved. This does not verify service access or permissions.`,
+          definition.configured
+            ? `${definition.envName} is saved. This does not verify service access or permissions. Use request if the user wants to replace it.`
+            : `${definition.envName} is not saved. Use request to open secure registration when the user wants to add it or the current task needs it. Never paste a key in chat.`,
           {
-            status: "configured",
+            status: definition.configured ? "configured" : "missing",
             envName: definition.envName,
           },
         );
@@ -175,10 +179,11 @@ function createPlatformClawCredentialTool(
       const requestId = requestIds.get(toolCallId) ?? randomUUID();
       requestIds.set(toolCallId, requestId);
       return textResult(
-        `${definition.envName} is not saved. Explain why the task needs it. If a secure registration button appears, use it and select Continue after saving. If no button appears, sign in to PlatformClaw on a PC, open Settings > Credentials, save ${definition.envName}, then send a new message asking to continue in the original conversation. Never paste a key in chat. Relay these steps to the user, then end this turn. Wait for explicit user continuation; saving alone does not restart the task, and no tool call is suspended or automatically resumed.`,
+        `${definition.envName} ${definition.configured ? "is already saved; the secure form replaces its value" : "is not saved; the secure form adds its value"}. Use the secure registration button to save ${definition.envName}. If no button appears, sign in to PlatformClaw on a PC, open Settings > Credentials, and save ${definition.envName}. Saving completes registration or replacement; no further confirmation message is needed. Saving never sends a chat message or automatically restarts a task. To continue another task, return to the conversation and send an ordinary message when ready. Never paste a key in chat. Relay these steps to the user, then end this turn.`,
         {
           status: "required",
           envName: definition.envName,
+          configured: definition.configured,
           uiAction: {
             version: 1,
             kind: "settings",
@@ -194,11 +199,15 @@ function createPlatformClawCredentialTool(
 
 export function registerPlatformClawCredentialTool(
   api: Pick<OpenClawPluginApi, "registrationMode" | "registerTool">,
-  runtime?: Promise<PlatformClawCredentialRuntime>,
+  runtime?: () => Promise<PlatformClawCredentialRuntime>,
 ): void {
-  if (api.registrationMode === "tool-discovery") {
-    api.registerTool(() => null, { name: PLATFORMCLAW_CREDENTIAL_TOOL_NAME });
-  } else if (api.registrationMode === "full") {
+  if (
+    api.registrationMode === "full" ||
+    api.registrationMode === "discovery" ||
+    api.registrationMode === "tool-discovery"
+  ) {
+    // Prepared agent registries execute discovery factories too. Resolve the
+    // credential client only on a call so discovery stays free of runtime I/O.
     api.registerTool(
       (context) => (runtime ? createPlatformClawCredentialTool(context, runtime) : null),
       { name: PLATFORMCLAW_CREDENTIAL_TOOL_NAME },

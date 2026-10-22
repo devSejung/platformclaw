@@ -46,12 +46,10 @@ export const translations: Readonly<Record<string, string>> = {
     "This task needs {envName}. Enter the key in Credentials, not in chat.",
   "platformClaw.credentialFlow.configure": "Add key",
   "platformClaw.credentialFlow.later": "Not now",
-  "platformClaw.credentialFlow.targetHint": "Save {envName}, then return to this conversation.",
+  "platformClaw.credentialFlow.targetHint":
+    "Enter a value for {envName} and save to finish registration.",
   "platformClaw.credentialFlow.saved": "Saved. Service authentication has not been checked.",
-  "platformClaw.credentialFlow.return": "Return to conversation",
-  "platformClaw.credentialFlow.continue": "Continue",
-  "platformClaw.credentialFlow.continueHint":
-    "Send a new request in the original conversation to continue.",
+  "platformClaw.credentialFlow.return": "Back to chat",
   "platformClaw.credentialFlow.expired":
     "This request has expired. Ask for key setup again in the conversation.",
   "platformClaw.credentialFlow.unconfirmed": "We could not confirm whether the key was saved.",
@@ -61,9 +59,7 @@ export const translations: Readonly<Record<string, string>> = {
     "This request ended because the signed-in account changed.",
   "platformClaw.credentialFlow.recheckStatus": "Check status again",
   "platformClaw.credentialFlow.stateChanged":
-    "The stored key changed. Save the key again before continuing.",
-  "platformClaw.credentialFlow.continueMessage":
-    "I have saved {envName}. Continue the previous request from the current conversation state. Do not repeat completed work, and follow existing confirmation requirements for any further action.",
+    "The stored key changed. Enter and save the new value again.",
   "platformClaw.waitingTips.request":
     "Mind reading is still in beta. Include your preferred output format.",
   "platformClaw.waitingTips.newChat": "New topic? Start a new chat. Context needs fresh air too.",

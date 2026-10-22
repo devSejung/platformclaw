@@ -394,7 +394,6 @@ export class PlatformClawControlUiAdapter {
                     .onUnauthenticated=${onUnauthenticated}
                     .target=${credentialFlow.target}
                     .onPersonalSaved=${credentialFlow.saved}
-                    .onReturnToConversation=${credentialFlow.returnToConversation}
                     .onCancelFlow=${credentialFlow.cancel}
                   ></platformclaw-exec-credentials>
                 </main>

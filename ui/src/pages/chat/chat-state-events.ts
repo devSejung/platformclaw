@@ -1,6 +1,7 @@
 import {
   readSessionMessageIdentity,
   readSessionMessageSequence,
+  type SessionProjectionRun,
 } from "@openclaw/gateway-client/browser";
 import type { SessionObserverDigest } from "../../../../packages/gateway-protocol/src/schema/sessions.js";
 import type { GatewayEventFrame } from "../../api/gateway.ts";
@@ -45,7 +46,11 @@ import type { ChatPageHost } from "./chat-state-host.ts";
 import { requestChatPageUpdate } from "./chat-state-render.ts";
 import { resolveChatAgentId, selectedChatSessionRow } from "./chat-state-route.ts";
 import { handleBackgroundTasksEvent } from "./components/chat-background-tasks.ts";
-import { readChatSessionProjectionScope, reduceChatSessionProjection } from "./history-merge.ts";
+import {
+  getChatSessionProjection,
+  readChatSessionProjectionScope,
+  reduceChatSessionProjection,
+} from "./history-merge.ts";
 import {
   reconcileChatRunFromCurrentSessionRow,
   reconcileChatRunFromSessionRow,
@@ -235,23 +240,35 @@ function handleSessionMessageEvent(state: ChatPageHost, payload: unknown) {
   }
 }
 
-function replayPendingSessionMessageReload(
+function refreshHistoryAfterChatTerminal(
   state: ChatPageHost,
   payload: ChatEventPayload | undefined,
+  previousRun: SessionProjectionRun | undefined,
 ) {
-  const pendingSessionKey = state.pendingSessionMessageReloadSessionKey;
   const payloadSessionKey = payload?.sessionKey?.trim();
   if (
-    !pendingSessionKey ||
+    (payload?.state !== "final" && payload?.state !== "aborted" && payload?.state !== "error") ||
+    typeof payload.runId !== "string" ||
     !payloadSessionKey ||
-    !areUiSessionKeysEquivalent(pendingSessionKey, payloadSessionKey) ||
-    !areUiSessionKeysEquivalent(payloadSessionKey, state.sessionKey) ||
+    !chatScopedEventSessionMatches(state, payloadSessionKey, payload.agentId) ||
     state.chatRunId
   ) {
     return;
   }
+  const currentRun = getChatSessionProjection(
+    state,
+    state.chatMessages,
+    readChatSessionProjectionScope(state),
+  ).runs[payload.runId];
+  // The canonical reducer retains a Run on replay and replaces it for newly
+  // accepted finals, including peer runs that never owned the local stream.
+  if (!currentRun || currentRun === previousRun || currentRun.status === "streaming") {
+    return;
+  }
   state.pendingSessionMessageReloadSessionKey = null;
-  void loadChatHistory(state).finally(() => state.requestUpdate?.());
+  // Final replies can arrive without a transcript subscription event. A read
+  // started before completion cannot own the next send's branch cursor.
+  void loadChatHistory(state, { refresh: true }).finally(() => state.requestUpdate?.());
 }
 
 function handleSessionsChangedEvent(state: ChatPageHost, payload: unknown) {
@@ -472,9 +489,11 @@ export function handlePageGatewayEvent(state: ChatPageHost, event: GatewayEventF
       shouldCelebrateFirstReply && finalAssistantReplyHasPullRequestLink(state, payload);
     const terminal =
       payload?.state === "final" || payload?.state === "aborted" || payload?.state === "error";
-    const refreshInterruptedHistory =
-      (payload?.state === "error" || payload?.state === "aborted") &&
-      terminalOwnsActiveChatStream(state, payload);
+    const runBeforeTerminal =
+      terminal && payload?.runId
+        ? getChatSessionProjection(state, state.chatMessages, readChatSessionProjectionScope(state))
+            .runs[payload.runId]
+        : undefined;
     const delivered = terminal ? rememberDeliveredQueuedUserTurn(state, payload?.runId) : null;
     if (delivered) {
       // The queued projection is the only local copy until history catches up.
@@ -488,12 +507,7 @@ export function handlePageGatewayEvent(state: ChatPageHost, event: GatewayEventF
     if (shouldRefreshPullRequests) {
       void state.refreshSessionPullRequests?.({ refresh: true });
     }
-    if (refreshInterruptedHistory) {
-      // Interrupted runs can advance the persisted leaf without an assistant
-      // session.message. Supersede earlier snapshots before sends reuse this read.
-      void loadChatHistory(state, { refresh: true }).finally(() => state.requestUpdate?.());
-    }
-    replayPendingSessionMessageReload(state, payload);
+    refreshHistoryAfterChatTerminal(state, payload, runBeforeTerminal);
     if (terminal) {
       removeDeliveredQueuedChatSendForRun(state, payload?.runId);
       void resumeStoredChatOutboxes(state);
