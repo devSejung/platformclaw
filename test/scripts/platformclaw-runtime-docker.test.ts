@@ -2262,9 +2262,9 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
       applyImages.indexOf('"${compose[@]}" down'),
     );
     expect(deploy.indexOf('"${compose[@]}" up -d --wait &&')).toBeLessThan(
-      deploy.indexOf('[[ "$current_sandbox" == "$sandbox_image" ]] || recreate_sandboxes'),
+      deploy.indexOf("    recreate_sandboxes; then"),
     );
-    expect(deploy.indexOf("recreate_sandboxes; }; then")).toBeLessThan(
+    expect(deploy.indexOf("    recreate_sandboxes; then")).toBeLessThan(
       deploy.indexOf('echo "PlatformClaw updated: $main_image / $sandbox_image"'),
     );
     const upCommand = deploy.slice(deploy.indexOf("  up)"), deploy.indexOf("\n  down)"));

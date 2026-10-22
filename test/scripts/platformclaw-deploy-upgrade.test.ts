@@ -120,6 +120,7 @@ case "$*" in
     [[ -e "$probe_root/running" ]] || exit 93
     if [[ "$*" == *"sandbox recreate --all --force"* ]]; then
       event sandboxes
+      [[ "$PLATFORMCLAW_TEST_MODE" != recreate-failure ]] || exit 19
     elif [[ "$*" == *"doctor --lint --deferred --json"* ]]; then
       event diagnostics
       # Model an accepted request while diagnostics run. Rollback would discard it.
@@ -139,9 +140,14 @@ esac
 }
 
 describe.skipIf(process.platform === "win32")("PlatformClaw image update lifecycle", () => {
-  it.each(["set", "update"])("opens services before diagnostics for image %s", (command) => {
+  it.each([
+    ["set", newSha],
+    ["update", newSha],
+    ["set", oldSha],
+    ["update", oldSha],
+  ])("opens services and refreshes sandboxes for image %s targeting %s", (command, targetSha) => {
     const fixture = createUpgradeFixture("success");
-    const result = runUpgrade(fixture, command);
+    const result = runUpgrade(fixture, command, targetSha);
     expect(result.status, result.stderr || result.error?.message).toBe(0);
     expect(readEvents(fixture)).toEqual([
       ...(command === "update" ? ["load", "load"] : []),
@@ -154,6 +160,9 @@ describe.skipIf(process.platform === "win32")("PlatformClaw image update lifecyc
     expect(readFileSync(path.join(fixture.state, "synthetic-state"), "utf8")).toBe("migrated\n");
     expect(readFileSync(path.join(fixture.state, "accepted-request"), "utf8")).toBe(
       "accepted-after-ready\n",
+    );
+    expect(readFileSync(fixture.envFile, "utf8")).toContain(
+      `PLATFORMCLAW_SANDBOX_IMAGE=platformclaw-sandbox:${targetSha}`,
     );
   });
 
@@ -172,7 +181,7 @@ describe.skipIf(process.platform === "win32")("PlatformClaw image update lifecyc
     expect(existsSync(path.join(fixture.root, "running"))).toBe(true);
   });
 
-  it.each(["repair-failure", "health-failure"])(
+  it.each(["repair-failure", "health-failure", "recreate-failure"])(
     "restores old state and images after %s",
     (mode) => {
       const fixture = createUpgradeFixture(mode);
@@ -182,6 +191,7 @@ describe.skipIf(process.platform === "win32")("PlatformClaw image update lifecyc
         "down",
         "repair",
         ...(mode === "health-failure" ? ["health-failure"] : []),
+        ...(mode === "recreate-failure" ? ["ready", "sandboxes"] : []),
         "down",
         "ready",
       ]);
@@ -193,6 +203,7 @@ describe.skipIf(process.platform === "win32")("PlatformClaw image update lifecyc
       );
       expect(existsSync(path.join(fixture.state, "accepted-request"))).toBe(false);
       expect(existsSync(path.join(fixture.root, "running"))).toBe(true);
+      expect(result.stdout).not.toContain("PlatformClaw updated:");
     },
   );
 });
@@ -201,7 +212,11 @@ function readEvents(fixture: ReturnType<typeof createUpgradeFixture>) {
   return readFileSync(path.join(fixture.root, "events"), "utf8").trim().split("\n");
 }
 
-function runUpgrade(fixture: ReturnType<typeof createUpgradeFixture>, command = "set") {
+function runUpgrade(
+  fixture: ReturnType<typeof createUpgradeFixture>,
+  command = "set",
+  targetSha = newSha,
+) {
   return spawnSync(
     "bash",
     [
@@ -209,8 +224,8 @@ function runUpgrade(fixture: ReturnType<typeof createUpgradeFixture>, command = 
       "image",
       command,
       ...(command === "update" ? [fixture.archive] : []),
-      `platformclaw:${newSha}`,
-      `platformclaw-sandbox:${newSha}`,
+      `platformclaw:${targetSha}`,
+      `platformclaw-sandbox:${targetSha}`,
     ],
     {
       encoding: "utf8",

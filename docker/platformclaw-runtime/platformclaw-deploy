@@ -1382,6 +1382,8 @@ apply_images() {
 
   # Doctor owns persisted-state upgrades. Keep a quiesced full state snapshot so
   # a failed health check can restore both the old image refs and its DB schema.
+  # External build inputs such as pip.conf can change under the same source tag.
+  # Always retire existing sandboxes so the next run uses the loaded image bytes.
   if "${compose[@]}" config --quiet && \
     "${compose[@]}" down && \
     create_gateway_state_backup && \
@@ -1389,7 +1391,7 @@ apply_images() {
     run_upgrade_doctor && \
     bootstrap_skillhub true && \
     "${compose[@]}" up -d --wait && \
-    { [[ "$current_sandbox" == "$sandbox_image" ]] || recreate_sandboxes; }; then
+    recreate_sandboxes; then
     echo "PlatformClaw updated: $main_image / $sandbox_image"
     echo "Pre-update Gateway state retained for explicit rollback: $gateway_state_backup"
     # Read-only findings must never restore a pre-update snapshot after the
