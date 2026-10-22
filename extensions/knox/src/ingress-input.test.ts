@@ -24,6 +24,7 @@ import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 const account: ResolvedKnoxAccount = {
   accountId: "synthetic",
   enabled: true,
+  selfInSpaceEnabled: false,
   configured: true,
   webhookPath: "/knox",
   webhookSecret: "w".repeat(32),
@@ -32,7 +33,7 @@ const account: ResolvedKnoxAccount = {
   controlPlaneUrl: "http://control.invalid/route",
   progressDelayMs: 60_000,
 };
-function message(id: string, text: string): KnoxInboundMessage {
+function message(id: string, text: string): Extract<KnoxInboundMessage, { schemaVersion: 1 }> {
   return {
     schemaVersion: 1,
     eventId: `event-${id}`,

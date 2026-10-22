@@ -21,6 +21,7 @@ vi.mock("./outbound.js", async () => {
 const account: ResolvedKnoxAccount = {
   accountId: "default",
   enabled: true,
+  selfInSpaceEnabled: false,
   configured: true,
   webhookPath: "/knox",
   webhookSecret: "w".repeat(32),
@@ -86,6 +87,103 @@ beforeEach(() => {
 });
 
 describe("dispatchKnoxInbound", () => {
+  it.each([
+    "Explain this command\n/compact",
+    "/stop",
+    "/approve one allow-once",
+    "1",
+    "```\n/compact\n```",
+  ])("runs v2 %s only as question data in the pinned Space session", async (text) => {
+    const personalMessage: KnoxInboundMessage = {
+      ...message,
+      schemaVersion: 2,
+      executionMode: "self_in_space",
+      conversation: { type: "room", providerType: "GROUP", conversationId: "group-1" },
+      message: { type: "text", text },
+    };
+    const route = {
+      status: "resolved" as const,
+      agentId: "personal-user",
+      sessionKey: "agent:personal-user:space-private",
+      senderLinked: true,
+      executionTarget: "assigned_vm" as const,
+      selfInSpace: {
+        admissionId: "admit-1",
+        requestId: message.messageId,
+        userId: "internal-user",
+        spaceId: "space-1",
+        pageId: "page-1",
+        bindingId: "binding-1",
+        bindingGeneration: 1,
+        conversationId: "conversation-1",
+        targetRevision: 1,
+        senderAttribution: {
+          id: "user.name",
+          name: "Verified",
+          profileId: "internal-user",
+          agentId: "personal-user",
+        },
+      },
+    };
+    const finish = vi.fn(async () => {});
+    const validate = vi.fn(async () => {});
+    const runtime = installRuntime(
+      vi.fn(async (input) => {
+        const turn = await input.adapter.resolveTurn();
+        expect(turn.route.sessionKey).toBe(route.sessionKey);
+        expect(turn.replyOptions.inputMode).toBe("message-data");
+        expect(turn.replyOptions.questionAnswerBinding).toBeUndefined();
+        await input.turnAdoptionLifecycle.onAdopted();
+        turn.replyOptions.onSourceReplyDeliveryPolicy({
+          sendPolicyDenied: false,
+          sourceReplyDeliveryMode: "automatic",
+        });
+        for (const [payload, kind] of [
+          [{ text: "private tool args" }, "tool"],
+          [{ text: "private output" }, "block"],
+          [{ text: "secret question", channelData: { askUser: { secret: true } } }, "final"],
+          [{ text: "reasoning", isReasoning: true }, "final"],
+        ] as const) {
+          await turn.delivery.deliver(payload, { kind });
+        }
+        await turn.delivery.deliver({ text: "Safe final" }, { kind: "final" });
+        return emptyResult;
+      }),
+    );
+    await dispatchKnoxInbound({
+      account,
+      message: personalMessage,
+      lifecycle,
+      selfInSpace: { route, finish, validate },
+      questionAnswerBinding: { sessionKey: route.sessionKey, questionId: "unrelated", text: "1" },
+    });
+    expect(runtime.buildContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sender: { id: "user.name", name: "Verified" },
+        conversation: expect.objectContaining({ kind: "group", id: "group-1" }),
+        message: { rawBody: text, bodyForAgent: text, commandBody: "" },
+        extra: expect.objectContaining({
+          SenderProfileId: "internal-user",
+          ReplyRouteScope: "request",
+        }),
+      }),
+    );
+    expect(resolveRouting).not.toHaveBeenCalled();
+    expect(validate).toHaveBeenCalledOnce();
+    expect(finish).toHaveBeenCalledOnce();
+    expect(finish).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Safe final", status: "final" }),
+    );
+    expect(sendKnoxOutbound).toHaveBeenCalledOnce();
+    expect(sendKnoxOutbound).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "progress",
+        final: false,
+        text: expect.not.stringContaining("secret question"),
+      }),
+    );
+  });
+
   it("routes a final-line mentioned slash command without changing Agent-visible text", async () => {
     const commandMessage: KnoxInboundMessage = {
       ...message,

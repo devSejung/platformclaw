@@ -343,10 +343,21 @@ export default definePluginEntry({
       },
     });
     registerSandboxBackend(PLATFORMCLAW_EXECUTION_BACKEND_ID, {
-      factory: async (params) =>
-        await createPlatformClawExecutionBackendFactory(await dependenciesPromise, {
+      factory: async (params) => {
+        const runId = params.runId
+          ? api.runContext.resolveAdmissionId({
+              agentId: params.agentId,
+              sessionKey: params.sessionKey,
+              runId: params.runId,
+            })
+          : undefined;
+        if (params.runId && !runId) {
+          throw new Error("Execution run authorization is unavailable");
+        }
+        return await createPlatformClawExecutionBackendFactory(await dependenciesPromise, {
           logTiming,
-        })(params),
+        })({ ...params, ...(runId ? { runId } : {}) });
+      },
       skillMaterialization: "backend-deferred",
       skills: async (params) =>
         await createPlatformClawExecutionSkillProvider(await dependenciesPromise)(params),

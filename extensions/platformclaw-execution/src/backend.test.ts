@@ -113,6 +113,28 @@ function createDependencies(
 }
 
 describe("PlatformClaw execution backend", () => {
+  it("authorizes the original run before reading skills or creating any target handle", async () => {
+    const dependencies = createDependencies(async () => {
+      throw new Error("Original execution target changed");
+    });
+    const params = { ...createParams("person_one"), runId: "knox-my:original-admission" };
+
+    await expect(createPlatformClawExecutionBackendFactory(dependencies)(params)).rejects.toThrow(
+      "Original execution target changed",
+    );
+
+    expect(dependencies.resolveTarget).toHaveBeenCalledExactlyOnceWith({
+      agentId: "person_one",
+      sessionKey: params.sessionKey,
+      runId: "knox-my:original-admission",
+    });
+    expect(dependencies.listTargetSkills).not.toHaveBeenCalled();
+    expect(params.materializeSkills).not.toHaveBeenCalled();
+    expect(dependencies.createPlatformServerHandle).not.toHaveBeenCalled();
+    expect(dependencies.createAssignedVmHandle).not.toHaveBeenCalled();
+    expect(dependencies.createSkillWorkshopTarget).not.toHaveBeenCalled();
+  });
+
   it("scopes each user's Claude gateway environment to only that user's Claude ACP launch", () => {
     const target = {
       remoteHomeDir: "/home/one",
@@ -295,8 +317,8 @@ describe("PlatformClaw execution backend", () => {
     const [first, second] = await Promise.all([factory(firstParams), factory(secondParams)]);
 
     expect(resolveTarget.mock.calls).toEqual([
-      [{ agentId: "person_one" }],
-      [{ agentId: "person_two" }],
+      [{ agentId: "person_one", sessionKey: firstParams.sessionKey }],
+      [{ agentId: "person_two", sessionKey: secondParams.sessionKey }],
     ]);
     expect(dependencies.createPlatformServerHandle).toHaveBeenCalledWith(
       expect.objectContaining({

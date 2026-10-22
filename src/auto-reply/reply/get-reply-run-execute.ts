@@ -263,6 +263,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
           sender: persistGroupSender
             ? {
                 id: normalizeOptionalString(sessionCtx.SenderId),
+                profileId: normalizeOptionalString(sessionCtx.SenderProfileId),
                 name: normalizeOptionalString(sessionCtx.SenderName),
                 username: normalizeOptionalString(sessionCtx.SenderUsername),
               }
@@ -305,7 +306,10 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
   const admissionRunId = resolvedQueue.mode === "followup" ? opts?.runId : undefined;
   const followupRun = {
     prompt: queuedBody,
-    ...(admissionRunId ? { disableCollectBatching: true } : {}),
+    ...(admissionRunId || ctx.ReplyRouteScope === "request"
+      ? { disableCollectBatching: true }
+      : {}),
+    ...(ctx.ReplyRouteScope === "request" ? { replyRouteScope: "request" as const } : {}),
     transcriptPrompt: transcriptCommandBody,
     ...(userTurnTranscriptRecorder ? { userTurnTranscriptRecorder } : {}),
     currentInboundEventKind: inboundEventKind,

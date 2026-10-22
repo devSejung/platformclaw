@@ -56,15 +56,16 @@ authoritative.
 
 The first release supports text only.
 
-| Knox surface                  | PlatformClaw behavior                                |
-| ----------------------------- | ---------------------------------------------------- |
-| `SINGLE`                      | Existing personal agent's `main` session             |
-| `GROUP`                       | Idempotently provision or reuse `group-<chatroomId>` |
-| Files and images              | Unsupported                                          |
-| Threads and replies           | Unsupported                                          |
-| Edits, deletes, and reactions | Unsupported                                          |
+| Knox surface                  | PlatformClaw behavior                                  |
+| ----------------------------- | ------------------------------------------------------ |
+| `SINGLE`                      | Existing personal agent's `main` session               |
+| `GROUP`, version 1            | Idempotently provision or reuse `group-<chatroomId>`   |
+| `GROUP`, version 2            | Authorized personal Space session; disabled by default |
+| Files and images              | Unsupported                                            |
+| Threads and replies           | Unsupported                                            |
+| Edits, deletes, and reactions | Unsupported                                            |
 
-An unregistered Knox participant may invoke a `GROUP` room agent. This does not
+An unregistered Knox participant may invoke a version 1 `GROUP` room agent. This does not
 grant personal-agent access, employee context, VM credentials, or a personal
 execution target. The authenticated room ID remains routing authority, and the
 room agent remains inside the server Docker policy.
@@ -290,7 +291,7 @@ guidance before it calls the plugin.
 
 ### Group messages
 
-For `room`, the plugin ignores caller-supplied agent or session values:
+For version 1 `room`, the plugin ignores caller-supplied agent or session values:
 
 ```text
 accountId + conversationId -> room binding -> group-<chatroomId>
@@ -317,9 +318,274 @@ configuration:
 - keep internal TypeScript tools on the request-scoped `requesterSenderId`
   field, also set to `knoxUserId`, instead of reading `process.env`.
 
-Each room message receives its own sender value even though all participants
+Each ordinary room message receives its own sender value even though all participants
 share the room agent and conversation. This does not grant an unregistered
 participant an employee profile, personal binding, credential, or VM target.
+
+## Personal Space requests with version 2
+
+Version 2 runs the sender's personal Agent in a connected Space page and returns
+its final answer to the original Knox group. PlatformClaw implements this backend
+with `selfInSpaceEnabled` defaulting to `false`. CDEP parsing and live Knox
+delivery remain separate integration work. Production enablement requires both
+implementations and CDEP durable outbound idempotency.
+
+The room Agent is not invoked. Questions and answers are not automatically copied
+into Main, Shared Q&A posts, or Shared Notes. Their registered personal conversation
+still contributes questions and final answers to authorized Space shared recall.
+
+### Input and command ownership
+
+Use the existing public inbound endpoint and authentication. Only this version 2
+combination is accepted:
+
+```json
+{
+  "schemaVersion": 2,
+  "executionMode": "self_in_space",
+  "eventId": "evt_example",
+  "messageId": "msg_example",
+  "occurredAt": "2026-10-22T01:00:00.000Z",
+  "sender": { "knoxUserId": "user.name", "displayName": "Example User" },
+  "conversation": {
+    "type": "room",
+    "providerType": "GROUP",
+    "conversationId": "99343295704997888"
+  },
+  "message": { "type": "text", "text": "Inspect the code in my work location." }
+}
+```
+
+Ordinary groups and DMs keep version 1. Version 2 with a missing or unsupported
+mode or a DM combination is rejected. Version 1 containing `executionMode` is also
+rejected. Never downgrade a rejected version 2 request to ordinary group execution.
+Version 2 `messageId` is limited to 256 UTF-16 code units, matching the private
+admission request identity limit. Oversized IDs receive `400` before admission.
+
+CDEP must recognize `/my` only in the actual author's command position in an
+explicitly mentioned group message, remove it, and preserve the remaining question
+including code and newlines. Quotes, code blocks, URLs, and `/myfoo` are not
+commands. Empty questions and DM use need CDEP guidance without an Agent call.
+These are CDEP requirements, not claims about its current implementation.
+
+PlatformClaw treats the entire version 2 body as question data. It does not extract
+slash commands or match pending-question choices. A body ending in `/compact`,
+`/stop`, or `/approve` cannot execute that command. `/my` personal control commands
+are unsupported; use the owner's web controls. Version 1 commands are unchanged.
+Keep exact-body HMAC, freshness, string IDs, and the original raw Knox identity.
+CDEP supplies no internal user, Space, Agent, session, VM, or Credential authority.
+Internal `PlatformUser.id` supplies verified Q&A attribution; the separate raw
+`knoxUserId` remains request-scoped `SENDER_ID`.
+
+### Enablement and acknowledgement
+
+Set `channels.knox.selfInSpaceEnabled`, or its account override at
+`channels.knox.accounts.<accountId>.selfInSpaceEnabled`. Omission and `false` both
+disable new v2 admission. Turning it off keeps accepted requests in their own
+queue and allows recovery while the Knox account continues running.
+
+| Public inbound result                                              |  HTTP | Meaning                                          |
+| ------------------------------------------------------------------ | ----: | ------------------------------------------------ |
+| Authenticated v2 while disabled                                    | `409` | `self_in_space_disabled`, `retryable: false`     |
+| Account/message ID reused with changed normalized identity or mode | `409` | `message_identity_conflict`, `retryable: false`  |
+| Invalid payload, version, or mode                                  | `400` | `invalid_payload`; no admission                  |
+| Invalid HMAC or freshness                                          | `401` | `invalid_signature`; no admission                |
+| Admission infrastructure unavailable                               | `503` | `admission_unavailable`; retry the same identity |
+| New durable admission                                              | `202` | Accepted for processing, not execution success   |
+| Existing durable admission                                         | `200` | Duplicate confirmation, not execution success    |
+
+An unconnected Space, Viewer, disabled room, or revoked request can be accepted
+durably and then end with a generic terminal reply. Its delivery uses the
+authenticated original group destination without exposing hidden Space content,
+internal paths, or credentials, even when personal execution is denied.
+
+### Manage room connections
+
+Room provisioning and Space connection are separate. Use an existing active Knox
+room, Space page, and manually authorized employees. Management uses
+`GET /platformclaw/api/admin/knox-space-bindings` and POST on the same path.
+Both require an active administrator's `platformclaw_session` cookie; POST also
+requires the configured same-origin check. Connecting additionally requires that
+the administrator is an Owner of the selected Space and the page belongs to it.
+There is no dedicated connection manager UI.
+
+GET returns `bindings` and a bounded `admissions` snapshot with durable states and
+`cancellationPending`. For an initial connection, POST:
+
+```json
+{
+  "action": "connect",
+  "accountId": "default",
+  "roomId": "99343295704997888",
+  "spaceId": "<space-id>",
+  "pageId": "<page-id>",
+  "expectedGeneration": 0
+}
+```
+
+Change the Space or page with `connect` and the current `expectedGeneration`.
+Disconnect with `disconnect`, `accountId`, `roomId`, and `expectedGeneration`.
+Every change advances the generation and permanently revokes the old pending
+requests. Stale generations return `409`; read again before retrying. Missing
+authentication returns `401`, missing authority or rejected origin `403`, invalid
+input `400`, and infrastructure failure `503`.
+
+The connection commits before cancellation. If cancellation fails, inspect the
+snapshot and POST `{"action":"retry-cancellation"}`. Cancellation targets exact
+`knox-my:<admissionId>` runs, preserving a later independent web turn in the same
+session.
+
+### Pin authority and sessions before execution
+
+The existing private `/platformclaw/internal/knox/route` supports three operations:
+
+- `reserve` registers the verified user, binding ID/generation, Space/page,
+  personal conversation, and execution-target identity before queue admission.
+  Registration needs no live Gateway.
+- `validate` checks that same admission. Default `phase: "execute"` also provisions
+  its native session. `phase: "publish"` validates disclosure without provisioning.
+- `settle` retains a terminal receipt after delivery processing.
+
+Calls include `executionMode`, original message ID as `requestId`, and the
+lowercase SHA-256 `requestFingerprint` of the normalized envelope. Validation and
+settlement also require `admissionId`; settlement uses `outcome: "finished"` or
+`"failed"`. A resolved response has `agentId`, `sessionKey`, `executionTarget`, and
+`selfInSpace`: admission/request/user/Space/page/binding/conversation IDs, numeric
+`bindingGeneration` and `targetRevision`, and verified `senderAttribution`.
+This service is not a CDEP-accessible session-creation API.
+
+Shared JSON fixtures live in `extensions/knox/test-fixtures/my/`. Authentication,
+schema, outbound retry, delivery-recovery, and rollback tests read them directly.
+`resolved-route.json` is a private control-plane/durable-state fixture, never a
+CDEP-supplied routing authority.
+
+Internal product failures use HTTP `200`, `ok: true`, an `admissionId`, and one of:
+`agent-unavailable`, `login-required`, `permission-denied`, `request-conflict`,
+`request-revoked`, `request-settled`, `room-disabled`, `space-unavailable`, or
+`target-changed`. They grant no execution authority. Internal authentication,
+input, and infrastructure errors remain `401`, `400`, and `503`. Version 1 keeps
+its existing behavior, including transient `agent-unavailable` HTTP `503`.
+
+One conversation per binding generation and employee is registered through the
+existing Space registry. Concurrent creation and restart converge; existing
+private sessions are never adopted. The 200-conversation limit per Space still
+applies. Unavailable targets never fall back to personal main or room sessions.
+
+New control-plane tables are additive in its existing SQLite database without a
+schema version bump. The plugin retains the real account ID and selects
+`queueNamespace: "self-in-space-v2"`, payload version 2, and the pinned session as
+its execution lane. Its queue key is `["knox", accountId, "self-in-space-v2"]`;
+ordinary consumers retain `["knox", accountId]`. These identities cannot collide
+even when another account ID contains the namespace text. Ordinary room requests
+and other employees do not share that execution lane.
+Gateway ordering still serializes work on the same actual session.
+
+Member removal/downgrade, disabled user/Agent/room, Space deletion, connection
+changes, and personal target changes permanently revoke affected pending admissions. Re-granting access cannot
+revive them. Another member's unrelated role change does not revoke everyone.
+Native tool checks and final publication recheck authority. The personal target
+identity remains pinned; a VM failure cannot select the server instead. Before
+backend creation, the private execution-target endpoint checks the original
+admission, session, and Agent, then checks the exact returned target snapshot.
+Space tool and approval checks also compare the allocation and Credential revision;
+switching away and back cannot release an older admission.
+Approval resumption also rechecks the original admission after the wait. Restored
+membership alone cannot release a tool parked under a revoked request.
+For a Knox personal admission, the host forces `exec.required: true` so an approval
+wait and its completion remain in that owner turn. A model-supplied `false` cannot
+detach execution into a separate later reply. Ordinary web and v1 runs keep their
+existing execution policy.
+
+Until detached work can inherit the original admission, pinned target, and result
+ledger, `/my` rejects `sessions_spawn`, `sessions_send`, `conversations_send`,
+`conversations_turn`, the independent `openclaw` operator delegate, automation
+creation/change/run/wake, and image, music, or video generation. Direct `message`
+writes are also rejected so public output
+cannot bypass final publication checks. Read/status/history actions, automation
+removal, and `subagents` list/cancel remain available; independent owner web and
+v1 turns keep their existing behavior. This policy uses the host-resolved original
+admission identity, including derived runs; tool arguments cannot enable or
+disable it. Continue unsupported detached work from the owner's independent web
+session.
+
+### Shared recall and private inputs
+
+`/my` is not private chat: its final answer is visible in the Knox group and its
+questions/final answers follow [Space shared recall](/platformclaw/spaces#session-ownership-and-shared-context).
+An owner-only Space tab still shares ordinary question and answer text.
+Use existing structured Credential and approval paths for secrets; never ask for
+passwords or tokens in ordinary Space chat. Structured question responses must be
+assessed by their actual storage path, not all treated as ordinary user messages.
+
+Only generic waiting notices and the final public answer reach the group. Tool
+payloads, reasoning, approvals, and private attachments do not. PlatformClaw adds
+`[개인 Agent]` once at the final outbound boundary; CDEP must not add another label.
+The label never enters the transcript or prompt. A resumed web approval continues
+the original request, while an independent web question, DM, or scheduled turn
+does not inherit its group reply route. Natural-language answers cannot be
+perfectly scrubbed for every private fact.
+
+### Recover result delivery
+
+PlatformClaw commits each final fragment before acknowledging it internally, then
+combines the fragments after the originating turn settles. Recovery
+resends the saved result with `my-final:<messageId>` instead of executing VM work
+again. Native correlation is `knox-my:<admissionId>`. Rejection, revocation, and
+unknown-execution notices have separate stable request IDs. Unknown execution
+after a crash does not cause automatic execution replay.
+
+The `my-requests-v2` blob namespace uses shared host SQLite with 1 MiB per item,
+64 MiB per namespace, 1,000 entries, and `reject-new` overflow. Fully delivered,
+settled results expire after 30 days and may be compacted earlier near capacity.
+Compaction preserves active, partial, and unknown work. If protected work alone
+fills the quota, new admission fails before ACK and requires operator settlement.
+The cross-mode `inbound-identities` fingerprint cache allows 40,000 entries with
+60-day expiry and oldest-entry eviction. Both native queue owners are checked
+for conflicting modes independently of this cache, including pre-upgrade v1 rows.
+These bounded replay windows are not an unlimited exactly-once guarantee.
+Capacity failure does not authorize deleting unresolved work.
+
+For v2, legacy `chatMsgId` is the lowercase hexadecimal SHA256 of UTF-8
+`JSON.stringify([accountId, requestId])`. It is stable across delivery retries;
+v1 retains its existing random UUID. The authoritative delivery idempotency key
+is still `requestId` scoped to the authenticated account. Proxy must not turn a
+changed payload for that key into a second send.
+
+A valid CDEP failure envelope's explicit `retryable` boolean takes precedence over
+HTTP fallback. Thus `502` with `ok: false`, nonempty `errorCode`, and
+`retryable: false` is terminal. Without that envelope, `429` and `5xx` are
+retryable. `KNOX_PARTIAL_DELIVERY` and `KNOX_DELIVERY_UNKNOWN` distinguish partial
+and unknown outcomes. Terminal partial/unknown delivery is retained for operator
+investigation without automatic whole-message resend. Retryable transport errors
+reuse the saved body and request ID.
+
+CDEP must durably track request IDs and per-chunk outcomes across restarts and
+replicas. It must resume or report partial/unknown state without blindly restarting
+chunk one. Mock CDEP tests establish PlatformClaw behavior; they do not prove those
+guarantees in the live company Proxy.
+
+### Enable and roll back safely
+
+Prepare the v2 receiver and approved room connections, validate with mock CDEP,
+then cross-check both real builds before enabling CDEP `/my` and the plugin flag.
+Automatic membership synchronization and Main room-Agent Space search authority
+remain separate dependencies. Existing members' personal Agents can use Space
+search; this does not grant the Main Agent that capability.
+
+Rollback order:
+
+1. Stop CDEP producing `/my`; turn off new plugin admission.
+2. Keep the new consumer running to settle accepted execution, stored results,
+   failure notices, and cancellations.
+3. Inspect CP admission states and `cancellationPending` alongside plugin delivery
+   state. Preserve unresolved v2 queue/blob records for a compatible recovery
+   consumer; do not pass them to the v1 queue owner.
+4. Downgrade after isolating unresolved work and recording its recovery owner.
+   There is no automatic conversion or quarantine-management UI.
+
+Old consumers open the ordinary account queue, so they cannot reinterpret v2
+records as room work. They also cannot complete those records. Do not delete
+pending state to make a rollback appear complete.
 
 ## CDEP request authentication
 
@@ -350,13 +616,14 @@ Knox canonical string on this hop.
 
 The plugin durably accepts an event before acknowledging CDEP:
 
-| Result                                      |  HTTP | Meaning                         |
-| ------------------------------------------- | ----: | ------------------------------- |
-| New event durably accepted                  | `202` | CDEP may acknowledge Knox       |
-| Event already accepted                      | `200` | Duplicate is complete or queued |
-| Invalid or unsupported payload              | `400` | Permanent caller error          |
-| Missing or invalid authentication           | `401` | Security configuration error    |
-| Temporary failure before durable acceptance | `503` | Allow Knox retry                |
+| Result                                      |  HTTP | Meaning                               |
+| ------------------------------------------- | ----: | ------------------------------------- |
+| New event durably accepted                  | `202` | CDEP may acknowledge Knox             |
+| Event already accepted                      | `200` | Duplicate is complete or queued       |
+| Invalid or unsupported payload              | `400` | Permanent caller error                |
+| Missing or invalid authentication           | `401` | Security configuration error          |
+| Disabled personal mode or changed identity  | `409` | Permanent rejection; no new admission |
+| Temporary failure before durable acceptance | `503` | Allow Knox retry                      |
 
 CDEP must not mark an inbound message complete before `202` or `200`. The
 observed legacy order marked it before calling the adapter and could lose a
@@ -500,7 +767,7 @@ lookup, and opt-out persistence remain CDEP concerns.
 
 ## PlatformClaw commands
 
-CDEP forwards PlatformClaw commands as ordinary authenticated text. The plugin
+CDEP forwards version 1 PlatformClaw commands as ordinary authenticated text. The plugin
 examines only the final non-empty line after normalized ingress. It accepts a
 standalone command such as `/compact` and a transport-added mention prefix such
 as `@PlatformClaw /compact`; the mention token is structural and need not match

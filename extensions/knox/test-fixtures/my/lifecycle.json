@@ -1,0 +1,18 @@
+{
+  "postAcceptanceFailure": {
+    "status": "error",
+    "final": true,
+    "text": "[개인 Agent]\n개인 Space 요청을 처리할 수 없습니다. 방 연결과 본인의 Space 실행 권한을 확인해 주세요."
+  },
+  "revoked": { "status": "error", "requestIdPrefix": "my-revoked:" },
+  "interrupted": {
+    "status": "error",
+    "text": "[개인 Agent]\n개인 실행의 완료 여부를 확인할 수 없습니다. 작업을 자동 재실행하지 않았습니다. Space 개인방에서 확인해 주세요."
+  },
+  "rollback": {
+    "queueNamespace": "self-in-space-v2",
+    "payloadVersion": 2,
+    "legacyConsumerMayRead": false,
+    "order": ["stop-producer", "drain-new-consumer", "preserve-unresolved", "downgrade-consumer"]
+  }
+}

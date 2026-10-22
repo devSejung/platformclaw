@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { sendKnoxOutbound } from "./outbound.js";
 import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
@@ -5,6 +6,7 @@ import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 const account: ResolvedKnoxAccount = {
   accountId: "default",
   enabled: true,
+  selfInSpaceEnabled: false,
   configured: true,
   webhookPath: "/knox",
   webhookSecret: "w".repeat(32),
@@ -34,8 +36,108 @@ const dmInbound: KnoxInboundMessage = {
     conversationId: "24",
   },
 };
+const personalInbound = JSON.parse(
+  readFileSync(new URL("../test-fixtures/my/self-in-space.json", import.meta.url), "utf8"),
+) as Extract<KnoxInboundMessage, { schemaVersion: 2 }>;
+const failureFixtures = JSON.parse(
+  readFileSync(new URL("../test-fixtures/my/outbound-responses.json", import.meta.url), "utf8"),
+) as Array<{
+  name: string;
+  status: number;
+  body: unknown;
+  retryable: boolean;
+  deliveryOutcome?: "partial" | "unknown";
+}>;
 
 describe("sendKnoxOutbound", () => {
+  it.each([
+    [false, inbound],
+    [true, personalInbound],
+  ] as const)(
+    "preserves migration message identity only for v2 (stable=%s)",
+    async (stable, message) => {
+      const fetchImpl = vi.fn(
+        async (_input: string | URL | Request, _init?: RequestInit) =>
+          new Response(JSON.stringify({ ok: true, messageId: "delivered" }), { status: 200 }),
+      );
+      const request = {
+        context: {
+          account,
+          inbound: message,
+          agentId: "personal-a",
+          sessionKey: "registered-session",
+          runId: "run-a",
+        },
+        status: "final" as const,
+        text: "saved answer",
+        final: true,
+        requestId: "persisted-delivery",
+        fetchImpl,
+      };
+      await sendKnoxOutbound(request);
+      await sendKnoxOutbound(request);
+      const bodies = fetchImpl.mock.calls.map(([, init]) => {
+        if (typeof init?.body !== "string") {
+          throw new Error("expected string request body");
+        }
+        return JSON.parse(init.body) as { requestId: string; chatMsgId: string };
+      });
+      expect(bodies).toHaveLength(2);
+      const first = bodies[0]!;
+      const second = bodies[1]!;
+      expect(second.requestId).toBe(first.requestId);
+      if (stable) {
+        expect(second).toEqual(first);
+        expect(first.chatMsgId).toMatch(/^[0-9a-f]{64}$/u);
+        await sendKnoxOutbound({ ...request, requestId: "another-delivery" });
+        await sendKnoxOutbound({
+          ...request,
+          context: { ...request.context, account: { ...account, accountId: "another-account" } },
+        });
+        const nextIds = fetchImpl.mock.calls.slice(2).map(([, init]) => {
+          if (typeof init?.body !== "string") {
+            throw new Error("expected string request body");
+          }
+          return (JSON.parse(init.body) as { chatMsgId: string }).chatMsgId;
+        });
+        expect(new Set([first.chatMsgId, ...nextIds]).size).toBe(3);
+      } else {
+        expect(second.chatMsgId).not.toBe(first.chatMsgId);
+      }
+    },
+  );
+
+  it.each(failureFixtures)("$name", async (fixture) => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify(fixture.body), {
+          status: fixture.status,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    await expect(
+      sendKnoxOutbound({
+        context: {
+          account,
+          inbound,
+          agentId: "personal-24",
+          sessionKey: "agent:personal-24:space-fixture",
+          runId: "knox:msg-1",
+        },
+        status: "final",
+        text: "answer",
+        final: true,
+        requestId: "final:msg-1:0",
+        fetchImpl,
+      }),
+    ).rejects.toMatchObject({
+      name: "KnoxOutboundError",
+      retryable: fixture.retryable,
+      deliveryOutcome: fixture.deliveryOutcome,
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
   it("sends bearer-authenticated dual-schema final response", async () => {
     const fetchImpl = vi.fn(
       async (_input: string | URL | Request, _init?: RequestInit) =>

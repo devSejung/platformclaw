@@ -16,6 +16,11 @@ import {
 import { replaceSqliteTranscriptEvents } from "../../config/sessions/session-accessor.sqlite.js";
 import { resolveSessionStorePathForScope } from "../../config/sessions/session-store-path.js";
 import {
+  clearAgentRunContext,
+  registerAgentRunContext,
+  resolveAgentRunAdmissionId,
+} from "../../infra/agent-run-registry.js";
+import {
   clearMemoryPluginState,
   registerMemoryCapability,
   type MemoryFlushPlanResolver,
@@ -374,6 +379,80 @@ describe("runMemoryFlushIfNeeded", () => {
     setActivePluginRegistry(createEmptyPluginRegistry());
     clearMemoryPluginState();
     await fs.rm(rootDir, { recursive: true, force: true });
+  });
+
+  it.each([
+    {
+      name: "a queued request's original admission",
+      admissionRunId: "knox-my:original-admission",
+      optionRunId: "native-followup-run",
+      expectedAdmission: "knox-my:original-admission",
+    },
+    {
+      name: "a direct request's admission",
+      admissionRunId: undefined,
+      optionRunId: "knox-my:direct-admission",
+      expectedAdmission: "knox-my:direct-admission",
+    },
+    {
+      name: "an independent web turn without ingress lineage",
+      admissionRunId: undefined,
+      optionRunId: undefined,
+      expectedAdmission: "00000000-0000-0000-0000-000000000001",
+    },
+  ])("preserves $name during a derived memory flush", async (scenario) => {
+    const flushRunId = "00000000-0000-0000-0000-000000000001";
+    const agentId = "personal_owner";
+    const sessionKey = "agent:personal_owner:space:original";
+    const context = { runId: flushRunId, agentId, sessionKey };
+    const followupRun = createTestFollowupRun({
+      agentId,
+      sessionKey,
+      admissionRunId: scenario.admissionRunId,
+      workspaceDir: rootDir,
+    });
+    let authorizationAtDispatch: string | undefined;
+    registerAgentRunContextMock.mockImplementation(registerAgentRunContext);
+    runEmbeddedAgentMock.mockImplementationOnce(
+      async (input: { runId?: string; agentId?: string; sessionKey?: string }) => {
+        authorizationAtDispatch = resolveAgentRunAdmissionId(input);
+        return { payloads: [], meta: {} };
+      },
+    );
+    try {
+      const result = await runMemoryFlushIfNeeded({
+        cfg: {},
+        followupRun,
+        sessionCtx: { Provider: "webchat" } as TemplateContext,
+        opts: scenario.optionRunId ? { runId: scenario.optionRunId } : undefined,
+        defaultModel: "anthropic/claude-opus-4-6",
+        agentCfgContextTokens: 100_000,
+        resolvedVerboseLevel: "off",
+        sessionEntry: {
+          sessionId: "session",
+          updatedAt: Date.now(),
+          totalTokens: 80_000,
+          totalTokensFresh: true,
+        },
+        sessionKey,
+        isHeartbeat: false,
+        replyOperation: createReplyOperation(),
+      });
+
+      expect(result.outcome).toBe("completed");
+      expect(runEmbeddedAgentMock).toHaveBeenCalledOnce();
+      expect(runEmbeddedAgentMock).toHaveBeenCalledWith(expect.objectContaining(context));
+      expect(authorizationAtDispatch).toBe(scenario.expectedAdmission);
+      expect(resolveAgentRunAdmissionId({ ...context, agentId: "another_owner" })).toBe(flushRunId);
+      expect(resolveAgentRunAdmissionId({ ...context, sessionKey: "another_session" })).toBe(
+        flushRunId,
+      );
+      // Session rotation merges do not erase a derived run's original ingress identity.
+      registerAgentRunContext(flushRunId, { sessionId: "rotated-session" });
+      expect(resolveAgentRunAdmissionId(context)).toBe(scenario.expectedAdmission);
+    } finally {
+      clearAgentRunContext(flushRunId);
+    }
   });
 
   it("runs a memory flush turn, rotates after compaction, and persists metadata", async () => {

@@ -128,8 +128,14 @@ describe("admitFollowupTurn", () => {
     state.admitReply.mockResolvedValue({ status: "skipped", reason: "active-run" });
 
     await expect(
-      admitFollowupTurn({ queued: createRun(), defaults: createDefaults() }),
+      admitFollowupTurn({
+        queued: createRun({ replyRouteScope: "request" }),
+        defaults: createDefaults(),
+      }),
     ).resolves.toEqual({ kind: "deferred", reason: "active-run" });
+    expect(state.admitReply).toHaveBeenCalledWith(
+      expect.objectContaining({ replyRouteScope: "request" }),
+    );
     expect(state.admitLifecycle).not.toHaveBeenCalled();
   });
 

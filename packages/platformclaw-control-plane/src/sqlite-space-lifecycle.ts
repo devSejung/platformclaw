@@ -12,6 +12,7 @@ import {
   takeFirstSync,
 } from "./kysely-sync.js";
 import type { Space, SpaceRole } from "./space-contracts.js";
+import { revokeKnoxSpaceAdmissions } from "./sqlite-knox-space.js";
 import type { SpaceConversationRow, SpacePageRow, SpaceRow } from "./sqlite-schema-spaces.js";
 import type { SqliteSpaceStore } from "./sqlite-spaces.js";
 import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
@@ -190,6 +191,7 @@ export class SqliteSpaceLifecycleStore {
           "Space changed; reload before deleting",
         );
       }
+      revokeKnoxSpaceAdmissions(this.db, { spaceId });
       if (confirmName !== space.name) {
         throw new ControlPlaneStateError(
           "Enter the exact Space name to confirm permanent deletion",
@@ -354,6 +356,7 @@ export class SqliteSpaceLifecycleStore {
           .where("id", "=", spaceId),
       );
       if (role === null || role === "viewer") {
+        revokeKnoxSpaceAdmissions(this.db, { spaceId, userId: memberId });
         executeSync(
           this.db,
           this.query
@@ -410,6 +413,7 @@ export class SqliteSpaceLifecycleStore {
           "Space changed; reload before leaving",
         );
       }
+      revokeKnoxSpaceAdmissions(this.db, { spaceId, userId });
       if (
         space.role === "owner" &&
         this.spaces.members(userId, spaceId).filter((candidate) => candidate.role === "owner")

@@ -87,8 +87,10 @@ describe("sandbox backend skill materialization", () => {
       async ({ dir }) => {
         const backendId = `test-catalog-${Date.now()}`;
         const restore = registerSandboxBackend(backendId, {
-          factory: async ({ materializeSkills }) => {
+          factory: async ({ materializeSkills, sessionKey, runId }) => {
             expect(materializeSkills).toEqual(expect.any(Function));
+            expect(sessionKey).toBe("agent:main:main");
+            expect(runId).toBe("trusted-native-run");
             return createHandle({ catalog: true, runtimeId: "remote-catalog" });
           },
           skillMaterialization: "backend-deferred",
@@ -101,6 +103,7 @@ describe("sandbox backend skill materialization", () => {
             }),
             agentId: "main",
             sessionKey: "agent:main:main",
+            runId: "trusted-native-run",
             workspaceDir: path.join(dir, "workspace"),
           });
 

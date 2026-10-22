@@ -130,6 +130,48 @@ available through `space_search` and `space_get`; those projected Q&A records do
 not grant access to the source Space session.
 Cross-personal-agent spawning does not grant access to another employee's VM.
 
+## Personal Space work from Knox
+
+The Knox plugin has a version 2 backend for group-origin `/my` work. It is disabled
+by default with `channels.knox.selfInSpaceEnabled: false`. Company CDEP command
+parsing, cross-build validation, and live Knox/VM verification remain enablement
+prerequisites; a backend mock test does not complete that rollout.
+
+An administrator connects an existing active Knox room to a specific Space page
+through the [Knox connection API](/platformclaw/knox-proxy-spec#manage-room-connections).
+Connecting also requires Owner access to the selected Space. Employees must
+already have active personal Agents and Owner or Editor membership; `/my` never
+automatically joins someone or grants execution rights. Viewers cannot run it.
+Connection management has an API but no dedicated manager UI.
+
+PlatformClaw registers one dedicated personal conversation per room connection
+generation and employee. It does not choose the last web tab or adopt a private
+chat. Concurrent requests and retries reuse the registered conversation, subject
+to the existing limit of 200 conversations across the Space. The run uses the
+employee's approved work location, including an assigned VM when selected.
+
+The final answer goes to the original Knox group and is marked `[개인 Agent]`.
+Main is not invoked, and the question and answer are not automatically copied
+into its transcript, Shared Q&A posts, or Notes. They remain available to current
+members' personal Agents through `space_search` and `space_get`. Main room-Agent
+shared search permission and automatic membership synchronization are separate
+dependencies.
+
+`/my` is not private chat. The group receives the final answer, and ordinary
+questions and final answers in the owner-only Space tab contribute to shared
+recall. Do not enter passwords or tokens in that chat. Use existing structured
+Credential and approval inputs for secrets. Only generic waiting notices reach
+the group; private tool data, reasoning, approvals, and attachments do not.
+Use the owner's web controls for approvals and cancellation. Version 2 question
+text, even `/stop`, `/approve`, or `/compact`, does not execute control commands.
+
+Removing or downgrading an employee permanently revokes that employee's pending
+Knox admissions. Re-granting access does not revive old work, and changing another
+member does not revoke everyone. Reconnecting the room or selecting another page
+advances its connection generation and revokes the old requests. An independent
+later web question does not inherit an earlier `/my` group reply route. See the
+[Knox recovery and rollback contract](/platformclaw/knox-proxy-spec#recover-result-delivery).
+
 Only questions and final assistant text are eligible for agent recall. Interrupted
 assistant partials stay in their owner's history but are excluded from shared
 Q&A reads and search. Creating
@@ -271,9 +313,10 @@ execution-handoff service supplies authorized Space context and recall. The
 SQLite changes are additive in the existing control-plane database and do not
 advance its schema version.
 
-Direct employee invitations are supported. Organization-group grants, page
-moves/deletion, binary sharing, Knox integration, and shared VM control are
-outside this workflow. Before rollout, validate the built Linux image with
+Direct employee invitations and the disabled-by-default Knox personal backend
+are supported. Organization-group grants, page moves/deletion, binary sharing,
+automatic Knox membership synchronization, and shared VM control are outside
+this workflow. Before rollout, validate the built Linux image with
 multiple actual employee accounts, configured models, and both execution
 targets. Mocked browser tests do not prove company authentication, provider
 access, or deployment behavior. Migration, merge, release, and deployment

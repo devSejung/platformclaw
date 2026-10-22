@@ -22,6 +22,79 @@ vi.mock("./src/runtime.js", async (importOriginal) => ({
 }));
 
 describe("PlatformClaw execution plugin", () => {
+  it("resolves the original admission before authorizing backend preparation", async () => {
+    const previousBroker = process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS;
+    const previousToken = process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
+    process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = "/run/platformclaw/base.sock";
+    process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = "/run/secrets/execution-token";
+    const resolveTarget = vi.fn(async () => {
+      throw new Error("Original admission revoked");
+    });
+    const resolveAdmissionId = vi
+      .fn<OpenClawPluginApi["runContext"]["resolveAdmissionId"]>()
+      .mockReturnValue("knox-my:original-admission");
+    const stops: Array<() => Promise<void>> = [];
+    createExecutionDependenciesFromEnvironmentMock.mockResolvedValue({
+      resolveTarget,
+      dispose: vi.fn(async () => undefined),
+    });
+    try {
+      plugin.register({
+        registrationMode: "full",
+        registerTool: vi.fn(),
+        logger: { info: vi.fn() },
+        registerGatewayMethod: vi.fn(() => () => undefined),
+        runContext: { resolveAdmissionId },
+        on: vi.fn((event, handler) => {
+          if (event === "gateway_stop") {
+            stops.push(handler);
+          }
+        }),
+      } as unknown as OpenClawPluginApi);
+      const factory = getSandboxBackendFactory(PLATFORMCLAW_EXECUTION_BACKEND_ID);
+      if (!factory) {
+        throw new Error("expected PlatformClaw execution backend registration");
+      }
+      const params: CreateSandboxBackendParams = {
+        agentId: "person_one",
+        sessionKey: "agent:person_one:space:original",
+        runId: "native-followup-run",
+        scopeKey: "opaque-scope",
+        workspaceDir: "/workspace/person_one",
+        agentWorkspaceDir: "/agents/person_one",
+        cfg: {} as CreateSandboxBackendParams["cfg"],
+      };
+
+      await expect(factory(params)).rejects.toThrow("Original admission revoked");
+
+      expect(resolveAdmissionId).toHaveBeenCalledExactlyOnceWith({
+        agentId: params.agentId,
+        sessionKey: params.sessionKey,
+        runId: "native-followup-run",
+      });
+      expect(resolveTarget).toHaveBeenCalledExactlyOnceWith({
+        agentId: params.agentId,
+        sessionKey: params.sessionKey,
+        runId: "knox-my:original-admission",
+      });
+      resolveAdmissionId.mockReturnValue(undefined);
+      await expect(factory(params)).rejects.toThrow("Execution run authorization is unavailable");
+      expect(resolveTarget).toHaveBeenCalledOnce();
+    } finally {
+      await Promise.all(stops.map((stop) => stop()));
+      if (previousBroker === undefined) {
+        delete process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS;
+      } else {
+        process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS = previousBroker;
+      }
+      if (previousToken === undefined) {
+        delete process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
+      } else {
+        process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE = previousToken;
+      }
+    }
+  });
+
   it("reserves five owner slots before asynchronous launches and frees a closed slot", async () => {
     const previousBroker = process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS;
     const previousToken = process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;

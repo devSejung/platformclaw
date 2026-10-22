@@ -13,6 +13,52 @@ const NATIVE_SESSION_TOOLS = new Set([
   "session_status",
   "sessions_spawn",
 ]);
+const KNOX_MY_DETACHED_TOOLS = new Set([
+  "conversations_send",
+  "conversations_turn",
+  "openclaw",
+  "sessions_send",
+  "sessions_spawn",
+]);
+const KNOX_MY_AUTOMATION_ACTIONS = new Set(["get", "list", "remove", "runs", "status"]);
+const KNOX_MY_MEDIA_ACTIONS = new Set(["list", "status"]);
+const KNOX_MY_ALLOWED_ACTIONS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["automations", KNOX_MY_AUTOMATION_ACTIONS],
+  ["cron", KNOX_MY_AUTOMATION_ACTIONS],
+  ["image_generate", KNOX_MY_MEDIA_ACTIONS],
+  ["music_generate", KNOX_MY_MEDIA_ACTIONS],
+  ["video_generate", KNOX_MY_MEDIA_ACTIONS],
+  ["subagents", new Set(["", "cancel", "list"])],
+  [
+    "message",
+    new Set([
+      "channel-info",
+      "channel-list",
+      "download-file",
+      "emoji-list",
+      "event-list",
+      "list-pins",
+      "member-info",
+      "permissions",
+      "reactions",
+      "read",
+      "role-info",
+      "search",
+      "sticker-search",
+      "thread-list",
+      "voice-status",
+    ]),
+  ],
+]);
+
+function requiresDetachedKnoxMyWork(toolName: string, params: Record<string, unknown>): boolean {
+  if (KNOX_MY_DETACHED_TOOLS.has(toolName)) {
+    return true;
+  }
+  const allowed = KNOX_MY_ALLOWED_ACTIONS.get(toolName);
+  const action = typeof params.action === "string" ? params.action.trim().toLowerCase() : "";
+  return allowed !== undefined && !allowed.has(action);
+}
 
 function publicSpaceFailureReason(error: unknown): string | undefined {
   const failure = asOptionalRecord(asOptionalRecord(error)?.memoryCorpusFailure);
@@ -187,8 +233,27 @@ export function registerSpaceTools(api: OpenClawPluginApi, client: WikiHubMemory
     });
   };
   api.on("before_agent_run", async (_event, context) => await revalidatePersonalSpace(context));
+  // Approval waits can outlive a removal and re-grant. Recheck the original admission,
+  // not just the employee's restored membership, before the parked tool can resume.
+  api.on("after_tool_approval", async (_event, context) => await revalidatePersonalSpace(context));
   api.on("before_tool_call", async (event, context) => {
     await revalidatePersonalSpace(context);
+    const isKnoxMyRequest =
+      isPersonalSpaceSession(context.sessionKey) &&
+      api.runContext.resolveAdmissionId(context)?.startsWith("knox-my:");
+    if (isKnoxMyRequest && requiresDetachedKnoxMyWork(event.toolName, event.params)) {
+      // Detached descendants and direct channel writes have no inherited receipt or result ledger.
+      return {
+        block: true,
+        blockReason:
+          "This /my request cannot start detached work or publish directly. Continue that action in your own web session.",
+      };
+    }
+    if (isKnoxMyRequest && event.toolName === "exec") {
+      // Knox has no private native approval surface. Keep approval and completion
+      // in the admitted owner turn instead of detaching into a later public reply.
+      return { params: { ...event.params, required: true } };
+    }
     if (!NATIVE_SESSION_TOOLS.has(event.toolName)) {
       return undefined;
     }
@@ -259,6 +324,7 @@ export function registerSpaceTools(api: OpenClawPluginApi, client: WikiHubMemory
           agentId: context.agentId,
           operation: "native",
           sessionKey: context.sessionKey,
+          runId: api.runContext.resolveAdmissionId(context),
           nativeTool: event.toolName,
           broad: false,
           ...(targetSessionKey ? { targetSessionKey } : {}),

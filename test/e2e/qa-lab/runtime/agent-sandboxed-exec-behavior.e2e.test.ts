@@ -67,6 +67,7 @@ test("host:auto executes inside the resolved Docker sandbox", async () => {
 
   try {
     const sessionId = randomUUID();
+    const runId = randomUUID();
     const sessionKey = `agent:sandboxed-exec:qa:${sessionId}`;
     const config = createConfig({
       image,
@@ -76,6 +77,7 @@ test("host:auto executes inside the resolved Docker sandbox", async () => {
     const workspace = await resolveAttemptWorkspaceSandbox({
       agentId: "sandboxed-exec",
       config,
+      runId,
       sessionId,
       sessionKey,
       workspaceDir,
@@ -92,6 +94,7 @@ test("host:auto executes inside the resolved Docker sandbox", async () => {
       cwd: workspace.effectiveCwd,
       exec: { host: "auto", security: "full", ask: "off" },
       sandbox: workspace.sandbox,
+      runId,
       sessionId,
       sessionKey,
       workspaceDir: workspace.effectiveWorkspace,

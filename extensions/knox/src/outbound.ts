@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { usesKnoxKoreanNotices } from "./progress.js";
 import type { KnoxConversationType, KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 
@@ -42,8 +42,14 @@ export async function sendKnoxOutbound(params: {
     throw new KnoxOutboundError("Knox outbound text is empty", false);
   }
   const requestId = params.requestId?.trim() || randomUUID();
-  const chatMsgId = randomUUID();
   const { account, inbound, agentId, sessionKey, runId } = params.context;
+  // Replay the complete v2 migration envelope after an ambiguous acknowledgement.
+  const chatMsgId =
+    inbound.schemaVersion === 2
+      ? createHash("sha256")
+          .update(JSON.stringify([account.accountId, requestId]))
+          .digest("hex")
+      : randomUUID();
   const text = formatKnoxOutboundText(params.context, params.text);
   let response: Response;
   try {
@@ -107,13 +113,28 @@ export async function sendKnoxOutbound(params: {
     return typeof record.messageId === "string" ? record.messageId : chatMsgId;
   }
   if (!response.ok || record?.ok === false) {
-    const retryable =
-      response.status === 429 || response.status >= 500 || record?.retryable === true;
+    const explicitRetryable =
+      record?.ok === false &&
+      typeof record.errorCode === "string" &&
+      Boolean(record.errorCode.trim()) &&
+      typeof record.retryable === "boolean"
+        ? record.retryable
+        : undefined;
+    const retryable = explicitRetryable ?? (response.status === 429 || response.status >= 500);
+    const deliveryOutcome =
+      explicitRetryable !== undefined
+        ? record?.errorCode === "KNOX_PARTIAL_DELIVERY"
+          ? "partial"
+          : record?.errorCode === "KNOX_DELIVERY_UNKNOWN"
+            ? "unknown"
+            : undefined
+        : undefined;
     throw new KnoxOutboundError(
       typeof record?.message === "string"
         ? record.message
         : `CDEP outbound rejected request (${response.status})`,
       retryable,
+      deliveryOutcome ? { deliveryOutcome } : undefined,
     );
   }
   if (record?.ok !== true) {
@@ -200,12 +221,15 @@ async function readBoundedResponse(response: Response): Promise<string> {
 }
 
 export class KnoxOutboundError extends Error {
+  readonly deliveryOutcome?: "partial" | "unknown" | "not-sent";
+
   constructor(
     message: string,
     readonly retryable: boolean,
-    options?: ErrorOptions,
+    options?: ErrorOptions & { deliveryOutcome?: "partial" | "unknown" | "not-sent" },
   ) {
     super(message, options);
     this.name = "KnoxOutboundError";
+    this.deliveryOutcome = options?.deliveryOutcome;
   }
 }

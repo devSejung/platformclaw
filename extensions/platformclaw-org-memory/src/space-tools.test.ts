@@ -207,7 +207,7 @@ describe("Space recall tools", () => {
     expect(await hook({}, { ...context, sessionKey: "agent:person-alice:main" })).toBeUndefined();
     expect(spaceRead).not.toHaveBeenCalled();
   });
-  it.each(["before_agent_run", "before_tool_call"])(
+  it.each(["before_agent_run", "before_tool_call", "after_tool_approval"])(
     "revalidates Space membership at %s and fails closed after revocation",
     async (hookName) => {
       const on = vi.fn();
@@ -241,6 +241,288 @@ describe("Space recall tools", () => {
       expect(spaceRead).not.toHaveBeenCalled();
     },
   );
+
+  it("rechecks a resumed approval with the original ingress admission identity", async () => {
+    const on = vi.fn();
+    const admissionId = "knox-my:11111111-1111-1111-1111-111111111111";
+    const resolveAdmissionId = vi.fn((context: { runId?: string }) =>
+      context.runId === "native-old-run" ? admissionId : context.runId,
+    );
+    const spaceRead = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Knox request is no longer authorized"))
+      .mockResolvedValueOnce({});
+    registerSpaceTools(
+      {
+        registerTool: vi.fn(),
+        runContext: { resolveAdmissionId },
+        on,
+        registerMemoryPromptSupplement: vi.fn(),
+      } as unknown as OpenClawPluginApi,
+      { spaceRead } as unknown as WikiHubMemoryClient,
+    );
+    const afterApproval = on.mock.calls.find(([name]) => name === "after_tool_approval")![1];
+    const context = {
+      agentId: "person-alice",
+      sessionKey: "agent:person-alice:space-session:22222222-2222-2222-2222-222222222222",
+      runId: "native-old-run",
+    };
+    // The control plane's durable revoked receipt still denies the old admission
+    // even when its employee has since rejoined; a new independent web run is checked separately.
+    await expect(afterApproval({ approvalId: "approval-old" }, context)).rejects.toThrow(
+      "no longer authorized",
+    );
+    expect(spaceRead).toHaveBeenLastCalledWith({
+      agentId: context.agentId,
+      sessionKey: context.sessionKey,
+      operation: "context",
+      runId: admissionId,
+    });
+    await expect(
+      afterApproval({ approvalId: "approval-web" }, { ...context, runId: "new-web-run" }),
+    ).resolves.toBeUndefined();
+    expect(spaceRead).toHaveBeenLastCalledWith({
+      agentId: context.agentId,
+      sessionKey: context.sessionKey,
+      operation: "context",
+      runId: "new-web-run",
+    });
+  });
+
+  it("retains Knox personal exec approvals in the admitted owner turn even when the model opts out", async () => {
+    const on = vi.fn();
+    const admissionId = "knox-my:11111111-1111-1111-1111-111111111111";
+    const spaceRead = vi.fn(async () => ({}));
+    registerSpaceTools(
+      {
+        registerTool: vi.fn(),
+        runContext: { resolveAdmissionId: (context: { runId?: string }) => context.runId },
+        on,
+        registerMemoryPromptSupplement: vi.fn(),
+      } as unknown as OpenClawPluginApi,
+      { spaceRead } as unknown as WikiHubMemoryClient,
+    );
+    const beforeTool = on.mock.calls.find(([name]) => name === "before_tool_call")![1];
+    const params = { command: "echo ready", required: false, timeout: 30 };
+    const context = {
+      agentId: "person-alice",
+      runId: admissionId,
+      sessionKey: "agent:person-alice:space-session:22222222-2222-2222-2222-222222222222",
+      channelId: "knox",
+      requester: { senderId: "raw.knox.author" },
+      originatingTo: "room:original-group",
+    };
+    const result = await beforeTool({ toolName: "exec", params }, context);
+    expect(result).toEqual({ params: { ...params, required: true } });
+    expect(params.required).toBe(false);
+    expect(JSON.stringify(result)).not.toMatch(/original-group|raw\.knox\.author|space-session/);
+    expect(spaceRead).toHaveBeenCalledWith({
+      agentId: context.agentId,
+      sessionKey: context.sessionKey,
+      operation: "context",
+      runId: admissionId,
+    });
+    expect(
+      await beforeTool({ toolName: "exec", params }, { ...context, runId: "independent-web-run" }),
+    ).toBeUndefined();
+    spaceRead.mockClear();
+    expect(
+      await beforeTool(
+        { toolName: "exec", params },
+        { ...context, sessionKey: "agent:group-original:main", runId: "knox:ordinary-message" },
+      ),
+    ).toBeUndefined();
+    expect(spaceRead).not.toHaveBeenCalled();
+    expect(params.required).toBe(false);
+  });
+  it.each([
+    ...[
+      "conversations_send",
+      "conversations_turn",
+      "openclaw",
+      "sessions_send",
+      "sessions_spawn",
+    ].map((toolName) => ({ toolName, action: undefined, blocked: true })),
+    ...["automations", "cron"].flatMap((toolName) =>
+      ["add", "update", "run", "wake"]
+        .map((action) => ({ toolName, action, blocked: true }))
+        .concat(
+          ["get", "list", "remove", "runs", "status"].map((action) => ({
+            toolName,
+            action,
+            blocked: false,
+          })),
+        ),
+    ),
+    ...["image_generate", "music_generate", "video_generate"].flatMap((toolName) =>
+      [undefined, "generate"]
+        .map((action) => ({ toolName, action, blocked: true }))
+        .concat(["list", "status"].map((action) => ({ toolName, action, blocked: false }))),
+    ),
+    ...[undefined, "cancel", "list"].map((action) => ({
+      toolName: "subagents",
+      action,
+      blocked: false,
+    })),
+    { toolName: "subagents", action: "steer", blocked: true },
+    ...[
+      "send",
+      "broadcast",
+      "reply",
+      "thread-reply",
+      "sendAttachment",
+      "upload-file",
+      "poll",
+      "edit",
+      "react",
+      "delete",
+      "future-publish",
+    ].map((action) => ({ toolName: "message", action, blocked: true })),
+    ...[
+      "read",
+      "search",
+      "reactions",
+      "list-pins",
+      "permissions",
+      "thread-list",
+      "sticker-search",
+      "member-info",
+      "role-info",
+      "emoji-list",
+      "channel-info",
+      "channel-list",
+      "event-list",
+      "download-file",
+      "voice-status",
+    ].map((action) => ({ toolName: "message", action, blocked: false })),
+  ])(
+    "keeps trusted /my $toolName action $action within its admitted request (blocked=$blocked)",
+    async ({ toolName, action, blocked }) => {
+      const on = vi.fn();
+      const admissionId = "knox-my:11111111-1111-1111-1111-111111111111";
+      const context = {
+        agentId: "person-alice",
+        sessionKey: "agent:person-alice:space-session:22222222-2222-2222-2222-222222222222",
+        runId: "native-derived-run",
+      };
+      const resolveAdmissionId = vi.fn((input: { runId?: string }) =>
+        input.runId === context.runId ? admissionId : input.runId,
+      );
+      const spaceRead = vi.fn(async () => ({}));
+      registerSpaceTools(
+        {
+          registerTool: vi.fn(),
+          on,
+          runtime: { config: { current: () => ({}) } },
+          runContext: { resolveAdmissionId },
+          registerMemoryPromptSupplement: vi.fn(),
+        } as unknown as OpenClawPluginApi,
+        { spaceRead } as unknown as WikiHubMemoryClient,
+      );
+      const beforeTool = on.mock.calls.find(([name]) => name === "before_tool_call")![1];
+      // Model arguments cannot opt a mapped /my run out of this policy.
+      const params = { ...(action === undefined ? {} : { action }), runId: "independent-web-run" };
+      const result = await beforeTool({ toolName, params }, context);
+
+      expect(resolveAdmissionId).toHaveBeenCalledWith(context);
+      expect(spaceRead).toHaveBeenCalledExactlyOnceWith({
+        agentId: context.agentId,
+        sessionKey: context.sessionKey,
+        operation: "context",
+        runId: admissionId,
+      });
+      expect(result?.block === true).toBe(blocked);
+      if (blocked) {
+        expect(result.blockReason).toContain("cannot start detached work or publish directly");
+      } else {
+        expect(result).toBeUndefined();
+      }
+      expect(params.runId).toBe("independent-web-run");
+    },
+  );
+
+  it.each([
+    {
+      sessionKey: "agent:person-alice:space-session:22222222-2222-2222-2222-222222222222",
+      runId: "independent-web-run",
+    },
+    { sessionKey: "agent:group-original:main", runId: "knox:ordinary-message" },
+  ])("keeps independent web/v1 publication unchanged for $runId", async (context) => {
+    const on = vi.fn();
+    const spaceRead = vi.fn(async () => ({}));
+    registerSpaceTools(
+      {
+        registerTool: vi.fn(),
+        on,
+        runContext: { resolveAdmissionId: (input: { runId?: string }) => input.runId },
+        registerMemoryPromptSupplement: vi.fn(),
+      } as unknown as OpenClawPluginApi,
+      { spaceRead } as unknown as WikiHubMemoryClient,
+    );
+    const beforeTool = on.mock.calls.find(([name]) => name === "before_tool_call")![1];
+    expect(
+      await beforeTool(
+        {
+          toolName: "message",
+          params: {
+            action: "send",
+            runId: "knox-my:model-forged-admission",
+            sessionKey: "agent:person-alice:space-session:22222222-2222-2222-2222-222222222222",
+          },
+        },
+        { agentId: "person-alice", ...context },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("retains the original admission for native authorization from a derived run", async () => {
+    const on = vi.fn();
+    const admissionId = "knox-my:11111111-1111-1111-1111-111111111111";
+    const context = {
+      agentId: "person-alice",
+      sessionKey: "agent:person-alice:space-session:22222222-2222-2222-2222-222222222222",
+      runId: "native-derived-run",
+    };
+    const resolveAdmissionId = vi.fn((input: { runId?: string }) =>
+      input.runId === context.runId ? admissionId : input.runId,
+    );
+    const spaceRead = vi.fn(async () => ({ sessionKey: context.sessionKey }));
+    registerSpaceTools(
+      {
+        registerTool: vi.fn(),
+        on,
+        runtime: { config: { current: () => ({}) } },
+        runContext: { resolveAdmissionId },
+        registerMemoryPromptSupplement: vi.fn(),
+      } as unknown as OpenClawPluginApi,
+      { spaceRead } as unknown as WikiHubMemoryClient,
+    );
+    const beforeTool = on.mock.calls.find(([name]) => name === "before_tool_call")![1];
+
+    await beforeTool(
+      { toolName: "session_status", params: { sessionKey: "current", runId: "model-forged-run" } },
+      context,
+    );
+
+    expect(resolveAdmissionId).toHaveBeenCalledWith(context);
+    expect(spaceRead).toHaveBeenNthCalledWith(1, {
+      agentId: context.agentId,
+      sessionKey: context.sessionKey,
+      operation: "context",
+      runId: admissionId,
+    });
+    expect(spaceRead).toHaveBeenNthCalledWith(2, {
+      agentId: context.agentId,
+      sessionKey: context.sessionKey,
+      operation: "native",
+      runId: admissionId,
+      nativeTool: "session_status",
+      nativeAction: "read",
+      targetSessionKey: context.sessionKey,
+      broad: false,
+    });
+  });
+
   it("authorizes native aliases through the service and rewrites only resolved selectors", async () => {
     const on = vi.fn();
     const canonical = "agent:person-a:space-session:11111111-1111-1111-1111-111111111111";
@@ -275,6 +557,7 @@ describe("Space recall tools", () => {
       agentId: "person-a",
       sessionKey: context.sessionKey,
       operation: "native",
+      runId: "admission",
       nativeTool: "sessions_send",
       targetLabel: "Earlier work",
       targetAgentId: "person-a",
@@ -315,6 +598,7 @@ describe("Space recall tools", () => {
       agentId: "person-a",
       sessionKey: context.sessionKey,
       operation: "native",
+      runId: "admission",
       nativeTool: "sessions_search",
       targetSessionKey: descendant,
       broad: false,
@@ -364,6 +648,7 @@ describe("Space recall tools", () => {
       agentId: "person-a",
       sessionKey: context.sessionKey,
       operation: "native",
+      runId: "admission",
       nativeTool: "session_status",
       targetSessionKey: context.sessionKey,
       nativeAction: "patch",
@@ -445,6 +730,7 @@ describe("Space recall tools", () => {
       agentId: "person-a",
       sessionKey: context.sessionKey,
       operation: "native",
+      runId: "admission",
       nativeTool: "sessions_spawn",
       targetAgentId: target,
       broad: false,

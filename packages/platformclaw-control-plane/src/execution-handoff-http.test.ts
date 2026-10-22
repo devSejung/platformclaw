@@ -6,10 +6,13 @@ import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ControlPlaneConflictError } from "./contracts.js";
+import { ControlPlaneAuthorizationError, ControlPlaneConflictError } from "./contracts.js";
 import { ExecutionHandoffClient } from "./execution-handoff-client.js";
 import { PlatformClawExecutionHandoffServer } from "./execution-handoff-http.js";
-import type { ExecutionHandoffService } from "./execution-handoff-service.js";
+import type {
+  ExecutionHandoffService,
+  ExecutionTargetSnapshot,
+} from "./execution-handoff-service.js";
 import { KnowledgeVaultSearchError } from "./knowledge-vault-contracts.js";
 import { parseSpaceReadRequest } from "./space-read-request.js";
 import type { SpaceService } from "./space-service.js";
@@ -37,6 +40,12 @@ async function startServer() {
     score: 0.9,
   };
   const service = {
+    authorizeTargetRun: vi.fn(
+      (
+        _context: { agentId: string; sessionKey?: string; runId?: string },
+        _target?: ExecutionTargetSnapshot,
+      ) => {},
+    ),
     execCredentialMetadata: vi.fn(async (_agentId: string, _sessionKey: string) => ({
       definitions: [{ envName: "REPORT_API_TOKEN", configured: false }],
     })),
@@ -146,6 +155,75 @@ async function postResponse(
 }
 
 describe("PlatformClawExecutionHandoffServer", () => {
+  it("guards the original personal admission before target resolution and the exact snapshot afterward", async () => {
+    const { socketPath, service } = await startServer();
+    const context = {
+      agentId: "person_one",
+      sessionKey: "agent:person_one:space-session:11111111-1111-1111-1111-111111111111",
+      runId: "knox-my:admission-one",
+    };
+    service.authorizeTargetRun.mockImplementation(() => {
+      throw new ControlPlaneAuthorizationError("private revoked admission details");
+    });
+    expect(
+      await postResponse(socketPath, "/platformclaw/internal/execution/target", context),
+    ).toEqual({
+      status: 409,
+      body: { error: "execution target unavailable" },
+    });
+    expect(service.resolveTarget).not.toHaveBeenCalled();
+
+    service.authorizeTargetRun.mockClear();
+    service.authorizeTargetRun.mockImplementation((_context, target) => {
+      if (target) {
+        throw new ControlPlaneAuthorizationError("private changed target details");
+      }
+    });
+    service.resolveTarget.mockResolvedValueOnce({
+      kind: "platform_server",
+      agentId: context.agentId,
+      targetId: "platform-server",
+      revision: 8,
+    });
+    expect(
+      await postResponse(socketPath, "/platformclaw/internal/execution/target", context),
+    ).toEqual({
+      status: 409,
+      body: { error: "execution target unavailable" },
+    });
+    expect(service.authorizeTargetRun).toHaveBeenNthCalledWith(1, context);
+    expect(service.authorizeTargetRun).toHaveBeenNthCalledWith(2, context, {
+      kind: "platform_server",
+      agentId: context.agentId,
+      targetId: "platform-server",
+      revision: 8,
+    });
+    expect(service.resolveTarget).toHaveBeenCalledTimes(1);
+
+    service.authorizeTargetRun.mockClear();
+    expect(
+      await postResponse(socketPath, "/platformclaw/internal/execution/target", {
+        ...context,
+        runId: "independent-web-run",
+      }),
+    ).toEqual({
+      status: 200,
+      body: {
+        kind: "platform_server",
+        agentId: context.agentId,
+        targetId: "platform-server",
+        revision: 0,
+      },
+    });
+    expect(service.authorizeTargetRun).not.toHaveBeenCalled();
+    Reflect.deleteProperty(service, "authorizeTargetRun");
+    service.resolveTarget.mockClear();
+    expect(
+      (await postResponse(socketPath, "/platformclaw/internal/execution/target", context)).status,
+    ).toBe(409);
+    expect(service.resolveTarget).not.toHaveBeenCalled();
+  });
+
   it("serves metadata through the authenticated handoff and rejects wider input", async () => {
     const { socketPath, service } = await startServer();
     const client = new ExecutionHandoffClient(

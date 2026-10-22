@@ -97,6 +97,7 @@ export function resolveKnoxAccount(
   const resolved: ResolvedKnoxAccount = {
     accountId: normalizeOptionalString(merged.accountId) ?? id,
     enabled: merged.enabled ?? true,
+    selfInSpaceEnabled: merged.selfInSpaceEnabled === true,
     configured: false,
     webhookPath: DEFAULT_WEBHOOK_PATH,
     webhookSecret,

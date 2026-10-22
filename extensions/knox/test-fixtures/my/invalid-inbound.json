@@ -1,0 +1,116 @@
+[
+  {
+    "name": "v2 missing mode",
+    "request": {
+      "schemaVersion": 2,
+      "eventId": "evt_my_fixture",
+      "messageId": "9934329570499788812345",
+      "occurredAt": "2026-10-22T01:00:00.123456Z",
+      "sender": {
+        "knoxUserId": "user.name_with.dot",
+        "displayName": "Fixture User"
+      },
+      "conversation": {
+        "type": "room",
+        "providerType": "GROUP",
+        "conversationId": "2714768127641234567890"
+      },
+      "message": {
+        "type": "text",
+        "text": "question"
+      }
+    }
+  },
+  {
+    "name": "v2 unsupported mode",
+    "request": {
+      "schemaVersion": 2,
+      "executionMode": "shared_main",
+      "eventId": "evt_my_fixture",
+      "messageId": "9934329570499788812345",
+      "occurredAt": "2026-10-22T01:00:00.123456Z",
+      "sender": {
+        "knoxUserId": "user.name_with.dot",
+        "displayName": "Fixture User"
+      },
+      "conversation": {
+        "type": "room",
+        "providerType": "GROUP",
+        "conversationId": "2714768127641234567890"
+      },
+      "message": {
+        "type": "text",
+        "text": "question"
+      }
+    }
+  },
+  {
+    "name": "v2 DM",
+    "request": {
+      "schemaVersion": 2,
+      "executionMode": "self_in_space",
+      "eventId": "evt_my_fixture",
+      "messageId": "9934329570499788812345",
+      "occurredAt": "2026-10-22T01:00:00.123456Z",
+      "sender": {
+        "knoxUserId": "user.name_with.dot",
+        "displayName": "Fixture User"
+      },
+      "conversation": {
+        "type": "dm",
+        "providerType": "SINGLE",
+        "conversationId": "2714768127641234567890"
+      },
+      "message": {
+        "type": "text",
+        "text": "question"
+      }
+    }
+  },
+  {
+    "name": "v1 mixed mode",
+    "request": {
+      "schemaVersion": 1,
+      "executionMode": "self_in_space",
+      "eventId": "evt_my_fixture",
+      "messageId": "9934329570499788812345",
+      "occurredAt": "2026-10-22T01:00:00.123456Z",
+      "sender": {
+        "knoxUserId": "user.name_with.dot",
+        "displayName": "Fixture User"
+      },
+      "conversation": {
+        "type": "room",
+        "providerType": "GROUP",
+        "conversationId": "2714768127641234567890"
+      },
+      "message": {
+        "type": "text",
+        "text": "question"
+      }
+    }
+  },
+  {
+    "name": "v2 message identity exceeds admission limit",
+    "request": {
+      "schemaVersion": 2,
+      "executionMode": "self_in_space",
+      "eventId": "evt_my_fixture",
+      "messageId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "occurredAt": "2026-10-22T01:00:00.123456Z",
+      "sender": {
+        "knoxUserId": "user.name_with.dot",
+        "displayName": "Fixture User"
+      },
+      "conversation": {
+        "type": "room",
+        "providerType": "GROUP",
+        "conversationId": "2714768127641234567890"
+      },
+      "message": {
+        "type": "text",
+        "text": "  다음 명령을 설명해줘\r\n/compact\n"
+      }
+    }
+  }
+]

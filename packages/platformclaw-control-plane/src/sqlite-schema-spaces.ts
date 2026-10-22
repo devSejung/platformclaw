@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { runImmediateTransaction } from "./kysely-sync.js";
+import { KNOX_SPACE_SCHEMA } from "./sqlite-schema-knox-space.js";
 export const SPACE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS collaboration_space_deletions (
  space_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES platform_users(id),
@@ -82,6 +83,7 @@ CREATE TABLE IF NOT EXISTS collaboration_space_mutation_receipts (
  post_id TEXT REFERENCES collaboration_space_qa_posts(id) ON DELETE CASCADE,
  created_at INTEGER NOT NULL, UNIQUE(actor_user_id,request_id)
 ) STRICT;
+${KNOX_SPACE_SCHEMA}
 `;
 export function ensureSpaceSchema(db: DatabaseSync) {
   const ensure = () => db.exec(SPACE_SCHEMA);

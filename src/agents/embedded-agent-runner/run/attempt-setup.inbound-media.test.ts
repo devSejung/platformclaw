@@ -33,6 +33,7 @@ describe("attempt inbound-media provisioning", () => {
   function params(overrides: Partial<Parameters<typeof resolveAttemptWorkspaceSandbox>[0]> = {}) {
     return {
       workspaceDir,
+      runId: "inbound-test-run",
       sessionId: "inbound-test",
       sessionKey: "agent:main:main",
       config: {},
@@ -62,6 +63,9 @@ describe("attempt inbound-media provisioning", () => {
     const result = await resolveAttemptWorkspaceSandbox(input);
     expect(result.sandbox).toBe(target);
     expect(mocks.resolveSandboxContext).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveSandboxContext).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionKey: input.sessionKey, runId: input.runId }),
+    );
     expect(mocks.stageInboundMedia).toHaveBeenCalledExactlyOnceWith({
       sandbox: target,
       media: input.media,

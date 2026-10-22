@@ -19,6 +19,7 @@ import {
 } from "../infra/plugin-approvals.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { cloneHookIsolationValue } from "../plugins/hook-isolation.js";
+import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import {
   PluginApprovalResolutions,
   type PluginApprovalResolution,
@@ -191,7 +192,29 @@ async function requestPluginToolApproval(params: {
   const timeoutMs = resolvePluginToolApprovalTimeoutMs(approval);
   const gatewayTimeoutMs = resolvePluginToolApprovalGatewayTimeoutMs(timeoutMs);
   const allowedDecisions = resolveCanonicalPluginApprovalRequestAllowedDecisions(approval);
-  let gatewayApprovalPhase: "none" | "request" | "wait" = "none";
+  const gatewayApprovalState: { phase: "none" | "request" | "wait" | "revalidate" } = {
+    phase: "none",
+  };
+  const approvalContext = {
+    agentId: params.ctx?.agentId,
+    sessionKey: params.ctx?.sessionKey,
+    sessionId: params.ctx?.sessionId,
+    runId: params.ctx?.runId,
+    abortSignal: params.signal,
+  };
+  const revalidate = async (approvalId: string) => {
+    gatewayApprovalState.phase = "revalidate";
+    params.signal?.throwIfAborted();
+    const hookRunner = getGlobalHookRunner();
+    if (hookRunner?.hasHooks("after_tool_approval")) {
+      await hookRunner.runAfterToolApproval(
+        { approvalId, toolCallId: params.toolCallId },
+        approvalContext,
+      );
+    }
+    params.signal?.throwIfAborted();
+    gatewayApprovalState.phase = "none";
+  };
   try {
     const embeddedApprovalBroker = isEmbeddedMode() ? getEmbeddedPluginApprovalBroker() : null;
     if (embeddedApprovalBroker) {
@@ -216,6 +239,12 @@ async function requestPluginToolApproval(params: {
       });
       const decision = result.decision;
       const resolution = resolvePermittedPluginApprovalResolution(decision, allowedDecisions);
+      if (
+        resolution === PluginApprovalResolutions.ALLOW_ONCE ||
+        resolution === PluginApprovalResolutions.ALLOW_ALWAYS
+      ) {
+        await revalidate(result.id);
+      }
       notifyPluginApprovalResolution(approval, resolution);
       if (
         resolution === PluginApprovalResolutions.ALLOW_ONCE ||
@@ -270,7 +299,7 @@ async function requestPluginToolApproval(params: {
       };
     }
 
-    gatewayApprovalPhase = "request";
+    gatewayApprovalState.phase = "request";
     const requestResult: {
       id?: string;
       status?: string;
@@ -303,7 +332,7 @@ async function requestPluginToolApproval(params: {
       },
       { expectFinal: false },
     );
-    gatewayApprovalPhase = "none";
+    gatewayApprovalState.phase = "none";
     const id = requestResult?.id;
     if (!id) {
       notifyPluginApprovalResolution(approval, PluginApprovalResolutions.CANCELLED);
@@ -337,7 +366,7 @@ async function requestPluginToolApproval(params: {
     } else {
       // Wait for the decision, but abort early if the agent run is cancelled
       // so the user isn't blocked for the full approval timeout.
-      gatewayApprovalPhase = "wait";
+      gatewayApprovalState.phase = "wait";
       const waitPromise: Promise<{
         id?: string;
         decision?: unknown;
@@ -374,6 +403,12 @@ async function requestPluginToolApproval(params: {
       decision = waitResult?.id === id ? waitResult.decision : undefined;
     }
     const resolution = resolvePermittedPluginApprovalResolution(decision, allowedDecisions);
+    if (
+      resolution === PluginApprovalResolutions.ALLOW_ONCE ||
+      resolution === PluginApprovalResolutions.ALLOW_ALWAYS
+    ) {
+      await revalidate(id);
+    }
     notifyPluginApprovalResolution(approval, resolution);
     if (
       resolution === PluginApprovalResolutions.ALLOW_ONCE ||
@@ -434,11 +469,13 @@ async function requestPluginToolApproval(params: {
     const invalidRequest =
       err instanceof GatewayClientRequestError && err.gatewayCode === "INVALID_REQUEST";
     const reason =
-      invalidRequest && gatewayApprovalPhase === "request"
-        ? `Plugin approval request rejected: ${formatErrorMessage(err)}`
-        : invalidRequest && gatewayApprovalPhase === "wait"
-          ? `Plugin approval no longer available: ${formatErrorMessage(err)}`
-          : "Plugin approval required (gateway unavailable)";
+      gatewayApprovalState.phase === "revalidate"
+        ? "Tool approval no longer authorized"
+        : invalidRequest && gatewayApprovalState.phase === "request"
+          ? `Plugin approval request rejected: ${formatErrorMessage(err)}`
+          : invalidRequest && gatewayApprovalState.phase === "wait"
+            ? `Plugin approval no longer available: ${formatErrorMessage(err)}`
+            : "Plugin approval required (gateway unavailable)";
     log.warn(`plugin approval gateway request failed; blocking tool call: ${String(err)}`);
     return {
       blocked: true,

@@ -49,6 +49,34 @@ describe("channel ingress queue", () => {
     closeOpenClawStateDatabaseForTest();
   });
 
+  it.each(["pending", "claimed", "completed", "failed"] as const)(
+    "finds a retained %s receipt after reopening without decoding or changing its payload",
+    async (status) => {
+      await withTempState(async (stateDir) => {
+        const queue = createTestIngressQueue<{ text: string }>(stateDir);
+        await queue.enqueue("retained-id", { text: "original" });
+        if (status === "claimed") {
+          await queue.claim("retained-id");
+        } else if (status === "completed") {
+          await queue.complete("retained-id");
+        } else if (status === "failed") {
+          await queue.fail("retained-id", { reason: "fixture" });
+        }
+        closeOpenClawStateDatabaseForTest();
+        const restored = createTestIngressQueue<{ text: string }>(stateDir);
+        expect(await restored.has?.("retained-id")).toBe(true);
+        expect(await restored.has?.("missing-id")).toBe(false);
+        const other = createChannelIngressQueue({
+          channelId: "test",
+          accountId: "other",
+          stateDir,
+        });
+        expect(await other.has?.("retained-id")).toBe(false);
+        expect((await restored.enqueue("retained-id", { text: "changed" })).kind).toBe(status);
+      });
+    },
+  );
+
   it("deduplicates pending and completed ingress events", async () => {
     await withTempState(async (stateDir) => {
       const queue = createTestIngressQueue<
@@ -141,6 +169,38 @@ describe("channel ingress queue", () => {
         kind: "pending",
         record: { payload: { text: "second" } },
       });
+    });
+  });
+
+  it("isolates namespaced queues from legacy account IDs across restart", async () => {
+    await withTempState(async (stateDir) => {
+      const open = (accountId: string, queueNamespace?: string) =>
+        createChannelIngressQueue<{ version: number }>({
+          channelId: "test",
+          accountId,
+          queueNamespace,
+          stateDir,
+        });
+      const legacy = open("account");
+      const suffixAccount = open("account:mode-v2");
+      const namespaced = open("account", "mode-v2");
+      expect(await legacy.enqueue("same-id", { version: 1 })).toMatchObject({
+        kind: "accepted",
+        record: { queueName: '["test","account"]', accountId: "account" },
+      });
+      expect(await suffixAccount.enqueue("same-id", { version: 1 })).toMatchObject({
+        kind: "accepted",
+        record: { queueName: '["test","account:mode-v2"]', accountId: "account:mode-v2" },
+      });
+      expect(await namespaced.enqueue("same-id", { version: 2 })).toMatchObject({
+        kind: "accepted",
+        record: { queueName: '["test","account","mode-v2"]', accountId: "account" },
+      });
+      closeOpenClawStateDatabaseForTest();
+      expect((await open("account").claimNext())?.payload).toEqual({ version: 1 });
+      expect((await open("account:mode-v2").claimNext())?.payload).toEqual({ version: 1 });
+      expect((await open("account", "mode-v2").claimNext())?.payload).toEqual({ version: 2 });
+      expect(await open("account", "another-namespace").claimNext()).toBeNull();
     });
   });
 

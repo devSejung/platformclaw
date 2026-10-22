@@ -190,7 +190,10 @@ describe("PlatformClaw scheduled agent execution", () => {
         await cron.start();
         expect(await cron.run(job.id, "force")).toMatchObject({ ok: true, ran: true });
 
-        expect(dependencies.resolveTarget).toHaveBeenCalledWith({ agentId: target.agentId });
+        expect(dependencies.resolveTarget).toHaveBeenCalledExactlyOnceWith({
+          agentId: target.agentId,
+          sessionKey: `agent:${target.agentId}:cron:${job.id}`,
+        });
         expect(dependencies.createPlatformServerHandle).toHaveBeenCalledTimes(
           target.kind === "platform_server" ? 1 : 0,
         );

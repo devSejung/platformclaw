@@ -148,6 +148,8 @@ export type ReplyOperation = {
   /** Gateway lifecycle that admitted this process-local owner. */
   readonly lifecycleGeneration?: string;
   readonly routeThreadId?: string | number;
+  /** This operation's reply belongs exclusively to its initiating request. */
+  readonly replyRouteScope?: "request";
   /** Transcript branch leaf from which this operation was admitted. */
   readonly originatingLeafEntryId?: string | null;
   readonly abortSignal: AbortSignal;
@@ -238,6 +240,7 @@ type ReplyRunRegistry = {
     sessionId: string;
     resetTriggered: boolean;
     routeThreadId?: string | number;
+    replyRouteScope?: "request";
     originatingLeafEntryId?: string | null;
     upstreamAbortSignal?: AbortSignal;
   }): ReplyOperation;
@@ -672,6 +675,7 @@ export function createReplyOperation(params: {
   sessionId: string;
   resetTriggered: boolean;
   routeThreadId?: string | number;
+  replyRouteScope?: "request";
   originatingLeafEntryId?: string | null;
   upstreamAbortSignal?: AbortSignal;
   respectFollowupAdmissionBarrier?: boolean;
@@ -806,6 +810,7 @@ export function createReplyOperation(params: {
     get routeThreadId() {
       return params.routeThreadId;
     },
+    replyRouteScope: params.replyRouteScope,
     get originatingLeafEntryId() {
       return params.originatingLeafEntryId;
     },
@@ -1395,6 +1400,13 @@ export function queueReplyRunMessage(
     return false;
   }
   if (!isReplyOperationMessageInjectable(operation, backend)) {
+    return false;
+  }
+  if (
+    operation.replyRouteScope === "request" &&
+    options?.isInboundUserMessage &&
+    !options.questionAnswerBinding
+  ) {
     return false;
   }
   if (resolveReplyBackendQueueMessageMismatch(backend, options)) {

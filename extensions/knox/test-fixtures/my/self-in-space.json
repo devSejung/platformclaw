@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "executionMode": "self_in_space",
+  "eventId": "evt_my_fixture",
+  "messageId": "9934329570499788812345",
+  "occurredAt": "2026-10-22T01:00:00.123456Z",
+  "sender": {
+    "knoxUserId": "user.name_with.dot",
+    "displayName": "Fixture User"
+  },
+  "conversation": {
+    "type": "room",
+    "providerType": "GROUP",
+    "conversationId": "2714768127641234567890"
+  },
+  "message": {
+    "type": "text",
+    "text": "  다음 명령을 설명해줘\r\n/compact\n"
+  }
+}

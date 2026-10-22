@@ -55,6 +55,7 @@ const BUNDLED_TYPED_HOOK_REGISTRATION_GUARDS = {
   "extensions/platformclaw-execution/src/gateway.ts": ["before_agent_run"],
   "extensions/platformclaw-org-memory/index.ts": ["before_prompt_build"],
   "extensions/platformclaw-org-memory/src/space-tools.ts": [
+    "after_tool_approval",
     "before_agent_run",
     "before_prompt_build",
     "before_tool_call",

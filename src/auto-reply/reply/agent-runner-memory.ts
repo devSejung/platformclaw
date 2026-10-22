@@ -1236,6 +1236,8 @@ export async function runMemoryFlushIfNeeded(params: {
   const flushRunId = memoryDeps.randomUUID();
   if (params.sessionKey) {
     memoryDeps.registerAgentRunContext(flushRunId, {
+      admissionRunId: params.followupRun.run.admissionRunId ?? params.opts?.runId,
+      agentId: params.followupRun.run.agentId,
       sessionKey: params.sessionKey,
       ...(activeSessionEntry?.sessionId ? { sessionId: activeSessionEntry.sessionId } : {}),
       verboseLevel: params.resolvedVerboseLevel,

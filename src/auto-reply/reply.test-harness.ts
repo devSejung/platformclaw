@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, vi, type Mock } from "vitest";
+import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { withFastReplyConfig } from "./reply/get-reply-fast-path.test-support.js";
 
@@ -134,6 +135,7 @@ export function createTempHomeHarness(options: { prefix: string; beforeEachCase?
     if (!fixtureRoot) {
       return;
     }
+    closeOpenClawStateDatabaseForTest();
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   });
 

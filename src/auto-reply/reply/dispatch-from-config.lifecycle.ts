@@ -215,6 +215,7 @@ export function createDispatchReplyOperationCoordinator(params: {
       kind: replyTurnKind,
       resetTriggered: false,
       routeThreadId: params.routeThreadId,
+      replyRouteScope: params.ctx.ReplyRouteScope,
       originatingLeafEntryId: params.replyOptions?.turnAdoptionLifecycle?.originatingLeafEntryId,
       upstreamAbortSignal: params.replyOptions?.abortSignal,
       waitForActive:
@@ -265,6 +266,7 @@ export function createDispatchReplyOperationCoordinator(params: {
           kind: replyTurnKind,
           resetTriggered: false,
           routeThreadId: params.routeThreadId,
+          replyRouteScope: params.ctx.ReplyRouteScope,
           originatingLeafEntryId:
             params.replyOptions?.turnAdoptionLifecycle?.originatingLeafEntryId,
           upstreamAbortSignal: params.replyOptions?.abortSignal,

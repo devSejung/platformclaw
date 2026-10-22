@@ -81,6 +81,7 @@ type EmbeddedAgentQueueFailureReason =
   | "task_suggestion_delivery_mode_mismatch"
   | "transcript_commit_wait_unsupported"
   | "question_unavailable"
+  | "request_scoped_reply"
   | "runtime_rejected";
 
 export type EmbeddedAgentQueueMessageOutcome =
@@ -511,6 +512,15 @@ function prepareEmbeddedAgentQueueMessage(
   text: string,
   options?: EmbeddedAgentQueueMessageOptions,
 ): PreparedEmbeddedAgentQueueMessage {
+  if (
+    options?.isInboundUserMessage &&
+    resolveActiveReplyOperationForSessionId(sessionId)?.replyRouteScope === "request"
+  ) {
+    return {
+      kind: "complete",
+      outcome: createQueueFailureOutcome(sessionId, "request_scoped_reply"),
+    };
+  }
   const handle = ACTIVE_EMBEDDED_RUNS.get(sessionId);
   if (!handle) {
     // A stale reply-backed run must produce the same closed reason as the

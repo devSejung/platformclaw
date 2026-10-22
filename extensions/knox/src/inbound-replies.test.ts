@@ -61,6 +61,7 @@ type ReplyOutcome = {
 const account: ResolvedKnoxAccount = {
   accountId: "boundary-test",
   enabled: true,
+  selfInSpaceEnabled: false,
   configured: true,
   webhookPath: "/knox",
   webhookSecret: "w".repeat(32),

@@ -227,7 +227,10 @@ export async function getReplyFromConfig(
 ): Promise<ReplyPayload | ReplyPayload[] | undefined> {
   // A bound answer is data for an existing question, including slash text.
   // Clear command projections before native commands, resets, or directives run.
-  const ctx = opts?.questionAnswerBinding ? createMessageDataContext(inputCtx) : inputCtx;
+  const ctx =
+    opts?.questionAnswerBinding || opts?.inputMode === "message-data"
+      ? createMessageDataContext(inputCtx)
+      : inputCtx;
   const isFastTestEnv = isFastTestRuntimeEnv();
   let cfg = resolveGetReplyConfig({
     getRuntimeConfig,

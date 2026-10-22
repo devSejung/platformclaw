@@ -134,6 +134,62 @@ describe("getReplyFromConfig fast-path runtime", () => {
     },
   );
 
+  it.each([
+    "/compact",
+    "/stop",
+    "/approve approval-1 allow-once",
+    "Explain this command\n/compact",
+    "```\n/stop\n```",
+    "1",
+  ])("preserves message-data input %s through native command preparation", async (text) => {
+    await withTempHome(async (home) => {
+      const sessionKey = "agent:main:whatsapp:data";
+      const storePath = path.join(home, "sessions.json");
+      await replaceSessionEntry(
+        { storePath, sessionKey },
+        { sessionId: "existing-data-session", updatedAt: Date.now() },
+      );
+      const preparedRunner = vi
+        .spyOn(replyRunner, "runReplyAgent")
+        .mockImplementation(async (params) => {
+          expect(params.opts?.inputMode).toBe("message-data");
+          expect(params.opts?.questionAnswerBinding).toBeUndefined();
+          expect(params.resetTriggered).toBe(false);
+          expect(params.sessionCtx.commandText).toBe("");
+          expect(params.followupRun.transcriptPrompt).toBe(text);
+          return { text: "Answer" };
+        });
+      try {
+        await getReplyFromConfig(
+          {
+            Body: text,
+            BodyForAgent: text,
+            RawBody: text,
+            CommandBody: text,
+            CommandAuthorized: true,
+            CommandSource: "native",
+            CommandTargetSessionKey: "agent:other:wrong-target",
+            SessionKey: sessionKey,
+            Provider: "whatsapp",
+            Surface: "whatsapp",
+            ChatType: "direct",
+          },
+          { inputMode: "message-data" },
+          makeReplyConfig(home) as OpenClawConfig,
+        );
+        expect(preparedRunner).toHaveBeenCalledOnce();
+        expect(loadSessionEntry({ storePath, sessionKey })?.sessionId).toBe(
+          "existing-data-session",
+        );
+        expect(
+          loadSessionEntry({ storePath, sessionKey: "agent:other:wrong-target" }),
+        ).toBeUndefined();
+      } finally {
+        preparedRunner.mockRestore();
+      }
+    });
+  });
+
   it("keeps old-style runtime tests fast with marked temp-home configs", async () => {
     await withTempHome(async (home) => {
       let seenPrompt: string | undefined;

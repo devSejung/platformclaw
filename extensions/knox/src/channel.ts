@@ -37,6 +37,7 @@ const configAdapter = createHybridChannelConfigAdapter<ResolvedKnoxAccount>({
     "serviceTokenFile",
     "controlPlaneUrl",
     "progressDelayMs",
+    "selfInSpaceEnabled",
   ],
   resolveAllowFrom: () => [],
   formatAllowFrom: (allowFrom) => allowFrom.map(String),

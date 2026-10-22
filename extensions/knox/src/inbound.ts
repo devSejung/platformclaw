@@ -19,7 +19,7 @@ import {
 import { createKnoxProgress, usesKnoxKoreanNotices } from "./progress.js";
 import { formatKnoxReplyFailure, type KnoxReplyFailureReason } from "./reply-notice.js";
 import { renderKnoxReplyText } from "./reply-text.js";
-import { KnoxRoutingClient } from "./routing-client.js";
+import { KnoxRoutingClient, type KnoxRouteResolution } from "./routing-client.js";
 import { getKnoxRuntime } from "./runtime.js";
 import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 
@@ -85,19 +85,22 @@ export async function sendKnoxQueuedNotice(params: {
   message: KnoxInboundMessage;
   aheadCount: number;
   abortSignal: AbortSignal;
+  route?: KnoxRouteResolution;
 }): Promise<void> {
   if (params.abortSignal.aborted || params.aheadCount < 1) {
     return;
   }
-  const routing = await new KnoxRoutingClient({
-    url: params.account.controlPlaneUrl,
-    token: params.account.serviceToken,
-  }).resolve({
-    accountId: params.account.accountId,
-    conversationType: params.message.conversation.type,
-    conversationId: params.message.conversation.conversationId,
-    knoxUserId: params.message.sender.knoxUserId,
-  });
+  const routing =
+    params.route ??
+    (await new KnoxRoutingClient({
+      url: params.account.controlPlaneUrl,
+      token: params.account.serviceToken,
+    }).resolve({
+      accountId: params.account.accountId,
+      conversationType: params.message.conversation.type,
+      conversationId: params.message.conversation.conversationId,
+      knoxUserId: params.message.sender.knoxUserId,
+    }));
   // Dispatch/stop can win while the control-plane lookup is pending.
   if (params.abortSignal.aborted || routing.status !== "resolved") {
     return;
@@ -109,7 +112,7 @@ export async function sendKnoxQueuedNotice(params: {
       agentId: routing.agentId,
       sessionKey: routing.sessionKey,
       runId: `knox:${params.message.messageId}`,
-      ...(params.message.conversation.type === "dm"
+      ...(params.message.conversation.type === "dm" || params.message.schemaVersion === 2
         ? { executionTarget: requireDmExecutionTarget(routing.executionTarget) }
         : {}),
     },
@@ -128,19 +131,30 @@ export async function dispatchKnoxInbound(params: {
   message: KnoxInboundMessage;
   lifecycle: KnoxIngressLifecycle;
   questionAnswerBinding?: KnoxQuestionAnswerBinding;
+  selfInSpace?: {
+    route: KnoxRouteResolution;
+    validate: () => Promise<void>;
+    finish: (result: {
+      text: string;
+      status: "final" | "error" | "timeout";
+      requestId?: string;
+    }) => Promise<void>;
+  };
   log?: { info?: (message: string) => void; warn?: (message: string) => void };
 }): Promise<void> {
   const runtime = getKnoxRuntime();
   const cfg = runtime.config.current() as OpenClawConfig;
-  const routing = await new KnoxRoutingClient({
-    url: params.account.controlPlaneUrl,
-    token: params.account.serviceToken,
-  }).resolve({
-    accountId: params.account.accountId,
-    conversationType: params.message.conversation.type,
-    conversationId: params.message.conversation.conversationId,
-    knoxUserId: params.message.sender.knoxUserId,
-  });
+  const routing =
+    params.selfInSpace?.route ??
+    (await new KnoxRoutingClient({
+      url: params.account.controlPlaneUrl,
+      token: params.account.serviceToken,
+    }).resolve({
+      accountId: params.account.accountId,
+      conversationType: params.message.conversation.type,
+      conversationId: params.message.conversation.conversationId,
+      knoxUserId: params.message.sender.knoxUserId,
+    }));
   if (routing.status === "login-required") {
     throw new KnoxIngressPermanentError(
       "login-required",
@@ -163,17 +177,40 @@ export async function dispatchKnoxInbound(params: {
     throw new Error("Knox target agent is unavailable");
   }
 
+  if (routing.status !== "resolved") {
+    throw new KnoxIngressPermanentError("agent-unavailable", "Knox target is unavailable");
+  }
+  const personal = params.message.schemaVersion === 2;
+  if (personal && (!params.selfInSpace || !routing.selfInSpace)) {
+    throw new KnoxIngressPermanentError(
+      "invalid-event",
+      "Knox personal request has no pinned target",
+    );
+  }
+  const sendReply = async (input: Parameters<typeof sendKnoxOutbound>[0]): Promise<string> => {
+    if (personal && input.final && params.selfInSpace) {
+      await params.selfInSpace.finish({
+        text: input.text,
+        status:
+          input.status === "timeout" ? "timeout" : input.status === "error" ? "error" : "final",
+        requestId: input.requestId,
+      });
+      return input.requestId ?? `final:${params.message.messageId}`;
+    }
+    return await sendKnoxOutbound(input);
+  };
   const target = buildKnoxTarget(
     params.message.conversation.type,
     params.message.conversation.conversationId,
   );
-  const commandText = resolveKnoxCommandText(params.message.message.text);
-  const questionText =
-    params.questionAnswerBinding?.text ??
-    resolveKnoxPendingQuestionText({
-      sessionKey: routing.sessionKey,
-      text: params.message.message.text,
-    });
+  const commandText = personal ? "" : resolveKnoxCommandText(params.message.message.text);
+  const questionText = personal
+    ? undefined
+    : (params.questionAnswerBinding?.text ??
+      resolveKnoxPendingQuestionText({
+        sessionKey: routing.sessionKey,
+        text: params.message.message.text,
+      }));
   const agentText = questionText ?? params.message.message.text;
   const route = {
     agentId: routing.agentId,
@@ -190,7 +227,9 @@ export async function dispatchKnoxInbound(params: {
     sender: {
       // Keep the raw dotted Knox identity. Agent IDs are a separate namespace.
       id: params.message.sender.knoxUserId,
-      name: params.message.sender.displayName,
+      name: personal
+        ? routing.selfInSpace!.senderAttribution.name
+        : params.message.sender.displayName,
     },
     conversation: {
       kind: params.message.conversation.type === "dm" ? "direct" : "group",
@@ -212,11 +251,13 @@ export async function dispatchKnoxInbound(params: {
       bodyForAgent: agentText,
     },
     access: {
-      commands: { authorized: routing.senderLinked },
+      commands: { authorized: !personal && routing.senderLinked },
       // Control-plane routing binds DMs to linked personal agents and rooms to isolated room
       // agents. The room itself is the owner boundary, so every admitted participant owns it.
       owner: {
-        authorized: params.message.conversation.type === "room" || routing.senderLinked,
+        authorized: personal
+          ? routing.senderLinked
+          : params.message.conversation.type === "room" || routing.senderLinked,
       },
       mentions: {
         canDetectMention: params.message.conversation.type === "room",
@@ -226,9 +267,18 @@ export async function dispatchKnoxInbound(params: {
     extra: {
       ProviderMessageId: params.message.messageId,
       NativeConversationId: params.message.conversation.conversationId,
+      ...(personal
+        ? {
+            ReplyRouteScope: "request",
+            SenderProfileId: routing.selfInSpace!.userId,
+            SenderAgentId: routing.agentId,
+          }
+        : {}),
     },
   });
-  const runId = `knox:${params.message.messageId}`;
+  const runId = personal
+    ? `knox-my:${routing.selfInSpace!.admissionId}`
+    : `knox:${params.message.messageId}`;
   const reference = createHash("sha256")
     .update(`${params.account.accountId}:${target}:${runId}`)
     .digest("hex")
@@ -251,7 +301,7 @@ export async function dispatchKnoxInbound(params: {
     agentId: routing.agentId,
     sessionKey: routing.sessionKey,
     runId,
-    ...(params.message.conversation.type === "dm"
+    ...(params.message.conversation.type === "dm" || personal
       ? { executionTarget: requireDmExecutionTarget(routing.executionTarget) }
       : {}),
   };
@@ -268,15 +318,17 @@ export async function dispatchKnoxInbound(params: {
       }
     | undefined;
   let finalOrdinal = 0;
+  let privateQuestionNoticeSent = false;
   let turnFinished = false;
   const progress = createKnoxProgress({
+    privateExecution: personal,
     text: params.message.message.text,
     delayMs: params.account.progressDelayMs,
     abortSignal: params.lifecycle.abortSignal,
     subscribe: runtime.events.onAgentEvent,
     canSend: () => !turnFinished && deliveryPolicyResolved && !automaticReplySuppression,
     send: async (text, ordinal, abortSignal) => {
-      await sendKnoxOutbound({
+      await sendReply({
         context: outboundContext,
         status: "progress",
         text,
@@ -305,6 +357,7 @@ export async function dispatchKnoxInbound(params: {
     const turnAdoptionLifecycle: KnoxIngressLifecycle & { onSettled: () => void } = {
       ...params.lifecycle,
       onAdopted: async () => {
+        await params.selfInSpace?.validate();
         await params.lifecycle.onAdopted();
         progress.start();
       },
@@ -348,7 +401,18 @@ export async function dispatchKnoxInbound(params: {
           ctxPayload,
           replyOptions: {
             ...progress.replyOptions,
-            ...(params.questionAnswerBinding
+            ...(personal
+              ? {
+                  runId,
+                  inputMode: "message-data" as const,
+                  sourceReplyDeliveryMode: "automatic" as const,
+                  disableBlockStreaming: true,
+                  suppressDefaultToolProgressMessages: true,
+                  reasoningPayloadsEnabled: false,
+                  commentaryPayloadsEnabled: false,
+                }
+              : {}),
+            ...(!personal && params.questionAnswerBinding
               ? {
                   questionAnswerBinding: {
                     sessionKey: params.questionAnswerBinding.sessionKey,
@@ -388,6 +452,31 @@ export async function dispatchKnoxInbound(params: {
               recordOutcome("delivery-failed", error);
             },
             deliver: async (payload, info) => {
+              if (
+                personal &&
+                isRecord(payload.channelData?.askUser) &&
+                !privateQuestionNoticeSent
+              ) {
+                privateQuestionNoticeSent = true;
+                await sendReply({
+                  context: outboundContext,
+                  status: "progress",
+                  text: usesKnoxKoreanNotices(params.message.message.text)
+                    ? "소유자 웹에서 확인이 필요합니다. 비밀값은 Credential 등 비공개 입력 경로를 사용해 주세요."
+                    : "Owner action is required in the web app. Enter secrets only through private Credential or approval inputs.",
+                  final: false,
+                  requestId: `waiting:${params.message.messageId}`,
+                });
+              }
+              if (
+                personal &&
+                (info.kind !== "final" ||
+                  isRecord(payload.channelData?.askUser) ||
+                  payload.isReasoning ||
+                  payload.isReasoningSnapshot)
+              ) {
+                return { visibleReplySent: false };
+              }
               const terminalOutcome = getReplyPayloadAgentRunTerminalOutcome(payload);
               const knownReason = getReplyPayloadNoVisibleReplyReason(payload);
               const reason =
@@ -408,7 +497,7 @@ export async function dispatchKnoxInbound(params: {
               const diagnosis = reason ?? (!rendered ? "unrenderable-result" : undefined);
               const text = diagnosis ? formatKnoxReplyFailure(diagnosis, reference) : rendered!;
               const deliveryOrdinal = finalOrdinal++;
-              const messageId = await sendKnoxOutbound({
+              const messageId = await sendReply({
                 context: outboundContext,
                 status: terminal
                   ? diagnosis === "timeout"
@@ -474,7 +563,7 @@ export async function dispatchKnoxInbound(params: {
           observedSourceFailure?.reason ?? result.dispatchResult.noVisibleReplyReason,
         );
         recordOutcome(reason, sourceFailure.error);
-        await sendKnoxOutbound({
+        await sendReply({
           context: outboundContext,
           status: reason === "timeout" ? "timeout" : "error",
           text: formatKnoxReplyFailure(reason, reference),
@@ -494,7 +583,7 @@ export async function dispatchKnoxInbound(params: {
         result.dispatchResult.noVisibleReplyFallbackEligible !== true &&
         result.dispatchResult.sourceTurnCompleted === true
       ) {
-        await sendKnoxOutbound({
+        await sendReply({
           context: outboundContext,
           status: "final",
           text: usesKnoxKoreanNotices(params.message.message.text)
@@ -541,7 +630,7 @@ export async function dispatchKnoxInbound(params: {
     if (!deliveryPolicyResolved) {
       throw error;
     }
-    await sendKnoxOutbound({
+    await sendReply({
       context: outboundContext,
       status: timedOut ? "timeout" : "error",
       text: formatKnoxReplyFailure(reason, reference),
@@ -558,7 +647,7 @@ export async function dispatchKnoxInbound(params: {
   }
   if (!finalSent) {
     recordOutcome(recoveryReason);
-    await sendKnoxOutbound({
+    await sendReply({
       context: outboundContext,
       status: "error",
       text: formatKnoxReplyFailure(recoveryReason, reference),

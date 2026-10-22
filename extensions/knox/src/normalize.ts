@@ -64,10 +64,14 @@ function isCanonicalUtcTimestamp(value: string): boolean {
 
 export function normalizeKnoxInbound(value: unknown): KnoxInboundMessage {
   const root = record(value);
-  if (root?.schemaVersion !== undefined && root.schemaVersion !== 1) {
+  if (root?.schemaVersion !== undefined && root.schemaVersion !== 1 && root.schemaVersion !== 2) {
     throw new Error("Knox inbound schemaVersion is not supported");
   }
-  const versioned = root?.schemaVersion === 1;
+  const selfInSpace = root?.schemaVersion === 2;
+  if (selfInSpace ? root.executionMode !== "self_in_space" : root && "executionMode" in root) {
+    throw new Error("Knox inbound executionMode is invalid for schemaVersion");
+  }
+  const versioned = root?.schemaVersion === 1 || selfInSpace;
   const sender = record(root?.sender);
   const conversation = record(root?.conversation);
   const message = record(root?.message);
@@ -101,7 +105,7 @@ export function normalizeKnoxInbound(value: unknown): KnoxInboundMessage {
     throw new Error("Knox conversation type fields disagree");
   }
   if (versioned && (!providerType || !explicitType)) {
-    throw new Error("Knox version 1 conversation type fields are required");
+    throw new Error("Knox versioned conversation type fields are required");
   }
   if (
     versioned &&
@@ -110,7 +114,10 @@ export function normalizeKnoxInbound(value: unknown): KnoxInboundMessage {
       (explicitType === "room" && providerType === "GROUP")
     )
   ) {
-    throw new Error("Knox version 1 conversation type fields are invalid");
+    throw new Error("Knox versioned conversation type fields are invalid");
+  }
+  if (selfInSpace && (conversation?.type !== "room" || conversation.providerType !== "GROUP")) {
+    throw new Error("Knox self_in_space requires room/GROUP conversation type fields");
   }
   const body = versioned
     ? messageText(message?.text)
@@ -147,6 +154,9 @@ export function normalizeKnoxInbound(value: unknown): KnoxInboundMessage {
   if (messageType !== "text") {
     throw new Error(`Knox message type is not supported: ${messageType}`);
   }
+  if (selfInSpace && messageId.length > 256) {
+    throw new Error("Knox v2 messageId must not exceed 256 UTF-16 code units");
+  }
   if (versioned && !isCanonicalUtcTimestamp(occurredAt)) {
     throw new Error("Knox occurredAt must be an ISO 8601 UTC timestamp");
   }
@@ -154,18 +164,32 @@ export function normalizeKnoxInbound(value: unknown): KnoxInboundMessage {
   if (!Number.isFinite(timestamp)) {
     throw new Error("Knox occurredAt must be an ISO timestamp");
   }
-  return {
-    schemaVersion: 1,
+  const normalized = {
     eventId,
     messageId,
     occurredAt: versioned ? occurredAt : new Date(timestamp).toISOString(),
     sender: { knoxUserId, displayName },
+    message: { type: "text" as const, text: body },
+  };
+  const conversationFields = {
+    conversationId,
+    ...(text(conversation?.displayName) ? { displayName: text(conversation?.displayName) } : {}),
+  };
+  if (selfInSpace) {
+    return {
+      ...normalized,
+      schemaVersion: 2,
+      executionMode: "self_in_space",
+      conversation: { ...conversationFields, type: "room", providerType: "GROUP" },
+    };
+  }
+  return {
+    ...normalized,
+    schemaVersion: 1,
     conversation: {
+      ...conversationFields,
       type: conversationType,
       providerType: conversationType === "dm" ? "SINGLE" : "GROUP",
-      conversationId,
-      ...(text(conversation?.displayName) ? { displayName: text(conversation?.displayName) } : {}),
     },
-    message: { type: "text", text: body },
   };
 }

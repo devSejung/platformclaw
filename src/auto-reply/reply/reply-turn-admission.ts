@@ -137,6 +137,7 @@ type ReplyTurnAdmissionParams = {
   kind: ReplyTurnKind;
   resetTriggered: boolean;
   routeThreadId?: string | number;
+  replyRouteScope?: "request";
   originatingLeafEntryId?: string | null;
   /**
    * Move this already-held operation into sessionKey's run slot instead of
@@ -335,6 +336,7 @@ async function admitReplyTurnWithWaitSignal(
             sessionId,
             resetTriggered: params.resetTriggered,
             routeThreadId: params.routeThreadId,
+            replyRouteScope: params.replyRouteScope,
             originatingLeafEntryId: params.originatingLeafEntryId,
             upstreamAbortSignal: params.upstreamAbortSignal,
             respectFollowupAdmissionBarrier:

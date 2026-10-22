@@ -148,6 +148,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  closeOpenClawStateDatabaseForTest();
   await fs.rm(suiteRoot, { recursive: true, force: true });
   suiteRoot = "";
   suiteCase = 0;
@@ -5063,6 +5064,44 @@ describe("persistSessionUsageUpdate", () => {
 });
 
 describe("initSessionState stale threadId fallback", () => {
+  it("keeps request-scoped replies out of persistent origin and subsequent web turns", async () => {
+    const storePath = await createStorePath("request-reply-");
+    const cfg = { session: { store: storePath } } as OpenClawConfig;
+    const sessionKey = "agent:main:request-private";
+    await initSessionState({
+      ctx: { Body: "web first", SessionKey: sessionKey, Provider: "webchat", ChatType: "direct" },
+      cfg,
+    });
+    const before = loadSessionEntry({ storePath, sessionKey });
+    const result = await initSessionState({
+      ctx: {
+        Body: "personal question",
+        SessionKey: sessionKey,
+        Provider: "telegram",
+        Surface: "telegram",
+        ChatType: "group",
+        From: "group:private-request",
+        To: "group:private-request",
+        OriginatingChannel: "telegram",
+        OriginatingTo: "group:private-request",
+        ReplyRouteScope: "request",
+      },
+      cfg,
+    });
+    expect(result.sessionEntry.delivery).toEqual(before?.delivery);
+    expect(result.sessionEntry.groupId).toBe(before?.groupId);
+    const web = await initSessionState({
+      ctx: {
+        Body: "independent web question",
+        SessionKey: sessionKey,
+        Provider: "webchat",
+        ChatType: "direct",
+      },
+      cfg,
+    });
+    expect(JSON.stringify(web.sessionEntry.delivery)).not.toContain("group:private-request");
+  });
+
   it("does not inherit lastThreadId from a previous thread interaction in non-thread sessions", async () => {
     const storePath = await createStorePath("stale-thread-");
     const cfg = { session: { store: storePath } } as OpenClawConfig;

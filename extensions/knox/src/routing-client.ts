@@ -1,14 +1,48 @@
-type KnoxRouteResolution =
+import { createHash } from "node:crypto";
+import { normalizeKnoxInbound } from "./normalize.js";
+import type { KnoxInboundMessage } from "./types.js";
+
+type KnoxSelfInSpaceRoute = {
+  admissionId: string;
+  requestId: string;
+  userId: string;
+  spaceId: string;
+  pageId: string;
+  bindingId: string;
+  bindingGeneration: number;
+  conversationId: string;
+  targetRevision: number;
+  senderAttribution: { id: string; name?: string; profileId: string; agentId: string };
+};
+
+export type KnoxRouteResolution =
   | {
       status: "resolved";
       agentId: string;
       sessionKey: string;
       senderLinked: boolean;
       executionTarget: "platform_server" | "assigned_vm" | null;
+      selfInSpace?: KnoxSelfInSpaceRoute;
     }
-  | { status: "login-required" }
-  | { status: "room-disabled" }
-  | { status: "agent-unavailable" };
+  | { status: "login-required"; admissionId?: string }
+  | { status: "room-disabled"; admissionId?: string }
+  | { status: "agent-unavailable"; admissionId?: string }
+  | {
+      status:
+        | "space-unavailable"
+        | "permission-denied"
+        | "request-revoked"
+        | "request-conflict"
+        | "target-changed"
+        | "request-settled";
+      admissionId: string;
+    };
+
+export function knoxRequestFingerprint(message: KnoxInboundMessage): string {
+  return createHash("sha256")
+    .update(JSON.stringify(normalizeKnoxInbound(message)))
+    .digest("hex");
+}
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
@@ -46,6 +80,13 @@ export class KnoxRoutingClient {
     conversationType: "dm" | "room";
     conversationId: string;
     knoxUserId: string;
+    executionMode?: "self_in_space";
+    requestId?: string;
+    requestFingerprint?: string;
+    operation?: "reserve" | "validate" | "settle";
+    phase?: "execute" | "publish";
+    admissionId?: string;
+    outcome?: "finished" | "failed";
   }): Promise<KnoxRouteResolution> {
     let response: Response;
     try {
@@ -77,8 +118,14 @@ export class KnoxRoutingClient {
     if (!response.ok && response.status !== 503) {
       throw new Error(`Knox routing service rejected request (${response.status})`);
     }
-    const route = parseRoute(body);
-    if (!route) {
+    const route = parseKnoxRoute(body);
+    if (
+      !route ||
+      (params.executionMode === "self_in_space" &&
+        (route.status === "resolved"
+          ? !route.selfInSpace || route.selfInSpace.requestId !== params.requestId
+          : !route.admissionId?.trim()))
+    ) {
       throw new Error("Knox routing service returned invalid response");
     }
     return route;
@@ -113,7 +160,7 @@ async function readBoundedResponse(response: Response): Promise<string> {
   return new TextDecoder("utf-8", { fatal: true }).decode(body);
 }
 
-function parseRoute(value: unknown): KnoxRouteResolution | null {
+export function parseKnoxRoute(value: unknown): KnoxRouteResolution | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
@@ -123,7 +170,23 @@ function parseRoute(value: unknown): KnoxRouteResolution | null {
     body.status === "room-disabled" ||
     body.status === "agent-unavailable"
   ) {
-    return { status: body.status };
+    return {
+      status: body.status,
+      ...(typeof body.admissionId === "string" ? { admissionId: body.admissionId } : {}),
+    };
+  }
+  if (
+    [
+      "space-unavailable",
+      "permission-denied",
+      "request-revoked",
+      "request-conflict",
+      "target-changed",
+      "request-settled",
+    ].includes(String(body.status)) &&
+    typeof body.admissionId === "string"
+  ) {
+    return { status: body.status, admissionId: body.admissionId } as KnoxRouteResolution;
   }
   if (
     body.status === "resolved" &&
@@ -134,13 +197,46 @@ function parseRoute(value: unknown): KnoxRouteResolution | null {
       body.executionTarget === "platform_server" ||
       body.executionTarget === "assigned_vm")
   ) {
+    const self = body.selfInSpace;
+    if (self !== undefined && !isSelfInSpaceRoute(self)) {
+      return null;
+    }
     return {
       status: "resolved",
       agentId: body.agentId,
       sessionKey: body.sessionKey,
       senderLinked: body.senderLinked,
       executionTarget: body.executionTarget,
+      ...(self ? { selfInSpace: self } : {}),
     };
   }
   return null;
+}
+
+function isSelfInSpaceRoute(value: unknown): value is KnoxSelfInSpaceRoute {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const route = value as Record<string, unknown>;
+  const sender = route.senderAttribution as Record<string, unknown> | undefined;
+  return (
+    [
+      "admissionId",
+      "requestId",
+      "userId",
+      "spaceId",
+      "pageId",
+      "bindingId",
+      "conversationId",
+    ].every((key) => typeof route[key] === "string" && Boolean(route[key])) &&
+    Number.isSafeInteger(route.bindingGeneration) &&
+    Number.isSafeInteger(route.targetRevision) &&
+    Boolean(
+      sender &&
+      typeof sender.id === "string" &&
+      typeof sender.profileId === "string" &&
+      typeof sender.agentId === "string" &&
+      sender.profileId === route.userId,
+    )
+  );
 }

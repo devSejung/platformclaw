@@ -113,7 +113,7 @@ export class SqliteSpaceConversationStore {
   ): SpaceConversation {
     const requestedTitle = params.title;
     this.spaces.page(userId, spaceId, params.pageId, "editor");
-    return runImmediateTransaction(this.db, () => {
+    const register = () => {
       this.spaces.page(userId, spaceId, params.pageId, "editor");
       const binding = this.personalBinding(userId);
       if (!binding) {
@@ -199,7 +199,9 @@ export class SqliteSpaceConversationStore {
         }),
       );
       return { ...projectConversation(row), canWrite: true };
-    });
+    };
+    // Channel admission commits the registry and pinned request in one writer transaction.
+    return this.db.isTransaction ? register() : runImmediateTransaction(this.db, register);
   }
   rename(
     userId: string,

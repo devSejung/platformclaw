@@ -4,6 +4,10 @@ import { z } from "zod";
 export const KnoxChannelConfigSchema = buildChannelConfigSchema(
   z
     .object({
+      selfInSpaceEnabled: z.boolean().optional(),
+      accounts: z
+        .record(z.string(), z.object({ selfInSpaceEnabled: z.boolean().optional() }).passthrough())
+        .optional(),
       accountId: z.string().min(1).optional(),
       webhookSecret: z.string().min(32).optional(),
       webhookSecretFile: z.string().min(1).optional(),

@@ -3,6 +3,7 @@ import {
   isRequestBodyLimitError,
   readRequestBodyWithLimit,
 } from "openclaw/plugin-sdk/webhook-ingress";
+import { KnoxInboundIdentityConflictError } from "./inbound-identity.js";
 import type { createKnoxIngress } from "./ingress.js";
 import { normalizeKnoxInbound } from "./normalize.js";
 import type { ResolvedKnoxAccount } from "./types.js";
@@ -65,6 +66,10 @@ export function createKnoxWebhookHandler(options: {
       sendJson(res, 400, { ok: false, error: "invalid_payload" });
       return;
     }
+    if (message.schemaVersion === 2 && !options.account.selfInSpaceEnabled) {
+      sendJson(res, 409, { ok: false, error: "self_in_space_disabled", retryable: false });
+      return;
+    }
     try {
       const admitted = await options.admit(message);
       sendJson(res, admitted.duplicate ? 200 : 202, {
@@ -75,6 +80,10 @@ export function createKnoxWebhookHandler(options: {
         messageId: message.messageId,
       });
     } catch (error) {
+      if (error instanceof KnoxInboundIdentityConflictError) {
+        sendJson(res, 409, { ok: false, error: "message_identity_conflict", retryable: false });
+        return;
+      }
       options.log?.error?.(`Knox durable admission failed: ${String(error)}`);
       sendJson(res, 503, { ok: false, error: "admission_unavailable" });
     }

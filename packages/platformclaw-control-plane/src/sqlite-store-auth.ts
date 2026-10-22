@@ -18,6 +18,7 @@ import {
 } from "./contracts.js";
 import { deriveKnoxRoomAgentId, derivePersonalAgentId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
+import { revokeKnoxSpaceAdmissions } from "./sqlite-knox-space.js";
 import {
   ALLOWED_AGENT_TRANSITIONS,
   normalizeAccountId,
@@ -363,6 +364,16 @@ export abstract class SqliteControlPlaneAuthStore extends SqliteControlPlaneStor
   }): Promise<AgentBinding> {
     return runImmediateTransaction(this.db, () => {
       const current = this.requireBindingRow(params.bindingId);
+      if (params.state === "disabled") {
+        if (current.kind === "personal" && current.user_id) {
+          revokeKnoxSpaceAdmissions(this.db, { userId: current.user_id });
+        } else if (current.kind === "knox-room" && current.knox_account_id && current.room_id) {
+          revokeKnoxSpaceAdmissions(this.db, {
+            accountId: current.knox_account_id,
+            roomId: current.room_id,
+          });
+        }
+      }
       if (
         current.state !== params.state &&
         !ALLOWED_AGENT_TRANSITIONS[current.state].has(params.state)

@@ -16,6 +16,7 @@ import type { KnoxInboundMessage, ResolvedKnoxAccount } from "./types.js";
 const account: ResolvedKnoxAccount = {
   accountId: "synthetic",
   enabled: true,
+  selfInSpaceEnabled: false,
   configured: true,
   webhookPath: "/knox",
   webhookSecret: "w".repeat(32),
