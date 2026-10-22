@@ -60,6 +60,32 @@ afterEach(() => {
 });
 
 describe("Skill Hub organization policy", () => {
+  it.each([
+    ["member", "active", "active", true, false],
+    ["admin", "active", "active", true, true],
+    ["member", "disabled", "active", false, false],
+    ["member", "active", "restricted", false, false],
+    ["admin", "active", "restricted", false, false],
+  ] as const)(
+    "resolves Global publish and ownership for %s/%s/%s without granting curation",
+    (globalRole, status, accessState, canPublish, canCurate) => {
+      expect(
+        resolveSkillHubNamespaceCapabilities({
+          user: { id: "user-one", globalRole, status },
+          binding: {
+            namespace: "global",
+            scopeKind: "global",
+            accessState,
+            visibilityCeiling: "NAMESPACE_ONLY",
+            createdByUserId: "admin",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }),
+      ).toEqual({ canReadInstall: canPublish, canPublish, canCurate, canOwn: canPublish });
+    },
+  );
+
   it("derives read and publish from real hierarchy facts without directory groups", async () => {
     const { store, organization } = fixture();
     const admin = (await store.upsertPrincipal(principal("admin.user"), 1)).user;

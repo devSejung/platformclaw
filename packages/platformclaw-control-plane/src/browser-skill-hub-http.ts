@@ -178,6 +178,10 @@ export async function handlePlatformClawSkillHubRequest(
   const method = (req.method ?? "GET").toUpperCase();
   try {
     if (method === "GET") {
+      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/namespaces`) {
+        sendBrowserJson(res, 200, await options.service.namespaceCreationOptions(actor.user));
+        return true;
+      }
       if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/config`) {
         sendBrowserJson(res, 200, await options.service.config(actor));
         return true;
@@ -306,6 +310,22 @@ export async function handlePlatformClawSkillHubRequest(
         return true;
       }
       const body = objectBody(read.value);
+      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/namespaces`) {
+        const scopeKind = stringField(body, "scopeKind");
+        if (!["global", "team", "group", "part"].includes(scopeKind)) {
+          throw new SkillHubServiceError("invalid namespace scope kind", 400);
+        }
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.createNamespace(actor.user, {
+            namespace: stringField(body, "namespace"),
+            scopeKind: scopeKind as "global" | "team" | "group" | "part",
+            ...(body.scopeId === undefined ? {} : { scopeId: stringField(body, "scopeId") }),
+          }),
+        );
+        return true;
+      }
       const editMatch = new RegExp(
         `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/edit$`,
         "u",

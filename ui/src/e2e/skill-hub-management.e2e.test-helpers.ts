@@ -39,7 +39,14 @@ export async function verifySkillHubManagement(page: Page, baseUrl: string, proo
   await page.route("**/platformclaw/api/skill-hub/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith("/config")) {
-      return route.fulfill({ json: { namespaces: ["engineering"], maxPackageBytes: 1024 } });
+      return route.fulfill({
+        json: {
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+        },
+      });
     }
     if (url.pathname.endsWith("/management-users")) {
       const query = url.searchParams.get("q");

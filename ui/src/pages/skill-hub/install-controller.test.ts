@@ -51,6 +51,8 @@ async function installationFixture(installedVersion?: string) {
       { namespace: "engineering", slug },
       {
         namespaces: ["engineering"],
+        defaultNamespace: "engineering",
+        namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
         maxPackageBytes: 1024,
         installTargets: [
           { target: "platform_server", available: true, status: "ready" },

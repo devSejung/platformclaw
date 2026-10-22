@@ -35,6 +35,7 @@ import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { subscribeToPlatformClawExecutionTargetChanges } from "../../platformclaw/execution-target-events.ts";
+import { loadPlatformClawLocale } from "../../platformclaw/i18n.ts";
 import {
   loadPlatformClawSkillHubConfig,
   publishPlatformClawWorkspaceSkill,
@@ -222,6 +223,11 @@ class SkillsPage extends OpenClawLightDomElement {
       this.applyRouteData();
       this.ensureInitialData();
     }
+  }
+
+  override connectedCallback() {
+    super.connectedCallback();
+    void loadPlatformClawLocale().then(() => this.requestUpdate());
   }
 
   override updated() {
@@ -444,7 +450,6 @@ class SkillsPage extends OpenClawLightDomElement {
     this.skillHubConfigLoading = true;
     try {
       this.skillHubConfig = await loadPlatformClawSkillHubConfig();
-      this.skillHubPublishNamespace = this.skillHubConfig.namespaces[0] ?? "";
     } catch (error) {
       this.skillHubError = error instanceof Error ? error.message : String(error);
     } finally {
@@ -455,8 +460,7 @@ class SkillsPage extends OpenClawLightDomElement {
   private openSkillHubPublish(skill: string) {
     this.skillHubPublishSkill = skill;
     this.skillHubPublishVersion = "0.1.0";
-    this.skillHubPublishNamespace =
-      this.skillHubPublishNamespace || this.skillHubConfig?.namespaces[0] || "";
+    this.skillHubPublishNamespace = this.skillHubConfig?.defaultNamespace ?? "";
     this.skillHubMessage = null;
   }
 

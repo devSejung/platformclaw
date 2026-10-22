@@ -270,4 +270,19 @@ CREATE TABLE IF NOT EXISTS skill_hub_namespace_bindings (
     (scope_kind IN ('team', 'group', 'part') AND scope_id IS NOT NULL)
   )
 ) STRICT;
+CREATE TABLE IF NOT EXISTS skill_hub_namespace_creations (
+  namespace TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL UNIQUE,
+  actor_user_id TEXT NOT NULL REFERENCES platform_users(id),
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'team', 'group', 'part')),
+  scope_id TEXT REFERENCES managed_scopes(id) ON DELETE RESTRICT,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'registry-created', 'completed', 'uncertain', 'failed')),
+  registry_namespace_id INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CHECK ((scope_kind = 'global' AND scope_id IS NULL) OR
+    (scope_kind IN ('team', 'group', 'part') AND scope_id IS NOT NULL))
+) STRICT;
+CREATE INDEX IF NOT EXISTS skill_hub_namespace_creations_actor
+  ON skill_hub_namespace_creations(actor_user_id, state);
 `;

@@ -374,6 +374,7 @@ describe("PlatformClaw control schema migrations", () => {
       { name: "skill_hub_edit_intents" },
       { name: "skill_hub_governance_jobs" },
       { name: "skill_hub_namespace_bindings" },
+      { name: "skill_hub_namespace_creations" },
       { name: "skill_hub_notifications" },
       { name: "skill_hub_skill_access" },
       { name: "skill_hub_skill_ownership" },

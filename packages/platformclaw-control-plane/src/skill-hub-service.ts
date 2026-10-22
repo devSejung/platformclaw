@@ -1,7 +1,10 @@
 import type { PlatformUser } from "./contracts.js";
 import type { SkillHubAdapter } from "./skill-hub-adapter.js";
-import { SkillHubEditService } from "./skill-hub-edit-service.js";
 import { SkillHubGovernanceError } from "./skill-hub-governance-client.js";
+import {
+  SkillHubNamespaceService,
+  projectSkillHubNamespaceBinding,
+} from "./skill-hub-namespace-service.js";
 import {
   projectSkillHubAccessGrant,
   safeName,
@@ -10,21 +13,6 @@ import {
   validVersion,
   validVisibility,
 } from "./skill-hub-service-support.js";
-import type { SkillHubNamespaceBinding } from "./skill-hub-state.js";
-
-function projectNamespaceBinding(binding: SkillHubNamespaceBinding) {
-  return Object.assign(
-    {
-      namespace: binding.namespace,
-      scopeKind: binding.scopeKind,
-      accessState: binding.accessState,
-      visibilityCeiling: binding.visibilityCeiling,
-      createdAt: binding.createdAt,
-      updatedAt: binding.updatedAt,
-    },
-    binding.scopeId ? { scopeId: binding.scopeId } : {},
-  );
-}
 
 export {
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
@@ -36,7 +24,7 @@ export {
 } from "./skill-hub-service-support.js";
 export type { AuthenticatedWorkspace, SkillInstallTarget } from "./skill-hub-service-support.js";
 
-export class SkillHubService extends SkillHubEditService {
+export class SkillHubService extends SkillHubNamespaceService {
   async notifications(user: PlatformUser, limit = 50) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
       throw new SkillHubServiceError("notification limit must be between 1 and 100", 400);
@@ -70,7 +58,7 @@ export class SkillHubService extends SkillHubEditService {
     }
     return {
       bindings: (await this.options.store.listSkillHubNamespaceBindings()).map(
-        projectNamespaceBinding,
+        projectSkillHubNamespaceBinding,
       ),
       scopes: (await this.options.organization.listScopes())
         .filter((scope) => scope.status === "active")
@@ -98,18 +86,22 @@ export class SkillHubService extends SkillHubEditService {
       throw new SkillHubServiceError("PlatformClaw administrator required", 403);
     }
     const namespace = this.authorizeNamespace(params.namespace);
+    const current = await this.options.store.getSkillHubNamespaceBinding(namespace);
     const binding = await this.options.store.setSkillHubNamespaceBinding({
       namespace,
       scopeKind: params.scopeKind,
       ...(params.scopeId ? { scopeId: params.scopeId.trim() } : {}),
-      accessState: params.scopeKind === "global" ? "restricted" : "active",
+      accessState:
+        params.scopeKind === "global" && current?.scopeKind === "global"
+          ? current.accessState
+          : "active",
       visibilityCeiling: validVisibility(params.visibilityCeiling),
       expectedUpdatedAt: params.expectedUpdatedAt,
       reason: params.reason,
       actorUserId: user.id,
       changedAt: this.now(),
     });
-    return projectNamespaceBinding(binding);
+    return projectSkillHubNamespaceBinding(binding);
   }
 
   async setNamespaceAccessState(
@@ -121,7 +113,7 @@ export class SkillHubService extends SkillHubEditService {
       throw new SkillHubServiceError("PlatformClaw administrator required", 403);
     }
     const namespace = this.authorizeNamespace(namespaceRaw);
-    return projectNamespaceBinding(
+    return projectSkillHubNamespaceBinding(
       await this.options.store.setSkillHubNamespaceAccessState({
         namespace,
         ...params,

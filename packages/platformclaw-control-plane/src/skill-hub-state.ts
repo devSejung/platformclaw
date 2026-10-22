@@ -67,6 +67,18 @@ export type SkillHubManagementUser = {
   displayName?: string;
 };
 
+export type SkillHubNamespaceCreation = {
+  namespace: string;
+  operationId: string;
+  actorUserId: string;
+  scopeKind: SkillHubNamespaceBinding["scopeKind"];
+  scopeId?: string;
+  state: "pending" | "registry-created" | "completed" | "uncertain" | "failed";
+  registryNamespaceId?: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type SkillHubEditPlan = {
   id: string;
   namespace: string;
@@ -102,6 +114,29 @@ export type SkillHubEditCompletion =
   | { state: "privacy-required"; intent: SkillHubEditIntent };
 
 export interface SkillHubStateStore {
+  ensureDefaultSkillHubNamespace(params: { actorUserId: string; changedAt: number }): Promise<void>;
+  listCompletedSkillHubNamespaces(): Promise<string[]>;
+  listSkillHubNamespaceCreations(actorUserId: string): Promise<SkillHubNamespaceCreation[]>;
+  beginSkillHubNamespaceCreation(params: {
+    namespace: string;
+    operationId: string;
+    actorUserId: string;
+    scopeKind: SkillHubNamespaceBinding["scopeKind"];
+    scopeId?: string;
+    changedAt: number;
+  }): Promise<SkillHubNamespaceCreation>;
+  recordSkillHubNamespaceCreation(params: {
+    namespace: string;
+    operationId: string;
+    state: "registry-created" | "uncertain" | "failed";
+    registryNamespaceId?: number;
+    changedAt: number;
+  }): Promise<void>;
+  completeSkillHubNamespaceCreation(params: {
+    namespace: string;
+    operationId: string;
+    changedAt: number;
+  }): Promise<SkillHubNamespaceBinding>;
   beginSkillHubEdit(params: SkillHubEditPlan): Promise<SkillHubEditIntent>;
   getSkillHubEdit(id: string): Promise<SkillHubEditIntent | null>;
   getSkillHubPendingEdit(namespace: string, slug: string): Promise<SkillHubEditIntent | null>;

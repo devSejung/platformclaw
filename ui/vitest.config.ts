@@ -6,6 +6,7 @@ import { playwright } from "@vitest/browser-playwright";
 import { chromium } from "playwright";
 import { defineConfig, defineProject } from "vitest/config";
 import { canRunChromiumExecutable } from "../scripts/ensure-playwright-chromium.mjs";
+import { nativeNodeTestBuiltinsPlugin } from "../test/vitest/vitest.native-node-builtins.ts";
 import {
   jsdomOptimizedDeps,
   resolveDefaultVitestPool,
@@ -136,7 +137,7 @@ export default defineConfig({
     ...sharedUiTestConfig,
     projects: [
       defineProject({
-        plugins: [controlUiLocaleModulesPlugin()],
+        plugins: [nativeNodeTestBuiltinsPlugin(), controlUiLocaleModulesPlugin()],
         resolve: {
           alias: workspaceSourceAliases,
         },
@@ -156,7 +157,7 @@ export default defineConfig({
         },
       }),
       defineProject({
-        plugins: [controlUiLocaleModulesPlugin()],
+        plugins: [nativeNodeTestBuiltinsPlugin(), controlUiLocaleModulesPlugin()],
         resolve: {
           alias: workspaceSourceAliases,
         },
@@ -173,7 +174,7 @@ export default defineConfig({
         },
       }),
       defineProject({
-        plugins: [controlUiLocaleModulesPlugin()],
+        plugins: [nativeNodeTestBuiltinsPlugin(), controlUiLocaleModulesPlugin()],
         resolve: {
           alias: workspaceSourceAliases,
         },

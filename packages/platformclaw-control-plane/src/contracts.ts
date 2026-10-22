@@ -508,6 +508,7 @@ export type ControlPlaneConflictCode =
   | "skill_hub_owner_changed"
   | "skill_hub_namespace_binding_changed"
   | "skill_hub_namespace_populated"
+  | "skill-hub-namespace-conflict"
   | "organization_join_request_terminal_conflict"
   | "session_token_conflict";
 

@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { PlatformUser } from "./contracts.js";
 import { assertSkillHubWorkspace } from "./skill-hub-command-workspace.js";
+import { DEFAULT_SKILL_HUB_NAMESPACE } from "./skill-hub-organization-policy.js";
 import { SkillHubRegistryMutationLock } from "./skill-hub-registry-mutation-lock.js";
 import { SkillHubServiceBase } from "./skill-hub-service-base.js";
 import {
@@ -15,9 +16,29 @@ import {
   type SkillInstallTarget,
   type SkillHubAudience,
 } from "./skill-hub-service-support.js";
+import type { SkillHubNamespaceBinding } from "./skill-hub-state.js";
 
 export abstract class SkillHubCatalogService extends SkillHubServiceBase {
+  private namespacesInitialized = false;
   private readonly registryMutationLock = new SkillHubRegistryMutationLock();
+
+  protected async initializeNamespaces(user: PlatformUser): Promise<void> {
+    if (this.namespacesInitialized) {
+      return;
+    }
+    if (this.namespaces.has(DEFAULT_SKILL_HUB_NAMESPACE)) {
+      await this.options.store.ensureDefaultSkillHubNamespace({
+        actorUserId: user.id,
+        changedAt: this.now(),
+      });
+    }
+    // Completed creation rows extend deployment metadata at process startup.
+    // Administrator-only bindings outside the configured allowlist stay excluded.
+    for (const namespace of await this.options.store.listCompletedSkillHubNamespaces()) {
+      this.namespaces.add(namespace);
+    }
+    this.namespacesInitialized = true;
+  }
   protected async withRegistryMutationLock<T>(
     namespace: string,
     slug: string,
@@ -47,6 +68,7 @@ export abstract class SkillHubCatalogService extends SkillHubServiceBase {
     if (!isInside(this.workspaceRoot, workspaceDir) || workspaceDir === this.workspaceRoot) {
       throw new SkillHubServiceError("personal Agent workspace is invalid", 500);
     }
+    await this.initializeNamespaces(auth.user);
     return { user: auth.user, agentId: binding.agentId, workspaceDir };
   }
 
@@ -61,6 +83,7 @@ export abstract class SkillHubCatalogService extends SkillHubServiceBase {
     if (!isInside(this.workspaceRoot, workspaceDir) || workspaceDir === this.workspaceRoot) {
       throw new SkillHubServiceError("personal Agent workspace is invalid", 500);
     }
+    await this.initializeNamespaces(route.user);
     return { user: route.user, agentId: route.binding.agentId, workspaceDir };
   }
 
@@ -71,16 +94,36 @@ export abstract class SkillHubCatalogService extends SkillHubServiceBase {
     const vmAvailable = allocation?.status === "ready" && Boolean(allocation.remoteWorkspaceDir);
     const unreadCount = await this.options.store.countUnreadSkillHubNotifications(actor.user.id);
     const publishChecks = await Promise.all(
-      [...this.namespaces].map(async (namespace) => ({
-        namespace,
-        allowed: await this.canPublish(actor.user, namespace),
-      })),
+      [...this.namespaces].map(async (namespace) => {
+        const capabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
+        return capabilities.canPublish ? capabilities.binding : null;
+      }),
     );
+    const scopes = await this.options.organization.listScopes();
+    const scopeNames = new Map(scopes.map((scope) => [scope.id, scope.name]));
+    const namespaceOptions = publishChecks
+      .filter((binding): binding is SkillHubNamespaceBinding => binding !== null)
+      .toSorted((left, right) => {
+        const globalOrder =
+          Number(right.scopeKind === "global") - Number(left.scopeKind === "global");
+        const defaultOrder =
+          Number(right.namespace === DEFAULT_SKILL_HUB_NAMESPACE) -
+          Number(left.namespace === DEFAULT_SKILL_HUB_NAMESPACE);
+        return globalOrder || defaultOrder || left.namespace.localeCompare(right.namespace);
+      })
+      .map((binding) =>
+        Object.assign(
+          { namespace: binding.namespace, scopeKind: binding.scopeKind },
+          binding.scopeId && scopeNames.has(binding.scopeId)
+            ? { scopeName: scopeNames.get(binding.scopeId)! }
+            : {},
+        ),
+      );
     return {
-      namespaces: publishChecks
-        .filter((entry) => entry.allowed)
-        .map((entry) => entry.namespace)
-        .toSorted(),
+      namespaces: namespaceOptions.map((option) => option.namespace),
+      namespaceOptions,
+      defaultNamespace:
+        namespaceOptions.find((option) => option.scopeKind === "global")?.namespace ?? null,
       maxPackageBytes: this.options.maxPackageBytes,
       maxUploadBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
       capabilities: {
@@ -91,6 +134,7 @@ export abstract class SkillHubCatalogService extends SkillHubServiceBase {
         notifications: true,
         zipUpload: true,
         metadataEdit: typeof this.options.governance?.editSkill === "function",
+        namespaceCreate: typeof this.options.governance?.createNamespace === "function",
       },
       installTargets: [
         { target: "platform_server" as const, available: true, status: "ready" },

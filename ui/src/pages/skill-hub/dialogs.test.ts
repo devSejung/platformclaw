@@ -17,7 +17,14 @@ function workspacePublishProps(
   return {
     open: true,
     config: {
-      namespaces: ["engineering"],
+      namespaces: ["engineering", "global", "platform-group", "runtime-part"],
+      defaultNamespace: "global",
+      namespaceOptions: [
+        { namespace: "engineering", scopeKind: "team", scopeName: "Engineering" },
+        { namespace: "global", scopeKind: "global" },
+        { namespace: "platform-group", scopeKind: "group", scopeName: "Platform" },
+        { namespace: "runtime-part", scopeKind: "part", scopeName: "Runtime" },
+      ],
       maxPackageBytes: 1024,
       activeTarget: "platform_server",
       installTargets: [
@@ -28,7 +35,7 @@ function workspacePublishProps(
     source: "platform_server",
     skills: [{ skillKey: "release-notes", version: "1.2.0" }],
     skill: "release-notes",
-    namespace: "engineering",
+    namespace: "global",
     version: "1.2.0",
     visibility: "NAMESPACE_ONLY",
     loading: false,
@@ -58,7 +65,13 @@ describe("Skill Hub ZIP upload dialog", () => {
     render(
       renderSkillHubUpload({
         open: true,
-        config: { namespaces: ["engineering"], maxPackageBytes: 1024, maxUploadBytes: 4 },
+        config: {
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+          maxUploadBytes: 4,
+        },
         file: new File(["12345"], "skill.zip", { type: "application/zip" }),
         slug: "release-notes",
         namespace: "engineering",
@@ -97,7 +110,12 @@ describe("Skill Hub ZIP upload dialog", () => {
     render(
       renderSkillHubUpload({
         open: true,
-        config: { namespaces: ["engineering"], maxPackageBytes: 1024 },
+        config: {
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+        },
         file: new File(["zip"], "skill.zip", { type: "application/zip" }),
         slug: "release-notes",
         namespace: "engineering",
@@ -152,6 +170,10 @@ describe("Skill Hub workspace publish dialog", () => {
     expect(container.textContent).toContain("current work location will not change");
     expect(container.textContent).toContain("Basic workspace");
     expect(container.textContent).toContain("My VM workspace");
+    expect(container.textContent).toContain("Company-wide (global)");
+    expect(container.textContent).toContain("Team: Engineering (engineering)");
+    expect(container.textContent).toContain("Group: Platform (platform-group)");
+    expect(container.textContent).toContain("Part: Runtime (runtime-part)");
     expect(container.querySelectorAll<HTMLSelectElement>("select")[1]?.value).toBe("release-notes");
     const source = container.querySelector<HTMLSelectElement>("select")!;
     source.value = "assigned_vm";
@@ -204,6 +226,8 @@ describe("Skill Hub workspace publish dialog", () => {
         workspacePublishProps({
           config: {
             namespaces: ["engineering"],
+            defaultNamespace: "engineering",
+            namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
             maxPackageBytes: 1024,
             installTargets: [
               { target: "platform_server", available: true, status: "ready" },
@@ -253,7 +277,32 @@ describe("Skill Hub workspace publish dialog", () => {
     expect(container.textContent).toContain("작업 공간의 스킬 게시");
     expect(container.textContent).toContain("내 VM 작업 공간");
     expect(container.textContent).toContain("검사 후 스킬 게시");
+    expect(container.textContent).toContain("전사 공용 (global)");
+    expect(container.textContent).toContain("팀: Engineering (engineering)");
+    expect(container.textContent).toContain("그룹: Platform (platform-group)");
+    expect(container.textContent).toContain("파트: Runtime (runtime-part)");
     expect(container.querySelectorAll<HTMLSelectElement>("select")[1]?.value).toBe("release-notes");
+  });
+
+  it("requires an explicit scope choice when no Global destination is authorized", () => {
+    const container = document.createElement("div");
+    render(
+      renderSkillHubWorkspacePublish(
+        workspacePublishProps({
+          config: {
+            namespaces: ["engineering"],
+            defaultNamespace: null,
+            namespaceOptions: [{ namespace: "engineering", scopeKind: "team" }],
+            maxPackageBytes: 1024,
+          },
+          namespace: "",
+        }),
+      ),
+      container,
+    );
+
+    expect(container.querySelectorAll<HTMLSelectElement>("select")[2]?.value).toBe("");
+    expect(container.querySelector<HTMLButtonElement>("button.primary")?.disabled).toBe(true);
   });
 });
 

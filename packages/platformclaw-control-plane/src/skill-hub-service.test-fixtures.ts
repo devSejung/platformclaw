@@ -7,7 +7,7 @@ import type { ControlPlaneStore, OrganizationAuthorization, PlatformUser } from 
 import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type { OrganizationService } from "./organization-service.js";
-import type { SkillHubAdapter } from "./skill-hub-adapter.js";
+import { SkillHubAdapterError, type SkillHubAdapter } from "./skill-hub-adapter.js";
 import type { SkillHubGovernanceClient } from "./skill-hub-governance-client.js";
 import type { SkillHubStore } from "./skill-hub-service-support.js";
 import { SkillHubService } from "./skill-hub-service.js";
@@ -29,6 +29,7 @@ export const skillHubTestUser: PlatformUser = {
 export async function createSkillHubServiceFixture(
   groups: string[] = ["engineering"],
   governance?: SkillHubGovernanceClient,
+  options: { registrySkill?: "absent" | "existing" } = {},
 ) {
   const user = skillHubTestUser;
   const workspaceRoot = tempDirs.make("platformclaw-skill-hub-");
@@ -74,6 +75,8 @@ export async function createSkillHubServiceFixture(
     }),
   );
   const store = {
+    ensureDefaultSkillHubNamespace: vi.fn(async () => undefined),
+    listCompletedSkillHubNamespaces: vi.fn(async () => []),
     getSkillHubPendingEdit: vi.fn(async () => null),
     listPendingSkillHubEdits: vi.fn(async () => []),
     recordSkillHubEditRecoveryAttempt: vi.fn(async () => undefined),
@@ -182,28 +185,37 @@ export async function createSkillHubServiceFixture(
     })),
     recordAuditEvent,
   } as unknown as SkillHubStore;
+  let registrySkillPresent = options.registrySkill !== "absent";
   const adapterMocks = {
     search: vi.fn<SkillHubAdapter["search"]>(async () => ({ items: [], total: 0 })),
-    getSkill: vi.fn(async () => ({
-      id: 10,
-      namespace: "engineering",
-      slug: "demo-skill",
-      displayName: "Demo Skill",
-      summary: "Demo",
-      visibility: "PUBLIC",
-      status: "PUBLISHED",
-    })),
+    getSkill: vi.fn(async () => {
+      if (!registrySkillPresent) {
+        throw new SkillHubAdapterError("Skill Hub skill not found", 404);
+      }
+      return {
+        id: 10,
+        namespace: "engineering",
+        slug: "demo-skill",
+        displayName: "Demo Skill",
+        summary: "Demo",
+        visibility: "PUBLIC",
+        status: "PUBLISHED",
+      };
+    }),
     listVersions: vi.fn<SkillHubAdapter["listVersions"]>(async () => []),
     getVersionState: vi.fn<SkillHubAdapter["getVersionState"]>(
       async (_namespace, _slug, version) => ({ id: 20, version, status: "PUBLISHED" }),
     ),
     listSecurityAudits: vi.fn<SkillHubAdapter["listSecurityAudits"]>(async () => []),
-    publish: vi.fn(async (params) => ({
-      namespace: params.namespace,
-      slug: "demo-skill",
-      version: "1.2.3",
-      visibility: params.visibility,
-    })),
+    publish: vi.fn(async (params) => {
+      registrySkillPresent = true;
+      return {
+        namespace: params.namespace,
+        slug: "demo-skill",
+        version: "1.2.3",
+        visibility: params.visibility,
+      };
+    }),
     deleteSkill: vi.fn(async (namespace: string, slug: string) => ({ ok: true, namespace, slug })),
     download: vi.fn(),
   };

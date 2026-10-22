@@ -92,8 +92,12 @@ deployment generates these values; set them manually only for an external
 registry. `PLATFORMCLAW_SKILL_HUB_NAMESPACES` is only the registry bootstrap
 allowlist. The optional right-hand value in legacy `namespace=value` syntax is
 retained for registry bootstrap compatibility and is never employee
-authorization. Bind each namespace to Global, Team, Group, or Part in Skill Hub
-administration before publishing. Public skills remain searchable by every
+authorization. The canonical `global` namespace receives an active Global
+binding on first authenticated use when it is allowlisted and has no binding.
+Employees can create additional namespaces from Skill Hub; successful creation
+records the registry namespace and its authorized organization binding, without
+requiring an environment change or restart. Administrators can bind other
+approved registry namespaces in Skill Hub administration. Public skills remain searchable by every
 active employee; all other access comes from organization scope, visibility,
 ownership, or an explicit read/install grant.
 
@@ -114,9 +118,20 @@ Use either entry point:
    **Publish to Hub**; or open **Skill Hub**, select **Publish workspace skill**,
    explicitly choose **Basic workspace** or **My development VM**, and select a
    discovered workspace skill.
-2. Choose an allowed namespace, enter a SemVer version, and choose **Public**,
-   **Namespace only**, or **Private**.
+2. The destination defaults to **Global**, where any active employee can publish.
+   Choose a Team, Group, or Part instead to publish within an authorized
+   organization. Enter a SemVer version and choose **Public**, **Namespace only**,
+   or **Private**.
 3. Select **Publish**.
+
+If that namespace and skill name already exist in the registry without a
+PlatformClaw ownership record, use a new skill name or ask an administrator to
+publish and transfer ownership. Ordinary publication cannot claim an existing
+registry skill.
+
+Administrators disable the default `global` destination by restricting its
+access in the namespace view. Its binding cannot be removed, so restarting
+the control process preserves that decision.
 
 The server resolves the authenticated user's personal-Agent binding and
 packages the explicitly selected real Basic or assigned-VM workspace without
@@ -134,6 +149,29 @@ the same authenticated package through SkillHub's warning-confirmable publish
 endpoint. This allows ordinary skill files with arbitrary extensions, including
 `.jsonl` and `.bin`. Any additional pre-publish warning remains unconfirmed and
 still blocks publication.
+
+## Create a namespace
+
+Open **Skill Hub**, select **Create namespace**, enter an unused name, and choose
+where the namespace belongs. **Global** is the default and is available to every
+active employee, including employees without an organization membership. Team,
+Group, and Part choices require direct membership, leadership of the selected
+scope or an ancestor, or administrator authority. Creation does not grant access
+to another organization.
+
+Names contain 2–64 lowercase ASCII letters, digits, or hyphens, begin and end
+with a letter or digit, and do not contain consecutive hyphens. Registry-reserved
+names, including `global`, cannot be created again. New namespaces start active
+with a **Namespace only** visibility ceiling. Creating a namespace does not grant
+rights to change an existing namespace or another employee's skills.
+
+Successful creation makes the destination available immediately and after a
+control-process restart. If creation reports an uncertain result, keep the same
+name and organization and retry. The server resumes the recorded request and
+verifies its marker against the registry; it never adopts an unrelated existing
+namespace. The dialog also shows the caller's incomplete creations. A conflicting
+name requires a different name; an organization-permission rejection requires an
+authorized destination. Registry credentials never enter the browser.
 
 ## Edit a published skill
 
@@ -280,16 +318,16 @@ source skill and still requires the sender's normal namespace/ownership rights.
 
 Responses default to Korean; `help en` shows English help.
 
-| Command                                    | Result                                                           |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| `/skillhub help`                           | Korean command help                                              |
-| `/skillhub help [ko\|en]`                  | Select the help language                                         |
-| `/skillhub list [page\|all]`               | Skills the employee may download                                 |
-| `/skillhub installed`                      | Skill Hub skills installed on the active target                  |
-| `/skillhub publish <slug>`                 | Publish a skill from the active Basic or assigned-VM workspace   |
-| `/skillhub install <slug\|namespace/slug>` | Install the latest accessible version                            |
-| `/skillhub update <slug\|namespace/slug>`  | Replace the installed version with the latest accessible version |
-| `/skillhub delete <slug> --confirm`        | Remove the revision-pinned skill from the active target          |
+| Command                                    | Result                                                                 |
+| ------------------------------------------ | ---------------------------------------------------------------------- |
+| `/skillhub help`                           | Korean command help                                                    |
+| `/skillhub help [ko\|en]`                  | Select the help language                                               |
+| `/skillhub list [page\|all]`               | Skills the employee may download                                       |
+| `/skillhub installed`                      | Skill Hub skills installed on the active target                        |
+| `/skillhub publish <slug\|namespace/slug>` | Publish from the active workspace to Global or an explicit destination |
+| `/skillhub install <slug\|namespace/slug>` | Install the latest accessible version                                  |
+| `/skillhub update <slug\|namespace/slug>`  | Replace the installed version with the latest accessible version       |
+| `/skillhub delete <slug> --confirm`        | Remove the revision-pinned skill from the active target                |
 
 `list all` is a compatibility alias for page 1. The previous categories
 `knowledge`, `automation`, `utility`, and `other` do not exist in the current
@@ -305,7 +343,8 @@ same slug is visible in multiple namespaces, the response lists candidates and
 requires `namespace/slug`. Incomplete search results also require `namespace/slug`
 instead of selecting a skill from a partial result set. Install, update, and delete resolve the authoritative
 Basic or assigned-VM target at execution time; they never fall back to the other
-workspace. Publication chooses the first authorized namespace, the installed
+workspace. Publication chooses the authorized Global default unless an explicit
+`namespace/slug` destination is supplied. It uses the installed
 skill version (or `0.1.0`), and Namespace-only visibility unless the namespace
 is limited to Private. Delete requires `--confirm` and refuses to remove a skill whose
 revision changed after status was read.
@@ -404,8 +443,10 @@ namespace/unassigned-owner views. Server-side
 policy remains authoritative even if a browser calls the BFF directly.
 
 Skill Hub consumes the shared organization authorization boundary for
-Global/Team/Group/Part. Global starts restricted and requires an explicit,
-reasoned administrator activation. See
+Global/Team/Group/Part. Global is the default publication destination for active
+employees. Existing administrator restrictions remain effective; changing an
+existing namespace's policy still requires administrator authority, a reason,
+and the current binding revision. See
 [PlatformClaw organization architecture](/platformclaw/organization-architecture)
 for the canonical capability contract.
 

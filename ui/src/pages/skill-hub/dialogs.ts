@@ -8,6 +8,7 @@ import type {
   PlatformClawSkillHubWorkspaceSkill,
   PlatformClawSkillHubWorkspaceTarget,
 } from "../../platformclaw/skill-hub.ts";
+import { skillHubPublishNamespaceLabel } from "./labels.ts";
 
 export function renderSkillHubNotifications(props: {
   open: boolean;
@@ -145,15 +146,23 @@ export function renderSkillHubWorkspacePublish(props: {
           </select>
         </label>
         <label class="field">
-          <span>${t("skillsPage.skillHub.namespace")}</span>
+          <span>${platformClawT("platformClaw.skillHub.publish.destination")}</span>
           <select
             .value=${props.namespace}
             ?disabled=${props.busy}
             @change=${(event: Event) =>
               props.onNamespace((event.target as HTMLSelectElement).value)}
           >
-            ${props.config?.namespaces.map(
-              (namespace) => html`<option value=${namespace}>${namespace}</option>`,
+            <option value="" disabled ?selected=${props.namespace === ""}>
+              ${platformClawT("platformClaw.skillHub.publish.chooseDestination")}
+            </option>
+            ${props.config?.namespaceOptions.map(
+              (option) => html`<option
+                value=${option.namespace}
+                ?selected=${props.namespace === option.namespace}
+              >
+                ${skillHubPublishNamespaceLabel(option)}
+              </option>`,
             )}
           </select>
         </label>
@@ -287,16 +296,30 @@ export function renderSkillHubUpload(props: {
           />
         </label>
         <label class="field">
-          <span>${t("skillsPage.skillHub.namespace")}</span>
+          <span>${platformClawT("platformClaw.skillHub.publish.destination")}</span>
           <select
             .value=${props.namespace}
             ?disabled=${props.busy || Boolean(props.existing)}
             @change=${(event: Event) =>
               props.onNamespace((event.target as HTMLSelectElement).value)}
           >
-            ${(props.existing ? [props.existing.namespace] : props.config?.namespaces)?.map(
-              (namespace) => html`<option value=${namespace}>${namespace}</option>`,
-            )}
+            ${props.existing
+              ? html`<option value=${props.existing.namespace} selected>
+                  ${props.existing.namespace}
+                </option>`
+              : html`
+                  <option value="" disabled ?selected=${props.namespace === ""}>
+                    ${platformClawT("platformClaw.skillHub.publish.chooseDestination")}
+                  </option>
+                  ${props.config?.namespaceOptions.map(
+                    (option) => html`<option
+                      value=${option.namespace}
+                      ?selected=${props.namespace === option.namespace}
+                    >
+                      ${skillHubPublishNamespaceLabel(option)}
+                    </option>`,
+                  )}
+                `}
           </select>
         </label>
         <label class="field">

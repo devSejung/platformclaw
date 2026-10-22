@@ -25,6 +25,10 @@ export type SkillHubRegistryEdit = {
 };
 
 export interface SkillHubGovernanceClient {
+  createNamespace?(params: {
+    namespace: string;
+    operationId: string;
+  }): Promise<{ id: number; namespace: string }>;
   getEditableSkill?(namespace: string, slug: string): Promise<SkillHubEditableMetadata>;
   editSkill?(params: SkillHubRegistryEdit): Promise<SkillHubEditableMetadata>;
   approvePendingReview(params: {
@@ -122,6 +126,88 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
     }
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? 30_000;
+  }
+
+  async createNamespace(params: {
+    namespace: string;
+    operationId: string;
+  }): Promise<{ id: number; namespace: string }> {
+    await this.ensureLogin();
+    const description = `PlatformClaw namespace operation:${params.operationId}`;
+    const namespacePath = `api/v1/namespaces/${encodeURIComponent(params.namespace)}`;
+    const read = async () =>
+      await this.namespaceRequest(namespacePath, { method: "GET" }, params.namespace);
+    let response = await read();
+    if (response === null) {
+      try {
+        response = await this.namespaceRequest(
+          "api/v1/namespaces",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              slug: params.namespace,
+              displayName: params.namespace,
+              description,
+            }),
+          },
+          params.namespace,
+        );
+      } catch (error) {
+        if (!(error instanceof SkillHubGovernanceError) || error.statusCode !== 409) {
+          throw error;
+        }
+        // Another request may have committed the same persisted operation. Read
+        // its marker once; a generic duplicate never authorizes namespace adoption.
+        response = await read();
+      }
+    }
+    const data = record(response?.data, "namespace");
+    if (
+      !Number.isSafeInteger(data.id) ||
+      Number(data.id) < 1 ||
+      data.slug !== params.namespace ||
+      data.status !== "ACTIVE"
+    ) {
+      throw new SkillHubGovernanceError("Skill Hub returned invalid namespace metadata");
+    }
+    if (data.description !== description) {
+      throw new SkillHubGovernanceError("Skill Hub namespace already exists", 409);
+    }
+    return { id: Number(data.id), namespace: params.namespace };
+  }
+
+  private async namespaceRequest(
+    path: string,
+    init: RequestInit,
+    namespace: string,
+  ): Promise<Record<string, unknown> | null> {
+    const response = await this.request(
+      path,
+      { ...init, headers: { "Accept-Language": "en" } },
+      true,
+      true,
+    );
+    const body = await this.decodeJson(response);
+    if (response.ok && (body.code === 0 || body.code === 200)) {
+      return body;
+    }
+    // v0.2.16 has localized HTTP400 envelopes, not machine reason codes.
+    // Pin English and match only the dependency's exact absence/duplicate contracts.
+    if (
+      init.method === "GET" &&
+      response.status === 400 &&
+      body.msg === `Namespace not found: ${namespace}`
+    ) {
+      return null;
+    }
+    if (
+      init.method === "POST" &&
+      response.status === 400 &&
+      body.msg === `Namespace slug '${namespace}' already exists`
+    ) {
+      throw new SkillHubGovernanceError("Skill Hub namespace already exists", 409);
+    }
+    throw new SkillHubGovernanceError("Skill Hub rejected the namespace request", response.status);
   }
 
   async getEditableSkill(namespace: string, slug: string): Promise<SkillHubEditableMetadata> {
@@ -234,6 +320,14 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
 
   private async jsonRequest(path: string, init: RequestInit, authenticated: boolean) {
     const response = await this.request(path, init, authenticated);
+    const body = await this.decodeJson(response);
+    if (typeof body.code === "number" && body.code !== 0 && body.code !== 200) {
+      throw new SkillHubGovernanceError("Skill Hub rejected the governance request");
+    }
+    return body;
+  }
+
+  private async decodeJson(response: Response) {
     const declared = response.headers.get("content-length");
     if (declared && Number(declared) > MAX_JSON_BYTES) {
       void response.body?.cancel().catch(() => undefined);
@@ -259,11 +353,7 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
     }
     const bytes = Buffer.concat(chunks, size);
     try {
-      const body = record(JSON.parse(bytes.toString("utf8")), "governance JSON");
-      if (typeof body.code === "number" && body.code !== 0 && body.code !== 200) {
-        throw new SkillHubGovernanceError("Skill Hub rejected the governance request");
-      }
-      return body;
+      return record(JSON.parse(bytes.toString("utf8")), "governance JSON");
     } catch (error) {
       if (error instanceof SkillHubGovernanceError) {
         throw error;
@@ -276,6 +366,7 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
     path: string,
     init: RequestInit,
     authenticated: boolean,
+    allowBadRequest = false,
   ): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
@@ -304,7 +395,7 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
       throw new SkillHubGovernanceError("Skill Hub governance service is unavailable");
     }
     this.captureCookies(response.headers);
-    if (!response.ok) {
+    if (!response.ok && !(allowBadRequest && response.status === 400)) {
       if (authenticated && (response.status === 401 || response.status === 403)) {
         this.cookies.clear();
       }

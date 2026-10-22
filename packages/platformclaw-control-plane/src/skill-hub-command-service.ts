@@ -34,6 +34,7 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
       context,
       buildAgentMainSessionKey: this.options.buildAgentMainSessionKey,
     });
+    await this.initializeNamespaces(actor.user);
     const audience = actor.roomBinding ? "room" : "employee";
     if (action === "delete") {
       if (input.confirm !== true) {
@@ -161,6 +162,24 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
     } catch (error) {
       if (!(error instanceof SkillHubServiceError)) {
         throw error;
+      }
+      if (error.details?.code === "skill-hub-untracked-skill") {
+        return {
+          text:
+            locale === "ko"
+              ? "이미 레지스트리에 있는 스킬입니다. 새 스킬 이름을 사용하거나 관리자에게 기존 스킬 게시 후 소유권 이전을 요청해 주세요."
+              : error.message,
+          isError: true,
+        };
+      }
+      if (error.details?.code === "skill-hub-publish-namespace-required") {
+        return {
+          text:
+            locale === "ko"
+              ? "게시 가능한 전사 공용 대상이 없습니다. /skillhub publish namespace/slug로 권한이 있는 게시 대상을 지정해 주세요."
+              : error.message,
+          isError: true,
+        };
       }
       if (error.details?.code === "legacy-list-category") {
         return {
@@ -302,6 +321,7 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
     rawArgs: string | undefined,
     locale: "en" | "ko" = "en",
   ): Promise<{ text: string }> {
+    await this.initializeNamespaces(actor.user);
     const ko = locale === "ko";
     const [action = "help", ...tail] = (rawArgs ?? "").trim().split(/\s+/u).filter(Boolean);
     if (action === "help") {
@@ -382,19 +402,31 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
     }
     if (action === "publish") {
       if (tail.length !== 1) {
-        throw new SkillHubServiceError("usage: /skillhub publish <slug>", 400);
+        throw new SkillHubServiceError("usage: /skillhub publish <slug|namespace/slug>", 400);
       }
-      const slug = safeName(tail[0]!, "skill slug", SKILL_KEY_PATTERN);
+      const reference = tail[0]!;
+      const separator = reference.indexOf("/");
+      const slug = safeName(
+        separator < 0 ? reference : reference.slice(separator + 1),
+        "skill slug",
+        SKILL_KEY_PATTERN,
+      );
+      const namespace =
+        separator < 0
+          ? (await this.config(actor)).defaultNamespace
+          : this.authorizeNamespace(reference.slice(0, separator));
+      if (!namespace) {
+        throw new SkillHubServiceError(
+          "no authorized Global publishing namespace is available; specify namespace/slug",
+          403,
+          { code: "skill-hub-publish-namespace-required" },
+        );
+      }
       const execution = await this.resolveExecutionTarget(actor.agentId);
       const workspace = await this.workspaceSkills(actor, execution.activeTarget);
       const skill = workspace.items.find((item) => item.skillKey === slug);
       if (!skill) {
         throw new SkillHubServiceError(`skill is not installed on the active target: ${slug}`, 404);
-      }
-      const config = await this.config(actor);
-      const namespace = config.namespaces[0];
-      if (!namespace) {
-        throw new SkillHubServiceError("no authorized publishing namespace is available", 403);
       }
       const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
       const visibility = binding?.visibilityCeiling === "PRIVATE" ? "PRIVATE" : "NAMESPACE_ONLY";
@@ -478,7 +510,7 @@ function skillHubHelpEn(): string {
     "- `/skillhub help [ko|en]`",
     "- `/skillhub list [page|all]`: browse accessible skills (legacy categories are unavailable)",
     "- `/skillhub installed`",
-    "- `/skillhub publish <slug>`",
+    "- `/skillhub publish <slug|namespace/slug>`: publish to Global by default or select a namespace",
     "- `/skillhub install <slug|namespace/slug>`",
     "- `/skillhub update <slug|namespace/slug>`",
     "- `/skillhub delete <slug> --confirm`",
@@ -493,7 +525,7 @@ function skillHubHelpKo(): string {
     "- `/skillhub help [ko|en]`: 도움말",
     "- `/skillhub list [페이지|all]`: 다운로드 가능한 스킬 (이전 카테고리 분류는 제공하지 않음)",
     "- `/skillhub installed`: 현재 설치된 스킬",
-    "- `/skillhub publish <slug>`: 현재 작업공간의 스킬 게시 (내 게시 권한 적용)",
+    "- `/skillhub publish <slug|namespace/slug>`: 전사 공용에 게시하거나 게시 대상 지정 (내 게시 권한 적용)",
     "- `/skillhub install <slug|namespace/slug>`: 설치",
     "- `/skillhub update <slug|namespace/slug>`: 업데이트",
     "- `/skillhub delete <slug> --confirm`: 현재 실행 대상에서 제거",

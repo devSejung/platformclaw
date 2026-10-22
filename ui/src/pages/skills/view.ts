@@ -43,10 +43,12 @@ import {
   type SkillMessageMap,
 } from "../../lib/skills/index.ts";
 import { normalizeLowercaseStringOrEmpty } from "../../lib/string-coerce.ts";
+import { platformClawT } from "../../platformclaw/i18n.ts";
 import type {
   PlatformClawSkillHubConfig,
   PlatformClawSkillHubMessage,
 } from "../../platformclaw/skill-hub.ts";
+import { skillHubPublishNamespaceLabel } from "../skill-hub/labels.ts";
 
 function safeExternalHref(raw?: string): string | null {
   if (!raw) {
@@ -366,15 +368,23 @@ function renderPlatformClawSkillHubPublish(props: SkillsProps) {
             ? html`<div class="callout danger" role="alert">${props.skillHubMessage.text}</div>`
             : nothing}
           <label class="field">
-            <span>${t("skillsPage.skillHub.namespace")}</span>
+            <span>${platformClawT("platformClaw.skillHub.publish.destination")}</span>
             <select
               .value=${props.skillHubPublishNamespace}
               ?disabled=${props.skillHubOperation !== null}
               @change=${(event: Event) =>
                 props.onSkillHubPublishNamespaceChange((event.target as HTMLSelectElement).value)}
             >
-              ${props.skillHubConfig?.namespaces.map(
-                (namespace) => html`<option value=${namespace}>${namespace}</option>`,
+              <option value="" disabled ?selected=${props.skillHubPublishNamespace === ""}>
+                ${platformClawT("platformClaw.skillHub.publish.chooseDestination")}
+              </option>
+              ${props.skillHubConfig?.namespaceOptions.map(
+                (option) => html`<option
+                  value=${option.namespace}
+                  ?selected=${props.skillHubPublishNamespace === option.namespace}
+                >
+                  ${skillHubPublishNamespaceLabel(option)}
+                </option>`,
               )}
             </select>
           </label>

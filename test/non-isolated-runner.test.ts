@@ -34,6 +34,91 @@ function childEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+it("preserves native Node imports and file-scoped builtin mocks in jsdom", async () => {
+  const root = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-jsdom-native-runner-")),
+  );
+  try {
+    await fs.symlink(
+      path.join(repoRoot, "node_modules"),
+      path.join(root, "node_modules"),
+      "junction",
+    );
+    await fs.writeFile(
+      path.join(root, "a-mock.test.ts"),
+      [
+        'import { existsSync } from "node:fs";',
+        'import { randomUUID } from "node:crypto";',
+        'import path from "node:path";',
+        'import { expect, it, vi } from "vitest";',
+        'vi.mock("node:fs", async (importOriginal) => ({',
+        '  ...await importOriginal<typeof import("node:fs")>(),',
+        "  existsSync: () => false,",
+        "}));",
+        'it("loads native modules and honors a builtin mock", () => {',
+        `  expect(existsSync(${JSON.stringify(root)})).toBe(false);`,
+        '  expect(path.basename(path.join("first", "second"))).toBe("second");',
+        "  expect(randomUUID()).toMatch(/^[a-f0-9-]{36}$/u);",
+        '  expect(document.createElement("div").tagName).toBe("DIV");',
+        "});",
+      ].join("\n"),
+    );
+    await fs.writeFile(
+      path.join(root, "b-native.test.ts"),
+      [
+        'import { existsSync } from "node:fs";',
+        'import { expect, it } from "vitest";',
+        'it("does not inherit the previous file builtin mock", () => {',
+        `  expect(existsSync(${JSON.stringify(root)})).toBe(true);`,
+        "});",
+      ].join("\n"),
+    );
+    const configPath = path.join(root, "vitest.config.ts");
+    await fs.writeFile(
+      configPath,
+      [
+        'import { defineConfig } from "vitest/config";',
+        'import { BaseSequencer } from "vitest/node";',
+        `import { nativeNodeTestBuiltinsPlugin } from ${JSON.stringify(path.join(repoRoot, "test", "vitest", "vitest.native-node-builtins.ts"))};`,
+        "class AlphabeticalSequencer extends BaseSequencer {",
+        '  override async sort(files: Parameters<BaseSequencer["sort"]>[0]) {',
+        "    return [...files].sort((a, b) => a.moduleId.localeCompare(b.moduleId));",
+        "  }",
+        "}",
+        "export default defineConfig({",
+        `  cacheDir: ${JSON.stringify(path.join(root, ".vite"))},`,
+        "// The jsdom client graph loads the real runner outside this temporary root.",
+        `  server: { fs: { allow: ${JSON.stringify([repoRoot, root])} } },`,
+        "  plugins: [nativeNodeTestBuiltinsPlugin()],",
+        "  test: {",
+        '    environment: "jsdom",',
+        "    isolate: false,",
+        "    fileParallelism: false,",
+        "    maxWorkers: 1,",
+        "    sequence: { sequencer: AlphabeticalSequencer },",
+        `    runner: ${JSON.stringify(path.join(repoRoot, "test", "non-isolated-runner.ts"))},`,
+        "  },",
+        "});",
+      ].join("\n"),
+    );
+    const result = await execFileAsync(
+      process.execPath,
+      [
+        path.join(repoRoot, "node_modules", "vitest", "vitest.mjs"),
+        "run",
+        "--root",
+        root,
+        "--config",
+        configPath,
+      ],
+      { cwd: repoRoot, env: childEnv(), maxBuffer: 16 * 1024 * 1024 },
+    );
+    expect(`${result.stdout}\n${result.stderr}`).toContain("2 passed");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 it("applies vi.mock factories after a sibling file fails during collection", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-non-isolated-runner-"));
   try {

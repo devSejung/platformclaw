@@ -276,14 +276,22 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
   }
 
   async getSkill(namespace: string, slug: string): Promise<SkillHubSkillDetail> {
-    const data = record(
-      apiData(
-        await this.jsonRequest(
-          this.url(`api/v1/skills/${encodePath(namespace)}/${encodePath(slug)}`),
-        ),
-      ),
-      "skill detail",
+    const response = await this.fetchResponse(
+      this.url(`api/v1/skills/${encodePath(namespace)}/${encodePath(slug)}`),
+      { headers: { "Accept-Language": "en" } },
+      true,
     );
+    if (response.status === 400) {
+      const body = await readJson(response);
+      // v0.2.16 resolves absent slugs as a localized HTTP400 domain error.
+      // Only its exact English envelope establishes absence for first publication.
+      if (body.code === 400 && body.msg === `Skill not found: ${slug}`) {
+        throw new SkillHubAdapterError("Skill Hub skill not found", 404);
+      }
+      throw new SkillHubAdapterError("Skill Hub rejected the skill detail request", 400);
+    }
+    await this.ensureOk(response);
+    const data = record(apiData(await readJson(response)), "skill detail");
     const downloadCount = optionalNumber(data.downloadCount);
     const starCount = optionalNumber(data.starCount);
     const ratingAvg = optionalNumber(data.ratingAvg);

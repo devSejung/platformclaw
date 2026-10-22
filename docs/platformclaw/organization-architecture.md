@@ -259,8 +259,11 @@ model.
 
 Organization scope never collapses every service operation into one permission.
 For Skill Hub, Global-scoped read/install may be available to every active
-employee when the skill's visibility permits, but Global publish and curation
-remain administrator-only. Team/Group/Part read, install, publish, and curation
+employee when the skill's visibility permits. Active employees may publish and
+own skills in an active Global namespace, which is the default Skill Hub
+publication destination. Global namespace administration remains
+administrator-only; existing skill mutations require owner or administrator
+authority. Team/Group/Part read, install, publish, and curation
 are separate capabilities derived from current membership, leadership, owner,
 explicit per-user ACL, and immutable package policy. A consumer must request
 the exact capability; general scope access is not a publication grant.

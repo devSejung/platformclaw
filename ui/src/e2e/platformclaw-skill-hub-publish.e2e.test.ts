@@ -12,6 +12,7 @@ import {
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
 import { verifySkillHubManagement } from "./skill-hub-management.e2e.test-helpers.ts";
+import { verifyMemberNamespacePublishing } from "./skill-hub-namespaces.e2e.test-helpers.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
@@ -105,7 +106,13 @@ async function installWorkspaceRoutes(page: Page) {
     if (url.pathname.endsWith("/config")) {
       return route.fulfill({
         json: {
-          namespaces: ["engineering"],
+          namespaces: ["engineering", "global"],
+          defaultNamespace: "global",
+          namespaceOptions: [
+            { namespace: "engineering", scopeKind: "team", scopeName: "Engineering" },
+            { namespace: "global", scopeKind: "global" },
+          ],
+          admin: false,
           maxPackageBytes: 524_288_000,
           activeTarget: "assigned_vm",
           installTargets: [
@@ -189,6 +196,14 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     await server?.close();
   });
 
+  it.each(["en-US", "ko-KR"] as const)(
+    "creates member namespaces and publishes with visible failure recovery in %s",
+    async (locale) => {
+      const { page } = await newPage(locale);
+      await verifyMemberNamespacePublishing(page, server.baseUrl, locale === "ko-KR");
+    },
+  );
+
   it("autocompletes eligible owners and access recipients without clipping narrow cards", async () => {
     const { page } = await newPage("en-US");
     await verifySkillHubManagement(page, server.baseUrl, proofDir);
@@ -217,7 +232,15 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
       const pathname = new URL(route.request().url()).pathname;
       if (pathname.endsWith("/config")) {
         return route.fulfill({
-          json: { namespaces: ["engineering", "platform"], maxPackageBytes: 1024 },
+          json: {
+            namespaces: ["engineering", "platform"],
+            defaultNamespace: "engineering",
+            namespaceOptions: [
+              { namespace: "engineering", scopeKind: "global" },
+              { namespace: "platform", scopeKind: "global" },
+            ],
+            maxPackageBytes: 1024,
+          },
         });
       }
       if (pathname.endsWith("/search")) {
@@ -344,6 +367,12 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     await publishFromSkills.click();
     const skillsDialog = page.locator("openclaw-modal-dialog", { hasText: "vm-release" });
     await expect.poll(() => skillsDialog.isVisible()).toBe(true);
+    const skillsDestination = skillsDialog.locator("select").first();
+    await expect.poll(() => skillsDestination.inputValue()).toBe("global");
+    await skillsDestination.selectOption("engineering");
+    await skillsDialog.getByRole("button", { name: "Close", exact: true }).click();
+    await publishFromSkills.click();
+    await expect.poll(() => skillsDestination.inputValue()).toBe("global");
     await page.screenshot({
       animations: "disabled",
       path: path.join(proofDir, "02-skills-vm-dialog-fhd.png"),
@@ -357,8 +386,12 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     const dialog = page.locator(".skill-hub-workspace-publish");
     const sources = dialog.locator("select").first();
     const skills = dialog.locator("select").nth(1);
+    const destination = dialog.locator("select").nth(2);
     await expect.poll(() => sources.inputValue()).toBe("assigned_vm");
     await expect.poll(() => skills.inputValue()).toBe("vm-release");
+    await expect.poll(() => destination.inputValue()).toBe("global");
+    await expect.poll(() => destination.textContent()).toContain("Company-wide (global)");
+    await expect.poll(() => destination.textContent()).toContain("Team: Engineering (engineering)");
     await expect.poll(() => dialog.textContent()).toContain("VM Release (vm-release)");
 
     await sources.selectOption("platform_server");
@@ -388,14 +421,14 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     await dialog.getByRole("button", { name: "Scan and publish skill" }).click();
     await expect
       .poll(() =>
-        page.getByText("Published engineering/vm-release@2.3.0 from My VM workspace.").isVisible(),
+        page.getByText("Published global/vm-release@2.3.0 from My VM workspace.").isVisible(),
       )
       .toBe(true);
     expect(published).toEqual([
       {
         skill: "vm-release",
         source: "assigned_vm",
-        namespace: "engineering",
+        namespace: "global",
         version: "2.3.0",
         visibility: "NAMESPACE_ONLY",
       },
@@ -403,6 +436,17 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     expect(executionMutations).toEqual([]);
     expect(await gateway.getRequests("platformclaw-execution.changeTarget")).toEqual([]);
     await page.screenshot({ path: path.join(proofDir, "06-published-fhd.png") });
+
+    await publishFromHub.click();
+    await expect.poll(() => destination.inputValue()).toBe("global");
+    await expect.poll(() => skills.inputValue()).toBe("vm-release");
+    await destination.selectOption("engineering");
+    await dialog.getByRole("button", { name: "Scan and publish skill" }).click();
+    await expect.poll(() => published.length).toBe(2);
+    expect(published[1]).toMatchObject({ source: "assigned_vm", namespace: "engineering" });
+    await expect.poll(() => dialog.count()).toBe(0);
+    await publishFromHub.click();
+    await expect.poll(() => destination.inputValue()).toBe("global");
   });
 
   it("renders the assigned-VM workspace publishing flow in Korean", async () => {
@@ -414,6 +458,9 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     const dialog = page.locator(".skill-hub-workspace-publish");
     await expect.poll(() => dialog.textContent()).toContain("내 VM 작업 공간");
     await expect.poll(() => dialog.textContent()).toContain("검사 후 스킬 게시");
+    await expect.poll(() => dialog.textContent()).toContain("전사 공용 (global)");
+    await expect.poll(() => dialog.textContent()).toContain("팀: Engineering (engineering)");
+    await expect.poll(() => dialog.locator("select").nth(2).inputValue()).toBe("global");
     await expect.poll(() => dialog.locator("select").nth(1).inputValue()).toBe("vm-release");
     await page.screenshot({
       animations: "disabled",
@@ -513,7 +560,15 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
   it("shows admin load and save errors inside its dialog and protects a pending draft", async () => {
     const { page } = await newPage("en-US");
     await page.route("**/platformclaw/api/skill-hub/config", (route) =>
-      route.fulfill({ json: { namespaces: ["engineering"], maxPackageBytes: 1024, admin: true } }),
+      route.fulfill({
+        json: {
+          namespaces: ["engineering"],
+          defaultNamespace: "engineering",
+          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+          maxPackageBytes: 1024,
+          admin: true,
+        },
+      }),
     );
     let loadFails = true;
     let finish!: () => void;
