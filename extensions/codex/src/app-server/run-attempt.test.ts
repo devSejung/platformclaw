@@ -812,11 +812,12 @@ async function writeTokenPressureState(
 function installFailingThreadStartClient(onThreadStart: () => unknown) {
   const retireSpy = vi.spyOn(sharedClientModule, "retireSharedCodexAppServerClientIfCurrent");
   retireSpy.mockClear();
-  const state: { failedClient?: unknown } = {};
+  const state: { failedClient?: unknown; requests: string[] } = { requests: [] };
   setCodexAppServerClientFactoryForTest(async () => {
     const client = {
       ...mockClientRuntimeMethods(),
       request: vi.fn(async (method: string) => {
+        state.requests.push(method);
         if (method === "thread/start") {
           return await onThreadStart();
         }
@@ -831,7 +832,10 @@ function installFailingThreadStartClient(onThreadStart: () => unknown) {
   return { retireSpy, state };
 }
 
-async function runSharedClientRestartTest(closeCount: number) {
+async function runSharedClientRestartTest(
+  closeCount: number,
+  createCloseError = () => new Error("codex app-server client is closed"),
+) {
   const { sessionFile, workspaceDir } = createRunPaths();
   await writeExistingBinding(sessionFile, workspaceDir, { dynamicToolsFingerprint: "[]" });
   const requests: string[][] = [];
@@ -848,7 +852,7 @@ async function runSharedClientRestartTest(closeCount: number) {
       request: vi.fn(async (method: string) => {
         methods.push(method);
         if (method === "thread/resume" && startIndex < closeCount) {
-          throw new Error("codex app-server client is closed");
+          throw createCloseError();
         }
         if (method === "thread/resume") {
           return threadStartResult("thread-existing");
@@ -5026,23 +5030,38 @@ describe("runCodexAppServerAttempt", () => {
     expect(savedBinding?.authProfileId).toBe("openai:work");
     expect(savedBinding?.threadId).toBe("thread-1");
   });
-  it("restarts the app-server once when a shared client closes during startup", async () => {
-    const { result, requests } = await runSharedClientRestartTest(1);
+  it.each([
+    {
+      name: "one closed client",
+      closeCount: 1,
+      createError: () => new Error("codex app-server client is closed"),
+    },
+    {
+      name: "two closed clients",
+      closeCount: 2,
+      createError: () => new Error("codex app-server client is closed"),
+    },
+    {
+      name: "a client already closed by EPIPE",
+      closeCount: 1,
+      createError: () => Object.assign(new Error("write EPIPE"), { code: "EPIPE" }),
+    },
+    {
+      name: "a wrapped EPIPE",
+      closeCount: 1,
+      createError: () =>
+        new Error("transport failed", {
+          cause: Object.assign(new Error("write EPIPE"), { code: "EPIPE" }),
+        }),
+    },
+  ])("recovers startup with fresh clients after $name", async ({ closeCount, createError }) => {
+    const { result, requests } = await runSharedClientRestartTest(closeCount, createError);
     expect(readAttemptTerminal(result).aborted).toBe(false);
     expect(requests).toEqual([
-      ["thread/resume"],
+      ...Array.from({ length: closeCount }, () => ["thread/resume"]),
       ["thread/resume", "turn/start", "thread/unsubscribe"],
     ]);
-  });
-
-  it("tolerates a second app-server close while retrying startup", async () => {
-    const { result, requests } = await runSharedClientRestartTest(2);
-    expect(readAttemptTerminal(result).aborted).toBe(false);
-    expect(requests).toEqual([
-      ["thread/resume"],
-      ["thread/resume"],
-      ["thread/resume", "turn/start", "thread/unsubscribe"],
-    ]);
+    expect(requests.flat().filter((method) => method === "turn/start")).toHaveLength(1);
   });
   it("does not retire the shared Codex client when a spawned helper run fails with a logical thread/start error", async () => {
     const { retireSpy, state } = installFailingThreadStartClient(() => {
@@ -5073,13 +5092,16 @@ describe("runCodexAppServerAttempt", () => {
     expect(calledWithFailedClient).toBe(true);
     retireSpy.mockRestore();
   });
-  it("retires the shared Codex client when a spawned helper hits a thread/start write failure", async () => {
-    const { retireSpy, state } = installFailingThreadStartClient(() => {
+  it("bounds EPIPE startup recovery and retires failed shared clients", async () => {
+    const failThreadStart = vi.fn(() => {
       throw Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
     });
+    const { retireSpy, state } = installFailingThreadStartClient(failThreadStart);
     const params = createRunParams();
     params.spawnedBy = "agent:main:session-parent";
     await expect(runCodexAppServerAttempt(params)).rejects.toThrow("write EPIPE");
+    expect(failThreadStart).toHaveBeenCalledTimes(3);
+    expect(state.requests).not.toContain("turn/start");
     const calledWithFailedClient = retireSpy.mock.calls.some(([arg]) => arg === state.failedClient);
     expect(calledWithFailedClient).toBe(true);
     retireSpy.mockRestore();

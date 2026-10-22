@@ -198,7 +198,12 @@ export function isCodexAppServerConnectionClosedError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
-  if (isCodexAppServerIndeterminateTransportError(error)) {
+  // A client closed before this request returns its original EPIPE directly;
+  // pending writes carry the indeterminate wrapper. Both lost the same transport.
+  if (
+    isCodexAppServerIndeterminateTransportError(error) ||
+    isCodexAppServerBrokenPipeError(error)
+  ) {
     return true;
   }
   return (
@@ -237,7 +242,7 @@ export class CodexAppServerClient {
   private readonly closeHandlers = new Set<(client: CodexAppServerClient) => void>();
   private nextId = 1;
   private initialized = false;
-  private closed = false;
+  private closed: false | "requested" | "failed" = false;
   private transportExited = false;
   private closeError: Error | undefined;
   private serverVersion: string | undefined;
@@ -287,7 +292,33 @@ export class CodexAppServerClient {
     );
     child.once("exit", (code, signal) => {
       this.transportExited = true;
-      this.closeWithError(buildCodexAppServerExitError(code, signal, this.stderrTail));
+      const exitError = buildCodexAppServerExitError(code, signal, this.stderrTail);
+      // A pipe failure can initiate shutdown before exit arrives. Keep both facts:
+      // the later signal may be cleanup, rather than the original failure cause.
+      if (this.closed !== "requested") {
+        const priorErrorCode =
+          this.closeError && "code" in this.closeError ? this.closeError.code : undefined;
+        const evidence = {
+          clientInstanceId: this.instanceId,
+          pid: this.child.pid,
+          code: formatExitValue(code),
+          signal: formatExitValue(signal),
+          afterTransportFailure: this.closed === "failed",
+          priorErrorCode:
+            typeof priorErrorCode === "string"
+              ? redactCodexAppServerLinePreview(priorErrorCode)
+              : undefined,
+          priorErrorMessage: this.closeError
+            ? redactCodexAppServerLinePreview(this.closeError.message)
+            : undefined,
+          error: exitError.message,
+        };
+        embeddedAgentLog.warn("codex app-server exited unexpectedly", {
+          ...evidence,
+          consoleMessage: `codex app-server exited unexpectedly: ${JSON.stringify(evidence)}`,
+        });
+      }
+      this.closeWithError(exitError);
     });
     // Guard against unhandled EPIPE / write-after-close errors on the stdin
     // stream. When the child process terminates abruptly the pipe can break
@@ -706,7 +737,7 @@ export class CodexAppServerClient {
 
   /** Closes the transport without waiting for process/socket shutdown. */
   close(): void {
-    if (!this.markClosed(new Error("codex app-server client is closed"))) {
+    if (!this.markClosed(new Error("codex app-server client is closed"), "requested")) {
       return;
     }
     closeCodexAppServerTransport(this.child);
@@ -717,7 +748,7 @@ export class CodexAppServerClient {
     exitTimeoutMs?: number;
     forceKillDelayMs?: number;
   }): Promise<boolean> {
-    this.markClosed(new Error("codex app-server client is closed"));
+    this.markClosed(new Error("codex app-server client is closed"), "requested");
     return await closeCodexAppServerTransportAndWait(this.child, options);
   }
 
@@ -759,7 +790,16 @@ export class CodexAppServerClient {
       `${stringifyCodexAppServerMessage(message)}\n`,
       (error?: Error | null) => {
         if (error) {
-          embeddedAgentLog.warn("codex app-server write failed", { error, id, method });
+          embeddedAgentLog.warn("codex app-server write failed", {
+            error,
+            id,
+            method,
+            clientInstanceId: this.instanceId,
+            pid: this.child.pid,
+            consoleMessage:
+              `codex app-server write failed: clientInstanceId=${this.instanceId} pid=${this.child.pid} ` +
+              `method=${method ?? "response"} id=${id ?? "notification"} ${redactCodexAppServerLinePreview(error.message)}`,
+          });
           onError?.(error);
         }
       },
@@ -950,11 +990,11 @@ export class CodexAppServerClient {
     }
   }
 
-  private markClosed(error: Error): boolean {
+  private markClosed(error: Error, reason: "requested" | "failed" = "failed"): boolean {
     if (this.closed) {
       return false;
     }
-    this.closed = true;
+    this.closed = reason;
     this.closeError = error;
     this.lines.close();
     this.rejectPendingRequests(error);

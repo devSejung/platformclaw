@@ -71,6 +71,12 @@ export const nativeTranslations = {
     },
   },
   chat: {
+    copyError: "오류 정보 복사",
+    errorDetails: "오류 정보 보기",
+    errorShareHelp: "오류 정보를 복사해 관리자에게 보내주세요.",
+    errorCopied: "복사했습니다. 관리자에게 붙여넣어 보내주세요.",
+    errorCopyFallback:
+      "복사하지 못했습니다. 아래 오류 정보를 선택해 복사한 뒤 관리자에게 보내주세요.",
     sendErrors: {
       contextualActionBusy: "원래 대화가 작업을 마친 뒤 이 요청을 보낼 수 있습니다.",
     },

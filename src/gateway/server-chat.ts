@@ -787,6 +787,10 @@ export function createAgentEventHandler({
               controlUiVisible: isControlUiVisible,
               firstAssistantTimingEntry: finished,
               abortErrorMessage: readToolValidationErrorSummary(evt.data?.toolErrorSummary),
+              errorDetails:
+                typeof evt.data?.errorDetails === "string"
+                  ? evt.data.errorDetails.slice(0, 4096)
+                  : undefined,
               yielded: yieldedWaiting ? true : undefined,
             },
           );
@@ -1070,6 +1074,7 @@ export function createAgentEventHandler({
       controlUiVisible?: boolean;
       firstAssistantTimingEntry?: ChatRunEntry;
       abortErrorMessage?: string;
+      errorDetails?: string;
       yielded?: true;
     },
   ) => {
@@ -1116,6 +1121,7 @@ export function createAgentEventHandler({
       seq,
       state: "error" as const,
       errorMessage: error ? formatForLog(error) : undefined,
+      ...(opts?.errorDetails ? { errorDetails: opts.errorDetails } : {}),
       ...(errorKind && { errorKind }),
       ...(stopReason && { stopReason }),
     };

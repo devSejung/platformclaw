@@ -217,6 +217,7 @@ async function executeAgentTurnInternalWithRetryState(
     throw error;
   }
   let didNotifyAgentRunStart = false;
+  let lastExecutionPhase: EmbeddedAgentExecutionPhase | undefined;
   let lastRunStartupPhase: ReturnType<typeof resolveRunStartupPhase>;
   const notifyAgentRunStart = () => {
     if (didNotifyAgentRunStart) {
@@ -228,6 +229,7 @@ async function executeAgentTurnInternalWithRetryState(
   const signalExecutionPhaseForTyping = (
     info: Parameters<NonNullable<RunEmbeddedAgentParams["onExecutionPhase"]>>[0],
   ) => {
+    lastExecutionPhase = info.phase;
     const startupPhase = resolveRunStartupPhase(info.phase);
     if (startupPhase && startupPhase !== lastRunStartupPhase) {
       lastRunStartupPhase = startupPhase;
@@ -349,6 +351,7 @@ async function executeAgentTurnInternalWithRetryState(
       const action = await handleAgentExecutionError({
         turn: params,
         error: err,
+        executionPhase: lastExecutionPhase,
         runtimeConfig,
         runId,
         state: fallbackCycleState,

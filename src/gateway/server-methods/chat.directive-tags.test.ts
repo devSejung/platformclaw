@@ -3512,6 +3512,64 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     expect(assistantUpdates).toStrictEqual([]);
   });
 
+  it.each([
+    { name: "marked agent failure before startup", agentFailure: true },
+    { name: "unmarked non-agent command error", agentFailure: false },
+  ])("settles a $name using its recorded ownership", async ({ agentFailure }) => {
+    await createGatewayUserTurnSqliteFixture("openclaw-chat-send-prestart-error-");
+    const idempotencyKey = agentFailure ? "idem-prestart-agent-error" : "idem-command-error";
+    const errorMessage = "The response service connection was interrupted. Please try again.";
+    const errorDetails = `Agent failure report\nReference: ${idempotencyKey}\nPhase: execution`;
+    const payload = { text: errorMessage, isError: true };
+    if (agentFailure) {
+      setReplyPayloadMetadata(payload, {
+        agentRunTerminalOutcome: { reason: "failed", status: "error" },
+        agentRunFailureReport: errorDetails,
+      });
+    }
+    mockState.triggerAgentRunStart = false;
+    mockState.dispatchedReplies = [{ kind: "final", payload }];
+    const { context, send } = createChatRequestFixture();
+
+    const broadcast = await send({ idempotencyKey, message: "/status" });
+
+    await waitForAssertion(() => {
+      expect(context.dedupe.get(`chat:${idempotencyKey}`)?.ok).toBe(!agentFailure);
+    });
+    const dedupe = context.dedupe.get(`chat:${idempotencyKey}`);
+    if (agentFailure) {
+      expect(broadcast).toMatchObject({
+        runId: idempotencyKey,
+        sessionKey: "main",
+        state: "error",
+        errorMessage,
+        errorDetails,
+      });
+      expect(broadcast).not.toHaveProperty("message");
+      expect(dedupe?.payload).toMatchObject({
+        runId: idempotencyKey,
+        status: "error",
+        summary: errorMessage,
+      });
+      expect(findAssistantTranscriptUpdates()).toStrictEqual([]);
+      expect(await readActiveAssistantTranscriptMessages()).toStrictEqual([]);
+    } else {
+      expect(broadcast).toMatchObject({
+        runId: idempotencyKey,
+        sessionKey: "main",
+        state: "final",
+      });
+      expect(extractFirstTextBlock(broadcast)).toBe(errorMessage);
+      expect(broadcast).not.toHaveProperty("errorDetails");
+      expect(dedupe?.payload).toMatchObject({ runId: idempotencyKey, status: "ok" });
+      expect(findAssistantTranscriptUpdates()).toHaveLength(1);
+    }
+    expectUserUpdateIdentity(findUserUpdate());
+    const userMessages = readPersistedUserMessages();
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0]?.content).toBe("/status");
+  });
+
   it("keeps visible text on non-agent TTS final media because no model transcript exists", async () => {
     const transcriptDir = await createTranscriptFixture("openclaw-chat-send-command-tts-final-");
     const audioPath = path.join(transcriptDir, "tts.mp3");

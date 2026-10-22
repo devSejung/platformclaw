@@ -65,7 +65,7 @@ vi.mock("./reply/agent-runner.runtime.js", () => ({
       if (/context window exceeded/i.test(message)) {
         return "⚠️ Context overflow — prompt too large for this model. Try a shorter message or a larger-context model.";
       }
-      return buildControlUiAgentFailureText(message);
+      return buildControlUiAgentFailureText(message, "trigger-handling-run");
     };
     const stripHeartbeat = (text?: string) => {
       const trimmed = text?.trim();
@@ -360,7 +360,7 @@ describe("trigger handling", () => {
   for (const testCase of [
     {
       error: "sandbox is not defined.",
-      expected: buildControlUiAgentFailureText("sandbox is not defined."),
+      expected: buildControlUiAgentFailureText("sandbox is not defined.", "trigger-handling-run"),
     },
     {
       error: "Context window exceeded",
