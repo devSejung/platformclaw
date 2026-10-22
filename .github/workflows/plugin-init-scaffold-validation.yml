@@ -45,6 +45,9 @@ jobs:
       - name: Setup Node environment
         uses: ./.github/actions/setup-node-env
         with:
+          # The generated project installs the published openclaw:latest, whose
+          # supported Node floor can be newer than this checkout's runtime floor.
+          node-version: "24.22.1"
           install-bun: "false"
 
       - name: Generate and validate provider scaffold
