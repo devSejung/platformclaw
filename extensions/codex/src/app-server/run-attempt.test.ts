@@ -115,6 +115,7 @@ import {
 const agentHarnessRuntimeMocks = vi.hoisted(() => ({
   forceModelToolsUnsupported: false,
   skipRequesterScopedMcpMaterialization: false,
+  mcpMaterialization: vi.fn(),
 }));
 
 vi.mock("openclaw/plugin-sdk/agent-harness-runtime", async (importOriginal) => {
@@ -128,6 +129,7 @@ vi.mock("openclaw/plugin-sdk/agent-harness-runtime", async (importOriginal) => {
     materializeRequesterScopedMcpToolsForHarnessRun: async (
       ...args: Parameters<typeof actual.materializeRequesterScopedMcpToolsForHarnessRun>
     ) => {
+      agentHarnessRuntimeMocks.mcpMaterialization(...args);
       if (agentHarnessRuntimeMocks.skipRequesterScopedMcpMaterialization) {
         return undefined;
       }
@@ -1035,11 +1037,35 @@ function installCleanupTrackingClient(turnStartError?: Error) {
 setupRunAttemptTestHooks();
 
 beforeEach(() => {
+  agentHarnessRuntimeMocks.mcpMaterialization.mockClear();
   agentHarnessRuntimeMocks.forceModelToolsUnsupported = false;
   agentHarnessRuntimeMocks.skipRequesterScopedMcpMaterialization = false;
 });
 
 describe("runCodexAppServerAttempt", () => {
+  it("binds scoped MCP tools to the selected agent and session policy", async () => {
+    const { sessionFile, workspaceDir } = createRunPaths();
+    const harness = createStartedThreadHarness();
+    const params = createParams(sessionFile, workspaceDir);
+    params.senderId = "external-sender";
+    params.toolOverrides = {
+      mcpServers: { personal: false },
+      mcpToolsDeny: { personal: ["write_record"] },
+    };
+    const run = runCodexAppServerAttempt(params);
+    await harness.waitForMethod("turn/start");
+    await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+    await run;
+
+    expect(agentHarnessRuntimeMocks.mcpMaterialization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "main",
+        requesterSenderId: "external-sender",
+        toolOverrides: params.toolOverrides,
+      }),
+    );
+  });
+
   it("executes and reports the same materialized SecretRef credential", async () => {
     const { sessionFile, workspaceDir, agentDir } = createRunPaths();
     const authProfileId = "openai:work";

@@ -2,9 +2,10 @@
  * Harness-facing materialization of requester-scoped MCP tools.
  * Static MCP stays harness-native; this path never opens static transports.
  */
+import type { SessionToolOverrides } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
-import { getPluginToolMeta } from "../plugins/tools.js";
+import { getPluginToolMeta, setPluginToolMeta } from "../plugins/tools.js";
 import {
   buildBundleMcpToolsFromCatalog,
   materializeBundleMcpToolsForRun,
@@ -42,6 +43,8 @@ type MaterializeRequesterScopedMcpToolsForHarnessRunParams = {
   cfg?: OpenClawConfig;
   manifestRegistry?: Pick<PluginManifestRegistry, "plugins">;
   requesterSenderId?: string | null;
+  agentId?: string | null;
+  toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
   agentAccountId?: string | null;
   messageChannel?: string | null;
   reservedToolNames?: Iterable<string>;
@@ -66,6 +69,13 @@ function notConnectedToolResult(serverName: string, toolName: string) {
   };
 }
 
+function harnessMcpToolIdentity(tool: AnyAgentTool): string {
+  // Both surfaces come from the MCP catalog factory; provider-safe names may
+  // be reassigned when a session disables a colliding server or tool.
+  const mcp = getPluginToolMeta(tool)!.mcp!;
+  return JSON.stringify([mcp.serverName, mcp.operation, mcp.toolName]);
+}
+
 function applyHarnessToolPolicy(
   tools: AnyAgentTool[],
   params: MaterializeRequesterScopedMcpToolsForHarnessRunParams,
@@ -73,7 +83,25 @@ function applyHarnessToolPolicy(
   if (tools.length === 0) {
     return tools;
   }
-  const allowed = applyEmbeddedAttemptToolsAllow(tools, params.toolsAllow, {
+  // Advertised schemas survive missing credentials and disabled servers. Apply
+  // this turn's restrictions before cached tools can reenter the harness surface.
+  const sessionAllowed = tools.filter((tool) => {
+    const mcp = getPluginToolMeta(tool)?.mcp;
+    if (!mcp) {
+      return true;
+    }
+    const servers = params.toolOverrides?.mcpServers;
+    if (servers && Object.hasOwn(servers, mcp.serverName) && servers[mcp.serverName] === false) {
+      return false;
+    }
+    const denied = params.toolOverrides?.mcpToolsDeny;
+    return !(
+      denied &&
+      Object.hasOwn(denied, mcp.serverName) &&
+      denied[mcp.serverName]?.includes(mcp.toolName)
+    );
+  });
+  const allowed = applyEmbeddedAttemptToolsAllow(sessionAllowed, params.toolsAllow, {
     toolMeta: (tool) => getPluginToolMeta(tool),
   });
   const profile =
@@ -111,6 +139,8 @@ export async function materializeRequesterScopedMcpToolsForHarnessRun(
     cfg: params.cfg,
     manifestRegistry: params.manifestRegistry,
     requesterSenderId: params.requesterSenderId,
+    agentId: params.agentId,
+    toolOverrides: params.toolOverrides,
     agentAccountId: params.agentAccountId,
     messageChannel: params.messageChannel,
   });
@@ -139,9 +169,20 @@ export async function materializeRequesterScopedMcpToolsForHarnessRun(
     reservedToolNames,
     createExecute: (tool) => async () => notConnectedToolResult(tool.serverName, tool.toolName),
   });
-  const liveByName = new Map((liveRuntime?.tools ?? []).map((tool) => [tool.name, tool]));
-  // Live tools supply execution; advertised catalog supplies the stable name/schema surface.
-  const tools = advertisedTools.map((tool) => liveByName.get(tool.name) ?? tool);
+  const liveByIdentity = new Map(
+    (liveRuntime?.tools ?? []).map((tool) => [harnessMcpToolIdentity(tool), tool]),
+  );
+  // Bind by server/operation/raw name so a reused safe name cannot borrow
+  // another server's authority. Keep the advertised schema and its metadata.
+  const tools = advertisedTools.map((tool) => {
+    const live = liveByIdentity.get(harnessMcpToolIdentity(tool));
+    if (!live) {
+      return tool;
+    }
+    const bound = { ...tool, execute: live.execute };
+    setPluginToolMeta(bound, getPluginToolMeta(tool)!);
+    return bound;
+  });
 
   const filteredTools = applyHarnessToolPolicy(tools, params);
   const filteredAdvertised = applyHarnessToolPolicy(advertisedTools, params);

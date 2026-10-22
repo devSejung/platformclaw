@@ -27,14 +27,17 @@ describe("requester-scoped MCP harness preflight", () => {
     ).toBe(false);
   });
 
-  it("loads for an authenticated requester", () => {
-    expect(
-      shouldLoadRequesterScopedMcpHarnessRuntime({
-        sessionId: "session-1",
-        requesterSenderId: "sender-1",
-      }),
-    ).toBe(true);
-  });
+  it.each([{ requesterSenderId: "sender-1" }, { agentId: "agent-1" }])(
+    "loads for a trusted identity %j",
+    (identity) => {
+      expect(
+        shouldLoadRequesterScopedMcpHarnessRuntime({
+          sessionId: "session-1",
+          ...identity,
+        }),
+      ).toBe(true);
+    },
+  );
 
   it("loads advertised stubs for an unauthenticated requester", () => {
     globalStore[SESSION_MCP_RUNTIME_MANAGER_KEY] = {
