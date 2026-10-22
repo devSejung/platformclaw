@@ -144,6 +144,7 @@ export function broadcastChatError(params: {
   sessionKey: string;
   agentId?: string;
   errorMessage?: string;
+  errorDetails?: string;
 }): void {
   const seq = nextChatSeq(params.context, params.runId);
   const payloadAgentId = params.sessionKey === "global" ? params.agentId : undefined;
@@ -154,6 +155,7 @@ export function broadcastChatError(params: {
     seq,
     state: "error" as const,
     errorMessage: params.errorMessage,
+    ...(params.errorDetails ? { errorDetails: params.errorDetails.slice(0, 4096) } : {}),
   };
   params.context.broadcast("chat", payload, {
     sessionKeys: resolveGlobalAwareNodeChatDeliveryKeys({

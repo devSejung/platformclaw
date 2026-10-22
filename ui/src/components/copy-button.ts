@@ -46,7 +46,7 @@ export async function handleCopyButton(event: Event, text: string, idleLabel: st
   button.removeAttribute("aria-busy");
   button.disabled = false;
   if (!button.isConnected || button.dataset.copyAttempt !== attempt) {
-    return;
+    return copied;
   }
 
   const feedback = copied ? "copied" : "error";
@@ -69,6 +69,7 @@ export async function handleCopyButton(event: Event, text: string, idleLabel: st
       renderedLabel && renderedLabel !== feedbackLabel ? renderedLabel : idleLabel,
     );
   }, duration);
+  return copied;
 }
 
 function createCopyButton(options: CopyButtonOptions): TemplateResult {

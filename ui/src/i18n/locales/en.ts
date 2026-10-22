@@ -5051,7 +5051,11 @@ export const en: TranslationMap = {
   chat: {
     disconnected: "Disconnected from gateway.",
     errorDetails: "Error details",
-    copyError: "Copy error",
+    copyError: "Copy error details",
+    errorShareHelp: "Copy the error details and send them to your administrator for help.",
+    errorCopied: "Copied. Send this report to your administrator.",
+    errorCopyFallback:
+      "Copy failed. Select and copy the report below, then send it to your administrator.",
     sendErrors: {
       contextualActionBusy: "This request must wait for the original conversation to be idle.",
       activeLeafChanged: "The thread switched branches — review and resend.",

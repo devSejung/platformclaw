@@ -246,6 +246,8 @@ export type NoVisibleReplyReason =
 
 /** WeakMap-backed metadata attached to payload objects without changing wire shape. */
 export type ReplyPayloadMetadata = {
+  /** Bounded, credential-free support report copied from a failed Web chat turn. */
+  agentRunFailureReport?: string;
   /** Authoritative runner failure, retained even when group policy hides its text. */
   agentRunTerminalOutcome?: AgentRunTerminalOutcome;
   /** Identifies a core-authored recovery notice without matching its display text. */

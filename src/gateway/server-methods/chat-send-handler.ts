@@ -9,6 +9,7 @@ import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { resolveProviderIdForAuth } from "../../agents/provider-auth-aliases.js";
 import { createAgentRunRestartAbortError } from "../../agents/run-termination.js";
 import { dispatchInboundMessageWithProjectedDispatcher } from "../../auto-reply/dispatch.js";
+import { getReplyPayloadMetadata } from "../../auto-reply/reply-payload.js";
 import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
 import { clearAgentRunContext, registerAgentRunContext } from "../../infra/agent-run-registry.js";
 import {
@@ -553,6 +554,9 @@ export async function handleChatSend(
                 .map((payload) => payload.text?.trim())
                 .filter((text): text is string => Boolean(text))
                 .join(" | ") || undefined;
+            const returnedAgentErrorDetails = returnedAgentErrorPayloads
+              .map((payload) => getReplyPayloadMetadata(payload)?.agentRunFailureReport)
+              .find((report) => report !== undefined);
             if (
               agentRunStarted &&
               returnedAgentErrorPayloads.length > 0 &&
@@ -607,6 +611,7 @@ export async function handleChatSend(
                 sessionKey,
                 agentId,
                 errorMessage: returnedAgentErrorMessage,
+                errorDetails: returnedAgentErrorDetails,
               });
             }
             if (!context.chatRunState.hasAbortMarker(clientRunId)) {

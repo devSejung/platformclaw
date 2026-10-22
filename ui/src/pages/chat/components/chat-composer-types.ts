@@ -41,7 +41,7 @@ export type ChatComposerProps = {
   canSend: boolean;
   disabledReason: string | null;
   disabledBanner?: ChatComposerDisabledBanner;
-  runError?: { summary: string } | null;
+  runError?: { summary: string; details?: string } | null;
   onRefresh?: () => void;
   sending: boolean;
   canAbort?: boolean;

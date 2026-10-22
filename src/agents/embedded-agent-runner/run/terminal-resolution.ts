@@ -1,5 +1,10 @@
 import { randomBytes } from "node:crypto";
+import { setReplyPayloadMetadata } from "../../../auto-reply/reply-payload.js";
 import { SILENT_REPLY_TOKEN } from "../../../auto-reply/tokens.js";
+import {
+  buildAgentRunFailureReference,
+  recordAgentRunFailure,
+} from "../../../infra/agent-run-failure-diagnostics.js";
 import { freezeDiagnosticTraceContext } from "../../../infra/diagnostic-trace-context.js";
 import type { AssistantMessage } from "../../../llm/types.js";
 import { projectAgentRunAttemptTerminal } from "../../agent-run-terminal-outcome.js";
@@ -19,6 +24,7 @@ import {
   reportEmbeddedRunSuccessfulAuthBinding,
 } from "./auth-profile-success.js";
 import type { EmbeddedRunContextRecoveryState } from "./context-recovery-state.js";
+import { describeIncompleteTurnFailure } from "./incomplete-turn-diagnostics.js";
 import {
   hasAttemptTerminalState,
   hasYieldContinuationEvidence,
@@ -444,6 +450,32 @@ async function surfaceIncompleteTurn(
 ): Promise<TerminalResolution> {
   const terminalAborted = isEmbeddedRunTerminalAbort(input.terminalState.outcome);
   const terminalTimedOut = isEmbeddedRunTerminalTimeout(input.terminalState.outcome);
+  const failure = describeIncompleteTurnFailure(input.attempt, terminalAborted);
+  const text = `${input.text} ${failure.message}\n${buildAgentRunFailureReference(input.runParams.runId)}`;
+  const assistant = input.attempt.currentAttemptAssistant ?? input.attempt.lastAssistant;
+  const failureReport = recordAgentRunFailure({
+    runId: input.runParams.runId,
+    sessionId: input.runParams.sessionId,
+    sessionKey: input.runParams.sessionKey,
+    ...input.activeErrorContext,
+    phase: "terminal_resolution",
+    error:
+      projectAgentRunAttemptTerminal(input.attempt.terminal).promptError ??
+      assistant?.errorMessage ??
+      failure.message,
+    details: {
+      reason: failure.reason,
+      stopReason: assistant?.stopReason,
+      toolCount: input.attempt.toolMetas.length,
+      replaySafe: input.attempt.replayMetadata.replaySafe,
+      hadPotentialSideEffects: input.replayState.hadPotentialSideEffects,
+      reasoningRetries: input.retryState.reasoningOnlyAttempts,
+      emptyRetries: input.retryState.emptyResponseAttempts,
+      missingAssistantRetries: input.retryState.missingAssistantAttempts,
+      compactions: input.attemptCompactionCount,
+      traceId: input.attempt.diagnosticTrace?.traceId,
+    },
+  });
   const replayInvalid = input.resolveReplayInvalid(input.text);
   const livenessState = resolveRunLivenessState({
     payloadCount: input.payloadCount,
@@ -464,13 +496,21 @@ async function surfaceIncompleteTurn(
     action: "complete",
     result: {
       payloads: [
-        {
-          text: input.terminalToolPresentation
-            ? input.terminalToolPresentation.concat("\n\n", input.text)
-            : input.text,
-          isError: true,
-        },
+        setReplyPayloadMetadata(
+          {
+            // Error projections show the first line; keep the failure visible
+            // even when a trusted tool has already produced a useful result.
+            text: input.terminalToolPresentation
+              ? text.concat("\n\n", input.terminalToolPresentation)
+              : text,
+            isError: true,
+          },
+          { agentRunFailureReport: failureReport },
+        ),
       ],
+      ...(input.attempt.diagnosticTrace
+        ? { diagnosticTrace: freezeDiagnosticTraceContext(input.attempt.diagnosticTrace) }
+        : {}),
       meta: {
         durationMs: Date.now() - input.startedAtMs,
         agentMeta: input.agentMeta,

@@ -300,7 +300,7 @@ export type ChatState = {
   planStatus?: PlanStatus | null;
   lastError: string | null;
   chatError?: string | null;
-  chatRunError?: { summary: string } | null;
+  chatRunError?: { summary: string; details?: string } | null;
   lastLocalTerminalReconcile?: { runId: string | null } | null;
   chatReplyTarget?: unknown;
   agentsError?: string | null;
@@ -657,6 +657,7 @@ export type ChatEventPayload = {
   deltaText?: string;
   replace?: boolean;
   errorMessage?: string;
+  errorDetails?: string;
   stopReason?: string;
   yielded?: true;
 };

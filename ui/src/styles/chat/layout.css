@@ -437,13 +437,26 @@ openclaw-chat-page {
   min-width: 0;
 }
 
-span.chat-run-error__content {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.chat-run-error__help {
+  margin: 4px 0 8px;
+}
+
+.chat-run-error__details {
+  margin-top: 8px;
+}
+
+.chat-run-error .chat-copy-btn {
+  min-height: 36px;
+}
+
+.chat-run-error__copy-fallback {
+  display: block;
+  margin-top: 8px;
 }
 
 .chat-run-error__diagnostic {
+  box-sizing: border-box;
+  width: 100%;
   max-height: 16rem;
   overflow: auto;
   margin: 8px 0 0;
@@ -457,6 +470,10 @@ span.chat-run-error__content {
 }
 
 @media (max-width: 480px) {
+  .chat-run-error .chat-copy-btn {
+    min-height: 44px;
+  }
+
   .chat-run-error {
     flex-wrap: wrap;
   }

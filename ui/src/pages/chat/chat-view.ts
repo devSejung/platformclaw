@@ -165,7 +165,7 @@ export type ChatProps = {
   modelSetupRequired?: boolean;
   onModelSetup?: () => void;
   error: string | null;
-  runError?: { summary: string } | null;
+  runError?: { summary: string; details?: string } | null;
   inlineApproval?: ExecApprovalRequest | null;
   approvalBusy?: boolean;
   approvalErrors?: ReadonlyMap<string, string>;
