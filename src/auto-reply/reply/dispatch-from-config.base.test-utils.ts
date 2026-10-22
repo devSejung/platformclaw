@@ -737,31 +737,38 @@ describe("dispatchReplyFromConfig", () => {
     expect(transcriptMocks.appendAssistantMessageToSessionTranscript).not.toHaveBeenCalled();
   });
 
-  it("records routed Slack thread id on dispatch-owned reply operations", async () => {
-    setNoAbort();
-    const cfg = emptyConfig;
-    const dispatcher = createDispatcher();
-    const ctx = buildTestCtx({
-      Provider: "slack",
-      Surface: "slack",
-      OriginatingChannel: "slack",
-      OriginatingTo: "user:U1",
-      ChatType: "direct",
-      SessionKey: "agent:main:slack:direct:U1",
-      MessageThreadId: "501.000",
-    });
-    const replyResolver = vi.fn(async (_ctx: MsgContext, opts?: GetReplyOptions) => {
-      const operation = (
-        opts as { replyOperation?: { routeThreadId?: string | number } } | undefined
-      )?.replyOperation;
-      expect(operation?.routeThreadId).toBe("501.000");
-      return { text: "hi" } satisfies ReplyPayload;
-    });
+  it.each([undefined, "request"] as const)(
+    "records routed thread and %s reply scope before dispatch",
+    async (scope) => {
+      setNoAbort();
+      const cfg = emptyConfig;
+      const dispatcher = createDispatcher();
+      const ctx = buildTestCtx({
+        Provider: "slack",
+        Surface: "slack",
+        OriginatingChannel: "slack",
+        OriginatingTo: "user:U1",
+        ChatType: "direct",
+        SessionKey: "agent:main:slack:direct:U1",
+        MessageThreadId: "501.000",
+        ReplyRouteScope: scope,
+      });
+      const replyResolver = vi.fn(async (_ctx: MsgContext, opts?: GetReplyOptions) => {
+        const operation = (
+          opts as
+            | { replyOperation?: { routeThreadId?: string | number; replyRouteScope?: "request" } }
+            | undefined
+        )?.replyOperation;
+        expect(operation?.routeThreadId).toBe("501.000");
+        expect(operation?.replyRouteScope).toBe(scope);
+        return { text: "hi" } satisfies ReplyPayload;
+      });
 
-    await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
+      await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
 
-    expect(replyResolver).toHaveBeenCalledTimes(1);
-  });
+      expect(replyResolver).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("lets a different Slack DM routed thread reach reply resolution while another thread is active", async () => {
     const { activeOperation, createCtx, sessionId, sessionKey } = createActiveSlackThread("U1");

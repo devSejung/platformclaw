@@ -1,10 +1,13 @@
 import type { ControlPlaneStore, KnoxRoomAgentBinding, PlatformUser } from "./contracts.js";
+import type { KnoxSelfInSpaceService } from "./knox-self-in-space-service.js";
+import type { KnoxSelfSpaceIdentity, KnoxSelfSpaceResolution } from "./knox-space-contracts.js";
 
 export interface KnoxRoomAgentProvisioner {
   provision(binding: KnoxRoomAgentBinding): Promise<void>;
 }
 
 export type KnoxRouteResolution =
+  | KnoxSelfSpaceResolution
   | {
       status: "resolved";
       agentId: string;
@@ -26,15 +29,26 @@ export class KnoxRoutingService {
       roomProvisioner: KnoxRoomAgentProvisioner;
       buildAgentMainSessionKey: (params: { agentId: string }) => string;
       now?: () => number;
+      selfInSpace?: KnoxSelfInSpaceService;
     },
   ) {}
 
-  async resolve(params: {
-    accountId: string;
-    conversationType: "dm" | "room";
-    conversationId: string;
-    knoxUserId: string;
-  }): Promise<KnoxRouteResolution> {
+  async resolve(
+    params:
+      | {
+          accountId: string;
+          conversationType: "dm" | "room";
+          conversationId: string;
+          knoxUserId: string;
+        }
+      | KnoxSelfSpaceIdentity,
+  ): Promise<KnoxRouteResolution> {
+    if ("executionMode" in params) {
+      if (!this.options.selfInSpace) {
+        throw new Error("Personal Space routing is unavailable");
+      }
+      return this.options.selfInSpace.resolve(params);
+    }
     const accountId = requireValue(params.accountId, "accountId");
     const conversationId = requireValue(params.conversationId, "conversationId");
     const knoxUserId = requireValue(params.knoxUserId, "knoxUserId");

@@ -108,7 +108,7 @@ export async function prepareReplyRunAdmission(
   // Extract first-token think hint from the user body BEFORE prepending system events.
   // If done after, the System: prefix becomes parts[0] and silently shadows any
   // low|medium|high shorthand the user typed.
-  if (!resolvedThinkLevel && prefixedBodyBase) {
+  if (opts?.inputMode !== "message-data" && !resolvedThinkLevel && prefixedBodyBase) {
     const parts = prefixedBodyBase.split(/\s+/);
     const maybeLevel = normalizeThinkLevel(parts[0]);
     const thinkingCatalog = maybeLevel
@@ -340,6 +340,15 @@ export async function prepareReplyRunAdmission(
     }
     return routeThreadIdsMatch(resolveActiveReplyRunThreadId(sessionKey), currentRouteThreadId);
   };
+  const activeRunRequiresSeparateRequest = () => {
+    const operation = sessionKey ? replyRunRegistry.get(sessionKey) : undefined;
+    return (
+      operation !== undefined &&
+      operation !== providedReplyOperation &&
+      operation.replyRouteScope === "request" &&
+      !opts?.questionAnswerBinding
+    );
+  };
   const configuredQueue = useFastReplyRuntime
     ? {
         mode: "collect" as const,
@@ -359,9 +368,11 @@ export async function prepareReplyRunAdmission(
   // The question that authorizes bypassing followup/collect must also own the
   // later claim: runtime/auth awaits can replace it before steering begins.
   // Image-bearing input must retain normal media steering instead of consuming text alone.
-  const questionAnswerBinding =
+  let questionAnswerBinding =
     opts?.questionAnswerBinding ??
-    (!isRoomEvent &&
+    (opts?.inputMode !== "message-data" &&
+    !activeRunRequiresSeparateRequest() &&
+    !isRoomEvent &&
     !context.isHeartbeat &&
     !effectiveResetTriggered &&
     !promptMedia?.length &&
@@ -374,9 +385,19 @@ export async function prepareReplyRunAdmission(
           text: baseBodyFinal,
         })
       : undefined);
-  const resolvedQueue = questionAnswerBinding
-    ? { ...configuredQueue, mode: "steer" as const }
-    : configuredQueue;
+  // New question data must not steer into (or interrupt) an existing private approval/question.
+  let resolvedQueue =
+    opts?.inputMode === "message-data" || activeRunRequiresSeparateRequest()
+      ? { ...configuredQueue, mode: "followup" as const }
+      : questionAnswerBinding
+        ? { ...configuredQueue, mode: "steer" as const }
+        : configuredQueue;
+  const preserveActiveRequestSource = () => {
+    if (activeRunRequiresSeparateRequest()) {
+      questionAnswerBinding = undefined;
+      resolvedQueue = { ...resolvedQueue, mode: "followup" };
+    }
+  };
   const embeddedAgentRuntime = useFastReplyRuntime
     ? null
     : await traceRunPhase("reply.load_embedded_agent_runtime", () => loadEmbeddedAgentRuntime());
@@ -387,7 +408,8 @@ export async function prepareReplyRunAdmission(
     ? embeddedAgentRuntime.resolveEmbeddedSessionLane(sessionKey ?? sessionIdFinal)
     : undefined;
   const laneSize = sessionLaneKey ? getQueueSize(sessionLaneKey) : 0;
-  const activeRunQueueMode = effectiveResetTriggered ? "interrupt" : resolvedQueue.mode;
+  preserveActiveRequestSource();
+  let activeRunQueueMode = effectiveResetTriggered ? "interrupt" : resolvedQueue.mode;
   const rawActiveSessionIdForInterrupt = resolveActiveEmbeddedSessionId();
   const activeSessionIdForInterrupt = isOwnPreDispatchOperationSession(
     rawActiveSessionIdForInterrupt,
@@ -513,6 +535,7 @@ export async function prepareReplyRunAdmission(
       kind: "visible",
       resetTriggered: effectiveResetTriggered,
       routeThreadId: currentRouteThreadId,
+      replyRouteScope: ctx.ReplyRouteScope,
       upstreamAbortSignal: opts?.abortSignal,
       // Never wait on the target's active turn: a blocked continuation would
       // re-create the #104142 command-lane wedge. When the slot is owned, the
@@ -551,6 +574,8 @@ export async function prepareReplyRunAdmission(
     preparedSessionState = resolvePreparedSessionState();
   }
   const { activeSessionId, isActive, isStreaming } = resolveQueueBusyState();
+  preserveActiveRequestSource();
+  activeRunQueueMode = effectiveResetTriggered ? "interrupt" : resolvedQueue.mode;
   const activeRunAcceptsCurrentThread = resolveActiveRunAcceptsCurrentThread({ isActive });
   const shouldSteer =
     !isRoomEvent &&

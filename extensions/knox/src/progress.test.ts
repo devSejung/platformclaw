@@ -6,7 +6,12 @@ type AgentEvent = Parameters<Parameters<PluginRuntime["events"]["onAgentEvent"]>
 const activeProgress: ReturnType<typeof createKnoxProgress>[] = [];
 
 function setup(
-  options: { text?: string; canSend?: () => boolean; pendingDelivery?: boolean } = {},
+  options: {
+    text?: string;
+    canSend?: () => boolean;
+    pendingDelivery?: boolean;
+    privateExecution?: boolean;
+  } = {},
 ) {
   const listeners = new Set<(event: AgentEvent) => void>();
   const abort = new AbortController();
@@ -27,6 +32,7 @@ function setup(
   });
   const warn = vi.fn();
   const progress = createKnoxProgress({
+    privateExecution: options.privateExecution,
     text: options.text ?? "Run the checks",
     delayMs: 10_000,
     abortSignal: abort.signal,
@@ -71,6 +77,29 @@ describe("Knox notice language", () => {
 });
 
 describe("Knox request progress", () => {
+  it("publishes only generic private execution and owner-action states", async () => {
+    const { progress, emit, send } = setup({ privateExecution: true });
+    progress.start();
+    emit("tool", {
+      phase: "start",
+      toolCallId: "private-tool",
+      name: "private-credential-tool",
+      args: { password: "secret" },
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(send.mock.calls.map(([text]) => text)).toEqual(["Processing your request."]);
+    emit("approval", {
+      phase: "requested",
+      status: "pending",
+      itemId: "private-tool",
+      approvalId: "private-approval",
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(send.mock.calls.at(-1)?.[0]).toBe("Owner action is required in the web app.");
+    expect(JSON.stringify(send.mock.calls)).not.toMatch(/credential|secret|private-approval/);
+  });
+
   it("waits ten seconds, then reports a changed tool state only on ten-second ticks", async () => {
     const { progress, emit, send } = setup();
     progress.start();

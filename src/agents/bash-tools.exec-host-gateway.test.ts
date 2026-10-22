@@ -35,6 +35,11 @@ import {
 } from "../infra/exec-command-resolution.js";
 import { createSafeGatewayRestartPreflight } from "../infra/restart-coordinator.js";
 import {
+  initializeGlobalHookRunner,
+  resetGlobalHookRunner,
+} from "../plugins/hook-runner-global.js";
+import { createMockPluginRegistry } from "../plugins/hooks.test-helpers.js";
+import {
   getActiveGatewayRootWorkCount,
   markGatewayRestartDraining,
   resetGatewayWorkAdmission,
@@ -436,6 +441,52 @@ describe("processGatewayAllowlist", () => {
     });
     buildExecApprovalFollowupTargetMock.mockImplementation((value) => value);
   }
+
+  it("revalidates a detached gateway approval before committing authority or spawning", async () => {
+    resolveExecHostApprovalContextMock.mockReturnValue({
+      approvals: { allowlist: [], file: { version: 1, agents: {} } },
+      hostSecurity: "allowlist",
+      hostAsk: "always",
+      askFallback: "deny",
+    });
+    mockApprovedDetachedExec({
+      outcome: {
+        status: "completed",
+        exitCode: 0,
+        timedOut: false,
+        aggregated: "must not execute",
+      },
+    });
+    const revalidate = vi.fn(() => {
+      throw new Error("request permanently revoked");
+    });
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([{ hookName: "after_tool_approval", handler: revalidate }]),
+    );
+    try {
+      const result = await runGatewayAllowlist({
+        command: "echo protected",
+        agentId: "personal-a",
+        sessionKey: "agent:personal-a:space",
+        sessionId: "session-a",
+        runId: "original-run",
+        approvalFollowupMode: "agent",
+      });
+      expect(result.pendingResult?.details.status).toBe("approval-pending");
+      await vi.waitFor(() => expect(sendExecApprovalFollowupResultMock).toHaveBeenCalledOnce());
+      expect(revalidate).toHaveBeenCalledWith(
+        expect.objectContaining({ approvalId: "req-1" }),
+        expect.objectContaining({
+          agentId: "personal-a",
+          sessionKey: "agent:personal-a:space",
+          runId: "original-run",
+        }),
+      );
+      expect(runExecProcessMock).not.toHaveBeenCalled();
+    } finally {
+      resetGlobalHookRunner();
+    }
+  });
 
   async function useRealUnavailableApprovalGate() {
     const actualShared = await vi.importActual<typeof import("./bash-tools.exec-host-shared.js")>(

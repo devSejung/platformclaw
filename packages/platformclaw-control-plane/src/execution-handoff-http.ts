@@ -11,7 +11,11 @@ import {
   ControlPlaneStateError,
 } from "./contracts.js";
 import type { ExecCredentialService } from "./exec-credential-service.js";
-import type { ExecutionHandoffService } from "./execution-handoff-service.js";
+import {
+  resolveAuthorizedExecutionTarget,
+  type ExecutionHandoffService,
+  type ExecutionTargetSnapshot,
+} from "./execution-handoff-service.js";
 import {
   KnowledgeVaultSearchError,
   type KnowledgeVaultTurnScope,
@@ -52,6 +56,10 @@ type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
   "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
 > & {
+  authorizeTargetRun?: (
+    context: { agentId: string; sessionKey?: string; runId?: string },
+    target?: ExecutionTargetSnapshot,
+  ) => void;
   spaceService?: Pick<SpaceService, "agentRead"> & Partial<Pick<SpaceService, "agentMutation">>;
   vaultService?: Pick<KnowledgeVaultService, "search" | "get" | "captureScope" | "wiki">;
   resolveMcpConnection?: (
@@ -576,17 +584,7 @@ export class PlatformClawExecutionHandoffServer {
         return;
       }
       if (pathname === PLATFORMCLAW_EXECUTION_TARGET_PATH) {
-        const target = body.target;
-        if (target !== undefined && target !== "platform_server" && target !== "assigned_vm") {
-          throw new Error("invalid requested execution target");
-        }
-        sendJson(
-          res,
-          200,
-          target
-            ? await this.service.resolveTarget(agentId, target)
-            : await this.service.resolveTarget(agentId),
-        );
+        sendJson(res, 200, await resolveAuthorizedExecutionTarget(this.service, agentId, body));
         return;
       }
       if (pathname === PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH) {

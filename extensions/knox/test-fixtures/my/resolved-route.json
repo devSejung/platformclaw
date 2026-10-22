@@ -1,0 +1,19 @@
+{
+  "status": "resolved",
+  "agentId": "personal-a",
+  "sessionKey": "agent:personal-a:space-session:11111111-1111-1111-1111-111111111111",
+  "senderLinked": true,
+  "executionTarget": "assigned_vm",
+  "selfInSpace": {
+    "admissionId": "admission-a",
+    "requestId": "9934329570499788812345",
+    "userId": "user-a",
+    "spaceId": "space-a",
+    "pageId": "page-a",
+    "bindingId": "binding-a",
+    "bindingGeneration": 1,
+    "conversationId": "11111111-1111-1111-1111-111111111111",
+    "targetRevision": 3,
+    "senderAttribution": { "id": "user.name_with.dot", "profileId": "user-a", "agentId": "personal-a" }
+  }
+}

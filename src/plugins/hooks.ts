@@ -29,6 +29,8 @@ import type { GlobalHookRunnerRegistry, HookRunnerRegistry } from "./hook-regist
 import type {
   PluginHookAfterCompactionEvent,
   PluginHookAfterToolCallEvent,
+  PluginHookAfterToolApprovalEvent,
+  PluginHookAfterToolApprovalContext,
   PluginHookAgentContext,
   PluginHookAgentTrigger,
   PluginHookAgentEndEvent,
@@ -157,6 +159,7 @@ type HookRunnerOptions = {
 };
 
 const DEFAULT_VOID_HOOK_TIMEOUT_MS_BY_HOOK: Partial<Record<PluginHookName, number>> = {
+  after_tool_approval: 15_000,
   agent_end: 30_000,
   channel_pairing_requested: 2_000,
   // Defensive default for the compaction lifecycle hooks. Without a budget an
@@ -307,6 +310,7 @@ export function createHookRunner(
   const catchErrors = options.catchErrors ?? true;
   const failurePolicyByHook = {
     before_agent_run: "fail-closed",
+    after_tool_approval: "fail-closed",
     ...options.failurePolicyByHook,
   } satisfies Partial<Record<PluginHookName, HookFailurePolicy>>;
   const voidHookTimeoutMsByHook = {
@@ -1313,6 +1317,17 @@ export function createHookRunner(
     return runVoidHook("after_tool_call", event, ctx, {}, event.toolName);
   }
 
+  async function runAfterToolApproval(
+    event: PluginHookAfterToolApprovalEvent,
+    ctx: PluginHookAfterToolApprovalContext,
+  ): Promise<void> {
+    await runVoidHook(
+      "after_tool_approval",
+      Object.freeze({ ...event }),
+      Object.freeze({ ...ctx }),
+    );
+  }
+
   /**
    * Run tool_result_persist hook.
    *
@@ -1641,6 +1656,7 @@ export function createHookRunner(
     // Tool hooks
     runBeforeToolCall,
     runAfterToolCall,
+    runAfterToolApproval,
     runToolResultPersist,
     // Message write hooks
     runBeforeMessageWrite,

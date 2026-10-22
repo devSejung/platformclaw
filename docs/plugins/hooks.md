@@ -104,7 +104,7 @@ The hook dispatch can release its Gateway admission while that plugin work is
 still in progress. Plugins that own long-running work must provide their own
 cancellation and shutdown lifecycle.
 
-Policy hooks `before_tool_call` and `before_install` use a 15-second default per
+Policy hooks `after_tool_approval`, `before_tool_call`, and `before_install` use a 15-second default per
 handler. A timeout fails closed: the tool call or installation is rejected
 instead of continuing without a policy decision.
 
@@ -157,13 +157,14 @@ observation-only.
 
 **Tools**
 
-| Hook                       | Purpose                                                   |
-| -------------------------- | --------------------------------------------------------- |
-| **`before_tool_call`**     | Rewrite tool params, block execution, or require approval |
-| `after_tool_call`          | Observe tool results, errors, and duration                |
-| `resolve_exec_env`         | Contribute plugin-owned environment variables to `exec`   |
-| **`tool_result_persist`**  | Rewrite the assistant message produced from a tool result |
-| **`before_message_write`** | Inspect or block an in-progress message write (rare)      |
+| Hook                       | Purpose                                                            |
+| -------------------------- | ------------------------------------------------------------------ |
+| **`before_tool_call`**     | Rewrite tool params, block execution, or require approval          |
+| `after_tool_approval`      | Revalidate current authority after approval, before a tool resumes |
+| `after_tool_call`          | Observe tool results, errors, and duration                         |
+| `resolve_exec_env`         | Contribute plugin-owned environment variables to `exec`            |
+| **`tool_result_persist`**  | Rewrite the assistant message produced from a tool result          |
+| **`before_message_write`** | Inspect or block an in-progress message write (rare)               |
 
 **Messages and delivery**
 
@@ -304,6 +305,15 @@ provider payloads, start the Gateway with `--raw-stream` and
 `--raw-stream-path <path>` to write raw model stream events to a jsonl file.
 
 ## Tool call policy
+
+`after_tool_approval` receives read-only `{ approvalId, toolCallId? }` and a
+read-only context containing the original `agentId`, `sessionKey`, `sessionId`,
+`runId`, and owning `abortSignal` when available. Throwing or timing out rejects
+execution even if the user approved it. This hook cannot rewrite approved tool
+parameters or grant authority. It runs after permitted plugin approvals, inline
+exec approval waits, and before detached approved exec dispatch. The generic exec waiter may also revalidate a denied decision
+before its owner consumes it. It does not replace the initial `before_tool_call`
+policy check.
 
 `before_tool_call` receives:
 

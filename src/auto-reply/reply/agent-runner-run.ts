@@ -103,7 +103,19 @@ export async function runReplyAgent(
   const activeSessionStore = sessionStore;
   let activeIsNewSession = isNewSession;
   const effectiveResetTriggered = resetTriggered === true;
-  const activeRunQueueMode = effectiveResetTriggered ? "interrupt" : resolvedQueue.mode;
+  const activeOperation = replyRunRegistry.get(
+    sessionKey ?? followupRun.run.sessionKey ?? queueKey,
+  );
+  const preserveActiveRequestSource =
+    activeOperation !== undefined &&
+    activeOperation !== providedReplyOperation &&
+    activeOperation.replyRouteScope === "request" &&
+    !opts?.questionAnswerBinding;
+  const activeRunQueueMode = preserveActiveRequestSource
+    ? "followup"
+    : effectiveResetTriggered
+      ? "interrupt"
+      : resolvedQueue.mode;
 
   const isHeartbeat = opts?.isHeartbeat === true;
   let didDeliverVisiblePartialReply = false;
@@ -133,7 +145,8 @@ export async function runReplyAgent(
       config: followupRun.run.config,
       attributes: traceAttributes,
     });
-  const effectiveShouldSteer = !isHeartbeat && !effectiveResetTriggered && shouldSteer;
+  const effectiveShouldSteer =
+    !preserveActiveRequestSource && !isHeartbeat && !effectiveResetTriggered && shouldSteer;
   if (
     opts?.questionAnswerBinding &&
     (!effectiveShouldSteer ||
@@ -143,7 +156,8 @@ export async function runReplyAgent(
     typing.cleanup();
     return createUnavailableQuestionReply();
   }
-  const effectiveShouldFollowup = !effectiveResetTriggered && shouldFollowup;
+  const effectiveShouldFollowup =
+    preserveActiveRequestSource || (!effectiveResetTriggered && shouldFollowup);
   const typingSignals = createTypingSignaler({
     typing,
     mode: typingMode,
@@ -488,6 +502,7 @@ export async function runReplyAgent(
       kind: replyTurnKind,
       resetTriggered: effectiveResetTriggered,
       routeThreadId: replyRouteThreadId,
+      replyRouteScope: followupRun.replyRouteScope ?? sessionCtx.ReplyRouteScope,
       originatingLeafEntryId: turnAdoptionLifecycle?.originatingLeafEntryId,
       upstreamAbortSignal: opts?.abortSignal,
       onReplyAdmissionWaitChange: opts?.onReplyAdmissionWaitChange,

@@ -4,6 +4,7 @@ import type { BrowserLoginRateLimiter } from "./browser-auth-http.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import type { EmployeeExecutionService } from "./browser-execution-http.js";
 import type { BrowserGatewayAccess, BrowserGatewayEvent } from "./browser-gateway-proxy.js";
+import type { KnoxSpaceAdministrationService } from "./browser-knox-space-http.js";
 import type { McpAdministrationService } from "./browser-mcp-admin-http.js";
 import type { EmployeeMcpService } from "./browser-mcp-http.js";
 import type { BrowserOrganizationService } from "./browser-organization-http.js";
@@ -65,6 +66,7 @@ export type PlatformClawWebIngressOptions = {
   gateway: PlatformClawGatewayBackend;
   executionService?: EmployeeExecutionService;
   vmAdministrationService?: VmAdministrationService;
+  knoxSpaceAdministrationService?: KnoxSpaceAdministrationService;
   announcementService?: BrowserAnnouncementService;
   mcpAdministrationService?: McpAdministrationService;
   mcpService?: EmployeeMcpService;

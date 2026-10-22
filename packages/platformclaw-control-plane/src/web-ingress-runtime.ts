@@ -8,6 +8,7 @@ import type { PersonalAgentProvisioner } from "./browser-auth-service.js";
 import { PlatformClawBrowserCanvasRelay } from "./browser-canvas-http.js";
 import { EmployeeExecutionService } from "./browser-execution-http.js";
 import { BrowserGatewayProxy } from "./browser-gateway-proxy.js";
+import { KnoxSpaceAdministrationService } from "./browser-knox-space-http.js";
 import {
   MemoryBrowserLoginRateLimiter,
   type MemoryBrowserLoginRateLimiterOptions,
@@ -35,6 +36,7 @@ import {
 import type { PlatformClawGuideVideoRequestHeaders } from "./guide-video-s3.js";
 import { KnowledgeVaultService } from "./knowledge-vault-service.js";
 import { KnoxRoutingService, type KnoxRoomAgentProvisioner } from "./knox-routing-service.js";
+import { KnoxSelfInSpaceService } from "./knox-self-in-space-service.js";
 import { OrganizationService } from "./organization-service.js";
 import {
   AgentRestartReconciler,
@@ -191,6 +193,9 @@ export function createPlatformClawWebIngressRuntime(
           {
             vaultService,
             spaceService,
+            authorizeTargetRun: (context, target) => {
+              auth.store.knoxSpaces.assertTargetRun(context, target);
+            },
             resolveTarget: (agentId, target) => executionService.resolveTarget(agentId, target),
             resolveConnectionTarget: (agentId) => executionService.resolveConnectionTarget(agentId),
             changeTarget: (params) => executionService.changeTarget(params),
@@ -226,6 +231,7 @@ export function createPlatformClawWebIngressRuntime(
           store: auth.store,
           roomProvisioner: options.knoxRouting.roomProvisioner,
           buildAgentMainSessionKey: options.buildAgentMainSessionKey,
+          selfInSpace: new KnoxSelfInSpaceService(auth.store, spaceService.conversations),
           ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
         }),
         serviceToken: options.knoxRouting.serviceToken,
@@ -341,6 +347,11 @@ export function createPlatformClawWebIngressRuntime(
     ...(canvasRelay ? { canvasRelay } : {}),
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,
+    knoxSpaceAdministrationService: new KnoxSpaceAdministrationService(
+      auth.service,
+      auth.store.knoxSpaces,
+      gateway,
+    ),
     announcementService: new BrowserAnnouncementService(
       auth.service,
       auth.store.announcements,

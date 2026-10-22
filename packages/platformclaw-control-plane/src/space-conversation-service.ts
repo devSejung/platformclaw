@@ -148,6 +148,16 @@ export class SpaceConversationService {
     private readonly runtimeReady = true,
   ) {}
 
+  /** Register before native provisioning so durable channel admission needs no live Gateway. */
+  reserve(userId: string, spaceId: string, pageId: string, title: string, requestId: string) {
+    if (!this.runtimeReady) {
+      throw new ControlPlaneStateError(
+        "Space conversations require the configured internal agent service",
+      );
+    }
+    return this.spaces.createConversation(userId, spaceId, { pageId, title, requestId });
+  }
+
   async create(
     userId: string,
     spaceId: string,
@@ -161,11 +171,7 @@ export class SpaceConversationService {
         "Space conversations require the configured internal agent service; ask an administrator to enable the existing execution handoff service",
       );
     }
-    const conversation = this.spaces.createConversation(userId, spaceId, {
-      pageId,
-      title,
-      requestId,
-    });
+    const conversation = this.reserve(userId, spaceId, pageId, title, requestId);
     // The registry is committed before provisioning. A retry can repair a failed creation,
     // but an arbitrary pre-existing personal session can never become shared.
     let pending = this.preparing.get(conversation.sessionKey);

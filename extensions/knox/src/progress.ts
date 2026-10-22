@@ -56,6 +56,8 @@ function progressText(korean: boolean, tool?: ToolState): string {
 
 /** Request-owned observation only: never expose command arguments, output, or model reasoning. */
 export function createKnoxProgress(params: {
+  /** Private executions expose only a generic state, never tool or approval identity. */
+  privateExecution?: boolean;
   text: string;
   delayMs: number;
   abortSignal: AbortSignal;
@@ -219,7 +221,13 @@ export function createKnoxProgress(params: {
     const pending = [...approvals.values()].at(-1)?.tool;
     const tool = pending ?? [...calls.values()].at(-1) ?? latest;
     // An actionable approval must not be concealed behind the generic first notice.
-    const text = progressText(korean, firstTick && !pending && !visibleReply ? undefined : tool);
+    const text = params.privateExecution
+      ? pending
+        ? korean
+          ? "소유자 웹에서 확인이 필요합니다."
+          : "Owner action is required in the web app."
+        : progressText(korean)
+      : progressText(korean, firstTick && !pending && !visibleReply ? undefined : tool);
     firstTick = false;
     if ((!tool && visibleReply) || text === previousText) {
       return;

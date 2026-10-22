@@ -88,6 +88,10 @@ between Gateway-owned skills and a target-owned `skillCatalog` can register
 idempotent `materializeSkills()` callback. It must await that callback before
 creating runtime mounts unless the returned handle supplies `skillCatalog`;
 OpenClaw rejects a handle that does neither.
+Factories also receive the trusted `sessionKey` and optional current `runId`.
+A backend that authorizes target access must check these identities before
+reading target skills or creating a handle; plugins can resolve a followup's
+original ingress identity with `api.runContext.resolveAdmissionId`.
 
 ## Registration API
 

@@ -65,6 +65,8 @@ export type PlatformClawExecutionTargetSnapshot =
 type PlatformClawExecutionTargetResolver = (params: {
   agentId: string;
   target?: "platform_server" | "assigned_vm";
+  sessionKey?: string;
+  runId?: string;
 }) => Promise<PlatformClawExecutionTargetSnapshot>;
 
 type TargetHandleFactory<TTarget extends PlatformClawExecutionTargetSnapshot> = (params: {
@@ -338,7 +340,14 @@ export function createPlatformClawExecutionBackendFactory(
     // Resolve exactly once per context creation. The copied snapshot keeps a
     // target change from redirecting an already-prepared run mid-execution.
     let phaseStartedAt = now();
-    const target = pinTargetSnapshot(await dependencies.resolveTarget({ agentId }), agentId);
+    const target = pinTargetSnapshot(
+      await dependencies.resolveTarget({
+        agentId,
+        sessionKey: createParams.sessionKey,
+        ...(createParams.runId ? { runId: createParams.runId } : {}),
+      }),
+      agentId,
+    );
     const resolveTargetMs = timingMs(now, phaseStartedAt);
     // Cache misses and target revisions discover a fresh VM catalog. Explicit
     // Skills refresh owns same-revision invalidation; ordinary runs reuse it.

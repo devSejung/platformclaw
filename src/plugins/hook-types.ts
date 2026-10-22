@@ -112,6 +112,7 @@ export type PluginHookName =
   | "reply_payload_sending"
   | "message_sent"
   | "before_tool_call"
+  | "after_tool_approval"
   | "after_tool_call"
   | "tool_result_persist"
   | "before_message_write"
@@ -156,6 +157,7 @@ const PLUGIN_HOOK_NAMES = [
   "reply_payload_sending",
   "message_sent",
   "before_tool_call",
+  "after_tool_approval",
   "after_tool_call",
   "tool_result_persist",
   "before_message_write",
@@ -710,6 +712,19 @@ export type PluginHookAfterToolCallEvent = {
   durationMs?: number;
 };
 
+/** Read-only authorization refresh after approval, before the tool can resume. */
+export type PluginHookAfterToolApprovalEvent = Readonly<{
+  approvalId: string;
+  toolCallId?: string;
+}>;
+export type PluginHookAfterToolApprovalContext = Readonly<{
+  agentId?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  runId?: string;
+  abortSignal?: AbortSignal;
+}>;
+
 export type PluginHookToolResultPersistContext = {
   agentId?: string;
   sessionKey?: string;
@@ -1247,6 +1262,10 @@ export type PluginHookHandlerMap = {
   after_tool_call: (
     event: PluginHookAfterToolCallEvent,
     ctx: PluginHookToolContext,
+  ) => Promise<void> | void;
+  after_tool_approval: (
+    event: PluginHookAfterToolApprovalEvent,
+    ctx: PluginHookAfterToolApprovalContext,
   ) => Promise<void> | void;
   tool_result_persist: (
     event: PluginHookToolResultPersistEvent,

@@ -62,9 +62,10 @@ export async function gatherDispatchRequest(
 ) {
   // Normalize bound answers before target lookup and source-policy selection,
   // so slash-like data cannot reroute or suppress its own visible outcome.
-  const inbound = params.replyOptions?.questionAnswerBinding
-    ? createMessageDataContext(params.ctx)
-    : params.ctx;
+  const inbound =
+    params.replyOptions?.questionAnswerBinding || params.replyOptions?.inputMode === "message-data"
+      ? createMessageDataContext(params.ctx)
+      : params.ctx;
   const ctx = isFinalizedInboundContext(inbound) ? inbound : finalizeInboundContext(inbound);
   const normalizedParams = ctx === params.ctx ? params : { ...params, ctx };
   const state = {

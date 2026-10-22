@@ -8,6 +8,11 @@ import { setImmediate } from "node:timers/promises";
 import { expectDefined } from "@openclaw/normalization-core";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExecAllowlistEntry } from "../infra/exec-approvals.types.js";
+import {
+  initializeGlobalHookRunner,
+  resetGlobalHookRunner,
+} from "../plugins/hook-runner-global.js";
+import { createMockPluginRegistry } from "../plugins/hooks.test-helpers.js";
 import { createDeferred } from "../test-utils/deferred.js";
 import { MAX_SAFE_TIMEOUT_DELAY_MS } from "../utils/timer-delay.js";
 import type { ExecuteNodeHostCommandParams } from "./bash-tools.exec-host-node.types.js";
@@ -669,6 +674,49 @@ describe("executeNodeHostCommand", () => {
     detectInterpreterInlineEvalArgvMock.mockReset();
     detectInterpreterInlineEvalArgvMock.mockReturnValue(null);
     registerExecApprovalRequestForHostOrThrowMock.mockReset();
+  });
+
+  it("revalidates a detached node approval before invoking system.run", async () => {
+    resolveExecHostApprovalContextMock.mockReturnValue({
+      approvals: { allowlist: [], file: { version: 1, agents: {} } },
+      hostSecurity: "full",
+      hostAsk: "always",
+      askFallback: "deny",
+    });
+    const revalidate = vi.fn(() => {
+      throw new Error("request permanently revoked");
+    });
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([{ hookName: "after_tool_approval", handler: revalidate }]),
+    );
+    try {
+      const result = await executeNodeHostCommand(
+        createNodeHostRequest({
+          ask: "always",
+          agentId: "personal-a",
+          sessionKey: "agent:personal-a:space",
+          sessionId: "session-a",
+          runId: "original-run",
+        }),
+      );
+      expect(result.details?.status).toBe("approval-pending");
+      await vi.waitFor(() => expect(sendExecApprovalFollowupResultMock).toHaveBeenCalledOnce());
+      expect(revalidate).toHaveBeenCalledWith(
+        expect.objectContaining({ approvalId: "approval-1" }),
+        expect.objectContaining({
+          agentId: "personal-a",
+          sessionKey: "agent:personal-a:space",
+          runId: "original-run",
+        }),
+      );
+      expect(
+        callGatewayToolMock.mock.calls.some(
+          (call) => (call[2] as MockNodeInvokeParams | undefined)?.command === "system.run",
+        ),
+      ).toBe(false);
+    } finally {
+      resetGlobalHookRunner();
+    }
   });
 
   it("returns outcome-unknown for an ambiguous direct node timeout", async () => {

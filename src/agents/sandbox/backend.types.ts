@@ -56,6 +56,8 @@ export type CreateSandboxBackendParams = {
   /** Resolved agent owner when the runtime entry point can identify it. */
   agentId?: string;
   sessionKey: string;
+  /** Trusted current run identity for backends that authorize preparation before tool dispatch. */
+  runId?: string;
   scopeKey: string;
   /** Runtime IDs already registered for this backend and scope, newest first. */
   registeredRuntimeIds?: readonly string[];

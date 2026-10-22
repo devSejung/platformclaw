@@ -813,7 +813,8 @@ async function initSessionStateAttemptLocked(
   const baseDeliveryContext = deliveryContextFromSession(baseEntry);
   const baseDeliveryRoute = sessionDeliveryRoute(baseEntry);
   const baseDeliveryOrigin = sessionDeliveryOrigin(baseEntry);
-  const lastChannelRaw = isSystemEvent
+  const preserveDeliveryRoute = isSystemEvent || ctx.ReplyRouteScope === "request";
+  const lastChannelRaw = preserveDeliveryRoute
     ? baseDeliveryContext?.channel
     : resolveLastChannelRaw({
         originatingChannelRaw,
@@ -821,7 +822,7 @@ async function initSessionStateAttemptLocked(
         sessionKey,
         isInterSession,
       });
-  const lastToRaw = isSystemEvent
+  const lastToRaw = preserveDeliveryRoute
     ? baseDeliveryContext?.to
     : resolveLastToRaw({
         originatingChannelRaw,
@@ -832,7 +833,7 @@ async function initSessionStateAttemptLocked(
         sessionKey,
         isInterSession,
       });
-  const lastAccountIdRaw = isSystemEvent
+  const lastAccountIdRaw = preserveDeliveryRoute
     ? baseDeliveryContext?.accountId
     : resolveSessionDefaultAccountId({
         cfg,
@@ -843,28 +844,31 @@ async function initSessionStateAttemptLocked(
   // Only fall back to persisted threadId for thread sessions. Non-thread
   // sessions (e.g. DM without topics) must not inherit a stale threadId from a
   // previous interaction that happened inside a topic/thread.
-  const lastThreadIdRaw = isSystemEvent
+  const lastThreadIdRaw = preserveDeliveryRoute
     ? baseDeliveryContext?.threadId
     : (ctx.MessageThreadId ??
       ctx.TransportThreadId ??
       (isThread ? baseDeliveryContext?.threadId : undefined));
-  const delivery = isSystemEvent
-    ? normalizeSessionDeliveryState({
-        route: isThread ? baseDeliveryRoute : stripThreadFromSessionRoute(baseDeliveryRoute),
-        context: isThread
-          ? baseDeliveryContext
-          : stripThreadIdFromDeliveryContext(baseDeliveryContext),
-        origin: isThread ? baseDeliveryOrigin : stripThreadIdFromOrigin(baseDeliveryOrigin),
-      })
-    : normalizeSessionDeliveryState({
-        context: {
-          channel: lastChannelRaw,
-          to: lastToRaw,
-          accountId: lastAccountIdRaw,
-          threadId: lastThreadIdRaw,
-        },
-        origin: baseDeliveryOrigin,
-      });
+  const delivery =
+    ctx.ReplyRouteScope === "request"
+      ? (baseEntry?.delivery ?? { kind: "none" as const })
+      : isSystemEvent
+        ? normalizeSessionDeliveryState({
+            route: isThread ? baseDeliveryRoute : stripThreadFromSessionRoute(baseDeliveryRoute),
+            context: isThread
+              ? baseDeliveryContext
+              : stripThreadIdFromDeliveryContext(baseDeliveryContext),
+            origin: isThread ? baseDeliveryOrigin : stripThreadIdFromOrigin(baseDeliveryOrigin),
+          })
+        : normalizeSessionDeliveryState({
+            context: {
+              channel: lastChannelRaw,
+              to: lastToRaw,
+              accountId: lastAccountIdRaw,
+              threadId: lastThreadIdRaw,
+            },
+            origin: baseDeliveryOrigin,
+          });
   const creationStamp =
     !entry && ctx.SessionCreation ? buildSessionCreationStamp(ctx.SessionCreation) : undefined;
   sessionEntry = {

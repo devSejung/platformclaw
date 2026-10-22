@@ -26,6 +26,9 @@ export async function resolveKnoxQuestionAnswerBinding(params: {
   account: ResolvedKnoxAccount;
   message: KnoxInboundMessage;
 }): Promise<KnoxQuestionAnswerBinding | undefined> {
+  if (params.message.schemaVersion === 2) {
+    return undefined;
+  }
   if (!getPendingAgentQuestionAnswer()) {
     return undefined;
   }

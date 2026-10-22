@@ -153,6 +153,7 @@ export async function admitFollowupTurn(params: {
     kind: "queued_followup",
     resetTriggered: false,
     routeThreadId: params.queued.originatingThreadId,
+    replyRouteScope: params.queued.replyRouteScope,
     originatingLeafEntryId: params.queued.turnAdoptionLifecycle?.originatingLeafEntryId,
     upstreamAbortSignal: resolveFollowupAbortSignal(params.queued),
     onReplyAdmissionWaitChange: params.queued.onReplyAdmissionWaitChange,

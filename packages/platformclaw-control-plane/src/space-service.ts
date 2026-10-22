@@ -2,6 +2,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { BrowserGatewayRpc, BrowserGatewayEvent } from "./browser-gateway-contracts.js";
 import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
+import { revalidateKnoxSpaceRun } from "./knox-self-in-space-service.js";
 import { spaceContentLink } from "./space-content-contracts.js";
 import { mutateSpaceContent } from "./space-content-service.js";
 import { isSpaceConversationSession, type Space, type SpacePage } from "./space-contracts.js";
@@ -327,15 +328,24 @@ export class SpaceService {
     }
   }
   async agentRead(params: SpaceAgentReadParams): Promise<Record<string, unknown>> {
+    const knoxAuthorization = revalidateKnoxSpaceRun(this.store, params);
+    if (knoxAuthorization) {
+      await knoxAuthorization;
+    }
     if (params.operation === "native") {
       if (typeof params.nativeTool !== "string" || typeof params.broad !== "boolean") {
         throw new ControlPlaneStateError("Invalid native session authorization request");
       }
-      return await this.nativeSessions.authorize({
+      const result = await this.nativeSessions.authorize({
         ...params,
         nativeTool: params.nativeTool,
         broad: params.broad,
       });
+      const refreshedAuthorization = revalidateKnoxSpaceRun(this.store, params);
+      if (refreshedAuthorization) {
+        await refreshedAuthorization;
+      }
+      return result;
     }
     validateSpaceRecallWindow(params);
     if (params.authorName !== undefined || params.authorId !== undefined) {
@@ -517,6 +527,10 @@ export class SpaceService {
         throw new ControlPlaneAuthorizationError("Space conversation unavailable");
       }
       const revalidate = async () => {
+        const authorization = revalidateKnoxSpaceRun(this.store, params);
+        if (authorization) {
+          await authorization;
+        }
         this.spaces.userForAgent(params.agentId);
         if (registered) {
           this.spaces.conversationForSession(userId, registered.sessionKey, true);
@@ -705,5 +719,6 @@ export class SpaceService {
         "Access removed; some running requests could not be stopped. Retry removal to stop remaining work.",
       );
     }
+    this.store.knoxSpaces.acknowledgeSpaceCancellation(spaceId, removedUserId);
   }
 }

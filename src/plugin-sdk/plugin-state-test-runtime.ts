@@ -36,3 +36,5 @@ export {
 export { addChannelAllowFromStoreEntry } from "../pairing/pairing-store.js";
 // Seed the canonical question registry so ingress tests retain real answer ownership.
 export { registerPendingAgentQuestion } from "../agents/harness/gateway-question.js";
+// Exercise channel result recovery with the real host lease and SQLite store.
+export { withPluginStateLease as withPluginStateLeaseForTests } from "../plugin-state/plugin-state-lease.js";

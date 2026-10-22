@@ -100,17 +100,21 @@ describe("PlatformClaw SafeConnect session", () => {
       revision: TARGET.revision,
     };
     let active = "platform_server";
-    const requests: Array<{ agentId: string; target?: string }> = [];
+    const requests: Array<{
+      agentId: string;
+      target?: string;
+      sessionKey?: string;
+      runId?: string;
+    }> = [];
     const server = createServer((req, res) => {
       void (async () => {
         const chunks: Buffer[] = [];
         for await (const chunk of req) {
           chunks.push(Buffer.from(chunk));
         }
-        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
-          agentId: string;
-          target?: string;
-        };
+        const body = JSON.parse(
+          Buffer.concat(chunks).toString("utf8"),
+        ) as (typeof requests)[number];
         requests.push(body);
         res.setHeader("Content-Type", "application/json");
         if (req.url?.endsWith("/change-target")) {
@@ -136,7 +140,18 @@ describe("PlatformClaw SafeConnect session", () => {
         PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: brokerAddress,
         PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: tokenFile,
       });
-      await expect(dependencies.resolveTarget({ agentId: TARGET.agentId })).resolves.toEqual(basic);
+      await expect(
+        dependencies.resolveTarget({
+          agentId: TARGET.agentId,
+          sessionKey: "agent:person_one:space:original",
+          runId: "knox-my:original-admission",
+        }),
+      ).resolves.toEqual(basic);
+      expect(requests[0]).toEqual({
+        agentId: TARGET.agentId,
+        sessionKey: "agent:person_one:space:original",
+        runId: "knox-my:original-admission",
+      });
       await expect(
         dependencies.resolveTarget({ agentId: TARGET.agentId, target: "platform_server" }),
       ).resolves.toEqual(basic);

@@ -54,7 +54,10 @@ import {
   isExecApprovalRunAbortedError,
   registerExecApprovalRequestForHostOrThrow,
 } from "./bash-tools.exec-approval-request.js";
-import { awaitExecApprovalInline } from "./bash-tools.exec-approval-wait.js";
+import {
+  awaitExecApprovalInline,
+  revalidateExecApproval,
+} from "./bash-tools.exec-approval-wait.js";
 import {
   buildDefaultExecApprovalRequestArgs,
   buildHeadlessExecApprovalDeniedMessage,
@@ -1013,6 +1016,7 @@ export async function processGatewayAllowlist(
       allowlistEval.segments[0]?.resolution ?? null,
       params.workdir,
     );
+    const approvalContext = { ...params };
     const resolveApprovalForExecution = async (onFailure: () => void) => {
       const decision = await resolveApprovalDecisionOrUndefined({
         approvalId,
@@ -1128,7 +1132,7 @@ export async function processGatewayAllowlist(
       params.required ||
       (unavailableReason === null && shouldAwaitGatewayApprovalInline(params))
     ) {
-      const approvalDecision = await awaitExecApprovalInline(params, approvalId, () =>
+      const approvalDecision = await awaitExecApprovalInline(approvalContext, approvalId, () =>
         resolveApprovalForExecution(() => undefined),
       );
       // A run-abort cancellation must propagate as cancellation, not resolve
@@ -1244,6 +1248,7 @@ export async function processGatewayAllowlist(
             return { status: "run-aborted" as const };
           }
           try {
+            await revalidateExecApproval(approvalContext, approvalId);
             await commitExecutionAuthorization({
               source: approvalDecision.authorizationSource,
               resolvedPath: resolvedPath ?? undefined,

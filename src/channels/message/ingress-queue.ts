@@ -187,6 +187,8 @@ type ChannelIngressQueueEnqueueResult<TPayload, TMetadata, TCompletedMetadata> =
 
 /** Durable FIFO-ish ingress queue with claims, duplicate detection, and retention pruning. */
 export type ChannelIngressQueue<TPayload, TMetadata = unknown, TCompletedMetadata = unknown> = {
+  /** Read-only identity check across pending, claimed, completed, and failed receipts. */
+  has?(id: string): Promise<boolean>;
   enqueue(
     id: string,
     payload: TPayload,
@@ -268,6 +270,8 @@ export type ChannelIngressQueue<TPayload, TMetadata = unknown, TCompletedMetadat
 export type CreateChannelIngressQueueOptions = {
   channelId: string;
   accountId?: string;
+  /** Opaque execution namespace; omission preserves the legacy channel/account queue. */
+  queueNamespace?: string;
   stateDir?: string;
   now?: () => number;
   /** Opt in at the queue boundary, including legacy failed-event resubmission. */
@@ -544,9 +548,11 @@ function normalizedCandidateIds(ids: Iterable<string> | undefined): string[] | u
   return ids === undefined ? undefined : [...ids].map((id) => id.trim()).filter(Boolean);
 }
 
-function queueNameForParts(channelId: string, accountId: string): string {
-  // JSON tuple encoding keeps channel/account scopes unambiguous even when ids contain separators.
-  return JSON.stringify([channelId, accountId]);
+function queueNameForParts(channelId: string, accountId: string, queueNamespace?: string): string {
+  // Separate tuple components keep arbitrary account IDs distinct from execution namespaces.
+  return JSON.stringify(
+    queueNamespace === undefined ? [channelId, accountId] : [channelId, accountId, queueNamespace],
+  );
 }
 
 /** Count failed channel ingress events per channel account for operator health surfaces. */
@@ -593,8 +599,23 @@ export function createChannelIngressQueue<
 ): ChannelIngressQueue<TPayload, TMetadata, TCompletedMetadata> {
   const channelId = normalizePart(options.channelId, "unknown");
   const accountId = normalizePart(options.accountId, "default");
-  const queueName = queueNameForParts(channelId, accountId);
+  const queueName = queueNameForParts(channelId, accountId, options.queueNamespace);
   const now = options.now ?? Date.now;
+
+  const has = async (id: string): Promise<boolean> => {
+    const eventId = idFrom(id);
+    const { db } = openStateDatabase(options.stateDir);
+    return Boolean(
+      executeSqliteQueryTakeFirstSync(
+        db,
+        getChannelIngressKysely(db)
+          .selectFrom("channel_ingress_events")
+          .select("event_id")
+          .where("queue_name", "=", queueName)
+          .where("event_id", "=", eventId),
+      ),
+    );
+  };
 
   const enqueue: ChannelIngressQueue<TPayload, TMetadata, TCompletedMetadata>["enqueue"] = async (
     id,
@@ -1538,6 +1559,7 @@ export function createChannelIngressQueue<
   };
 
   return {
+    has,
     enqueue,
     listPending,
     listClaims,

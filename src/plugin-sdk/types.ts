@@ -3,6 +3,8 @@
  */
 export type {
   PluginHookAgentTrigger,
+  PluginHookAfterToolApprovalContext,
+  PluginHookAfterToolApprovalEvent,
   PluginHookBeforeToolCallEvent,
   PluginHookBeforeToolCallResult,
   PluginHookSkillArtifact,

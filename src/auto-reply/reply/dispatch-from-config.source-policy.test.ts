@@ -66,9 +66,14 @@ describe("source reply routing and delivery policy", () => {
     });
   });
 
-  it.each(["text", "native"] as const)(
-    "normalizes bound %s slash answers before source routing and delivery policy",
-    async (source) => {
+  it.each([
+    ["text", "question"],
+    ["native", "question"],
+    ["text", "data"],
+    ["native", "data"],
+  ] as const)(
+    "normalizes %s slash input in %s mode before source routing and delivery policy",
+    async (source, mode) => {
       const sessionKey = "agent:test:session";
       const policy = vi.fn();
       const reply = { text: "Question expired; answer the latest prompt.", isError: true };
@@ -118,7 +123,9 @@ describe("source reply routing and delivery policy", () => {
         dispatcher,
         replyResolver,
         replyOptions: {
-          questionAnswerBinding: { sessionKey, questionId: "expired-question" },
+          ...(mode === "question"
+            ? { questionAnswerBinding: { sessionKey, questionId: "expired-question" } }
+            : { inputMode: "message-data" as const }),
           onSourceReplyDeliveryPolicy: policy,
         },
       });

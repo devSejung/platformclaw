@@ -15,6 +15,7 @@ import { executeSync, runImmediateTransaction } from "./kysely-sync.js";
 import { SqliteAnnouncementStore } from "./sqlite-announcements.js";
 import { SqliteHorseRacingStore } from "./sqlite-horse-racing.js";
 import { SqliteKnowledgeVaultStore } from "./sqlite-knowledge-vault-store.js";
+import { SqliteKnoxSpaceStore, revokeKnoxSpaceAdmissions } from "./sqlite-knox-space.js";
 import { ensureKnowledgeVaultSchema } from "./sqlite-schema-knowledge-vault.js";
 import { SqliteSpaceStore } from "./sqlite-spaces.js";
 import { SqliteControlPlaneBaseballStore } from "./sqlite-store-baseball.js";
@@ -53,6 +54,7 @@ export class SqliteControlPlaneStore
     ).rows;
   }
   readonly spaces = new SqliteSpaceStore(this.db);
+  readonly knoxSpaces = new SqliteKnoxSpaceStore(this.db, this.spaces);
   readonly racing = new SqliteHorseRacingStore(this.db, {
     prepare: () => this.ensureBaseballGameSchema(),
     ensure: (userId) => {
@@ -180,6 +182,7 @@ export class SqliteControlPlaneStore
       );
       reconcileWikiAccess(this.db);
       if (params.status === "disabled") {
+        revokeKnoxSpaceAdmissions(this.db, { userId: target.id });
         revokedAgentId = executeSync(
           this.db,
           this.query

@@ -19,6 +19,7 @@ import {
 } from "./execution-validation.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
+import { revokeKnoxSpaceAdmissions } from "./sqlite-knox-space.js";
 import {
   readCodingAgentSettings,
   SqliteControlPlaneCodingAgentStore,
@@ -169,7 +170,7 @@ export abstract class SqliteControlPlaneExecutionStore
           .where("agent_bindings.kind", "=", "personal")
           .where("agent_bindings.state", "=", "active"),
       );
-      if (!profile || profile.target_revision !== params.expectedRevision) {
+      if (!profile?.user_id || profile.target_revision !== params.expectedRevision) {
         throw new ControlPlaneConflictError(
           "execution_target_conflict",
           "execution target changed before the requested update",
@@ -226,6 +227,9 @@ export abstract class SqliteControlPlaneExecutionStore
           .where("agent_binding_id", "=", profile.binding_id)
           .where("target_revision", "=", profile.target_revision),
       );
+      // Cancel accepted work in the same authority transaction. Switching back
+      // later must not revive a request pinned to an earlier target revision.
+      revokeKnoxSpaceAdmissions(this.db, { userId: profile.user_id });
       this.insertAudit(
         profile.user_id,
         "execution.target.changed",

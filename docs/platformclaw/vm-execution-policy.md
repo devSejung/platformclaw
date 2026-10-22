@@ -36,15 +36,36 @@ per-user Gateway or proxy instances.
 
 ## Routing and execution matrix
 
-| Ingress             | Agent and session                         | Execution target            |
-| ------------------- | ----------------------------------------- | --------------------------- |
-| Employee Web        | Owned personal agent and selected session | Active personal target      |
-| Knox direct message | Same personal agent and main session      | Same active personal target |
-| Knox group          | `group-<roomId>` room agent               | Server Docker sandbox       |
+| Ingress                               | Agent and session                         | Execution target            |
+| ------------------------------------- | ----------------------------------------- | --------------------------- |
+| Employee Web                          | Owned personal agent and selected session | Active personal target      |
+| Knox direct message                   | Same personal agent and main session      | Same active personal target |
+| Knox group, version 1                 | `group-<roomId>` room agent               | Server Docker sandbox       |
+| Knox group, version 2 `self_in_space` | Sender-owned registered Space session     | Same active personal target |
 
 Knox room workspaces organize files and sessions but are not security
 boundaries. Room agents never receive a personal VM allocation or AD
 credential, but their tools still execute inside an upstream Docker sandbox.
+
+The version 2 Knox personal path is disabled by default through
+`channels.knox.selfInSpaceEnabled`. It keeps `room` / `GROUP` provenance while
+executing the authenticated sender's personal Agent in the connected Space page.
+It does not give the room Agent a personal VM or credential, change the user's
+work location, or select an ordinary personal main session.
+
+The server pins room binding generation, registered conversation, and the
+personal target identity before execution. A changed target or revoked authority
+cannot silently reroute a retry; a VM error never falls back to server execution.
+An admission remains revoked after re-grant. A later independent web turn retains
+its own reply destination. Native execution uses the existing per-run target
+snapshot and Credential revision policy.
+
+Final answers return to the original Knox group; tools, approvals, reasoning, and
+private attachments do not. Questions and final answers follow Space shared
+recall, so an owner-only Space tab is not a private secret-input surface. Use the
+existing structured Credential and approval paths. See the
+[Knox v2 contract](/platformclaw/knox-proxy-spec#personal-space-requests-with-version-2)
+for management authority, result recovery, rollout prerequisites, and rollback.
 
 ## Personal execution targets
 
@@ -93,7 +114,7 @@ broker socket, service token, and password bytes must never enter an agent
 sandbox.
 
 No agent command runs in the Gateway container. Server execution, including
-Knox groups, uses the upstream Docker backend through a dedicated rootless
+Knox room-Agent work, uses the upstream Docker backend through a dedicated rootless
 Docker daemon endpoint. The host Docker socket is forbidden. Gateway and the
 daemon must see identical absolute workspace paths.
 

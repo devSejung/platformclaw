@@ -443,13 +443,20 @@ export async function createExecutionDependenciesFromEnvironment(
   const resolveTarget: PlatformClawExecutionDependencies["resolveTarget"] = async ({
     agentId,
     target: requestedTarget,
+    sessionKey,
+    runId,
   }) => {
     const target = parseTarget(
       await callExecutionHandoff({
         socketPath: executionHandoffAddress(brokerAddress),
         serviceToken,
         path: EXECUTION_TARGET_PATH,
-        body: { agentId, ...(requestedTarget ? { target: requestedTarget } : {}) },
+        body: {
+          agentId,
+          ...(requestedTarget ? { target: requestedTarget } : {}),
+          ...(sessionKey ? { sessionKey } : {}),
+          ...(runId ? { runId } : {}),
+        },
       }),
     );
     // Terminals follow the active selection; explicit workspace lookups do not change it.

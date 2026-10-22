@@ -305,6 +305,8 @@ export type MsgContext = Partial<CanonicalInboundText> & {
   OwnerAllowFrom?: Array<string | number>;
   SenderName?: string;
   SenderId?: string;
+  /** Trusted internal participant profile; never derived from unverified channel JSON. */
+  SenderProfileId?: string;
   /** Trusted personal-agent boundary supplied with privileged sender attribution. */
   SenderAgentId?: string;
   /** Trusted post-admission proof that the sender owns the routed agent. */
@@ -387,6 +389,8 @@ export type MsgContext = Partial<CanonicalInboundText> & {
    * instead of using lastChannel from the session.
    */
   OriginatingChannel?: OriginatingChannelType;
+  /** Keep this turn's reply address request-scoped; never persist its origin or last route. */
+  ReplyRouteScope?: "request";
   /**
    * Originating destination for reply routing.
    * The chat/channel/user ID where the reply should be sent.

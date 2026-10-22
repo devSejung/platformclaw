@@ -24,7 +24,10 @@ import {
   isExecApprovalRunAbortedError,
   registerExecApprovalRequestForHostOrThrow,
 } from "./bash-tools.exec-approval-request.js";
-import { awaitExecApprovalInline } from "./bash-tools.exec-approval-wait.js";
+import {
+  awaitExecApprovalInline,
+  revalidateExecApproval,
+} from "./bash-tools.exec-approval-wait.js";
 import {
   formatNodeInvokeFailureFollowup,
   formatNodeInvokeFailureToolResult,
@@ -366,11 +369,12 @@ export async function executeNodeHostCommand(
         register: registerNodeApproval,
       });
       let preResolvedDecision = registeredDecision;
+      const approvalContext = { ...params };
       const requiredApproval = params.required === true;
       if (requiredApproval) {
         // Keep the original call as result owner; approval grants no permission
         // to detach or execute after cancellation, and current policy is checked below.
-        const decision = await awaitExecApprovalInline(params, approvalId, () =>
+        const decision = await awaitExecApprovalInline(approvalContext, approvalId, () =>
           execHostShared.resolveApprovalDecisionOrUndefined({
             approvalId,
             preResolvedDecision,
@@ -552,6 +556,7 @@ export async function executeNodeHostCommand(
               return;
             }
             // Approved follow-up invocations need approval scopes because they mutate remote node state.
+            await revalidateExecApproval(approvalContext, approvalId);
             nodeInvocationStarted = true;
             const invocation = await invokeNodeSystemRun({
               invokeWaitMs: target.invokeWaitMs,

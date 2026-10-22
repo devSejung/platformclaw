@@ -1,0 +1,52 @@
+[
+  {
+    "name": "partial delivery is terminal despite HTTP 502",
+    "status": 502,
+    "body": { "ok": false, "errorCode": "KNOX_PARTIAL_DELIVERY", "message": "Delivery stopped after a failed chunk", "retryable": false },
+    "retryable": false,
+    "deliveryOutcome": "partial"
+  },
+  {
+    "name": "unknown provider result preserves uncertainty",
+    "status": 502,
+    "body": { "ok": false, "errorCode": "KNOX_DELIVERY_UNKNOWN", "message": "Provider delivery could not be confirmed", "retryable": false },
+    "retryable": false,
+    "deliveryOutcome": "unknown"
+  },
+  {
+    "name": "explicit false overrides HTTP 429",
+    "status": 429,
+    "body": { "ok": false, "errorCode": "DELIVERY_REJECTED", "retryable": false },
+    "retryable": false
+  },
+  {
+    "name": "explicit true overrides HTTP 400",
+    "status": 400,
+    "body": { "ok": false, "errorCode": "DELIVERY_NOT_READY", "retryable": true },
+    "retryable": true
+  },
+  {
+    "name": "missing retryable falls back to HTTP 503",
+    "status": 503,
+    "body": { "ok": false, "errorCode": "UNAVAILABLE" },
+    "retryable": true
+  },
+  {
+    "name": "non-boolean retryable falls back to HTTP 502",
+    "status": 502,
+    "body": { "ok": false, "errorCode": "KNOX_PARTIAL_DELIVERY", "retryable": "false" },
+    "retryable": true
+  },
+  {
+    "name": "untyped failure falls back to HTTP 502",
+    "status": 502,
+    "body": { "retryable": false },
+    "retryable": true
+  },
+  {
+    "name": "missing retryable falls back to HTTP 400",
+    "status": 400,
+    "body": { "ok": false, "errorCode": "INVALID_REQUEST" },
+    "retryable": false
+  }
+]

@@ -1,5 +1,14 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { normalizeKnoxInbound } from "./normalize.js";
+import type { KnoxInboundMessage } from "./types.js";
+
+const selfInSpaceFixture = JSON.parse(
+  readFileSync(new URL("../test-fixtures/my/self-in-space.json", import.meta.url), "utf8"),
+) as Extract<KnoxInboundMessage, { schemaVersion: 2 }>;
+const invalidFixtures = JSON.parse(
+  readFileSync(new URL("../test-fixtures/my/invalid-inbound.json", import.meta.url), "utf8"),
+) as Array<{ name: string; request: unknown }>;
 
 describe("normalizeKnoxInbound", () => {
   it("normalizes the v1 relay schema and preserves dotted Knox identity", () => {
@@ -60,7 +69,7 @@ describe("normalizeKnoxInbound", () => {
 
   it("rejects unsupported or contradictory versioned envelopes", () => {
     const input = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       eventId: "evt",
       messageId: "msg",
       occurredAt: "2026-07-31T00:00:00.000Z",
@@ -84,6 +93,67 @@ describe("normalizeKnoxInbound", () => {
         message: { type: "text", text: "" },
       }),
     ).toThrow("missing required fields");
+  });
+
+  it("preserves the v2 fixture's mode, opaque IDs and complete question while ignoring caller routing", () => {
+    expect(
+      normalizeKnoxInbound({
+        ...selfInSpaceFixture,
+        agentId: "untrusted-agent",
+        sessionKey: "untrusted-session",
+        spaceId: "untrusted-space",
+        userId: "untrusted-user",
+      }),
+    ).toEqual(selfInSpaceFixture);
+  });
+
+  it.each(invalidFixtures)("rejects the shared $name fixture", ({ request }) => {
+    expect(() => normalizeKnoxInbound(request)).toThrow();
+  });
+
+  it("aligns v2 request identity limits with admission while preserving v1", () => {
+    expect(
+      normalizeKnoxInbound({ ...selfInSpaceFixture, messageId: "x".repeat(256) }).messageId,
+    ).toHaveLength(256);
+    expect(() =>
+      normalizeKnoxInbound({ ...selfInSpaceFixture, messageId: "x".repeat(257) }),
+    ).toThrow("256");
+    const { executionMode: _mode, ...ordinary } = selfInSpaceFixture;
+    expect(
+      normalizeKnoxInbound({ ...ordinary, schemaVersion: 1, messageId: "x".repeat(257) }).messageId,
+    ).toHaveLength(257);
+  });
+
+  it.each([1, undefined])("rejects executionMode on schemaVersion %s", (schemaVersion) => {
+    expect(() =>
+      normalizeKnoxInbound({ ...selfInSpaceFixture, schemaVersion, executionMode: null }),
+    ).toThrow("executionMode");
+  });
+
+  it.each([
+    { eventId: 123 },
+    { messageId: 123 },
+    { sender: { ...selfInSpaceFixture.sender, knoxUserId: 123 } },
+    { conversation: { ...selfInSpaceFixture.conversation, conversationId: 123 } },
+  ])("rejects numeric identifiers in v2: %j", (overrides) => {
+    expect(() => normalizeKnoxInbound({ ...selfInSpaceFixture, ...overrides })).toThrow(
+      "missing required fields",
+    );
+  });
+
+  it.each([
+    { type: "dm", providerType: "GROUP" },
+    { type: "room", providerType: "SINGLE" },
+    { type: "ROOM", providerType: "GROUP" },
+    { type: "room", providerType: "group" },
+    { type: "room", providerType: undefined },
+  ])("requires the exact v2 room/GROUP combination: %j", (conversation) => {
+    expect(() =>
+      normalizeKnoxInbound({
+        ...selfInSpaceFixture,
+        conversation: { ...selfInSpaceFixture.conversation, ...conversation },
+      }),
+    ).toThrow("type fields");
   });
 
   it("preserves sender identity and message bytes without underscore or whitespace rewriting", () => {

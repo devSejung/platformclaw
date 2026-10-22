@@ -5,6 +5,8 @@ import { addStaticTestHooks } from "./hooks.test-fixtures.js";
 import { addTestHook } from "./hooks.test-helpers.js";
 import { createEmptyPluginRegistry, type PluginRegistry } from "./registry.js";
 import type {
+  PluginHookAfterToolApprovalEvent,
+  PluginHookAfterToolApprovalContext,
   PluginHookBeforeToolCallEvent,
   PluginHookBeforeToolCallResult,
   PluginHookToolContext,
@@ -15,6 +17,51 @@ const stubCtx: PluginHookToolContext = {
   agentId: "main",
   sessionKey: "agent:main:main",
 };
+
+describe("after_tool_approval revalidation", () => {
+  it("rejects read-only context mutation and fails closed by default", async () => {
+    const registry = createEmptyPluginRegistry();
+    addTestHook({
+      registry,
+      pluginId: "policy",
+      hookName: "after_tool_approval",
+      handler: (
+        _event: PluginHookAfterToolApprovalEvent,
+        context: PluginHookAfterToolApprovalContext,
+      ) => {
+        Object.assign(context, { runId: "replacement" });
+      },
+    });
+    const context = { runId: "original", sessionKey: "agent:main:space" };
+    await expect(
+      createHookRunner(registry).runAfterToolApproval({ approvalId: "approval-1" }, context),
+    ).rejects.toThrow();
+    expect(context.runId).toBe("original");
+  });
+
+  it("rejects a timed-out revalidation before execution can resume", async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = createEmptyPluginRegistry();
+      addTestHook({
+        registry,
+        pluginId: "policy",
+        hookName: "after_tool_approval",
+        handler: async () => await new Promise<void>(() => {}),
+      });
+      const runner = createHookRunner(registry, {
+        voidHookTimeoutMsByHook: { after_tool_approval: 5 },
+      });
+      const rejected = expect(
+        runner.runAfterToolApproval({ approvalId: "approval-1" }, { runId: "original" }),
+      ).rejects.toThrow("timed out");
+      await vi.advanceTimersByTimeAsync(6);
+      await rejected;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 async function runBeforeToolCallWithHooks(
   registry: PluginRegistry,

@@ -71,6 +71,8 @@ export function isFollowupRunDeferredError(error: unknown): error is FollowupRun
 
 export type FollowupRun = {
   prompt: string;
+  /** Keeps this source's reply exclusive when its queued operation starts. */
+  replyRouteScope?: "request";
   /** Latest session to claim without rewriting the queued run before store refresh. */
   admissionSessionId?: string;
   /** User-visible prompt body persisted to transcript; excludes runtime-only prompt context. */

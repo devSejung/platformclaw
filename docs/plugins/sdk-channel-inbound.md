@@ -176,6 +176,34 @@ with its admitted answer, then pass it as `replyOptions.questionAnswerBinding`.
 The active run atomically claims that question; a stale binding returns a
 `question-unavailable` notice without steering ordinary work or answering a new question.
 
+For a transport that admits the entire body as a new question, set
+`replyOptions.inputMode: "message-data"`. This preserves the agent and transcript
+text while disabling native/text commands, reset/directive parsing, and automatic
+matching against pending questions. A trusted server may supply `SenderProfileId`
+in context to persist its verified internal participant profile alongside the raw
+channel sender ID. For replies whose destination belongs only to this request,
+set `ReplyRouteScope: "request"` in context. The turn retains its real channel and
+group source, but metadata/session initialization leaves the session's remembered
+origin, group identity, and delivery route unchanged. Later independent web or
+scheduled turns therefore cannot inherit this request's reply address.
+The active reply operation retains this scope through queued admission. Independent
+input queues as its own followup instead of steering or implicitly answering a
+question in that operation, including when the incoming queue mode is `interrupt`.
+An explicitly validated question binding can resume the original request, and
+owner cancellation remains available.
+
+Native ingress queues expose an optional `has(id)` read-only receipt lookup. It
+covers retained pending, claimed, completed, and failed identities without decoding
+the payload. A plugin that moves an execution class to another queue can inspect
+the old queue before admitting it into the new owner. Plugins that require this
+upgrade guard must reject admission if an external queue lacks the capability.
+
+Set `queueNamespace` when an execution class needs its own durable queue while
+retaining the real account ID. The opaque namespace adds a third element to the
+queue's JSON identity tuple; omitting it preserves the existing channel/account
+tuple exactly. A namespaced queue cannot collide with any ordinary account ID,
+and consumers that omit the namespace cannot claim its records.
+
 By default, routed turns record inbound metadata against
 `ctxPayload.SessionKey ?? route.sessionKey`. Set `record.sessionKey` only when a
 native command intentionally executes in one command session while updating a

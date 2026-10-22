@@ -19,6 +19,34 @@ afterEach(async () => {
 });
 
 describe("handlePlatformClawKnoxIngressProxy", () => {
+  it("preserves a disabled-feature rejection without converting it to a retryable outage", async () => {
+    const body = JSON.stringify({ ok: false, error: "self_in_space_disabled", retryable: false });
+    const server = createServer((req, res) => {
+      void handlePlatformClawKnoxIngressProxy(req, res, {
+        targetUrl: `http://gateway.test${PLATFORMCLAW_KNOX_INBOUND_PATH}`,
+        fetchImpl: async () => new Response(body, { status: 409 }),
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("test server did not bind TCP");
+    }
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}${PLATFORMCLAW_KNOX_INBOUND_PATH}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    expect(response.status).toBe(409);
+    expect(await response.text()).toBe(body);
+  });
+
   it("preserves signed body bytes and authentication headers", async () => {
     const upstream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect(Buffer.from(init?.body as Buffer).toString("utf8")).toBe('{"text":"hello"}');

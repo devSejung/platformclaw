@@ -1,5 +1,5 @@
 import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
-import { ControlPlaneStateError } from "./contracts.js";
+import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
 import type { CredentialBrokerGrant } from "./credential-broker-grants.js";
 import type {
   AssignedVmExecutionTarget,
@@ -29,6 +29,51 @@ export type ExecutionCredentialGrantIssuer = {
   readonly address: string;
   issueForUser(userId: string, validate?: () => Promise<void>): CredentialBrokerGrant;
 };
+
+/** Resolve one snapshot while preserving an admitted request's immutable destination. */
+export async function resolveAuthorizedExecutionTarget(
+  service: Pick<ExecutionHandoffService, "resolveTarget"> & {
+    authorizeTargetRun?: (
+      context: { agentId: string; sessionKey?: string; runId?: string },
+      target?: ExecutionTargetSnapshot,
+    ) => void;
+  },
+  agentId: string,
+  body: Record<string, unknown>,
+): Promise<ExecutionTargetSnapshot> {
+  const target = body.target;
+  if (target !== undefined && target !== "platform_server" && target !== "assigned_vm") {
+    throw new Error("invalid requested execution target");
+  }
+  if (
+    (body.sessionKey !== undefined &&
+      (typeof body.sessionKey !== "string" || !body.sessionKey || body.sessionKey.length > 512)) ||
+    (body.runId !== undefined &&
+      (typeof body.runId !== "string" || !body.runId || body.runId.length > 512))
+  ) {
+    throw new Error("invalid execution run context");
+  }
+  const context = {
+    agentId,
+    ...(typeof body.sessionKey === "string" ? { sessionKey: body.sessionKey } : {}),
+    ...(typeof body.runId === "string" ? { runId: body.runId } : {}),
+  };
+  const personalAdmission = context.runId?.startsWith("knox-my:");
+  if (personalAdmission && !service.authorizeTargetRun) {
+    throw new ControlPlaneAuthorizationError("Knox execution authorization unavailable");
+  }
+  if (personalAdmission) {
+    service.authorizeTargetRun!(context);
+  }
+  const resolved = target
+    ? await service.resolveTarget(agentId, target)
+    : await service.resolveTarget(agentId);
+  // Check the exact returned snapshot after lookup; resolving again could select another target.
+  if (personalAdmission) {
+    service.authorizeTargetRun!(context, resolved);
+  }
+  return resolved;
+}
 
 function requireAgentId(agentId: string): string {
   const normalized = agentId.trim();

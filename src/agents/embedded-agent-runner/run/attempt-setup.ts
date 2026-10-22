@@ -40,6 +40,7 @@ type AttemptWorkspaceParams = Pick<
   | "abortSignal"
   | "media"
   | "workspaceMedia"
+  | "runId"
   | "sandboxSessionKey"
   | "sessionId"
   | "sessionKey"
@@ -56,6 +57,7 @@ export async function resolveAttemptWorkspaceSandbox(params: AttemptWorkspacePar
     config: params.config,
     execOverrides: params.execOverrides,
     sessionKey: sandboxSessionKey,
+    runId: params.runId,
     workspaceDir: resolvedWorkspace,
   });
   const effectiveWorkspace =

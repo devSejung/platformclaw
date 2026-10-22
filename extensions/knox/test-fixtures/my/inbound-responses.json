@@ -1,0 +1,42 @@
+{
+  "disabled": {
+    "status": 409,
+    "body": { "ok": false, "error": "self_in_space_disabled", "retryable": false }
+  },
+  "identityConflict": {
+    "status": 409,
+    "body": { "ok": false, "error": "message_identity_conflict", "retryable": false }
+  },
+  "invalid": {
+    "status": 400,
+    "body": { "ok": false, "error": "invalid_payload" }
+  },
+  "unauthorized": {
+    "status": 401,
+    "body": { "ok": false, "error": "invalid_signature" }
+  },
+  "accepted": {
+    "status": 202,
+    "body": {
+      "ok": true,
+      "accepted": true,
+      "duplicate": false,
+      "eventId": "evt_my_fixture",
+      "messageId": "9934329570499788812345"
+    }
+  },
+  "duplicate": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "accepted": true,
+      "duplicate": true,
+      "eventId": "evt_my_fixture",
+      "messageId": "9934329570499788812345"
+    }
+  },
+  "admissionUnavailable": {
+    "status": 503,
+    "body": { "ok": false, "error": "admission_unavailable" }
+  }
+}

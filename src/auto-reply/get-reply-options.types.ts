@@ -109,6 +109,8 @@ type ProgressCallbackResult = false | void;
 
 /** Reply generation options shared by auto-reply, webchat, channels, and tests. */
 export type GetReplyOptions = {
+  /** Treat input as new question data; disable commands and automatic pending-question matching. */
+  inputMode?: "message-data";
   /** Override run id for agent events (defaults to random UUID). */
   runId?: string;
   /** Plain-text answer admitted for one exact pending question; never becomes new work. */

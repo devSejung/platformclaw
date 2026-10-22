@@ -228,6 +228,9 @@ export function deriveSessionMetaPatch(params: {
   preserveExistingDeliveryRoute?: boolean;
   skipSystemEventOrigin?: boolean;
 }): Partial<SessionEntry> | null {
+  if (params.ctx.ReplyRouteScope === "request") {
+    return null;
+  }
   const groupPatch = deriveGroupSessionPatch(params);
   const origin = deriveSessionOrigin(params.ctx, {
     skipSystemEventOrigin: params.skipSystemEventOrigin,

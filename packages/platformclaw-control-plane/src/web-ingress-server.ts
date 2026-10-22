@@ -26,10 +26,12 @@ import {
   createBrowserGatewayEventForwarder,
   createBrowserGatewayEventSender,
 } from "./browser-gateway-event-forwarder.js";
+import { decodeTextFrame, rawDataByteLength } from "./browser-gateway-frames.js";
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
 import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
 import { readBrowserJsonBody, sendBrowserJson } from "./browser-http-shared.js";
+import { handleKnoxSpaceAdministrationRequest } from "./browser-knox-space-http.js";
 import { handlePlatformClawMcpAdministrationRequest } from "./browser-mcp-admin-http.js";
 import { handlePlatformClawEmployeeMcpRequest } from "./browser-mcp-http.js";
 import { handlePlatformClawOrganizationRequest } from "./browser-organization-http.js";
@@ -94,26 +96,6 @@ function rejectUpgrade(socket: Duplex, statusCode: number, statusText: string): 
       `HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
     );
   }
-}
-
-function decodeTextFrame(data: RawData): string {
-  if (Buffer.isBuffer(data)) {
-    return data.toString("utf8");
-  }
-  if (data instanceof ArrayBuffer) {
-    return Buffer.from(data).toString("utf8");
-  }
-  return Buffer.concat(data).toString("utf8");
-}
-
-function rawDataByteLength(data: RawData): number {
-  if (Buffer.isBuffer(data)) {
-    return data.byteLength;
-  }
-  if (data instanceof ArrayBuffer) {
-    return data.byteLength;
-  }
-  return data.reduce((total, chunk) => total + chunk.byteLength, 0);
 }
 
 function responseError(
@@ -308,6 +290,16 @@ export class PlatformClawWebIngressServer {
         this.options.mcpAdministrationService &&
         (await handlePlatformClawMcpAdministrationRequest(req, res, {
           service: this.options.mcpAdministrationService,
+          readJsonBody: readBrowserJsonBody,
+          isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
+        }))
+      ) {
+        return;
+      }
+      if (
+        this.options.knoxSpaceAdministrationService &&
+        (await handleKnoxSpaceAdministrationRequest(req, res, {
+          service: this.options.knoxSpaceAdministrationService,
           readJsonBody: readBrowserJsonBody,
           isMutationOriginAllowed: (request) => this.isOriginAllowed(request),
         }))
