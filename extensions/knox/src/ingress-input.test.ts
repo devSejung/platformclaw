@@ -33,7 +33,7 @@ const account: ResolvedKnoxAccount = {
   controlPlaneUrl: "http://control.invalid/route",
   progressDelayMs: 60_000,
 };
-function message(id: string, text: string): KnoxInboundMessage {
+function message(id: string, text: string): Extract<KnoxInboundMessage, { schemaVersion: 1 }> {
   return {
     schemaVersion: 1,
     eventId: `event-${id}`,

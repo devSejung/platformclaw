@@ -46,8 +46,8 @@ describe("tool authority after an approval wait", () => {
       { approvalId: "approval-a", toolCallId: "tool-a" },
       expect.objectContaining(identity),
     );
-    expect(Object.isFrozen(hook.mock.calls[0][0])).toBe(true);
-    expect(Object.isFrozen(hook.mock.calls[0][1])).toBe(true);
+    expect(Object.isFrozen(hook.mock.calls[0]![0])).toBe(true);
+    expect(Object.isFrozen(hook.mock.calls[0]![1])).toBe(true);
   });
 
   it("fails closed when inline exec permission was revoked while approval waited", async () => {

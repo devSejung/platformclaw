@@ -1,3 +1,4 @@
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { expect, it, vi } from "vitest";
 import { startKnoxGatewayAccount } from "./gateway.js";
 
@@ -21,7 +22,7 @@ vi.mock("./webhook-handler.js", () => ({ createKnoxWebhookHandler: vi.fn(() => v
 
 it("registers v1 while recovery is pending and owns that recovery through shutdown", async () => {
   vi.useFakeTimers();
-  const recovery = Promise.withResolvers<void>();
+  const recovery = createDeferred<void>();
   const recover = vi.fn(() => recovery.promise);
   const unregister = vi.fn();
   let recoverySignal: AbortSignal | undefined;

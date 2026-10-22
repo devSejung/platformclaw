@@ -82,10 +82,13 @@ describe("sendKnoxOutbound", () => {
         }
         return JSON.parse(init.body) as { requestId: string; chatMsgId: string };
       });
-      expect(bodies[1].requestId).toBe(bodies[0].requestId);
+      expect(bodies).toHaveLength(2);
+      const first = bodies[0]!;
+      const second = bodies[1]!;
+      expect(second.requestId).toBe(first.requestId);
       if (stable) {
-        expect(bodies[1]).toEqual(bodies[0]);
-        expect(bodies[0].chatMsgId).toMatch(/^[0-9a-f]{64}$/u);
+        expect(second).toEqual(first);
+        expect(first.chatMsgId).toMatch(/^[0-9a-f]{64}$/u);
         await sendKnoxOutbound({ ...request, requestId: "another-delivery" });
         await sendKnoxOutbound({
           ...request,
@@ -97,9 +100,9 @@ describe("sendKnoxOutbound", () => {
           }
           return (JSON.parse(init.body) as { chatMsgId: string }).chatMsgId;
         });
-        expect(new Set([bodies[0].chatMsgId, ...nextIds]).size).toBe(3);
+        expect(new Set([first.chatMsgId, ...nextIds]).size).toBe(3);
       } else {
-        expect(bodies[1].chatMsgId).not.toBe(bodies[0].chatMsgId);
+        expect(second.chatMsgId).not.toBe(first.chatMsgId);
       }
     },
   );

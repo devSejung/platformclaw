@@ -58,7 +58,7 @@ it("preserves accepted v2 in a separate SQLite queue across restart and consumer
     const restored = await open("default", rollback.queueNamespace).listPending();
     expect(restored).toHaveLength(1);
     expect(route?.status).toBe("resolved");
-    expect(restored[0].payload).toEqual({ version: 2, rawEvent: JSON.stringify(admitted) });
+    expect(restored[0]!.payload).toEqual({ version: 2, rawEvent: JSON.stringify(admitted) });
   } finally {
     closeOpenClawStateDatabaseForTest();
     await rm(stateDir, { recursive: true, force: true });

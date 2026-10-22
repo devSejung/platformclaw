@@ -3,6 +3,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import {
   createPluginBlobStoreForTests,
   createPluginStateKeyedStoreForTests,
@@ -108,7 +109,7 @@ async function harness(responses: Array<{ status: number; body: unknown; loseAck
         body += String(chunk);
       }
       sent.push(JSON.parse(body));
-      const response = responses[Math.min(sent.length - 1, responses.length - 1)];
+      const response = responses[Math.min(sent.length - 1, responses.length - 1)]!;
       if (response.loseAck) {
         req.socket.destroy();
         return;
@@ -173,8 +174,8 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
       },
     });
     expect(h.sent).toHaveLength(1);
-    expect(h.sent[0].text).toBe("[개인 Agent]\nfirst answer\n\nsecond answer");
-    expect(h.sent[0].requestId).toBe(`my-final:${message.messageId}`);
+    expect(h.sent[0]!.text).toBe("[개인 Agent]\nfirst answer\n\nsecond answer");
+    expect(h.sent[0]!.requestId).toBe(`my-final:${message.messageId}`);
   });
 
   it("retries an ACK-lost delivery with the exact persisted request without rerunning", async () => {
@@ -197,8 +198,8 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
   it("serializes concurrent claims for the same request", async () => {
     const h = await harness([success]);
     const coordinator = createKnoxMyDelivery(h.options);
-    const entered = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
+    const entered = createDeferred<void>();
+    const release = createDeferred<void>();
     const execute = vi.fn(async ({ finish }: RunScope) => {
       entered.resolve();
       await release.promise;
@@ -245,7 +246,7 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
       run: execute,
     });
     expect(execute).not.toHaveBeenCalled();
-    expect(h.sent[0].text).toContain("자동 재실행하지 않았습니다");
+    expect(h.sent[0]!.text).toContain("자동 재실행하지 않았습니다");
   });
 
   it("recovers a persisted final after reopening SQLite without executing the VM again", async () => {
@@ -272,7 +273,7 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
       chatroomId: message.conversation.conversationId,
       agentId: "personal-a",
       runId: "knox-my:admission-a",
-      requestId: h.sent[0].requestId,
+      requestId: h.sent[0]!.requestId,
     });
     const again = createKnoxMyDelivery(h.options);
     await again.withRequest({ message, route, lifecycle: lifecycle(), run: execute });
@@ -312,7 +313,7 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
       maxBytesPerNamespace: 64 * 1024 * 1024,
       overflowPolicy: "reject-new",
     });
-    expect((await blobs.entries())[0].expiresAt).toBeUndefined();
+    expect((await blobs.entries())[0]!.expiresAt).toBeUndefined();
   });
 
   it("replaces a saved private result with a safe notice when permission is revoked", async () => {
@@ -330,9 +331,9 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
     clock += 5000;
     await createKnoxMyDelivery(h.options).recover();
     expect(h.sent).toHaveLength(2);
-    expect(h.sent[1].status).toBe(lifecycleFixture.revoked.status);
-    expect(h.sent[1].text).not.toContain("private result");
-    expect(h.sent[1].requestId).toBe(
+    expect(h.sent[1]!.status).toBe(lifecycleFixture.revoked.status);
+    expect(h.sent[1]!.text).not.toContain("private result");
+    expect(h.sent[1]!.requestId).toBe(
       `${lifecycleFixture.revoked.requestIdPrefix}${message.messageId}`,
     );
   });
@@ -348,7 +349,7 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
       maxBytesPerNamespace: 64 * 1024 * 1024,
       overflowPolicy: "reject-new",
     });
-    const info = (await blob.entries())[0];
+    const info = (await blob.entries())[0]!;
     const stored = await blob.lookup(info.key);
     if (!stored) {
       throw new Error("missing admitted request");
@@ -367,7 +368,7 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
     });
     expect(execute).not.toHaveBeenCalled();
     expect(h.sent).toHaveLength(1);
-    expect(h.sent[0].status).toBe("error");
+    expect(h.sent[0]!.status).toBe("error");
     expect(h.sent[0]).toMatchObject(lifecycleFixture.interrupted);
     await createKnoxMyDelivery(h.options).recover();
     expect(h.sent).toHaveLength(1);
@@ -384,7 +385,7 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
       lifecycle: lifecycle(),
       run: async ({ finish }) => await finish({ text, status: "final" }),
     });
-    expect(h.sent[0].text).toBe(`[개인 Agent]\n${text}`);
+    expect(h.sent[0]!.text).toBe(`[개인 Agent]\n${text}`);
   });
 
   it("compacts completed results at capacity while retaining unresolved work", async () => {
@@ -436,7 +437,7 @@ describe("Knox personal result delivery through SQLite and mock CDEP", () => {
       ...lifecycleFixture.postAcceptanceFailure,
       conversationType: "room",
     });
-    expect(h.sent[0].text).not.toContain("space-a");
+    expect(h.sent[0]!.text).not.toContain("space-a");
   });
 });
 

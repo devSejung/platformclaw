@@ -98,7 +98,9 @@ describe("createKnoxIngress", () => {
     const personalOptions = vi.mocked(createChannelIngressMonitor).mock.calls.at(-1)?.[0];
     const admitted = { ...message, selfInSpaceRoute: route };
     expect(personalOptions?.payload.version).toBe(2);
-    expect(personalOptions?.inspect(admitted)).toMatchObject({ laneKey: route.sessionKey });
+    expect(personalOptions?.inspect(admitted, { phase: "admission" })).toMatchObject({
+      laneKey: route.sessionKey,
+    });
     expect(resolveQuestionAnswerBinding).not.toHaveBeenCalled();
     expect(
       personalOptions?.payload.deserialize(JSON.stringify(admitted), {
