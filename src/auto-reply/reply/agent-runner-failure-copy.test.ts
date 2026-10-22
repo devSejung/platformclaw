@@ -119,7 +119,7 @@ describe("web chat failure presentation", () => {
       }),
     });
     expect(report).toContain("Failure kind: timeout");
-    expect(report).toContain("HTTP status: 504");
+    expect(report).toContain("Status: 504");
     expect(report).not.toContain("private timeout details");
   });
 

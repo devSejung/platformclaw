@@ -544,11 +544,16 @@ export async function handleChatSend(
         await measureDiagnosticsTimelineSpan(
           "gateway.chat_send.post_dispatch",
           async () => {
-            const returnedAgentErrorPayloads = agentRunStarted
-              ? replyDispatch.deliveredReplies
-                  .map((entryInner) => entryInner.payload)
-                  .filter((payload) => payload.isError)
-              : [];
+            // Preparation can fail before the runtime owns a transcript. The
+            // producer's terminal marker still requires an error event with diagnostics.
+            const returnedAgentErrorPayloads = replyDispatch.deliveredReplies
+              .map((entryInner) => entryInner.payload)
+              .filter(
+                (payload) =>
+                  payload.isError &&
+                  (agentRunStarted ||
+                    getReplyPayloadMetadata(payload)?.agentRunTerminalOutcome !== undefined),
+              );
             const returnedAgentErrorMessage =
               returnedAgentErrorPayloads
                 .map((payload) => payload.text?.trim())
@@ -558,19 +563,10 @@ export async function handleChatSend(
               .map((payload) => getReplyPayloadMetadata(payload)?.agentRunFailureReport)
               .find((report) => report !== undefined);
             if (
-              agentRunStarted &&
-              returnedAgentErrorPayloads.length > 0 &&
-              !userTurnRecorder.hasPersisted() &&
-              !userTurnRecorder.isBlocked()
-            ) {
-              await persistGatewayUserTurnTranscriptBestEffort();
-            }
-            if (
-              agentRunStarted &&
-              returnedAgentErrorPayloads.length === 0 &&
               !userTurnRecorder.hasPersisted() &&
               !userTurnRecorder.isBlocked() &&
-              userTurnRecorder.hasRuntimePersistencePending()
+              (returnedAgentErrorPayloads.length > 0 ||
+                (agentRunStarted && userTurnRecorder.hasRuntimePersistencePending()))
             ) {
               await persistGatewayUserTurnTranscriptBestEffort();
             }
@@ -581,7 +577,11 @@ export async function handleChatSend(
             // duplicate normal embedded-agent assistant turns. The non-agent branch below has no
             // runtime-owned assistant turn, so it appends a gateway-injected assistant entry before
             // broadcasting the final UI event.
-            if (!agentRunStarted && !queuedFollowup.isEnqueued()) {
+            if (
+              !agentRunStarted &&
+              !queuedFollowup.isEnqueued() &&
+              returnedAgentErrorPayloads.length === 0
+            ) {
               await finalizeChatSendNonAgentReplies({
                 accountId,
                 context,

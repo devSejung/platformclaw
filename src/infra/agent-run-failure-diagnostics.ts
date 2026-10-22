@@ -129,7 +129,9 @@ export function recordAgentRunFailure(input: {
     report.push(`Failure kind: ${failureKind}`);
   }
   if (httpStatus) {
-    report.push(`HTTP status: ${httpStatus}`);
+    // Failover errors also carry synthesized HTTP-like statuses (for example 408
+    // for a closed transport); do not imply an HTTP response was received.
+    report.push(`Status: ${httpStatus}`);
   }
   for (const [label, value] of [
     ["Phase", input.phase],
