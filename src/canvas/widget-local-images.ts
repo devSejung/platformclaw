@@ -120,21 +120,17 @@ function decodeLocalReference(value: string): string {
 async function readWorkspaceFile(params: {
   workspace: WidgetWorkspace;
   filePath: string;
-  cwd?: string;
   maxBytes: number;
 }): Promise<Buffer> {
   if (params.workspace.bridge) {
     return await params.workspace.bridge.readFile({
       filePath: params.filePath,
-      cwd: params.cwd ?? params.workspace.root,
+      cwd: params.workspace.root,
       maxBytes: params.maxBytes,
     });
   }
   const root = await fsRoot(params.workspace.root);
-  const absolute = path.isAbsolute(params.filePath)
-    ? path.resolve(params.filePath)
-    : path.resolve(params.cwd ?? params.workspace.root, params.filePath);
-  const relative = path.relative(path.resolve(params.workspace.root), absolute);
+  const relative = path.relative(path.resolve(params.workspace.root), params.filePath);
   const read = await root.read(relative, {
     hardlinks: "reject",
     maxBytes: params.maxBytes,
@@ -143,18 +139,14 @@ async function readWorkspaceFile(params: {
   return read.buffer;
 }
 
-function resolveSourceDirectory(workspace: WidgetWorkspace, widgetPath: string): string {
+function resolveWidgetSourcePath(workspace: WidgetWorkspace, widgetPath: string): string {
   if (workspace.bridge) {
     const resolved = workspace.bridge.resolveUserPath
       ? workspace.bridge.resolveUserPath({ filePath: widgetPath, cwd: workspace.root })
       : workspace.bridge.resolvePath({ filePath: widgetPath, cwd: workspace.root });
-    return path.posix.dirname(resolved.containerPath);
+    return resolved.containerPath;
   }
-  return path.dirname(
-    path.isAbsolute(widgetPath)
-      ? path.resolve(widgetPath)
-      : path.resolve(workspace.root, widgetPath),
-  );
+  return path.resolve(workspace.root, widgetPath);
 }
 
 export async function embedWidgetWorkspaceImages(params: {
@@ -185,9 +177,12 @@ export async function embedWidgetWorkspaceImages(params: {
     throw unsupported("widget_path requires an active agent workspace.");
   }
 
+  // Resolve model-facing aliases once, before reading the saved source. Reuse
+  // that same identity for image URLs so HOME and workspace cannot disagree.
+  const sourcePath = resolveWidgetSourcePath(params.workspace, params.widgetPath);
   const source = await readWorkspaceFile({
     workspace: params.workspace,
-    filePath: params.widgetPath,
+    filePath: sourcePath,
     maxBytes: MAX_WIDGET_SOURCE_BYTES,
   });
   if (!source.equals(Buffer.from(params.widgetCode, "utf8"))) {
@@ -205,17 +200,20 @@ export async function embedWidgetWorkspaceImages(params: {
       `show_widget supports at most ${MAX_WIDGET_IMAGES} local images.`,
     );
   }
-  const sourceDirectory = resolveSourceDirectory(params.workspace, params.widgetPath);
+  const filePaths = params.workspace.bridge ? path.posix : path;
+  const sourceDirectory = filePaths.dirname(sourcePath);
   const embedded = new Map<string, string>();
   let totalBytes = 0;
   let totalPixels = 0;
   for (const reference of localReferences) {
     let dataUrl = embedded.get(reference.value);
     if (!dataUrl) {
+      // HTML URLs are relative to the source document, including a literal ~.
+      // Absolute paths also avoid Docker's host-cwd interpretation of relative reads.
+      const imagePath = filePaths.resolve(sourceDirectory, decodeLocalReference(reference.value));
       const image = await readWorkspaceFile({
         workspace: params.workspace,
-        filePath: decodeLocalReference(reference.value),
-        cwd: sourceDirectory,
+        filePath: imagePath,
         maxBytes: MAX_WIDGET_IMAGE_BYTES,
       });
       totalBytes += image.byteLength;

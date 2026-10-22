@@ -4,7 +4,6 @@ import { ref } from "lit/directives/ref.js";
 import { ensureCustomElementDefined } from "../../../app/lazy-custom-element.ts";
 import { icons } from "../../../components/icons.ts";
 import {
-  dispatchWidgetPrompt,
   WIDGET_PROMPT_EVENT,
   type WidgetPromptEventDetail,
 } from "../../../components/mcp-app-security.ts";
@@ -27,6 +26,7 @@ import {
 import { showToast } from "../../../lib/toast.ts";
 import type { SidebarContent } from "./chat-sidebar.ts";
 import { exportWidget } from "./widget-export.ts";
+import { prepareCanvasWidgetPromptBridge } from "./widget-prompt-bridge.ts";
 import { installWidgetThemeObserver, postWidgetTheme } from "./widget-theme.ts";
 
 export { WIDGET_PROMPT_EVENT };
@@ -157,9 +157,6 @@ function isManagedCanvasDocumentPreview(preview: ToolPreview): boolean {
 // preview frames and the height is clamped, so widget code can only resize its
 // own frame within the same bounds the preview contract allows.
 const WIDGET_SIZE_MESSAGE_TYPE = "openclaw:widget-size";
-const WIDGET_PROMPT_OFFER_MESSAGE_TYPE = "openclaw:widget-prompt-offer";
-const WIDGET_PROMPT_MESSAGE_TYPE = "openclaw:widget-prompt";
-const WIDGET_PROMPT_HOST_READY_MESSAGE_TYPE = "openclaw:widget-prompt-host-ready";
 const CANVAS_LEASE_EXPIRED_MESSAGE_TYPE = "openclaw:canvas-lease-expired";
 const CANVAS_FRAME_RECOVERY_MAX_ATTEMPTS = 3;
 const WIDGET_FRAME_MIN_HEIGHT = 160;
@@ -198,96 +195,6 @@ function registerWidgetFrame(event: Event) {
   if (frame instanceof HTMLIFrameElement) {
     widgetFrameRegistry.add(frame);
   }
-}
-
-function handleWidgetPromptMessage(frame: HTMLIFrameElement, data: unknown) {
-  const payload = data as { type?: unknown; prompt?: unknown } | null;
-  if (!payload || payload.type !== WIDGET_PROMPT_MESSAGE_TYPE) {
-    return;
-  }
-  // Inline Canvas has a one-way port; ChatPane owns asynchronous submission.
-  void dispatchWidgetPrompt(frame, payload.prompt, frame.getAttribute("src") ?? "");
-}
-
-// Prompt authority is a MessagePort OFFERED by the trusted bridge script that
-// wraps every hosted widget document. The bridge posts its offer at document
-// parse time — before any widget code can run, steal the endpoint, or navigate
-// the frame — so buffering only the FIRST offer per content window and adopting
-// it once, at the frame's first load, binds the capability to the genuine
-// widget document. A document that navigates away closes its ports with it,
-// externally allowed embed URLs are never adopted, and later offers or loads
-// cannot re-arm a consumed frame.
-const pendingWidgetPromptPorts = new WeakMap<object, MessagePort>();
-const offeredWidgetPromptSources = new WeakSet<object>();
-const promptEligibleFrames = new WeakSet<HTMLIFrameElement>();
-const adoptedWidgetPromptFrames = new WeakSet<HTMLIFrameElement>();
-// Keyed by window, not a module boolean: non-isolated test workers swap the
-// global window between files while module state persists.
-const widgetPromptOfferListenerWindows = new WeakSet<Window>();
-
-function tryAdoptWidgetPromptPort(frame: HTMLIFrameElement) {
-  const source = frame.contentWindow as unknown as object | null;
-  if (adoptedWidgetPromptFrames.has(frame) || !promptEligibleFrames.has(frame) || !source) {
-    return;
-  }
-  const port = pendingWidgetPromptPorts.get(source);
-  if (!port) {
-    return;
-  }
-  adoptedWidgetPromptFrames.add(frame);
-  pendingWidgetPromptPorts.delete(source);
-  port.addEventListener("message", (message: MessageEvent) => {
-    handleWidgetPromptMessage(frame, message.data);
-  });
-  port.start();
-  // The wrapper waits for this trusted adoption signal before using the
-  // legacy inline channel, so board widgets can wait for their view ticket.
-  port.postMessage({ type: WIDGET_PROMPT_HOST_READY_MESSAGE_TYPE });
-}
-
-function installWidgetPromptOfferListener() {
-  if (typeof window === "undefined" || widgetPromptOfferListenerWindows.has(window)) {
-    return;
-  }
-  widgetPromptOfferListenerWindows.add(window);
-  window.addEventListener("message", (event: MessageEvent) => {
-    const data = event.data as { type?: unknown } | null;
-    if (!data || data.type !== WIDGET_PROMPT_OFFER_MESSAGE_TYPE) {
-      return;
-    }
-    const source = event.source;
-    const port = event.ports[0];
-    // Hosted widget documents run in an opaque origin; anything else is not a
-    // Canvas widget bridge.
-    if (!source || !port || event.origin !== "null") {
-      return;
-    }
-    if (offeredWidgetPromptSources.has(source as unknown as object)) {
-      // Only the first offer per content window can win; a replacement
-      // document's offer must never displace the genuine bridge's.
-      port.close();
-      return;
-    }
-    offeredWidgetPromptSources.add(source as unknown as object);
-    pendingWidgetPromptPorts.set(source as unknown as object, port);
-    // Posted-message and iframe-load tasks have no guaranteed cross-source
-    // ordering, so the offer may arrive after the eligible frame's load;
-    // adopt for it now instead of stranding the widget without a channel.
-    for (const frame of widgetFrameRegistry) {
-      if (frame.contentWindow === source) {
-        tryAdoptWidgetPromptPort(frame);
-        return;
-      }
-    }
-  });
-}
-
-function adoptWidgetPromptPort(frame: HTMLIFrameElement) {
-  // Eligibility is granted at the frame's first prompt-capable load and the
-  // adoption itself is one-shot; first-offer-wins buffering ensures the port
-  // adopted here always belongs to the frame's original bridge document.
-  promptEligibleFrames.add(frame);
-  tryAdoptWidgetPromptPort(frame);
 }
 
 function installWidgetSizeListener() {
@@ -341,16 +248,12 @@ function renderPreviewFrame(params: {
   const heightKey = params.frameKey || src;
   const reportedHeight = heightKey ? widgetFrameHeightsByKey.get(heightKey) : undefined;
   const height = reportedHeight ?? params.height;
-  if (params.promptCapable) {
-    installWidgetPromptOfferListener();
-  }
+  const adoptPrompt = params.promptCapable ? prepareCanvasWidgetPromptBridge() : undefined;
   const handleLoad = (event: Event) => {
     registerWidgetFrame(event);
     if (event.currentTarget instanceof HTMLIFrameElement) {
       const frame = event.currentTarget;
-      if (params.promptCapable) {
-        adoptWidgetPromptPort(frame);
-      }
+      adoptPrompt?.(frame);
       postWidgetTheme(frame);
     }
   };
@@ -753,6 +656,14 @@ function renderWidgetCard(
       <div class="chat-tool-card__preview-panel" data-side="canvas" ?data-bleed=${bleed}>
         ${renderWidgetContent(contentKind, preview, options)}
       </div>
+      ${contentKind === "canvas-html"
+        ? html`<p
+            class="chat-tool-card__preview-status callout"
+            data-widget-prompt-status
+            role="alert"
+            hidden
+          ></p>`
+        : nothing}
     </div>
   `;
 }

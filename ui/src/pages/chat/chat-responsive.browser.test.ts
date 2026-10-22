@@ -992,19 +992,35 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
     }
   });
 
-  it("gives inline MCP Apps the full assistant message column", async () => {
-    const page = await openBrowserPage(1366, 900);
-    try {
-      await page.setContent(`<!doctype html><html><head><style>${readUiCss()}</style></head><body>
+  it.each([
+    ["mcp-app", 375],
+    ["canvas-html", 375],
+    ["mcp-app", 1366],
+    ["canvas-html", 1366],
+  ] as const)(
+    "gives inline %s a stable assistant message column at %i px",
+    async (contentKind, viewportWidth) => {
+      const page = await openBrowserPage(viewportWidth, 900);
+      try {
+        await page.setContent(`<!doctype html><html><head><style>${readUiCss()}</style></head><body>
         <div class="chat-thread chat-thread--direct" role="log">
           <div class="chat-thread-inner">
             <div class="chat-group assistant chat-group--with-footer">
               <div class="chat-group-messages">
                 <div class="chat-bubble">
-                  <div class="chat-tool-card__preview" data-content-kind="mcp-app">
+                  <div class="chat-tool-card__preview" data-kind="canvas" data-content-kind="${contentKind}">
                     <div class="chat-tool-card__preview-panel">
-                      <mcp-app-view style="display:block;width:100%;height:320px"></mcp-app-view>
+                      ${
+                        contentKind === "canvas-html"
+                          ? '<iframe data-inline-frame class="chat-tool-card__preview-frame" title="Canvas preview" style="height:320px;min-height:320px"></iframe>'
+                          : '<mcp-app-view data-inline-frame style="display:block;width:100%;height:320px"></mcp-app-view>'
+                      }
                     </div>
+                    ${
+                      contentKind === "canvas-html"
+                        ? '<p class="chat-tool-card__preview-status callout" data-widget-prompt-status role="alert" hidden></p>'
+                        : ""
+                    }
                   </div>
                 </div>
               </div>
@@ -1013,20 +1029,46 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
         </div>
       </body></html>`);
 
-      await expectNoHorizontalOverflow(page);
-      const widths = await page.evaluate(() => ({
-        app: document.querySelector("mcp-app-view")!.getBoundingClientRect().width,
-        bubble: document.querySelector<HTMLElement>(".chat-bubble")!.getBoundingClientRect().width,
-        messages: document
-          .querySelector<HTMLElement>(".chat-group-messages")!
-          .getBoundingClientRect().width,
-      }));
-      expect(widths.bubble).toBeCloseTo(widths.messages, 0);
-      expect(widths.app).toBeGreaterThan(600);
-    } finally {
-      await closeBrowserPage(page);
-    }
-  });
+        const readWidths = () =>
+          page.evaluate(() => ({
+            frame: document.querySelector("[data-inline-frame]")!.getBoundingClientRect().width,
+            bubble: document.querySelector<HTMLElement>(".chat-bubble")!.getBoundingClientRect()
+              .width,
+            messages: document
+              .querySelector<HTMLElement>(".chat-group-messages")!
+              .getBoundingClientRect().width,
+          }));
+        await expectNoHorizontalOverflow(page);
+        const widths = await readWidths();
+        expect(widths.bubble).toBeCloseTo(widths.messages, 0);
+        expect(widths.frame).toBeGreaterThan(0);
+        expect(widths.frame).toBeLessThanOrEqual(widths.messages);
+        if (viewportWidth === 1366) {
+          expect(widths.frame).toBeGreaterThan(600);
+        }
+        if (contentKind === "canvas-html") {
+          for (const hidden of [false, true]) {
+            await page.evaluate((hideStatus) => {
+              const status = document.querySelector<HTMLElement>("[data-widget-prompt-status]")!;
+              status.textContent = hideStatus
+                ? ""
+                : "The message could not be sent. Try again after the conversation reconnects. ".repeat(
+                    4,
+                  );
+              status.hidden = hideStatus;
+            }, hidden);
+            await expectNoHorizontalOverflow(page);
+            const nextWidths = await readWidths();
+            expect(nextWidths.bubble).toBeCloseTo(nextWidths.messages, 0);
+            expect(nextWidths.bubble).toBeCloseTo(widths.bubble, 0);
+            expect(nextWidths.frame).toBeCloseTo(widths.frame, 0);
+          }
+        }
+      } finally {
+        await closeBrowserPage(page);
+      }
+    },
+  );
 
   it("keeps wrapped message footers inside measured virtual rows", async () => {
     const page = await openBrowserPage(1366, 900);

@@ -117,9 +117,17 @@ export function buildWidgetDocument(
     "const c=new MessageChannel();" +
     "const promptPost=c.port1.postMessage.bind(c.port1);" +
     "const b=new MessageChannel();const bridgePost=b.port1.postMessage.bind(b.port1);" +
-    "const promptWaiting=[];let inlinePromptReady=false;" +
-    'c.port1.addEventListener("message",event=>{if(event.data?.type!=="openclaw:widget-prompt-host-ready"||inlinePromptReady)return;' +
-    "inlinePromptReady=true;while(promptWaiting.length){const entry=shift.call(promptWaiting);if(entry)entry.inline();}});c.port1.start();" +
+    // Reserve before host readiness too: authored code must not grow an unbounded
+    // queue while the frame loads or its conversation is waiting for admission.
+    "const promptWaiting=[];const promptPending=new Map();let promptSequence=0;let inlinePromptReady=false;" +
+    "const promptGet=promptPending.get.bind(promptPending);const promptSet=promptPending.set.bind(promptPending);" +
+    "const promptDelete=promptPending.delete.bind(promptPending);" +
+    'const promptSize=Object.getOwnPropertyDescriptor(Map.prototype,"size").get.bind(promptPending);' +
+    'c.port1.addEventListener("message",event=>{const data=event.data;' +
+    'if(data?.type==="openclaw:widget-prompt-host-ready"&&!inlinePromptReady){' +
+    "inlinePromptReady=true;while(promptWaiting.length){const entry=shift.call(promptWaiting);if(entry)entry.inline();}return;}" +
+    'if(data?.type!=="openclaw:widget-prompt-response"||typeof data.id!=="string"||typeof data.accepted!=="boolean")return;' +
+    "const entry=promptGet(data.id);if(entry)entry.resolve(data.accepted);});c.port1.start();" +
     "let act=null;" +
     "try{const ua=navigator.userActivation;" +
     'const d=ua&&Object.getOwnPropertyDescriptor(Object.getPrototypeOf(ua),"isActive");' +
@@ -145,16 +153,20 @@ export function buildWidgetDocument(
     "else push.call(waiting,{send,reject});});" +
     "const sendPrompt=text=>{if(!act||act()!==true)return P.resolve(false);const value=stringify(text);" +
     'if(ticket)return request("prompt.send",{text:value});return new P((resolve,reject)=>{' +
-    'const send=()=>{const result=request("prompt.send",{text:value});then.call(result,resolve,reject);};' +
-    'const inline=()=>{promptPost({type:"openclaw:widget-prompt",prompt:value});resolve(true);};' +
-    'if(inlinePromptReady)inline();else if(hostInitExpired)reject(new ErrorCtor("widget prompt host unavailable"));' +
-    "else push.call(promptWaiting,{send,inline,reject});});};" +
+    'if(promptSize()>=10){resolve(false);return;}const id="prompt-"+(++promptSequence);' +
+    "const entry={resolve:value=>{if(promptDelete(id))resolve(value);},reject:error=>{if(promptDelete(id))reject(error);}};promptSet(id,entry);" +
+    'const send=()=>{const result=request("prompt.send",{text:value});then.call(result,entry.resolve,entry.reject);};' +
+    'const inline=()=>{try{promptPost({type:"openclaw:widget-prompt",id,prompt:value});}catch(error){entry.reject(error);}};' +
+    'if(inlinePromptReady)inline();else if(hostInitExpired)entry.reject(new ErrorCtor("widget prompt host unavailable"));' +
+    "else push.call(promptWaiting,{send,inline,reject:entry.reject});});};" +
     "const api=freeze({" +
     'prompt:freeze({send:sendPrompt}),state:freeze({emit:payload=>request("state.emit",{payload})}),' +
     'data:freeze({read:(bindingId,params)=>request("data.read",{bindingId:stringify(bindingId),params})}),' +
     'cron:freeze({trigger:jobId=>request("cron.trigger",{jobId:stringify(jobId)})})});' +
     'define(window,"openclaw",{value:api,writable:false,configurable:false});' +
-    "window.sendPrompt=text=>{void sendPrompt(text);};" +
+    // The shipped helper remains fire-and-forget; the host displays rejection.
+    // Consume transport failure so existing onclick users never leak a rejection.
+    "window.sendPrompt=text=>{then.call(sendPrompt(text),()=>{},()=>{});};" +
     'define(window,"sendPrompt",{value:window.sendPrompt,writable:false,configurable:false});' +
     'post({type:"openclaw:widget-bridge-ready"},"*");})();</script>';
   /*

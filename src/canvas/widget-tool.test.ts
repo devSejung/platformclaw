@@ -14,8 +14,6 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SandboxFsBridge } from "../agents/sandbox/fs-bridge.types.js";
-import { createSandboxFsBridgeFromResolver } from "../agents/test-helpers/host-sandbox-fs-bridge.js";
 import type { InProcessGatewayCaller } from "../agents/tools/in-process-gateway.js";
 import { createTestBoardStore } from "../boards/board-store.test-support.js";
 import { createBoardHandlers } from "../gateway/server-methods/board.js";
@@ -68,7 +66,6 @@ async function executeWidget(params: {
   capabilities?: { netOrigins?: string[]; tools?: string[] };
   widgetPath?: string;
   workspaceDir?: string;
-  sandbox?: { root: string; bridge: SandboxFsBridge };
 }) {
   const tool = createShowWidgetTool({
     stateDir: params.stateDir,
@@ -77,7 +74,6 @@ async function executeWidget(params: {
     agentSessionKey: params.agentSessionKey,
     callGateway: params.callGateway,
     workspaceDir: params.workspaceDir,
-    sandbox: params.sandbox,
   });
   const result = await tool.execute("widget-call", {
     title: params.title ?? "Widget title",
@@ -187,54 +183,6 @@ describe("show_widget", () => {
     expect(inlineHtml).toContain(`src="data:image/png;base64,${png.toString("base64")}"`);
     expect(pinnedHtml).toContain(`src="data:image/png;base64,${png.toString("base64")}"`);
     expect(inlineHtml).not.toContain('src="images/pixel.png"');
-  });
-
-  it("uses the sandbox bridge and the HTML source directory for assigned-VM paths", async () => {
-    const stateDir = await createStateDir();
-    const workspaceDir = await createStateDir();
-    const htmlDir = path.join(workspaceDir, "nested");
-    await mkdir(htmlDir, { recursive: true });
-    const png = PIXEL_PNG;
-    const widgetCode = '<img src="pixel.png">';
-    await writeFile(path.join(htmlDir, "page.html"), widgetCode);
-    await writeFile(path.join(htmlDir, "pixel.png"), png);
-    const hostBridge = createSandboxFsBridgeFromResolver((filePath, cwd) => {
-      const remoteCwd = cwd?.startsWith("/workspace") ? cwd : "/workspace";
-      const containerPath = path.posix.resolve(remoteCwd, filePath);
-      if (containerPath !== "/workspace" && !containerPath.startsWith("/workspace/")) {
-        throw new Error("escapes assigned VM workspace");
-      }
-      const relativePath = path.posix.relative("/workspace", containerPath);
-      return {
-        hostPath: path.join(workspaceDir, ...relativePath.split("/").filter(Boolean)),
-        relativePath,
-        containerPath,
-      };
-    });
-    const readFileSpy = vi.fn((params: Parameters<typeof hostBridge.readFile>[0]) =>
-      hostBridge.readFile(params),
-    );
-    const bridge = { ...hostBridge, readFile: readFileSpy };
-
-    await executeWidget({
-      stateDir,
-      widgetPath: "/workspace/nested/page.html",
-      widgetCode,
-      sandbox: { root: "/workspace", bridge },
-    });
-
-    expect(readFileSpy).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        filePath: "/workspace/nested/page.html",
-        cwd: "/workspace",
-        maxBytes: 6 * 1024 * 1024,
-      }),
-    );
-    expect(readFileSpy).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ filePath: "pixel.png", cwd: "/workspace/nested" }),
-    );
   });
 
   it("rejects unresolved, unsupported, stale, and unsafe workspace image inputs", async () => {
@@ -477,13 +425,12 @@ describe("show_widget", () => {
       '<SvG viewBox="0 0 10 10"><circle r="4" /></SvG>',
     );
 
-    expect(Buffer.byteLength(html)).toBe(13081);
+    expect(Buffer.byteLength(html)).toBe(13900);
     expect(createHash("sha256").update(html).digest("hex")).toBe(
-      "9da21f70be9855b20c865dc649c2607dd6feed7df30f5204b327b031866dcb1b",
+      "b45a29f44c48132e381041e7e9787fa09a8426ce5a468e53f9f861b6690bd81f",
     );
     expect(html).toContain("openclaw:widget-host-init-ack");
     expect(html).toContain("else push.call(waiting,{send,reject})");
-    expect(html).toContain("else push.call(promptWaiting,{send,inline,reject})");
     expect(html).toContain("openclaw:widget-prompt-host-ready");
     expect(html).toContain("widget host capabilities unavailable");
     expect(html).toContain("widget prompt host unavailable");

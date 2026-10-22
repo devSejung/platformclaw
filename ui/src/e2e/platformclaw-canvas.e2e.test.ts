@@ -4,11 +4,12 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { PlatformClawBrowserCanvasRelay } from "../../../packages/platformclaw-control-plane/src/browser-canvas-http.js";
 import { PlatformClawBrowserMediaRelay } from "../../../packages/platformclaw-control-plane/src/browser-media-http.js";
 import { filterToolsByPolicy } from "../../../src/agents/agent-tools.policy.js";
 import { createOpenClawTools } from "../../../src/agents/openclaw-tools.js";
+import { createSandboxFsBridge } from "../../../src/agents/sandbox/fs-bridge.js";
 import { createSandboxFsBridgeFromResolver } from "../../../src/agents/test-helpers/host-sandbox-fs-bridge.js";
 import { expandToolGroups } from "../../../src/agents/tool-policy-shared.js";
 import { resolveCanvasNodeCapability } from "../../../src/canvas/constants.js";
@@ -26,12 +27,18 @@ import {
   startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
+import {
+  canvasPromptProbeMarkup,
+  exerciseCanvasPromptDelivery,
+} from "./platformclaw-canvas.test-support.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
 const allowMissingChromium = process.env.OPENCLAW_UI_E2E_ALLOW_MISSING_CHROMIUM === "1";
 const describeControlUiE2e = chromiumAvailable || !allowMissingChromium ? describe : describe.skip;
-const proofDir = path.resolve(process.cwd(), ".artifacts/control-ui-e2e/platformclaw-canvas");
+const proofDir = path.resolve(
+  process.env.OPENCLAW_UI_E2E_ARTIFACT_DIR ?? ".artifacts/control-ui-e2e/platformclaw-canvas",
+);
 const agentId = "assigned-personal";
 const sessionKey = `agent:${agentId}:main`;
 const gatewayToken = "platformclaw-canvas-e2e-token";
@@ -90,10 +97,25 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
     "renders show_widget through the BFF on $label",
     async ({ label, target, locale }) => {
       const stateDir = await mkdtemp(path.join(tmpdir(), "platformclaw-canvas-e2e-"));
+      onTestFinished(async () => {
+        await rm(stateDir, { recursive: true, force: true });
+      });
       await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
         const generatedWorkspace = path.join(stateDir, "workspace");
         const generatedDocumentSource = path.join(generatedWorkspace, generatedDocumentName);
         await mkdir(generatedWorkspace, { recursive: true });
+        const basicBridge = createSandboxFsBridge({
+          sandbox: {
+            workspaceDir: generatedWorkspace,
+            agentWorkspaceDir: generatedWorkspace,
+            workspaceAccess: "rw",
+            containerName: "canvas-e2e-unused",
+            containerWorkdir: "/workspace",
+            docker: {},
+          },
+        });
+        // Local mapping covers the assigned-VM bridge contract. A separate
+        // real SSH fixture proves remote execution without an operator VM.
         const assignedVmBridge = createSandboxFsBridgeFromResolver((filePath, cwd) => {
           const remoteCwd = cwd?.startsWith("/workspace") ? cwd : "/workspace";
           const containerPath = path.posix.resolve(remoteCwd, filePath);
@@ -125,9 +147,8 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             sessionId: `${target}-session`,
             wrapBeforeToolCallHook: false,
             workspaceDir: generatedWorkspace,
-            ...(target === "assigned_vm"
-              ? { sandboxRoot: "/workspace", sandboxFsBridge: assignedVmBridge }
-              : {}),
+            sandboxRoot: target === "assigned_vm" ? "/workspace" : generatedWorkspace,
+            sandboxFsBridge: target === "assigned_vm" ? assignedVmBridge : basicBridge,
           }),
           { deny: expandToolGroups(config.tools?.deny) },
         );
@@ -150,6 +171,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         ).rejects.toThrow("widget_code required");
         const widgetCode = [
           `<main data-proof-target="${target}"><h1>${label}</h1><p>Gateway-owned widget</p>`,
+          canvasPromptProbeMarkup(),
           '<img data-proof-relative-image src="pixel.png" alt="Workspace image">',
           `<img data-proof-image src="data:image/png;base64,${inlineImageBase64}" alt="Inline image">`,
           '<img data-proof-blob-image alt="Blob image">',
@@ -170,10 +192,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         const toolResult = await showWidget.execute(`show-widget-${target}`, {
           title: `${label} widget`,
           widget_code: await readFile(generatedDocumentSource, "utf8"),
-          widget_path:
-            target === "assigned_vm"
-              ? `/workspace/${generatedDocumentName}`
-              : generatedDocumentSource,
+          widget_path: `/workspace/${generatedDocumentName}`,
         });
         const details = toolResult.details as {
           view?: { url?: string };
@@ -312,7 +331,19 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         const surface = relay.issueSurface({ binding: { agentId } });
         canvasNow = surface.expiresAtMs + 1;
         const refreshedSurface = relay.issueSurface({ binding: { agentId } });
-        const context = await browser.newContext({ locale, acceptDownloads: true });
+        const context = await browser.newContext({
+          locale,
+          acceptDownloads: true,
+          viewport: { width: 1280, height: 900 },
+          ...(process.env.OPENCLAW_CAPTURE_UI_PROOF === "1"
+            ? {
+                recordVideo: {
+                  dir: path.join(proofDir, target),
+                  size: { width: 1280, height: 900 },
+                },
+              }
+            : {}),
+        });
         try {
           await context.addCookies([
             { name: "platformclaw_session", value: "browser-token", url: bffOrigin },
@@ -331,11 +362,20 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             assistantAgentId: agentId,
             defaultAgentId: agentId,
             deferredMethods: ["plugin.surface.refresh"],
-            featureMethods: ["chat.metadata", "chat.startup", "plugin.surface.refresh"],
+            featureMethods: [
+              "chat.metadata",
+              "chat.startup",
+              "chat.send",
+              "sessions.describe",
+              "sessions.list",
+              "plugin.surface.refresh",
+            ],
             historyMessages,
             methodResponses: { "plugin.surface.refresh": refreshedSurface },
             pluginSurfaceUrls: surface.pluginSurfaceUrls,
             sessionKey,
+            // Retry reconciles against the idle-run metadata real history includes.
+            sessionInfo: { key: sessionKey, hasActiveRun: false, activeRunIds: [], status: "done" },
           });
           await page.goto(`${controlUi.baseUrl}chat`);
           await expect
@@ -502,6 +542,14 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
               content: uploadedBytes.toString("base64"),
             },
           ]);
+          await exerciseCanvasPromptDelivery({
+            page,
+            gateway: gatewayMock,
+            target,
+            sessionKey,
+            historyMessages,
+            proofDir,
+          });
           await page.screenshot({
             path: path.join(proofDir, `${target}.png`),
             fullPage: true,
@@ -511,7 +559,6 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           await Promise.all([close(bff), close(gateway)]);
         }
       });
-      await rm(stateDir, { recursive: true, force: true });
     },
   );
 });
