@@ -7621,41 +7621,135 @@ describe("handleSendChat", () => {
     ).toHaveProperty("expectedLeafEntryId", null);
   });
 
-  it("waits for terminal history reconciliation before sending a follow-up", async () => {
-    const history = createDeferred<unknown>();
+  it.each([false, true])(
+    "waits for terminal history reconciliation after a failed read: %s",
+    async (failedRead) => {
+      const history = createDeferred<unknown>();
+      let failHistory = failedRead;
+      const host = makeHost({
+        requestHandlers: {
+          "chat.history": () => {
+            if (failHistory) {
+              throw new Error("history temporarily unavailable");
+            }
+            return history.promise;
+          },
+          "chat.send": (params: unknown) => {
+            const payload = requireRecord(params, "reconciled follow-up payload");
+            return { runId: payload.idempotencyKey, status: "started" };
+          },
+        },
+        chatDisplayedLeafEntryId: failedRead ? null : "leaf-before-terminal",
+        chatMessage: "immediate follow-up",
+      });
+      if (failedRead) {
+        await loadChatHistory(host as unknown as Parameters<typeof loadChatHistory>[0]);
+        expect(host.chatLoading).toBe(false);
+        failHistory = false;
+      }
+      const historyLoad = failedRead
+        ? undefined
+        : loadChatHistory(host as unknown as Parameters<typeof loadChatHistory>[0]);
+
+      const sending = handleSendChat(host);
+      await Promise.resolve();
+      const sendsBeforeHistory = host.request.mock.calls.filter(
+        ([method]) => method === "chat.send",
+      ).length;
+      history.resolve({
+        messages: [],
+        sessionInfo: {
+          activeLeafEntryId: "leaf-after-terminal",
+          key: "agent:main",
+          sessionId: "session-main",
+        },
+      });
+      await Promise.all([historyLoad, sending]);
+
+      expect(sendsBeforeHistory).toBe(0);
+      expect(
+        findRequestPayload(
+          host.request as unknown as MockCallSource,
+          "chat.send",
+          "follow-up send",
+        ),
+      ).toMatchObject({ expectedLeafEntryId: "leaf-after-terminal" });
+    },
+  );
+
+  it("preserves the composer when a failed history refresh still cannot recover", async () => {
+    const attachment = {
+      id: "draft-image",
+      mimeType: "image/png",
+      dataUrl: "data:image/png;base64,cG5n",
+    };
     const host = makeHost({
       requestHandlers: {
-        "chat.history": () => history.promise,
-        "chat.send": (params: unknown) => {
-          const payload = requireRecord(params, "reconciled follow-up payload");
-          return { runId: payload.idempotencyKey, status: "started" };
+        "chat.history": () => {
+          throw new Error("history temporarily unavailable");
         },
       },
-      chatDisplayedLeafEntryId: "leaf-before-terminal",
-      chatMessage: "immediate follow-up",
+      chatDisplayedLeafEntryId: null,
+      chatMessage: "keep this draft",
+      chatAttachments: [attachment],
     });
-    const historyLoad = loadChatHistory(host as unknown as Parameters<typeof loadChatHistory>[0]);
+    await loadChatHistory(host as unknown as Parameters<typeof loadChatHistory>[0]);
 
-    const sending = handleSendChat(host);
-    await Promise.resolve();
-    const sendsBeforeHistory = host.request.mock.calls.filter(
-      ([method]) => method === "chat.send",
-    ).length;
-    history.resolve({
-      messages: [],
-      sessionInfo: {
-        activeLeafEntryId: "leaf-after-terminal",
-        key: "agent:main",
-        sessionId: "session-main",
-      },
-    });
-    await Promise.all([historyLoad, sending]);
+    await handleSendChat(host);
 
-    expect(sendsBeforeHistory).toBe(0);
-    expect(
-      findRequestPayload(host.request as unknown as MockCallSource, "chat.send", "follow-up send"),
-    ).toMatchObject({ expectedLeafEntryId: "leaf-after-terminal" });
+    expect(host.request.mock.calls.filter(([method]) => method === "chat.history")).toHaveLength(2);
+    expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
+    expect(host.chatMessage).toBe("keep this draft");
+    expect(host.chatAttachments).toEqual([attachment]);
+    expect(host.chatQueue).toEqual([]);
+    expect(host.chatError).toContain("history temporarily unavailable");
   });
+
+  it.each(["session", "connection", "agent", "branch"])(
+    "does not send across a %s change while reconciling history",
+    async (change) => {
+      const history = createDeferred<unknown>();
+      const host = makeHost({
+        requestHandlers: { "chat.history": () => history.promise },
+        sessionKey: "global",
+        assistantAgentId: "main",
+        chatMessage: "stay with this conversation",
+        chatDisplayedLeafEntryId: "old-leaf",
+        connectionEpoch: 0,
+      });
+      const state = host as unknown as Parameters<typeof loadChatHistory>[0];
+      state.currentSessionId = "original-session";
+      const loading = loadChatHistory(state);
+      const sending = handleSendChat(host);
+      await Promise.resolve();
+
+      if (change === "session") {
+        host.sessionKey = "agent:main:other";
+      }
+      if (change === "connection") {
+        host.connectionEpoch = 1;
+      }
+      if (change === "agent") {
+        host.assistantAgentId = "other";
+      }
+      history.resolve({
+        messages: [],
+        sessionInfo: {
+          key: "global",
+          sessionId: change === "branch" ? "replacement-session" : "original-session",
+          activeLeafEntryId: "new-leaf",
+        },
+      });
+      await Promise.all([loading, sending]);
+
+      expect(host.request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
+      expect(host.chatMessage).toBe("stay with this conversation");
+      expect(host.chatQueue).toEqual([]);
+      if (change === "branch") {
+        expect(host.chatError).toBe("The thread switched branches — review and resend.");
+      }
+    },
+  );
 
   it("omits the active leaf when draining a restored outbox", async () => {
     const host = makeHost({
