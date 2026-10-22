@@ -1464,6 +1464,63 @@ describe("handleSendChat", () => {
     },
   );
 
+  it("admits an app's literal stop as queued text while preserving the human composer", async () => {
+    const attachment = registerChatAttachmentPayload({
+      attachment: { id: "human-draft-attachment", mimeType: "text/plain" },
+      dataUrl: "data:text/plain;base64,ZHJhZnQ=",
+      file: new File(["draft"], "draft.txt", { type: "text/plain" }),
+    });
+    const replyTarget = {
+      messageId: "human-reply",
+      sourceMessageId: "human-reply-source",
+      text: "human quote",
+    };
+    const sessionKey = "agent:main:app-source";
+    const host = makeHost({
+      requestHandlers: {},
+      sessionKey,
+      chatRunId: "active-run",
+      chatMessage: "unfinished human draft",
+      chatAttachments: [attachment],
+      chatReplyTarget: replyTarget,
+      settings: { chatFollowUpMode: "queue" },
+    });
+    const onAdmitted = vi.fn();
+
+    await handleSendChat(host, "stop", {
+      literalMessage: true,
+      ignoreReplyTarget: true,
+      onAdmitted,
+    });
+
+    expect(host.chatQueue).toHaveLength(1);
+    const queued = expectDefined(host.chatQueue[0], "queued literal app message");
+    expect(queued).toMatchObject({ text: "stop", sessionKey, sendState: "waiting-idle" });
+    expect(queued.attachments).toBeUndefined();
+    expect(queued.replyToId).toBeUndefined();
+    expect(loadChatComposerSnapshot(host, sessionKey)?.queue).toEqual([
+      expect.objectContaining({
+        id: queued.id,
+        sendRunId: queued.sendRunId,
+        agentId: "main",
+        sessionKey,
+        text: "stop",
+        sendState: "waiting-idle",
+      }),
+    ]);
+    expect(onAdmitted).toHaveBeenCalledExactlyOnceWith({
+      queueId: queued.id,
+      runId: queued.sendRunId,
+    });
+    expect(host.request).not.toHaveBeenCalled();
+    expect(host.sessionKey).toBe(sessionKey);
+    expect(host.chatRunId).toBe("active-run");
+    expect(host.chatMessage).toBe("unfinished human draft");
+    expect(host.chatReplyTarget).toBe(replyTarget);
+    expect(host.chatAttachments).toEqual([attachment]);
+    expect(getChatAttachmentDataUrl(attachment)).toBe("data:text/plain;base64,ZHJhZnQ=");
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  WIDGET_PROMPT_EVENT,
+  type WidgetPromptEventDetail,
+} from "../../components/mcp-app-security.ts";
 import type { BoardWidget } from "./types.ts";
 import { BoardWidgetSandboxHost } from "./widget-sandbox-host.ts";
 
@@ -74,6 +78,7 @@ async function sendBridgeRequest(port: MessagePort, request: Record<string, unkn
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   document.body.replaceChildren();
   vi.unstubAllGlobals();
@@ -368,10 +373,8 @@ describe("BoardWidgetSandboxHost", () => {
   it("scopes prompt rate limits to the board source and view generation", async () => {
     const sessionPrefix = `session-${crypto.randomUUID()}`;
     let activeFrame: HTMLIFrameElement | null = null;
-    Object.defineProperty(document, "activeElement", {
-      get: () => activeFrame,
-      configurable: true,
-    });
+    // Restore focus even after an assertion fails: UI files share this document.
+    vi.spyOn(document, "activeElement", "get").mockImplementation(() => activeFrame);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("<!doctype html><button>prompt</button>")),
@@ -379,6 +382,9 @@ describe("BoardWidgetSandboxHost", () => {
     const setup = async (sessionId: string, viewGeneration: string) => {
       const frame = document.createElement("iframe");
       frame.checkVisibility = () => true;
+      frame.addEventListener(WIDGET_PROMPT_EVENT, (event) => {
+        (event as CustomEvent<WidgetPromptEventDetail>).detail.respondWith(Promise.resolve(true));
+      });
       document.body.append(frame);
       const loaded = vi.fn();
       const host = new BoardWidgetSandboxHost({
@@ -427,6 +433,15 @@ describe("BoardWidgetSandboxHost", () => {
         }),
       ).resolves.toMatchObject({ ok: true });
     }
+    await expect(
+      sendBridgeRequest(first.port, {
+        type: "openclaw:widget-bridge-request",
+        id: "rate-limited",
+        method: "prompt.send",
+        params: { text: "Over the limit" },
+        ticket: "ticket",
+      }),
+    ).resolves.toMatchObject({ ok: false });
 
     const otherSession = await setup(`${sessionPrefix}-b`, "a".repeat(32));
     activeFrame = otherSession.frame;
@@ -451,7 +466,6 @@ describe("BoardWidgetSandboxHost", () => {
         ticket: "ticket",
       }),
     ).resolves.toMatchObject({ ok: true });
-    delete (document as unknown as Record<string, unknown>).activeElement;
   });
 
   it("keeps the adopted ticket valid until the wrapper acknowledges a renewal", async () => {

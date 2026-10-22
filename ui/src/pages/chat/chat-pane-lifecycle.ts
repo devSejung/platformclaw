@@ -17,7 +17,7 @@ import {
 import { MODAL_DIALOG_SELECTOR, resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
 import { resolveChatPaneObserverRunId } from "../../lib/observer-digest.ts";
 import { sessionPullRequestsForGateway } from "../../lib/session-pull-requests.ts";
-import { parseCatalogSessionKey } from "../../lib/sessions/catalog-key.ts";
+import { parseCatalogSessionKey, type CatalogSessionKey } from "../../lib/sessions/catalog-key.ts";
 import { resolveSessionKey } from "../../lib/sessions/index.ts";
 import { areUiSessionKeysEquivalent } from "../../lib/sessions/session-key.ts";
 import { ensureBoardViewElement, ensureWorkboardCardChipElement } from "./board-session-surface.ts";
@@ -33,6 +33,7 @@ import {
 import { setChatError } from "./chat-send-queue-state.ts";
 import { applySelectedChatAgent } from "./chat-session.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.ts";
+import type { ChatPageHost } from "./chat-state-host.ts";
 import { createPageState } from "./chat-state-page.ts";
 import { invalidateChatMetadataCache, refreshPageChat } from "./chat-state-refresh.ts";
 import { selectedChatSessionRow } from "./chat-state-route.ts";
@@ -47,11 +48,56 @@ import { exportChatMarkdown } from "./export.ts";
 import { admitInitialTurnHandoff, admitInitialUserMessageHandoff } from "./initial-turn-handoff.ts";
 import { readChatSessionSnapshot } from "./session-message-cache.ts";
 import { supportsSessionWorkspace } from "./session-workspace-access.ts";
+import { admitWidgetPrompt } from "./widget-prompt.ts";
 
 const COMPOSER_PREFILL_ATTENTION_DURATION_MS = 1_200;
 const COMPOSER_PREFILL_ATTENTION_CLASS = "agent-chat__input--prefill-attention";
 
 export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
+  // The rendered composer owns access policy; widgets reuse its prepared send
+  // callback instead of bypassing read-only, archived, and setup restrictions.
+  protected widgetPromptSend?: (text: string, sessionKey?: string) => Promise<boolean>;
+
+  protected prepareChatSubmit(
+    state: ChatPageHost,
+    catalogKey: CatalogSessionKey | null,
+    suggestionViewer: boolean,
+    canSend: boolean,
+  ): () => void {
+    const sessionKey = state.sessionKey;
+    const client = state.client;
+    this.widgetPromptSend = (text, sourceSessionKey) => {
+      if (
+        !canSend ||
+        catalogKey ||
+        suggestionViewer ||
+        this.state !== state ||
+        state.sessionKey !== sessionKey ||
+        state.client !== client ||
+        (sourceSessionKey && !areUiSessionKeysEquivalent(sourceSessionKey, sessionKey))
+      ) {
+        return Promise.resolve(false);
+      }
+      // Show queue and Retry locally; sending must not change a shared board's dock preference.
+      const board = this.resolveBoardView();
+      if (board.face === "dashboard" && board.dock === "hidden") {
+        this.handleBoardCommand({
+          sessionKey,
+          command: { kind: "set_chat_dock", dock: board.reopenDock },
+        });
+      }
+      return admitWidgetPrompt(state, text);
+    };
+    return () => {
+      if (catalogKey) {
+        void this.continueCatalogSession(catalogKey);
+      } else if (suggestionViewer) {
+        void this.addCurrentSessionSuggestion();
+      } else {
+        void state.handleSendChat();
+      }
+    };
+  }
   private clearComposerPrefillAttention(): void {
     if (this.composerPrefillAttentionTimer !== null) {
       window.clearTimeout(this.composerPrefillAttentionTimer);
@@ -349,8 +395,11 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
     const handleWidgetPrompt = (event: Event) => {
       const detail = (event as CustomEvent<Partial<WidgetPromptEventDetail>>).detail;
       const text = typeof detail?.text === "string" ? detail.text.trim() : "";
-      if (text) {
-        void this.state?.handleSendChat(text);
+      if (text && typeof detail.respondWith === "function") {
+        event.stopPropagation();
+        detail.respondWith(
+          this.widgetPromptSend?.(text, detail.sessionKey) ?? Promise.resolve(false),
+        );
       }
     };
     this.addEventListener(WIDGET_PROMPT_EVENT, handleWidgetPrompt);
@@ -518,6 +567,7 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
   }
 
   override disconnectedCallback() {
+    this.widgetPromptSend = undefined;
     this.clearComposerPrefillAttention();
     this.boardProviderLifecycleConnected = false;
     this.releaseBoardProviderLease();

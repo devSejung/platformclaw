@@ -458,6 +458,8 @@ export const en: TranslationMap = {
   },
   mcpApp: {
     title: "MCP App",
+    messageRejected:
+      "Message not sent. Open this thread’s chat, check that you can send messages, and try again.",
     unavailable: "MCP App unavailable: {error}",
     errors: {
       gatewayUnavailable: "MCP App gateway unavailable",
@@ -3964,6 +3966,8 @@ export const en: TranslationMap = {
     detailAddNote: "Add note",
     dashboardTitle: "Dashboard",
     dashboardEmpty: "No dashboard yet — the working agent can pin widgets.",
+    dashboardMessagesHint: "To send messages from apps or widgets, open the full dashboard.",
+    dashboardOpenFull: "Open full dashboard",
     openSession: "Open thread",
     openLinkedSession: "Open linked thread",
     defaultAgent: "Default agent",

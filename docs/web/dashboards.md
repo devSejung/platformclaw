@@ -102,6 +102,16 @@ board with fresh sessions; by default they are display-only, and granting the
 widget its declared server tools makes it fully interactive — with the same
 one-tap, revision-bound approval as everything else.
 
+App messages in chat and the session dashboard enter the thread's normal
+message queue. If chat is hidden, sending a message reveals it so you can see
+the queued message and any delivery error or **Retry** action.
+
+The dashboard embedded in a Workboard card has no chat queue. To send messages
+from its apps or widgets, choose **Open full dashboard** in the card's dashboard
+section. This opens the same thread and selected tab with chat support, even when
+its preferred face is Chat. App tools and approved widget actions still work
+inside the card.
+
 ## Good to know
 
 - Resetting a thread that has a board asks for confirmation and keeps the

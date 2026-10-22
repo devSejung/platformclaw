@@ -394,14 +394,14 @@ class WorkboardPage extends OpenClawLightDomElement {
         sessions: context.sessions.state.result?.sessions ?? [],
         scopeAgentId: context.agentSelection.state.scopeId,
         showAgentFilter: context.agentSelection.state.scopeId === null,
-        onOpenSession: (sessionKey) => {
-          const face = resolveSessionPreferredFaceForKey(context, sessionKey);
+        onOpenSession: (sessionKey, options) => {
+          const face = options?.face ?? resolveSessionPreferredFaceForKey(context, sessionKey);
           context.navigate(face, {
             ...sessionNavigationTarget({
               context,
               face,
               sessionKey,
-              preferenceDerivedFace: true,
+              preferenceDerivedFace: options?.face === undefined,
             }).options,
             hash: "",
           });

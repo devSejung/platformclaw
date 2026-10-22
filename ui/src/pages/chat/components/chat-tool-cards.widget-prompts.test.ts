@@ -70,7 +70,9 @@ function emulateInteractableFrame(frame: HTMLIFrameElement) {
 function collectPromptEvents(container: HTMLElement): string[] {
   const received: string[] = [];
   container.addEventListener(WIDGET_PROMPT_EVENT, (event) => {
-    received.push((event as CustomEvent<WidgetPromptEventDetail>).detail.text);
+    const detail = (event as CustomEvent<WidgetPromptEventDetail>).detail;
+    received.push(detail.text);
+    detail.respondWith(Promise.resolve(true));
   });
   return received;
 }

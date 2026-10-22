@@ -287,6 +287,7 @@ import { WIDGET_PROMPT_EVENT } from "/src/components/mcp-app-security.ts";
 window.mcpConformanceGatewayBrowserClient = GatewayBrowserClient;
 document.addEventListener(WIDGET_PROMPT_EVENT, (event) => {
   window.mcpConformancePrompt = event.detail.text;
+  event.detail.respondWith(Promise.resolve(true));
 });
 window.mcpConformanceUnmount = async () => {
   const mount = document.getElementById("mount");

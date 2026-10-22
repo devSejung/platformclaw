@@ -1493,6 +1493,12 @@ jobs:
 
       - name: Install Korean browser proof fonts
         run: |
+          # Azure's mirror can keep a slow transfer alive for most of the job.
+          # Use Ubuntu's signed archive for both runner mirror URIs and direct sources.
+          sudo find /etc/apt -maxdepth 2 -type f \( -name '*.list' -o -name '*.sources' \) \
+            -exec sed -i -E \
+              -e 's#mirror\+file:/etc/apt/apt-mirrors\.txt([[:space:]]|$)#https://archive.ubuntu.com/ubuntu/\1#g' \
+              -e 's#https?://azure\.archive\.ubuntu\.com/ubuntu/?([[:space:]]|$)#https://archive.ubuntu.com/ubuntu/\1#g' {} +
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends fonts-noto-cjk
           fc-match -f '%{family}\n' 'sans-serif:lang=ko'

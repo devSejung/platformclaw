@@ -10,6 +10,7 @@ type BoardMcpAppContentOptions = {
   appView?: BoardWidgetAppViewState;
   busy: boolean;
   loading: boolean;
+  messageEnabled: boolean;
   nearVisible: boolean;
   rectHeight: number;
   sessionKey: string;
@@ -68,6 +69,7 @@ export function renderBoardMcpAppContent(options: BoardMcpAppContentOptions): Te
               class="board-widget__mcp-app-view"
               .sessionKey=${options.sessionKey}
               .viewId=${ready.viewId}
+              .messageEnabled=${options.messageEnabled}
               .height=${height}
               .fixedHeight=${true}
               .title=${widget.title || widget.name}

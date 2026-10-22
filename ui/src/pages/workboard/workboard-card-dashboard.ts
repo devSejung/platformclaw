@@ -2,6 +2,7 @@ import { html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { ensureCustomElementDefined } from "../../app/lazy-custom-element.ts";
+import { loadSettings, patchSettings } from "../../app/settings.ts";
 import { icons } from "../../components/icons.ts";
 import { t } from "../../i18n/index.ts";
 import {
@@ -13,6 +14,7 @@ import {
   type BoardProviderLease,
   type BoardViewCallbacks,
 } from "../../lib/board/provider.ts";
+import { updateBoardSessionView } from "../../lib/board/settings.ts";
 import type { BoardViewSnapshot } from "../../lib/board/view-types.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 
@@ -29,6 +31,7 @@ class WorkboardCardDashboard extends OpenClawLightDomElement {
   @property({ attribute: false }) connected = false;
   @property({ attribute: false }) canMutate = false;
   @property({ attribute: false }) canGrant = false;
+  @property({ attribute: false }) onOpenDashboard?: (sessionKey: string) => void;
 
   @state() private provider: BoardProvider | null = null;
   @state() private expanded = false;
@@ -148,6 +151,29 @@ class WorkboardCardDashboard extends OpenClawLightDomElement {
         <div class="workboard-card-dashboard__body" ?hidden=${!this.expanded}>
           ${hasBoard && provider && boardSnapshot && callbacks
             ? html`
+                <p class="workboard-card-dashboard__message-hint">
+                  ${t("workboard.dashboardMessagesHint")}
+                  ${this.onOpenDashboard
+                    ? html`<button
+                        class="btn btn--small"
+                        type="button"
+                        @click=${() => {
+                          // Keep the app the operator was using visible in the full dashboard.
+                          patchSettings({
+                            boardSessionViews: updateBoardSessionView(
+                              loadSettings().boardSessionViews,
+                              boardSnapshot.sessionKey,
+                              { activeTabId: this.activeTabId },
+                            ),
+                          });
+                          this.onOpenDashboard?.(this.sessionKey);
+                        }}
+                      >
+                        ${t("workboard.dashboardOpenFull")}
+                      </button>`
+                    : nothing}
+                </p>
+                <!-- This embedded board has no chat owner to accept or retry messages. -->
                 <openclaw-board-view
                   .snapshot=${boardSnapshot}
                   .activeTabId=${this.activeTabId}
@@ -157,6 +183,7 @@ class WorkboardCardDashboard extends OpenClawLightDomElement {
                   .sessions=${[]}
                   .canMutate=${this.canMutate}
                   .canGrant=${this.canGrant}
+                  .messageEnabled=${false}
                   .ticketRefreshEnabled=${this.expanded}
                 ></openclaw-board-view>
               `
