@@ -1,28 +1,30 @@
 ---
 name: openclaw-autonomous-issue-sweep
-description: "Orchestrate 64 autonomous OpenClaw issue workers newest-to-oldest with isolated issue worktrees and resource-bounded parallelism; investigate bugs, simplify or refactor, review, land verified fixes, close already-fixed issues, and add meaningful evidence."
+description: "Run an autonomous OpenClaw issue campaign newest-to-oldest with a hands-on lead, useful built-in subagents, and resource-bounded parallelism; investigate bugs, refactor, independently review, land verified fixes, and close proven resolved issues."
 ---
 
 # OpenClaw Autonomous Issue Sweep
 
-Run an end-to-end maintainer campaign, not a candidate shortlist. The parent
-conversation is the orchestrator: delegate discovery, investigation, coding,
-testing, review, GitHub mutations, PR preparation, landing, and cleanup to
-subagents. Keep parent-thread updates to concise progress and clickable URLs.
+Run an end-to-end maintainer campaign, not a candidate shortlist. The primary
+agent stays hands-on and delegates useful independent work to the host's
+built-in subagents. Keep user-facing updates to concise progress and clickable
+URLs. Required independent reviewers remain separate from the investigator.
 
 ## Authority and campaign shape
 
-- Spawn exactly **64 first-class subagents** unless the user requests another
-  count or available capacity makes that impossible; disclose the actual count.
-- Use full-history forks so every subagent inherits the orchestrator's model
-  and **xhigh reasoning effort**. Never print, record, or disclose model
-  identifiers; redact subprocess banners and diagnostics before reporting.
-- Begin every full-history child assignment with its explicit role and agent
-  identity, require inherited **xhigh reasoning effort**, and forbid
-  `create_goal`, visualizations, `spawn_agent`, or nested agents. Children
-  return evidence to the orchestrator; never downgrade their model or effort.
+- Size useful delegation to actual available built-in agent slots, including
+  the primary, and host/proof capacity. Disclose actual active counts; a requested
+  worker count is a capacity target, never permission to invent concurrency.
+- Full-history children inherit the primary's current model and reasoning
+  effort; do not assume a fixed effort or pass unsupported overrides. Never
+  print, record, or disclose model identifiers; redact banners and diagnostics.
+- Begin each assignment with explicit role, identity, owned scope, authority,
+  and completion criteria. Keep the assigned owner hands-on; no nested agents
+  without primary authorization and capacity tracking. Children return evidence
+  to the primary; do not silently downgrade model or effort. Campaign children
+  do not create goals or visualizations.
 - Treat a request to run this workflow as authority to create lightweight,
-  issue-scoped isolated Git worktrees and `codex/issue-<id>` branches, review,
+  issue-scoped isolated Git worktrees and `fix/issue-<id>` branches, review,
   fix, refactor, commit, push, create/update PRs, land eligible changes,
   comment, and close issues individually. Do not ask for separate worktree or
   routine-operation confirmation again.
@@ -30,21 +32,28 @@ subagents. Keep parent-thread updates to concise progress and clickable URLs.
   or SQLite schema versions, weaken security, break shipped compatibility,
   change another owner's protected product surface, or execute untrusted code
   with local credentials.
-- Have subagents read the complete root `AGENTS.md`, relevant scoped guides,
+- Every acting agent reads the complete root `AGENTS.md`, relevant scoped guides,
   `VISION.md`, and companion skills before acting. Use `$gitcrawl`, Octopool,
-  `$openclaw-pr-maintainer`, `$openclaw-testing`, `$crabbox`, and `$autoreview`
+  `$openclaw-pr-maintainer`, `$openclaw-testing`, and `$autoreview`
   where each owns the workflow.
-- Keep the parent out of operational work. It may spawn, assign, receive
-  results, serialize shared resources, monitor host/pool health, prewarm and
-  allocate needed remote leases, issue follow-up tasks, and report; it must
-  not inspect issues, edit code, run tests, mutate GitHub, or land PRs.
+- The primary may investigate, implement, run proof, and perform authorized
+  Git/GitHub operations while coordinating ownership and shared resources.
+  Unavailable workers permit safe takeover or reassignment, not self-approval
+  of required independent review. Report capacity gaps; do not automatically
+  launch external agent runners, which require an explicit user request.
+- Root Validation owns environment selection, source trust, and resource
+  lifecycle. Preserve required scenarios, tests, independent reviews, and
+  merge gates; never probe or warm unavailable Crabbox/Testbox.
 
-## Coordinate 64 workers safely
+## Coordinate available workers safely
 
-1. Assign one subagent to maintain the live open-issue queue in descending
-   `createdAt` order, one to coordinate landing/proof capacity, and no more
-   than **3** to live issue closures or other GitHub mutations. Assign the
-   remaining slots to issue investigations; idle coordinators also investigate.
+1. Track the live open-issue queue in descending `createdAt` order and assign
+   useful independent investigation/review lanes within available capacity.
+   The primary may also own a lane. Reserve distinct investigator, independent
+   closure challenger, and authorized closure coordinator roles when the hard
+   closure gate applies; run them in waves if needed. Keep no more than **3**
+   agents assigned to live closures or other GitHub mutations and serialize
+   conflicting writes. Idle coordinators may investigate other items.
 2. Claim issues from the newest unclaimed end only; replenish workers as they
    finish. Parallel completions may arrive out of order, but never knowingly
    start an older unclaimed issue ahead of a newer available issue.
@@ -56,11 +65,11 @@ subagents. Keep parent-thread updates to concise progress and clickable URLs.
    coordinator-owned exclusive slot; do not hold it across coding, proof,
    reviews, remote waits, or other independent issue work.
 5. Give every independent root-cause fix its own isolated, issue-scoped
-   lightweight worktree and `codex/issue-<id>` branch. Create it from the
+   lightweight worktree and `fix/issue-<id>` branch. Create it from the
    frozen SHA, for example:
 
    ```bash
-   git worktree add -b "codex/issue-$issue_id" \
+   git worktree add -b "fix/issue-$issue_id" \
      "$campaign_worktrees/issue-$issue_id" "$frozen_main_sha"
    ```
 
@@ -72,17 +81,16 @@ subagents. Keep parent-thread updates to concise progress and clickable URLs.
    worktrees exist, independent issue owners edit, inspect, and verify in
    parallel within their own checkout.
 
-6. Keep all **64** inherited high-effort agents available, but distinguish idle
-   agents from active local tool users. Start with bounded waves of **4–8**
-   concurrently active code/test workers and continuously reduce or expand that
+6. Distinguish idle agents from active tool users. Start with a small useful
+   wave within actual available slots and continuously reduce or expand that
    limit according to usable CPU/load, memory/swap pressure, checkout and temp
-   free disk, process count, operator-gateway health, and remote-pool capacity.
+   free disk, process count, operator-gateway health, and proof capacity.
    Reserve capacity for the operator; count heavyweight proof proportionally,
    stop admitting new commands under sustained pressure, and resume in small
    waves after recovery. Never kill unrelated operator processes.
-7. Serialize merges and each Testbox lease, not independent worktree edits. A
-   lease has one owner and one active command; never reclaim, sync, or change
-   its head during a run.
+7. Serialize merges and each task-owned proof environment, not independent
+   worktree edits. An environment has one owner and one active command; never
+   reclaim, sync, or change its source during a run.
 8. Respect GitHub rate limits, active assignees, repository ownership, and
    existing contributor work. Do not auto-assign broad-discovery candidates.
 9. Replace finished workers while the queue remains. Record actual active,
@@ -106,9 +114,9 @@ subagents. Keep parent-thread updates to concise progress and clickable URLs.
   and never use `gh run watch` or frequent unchanged CI polls.
 - Require a fresh live state check only before consequential mutations, final
   merge decisions, or a stale/contradictory cached result. Rate-limit and
-  deduplicate worker requests instead of having 64 agents independently fetch
+  deduplicate worker requests instead of having every agent independently fetch
   the same issue, PR, author profile, or CI rollup.
-- Keep disk, CPU/load, memory pressure, active lease IDs, provider trust class,
+- Keep disk, CPU/load, memory pressure, active environment IDs, source trust class,
   issue-worktree ownership, active local tool count, frozen heads, and pool
   capacity in the orchestration ledger. Dynamically cap concurrent code/test
   workers instead of serializing every independent fix. Pause or interrupt only
@@ -117,14 +125,20 @@ subagents. Keep parent-thread updates to concise progress and clickable URLs.
   Offload heavy proof before resource pressure threatens the host.
 - Worktree checkout and dependency use must respect free-disk headroom. Reuse
   shared Git objects and existing trusted dependency installs where safe; route
-  dependency-missing or heavyweight proof to the selected remote box instead
-  of multiplying local installs across issue checkouts.
-- The parent may prewarm a trusted Crabbox/Testbox lease when a concrete heavy
-  proof is imminent, then hand its verified lease ID and checkout ownership to
-  one subagent at a time. Avoid speculative fleets, respect path-scoped lease
-  ownership, and stop campaign-owned leases before handoff or closeout.
-- Keep untrusted contributor proof on a separate sanitized direct-AWS lease;
-  never transfer a credential-hydrated trusted lease to untrusted work.
+  dependency-missing or heavyweight proof through root Validation instead of
+  multiplying local installs across issue checkouts. Never install or reconcile
+  dependencies in Windows linked/sparse worktrees.
+- Acquire a task-owned Docker Linux environment only when trusted heavy proof
+  is needed; use healthy WSL if unsuitable and existing supported hosted/native
+  CI for mandatory hosted/native proof. Use separate Linux checkout/dependency
+  volumes, never installs through a Windows bind mount. Preserve owner/source
+  identity per run, reuse safe resources, and clean up only campaign resources.
+- Untrusted contributor/fork code, scripts, hooks, config, and wrappers execute
+  only on existing secretless fork CI at the immutable reviewed full SHA, never
+  locally, in Docker Desktop/WSL, or on credentialed/hydrated runners. Retain
+  isolated HOME, pinned runtime, trusted orchestration, and exclusion of secrets,
+  instance roles, LAN/tailnet access, and ambient `NODE_OPTIONS` under root
+  Validation. Missing suitable CI remains a proof gap, never a local fallback.
 
 ## Search for existing work on every credible issue
 
@@ -225,12 +239,14 @@ are not closure proof.
    close because a suggested fallback landed if the primary action still fails,
    any reported surface remains broken, an owner hold exists, or documented
    behavior requires an unresolved maintainer/security/product decision.
-5. Require a **different, independent subagent with inherited xhigh reasoning**
+5. Require a **different, independent built-in subagent**
    to challenge the investigator's closure packet. The challenger personally
    verifies the primary outcome, every affected surface, runtime owner and
    contract, release ancestry, and before/after proof. The investigator cannot
    self-approve; only a separate authorized closure coordinator may grant the
    mutation after both reviewers agree. Any disagreement means **leave open**.
+   If capacity is unavailable, queue or reassign these independent roles; the
+   investigator cannot take over its own challenge or coordinator approval.
 6. Immediately recheck live GitHub state, labels/owner holds, current `main`,
    and exact proof. Do not close on stale state, an incomplete source map, an
    indirect main-only test, changed wording without changed behavior, or any
@@ -266,38 +282,33 @@ For every non-trivial production change:
    paths. Delete tests protecting removed obsolete implementation details.
 2. Choose proof with `$openclaw-testing`. Live-test the real user/provider/
    channel/CLI/package/UI path whenever feasible. Route heavy, packaging,
-   Docker, E2E, or broad checks through `$crabbox`; report an unavailable live
+   Docker, E2E, or broad checks through root Validation; report an unavailable live
    prerequisite accurately instead of calling a mock live proof.
 3. Classify source trust before executing anything. Never run contributor/fork
    scripts, hooks, config, tests, installs, or wrappers locally or on a
-   credential-hydrated host; follow the sanitized untrusted-source workflow.
+   credential-hydrated host; use secretless fork CI under root Validation.
 4. Run `$autoreview` on the complete final change until no accepted actionable
    findings remain. Re-run it after any production, test, or reviewed-head
    change. Treat review findings as hypotheses and verify each against source.
    Prose-only skill files and other non-production internal notes do not need
    autoreview; validate their structure and formatting instead.
-5. Separately self-invoke an independent Codex reviewer. First verify the
-   installed interface with `codex exec --help`, then run a bounded read-only,
-   ephemeral review from a trusted checkout, for example:
-
-   ```bash
-   codex exec --json --sandbox read-only --ephemeral \
-     -C "$trusted_checkout" --output-last-message "$review_result" \
-     "Independently inspect the frozen candidate diff and its owner, callers,
-      siblings, tests, current main, user behavior, and dependency contracts.
-      Report only concrete correctness, architecture, simplification, or
-      verification gaps. Do not modify files or expose secrets." \
-     >/dev/null 2>/dev/null
-   ```
-
-   Point the reviewer at the exact immutable diff/head. Do not substitute the
-   `$autoreview` Codex engine for this separate pass. Never run that reviewer
-   from an untrusted project-controlled checkout. Read only the final review
-   result; do not emit raw model banners. Verify actionable findings, make
-   justified fixes, rerun proof, and refresh both independent reviews.
+5. Separately assign a different built-in reviewer a bounded read-only pass
+   over the exact immutable diff/head, owner, callers, siblings, tests, current
+   `main`, user behavior, and dependency contracts. The reviewer personally
+   inspects sibling `../codex` when applicable and reports concrete correctness,
+   architecture, simplification, or verification gaps without modifying files
+   or exposing secrets. Do not substitute `$autoreview` or the implementer's
+   self-review for this separate pass. If capacity is unavailable, wait or
+   safely reassign; do not automatically start an external runner or waive the
+   pass. The required shared `$autoreview` helper remains in use. Verify
+   findings, make justified fixes, rerun affected proof, and refresh both
+   independent reviews for a changed reviewed head.
 
 6. Read the latest ClawSweeper comment and address each applicable `Rank-up
 moves:` item with real evidence or an explicit reason for skipping it.
+   After a changed head, request one exact-head re-review and require no
+   actionable findings or remaining moves. Never bypass related failing gates
+   or a blocked red-main merge gate; fix that breakage in the landing PR.
 
 ## Publish, land, and clean up
 
@@ -310,10 +321,10 @@ moves:` item with real evidence or an explicit reason for skipping it.
   existing reviewed work before creating a burst of competing PRs.
 - Use the actual PR template and state the user impact, canonical root cause,
   rejected alternatives, production LOC delta, exact head SHA, focused/live
-  proof, autoreview result, independent Codex result, CI state, and credit.
-- Read `$agent-transcript` for agent-created PRs, but do not include logs
-  without the user's explicit transcript approval. During a fully autonomous
-  sweep, omit transcripts rather than interrupting the user for consent.
+  proof, autoreview result, independent reviewer result, CI state, and credit.
+- Use `$agent-transcript` only when the user explicitly requests transcripts,
+  with its redaction and publication authority gates. During ordinary or fully
+  autonomous sweeps, omit transcripts without interrupting for consent.
 - Open new PRs as drafts, wait for a non-null mergeability result, mark them
   ready, and verify CI attached to the exact pushed head before landing.
 - Autonomously land only a reproduced, high-confidence, bounded-risk repair
@@ -323,6 +334,9 @@ moves:` item with real evidence or an explicit reason for skipping it.
   review, create/validate review artifacts, run
   `OPENCLAW_TESTBOX=1 scripts/pr prepare-run <number>`, then
   `scripts/pr merge-run <number>`. Verify the canonical merge SHA afterward.
+  This mandatory flag verifies existing hosted evidence; it does not provision
+  Testbox. Never set `OPENCLAW_PR_GATES_REMOTE=testbox` or bypass its exact-head
+  verification when supported hosted proof is missing.
 - Keep owner/security/auth/config/public-SDK/protocol/persistent-state/product
   decisions outside autonomous landing when the relevant guide requires owner
   judgment. Continue with the next issue instead of blocking the whole sweep.
@@ -349,7 +363,7 @@ moves:` item with real evidence or an explicit reason for skipping it.
 Send concise progress plus URLs only. Prefer updates such as:
 
 ```text
-64 agents active · 41 investigated · 3 landed · 5 already-fixed issues closed
+3 agents active · 41 investigated · 3 landed · 5 already-fixed issues closed
 Landed: https://github.com/openclaw/openclaw/pull/123
 Closed: https://github.com/openclaw/openclaw/issues/456
 ```

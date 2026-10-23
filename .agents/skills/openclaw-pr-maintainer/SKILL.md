@@ -7,21 +7,22 @@ description: Use immediately for any pasted OpenClaw GitHub issue or PR URL/numb
 
 Use this skill for maintainer-facing GitHub workflows and the code changes needed to finish an authorized issue/PR repair; do not invoke it for unrelated ordinary code changes.
 
-## Parent orchestrates; collaboration subagents do all substantive work
+## Hands-on lead and bounded delegation
 
-The original, user-facing root conversation is the orchestrator only. Delegate every substantive maintainer operation exclusively to bounded collaboration worker subagents; do not create separate Codex app/project threads or perform implementation work in the parent. A subagent assigned an execution role is the hands-on worker: it performs its scoped operations itself, retains personal inspection/verdict duties, and must not reinterpret this skill as requiring it to become another orchestrator or recursively delegate away ownership. Do not spawn nested helpers unless the root explicitly delegates and tracks them.
+The primary agent coordinates the request and stays hands-on. Delegate independent discovery, investigation, implementation, or verification to the host application's built-in subagents when useful; keep simple or tightly coupled work with the primary. Do not create separate user-owned app tasks or recursively delegate away ownership. Nested helpers require explicit primary authorization and tracked capacity, scope, and completion.
 
-- **Parent only:** decompose and prioritize the request; assign disjoint issue/root-cause/file ownership and explicit handoffs; enforce authorization, owner, security, source-trust, proof, and publication gates; coordinate resources and shared-checkout safety; collect and compare worker-reported evidence; dispatch independent verification; resolve routine decisions from existing authority and worker evidence; and communicate outcomes. Remain engaged until the requested close/fix/landing is verified complete or report the exact blocker.
-- **Workers only:** discover issues/PRs; inspect live GitHub state, complete affected source/owner/caller/sibling modules, tests, history, and dependency contracts; reproduce failures and establish root causes; edit, clean up, refactor, and write tests; run authorized tests, checks, CI, and live proof; execute Git/GitHub operations; post proof comments; close items; commit, push, prepare PRs, land fixes, and verify terminal remote state. Require a separate, independent worker to verify closure or landing whenever the active workflow mandates one; otherwise assign one to challenge consequential evidence, including already-fixed closures, when practical.
-- Bound worker count by available slots, including the parent's occupied slot, and safe host/proof capacity. Assign every worker a bounded scope and existing authorization; never infer broader permissions from delegation. Serialize shared fetch/ref/branch/checkout mutations, pushes, merges, and competing GitHub writes; never switch a shared checkout while siblings work or edit it while its Vitest run is in flight. Preserve unfinished worker state during reassignment. Existing untrusted-source isolation, remote-proof routing, owner approval, and landing requirements remain mandatory. These collaboration workers are not ClawSweeper's secretless internal review workers; ClawSweeper's deterministic GitHub App mutation and credential gates still apply.
-- Each acting or verdict-bearing worker personally inspects relevant dependency contracts. For Codex-backed behavior, that worker must personally inspect and cite the exact sibling `../codex` source before its own verdict, code change, public comment, approval, merge recommendation, or proof-sufficiency claim. The parent may relay evidenced worker conclusions but must not render an independent Codex verdict from worker reports.
-- Slow, stalled, or unavailable workers never authorize the parent to implement, investigate source, run proof, or mutate Git/GitHub. Coordinate, wait, safely reassign, or report the exact capacity, evidence, access, or authorization blocker.
+- Assign clear issue/root-cause/file ownership, authority, handoffs, and completion criteria. The primary verifies consequential evidence and remains engaged until the authorized outcome is verified or a concrete blocker is reported.
+- The primary and assigned workers may inspect, reproduce, repair/refactor, test, and perform authorized Git/GitHub operations. Require a separate independent reviewer for closure or landing whenever the active workflow mandates one; otherwise challenge consequential evidence independently when practical. An investigator cannot satisfy a required independent review of its own work.
+- Bound concurrency by actual available built-in agent slots, including the primary, and safe host/proof capacity. Serialize shared fetch/ref/branch/checkout mutations, pushes, merges, and competing GitHub writes; never switch a shared checkout while siblings work or edit it while its Vitest run is in flight. Preserve unfinished state before takeover or reassignment. ClawSweeper's separate secretless-worker mutation and credential gates remain mandatory.
+- Every acting or verdict-bearing agent, including the primary, personally inspects relevant dependency contracts. For Codex-backed behavior, personally inspect and cite exact sibling `../codex` source before a verdict, code change, public comment, approval, merge recommendation, or proof-sufficiency claim; another agent's report is not a substitute.
+- If built-in workers are unavailable or stalled, report the limitation and continue independently where feasible, or safely reassign bounded work. Do not automatically launch an external agent runner; it requires an explicit user request. Keep mandatory independent review as a pending gate until a different reviewer is available; capacity never authorizes self-approval or weaker proof.
+- Root `AGENTS.md` Validation owns execution routing and source trust. Preserve every required test, security, owner, independent-review, and landing gate; unavailable backends do not authorize skipping them.
 
 ## Execute explicit full-authority work unattended
 
-When the user explicitly requests unattended or autonomous execution with full authority, that instruction is standing approval for evidence-backed operations within the requested task scope. The user is unavailable: never ask routine clarification, owner, approval, worktree, publication, CI, or landing questions. The parent remains orchestration-only; assigned hands-on workers resolve ordinary decisions and complete the work.
+When the user explicitly requests unattended or autonomous execution with full authority, that instruction is standing approval for evidence-backed operations within the requested task scope. The user is unavailable: never ask routine clarification, owner, approval, worktree, publication, CI, or landing questions. The primary and assigned workers resolve ordinary decisions and complete the work within existing gates.
 
-- Workers may investigate, repair/refactor, test, rewrite editable contributor PRs while preserving credit, create credited replacements when necessary, commit/push task-owned changes, update PRs, post proof, close items proven fixed on current `main`, diagnose/repair/rerun exact-head CI, create repo-managed PR worktrees or necessary task-owned isolated worktrees, run native review/prepare/merge, and verify terminal remote state.
+- The primary or assigned workers may investigate, repair/refactor, test, rewrite editable contributor PRs while preserving credit, create credited replacements when necessary, commit/push task-owned changes, update PRs, post proof, close items proven fixed on current `main`, diagnose/repair/rerun exact-head CI, create repo-managed PR worktrees or necessary task-owned isolated worktrees, run native review/prepare/merge, and verify terminal remote state.
 - Preserve unrelated dirty work. Use an isolated task-owned/native-managed worktree or nondestructive scoped publication; never stage, commit, stash, discard, overwrite, or synchronize unrelated files.
 - Continue through recoverable failures, stale guards, locks, and transient infrastructure problems with bounded safe retry and repository-approved lock recovery. Finish only after terminal verification; report a genuine missing capability, credential, or explicit safety gate without waiting for the unavailable user.
 - When optional live-provider/channel proof is unavailable **and the user explicitly relaxes that proof**, a bounded deterministic owner defect may instead use failing/passing owner-boundary regression tests, direct producer/caller/sibling and dependency/source inspection, independent review, and green required CI on the exact head. Record the missing live/rank-up proof; never describe substitutes as live. Mandatory live proof for external API work, security-sensitive behavior, explicitly requested live verification, or risk that requires authenticated execution is never waived.
@@ -60,7 +61,7 @@ gitcrawl cluster-detail openclaw/openclaw --id <cluster-id> --member-limit 20 --
 
 ## Inspect specific targets; claim only when authorized
 
-When a maintainer asks Codex to review, triage, fix, or land a specific OpenClaw issue/PR, have the assigned collaboration worker inspect live assignment before deep work. Assignment itself is a public GitHub write.
+When a maintainer asks Codex to review, triage, fix, or land a specific OpenClaw issue/PR, the acting primary or worker inspects live assignment before deep work. Assignment itself is a public GitHub write.
 
 - Identify the requesting maintainer's GitHub login. In this environment, default Peter to `steipete`; if another maintainer is clearly the requester, use that maintainer's bare login.
 - Read current assignees with live `gh issue view` / `gh pr view`; `gitcrawl` is not enough for assignment state.
@@ -262,10 +263,11 @@ If the best-fix answer is only "maybe", keep reading or state the missing eviden
 ## Enforce the bug-fix evidence bar
 
 - Never merge a bug-fix PR based only on issue text, PR text, or AI rationale.
-- Choose the strongest proof proportionate to the owner boundary and risk. When
-  feasible, prefer Crabbox (`$crabbox`) or a real packaged/Docker/live lane
-  exercising the reported user flow before closing or landing; do not confuse
-  packaged, mocked, Docker, or unit proof with live authenticated proof.
+- Choose the strongest proof proportionate to the owner boundary and risk,
+  using root Validation for environment selection. When feasible, exercise the
+  reported user flow through a real packaged/Docker/live lane before closing or
+  landing. Do not confuse packaged, mocked, Docker, or unit proof with live
+  authenticated proof; mandatory scenario gates remain mandatory.
 - For a bounded deterministic owner defect, optional unavailable provider/channel
   live proof may be replaced **only when the user explicitly relaxes it** by a
   failing/passing focused owner-boundary regression, direct producer/caller/sibling
@@ -281,7 +283,7 @@ If the best-fix answer is only "maybe", keep reading or state the missing eviden
   5. a regression test when feasible, or explicit manual verification plus a reason no test was added
 - If the claim is unsubstantiated or likely wrong, obtain the missing evidence or make authorized owner-boundary repairs; never merge without proof.
 - If the linked issue appears outdated or incorrect, correct triage first. Do not merge a speculative fix.
-- If optional Crabbox/E2E/live proof is unavailable and the user explicitly
+- If optional E2E/live proof is unavailable and the user explicitly
   relaxes it, state the exact gap and use the strongest focused owner-boundary
   and exact-head CI evidence. Never claim substitutes are live or waive mandatory
   external-API, security, or explicitly requested live proof.
@@ -331,31 +333,24 @@ gh search issues --repo openclaw/openclaw --match title,body --limit 50 \
   on the maintainer host. Let its preflight fail loudly when one is missing.
   Tests that source `scripts/pr-lib/*` directly must provide the same command
   surface instead of weakening the production wrapper for a minimal test image.
-- Classify source trust before executing code-changing or landing proof; acquire
-  the safe backend lazily through `$crabbox` at the first heavy proof, never
-  pre-warm it at task start. Trusted maintainer code defaults to Blacksmith Testbox;
-  contributor/fork code stays untrusted unless a maintainer explicitly approves
-  credentialed execution after review; it uses secretless fork CI or
-  sanitized direct AWS Crabbox with `CRABBOX_ENV_ALLOW=CI`,
-  `--no-hydrate`, and a fresh temporary remote `HOME`, never the
-  credential-hydrated Testbox workflow or a previously hydrated lease. Launch
-  an installed trusted Crabbox binary from clean trusted `main`, fetch the PR
-  with `--fresh-pr`, unset and reject any resolved AWS instance profile, verify
-  trusted IMDS reports no IAM credentials, bind the lease to the reviewed head
-  SHA, and never execute its local wrapper or config. Upload trusted
-  `scripts/crabbox-untrusted-bootstrap.sh` from clean `main` alongside
-  `--fresh-pr`; it installs the pinned Node/pnpm runtime before executing PR
-  code. Force public networking, disable and
-  unset inherited Tailscale/exit-node settings, and fail closed unless
-  `crabbox inspect` reports no Tailscale state before any script. Rewarm after
-  any head change, sync every run, reuse the lease, then stop it before handoff.
-  Do not acquire a backend for read-only triage or docs-only work.
+- Classify source trust before executing proof and follow root Validation.
+  Trusted heavy/Linux proof uses task-owned Docker Desktop Linux, healthy WSL
+  when unsuitable, or supported mandatory hosted/native CI. Untrusted
+  contributor/fork code stays on existing secretless fork CI at the immutable
+  reviewed full SHA, never the host, Docker Desktop, WSL, or a credentialed
+  runner. Keep trusted orchestration separate, isolated HOME and pinned runtime,
+  and exclude credentials, secret-bearing environment, instance roles, LAN/
+  tailnet access, and ambient `NODE_OPTIONS`. Missing safe CI is a proof gap.
+  Do not probe or warm unavailable Crabbox/Testbox. Acquire proof resources only
+  when needed and clean up only task-owned resources; no backend for read-only
+  triage or docs-only work.
 - Never mention release-note bookkeeping in review-only output. It is landing
   or release-generation mechanics, not a correctness finding.
 - If bot review conversations exist on your PR, address them and resolve them yourself once fixed.
 - Leave a review conversation unresolved only when reviewer or maintainer judgment is still needed.
 - Before landing any PR with non-trivial code changes, run fresh `$autoreview` until no accepted/actionable findings remain; prior CI, ClawSweeper, or manual review is not a substitute. Skip only for truly trivial/docs-only changes or when the user explicitly opts out.
-- When an agent is landing or merging a PR targeting `main`, use only the repo-native `scripts/pr` wrapper: run `scripts/pr review-init <PR>`, follow its emitted checkout/guard guidance, initialize and complete review artifacts with `scripts/pr review-artifacts-init <PR>`, validate them with `scripts/pr review-validate-artifacts <PR>`, then run `OPENCLAW_TESTBOX=1 scripts/pr prepare-run <PR>` and `scripts/pr merge-run <PR>`. The Testbox flag is mandatory for agents: it verifies hosted CI/Testbox on the current head or reuses a patch-identical pre-rebase run green within 24 hours instead of running full `pnpm` gates locally. Do not rebase only because `main` advanced; behind-main drift is advisory unless strict drift is explicitly enabled, while GitHub still blocks conflicts.
+- Before landing, apply or explicitly explain every latest ClawSweeper `Rank-up moves:` item. If the head changes after that review, request one exact-head re-review and require no actionable finding or remaining move; an unchanged reviewed head needs no rating-only round-trip. Never bypass related failing gates or land onto red `main` when the merge gate is blocked; fix that breakage in the landing PR.
+- When an agent is landing or merging a PR targeting `main`, use only the repo-native `scripts/pr` wrapper: run `scripts/pr review-init <PR>`, follow its emitted checkout/guard guidance, initialize and complete review artifacts with `scripts/pr review-artifacts-init <PR>`, validate them with `scripts/pr review-validate-artifacts <PR>`, then run `OPENCLAW_TESTBOX=1 scripts/pr prepare-run <PR>` and `scripts/pr merge-run <PR>`. This mandatory flag verifies existing hosted CI evidence; it does not provision Testbox. Retain current-head or accepted patch-identical pre-rebase reuse checks and the 24-hour freshness gate; never set `OPENCLAW_PR_GATES_REMOTE=testbox`. If supported evidence is unavailable, report the gap. Do not rebase only because `main` advanced; behind-main drift is advisory unless strict drift is explicitly enabled, while GitHub still blocks conflicts.
 - Use `scripts/committer "<msg>" <file...>` for scoped commits instead of manual `git add` and `git commit`.
 - Keep commit messages concise and action-oriented.
 - Group related changes; avoid bundling unrelated refactors.

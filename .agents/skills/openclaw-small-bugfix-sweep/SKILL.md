@@ -5,32 +5,25 @@ description: Fix only small, high-certainty OpenClaw bugs from a pasted issue/PR
 
 # OpenClaw Small Bugfix Sweep
 
-Batch workflow for pasted OpenClaw issue/PR refs. The user's top-level
-conversation is the orchestration-only parent; its bounded collaboration
-subagents are hands-on execution owners. The parent coordinates them and
-reports their verified results. Workers publish or land only when authorized.
+Batch workflow for pasted OpenClaw issue/PR refs. The primary agent stays
+hands-on and delegates useful independent work to the host application's
+built-in subagents within available capacity. Every agent publishes or lands
+only when authorized; required independent validation stays separate.
 
-## Mandatory coordinator/worker boundary
+## Hands-on ownership and independent validation
 
-- The parent only assigns issue/PR owners and independent validation workers,
-  coordinates shared checkout/file ownership and mutation slots, tracks evidence
-  and authorization gates, handles genuine owner decisions, and reports results.
-- The parent never directly discovers or inspects items; reads affected source,
-  dependencies, or sibling `../codex`; diagnoses, edits, reproduces, or tests;
-  runs Git/GitHub operations; comments, closes, commits, pushes, watches CI,
-  prepares, or lands. Delegate every operational step to collaboration subagents.
-- Assign one bounded worker ownership of each item or duplicate/root-cause
-  cluster. Use separate workers for independent closure/landing validation and,
-  when useful, discovery, source history, dependency contracts, sibling paths,
-  regression proof, and CI follow-through. An item worker may spawn a helper
-  only after the root explicitly authorizes that specific helper and tracks its
-  scope, ownership, capacity, and completion; the item owner remains hands-on
-  and personally checks consequential evidence before acting.
-- State each worker's execution/verification role, assigned item, file/checkout
-  ownership, mutation authority, and reporting obligation in its assignment. A
-  delegated worker reading this skill performs its assigned work itself; it does
-  not misclassify itself as the orchestration-only parent or recursively
-  delegate its entire assignment.
+- The primary assigns item owners and independent validators, coordinates shared
+  resources, tracks evidence and authority, and verifies consequential results.
+  It may also inspect, diagnose, implement, test, and perform authorized
+  Git/GitHub operations. Simple or tightly coupled work can stay with the primary.
+- Assign one bounded owner, primary or worker, per item or root-cause cluster.
+  Use distinct reviewers for required independent closure/landing validation;
+  delegate discovery, history, dependencies, siblings, or proof when useful.
+  No nested helpers without primary authorization and tracked capacity. Every
+  assigned owner stays hands-on and personally checks consequential evidence.
+- State role, item, file/checkout ownership, authority, and completion criteria
+  in each assignment. Do not create separate user-owned app tasks or recursively
+  delegate away responsibility.
 - Assign disjoint writable files/checkouts before parallel implementation.
   Serialize shared checkout/ref/branch changes, overlapping file writes,
   commits, pushes, GitHub mutations, and landing. Do not edit a shared checkout
@@ -38,25 +31,28 @@ reports their verified results. Workers publish or land only when authorized.
   explicit user authorization; an explicit full-authority unattended or landing
   request authorizes repo-managed PR worktrees and necessary isolated task-owned
   worktrees. Never stage, stash, discard, or overwrite unrelated dirty changes.
-- Bound worker concurrency by available agent slots, including the parent, and
+- Bound worker concurrency by available agent slots, including the primary, and
   host/proof capacity. Before replacing a failed or interrupted worker, preserve
   its claimed items, patches, checkout ownership, and evidence; explicitly hand
   them to one replacement without duplicating or discarding unfinished work.
 - Classify source trust before execution. Never run untrusted contributor code,
-  scripts, config, hooks, tests, or wrappers locally; use the repository's
-  sanitized remote-proof path. Route heavy trusted proof to the selected remote
-  box unless the documented trusted-backend fallback applies.
-- For Codex-backed behavior, every worker making a technical verdict or taking
-  a related action must personally inspect the exact sibling `../codex` source
-  first and cite the inspected files/lines. The parent may relay those worker
-  findings but must not present another agent's inspection as its own verdict.
+  scripts, config, hooks, tests, or wrappers on the host, Docker Desktop, WSL,
+  or a credentialed runner; use existing secretless fork CI at the immutable
+  reviewed full SHA under root Validation. Route trusted heavy/Linux proof to
+  Docker Linux, healthy WSL when unsuitable, and supported mandatory hosted/
+  native CI. Preserve every test/scenario gate; never probe or warm unavailable
+  Crabbox/Testbox or install dependencies in Windows linked/sparse worktrees.
+- For Codex-backed behavior, every acting primary or worker making a verdict or
+  taking a related action must personally inspect the exact sibling `../codex` source
+  first and cite the inspected files/lines. Another agent's report does not
+  satisfy the acting agent's personal inspection duty.
 - Keep workers assigned through reproduction, repair, independent validation,
   exact-head CI, authorized closure/landing, and verified terminal state. A
-  pending check or submitted mutation is not completion; delegate follow-up.
-
-This is the collaboration-subagent model used by
-`openclaw-autonomous-issue-sweep`, not an invitation to create user-owned Codex
-app tasks or to perform sweep work in the parent conversation.
+  pending check or submitted mutation is not completion. If a worker stalls or
+  capacity is unavailable, preserve its state and safely reassign or take over
+  feasible work. Do not automatically launch an external agent runner; it
+  requires an explicit user request. Required independent review waits for a
+  different reviewer; the investigator cannot self-approve.
 
 ## Scope and authorization gate
 
@@ -71,8 +67,8 @@ Default flow when fixing is authorized:
 5. When authorized, sync for the destination: direct `main` must rebase onto latest `origin/main` without merge commits; PRs follow native landing guards and refresh/rebase only for an actual conflict, failing guard/exact-head check, explicit user request, or demonstrated material stale-base risk, never merely because `main` advanced. Push, comment with proof, and close only authorized fixed or explicitly triaged-closed issues.
 
 An explicit request to autonomously process or resolve a named issue/PR batch,
-or to fix and land it, authorizes assigned workers to perform the scoped
-root-cause fixes, commits, pushes, PR updates, proof comments, evidence-backed
+or to fix and land it, authorizes the primary and assigned workers to perform
+the scoped root-cause fixes, commits, pushes, PR updates, proof comments, evidence-backed
 fixed-on-current-`main` closures, and exact-head landings needed to resolve those
 named items. A fix-only request permits local changes and proof, not publishing
 or landing; review, triage, or list alone is read-only. Never batch unrelated
@@ -80,14 +76,14 @@ fixes into one commit, mutate unrelated items, exceed the requested sweep scope,
 or bypass owner, security, trust, authorization, or proof gates. Do not invent
 an additional personal-review gate.
 
-Explicit full-authority unattended execution is standing approval for assigned
-workers to complete all evidence-backed, task-scoped investigation, repair,
-credited PR rewrite/replacement, proof comments, CI diagnosis/fixes/reruns,
+Explicit full-authority unattended execution is standing approval for the primary
+and assigned workers to complete all evidence-backed, task-scoped investigation,
+repair, credited PR rewrite/replacement, proof comments, CI diagnosis/fixes/reruns,
 task-owned publication/worktrees, proven current-`main` closures, requested
 native landing, and terminal remote verification. Resolve routine decisions
 without asking the unavailable user; recover safely from transient failures
 and locks. Preserve unrelated edits, exact-head required CI, source trust,
-acting-worker direct Codex inspection, contributor credit, security/owner
+acting-agent direct Codex inspection, contributor credit, security/owner
 gates, and separate exact-count/scope approval for more than 50 closures.
 Only when the user explicitly relaxes unavailable **optional** provider/channel
 live proof may focused failing/passing owner-boundary regression, direct
@@ -103,8 +99,7 @@ Use `$gitcrawl` first, `$openclaw-pr-maintainer` for live GitHub hygiene, `$gith
 
 ## Loop
 
-For each ref, the assigned worker performs the operational loop; the parent only
-coordinates its progress and receives evidence:
+For each ref, its assigned primary or worker performs the operational loop:
 
 1. Read live target with `gh`.
 2. Check `gitcrawl` for related, duplicate, closed, or already-fixed threads.
@@ -121,7 +116,8 @@ An independent worker challenges proposed fixed-on-main closures and
 nontrivial repair/landing proof before an authorized item owner performs the
 final mutation. Missing agreement or applicable source/dependency proof,
 exact-head CI, trust routing, ownership approval, or authorization is a concrete
-blocker, not permission for the parent to take over the work.
+blocker. Safe takeover may continue investigation or repair but cannot replace
+the investigator's required independent challenge or approval.
 
 ## Skip If
 

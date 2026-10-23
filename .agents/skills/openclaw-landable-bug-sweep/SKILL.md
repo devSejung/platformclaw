@@ -9,27 +9,27 @@ Autonomous maintainer workflow for producing a requested batch of landable OpenC
 Use for broad issue/PR sweeps where the bar is high and the output is PRs, not notes.
 Do not use for plugin SDK/API boundary work; those need separate architecture review.
 
-## Mandatory orchestration contract
+## Hands-on lead and bounded delegation
 
-- Only the original user-facing root conversation is the control plane. It
-  decomposes work, assigns explicit issue/PR/file ownership, directly spawns
-  bounded collaboration workers and independent verifiers, coordinates safety,
-  tracks completion, and reports actual worker-verified terminal outcomes.
-- A delegated collaboration subagent is a hands-on execution owner, not another
-  user-facing root orchestrator. It performs its assigned work directly; this
-  contract must not recursively prevent workers from acting. Nested workers
-  require explicit root authorization plus root-tracked capacity, ownership,
-  and completion. Do not create separate Codex app tasks or threads.
-- Workers perform all discovery, source/dependency/Codex inspection,
-  reproductions, issue/PR investigations, edits/refactors, tests/proof/CI,
-  GitHub reads/writes, comments, closures, commits, pushes, and any separately
-  authorized landing. The acting worker personally verifies dependency
-  contracts and inspects sibling `../codex` before making a Codex verdict.
-- Root coordinates checkout/file ownership, serializes shared Git/ref/index
-  mutations and conflicting test/edit activity, tracks exact heads, and enforces
-  authorization, source-trust, security, ownership, and landing gates through
-  assigned workers. Root never switches from orchestration to execution because
-  a worker stalls, fails, or lacks capacity; reassign the bounded work instead.
+- The primary coordinates issue/PR/file ownership, safety, authority, evidence,
+  and completion while staying hands-on. Delegate useful independent discovery,
+  implementation, or verification to host-native subagents; keep simple or
+  tightly coupled work with the primary. No separate user-owned app tasks or
+  nested workers without primary authorization and capacity tracking.
+- The primary or assigned workers may investigate, repair/refactor, test, and
+  perform authorized Git/GitHub operations. Every acting agent personally
+  inspects dependencies and exact sibling `../codex` before a Codex verdict.
+  Required independent reviewers remain distinct from the investigator;
+  self-review never satisfies a mandatory independent pass.
+- Bound concurrency by actual available agent slots, including the primary,
+  and host/proof capacity. Serialize shared Git/ref/index mutations and
+  conflicting edits/tests; never switch a shared checkout while siblings work.
+  Preserve state before safe takeover or reassignment of stalled work.
+- If built-in delegation is unavailable, report the limitation and continue
+  independently where feasible. Queue or reassign required independent review;
+  do not waive it or automatically start an external agent runner, which
+  requires an explicit user request. Preserve all authority, source-trust,
+  security, ownership, exact-head proof, and landing gates.
 
 ## Requested authority
 
@@ -48,9 +48,9 @@ Do not use for plugin SDK/API boundary work; those need separate architecture re
   or repo-managed PR worktrees, credited PR repair/replacement, proof comments,
   exact-head CI repair, scoped publication, proven current-`main` closures, and
   requested native landing. Never ask routine approval questions or disturb
-  unrelated dirty changes; the root stays orchestration-only and workers own
-  execution through verified completion. Preserve source-trust, direct acting-
-  worker Codex inspection, required exact-head CI/security/owner gates, and
+  unrelated dirty changes; the primary and workers own execution through
+  verified completion. Preserve source-trust, direct acting-agent Codex
+  inspection, required exact-head CI/security/owner gates, and
   explicit exact-count/scope approval for more than 50 close/reopen actions.
 - Optional unavailable provider/channel live proof may be replaced only when
   the user explicitly relaxes it: use failing/passing focused owner-boundary
@@ -66,7 +66,7 @@ Return up to that many qualified PR URLs, each with:
 
 - bug summary
 - why the fix is low-risk
-- proof: exact-head local/Testbox/live commands or run IDs
+- proof: exact-head commands, selected environment, and evidence paths or CI run IDs
 - autoreview: clean result on the exact head being shown
 - CI green on the exact pushed PR head
 - issue/duplicate cleanup done or still pending
@@ -87,7 +87,7 @@ In `provided-prs` mode, inspect only the supplied PRs plus directly linked dupli
 
 ## Companion Skills
 
-Use `$gitcrawl` for discovery/clustering, `$openclaw-pr-maintainer` for live GitHub mutation rules, `$github-author-context` when contributor trust matters, `$openclaw-testing` for proof choice, `$autoreview` before publishing/landing, and `$crabbox` for broad/E2E/live proof.
+Use `$gitcrawl` for discovery/clustering, `$openclaw-pr-maintainer` for live GitHub mutation rules, `$github-author-context` when contributor trust matters, `$openclaw-testing` for required proof, and `$autoreview` before publishing/landing. Root Validation owns environment selection: trusted heavy/Linux proof uses Docker Linux, healthy WSL when unsuitable, and supported mandatory hosted/native CI. Untrusted contributor code and wrappers stay on secretless fork CI at the immutable reviewed full SHA, never host/Docker Desktop/WSL/credentialed execution. Never probe or warm unavailable Crabbox/Testbox or install dependencies in Windows linked/sparse worktrees. Routing does not waive required tests, live/native proof, independent reviews, or merge gates.
 
 ## Candidate Bar
 
@@ -158,7 +158,7 @@ Reject:
    - refresh the PR branch only for a real conflict, failing exact-head check or wrapper guard, explicit request, or demonstrated material stale-base risk
    - resolve actual conflicts or CI failures rather than counting the PR as ready
    - do not add `CHANGELOG.md` during normal sweep PRs; release automation generates it from PRs and commits
-   - left-test the exact candidate head with the smallest meaningful local/Testbox/live command that proves the bug
+   - left-test the exact candidate head with the smallest meaningful command that proves the bug in the environment selected by root Validation; record actual exits and artifacts, keeping unavailable required proof as a gap
    - run `$autoreview` until no accepted/actionable findings remain before creating, updating, or presenting the PR URL
    - create/update PR with real body and proof fields when authorized
    - push the exact reviewed head only when an authorized change requires publication
