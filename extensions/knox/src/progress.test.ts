@@ -7,7 +7,6 @@ const active: ReturnType<typeof createKnoxProgress>[] = [];
 
 function setup(
   options: {
-    text?: string;
     canSend?: () => boolean;
     pendingDelivery?: boolean;
     cancel?: (ordinal: number) => Promise<void>;
@@ -24,15 +23,15 @@ function setup(
     };
   };
   const send = vi.fn(async (_text: string, _ordinal: number, signal: AbortSignal) => {
-    if (options.pendingDelivery)
+    if (options.pendingDelivery) {
       await new Promise<void>((_resolve, reject) => {
         signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
       });
+    }
   });
   const cancel = vi.fn(options.cancel ?? (async (_ordinal: number) => {}));
   const warn = vi.fn();
   const progress = createKnoxProgress({
-    text: options.text ?? "Run checks",
     delayMs: 15_000,
     abortSignal: abort.signal,
     subscribe,
@@ -45,11 +44,15 @@ function setup(
   let seq = 0;
   const emit = (stream: string, data: Record<string, unknown>, runId = "own-run") => {
     const event: AgentEvent = { runId, stream, data, seq: ++seq, ts: Date.now() };
-    for (const listener of listeners) listener(event);
+    for (const listener of listeners) {
+      listener(event);
+    }
   };
   const tool = (id: string, command: string, state?: string) => {
     emit("tool", { phase: "start", name: "exec", toolCallId: id, args: { command } });
-    if (state) emit("tool", { phase: "result", name: "exec", toolCallId: id, status: state });
+    if (state) {
+      emit("tool", { phase: "result", name: "exec", toolCallId: id, status: state });
+    }
   };
   progress.replyOptions.onAgentRunStart("own-run");
   return { progress, emit, tool, send, cancel, warn, abort, unsubscribe };
@@ -78,19 +81,16 @@ describe("Knox notice language compatibility", () => {
 });
 
 describe("Knox progress digest", () => {
-  it.each(["Run checks", "검사해줘"])(
-    "waits fifteen seconds and uses English for %s",
-    async (text) => {
-      const { progress, send } = setup({ text });
-      progress.start();
-      await vi.advanceTimersByTimeAsync(14_999);
-      expect(send).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(1);
-      expect(texts(send)).toEqual(["⏳ Processing request"]);
-      await vi.advanceTimersByTimeAsync(45_000);
-      expect(send).toHaveBeenCalledOnce();
-    },
-  );
+  it("waits fifteen seconds before sending its English digest", async () => {
+    const { progress, send } = setup();
+    progress.start();
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(send).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(texts(send)).toEqual(["⏳ Processing request"]);
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(send).toHaveBeenCalledOnce();
+  });
 
   it("shows the current observed command on the first tick without inferring its purpose", async () => {
     const { progress, tool, send } = setup();
@@ -103,7 +103,9 @@ describe("Knox progress digest", () => {
   it("retains only the latest five completed invocations, in chronological order, plus current last", async () => {
     const { progress, tool, send } = setup();
     progress.start();
-    for (let index = 0; index < 8; index++) tool(String(index), `cmd-${index}`, "completed");
+    for (let index = 0; index < 8; index++) {
+      tool(String(index), `cmd-${index}`, "completed");
+    }
     tool("active", "still-running");
     await vi.advanceTimersByTimeAsync(15_000);
     expect(texts(send)).toEqual([
@@ -122,9 +124,13 @@ describe("Knox progress digest", () => {
   it("does not resend when five new identical rendered results replace five previous ones", async () => {
     const { progress, tool, send } = setup();
     progress.start();
-    for (let index = 0; index < 5; index++) tool(String(index), "same", "completed");
+    for (let index = 0; index < 5; index++) {
+      tool(String(index), "same", "completed");
+    }
     await vi.advanceTimersByTimeAsync(15_000);
-    for (let index = 5; index < 10; index++) tool(String(index), "same", "completed");
+    for (let index = 5; index < 10; index++) {
+      tool(String(index), "same", "completed");
+    }
     await vi.advanceTimersByTimeAsync(15_000);
     expect(send).toHaveBeenCalledOnce();
     expect(send.mock.calls[0]![0].split("\n").slice(0, 5)).toEqual(Array(5).fill("✓ exec · same"));
@@ -134,7 +140,7 @@ describe("Knox progress digest", () => {
     const { progress, tool, emit, send } = setup();
     progress.start();
     tool("a", "git status", "completed");
-    for (const kind of ["tool", "command"])
+    for (const kind of ["tool", "command"]) {
       emit("item", {
         phase: "end",
         kind,
@@ -143,6 +149,7 @@ describe("Knox progress digest", () => {
         name: "exec",
         status: "completed",
       });
+    }
     await vi.advanceTimersByTimeAsync(15_000);
     expect(texts(send)).toEqual(["✓ exec · git status\n⏳ Processing request"]);
   });
@@ -161,6 +168,19 @@ describe("Knox progress digest", () => {
     [{ status: "failed" }, "✗ exec · command"],
     [{ status: "cancelled", isError: true }, "– Cancelled exec · command"],
     [{ status: "unknown" }, "? Unknown exec · command"],
+    [
+      { isError: true, result: { details: { status: "failed", reason: "outcome-unknown" } } },
+      "? Unknown exec · command",
+    ],
+    [
+      { isError: true, result: { details: { status: "failed", reason: "not-dispatched" } } },
+      "– Not started exec · command",
+    ],
+    [{ isError: false, status: "completed", result: { exitCode: 1 } }, "✗ exec · command"],
+    [
+      { isError: false, result: { details: { status: "completed", exitCode: 2 } } },
+      "✗ exec · command",
+    ],
     [{ result: { details: { status: "running" } } }, "↗ Background started exec · command"],
     [
       { result: { details: { async: true, status: "started" } } },
@@ -232,8 +252,9 @@ describe("Knox progress digest", () => {
     const { progress, tool, emit, send } = setup();
     progress.start();
     tool("a", "command");
-    for (const approvalId of ["one", "two"])
+    for (const approvalId of ["one", "two"]) {
       emit("approval", { status: "pending", toolCallId: "a", approvalId });
+    }
     emit("approval", { phase: "resolved", status: "approved", toolCallId: "a", approvalId: "two" });
     await vi.advanceTimersByTimeAsync(15_000);
     expect(texts(send).at(-1)).toBe("? Awaiting approval exec · command");
@@ -255,6 +276,31 @@ describe("Knox progress digest", () => {
     tool("new", "new-command");
     await vi.advanceTimersByTimeAsync(15_000);
     expect(texts(send).at(-1)).toBe("⏳ exec · new-command");
+  });
+
+  it("keeps a request-owned pending acknowledgement across attempt fallback and resumes digest updates", async () => {
+    const { progress, tool, emit, send, cancel } = setup();
+    let acknowledge = () => {};
+    send.mockImplementationOnce(
+      async () =>
+        await new Promise<void>((resolve) => {
+          acknowledge = resolve;
+        }),
+    );
+    progress.start();
+    await vi.advanceTimersByTimeAsync(15_000);
+    const signal = send.mock.calls[0]![2];
+    emit("lifecycle", { phase: "finishing" });
+    emit("lifecycle", { phase: "start" });
+    tool("new-attempt", "new-command");
+    expect(signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(send).toHaveBeenCalledOnce();
+    acknowledge();
+    await progress.drain();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(texts(send)).toEqual(["⏳ Processing request", "⏳ exec · new-command"]);
+    expect(cancel).toHaveBeenCalledWith(0);
   });
 
   it("scopes history to the adopted run rather than a shared session", async () => {

@@ -7,6 +7,7 @@ export type KnoxProgressState =
   | "failed"
   | "pending"
   | "cancelled"
+  | "not-started"
   | "unknown"
   | "background"
   | "approved"
@@ -29,7 +30,9 @@ export function boundKnoxProgressLine(value: string, limit = 50): string {
 
 function field(record: Record<string, unknown>, ...keys: string[]): string | undefined {
   for (const key of keys) {
-    if (typeof record[key] === "string" && record[key].trim()) return record[key];
+    if (typeof record[key] === "string" && record[key].trim()) {
+      return record[key];
+    }
   }
   return undefined;
 }
@@ -43,7 +46,7 @@ export function describeKnoxProgressCall(
   let detail = field(args, "command", "cmd");
   if (!detail) {
     const path = field(args, "path", "file_path", "filePath");
-    detail = path?.replace(/\\/gu, "/").split("/").filter(Boolean).at(-1);
+    detail = path?.replace(/\\/gu, "/").split("/").findLast(Boolean);
   }
   const action = field(args, "action");
   const url = field(args, "url", "targetUrl");
@@ -75,18 +78,39 @@ export function terminalKnoxProgressState(data: Record<string, unknown>): KnoxPr
   const result = isRecord(data.result) ? data.result : {};
   const details = isRecord(result.details) ? result.details : {};
   const status = details.status ?? result.status ?? data.status;
-  if (status === "approval-pending") return "pending";
-  if (status === "approval-unavailable") return "unavailable";
-  if (["cancelled", "canceled", "aborted"].includes(String(status))) return "cancelled";
-  if (data.isError === true || ["failed", "error", "blocked", "declined"].includes(String(status)))
+  const reason = details.reason ?? result.reason;
+  const exitCode = details.exitCode ?? result.exitCode;
+  // A failed RPC can leave execution unknown; transport failure is not proof
+  // that the command ran and failed, or that it never started.
+  if (reason === "outcome-unknown" || status === "unknown") {
+    return "unknown";
+  }
+  if (reason === "not-dispatched") {
+    return "not-started";
+  }
+  if (status === "approval-pending") {
+    return "pending";
+  }
+  if (status === "approval-unavailable") {
+    return "unavailable";
+  }
+  if (["cancelled", "canceled", "aborted"].includes(String(status))) {
+    return "cancelled";
+  }
+  if (
+    data.isError === true ||
+    (typeof exitCode === "number" && exitCode !== 0) ||
+    ["failed", "error", "blocked", "declined"].includes(String(status))
+  ) {
     return "failed";
+  }
   if (
     (details.async === true && status === "started") ||
     status === "running" ||
     status === "inProgress"
-  )
+  ) {
     return "background";
-  if (status === "unknown") return "unknown";
+  }
   return "completed";
 }
 
@@ -97,6 +121,7 @@ export function formatKnoxProgressCall(call: KnoxProgressCall, suffix = ""): str
     failed: "✗",
     pending: "? Awaiting approval",
     cancelled: "– Cancelled",
+    "not-started": "– Not started",
     unknown: "? Unknown",
     background: "↗ Background started",
     approved: "✓ Approved",

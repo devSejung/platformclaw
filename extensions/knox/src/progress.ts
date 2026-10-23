@@ -15,13 +15,12 @@ export function usesKnoxKoreanNotices(text: string): boolean {
 
 /** Request-owned facts only. Display history is bounded; transport ordinals identify recalls. */
 export function createKnoxProgress(params: {
-  text: string;
   delayMs: number;
   abortSignal: AbortSignal;
   subscribe: PluginRuntime["events"]["onAgentEvent"];
   canSend: () => boolean;
   send: (text: string, ordinal: number, signal: AbortSignal) => Promise<void>;
-  cancel?: (ordinal: number) => Promise<void>;
+  cancel: (ordinal: number) => Promise<void>;
   warn: (error: unknown) => void;
 }) {
   const calls = new Map<string, KnoxProgressCall>();
@@ -51,8 +50,12 @@ export function createKnoxProgress(params: {
     timer = undefined;
   };
   const resetFacts = () => {
-    for (const key of approvals.keys()) retiredApprovals.add(key);
-    for (const key of [...calls.keys(), ...finished]) retiredCalls.add(key);
+    for (const key of approvals.keys()) {
+      retiredApprovals.add(key);
+    }
+    for (const key of [...calls.keys(), ...finished]) {
+      retiredCalls.add(key);
+    }
     calls.clear();
     history.clear();
     finished.clear();
@@ -60,7 +63,9 @@ export function createKnoxProgress(params: {
     latestApproval = undefined;
   };
   const stop = () => {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
     stopped = true;
     active = false;
     clearTimer();
@@ -71,11 +76,15 @@ export function createKnoxProgress(params: {
     // Keep the abort cleanup listener until the owner explicitly settles cleanup.
   };
   const cancelNotice = (id: number): Promise<void> => {
-    if (!params.cancel || !notices.has(id)) return Promise.resolve();
+    if (!notices.has(id)) {
+      return Promise.resolve();
+    }
     const current = cancellations.get(id);
-    if (current) return current;
+    if (current) {
+      return current;
+    }
     const pending = Promise.resolve()
-      .then(() => params.cancel!(id))
+      .then(() => params.cancel(id))
       .then(() => {
         notices.delete(id);
       })
@@ -103,15 +112,18 @@ export function createKnoxProgress(params: {
       stopped ||
       data.hideFromChannelProgress === true ||
       (stream === "item" && data.suppressChannelProgress === true)
-    )
+    ) {
       return;
+    }
     const id =
       typeof data.toolCallId === "string"
         ? data.toolCallId
         : typeof data.itemId === "string"
           ? data.itemId
           : undefined;
-    if (id && retiredCalls.has(id)) return;
+    if (id && retiredCalls.has(id)) {
+      return;
+    }
     const previous = calls.get(id ?? "") ?? history.get(id ?? "");
     if (
       stream === "approval" ||
@@ -119,7 +131,9 @@ export function createKnoxProgress(params: {
         ["waiting-approval", "approval-resolved"].includes(String(data.phase)))
     ) {
       const approvalId = typeof data.approvalId === "string" ? data.approvalId : id;
-      if (!approvalId || retiredApprovals.has(approvalId)) return;
+      if (!approvalId || retiredApprovals.has(approvalId)) {
+        return;
+      }
       const matched = approvals.has(approvalId)
         ? ([approvalId, approvals.get(approvalId)!] as const)
         : typeof data.approvalId !== "string"
@@ -143,9 +157,11 @@ export function createKnoxProgress(params: {
         if (typeof data.approvalId === "string") {
           approvals.delete(matched?.[0] ?? approvalId);
         } else {
-          for (const [key, value] of approvals)
-            if (key === approvalId || (id !== undefined && value.callId === id))
+          for (const [key, value] of approvals) {
+            if (key === approvalId || (id !== undefined && value.callId === id)) {
               approvals.delete(key);
+            }
+          }
         }
         calls.delete(id ?? matched?.[1].callId ?? "");
         latestApproval = call;
@@ -156,17 +172,23 @@ export function createKnoxProgress(params: {
       !id ||
       (stream !== "tool" && stream !== "item") ||
       (stream === "item" && !["tool", "command", "search", "patch"].includes(String(data.kind)))
-    )
+    ) {
       return;
+    }
     if (data.phase === "start" || data.phase === "update") {
-      if (!finished.has(id))
+      if (!finished.has(id)) {
         calls.set(id, { ...describeKnoxProgressCall(data, previous), state: "running" });
+      }
       latestApproval = undefined;
     } else if (data.phase === "result" || data.phase === "end") {
       // Embedded tools emit tool+item+command terminals for the same invocation.
       // Only the first canonical terminal counts; the richer tool result comes first.
-      if (finished.has(id)) return;
-      if (data.status === "running" || data.status === "inProgress") return;
+      if (finished.has(id)) {
+        return;
+      }
+      if (data.status === "running" || data.status === "inProgress") {
+        return;
+      }
       const call = {
         ...describeKnoxProgressCall(data, previous),
         state: terminalKnoxProgressState(data),
@@ -179,11 +201,15 @@ export function createKnoxProgress(params: {
         return;
       }
       history.set(id, call);
-      if (history.size > 5) history.delete(history.keys().next().value!);
+      if (history.size > 5) {
+        history.delete(history.keys().next().value!);
+      }
     }
   };
   const unsubscribe = params.subscribe((event: AgentEvent) => {
-    if (event.runId !== runId) return;
+    if (event.runId !== runId) {
+      return;
+    }
     if (event.stream === "lifecycle") {
       if (event.data.phase === "end" || event.data.phase === "error") {
         stop();
@@ -191,7 +217,8 @@ export function createKnoxProgress(params: {
       }
       if (event.data.phase === "start" || event.data.phase === "finishing") {
         resetFacts();
-        deliveryAbort?.abort();
+        // Attempts share the request's relay delivery; resetting observations
+        // must not turn its pending acknowledgement into an ambiguous abort.
       }
     }
     note(event.stream, event.data);
@@ -212,7 +239,9 @@ export function createKnoxProgress(params: {
       .join("\n");
   };
   const tick = () => {
-    if (!active || stopped) return;
+    if (!active || stopped) {
+      return;
+    }
     timer = setTimeout(tick, 15_000);
     timer.unref?.();
     if (
@@ -221,10 +250,13 @@ export function createKnoxProgress(params: {
       recalling ||
       recallFailed ||
       params.abortSignal.aborted
-    )
+    ) {
       return;
+    }
     const text = snapshot();
-    if (text === previousText) return;
+    if (text === previousText) {
+      return;
+    }
     previousText = text;
     const controller = new AbortController();
     deliveryAbort = controller;
@@ -258,10 +290,14 @@ export function createKnoxProgress(params: {
       });
   };
   params.abortSignal.addEventListener("abort", onAbort, { once: true });
-  if (params.abortSignal.aborted) onAbort();
+  if (params.abortSignal.aborted) {
+    onAbort();
+  }
   return {
     start() {
-      if (stopped || active) return;
+      if (stopped || active) {
+        return;
+      }
       active = true;
       timer = setTimeout(tick, params.delayMs);
       timer.unref?.();

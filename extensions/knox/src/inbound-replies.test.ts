@@ -26,6 +26,7 @@ import {
   buildEmptyInteractiveReplyPayload,
   buildKnownAgentRunFailureReplyPayload,
   FailoverError,
+  setReplyPayloadMetadata,
 } from "openclaw/plugin-sdk/reply-payload-testing";
 import type { PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -88,6 +89,9 @@ let outcomes: ReplyOutcome[];
 let relayFailure: "rejected" | "ack-loss" | undefined;
 let holdProgressRelay: boolean;
 let heldProgressSignal: AbortSignal | undefined;
+let heldProgressRelease: (() => void) | undefined;
+let holdTerminalRelay: boolean;
+let heldTerminalRelease: (() => void) | undefined;
 let pendingProgressTurns: Array<() => Promise<void>>;
 
 beforeEach(async () => {
@@ -110,10 +114,14 @@ beforeEach(async () => {
   relayFailure = undefined;
   holdProgressRelay = false;
   heldProgressSignal = undefined;
+  heldProgressRelease = undefined;
+  holdTerminalRelay = false;
+  heldTerminalRelease = undefined;
   pendingProgressTurns = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string, init: RequestInit) => {
+    vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
       if (url === account.controlPlaneUrl) {
         return Response.json({
           status: "resolved",
@@ -123,9 +131,9 @@ beforeEach(async () => {
           executionTarget: "platform_server",
         });
       }
-      const relayUrl = new URL(String(url));
+      const relayUrl = new URL(url);
       if (relayUrl.pathname === "/cancel") {
-        if (typeof init.body !== "string") {
+        if (typeof init?.body !== "string") {
           throw new Error("Expected a cancel JSON body");
         }
         const request = JSON.parse(init.body) as CancelledReply;
@@ -143,25 +151,37 @@ beforeEach(async () => {
           message: "Synthetic relay failure",
         });
       }
-      expect(String(url)).toBe(account.outboundUrl);
-      if (typeof init.body !== "string") {
+      expect(url).toBe(account.outboundUrl);
+      if (typeof init?.body !== "string") {
         throw new Error("Expected a relay JSON body");
       }
       const reply = JSON.parse(init.body) as SentReply;
       sent.push(reply);
       relayOperations.push({ kind: "send", requestId: reply.requestId });
-      if (holdProgressRelay && reply.requestId.startsWith("progress:")) {
+      const holdProgress = holdProgressRelay && reply.requestId.startsWith("progress:");
+      if (holdProgress || (holdTerminalRelay && reply.final)) {
         const signal = init.signal;
         if (!signal) {
           throw new Error("Expected cancellation for a progress request");
         }
-        heldProgressSignal = signal;
-        return await new Promise<Response>((_resolve, reject) => {
+        if (holdProgress) {
+          heldProgressSignal = signal;
+        }
+        return await new Promise<Response>((resolve, reject) => {
           const fail = () =>
             reject(
               signal.reason instanceof Error ? signal.reason : new Error("Mock relay aborted"),
             );
           signal.addEventListener("abort", fail, { once: true });
+          const release = () => {
+            signal.removeEventListener("abort", fail);
+            resolve(Response.json({ ok: true, messageId: `receipt:${reply.requestId}` }));
+          };
+          if (holdProgress) {
+            heldProgressRelease = release;
+          } else {
+            heldTerminalRelease = release;
+          }
           if (signal.aborted) {
             fail();
           }
@@ -370,6 +390,57 @@ describe("Knox digest through the core dispatch and mock relay", () => {
     },
   );
 
+  it("keeps the confirmed notice until its replacement acknowledgement arrives", async () => {
+    const turn = await startProgressBoundary({ text: "Run commands" });
+    await vi.advanceTimersByTimeAsync(15_000);
+    const original = sent[0]!;
+    holdProgressRelay = true;
+    turn.emit("tool", {
+      phase: "start",
+      toolCallId: "replacement",
+      name: "exec",
+      args: { command: "node replacement.js" },
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(sent).toHaveLength(2);
+    expect(heldProgressRelease).toBeDefined();
+    expect(cancelled).toEqual([]);
+    heldProgressRelease!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cancelled.map((item) => item.targetRequestId)).toEqual([original.requestId]);
+    expect(sent[1]?.text).toBe("⏳ exec · node replacement.js");
+    holdProgressRelay = false;
+    await turn.finish();
+  });
+
+  it.each(["cancelled", "aborted"] as const)(
+    "recalls progress immediately for authoritative native %s without aborting the ingress signal",
+    async (reason) => {
+      const turn = await startProgressBoundary({ text: "Run commands" });
+      await vi.advanceTimersByTimeAsync(15_000);
+      const notice = sent[0]!;
+      holdTerminalRelay = true;
+      const payload = setReplyPayloadMetadata(
+        { text: "Native execution stopped", isError: true },
+        {
+          agentRunTerminalOutcome: { status: "error", reason },
+        },
+      );
+      const finishing = turn.finish(payload);
+      try {
+        await vi.waitFor(() => expect(heldTerminalRelease).toBeDefined());
+        expect(turn.controller.signal.aborted).toBe(false);
+        expect(cancelled.map((item) => item.targetRequestId)).toEqual([notice.requestId]);
+        expect(sent.at(-1)).toMatchObject({ status: "error", final: true });
+        expect(sent.at(-1)?.text).toContain("확인 코드: cancelled");
+      } finally {
+        holdTerminalRelay = false;
+        heldTerminalRelease?.();
+        await finishing;
+      }
+    },
+  );
+
   it("keeps only the latest five terminal calls in chronology and puts active work last", async () => {
     const turn = await startProgressBoundary({ text: "Inspect files" });
     for (let index = 0; index < 7; index += 1) {
@@ -471,8 +542,11 @@ describe("Knox digest through the core dispatch and mock relay", () => {
       const turn = await startProgressBoundary({ text: "Run tools" });
       await vi.advanceTimersByTimeAsync(15_000);
       const notice = sent[0]!;
-      if (stop === "abort") turn.controller.abort();
-      else turn.emit("lifecycle", { phase: stop });
+      if (stop === "abort") {
+        turn.controller.abort();
+      } else {
+        turn.emit("lifecycle", { phase: stop });
+      }
       turn.emit("tool", { phase: "start", toolCallId: "late", name: "late-tool" });
       await vi.advanceTimersByTimeAsync(30_000);
       expect(sent).toHaveLength(1);
@@ -572,8 +646,11 @@ describe("Knox digest through the core dispatch and mock relay", () => {
   it.each(["deny", "message-tool-only"] as const)(
     "honors automatic source suppression under %s",
     async (policy) => {
-      if (policy === "deny") cfg.session = { ...cfg.session, sendPolicy: { default: "deny" } };
-      else cfg.messages = { visibleReplies: "message_tool" };
+      if (policy === "deny") {
+        cfg.session = { ...cfg.session, sendPolicy: { default: "deny" } };
+      } else {
+        cfg.messages = { visibleReplies: "message_tool" };
+      }
       const turn = await startProgressBoundary({ text: "Run tools" });
       turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
       await vi.advanceTimersByTimeAsync(45_000);
@@ -636,7 +713,7 @@ describe("Knox digest through the core dispatch and mock relay", () => {
         sent
           .at(-1)
           ?.text.split("\n")
-          .some((line) => /^✓ exec · /u.test(line)),
+          .some((line) => line.startsWith("✓ exec · ")),
       ).toBe(true);
       const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
       expect(

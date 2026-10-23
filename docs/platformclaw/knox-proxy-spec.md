@@ -540,6 +540,10 @@ PlatformClaw uses this bounded policy:
    blocks, and final/error replies are never recalled as temporary progress.
    A failed recall is recorded; further replacements stop to avoid accumulation.
 
+These cleanup guarantees apply to the adopted request's process lifetime.
+Recovering temporary-notice keys after an abrupt Gateway crash needs a durable
+PlatformClaw outbox follow-up; proxy persistence alone does not recover them.
+
 Example digest:
 
 ```text

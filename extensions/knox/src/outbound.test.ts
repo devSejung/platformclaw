@@ -47,6 +47,10 @@ function receipt(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
 }
 
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  return input instanceof Request ? input.url : input.toString();
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -236,7 +240,7 @@ describe("Knox relay operation lifecycle", () => {
     await vi.advanceTimersByTimeAsync(1);
     await expect(result).resolves.toBe("out-confirmed");
     const [input, init] = fetchImpl.mock.calls[1]!;
-    const url = new URL(String(input));
+    const url = new URL(requestUrl(input));
     expect(url.pathname).toBe("/outbound/status");
     expect(url.searchParams.get("requestId")).toBe("progress:evt-1:0");
     expect(url.searchParams.get("runId")).toBe(context.runId);
@@ -252,6 +256,88 @@ describe("Knox relay operation lifecycle", () => {
       .mockResolvedValueOnce(receipt({ ok: true, state: "sent", messageId: "accepted-id" }));
     await expect(send(fetchImpl)).resolves.toBe("accepted-id");
     expect(fetchImpl.mock.calls.map(([, init]) => init?.method)).toEqual(["POST", "GET"]);
+  });
+
+  it.each([
+    ["send", "pending"],
+    ["send", "lost"],
+    ["cancel", "pending"],
+    ["cancel", "lost"],
+  ] as const)(
+    "keeps %s lookup outages inside GET after %s acknowledgement",
+    async (operation, acknowledgement) => {
+      vi.useFakeTimers();
+      const fetchImpl = vi.fn<typeof fetch>();
+      if (acknowledgement === "pending") {
+        fetchImpl.mockResolvedValueOnce(
+          receipt({ ok: true, state: "pending", retryAfterSeconds: 1 }, 202),
+        );
+      } else {
+        fetchImpl.mockRejectedValueOnce(new Error("acknowledgement lost"));
+      }
+      fetchImpl
+        .mockResolvedValueOnce(receipt({ ok: false, retryable: true, retryAfterSeconds: 2 }, 503))
+        .mockResolvedValueOnce(
+          receipt(
+            operation === "send"
+              ? { ok: true, state: "sent", messageId: "confirmed" }
+              : { ok: true, state: "cancelled", outcome: "recalled" },
+          ),
+        );
+      const result =
+        operation === "send"
+          ? send(fetchImpl)
+          : cancelKnoxOutbound({ context, targetRequestId: "progress:evt-1:0", fetchImpl });
+      const assertion = expect(result).resolves.toBe(
+        operation === "send" ? "confirmed" : undefined,
+      );
+      await vi.advanceTimersByTimeAsync(acknowledgement === "pending" ? 1_000 : 0);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      await assertion;
+      expect(fetchImpl.mock.calls.map(([, init]) => init?.method)).toEqual(["POST", "GET", "GET"]);
+    },
+  );
+
+  it.each(["send", "cancel"] as const)(
+    "bounds persistent %s status outages without repeating POST",
+    async (operation) => {
+      vi.useFakeTimers();
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockRejectedValueOnce(new Error("acknowledgement lost"))
+        .mockImplementation(async () =>
+          receipt({ ok: false, retryable: true, retryAfterSeconds: 1 }, 503),
+        );
+      const result =
+        operation === "send"
+          ? send(fetchImpl)
+          : cancelKnoxOutbound({ context, targetRequestId: "progress:evt-1:0", fetchImpl });
+      const assertion = expect(result).rejects.toMatchObject({
+        errorCode: operation === "send" ? "DELIVERY_UNKNOWN" : "CANCEL_UNKNOWN",
+        retryable: false,
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      await assertion;
+      expect(fetchImpl.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+      expect(fetchImpl.mock.calls.length).toBeLessThanOrEqual(31);
+    },
+  );
+
+  it("preserves an explicit stored failed outcome during status lookup", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error("acknowledgement lost"))
+      .mockResolvedValueOnce(
+        receipt({ ok: false, state: "failed", errorCode: "KNOX_API_ERROR", retryable: true }, 503),
+      );
+    await expect(send(fetchImpl)).rejects.toMatchObject({
+      errorCode: "KNOX_API_ERROR",
+      retryable: true,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("looks up a duplicate without a receipt instead of inventing delivery success", async () => {
@@ -368,9 +454,12 @@ describe("Knox relay operation lifecycle", () => {
       }),
     ).resolves.toBeUndefined();
     const [input, init] = fetchImpl.mock.calls[0]!;
-    expect(String(input)).toBe("http://cdep.example/outbound/cancel");
+    expect(requestUrl(input)).toBe("http://cdep.example/outbound/cancel");
     expect(init?.headers).toMatchObject({ Authorization: `Bearer ${account.serviceToken}` });
-    expect(JSON.parse(String(init?.body))).toEqual({
+    if (typeof init?.body !== "string") {
+      throw new Error("expected string cancellation body");
+    }
+    expect(JSON.parse(init.body)).toEqual({
       requestId: "cancel:progress:evt-1:0",
       runId: context.runId,
       targetRequestId: "progress:evt-1:0",
@@ -386,7 +475,7 @@ describe("Knox relay operation lifecycle", () => {
       .mockRejectedValueOnce(new Error("cancel response lost"))
       .mockResolvedValueOnce(receipt({ ok: true, state: "cancelled", outcome: "recalled" }));
     await cancelKnoxOutbound({ context, targetRequestId: "progress:evt-1:0", fetchImpl });
-    const url = new URL(String(fetchImpl.mock.calls[1]![0]));
+    const url = new URL(requestUrl(fetchImpl.mock.calls[1]![0]));
     expect(url.searchParams.get("requestId")).toBe("cancel:progress:evt-1:0");
     expect(url.searchParams.get("runId")).toBe(context.runId);
     expect(fetchImpl.mock.calls.map(([, init]) => init?.method)).toEqual(["POST", "GET"]);

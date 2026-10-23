@@ -88,7 +88,8 @@ function mockRelay(sent: Sent[]) {
   const recalled: string[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string, init: RequestInit) => {
+    vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
       if (url === account.controlPlaneUrl) {
         return Response.json({
           status: "resolved",
@@ -98,14 +99,14 @@ function mockRelay(sent: Sent[]) {
           executionTarget: null,
         });
       }
-      if (typeof init.body !== "string") {
+      if (typeof init?.body !== "string") {
         throw new Error("Expected a JSON request body");
       }
-      if (new URL(String(url)).pathname === "/cancel") {
+      if (new URL(url).pathname === "/cancel") {
         recalled.push((JSON.parse(init.body) as { targetRequestId: string }).targetRequestId);
         return Response.json({ ok: true, state: "cancelled", outcome: "recalled" });
       }
-      expect(String(url)).toBe(account.outboundUrl);
+      expect(url).toBe(account.outboundUrl);
       sent.push(JSON.parse(init.body) as Sent);
       return Response.json({ ok: true, messageId: `receipt-${sent.length}` });
     }),

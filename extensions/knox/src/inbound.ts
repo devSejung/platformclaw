@@ -119,14 +119,19 @@ export async function sendKnoxQueuedNotice(params: {
   const cleanup = () => {
     // Adoption may beat a pending acknowledgement. Cancel the original key so
     // the proxy can suppress or recall that in-flight queued notice.
-    cancellation ??= cancelKnoxOutbound({ context, targetRequestId: requestId }).catch((error) => {
-      params.warn?.(
-        `Knox queued notice cleanup failed: ${redactSensitiveText(formatErrorMessage(error)).slice(0, 1_000)}`,
-      );
-    });
+    cancellation ??= cancelKnoxOutbound({ context, targetRequestId: requestId }).catch(
+      (error: unknown) => {
+        params.warn?.(
+          `Knox queued notice cleanup failed: ${redactSensitiveText(formatErrorMessage(error)).slice(0, 1_000)}`,
+        );
+      },
+    );
     return cancellation;
   };
-  params.abortSignal.addEventListener("abort", cleanup, { once: true });
+  const onAbort = () => {
+    void cleanup();
+  };
+  params.abortSignal.addEventListener("abort", onAbort, { once: true });
   try {
     await sendKnoxOutbound({
       context,
@@ -139,7 +144,7 @@ export async function sendKnoxQueuedNotice(params: {
       abortSignal: params.abortSignal,
     });
   } finally {
-    params.abortSignal.removeEventListener("abort", cleanup);
+    params.abortSignal.removeEventListener("abort", onAbort);
     if (params.abortSignal.aborted) {
       await cleanup();
     }
@@ -285,7 +290,7 @@ export async function dispatchKnoxInbound(params: {
       ? cancelKnoxOutbound({
           context: outboundContext,
           targetRequestId: `queued:${params.message.messageId}`,
-        }).catch((error) =>
+        }).catch((error: unknown) =>
           params.log?.warn?.(
             `Knox queued notice cleanup failed: ${redactSensitiveText(formatErrorMessage(error)).slice(0, 1_000)}`,
           ),
@@ -308,7 +313,6 @@ export async function dispatchKnoxInbound(params: {
   const progressRequestId = (ordinal: number) =>
     `progress:${params.message.messageId}${ordinal === 0 ? "" : `:${ordinal}`}`;
   const progress = createKnoxProgress({
-    text: params.message.message.text,
     delayMs: params.account.progressDelayMs,
     abortSignal: params.lifecycle.abortSignal,
     subscribe: runtime.events.onAgentEvent,
@@ -399,6 +403,9 @@ export async function dispatchKnoxInbound(params: {
               : {}),
             onAgentRunFailure: (outcome, reason) => {
               progress.stop();
+              if (terminalFailureReason(outcome) === "cancelled") {
+                void progress.cleanup();
+              }
               // Followups can fail after dispatch returned its queue admission.
               // Keep the owner's fact until the deferred lifecycle settles.
               observedSourceFailure = { outcome, reason: reason ?? observedSourceFailure?.reason };
@@ -442,6 +449,9 @@ export async function dispatchKnoxInbound(params: {
               if (terminal) {
                 turnFinished = true;
                 progress.stop();
+                if (reason === "cancelled") {
+                  void progress.cleanup();
+                }
               }
               progress.visibleReply();
               await progress.drain();
@@ -520,6 +530,9 @@ export async function dispatchKnoxInbound(params: {
           observedSourceFailure?.reason ?? result.dispatchResult.noVisibleReplyReason,
         );
         recordOutcome(reason, sourceFailure.error);
+        if (reason === "cancelled") {
+          void progress.cleanup();
+        }
         await sendKnoxOutbound({
           context: outboundContext,
           status: reason === "timeout" ? "timeout" : "error",
@@ -563,6 +576,17 @@ export async function dispatchKnoxInbound(params: {
     ) {
       return;
     }
+    if (!finalSent) {
+      recordOutcome(recoveryReason);
+      await sendKnoxOutbound({
+        context: outboundContext,
+        status: "error",
+        text: formatKnoxReplyFailure(recoveryReason, reference),
+        final: true,
+        requestId: `error:${params.message.messageId}`,
+      });
+      await progress.cleanup();
+    }
   } catch (error) {
     turnFinished = true;
     progress.stop();
@@ -578,6 +602,9 @@ export async function dispatchKnoxInbound(params: {
       throw error;
     }
     const reason = runtimeFailureReason(error);
+    if (reason === "cancelled") {
+      void progress.cleanup();
+    }
     const timedOut = reason === "timeout";
     recordOutcome(reason, error);
     if (automaticReplySuppression) {
@@ -597,7 +624,6 @@ export async function dispatchKnoxInbound(params: {
       requestId: `${timedOut ? "timeout" : "error"}:${params.message.messageId}`,
     });
     await progress.cleanup();
-    return;
   } finally {
     params.lifecycle.abortSignal.removeEventListener("abort", abandonDeferredWait);
     turnFinished = true;
@@ -609,17 +635,6 @@ export async function dispatchKnoxInbound(params: {
     }
     progress.dispose();
     await queuedCleanup;
-  }
-  if (!finalSent) {
-    recordOutcome(recoveryReason);
-    await sendKnoxOutbound({
-      context: outboundContext,
-      status: "error",
-      text: formatKnoxReplyFailure(recoveryReason, reference),
-      final: true,
-      requestId: `error:${params.message.messageId}`,
-    });
-    await progress.cleanup();
   }
 }
 

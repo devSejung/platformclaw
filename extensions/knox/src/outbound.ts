@@ -252,6 +252,17 @@ async function runKnoxRelayOperation(params: RelayOperationParams): Promise<stri
     if (lookup && response.status === 404) {
       throw unknownRelayResult(params.operation);
     }
+    // Lookup outages do not change the stored operation outcome. Retry only GET so
+    // callers cannot mistake a temporary status failure for permission to resend.
+    if (
+      lookup &&
+      body?.state !== "failed" &&
+      (!response.ok || body?.ok === false) &&
+      relayFailure(response, body).retryable
+    ) {
+      waitMs = relayRetryDelay(response, body);
+      continue;
+    }
     if (body?.state === "failed" || (body?.ok === false && !duplicate)) {
       throw relayFailure(response, body);
     }
