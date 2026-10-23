@@ -12,7 +12,7 @@ afterEach(() =>
 );
 
 describe("PlatformClaw MCP role views", () => {
-  it("moves keyboard focus and active panels with Arrow, Home, and End while retaining child views", async () => {
+  it("uses shared tab selection events while retaining both child views", async () => {
     const page = document.createElement("platformclaw-mcp-page") as McpPageElement;
     page.admin = true;
     page.fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ servers: [] })));
@@ -20,21 +20,14 @@ describe("PlatformClaw MCP role views", () => {
     await page.updateComplete;
     const settings = page.querySelector("platformclaw-mcp-settings");
     const administration = page.querySelector("platformclaw-mcp-administration");
-    for (const [key, expected] of [
-      ["ArrowRight", "settings"],
-      ["ArrowRight", "administration"],
-      ["End", "settings"],
-      ["Home", "administration"],
-      ["ArrowLeft", "settings"],
-    ]) {
-      page
-        .querySelector<HTMLElement>("[role='tab'][aria-selected='true']")!
-        .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    const group = page.querySelector("wa-tab-group")!;
+    for (const expected of ["settings", "administration"]) {
+      group.dispatchEvent(new CustomEvent("wa-tab-show", { detail: { name: expected } }));
       await page.updateComplete;
       const tab = page.querySelector<HTMLElement>(`#mcp-tab-${expected}`)!;
-      expect(tab.getAttribute("aria-selected")).toBe("true");
-      expect(tab.tabIndex).toBe(0);
-      expect(document.activeElement).toBe(tab);
+      expect(tab.localName).toBe("wa-tab");
+      expect(tab.hasAttribute("active")).toBe(true);
+      expect(tab.getAttribute("aria-controls")).toBe(`mcp-panel-${expected}`);
       expect(page.querySelector(`#mcp-panel-${expected}`)?.hasAttribute("hidden")).toBe(false);
     }
     expect(page.querySelector("platformclaw-mcp-settings")).toBe(settings);
@@ -54,11 +47,15 @@ describe("PlatformClaw MCP role views", () => {
     const settings = page.querySelector("platformclaw-mcp-settings");
     expect(settings).not.toBeNull();
     expect(page.querySelector("#mcp-panel-settings")?.hasAttribute("hidden")).toBe(true);
-    page.querySelector<HTMLButtonElement>("#mcp-tab-settings")!.click();
+    page
+      .querySelector("wa-tab-group")!
+      .dispatchEvent(new CustomEvent("wa-tab-show", { detail: { name: "settings" } }));
     await page.updateComplete;
     expect(page.querySelector("#mcp-panel-settings")?.hasAttribute("hidden")).toBe(false);
     expect(page.querySelector("#mcp-panel-administration")?.hasAttribute("hidden")).toBe(true);
-    page.querySelector<HTMLButtonElement>("#mcp-tab-administration")!.click();
+    page
+      .querySelector("wa-tab-group")!
+      .dispatchEvent(new CustomEvent("wa-tab-show", { detail: { name: "administration" } }));
     await page.updateComplete;
     expect(page.querySelector("platformclaw-mcp-settings")).toBe(settings);
   });

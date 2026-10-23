@@ -30,7 +30,7 @@ export function createMcpCatalogSelection(): McpCatalogSelection {
   return { search: "", policy: "all", status: "all", page: 0, selected: null, picking: false };
 }
 
-export function mcpPolicyLabel(mode: McpCredentialMode): string {
+function mcpPolicyLabel(mode: McpCredentialMode): string {
   return t(
     `platformClaw.mcp.${mode === "none" ? "adminNoCredentialShort" : mode === "shared" ? "adminSharedCredential" : "adminPersonalCredential"}`,
   );

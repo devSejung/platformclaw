@@ -27,7 +27,7 @@ let server: ControlUiE2eServer;
 
 async function install(
   page: Page,
-  kind: "mcp-settings" | "mcp-administration",
+  kind: "mcp-settings" | "mcp-administration" | "mcp-page",
   theme = "platformclaw",
   locale: "en" | "ko" = "en",
 ) {
@@ -60,7 +60,11 @@ async function install(
     scrollOwner.style.height = "100dvh";
     const pageContent = document.createElement("div");
     pageContent.className = "mcp-proof-page";
-    pageContent.append(document.createElement(tag));
+    const component = document.createElement(tag);
+    if (tag === "platformclaw-mcp-page") {
+      component.setAttribute("admin", "");
+    }
+    pageContent.append(component);
     scrollOwner.append(pageContent);
     document.body.replaceChildren(scrollOwner);
   }, `platformclaw-${kind}`);
@@ -83,6 +87,41 @@ runE2e("PlatformClaw MCP responsive settings", () => {
   afterAll(async () => {
     await browser?.close();
     await server?.close();
+  });
+
+  it("switches administrator panels through shared tabs with pointer and Arrow, Home, and End keys", async () => {
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    const page = await context.newPage();
+    await page.route("**/platformclaw/api/**", (route) => route.fulfill({ json: { servers: [] } }));
+    try {
+      await install(page, "mcp-page");
+      const administration = page.getByRole("tab", { name: "Server administration", exact: true });
+      const settings = page.getByRole("tab", { name: "My settings", exact: true });
+      await administration.waitFor();
+      await administration.focus();
+      for (const [key, expected] of [
+        ["ArrowRight", "settings"],
+        ["ArrowRight", "administration"],
+        ["End", "settings"],
+        ["Home", "administration"],
+        ["ArrowLeft", "settings"],
+      ] as const) {
+        await page.keyboard.press(key);
+        const tab = expected === "settings" ? settings : administration;
+        await expect.poll(() => tab.getAttribute("aria-selected")).toBe("true");
+        expect(await tab.evaluate((element) => document.activeElement === element)).toBe(true);
+        expect(await page.locator(`#mcp-panel-${expected}`).isVisible()).toBe(true);
+      }
+      await administration.click();
+      await expect.poll(() => page.locator("#mcp-panel-administration").isVisible()).toBe(true);
+      await settings.click();
+      await expect.poll(() => page.locator("#mcp-panel-settings").isVisible()).toBe(true);
+      expect(await page.locator("platformclaw-mcp-settings").count()).toBe(1);
+      expect(await page.locator("platformclaw-mcp-administration").count()).toBe(1);
+      await screenshot(page, "admin-shared-tabs-fhd.png");
+    } finally {
+      await context.close();
+    }
   });
 
   it("displays the saved OAuth policy and keeps the selected authentication aligned with the submitted draft", async () => {

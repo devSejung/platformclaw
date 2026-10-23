@@ -1,5 +1,6 @@
 import { html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
+import "../components/web-awesome-tabs.ts";
 import { OpenClawLightDomElement } from "../lit/openclaw-element.ts";
 import { platformClawT as t } from "./i18n.ts";
 import "./mcp-administration.ts";
@@ -20,75 +21,63 @@ class PlatformClawMcpPageElement extends OpenClawLightDomElement {
           display: none !important;
         }
         .platformclaw-mcp-tabs {
-          display: flex;
-          gap: 8px;
+          --track-color: var(--border);
+          --indicator-color: var(--accent);
           margin-bottom: 20px;
-          border-bottom: 1px solid var(--border);
+        }
+        .platformclaw-mcp-tabs::part(body) {
+          display: none;
+        }
+        .platformclaw-mcp-tabs::part(tabs) {
+          gap: 8px;
           padding-bottom: 10px;
         }
-        .platformclaw-mcp-tabs button {
+        .platformclaw-mcp-tabs wa-tab::part(base) {
           padding: 8px 12px;
           border: 1px solid transparent;
           border-radius: var(--radius-md);
-          background: transparent;
           color: var(--muted);
           font: inherit;
-          cursor: pointer;
         }
-        .platformclaw-mcp-tabs button[aria-selected="true"] {
+        .platformclaw-mcp-tabs wa-tab[active]::part(base) {
           background: var(--accent-subtle);
           color: var(--accent);
           border-color: var(--border);
         }
-        .platformclaw-mcp-tabs button:focus-visible {
+        .platformclaw-mcp-tabs wa-tab:focus-visible::part(base) {
           outline: none;
           box-shadow: var(--focus-ring);
         }
       </style>
       ${this.admin
-        ? html`<div
+        ? html`<wa-tab-group
               class="platformclaw-mcp-tabs"
-              role="tablist"
               aria-label=${t("platformClaw.mcp.title")}
+              .active=${this.tab}
+              without-scroll-controls
+              @wa-tab-show=${(event: CustomEvent<{ name: string }>) => {
+                if (event.detail.name === "administration" || event.detail.name === "settings") {
+                  this.tab = event.detail.name;
+                }
+              }}
             >
               ${(["administration", "settings"] as const).map(
                 (tab) =>
-                  html`<button
+                  html`<wa-tab
                     id=${`mcp-tab-${tab}`}
-                    type="button"
-                    role="tab"
-                    tabindex=${this.tab === tab ? "0" : "-1"}
-                    aria-selected=${String(this.tab === tab)}
+                    slot="nav"
+                    panel=${tab}
+                    ?active=${this.tab === tab}
                     aria-controls=${`mcp-panel-${tab}`}
-                    @click=${() => {
-                      this.tab = tab;
-                    }}
-                    @keydown=${(event: KeyboardEvent) => {
-                      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
-                        return;
-                      }
-                      event.preventDefault();
-                      this.tab =
-                        event.key === "Home"
-                          ? "administration"
-                          : event.key === "End"
-                            ? "settings"
-                            : this.tab === "administration"
-                              ? "settings"
-                              : "administration";
-                      void this.updateComplete.then(() =>
-                        this.querySelector<HTMLElement>(`#mcp-tab-${this.tab}`)?.focus(),
-                      );
-                    }}
                   >
                     ${t(
                       tab === "administration"
                         ? "platformClaw.mcp.adminTab"
                         : "platformClaw.mcp.mySettingsTab",
                     )}
-                  </button>`,
+                  </wa-tab>`,
               )}
-            </div>
+            </wa-tab-group>
             <section
               id="mcp-panel-administration"
               role="tabpanel"

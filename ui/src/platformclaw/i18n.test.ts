@@ -29,9 +29,14 @@ describe("PlatformClaw product translations", () => {
     await loadAllPlatformClawLocales();
     await i18n.setLocale("ko");
     expect(platformClawT("configView.appearance.terminalTextSize")).toBe("터미널 텍스트 크기");
+    expect(platformClawT("platformClaw.mcp.headerGuides")).toBe("추가 헤더 가이드");
 
     await i18n.setLocale("en");
     expect(platformClawT("configView.appearance.terminalTextSize")).toBe("Terminal text size");
+    expect(platformClawT("platformClaw.mcp.headerGuides")).toBe("Additional header guidance");
+    expect(platformClawT("platformClaw.mcp.personalToggleLabel", { server: "Docs" })).toBe(
+      "Allow my use of Docs",
+    );
   });
 
   it("loads native Korean controls alongside the core locale without replacing other copy", async () => {

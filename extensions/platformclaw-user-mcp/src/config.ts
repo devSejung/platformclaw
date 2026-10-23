@@ -1,5 +1,5 @@
-export type UserMcpAuthKind = "bearer" | "api_key" | "oauth";
-export type McpHeaderGuide = { name: string; description?: string };
+type UserMcpAuthKind = "bearer" | "api_key" | "oauth";
+type McpHeaderGuide = { name: string; description?: string };
 
 export type UserMcpServerPolicy = {
   serverName: string;
