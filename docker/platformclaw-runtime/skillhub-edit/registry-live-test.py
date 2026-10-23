@@ -15,7 +15,7 @@ import uuid
 import zipfile
 from pathlib import Path
 
-IMAGE = sys.argv[1] if len(sys.argv) > 1 else "platformclaw-skillhub-server:6e133c006e49099555e5c88b"
+IMAGE = sys.argv[1] if len(sys.argv) > 1 else "platformclaw-skillhub-server:6e133c006e49cb1217a0ba75"
 PREFIX = "pc-skill-edit-registry-" + secrets.token_hex(4)
 containers = []
 volumes = []
