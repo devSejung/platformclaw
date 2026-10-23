@@ -51,18 +51,33 @@ Read the app's scoped owner guide. Record whether macOS app signing, physical
 iOS/Android devices, simulators, Android emulators, or hosted runners were
 actually available and exercised. Source inspection is not runtime proof.
 
-## Remote execution
+## Execution environment
 
-Follow `.agents/skills/crabbox/SKILL.md` for heavy trusted-source suites,
-packaging, Docker, browser, and live provider proof. Acquire a trusted lease
-only when needed and execute **one command at a time per lease**. Sync and
-verify the exact candidate SHA before running. A 780-second timeout bounds an
-individual subagent scenario after its setup completes.
+Root `AGENTS.md` Validation owns environment selection; `$openclaw-testing`
+and the scenario owner still define the required checks and proof. For trusted
+heavy suites, packaging, browser, and live-provider proof, use Docker Desktop
+Linux first, then a healthy WSL distribution when Docker is unsuitable. Use
+supported existing GitHub Actions workflows for mandatory hosted/native proof.
+Docker/WSL success does not replace required native, packaged-upgrade, or
+live-channel evidence. Crabbox and Testbox are unavailable; do not probe, warm,
+invoke, or retry either service unless the user explicitly confirms restoration.
+Do not use DevSpace or automatically launch another external agent runner.
 
-If an orchestrator process or session disappears, inspect the original remote
-job, recorded command, and authoritative exit status before retrying. A missing
-local session neither proves success nor permits a competing run on the lease.
+Acquire only task-owned environments, verify the exact candidate SHA or dirty
+patch identity, and serialize commands that share mutable state or a repository
+lock. Provision dependencies in a separate Linux checkout/dependency volume,
+never through a bind mount onto the Windows checkout or its `node_modules`.
+Never run `pnpm install` or reconciliation in Windows linked/sparse worktrees.
+A 780-second timeout bounds an individual subagent scenario after setup.
 
-For untrusted contributor source, follow the root trust-isolation rules;
-never expose a hydrated Testbox, user credentials, or local repository tooling
-to unreviewed code.
+If a controlling session disappears, inspect the original container, WSL
+process, or CI job, recorded command, and authoritative exit before retrying.
+A missing session neither proves success nor permits a competing shared-state
+run. Record environment, exact command, source identity, exit, sanitized
+artifacts, and any unavailable prerequisites; unknown results remain gaps.
+
+Untrusted contributor/fork code, including scripts, wrappers, config, tests,
+and install hooks, runs only on existing secretless fork CI at the reviewed
+immutable full SHA. Never execute it on the host, Docker Desktop, WSL, or a
+credentialed runner. Follow root trust isolation; if suitable CI is unavailable,
+report the proof gap instead of using a local fallback.

@@ -7,9 +7,9 @@ Record campaign-wide facts:
 - The operator's current requested target and minimum soak duration; update the active target without erasing earlier historical progress.
 - Exact current `origin/main` SHA and refresh time.
 - The single refresh coordinator; native-operation pauses and proof that each post-merge fetched baseline contains the recorded merge SHA.
-- At least ten named, meaningfully distinct active subsystem lanes.
-- Independently observed child PID, durable supervisor, exact-checkout guard, and observation time for each currently running CLI worker; completed and stale waves are separate historical evidence.
-- Owned gateway ports, isolated state, health, CPU/memory/load, and remote lease state.
+- At least ten named, meaningfully distinct subsystem lanes across a broad campaign, with active, completed, and pending coverage separated across capacity-bounded waves.
+- Available host-native slot budget, each built-in agent's identity and observed state, exact-checkout guard, and observation time; completed and stale waves are separate historical evidence. Record missing independent reviewers as pending proof, never as self-approval.
+- Owned gateway ports, isolated state, health, CPU/memory/load, and task-owned Docker/WSL/CI environment state under root Validation.
 - Actual live provider, configured `agents.list`, selected existing agent, and selected model without credential material; record separate delivered-final and persisted-session evidence.
 - Soak start, elapsed time, pass/fail/skip counts, and whether completion was actually reached.
 - Both current author-limit workflows, complete author count, and actual author, repository-role, bot/app, branch-prefix, or override exemption, if one is proved.

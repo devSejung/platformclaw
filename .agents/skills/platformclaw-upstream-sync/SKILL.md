@@ -112,7 +112,7 @@ Review newly added or renamed `.github/workflows/**`. Do not import OpenClaw org
 
 ## 6. Validate before committing
 
-Run focused tests for every resolved or semantically overlapping surface first. Then follow `$openclaw-testing` and `$crabbox` for the current repository validation route. At minimum:
+Run focused tests for every resolved or semantically overlapping surface first. Then follow `$openclaw-testing` for the required test matrix and the root `AGENTS.md` Validation section for execution routing. Crabbox and Testbox are unavailable on this host; do not probe, warm, invoke, or retry them unless the user explicitly confirms restoration. At minimum, in the permitted trusted validation environment:
 
 ```powershell
 node scripts/platformclaw-check.mjs --changed --quick
@@ -120,7 +120,7 @@ node scripts/platformclaw-check.mjs --changed
 git diff --check
 ```
 
-Use Linux Docker as runtime authority. Start `$autoreview` concurrently with the relevant checks at the functional checkpoint; apply accepted findings in one fix cycle, then rerun only affected checks. Do not install dependencies in the linked Windows worktree.
+Use local Docker Desktop Linux containers as runtime authority; use a healthy local WSL distribution when Docker is unsuitable, and existing GitHub Actions for mandatory hosted/native gates. Keep source-trust restrictions and immutable patch identity; Docker/WSL proof does not replace required hosted CI. For full checks that invoke `check:changed`, set `OPENCLAW_CHECK_CHANGED_REMOTE_CHILD=1` in the trusted Linux environment. Start `$autoreview` concurrently with the relevant checks at the functional checkpoint; apply accepted findings in one fix cycle, then rerun only affected checks. Do not install dependencies in the linked Windows worktree.
 
 Commit the resolved tree as one merge commit. Then verify the immutable evidence:
 
@@ -141,7 +141,7 @@ When authorized, push only the sync branch and open a ready-for-review PR into `
 - workflow additions/renames and private-origin enablement decisions;
 - remaining risks and follow-ups separated from the sync.
 
-Add the redacted transcript section through `$agent-transcript`. Keep the PR non-draft so PlatformClaw Full CI runs. Do not recommend merge until required PlatformClaw CI and Full CI are green and the latest ClawSweeper rank-up moves are applied or explicitly answered.
+Use `$agent-transcript` only when the user explicitly requests a transcript; follow its redaction and publication-scope rules. Preview authorization alone does not authorize publication. Keep the PR non-draft so PlatformClaw Full CI runs. Do not recommend merge until required PlatformClaw CI and Full CI are green and the latest ClawSweeper rank-up moves are applied or explicitly answered.
 
 ## Script contract
 
