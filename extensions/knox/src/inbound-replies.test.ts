@@ -566,6 +566,9 @@ describe("Knox digest through the core dispatch and mock relay", () => {
     await vi.advanceTimersByTimeAsync(15_000);
     expect(sent.at(-1)?.text).toContain("? Approval ended exec");
     expect(sent.at(-1)?.text).not.toContain("Approved");
+    turn.emit("tool", { phase: "result", toolCallId: "a", name: "exec", status: "completed" });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(sent.at(-1)?.text).toBe("✗ exec · node b.js\n✓ exec · node a.js");
     await turn.finish();
   });
 

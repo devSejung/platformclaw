@@ -29,13 +29,13 @@ export function createKnoxProgress(params: {
     : "⏳ Processing request";
   const calls = new Map<string, KnoxProgressCall>();
   const history = new Map<string, KnoxProgressCall>();
-  const finished = new Set<string>();
+  const finished = new Map<string, "approval" | "terminal">();
   const retiredCalls = new Set<string>();
   const approvals = new Map<string, { callId?: string; call: KnoxProgressCall }>();
   const retiredApprovals = new Set<string>();
   const notices = new Set<number>();
   const cancellations = new Map<number, Promise<void>>();
-  let latestApproval: KnoxProgressCall | undefined;
+  let latestApproval: { callId?: string; call: KnoxProgressCall } | undefined;
   let runId: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let delivery: Promise<void> | undefined;
@@ -57,7 +57,7 @@ export function createKnoxProgress(params: {
     for (const key of approvals.keys()) {
       retiredApprovals.add(key);
     }
-    for (const key of [...calls.keys(), ...finished]) {
+    for (const key of [...calls.keys(), ...finished.keys()]) {
       retiredCalls.add(key);
     }
     calls.clear();
@@ -143,6 +143,12 @@ export function createKnoxProgress(params: {
         : typeof data.approvalId !== "string"
           ? [...approvals].find(([, value]) => id !== undefined && value.callId === id)
           : undefined;
+      const callId = id ?? matched?.[1].callId;
+      // A tool's definitive result supersedes late approval notifications, but
+      // an embedded approval-pending result is not an execution terminal.
+      if (callId && finished.get(callId) === "terminal") {
+        return;
+      }
       const state =
         data.phase === "waiting-approval" || data.status === "pending"
           ? "pending"
@@ -167,8 +173,10 @@ export function createKnoxProgress(params: {
             }
           }
         }
-        calls.delete(id ?? matched?.[1].callId ?? "");
-        latestApproval = call;
+        if (callId) {
+          calls.set(callId, call);
+        }
+        latestApproval = { callId, call };
       }
       return;
     }
@@ -180,14 +188,14 @@ export function createKnoxProgress(params: {
       return;
     }
     if (data.phase === "start" || data.phase === "update") {
-      if (!finished.has(id)) {
+      if (finished.get(id) !== "terminal") {
         calls.set(id, { ...describeKnoxProgressCall(data, previous), state: "running" });
       }
       latestApproval = undefined;
     } else if (data.phase === "result" || data.phase === "end") {
       // Embedded tools emit tool+item+command terminals for the same invocation.
       // Only the first canonical terminal counts; the richer tool result comes first.
-      if (finished.has(id)) {
+      if (finished.get(id) === "terminal" || (finished.has(id) && stream !== "tool")) {
         return;
       }
       if (data.status === "running" || data.status === "inProgress") {
@@ -198,11 +206,21 @@ export function createKnoxProgress(params: {
         state: terminalKnoxProgressState(data),
       };
       calls.delete(id);
-      finished.add(id);
       if (call.state === "pending" || call.state === "unavailable") {
+        finished.set(id, "approval");
         calls.set(id, call);
-        latestApproval = call;
+        latestApproval = { callId: id, call };
         return;
+      }
+      finished.set(id, "terminal");
+      if (latestApproval?.callId === id) {
+        latestApproval = undefined;
+      }
+      for (const [approvalId, approval] of approvals) {
+        if (approval.callId === id) {
+          approvals.delete(approvalId);
+          retiredApprovals.add(approvalId);
+        }
       }
       history.set(id, call);
       if (history.size > 5) {
@@ -234,7 +252,7 @@ export function createKnoxProgress(params: {
     const running = [...calls]
       .filter(([id, call]) => call.state === "running" && !pendingIds.has(id))
       .map(([, call]) => call);
-    const current = pending ?? running.at(-1) ?? latestApproval;
+    const current = pending ?? running.at(-1) ?? latestApproval?.call;
     const extra = pending ? running.length : Math.max(0, running.length - 1);
     const suffix = extra ? ` (+${extra} running)` : "";
     const lines = [...history.values()].map((call) => formatKnoxProgressCall(call));

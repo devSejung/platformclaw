@@ -40,7 +40,7 @@ export type VaultDocumentBulkDeleteResult = BatchIdentity & {
 };
 export type VaultDocumentsBulkDeleted = BatchIdentity & { documentIds: string[] };
 
-class PlatformClawVaultDocumentBulkDelete extends OpenClawLightDomElement {
+export class PlatformClawVaultDocumentBulkDelete extends OpenClawLightDomElement {
   @property({ attribute: false }) client: GatewayBrowserClient | null = null;
   @property({ type: Boolean }) connected = false;
   @property() agentId: string | null = null;

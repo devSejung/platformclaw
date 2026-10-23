@@ -295,6 +295,64 @@ describe("Knox progress digest", () => {
     expect(texts(send).at(-1)).toBe("? Approval unavailable exec · command");
   });
 
+  it.each(["tool-call-id", "approval-id-only"])(
+    "retires only the completed call's resolved approval: %s",
+    async (resolution) => {
+      const { progress, tool, emit, send } = setup();
+      progress.start();
+      tool("approved", "approved-command");
+      tool("sibling", "sibling-command");
+      emit("approval", { status: "pending", toolCallId: "approved", approvalId: "approval" });
+      emit("approval", {
+        phase: "resolved",
+        status: "approved",
+        approvalId: "approval",
+        ...(resolution === "tool-call-id" ? { toolCallId: "approved" } : {}),
+      });
+      emit("tool", { phase: "result", toolCallId: "sibling", status: "completed" });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(texts(send).at(-1)).toBe(
+        "✓ exec · sibling-command\n✓ Approved exec · approved-command",
+      );
+      emit("tool", { phase: "result", toolCallId: "approved", status: "completed" });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(texts(send).at(-1)).toBe("✓ exec · sibling-command\n✓ exec · approved-command");
+    },
+  );
+
+  it("does not resurrect approval state from a late resolution after execution finished", async () => {
+    const { progress, tool, emit, send } = setup();
+    progress.start();
+    tool("a", "command");
+    emit("approval", { status: "pending", toolCallId: "a", approvalId: "approval" });
+    emit("tool", { phase: "result", toolCallId: "a", status: "failed" });
+    emit("approval", {
+      phase: "resolved",
+      status: "denied",
+      toolCallId: "a",
+      approvalId: "approval",
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(texts(send)).toEqual(["✗ exec · command"]);
+  });
+
+  it.each(["approval-pending", "approval-unavailable"])(
+    "allows approval resolution and execution after a non-execution %s result",
+    async (status) => {
+      const { progress, tool, emit, send } = setup();
+      progress.start();
+      tool("a", "command");
+      emit("tool", { phase: "result", toolCallId: "a", result: { details: { status } } });
+      emit("approval", { status: "pending", toolCallId: "a", approvalId: "approval" });
+      emit("approval", { phase: "resolved", status: "approved", approvalId: "approval" });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(texts(send).at(-1)).toBe("✓ Approved exec · command");
+      emit("tool", { phase: "result", toolCallId: "a", status: "completed" });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(texts(send).at(-1)).toBe("✓ exec · command");
+    },
+  );
+
   it("resets observations at attempt boundaries and ignores late old approvals", async () => {
     const { progress, tool, emit, send } = setup();
     progress.start();
