@@ -233,10 +233,11 @@ export function createKnoxProgress(params: {
     const current = pending ?? running.at(-1) ?? latestApproval;
     const extra = pending ? running.length : Math.max(0, running.length - 1);
     const suffix = extra ? ` (+${extra} running)` : "";
-    return [...history.values()]
-      .map((call) => formatKnoxProgressCall(call))
-      .concat(current ? formatKnoxProgressCall(current, suffix) : "⏳ Processing request")
-      .join("\n");
+    const lines = [...history.values()].map((call) => formatKnoxProgressCall(call));
+    if (current) {
+      lines.push(formatKnoxProgressCall(current, suffix));
+    }
+    return lines.length > 0 ? lines.join("\n") : "⏳ Processing request";
   };
   const tick = () => {
     if (!active || stopped) {

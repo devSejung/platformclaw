@@ -335,7 +335,7 @@ async function startProgressBoundary(options: BoundaryOptions = {}) {
 }
 
 describe("Knox digest through the core dispatch and mock relay", () => {
-  it.each(["Please inspect this", "Please inspect 한"])(
+  it.each(["Please inspect this", "Please inspect 한", "프로젝트를 확인해주세요"])(
     "polls every fifteen seconds and replaces only changed English digests: %s",
     async (text) => {
       const turn = await startProgressBoundary({ text });
@@ -375,7 +375,7 @@ describe("Knox digest through the core dispatch and mock relay", () => {
         status: "completed",
       });
       await vi.advanceTimersByTimeAsync(15_000);
-      expect(sent.at(-1)?.text).toBe("✓ exec · node task.js\n⏳ Processing request");
+      expect(sent.at(-1)?.text).toBe("✓ exec · node task.js");
       expect(JSON.stringify(sent)).not.toMatch(/PRIVATE_TOKEN|PRIVATE_OUTPUT/);
       const current = sent.at(-1)!;
       await turn.finish();
@@ -387,6 +387,33 @@ describe("Knox digest through the core dispatch and mock relay", () => {
       const count = sent.length;
       await vi.advanceTimersByTimeAsync(30_000);
       expect(sent).toHaveLength(count);
+    },
+  );
+
+  it.each(["Inspect the file", "파일을 확인해주세요"])(
+    "shows completed history alone on the first sample: %s",
+    async (text) => {
+      const turn = await startProgressBoundary({ text });
+      turn.emit("tool", {
+        phase: "start",
+        toolCallId: "read-1",
+        name: "read",
+        args: { path: "/workspace/설정.ts" },
+      });
+      turn.emit("tool", {
+        phase: "result",
+        toolCallId: "read-1",
+        name: "read",
+        status: "completed",
+      });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(sent.map((reply) => reply.text)).toEqual(["✓ read · 설정.ts"]);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(sent).toHaveLength(1);
+      expect(cancelled).toEqual([]);
+      const notice = sent[0]!;
+      await turn.finish();
+      expect(cancelled.map((item) => item.targetRequestId)).toEqual([notice.requestId]);
     },
   );
 

@@ -100,6 +100,24 @@ describe("Knox progress digest", () => {
     expect(texts(send)).toEqual(["⏳ exec · python audit.py"]);
   });
 
+  it.each([1, 5])(
+    "shows only completed history when %i calls finish before the first tick",
+    async (count) => {
+      const { progress, tool, send, cancel } = setup();
+      progress.start();
+      for (let index = 0; index < count; index++) {
+        tool(String(index), `cmd-${index}`, "completed");
+      }
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(texts(send)).toEqual([
+        Array.from({ length: count }, (_, index) => `✓ exec · cmd-${index}`).join("\n"),
+      ]);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(send).toHaveBeenCalledOnce();
+      expect(cancel).not.toHaveBeenCalled();
+    },
+  );
+
   it("retains only the latest five completed invocations, in chronological order, plus current last", async () => {
     const { progress, tool, send } = setup();
     progress.start();
@@ -133,7 +151,7 @@ describe("Knox progress digest", () => {
     }
     await vi.advanceTimersByTimeAsync(15_000);
     expect(send).toHaveBeenCalledOnce();
-    expect(send.mock.calls[0]![0].split("\n").slice(0, 5)).toEqual(Array(5).fill("✓ exec · same"));
+    expect(send.mock.calls[0]![0].split("\n")).toEqual(Array(5).fill("✓ exec · same"));
   });
 
   it("merges embedded tool, item and command events using their shared call ID", async () => {
@@ -151,7 +169,7 @@ describe("Knox progress digest", () => {
       });
     }
     await vi.advanceTimersByTimeAsync(15_000);
-    expect(texts(send)).toEqual(["✓ exec · git status\n⏳ Processing request"]);
+    expect(texts(send)).toEqual(["✓ exec · git status"]);
   });
 
   it("keeps earlier parallel calls active when the newest call finishes", async () => {
@@ -192,7 +210,7 @@ describe("Knox progress digest", () => {
     tool("a", "command");
     emit("tool", { phase: "result", name: "exec", toolCallId: "a", ...facts });
     await vi.advanceTimersByTimeAsync(15_000);
-    expect(texts(send)).toEqual([`${expected}\n⏳ Processing request`]);
+    expect(texts(send)).toEqual([expected]);
   });
 
   it("does not turn approval-pending result plus item terminal into successful execution", async () => {

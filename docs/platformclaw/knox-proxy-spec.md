@@ -520,7 +520,10 @@ PlatformClaw uses this bounded policy:
 2. Suppress progress if the final response arrives before the delay.
 3. Send an English digest: up to five recently completed tool calls, oldest
    first, followed by current activity or approval state. No history heading,
-   cumulative count, random wording, or additional model call is needed.
+   cumulative count, random wording, or additional model call is needed. Use
+   `⏳ Processing request` only when neither history nor current status is
+   available. A digest containing only completed history has no generic status
+   line. The fallback stays English for Korean requests too.
 4. Sample request-correlated runtime events every fifteen seconds. Send only
    when the rendered digest changes. Identical latest-five content makes no
    additional relay call, even when different call IDs produced it. More than
