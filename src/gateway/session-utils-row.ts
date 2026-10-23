@@ -107,6 +107,7 @@ export function buildGatewaySessionRow(params: {
   modelCatalog?: ModelCatalogEntry[];
   now?: number;
   includeDerivedTitles?: boolean;
+  includeSessionIdTitleFallback?: boolean;
   includeLastMessage?: boolean;
   transcriptUsageMaxBytes?: number;
   storeChildSessionsByKey?: Map<string, string[]>;
@@ -391,7 +392,9 @@ export function buildGatewaySessionRow(params: {
       storePath,
     });
     if (params.includeDerivedTitles) {
-      derivedTitle = deriveSessionTitle(entry, fields.firstUserMessage, displayName);
+      derivedTitle = deriveSessionTitle(entry, fields.firstUserMessage, displayName, {
+        includeSessionIdFallback: params.includeSessionIdTitleFallback,
+      });
     }
     if (params.includeLastMessage && fields.lastMessagePreview) {
       lastMessagePreview = fields.lastMessagePreview;

@@ -795,6 +795,14 @@ describe("gateway server chat", () => {
         createTextTranscriptEvent("user", "persisted metadata", { timestamp: updatedAt }),
       ]);
 
+      const listed = await rpcReq<{ sessions: Array<{ derivedTitle?: string }> }>(
+        ws,
+        "sessions.list",
+        { includeDerivedTitles: true },
+      );
+      expect(listed.ok).toBe(true);
+      expect(listed.payload?.sessions[0]?.derivedTitle).toBe("persisted metadata");
+
       const persisted = await rpcReq<{
         defaults?: { modelProvider?: string | null; model?: string | null };
         sessionInfo?: {
@@ -817,6 +825,7 @@ describe("gateway server chat", () => {
         modelProvider: "openai",
         model: "gpt-5",
         contextTokens: 128_000,
+        derivedTitle: "persisted metadata",
       });
 
       await writeSessionStore({ entries: {} });
@@ -837,6 +846,7 @@ describe("gateway server chat", () => {
       expect(synthetic.payload?.defaults?.model).toBeTruthy();
       expect(synthetic.payload?.sessionInfo?.key).toBe("agent:main:main");
       expect(synthetic.payload?.sessionInfo?.sessionId).toBeUndefined();
+      expect(synthetic.payload?.sessionInfo).not.toHaveProperty("derivedTitle");
       expect(synthetic.payload?.sessionInfo?.updatedAt).toBeNull();
       expect(synthetic.payload?.sessionInfo?.modelProvider).toBeTruthy();
       expect(synthetic.payload?.sessionInfo?.model).toBeTruthy();
@@ -900,6 +910,7 @@ describe("gateway server chat", () => {
       expect(startup.payload?.sessionInfo).toMatchObject({
         key: "agent:main:main",
         sessionId: "sess-main",
+        derivedTitle: "startup hydrate",
       });
       expect(startup.payload?.metadata?.models).toEqual(
         expect.arrayContaining([
