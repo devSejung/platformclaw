@@ -190,3 +190,8 @@ packageExtensions:
     peerDependenciesMeta:
       sharp:
         optional: true
+
+patchedDependencies:
+  "@discord/embedded-app-sdk@2.5.0": patches/@discord__embedded-app-sdk@2.5.0.patch
+  zod@3.25.76: patches/zod@3.25.76.patch
+  zod@4.6.6: patches/zod@4.6.6.patch

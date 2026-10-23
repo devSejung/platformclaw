@@ -380,10 +380,3 @@ export class PlatformClawVaultDocumentBulkDelete extends OpenClawLightDomElement
     });
   }
 }
-
-if (!customElements.get("platformclaw-vault-document-bulk-delete")) {
-  customElements.define(
-    "platformclaw-vault-document-bulk-delete",
-    PlatformClawVaultDocumentBulkDelete,
-  );
-}

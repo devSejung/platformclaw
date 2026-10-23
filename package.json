@@ -1995,7 +1995,7 @@
     "web-tree-sitter": "0.26.11",
     "ws": "8.21.1",
     "yaml": "2.9.0",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@a2ui/lit": "0.10.2",

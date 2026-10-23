@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 // Production dependency audit helper using pnpm lock data and npm bulk advisories.
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -60,6 +61,39 @@ const AUDIT_ADVISORY_VERSION_OVERRIDES = [
     unaffectedVersions: new Set(["2.2.1", "2.2.5"]),
   },
 ];
+// These parser backports are reviewed source artifacts, not version exceptions.
+// Verify both patch bytes and pnpm's complete installation identity before
+// recognizing remediation; Zod 4.6.6 still exposes the affected /v3 parser.
+const REVIEWED_SECURITY_PATCHES = [
+  {
+    packageName: "zod",
+    version: "3.25.76",
+    patchPath: "patches/zod@3.25.76.patch",
+    sha256: "a8a58d99ab9ebb4877af55cc1f218f6b0c02dba45f588478218be9067ecf1ef9",
+    installHash: "a8a58d99ab9ebb4877af55cc1f218f6b0c02dba45f588478218be9067ecf1ef9",
+    integrity:
+      "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==",
+  },
+  {
+    packageName: "@discord/embedded-app-sdk",
+    version: "2.5.0",
+    patchPath: "patches/@discord__embedded-app-sdk@2.5.0.patch",
+    sha256: "f48e401bc4364900e83f8fe2a1319182b3ef04cf1aef48cb518c7e3010e9af10",
+    installHash: "f48e401bc4364900e83f8fe2a1319182b3ef04cf1aef48cb518c7e3010e9af10",
+    integrity:
+      "sha512-FNoe5PbSkoKEbqPubaBmq6tlEMOftMjR3gu55YrdrrKmBfKKM4i9P/Z+Zxl0RZdJcKviBwVcTyYMMPM/aGex/w==",
+  },
+  {
+    packageName: "zod",
+    version: "4.6.6",
+    patchPath: "patches/zod@4.6.6.patch",
+    sha256: "0124d79410572c4f19e3bbf78ca80ade7c5bf0f7c1c6faf1b28d3997fb5f243e",
+    installHash: "0124d79410572c4f19e3bbf78ca80ade7c5bf0f7c1c6faf1b28d3997fb5f243e",
+    integrity:
+      "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==",
+  },
+];
+const ZOD_COLLECTION_ADVISORY = "GHSA-mrhx-c7xc-m3w5";
 
 function normalizeAuditLevel(level) {
   const normalized = String(level ?? "").toLowerCase();
@@ -252,6 +286,130 @@ function parseYamlMappingLine(line) {
   return {
     key: parseYamlScalar(line.slice(0, separatorIndex)),
     value: line.slice(separatorIndex + 1).trim(),
+  };
+}
+
+function readAuditMetadataSection(text, sectionName) {
+  const entries = new Map();
+  let section;
+  let current;
+  for (const line of text.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (isIgnorableYamlLine(trimmed)) {
+      continue;
+    }
+    const indentation = countIndentation(line);
+    const mapping = parseYamlMappingLine(trimmed);
+    if (indentation === TOP_LEVEL_INDENT) {
+      section = mapping?.key;
+      current = undefined;
+    } else if (section === sectionName && mapping) {
+      if (indentation === SECTION_ENTRY_INDENT) {
+        if (entries.has(mapping.key)) {
+          throw new Error(`Duplicate ${sectionName} entry: ${mapping.key}`);
+        }
+        current = new Map();
+        if (mapping.value) {
+          current.set("value", parseYamlScalar(mapping.value));
+        }
+        entries.set(mapping.key, current);
+      } else if (indentation === NESTED_SECTION_INDENT && current) {
+        if (current.has(mapping.key)) {
+          throw new Error(`Duplicate ${sectionName} field: ${mapping.key}`);
+        }
+        current.set(
+          mapping.key,
+          parseInlineYamlMap(mapping.value) ?? parseYamlScalar(mapping.value),
+        );
+      }
+    }
+  }
+  return entries;
+}
+
+async function verifyReviewedAuditArtifact({ rootDir, artifact, lockfileText, workspaceText }) {
+  const key = `${artifact.packageName}@${artifact.version}`;
+  const registration = readAuditMetadataSection(workspaceText, "patchedDependencies").get(key);
+  const lockedPatch = readAuditMetadataSection(lockfileText, "patchedDependencies").get(key);
+  const resolution = readAuditMetadataSection(lockfileText, "packages").get(key)?.get("resolution");
+  const snapshots = Object.keys(parsePnpmLockfileSections(lockfileText).snapshots)
+    .map(parseSnapshotKey)
+    .filter(
+      (entry) => entry.packageName === artifact.packageName && entry.version === artifact.version,
+    );
+  if (
+    registration?.get("value") !== artifact.patchPath ||
+    lockedPatch?.get("value") !== artifact.installHash ||
+    resolution?.integrity !== artifact.integrity ||
+    snapshots.length === 0 ||
+    snapshots.some((entry) => {
+      const hashes = [...entry.reference.matchAll(/\(patch_hash=([^)]*)\)/gu)];
+      return hashes.length !== 1 || hashes[0][1] !== artifact.installHash;
+    })
+  ) {
+    throw new Error(`Reviewed audit patch registration or integrity changed: ${key}`);
+  }
+  const patch = await readFile(path.join(rootDir, artifact.patchPath));
+  if (createHash("sha256").update(patch).digest("hex") !== artifact.sha256) {
+    throw new Error(`Reviewed audit patch bytes changed: ${key}`);
+  }
+}
+
+/** Recognize a reviewed backport only after pnpm's actual locked artifacts are verified. */
+export async function filterVerifiedPatchedAdvisories({
+  rootDir,
+  lockfileText,
+  advisoriesByPackage,
+  versionsByPackage = collectAllResolvedPackagesFromLockfile(lockfileText),
+}) {
+  const allVersions = collectAllResolvedPackagesFromLockfile(lockfileText);
+  const zodVersions = [...(allVersions.get("zod") ?? [])];
+  const sdkVersions = [...(allVersions.get("@discord/embedded-app-sdk") ?? [])];
+  if (zodVersions.length === 0 && sdkVersions.length === 0) {
+    return advisoriesByPackage;
+  }
+  const workspaceText = await readFile(path.join(rootDir, "pnpm-workspace.yaml"), "utf8");
+  /** @type {[string, string[]][]} */
+  const packageVersions = [
+    ["zod", zodVersions],
+    ["@discord/embedded-app-sdk", sdkVersions],
+  ];
+  for (const [packageName, versions] of packageVersions) {
+    for (const version of versions) {
+      const artifact = REVIEWED_SECURITY_PATCHES.find(
+        (candidate) => candidate.packageName === packageName && candidate.version === version,
+      );
+      if (!artifact) {
+        throw new Error(`No reviewed security patch for ${packageName}@${version}`);
+      }
+      await verifyReviewedAuditArtifact({ rootDir, artifact, lockfileText, workspaceText });
+    }
+  }
+  const resolvedZod = [...(versionsByPackage.get("zod") ?? [])];
+  const remediated =
+    resolvedZod.length > 0 &&
+    resolvedZod.every((version) =>
+      REVIEWED_SECURITY_PATCHES.some(
+        (artifact) => artifact.packageName === "zod" && artifact.version === version,
+      ),
+    );
+  if (!remediated || !Array.isArray(advisoriesByPackage?.zod)) {
+    return advisoriesByPackage;
+  }
+  // Keep querying the original versions: a fixed collection parser does not
+  // excuse a different advisory, a changed range, or an unpatched installation.
+  return {
+    ...advisoriesByPackage,
+    zod: advisoriesByPackage.zod.filter(
+      (advisory) =>
+        !(
+          advisory &&
+          typeof advisory === "object" &&
+          advisory.url === `https://github.com/advisories/${ZOD_COLLECTION_ADVISORY}` &&
+          advisory.vulnerable_versions === "<4.6.6" &&
+          advisory.severity === "high"
+        ),
+    ),
   };
 }
 
@@ -997,7 +1155,12 @@ export async function runPnpmAuditProd({
   }
 
   const findings = filterFindingsBySeverity(
-    advisoryResults,
+    await filterVerifiedPatchedAdvisories({
+      rootDir,
+      lockfileText,
+      advisoriesByPackage: advisoryResults,
+      versionsByPackage,
+    }),
     normalizedMinSeverity,
     versionsByPackage,
   );

@@ -4,7 +4,7 @@
   "description": "OpenClaw Linux desktop canvas bridge",
   "type": "module",
   "dependencies": {
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*"

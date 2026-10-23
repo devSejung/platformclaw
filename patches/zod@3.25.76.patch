@@ -1,0 +1,291 @@
+diff --git a/src/v3/types.ts b/src/v3/types.ts
+index b10e84f1beb1dacdae5e01c42a223974b9e20b73..47c98be1bf81e2f6aabbd23b108f39e36440b7a8 100644
+--- a/src/v3/types.ts
++++ b/src/v3/types.ts
+@@ -2263,6 +2263,8 @@ export class ZodArray<T extends ZodTypeAny, Cardinality extends ArrayCardinality
+           exact: true,
+           message: def.exactLength.message,
+         });
++        // Reject oversized input before allocating per-element parse results.
++        if (tooBig) return INVALID;
+         status.dirty();
+       }
+     }
+@@ -2291,7 +2293,7 @@ export class ZodArray<T extends ZodTypeAny, Cardinality extends ArrayCardinality
+           exact: false,
+           message: def.maxLength.message,
+         });
+-        status.dirty();
++        return INVALID;
+       }
+     }
+ 
+@@ -3723,7 +3725,7 @@ export class ZodSet<Value extends ZodTypeAny = ZodTypeAny> extends ZodType<
+           exact: false,
+           message: def.maxSize.message,
+         });
+-        status.dirty();
++        return INVALID;
+       }
+     }
+ 
+diff --git a/src/v4/core/schemas.ts b/src/v4/core/schemas.ts
+index ce16838549a39ff2522a1b6eea2b8994265f1b0f..e56622de73e010348b5a3b3925118e3605bd256a 100644
+--- a/src/v4/core/schemas.ts
++++ b/src/v4/core/schemas.ts
+@@ -1507,6 +1507,37 @@ export interface $ZodArrayInternals<T extends SomeType = $ZodType> extends _$Zod
+ 
+ export interface $ZodArray<T extends SomeType = $ZodType> extends $ZodType<any, any, $ZodArrayInternals<T>> {}
+ 
++// Bound collection work before children or later refinements can run.
++// This v4 runtime runs checks after parse, so the gate wraps run itself.
++function capSize(inst: $ZodType, size: (input: unknown) => number): void {
++  const caps: [number, checks.$ZodCheck<never>][] = [];
++  for (const check of inst._zod.def.checks ?? []) {
++    const def = check._zod.def as any;
++    // A preceding non-size check may rewrite the value.
++    if (!/_(length|size)$|_equals$/.test(def.check)) break;
++    const max = def.maximum ?? def.length ?? def.size;
++    if (max >= 0) caps.push([max, check]);
++  }
++  if (!caps.length) return;
++  // Derived classic/mini constructors initialize run again; install the gate last.
++  inst._zod.deferred ??= [];
++  inst._zod.deferred.push(() => {
++    const run = inst._zod.run;
++    inst._zod.run = (payload, ctx) => {
++      const count = size(payload.value);
++      for (const [max, check] of caps) {
++        if (count > max && check._zod.def.when!(payload)) {
++          const start = payload.issues.length;
++          check._zod.check(payload as ParsePayload<never>);
++          (payload.issues[start] as { continue?: boolean }).continue = false;
++          return payload;
++        }
++      }
++      return run(payload, ctx);
++    };
++  });
++}
++
+ function handleArrayResult(result: ParsePayload<any>, final: ParsePayload<any[]>, index: number) {
+   if (result.issues.length) {
+     final.issues.push(...util.prefixIssues(index, result.issues));
+@@ -1555,6 +1586,7 @@ export const $ZodArray: core.$constructor<$ZodArray> = /*@__PURE__*/ core.$const
+ 
+     return payload; //handleArrayResultsAsync(parseResults, final);
+   };
++  capSize(inst, (input) => Array.isArray(input) ? input.length : -1);
+ });
+ 
+ //////////////////////////////////////////
+@@ -2599,6 +2631,7 @@ export const $ZodMap: core.$constructor<$ZodMap> = /*@__PURE__*/ core.$construct
+     if (proms.length) return Promise.all(proms).then(() => payload);
+     return payload;
+   };
++  capSize(inst, (input) => input instanceof Map ? input.size : -1);
+ });
+ 
+ function handleMapResult(
+@@ -2691,6 +2724,7 @@ export const $ZodSet: core.$constructor<$ZodSet> = /*@__PURE__*/ core.$construct
+     if (proms.length) return Promise.all(proms).then(() => payload);
+     return payload;
+   };
++  capSize(inst, (input) => input instanceof Set ? input.size : -1);
+ });
+ 
+ function handleSetResult(result: ParsePayload, final: ParsePayload<Set<any>>) {
+diff --git a/v3/types.cjs b/v3/types.cjs
+index 11ed4dfc4745f9af1f1501874576b78b77d294ef..e27f40565847564568070581c8d23a9fc76d1d63 100644
+--- a/v3/types.cjs
++++ b/v3/types.cjs
+@@ -1790,6 +1790,8 @@ class ZodArray extends ZodType {
+                     exact: true,
+                     message: def.exactLength.message,
+                 });
++                // Reject oversized input before allocating per-element parse results.
++                if (tooBig) return parseUtil_js_1.INVALID;
+                 status.dirty();
+             }
+         }
+@@ -1816,7 +1818,7 @@ class ZodArray extends ZodType {
+                     exact: false,
+                     message: def.maxLength.message,
+                 });
+-                status.dirty();
++                return parseUtil_js_1.INVALID;
+             }
+         }
+         if (ctx.common.async) {
+@@ -2843,7 +2845,7 @@ class ZodSet extends ZodType {
+                     exact: false,
+                     message: def.maxSize.message,
+                 });
+-                status.dirty();
++                return parseUtil_js_1.INVALID;
+             }
+         }
+         const valueType = this._def.valueType;
+diff --git a/v3/types.js b/v3/types.js
+index 40b11c0f01b2af54e0ed48e198607bd8836d9a63..b44b8b6c48cd2912ec53179feffa8da7a5a1214c 100644
+--- a/v3/types.js
++++ b/v3/types.js
+@@ -1769,6 +1769,8 @@ export class ZodArray extends ZodType {
+                     exact: true,
+                     message: def.exactLength.message,
+                 });
++                // Reject oversized input before allocating per-element parse results.
++                if (tooBig) return INVALID;
+                 status.dirty();
+             }
+         }
+@@ -1795,7 +1797,7 @@ export class ZodArray extends ZodType {
+                     exact: false,
+                     message: def.maxLength.message,
+                 });
+-                status.dirty();
++                return INVALID;
+             }
+         }
+         if (ctx.common.async) {
+@@ -2814,7 +2816,7 @@ export class ZodSet extends ZodType {
+                     exact: false,
+                     message: def.maxSize.message,
+                 });
+-                status.dirty();
++                return INVALID;
+             }
+         }
+         const valueType = this._def.valueType;
+diff --git a/v4/core/schemas.cjs b/v4/core/schemas.cjs
+index 7c77d2b5af031e086d535f4b2e1898cec17eda29..dc4cd876d131ce10df8ed3ffaa998a68ea9a3ac3 100644
+--- a/v4/core/schemas.cjs
++++ b/v4/core/schemas.cjs
+@@ -644,6 +644,37 @@ exports.$ZodDate = core.$constructor("$ZodDate", (inst, def) => {
+         return payload;
+     };
+ });
++// Bound collection work before children or later refinements can run.
++// This v4 runtime runs checks after parse, so the gate wraps run itself.
++function capSize(inst, size) {
++    const caps = [];
++    for (const check of inst._zod.def.checks ?? []) {
++        const def = check._zod.def;
++        // A preceding non-size check may rewrite the value.
++        if (!/_(length|size)$|_equals$/.test(def.check)) break;
++        const max = def.maximum ?? def.length ?? def.size;
++        if (max >= 0) caps.push([max, check]);
++    }
++    if (!caps.length) return;
++    // Derived classic/mini constructors initialize run again; install the gate last.
++    inst._zod.deferred ??= [];
++    inst._zod.deferred.push(() => {
++        const run = inst._zod.run;
++        inst._zod.run = (payload, ctx) => {
++            const count = size(payload.value);
++            for (const [max, check] of caps) {
++                if (count > max && check._zod.def.when(payload)) {
++                    const start = payload.issues.length;
++                    check._zod.check(payload);
++                    payload.issues[start].continue = false;
++                    return payload;
++                }
++            }
++            return run(payload, ctx);
++        };
++    });
++}
++
+ function handleArrayResult(result, final, index) {
+     if (result.issues.length) {
+         final.issues.push(...util.prefixIssues(index, result.issues));
+@@ -683,6 +714,7 @@ exports.$ZodArray = core.$constructor("$ZodArray", (inst, def) => {
+         }
+         return payload; //handleArrayResultsAsync(parseResults, final);
+     };
++    capSize(inst, (input) => Array.isArray(input) ? input.length : -1);
+ });
+ function handleObjectResult(result, final, key) {
+     // if(isOptional)
+@@ -1304,6 +1336,7 @@ exports.$ZodMap = core.$constructor("$ZodMap", (inst, def) => {
+             return Promise.all(proms).then(() => payload);
+         return payload;
+     };
++    capSize(inst, (input) => input instanceof Map ? input.size : -1);
+ });
+ function handleMapResult(keyResult, valueResult, final, key, input, inst, ctx) {
+     if (keyResult.issues.length) {
+@@ -1364,6 +1397,7 @@ exports.$ZodSet = core.$constructor("$ZodSet", (inst, def) => {
+             return Promise.all(proms).then(() => payload);
+         return payload;
+     };
++    capSize(inst, (input) => input instanceof Set ? input.size : -1);
+ });
+ function handleSetResult(result, final) {
+     if (result.issues.length) {
+diff --git a/v4/core/schemas.js b/v4/core/schemas.js
+index 692ce1fc2d0e138b51b5af2bafe0e2b4a279c0bc..ddd7fd40ddfa472fcdee08806723efc2ef65f0b5 100644
+--- a/v4/core/schemas.js
++++ b/v4/core/schemas.js
+@@ -613,6 +613,37 @@ export const $ZodDate = /*@__PURE__*/ core.$constructor("$ZodDate", (inst, def)
+         return payload;
+     };
+ });
++// Bound collection work before children or later refinements can run.
++// This v4 runtime runs checks after parse, so the gate wraps run itself.
++function capSize(inst, size) {
++    const caps = [];
++    for (const check of inst._zod.def.checks ?? []) {
++        const def = check._zod.def;
++        // A preceding non-size check may rewrite the value.
++        if (!/_(length|size)$|_equals$/.test(def.check)) break;
++        const max = def.maximum ?? def.length ?? def.size;
++        if (max >= 0) caps.push([max, check]);
++    }
++    if (!caps.length) return;
++    // Derived classic/mini constructors initialize run again; install the gate last.
++    inst._zod.deferred ??= [];
++    inst._zod.deferred.push(() => {
++        const run = inst._zod.run;
++        inst._zod.run = (payload, ctx) => {
++            const count = size(payload.value);
++            for (const [max, check] of caps) {
++                if (count > max && check._zod.def.when(payload)) {
++                    const start = payload.issues.length;
++                    check._zod.check(payload);
++                    payload.issues[start].continue = false;
++                    return payload;
++                }
++            }
++            return run(payload, ctx);
++        };
++    });
++}
++
+ function handleArrayResult(result, final, index) {
+     if (result.issues.length) {
+         final.issues.push(...util.prefixIssues(index, result.issues));
+@@ -652,6 +683,7 @@ export const $ZodArray = /*@__PURE__*/ core.$constructor("$ZodArray", (inst, def
+         }
+         return payload; //handleArrayResultsAsync(parseResults, final);
+     };
++    capSize(inst, (input) => Array.isArray(input) ? input.length : -1);
+ });
+ function handleObjectResult(result, final, key) {
+     // if(isOptional)
+@@ -1273,6 +1305,7 @@ export const $ZodMap = /*@__PURE__*/ core.$constructor("$ZodMap", (inst, def) =>
+             return Promise.all(proms).then(() => payload);
+         return payload;
+     };
++    capSize(inst, (input) => input instanceof Map ? input.size : -1);
+ });
+ function handleMapResult(keyResult, valueResult, final, key, input, inst, ctx) {
+     if (keyResult.issues.length) {
+@@ -1333,6 +1366,7 @@ export const $ZodSet = /*@__PURE__*/ core.$constructor("$ZodSet", (inst, def) =>
+             return Promise.all(proms).then(() => payload);
+         return payload;
+     };
++    capSize(inst, (input) => input instanceof Set ? input.size : -1);
+ });
+ function handleSetResult(result, final) {
+     if (result.issues.length) {
