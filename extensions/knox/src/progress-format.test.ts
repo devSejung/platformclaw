@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  boundKnoxProgressLine,
-  describeKnoxProgressCall,
-  formatKnoxProgressCall,
-} from "./progress-format.js";
+import { describeKnoxProgressCall, formatKnoxProgressCall } from "./progress-format.js";
 
 const graphemes = (value: string) =>
   [...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(value)].map(
@@ -76,6 +72,5 @@ describe("Knox factual progress rendering", () => {
     });
     const text = `🟠 Using PlatformClaw server\n\n${Array(6).fill(item).join("\n")}`;
     expect(graphemes(text).length).toBeLessThan(400);
-    expect(boundKnoxProgressLine("plain")).toBe("plain");
   });
 });

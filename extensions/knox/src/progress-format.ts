@@ -1,7 +1,7 @@
 import { redactSensitiveText } from "openclaw/plugin-sdk/logging-core";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
-export type KnoxProgressState =
+type KnoxProgressState =
   | "running"
   | "completed"
   | "failed"
@@ -19,7 +19,7 @@ export type KnoxProgressCall = { name: string; detail?: string; state: KnoxProgr
 const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 /** Keep whole emoji/combining sequences, including the ellipsis, inside the item budget. */
-export function boundKnoxProgressLine(value: string, limit = 50): string {
+function boundKnoxProgressLine(value: string, limit = 50): string {
   const line = redactSensitiveText(value)
     .replace(/[\r\n\t\p{Cc}\u202a-\u202e\u2066-\u2069]/gu, " ")
     .replace(/\s+/gu, " ")
