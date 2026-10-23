@@ -45,6 +45,7 @@ import type { ExpectedAgentHarnessRuntimeArtifact } from "../../harness/runtime-
 import type { AgentInternalEvent } from "../../internal-events.js";
 import type { AgentRunSessionTarget } from "../../run-session-target.js";
 import type { AgentMessage } from "../../runtime/index.js";
+import type { SandboxContext } from "../../sandbox/types.js";
 import type { ScheduledToolPolicyContext } from "../../scheduled-tool-policy.js";
 import type { SessionManager } from "../../sessions/index.js";
 import type { TrustedSubagentCompletionHandoff } from "../../subagent-announce-handoff.js";
@@ -288,6 +289,8 @@ export type RunEmbeddedAgentParams = {
   conversationRecall?: ConversationRecallContext;
   abortSignal?: AbortSignal;
   onExecutionStarted?: (info?: { lifecycleGeneration?: string }) => void;
+  /** Hands the prepared runtime to the current turn's attachment staging owner. */
+  onSandboxPrepared?: (sandbox: SandboxContext | null) => void;
   onExecutionPhase?: (info: {
     phase: EmbeddedAgentExecutionPhase;
     provider?: string;

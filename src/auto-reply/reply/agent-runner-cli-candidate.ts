@@ -47,6 +47,8 @@ type CliPresentation = Pick<
   | "classifyStreamingPartial"
   | "sanitizeStreamingText"
   | "startPresentationWhileTyping"
+  | "onSandboxPrepared"
+  | "normalizeMediaPayload"
 >;
 
 export async function runCliFallbackCandidate(params: {
@@ -84,6 +86,9 @@ export async function runCliFallbackCandidate(params: {
   bootstrapPromptWarningSignaturesSeen: string[];
 }> {
   const turn = params.turn;
+  // CLI placement does not prepare an embedded sandbox reader. Clear the
+  // preceding fallback's reader before any CLI progress or final media runs.
+  params.presentation.onSandboxPrepared?.(null);
   const cliSessionBinding = getCliSessionBinding(
     turn.getActiveSessionEntry(),
     params.cliExecutionProvider,
@@ -416,6 +421,11 @@ export async function runCliFallbackCandidate(params: {
       },
     ),
   );
+  if (params.presentation.normalizeMediaPayload && result.payloads?.length) {
+    result.payloads = await Promise.all(
+      result.payloads.map(params.presentation.normalizeMediaPayload),
+    );
+  }
   if (droppedCliSessionReplacement) {
     await clearCliSessionBindingForRun({
       provider: params.cliExecutionProvider,

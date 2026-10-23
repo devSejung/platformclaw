@@ -10,6 +10,7 @@ export type ExecContainerRawOptions = {
   allowFailure?: boolean;
   input?: Buffer | string;
   signal?: AbortSignal;
+  maxBufferBytes?: number;
 };
 
 export type SandboxContainerEngine = {
@@ -60,13 +61,22 @@ export async function execContainerRaw(
   args: string[],
   opts?: ExecContainerRawOptions,
 ): Promise<ExecDockerRawResult> {
+  if (
+    opts?.maxBufferBytes !== undefined &&
+    (!Number.isSafeInteger(opts.maxBufferBytes) || opts.maxBufferBytes < 1)
+  ) {
+    throw new RangeError("Container command maxBufferBytes must be a positive safe integer");
+  }
   let result;
   try {
     result = await spawnCommand([engine.command, ...(engine.globalArgs ?? []), ...args], {
       cancelSignal: opts?.signal,
       encoding: "buffer",
       input: opts?.input ?? Buffer.alloc(0),
-      maxBuffer: SANDBOX_COMMAND_MAX_BUFFER_BYTES,
+      maxBuffer: Math.min(
+        SANDBOX_COMMAND_MAX_BUFFER_BYTES,
+        opts?.maxBufferBytes ?? SANDBOX_COMMAND_MAX_BUFFER_BYTES,
+      ),
       reject: false,
       stripFinalNewline: false,
     });

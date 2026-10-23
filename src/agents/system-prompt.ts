@@ -1095,7 +1095,7 @@ export function buildAgentSystemPrompt(params: {
       : sanitizedWorkspaceDir;
   const workspaceGuidance =
     params.sandboxInfo?.enabled && sanitizedSandboxContainerWorkspace
-      ? `File tools use host workspace ${sanitizedWorkspaceDir}. exec uses container ${sanitizedSandboxContainerWorkspace} or relative workdir paths; never host paths. Prefer relative paths for both.`
+      ? "Prefer paths relative to the working directory for file tools and exec. Absolute exec paths refer to the sandbox filesystem, never Gateway host paths."
       : "Single global file workspace unless explicitly told otherwise.";
   const workspaceOnlyGuidance =
     params.fsWorkspaceOnly === true
@@ -1340,13 +1340,10 @@ export function buildAgentSystemPrompt(params: {
       params.sandboxInfo?.enabled ? "## Sandbox" : "",
       params.sandboxInfo?.enabled
         ? [
-            "Sandbox runtime; tools execute in Docker. Policy may hide tools.",
+            "Tools execute in the active sandbox runtime. Policy may hide tools.",
             "Subagents remain sandboxed; no elevated/host access. Need host read/write: do not spawn; ask.",
             params.sandboxInfo.containerWorkspaceDir
-              ? `Sandbox container workdir: ${sanitizeForPromptLiteral(params.sandboxInfo.containerWorkspaceDir)}`
-              : "",
-            params.sandboxInfo.workspaceDir
-              ? `Sandbox host mount source (file tools bridge only; not valid inside sandbox exec): ${sanitizeForPromptLiteral(params.sandboxInfo.workspaceDir)}`
+              ? `Sandbox workdir: ${sanitizeForPromptLiteral(params.sandboxInfo.containerWorkspaceDir)}`
               : "",
             params.sandboxInfo.workspaceAccess
               ? `Agent workspace access: ${params.sandboxInfo.workspaceAccess}${

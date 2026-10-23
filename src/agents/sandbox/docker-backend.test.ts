@@ -91,6 +91,29 @@ describe("docker sandbox backend manager", () => {
     );
   });
 
+  it("keeps outbound shell reads on the pinned container with byte and cancellation bounds", async () => {
+    dockerMocks.ensureSandboxContainer.mockResolvedValueOnce("sandbox-container");
+    const backend = await createDockerSandboxBackend({
+      sessionKey: "agent:poly:main",
+      scopeKey: "agent:poly:main",
+      workspaceDir: "/gateway/poly",
+      agentWorkspaceDir: "/gateway/poly",
+      cfg: resolveSandboxConfigForAgent(createConfig(), "poly"),
+    });
+    const controller = new AbortController();
+    await backend.runShellCommand({
+      script: "printf ok",
+      args: ["file"],
+      maxBufferBytes: 32768,
+      signal: controller.signal,
+    });
+    expect(dockerMocks.execContainerRaw).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "docker" }),
+      ["exec", "-i", "sandbox-container", "sh", "-c", "printf ok", "openclaw-sandbox-fs", "file"],
+      expect.objectContaining({ maxBufferBytes: 32768, signal: controller.signal }),
+    );
+  });
+
   it("forwards backend-canonical read-only skill mounts to container provisioning", async () => {
     dockerMocks.ensureSandboxContainer.mockResolvedValueOnce("sandbox-container");
     const readOnlySkillMounts = [

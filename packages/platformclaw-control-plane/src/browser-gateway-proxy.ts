@@ -18,6 +18,7 @@ import {
 } from "./browser-gateway-contracts.js";
 import { BrowserGatewaySpaceAccess } from "./browser-gateway-space-access.js";
 import { BrowserSpaceGateway } from "./browser-gateway-spaces.js";
+import { scopeBrowserMediaDownloadUrl } from "./browser-media-url.js";
 import { spaceConversationSessionPrefix } from "./space-contracts.js";
 export * from "./browser-gateway-contracts.js";
 import {
@@ -567,6 +568,7 @@ export class BrowserGatewayProxy {
         this.spaceAccess.allowsAgentSession(access.binding.agentId, prepared.sessionKey, write),
       assertOwnedResultSessionKey: (value) =>
         this.assertions.ownedResultSessionKey(access.binding.agentId, value),
+      scopeDownloadUrl: (value) => scopeBrowserMediaDownloadUrl(value, access),
       projectSessionPayloadForAccess: (value) =>
         this.spaceAccess.projectSessionPayload(access, value, method === "sessions.list"),
       fail,

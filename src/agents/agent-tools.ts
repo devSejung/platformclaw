@@ -792,6 +792,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             sandboxRoot,
             sandboxContainerWorkdir: sandbox?.containerWorkdir,
             sandboxFsBridge,
+            sandboxOutboundFileAccess: sandbox?.outboundFileAccess,
             fsPolicy,
             workspaceDir: workspaceRoot,
             spawnWorkspaceDir: capabilityProfile.workspace.spawnWorkspaceRoot,

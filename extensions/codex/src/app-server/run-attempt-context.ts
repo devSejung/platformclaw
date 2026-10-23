@@ -152,6 +152,7 @@ export async function prepareCodexAttemptContext(
   });
   const openClawPromptContext = buildCodexOpenClawPromptContext({
     params: runtimeParams,
+    runtimePromptContext: sandbox?.backend?.runtimePromptContext,
     workspacePromptContext: workspaceBootstrapContext.promptContext,
     watchedSessionsContext: buildCodexWatchedSessionsContext({
       attempt: runtimeParams,

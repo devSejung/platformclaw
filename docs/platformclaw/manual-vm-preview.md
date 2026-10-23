@@ -127,6 +127,33 @@ locations does not migrate a session's entire attachment history or workspace.
 The current run's staged inputs are checked against its actual target, so a
 publication on a previous VM is not treated as proof that another VM has them.
 
+## Verify generated downloads and work location changes
+
+Use disposable files in both **Basic workspace** and **My development VM**:
+
+1. Ask the Agent to create a small report in its working directory and attach it.
+   Download the file card and compare the bytes with the report on that target.
+2. Repeat with a file created under shell `$TMPDIR`, then with an account-owned
+   regular file under `/tmp`. Use the ordinary read, write, and edit tools on
+   both temporary paths. A symlink, hardlink, another UID's file, or a file
+   over the configured attachment limit must fail visibly.
+3. Submit a queued turn, then try changing **Work location**. The change must be
+   refused until that turn finishes or is cancelled. Retry the change afterward.
+4. Create a differently valued report with the same filename on the other target.
+   Ask for a new attachment. New downloads must contain the new target's bytes;
+   the earlier attachment must still contain the original copy.
+5. Reload the conversation and download both attachments again. The Agent's next
+   turn must name the current location, workspace, and temporary directory.
+6. Sign out and sign in as a different fixture employee in the same browser.
+   A network request for the first employee's media URL must be denied, and the
+   app must use download URLs scoped to the new login. Include an image cached
+   by an older version: the app must not reuse its cache key after the login
+   changes. Cache clearing is best effort on supported secure browser contexts;
+   it cannot guarantee erasure of bytes already displayed or decoded.
+
+These checks exercise Fake SafeConnect and Linux file ownership. They do not
+establish enterprise-network reachability or validate production credentials.
+
 ## Stop, inspect, and reset
 
 ```powershell

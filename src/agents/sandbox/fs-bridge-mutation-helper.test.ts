@@ -449,6 +449,29 @@ describe("sandbox pinned mutation helper", () => {
   );
 
   it.runIf(process.platform !== "win32")(
+    "rejects an owned outbound file changed in place during transfer",
+    async () => {
+      await withTempDir({ prefix: "openclaw-mutation-owned-read-" }, async (root) => {
+        await fs.writeFile(path.join(root, "report.txt"), "hello", "utf8");
+        const source = SANDBOX_PINNED_MUTATION_PYTHON.replace(
+          "            write_all(1, chunk)",
+          [
+            "            write_all(1, chunk)",
+            "            change_fd = os.open(basename, os.O_WRONLY, dir_fd=parent_fd)",
+            "            try:",
+            "                os.write(change_fd, b'other')",
+            "            finally:",
+            "                os.close(change_fd)",
+          ].join("\n"),
+        );
+        const result = runMutationWithSource(source, ["read-own", root, "", "report.txt", "5"]);
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("outbound temp file changed during read");
+      });
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
     "copies regular files atomically and rejects hardlinked sources",
     async () => {
       await withTempDir({ prefix: "openclaw-mutation-copy-" }, async (root) => {

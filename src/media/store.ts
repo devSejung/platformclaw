@@ -15,6 +15,7 @@ import {
   normalizeMimeType,
 } from "@openclaw/media-core/mime";
 import { hasHttpUrlPrefix } from "@openclaw/net-policy/url-protocol";
+import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import { fileStore } from "../infra/file-store.js";
 import { sanitizeUntrustedFileName } from "../infra/fs-safe-advanced.js";
@@ -23,10 +24,16 @@ import type { resolvePinnedHostname } from "../infra/net/ssrf.js";
 import { retryAsync } from "../infra/retry.js";
 import { writeSiblingTempFile } from "../infra/sibling-temp-file.js";
 import { resolveConfigDir } from "../utils.js";
+import {
+  assertAgentMediaSourceOwner,
+  getAgentMediaDir,
+  getCurrentAgentMediaId,
+  withAgentMediaContext,
+} from "./agent-media-context.js";
 import { isFsSafeError, readLocalFileSafely, type FsSafeLikeError } from "./store.runtime.js";
 import { formatMediaLimitMb, MEDIA_FILE_MODE } from "./store.shared.js";
 
-const resolveMediaDir = () => path.join(resolveConfigDir(), "media");
+const resolveMediaDir = getAgentMediaDir;
 /** Default per-file media-store byte cap used by inbound staging and plugin SDK callers. */
 export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
 export const PLAYBACK_TRANSCODE_SUBDIR = "playback-transcode";
@@ -102,10 +109,12 @@ function resolveMediaRelativePath(id: string, subdir: string, caller: string): s
     throw new Error(`${caller}: unsafe media ID: ${JSON.stringify(id)}`);
   }
   const safeSubdir = resolveMediaSubdir(subdir, caller);
-  return safeSubdir ? path.join(safeSubdir, id) : id;
+  const relativePath = safeSubdir ? path.join(safeSubdir, id) : id;
+  const owner = getCurrentAgentMediaId();
+  return owner ? path.join("agents", owner, relativePath) : relativePath;
 }
 
-function openMediaStore(maxBytes = MAX_BYTES, rootDir = resolveMediaDir()) {
+function openMediaStore(maxBytes = MAX_BYTES, rootDir = path.join(resolveConfigDir(), "media")) {
   return fileStore({
     rootDir,
     dirMode: 0o700,
@@ -199,33 +208,48 @@ async function retryAfterRecreatingDir<T>(dir: string, run: () => Promise<T>): P
 }
 
 async function prunePlaybackTranscodeCacheToSize(): Promise<void> {
-  const dir = resolveMediaScopedDir(PLAYBACK_TRANSCODE_SUBDIR, "prunePlaybackTranscodeCacheToSize");
-  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const sharedDir = path.join(resolveConfigDir(), "media");
+  const owners = await fs
+    .readdir(path.join(sharedDir, "agents"), { withFileTypes: true })
+    .catch(() => []);
+  const roots = [
+    sharedDir,
+    ...owners
+      .filter((owner) => owner.isDirectory() && isValidAgentId(owner.name))
+      .map((owner) => path.join(sharedDir, "agents", owner.name)),
+  ];
+  // Isolation must not multiply the deployment's fixed cache disk budget.
   const files = (
     await Promise.all(
-      entries.map(async (entry) => {
-        if (!entry.isFile() || entry.name.startsWith(".")) {
-          return null;
-        }
-        const stat = await fs.lstat(path.join(dir, entry.name)).catch(() => null);
-        return stat?.isFile() ? { name: entry.name, size: stat.size, mtimeMs: stat.mtimeMs } : null;
+      roots.map(async (rootDir) => {
+        const dir = path.join(rootDir, PLAYBACK_TRANSCODE_SUBDIR);
+        const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+        return await Promise.all(
+          entries.map(async (entry) => {
+            if (!entry.isFile() || entry.name.startsWith(".")) {
+              return null;
+            }
+            const stat = await fs.lstat(path.join(dir, entry.name)).catch(() => null);
+            return stat?.isFile()
+              ? { dir, name: entry.name, size: stat.size, mtimeMs: stat.mtimeMs }
+              : null;
+          }),
+        );
       }),
     )
   )
-    .filter((entry): entry is { name: string; size: number; mtimeMs: number } => Boolean(entry))
+    .flat()
+    .filter((entry): entry is { dir: string; name: string; size: number; mtimeMs: number } =>
+      Boolean(entry),
+    )
     .toSorted((left, right) => left.mtimeMs - right.mtimeMs || left.name.localeCompare(right.name));
   let totalBytes = files.reduce((total, file) => total + file.size, 0);
   for (const file of files) {
     if (totalBytes <= PLAYBACK_TRANSCODE_MAX_CACHE_BYTES) {
       break;
     }
-    const relativePath = resolveMediaRelativePath(
-      file.name,
-      PLAYBACK_TRANSCODE_SUBDIR,
-      "prunePlaybackTranscodeCacheToSize",
-    );
-    const removed = await openMediaStore()
-      .remove(relativePath)
+    const removed = await openMediaStore(MAX_BYTES, file.dir)
+      .remove(file.name)
       .then(() => true)
       .catch(() => false);
     if (removed) {
@@ -234,13 +258,20 @@ async function prunePlaybackTranscodeCacheToSize(): Promise<void> {
   }
 }
 
-async function pruneNonPlaybackMedia(ttlMs: number, options: CleanOldMediaOptions): Promise<void> {
+async function pruneNonPlaybackMedia(
+  ttlMs: number,
+  options: CleanOldMediaOptions,
+  mediaDir = resolveMediaDir(),
+): Promise<void> {
   if (options.recursive === false) {
-    await openMediaStore().pruneExpired({ ttlMs, recursive: false, maxDepth: 0 });
+    await openMediaStore(MAX_BYTES, mediaDir).pruneExpired({
+      ttlMs,
+      recursive: false,
+      maxDepth: 0,
+    });
     return;
   }
-  const mediaDir = resolveMediaDir();
-  await openMediaStore().pruneExpired({ ttlMs, recursive: false, maxDepth: 0 });
+  await openMediaStore(MAX_BYTES, mediaDir).pruneExpired({ ttlMs, recursive: false, maxDepth: 0 });
   const entries = await fs.readdir(mediaDir, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (
@@ -248,6 +279,16 @@ async function pruneNonPlaybackMedia(ttlMs: number, options: CleanOldMediaOption
       entry.name === PLAYBACK_TRANSCODE_SUBDIR ||
       entry.name === MANAGED_OUTGOING_SUBDIR
     ) {
+      continue;
+    }
+    if (entry.name === "agents" && mediaDir === path.join(resolveConfigDir(), "media")) {
+      const owners = await fs.readdir(path.join(mediaDir, "agents"), { withFileTypes: true });
+      for (const owner of owners) {
+        if (owner.isDirectory() && isValidAgentId(owner.name)) {
+          // Apply the durable-outgoing exclusion independently for each owner.
+          await pruneNonPlaybackMedia(ttlMs, options, path.join(mediaDir, "agents", owner.name));
+        }
+      }
       continue;
     }
     const scopedDir = path.join(mediaDir, entry.name);
@@ -302,7 +343,7 @@ async function enforcePlaybackTranscodeCacheLimit(): Promise<void> {
 
 /** Prunes expired playback renditions and reapplies the fixed cache size budget. */
 export async function prunePlaybackTranscodeCache(): Promise<void> {
-  await queuePlaybackCacheOperation(async () => {
+  const pruneOwnerCache = async () => {
     const cacheDir = resolveMediaScopedDir(
       PLAYBACK_TRANSCODE_SUBDIR,
       "prunePlaybackTranscodeCache",
@@ -313,6 +354,20 @@ export async function prunePlaybackTranscodeCache(): Promise<void> {
       pruneEmptyDirs: true,
     });
     await prunePlaybackTranscodeCacheToSize();
+  };
+  await queuePlaybackCacheOperation(async () => {
+    await pruneOwnerCache();
+    if (getCurrentAgentMediaId()) {
+      return;
+    }
+    const owners = await fs
+      .readdir(path.join(resolveMediaDir(), "agents"), { withFileTypes: true })
+      .catch(() => []);
+    for (const owner of owners) {
+      if (owner.isDirectory() && isValidAgentId(owner.name)) {
+        await withAgentMediaContext(owner.name, pruneOwnerCache);
+      }
+    }
   });
 }
 
@@ -422,6 +477,7 @@ async function saveMediaSiblingTempFile(params: {
   tempPrefix: string;
   writeTemp: (tempPath: string) => Promise<SavedMediaTempWriteResult>;
 }): Promise<SavedMedia> {
+  assertAgentMediaSourceOwner(await fs.realpath(params.dir));
   const { result } = await retryAfterRecreatingDir(params.dir, () =>
     writeSiblingTempFile<SavedMediaTempWriteResult>({
       dir: params.dir,
@@ -441,13 +497,12 @@ async function writeSavedMediaBuffer(params: {
 }): Promise<string> {
   const dir = resolveMediaScopedDir(params.subdir, "writeSavedMediaBuffer");
   const relativePath = resolveMediaRelativePath(params.id, params.subdir, "writeSavedMediaBuffer");
-  return await retryAfterRecreatingDir(
-    dir,
-    async () =>
-      await openMediaStore(params.buffer.byteLength).write(relativePath, params.buffer, {
-        tempPrefix: `.${params.id}`,
-      }),
-  );
+  return await retryAfterRecreatingDir(dir, async () => {
+    assertAgentMediaSourceOwner(await fs.realpath(dir));
+    return await openMediaStore(params.buffer.byteLength).write(relativePath, params.buffer, {
+      tempPrefix: `.${params.id}`,
+    });
+  });
 }
 
 async function writeMediaStreamToFile(params: {
@@ -567,7 +622,12 @@ export async function saveMediaSource(
   }
   const baseId = crypto.randomUUID();
   try {
-    const { buffer, stat } = await readLocalFileSafely({ filePath: source, maxBytes });
+    assertAgentMediaSourceOwner(source);
+    const { buffer, stat, realPath } = await readLocalFileSafely({ filePath: source, maxBytes });
+    assertAgentMediaSourceOwner(realPath);
+    if (getCurrentAgentMediaId() && stat.nlink > 1) {
+      throw new SaveMediaSourceError("invalid-path", "Media source must not be hardlinked");
+    }
     const mime = await detectMime({ buffer, filePath: source });
     const ext = extensionForMime(mime) ?? path.extname(source);
     const id = buildSavedMediaId({ baseId, ext });
@@ -689,6 +749,7 @@ export async function resolveMediaBufferPath(id: string, subdir = "inbound"): Pr
     );
   }
   try {
+    assertAgentMediaSourceOwner(opened.realPath);
     return opened.realPath;
   } finally {
     await opened.handle.close().catch(() => undefined);
@@ -717,6 +778,7 @@ export async function readMediaBuffer(
     throw new Error(`readMediaBuffer: media ID does not resolve to a file: ${JSON.stringify(id)}`);
   }
   try {
+    assertAgentMediaSourceOwner(opened.realPath);
     if (opened.stat.size > maxBytes) {
       throw new Error(
         `readMediaBuffer: media ID ${JSON.stringify(id)} is ${opened.stat.size} bytes; maximum is ${maxBytes} bytes`,

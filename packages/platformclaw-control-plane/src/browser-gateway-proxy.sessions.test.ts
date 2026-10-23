@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { hashBrowserSessionToken } from "./browser-auth-service.js";
 import { setupBrowserGatewayProxyTest as setup } from "./browser-gateway-proxy.test-harness.js";
 
 describe("BrowserGatewayProxy session lifecycle", () => {
@@ -732,6 +733,46 @@ describe("BrowserGatewayProxy session lifecycle", () => {
         artifactId: "artifact-1",
       }),
     ).rejects.toMatchObject({ code: "cross-agent-denied" });
+  });
+
+  it("gives managed downloads distinct cache identities for separate browser logins", async () => {
+    const { binding, proxy, request, token, store, user, created } = await setup();
+    const sessionKey = `agent:${binding.agentId}:main`;
+    const url = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/attachment-1/full?mediaTicket=synthetic-ticket`;
+    request.mockResolvedValue({
+      artifact: {
+        id: "artifact-1",
+        type: "file",
+        title: "report.txt",
+        sessionKey,
+        download: { mode: "url" },
+      },
+      url,
+    });
+    const first = (await proxy.request(token, "artifacts.download", {
+      sessionKey,
+      artifactId: "artifact-1",
+    })) as { url: string };
+    const nextToken = "second-synthetic-browser-token";
+    const nextSession = await store.createBrowserSession({
+      userId: user.id,
+      tokenHash: hashBrowserSessionToken(nextToken),
+      createdAt: created.session.createdAt + 1,
+    });
+    expect(nextSession.status).toBe("created");
+    const second = (await proxy.request(nextToken, "artifacts.download", {
+      sessionKey,
+      artifactId: "artifact-1",
+    })) as { url: string };
+    expect(first.url).not.toBe(url);
+    expect(second.url).not.toBe(first.url);
+    for (const value of [first.url, second.url]) {
+      const parsed = new URL(value, "http://platformclaw.invalid");
+      expect(parsed.searchParams.get("mediaTicket")).toBe("synthetic-ticket");
+      expect(parsed.searchParams.get("browserSession")).toMatch(/^[a-f0-9]{64}$/);
+      expect(value).not.toContain(nextToken);
+      expect(value).not.toContain(created.session.id);
+    }
   });
 
   it("rejects foreign file and artifact results from the shared Gateway", async () => {

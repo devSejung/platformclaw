@@ -1,8 +1,13 @@
 import { isAudioFileName } from "@openclaw/media-core/mime";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
-import { getReplyPayloadMetadata, type ReplyPayload } from "../../auto-reply/reply-payload.js";
+import {
+  copyReplyPayloadMetadata,
+  getReplyPayloadMetadata,
+  type ReplyPayload,
+} from "../../auto-reply/reply-payload.js";
 import type { ReplyDispatcherOptions } from "../../auto-reply/reply/reply-dispatcher.js";
 import { readSessionTranscriptWatermark } from "../../config/sessions/session-accessor.js";
+import { withAgentMediaContext } from "../../media/agent-media-context.js";
 import {
   appendLocalMediaParentRoots,
   getAgentScopedMediaLocalRoots,
@@ -163,6 +168,8 @@ export function createChatSendReplyDispatch(params: {
       return;
     }
     const ttsSupplementMarker = buildTtsSupplementTranscriptMarker(payload);
+    const assertMediaAuthority = getReplyPayloadMetadata(payload)?.mediaPublishAuthority;
+    await assertMediaAuthority?.();
     const [transcriptPayload] = await normalizeWebchatReplyMediaPathsForDisplay({
       cfg,
       sessionKey,
@@ -202,6 +209,7 @@ export function createChatSendReplyDispatch(params: {
       assistantContent,
       mediaMessage,
     );
+    await assertMediaAuthority?.();
     const persistedContentForAppend = hasAssistantDisplayMediaContent(persistedAssistantContent)
       ? persistedAssistantContent
       : undefined;
@@ -233,6 +241,7 @@ export function createChatSendReplyDispatch(params: {
         content: persistedContentForAppend,
         idempotencyKey: ownedTranscriptIdempotencyKey,
         scope: transcriptScope,
+        beforeRewrite: assertMediaAuthority,
       });
       if (rewritten) {
         appendedWebchatAgentMedia = true;
@@ -282,6 +291,7 @@ export function createChatSendReplyDispatch(params: {
         expectedGeneration: assistantTranscriptRewriteState.generation,
         mediaUrls: sourceMediaUrls,
         scope: transcriptScope,
+        beforeRewrite: assertMediaAuthority,
       });
       if (rewritten) {
         assistantTranscriptRewriteState.generation = rewritten.generation;
@@ -316,6 +326,7 @@ export function createChatSendReplyDispatch(params: {
           : `${clientRunId}:assistant-media`,
       ttsSupplement: ttsSupplementMarker,
       cfg,
+      beforeWrite: assertMediaAuthority,
     });
     if (appended.ok) {
       if (appended.messageId && assistantContent?.length) {
@@ -354,7 +365,7 @@ export function createChatSendReplyDispatch(params: {
           // TTS tool media becomes a final payload so downstream audio extraction sees it.
           if (isMediaBearingPayload(payload)) {
             deliveredReplies.push({
-              payload: { ...payload, text: undefined },
+              payload: copyReplyPayloadMetadata(payload, { ...payload, text: undefined }),
               kind: "final",
             });
           }
@@ -362,43 +373,46 @@ export function createChatSendReplyDispatch(params: {
       }
     },
   };
-  const finalizeAgentMediaTranscript = async () => {
-    const latestPayloadByKey = new Map<string, ReplyPayload>();
-    const orderedKeys: string[] = [];
-    for (const { payload } of deliveredReplies) {
-      if (!isMediaBearingPayload(payload)) {
-        continue;
+  const finalizeAgentMediaTranscript = () =>
+    withAgentMediaContext(agentId, async () => {
+      const latestPayloadByKey = new Map<string, ReplyPayload>();
+      const orderedKeys: string[] = [];
+      for (const { payload } of deliveredReplies) {
+        if (!isMediaBearingPayload(payload)) {
+          continue;
+        }
+        const key = agentMediaTranscriptKey(payload);
+        if (!latestPayloadByKey.has(key)) {
+          orderedKeys.push(key);
+        }
+        latestPayloadByKey.set(key, payload);
       }
-      const key = agentMediaTranscriptKey(payload);
-      if (!latestPayloadByKey.has(key)) {
-        orderedKeys.push(key);
-      }
-      latestPayloadByKey.set(key, payload);
-    }
-    for (const key of orderedKeys) {
-      const payload = latestPayloadByKey.get(key);
-      if (payload) {
-        try {
-          await appendWebchatAgentMediaTranscriptIfNeeded(payload);
-        } catch (error) {
-          logGateway.warn(`webchat media finalization failed: ${formatForLog(error)}`);
+      for (const key of orderedKeys) {
+        const payload = latestPayloadByKey.get(key);
+        if (payload) {
+          try {
+            await appendWebchatAgentMediaTranscriptIfNeeded(payload);
+          } catch (error) {
+            logGateway.warn(`webchat media finalization failed: ${formatForLog(error)}`);
+          }
         }
       }
-    }
-  };
+    });
   const runAgentMediaTranscript = async <T>(
     admission: { run: (operation: () => Promise<T>) => Promise<T> },
     operation: () => Promise<T>,
   ): Promise<T> => {
-    return await admission.run(async () => {
-      try {
-        return await operation();
-      } finally {
-        // Stay inside the session admission after the runtime owner unwinds; callers chain
-        // post-dispatch persistence from this Promise, and finalizer errors stay best-effort.
-        await finalizeAgentMediaTranscript();
-      }
-    });
+    return await admission.run(() =>
+      withAgentMediaContext(agentId, async () => {
+        try {
+          return await operation();
+        } finally {
+          // Stay inside the session admission after the runtime owner unwinds; callers chain
+          // post-dispatch persistence from this Promise, and finalizer errors stay best-effort.
+          await finalizeAgentMediaTranscript();
+        }
+      }),
+    );
   };
   return {
     captureAgentTranscriptStart,

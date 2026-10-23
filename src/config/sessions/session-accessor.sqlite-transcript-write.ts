@@ -126,6 +126,7 @@ export async function replaceSqliteTranscriptEvents(
 export async function rewriteSqliteTranscriptEventRowsExact(
   scope: SessionTranscriptAccessScope,
   params: {
+    beforeWrite?: () => Promise<void>;
     allowInitialGenerationMaterialization?: boolean;
     expectedGeneration: string | null;
     rows: readonly { event: TranscriptEvent; expectedEventJson: string; seq: number }[];
@@ -136,6 +137,7 @@ export async function rewriteSqliteTranscriptEventRowsExact(
   }
   const resolved = resolveSqliteTranscriptScope(scope);
   return await runExclusiveSqliteSessionWrite(resolved, async () => {
+    await params.beforeWrite?.();
     let result: { generation: string } | null = null;
     runOpenClawAgentWriteTransaction((database) => {
       const currentGeneration =
@@ -319,6 +321,7 @@ export async function appendSqliteExpectedSessionTranscriptTurn(
   scope: SessionTranscriptWriteScope,
   options: {
     atomicGroup?: boolean;
+    beforeWrite?: () => Promise<void>;
     config?: import("../types.openclaw.js").OpenClawConfig;
     cwd?: string;
     expectedLifecycleRevision?: string;
@@ -349,6 +352,7 @@ export async function appendSqliteExpectedSessionTranscriptTurn(
       },
       options.messages,
     );
+    await options.beforeWrite?.();
     let result: SqliteExpectedSessionTranscriptTurnResult = sqliteSessionTranscriptTurnRebound(
       preparedEntry,
       options.sessionFile,

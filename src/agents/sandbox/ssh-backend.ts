@@ -50,7 +50,7 @@ type ResolvedSshRuntimePaths = {
   remoteSkillsWorkspaceDir: string;
 };
 
-export type SshSandboxSessionFactory = () => Promise<SshSandboxSession>;
+export type SshSandboxSessionFactory = (signal?: AbortSignal) => Promise<SshSandboxSession>;
 
 export type CreateSshSandboxBackendWithSessionFactoryOptions = {
   targetLabel: string;
@@ -292,8 +292,14 @@ class SshSandboxBackendImpl {
     };
   }
 
-  private async createSession(): Promise<SshSandboxSession> {
-    return await this.params.createSession();
+  private async createSession(signal?: AbortSignal): Promise<SshSandboxSession> {
+    signal?.throwIfAborted();
+    const session = await this.params.createSession(signal);
+    if (signal?.aborted) {
+      await disposeSshSandboxSession(session);
+      signal.throwIfAborted();
+    }
+    return session;
   }
 
   private async ensureRuntime(): Promise<void> {
@@ -477,10 +483,12 @@ class SshSandboxBackendImpl {
   async runRemoteShellScript(
     params: SandboxBackendCommandParams,
   ): Promise<SandboxBackendCommandResult> {
+    params.signal?.throwIfAborted();
     await this.ensureRuntime();
-    const session = await this.createSession();
+    const session = await this.createSession(params.signal);
     try {
       await this.refreshRemoteSkillsWorkspace(session);
+      params.signal?.throwIfAborted();
       return await runSshSandboxCommand({
         session,
         remoteCommand: buildRemoteCommand([
@@ -493,6 +501,7 @@ class SshSandboxBackendImpl {
         stdin: params.stdin,
         allowFailure: params.allowFailure,
         signal: params.signal,
+        maxBufferBytes: params.maxBufferBytes,
       });
     } finally {
       await disposeSshSandboxSession(session);

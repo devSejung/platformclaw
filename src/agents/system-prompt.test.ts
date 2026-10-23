@@ -1738,32 +1738,37 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt.match(/## Conversation Context/g)).toHaveLength(1);
   });
 
-  it("describes sandboxed runtime and elevated when allowed", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      sandboxInfo: {
-        enabled: true,
-        workspaceDir: "/tmp/sandbox",
-        containerWorkspaceDir: "/workspace",
-        workspaceAccess: "ro",
-        agentWorkspaceMount: "/agent",
-        elevated: { allowed: true, defaultLevel: "on", fullAccessAvailable: true },
-      },
-    });
+  it.each(["/workspace", "/home/person/work"])(
+    "describes sandboxed runtime paths without assuming Docker (%s)",
+    (runtimeWorkdir) => {
+      const prompt = buildAgentSystemPrompt({
+        workspaceDir: "/tmp/openclaw",
+        sandboxInfo: {
+          enabled: true,
+          workspaceDir: "/tmp/sandbox",
+          containerWorkspaceDir: runtimeWorkdir,
+          workspaceAccess: "ro",
+          agentWorkspaceMount: "/agent",
+          elevated: { allowed: true, defaultLevel: "on", fullAccessAvailable: true },
+        },
+      });
 
-    expect(prompt).toContain("Working directory: /workspace");
-    expect(prompt).toContain(
-      "File tools use host workspace /tmp/openclaw. exec uses container /workspace or relative workdir paths; never host paths.",
-    );
-    expect(prompt).toContain("Sandbox container workdir: /workspace");
-    expect(prompt).toContain(
-      "Sandbox host mount source (file tools bridge only; not valid inside sandbox exec): /tmp/sandbox",
-    );
-    expect(prompt).toContain("Sandbox runtime; tools execute in Docker");
-    expect(prompt).toContain("Subagents remain sandboxed");
-    expect(prompt).toContain("User can toggle with /elevated on|off|ask|full.");
-    expect(prompt).toContain("Current elevated level: on");
-  });
+      expect(prompt).toContain(`Working directory: ${runtimeWorkdir}`);
+      expect(prompt).toContain(
+        "Prefer paths relative to the working directory for file tools and exec.",
+      );
+      expect(prompt).toContain(`Sandbox workdir: ${runtimeWorkdir}`);
+      expect(prompt).toContain(
+        "Absolute exec paths refer to the sandbox filesystem, never Gateway host paths.",
+      );
+      expect(prompt).toContain("Tools execute in the active sandbox runtime.");
+      expect(prompt).not.toContain("/tmp/sandbox");
+      expect(prompt).not.toContain("tools execute in Docker");
+      expect(prompt).toContain("Subagents remain sandboxed");
+      expect(prompt).toContain("User can toggle with /elevated on|off|ask|full.");
+      expect(prompt).toContain("Current elevated level: on");
+    },
+  );
 
   it("does not advertise /elevated full when auto-approved full access is unavailable", () => {
     const prompt = buildAgentSystemPrompt({

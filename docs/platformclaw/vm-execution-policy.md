@@ -111,7 +111,8 @@ environment variables, packages, or processes.
 
 A change follows this sequence:
 
-1. Reject the change while an agent run or foreground tool call is active.
+1. Reject the change while an agent run, queued turn, foreground tool call, or
+   attachment publication is active. Finish or cancel pending work before retrying.
 2. For a VM target, require an active allocation, current credential, strict
    host-key match, and successful SafeConnect connection check.
 3. Commit the new target and monotonically increasing revision in one
@@ -255,6 +256,37 @@ home. Paths outside the home remain unavailable to file tools. There is no
 PlatformClaw-managed denylist inside the home; Linux account permissions remain
 authoritative. Accounts whose canonical home is the filesystem root (`/`) are
 not supported because they would erase this boundary.
+
+### Generated file downloads
+
+An Agent attachment is a stored copy. The prepared Basic workspace or VM reads
+the source file, then PlatformClaw stores the validated bytes in that Agent's
+private attachment directory and records the attachment against its session.
+Browser downloads read this stored copy, so a completed attachment remains
+available after switching work locations. The source file stays on its original
+server. A VM read failure never falls back to a same-named Gateway or Basic file.
+
+Both personal targets provide an account-owned, mode `0700` temporary directory
+through shell `TMPDIR`. Agents may also export ordinary `/tmp` files on their
+current target. This export checks the opened file's owning UID, regular-file
+type, symlink and hardlink restrictions, identity, and attachment size limit.
+Ordinary file tools also support account-owned entries throughout `/tmp` on the
+selected target. Descendant directories must belong to that account and must
+not be writable by other accounts; symlinks, hardlinks, special files, and
+foreign-UID entries are rejected. A move into this shared root requires an
+absent destination, and cross-filesystem moves must use copy then remove.
+Explicit `tools.fs.workspaceOnly` restrictions still apply. The private
+temporary directory survives turns with the runtime; sending a file does not
+delete the user's source files.
+
+Uploads and generated media are separated by canonical Agent owner. A shared
+store path, filename, or old attachment ID is not permission to import another
+Agent's bytes. Existing transcript-backed downloads retain their authenticated
+session checks. Employee media responses disable browser caching. Managed
+browser download URLs also include a non-secret identity for the current login,
+so the app does not reuse an earlier login's cache entry. Authentication requests
+cache clearing on supported secure browser contexts, but cannot promise to erase
+bytes the browser has already displayed or decoded.
 
 The Linux account home and active Agent workspace are distinct roots. For an
 assigned VM, shell `HOME` and shell `~` always mean the connection-verified

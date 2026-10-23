@@ -1,5 +1,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import {
+  getReplyPayloadMetadata,
   readPairingQrReplyChannelData,
   type ReplyPayload,
 } from "../../auto-reply/reply-payload.js";
@@ -87,6 +88,7 @@ function resolveAlignedReplyMedia(
 function splitReplyMediaByTrust(
   media: ReturnType<typeof resolveAlignedReplyMedia>,
   payloadTrusted: boolean,
+  stagedLocalMediaUrls: readonly string[],
 ) {
   // One payload per trust class is the authorization boundary. Class order follows
   // first occurrence; interleaved entries are intentionally coalesced within their class.
@@ -100,7 +102,8 @@ function splitReplyMediaByTrust(
   >();
   for (const [index, url] of media.mediaUrls.entries()) {
     const attachment = media.attachments?.[index] ?? {};
-    const trusted = attachment.trustedLocalMedia ?? payloadTrusted;
+    const trusted =
+      attachment.trustedLocalMedia ?? (payloadTrusted || stagedLocalMediaUrls.includes(url));
     const group = groups.get(trusted) ?? { mediaUrls: [], attachments: [], sourceIndexes: [] };
     group.mediaUrls.push(url);
     group.attachments.push(attachment);
@@ -264,17 +267,28 @@ export async function buildAssistantDisplayContentFromReplyPayloads(params: {
     const media = resolveAlignedReplyMedia(payload, params.payloads[entry.sourceIndex] ?? payload);
     const preparedMedia: Array<{ sourceIndex: number; blocks: AssistantDisplayContentBlock[] }> =
       [];
-    for (const mediaGroup of splitReplyMediaByTrust(media, payload.trustedLocalMedia === true)) {
+    // Producer facts authorize each copied URL independently. A mixed image/document
+    // reply must neither lose document trust nor promote an unverified sibling.
+    const stagedUrls =
+      getReplyPayloadMetadata(params.payloads[entry.sourceIndex] ?? payload)
+        ?.stagedLocalMediaUrls ?? [];
+    for (const mediaGroup of splitReplyMediaByTrust(
+      media,
+      payload.trustedLocalMedia === true,
+      stagedUrls,
+    )) {
       for (const [groupIndex, mediaUrl] of mediaGroup.mediaUrls.entries()) {
+        let prepareFailed = false;
         const mediaBlocks = await createManagedOutgoingMediaBlocks({
           sessionKey: params.sessionKey,
-          ...(params.sessionKey === "global" && params.agentId ? { agentId: params.agentId } : {}),
+          ...(params.agentId ? { agentId: params.agentId } : {}),
           mediaUrls: [mediaUrl],
           attachments: [mediaGroup.attachments[groupIndex] ?? {}],
           localRoots: params.managedMediaLocalRoots,
           allowLocalNonImage: mediaGroup.trustedLocalMedia,
           continueOnPrepareError: true,
           onPrepareError: (error) => {
+            prepareFailed = true;
             params.onManagedMediaPrepareError?.(error.message);
           },
         });
@@ -287,7 +301,15 @@ export async function buildAssistantDisplayContentFromReplyPayloads(params: {
         }
         preparedMedia.push({
           sourceIndex: mediaGroup.sourceIndexes[groupIndex] ?? groupIndex,
-          blocks: mediaBlocks,
+          blocks: prepareFailed
+            ? [
+                {
+                  type: "text",
+                  attachmentError: true,
+                  text: "[Attachment unavailable] This file could not be saved for download. Attach it again.",
+                },
+              ]
+            : mediaBlocks,
         });
       }
     }
@@ -313,33 +335,18 @@ export function replaceAssistantContentTextBlocks(
       block.type === "text" &&
       typeof block.text === "string",
   );
-  const transcriptDocumentBlocks = transcriptBlocks.filter((block) => {
-    if (block?.type !== "attachment") {
-      return false;
-    }
-    const attachment = block.attachment as { kind?: unknown; url?: unknown } | undefined;
-    return (
-      attachment?.kind === "document" &&
-      typeof attachment.url === "string" &&
-      !content?.some((existing) => {
-        const existingAttachment = existing.attachment as { url?: unknown } | undefined;
-        return existingAttachment?.url === attachment.url;
-      })
-    );
-  });
   if (transcriptTextBlocks.length === 0) {
-    return content || transcriptDocumentBlocks.length > 0
-      ? [...(content ?? []), ...transcriptDocumentBlocks]
-      : undefined;
+    return content ? [...content] : undefined;
   }
   if (!content || content.length === 0) {
-    return [...transcriptTextBlocks, ...transcriptDocumentBlocks];
+    return transcriptTextBlocks;
   }
   const merged: AssistantDisplayContentBlock[] = [];
   let transcriptTextIndex = 0;
   for (const block of content) {
     if (
       block?.type === "text" &&
+      block.attachmentError !== true &&
       typeof block.text === "string" &&
       transcriptTextIndex < transcriptTextBlocks.length
     ) {
@@ -356,9 +363,7 @@ export function replaceAssistantContentTextBlocks(
   if (transcriptTextIndex < transcriptTextBlocks.length) {
     merged.unshift(...transcriptTextBlocks.slice(transcriptTextIndex));
   }
-  // Managed media owns image/audio/video projection, but only the trusted
-  // transcript producer can retain local document ownership for history.
-  return [...merged, ...transcriptDocumentBlocks];
+  return merged;
 }
 
 function isManagedOutgoingMediaUrl(value: unknown): boolean {
@@ -380,6 +385,10 @@ export function stripManagedOutgoingAssistantContentBlocks(
     return undefined;
   }
   const filtered = content.filter((block) => {
+    if (block?.type === "attachment") {
+      const attachment = block.attachment as { url?: unknown } | undefined;
+      return !isManagedOutgoingMediaUrl(attachment?.url);
+    }
     if (block?.type !== "image" && block?.type !== "audio" && block?.type !== "video") {
       return true;
     }
@@ -405,7 +414,9 @@ export function extractAssistantDisplayText(
 export function hasAssistantDisplayMediaContent(
   content: readonly AssistantDisplayContentBlock[] | undefined,
 ): boolean {
-  return Boolean(content?.some((block) => block?.type !== "text"));
+  return Boolean(
+    content?.some((block) => block?.type !== "text" || block.attachmentError === true),
+  );
 }
 
 export function hasVisibleAssistantFinalMessage(
@@ -436,8 +447,10 @@ export function hasManagedOutgoingAssistantContent(
   return Boolean(
     content?.some(
       (block) =>
-        (block?.type === "image" || block?.type === "audio" || block?.type === "video") &&
-        (isManagedOutgoingMediaUrl(block.url) || isManagedOutgoingMediaUrl(block.openUrl)),
+        ((block?.type === "image" || block?.type === "audio" || block?.type === "video") &&
+          (isManagedOutgoingMediaUrl(block.url) || isManagedOutgoingMediaUrl(block.openUrl))) ||
+        (block?.type === "attachment" &&
+          isManagedOutgoingMediaUrl((block.attachment as { url?: unknown } | undefined)?.url)),
     ),
   );
 }

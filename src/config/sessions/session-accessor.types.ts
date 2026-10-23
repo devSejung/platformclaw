@@ -397,6 +397,8 @@ export type SessionTranscriptTurnPersistOptions = {
   expectedSessionState?: SessionTranscriptTurnExpectedState;
   /** Lifecycle metadata committed when the guarded turn inserts or idempotently matches a message. */
   sessionLifecyclePatch?: SessionTranscriptTurnLifecyclePatch;
+  /** Revalidates current owner authority after queue waits and immediately before commit. */
+  beforeWrite?: () => Promise<void>;
   /** Message rows to append under one transcript write lock. */
   messages: readonly SessionTranscriptTurnMessageAppend[];
   /** Publish each appended message inline, one file-only invalidation, or nothing. */

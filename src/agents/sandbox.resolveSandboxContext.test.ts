@@ -5,6 +5,10 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import type { SkillUsagePath } from "../skills/types.js";
+import type {
+  SandboxBackendCommandParams,
+  SandboxBackendHandle,
+} from "./sandbox/backend-handle.types.js";
 import { registerSandboxBackend } from "./sandbox/backend.js";
 import { ensureSandboxWorkspaceForSession, resolveSandboxContext } from "./sandbox/context.js";
 import { isSandboxProvisioningError } from "./sandbox/provisioning-error.js";
@@ -268,6 +272,7 @@ describe("resolveSandboxContext", () => {
       expect(result?.runtimeId).toBe("test-runtime");
       expect(result?.containerName).toBe("test-runtime");
       expect(result?.backend?.id).toBe("test-backend");
+      expect(result?.outboundFileAccess).toBeUndefined();
       expect(backendFactory).toHaveBeenCalledWith(
         expect.objectContaining({
           agentId: "worker",
@@ -295,6 +300,65 @@ describe("resolveSandboxContext", () => {
           scopeKey: expect.stringMatching(/^agent:worker:task:workspace:[a-f0-9]{32}$/),
         }),
       );
+    } finally {
+      restore();
+    }
+  }, 15_000);
+
+  it("uses one prepared outbound capability for scratch, execution env, and runtime guidance", async () => {
+    const buildExecSpec = vi.fn<SandboxBackendHandle["buildExecSpec"]>(async () => ({
+      argv: ["test-backend", "exec"],
+      env: {},
+      stdinMode: "pipe-closed",
+    }));
+    const runShellCommand = vi.fn(async ({ args }: SandboxBackendCommandParams) => ({
+      stdout: Buffer.from(`/tmp/openclaw-1000-${args?.[1]}`),
+      stderr: Buffer.alloc(0),
+      code: 0,
+    }));
+    const restore = registerSandboxBackend("test-outbound-backend", async () => ({
+      id: "test-outbound-backend",
+      runtimeId: "outbound-runtime",
+      runtimeLabel: "Outbound Runtime",
+      workdir: "/runtime/workspace",
+      capabilities: { outboundFiles: true },
+      env: { KEEP: "value" },
+      runtimePromptContext: "current target facts",
+      buildExecSpec,
+      runShellCommand,
+    }));
+    try {
+      const workspaceDir = await createSandboxFixtureDir("outbound-context");
+      const result = await resolveSandboxContext({
+        config: {
+          agents: {
+            defaults: {
+              sandbox: {
+                mode: "all",
+                backend: "test-outbound-backend",
+                workspaceAccess: "rw",
+                prune: { idleHours: 0, maxAgeDays: 0 },
+              },
+            },
+          },
+        },
+        sessionKey: "agent:worker:main",
+        workspaceDir,
+      });
+      const tempDir = result?.outboundFileAccess?.tempDir;
+      expect(tempDir).toMatch(/^\/tmp\/openclaw-1000-[0-9a-f]{64}$/u);
+      expect(result?.backend?.env).toEqual({ KEEP: "value", TMPDIR: tempDir });
+      expect(result?.backend?.runtimePromptContext).toContain(`target: ${tempDir}.`);
+      expect(result?.backend?.runtimePromptContext).toContain("current target facts");
+      await result?.backend?.buildExecSpec({
+        command: "true",
+        usePty: false,
+        env: { OTHER: "value", TMPDIR: "/wrong-target" },
+      });
+      expect(buildExecSpec).toHaveBeenCalledWith(
+        expect.objectContaining({ env: { OTHER: "value", TMPDIR: tempDir } }),
+      );
+      expect(runShellCommand).toHaveBeenCalledOnce();
     } finally {
       restore();
     }

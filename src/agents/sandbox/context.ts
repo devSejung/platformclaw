@@ -32,6 +32,7 @@ import { ensureSandboxBrowser } from "./browser.js";
 import { resolveSandboxConfigForAgent } from "./config.js";
 import { resolveSandboxDockerUser } from "./docker-user.js";
 import { createSandboxFsBridge } from "./fs-bridge.js";
+import { createSandboxOutboundFileAccess } from "./outbound-file-access.js";
 import { toSandboxProvisioningError } from "./provisioning-error.js";
 import { readRegisteredSandboxRuntimeIds, updateRegistry } from "./registry.js";
 import { resolveSandboxRuntimeStatus } from "./runtime-status.js";
@@ -484,11 +485,39 @@ async function resolveProvisionedSandboxContext(
     browserAllowHostControl: resolvedCfg.browser.allowHostControl,
     browser: browser ?? undefined,
     backend,
+    ...(backend.capabilities?.temporaryFiles ? { accountOwnedRoots: ["/tmp"] } : {}),
   };
 
   sandboxContext.fsBridge =
     backend.createFsBridge?.({ sandbox: sandboxContext }) ??
     createSandboxFsBridge({ sandbox: sandboxContext });
+
+  if (backend.capabilities?.outboundFiles) {
+    const access = await createSandboxOutboundFileAccess({
+      backend,
+      bridge: sandboxContext.fsBridge,
+      scopeKey: `${runtime.agentId}\0${agentWorkspaceDir}\0${scopeKey}`,
+      workspaceDir,
+    });
+    sandboxContext.outboundFileAccess = access;
+    // Scratch survives individual turns, just like other runtime files. Keeping
+    // one stable directory avoids deleting files used by a cached context.
+    sandboxContext.backend = {
+      ...backend,
+      env: { ...backend.env, TMPDIR: access.tempDir },
+      buildExecSpec: (execParams) =>
+        backend.buildExecSpec({
+          ...execParams,
+          env: { ...execParams.env, TMPDIR: access.tempDir },
+        }),
+      runtimePromptContext: [
+        backend.runtimePromptContext,
+        `Private temporary directory on this run's execution target: ${access.tempDir}. Shell TMPDIR uses this directory. Ordinary file tools also support your own /tmp files on this execution target. Attachments can come from allowed workspace/home roots. Export from /tmp additionally requires your own regular file without symlink or hardlink aliases and within the attachment size limit.`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    };
+  }
 
   timingLog.info(
     `event=sandbox_context_timing status=ok backend=${backend.id} workspaceAccess=${resolvedCfg.workspaceAccess} deferredSkills=${String(backendDeferredSkills)} skillsMaterialized=${String(skillsMaterialized)} pruneMs=${String(pruneMs)} workspaceLayoutMs=${String(workspaceLayoutMs)} dockerUserMs=${String(dockerUserMs)} gatewaySkillsMs=${String(gatewaySkillsMs)} registryReadMs=${String(registryReadMs)} backendInclusiveMs=${String(backendInclusiveMs)} registryWriteMs=${String(registryWriteMs)} browserMs=${String(browserMs)} totalMs=${String(elapsedMs(contextStartedAt))}`,
