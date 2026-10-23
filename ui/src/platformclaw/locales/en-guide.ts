@@ -3,6 +3,7 @@ import { announcementTranslations } from "./en-announcements.ts";
 import { baseballTranslations } from "./en-baseball.ts";
 import { dashboardTranslations } from "./en-dashboard.ts";
 import { executionTranslations } from "./en-execution.ts";
+import { mcpTranslations } from "./en-mcp.ts";
 import { racingTranslations } from "./en-racing.ts";
 import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
@@ -98,6 +99,7 @@ export const translations: Readonly<Record<string, string>> = {
   ...vaultTranslations,
   ...spaceTranslations,
   ...executionTranslations,
+  ...mcpTranslations,
   ...wikiDocumentTranslations.en,
   "dreaming.wiki.documentActions": "Document actions",
   "dreaming.wiki.edit": "Edit",

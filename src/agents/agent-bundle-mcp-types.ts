@@ -179,7 +179,11 @@ export type SessionMcpRuntimeManager = {
   }) => SessionMcpRuntime | undefined;
   disposeSession: (sessionId: string) => Promise<void>;
   /** Immediately revokes every requester-scoped runtime owned by one agent. */
-  disposeAgentScoped: (agentId: string) => Promise<number>;
+  disposeAgentScoped: (
+    agentId: string,
+    /** Retires whole owning sessions when policy changes must also remove advertised tools. */
+    options?: { retireSessionCatalog?: boolean },
+  ) => Promise<number>;
   /** Required retirement stays armed when a stopping run creates or reuses a runtime. */
   deferRetirement: (sessionId: string, opts?: { retainAcrossReuse?: boolean }) => boolean;
   completeDeferredRetirement: (sessionId: string, runtime?: SessionMcpRuntime) => Promise<boolean>;

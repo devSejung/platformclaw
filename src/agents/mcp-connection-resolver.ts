@@ -95,7 +95,12 @@ export function hashMcpResolvedConnections(
       const headers = connection.headers
         ? Object.entries(connection.headers).toSorted(([a], [b]) => a.localeCompare(b))
         : [];
-      return [serverName, connection.url, headers] as const;
+      return [
+        serverName,
+        connection.url,
+        headers,
+        connection.preserveConfiguredAuth === true,
+      ] as const;
     });
   return crypto
     .createHmac("sha256", getConnectionDigestKey())
@@ -267,6 +272,12 @@ export async function resolveRequesterScopedMcpConnections(params: {
         if (!result || typeof result.url !== "string" || result.url.trim().length === 0) {
           return null;
         }
+        if (
+          result.preserveConfiguredAuth !== undefined &&
+          typeof result.preserveConfiguredAuth !== "boolean"
+        ) {
+          return null;
+        }
         const expiresAt =
           typeof result.expiresAt === "number" &&
           Number.isFinite(result.expiresAt) &&
@@ -293,6 +304,7 @@ export async function resolveRequesterScopedMcpConnections(params: {
           url: result.url.trim(),
           ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
           ...(expiresAt === undefined ? {} : { expiresAt }),
+          ...(result.preserveConfiguredAuth === true ? { preserveConfiguredAuth: true } : {}),
         } satisfies McpServerConnectionResolved;
         registerResolvedConnectionSecrets(connection);
         return { serverName, connection };
@@ -351,10 +363,12 @@ export function applyMcpConnectionOverride(
       : undefined;
   const fromType = resolveOpenClawMcpTransportAlias(base.type);
   base.transport = fromTransport ?? fromType ?? defaultTransport;
-  // Resolver-supplied headers are the auth surface; strip static OAuth so the
-  // transport layer does not drop Authorization from overrides.
-  delete base.auth;
-  delete base.oauth;
+  // Resolver credentials replace OAuth by default. Explicit same-endpoint
+  // overlays can keep its refresh lifecycle while adding requester headers.
+  if (override.preserveConfiguredAuth !== true) {
+    delete base.auth;
+    delete base.oauth;
+  }
   delete base.type;
   delete base.command;
   delete base.args;

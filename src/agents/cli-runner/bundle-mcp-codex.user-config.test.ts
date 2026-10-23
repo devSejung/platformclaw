@@ -1,6 +1,7 @@
 /** Tests projecting OpenClaw user MCP servers into Codex app-server config. */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { testing as resolverTesting } from "../mcp-connection-resolver.js";
 import {
   buildCodexUserMcpServersThreadConfigPatch,
   buildCodexUserMcpServersThreadConfigPatchForRuntime,
@@ -30,6 +31,66 @@ describe("buildCodexUserMcpServersThreadConfigPatch", () => {
     authMocks.resolveApiKeyForProfile.mockReset();
     authMocks.resolveMcpOAuthAccessToken.mockReset();
   });
+
+  afterEach(() => {
+    resolverTesting.setMcpServerConnectionResolversForTest(null);
+  });
+
+  it.each([
+    { name: "sync", project: buildCodexUserMcpServersThreadConfigPatch },
+    { name: "runtime", project: buildCodexUserMcpServersThreadConfigPatchForRuntime },
+  ])(
+    "excludes registered servers from $name projection despite session enable overrides",
+    async ({ project }) => {
+      const resolve = vi.fn(async () => ({ url: "https://requester.example.test/mcp" }));
+      const serverNames = ["none", "shared", "personal", "sharedOauth"];
+      resolverTesting.setMcpServerConnectionResolversForTest(
+        serverNames.map((serverName) => ({ serverName, resolve })),
+      );
+      const cfg = {
+        mcp: {
+          servers: {
+            none: { enabled: false, url: "https://none.example.test/mcp" },
+            shared: {
+              enabled: false,
+              url: "https://shared.example.test/mcp",
+              headers: { Authorization: "Bearer shared-secret" },
+            },
+            personal: { enabled: false, url: "https://personal.example.test/mcp" },
+            sharedOauth: {
+              enabled: false,
+              url: "https://oauth.example.test/mcp",
+              auth: "oauth",
+              oauth: { authProfileId: "shared:oauth" },
+            },
+          },
+        },
+      } satisfies OpenClawConfig;
+      const options = {
+        agentId: "alice",
+        toolOverrides: { mcpServers: Object.fromEntries(serverNames.map((name) => [name, true])) },
+      };
+
+      expect(await project(cfg, options)).toBeUndefined();
+      expect(
+        await project(
+          {
+            mcp: {
+              servers: {
+                ...cfg.mcp.servers,
+                local: { command: "local-tools", args: ["--stdio"] },
+              },
+            },
+          },
+          options,
+        ),
+      ).toEqual({ mcp_servers: { local: { command: "local-tools", args: ["--stdio"] } } });
+      expect(resolve).not.toHaveBeenCalled();
+      expect(authMocks.loadAuthProfileStoreForSecretsRuntime).not.toHaveBeenCalled();
+      expect(authMocks.resolveApiKeyForProfile).not.toHaveBeenCalled();
+      expect(authMocks.resolveMcpOAuthAccessToken).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns undefined when cfg has no mcp.servers (regression: #80814)", () => {
     expect(buildCodexUserMcpServersThreadConfigPatch(undefined)).toBeUndefined();

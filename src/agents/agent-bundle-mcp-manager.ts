@@ -112,12 +112,17 @@ export function createSessionMcpRuntimeManager(
       store.advertisedScopedCatalogBySessionId.delete(params.sessionId);
       generation = {
         digest,
+        agentIds: generation?.agentIds ?? new Set<string>(),
         // Carry detached cleanup forward when definitions change again before
         // teardown finishes; session disposal must still own that work.
         retirement: Promise.allSettled([generation?.retirement, ...retired]).then(() => {}),
       } satisfies SessionMcpConfigGeneration;
       // Object identity fences late work, including old -> new -> old definitions.
       store.configGenerationBySessionId.set(params.sessionId, generation);
+    }
+    const agentId = normalizeOptionalString(params.agentId);
+    if (agentId && requesterScopedServerNames.length > 0) {
+      generation.agentIds.add(agentId);
     }
     return {
       staticServers,
@@ -398,7 +403,7 @@ export function createSessionMcpRuntimeManager(
     async disposeSession(sessionId) {
       await lifecycle.disposeManagedSession(sessionId);
     },
-    async disposeAgentScoped(agentId) {
+    async disposeAgentScoped(agentId, options) {
       const candidateKeys = new Set([
         ...store.runtimesBySessionId.keys(),
         ...store.createInFlight.keys(),
@@ -418,7 +423,20 @@ export function createSessionMcpRuntimeManager(
           return false;
         }
       });
-      await Promise.all(matchingKeys.map((runtimeKey) => lifecycle.disposeRuntimeKey(runtimeKey)));
+      if (options?.retireSessionCatalog) {
+        // Explicit policy changes retire schemas and fence pending work, even
+        // after idle cleanup removed every connection carrying the agent identity.
+        const sessionIds = [...store.configGenerationBySessionId]
+          .filter(([, generation]) => generation.agentIds.has(agentId))
+          .map(([sessionId]) => sessionId);
+        await Promise.all(
+          sessionIds.map((sessionId) => lifecycle.disposeManagedSession(sessionId)),
+        );
+      } else {
+        await Promise.all(
+          matchingKeys.map((runtimeKey) => lifecycle.disposeRuntimeKey(runtimeKey)),
+        );
+      }
       return matchingKeys.length;
     },
     deferRetirement(sessionId, retirementOpts) {

@@ -9,6 +9,7 @@ import {
   SKILL_HUB_STATE_SCHEMA,
 } from "./sqlite-schema-feature-state.js";
 import { SCHEMA_V2 } from "./sqlite-schema-v2.js";
+export { ensureMcpCredentialSchema, ensureMcpUserSettingsSchema } from "./sqlite-schema-mcp.js";
 export { ensureDirectoryOrganizationSchema } from "./sqlite-schema-directory-organizations.js";
 export {
   ORGANIZATION_KNOWLEDGE_SCHEMA,
@@ -243,31 +244,6 @@ CREATE TABLE control_audit_events (
 CREATE INDEX control_audit_events_created ON control_audit_events(created_at);
 `;
 
-const MCP_CREDENTIAL_SCHEMA = `
-CREATE TABLE IF NOT EXISTS encrypted_user_mcp_credentials (
-  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
-  server_name TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('bearer', 'api_key', 'oauth')),
-  ciphertext BLOB NOT NULL,
-  nonce BLOB NOT NULL CHECK (length(nonce) = 12),
-  auth_tag BLOB NOT NULL CHECK (length(auth_tag) = 16),
-  key_id TEXT NOT NULL,
-  format_version INTEGER NOT NULL CHECK (format_version = 1),
-  revision INTEGER NOT NULL CHECK (revision >= 1),
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY (user_id, server_name)
-) STRICT;
-CREATE TABLE IF NOT EXISTS mcp_oauth_states (
-  state_hash TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
-  server_name TEXT NOT NULL,
-  expires_at INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
-) STRICT;
-CREATE INDEX IF NOT EXISTS mcp_oauth_states_expiry ON mcp_oauth_states(expires_at);
-`;
-
 const EXEC_CREDENTIAL_SCHEMA = `
 CREATE TABLE IF NOT EXISTS exec_credential_definitions (
   env_name TEXT PRIMARY KEY,
@@ -308,11 +284,6 @@ export function ensureVmHostExecutionEnvironmentSchema(db: DatabaseSync): void {
 /** Additive shared-memory table; safe for older schema-v2 readers to ignore. */
 export function ensureOrganizationMemorySchema(db: DatabaseSync): void {
   db.exec(ORGANIZATION_MEMORY_SCHEMA);
-}
-
-/** Additive feature table; safe for older schema-v2 readers to ignore. */
-export function ensureMcpCredentialSchema(db: DatabaseSync): void {
-  db.exec(MCP_CREDENTIAL_SCHEMA);
 }
 
 /** Additive personal exec credential tables; older schema-v2 readers ignore them. */

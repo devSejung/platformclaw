@@ -168,6 +168,7 @@ describe("harness MCP identity, policy, and config over real transports", () => 
   });
 
   async function materialize(params: {
+    sessionId?: string;
     agentId?: string;
     requesterSenderId?: string;
     toolOverrides?: Pick<SessionToolOverrides, "mcpServers" | "mcpToolsDeny">;
@@ -346,6 +347,36 @@ describe("harness MCP identity, policy, and config over real transports", () => 
       missing!.dispose(),
       senderOnly!.dispose(),
     ]);
+  });
+
+  it("retires an agent's live tools and advertised schemas without changing another session", async () => {
+    const alice = await materialize({ agentId: "alice" });
+    const bob = await materialize({ agentId: "bob", sessionId: "bob-session" });
+    const read = (runtime: NonNullable<typeof alice>) =>
+      runtime.tools.find((tool) => tool.name === "personal__read_record")!;
+    expect((await read(alice!).execute("before", {})).content).toEqual([
+      { type: "text", text: "alice:read_record" },
+    ]);
+
+    available = false;
+    expect(await disposeAgentScopedMcpRuntimes("alice", { retireSessionCatalog: true })).toBe(1);
+    await expect(read(alice!).execute("retired", {})).rejects.toThrow(/disposed/i);
+    const disabled = await materialize({ agentId: "alice" });
+    expect(disabled?.tools ?? []).toEqual([]);
+    expect(disabled?.advertisedTools ?? []).toEqual([]);
+    expect((await read(bob!).execute("unaffected", {})).content).toEqual([
+      { type: "text", text: "bob:read_record" },
+    ]);
+    expect(fixture.calls).toEqual(["alice:read_record", "bob:read_record"]);
+
+    available = true;
+    const restored = await materialize({ agentId: "alice" });
+    expect(names(restored!)).toEqual(names(alice!));
+    expect((await read(restored!).execute("restored", {})).content).toEqual([
+      { type: "text", text: "alice:read_record" },
+    ]);
+    expect(fixture.unauthorized).toBe(0);
+    await Promise.all([alice!.dispose(), bob!.dispose(), restored!.dispose()]);
   });
 
   it("removes session-denied tools and disabled servers from live and cached surfaces", async () => {

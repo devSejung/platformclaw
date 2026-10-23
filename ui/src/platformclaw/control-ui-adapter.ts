@@ -468,38 +468,31 @@ export class PlatformClawControlUiAdapter {
           loaderDeps: () => "platformclaw-mcp",
           loader: async () => undefined,
           component: () =>
-            Promise.all([import("./mcp-administration.ts"), import("./mcp-settings.ts")]).then(
-              () => ({
-                header: true,
-                render: () => html`
-                  <style>
-                    .platformclaw-mcp-page {
-                      width: min(920px, 100%);
-                      margin: 0 auto;
-                      padding: 0 20px 48px;
-                    }
-                  </style>
-                  <section class="content-header">
-                    <div>
-                      <div class="page-title">${t("platformClaw.mcp.title")}</div>
-                      ${renderPageHelpTrigger("mcp")}
-                    </div>
-                  </section>
-                  <main class="platformclaw-mcp-page">
-                    ${identity.globalRole === "admin"
-                      ? html`<platformclaw-mcp-administration
-                          .fetchImpl=${this.fetchImpl}
-                          .onUnauthenticated=${onUnauthenticated}
-                        ></platformclaw-mcp-administration>`
-                      : nothing}
-                    <platformclaw-mcp-settings
-                      .fetchImpl=${this.fetchImpl}
-                      .onUnauthenticated=${onUnauthenticated}
-                    ></platformclaw-mcp-settings>
-                  </main>
-                `,
-              }),
-            ),
+            import("./mcp-page.ts").then(() => ({
+              header: true,
+              render: () => html`
+                <style>
+                  .platformclaw-mcp-page {
+                    width: min(1480px, 100%);
+                    margin: 0 auto;
+                    padding: 0 20px 48px;
+                  }
+                </style>
+                <section class="content-header">
+                  <div>
+                    <div class="page-title">${t("platformClaw.mcp.title")}</div>
+                    ${renderPageHelpTrigger("mcp")}
+                  </div>
+                </section>
+                <main class="platformclaw-mcp-page">
+                  <platformclaw-mcp-page
+                    .admin=${identity.globalRole === "admin"}
+                    .fetchImpl=${this.fetchImpl}
+                    .onUnauthenticated=${onUnauthenticated}
+                  ></platformclaw-mcp-page>
+                </main>
+              `,
+            })),
         },
       },
       gateway: {

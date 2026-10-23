@@ -51,6 +51,56 @@ export type McpCredentialPayload =
   | McpApiKeyCredentialPayload
   | McpOAuthCredentialPayload;
 
+export type McpUserSettingsPayload = {
+  serverUrl: string;
+  headers: Record<string, string>;
+};
+
+export type StoredUserMcpSettings = McpCredentialEnvelope & {
+  userId: string;
+  serverName: string;
+  enabled: boolean;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type UserMcpSettingsMetadata = Omit<
+  StoredUserMcpSettings,
+  "ciphertext" | "nonce" | "authTag" | "keyId" | "formatVersion"
+>;
+
+export interface ControlPlaneMcpSettingsStore {
+  replaceEncryptedUserMcpSettings(params: {
+    actorUserId: string;
+    userId: string;
+    serverName: string;
+    enabled: boolean;
+    envelope: McpCredentialEnvelope;
+    updatedAt: number;
+    expectedRevision: number;
+    credential?: {
+      kind: McpCredentialKind;
+      envelope: McpCredentialEnvelope;
+      expectedFingerprint: string | null;
+    };
+  }): Promise<{
+    settings: UserMcpSettingsMetadata;
+    credential?: UserMcpCredentialMetadata;
+  }>;
+  readEncryptedUserMcpSettings(
+    userId: string,
+    serverName: string,
+  ): Promise<StoredUserMcpSettings | null>;
+  readEncryptedMcpSettingsForAgent(
+    agentId: string,
+    serverName: string,
+  ): Promise<StoredUserMcpSettings | null>;
+  listUserMcpSettings(userId: string): Promise<UserMcpSettingsMetadata[]>;
+  getActivePersonalMcpOwner(agentId: string): Promise<string | null>;
+  getActiveCommonMcpAgent(agentId: string): Promise<boolean>;
+}
+
 export interface ControlPlaneMcpCredentialStore {
   replaceEncryptedUserMcpCredential(params: {
     actorUserId: string;

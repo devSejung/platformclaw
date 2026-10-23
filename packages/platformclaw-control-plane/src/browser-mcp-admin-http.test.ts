@@ -62,6 +62,159 @@ function responseHarness() {
 }
 
 describe("MCP administration HTTP", () => {
+  it.each(["shared", "personal"] as const)(
+    "rejects transport-owned primary API-key names in %s policy",
+    async (credentialMode) => {
+      for (const headerName of [
+        "Host",
+        "Content-Length",
+        "Accept",
+        "Mcp-Session-Id",
+        "MCP-Protocol-Version",
+      ]) {
+        const { service, call } = createService("admin");
+        await expect(
+          service.mutate("save-server", {
+            name: "docs",
+            url: "https://docs.example/mcp",
+            transport: "sse",
+            credentialMode,
+            auth: "api_key",
+            headerName,
+            secret: "secret",
+          }),
+        ).rejects.toThrow("reserved");
+        expect(call).toHaveBeenCalledTimes(1);
+      }
+      const { service } = createService("admin");
+      await expect(
+        service.mutate("save-server", {
+          name: "docs",
+          url: "https://docs.example/mcp",
+          transport: "sse",
+          credentialMode,
+          auth: "api_key",
+          headerName: "Authorization",
+          secret: "custom-auth-value",
+        }),
+      ).resolves.toBeDefined();
+    },
+  );
+
+  it.each(["bearer", "api_key"] as const)(
+    "rejects invalid shared %s values before changing configuration",
+    async (auth) => {
+      for (const secret of [
+        " ",
+        "한글",
+        "value\x01",
+        "\x0bvalue",
+        "value\x7f",
+        "value\r\nInjected: bad",
+        "x".repeat(32 * 1024 + 1),
+        "é".repeat(16 * 1024 + 1),
+      ]) {
+        const { service, call } = createService("admin");
+        await expect(
+          service.mutate("save-server", {
+            name: "docs",
+            url: "https://docs.example/mcp",
+            transport: "sse",
+            credentialMode: "shared",
+            auth,
+            headerName: "X-Key",
+            secret,
+          }),
+        ).rejects.toThrow();
+        expect(call).toHaveBeenCalledTimes(1);
+      }
+    },
+  );
+
+  it("preserves a redacted shared credential while updating optional header guides", async () => {
+    const { service, call } = createService("admin", {
+      mcp: {
+        servers: {
+          docs: {
+            url: "https://docs.example/mcp",
+            headers: { Authorization: "__OPENCLAW_REDACTED__" },
+          },
+        },
+      },
+    });
+    await service.mutate("save-server", {
+      name: "docs",
+      url: "https://docs.example/mcp",
+      transport: "streamable-http",
+      credentialMode: "shared",
+      auth: "bearer",
+      headerGuides: [{ name: "X-Tenant", description: "Optional workspace" }],
+    });
+    const request = call.mock.calls.find(([method]) => method === "config.patch")?.[1] as
+      | { raw: string }
+      | undefined;
+    if (!request) {
+      throw new Error("missing config.patch request");
+    }
+    const patch = JSON.parse(request.raw);
+    expect(patch.mcp.servers.docs).not.toHaveProperty("headers");
+    expect(patch.plugins.entries["platformclaw-user-mcp"].config.servers.docs).toMatchObject({
+      credentialMode: "shared",
+      auth: "bearer",
+      headerGuides: [{ name: "X-Tenant", description: "Optional workspace" }],
+    });
+    expect(JSON.stringify(patch)).not.toContain("REDACTED");
+  });
+
+  it.each([
+    { url: "https://other.example/mcp", auth: "bearer" },
+    { url: "https://docs.example/mcp", auth: "api_key", headerName: "X-Key" },
+  ])(
+    "requires a replacement secret when its shared destination or policy changes: $auth $url",
+    async (change) => {
+      const { service, call } = createService("admin", {
+        mcp: {
+          servers: {
+            docs: {
+              url: "https://docs.example/mcp",
+              headers: { Authorization: "__OPENCLAW_REDACTED__" },
+            },
+          },
+        },
+      });
+      await expect(
+        service.mutate("save-server", {
+          name: "docs",
+          transport: "sse",
+          credentialMode: "shared",
+          ...change,
+        }),
+      ).rejects.toThrow("new shared credential is required");
+      expect(call).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
+    [{ name: "X-Team" }, { name: "x-team" }],
+    [{ name: "Content-Length" }],
+    [{ name: "MCP-Session-Id" }],
+    [{ name: "Authorization" }],
+    [{ name: "X-Team", description: 123 }],
+  ])("rejects duplicate, malformed, transport and credential header guides", async (...guides) => {
+    const { service, call } = createService("admin");
+    await expect(
+      service.mutate("save-server", {
+        name: "docs",
+        url: "https://docs.example/mcp",
+        transport: "sse",
+        credentialMode: "personal",
+        auth: "bearer",
+        headerGuides: guides,
+      }),
+    ).rejects.toThrow(/header/iu);
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects members before reading Gateway configuration", async () => {
     const { service, call } = createService("member");
     const harness = responseHarness();
@@ -158,7 +311,21 @@ describe("MCP administration HTTP", () => {
           },
         },
         plugins: {
-          entries: { "platformclaw-user-mcp": { config: { servers: { docs: null } } } },
+          entries: {
+            "platformclaw-user-mcp": {
+              config: {
+                servers: {
+                  docs: {
+                    credentialMode: "none",
+                    auth: null,
+                    headerName: null,
+                    scope: null,
+                    headerGuides: [],
+                  },
+                },
+              },
+            },
+          },
         },
       }),
       baseHash: "config-hash",

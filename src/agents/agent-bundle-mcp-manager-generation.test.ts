@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { McpServerConfig } from "../config/types.mcp.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createSessionMcpRuntimeManager } from "./agent-bundle-mcp-manager.js";
-import type { CreateSessionMcpRuntime } from "./agent-bundle-mcp-runtime-shared.js";
+import {
+  DEFAULT_SESSION_MCP_RUNTIME_IDLE_TTL_MS,
+  type CreateSessionMcpRuntime,
+} from "./agent-bundle-mcp-runtime-shared.js";
 import type { McpToolCatalog, SessionMcpRuntimeManager } from "./agent-bundle-mcp-types.js";
 import {
   testing as resolverTesting,
@@ -117,6 +120,9 @@ function createHarness(
       token = "rotated-user-token";
       now += 5 * 60_000 + 1;
     },
+    expireConnections() {
+      now += DEFAULT_SESSION_MCP_RUNTIME_IDLE_TTL_MS + 1;
+    },
   };
 }
 
@@ -196,7 +202,28 @@ describe("scoped MCP declaration generations", () => {
     expect(harness.manager.getAdvertisedScopedCatalog("session")?.tools).toHaveLength(1);
   });
 
-  it.each(["session", "all"] as const)(
+  it.each([false, true])(
+    "retires an idle agent's cached catalog only when requested (%s)",
+    async (retireSessionCatalog) => {
+      const harness = createHarness();
+      await harness.run({ agentId: "alice" });
+      harness.expireConnections();
+      expect(await harness.manager.sweepIdleRuntimes()).toBe(1);
+      expect(harness.manager.listRuntimeKeys()).toEqual([]);
+      expect(harness.manager.getAdvertisedScopedCatalog("session")?.tools).toHaveLength(1);
+
+      await harness.manager.disposeAgentScoped("alice", { retireSessionCatalog });
+
+      await expect(
+        harness.run({ agentId: "alice", requesterSenderId: "guest" }),
+      ).resolves.toBeUndefined();
+      expect(harness.manager.getAdvertisedScopedCatalog("session")?.tools.length ?? 0).toBe(
+        retireSessionCatalog ? 0 : 1,
+      );
+    },
+  );
+
+  it.each(["session", "all", "agent retirement"] as const)(
     "prevents a pending resolver from installing after %s disposal",
     async (scope) => {
       const harness = createHarness();
@@ -206,12 +233,14 @@ describe("scoped MCP declaration generations", () => {
         started.resolve(undefined);
         return await connection.promise;
       });
-      const pending = harness.run();
+      const pending = harness.run({ agentId: "alice" });
       await started.promise;
       const disposing =
         scope === "session"
           ? harness.manager.disposeSession("session")
-          : harness.manager.disposeAll();
+          : scope === "all"
+            ? harness.manager.disposeAll()
+            : harness.manager.disposeAgentScoped("alice", { retireSessionCatalog: true });
       connection.resolve({ url: "https://resolved.example.test/retired", headers: {} });
 
       await expect(pending).resolves.toBeUndefined();
@@ -248,7 +277,7 @@ describe("scoped MCP declaration generations", () => {
     expect(current!.dispose).not.toHaveBeenCalled();
   });
 
-  it.each(["replacement", "session disposal", "all disposal"] as const)(
+  it.each(["replacement", "session disposal", "all disposal", "agent retirement"] as const)(
     "does not publish a late catalog after %s",
     async (operation) => {
       const started = deferred<void>();
@@ -260,7 +289,7 @@ describe("scoped MCP declaration generations", () => {
         }
         return catalog;
       });
-      const oldRun = harness.run();
+      const oldRun = harness.run({ agentId: "alice" });
       await started.promise;
       if (operation === "replacement") {
         await harness.run({
@@ -269,8 +298,10 @@ describe("scoped MCP declaration generations", () => {
         });
       } else if (operation === "session disposal") {
         await harness.manager.disposeSession("session");
-      } else {
+      } else if (operation === "all disposal") {
         await harness.manager.disposeAll();
+      } else {
+        await harness.manager.disposeAgentScoped("alice", { retireSessionCatalog: true });
       }
       release.resolve(undefined);
 

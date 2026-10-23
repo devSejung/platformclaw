@@ -693,8 +693,10 @@ describe("PlatformClawControlUiAdapter", () => {
     const adminMcpModule = await adminOptions.routeOverrides?.mcp?.component?.();
     render(adminMcpModule?.render(undefined), document.body);
     expect(document.querySelector("platformclaw-exec-credentials")).toBeNull();
-    expect(document.querySelector("platformclaw-mcp-administration")).not.toBeNull();
-    expect(document.querySelector("platformclaw-mcp-settings")).not.toBeNull();
+    await vi.waitFor(() => {
+      expect(document.querySelector("platformclaw-mcp-administration")).not.toBeNull();
+      expect(document.querySelector("platformclaw-mcp-settings")).not.toBeNull();
+    });
 
     const memberOptions = adapter.applicationOptions(
       {
@@ -738,7 +740,9 @@ describe("PlatformClawControlUiAdapter", () => {
     ).toBeNull();
     const memberMcpModule = await memberOptions.routeOverrides?.mcp?.component?.();
     render(memberMcpModule?.render(undefined), document.body);
-    expect(document.querySelector("platformclaw-mcp-administration")).toBeNull();
-    expect(document.querySelector("platformclaw-mcp-settings")).not.toBeNull();
+    await vi.waitFor(() => {
+      expect(document.querySelector("platformclaw-mcp-administration")).toBeNull();
+      expect(document.querySelector("platformclaw-mcp-settings")).not.toBeNull();
+    });
   });
 });
