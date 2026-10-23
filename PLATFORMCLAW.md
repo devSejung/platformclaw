@@ -61,8 +61,9 @@ These areas are candidates for future evaluation and migration. They are not an 
 - Investigate current OpenClaw structure and extension points first.
 - When a core change is unavoidable, keep it generic and minimal.
 - Treat Windows only as the development host; judge final behavior in Linux Docker.
+- `AGENTS.md`'s Validation section is the single owner of validation environment selection, including when scoped guides or skill recipes describe a different backend. Trusted heavy proof uses Docker Desktop Linux, then healthy WSL when Docker is unsuitable; required hosted/native proof uses supported existing CI. Untrusted source stays on secretless fork CI. Preserve every required check and proof obligation.
 - Do not introduce Windows-only runtime dependencies.
-- Run `node scripts/platformclaw-check.mjs --changed --quick` during PlatformClaw development. Before push or PR, run it without `--quick`; GitHub uses the same surface command groups. Keep upstream-wide checks for shared or core paths.
+- Run `node scripts/platformclaw-check.mjs --changed --quick` during PlatformClaw development in the environment selected by Validation. Before push or PR, run it without `--quick`; GitHub uses the same surface command groups. For full local Linux checks, set `OPENCLAW_CHECK_CHANGED_REMOTE_CHILD=1` so nested `check:changed` retains all checks without remote delegation. Keep upstream-wide checks for shared or core paths; the quick mode is not full pre-PR proof.
 - GitHub runs the complete upstream Node suite in compact bins for PlatformClaw pull requests and `main`; changed-target single-job planning remains upstream-only. The separate PlatformClaw workflow validates overlay-owned surfaces and delegates shared `check:changed` coverage to upstream CI instead of executing it twice. Canonical-only macOS, iOS build, Android, Windows, Blacksmith, and sticky-disk privileges remain unavailable to the downstream repository; hosted native-i18n checks may still run when selected.
 - Do not freeze unconfirmed interface names or directory structures in documentation.
 
