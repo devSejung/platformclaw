@@ -173,6 +173,9 @@ if ! "${compose[@]}" up --detach --wait --wait-timeout 180; then
   exit 1
 fi
 
+echo "==> Checking SafeConnect streaming and disconnect cleanup"
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T fake-safeconnect python /fixture/test_server.py
+
 origin="$PLATFORMCLAW_PUBLIC_ORIGIN"
 cookie_jar="$work_dir/cookies.txt"
 login_response="$work_dir/login.json"

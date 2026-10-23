@@ -20,6 +20,9 @@ export const REQUIRED_MANAGED_PLUGIN_IDS = [
 ];
 
 export const REQUIRED_MANAGED_AGENT_TOOL_IDS = [
+  // Re-allow the shipped Canvas family so its promoted show_widget survives
+  // sandbox defaults and the subsequent plugin-family policy expansion.
+  "canvas",
   "platformclaw_credentials",
   "memory_search",
   "memory_get",
@@ -42,11 +45,9 @@ export const REQUIRED_MANAGED_SANDBOX_TOOL_IDS = [
 export const PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION =
   "Override earlier product-name wording: this host product is PlatformClaw, not OpenClaw. Say PlatformClaw; preserve the speaking agent's assigned identity.";
 
-function normalizedPluginIds(value) {
+export function normalizeManagedPolicyEntries(value) {
   return Array.isArray(value)
-    ? value.flatMap((pluginId) =>
-        typeof pluginId === "string" ? [pluginId.trim().toLowerCase()] : [],
-      )
+    ? value.flatMap((entry) => (typeof entry === "string" ? [entry.trim().toLowerCase()] : []))
     : [];
 }
 
@@ -98,8 +99,8 @@ function validateToolPolicy(tools) {
 }
 
 function validateManagedAgentToolPolicy(tools) {
-  const deny = normalizedPluginIds(tools?.deny);
-  const alsoAllow = normalizedPluginIds(tools?.alsoAllow);
+  const deny = normalizeManagedPolicyEntries(tools?.deny);
+  const alsoAllow = normalizeManagedPolicyEntries(tools?.alsoAllow);
   requirePolicy(deny.includes("group:nodes"));
   requirePolicy(REQUIRED_MANAGED_AGENT_TOOL_IDS.every((toolId) => alsoAllow.includes(toolId)));
 }
@@ -127,12 +128,11 @@ export function sandboxPolicyDeniesManagedTool(sandboxTools, toolName) {
 }
 
 function validateManagedSandboxGate(sandboxTools) {
-  const allow = Array.isArray(sandboxTools?.allow) ? sandboxTools.allow : [];
-  const alsoAllow = Array.isArray(sandboxTools?.alsoAllow) ? sandboxTools.alsoAllow : [];
-  const unrestricted = Array.isArray(sandboxTools?.allow) && allow.length === 0;
+  const allow = normalizeManagedPolicyEntries(sandboxTools?.allow);
+  const alsoAllow = normalizeManagedPolicyEntries(sandboxTools?.alsoAllow);
   requirePolicy(
     REQUIRED_MANAGED_SANDBOX_TOOL_IDS.every(
-      (toolId) => unrestricted || allow.includes(toolId) || alsoAllow.includes(toolId),
+      (toolId) => allow.includes(toolId) || alsoAllow.includes(toolId),
     ) &&
       !sandboxPolicyDeniesBundleMcp(sandboxTools) &&
       !sandboxPolicyDeniesManagedTool(sandboxTools, "automations"),
@@ -264,7 +264,7 @@ export function validateManagedConfig(config, sandboxImage, skillHubEnabled, spa
       pluginAllow.length === 0 ||
       REQUIRED_MANAGED_PLUGIN_IDS.every((pluginId) => pluginAllow.includes(pluginId)),
   );
-  const pluginDeny = normalizedPluginIds(config?.plugins?.deny);
+  const pluginDeny = normalizeManagedPolicyEntries(config?.plugins?.deny);
   requirePolicy(REQUIRED_MANAGED_PLUGIN_IDS.every((pluginId) => !pluginDeny.includes(pluginId)));
   // PlatformClaw VMs are execution backends, not paired nodes. Keep the
   // Gateway-owned widget host active while removing the unowned node-control group.

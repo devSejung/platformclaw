@@ -109,6 +109,30 @@ describe("MCP App sandbox security", () => {
     expect(await dispatchWidgetPrompt(frame, "Show details", crypto.randomUUID())).toBe(false);
   });
 
+  it("does not park an unfocused MCP App message for later frame focus", async () => {
+    const frame = focusedFrame();
+    const input = document.createElement("textarea");
+    document.body.append(input);
+    Object.defineProperty(document, "activeElement", { get: () => input, configurable: true });
+    const received: string[] = [];
+    receivePrompt(frame, (detail) => {
+      received.push(detail.text);
+      detail.respondWith(Promise.resolve(true));
+    });
+
+    expect(await dispatchWidgetPrompt(frame, "Unfocused App message", crypto.randomUUID())).toBe(
+      false,
+    );
+    Object.defineProperty(document, "activeElement", { get: () => frame, configurable: true });
+    window.dispatchEvent(new Event("blur"));
+    await Promise.resolve();
+    expect(received).toEqual([]);
+    expect(await dispatchWidgetPrompt(frame, "New focused App message", crypto.randomUUID())).toBe(
+      true,
+    );
+    expect(received).toEqual(["New focused App message"]);
+  });
+
   it("waits for the owning chat to acknowledge admission", async () => {
     const frame = focusedFrame();
     let admit!: (accepted: boolean) => void;

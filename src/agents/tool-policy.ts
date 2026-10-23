@@ -287,7 +287,9 @@ export function analyzeAllowlistByToolType(
       pluginIds.has(entry) ||
       pluginTools.has(entry) ||
       isDeclaredMcpAllowlistEntry(entry, mcpToolPrefixes);
-    const expanded = expandToolGroups([entry]);
+    // Diagnose the same shipped families that filtering expands. Otherwise an
+    // available promoted core tool looks unavailable when its old plugin is disabled.
+    const expanded = expandToolGroups(expandPluginGroups([entry], groups));
     const isCoreEntry = expanded.some((tool) => coreTools.has(tool));
     if (!isPluginEntry) {
       hasOnlyPluginEntries = false;

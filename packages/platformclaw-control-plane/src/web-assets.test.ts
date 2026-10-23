@@ -4,7 +4,8 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import vm from "node:vm";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parsePlatformClawWebDescriptor } from "../../../ui/src/platformclaw/web-contract.js";
 import { PLATFORMCLAW_GUIDE_VIDEO_PATH } from "./guide-video-proxy.js";
 import {
@@ -136,6 +137,89 @@ async function serveApplicationFixture(
 }
 
 describe("createPlatformClawWebAssetHandler", () => {
+  it.each([false, true])(
+    "never intercepts authenticated bootstrap in the branded service worker (offline=%s)",
+    async (offline) => {
+      const root = fixtureRoot();
+      writeFileSync(
+        join(root, "sw.js"),
+        readFileSync(new URL("../../../ui/public/sw.js", import.meta.url), "utf8"),
+      );
+      const fixture = await serveFixture(root);
+      try {
+        const workerResponse = await fetch(`${fixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/sw.js`);
+        const source = await workerResponse.text();
+        type FetchEvent = {
+          request: Request;
+          respondWith(response: Promise<Response | undefined>): void;
+        };
+        const listeners = new Map<string, (event: FetchEvent) => void>();
+        const priorAccount = new Response('{"assistantName":"Previous account"}');
+        const cachedAsset = new Response("cached asset");
+        const cachePut = vi.fn(async () => {});
+        const bootstrapPath = `${PLATFORMCLAW_WEB_APP_PATH}/control-ui-config.json`;
+        const cacheMatch = vi.fn(async (request: Request) => {
+          if (new URL(request.url).pathname === bootstrapPath) {
+            return priorAccount;
+          }
+          return offline ? cachedAsset : undefined;
+        });
+        const cacheOpen = vi.fn(async () => ({ put: cachePut }));
+        const workerFetch = vi.fn(async () => {
+          if (offline) {
+            throw new Error("offline");
+          }
+          return new Response("network asset");
+        });
+        new vm.Script(source, { filename: "PlatformClaw branded sw.js" }).runInContext(
+          vm.createContext({
+            URL,
+            fetch: workerFetch,
+            caches: { match: cacheMatch, open: cacheOpen },
+            self: {
+              location: {
+                href: `${PUBLIC_ORIGIN}${PLATFORMCLAW_WEB_APP_PATH}/sw.js?v=test`,
+                origin: PUBLIC_ORIGIN,
+              },
+              addEventListener(type: string, listener: (event: FetchEvent) => void) {
+                listeners.set(type, listener);
+              },
+            },
+          }),
+        );
+        const handler = listeners.get("fetch");
+        expect(handler).toBeDefined();
+        const respondWith = vi.fn<(response: Promise<Response | undefined>) => void>();
+        for (const suffix of ["", "?agentId=other_agent"]) {
+          handler!({
+            request: new Request(`${PUBLIC_ORIGIN}${bootstrapPath}${suffix}`),
+            respondWith,
+          });
+        }
+        expect(respondWith).not.toHaveBeenCalled();
+        expect(workerFetch).not.toHaveBeenCalled();
+        expect(cacheMatch).not.toHaveBeenCalled();
+        expect(cacheOpen).not.toHaveBeenCalled();
+        expect(cachePut).not.toHaveBeenCalled();
+
+        const asset = new Request(`${PUBLIC_ORIGIN}${PLATFORMCLAW_WEB_ASSET_PREFIX}app-ABC123.js`);
+        handler!({ request: asset, respondWith });
+        const reply = respondWith.mock.calls.at(-1)?.[0];
+        expect(await (await reply)?.text()).toBe(offline ? "cached asset" : "network asset");
+        expect(cacheMatch).toHaveBeenCalledWith(asset);
+        if (offline) {
+          expect(workerFetch).not.toHaveBeenCalled();
+          expect(cachePut).not.toHaveBeenCalled();
+        } else {
+          expect(workerFetch).toHaveBeenCalledWith(asset);
+          expect(cachePut).toHaveBeenCalledWith(asset, expect.any(Response));
+        }
+      } finally {
+        await fixture.close();
+      }
+    },
+  );
+
   it("keeps the server descriptor compatible with the Control UI parser", () => {
     expect(parsePlatformClawWebDescriptor(PLATFORMCLAW_WEB_DESCRIPTOR)).toEqual(
       PLATFORMCLAW_WEB_DESCRIPTOR,

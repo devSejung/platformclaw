@@ -97,6 +97,36 @@ describe("tool-policy-pipeline", () => {
   });
 
   test.each([
+    { allow: ["canvas"], expectedWarnings: [] },
+    {
+      allow: ["canvas", "wat"],
+      expectedWarnings: [
+        "tools: tools.allow allowlist contains unknown entries (wat). These entries won't match any tool unless the plugin is enabled.",
+      ],
+    },
+  ])(
+    "recognizes the Canvas family without the node plugin ($allow)",
+    ({ allow, expectedWarnings }) => {
+      const warnings: string[] = [];
+      const filtered = applyToolPolicyPipeline({
+        tools: asPolicyTools([{ name: "exec" }, { name: "show_widget" }]),
+        toolMeta: () => undefined,
+        warn: (message) => warnings.push(message),
+        steps: [{ policy: { allow }, label: "tools.allow", stripPluginOnlyAllowlist: true }],
+      });
+
+      expect(filtered.map((tool) => tool.name)).toEqual(["show_widget"]);
+      expect(warnings).toEqual(expectedWarnings);
+    },
+  );
+
+  test("still warns when no tool in the Canvas family is available", () => {
+    expect(runAllowlistWarningStep({ allow: ["canvas"], label: "tools.allow" })).toEqual([
+      "tools: tools.allow allowlist contains unknown entries (canvas). These entries are shipped core tools but unavailable in the current runtime/provider/model/config.",
+    ]);
+  });
+
+  test.each([
     { expected: ["exec", "show_widget"], policy: { deny: ["canvas"] } },
     { expected: ["canvas"], policy: { allow: ["canvas"] } },
   ])(

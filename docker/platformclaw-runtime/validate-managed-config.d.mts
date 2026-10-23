@@ -3,6 +3,8 @@ export declare const REQUIRED_MANAGED_AGENT_TOOL_IDS: string[];
 export declare const REQUIRED_MANAGED_SANDBOX_TOOL_IDS: string[];
 export declare const PLATFORMCLAW_REALTIME_IDENTITY_INSTRUCTION: string;
 
+export declare function normalizeManagedPolicyEntries(value: unknown): string[];
+
 export declare function validateManagedConfig(
   config: unknown,
   sandboxImage: string,

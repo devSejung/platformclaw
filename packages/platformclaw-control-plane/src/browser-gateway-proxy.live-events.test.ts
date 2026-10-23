@@ -1,7 +1,81 @@
 import { describe, expect, it } from "vitest";
+import {
+  buildGatewaySessionEventFields,
+  buildGatewaySessionEventRow,
+} from "../../../src/gateway/session-event-payload.js";
 import { setupBrowserGatewayProxyTest as setup } from "./browser-gateway-proxy.test-harness.js";
 
 describe("BrowserGatewayProxy live capabilities", () => {
+  it("delivers committed transcript messages with the Gateway's cleared controller metadata", async () => {
+    const { binding, proxy, token } = await setup();
+    const sessionKey = `agent:${binding.agentId}:main`;
+    const sessionRow = {
+      key: sessionKey,
+      kind: "direct" as const,
+      updatedAt: 1,
+      sessionId: "session-1",
+    };
+    const event = {
+      event: "session.message",
+      payload: {
+        sessionKey,
+        agentId: binding.agentId,
+        message: { role: "assistant", content: [{ type: "text", text: "Completed" }] },
+        session: buildGatewaySessionEventRow(sessionRow),
+        ...buildGatewaySessionEventFields({ sessionRow }),
+      },
+    };
+    expect(event.payload).toHaveProperty("controlOwnerSessionKey", null);
+
+    await expect(proxy.filterEvent(token, event)).resolves.toEqual(event);
+  });
+
+  it("preserves optional lineage clears and owned links on live events", async () => {
+    const { binding, proxy, token } = await setup();
+    const sessionKey = `agent:${binding.agentId}:main`;
+    const fields = ["parentSessionKey", "childSessionKey", "spawnedBy", "controlOwnerSessionKey"];
+    for (const field of fields) {
+      for (const value of [null, `agent:${binding.agentId}:child`]) {
+        const event = {
+          event: "session.message",
+          payload: {
+            sessionKey,
+            agentId: binding.agentId,
+            [field]: value,
+            session: { key: sessionKey, [field]: value },
+          },
+        };
+        await expect(proxy.filterEvent(token, event)).resolves.toEqual(event);
+      }
+    }
+  });
+
+  it("rejects foreign and malformed live-event ownership references", async () => {
+    const { binding, proxy, token } = await setup();
+    const sessionKey = `agent:${binding.agentId}:main`;
+    for (const ownership of [
+      { sessionKey: "agent:other:main" },
+      { sessionKey: 42 },
+      { sessionKey: null },
+      { key: "agent:other:main" },
+      { key: 42 },
+      { agentId: "other" },
+      { agentId: 42 },
+      { session: { key: "agent:other:main" } },
+      { session: { key: 42 } },
+      ...["parentSessionKey", "childSessionKey", "spawnedBy", "controlOwnerSessionKey"].flatMap(
+        (field) => ["agent:other:main", 42, ""].map((value) => ({ [field]: value })),
+      ),
+    ]) {
+      await expect(
+        proxy.filterEvent(token, {
+          event: "session.message",
+          payload: { sessionKey, agentId: binding.agentId, ...ownership },
+        }),
+      ).resolves.toBeNull();
+    }
+  });
+
   it("projects live agent, question, suggestion, and skill events to the personal agent", async () => {
     const { binding, proxy, token } = await setup();
     const sessionKey = `agent:${binding.agentId}:main`;

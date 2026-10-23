@@ -55,7 +55,7 @@ function allowWidgetPrompt(key: string, nowMs: number): boolean {
   return true;
 }
 
-function isWidgetFrameInteractable(frame: HTMLIFrameElement): boolean {
+export function isWidgetFrameInteractable(frame: HTMLIFrameElement): boolean {
   if (!frame.isConnected) {
     return false;
   }
