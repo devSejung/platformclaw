@@ -91,6 +91,8 @@ export const PLUGIN_COMPAT_RECORDS = [
   },
   {
     code: "deprecated-session-store-beta5-api",
+    // The SDK bridge has a published-reader gate; the package-root aliases below
+    // have a separate doctor upgrade gate. Elapsed dates alone retire neither.
     status: "removal-pending",
     owner: "sdk",
     introduced: "2026-05-21",
@@ -98,24 +100,38 @@ export const PLUGIN_COMPAT_RECORDS = [
     warningStarts: "2026-07-12",
     removeAfter: "2026-10-12",
     replacement:
-      "`getSessionEntry(...)`, `listSessionEntries(...)`, and row-level session mutations; retain the beta.5 bridge and package-root aliases until published-reader migration and minimum supported plugin exclusion are verified, the v2026.7.x legacy doctor upgrade window closes, and explicit breaking-release approval is granted",
+      "`getSessionEntry(...)`, `listSessionEntries(...)`, and row-level session mutations; retain the four SDK helpers until published-reader migration and minimum supported plugin exclusion of v2026.7.1-beta.5 are verified and explicit breaking-release approval is granted",
     docsPath: "/plugins/sdk-migration#removed-session-and-transcript-file-apis",
     surfaces: [
       "openclaw/plugin-sdk/session-store-runtime loadSessionStore",
       "openclaw/plugin-sdk/session-store-runtime updateSessionStore",
       "openclaw/plugin-sdk/session-store-runtime resolveSessionFilePath",
       "openclaw/plugin-sdk/session-store-runtime resolveSessionStoreEntry",
-      "openclaw package root loadSessionStore",
-      "openclaw package root saveSessionStore",
     ],
     diagnostics: ["plugin SDK deprecation"],
-    tests: [
-      "src/plugin-sdk/session-store-runtime.test.ts",
-      "src/index.test.ts",
-      "src/plugins/compat/registry.test.ts",
-    ],
+    tests: ["src/plugin-sdk/session-store-runtime.test.ts", "src/plugins/compat/registry.test.ts"],
     releaseNote:
-      "The beta.5 session-store import set and package-root whole-store aliases remain available while official plugins and package consumers migrate to row-level session access.",
+      "The beta.5 session-store import set remains available until the supported plugin floor excludes that release; the original review date is unchanged.",
+  },
+  {
+    code: "deprecated-package-root-session-store-api",
+    status: "removal-pending",
+    owner: "core",
+    introduced: "2026-05-21",
+    deprecated: "2026-07-12",
+    warningStarts: "2026-07-12",
+    removeAfter: "2026-10-12",
+    replacement:
+      "SQLite-backed session APIs; retain the package-root aliases until published-reader migration is verified, the v2026.7.x upgrade window no longer requires the legacy doctor importer, and explicit breaking-release approval is granted",
+    docsPath: "/plugins/sdk-migration#removed-session-and-transcript-file-apis",
+    surfaces: [
+      "openclaw package root `loadSessionStore`",
+      "openclaw package root `saveSessionStore`",
+    ],
+    diagnostics: ["package-root session-store deprecation"],
+    tests: ["src/index.test.ts", "src/plugins/compat/registry.test.ts"],
+    releaseNote:
+      "Package-root whole-store aliases retain their separate doctor upgrade condition and original review date.",
   },
   {
     code: "removed-session-transcript-file-api",

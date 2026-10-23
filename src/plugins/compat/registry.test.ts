@@ -183,20 +183,43 @@ describe("plugin compatibility registry", () => {
         "openclaw/plugin-sdk/security-runtime",
       ]),
     );
-    expect(records.get("deprecated-session-store-beta5-api")?.surfaces).toEqual(
-      expect.arrayContaining([
-        "openclaw package root loadSessionStore",
-        "openclaw package root saveSessionStore",
-      ]),
+  });
+
+  it("keeps session-store removals pending their distinct support conditions", () => {
+    const records = new Map(listPluginCompatRecords().map((record) => [record.code, record]));
+    const sdk = records.get("deprecated-session-store-beta5-api");
+    const packageRoot = records.get("deprecated-package-root-session-store-api");
+
+    for (const record of [sdk, packageRoot]) {
+      expect(record).toMatchObject({
+        status: "removal-pending",
+        deprecated: "2026-07-12",
+        warningStarts: "2026-07-12",
+        removeAfter: "2026-10-12",
+      });
+    }
+    for (const record of [sdk, packageRoot]) {
+      expect(record?.replacement).toContain("published-reader migration");
+      expect(record?.replacement).toContain("explicit breaking-release approval");
+    }
+    expect(sdk?.owner).toBe("sdk");
+    expect(sdk?.replacement).toContain(
+      "minimum supported plugin exclusion of v2026.7.1-beta.5",
     );
-    expect(records.get("deprecated-session-store-beta5-api")).toMatchObject({
-      status: "removal-pending",
-      removeAfter: "2026-10-12",
-      replacement: expect.stringContaining("minimum supported plugin exclusion"),
-    });
-    expect(records.get("deprecated-session-store-beta5-api")?.replacement).toContain(
-      "legacy doctor upgrade window",
+    expect(sdk?.surfaces).toEqual([
+      "openclaw/plugin-sdk/session-store-runtime loadSessionStore",
+      "openclaw/plugin-sdk/session-store-runtime updateSessionStore",
+      "openclaw/plugin-sdk/session-store-runtime resolveSessionFilePath",
+      "openclaw/plugin-sdk/session-store-runtime resolveSessionStoreEntry",
+    ]);
+    expect(packageRoot?.owner).toBe("core");
+    expect(packageRoot?.replacement).toContain(
+      "the v2026.7.x upgrade window no longer requires the legacy doctor importer",
     );
+    expect(packageRoot?.surfaces).toEqual([
+      "openclaw package root `loadSessionStore`",
+      "openclaw package root `saveSessionStore`",
+    ]);
   });
 
   it("keeps the removed embedded Pi aliases as a migration tombstone", () => {
