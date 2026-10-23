@@ -12,6 +12,7 @@ import { KnoxIngressPermanentError, type KnoxIngressLifecycle } from "./ingress.
 import { resolveKnoxPendingQuestionText, type KnoxQuestionAnswerBinding } from "./input-routing.js";
 import {
   buildKnoxTarget,
+  cancelKnoxOutbound,
   KnoxOutboundError,
   sendKnoxOutbound,
   type KnoxOutboundContext,
@@ -85,6 +86,7 @@ export async function sendKnoxQueuedNotice(params: {
   message: KnoxInboundMessage;
   aheadCount: number;
   abortSignal: AbortSignal;
+  warn?: (message: string) => void;
 }): Promise<void> {
   if (params.abortSignal.aborted || params.aheadCount < 1) {
     return;
@@ -102,25 +104,46 @@ export async function sendKnoxQueuedNotice(params: {
   if (params.abortSignal.aborted || routing.status !== "resolved") {
     return;
   }
-  await sendKnoxOutbound({
-    context: {
-      account: params.account,
-      inbound: params.message,
-      agentId: routing.agentId,
-      sessionKey: routing.sessionKey,
-      runId: `knox:${params.message.messageId}`,
-      ...(params.message.conversation.type === "dm"
-        ? { executionTarget: requireDmExecutionTarget(routing.executionTarget) }
-        : {}),
-    },
-    status: "progress",
-    final: false,
-    text: usesKnoxKoreanNotices(params.message.message.text)
-      ? `앞선 요청 ${params.aheadCount}건 처리 후 이어서 진행합니다.`
-      : `Your request will proceed after ${params.aheadCount} earlier request(s).`,
-    requestId: `queued:${params.message.messageId}`,
-    abortSignal: params.abortSignal,
-  });
+  const context: KnoxOutboundContext = {
+    account: params.account,
+    inbound: params.message,
+    agentId: routing.agentId,
+    sessionKey: routing.sessionKey,
+    runId: `knox:${params.message.messageId}`,
+    ...(params.message.conversation.type === "dm"
+      ? { executionTarget: requireDmExecutionTarget(routing.executionTarget) }
+      : {}),
+  };
+  const requestId = `queued:${params.message.messageId}`;
+  let cancellation: Promise<void> | undefined;
+  const cleanup = () => {
+    // Adoption may beat a pending acknowledgement. Cancel the original key so
+    // the proxy can suppress or recall that in-flight queued notice.
+    cancellation ??= cancelKnoxOutbound({ context, targetRequestId: requestId }).catch((error) => {
+      params.warn?.(
+        `Knox queued notice cleanup failed: ${redactSensitiveText(formatErrorMessage(error)).slice(0, 1_000)}`,
+      );
+    });
+    return cancellation;
+  };
+  params.abortSignal.addEventListener("abort", cleanup, { once: true });
+  try {
+    await sendKnoxOutbound({
+      context,
+      status: "progress",
+      final: false,
+      text: usesKnoxKoreanNotices(params.message.message.text)
+        ? `앞선 요청 ${params.aheadCount}건 처리 후 이어서 진행합니다.`
+        : `Your request will proceed after ${params.aheadCount} earlier request(s).`,
+      requestId,
+      abortSignal: params.abortSignal,
+    });
+  } finally {
+    params.abortSignal.removeEventListener("abort", cleanup);
+    if (params.abortSignal.aborted) {
+      await cleanup();
+    }
+  }
 }
 
 export async function dispatchKnoxInbound(params: {
@@ -255,6 +278,19 @@ export async function dispatchKnoxInbound(params: {
       ? { executionTarget: requireDmExecutionTarget(routing.executionTarget) }
       : {}),
   };
+  // The queue's callback lease ends at acknowledgement; its abort signal need
+  // not survive until claim. The claimed request also recalls the stable key.
+  const queuedCleanup =
+    (params.lifecycle.admissionAheadCount ?? 0) > 0
+      ? cancelKnoxOutbound({
+          context: outboundContext,
+          targetRequestId: `queued:${params.message.messageId}`,
+        }).catch((error) =>
+          params.log?.warn?.(
+            `Knox queued notice cleanup failed: ${redactSensitiveText(formatErrorMessage(error)).slice(0, 1_000)}`,
+          ),
+        )
+      : undefined;
   let finalSent = false;
   let visibleReplySent = false;
   let recoveryReason: KnoxReplyFailureReason = "unknown";
@@ -269,6 +305,8 @@ export async function dispatchKnoxInbound(params: {
     | undefined;
   let finalOrdinal = 0;
   let turnFinished = false;
+  const progressRequestId = (ordinal: number) =>
+    `progress:${params.message.messageId}${ordinal === 0 ? "" : `:${ordinal}`}`;
   const progress = createKnoxProgress({
     text: params.message.message.text,
     delayMs: params.account.progressDelayMs,
@@ -281,11 +319,14 @@ export async function dispatchKnoxInbound(params: {
         status: "progress",
         text,
         final: false,
-        requestId:
-          ordinal === 0
-            ? `progress:${params.message.messageId}`
-            : `progress:${params.message.messageId}:${ordinal}`,
+        requestId: progressRequestId(ordinal),
         abortSignal,
+      });
+    },
+    cancel: async (ordinal) => {
+      await cancelKnoxOutbound({
+        context: outboundContext,
+        targetRequestId: progressRequestId(ordinal),
       });
     },
     warn: (error) =>
@@ -423,6 +464,11 @@ export async function dispatchKnoxInbound(params: {
               });
               visibleReplySent = true;
               finalSent ||= terminal;
+              if (terminal) {
+                // A generated answer can fail delivery. Keep its previous notice until
+                // the relay confirms the final, then recall only our temporary digests.
+                await progress.cleanup();
+              }
               if (diagnosis || question || terminal) {
                 recordOutcome(
                   diagnosis ??
@@ -482,6 +528,7 @@ export async function dispatchKnoxInbound(params: {
           requestId: `error:${params.message.messageId}`,
         });
         finalSent = true;
+        await progress.cleanup();
       }
       // Block-streamed answers may consume/dedupe the final payload. Only the
       // dispatch owner's settled fact closes them; questions and adopted input do not.
@@ -504,6 +551,7 @@ export async function dispatchKnoxInbound(params: {
           requestId: `complete:${params.message.messageId}`,
         });
         finalSent = true;
+        await progress.cleanup();
         recordOutcome("completed");
       }
     }
@@ -548,6 +596,7 @@ export async function dispatchKnoxInbound(params: {
       final: true,
       requestId: `${timedOut ? "timeout" : "error"}:${params.message.messageId}`,
     });
+    await progress.cleanup();
     return;
   } finally {
     params.lifecycle.abortSignal.removeEventListener("abort", abandonDeferredWait);
@@ -555,6 +604,11 @@ export async function dispatchKnoxInbound(params: {
     progress.stop();
     // Keep the ingress lane until any started progress delivery has also settled.
     await progress.drain();
+    if (abandoned || params.lifecycle.abortSignal.aborted) {
+      await progress.cleanup();
+    }
+    progress.dispose();
+    await queuedCleanup;
   }
   if (!finalSent) {
     recordOutcome(recoveryReason);
@@ -565,6 +619,7 @@ export async function dispatchKnoxInbound(params: {
       final: true,
       requestId: `error:${params.message.messageId}`,
     });
+    await progress.cleanup();
   }
 }
 

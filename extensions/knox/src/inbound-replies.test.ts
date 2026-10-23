@@ -1,4 +1,6 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -48,8 +50,15 @@ type BoundaryOptions = {
   text?: string;
   controller?: AbortController;
   progressDelayMs?: number;
+  conversationType?: "dm" | "room";
 };
-type SentReply = { status: string; text: string; final: boolean; requestId: string };
+type SentReply = { status: string; text: string; final: boolean; requestId: string; runId: string };
+type CancelledReply = {
+  requestId: string;
+  targetRequestId: string;
+  targetRunId: string;
+  runId: string;
+};
 type ReplyOutcome = {
   event: string;
   reference: string;
@@ -71,6 +80,8 @@ const account: ResolvedKnoxAccount = {
 };
 let stateDir: string;
 let sent: SentReply[];
+let cancelled: CancelledReply[];
+let relayOperations: Array<{ kind: "send" | "cancel" | "status"; requestId: string }>;
 let recoveryReasons: Array<NoVisibleReplyReason | undefined>;
 let cfg: OpenClawConfig;
 let outcomes: ReplyOutcome[];
@@ -92,6 +103,8 @@ beforeEach(async () => {
     session: { store: path.join(stateDir, "agents", "test-agent", "sessions", "sessions.json") },
   };
   sent = [];
+  cancelled = [];
+  relayOperations = [];
   recoveryReasons = [];
   outcomes = [];
   relayFailure = undefined;
@@ -110,13 +123,34 @@ beforeEach(async () => {
           executionTarget: "platform_server",
         });
       }
-      expect(url).toBe(account.outboundUrl);
+      const relayUrl = new URL(String(url));
+      if (relayUrl.pathname === "/cancel") {
+        if (typeof init.body !== "string") {
+          throw new Error("Expected a cancel JSON body");
+        }
+        const request = JSON.parse(init.body) as CancelledReply;
+        cancelled.push(request);
+        relayOperations.push({ kind: "cancel", requestId: request.targetRequestId });
+        return Response.json({ ok: true, state: "cancelled", outcome: "recalled" });
+      }
+      if (relayUrl.pathname === "/status") {
+        const requestId = relayUrl.searchParams.get("requestId") ?? "";
+        relayOperations.push({ kind: "status", requestId });
+        return Response.json({
+          ok: true,
+          state: "failed",
+          retryable: true,
+          message: "Synthetic relay failure",
+        });
+      }
+      expect(String(url)).toBe(account.outboundUrl);
       if (typeof init.body !== "string") {
         throw new Error("Expected a relay JSON body");
       }
       const reply = JSON.parse(init.body) as SentReply;
       sent.push(reply);
-      if (holdProgressRelay && !reply.final) {
+      relayOperations.push({ kind: "send", requestId: reply.requestId });
+      if (holdProgressRelay && reply.requestId.startsWith("progress:")) {
         const signal = init.signal;
         if (!signal) {
           throw new Error("Expected cancellation for a progress request");
@@ -256,8 +290,8 @@ async function startProgressBoundary(options: BoundaryOptions = {}) {
       return await result;
     },
     randomUUID(),
-    "room",
-    { progressDelayMs: 10_000, ...options, controller },
+    options.conversationType ?? "room",
+    { progressDelayMs: 15_000, ...options, controller },
   );
   const callbacks = await started;
   const finishTurn = async (reply: ReplyPayload = { text: "Final answer" }) => {
@@ -280,184 +314,234 @@ async function startProgressBoundary(options: BoundaryOptions = {}) {
   };
 }
 
-describe("Knox progress through the core dispatch and mock relay", () => {
-  it.each([
-    { text: "Please inspect this", first: "Processing your request.", running: "Calling exec." },
-    {
-      text: "Please inspect 한",
-      first: "요청을 처리 중입니다.",
-      running: "exec 호출 진행 중입니다.",
-    },
-  ])(
-    "uses raw request language and sends changed state at ten-second ticks: $text",
-    async ({ text, first, running }) => {
+describe("Knox digest through the core dispatch and mock relay", () => {
+  it.each(["Please inspect this", "Please inspect 한"])(
+    "polls every fifteen seconds and replaces only changed English digests: %s",
+    async (text) => {
       const turn = await startProgressBoundary({ text });
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(sent).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sent.map((reply) => reply.text)).toEqual(["⏳ Processing request"]);
+      const first = sent[0]!;
       turn.emit("tool", {
         phase: "start",
         toolCallId: "exec-1",
         name: "exec",
-        args: { command: "private-secret-command" },
+        args: { command: "node task.js", token: "PRIVATE_TOKEN" },
       });
-      await vi.advanceTimersByTimeAsync(9_999);
-      expect(sent).toEqual([]);
-      await vi.advanceTimersByTimeAsync(1);
-      expect(sent.map((reply) => reply.text)).toEqual([first]);
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(sent.map((reply) => reply.text)).toEqual([first, running]);
-      turn.emit("command_output", { toolCallId: "exec-1", output: "private-secret-output" });
-      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(sent.at(-1)?.text).toBe("⏳ exec · node task.js");
+      const second = sent[1]!;
+      expect(relayOperations.slice(0, 3)).toEqual([
+        { kind: "send", requestId: first.requestId },
+        { kind: "send", requestId: second.requestId },
+        { kind: "cancel", requestId: first.requestId },
+      ]);
+      turn.emit("tool", {
+        phase: "update",
+        toolCallId: "exec-1",
+        name: "exec",
+        args: { command: "node task.js" },
+      });
+      turn.emit("command_output", { toolCallId: "exec-1", output: "PRIVATE_OUTPUT" });
+      await vi.advanceTimersByTimeAsync(15_000);
       expect(sent).toHaveLength(2);
+      expect(cancelled).toHaveLength(1);
       turn.emit("tool", {
         phase: "result",
         toolCallId: "exec-1",
         name: "exec",
         status: "completed",
       });
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(sent.at(-1)?.text).toBe(
-        text.includes("한") ? "exec 호출이 완료됐습니다." : "exec call completed.",
-      );
-      expect(new Set(sent.map((reply) => reply.requestId)).size).toBe(3);
-      expect(JSON.stringify(sent)).not.toContain("private-secret");
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(sent.at(-1)?.text).toBe("✓ exec · node task.js\n⏳ Processing request");
+      expect(JSON.stringify(sent)).not.toMatch(/PRIVATE_TOKEN|PRIVATE_OUTPUT/);
+      const current = sent.at(-1)!;
       await turn.finish();
-      const settledCount = sent.length;
-      turn.emit("tool", { phase: "start", toolCallId: "late", name: "late-tool" });
+      expect(relayOperations.at(-2)).toEqual({ kind: "send", requestId: sent.at(-1)!.requestId });
+      expect(relayOperations.at(-1)).toEqual({ kind: "cancel", requestId: current.requestId });
+      expect(
+        cancelled.every((item) => item.targetRunId === first.runId && item.runId === first.runId),
+      ).toBe(true);
+      const count = sent.length;
       await vi.advanceTimersByTimeAsync(30_000);
-      expect(sent).toHaveLength(settledCount);
-      expect(sent.at(-1)).toMatchObject({ text: "Final answer", final: true });
+      expect(sent).toHaveLength(count);
     },
   );
 
+  it("keeps only the latest five terminal calls in chronology and puts active work last", async () => {
+    const turn = await startProgressBoundary({ text: "Inspect files" });
+    for (let index = 0; index < 7; index += 1) {
+      turn.emit("tool", {
+        phase: "start",
+        toolCallId: "read-" + index,
+        name: "read",
+        args: { path: "/workspace/step-" + index + ".ts" },
+      });
+      turn.emit("tool", {
+        phase: "result",
+        toolCallId: "read-" + index,
+        name: "read",
+        status: "completed",
+      });
+      await vi.advanceTimersByTimeAsync(1_500);
+    }
+    turn.emit("tool", {
+      phase: "start",
+      toolCallId: "active",
+      name: "exec",
+      args: { command: "node busy.js" },
+    });
+    await vi.advanceTimersByTimeAsync(4_500);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text.split("\n")).toEqual([
+      "✓ read · step-2.ts",
+      "✓ read · step-3.ts",
+      "✓ read · step-4.ts",
+      "✓ read · step-5.ts",
+      "✓ read · step-6.ts",
+      "⏳ exec · node busy.js",
+    ]);
+    await turn.finish();
+  });
+
   it.each([
-    { status: "approved", text: "exec execution approved." },
-    { status: "denied", text: "exec execution denied." },
-    { status: "unavailable", text: "Approval unavailable for exec." },
+    { status: "approved", result: "✓ Approved exec" },
+    { status: "denied", result: "– Denied exec" },
+    { status: "unavailable", result: "? Approval unavailable exec" },
   ] as const)(
-    "observes native approval $status with verbose disabled",
-    async ({ status, text }) => {
-      const turn = await startProgressBoundary({ text: "Run the command" });
+    "shows authoritative native approval $status under default verbose",
+    async ({ status, result }) => {
+      const turn = await startProgressBoundary({ text: "Run commands" });
       turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
       turn.emit("approval", {
         phase: "requested",
         status: "pending",
-        kind: "exec",
         approvalId: "approval-1",
         toolCallId: "exec-1",
-        command: "private-secret-command",
+        command: "PRIVATE_APPROVAL_COMMAND",
       });
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(sent.map((reply) => reply.text)).toEqual(["Awaiting approval for exec."]);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(sent[0]?.text).toContain("? Awaiting approval exec");
       turn.emit("approval", {
         phase: "resolved",
         status,
-        kind: "exec",
         approvalId: "approval-1",
         toolCallId: "exec-1",
       });
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(sent.at(-1)?.text).toBe(text);
-      await vi.advanceTimersByTimeAsync(10_000);
-      expect(sent).toHaveLength(2);
-      expect(JSON.stringify(sent)).not.toContain("private-secret");
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(sent.at(-1)?.text).toContain(result);
+      expect(sent.at(-1)?.text).not.toContain("⏳ exec");
+      expect(JSON.stringify(sent)).not.toContain("PRIVATE_APPROVAL_COMMAND");
       await turn.finish();
     },
   );
 
-  it("keeps retired approval callbacks from overwriting a same-run fallback", async () => {
-    const turn = await startProgressBoundary({ text: "Run the command" });
-    turn.emit("tool", { phase: "start", toolCallId: "old-call", name: "bash" });
-    turn.emit("approval", {
-      phase: "requested",
-      status: "pending",
-      itemId: "old-call",
-      approvalId: "old-approval",
-    });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent.at(-1)?.text).toBe("Awaiting approval for bash.");
-    turn.emit("approval", {
-      phase: "resolved",
-      status: "denied",
-      itemId: "old-call",
-      approvalId: "old-approval",
-    });
-    turn.emit("lifecycle", { phase: "finishing" });
-    turn.emit("lifecycle", { phase: "start", startedAt: Date.now() });
-    // Shared producer events are authoritative. A callback held behind an old
-    // block acknowledgement can finish after the next attempt has started.
-    await turn.callbacks.onApprovalEvent?.({
-      phase: "requested",
-      status: "pending",
-      itemId: "old-call",
-      approvalId: "old-approval",
-    });
-    await turn.callbacks.onApprovalEvent?.({
-      phase: "resolved",
-      status: "denied",
-      itemId: "old-call",
-      approvalId: "old-approval",
-    });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent.at(-1)?.text).toBe("Processing your request.");
-    turn.emit("tool", { phase: "start", toolCallId: "new-call", name: "read" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent.at(-1)?.text).toBe("Calling read.");
-    await turn.finish();
-  });
-
-  it("prioritizes inline approval over parallel tools and clears only the resolved approval", async () => {
+  it("preserves running siblings and distinguishes failed calls from inline approval resolution", async () => {
     const turn = await startProgressBoundary({ text: "Run tools" });
-    turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
-    turn.emit("lifecycle", {
-      phase: "waiting-approval",
-      approvalId: "inline-1",
-      toolCallId: "exec-1",
+    turn.emit("tool", {
+      phase: "start",
+      toolCallId: "a",
+      name: "exec",
+      args: { command: "node a.js" },
     });
-    turn.emit("item", { phase: "start", kind: "tool", toolCallId: "web-1", name: "web" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent.at(-1)?.text).toBe("Awaiting approval for exec.");
-    turn.emit("item", {
-      phase: "end",
-      kind: "tool",
-      toolCallId: "web-1",
-      name: "web",
-      status: "completed",
+    turn.emit("tool", {
+      phase: "start",
+      toolCallId: "b",
+      name: "exec",
+      args: { command: "node b.js" },
     });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent).toHaveLength(1);
-    turn.emit("lifecycle", { phase: "approval-resolved", approvalId: "unrelated-approval" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent).toHaveLength(1);
-    turn.emit("lifecycle", {
-      phase: "approval-resolved",
-      approvalId: "inline-1",
-      toolCallId: "exec-1",
-    });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent.at(-1)?.text).toBe("Approval wait ended for exec.");
+    turn.emit("tool", { phase: "result", toolCallId: "b", name: "exec", isError: true });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(sent[0]?.text.split("\n")).toEqual(["✗ exec · node b.js", "⏳ exec · node a.js"]);
+    turn.emit("lifecycle", { phase: "waiting-approval", approvalId: "inline-a", toolCallId: "a" });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(sent.at(-1)?.text).toContain("? Awaiting approval exec");
+    turn.emit("lifecycle", { phase: "approval-resolved", approvalId: "inline-a", toolCallId: "a" });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(sent.at(-1)?.text).toContain("? Approval ended exec");
+    expect(sent.at(-1)?.text).not.toContain("Approved");
     await turn.finish();
   });
 
-  it("keeps a still-running sibling visible when the newest parallel call finishes", async () => {
+  it.each(["abort", "end", "error"] as const)(
+    "stops and recalls its own latest notice on %s",
+    async (stop) => {
+      const turn = await startProgressBoundary({ text: "Run tools" });
+      await vi.advanceTimersByTimeAsync(15_000);
+      const notice = sent[0]!;
+      if (stop === "abort") turn.controller.abort();
+      else turn.emit("lifecycle", { phase: stop });
+      turn.emit("tool", { phase: "start", toolCallId: "late", name: "late-tool" });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(sent).toHaveLength(1);
+      await turn.finish();
+      expect(cancelled.map((item) => item.targetRequestId)).toEqual([notice.requestId]);
+    },
+  );
+
+  it("never recalls block replies, questions, or the final answer", async () => {
     const turn = await startProgressBoundary({ text: "Run tools" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
-    turn.emit("tool", { phase: "start", toolCallId: "web-1", name: "web" });
-    turn.emit("tool", { phase: "result", toolCallId: "web-1", name: "web", status: "completed" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent.at(-1)?.text).toBe("Calling exec.");
-    turn.emit("tool", { phase: "result", toolCallId: "exec-1", name: "exec", isError: true });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent.at(-1)?.text).toBe("exec call failed.");
+    await vi.advanceTimersByTimeAsync(15_000);
+    await turn.callbacks.onBlockReply?.({ text: "Intermediate result" });
+    await turn.callbacks.onBlockReply?.({
+      text: "Which target?",
+      channelData: { askUser: { questionId: "question-1" } },
+    });
+    turn.emit("tool", {
+      phase: "start",
+      toolCallId: "exec-1",
+      name: "exec",
+      args: { command: "node a.js" },
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
     await turn.finish();
+    const permanent = sent.filter((reply) => !reply.requestId.startsWith("progress:"));
+    expect(permanent.map((reply) => reply.text)).toEqual([
+      "Intermediate result",
+      "Which target?",
+      "Final answer",
+    ]);
+    expect(cancelled.every((item) => item.targetRequestId.startsWith("progress:"))).toBe(true);
+    expect(
+      cancelled.some((item) => permanent.some((reply) => reply.requestId === item.targetRequestId)),
+    ).toBe(false);
   });
 
-  it("stops progress before awaiting final attachment DNS validation", async () => {
+  it("cancels an original progress key after a pending HTTP acknowledgement loses the race to final", async () => {
+    holdProgressRelay = true;
+    const turn = await startProgressBoundary({ text: "Run tools" });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(sent).toHaveLength(1);
+    const original = sent[0]!;
+    expect(heldProgressSignal?.aborted).toBe(false);
+    holdProgressRelay = false;
+    await turn.finish();
+    expect(heldProgressSignal?.aborted).toBe(true);
+    expect(sent.at(-1)).toMatchObject({ text: "Final answer", final: true });
+    expect(cancelled).toContainEqual(
+      expect.objectContaining({
+        requestId: "cancel:" + original.requestId,
+        targetRequestId: original.requestId,
+        targetRunId: original.runId,
+      }),
+    );
+    const finalIndex = relayOperations.findIndex(
+      (operation) => operation.kind === "send" && operation.requestId === sent.at(-1)?.requestId,
+    );
+    const cancelIndex = relayOperations.findIndex(
+      (operation) => operation.kind === "cancel" && operation.requestId === original.requestId,
+    );
+    expect(finalIndex).toBeLessThan(cancelIndex);
+  });
+
+  it("stops observations before waiting for final attachment DNS but keeps the notice until final confirms", async () => {
     const turn = await startProgressBoundary({ text: "Produce a report" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
+    await vi.advanceTimersByTimeAsync(15_000);
     let enterDns!: () => void;
     let releaseDns!: () => void;
-    const enteredDns = new Promise<void>((resolve) => {
+    const entered = new Promise<void>((resolve) => {
       enterDns = resolve;
     });
     const dns = new Promise<void>((resolve) => {
@@ -472,110 +556,110 @@ describe("Knox progress through the core dispatch and mock relay", () => {
       text: "Final report",
       mediaUrl: "https://example.com/report.pdf",
     });
-    await enteredDns;
+    await entered;
     try {
       await vi.advanceTimersByTimeAsync(30_000);
-      expect(sent.map((reply) => reply.text)).toEqual(["Processing your request."]);
+      expect(sent).toHaveLength(1);
+      expect(cancelled).toEqual([]);
     } finally {
       releaseDns();
       await finishing;
     }
-    expect(sent.at(-1)).toMatchObject({ final: true });
-  });
-
-  it.each(["abort", "end", "error"] as const)(
-    "stops immediately on %s while the resolver remains pending",
-    async (stop) => {
-      const turn = await startProgressBoundary({ text: "Run tools" });
-      await vi.advanceTimersByTimeAsync(10_000);
-      if (stop === "abort") {
-        turn.controller.abort();
-      } else {
-        turn.emit("lifecycle", { phase: stop });
-      }
-      turn.emit("tool", { phase: "start", toolCallId: "late", name: "late-tool" });
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(sent.map((reply) => reply.text)).toEqual(["Processing your request."]);
-      await turn.finish();
-    },
-  );
-
-  it("keeps periodic tool updates after a nonterminal block reply", async () => {
-    const turn = await startProgressBoundary({ text: "Run tools" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    await turn.callbacks.onBlockReply?.({ text: "Intermediate result" });
-    turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent.map((reply) => reply.text)).toEqual([
-      "Processing your request.",
-      "Intermediate result",
-      "Calling exec.",
-    ]);
-    expect(sent.every((reply) => !reply.final)).toBe(true);
-    await turn.finish();
-  });
-
-  it("does not inherit old run state or language across requests sharing a session", async () => {
-    const first = await startProgressBoundary({ text: "한국어 요청" });
-    first.emit("tool", { phase: "start", toolCallId: "old-tool", name: "old-private-tool" });
-    first.emit("lifecycle", {
-      phase: "waiting-approval",
-      approvalId: "old-approval",
-      toolCallId: "old-tool",
-    });
-    first.controller.abort();
-    await first.finish();
-    sent = [];
-    const second = await startProgressBoundary({ text: "English request" });
-    second.emit(
-      "tool",
-      { phase: "start", toolCallId: "old-tool", name: "old-private-tool" },
-      first.runId,
-    );
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(sent.map((reply) => reply.text)).toEqual(["Processing your request."]);
-    second.emit("tool", { phase: "start", toolCallId: "new-tool", name: "web" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent.at(-1)?.text).toBe("Calling web.");
-    expect(JSON.stringify(sent)).not.toContain("old-private-tool");
-    await second.finish();
+    expect(sent.at(-1)?.final).toBe(true);
+    expect(cancelled).toHaveLength(1);
   });
 
   it.each(["deny", "message-tool-only"] as const)(
-    "keeps automatic progress suppressed under %s",
+    "honors automatic source suppression under %s",
     async (policy) => {
-      if (policy === "deny") {
-        cfg.session = { ...cfg.session, sendPolicy: { default: "deny" } };
-      } else {
-        cfg.messages = { visibleReplies: "message_tool" };
-      }
+      if (policy === "deny") cfg.session = { ...cfg.session, sendPolicy: { default: "deny" } };
+      else cfg.messages = { visibleReplies: "message_tool" };
       const turn = await startProgressBoundary({ text: "Run tools" });
       turn.emit("tool", { phase: "start", toolCallId: "exec-1", name: "exec" });
-      turn.emit("approval", {
-        phase: "requested",
-        status: "pending",
-        approvalId: "approval-1",
-        toolCallId: "exec-1",
-      });
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(sent).toEqual([]);
+      await vi.advanceTimersByTimeAsync(45_000);
       await turn.finish();
       expect(sent).toEqual([]);
+      expect(cancelled).toEqual([]);
     },
   );
 
-  it("cancels an outstanding progress relay request and starts no further sends after abort", async () => {
-    holdProgressRelay = true;
-    const turn = await startProgressBoundary({ text: "Run tools" });
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(sent).toHaveLength(1);
-    expect(heldProgressSignal?.aborted).toBe(false);
-    turn.controller.abort();
-    expect(heldProgressSignal?.aborted).toBe(true);
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(sent).toHaveLength(1);
-    holdProgressRelay = false;
-    await turn.finish();
+  it("reflects a real Node process with long arguments and path without leaking output", async () => {
+    const turn = await startProgressBoundary({
+      text: "Execute the long command",
+      conversationType: "dm",
+    });
+    const commandDir = path.join(stateDir, "long-command-path-".repeat(6));
+    await fs.mkdir(commandDir);
+    const script = path.join(commandDir, "wait-for-input.cjs");
+    await fs.writeFile(
+      script,
+      'process.stdout.write("READY\\n");process.stdin.once("data",()=>process.stdout.write("PRIVATE_OUTPUT_TOKEN",()=>process.exit(0)));',
+    );
+    const args = [script, "--long-argument=" + "x".repeat(300), "--token=PRIVATE_ARG_TOKEN"];
+    const child = spawn(process.execPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    try {
+      await once(child.stdout, "data");
+      expect(child.exitCode).toBeNull();
+      const command = [process.execPath, ...args].map((part) => JSON.stringify(part)).join(" ");
+      expect(command.length).toBeGreaterThan(400);
+      turn.emit("tool", {
+        phase: "start",
+        toolCallId: "real-command",
+        name: "exec",
+        args: { command },
+      });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(sent.at(-1)!.text).toContain("🟠 Using PlatformClaw server\n\n");
+      const running = sent.at(-1)!.text.split("\n").at(-1)!;
+      expect(running).toMatch(/^⏳ exec · /u);
+      expect([
+        ...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(running),
+      ]).toHaveLength(50);
+      expect(running.endsWith("…")).toBe(true);
+      const exited = once(child, "exit");
+      child.stdin.end("\n");
+      expect((await exited)[0]).toBe(0);
+      expect(output).toContain("PRIVATE_OUTPUT_TOKEN");
+      turn.emit("tool", {
+        phase: "result",
+        toolCallId: "real-command",
+        name: "exec",
+        isError: false,
+        result: { output },
+      });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(
+        sent
+          .at(-1)
+          ?.text.split("\n")
+          .some((line) => /^✓ exec · /u.test(line)),
+      ).toBe(true);
+      const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+      expect(
+        sent
+          .flatMap((reply) => reply.text.split("\n"))
+          .every((line) => [...graphemes.segment(line)].length <= 50),
+      ).toBe(true);
+      expect(
+        sent.every(
+          (reply) =>
+            [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(reply.text)]
+              .length <= 400,
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(sent)).not.toMatch(/PRIVATE_OUTPUT_TOKEN|PRIVATE_ARG_TOKEN/);
+      await turn.finish();
+    } finally {
+      if (child.exitCode === null) {
+        const exited = once(child, "exit");
+        child.kill();
+        await exited;
+      }
+    }
   });
 });
 
