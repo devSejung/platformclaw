@@ -60,9 +60,7 @@ function deriveControlUiBuildId(info: ControlUiBuildMetadata): string {
 
 export function normalizeControlUiBuildInfo(value: unknown): ControlUiBuildInfo {
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  const optionalString = (candidate: unknown) =>
-    typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
-  const version = optionalString(record.version);
+  const version = normalizeOptionalString(record.version);
   const commit = normalizeControlUiCommit(record.commit);
   const builtAt = normalizeControlUiBuildTimestamp(record.builtAt);
   const release = record.release === true;
