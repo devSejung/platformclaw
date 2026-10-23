@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   canRunPlaywrightChromium,
@@ -9,277 +9,418 @@ import {
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
 
-const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
-const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
-const allowMissingChromium = process.env.OPENCLAW_UI_E2E_ALLOW_MISSING_CHROMIUM === "1";
-const describeControlUiE2e = chromiumAvailable || !allowMissingChromium ? describe : describe.skip;
-const captureUiProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
+const executablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
+const chromiumAvailable = canRunPlaywrightChromium(executablePath);
+const runE2e =
+  chromiumAvailable || process.env.OPENCLAW_UI_E2E_ALLOW_MISSING_CHROMIUM !== "1"
+    ? describe
+    : describe.skip;
+const captureProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
 const proofDir = path.join(
   process.cwd(),
   ".artifacts",
   "control-ui-e2e",
   "platformclaw-mcp-settings",
 );
-
 let browser: Browser;
 let server: ControlUiE2eServer;
 
-async function newProofPage(): Promise<{ context: BrowserContext; page: Page }> {
-  if (captureUiProof) {
-    await mkdir(proofDir, { recursive: true });
-  }
-  const context = await browser.newContext({
-    locale: "en-US",
-    viewport: { width: 1280, height: 800 },
-    ...(captureUiProof
-      ? { recordVideo: { dir: proofDir, size: { width: 1280, height: 800 } } }
-      : {}),
-  });
-  return { context, page: await context.newPage() };
-}
-
-async function installComponent(page: Page, kind = "mcp-settings"): Promise<void> {
+async function install(
+  page: Page,
+  kind: "mcp-settings" | "mcp-administration",
+  theme = "platformclaw",
+  locale: "en" | "ko" = "en",
+) {
+  await page.goto(new URL("sw.js", server.baseUrl).href);
   await page.setContent("<!doctype html><html><body></body></html>");
+  // The BFF is mocked, while production components inherit the real product
+  // tokens. Do not copy the approved prototype's fixed demonstration palette.
+  await page.addStyleTag({ url: `${server.baseUrl}src/styles/base.css?direct` });
+  await page.addStyleTag({ url: `${server.baseUrl}src/styles/layout.css?direct` });
+  await page.addStyleTag({ url: `${server.baseUrl}src/styles/platformclaw-theme.css?direct` });
+  await page.addStyleTag({
+    content:
+      ".mcp-proof-page{width:min(1480px,100%);margin:0 auto;padding:24px 20px;box-sizing:border-box}",
+  });
+  await page.evaluate((selectedTheme) => {
+    document.documentElement.dataset.theme = selectedTheme;
+  }, theme);
   await page.addScriptTag({
     type: "module",
-    url: `${server.baseUrl}src/platformclaw/${kind}.ts`,
+    content: `const { i18n } = await import(${JSON.stringify(`${server.baseUrl}src/i18n/index.ts`)}); await i18n.setLocale(${JSON.stringify(locale)});`,
   });
+  await page.addScriptTag({ type: "module", url: `${server.baseUrl}src/platformclaw/${kind}.ts` });
   await page.evaluate(async (tag) => {
     await customElements.whenDefined(tag);
-    document.body.replaceChildren(document.createElement(tag));
+    // Production deliberately clips document scrolling. Match the app shell's
+    // bounded .content scroll owner so long editors remain keyboard-accessible.
+    const scrollOwner = document.createElement("main");
+    scrollOwner.id = "control-ui-main";
+    scrollOwner.className = "content";
+    scrollOwner.style.height = "100dvh";
+    const pageContent = document.createElement("div");
+    pageContent.className = "mcp-proof-page";
+    pageContent.append(document.createElement(tag));
+    scrollOwner.append(pageContent);
+    document.body.replaceChildren(scrollOwner);
   }, `platformclaw-${kind}`);
 }
-
-async function screenshot(page: Page, name: string): Promise<void> {
-  if (captureUiProof) {
+async function screenshot(page: Page, name: string) {
+  if (captureProof) {
+    await mkdir(proofDir, { recursive: true });
     await page.screenshot({ animations: "disabled", path: path.join(proofDir, name) });
   }
 }
 
-async function closeProofPage(
-  context: BrowserContext,
-  page: Page,
-  videoName: string,
-): Promise<void> {
-  const video = page.video();
-  await context.close();
-  if (captureUiProof && video) {
-    await video.saveAs(path.join(proofDir, videoName));
-  }
-}
-
-describeControlUiE2e("PlatformClaw personal MCP browser settings", () => {
+runE2e("PlatformClaw MCP responsive settings", () => {
   beforeAll(async () => {
     if (!chromiumAvailable) {
-      throw new Error(`Playwright Chromium is not available at ${chromiumExecutablePath}`);
+      throw new Error(`Playwright Chromium is not available at ${executablePath}`);
     }
     server = await startControlUiE2eServer(undefined, { source: true });
-    browser = await chromium.launch({ executablePath: chromiumExecutablePath });
+    browser = await chromium.launch({ executablePath });
   });
-
   afterAll(async () => {
     await browser?.close();
     await server?.close();
   });
 
-  it("exercises every administrator editor field, failure recovery, cancel, edit, toggle and removal", async () => {
-    const { context, page } = await newProofPage();
-    const entry = {
-      name: "draft",
-      enabled: false,
-      transport: "sse",
-      target: "https://draft.example/mcp",
-      editable: true,
-      credentialMode: "none",
-      toolPolicy: "blocked",
-      blockedTools: ["delete"],
-    };
-    let servers: (typeof entry)[] = [];
-    let release!: () => void;
-    let mutations = 0;
+  it("displays the saved OAuth policy and keeps the selected authentication aligned with the submitted draft", async () => {
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      locale: "en-US",
+    });
+    const page = await context.newPage();
+    const servers = [
+      {
+        name: "docs",
+        enabled: true,
+        transport: "streamable-http",
+        target: "https://docs.example/mcp",
+        editable: true,
+        credentialMode: "personal",
+        personalAuth: "oauth",
+        sharedConfigured: false,
+        headerGuides: [],
+        toolPolicy: "all",
+        blockedTools: [],
+      },
+    ];
+    let saved: Record<string, unknown> | undefined;
     await page.route("**/platformclaw/api/admin/mcp", async (route) => {
       if (route.request().method() === "POST") {
-        mutations += 1;
-        if (mutations === 1) {
-          await new Promise<void>((resolve) => {
-            release = resolve;
-          });
-          await route.fulfill({ status: 503, json: { error: "Save failed. Try again." } });
-          return;
+        saved = route.request().postDataJSON() as Record<string, unknown>;
+      }
+      await route.fulfill({ json: { servers } });
+    });
+    try {
+      await install(page, "mcp-administration");
+      const component = page.locator("platformclaw-mcp-administration");
+      const form = component.locator("form");
+      const auth = form.locator("[name='auth']");
+      await expect.poll(() => auth.inputValue()).toBe("oauth");
+      await form.locator("[name='credentialMode']").selectOption("shared");
+      await expect.poll(() => auth.inputValue()).toBe("bearer");
+      expect(await auth.locator("option[value='oauth']").count()).toBe(0);
+      await form.locator("[name='credentialMode']").selectOption("personal");
+      await expect.poll(() => auth.inputValue()).toBe("bearer");
+      await auth.selectOption("oauth");
+      expect(await auth.inputValue()).toBe("oauth");
+      await form.locator("[type='submit']").click();
+      await expect.poll(() => saved?.auth).toBe("oauth");
+      expect(saved).toMatchObject({
+        action: "save-server",
+        name: "docs",
+        credentialMode: "personal",
+        auth: "oauth",
+      });
+      expect(saved).not.toHaveProperty("secret");
+      await expect.poll(() => auth.inputValue()).toBe("oauth");
+    } finally {
+      await context.close();
+    }
+  });
+
+  it.each(["platformclaw", "platformclaw-light"])(
+    "shows the actual Korean administrator and user labels in %s at FHD",
+    async (theme) => {
+      for (const kind of ["mcp-administration", "mcp-settings"] as const) {
+        const context = await browser.newContext({
+          viewport: { width: 1920, height: 1080 },
+          locale: "ko-KR",
+        });
+        const page = await context.newPage();
+        const servers = Array.from({ length: 30 }, (_, index) => {
+          const name = `server-${String(index).padStart(2, "0")}`;
+          const headerGuides = [
+            { name: "X-Tenant-ID", description: "서비스에서 안내받은 테넌트 ID" },
+          ];
+          return kind === "mcp-administration"
+            ? {
+                name,
+                enabled: true,
+                transport: "streamable-http",
+                target: `https://${name}.example/mcp`,
+                editable: true,
+                credentialMode: "none",
+                sharedConfigured: false,
+                headerGuides,
+                toolPolicy: "all",
+                blockedTools: [],
+              }
+            : {
+                serverName: name,
+                origin: "organization",
+                credentialMode: "shared",
+                globalEnabled: true,
+                userEnabled: true,
+                settingsRevision: 1,
+                policyFingerprint: "policy-original",
+                credentialStored: false,
+                credentialFingerprint: null,
+                configured: false,
+                headerGuides,
+                headers: [],
+              };
+        });
+        await page.route(
+          `**/platformclaw/api/${kind === "mcp-administration" ? "admin/" : ""}mcp`,
+          (route) => route.fulfill({ json: { servers } }),
+        );
+        try {
+          await install(page, kind, theme, "ko");
+          const component = page.locator(`platformclaw-${kind}`);
+          await expect
+            .poll(() => component.locator("h2").textContent())
+            .toBe(kind === "mcp-administration" ? "MCP 서버 관리" : "내 MCP 연결");
+          await expect.poll(() => component.locator(".server-row").count()).toBe(6);
+          const guideDescription =
+            kind === "mcp-administration"
+              ? await component.locator("[name='guide-description']").inputValue()
+              : await component.locator(".detail").textContent();
+          expect(guideDescription).toContain("서비스에서 안내받은 테넌트 ID");
+          await screenshot(page, `${kind}-${theme}-1920-ko.png`);
+        } finally {
+          await context.close();
         }
-        const body = route.request().postDataJSON();
-        if (body.action === "remove-server") {
-          servers = [];
-        } else {
-          servers = [{ ...entry, enabled: body.enabled }];
+      }
+    },
+  );
+
+  it.each([
+    { width: 1920, height: 1080, theme: "platformclaw" },
+    { width: 1920, height: 1080, theme: "platformclaw-light" },
+    { width: 1280, height: 800, theme: "platformclaw" },
+    { width: 1280, height: 800, theme: "platformclaw-light" },
+    { width: 800, height: 700, theme: "platformclaw" },
+    { width: 800, height: 700, theme: "platformclaw-light" },
+  ])(
+    "renders 30 servers with six visible rows at $width × $height in $theme",
+    async ({ width, height, theme }) => {
+      for (const kind of ["mcp-administration", "mcp-settings"] as const) {
+        const context = await browser.newContext({ viewport: { width, height }, locale: "en-US" });
+        const page = await context.newPage();
+        const servers = Array.from({ length: 30 }, (_, index) => {
+          const name = `server-${String(index).padStart(2, "0")}`;
+          return kind === "mcp-administration"
+            ? {
+                name,
+                enabled: true,
+                transport: "streamable-http",
+                target: `https://${name}.example/mcp`,
+                editable: true,
+                credentialMode: "none",
+                sharedConfigured: false,
+                headerGuides: [
+                  { name: "X-Tenant-ID", description: "Optional tenant assigned by your service" },
+                ],
+                toolPolicy: "all",
+                blockedTools: [],
+              }
+            : {
+                serverName: name,
+                origin: "organization",
+                credentialMode: "shared",
+                globalEnabled: true,
+                userEnabled: true,
+                settingsRevision: 1,
+                policyFingerprint: "policy-original",
+                credentialStored: false,
+                credentialFingerprint: null,
+                configured: false,
+                headerGuides: [
+                  { name: "X-Tenant-ID", description: "Optional tenant assigned by your service" },
+                ],
+                headers: [],
+              };
+        });
+        await page.route(
+          `**/platformclaw/api/${kind === "mcp-administration" ? "admin/" : ""}mcp`,
+          (route) => route.fulfill({ json: { servers } }),
+        );
+        try {
+          await install(page, kind, theme);
+          const component = page.locator(`platformclaw-${kind}`);
+          await expect.poll(() => component.locator(".server-row").count()).toBe(6);
+          expect(
+            await page.evaluate(() =>
+              getComputedStyle(document.documentElement).getPropertyValue("--accent").trim(),
+            ),
+          ).not.toBe("");
+          if (width > 900) {
+            const catalog = await component.locator(".catalog").boundingBox();
+            const detail = await component.locator(".detail").boundingBox();
+            expect(detail!.x).toBeGreaterThan(catalog!.x + catalog!.width);
+            await screenshot(page, `${kind}-${theme}-${width}.png`);
+          } else {
+            expect(await component.locator(".catalog").isVisible()).toBe(false);
+            await screenshot(page, `${kind}-${theme}-${width}-detail.png`);
+            await component.locator("[data-action='picker']").click();
+            await expect.poll(() => component.locator(".catalog").isVisible()).toBe(true);
+            expect(await component.locator(".detail").isVisible()).toBe(false);
+            await screenshot(page, `${kind}-${theme}-${width}-picker.png`);
+            await component.locator("[data-action='select'][data-server='server-03']").click();
+            await expect.poll(() => component.locator(".detail").isVisible()).toBe(true);
+          }
+          expect(
+            await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          ).toBe(true);
+        } finally {
+          await context.close();
+        }
+      }
+    },
+  );
+
+  it("keeps a six-row catalog alongside the selected administrator editor at FHD and retains failed drafts", async () => {
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      locale: "en-US",
+    });
+    const page = await context.newPage();
+    const servers = Array.from({ length: 30 }, (_, index) => ({
+      name: `server-${String(index).padStart(2, "0")}`,
+      enabled: true,
+      transport: "streamable-http",
+      target: `https://server-${index}.example/mcp`,
+      editable: true,
+      credentialMode: "none",
+      sharedConfigured: false,
+      headerGuides: [],
+      toolPolicy: "all",
+      blockedTools: [],
+    }));
+    let attempts = 0;
+    let saved: Record<string, unknown> | undefined;
+    await page.route("**/platformclaw/api/admin/mcp", async (route) => {
+      if (route.request().method() === "POST") {
+        attempts++;
+        saved = route.request().postDataJSON() as Record<string, unknown>;
+        if (attempts === 1) {
+          await route.fulfill({
+            status: 503,
+            json: { error: "Save failed. Retry these changes." },
+          });
+          return;
         }
       }
       await route.fulfill({ json: { servers } });
     });
     try {
-      await page.goto(new URL("sw.js", server.baseUrl).href);
-      await installComponent(page, "mcp-administration");
+      await install(page, "mcp-administration");
       const component = page.locator("platformclaw-mcp-administration");
-      const add = component.locator("[data-action='add']");
-      await add.click();
-      await component.locator("[name='name']").fill("discard");
-      await component.locator("[data-action='cancel']").click();
-      await add.click();
-      expect(await component.locator("[name='name']").inputValue()).toBe("");
+      await expect.poll(() => component.locator(".server-row").count()).toBe(6);
+      const catalog = await component.locator(".catalog").boundingBox();
+      const detail = await component.locator(".detail").boundingBox();
+      expect(detail!.x).toBeGreaterThan(catalog!.x + catalog!.width);
+      await component.locator("[data-action='next']").click();
+      await expect
+        .poll(() => component.locator(".pagination").textContent())
+        .toContain("7–12 / 30");
+      await component.locator("[name='search']").fill("server-29");
+      await expect.poll(() => component.locator(".server-row").count()).toBe(1);
+      await component.locator("[data-action='add-header']").click();
+      await component.locator("[name='guide-name']").fill("X-Tenant-ID");
+      await component.locator("[name='guide-description']").fill("Tenant provided by the service");
       await component.locator("[type='submit']").click();
-      expect(mutations).toBe(0);
-      await component.locator("[name='name']").fill("draft");
-      await component.locator("[name='url']").fill("https://draft.example/mcp");
-      await component.locator("[name='transport']").selectOption("sse");
-      await component.locator("[name='credentialMode']").selectOption("personal");
-      await component.locator("[name='auth']").selectOption("oauth");
-      await component.locator("[name='scope']").fill("read:docs");
-      await component.locator("[name='credentialMode']").selectOption("shared");
-      expect(await component.locator("[name='auth']").inputValue()).toBe("bearer");
-      await component.locator("[name='auth']").selectOption("api_key");
-      await component.locator("[name='headerName']").fill("X-Fixture-Key");
-      await component.locator("[name='secret']").fill("fixture-only");
-      await component.locator("[name='blockedTools']").fill("delete");
-      await component.locator("[name='enabled']").uncheck();
+      await expect
+        .poll(() => component.locator("[role='alert']").textContent())
+        .toContain("Save failed");
+      expect(await component.locator("[name='guide-name']").inputValue()).toBe("X-Tenant-ID");
+      await screenshot(page, "admin-fhd-failed-draft.png");
       await component.locator("[type='submit']").click();
-      await expect.poll(() => mutations).toBe(1);
-      expect(
-        await component
-          .locator("button:enabled, input:enabled, select:enabled, textarea:enabled")
-          .count(),
-      ).toBe(0);
-      release();
-      await expect.poll(() => component.getByRole("status").textContent()).toContain("Save failed");
-      expect(await component.locator("[name='name']").inputValue()).toBe("draft");
-      expect(await component.locator("[name='secret']").inputValue()).toBe("fixture-only");
-      expect(await component.locator("[name='enabled']").isChecked()).toBe(false);
-      await screenshot(page, "07-admin-failed-draft.png");
-      await component.locator("[name='credentialMode']").selectOption("none");
-      await component.locator("[type='submit']").click();
-      await component.locator("[data-action='edit']").click();
-      expect(await component.locator("[name='name']").getAttribute("readonly")).not.toBeNull();
-      await component.locator("[data-action='cancel']").click();
-      await component.locator("[data-action='toggle']").click();
-      await expect.poll(() => component.locator(".status").textContent()).toBe("Enabled");
-      page.once("dialog", (dialog) => dialog.dismiss());
-      await component.locator("[data-action='remove']").click();
-      expect(mutations).toBe(3);
-      page.once("dialog", (dialog) => dialog.accept());
-      await component.locator("[data-action='remove']").click();
-      await expect.poll(() => component.locator(".card").count()).toBe(0);
-      await screenshot(page, "08-admin-removed-empty.png");
+      await expect.poll(() => attempts).toBe(2);
+      expect(saved?.headerGuides).toEqual([
+        { name: "X-Tenant-ID", description: "Tenant provided by the service" },
+      ]);
+      expect(saved).not.toHaveProperty("secret");
     } finally {
-      release?.();
-      await closeProofPage(context, page, "admin-controls.webm");
+      await context.close();
     }
   });
 
-  it("lets an employee save and remove only an administrator-approved API key", async () => {
-    const { context, page } = await newProofPage();
-    let configured = false;
-    let mutation: unknown;
-    await page.route("**/platformclaw/api/mcp", (route) =>
-      route.fulfill({
-        json: {
-          servers: [
-            {
-              serverName: "docs",
-              auth: "api_key",
-              headerName: "X-Approved-Key",
-              configured,
-            },
-          ],
-        },
-      }),
-    );
-    await page.route("**/platformclaw/api/mcp/credential", async (route) => {
-      mutation = route.request().postDataJSON();
-      configured = route.request().method() === "PUT";
-      await route.fulfill({ json: { serverName: "docs", revision: 2 } });
+  it("switches between picker and user details on narrow screens and saves optional headers without exposing secrets", async () => {
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      locale: "en-US",
     });
-
-    await page.goto(new URL("sw.js", server.baseUrl).href);
-    await installComponent(page);
-    const component = page.locator("platformclaw-mcp-settings");
-    await expect
-      .poll(() => component.getByRole("heading", { name: "Your MCP credentials" }).isVisible())
-      .toBe(true);
-    await expect.poll(() => component.getByText("docs", { exact: true }).isVisible()).toBe(true);
-    await expect.poll(() => component.getByText("X-Approved-Key").isVisible()).toBe(true);
-    await screenshot(page, "01-approved-server.png");
-
-    await component.getByLabel("API key for docs").fill("employee-secret");
-    await screenshot(page, "02-credential-input.png");
-    await component.getByRole("button", { name: "Save credentials for docs" }).click();
-    await expect.poll(() => component.getByText("MCP connection updated.").isVisible()).toBe(true);
-    await expect
-      .poll(() => component.getByText("Connected", { exact: true }).isVisible())
-      .toBe(true);
-    expect(mutation).toEqual({
-      serverName: "docs",
-      kind: "api_key",
-      secret: "employee-secret",
+    const page = await context.newPage();
+    let saved: Record<string, unknown> | undefined;
+    const servers = ["docs", "shared"].map((serverName) => ({
+      serverName,
+      origin: "organization",
+      credentialMode: "shared",
+      globalEnabled: serverName !== "docs",
+      userEnabled: true,
+      configured: false,
+      settingsRevision: 1,
+      policyFingerprint: "policy-original",
+      credentialStored: false,
+      credentialFingerprint: null,
+      headerGuides: [{ name: "X-Tenant-ID", description: "Your tenant ID" }],
+      headers: [{ name: "X-Tenant-ID", configured: true }],
+    }));
+    await page.route("**/platformclaw/api/mcp", async (route) => {
+      if (route.request().method() === "PUT") {
+        saved = route.request().postDataJSON() as Record<string, unknown>;
+      }
+      await route.fulfill({ json: { servers } });
     });
-    await screenshot(page, "03-connected.png");
-
-    page.once("dialog", (dialog) => dialog.accept());
-    await component.getByRole("button", { name: "Remove credentials for docs" }).click();
-    await expect
-      .poll(() => component.getByText("Not connected", { exact: true }).isVisible())
-      .toBe(true);
-    await screenshot(page, "04-removed.png");
-    await closeProofPage(context, page, "api-key-flow.webm");
-  });
-
-  it("shows OAuth scope, reports callback success, and performs real authorization navigation", async () => {
-    const { context, page } = await newProofPage();
-    await page.route("**/platformclaw/api/mcp", (route) =>
-      route.fulfill({
-        json: {
-          servers: [
-            {
-              serverName: "github",
-              auth: "oauth",
-              scope: "repo:read",
-              configured: true,
-            },
-          ],
-        },
-      }),
-    );
-    await page.route("**/platformclaw/api/mcp/oauth/start", (route) =>
-      route.fulfill({
-        json: {
-          status: "redirect",
-          authorizationUrl: "https://auth.example.test/authorize",
-        },
-      }),
-    );
-    await page.route("https://auth.example.test/authorize", (route) =>
-      route.fulfill({ contentType: "text/html", body: "<h1>Authorization server</h1>" }),
-    );
-
-    await page.goto(new URL("sw.js?mcpOAuth=success", server.baseUrl).href);
-    await installComponent(page);
-    const component = page.locator("platformclaw-mcp-settings");
-    await expect
-      .poll(() => component.getByText("OAuth connection completed.").isVisible())
-      .toBe(true);
-    await expect.poll(() => component.getByText("Scope: repo:read").isVisible()).toBe(true);
-    await expect
-      .poll(() =>
-        component.getByRole("button", { name: "Reconnect github with OAuth" }).isVisible(),
-      )
-      .toBe(true);
-    expect(new URL(page.url()).searchParams.has("mcpOAuth")).toBe(false);
-    await screenshot(page, "05-oauth-complete.png");
-
-    await component.getByRole("button", { name: "Reconnect github with OAuth" }).click();
-    await page.waitForURL("https://auth.example.test/authorize");
-    await expect
-      .poll(() => page.getByRole("heading", { name: "Authorization server" }).isVisible())
-      .toBe(true);
-    await screenshot(page, "06-oauth-navigation.png");
-    await closeProofPage(context, page, "oauth-flow.webm");
+    try {
+      await install(page, "mcp-settings");
+      const component = page.locator("platformclaw-mcp-settings");
+      await expect.poll(() => component.locator(".detail").isVisible()).toBe(true);
+      expect(await component.locator(".catalog").isVisible()).toBe(false);
+      await component.locator("[data-action='picker']").click();
+      await expect.poll(() => component.locator(".catalog").isVisible()).toBe(true);
+      expect(await component.locator("[data-toggle='docs']").isDisabled()).toBe(true);
+      await component.locator("[data-action='select'][data-server='shared']").click();
+      await expect.poll(() => component.locator(".detail").isVisible()).toBe(true);
+      expect(await component.locator("[name='guide-value']").inputValue()).toBe("");
+      expect(await component.locator("[name='guide-value']").isDisabled()).toBe(true);
+      await component.locator("[data-action='remove-header']").click();
+      await component.locator("[data-action='add-header']").click();
+      await component.locator("[name='custom-name']").fill("X-Project");
+      await component.locator("[name='custom-value']").fill("project-value");
+      await screenshot(page, "user-narrow-header-draft.png");
+      await component.locator("[data-action='save']").click();
+      await expect.poll(() => saved).toBeDefined();
+      expect(saved).toEqual({
+        serverName: "shared",
+        expectedRevision: 1,
+        expectedPolicyFingerprint: "policy-original",
+        enabled: true,
+        headers: [
+          { name: "X-Tenant-ID", value: "" },
+          { name: "X-Project", value: "project-value" },
+        ],
+      });
+      expect(await component.locator("[name='guide-value']").inputValue()).toBe("");
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
+    } finally {
+      await context.close();
+    }
   });
 });

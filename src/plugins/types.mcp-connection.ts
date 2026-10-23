@@ -31,6 +31,8 @@ export type McpServerConnectionResolved = {
   headers?: Record<string, string>;
   /** Absolute epoch milliseconds after which this connection must be retired. */
   expiresAt?: number;
+  /** Explicitly retain the declared OAuth lifecycle when resolving its existing endpoint. */
+  preserveConfiguredAuth?: boolean;
 };
 
 /**

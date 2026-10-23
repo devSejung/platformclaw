@@ -148,12 +148,15 @@ export async function disposeAllSessionMcpRuntimes(): Promise<void> {
 }
 
 /** Immediately revoke requester-scoped MCP connections owned by one trusted agent. */
-export async function disposeAgentScopedMcpRuntimes(agentId: string): Promise<number> {
+export async function disposeAgentScopedMcpRuntimes(
+  agentId: string,
+  options?: { retireSessionCatalog?: boolean },
+): Promise<number> {
   const normalizedAgentId = normalizeOptionalString(agentId);
   if (!normalizedAgentId) {
     return 0;
   }
-  return await getSessionMcpRuntimeManager().disposeAgentScoped(normalizedAgentId);
+  return await getSessionMcpRuntimeManager().disposeAgentScoped(normalizedAgentId, options);
 }
 
 export function getSessionMcpRuntimeManagerForTesting(): SessionMcpRuntimeManager {

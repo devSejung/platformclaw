@@ -66,7 +66,8 @@ function createRuntimeMcp(): PluginRuntime["mcp"] {
     (runtime) => runtime.disposeAgentScopedMcpRuntimes,
   );
   return {
-    disposeAgentConnections: async ({ agentId }) => await disposeAgentConnections(agentId),
+    disposeAgentConnections: async ({ agentId, retireSessionCatalog }) =>
+      await disposeAgentConnections(agentId, { retireSessionCatalog }),
   };
 }
 

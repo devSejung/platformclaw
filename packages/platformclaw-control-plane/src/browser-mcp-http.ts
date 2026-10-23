@@ -6,31 +6,31 @@ import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type {
   McpCredentialPayload,
   ControlPlaneMcpCredentialStore,
+  ControlPlaneMcpSettingsStore,
 } from "./mcp-credential-contracts.js";
-import type { McpCredentialVault } from "./mcp-credential-vault.js";
+import { normalizeMcpAdditionalHeaders, type McpCredentialVault } from "./mcp-credential-vault.js";
+import { assertAdditionalMcpHeader } from "./mcp-header-policy.js";
 import { isMcpOAuthCredentialUsable, McpOAuthService } from "./mcp-oauth-service.js";
+import {
+  mcpPolicyFingerprint,
+  parseMcpUserCatalog,
+  protectedMcpHeaders,
+  validateAdditionalMcpHeaders,
+  type UserMcpAuthKind,
+  type UserMcpServerPolicy,
+} from "./mcp-user-policy.js";
 
 export const PLATFORMCLAW_MCP_SETTINGS_PATH = "/platformclaw/api/mcp";
 export const PLATFORMCLAW_MCP_CREDENTIAL_PATH = "/platformclaw/api/mcp/credential";
 export const PLATFORMCLAW_MCP_OAUTH_START_PATH = "/platformclaw/api/mcp/oauth/start";
 export const PLATFORMCLAW_MCP_OAUTH_CALLBACK_PATH = "/platformclaw/api/mcp/oauth/callback";
-const MCP_BODY_LIMIT_BYTES = 40 * 1024;
+const MCP_BODY_LIMIT_BYTES = 80 * 1024;
 const OAUTH_ATTEMPT_WINDOW_MS = 5 * 60_000;
 const OAUTH_ATTEMPT_LIMIT = 5;
 
 type McpSelfServiceStore = Pick<ControlPlaneStore, "getPersonalAgentBinding"> &
-  ControlPlaneMcpCredentialStore;
-
-type UserMcpAuthKind = "bearer" | "api_key" | "oauth";
-type UserMcpServerPolicy = {
-  serverName: string;
-  auth: UserMcpAuthKind;
-  headerName?: string;
-  scope?: string;
-  url: string;
-};
-
-type CatalogResponse = { servers: UserMcpServerPolicy[] };
+  ControlPlaneMcpCredentialStore &
+  ControlPlaneMcpSettingsStore;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
@@ -64,47 +64,6 @@ function objectBody(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function isSafeHttpUrl(value: unknown): value is string {
-  if (typeof value !== "string" || value.length > 2_048) {
-    return false;
-  }
-  try {
-    const url = new URL(value);
-    return (
-      (url.protocol === "http:" || url.protocol === "https:") &&
-      !url.username &&
-      !url.password &&
-      !url.hash
-    );
-  } catch {
-    return false;
-  }
-}
-
-function validPolicy(value: unknown): value is UserMcpServerPolicy {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const policy = value as Record<string, unknown>;
-  return (
-    typeof policy.serverName === "string" &&
-    policy.serverName.length > 0 &&
-    policy.serverName.length <= 128 &&
-    policy.serverName.trim() === policy.serverName &&
-    isSafeHttpUrl(policy.url) &&
-    (policy.auth === "bearer" || policy.auth === "api_key" || policy.auth === "oauth") &&
-    (policy.auth !== "api_key" ||
-      (typeof policy.headerName === "string" &&
-        /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(policy.headerName))) &&
-    (policy.scope === undefined ||
-      (typeof policy.scope === "string" &&
-        policy.scope.length <= 2_048 &&
-        !policy.scope.includes("\0") &&
-        !policy.scope.includes("\r") &&
-        !policy.scope.includes("\n")))
-  );
 }
 
 export class EmployeeMcpService {
@@ -147,45 +106,200 @@ export class EmployeeMcpService {
   }
 
   async getSettings(userId: string) {
-    const [catalog, credentials] = await Promise.all([
-      this.catalog(),
-      this.options.store.listUserMcpCredentials(userId),
-    ]);
-    const configured = new Map(
-      credentials.map((credential) => [credential.serverName, credential]),
-    );
+    const catalog = await this.catalog();
     return {
       servers: await Promise.all(
         catalog.map(async (policy) => {
-          const { url: _url, ...publicPolicy } = policy;
-          const credential = configured.get(policy.serverName);
-          const stored = credential
-            ? await this.options.vault.readForUser(userId, policy.serverName).catch(() => null)
-            : null;
+          const stored = await this.options.vault.readStatusForUser(userId, policy.serverName);
+          const credential = stored?.metadata;
           const payload = stored?.payload;
           const isConfigured =
-            credential?.kind !== policy.auth || payload?.kind !== policy.auth
-              ? false
-              : payload.serverUrl !== policy.url
-                ? false
-                : payload.kind === "api_key" && payload.headerName !== policy.headerName
-                  ? false
-                  : payload.kind === "oauth"
-                    ? payload.scope === policy.scope &&
-                      isMcpOAuthCredentialUsable(payload, (this.options.now ?? Date.now)())
-                    : true;
+            policy.credentialMode !== "personal" ||
+            Boolean(
+              payload &&
+              credential?.kind === policy.auth &&
+              payload.kind === policy.auth &&
+              payload.serverUrl === policy.url &&
+              (payload.kind !== "api_key" || payload.headerName === policy.headerName) &&
+              (payload.kind !== "oauth" ||
+                (payload.scope === policy.scope &&
+                  isMcpOAuthCredentialUsable(payload, (this.options.now ?? Date.now)()))),
+            );
+          const settings = await this.options.vault.readSettingsForUser(userId, policy.serverName);
+          let headerError: string | undefined;
+          if (
+            settings?.payload.serverUrl !== policy.url &&
+            Object.keys(settings?.payload.headers ?? {}).length
+          ) {
+            headerError =
+              "The administrator changed the server URL. Enter additional header values again.";
+          } else if (settings) {
+            try {
+              validateAdditionalMcpHeaders(settings.payload.headers, policy);
+            } catch {
+              headerError =
+                "Saved headers conflict with the current connection policy. Remove conflicting headers and save.";
+            }
+          }
           return {
-            serverName: publicPolicy.serverName,
-            auth: publicPolicy.auth,
-            headerName: publicPolicy.headerName,
-            scope: publicPolicy.scope,
+            serverName: policy.serverName,
+            origin: "organization" as const,
+            credentialMode: policy.credentialMode,
+            policyFingerprint: mcpPolicyFingerprint(policy),
+            auth: policy.credentialMode === "personal" ? policy.auth : undefined,
+            headerName: policy.credentialMode === "personal" ? policy.headerName : undefined,
+            scope: policy.scope,
+            globalEnabled: policy.enabled,
+            userEnabled: settings?.enabled ?? true,
+            settingsRevision: settings?.revision ?? 0,
+            headerGuides: policy.headerGuides,
+            headers:
+              settings?.payload.serverUrl === policy.url
+                ? Object.keys(settings.payload.headers)
+                    .toSorted()
+                    .map((name) => ({ name, configured: true as const }))
+                : [],
+            headerError,
             configured: isConfigured,
+            credentialStored: Boolean(credential),
+            credentialFingerprint: stored?.fingerprint ?? null,
             revision: credential?.revision,
             updatedAt: credential?.updatedAt,
           };
         }),
       ),
     };
+  }
+
+  async updateSettings(params: {
+    userId: string;
+    agentId: string;
+    serverName: string;
+    expectedRevision: number;
+    expectedPolicyFingerprint?: string;
+    expectedCredentialFingerprint?: string | null;
+    enabled?: boolean;
+    headers?: unknown;
+    credential?: unknown;
+  }) {
+    if (!Number.isSafeInteger(params.expectedRevision) || params.expectedRevision < 0) {
+      throw new Error("settings revision is required");
+    }
+    const policy = await this.requirePolicy(params.serverName);
+    if (
+      (params.headers !== undefined || params.credential !== undefined) &&
+      params.expectedPolicyFingerprint !== mcpPolicyFingerprint(policy)
+    ) {
+      throw new Error(
+        "MCP connection policy changed. Reload MCP settings and re-enter changed values before saving.",
+      );
+    }
+    const current = await this.options.vault.readSettingsForUser(params.userId, policy.serverName);
+    const enabled = params.enabled ?? current?.enabled ?? true;
+    if (enabled && current?.enabled === false && !policy.enabled) {
+      throw new Error("The administrator disabled this MCP server");
+    }
+    const oldHeaders = current?.payload.serverUrl === policy.url ? current.payload.headers : {};
+    let headers = oldHeaders;
+    if (params.headers !== undefined) {
+      if (!Array.isArray(params.headers) || params.headers.length > 32) {
+        throw new Error("MCP headers are invalid");
+      }
+      headers = Object.create(null) as Record<string, string>;
+      const seen = new Set<string>();
+      for (const raw of params.headers) {
+        const row = objectBody(raw);
+        if (
+          !row ||
+          typeof row.name !== "string" ||
+          (row.value !== undefined && typeof row.value !== "string")
+        ) {
+          throw new Error("MCP header is invalid");
+        }
+        const name = row.name.trim();
+        if (!name && (row.value === undefined || row.value === "")) {
+          continue;
+        }
+        const lower = name.toLowerCase();
+        if (seen.has(lower)) {
+          throw new Error("MCP header names must be unique (case insensitive)");
+        }
+        seen.add(lower);
+        const oldName = Object.keys(oldHeaders).find((entry) => entry.toLowerCase() === lower);
+        // A changed organization policy can reserve a previously valid custom
+        // name. Deletion must remain possible without authorizing its value.
+        if (oldName && row.value === "") {
+          continue;
+        }
+        assertAdditionalMcpHeader(name, protectedMcpHeaders(policy));
+        const value =
+          row.value === undefined ? (oldName ? (oldHeaders[oldName] ?? "") : "") : row.value;
+        if (value !== "") {
+          headers[name] = value;
+        }
+      }
+    }
+    headers = normalizeMcpAdditionalHeaders(headers);
+    if (enabled || params.headers !== undefined) {
+      validateAdditionalMcpHeaders(headers, policy);
+    }
+    const credential = params.credential === undefined ? undefined : objectBody(params.credential);
+    if (
+      params.credential !== undefined &&
+      (!credential ||
+        typeof credential.secret !== "string" ||
+        (credential.kind !== "bearer" && credential.kind !== "api_key") ||
+        credential.kind !== policy.auth ||
+        policy.credentialMode !== "personal")
+    ) {
+      throw new Error("MCP credential is invalid for this server");
+    }
+    let credentialReplacement:
+      | { payload: McpCredentialPayload; expectedFingerprint: string | null }
+      | undefined;
+    if (credential) {
+      const expectedFingerprint = params.expectedCredentialFingerprint;
+      if (expectedFingerprint === undefined) {
+        throw new Error(
+          "MCP credential snapshot is required. Reload settings before replacing it.",
+        );
+      }
+      credentialReplacement = {
+        expectedFingerprint,
+        payload:
+          credential.kind === "bearer"
+            ? { kind: "bearer", serverUrl: policy.url, token: credential.secret as string }
+            : {
+                kind: "api_key",
+                serverUrl: policy.url,
+                headerName: policy.headerName!,
+                value: credential.secret as string,
+              },
+      };
+    }
+    await this.options.vault.replaceSettings({
+      actorUserId: params.userId,
+      userId: params.userId,
+      serverName: policy.serverName,
+      enabled,
+      expectedRevision: params.expectedRevision,
+      // Permission-only changes preserve the encrypted destination binding too;
+      // switching Off must not erase headers after an administrator URL change.
+      payload:
+        current && params.headers === undefined && params.credential === undefined
+          ? current.payload
+          : { serverUrl: policy.url, headers },
+      updatedAt: (this.options.now ?? Date.now)(),
+      ...(credentialReplacement ? { credential: credentialReplacement } : {}),
+    });
+    // Preferences and optional credential commit together before retiring the
+    // old catalog, so the next run cannot resurrect a disabled tool snapshot.
+    try {
+      await this.invalidate(params.agentId);
+    } catch {
+      throw new McpSettingsRefreshError(await this.getSettings(params.userId));
+    }
+    return await this.getSettings(params.userId);
   }
 
   async replace(params: {
@@ -196,7 +310,7 @@ export class EmployeeMcpService {
     secret: string;
   }) {
     const policy = await this.requirePolicy(params.serverName, params.kind);
-    if (policy.auth === "oauth") {
+    if (policy.credentialMode !== "personal" || policy.auth === "oauth") {
       throw new Error("OAuth credentials must use the OAuth authorization flow");
     }
     const payload: McpCredentialPayload =
@@ -286,8 +400,35 @@ export class EmployeeMcpService {
 
   async resolveForAgent(agentId: string, serverName: string, serverUrl?: string) {
     const policy = await this.requirePolicy(serverName);
-    if (serverUrl !== undefined && policy.url !== serverUrl) {
+    if (!policy.enabled || (serverUrl !== undefined && policy.url !== serverUrl)) {
       return null;
+    }
+    const userId = await this.options.store.getActivePersonalMcpOwner(agentId);
+    if (!userId) {
+      return policy.credentialMode !== "personal" &&
+        (await this.options.store.getActiveCommonMcpAgent(agentId))
+        ? { headers: {}, revision: 0 }
+        : null;
+    }
+    const settings = await this.options.vault.readSettingsForUser(userId, serverName);
+    if (settings?.enabled === false) {
+      return null;
+    }
+    const headers = settings?.payload.serverUrl === policy.url ? settings.payload.headers : {};
+    if (
+      settings &&
+      settings.payload.serverUrl !== policy.url &&
+      Object.keys(settings.payload.headers).length
+    ) {
+      return null;
+    }
+    try {
+      validateAdditionalMcpHeaders(headers, policy);
+    } catch {
+      return null;
+    }
+    if (policy.credentialMode !== "personal") {
+      return { headers, revision: settings?.revision ?? 0 };
     }
     const stored = await this.options.vault.readForAgent(agentId, serverName);
     if (!stored) {
@@ -303,9 +444,10 @@ export class EmployeeMcpService {
       return null;
     }
     if (stored.payload.kind !== "oauth") {
-      return await this.options.vault.resolveForAgent(agentId, serverName);
+      const connection = await this.options.vault.resolveForAgent(agentId, serverName);
+      return connection ? { ...connection, headers: { ...headers, ...connection.headers } } : null;
     }
-    return await this.oauth.resolveForAgent({
+    const connection = await this.oauth.resolveForAgent({
       userId: stored.userId,
       serverName,
       serverUrl: policy.url,
@@ -313,6 +455,7 @@ export class EmployeeMcpService {
       payload: stored.payload,
       ...(policy.scope ? { scope: policy.scope } : {}),
     });
+    return connection ? { ...connection, headers: { ...headers, ...connection.headers } } : null;
   }
 
   private async catalog(): Promise<UserMcpServerPolicy[]> {
@@ -320,13 +463,8 @@ export class EmployeeMcpService {
       // Policy is process-stable between explicit administrator mutations; a
       // transient bootstrap failure may retry without rediscovery polling.
       const pending = this.options.adminRpc
-        .call<CatalogResponse>("platformclaw-user-mcp.catalog", {})
-        .then((result) => {
-          if (!Array.isArray(result.servers) || !result.servers.every(validPolicy)) {
-            throw new Error("MCP catalog response is invalid");
-          }
-          return result.servers;
-        });
+        .call<unknown>("platformclaw-user-mcp.catalog", {})
+        .then(parseMcpUserCatalog);
       this.catalogPromise = pending;
       void pending.catch(() => {
         if (this.catalogPromise === pending) {
@@ -340,7 +478,7 @@ export class EmployeeMcpService {
   private async requirePolicy(serverName: string, kind?: UserMcpAuthKind) {
     const normalized = serverName.trim();
     const policy = (await this.catalog()).find((entry) => entry.serverName === normalized);
-    if (!policy || (kind && policy.auth !== kind)) {
+    if (!policy || (kind && (policy.credentialMode !== "personal" || policy.auth !== kind))) {
       throw new Error("MCP server or credential kind is not administrator-approved");
     }
     return policy;
@@ -348,6 +486,14 @@ export class EmployeeMcpService {
 
   private async invalidate(agentId: string): Promise<void> {
     await this.options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId });
+  }
+}
+
+class McpSettingsRefreshError extends Error {
+  constructor(readonly settings: Awaited<ReturnType<EmployeeMcpService["getSettings"]>>) {
+    super(
+      "MCP settings were saved, but active connections could not be refreshed. Save again to retry.",
+    );
   }
 }
 
@@ -413,12 +559,18 @@ export async function handlePlatformClawEmployeeMcpRequest(
     return true;
   }
   if (pathname === PLATFORMCLAW_MCP_SETTINGS_PATH) {
-    if (method !== "GET") {
-      methodNotAllowed(res, "GET");
-    } else {
-      sendJson(res, 200, await options.service.getSettings(auth.user.id));
+    if (method === "GET") {
+      try {
+        sendJson(res, 200, await options.service.getSettings(auth.user.id));
+      } catch {
+        sendJson(res, 503, { error: "MCP settings are unavailable. Try again." });
+      }
+      return true;
     }
-    return true;
+    if (method !== "PUT") {
+      methodNotAllowed(res, "GET, PUT");
+      return true;
+    }
   }
   if (pathname === PLATFORMCLAW_MCP_OAUTH_START_PATH && method !== "POST") {
     methodNotAllowed(res, "POST");
@@ -439,6 +591,41 @@ export async function handlePlatformClawEmployeeMcpRequest(
     return true;
   }
   try {
+    if (pathname === PLATFORMCLAW_MCP_SETTINGS_PATH) {
+      if (
+        typeof body.expectedRevision !== "number" ||
+        (body.expectedPolicyFingerprint !== undefined &&
+          typeof body.expectedPolicyFingerprint !== "string") ||
+        (body.expectedCredentialFingerprint !== undefined &&
+          body.expectedCredentialFingerprint !== null &&
+          typeof body.expectedCredentialFingerprint !== "string") ||
+        (body.enabled !== undefined && typeof body.enabled !== "boolean")
+      ) {
+        sendJson(res, 400, { error: "settings revision and enabled state are invalid" });
+        return true;
+      }
+      sendJson(
+        res,
+        200,
+        await options.service.updateSettings({
+          userId: auth.user.id,
+          agentId: auth.binding.agentId,
+          serverName: body.serverName,
+          expectedRevision: body.expectedRevision,
+          ...(typeof body.expectedPolicyFingerprint === "string"
+            ? { expectedPolicyFingerprint: body.expectedPolicyFingerprint }
+            : {}),
+          ...(body.expectedCredentialFingerprint === null ||
+          typeof body.expectedCredentialFingerprint === "string"
+            ? { expectedCredentialFingerprint: body.expectedCredentialFingerprint }
+            : {}),
+          ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
+          ...(body.headers !== undefined ? { headers: body.headers } : {}),
+          ...(body.credential !== undefined ? { credential: body.credential } : {}),
+        }),
+      );
+      return true;
+    }
     if (pathname === PLATFORMCLAW_MCP_OAUTH_START_PATH) {
       sendJson(
         res,
@@ -471,7 +658,11 @@ export async function handlePlatformClawEmployeeMcpRequest(
       }),
     );
   } catch (error) {
-    sendJson(res, 409, { error: error instanceof Error ? error.message : "MCP update failed" });
+    if (error instanceof McpSettingsRefreshError) {
+      sendJson(res, 503, { ...error.settings, saved: true, error: error.message });
+    } else {
+      sendJson(res, 409, { error: error instanceof Error ? error.message : "MCP update failed" });
+    }
   }
   return true;
 }

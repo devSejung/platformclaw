@@ -148,6 +148,7 @@ export class SqliteControlPlaneStore
     changedAt: number;
   }): Promise<PlatformUser> {
     ensureKnowledgeVaultSchema(this.db);
+    this.ensureMcpUserSettings();
     let revokedAgentId: string | undefined;
     const user = runImmediateTransaction(this.db, () => {
       this.requireAdmin(params.actorUserId);
@@ -199,6 +200,14 @@ export class SqliteControlPlaneStore
         executeSync(
           this.db,
           this.query.deleteFrom("encrypted_user_mcp_credentials").where("user_id", "=", target.id),
+        );
+        executeSync(
+          this.db,
+          this.query.deleteFrom("user_mcp_settings").where("user_id", "=", target.id),
+        );
+        executeSync(
+          this.db,
+          this.query.deleteFrom("mcp_oauth_states").where("user_id", "=", target.id),
         );
         executeSync(
           this.db,

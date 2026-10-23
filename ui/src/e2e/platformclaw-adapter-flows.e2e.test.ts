@@ -520,8 +520,18 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
         });
         personalServers.splice(0, personalServers.length, {
           serverName: "docs",
+          origin: "organization",
+          credentialMode: "personal",
           auth: "bearer",
           configured: false,
+          credentialStored: false,
+          credentialFingerprint: null,
+          globalEnabled: true,
+          userEnabled: true,
+          settingsRevision: 0,
+          policyFingerprint: "policy-docs",
+          headerGuides: [],
+          headers: [],
         });
         servers.splice(0, servers.length, {
           name: "docs",
@@ -531,6 +541,8 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
           editable: true,
           credentialMode: "personal",
           personalAuth: "bearer",
+          sharedConfigured: false,
+          headerGuides: [],
           toolPolicy: "all",
           blockedTools: [],
         });
@@ -552,15 +564,21 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await admin.getByRole("button", { name: "Add MCP server" }).click();
     await admin.getByLabel("Server name").fill("docs");
     await admin.getByLabel("Server URL").fill("https://docs.example/mcp");
-    await admin.getByLabel("Credential policy").selectOption("personal");
+    await admin.locator("form").getByLabel("Credential policy").selectOption("personal");
     await admin.getByLabel("Credential type").selectOption("bearer");
     const configGetCountBeforeSave = (await gateway.getRequests("config.get")).length;
     await admin.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(() => admin.getByText("docs", { exact: true }).isVisible()).toBe(true);
-    await expect.poll(() => admin.getByText("All tools allowed").isVisible()).toBe(true);
+    expect(await admin.locator("[name='blockedTools']").inputValue()).toBe("");
     await expect
-      .poll(() => admin.getByText("Each employee connects their own credential").isVisible())
+      .poll(() =>
+        admin
+          .locator(".server-row")
+          .getByText("Each employee connects their own credential")
+          .isVisible(),
+      )
       .toBe(true);
+    await page.getByRole("tab", { name: "My settings", exact: true }).click();
     const personal = page.locator("platformclaw-mcp-settings");
     await expect.poll(() => personal.getByLabel("Bearer token for docs").isVisible()).toBe(true);
     expect(await gateway.getRequests("config.get")).toHaveLength(configGetCountBeforeSave);
@@ -584,31 +602,43 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
       route.fulfill({ json: activeSession(), status: 200 }),
     );
     let configured = false;
-    await page.route("**/platformclaw/api/mcp/credential", async (route) => {
-      expect(route.request().method()).toBe("PUT");
-      expect(route.request().postDataJSON()).toEqual({
-        serverName: "docs",
-        kind: "api_key",
-        secret: "employee-secret",
-      });
-      configured = true;
-      await route.fulfill({ json: { serverName: "docs", revision: 1 }, status: 200 });
-    });
-    await page.route("**/platformclaw/api/mcp", (route) =>
-      route.fulfill({
+    await page.route("**/platformclaw/api/mcp", async (route) => {
+      if (route.request().method() === "PUT") {
+        expect(route.request().postDataJSON()).toEqual({
+          serverName: "docs",
+          expectedRevision: 0,
+          expectedPolicyFingerprint: "policy-docs",
+          enabled: true,
+          headers: [],
+          credential: { kind: "api_key", secret: "employee-secret" },
+          expectedCredentialFingerprint: null,
+        });
+        configured = true;
+      }
+      await route.fulfill({
         json: {
           servers: [
             {
               serverName: "docs",
+              origin: "organization",
+              credentialMode: "personal",
               auth: "api_key",
               headerName: "X-Approved-Key",
+              globalEnabled: true,
+              userEnabled: true,
+              settingsRevision: configured ? 1 : 0,
+              policyFingerprint: "policy-docs",
+              credentialStored: configured,
+              credentialFingerprint: configured ? "credential-docs" : null,
               configured,
+              headerGuides: [],
+              headers: [],
             },
           ],
         },
         status: 200,
-      }),
-    );
+      });
+    });
     const gateway = await installMockGateway(page, {
       basePath: "/platformclaw/app",
       defaultAgentId: "person_one",
@@ -619,13 +649,13 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await openPlatformClawMcpSettings(page);
     const settings = page.locator("platformclaw-mcp-settings");
     await expect
-      .poll(() => settings.getByRole("heading", { name: "Your MCP credentials" }).isVisible())
+      .poll(() => settings.getByRole("heading", { name: "My MCP connections" }).isVisible())
       .toBe(true);
     await expect.poll(() => settings.getByLabel("API key for docs").isVisible()).toBe(true);
     await settings.getByLabel("API key for docs").fill("employee-secret");
-    await settings.getByRole("button", { name: "Save credentials for docs" }).click();
+    await settings.getByRole("button", { name: "Save", exact: true }).click();
     await expect
-      .poll(() => settings.getByText("Connected", { exact: true }).isVisible())
+      .poll(() => settings.getByText("Your settings were saved.", { exact: false }).isVisible())
       .toBe(true);
     expect(await gateway.getRequests("config.get")).toHaveLength(1);
 

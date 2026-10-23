@@ -32,6 +32,7 @@ import {
   redactMcpServersForFingerprint,
   resolveRequesterScopedMcpConnections,
   testing,
+  type McpServerConnectionResolved,
 } from "./mcp-connection-resolver.js";
 import { clearCurrentProviderAuthState } from "./model-provider-auth.js";
 import { resetPreparedModelRuntimeSnapshotsForTest } from "./prepared-model-runtime.test-support.js";
@@ -501,6 +502,34 @@ describe("mcp connection resolver helpers", () => {
     );
   });
 
+  it.each([undefined, false, true, "true", null, 1])(
+    "validates the configured-auth preservation instruction (%s)",
+    async (preserveConfiguredAuth) => {
+      testing.setMcpServerConnectionResolversForTest([
+        {
+          serverName: "user-mail",
+          resolve: async () =>
+            ({
+              url: "https://example.test/mail",
+              preserveConfiguredAuth,
+            }) as McpServerConnectionResolved,
+        },
+      ]);
+      const connections = await resolveRequesterScopedMcpConnections({
+        serverNames: ["user-mail"],
+        requesterSenderId: "sender",
+      });
+      if (preserveConfiguredAuth === undefined || typeof preserveConfiguredAuth === "boolean") {
+        expect(connections.get("user-mail")).toEqual({
+          url: "https://example.test/mail",
+          ...(preserveConfiguredAuth === true ? { preserveConfiguredAuth: true } : {}),
+        });
+      } else {
+        expect(connections.size).toBe(0);
+      }
+    },
+  );
+
   it("registers resolved header and signed-URL credentials for redaction", async () => {
     const { resetSecretRedactionRegistryForTest } =
       await import("../logging/secret-redaction-registry.test-support.js");
@@ -645,6 +674,10 @@ describe("mcp connection resolver helpers", () => {
     expect(hashMcpResolvedConnections(a)).toBe(digest);
     expect(hashMcpResolvedConnections(same)).toBe(digest);
     expect(hashMcpResolvedConnections(rotated)).not.toBe(digest);
+    const preservedAuth = new Map(
+      [...a].map(([name, connection]) => [name, { ...connection, preserveConfiguredAuth: true }]),
+    );
+    expect(hashMcpResolvedConnections(preservedAuth)).not.toBe(digest);
     const plainTuples = JSON.stringify([
       [
         "mail",
@@ -653,6 +686,7 @@ describe("mcp connection resolver helpers", () => {
           ["Authorization", "Bearer test-auth-token"],
           ["X-B", "2"],
         ],
+        false,
       ],
     ]);
     const plainSha = crypto.createHash("sha256").update(plainTuples).digest("hex");
@@ -723,6 +757,30 @@ describe("mcp connection resolver helpers", () => {
     );
     expect(sseCase.transport).toBe("sse");
   });
+
+  it.each([undefined, false, true])(
+    "retains declared OAuth only for an explicit auth-preserving override (%s)",
+    (preserveConfiguredAuth) => {
+      const declaration = {
+        url: "https://example.test/shared",
+        transport: "streamable-http",
+        auth: "oauth",
+        oauth: { scope: "docs", authProfileId: "shared-profile" },
+        headers: { "X-Tenant": "global" },
+      };
+      const applied = applyMcpConnectionOverride(declaration, {
+        url: declaration.url,
+        headers: { "X-Tenant": "personal" },
+        preserveConfiguredAuth,
+      });
+      expect(applied.headers).toEqual({ "X-Tenant": "personal" });
+      expect(applied.auth).toBe(preserveConfiguredAuth === true ? "oauth" : undefined);
+      expect(applied.oauth).toEqual(
+        preserveConfiguredAuth === true ? declaration.oauth : undefined,
+      );
+      expect(declaration.headers).toEqual({ "X-Tenant": "global" });
+    },
+  );
 
   it.each([
     [{ url: "https://declared.example/sse" }, "sse"],
