@@ -313,6 +313,7 @@ export async function dispatchKnoxInbound(params: {
   const progressRequestId = (ordinal: number) =>
     `progress:${params.message.messageId}${ordinal === 0 ? "" : `:${ordinal}`}`;
   const progress = createKnoxProgress({
+    requestText: params.message.message.text,
     delayMs: params.account.progressDelayMs,
     abortSignal: params.lifecycle.abortSignal,
     subscribe: runtime.events.onAgentEvent,

@@ -7,6 +7,7 @@ const active: ReturnType<typeof createKnoxProgress>[] = [];
 
 function setup(
   options: {
+    requestText?: string;
     canSend?: () => boolean;
     pendingDelivery?: boolean;
     cancel?: (ordinal: number) => Promise<void>;
@@ -32,6 +33,7 @@ function setup(
   const cancel = vi.fn(options.cancel ?? (async (_ordinal: number) => {}));
   const warn = vi.fn();
   const progress = createKnoxProgress({
+    requestText: options.requestText ?? "Run checks",
     delayMs: 15_000,
     abortSignal: abort.signal,
     subscribe,
@@ -81,16 +83,28 @@ describe("Knox notice language compatibility", () => {
 });
 
 describe("Knox progress digest", () => {
-  it("waits fifteen seconds before sending its English digest", async () => {
-    const { progress, send } = setup();
-    progress.start();
-    await vi.advanceTimersByTimeAsync(14_999);
-    expect(send).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
-    expect(texts(send)).toEqual(["⏳ Processing request"]);
-    await vi.advanceTimersByTimeAsync(45_000);
-    expect(send).toHaveBeenCalledOnce();
-  });
+  it.each([
+    ["Run checks", "⏳ Processing request"],
+    ["한", "⏳ 요청을 처리 중입니다."],
+    ["Run 한 checks", "⏳ 요청을 처리 중입니다."],
+    ["ㄱ", "⏳ 요청을 처리 중입니다."],
+    ["가", "⏳ 요청을 처리 중입니다."],
+    ["漢字", "⏳ Processing request"],
+    ["🔍", "⏳ Processing request"],
+    ["", "⏳ Processing request"],
+  ])(
+    "waits fifteen seconds and selects the no-information fallback from %j",
+    async (requestText, expected) => {
+      const { progress, send } = setup({ requestText });
+      progress.start();
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(send).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(texts(send)).toEqual([expected]);
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect(send).toHaveBeenCalledOnce();
+    },
+  );
 
   it("shows the current observed command on the first tick without inferring its purpose", async () => {
     const { progress, tool, send } = setup();

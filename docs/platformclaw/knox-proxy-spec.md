@@ -521,9 +521,10 @@ PlatformClaw uses this bounded policy:
 3. Send an English digest: up to five recently completed tool calls, oldest
    first, followed by current activity or approval state. No history heading,
    cumulative count, random wording, or additional model call is needed. Use
-   `⏳ Processing request` only when neither history nor current status is
-   available. A digest containing only completed history has no generic status
-   line. The fallback stays English for Korean requests too.
+   a generic fallback only when neither history nor current status is available:
+   `⏳ 요청을 처리 중입니다.` if the raw request contains any Hangul character
+   (including Jamo), otherwise `⏳ Processing request`. A digest containing only
+   completed history has no generic status line. Tool/status labels stay English.
 4. Sample request-correlated runtime events every fifteen seconds. Send only
    when the rendered digest changes. Identical latest-five content makes no
    additional relay call, even when different call IDs produced it. More than
@@ -568,7 +569,8 @@ final outbound boundary:
 
 The execution indicator retains its raw-request language rule: any Hangul
 character, including Jamo, selects Korean; otherwise it uses English. The
-temporary tool digest itself always uses English.
+temporary tool digest's labels use English; only its no-information fallback
+uses the same raw-request language rule.
 
 A blank line separates the indicator from the reply. The indicator applies to
 `progress`, `final`, `error`, and `timeout` delivery, but not room messages or

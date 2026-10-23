@@ -335,14 +335,20 @@ async function startProgressBoundary(options: BoundaryOptions = {}) {
 }
 
 describe("Knox digest through the core dispatch and mock relay", () => {
-  it.each(["Please inspect this", "Please inspect 한", "프로젝트를 확인해주세요"])(
-    "polls every fifteen seconds and replaces only changed English digests: %s",
-    async (text) => {
+  it.each([
+    ["Please inspect this", "⏳ Processing request"],
+    ["Please inspect 한", "⏳ 요청을 처리 중입니다."],
+    ["프로젝트를 확인해주세요", "⏳ 요청을 처리 중입니다."],
+    ["ㄱ", "⏳ 요청을 처리 중입니다."],
+    ["漢字", "⏳ Processing request"],
+  ])(
+    "localizes only the empty fallback and replaces changed English digests: %s",
+    async (text, fallback) => {
       const turn = await startProgressBoundary({ text });
       await vi.advanceTimersByTimeAsync(14_999);
       expect(sent).toEqual([]);
       await vi.advanceTimersByTimeAsync(1);
-      expect(sent.map((reply) => reply.text)).toEqual(["⏳ Processing request"]);
+      expect(sent.map((reply) => reply.text)).toEqual([fallback]);
       const first = sent[0]!;
       turn.emit("tool", {
         phase: "start",

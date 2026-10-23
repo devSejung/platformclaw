@@ -15,6 +15,7 @@ export function usesKnoxKoreanNotices(text: string): boolean {
 
 /** Request-owned facts only. Display history is bounded; transport ordinals identify recalls. */
 export function createKnoxProgress(params: {
+  requestText: string;
   delayMs: number;
   abortSignal: AbortSignal;
   subscribe: PluginRuntime["events"]["onAgentEvent"];
@@ -23,6 +24,9 @@ export function createKnoxProgress(params: {
   cancel: (ordinal: number) => Promise<void>;
   warn: (error: unknown) => void;
 }) {
+  const fallbackText = usesKnoxKoreanNotices(params.requestText)
+    ? "⏳ 요청을 처리 중입니다."
+    : "⏳ Processing request";
   const calls = new Map<string, KnoxProgressCall>();
   const history = new Map<string, KnoxProgressCall>();
   const finished = new Set<string>();
@@ -237,7 +241,7 @@ export function createKnoxProgress(params: {
     if (current) {
       lines.push(formatKnoxProgressCall(current, suffix));
     }
-    return lines.length > 0 ? lines.join("\n") : "⏳ Processing request";
+    return lines.length > 0 ? lines.join("\n") : fallbackText;
   };
   const tick = () => {
     if (!active || stopped) {

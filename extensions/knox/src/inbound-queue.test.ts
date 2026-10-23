@@ -444,7 +444,7 @@ describe("Knox room admission and delivery", () => {
       commit.resolve();
       await ready.promise;
       await vi.advanceTimersByTimeAsync(4_000);
-      expect(sent.map((item) => item.text)).toEqual(["⏳ Processing request"]);
+      expect(sent.map((item) => item.text)).toEqual(["⏳ 요청을 처리 중입니다."]);
     } finally {
       commit.resolve();
       finish.resolve();
@@ -453,7 +453,7 @@ describe("Knox room admission and delivery", () => {
   });
 
   it.each(["slow", "fast", "cancelled", "queued", "deferred"])(
-    "starts one English progress digest only after adoption: %s",
+    "starts one localized fallback only after adoption: %s",
     async (mode) => {
       vi.useFakeTimers();
       const sent: Sent[] = [];
@@ -501,7 +501,7 @@ describe("Knox room admission and delivery", () => {
         expect(sent).toEqual([]);
         await vi.advanceTimersByTimeAsync(4_001);
         expect(sent.map((item) => item.text)).toEqual(
-          mode === "slow" || mode === "queued" ? ["⏳ Processing request"] : [],
+          mode === "slow" || mode === "queued" ? ["⏳ 요청을 처리 중입니다."] : [],
         );
       } finally {
         finish.resolve();
@@ -558,7 +558,7 @@ describe("Knox room admission and delivery", () => {
       await vi.advanceTimersByTimeAsync(4_001);
       expect(sent.map((item) => ({ requestId: item.requestId, text: item.text }))).toEqual([
         { requestId: "queued:msg-2", text: "앞선 요청 1건 처리 후 이어서 진행합니다." },
-        { requestId: "progress:msg-2", text: "⏳ Processing request" },
+        { requestId: "progress:msg-2", text: "⏳ 요청을 처리 중입니다." },
       ]);
     } finally {
       adopt.resolve();
