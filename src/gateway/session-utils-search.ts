@@ -231,6 +231,10 @@ export function buildGatewaySessionInfo(params: {
     modelCatalog: params.modelCatalog,
     now,
     storeChildSessionsByKey,
+    // History replaces the client's list row, so include its content-derived name.
+    // Keep the list's id-only fallback out of empty history metadata.
+    includeDerivedTitles: true,
+    includeSessionIdTitleFallback: false,
     skipTranscriptUsageFallback: true,
     lightweightListRow: true,
   });
