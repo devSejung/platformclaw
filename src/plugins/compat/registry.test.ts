@@ -189,6 +189,14 @@ describe("plugin compatibility registry", () => {
         "openclaw package root saveSessionStore",
       ]),
     );
+    expect(records.get("deprecated-session-store-beta5-api")).toMatchObject({
+      status: "removal-pending",
+      removeAfter: "2026-10-12",
+      replacement: expect.stringContaining("minimum supported plugin exclusion"),
+    });
+    expect(records.get("deprecated-session-store-beta5-api")?.replacement).toContain(
+      "legacy doctor upgrade window",
+    );
   });
 
   it("keeps the removed embedded Pi aliases as a migration tombstone", () => {

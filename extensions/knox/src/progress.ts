@@ -1,88 +1,70 @@
 import type { GetReplyOptions } from "openclaw/plugin-sdk/reply-runtime";
 import type { PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
+import {
+  describeKnoxProgressCall,
+  formatKnoxProgressCall,
+  terminalKnoxProgressState,
+  type KnoxProgressCall,
+} from "./progress-format.js";
 
-type ProgressState =
-  | "running"
-  | "completed"
-  | "failed"
-  | "pending"
-  | "approved"
-  | "denied"
-  | "unavailable"
-  | "resolved";
-type ToolState = { name?: string; state: ProgressState };
 type AgentEvent = Parameters<Parameters<PluginRuntime["events"]["onAgentEvent"]>[0]>[0];
 
 export function usesKnoxKoreanNotices(text: string): boolean {
   return /\p{Script=Hangul}/u.test(text);
 }
 
-function progressText(korean: boolean, tool?: ToolState): string {
-  if (!tool) {
-    return korean ? "요청을 처리 중입니다." : "Processing your request.";
-  }
-  const name = tool.name;
-  const subject = name ? `${name} ` : "";
-  const messages: Record<ProgressState, readonly [string, string]> = {
-    running: [`${subject}호출 진행 중입니다.`, name ? `Calling ${name}.` : "Calling a tool."],
-    completed: [
-      `${subject}호출이 완료됐습니다.`,
-      name ? `${name} call completed.` : "Tool call completed.",
-    ],
-    failed: [`${subject}호출이 실패했습니다.`, name ? `${name} call failed.` : "Tool call failed."],
-    pending: [
-      `${subject}승인 대기 중입니다.`,
-      name ? `Awaiting approval for ${name}.` : "Awaiting approval.",
-    ],
-    approved: [
-      `${subject}실행이 승인됐습니다.`,
-      name ? `${name} execution approved.` : "Execution approved.",
-    ],
-    denied: [
-      `${subject}실행이 거절됐습니다.`,
-      name ? `${name} execution denied.` : "Execution denied.",
-    ],
-    unavailable: [
-      `${subject}승인을 받을 수 없습니다.`,
-      name ? `Approval unavailable for ${name}.` : "Approval unavailable.",
-    ],
-    resolved: [
-      `${subject}승인 대기가 종료됐습니다.`,
-      name ? `Approval wait ended for ${name}.` : "Approval wait ended.",
-    ],
-  };
-  return messages[tool.state][korean ? 0 : 1];
-}
-
-/** Request-owned observation only: never expose command arguments, output, or model reasoning. */
+/** Request-owned facts only. Display history is bounded; transport ordinals identify recalls. */
 export function createKnoxProgress(params: {
-  text: string;
+  requestText: string;
   delayMs: number;
   abortSignal: AbortSignal;
   subscribe: PluginRuntime["events"]["onAgentEvent"];
   canSend: () => boolean;
   send: (text: string, ordinal: number, signal: AbortSignal) => Promise<void>;
+  cancel: (ordinal: number) => Promise<void>;
   warn: (error: unknown) => void;
 }) {
-  const korean = usesKnoxKoreanNotices(params.text);
-  const calls = new Map<string, ToolState>();
-  const approvals = new Map<string, { callId?: string; tool: ToolState }>();
-  let latest: ToolState | undefined;
+  const fallbackText = usesKnoxKoreanNotices(params.requestText)
+    ? "⏳ 요청을 처리 중입니다."
+    : "⏳ Processing request";
+  const calls = new Map<string, KnoxProgressCall>();
+  const history = new Map<string, KnoxProgressCall>();
+  const finished = new Map<string, "approval" | "terminal">();
+  const retiredCalls = new Set<string>();
+  const approvals = new Map<string, { callId?: string; call: KnoxProgressCall }>();
+  const retiredApprovals = new Set<string>();
+  const notices = new Set<number>();
+  const cancellations = new Map<number, Promise<void>>();
+  let latestApproval: { callId?: string; call: KnoxProgressCall } | undefined;
   let runId: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let delivery: Promise<void> | undefined;
   let deliveryAbort: AbortController | undefined;
+  let latestNotice: number | undefined;
+  let recalling = false;
+  let recallFailed = false;
   let active = false;
   let stopped = false;
-  let firstTick = true;
   let sent = false;
-  let visibleReply = false;
   let ordinal = 0;
   let previousText = "";
 
   const clearTimer = () => {
     clearTimeout(timer);
     timer = undefined;
+  };
+  const resetFacts = () => {
+    for (const key of approvals.keys()) {
+      retiredApprovals.add(key);
+    }
+    for (const key of [...calls.keys(), ...finished.keys()]) {
+      retiredCalls.add(key);
+    }
+    calls.clear();
+    history.clear();
+    finished.clear();
+    approvals.clear();
+    latestApproval = undefined;
   };
   const stop = () => {
     if (stopped) {
@@ -92,15 +74,44 @@ export function createKnoxProgress(params: {
     active = false;
     clearTimer();
     deliveryAbort?.abort();
-    calls.clear();
-    approvals.clear();
-    latest = undefined;
+    resetFacts();
     unsubscribe();
-    params.abortSignal.removeEventListener("abort", stop);
+    // Abort can follow a native terminal event while final delivery is still pending.
+    // Keep the abort cleanup listener until the owner explicitly settles cleanup.
   };
+  const cancelNotice = (id: number): Promise<void> => {
+    if (!notices.has(id)) {
+      return Promise.resolve();
+    }
+    const current = cancellations.get(id);
+    if (current) {
+      return current;
+    }
+    const pending = Promise.resolve()
+      .then(() => params.cancel(id))
+      .then(() => {
+        notices.delete(id);
+      })
+      .catch((error: unknown) => {
+        recallFailed = true;
+        params.warn(error);
+      })
+      .finally(() => {
+        cancellations.delete(id);
+      });
+    cancellations.set(id, pending);
+    return pending;
+  };
+  const cleanup = async () => {
+    stop();
+    params.abortSignal.removeEventListener("abort", onAbort);
+    await Promise.all([...notices].map(cancelNotice));
+  };
+  const onAbort = () => {
+    void cleanup();
+  };
+
   const note = (stream: string, data: Record<string, unknown>) => {
-    // Native item records defer progress to normalized tool events; some tools
-    // intentionally have no visible replacement (for example, message delivery).
     if (
       stopped ||
       data.hideFromChannelProgress === true ||
@@ -114,25 +125,30 @@ export function createKnoxProgress(params: {
         : typeof data.itemId === "string"
           ? data.itemId
           : undefined;
-    const name =
-      typeof data.name === "string"
-        ? data.name.replace(/[\p{C}\s]/gu, "").slice(0, 80)
-        : calls.get(id ?? "")?.name;
+    if (id && retiredCalls.has(id)) {
+      return;
+    }
+    const previous = calls.get(id ?? "") ?? history.get(id ?? "");
     if (
       stream === "approval" ||
       (stream === "lifecycle" &&
-        (data.phase === "waiting-approval" || data.phase === "approval-resolved"))
+        ["waiting-approval", "approval-resolved"].includes(String(data.phase)))
     ) {
       const approvalId = typeof data.approvalId === "string" ? data.approvalId : id;
-      if (!approvalId) {
+      if (!approvalId || retiredApprovals.has(approvalId)) {
         return;
       }
-      const matching = approvals.has(approvalId)
+      const matched = approvals.has(approvalId)
         ? ([approvalId, approvals.get(approvalId)!] as const)
         : typeof data.approvalId !== "string"
           ? [...approvals].find(([, value]) => id !== undefined && value.callId === id)
           : undefined;
-      const pending = matching?.[1];
+      const callId = id ?? matched?.[1].callId;
+      // A tool's definitive result supersedes late approval notifications, but
+      // an embedded approval-pending result is not an execution terminal.
+      if (callId && finished.get(callId) === "terminal") {
+        return;
+      }
       const state =
         data.phase === "waiting-approval" || data.status === "pending"
           ? "pending"
@@ -141,23 +157,26 @@ export function createKnoxProgress(params: {
             : data.status === "failed"
               ? "unavailable"
               : "resolved";
-      const tool: ToolState = { name: name ?? pending?.tool.name, state };
+      const call = {
+        ...describeKnoxProgressCall(data, previous ?? matched?.[1].call),
+        state,
+      } satisfies KnoxProgressCall;
       if (state === "pending") {
-        approvals.set(approvalId, { callId: id, tool });
+        approvals.set(approvalId, { callId: id, call });
       } else {
         if (typeof data.approvalId === "string") {
-          approvals.delete(matching?.[0] ?? approvalId);
+          approvals.delete(matched?.[0] ?? approvalId);
         } else {
-          // Failure notifications can omit the generated approval ID; retire that item's waits.
           for (const [key, value] of approvals) {
             if (key === approvalId || (id !== undefined && value.callId === id)) {
               approvals.delete(key);
             }
           }
         }
-        // A call can start before approval. Resolution alone does not prove execution resumed.
-        calls.delete(id ?? pending?.callId ?? "");
-        latest = tool;
+        if (callId) {
+          calls.set(callId, call);
+        }
+        latestApproval = { callId, call };
       }
       return;
     }
@@ -169,70 +188,122 @@ export function createKnoxProgress(params: {
       return;
     }
     if (data.phase === "start" || data.phase === "update") {
-      calls.set(id, { name, state: "running" });
+      if (finished.get(id) !== "terminal") {
+        calls.set(id, { ...describeKnoxProgressCall(data, previous), state: "running" });
+      }
+      latestApproval = undefined;
     } else if (data.phase === "result" || data.phase === "end") {
+      // Embedded tools emit tool+item+command terminals for the same invocation.
+      // Only the first canonical terminal counts; the richer tool result comes first.
+      if (finished.get(id) === "terminal" || (finished.has(id) && stream !== "tool")) {
+        return;
+      }
       if (data.status === "running" || data.status === "inProgress") {
         return;
       }
-      calls.delete(id);
-      latest = {
-        name,
-        state:
-          data.isError === true ||
-          ["failed", "error", "blocked", "declined"].includes(String(data.status))
-            ? "failed"
-            : "completed",
+      const call = {
+        ...describeKnoxProgressCall(data, previous),
+        state: terminalKnoxProgressState(data),
       };
+      calls.delete(id);
+      if (call.state === "pending" || call.state === "unavailable") {
+        finished.set(id, "approval");
+        calls.set(id, call);
+        latestApproval = { callId: id, call };
+        return;
+      }
+      finished.set(id, "terminal");
+      if (latestApproval?.callId === id) {
+        latestApproval = undefined;
+      }
+      for (const [approvalId, approval] of approvals) {
+        if (approval.callId === id) {
+          approvals.delete(approvalId);
+          retiredApprovals.add(approvalId);
+        }
+      }
+      history.set(id, call);
+      if (history.size > 5) {
+        history.delete(history.keys().next().value!);
+      }
     }
   };
   const unsubscribe = params.subscribe((event: AgentEvent) => {
-    // Session keys can be shared by queued turns; only this request's actual run may update it.
-    if (event.runId === runId) {
-      if (event.stream === "lifecycle") {
-        if (event.data.phase === "end" || event.data.phase === "error") {
-          stop();
-          return;
-        }
-        if (event.data.phase === "start" || event.data.phase === "finishing") {
-          // Attempts share a run ID. Missing item terminals cannot keep a dead
-          // attempt's tools or approvals visible while its fallback is running.
-          calls.clear();
-          approvals.clear();
-          latest = undefined;
-          if (previousText !== progressText(korean)) {
-            deliveryAbort?.abort();
-          }
-        }
-      }
-      note(event.stream, event.data);
+    if (event.runId !== runId) {
+      return;
     }
+    if (event.stream === "lifecycle") {
+      if (event.data.phase === "end" || event.data.phase === "error") {
+        stop();
+        return;
+      }
+      if (event.data.phase === "start" || event.data.phase === "finishing") {
+        resetFacts();
+        // Attempts share the request's relay delivery; resetting observations
+        // must not turn its pending acknowledgement into an ambiguous abort.
+      }
+    }
+    note(event.stream, event.data);
   });
+
+  const snapshot = () => {
+    const pending = [...approvals.values()].at(-1)?.call;
+    const pendingIds = new Set([...approvals.values()].map((approval) => approval.callId));
+    const running = [...calls]
+      .filter(([id, call]) => call.state === "running" && !pendingIds.has(id))
+      .map(([, call]) => call);
+    const current = pending ?? running.at(-1) ?? latestApproval?.call;
+    const extra = pending ? running.length : Math.max(0, running.length - 1);
+    const suffix = extra ? ` (+${extra} running)` : "";
+    const lines = [...history.values()].map((call) => formatKnoxProgressCall(call));
+    if (current) {
+      lines.push(formatKnoxProgressCall(current, suffix));
+    }
+    return lines.length > 0 ? lines.join("\n") : fallbackText;
+  };
   const tick = () => {
     if (!active || stopped) {
       return;
     }
-    timer = setTimeout(tick, 10_000);
+    timer = setTimeout(tick, 15_000);
     timer.unref?.();
-    if (!params.canSend() || deliveryAbort || params.abortSignal.aborted) {
+    if (
+      !params.canSend() ||
+      deliveryAbort ||
+      recalling ||
+      recallFailed ||
+      params.abortSignal.aborted
+    ) {
       return;
     }
-    const pending = [...approvals.values()].at(-1)?.tool;
-    const tool = pending ?? [...calls.values()].at(-1) ?? latest;
-    // An actionable approval must not be concealed behind the generic first notice.
-    const text = progressText(korean, firstTick && !pending && !visibleReply ? undefined : tool);
-    firstTick = false;
-    if ((!tool && visibleReply) || text === previousText) {
+    const text = snapshot();
+    if (text === previousText) {
       return;
     }
     previousText = text;
     const controller = new AbortController();
     deliveryAbort = controller;
+    const id = ordinal++;
+    notices.add(id);
     delivery = params
-      .send(text, ordinal++, controller.signal)
+      .send(text, id, controller.signal)
       .then(() => {
         sent = true;
+        const old = latestNotice;
+        latestNotice = id;
+        // Recall transport must not hold a substantive/final reply behind drain().
+        // A failed recall freezes updates so a relay outage cannot accumulate digests.
+        if (old !== undefined) {
+          recalling = true;
+          void cancelNotice(old).finally(() => {
+            recalling = false;
+          });
+        }
       })
       .catch((error: unknown) => {
+        // Transport abort cannot prove non-delivery. Only final acknowledgement
+        // or request abort authorizes owner cleanup of the uncertain ordinal.
+        recallFailed = true;
         if (!controller.signal.aborted) {
           params.warn(error);
         }
@@ -241,9 +312,9 @@ export function createKnoxProgress(params: {
         deliveryAbort = undefined;
       });
   };
-  params.abortSignal.addEventListener("abort", stop, { once: true });
+  params.abortSignal.addEventListener("abort", onAbort, { once: true });
   if (params.abortSignal.aborted) {
-    stop();
+    onAbort();
   }
   return {
     start() {
@@ -258,21 +329,21 @@ export function createKnoxProgress(params: {
       active = false;
       clearTimer();
       deliveryAbort?.abort();
-      calls.clear();
-      approvals.clear();
-      latest = undefined;
+      resetFacts();
       runId = undefined;
-      firstTick = true;
       previousText = "";
-      visibleReply = false;
     },
     stop,
+    cleanup,
+    dispose() {
+      stop();
+      // Failed/unknown final delivery must leave the last acknowledged guide visible.
+      params.abortSignal.removeEventListener("abort", onAbort);
+    },
     async drain() {
       await delivery;
     },
     visibleReply() {
-      visibleReply = true;
-      // A real reply must not wait behind a slow best-effort status acknowledgement.
       deliveryAbort?.abort();
     },
     get sent() {
@@ -280,13 +351,8 @@ export function createKnoxProgress(params: {
     },
     replyOptions: {
       onAgentRunStart: (id) => {
-        if (stopped) {
-          return;
-        }
-        if (runId !== id) {
-          calls.clear();
-          approvals.clear();
-          latest = undefined;
+        if (!stopped && runId !== id) {
+          resetFacts();
           runId = id;
         }
       },

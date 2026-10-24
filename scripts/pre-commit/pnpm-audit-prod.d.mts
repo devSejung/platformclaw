@@ -12,6 +12,27 @@ export function collectAllResolvedPackagesFromLockfile(
   lockfileText: unknown,
 ): Map<unknown, unknown>;
 export function createBulkAdvisoryPayload(versionsByPackage: unknown): unknown;
+export function getReviewedSecurityPatchRegistrations(): {
+  specifier: string;
+  patchPath: string;
+  installHash: string;
+}[];
+export function verifyReviewedSecurityPatches(options: {
+  rootDir: string;
+  lockfileText: string;
+  requiredPatchSpecifiers?: string[];
+}): Promise<void>;
+export function filterVerifiedPatchedAdvisories<T extends Record<string, unknown[]>>({
+  rootDir,
+  lockfileText,
+  advisoriesByPackage,
+  versionsByPackage,
+}: {
+  rootDir: string;
+  lockfileText: string;
+  advisoriesByPackage: T;
+  versionsByPackage?: unknown;
+}): Promise<T>;
 export function filterFindingsBySeverity(
   advisoriesByPackage: unknown,
   minSeverity: unknown,

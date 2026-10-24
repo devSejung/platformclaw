@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
 import http from "node:http";
+import { setTimeout as delay } from "node:timers/promises";
+import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import type { Express, NextFunction, Request, Response } from "express";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -48,6 +50,128 @@ afterEach(async () => {
 });
 
 describe("installBrowserCommonMiddleware", () => {
+  it.each([
+    ["gzip", gzipSync],
+    ["deflate", deflateSync],
+    ["br", brotliCompressSync],
+  ] as const)(
+    "parses allowed %s JSON and enforces the inflated body limit",
+    async (encoding, compress) => {
+      const { url, getRouteCalls } = await startMiddlewareTestServer();
+      for (const oversized of [false, true]) {
+        const body = { value: oversized ? "x".repeat(1024 * 1024) : "compressed request" };
+        const response = await fetch(`${url}/mutate`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer test-token",
+            "content-type": "application/json",
+            "content-encoding": encoding,
+          },
+          body: new Uint8Array(compress(JSON.stringify(body))),
+        });
+        expect(response.status).toBe(oversized ? 413 : 200);
+        if (oversized) {
+          await response.text();
+        } else {
+          expect(await response.json()).toEqual({ body });
+        }
+      }
+      expect(getRouteCalls()).toBe(1);
+    },
+  );
+
+  it("finishes a compressed request whose decoder completes before the HTTP body", async () => {
+    const app = express();
+    installBrowserCommonMiddleware(app);
+    installBrowserAuthMiddleware(app, { token: "test-token" });
+    const first = Buffer.concat([deflateSync('{"ok":true}'), Buffer.from([0])]);
+    const trailing = Buffer.alloc(1024);
+    let client: http.ClientRequest | undefined;
+    app.post("/mutate", (req, res) => {
+      // Exercise downstream request-completion work after parsing. The decoder
+      // must detach and drain remaining HTTP bytes instead of leaving it hung.
+      req.once("end", () => res.json({ body: req.body }));
+      client?.end(trailing);
+    });
+    server = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => {
+      server?.once("listening", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("expected TCP test server address");
+    }
+    try {
+      const result = await new Promise<{ status: number | undefined; body: string }>(
+        (resolve, reject) => {
+          client = http.request(
+            {
+              host: "127.0.0.1",
+              port: address.port,
+              path: "/mutate",
+              method: "POST",
+              agent: false,
+              headers: {
+                authorization: "Bearer test-token",
+                "content-type": "application/json",
+                "content-encoding": "deflate",
+                "content-length": first.length + trailing.length,
+              },
+            },
+            (response) => {
+              let body = "";
+              response.setEncoding("utf8");
+              response.on("data", (chunk: string) => {
+                body += chunk;
+              });
+              response.on("error", reject);
+              response.on("end", () => resolve({ status: response.statusCode, body }));
+            },
+          );
+          client.on("error", reject);
+          client.setTimeout(2000, () =>
+            client?.destroy(new Error("compressed HTTP request did not finish")),
+          );
+          client.write(first);
+        },
+      );
+      expect(result).toEqual({ status: 200, body: '{"body":{"ok":true}}' });
+    } finally {
+      client?.destroy();
+    }
+  });
+
+  it("keeps serving after trailing bytes reach a finished gzip decoder", async () => {
+    const { url, getRouteCalls } = await startMiddlewareTestServer();
+    const encoded = Buffer.concat([
+      gzipSync('{"ok":true}'),
+      Buffer.from([0]),
+      Buffer.alloc(100 * 1024, 0x58),
+    ]);
+    const response = await fetch(`${url}/mutate`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-token",
+        "content-type": "application/json",
+        "content-encoding": "gzip",
+      },
+      body: new Uint8Array(encoded),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ body: { ok: true } });
+    // GHSA-27r3-jxmh-p828 raises a late, unhandled decoder error after the
+    // response. Keep that event observable before proving the server still works.
+    await delay(200);
+    const next = await fetch(`${url}/mutate`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", "content-type": "application/json" },
+      body: '{"stillRunning":true}',
+    });
+    expect(next.status).toBe(200);
+    expect(await next.json()).toEqual({ body: { stillRunning: true } });
+    expect(getRouteCalls()).toBe(2);
+  });
+
   it("shadows native request signals with the browser response-lifetime signal", () => {
     const middleware: Middleware[] = [];
     const app = {

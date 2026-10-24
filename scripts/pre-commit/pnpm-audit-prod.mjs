@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 // Production dependency audit helper using pnpm lock data and npm bulk advisories.
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -58,6 +59,59 @@ const AUDIT_ADVISORY_VERSION_OVERRIDES = [
     packageName: "@mistralai/mistralai",
     advisoryIds: new Set(["1118204", "GHSA-3q49-cfcf-g5fm"]),
     unaffectedVersions: new Set(["2.2.1", "2.2.5"]),
+  },
+];
+// These security backports are reviewed source artifacts, not version exceptions.
+// Verify both patch bytes and pnpm's complete installation identity before
+// recognizing remediation; Zod 4.6.6 still exposes the affected /v3 parser.
+const REVIEWED_SECURITY_PATCHES = [
+  {
+    packageName: "zod",
+    version: "3.25.76",
+    patchPath: "patches/zod@3.25.76.patch",
+    sha256: "7603e669a671f61a89c898cba1c3eedbb5c529274ac7187ec3394c10a055dec9",
+    installHash: "7603e669a671f61a89c898cba1c3eedbb5c529274ac7187ec3394c10a055dec9",
+    integrity:
+      "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==",
+  },
+  {
+    packageName: "@discord/embedded-app-sdk",
+    version: "2.5.0",
+    patchPath: "patches/@discord__embedded-app-sdk@2.5.0.patch",
+    sha256: "f48e401bc4364900e83f8fe2a1319182b3ef04cf1aef48cb518c7e3010e9af10",
+    installHash: "f48e401bc4364900e83f8fe2a1319182b3ef04cf1aef48cb518c7e3010e9af10",
+    integrity:
+      "sha512-FNoe5PbSkoKEbqPubaBmq6tlEMOftMjR3gu55YrdrrKmBfKKM4i9P/Z+Zxl0RZdJcKviBwVcTyYMMPM/aGex/w==",
+  },
+  {
+    packageName: "zod",
+    version: "4.6.6",
+    patchPath: "patches/zod@4.6.6.patch",
+    sha256: "5b448a1a3aafd543cd67bc4520817f995b85324b886be37256af9b4cb15401aa",
+    installHash: "5b448a1a3aafd543cd67bc4520817f995b85324b886be37256af9b4cb15401aa",
+    integrity:
+      "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==",
+  },
+  {
+    packageName: "@azure/msal-node",
+    version: "5.4.2",
+    patchPath: "patches/@azure__msal-node@5.4.2.patch",
+    sha256: "c2854316529b20e93e91e44a4edb703526a9b2cfed9512baa9d4ac9c6f200679",
+    installHash: "c2854316529b20e93e91e44a4edb703526a9b2cfed9512baa9d4ac9c6f200679",
+    integrity:
+      "sha512-fnqOpGYAV+i0RH4W5HB6Oy1IhqGZoCdnp7Y2Sa9k18FlT8aBkCA7L8Hv19hUHLDUK6kVjUO29AfnGX6wgAHyNg==",
+  },
+];
+const REVIEWED_PATCH_ADVISORIES = [
+  {
+    packageName: "zod",
+    url: "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5",
+    vulnerableVersions: "<4.6.6",
+  },
+  {
+    packageName: "@azure/msal-node",
+    url: "https://github.com/advisories/GHSA-xcx6-jx8p-x3h5",
+    vulnerableVersions: ">=5.0.0-beta.0 <7.1.0",
   },
 ];
 
@@ -253,6 +307,150 @@ function parseYamlMappingLine(line) {
     key: parseYamlScalar(line.slice(0, separatorIndex)),
     value: line.slice(separatorIndex + 1).trim(),
   };
+}
+
+function readAuditMetadataSection(text, sectionName) {
+  const entries = new Map();
+  let section;
+  let current;
+  for (const line of text.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (isIgnorableYamlLine(trimmed)) {
+      continue;
+    }
+    const indentation = countIndentation(line);
+    const mapping = parseYamlMappingLine(trimmed);
+    if (indentation === TOP_LEVEL_INDENT) {
+      section = mapping?.key;
+      current = undefined;
+    } else if (section === sectionName && mapping) {
+      if (indentation === SECTION_ENTRY_INDENT) {
+        if (entries.has(mapping.key)) {
+          throw new Error(`Duplicate ${sectionName} entry: ${mapping.key}`);
+        }
+        current = new Map();
+        if (mapping.value) {
+          current.set("value", parseYamlScalar(mapping.value));
+        }
+        entries.set(mapping.key, current);
+      } else if (indentation === NESTED_SECTION_INDENT && current) {
+        if (current.has(mapping.key)) {
+          throw new Error(`Duplicate ${sectionName} field: ${mapping.key}`);
+        }
+        current.set(
+          mapping.key,
+          parseInlineYamlMap(mapping.value) ?? parseYamlScalar(mapping.value),
+        );
+      }
+    }
+  }
+  return entries;
+}
+
+async function verifyReviewedAuditArtifact({ rootDir, artifact, lockfileText, workspaceText }) {
+  const key = `${artifact.packageName}@${artifact.version}`;
+  const registration = readAuditMetadataSection(workspaceText, "patchedDependencies").get(key);
+  const lockedPatch = readAuditMetadataSection(lockfileText, "patchedDependencies").get(key);
+  const resolution = readAuditMetadataSection(lockfileText, "packages").get(key)?.get("resolution");
+  const snapshots = Object.keys(parsePnpmLockfileSections(lockfileText).snapshots)
+    .map(parseSnapshotKey)
+    .filter(
+      (entry) => entry.packageName === artifact.packageName && entry.version === artifact.version,
+    );
+  if (
+    registration?.get("value") !== artifact.patchPath ||
+    lockedPatch?.get("value") !== artifact.installHash ||
+    resolution?.integrity !== artifact.integrity ||
+    snapshots.length === 0 ||
+    snapshots.some((entry) => {
+      const hashes = [...entry.reference.matchAll(/\(patch_hash=([^)]*)\)/gu)];
+      return hashes.length !== 1 || hashes[0][1] !== artifact.installHash;
+    })
+  ) {
+    throw new Error(`Reviewed audit patch registration or integrity changed: ${key}`);
+  }
+  const patch = await readFile(path.join(rootDir, artifact.patchPath));
+  if (createHash("sha256").update(patch).digest("hex") !== artifact.sha256) {
+    throw new Error(`Reviewed audit patch bytes changed: ${key}`);
+  }
+}
+
+/** Return the approved registration fields without exposing mutable artifact records. */
+export function getReviewedSecurityPatchRegistrations() {
+  return REVIEWED_SECURITY_PATCHES.map((artifact) => ({
+    specifier: `${artifact.packageName}@${artifact.version}`,
+    patchPath: artifact.patchPath,
+    installHash: artifact.installHash,
+  }));
+}
+
+/** Verify the complete installation identity of every resolved security-patched package. */
+export async function verifyReviewedSecurityPatches({
+  rootDir,
+  lockfileText,
+  requiredPatchSpecifiers = [],
+}) {
+  const allVersions = collectAllResolvedPackagesFromLockfile(lockfileText);
+  /** @type {Set<string>} */
+  const specifiers = new Set(requiredPatchSpecifiers);
+  const packageNames = new Set(REVIEWED_SECURITY_PATCHES.map((artifact) => artifact.packageName));
+  for (const packageName of packageNames) {
+    for (const version of allVersions.get(packageName) ?? []) {
+      specifiers.add(`${packageName}@${version}`);
+    }
+  }
+  if (specifiers.size === 0) {
+    return;
+  }
+  const workspaceText = await readFile(path.join(rootDir, "pnpm-workspace.yaml"), "utf8");
+  for (const specifier of specifiers) {
+    const artifact = REVIEWED_SECURITY_PATCHES.find(
+      (candidate) => `${candidate.packageName}@${candidate.version}` === specifier,
+    );
+    if (!artifact) {
+      throw new Error(`No reviewed security patch for ${specifier}`);
+    }
+    await verifyReviewedAuditArtifact({ rootDir, artifact, lockfileText, workspaceText });
+  }
+}
+
+/** Recognize a reviewed backport only after pnpm's actual locked artifacts are verified. */
+export async function filterVerifiedPatchedAdvisories({
+  rootDir,
+  lockfileText,
+  advisoriesByPackage,
+  versionsByPackage = collectAllResolvedPackagesFromLockfile(lockfileText),
+}) {
+  await verifyReviewedSecurityPatches({ rootDir, lockfileText });
+  const filtered = { ...advisoriesByPackage };
+  // Keep querying original versions. A reviewed backport does not excuse a
+  // different advisory, a changed range/severity, or an unpatched installation.
+  for (const reviewed of REVIEWED_PATCH_ADVISORIES) {
+    const versions = [...(versionsByPackage.get(reviewed.packageName) ?? [])];
+    const advisories = advisoriesByPackage?.[reviewed.packageName];
+    const remediated =
+      versions.length > 0 &&
+      versions.every((version) =>
+        REVIEWED_SECURITY_PATCHES.some(
+          (artifact) =>
+            artifact.packageName === reviewed.packageName && artifact.version === version,
+        ),
+      );
+    if (!remediated || !Array.isArray(advisories)) {
+      continue;
+    }
+    filtered[reviewed.packageName] = advisories.filter(
+      (advisory) =>
+        !(
+          advisory &&
+          typeof advisory === "object" &&
+          advisory.url === reviewed.url &&
+          advisory.vulnerable_versions === reviewed.vulnerableVersions &&
+          advisory.severity === "high"
+        ),
+    );
+  }
+  return filtered;
 }
 
 function isNamedYamlSection(trimmed, sectionNames) {
@@ -997,7 +1195,12 @@ export async function runPnpmAuditProd({
   }
 
   const findings = filterFindingsBySeverity(
-    advisoryResults,
+    await filterVerifiedPatchedAdvisories({
+      rootDir,
+      lockfileText,
+      advisoriesByPackage: advisoryResults,
+      versionsByPackage,
+    }),
     normalizedMinSeverity,
     versionsByPackage,
   );

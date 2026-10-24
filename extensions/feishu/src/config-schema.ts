@@ -26,7 +26,8 @@ const FeishuGroupPolicySchema = z.union([
 ]);
 const FeishuDomainSchema = z.union([
   z.enum(["feishu", "lark"]),
-  z.string().url().startsWith("https://"),
+  // The prefix check has its own format; keep URI validation in the JSON projection too.
+  z.string().url().startsWith("https://").meta({ format: "uri" }),
 ]);
 const FeishuConnectionModeSchema = z.enum(["websocket", "webhook"]);
 const FeishuWebhookPathSchema = z
