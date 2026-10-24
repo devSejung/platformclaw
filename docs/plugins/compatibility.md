@@ -88,25 +88,27 @@ October 1 annotation families are `removal-pending`, with their original dates
 and removal conditions preserved in the review queue. This does not claim
 completed migration of published readers.
 
-| Compatibility code                        | Removal condition                                                                                       | `removeAfter` |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------- |
-| `plugin-sdk-channel-setup-input-fields`   | Repeat the published-plugin artifact sweep and remove only fields with no reader.                       | 2026-10-01    |
-| `plugin-sdk-broad-runtime-barrels`        | Move bundled and indexed external consumers to focused SDK subpaths.                                    | 2026-10-01    |
-| `plugin-sdk-provider-owned-helper-shims`  | Move each deprecated provider helper to its provider-local API and prove no published reader remains.   | 2026-10-01    |
-| `message-presentation-legacy-bridges`     | Move reply producers and official channel packages to `MessagePresentation`.                            | 2026-10-01    |
-| `plugin-sdk-focused-compat-aliases`       | Prove every enumerated alias has no bundled or published reader.                                        | 2026-10-01    |
-| `agent-harness-terminal-result-aliases`   | Move harnesses to `terminal` and `visibleReplies`, then prove the legacy result fields are unread.      | 2026-10-01    |
-| `official-plugin-export-aliases`          | Move users of Google Meet testing, channel presentation, and Discord timeout exports to canonical APIs. | 2026-10-01    |
-| `memory-host-compatibility-aliases`       | Use canonical memory tables while preserving existing custom-table data during migration.               | 2026-10-01    |
-| `plugin-runtime-api-compat-aliases`       | Move flat plugin registration/runtime calls to their namespaced or focused replacements.                | 2026-10-01    |
-| `plugin-provider-manifest-compat-aliases` | Move kind/setup/catalog ownership to manifests and model-catalog registration.                          | 2026-10-01    |
-| `deprecated-session-store-beta5-api`      | End the v2026.7.x whole-store upgrade window, including package-root aliases.                           | 2026-10-12    |
+| Compatibility code                          | Removal condition                                                                                               | `removeAfter` |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------- |
+| `plugin-sdk-channel-setup-input-fields`     | Repeat the published-plugin artifact sweep and remove only fields with no reader.                               | 2026-10-01    |
+| `plugin-sdk-broad-runtime-barrels`          | Move bundled and indexed external consumers to focused SDK subpaths.                                            | 2026-10-01    |
+| `plugin-sdk-provider-owned-helper-shims`    | Move each deprecated provider helper to its provider-local API and prove no published reader remains.           | 2026-10-01    |
+| `message-presentation-legacy-bridges`       | Move reply producers and official channel packages to `MessagePresentation`.                                    | 2026-10-01    |
+| `plugin-sdk-focused-compat-aliases`         | Prove every enumerated alias has no bundled or published reader.                                                | 2026-10-01    |
+| `agent-harness-terminal-result-aliases`     | Move harnesses to `terminal` and `visibleReplies`, then prove the legacy result fields are unread.              | 2026-10-01    |
+| `official-plugin-export-aliases`            | Move users of Google Meet testing, channel presentation, and Discord timeout exports to canonical APIs.         | 2026-10-01    |
+| `memory-host-compatibility-aliases`         | Use canonical memory tables while preserving existing custom-table data during migration.                       | 2026-10-01    |
+| `plugin-runtime-api-compat-aliases`         | Move flat plugin registration/runtime calls to their namespaced or focused replacements.                        | 2026-10-01    |
+| `plugin-provider-manifest-compat-aliases`   | Move kind/setup/catalog ownership to manifests and model-catalog registration.                                  | 2026-10-01    |
+| `deprecated-session-store-beta5-api`        | Exclude v2026.7.1-beta.5 from the minimum supported plugin version before removing its four SDK helpers.        | 2026-10-12    |
+| `deprecated-package-root-session-store-api` | End the v2026.7.x upgrade window that requires the legacy doctor importer before removing package-root aliases. | 2026-10-12    |
 
-The beta.5 session-store record is `removal-pending` with its original October 12
-review date. Removal still requires verified published-reader migration, a minimum
-supported plugin version that excludes beta.5, closure of the legacy doctor upgrade
-window, and explicit breaking-release approval. The elapsed date does not establish
-that these conditions are satisfied.
+The two session-store records are `removal-pending`, with the original review
+date preserved. Both require verified published-reader migration and explicit
+breaking-release approval. The SDK bridge additionally requires a minimum
+supported plugin version that excludes beta.5; package-root aliases require
+closure of the v2026.7.x legacy doctor upgrade window. The elapsed date does not
+establish that these conditions are satisfied.
 
 Discord and Slack retain their published legacy renderer exports as conversion
 adapters to the canonical presentation renderers. Bundled channel callers use
