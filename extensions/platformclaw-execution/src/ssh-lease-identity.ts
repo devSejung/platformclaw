@@ -1,4 +1,4 @@
-import type { AssignedVmTargetSnapshot } from "./backend.js";
+import type { AssignedVmTargetSnapshot } from "./execution-target.types.js";
 
 /** Every input that identifies the account, authority, and pinned SSH endpoint. */
 export function leaseIdentity(target: AssignedVmTargetSnapshot): string {

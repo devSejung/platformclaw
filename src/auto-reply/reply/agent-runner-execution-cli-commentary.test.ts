@@ -135,7 +135,17 @@ describe("executeAgentTurn: CLI durable commentary", () => {
     expect(state.runCliAgentMock.mock.calls[0]?.[0]).toMatchObject({ emitCommentaryText: true });
     expect(result.kind).toBe("success");
     if (result.kind === "success") {
-      expect(result.runResult.payloads).toEqual([{ text: "Subprocess final answer." }]);
+      expect(result.runResult.payloads).toEqual([
+        {
+          text: "Subprocess final answer.",
+          mediaUrl: undefined,
+          mediaUrls: undefined,
+          replyToId: undefined,
+          replyToTag: false,
+          replyToCurrent: undefined,
+          audioAsVoice: false,
+        },
+      ]);
     }
     expect(onBlockReply).toHaveBeenCalledExactlyOnceWith({
       text: "The subprocess findings are durable.",
@@ -193,7 +203,17 @@ describe("executeAgentTurn: CLI durable commentary", () => {
     });
     expect(result.kind).toBe("success");
     if (result.kind === "success") {
-      expect(result.runResult.payloads).toEqual([{ text: "Short final wrap-up." }]);
+      expect(result.runResult.payloads).toEqual([
+        {
+          text: "Short final wrap-up.",
+          mediaUrl: undefined,
+          mediaUrls: undefined,
+          replyToId: undefined,
+          replyToTag: false,
+          replyToCurrent: undefined,
+          audioAsVoice: false,
+        },
+      ]);
     }
   });
 
@@ -234,7 +254,17 @@ describe("executeAgentTurn: CLI durable commentary", () => {
     });
     expect(result.kind).toBe("success");
     if (result.kind === "success") {
-      expect(result.runResult.payloads).toEqual([{ text: "Final answer." }]);
+      expect(result.runResult.payloads).toEqual([
+        {
+          text: "Final answer.",
+          mediaUrl: undefined,
+          mediaUrls: undefined,
+          replyToId: undefined,
+          replyToTag: false,
+          replyToCurrent: undefined,
+          audioAsVoice: false,
+        },
+      ]);
     }
   });
 });

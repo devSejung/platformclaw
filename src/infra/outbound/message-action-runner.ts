@@ -11,7 +11,7 @@ import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { resolveAgentIdentity, resolveResponsePrefix } from "../../agents/identity.js";
 import type { AgentToolResult } from "../../agents/runtime/index.js";
 import { resolveAllowedManagedMediaPath } from "../../agents/sandbox-paths.js";
-import type { SandboxOutboundFileAccess } from "../../agents/sandbox/outbound-file-access.js";
+import type { SandboxOutboundFileAccess } from "../../agents/sandbox/fs-bridge.types.js";
 import {
   readPositiveIntegerParam,
   readStringArrayParam,

@@ -2,19 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import type { SandboxBackendHandle } from "./backend-handle.types.js";
 import { SANDBOX_PINNED_MUTATION_PYTHON } from "./fs-bridge-mutation-helper.js";
-import type { SandboxFsBridge } from "./fs-bridge.types.js";
-
-export type SandboxOutboundFileAccess = {
-  /** Stable account-owned scratch directory on this exact runtime. */
-  tempDir: string;
-  assertCurrentAuthority?: () => Promise<void>;
-  readFile(params: {
-    filePath: string;
-    cwd?: string;
-    maxBytes: number;
-    signal?: AbortSignal;
-  }): Promise<Buffer>;
-};
+import type { SandboxFsBridge, SandboxOutboundFileAccess } from "./fs-bridge.types.js";
 
 const OUTBOUND_FILE_SCRIPT = [
   "set -eu",

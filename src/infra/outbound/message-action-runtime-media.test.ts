@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import type { SandboxOutboundFileAccess } from "../../agents/sandbox/outbound-file-access.js";
+import type { SandboxOutboundFileAccess } from "../../agents/sandbox/fs-bridge.types.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { normalizeSandboxMediaList } from "./message-action-media-normalizer.js";
 import {

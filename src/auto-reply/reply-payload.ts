@@ -248,6 +248,8 @@ export type NoVisibleReplyReason =
 export type ReplyPayloadMetadata = {
   /** Exact local copies materialized by the outbound staging producer. */
   stagedLocalMediaUrls?: string[];
+  /** The producer dropped an attachment; history must retain its visible non-outcome. */
+  mediaFailure?: boolean;
   /** Current runtime authority rechecked before publishing newly prepared media. */
   mediaPublishAuthority?: () => Promise<void>;
   /** Bounded, credential-free support report copied from a failed Web chat turn. */

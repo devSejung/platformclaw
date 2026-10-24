@@ -262,7 +262,12 @@ export function createReplyMediaPathNormalizer(params: {
           mediaUrl: undefined,
           mediaUrls: undefined,
         }),
-        { stagedLocalMediaUrls: undefined, mediaPublishAuthority: undefined },
+        {
+          stagedLocalMediaUrls: undefined,
+          mediaPublishAuthority: undefined,
+          mediaFailure:
+            firstMediaDropError !== undefined || getReplyPayloadMetadata(payload)?.mediaFailure,
+        },
       );
     }
 
@@ -303,6 +308,8 @@ export function createReplyMediaPathNormalizer(params: {
     return setReplyPayloadMetadata(normalizedPayload, {
       stagedLocalMediaUrls: stagedLocalMediaUrls.length ? stagedLocalMediaUrls : undefined,
       mediaPublishAuthority,
+      mediaFailure:
+        firstMediaDropError !== undefined || getReplyPayloadMetadata(payload)?.mediaFailure,
     });
   };
   return (payload) =>

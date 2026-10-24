@@ -17,7 +17,7 @@ import {
   MESSAGE_TOOL_ONLY_DELIVERY_HINT,
 } from "../../plugin-sdk/message-tool-delivery-hints.js";
 import { wrapToolWithBeforeToolCallHook } from "../agent-tools.before-tool-call.js";
-import type { SandboxOutboundFileAccess } from "../sandbox/outbound-file-access.js";
+import type { SandboxOutboundFileAccess } from "../sandbox/fs-bridge.types.js";
 type CreateMessageTool = typeof import("./message-tool.js").createMessageTool;
 type CreateOpenClawTools = typeof import("../openclaw-tools.js").createOpenClawTools;
 type ResetPluginRuntimeStateForTest =

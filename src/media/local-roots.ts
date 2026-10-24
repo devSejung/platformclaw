@@ -2,7 +2,7 @@
 import path from "node:path";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
-import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
+import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import {
   resolveEffectiveToolFsRootExpansionAllowed,
   resolveEffectiveToolFsWorkspaceOnly,
@@ -133,6 +133,12 @@ export function getAgentScopedMediaLocalRootsForSources(params: {
   }
   if (!resolveEffectiveToolFsRootExpansionAllowed({ cfg: params.cfg, agentId: params.agentId })) {
     return roots;
+  }
+  const mediaOwner = getCurrentAgentMediaId();
+  if (mediaOwner) {
+    // Host-capable tools may export artifacts from their own configured Agent
+    // directory. Source text cannot grant access to another Agent's directory.
+    return uniqueStrings([...roots, path.resolve(resolveAgentDir(params.cfg, mediaOwner))]);
   }
   return appendLocalMediaParentRoots(roots, params.mediaSources);
 }

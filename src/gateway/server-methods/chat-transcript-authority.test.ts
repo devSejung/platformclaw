@@ -42,8 +42,8 @@ describe("attachment publication authority at the SQLite writer", () => {
           });
           const original = await loadTranscriptEvents(scope);
           const watermark = readSessionTranscriptWatermark(scope);
-          const acquired = createDeferred<void>();
-          const release = createDeferred<void>();
+          const acquired = createDeferred();
+          const release = createDeferred();
           const blocker = withTranscriptWriteLock(scope, async () => {
             acquired.resolve();
             await release.promise;

@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
-import { resolvePathViaExistingAncestorSync } from "@openclaw/fs-safe/advanced";
 import { isValidAgentId, normalizeAgentId } from "@openclaw/normalization-core/agent-id";
 import { resolveStateDir } from "../config/paths.js";
+import { resolvePathViaExistingAncestorSync } from "../infra/boundary-path.js";
 import { isPathInside } from "../infra/path-guards.js";
 import { resolveConfigDir } from "../utils.js";
 

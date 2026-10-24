@@ -89,7 +89,7 @@ import { INTERNAL_MESSAGE_CHANNEL, normalizeMessageChannel } from "../../utils/m
 import { resolveSessionAgentId } from "../agent-scope.js";
 import { listAllChannelSupportedActions, listChannelSupportedActions } from "../channel-tools.js";
 import { stripInternalRuntimeContext } from "../internal-runtime-context.js";
-import type { SandboxOutboundFileAccess } from "../sandbox/outbound-file-access.js";
+import type { SandboxOutboundFileAccess } from "../sandbox/fs-bridge.types.js";
 import {
   channelTargetSchema,
   channelTargetsSchema,

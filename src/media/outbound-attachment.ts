@@ -2,7 +2,7 @@
 import { rm } from "node:fs/promises";
 import { isPassThroughRemoteMediaSource } from "@openclaw/media-core/media-source-url";
 import { resolveAllowedManagedMediaPath } from "../agents/sandbox-paths.js";
-import type { SandboxOutboundFileAccess } from "../agents/sandbox/outbound-file-access.js";
+import type { SandboxOutboundFileAccess } from "../agents/sandbox/fs-bridge.types.js";
 import { hasEncodedFileUrlSeparator } from "../infra/local-file-access.js";
 import { createBoundedOutboundMediaReadFile } from "./bounded-read-file.js";
 import { buildOutboundMediaLoadOptions, type OutboundMediaAccess } from "./load-options.js";

@@ -1,5 +1,5 @@
 import { assertMediaNotDataUrl, resolveSandboxedMediaSource } from "../../agents/sandbox-paths.js";
-import type { SandboxOutboundFileAccess } from "../../agents/sandbox/outbound-file-access.js";
+import type { SandboxOutboundFileAccess } from "../../agents/sandbox/fs-bridge.types.js";
 import { resolveOutboundAttachmentFromRuntime } from "../../media/outbound-attachment.js";
 import { MEDIA_MAX_BYTES } from "../../media/store.js";
 

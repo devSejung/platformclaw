@@ -37,6 +37,7 @@ describeControlUiE2e("Control UI skill references", () => {
   it("references multiple skills inside a normal prompt and sends the visible tokens", async () => {
     const artifactDir = process.env.OPENCLAW_UI_E2E_ARTIFACT_DIR?.trim();
     const context = await browser.newContext({
+      locale: "en-US",
       viewport: { width: 1280, height: 900 },
       ...(artifactDir
         ? { recordVideo: { dir: artifactDir, size: { width: 1280, height: 900 } } }

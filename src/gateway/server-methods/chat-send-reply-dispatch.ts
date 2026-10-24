@@ -310,10 +310,15 @@ export function createChatSendReplyDispatch(params: {
         return;
       }
     }
+    // The runtime already owns final prose. If every attachment failed, append
+    // only its visible non-outcome instead of repeating the runtime's reply.
+    const appendContent = persistedContentForAppend.some((block) => block.type !== "text")
+      ? persistedContentForAppend
+      : persistedContentForAppend.filter((block) => block.attachmentError === true);
     const appended = await appendAssistantTranscriptMessage({
       sessionKey,
-      message: transcriptReply,
-      ...(persistedContentForAppend.length ? { content: persistedContentForAppend } : {}),
+      message: extractAssistantDisplayTextFromContent(appendContent) ?? transcriptReply,
+      ...(appendContent.length ? { content: appendContent } : {}),
       sessionId,
       storePath: latestStorePath,
       agentId,

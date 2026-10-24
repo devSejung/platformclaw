@@ -15,7 +15,7 @@ import type { HookContext } from "./agent-tools.before-tool-call.js";
 import type { ConversationRecallContext } from "./conversation-recall.types.js";
 import type { ModelAwareToolContext } from "./openclaw-tools.model-context.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
-import type { SandboxOutboundFileAccess } from "./sandbox/outbound-file-access.js";
+import type { SandboxOutboundFileAccess } from "./sandbox/fs-bridge.types.js";
 import type { SpawnedToolContext } from "./spawned-context.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
 import type { CronCreatorToolAllowlistEntry } from "./tools/cron-tool.js";

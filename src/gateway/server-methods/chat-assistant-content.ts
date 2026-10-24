@@ -146,7 +146,9 @@ export function isMediaBearingPayload(payload: ReplyPayload): boolean {
   if (payload.mediaUrl?.trim()) {
     return true;
   }
-  return Boolean(payload.mediaUrls?.some((url) => url.trim()));
+  return Boolean(
+    payload.mediaUrls?.some((url) => url.trim()) || getReplyPayloadMetadata(payload)?.mediaFailure,
+  );
 }
 
 export function hasSensitiveMediaPayload(payloads: ReplyPayload[]): boolean {
@@ -315,6 +317,18 @@ export async function buildAssistantDisplayContentFromReplyPayloads(params: {
     }
     preparedMedia.sort((left, right) => left.sourceIndex - right.sourceIndex);
     content.push(...preparedMedia.flatMap((preparedEntry) => preparedEntry.blocks));
+    if (
+      getReplyPayloadMetadata(params.payloads[entry.sourceIndex] ?? payload)?.mediaFailure &&
+      !preparedMedia.some((prepared) =>
+        prepared.blocks.some((block) => block.attachmentError === true),
+      )
+    ) {
+      content.push({
+        type: "text",
+        attachmentError: true,
+        text: "[Attachment unavailable] This file could not be saved for download. Attach it again.",
+      });
+    }
   }
 
   if (content.length > 0) {

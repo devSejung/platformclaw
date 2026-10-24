@@ -104,7 +104,21 @@ describe("Agent media ownership", () => {
         agentId: "reader",
         mediaSources: [foreign.path, path.join(sharedRoot, "outbound", "legacy.txt")],
       });
-      expect(roots).toEqual([getAgentMediaDir(), path.join(home.home, "work")]);
+      expect(roots).toEqual([
+        getAgentMediaDir(),
+        path.join(home.home, "work"),
+        path.join(home.home, ".openclaw", "agents", "reader", "agent"),
+      ]);
+      expect(
+        getAgentScopedMediaLocalRootsForSources({
+          cfg: {
+            agents: { entries: { reader: { workspace: path.join(home.home, "work") } } },
+            tools: { fs: { workspaceOnly: true } },
+          },
+          agentId: "reader",
+          mediaSources: [foreign.path],
+        }),
+      ).toEqual([getAgentMediaDir(), path.join(home.home, "work")]);
       expect(getDefaultMediaLocalRoots()).toEqual([getAgentMediaDir()]);
     });
   });

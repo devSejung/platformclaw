@@ -156,6 +156,7 @@ async function normalizeOwnedWebchatReplyMediaPaths(params: {
     const stagedUrls = new Set<string>();
     const authorities = new Set<() => Promise<void>>();
     const originalMetadata = getReplyPayloadMetadata(payload);
+    let mediaFailure = originalMetadata?.mediaFailure;
     let text = payload.text;
     for (const mediaUrl of mediaUrls) {
       if (shouldPreserveDisplayMediaUrl(payload, mediaUrl)) {
@@ -177,6 +178,7 @@ async function normalizeOwnedWebchatReplyMediaPaths(params: {
       );
       const normalizedMediaUrls = resolveSendableOutboundReplyParts(normalizedPayload).mediaUrls;
       if (normalizedMediaUrls.length === 0) {
+        mediaFailure = true;
         text = appendReplyMediaFailureWarning(text);
         continue;
       }
@@ -202,6 +204,7 @@ async function normalizeOwnedWebchatReplyMediaPaths(params: {
           mediaUrls: mergedMediaUrls,
         }),
         {
+          mediaFailure,
           stagedLocalMediaUrls: stagedUrls.size ? [...stagedUrls] : undefined,
           mediaPublishAuthority:
             mergedMediaUrls.length && authorities.size
