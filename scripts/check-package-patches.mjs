@@ -6,11 +6,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
+import {
+  getReviewedSecurityPatchRegistrations,
+  verifyReviewedSecurityPatches,
+} from "./pre-commit/pnpm-audit-prod.mjs";
 
-const ALLOWED_PATCHED_DEPENDENCIES = new Map([
+const LEGACY_PATCHED_DEPENDENCIES = new Map([
   ["baileys@7.0.0-rc12", "patches/baileys@7.0.0-rc12.patch"],
   ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
 ]);
+const reviewedSecurityPatches = getReviewedSecurityPatchRegistrations();
+const ALLOWED_PATCHED_DEPENDENCIES = new Map([
+  ...LEGACY_PATCHED_DEPENDENCIES,
+  ...reviewedSecurityPatches.map(({ specifier, patchPath }) => [specifier, patchPath]),
+]);
+const REVIEWED_LOCK_PATCHES = new Map(
+  reviewedSecurityPatches.map(({ specifier, installHash }) => [specifier, installHash]),
+);
 
 const ALLOWED_PATCH_FILES = new Set([
   "patches/.gitkeep",
@@ -51,7 +63,8 @@ function collectPatchedDependencyViolations(file, patchedDependencies, violation
   for (const [specifier, patchPathOrHash] of Object.entries(patchedDependencies ?? {})) {
     if (
       options.allowAnyValueForLegacy === true
-        ? ALLOWED_PATCHED_DEPENDENCIES.has(specifier)
+        ? LEGACY_PATCHED_DEPENDENCIES.has(specifier) ||
+          REVIEWED_LOCK_PATCHES.get(specifier) === patchPathOrHash
         : ALLOWED_PATCHED_DEPENDENCIES.get(specifier) === patchPathOrHash
     ) {
       continue;
@@ -128,8 +141,27 @@ export function collectPackagePatchViolations(cwd = process.cwd()) {
 export async function main() {
   const violations = collectPackagePatchViolations();
   if (violations.length === 0) {
+    const presentPatchFiles = new Set(
+      listTrackedFiles(process.cwd(), ["*.patch"]).filter((relativePath) =>
+        fs.existsSync(path.join(process.cwd(), relativePath)),
+      ),
+    );
+    const declaredPatches = new Set([
+      ...Object.keys(readYamlFile(process.cwd(), "pnpm-workspace.yaml").patchedDependencies ?? {}),
+      ...Object.keys(readYamlFile(process.cwd(), "pnpm-lock.yaml").patchedDependencies ?? {}),
+    ]);
+    await verifyReviewedSecurityPatches({
+      rootDir: process.cwd(),
+      lockfileText: fs.readFileSync(path.join(process.cwd(), "pnpm-lock.yaml"), "utf8"),
+      requiredPatchSpecifiers: reviewedSecurityPatches
+        .filter(
+          ({ specifier, patchPath }) =>
+            presentPatchFiles.has(patchPath) || declaredPatches.has(specifier),
+        )
+        .map(({ specifier }) => specifier),
+    });
     process.stdout.write(
-      `PASS package patch guard: no new pnpm patches; ${ALLOWED_PATCHED_DEPENDENCIES.size} approved patches allowlisted.\n`,
+      `PASS package patch guard: only approved pnpm patches; ${ALLOWED_PATCHED_DEPENDENCIES.size} registrations allowed with security artifact verification.\n`,
     );
     return;
   }

@@ -4,6 +4,7 @@ import {
   createPluginBoundaryReport,
   type PluginBoundaryReportResult,
 } from "../../scripts/plugin-boundary-report.js";
+import * as compatRegistry from "../../src/plugins/compat/registry.js";
 
 function requirePluginSdkSummary(summary: {
   pluginSdk?: {
@@ -63,7 +64,7 @@ describe("plugin-boundary-report", () => {
     expect(summaryResult.exitCode).toBe(0);
     expect(summaryResult.stderr).toBe("");
     expect(summary.compat?.eligibleForRemovalCount).toBe(0);
-    expect(summary.compat?.removalPendingCount).toBe(24);
+    expect(summary.compat?.removalPendingCount).toBe(25);
     expect(summary.compat?.removalPendingDueCount).toEqual(expect.any(Number));
     expect(summary.compat?.removalPending?.map((record) => record.code)).toEqual([
       "sdk-untrusted-context-identifier-aliases",
@@ -89,6 +90,7 @@ describe("plugin-boundary-report", () => {
       "memory-host-compatibility-aliases",
       "plugin-sdk-broad-runtime-barrels",
       "plugin-sdk-focused-compat-aliases",
+      "deprecated-session-store-beta5-api",
       "plugin-sdk-plugin-config-runtime-public-demotion",
     ]);
     for (const record of summary.compat?.removalPending ?? []) {
@@ -118,13 +120,61 @@ describe("plugin-boundary-report", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("removalPending=24");
+    expect(result.stdout).toContain("removalPending=25");
     expect(result.stdout).not.toContain("agent-harness-sdk-alias");
     expect(result.stdout).toMatch(/blocker=.*retain the public/iu);
     expect(result.stdout).toMatch(/readerRefs=\d+ readers=/u);
   });
 
-  it("still fails CI when an unconditional deprecated window expires", () => {
+  it("reports the elapsed conditional beta.5 window and its outstanding blockers", () => {
+    vi.setSystemTime(new Date("2026-10-13T00:00:00Z"));
+    try {
+      const result = createPluginBoundaryReport([
+        "--summary",
+        "--json",
+        "--fail-on-eligible-compat",
+      ]);
+      const summary = JSON.parse(result.stdout) as {
+        compat: {
+          removalPending: Array<{
+            code: string;
+            removeAfter?: string;
+            dueForReview: boolean;
+            blocker: string;
+            readerCount: number;
+          }>;
+        };
+      };
+      const pending = summary.compat.removalPending.find(
+        (record) => record.code === "deprecated-session-store-beta5-api",
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(pending).toMatchObject({ removeAfter: "2026-10-12", dueForReview: true });
+      expect(pending?.blocker).toContain("minimum supported plugin exclusion");
+      expect(pending?.blocker).toContain("legacy doctor upgrade window");
+      expect(pending?.blocker).toContain("explicit breaking-release approval");
+      expect(pending?.readerCount).toBeGreaterThan(0);
+    } finally {
+      vi.setSystemTime(new Date("2026-10-09T00:00:00Z"));
+    }
+  });
+
+  it("still fails CI when an unconditional deprecated fixture window expires", () => {
+    const records = compatRegistry.listPluginCompatRecords();
+    const conditional = records.find(
+      (record) => record.code === "deprecated-session-store-beta5-api",
+    );
+    if (!conditional) {
+      throw new Error("Expected the retained beta.5 compatibility record");
+    }
+    const unconditional: (typeof records)[number] = { ...conditional, status: "deprecated" };
+    // Exercise the unchanged unconditional gate independently of the retained
+    // production contract, whose published-reader conditions remain unverified.
+    const registry = vi
+      .spyOn(compatRegistry, "listPluginCompatRecords")
+      .mockReturnValue(records.map((record) => (record === conditional ? unconditional : record)));
     vi.setSystemTime(new Date("2026-10-13T00:00:00Z"));
     try {
       const result = createPluginBoundaryReport([
@@ -143,6 +193,7 @@ describe("plugin-boundary-report", () => {
       ]);
       expect(summary.compat.removalPendingCount).toBe(24);
     } finally {
+      registry.mockRestore();
       vi.setSystemTime(new Date("2026-10-09T00:00:00Z"));
     }
   });

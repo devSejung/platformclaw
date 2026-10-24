@@ -82,7 +82,9 @@ describe("package manager build policy", () => {
     expect(overrides["lru-cache"]).toBeUndefined();
     const parent = overrides["node-llama-cpp"] as Record<string, unknown>;
     const scoped = overrides["node-llama-cpp@3.19.1"] as Record<string, unknown>;
-    expect(parent).toMatchObject({ ".": "3.19.1", "simple-git": "4.0.2", ...scoped });
+    expect(parent).toMatchObject({ ".": "3.19.1", ...scoped });
+    // The explicit fork pin must retain its lock-derived child policy too.
+    expect(parent["simple-git"]).toEqual({ ".": "4.0.2", debug: "4.4.3" });
     expect(overrides["lru-memoizer@2.3.0"]).toMatchObject({
       "lru-cache": { ".": "6.0.0", yallist: "4.0.0" },
     });

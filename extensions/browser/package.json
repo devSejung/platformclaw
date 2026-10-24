@@ -16,7 +16,7 @@
   "devDependencies": {
     "@openclaw/gateway-client": "workspace:*",
     "@openclaw/plugin-sdk": "workspace:*",
-    "undici": "8.10.2"
+    "undici": "8.12.2"
   },
   "openclaw": {
     "extensions": [

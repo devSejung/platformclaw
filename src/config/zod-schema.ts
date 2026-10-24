@@ -4,11 +4,9 @@ import { DEFAULT_AGENT_ID, normalizeAgentId } from "../routing/session-key.js";
 import type { OpenClawConfig } from "./types.openclaw.js";
 import { OpenClawSchemaShape } from "./zod-schema.root-shape.js";
 
-// zod@4 ships "sideEffects": false, so bundlers tree-shake the classic entry's
-// implicit config(en()) locale registration (zod/v4/classic/external.js) and a
-// built dist renders every issue as the bare "Invalid input" fallback. Register
-// the locale explicitly where the config schemas live; zod stores it on
-// globalThis, so one call covers every zod parse in the process.
+// Config diagnostics use English even if another producer selected a locale.
+// Zod's constructor installs English only when no locale is configured, so keep
+// this explicit schema-owner policy; the configuration is shared process-wide.
 function installZodDefaultLocale(): void {
   z.config(z.locales.en());
 }

@@ -102,6 +102,12 @@ completed migration of published readers.
 | `plugin-provider-manifest-compat-aliases` | Move kind/setup/catalog ownership to manifests and model-catalog registration.                          | 2026-10-01    |
 | `deprecated-session-store-beta5-api`      | End the v2026.7.x whole-store upgrade window, including package-root aliases.                           | 2026-10-12    |
 
+The beta.5 session-store record is `removal-pending` with its original October 12
+review date. Removal still requires verified published-reader migration, a minimum
+supported plugin version that excludes beta.5, closure of the legacy doctor upgrade
+window, and explicit breaking-release approval. The elapsed date does not establish
+that these conditions are satisfied.
+
 Discord and Slack retain their published legacy renderer exports as conversion
 adapters to the canonical presentation renderers. Bundled channel callers use
 presentation rendering after converting legacy payloads; Telegram no longer

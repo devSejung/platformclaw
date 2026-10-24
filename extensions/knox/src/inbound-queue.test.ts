@@ -85,9 +85,11 @@ function installRuntime(
   } as unknown as PluginRuntime);
 }
 function mockRelay(sent: Sent[]) {
+  const recalled: string[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string, init: RequestInit) => {
+    vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
       if (url === account.controlPlaneUrl) {
         return Response.json({
           status: "resolved",
@@ -97,14 +99,19 @@ function mockRelay(sent: Sent[]) {
           executionTarget: null,
         });
       }
-      expect(url).toBe(account.outboundUrl);
-      if (typeof init.body !== "string") {
+      if (typeof init?.body !== "string") {
         throw new Error("Expected a JSON request body");
       }
+      if (new URL(url).pathname === "/cancel") {
+        recalled.push((JSON.parse(init.body) as { targetRequestId: string }).targetRequestId);
+        return Response.json({ ok: true, state: "cancelled", outcome: "recalled" });
+      }
+      expect(url).toBe(account.outboundUrl);
       sent.push(JSON.parse(init.body) as Sent);
       return Response.json({ ok: true, messageId: `receipt-${sent.length}` });
     }),
   );
+  return recalled;
 }
 const emptyDispatchResult = {
   admission: { kind: "dispatch" },
@@ -437,7 +444,7 @@ describe("Knox room admission and delivery", () => {
       commit.resolve();
       await ready.promise;
       await vi.advanceTimersByTimeAsync(4_000);
-      expect(sent.map((item) => item.text)).toEqual(["요청을 처리 중입니다."]);
+      expect(sent.map((item) => item.text)).toEqual(["⏳ 요청을 처리 중입니다."]);
     } finally {
       commit.resolve();
       finish.resolve();
@@ -446,7 +453,7 @@ describe("Knox room admission and delivery", () => {
   });
 
   it.each(["slow", "fast", "cancelled", "queued", "deferred"])(
-    "starts one Korean progress notice only after adoption: %s",
+    "starts one localized fallback only after adoption: %s",
     async (mode) => {
       vi.useFakeTimers();
       const sent: Sent[] = [];
@@ -494,7 +501,7 @@ describe("Knox room admission and delivery", () => {
         expect(sent).toEqual([]);
         await vi.advanceTimersByTimeAsync(4_001);
         expect(sent.map((item) => item.text)).toEqual(
-          mode === "slow" || mode === "queued" ? ["요청을 처리 중입니다."] : [],
+          mode === "slow" || mode === "queued" ? ["⏳ 요청을 처리 중입니다."] : [],
         );
       } finally {
         finish.resolve();
@@ -551,7 +558,7 @@ describe("Knox room admission and delivery", () => {
       await vi.advanceTimersByTimeAsync(4_001);
       expect(sent.map((item) => ({ requestId: item.requestId, text: item.text }))).toEqual([
         { requestId: "queued:msg-2", text: "앞선 요청 1건 처리 후 이어서 진행합니다." },
-        { requestId: "progress:msg-2", text: "요청을 처리 중입니다." },
+        { requestId: "progress:msg-2", text: "⏳ 요청을 처리 중입니다." },
       ]);
     } finally {
       adopt.resolve();
@@ -559,6 +566,39 @@ describe("Knox room admission and delivery", () => {
       await dispatch;
     }
   });
+  it("recalls an already acknowledged queue notice when its request is claimed", async () => {
+    const sent: Sent[] = [];
+    const recalled = mockRelay(sent);
+    const abort = new AbortController();
+    await sendKnoxQueuedNotice({
+      account,
+      message: roomMessage(2),
+      aheadCount: 1,
+      abortSignal: abort.signal,
+    });
+    expect(sent.map((item) => item.requestId)).toEqual(["queued:msg-2"]);
+    expect(recalled).toEqual([]);
+    installRuntime(async (params) => {
+      await params.turnAdoptionLifecycle.onAdopted();
+      expect(recalled).toEqual(["queued:msg-2"]);
+      return emptyDispatchResult;
+    });
+    await dispatchKnoxInbound({
+      account,
+      message: roomMessage(2),
+      lifecycle: {
+        admission: "exclusive",
+        admissionAheadCount: 1,
+        abortSignal: abort.signal,
+        onAdopted: vi.fn(),
+        onDeferred: vi.fn(),
+        onAbandoned: vi.fn(),
+      },
+    });
+    expect(recalled).toEqual(["queued:msg-2"]);
+    expect(sent.map((item) => item.requestId)).toEqual(["queued:msg-2"]);
+  });
+
   it.each(["direct", "deferred"])(
     "delivers every mention in order with delayed %s completion",
     async (mode) => {

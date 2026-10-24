@@ -1,0 +1,311 @@
+diff --git a/dist/client/ConfidentialClientApplication.mjs b/dist/client/ConfidentialClientApplication.mjs
+index 9ccf79aa12c4c0a1638cd137eb6cd6138fde19fe..fdf5f155b63da6e43805e476c5c8ae43433bf1ce 100644
+--- a/dist/client/ConfidentialClientApplication.mjs
++++ b/dist/client/ConfidentialClientApplication.mjs
+@@ -1,6 +1,7 @@
+ /*! @azure/msal-node v5.4.2 2026-07-21 */
+ 'use strict';
+ import { ClientApplication } from './ClientApplication.mjs';
++import { NodeAuthError } from '../error/NodeAuthError.mjs';
+ import { ClientAssertion } from './ClientAssertion.mjs';
+ import { Constants, MSAL_FORCE_REGION, REGION_ENVIRONMENT_VARIABLE, ApiId } from '../utils/Constants.mjs';
+ import { createClientAuthError, getClientAssertion, Constants as Constants$1, UrlString, AuthError } from '@azure/msal-common/node';
+@@ -40,6 +41,10 @@ class ConfidentialClientApplication extends ClientApplication {
+      * @param Configuration - configuration object for the MSAL ConfidentialClientApplication instance
+      */
+     constructor(configuration) {
++        if ("instanceAware" in configuration.auth &&
++            configuration.auth.instanceAware === true) {
++            throw NodeAuthError.createUnsupportedCcaInstanceAwareError();
++        }
+         super(configuration);
+         const clientSecretNotEmpty = !!this.config.auth.clientSecret;
+         const clientAssertionNotEmpty = !!this.config.auth.clientAssertion;
+@@ -81,6 +86,24 @@ class ConfidentialClientApplication extends ClientApplication {
+         }
+         this.appTokenProvider = undefined;
+     }
++    async getAuthCodeUrl(request) {
++        if (request.extraQueryParameters &&
++            Object.prototype.hasOwnProperty.call(request.extraQueryParameters, "instance_aware")) {
++            throw NodeAuthError.createUnsupportedCcaInstanceAwareError(request.correlationId);
++        }
++        return super.getAuthCodeUrl(request);
++    }
++    async acquireTokenByCode(request, authCodePayload) {
++        const sanitizedAuthCodePayload = authCodePayload
++            ? {
++                code: request.code,
++                state: authCodePayload.state,
++                nonce: request.nonce,
++            }
++            : undefined;
++        return super.acquireTokenByCode(request, sanitizedAuthCodePayload);
++    }
++
+     /**
+      * This extensibility point only works for the client_credential flow, i.e. acquireTokenByClientCredential and
+      * is meant for Azure SDK to enhance Managed Identity support.
+@@ -245,4 +268,3 @@ class ConfidentialClientApplication extends ClientApplication {
+ }
+
+ export { ConfidentialClientApplication };
+-//# sourceMappingURL=ConfidentialClientApplication.mjs.map
+diff --git a/dist/error/NodeAuthError.mjs b/dist/error/NodeAuthError.mjs
+index 8d5b0f396588f88ae24678e729eddefc67866cb7..dd71503f89803acdf064795e2e0c0e1e2ef19524 100644
+--- a/dist/error/NodeAuthError.mjs
++++ b/dist/error/NodeAuthError.mjs
+@@ -46,6 +46,11 @@ const NodeAuthErrorMessage = {
+         code: "redirect_uri_not_supported",
+         desc: "RedirectUri is not supported in this scenario. Please remove redirectUri from the request.",
+     },
++
++    unsupportedCcaInstanceAware: {
++        code: "unsupported_cca_instance_aware",
++        desc: "Instance-aware configuration is not supported by ConfidentialClientApplication.",
++    },
+ };
+ class NodeAuthError extends AuthError {
+     constructor(errorCode, correlationId, errorMessage) {
+@@ -106,7 +111,10 @@ class NodeAuthError extends AuthError {
+     static createRedirectUriNotSupportedError(correlationId = "") {
+         return new NodeAuthError(NodeAuthErrorMessage.redirectUriNotSupported.code, correlationId, NodeAuthErrorMessage.redirectUriNotSupported.desc);
+     }
++
++    static createUnsupportedCcaInstanceAwareError(correlationId = "") {
++        return new NodeAuthError(NodeAuthErrorMessage.unsupportedCcaInstanceAware.code, correlationId, NodeAuthErrorMessage.unsupportedCcaInstanceAware.desc);
++    }
+ }
+
+ export { NodeAuthError, NodeAuthErrorMessage };
+-//# sourceMappingURL=NodeAuthError.mjs.map
+diff --git a/lib/msal-node.cjs b/lib/msal-node.cjs
+index 970005567de313e27bfb18fc898ec01c577f3ff6..ad522b83017fe46e5653633778c57d91a870cf42 100644
+--- a/lib/msal-node.cjs
++++ b/lib/msal-node.cjs
+@@ -8140,6 +8140,11 @@ const NodeAuthErrorMessage = {
+         code: "redirect_uri_not_supported",
+         desc: "RedirectUri is not supported in this scenario. Please remove redirectUri from the request.",
+     },
++
++    unsupportedCcaInstanceAware: {
++        code: "unsupported_cca_instance_aware",
++        desc: "Instance-aware configuration is not supported by ConfidentialClientApplication.",
++    },
+ };
+ class NodeAuthError extends AuthError {
+     constructor(errorCode, correlationId, errorMessage) {
+@@ -8200,6 +8205,10 @@ class NodeAuthError extends AuthError {
+     static createRedirectUriNotSupportedError(correlationId = "") {
+         return new NodeAuthError(NodeAuthErrorMessage.redirectUriNotSupported.code, correlationId, NodeAuthErrorMessage.redirectUriNotSupported.desc);
+     }
++
++    static createUnsupportedCcaInstanceAwareError(correlationId = "") {
++        return new NodeAuthError(NodeAuthErrorMessage.unsupportedCcaInstanceAware.code, correlationId, NodeAuthErrorMessage.unsupportedCcaInstanceAware.desc);
++    }
+ }
+
+ /*
+@@ -11216,6 +11225,10 @@ class ConfidentialClientApplication extends ClientApplication {
+      * @param Configuration - configuration object for the MSAL ConfidentialClientApplication instance
+      */
+     constructor(configuration) {
++        if ("instanceAware" in configuration.auth &&
++            configuration.auth.instanceAware === true) {
++            throw NodeAuthError.createUnsupportedCcaInstanceAwareError();
++        }
+         super(configuration);
+         const clientSecretNotEmpty = !!this.config.auth.clientSecret;
+         const clientAssertionNotEmpty = !!this.config.auth.clientAssertion;
+@@ -11257,6 +11270,24 @@ class ConfidentialClientApplication extends ClientApplication {
+         }
+         this.appTokenProvider = undefined;
+     }
++    async getAuthCodeUrl(request) {
++        if (request.extraQueryParameters &&
++            Object.prototype.hasOwnProperty.call(request.extraQueryParameters, "instance_aware")) {
++            throw NodeAuthError.createUnsupportedCcaInstanceAwareError(request.correlationId);
++        }
++        return super.getAuthCodeUrl(request);
++    }
++    async acquireTokenByCode(request, authCodePayload) {
++        const sanitizedAuthCodePayload = authCodePayload
++            ? {
++                code: request.code,
++                state: authCodePayload.state,
++                nonce: request.nonce,
++            }
++            : undefined;
++        return super.acquireTokenByCode(request, sanitizedAuthCodePayload);
++    }
++
+     /**
+      * This extensibility point only works for the client_credential flow, i.e. acquireTokenByClientCredential and
+      * is meant for Azure SDK to enhance Managed Identity support.
+@@ -12981,4 +13012,3 @@ exports.TokenCache = TokenCache;
+ exports.TokenCacheContext = TokenCacheContext;
+ exports.internals = internals;
+ exports.version = version;
+-//# sourceMappingURL=msal-node.cjs.map
+diff --git a/src/client/ConfidentialClientApplication.ts b/src/client/ConfidentialClientApplication.ts
+index 6ac76a7fdebc344dcf745b61e1e78617b42ad72f..e4a5fd7312267ab4ade2fab164124fd77445e6c0 100644
+--- a/src/client/ConfidentialClientApplication.ts
++++ b/src/client/ConfidentialClientApplication.ts
+@@ -25,6 +25,7 @@ import {
+     ClientAssertion as ClientAssertionType,
+     getClientAssertion,
+     AzureRegion,
++    AuthorizationCodePayload,
+ } from "@azure/msal-common/node";
+ import { IConfidentialClientApplication } from "./IConfidentialClientApplication.js";
+ import { OnBehalfOfRequest } from "../request/OnBehalfOfRequest.js";
+@@ -37,6 +38,9 @@ import { UserFederatedIdentityCredentialClient } from "./UserFederatedIdentityCr
+ import { UserFederatedIdentityCredentialRequest } from "../request/UserFederatedIdentityCredentialRequest.js";
+ import { CommonUserFederatedIdentityCredentialRequest } from "../request/CommonUserFederatedIdentityCredentialRequest.js";
+ import * as NodeClientAuthErrorCodes from "../error/ClientAuthErrorCodes.js";
++import { AuthorizationCodeRequest } from "../request/AuthorizationCodeRequest.js";
++import { AuthorizationUrlRequest } from "../request/AuthorizationUrlRequest.js";
++import { NodeAuthError } from "../error/NodeAuthError.js";
+
+ /**
+  *  This class is to be used to acquire tokens for confidential client applications (webApp, webAPI). Confidential client applications
+@@ -69,6 +73,13 @@ export class ConfidentialClientApplication
+      * @param Configuration - configuration object for the MSAL ConfidentialClientApplication instance
+      */
+     constructor(configuration: Configuration) {
++        if (
++            "instanceAware" in configuration.auth &&
++            configuration.auth.instanceAware === true
++        ) {
++            throw NodeAuthError.createUnsupportedCcaInstanceAwareError();
++        }
++
+         super(configuration);
+
+         const clientSecretNotEmpty = !!this.config.auth.clientSecret;
+@@ -132,6 +143,45 @@ export class ConfidentialClientApplication
+         this.appTokenProvider = undefined;
+     }
+
++    /**
++     * Creates the URL of the authorization request.
++     */
++    public async getAuthCodeUrl(
++        request: AuthorizationUrlRequest
++    ): Promise<string> {
++        if (
++            request.extraQueryParameters &&
++            Object.prototype.hasOwnProperty.call(
++                request.extraQueryParameters,
++                "instance_aware"
++            )
++        ) {
++            throw NodeAuthError.createUnsupportedCcaInstanceAwareError(
++                request.correlationId
++            );
++        }
++
++        return super.getAuthCodeUrl(request);
++    }
++
++    /**
++     * Acquires a token by exchanging an authorization code.
++     */
++    public async acquireTokenByCode(
++        request: AuthorizationCodeRequest,
++        authCodePayload?: AuthorizationCodePayload
++    ): Promise<AuthenticationResult> {
++        const sanitizedAuthCodePayload = authCodePayload
++            ? {
++                  code: request.code,
++                  state: authCodePayload.state,
++                  nonce: request.nonce,
++              }
++            : undefined;
++
++        return super.acquireTokenByCode(request, sanitizedAuthCodePayload);
++    }
++
+     /**
+      * This extensibility point only works for the client_credential flow, i.e. acquireTokenByClientCredential and
+      * is meant for Azure SDK to enhance Managed Identity support.
+diff --git a/src/error/NodeAuthError.ts b/src/error/NodeAuthError.ts
+index 0a308785d40fa76270c8eb7dd6421f83b07c3e17..a11ae9281c7eee84769ea840223e14d8b24b8f22 100644
+--- a/src/error/NodeAuthError.ts
++++ b/src/error/NodeAuthError.ts
+@@ -45,6 +45,10 @@ export const NodeAuthErrorMessage = {
+         code: "redirect_uri_not_supported",
+         desc: "RedirectUri is not supported in this scenario. Please remove redirectUri from the request.",
+     },
++    unsupportedCcaInstanceAware: {
++        code: "unsupported_cca_instance_aware",
++        desc: "Instance-aware configuration is not supported by ConfidentialClientApplication.",
++    },
+ };
+
+ export class NodeAuthError extends AuthError {
+@@ -161,4 +165,14 @@ export class NodeAuthError extends AuthError {
+             NodeAuthErrorMessage.redirectUriNotSupported.desc
+         );
+     }
++
++    static createUnsupportedCcaInstanceAwareError(
++        correlationId: string = ""
++    ): NodeAuthError {
++        return new NodeAuthError(
++            NodeAuthErrorMessage.unsupportedCcaInstanceAware.code,
++            correlationId,
++            NodeAuthErrorMessage.unsupportedCcaInstanceAware.desc
++        );
++    }
+ }
+diff --git a/types/client/ConfidentialClientApplication.d.ts b/types/client/ConfidentialClientApplication.d.ts
+index 34f27a6fab1c55dc2240176ed13c46e160b78ee3..21bf96b0eccdbe3eb0799b678414c1b28734feef 100644
+--- a/types/client/ConfidentialClientApplication.d.ts
++++ b/types/client/ConfidentialClientApplication.d.ts
+@@ -1,6 +1,8 @@
+ import { ClientApplication } from "./ClientApplication.js";
+ import { Configuration } from "../config/Configuration.js";
+-import { AuthenticationResult, IAppTokenProvider } from "@azure/msal-common/node";
++import { AuthorizationCodeRequest } from "../request/AuthorizationCodeRequest.js";
++import { AuthorizationUrlRequest } from "../request/AuthorizationUrlRequest.js";
++import { AuthenticationResult, IAppTokenProvider, AuthorizationCodePayload } from "@azure/msal-common/node";
+ import { IConfidentialClientApplication } from "./IConfidentialClientApplication.js";
+ import { OnBehalfOfRequest } from "../request/OnBehalfOfRequest.js";
+ import { ClientCredentialRequest } from "../request/ClientCredentialRequest.js";
+@@ -32,6 +34,8 @@ export declare class ConfidentialClientApplication extends ClientApplication imp
+      * @param Configuration - configuration object for the MSAL ConfidentialClientApplication instance
+      */
+     constructor(configuration: Configuration);
++    getAuthCodeUrl(request: AuthorizationUrlRequest): Promise<string>;
++    acquireTokenByCode(request: AuthorizationCodeRequest, authCodePayload?: AuthorizationCodePayload): Promise<AuthenticationResult>;
+     /**
+      * This extensibility point only works for the client_credential flow, i.e. acquireTokenByClientCredential and
+      * is meant for Azure SDK to enhance Managed Identity support.
+@@ -65,4 +69,3 @@ export declare class ConfidentialClientApplication extends ClientApplication imp
+      */
+     acquireTokenByUserFederatedIdentityCredential(request: UserFederatedIdentityCredentialRequest): Promise<AuthenticationResult | null>;
+ }
+-//# sourceMappingURL=ConfidentialClientApplication.d.ts.map
+\ No newline at end of file
+diff --git a/types/error/NodeAuthError.d.ts b/types/error/NodeAuthError.d.ts
+index 730d99ad4b772d3e21436a3c1c4347d6e6e9d224..0820e977797e52d622e581f06392e28a6af603f4 100644
+--- a/types/error/NodeAuthError.d.ts
++++ b/types/error/NodeAuthError.d.ts
+@@ -39,6 +39,8 @@ export declare const NodeAuthErrorMessage: {
+         code: string;
+         desc: string;
+     };
++
++    unsupportedCcaInstanceAware: { code: string; desc: string; };
+ };
+ export declare class NodeAuthError extends AuthError {
+     constructor(errorCode: string, correlationId: string, errorMessage?: string);
+@@ -78,5 +80,6 @@ export declare class NodeAuthError extends AuthError {
+      * Creates an error thrown when redirectUri is provided in an unsupported scenario
+      */
+     static createRedirectUriNotSupportedError(correlationId?: string): NodeAuthError;
++
++    static createUnsupportedCcaInstanceAwareError(correlationId?: string): NodeAuthError;
+ }
+-//# sourceMappingURL=NodeAuthError.d.ts.map
