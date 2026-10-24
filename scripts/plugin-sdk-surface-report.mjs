@@ -139,7 +139,8 @@ const defaultPublicDeprecatedExportsByEntrypointBudget = Object.freeze({
   "reply-history": 6,
   "provider-auth": 19,
   "telegram-account": 3,
-  zod: 282,
+  // +21: owner-approved Zod 4.6.6 security upgrade through the deprecated public barrel.
+  zod: 303,
 });
 
 export function readPluginSdkSurfaceBudgets(env = process.env) {
@@ -215,7 +216,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // -3: expired Pi SDK aliases and the memory embedding registrar removed.
       // -854: retired facade and hook exports, with focused replacements retained.
       // +5: missing-reply diagnosis type/getter, bound-question query, terminal error/payload readers.
-      3979,
+      // +21: owner-approved Zod 4.6.6 security upgrade public exports.
+      4000,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -266,7 +268,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // -1: expired memory embedding registrar removed.
       // -524: retired callable facade exports with canonical owners retained.
       // +4: canonical missing-reply, bound-question, terminal-error, and payload-outcome readers.
-      2387,
+      // +14: Zod 4.6.6 adds twelve callable exports plus input/output runtime functions.
+      2401,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
@@ -279,7 +282,8 @@ export function readPluginSdkSurfaceBudgets(env = process.env) {
       // +1: shared ingress error factory projected through channel-message.
       // +1: shared ingress retention defaults projected through channel-message.
       // -892: retired deprecated facades and spawning hook types.
-      811,
+      // +21: Zod 4.6.6 additions inherit the public Zod barrel's deprecation.
+      832,
       env,
     ),
     publicWildcardReexports: readPluginSdkSurfaceBudgetEnv(

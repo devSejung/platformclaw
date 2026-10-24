@@ -19,7 +19,7 @@ index b10e84f1beb1dacdae5e01c42a223974b9e20b73..47c98be1bf81e2f6aabbd23b108f39e3
 +        return INVALID;
        }
      }
- 
+
 @@ -3723,7 +3725,7 @@ export class ZodSet<Value extends ZodTypeAny = ZodTypeAny> extends ZodType<
            exact: false,
            message: def.maxSize.message,
@@ -28,15 +28,15 @@ index b10e84f1beb1dacdae5e01c42a223974b9e20b73..47c98be1bf81e2f6aabbd23b108f39e3
 +        return INVALID;
        }
      }
- 
+
 diff --git a/src/v4/core/schemas.ts b/src/v4/core/schemas.ts
 index ce16838549a39ff2522a1b6eea2b8994265f1b0f..e56622de73e010348b5a3b3925118e3605bd256a 100644
 --- a/src/v4/core/schemas.ts
 +++ b/src/v4/core/schemas.ts
 @@ -1507,6 +1507,37 @@ export interface $ZodArrayInternals<T extends SomeType = $ZodType> extends _$Zod
- 
+
  export interface $ZodArray<T extends SomeType = $ZodType> extends $ZodType<any, any, $ZodArrayInternals<T>> {}
- 
+
 +// Bound collection work before children or later refinements can run.
 +// This v4 runtime runs checks after parse, so the gate wraps run itself.
 +function capSize(inst: $ZodType, size: (input: unknown) => number): void {
@@ -72,12 +72,12 @@ index ce16838549a39ff2522a1b6eea2b8994265f1b0f..e56622de73e010348b5a3b3925118e36
    if (result.issues.length) {
      final.issues.push(...util.prefixIssues(index, result.issues));
 @@ -1555,6 +1586,7 @@ export const $ZodArray: core.$constructor<$ZodArray> = /*@__PURE__*/ core.$const
- 
+
      return payload; //handleArrayResultsAsync(parseResults, final);
    };
 +  capSize(inst, (input) => Array.isArray(input) ? input.length : -1);
  });
- 
+
  //////////////////////////////////////////
 @@ -2599,6 +2631,7 @@ export const $ZodMap: core.$constructor<$ZodMap> = /*@__PURE__*/ core.$construct
      if (proms.length) return Promise.all(proms).then(() => payload);
@@ -85,7 +85,7 @@ index ce16838549a39ff2522a1b6eea2b8994265f1b0f..e56622de73e010348b5a3b3925118e36
    };
 +  capSize(inst, (input) => input instanceof Map ? input.size : -1);
  });
- 
+
  function handleMapResult(
 @@ -2691,6 +2724,7 @@ export const $ZodSet: core.$constructor<$ZodSet> = /*@__PURE__*/ core.$construct
      if (proms.length) return Promise.all(proms).then(() => payload);
@@ -93,7 +93,7 @@ index ce16838549a39ff2522a1b6eea2b8994265f1b0f..e56622de73e010348b5a3b3925118e36
    };
 +  capSize(inst, (input) => input instanceof Set ? input.size : -1);
  });
- 
+
  function handleSetResult(result: ParsePayload, final: ParsePayload<Set<any>>) {
 diff --git a/v3/types.cjs b/v3/types.cjs
 index 11ed4dfc4745f9af1f1501874576b78b77d294ef..e27f40565847564568070581c8d23a9fc76d1d63 100644

@@ -19,7 +19,7 @@ index 17bef73f42205b301bc0de7f3f3eb6608791bda8..07142e67ca8cf9677ca54a6ba2c35e24
 +        return INVALID;
        }
      }
- 
+
 @@ -3727,7 +3729,7 @@ export class ZodSet<Value extends ZodTypeAny = ZodTypeAny> extends ZodType<
            exact: false,
            message: def.maxSize.message,
@@ -28,7 +28,7 @@ index 17bef73f42205b301bc0de7f3f3eb6608791bda8..07142e67ca8cf9677ca54a6ba2c35e24
 +        return INVALID;
        }
      }
- 
+
 diff --git a/v3/types.cjs b/v3/types.cjs
 index 7c3fa90509fe0149fde8ad5e647b9657014c538f..c16fe781a70552f48b09fa7a9a4d2fce557548aa 100644
 --- a/v3/types.cjs

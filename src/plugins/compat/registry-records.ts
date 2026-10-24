@@ -91,14 +91,14 @@ export const PLUGIN_COMPAT_RECORDS = [
   },
   {
     code: "deprecated-session-store-beta5-api",
-    status: "deprecated",
+    status: "removal-pending",
     owner: "sdk",
     introduced: "2026-05-21",
     deprecated: "2026-07-12",
     warningStarts: "2026-07-12",
     removeAfter: "2026-10-12",
     replacement:
-      "`getSessionEntry(...)`, `listSessionEntries(...)`, and row-level session mutations",
+      "`getSessionEntry(...)`, `listSessionEntries(...)`, and row-level session mutations; retain the beta.5 bridge and package-root aliases until published-reader migration and minimum supported plugin exclusion are verified, the v2026.7.x legacy doctor upgrade window closes, and explicit breaking-release approval is granted",
     docsPath: "/plugins/sdk-migration#removed-session-and-transcript-file-apis",
     surfaces: [
       "openclaw/plugin-sdk/session-store-runtime loadSessionStore",

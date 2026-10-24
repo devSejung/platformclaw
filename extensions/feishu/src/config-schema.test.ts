@@ -1,4 +1,5 @@
 // Feishu tests cover config schema plugin behavior.
+import { buildJsonChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
 import { describe, expect, it } from "vitest";
 import { FeishuChannelConfigSchema, FeishuConfigSchema } from "./config-schema.js";
 
@@ -27,6 +28,40 @@ function expectSchemaIssue(
     expect(result.error.issues.map((issue) => issue.path.join("."))).toContain(issuePath);
   }
 }
+
+describe("Feishu domain JSON projection", () => {
+  const projected = buildJsonChannelConfigSchema(FeishuChannelConfigSchema.schema);
+
+  it.each([
+    ["feishu", true],
+    ["lark", true],
+    ["https://example.com", true],
+    ["https://example.com/path?tenant=alpha", true],
+    ["https://", false],
+    ["https://bad host", false],
+    ["http://example.com", false],
+    ["ftp://example.com", false],
+    ["not a domain", false],
+  ])("keeps root and account acceptance for %j", (domain, accepted) => {
+    for (const input of [{ domain }, { accounts: { work: { domain } } }]) {
+      expect(FeishuConfigSchema.safeParse(input).success).toBe(accepted);
+      expect(projected.runtime?.safeParse(input).success).toBe(accepted);
+    }
+  });
+
+  it("preserves the root domain default and account inheritance in the JSON projection", () => {
+    const input = { accounts: { work: {} } };
+    const result = projected.runtime?.safeParse(input);
+    expect(result).toMatchObject({
+      success: true,
+      data: { domain: "feishu", accounts: { work: {} } },
+    });
+    expect(FeishuConfigSchema.parse(input).domain).toBe("feishu");
+    if (result?.success) {
+      expect(result.data).not.toHaveProperty("accounts.work.domain");
+    }
+  });
+});
 
 describe("FeishuConfigSchema webhook validation", () => {
   it("applies top-level defaults", () => {

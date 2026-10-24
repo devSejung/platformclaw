@@ -69,8 +69,8 @@ const REVIEWED_SECURITY_PATCHES = [
     packageName: "zod",
     version: "3.25.76",
     patchPath: "patches/zod@3.25.76.patch",
-    sha256: "a8a58d99ab9ebb4877af55cc1f218f6b0c02dba45f588478218be9067ecf1ef9",
-    installHash: "a8a58d99ab9ebb4877af55cc1f218f6b0c02dba45f588478218be9067ecf1ef9",
+    sha256: "7603e669a671f61a89c898cba1c3eedbb5c529274ac7187ec3394c10a055dec9",
+    installHash: "7603e669a671f61a89c898cba1c3eedbb5c529274ac7187ec3394c10a055dec9",
     integrity:
       "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==",
   },
@@ -87,8 +87,8 @@ const REVIEWED_SECURITY_PATCHES = [
     packageName: "zod",
     version: "4.6.6",
     patchPath: "patches/zod@4.6.6.patch",
-    sha256: "0124d79410572c4f19e3bbf78ca80ade7c5bf0f7c1c6faf1b28d3997fb5f243e",
-    installHash: "0124d79410572c4f19e3bbf78ca80ade7c5bf0f7c1c6faf1b28d3997fb5f243e",
+    sha256: "5b448a1a3aafd543cd67bc4520817f995b85324b886be37256af9b4cb15401aa",
+    installHash: "5b448a1a3aafd543cd67bc4520817f995b85324b886be37256af9b4cb15401aa",
     integrity:
       "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==",
   },
@@ -355,20 +355,26 @@ async function verifyReviewedAuditArtifact({ rootDir, artifact, lockfileText, wo
   }
 }
 
-/** Recognize a reviewed backport only after pnpm's actual locked artifacts are verified. */
-export async function filterVerifiedPatchedAdvisories({
+/** Return the approved registration fields without exposing mutable artifact records. */
+export function getReviewedSecurityPatchRegistrations() {
+  return REVIEWED_SECURITY_PATCHES.map((artifact) => ({
+    specifier: `${artifact.packageName}@${artifact.version}`,
+    patchPath: artifact.patchPath,
+    installHash: artifact.installHash,
+  }));
+}
+
+/** Verify the complete installation identity of every resolved security-patched package. */
+export async function verifyReviewedSecurityPatches({
   rootDir,
   lockfileText,
-  advisoriesByPackage,
-  versionsByPackage = collectAllResolvedPackagesFromLockfile(lockfileText),
+  requiredPatchSpecifiers = [],
 }) {
   const allVersions = collectAllResolvedPackagesFromLockfile(lockfileText);
   const zodVersions = [...(allVersions.get("zod") ?? [])];
   const sdkVersions = [...(allVersions.get("@discord/embedded-app-sdk") ?? [])];
-  if (zodVersions.length === 0 && sdkVersions.length === 0) {
-    return advisoriesByPackage;
-  }
-  const workspaceText = await readFile(path.join(rootDir, "pnpm-workspace.yaml"), "utf8");
+  /** @type {Set<string>} */
+  const specifiers = new Set(requiredPatchSpecifiers);
   /** @type {[string, string[]][]} */
   const packageVersions = [
     ["zod", zodVersions],
@@ -376,15 +382,32 @@ export async function filterVerifiedPatchedAdvisories({
   ];
   for (const [packageName, versions] of packageVersions) {
     for (const version of versions) {
-      const artifact = REVIEWED_SECURITY_PATCHES.find(
-        (candidate) => candidate.packageName === packageName && candidate.version === version,
-      );
-      if (!artifact) {
-        throw new Error(`No reviewed security patch for ${packageName}@${version}`);
-      }
-      await verifyReviewedAuditArtifact({ rootDir, artifact, lockfileText, workspaceText });
+      specifiers.add(`${packageName}@${version}`);
     }
   }
+  if (specifiers.size === 0) {
+    return;
+  }
+  const workspaceText = await readFile(path.join(rootDir, "pnpm-workspace.yaml"), "utf8");
+  for (const specifier of specifiers) {
+    const artifact = REVIEWED_SECURITY_PATCHES.find(
+      (candidate) => `${candidate.packageName}@${candidate.version}` === specifier,
+    );
+    if (!artifact) {
+      throw new Error(`No reviewed security patch for ${specifier}`);
+    }
+    await verifyReviewedAuditArtifact({ rootDir, artifact, lockfileText, workspaceText });
+  }
+}
+
+/** Recognize a reviewed backport only after pnpm's actual locked artifacts are verified. */
+export async function filterVerifiedPatchedAdvisories({
+  rootDir,
+  lockfileText,
+  advisoriesByPackage,
+  versionsByPackage = collectAllResolvedPackagesFromLockfile(lockfileText),
+}) {
+  await verifyReviewedSecurityPatches({ rootDir, lockfileText });
   const resolvedZod = [...(versionsByPackage.get("zod") ?? [])];
   const remediated =
     resolvedZod.length > 0 &&
