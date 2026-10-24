@@ -12,6 +12,7 @@ import {
   buildHandledBeforeAgentReplyPayloads,
   withBeforeAgentReplyObserver,
 } from "../../plugins/before-agent-reply.js";
+import { isInternalMessageChannel } from "../../utils/message-channel.js";
 import { markReplyPayloadForSourceSuppressionDelivery } from "../reply-payload.js";
 import type { OriginatingChannelType } from "../templating.js";
 import type { ReplyPayload } from "../types.js";
@@ -419,6 +420,8 @@ export async function runReplyAgent(
   const cfg = followupRun.run.config;
   const replyMediaContext = createReplyMediaContext({
     cfg,
+    ownerScoped: isInternalMessageChannel(followupRun.run.messageProvider),
+    abortSignal: opts?.abortSignal,
     sessionKey,
     workspaceDir: followupRun.run.workspaceDir,
     messageProvider: followupRun.run.messageProvider,

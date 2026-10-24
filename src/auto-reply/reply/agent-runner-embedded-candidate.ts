@@ -19,8 +19,10 @@ import {
   revokeMessageActionTurnCapability,
 } from "../../gateway/message-action-turn-capability.js";
 import { logVerbose } from "../../globals.js";
+import { withAgentMediaContext } from "../../media/agent-media-context.js";
 import {
   isMarkdownCapableMessageChannel,
+  isInternalMessageChannel,
   resolveMessageChannel,
 } from "../../utils/message-channel.js";
 import type { PartialReplyPayload } from "../get-reply-options.types.js";
@@ -49,6 +51,8 @@ type EmbeddedPresentation = Pick<
   | "normalizeStreamingText"
   | "startPresentationWhileTyping"
   | "blockReplyHandler"
+  | "onSandboxPrepared"
+  | "normalizeMediaPayload"
 >;
 
 export async function runEmbeddedFallbackCandidate(params: {
@@ -190,7 +194,7 @@ export async function runEmbeddedFallbackCandidate(params: {
       sessionKey: turn.sessionKey,
       milestone: "before_embedded_run",
     });
-    const result = await params.timing.measure("embedded_run", () =>
+    const runCandidate = () =>
       runEmbeddedAgent({
         ...embeddedContext,
         messageActionTurnCapability,
@@ -204,6 +208,7 @@ export async function runEmbeddedFallbackCandidate(params: {
         groupSpace: normalizeOptionalString(turn.sessionCtx.GroupSpace),
         ...senderContext,
         ...runBaseParams,
+        onSandboxPrepared: params.presentation.onSandboxPrepared,
         provider: embeddedRunProvider,
         agentHarnessId: embeddedRunHarnessOverride,
         agentHarnessRuntimeOverride: embeddedRunHarnessOverride,
@@ -392,8 +397,19 @@ export async function runEmbeddedFallbackCandidate(params: {
               };
             })()
           : undefined,
-      }),
+      });
+    const result = await params.timing.measure("embedded_run", () =>
+      isInternalMessageChannel(turn.followupRun.run.messageProvider)
+        ? withAgentMediaContext(turn.followupRun.run.agentId, runCandidate)
+        : runCandidate(),
     );
+    if (params.presentation.normalizeMediaPayload && result.payloads?.length) {
+      // Materialize before fallback selection can retain this candidate's
+      // result while a later candidate prepares another runtime handle.
+      result.payloads = await Promise.all(
+        result.payloads.map(params.presentation.normalizeMediaPayload),
+      );
+    }
     const resultCompactionCount = Math.max(0, result.meta?.agentMeta?.compactionCount ?? 0);
     attemptCompactionCount = Math.max(attemptCompactionCount, resultCompactionCount);
     return {

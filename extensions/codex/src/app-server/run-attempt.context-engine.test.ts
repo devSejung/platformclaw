@@ -1272,7 +1272,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     await run;
   });
 
-  it("reprojects thread-bootstrap context for native-disabled transient Codex threads", async () => {
+  it("reprojects thread-bootstrap context with pinned backend facts for native-disabled threads", async () => {
     const restoreSandboxBackend = registerSandboxBackend(
       "codex-context-test-sandbox",
       async () => ({
@@ -1280,6 +1280,7 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
         runtimeId: "codex-context-test-runtime",
         runtimeLabel: "Codex Context Test Sandbox",
         workdir: "/workspace",
+        runtimePromptContext: "Current execution: assigned VM; workspace=/workspace; revision=7",
         buildExecSpec: async () => ({
           argv: ["true"],
           env: {},
@@ -1368,6 +1369,10 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
       ]);
       expectRequestInputTextContains(harness, "OpenClaw assembled context for this turn:");
       expectRequestInputTextContains(harness, "native-disabled context");
+      expectRequestInputTextContains(
+        harness,
+        "Current execution: assigned VM; workspace=/workspace; revision=7",
+      );
 
       await harness.notify({
         method: "turn/completed",

@@ -69,6 +69,7 @@ export async function appendInjectedAssistantMessageToTranscript(params: {
   ttsSupplement?: GatewayInjectedTtsSupplementMarker;
   now?: number;
   config?: OpenClawConfig;
+  beforeWrite?: () => Promise<void>;
 }): Promise<GatewayInjectedTranscriptAppendResult> {
   const now = params.now ?? Date.now();
   const usage = {
@@ -133,6 +134,7 @@ export async function appendInjectedAssistantMessageToTranscript(params: {
       },
       {
         updateMode: "inline",
+        beforeWrite: params.beforeWrite,
         touchSessionEntry: Boolean(params.storePath && params.sessionId && params.sessionKey),
         ...(params.config ? { config: params.config } : {}),
         messages: [

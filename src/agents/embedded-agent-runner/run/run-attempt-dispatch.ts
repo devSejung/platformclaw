@@ -376,6 +376,7 @@ export async function dispatchEmbeddedRunAttempt(input: {
     // Normalize the shipped harness alias once; attempt internals consume only the canonical flag.
     deferTerminalLifecycle: params.deferTerminalLifecycle ?? params.deferTerminalLifecycleEnd,
     onExecutionPhase: params.onExecutionPhase,
+    onSandboxPrepared: params.onSandboxPrepared,
     extraSystemPrompt: appendIncognitoSystemPrompt({
       agentId: runtime.agentId,
       extraSystemPrompt: params.extraSystemPrompt,

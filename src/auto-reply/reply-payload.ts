@@ -246,6 +246,12 @@ export type NoVisibleReplyReason =
 
 /** WeakMap-backed metadata attached to payload objects without changing wire shape. */
 export type ReplyPayloadMetadata = {
+  /** Exact local copies materialized by the outbound staging producer. */
+  stagedLocalMediaUrls?: string[];
+  /** The producer dropped an attachment; history must retain its visible non-outcome. */
+  mediaFailure?: boolean;
+  /** Current runtime authority rechecked before publishing newly prepared media. */
+  mediaPublishAuthority?: () => Promise<void>;
   /** Bounded, credential-free support report copied from a failed Web chat turn. */
   agentRunFailureReport?: string;
   /** Authoritative runner failure, retained even when group policy hides its text. */

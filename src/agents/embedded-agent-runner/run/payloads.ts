@@ -12,6 +12,7 @@ import {
   type HeartbeatToolResponse,
 } from "../../../auto-reply/heartbeat-tool-response.js";
 import {
+  copyReplyPayloadMetadata,
   markReplyPayloadForSourceSuppressionDelivery,
   setReplyPayloadMetadata,
   type ReplyPayload,
@@ -832,9 +833,9 @@ export function buildEmbeddedRunPayloads(params: {
   const hasAudioAsVoiceTag = replyItems.some((item) => item.audioAsVoice);
   return replyItems
     .map((item) => {
-      const payload: ReplyPayload = {
+      const payload: ReplyPayload = copyReplyPayloadMetadata(item, {
         text: normalizeOptionalString(item.text),
-      };
+      });
       const mediaUrl = item.mediaUrl ?? item.media?.[0];
       if (mediaUrl) {
         payload.mediaUrl = mediaUrl;

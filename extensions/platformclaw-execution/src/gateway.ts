@@ -270,17 +270,20 @@ export function registerPlatformClawExecutionGateway(
         return;
       }
       try {
-        const active = [...context.chatAbortControllers.values()].some(
-          (entry) => entry.agentId?.trim() === agentId,
-        );
-        if (active) {
+        const runtime = await runtimePromise;
+        // Deferred turns retain their old execution intent after the active run
+        // settles. Check both owners after readiness, immediately before mutation.
+        const pending = [
+          ...context.chatAbortControllers.values(),
+          ...context.chatQueuedTurns.values(),
+        ].some((entry) => entry.agentId?.trim() === agentId);
+        if (pending) {
           respond(false, undefined, {
             code: "CONFLICT",
-            message: "finish the current task before changing work location",
+            message: "finish or cancel active and queued tasks before changing work location",
           });
           return;
         }
-        const runtime = await runtimePromise;
         const changed = await runtime.changeTarget({ agentId, target, expectedRevision });
         invalidateAcpProcesses(agentId);
         respond(true, changed);

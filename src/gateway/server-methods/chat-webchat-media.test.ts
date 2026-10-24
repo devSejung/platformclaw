@@ -305,7 +305,7 @@ describe("buildWebchatAssistantMessageFromReplyPayloads", () => {
     });
     expect(
       replaceAssistantContentTextBlocks([{ type: "text", text: "Unnormalized text" }], message),
-    ).toEqual(message?.content);
+    ).toEqual([{ type: "text", text: "Document reply" }]);
   });
 
   it("rejects untrusted, sensitive, and outside-root document references", async () => {

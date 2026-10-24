@@ -30,6 +30,11 @@ const channelResolutionMocks = vi.hoisted(() => ({
   executePollAction: vi.fn(),
 }));
 
+const ttsPreflight = vi.hoisted(() => vi.fn());
+vi.mock("./message-action-tts.js", () => ({
+  maybeApplyTtsToMessageActionSendPayload: ttsPreflight,
+}));
+
 vi.mock("./channel-resolution.js", () => ({
   resolveOutboundChannelPlugin: channelResolutionMocks.resolveOutboundChannelPlugin,
   resetOutboundChannelResolutionStateForTest: vi.fn(),
@@ -239,6 +244,7 @@ describe("runMessageAction media behavior", () => {
     actualLoadWebMedia ??= (
       await vi.importActual<typeof import("../../media/web-media.js")>("../../media/web-media.js")
     ).loadWebMedia;
+    ttsPreflight.mockReset().mockImplementation(async ({ payload }) => payload);
     vi.restoreAllMocks();
     vi.clearAllMocks();
     channelResolutionMocks.resolveOutboundChannelPlugin.mockReset();
@@ -304,6 +310,174 @@ describe("runMessageAction media behavior", () => {
     const sendArgs = firstMockArg(channelResolutionMocks.executeSendAction, "executeSendAction");
     expect(sendArgs.asVoice).toBe(true);
   });
+
+  it("stages runtime send sources once with the selected account cap before core delivery", async () => {
+    setTestPlugin(
+      {
+        ...workspacePlugin,
+        config: {
+          listAccountIds: () => ["alpha"],
+          resolveAccount: () => ({ enabled: true }),
+          isConfigured: () => true,
+        },
+      },
+      "workspace",
+    );
+    await withTempOpenClawStateDir(async () => {
+      const source = "/tmp/synthetic-report.txt";
+      const bytes = Buffer.from("remote runtime bytes");
+      const readFile = vi.fn(async () => bytes);
+      const signal = new AbortController().signal;
+      const result = await runMessageAction({
+        cfg: {
+          agents: { defaults: { mediaMaxMb: 1 } },
+          channels: {
+            workspace: {
+              enabled: true,
+              mediaMaxMb: 0.5,
+              accounts: { alpha: { mediaMaxMb: 0.125 } },
+            },
+          },
+        } as OpenClawConfig,
+        action: "send",
+        params: {
+          channel: "workspace",
+          accountId: "alpha",
+          target: "12345678",
+          media: source,
+          mediaUrls: [source],
+          attachments: [{ path: source, url: source }],
+        },
+        sandboxRoot: "/unrelated/gateway/workspace",
+        sandboxOutboundFileAccess: { tempDir: "/tmp/synthetic-private", readFile },
+        abortSignal: signal,
+      });
+      expect(result.kind).toBe("send");
+      if (result.kind !== "send") {
+        throw new Error("expected send result");
+      }
+      const staged = result.sendResult?.mediaUrl;
+      expect(staged).toBeTypeOf("string");
+      expect(staged).not.toBe(source);
+      expect(result.sendResult?.mediaUrls).toEqual([staged]);
+      await expect(fs.readFile(String(staged))).resolves.toEqual(bytes);
+      expect(readFile).toHaveBeenCalledExactlyOnceWith({
+        filePath: source,
+        maxBytes: 128 * 1024,
+        signal,
+      });
+    });
+  });
+
+  it("rejects a staged send revoked during asynchronous TTS preflight before core delivery", async () => {
+    setTestPlugin(workspacePlugin, "workspace");
+    await withTempOpenClawStateDir(async () => {
+      let current = true;
+      ttsPreflight.mockImplementationOnce(async ({ payload }) => {
+        await Promise.resolve();
+        current = false;
+        return payload;
+      });
+      await expect(
+        runMessageAction({
+          cfg: workspaceConfig,
+          action: "send",
+          params: { channel: "workspace", target: "12345678", media: "/tmp/late-send.txt" },
+          sandboxOutboundFileAccess: {
+            tempDir: "/tmp/private",
+            readFile: async () => Buffer.from("runtime bytes"),
+            assertCurrentAuthority: async () => {
+              if (!current) {
+                throw new Error("producer revoked before transport");
+              }
+            },
+          },
+        }),
+      ).rejects.toThrow("producer revoked before transport");
+      expect(channelResolutionMocks.executeSendAction).not.toHaveBeenCalled();
+    });
+  });
+
+  it("rejects a plugin attachment revoked while hydrating its staged copy", async () => {
+    const handleAction = vi.fn(async () => jsonResult({ ok: true }));
+    setTestPlugin(
+      {
+        ...workspacePlugin,
+        actions: {
+          describeMessageTool: () => ({ actions: ["sendAttachment"] }),
+          supportsAction: () => true,
+          handleAction,
+        },
+      },
+      "workspace",
+    );
+    await withTempOpenClawStateDir(async () => {
+      let current = true;
+      vi.mocked(loadWebMedia).mockImplementation(async (source, options) => {
+        const media = await actualLoadWebMedia(source, options);
+        if (typeof source === "string" && source !== "/tmp/late-plugin.txt") {
+          current = false;
+        }
+        return media;
+      });
+      await expect(
+        runMessageAction({
+          cfg: workspaceConfig,
+          action: "sendAttachment",
+          params: { channel: "workspace", target: "12345678", media: "/tmp/late-plugin.txt" },
+          sandboxOutboundFileAccess: {
+            tempDir: "/tmp/private",
+            readFile: async () => Buffer.from("runtime bytes"),
+            assertCurrentAuthority: async () => {
+              if (!current) {
+                throw new Error("producer revoked before plugin");
+              }
+            },
+          },
+        }),
+      ).rejects.toThrow("producer revoked before plugin");
+      expect(handleAction).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each(["reply", "sendAttachment", "upload-file"] as const)(
+    "hydrates %s from the owned snapshot instead of the Gateway sandbox workspace",
+    async (action) => {
+      setTestPlugin(
+        {
+          ...workspacePlugin,
+          actions: {
+            describeMessageTool: () => ({ actions: ["reply", "sendAttachment", "upload-file"] }),
+            supportsAction: () => true,
+            handleAction: async ({ params }) => jsonResult({ ok: true, buffer: params.buffer }),
+          },
+        },
+        "workspace",
+      );
+      await withTempOpenClawStateDir(async () => {
+        const bytes = Buffer.from("remote attachment action bytes");
+        const readFile = vi.fn(async () => bytes);
+        const result = await runMessageAction({
+          cfg: workspaceConfig,
+          action,
+          params: {
+            channel: "workspace",
+            target: "12345678",
+            messageId: "synthetic-message",
+            message: "attachment",
+            attachments: [{ filePath: "/home/synthetic/report.txt" }],
+          },
+          sandboxRoot: "/unrelated/gateway/workspace",
+          sandboxOutboundFileAccess: { tempDir: "/tmp/synthetic-private", readFile },
+        });
+        expect(requireActionPayload(result)).toMatchObject({
+          ok: true,
+          buffer: bytes.toString("base64"),
+        });
+        expect(readFile).toHaveBeenCalledOnce();
+      });
+    },
+  );
 
   it("rejects plugin-declined attachment actions before loading media", async () => {
     const handleAction = vi.fn(async () => jsonResult({ ok: true }));

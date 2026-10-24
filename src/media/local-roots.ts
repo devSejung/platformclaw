@@ -2,7 +2,7 @@
 import path from "node:path";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
-import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
+import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import {
   resolveEffectiveToolFsRootExpansionAllowed,
   resolveEffectiveToolFsWorkspaceOnly,
@@ -11,6 +11,7 @@ import { resolveDeliveryQueueMediaDir, resolveStateDir } from "../config/paths.j
 import type { OpenClawConfig } from "../config/types.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 import { resolveConfigDir } from "../utils.js";
+import { getAgentMediaDir, getCurrentAgentMediaId } from "./agent-media-context.js";
 import { resolveLocalMediaPath } from "./local-media-path.js";
 
 type BuildMediaLocalRootsOptions = {
@@ -55,14 +56,28 @@ function buildMediaLocalRoots(
 
 /** Returns the process default roots where local media reads may resolve generated/cache files. */
 export function getDefaultMediaLocalRoots(): readonly string[] {
+  if (getCurrentAgentMediaId()) {
+    return [getAgentMediaDir()];
+  }
   return buildMediaLocalRoots(resolveStateDir(), resolveConfigDir());
 }
 
-/** Adds the active agent workspace to the default media roots without exposing all agent state. */
+/** Narrows scoped execution to its own store/workspace; preserves unscoped channel roots. */
 export function getAgentScopedMediaLocalRoots(
   cfg: OpenClawConfig,
   agentId?: string,
 ): readonly string[] {
+  const mediaOwner = getCurrentAgentMediaId();
+  if (mediaOwner) {
+    const requestedOwner = normalizeOptionalString(agentId)?.toLowerCase() ?? mediaOwner;
+    if (requestedOwner !== mediaOwner) {
+      throw new Error("Media Agent owner does not match the current execution.");
+    }
+    return uniqueStrings([
+      getAgentMediaDir(),
+      path.resolve(resolveAgentWorkspaceDir(cfg, mediaOwner)),
+    ]);
+  }
   const roots = buildMediaLocalRoots(resolveStateDir(), resolveConfigDir());
   const normalizedAgentId = normalizeOptionalString(agentId);
   if (!normalizedAgentId) {
@@ -85,6 +100,10 @@ export function appendLocalMediaParentRoots(
   mediaSources?: readonly string[],
 ): string[] {
   const appended = uniqueStrings(roots.map((root) => path.resolve(root)));
+  // Source text cannot grant read authority in an owner-scoped execution.
+  if (getCurrentAgentMediaId()) {
+    return appended;
+  }
   for (const source of mediaSources ?? []) {
     const localPath = resolveLocalMediaPath(source);
     if (!localPath) {
@@ -114,6 +133,12 @@ export function getAgentScopedMediaLocalRootsForSources(params: {
   }
   if (!resolveEffectiveToolFsRootExpansionAllowed({ cfg: params.cfg, agentId: params.agentId })) {
     return roots;
+  }
+  const mediaOwner = getCurrentAgentMediaId();
+  if (mediaOwner) {
+    // Host-capable tools may export artifacts from their own configured Agent
+    // directory. Source text cannot grant access to another Agent's directory.
+    return uniqueStrings([...roots, path.resolve(resolveAgentDir(params.cfg, mediaOwner))]);
   }
   return appendLocalMediaParentRoots(roots, params.mediaSources);
 }

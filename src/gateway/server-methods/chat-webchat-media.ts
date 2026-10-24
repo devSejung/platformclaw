@@ -5,7 +5,7 @@ import { estimateBase64DecodedBytes } from "@openclaw/media-core/base64";
 import { MAX_DOCUMENT_BYTES } from "@openclaw/media-core/constants";
 import { isAudioFileName, kindFromMime, mimeTypeFromFilePath } from "@openclaw/media-core/mime";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import type { ReplyPayload } from "../../auto-reply/reply-payload.js";
+import { getReplyPayloadMetadata, type ReplyPayload } from "../../auto-reply/reply-payload.js";
 import { openLocalFileSafely } from "../../infra/fs-safe.js";
 import { assertNoWindowsNetworkPath, safeFileURLToPath } from "../../infra/local-file-access.js";
 import { assertLocalMediaAllowed, LocalMediaAccessError } from "../../media/local-media-access.js";
@@ -83,7 +83,10 @@ async function readLocalMediaContentBlockForEmbedding(
   options: WebchatAudioEmbeddingOptions | undefined,
   audioOnly = false,
 ): Promise<LocalMediaContentBlock | null> {
-  if (payload.trustedLocalMedia !== true) {
+  if (
+    payload.trustedLocalMedia !== true &&
+    !getReplyPayloadMetadata(payload)?.stagedLocalMediaUrls?.includes(raw.trim())
+  ) {
     // Local transcript references require trust from the upstream path normalizer.
     return null;
   }

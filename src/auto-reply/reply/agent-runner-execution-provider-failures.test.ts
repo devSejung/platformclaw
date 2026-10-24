@@ -256,7 +256,17 @@ describe("executeAgentTurn: provider failures", () => {
     expect(state.runEmbeddedAgentMock).toHaveBeenCalledTimes(2);
     expect(result.kind).toBe("success");
     if (result.kind === "success") {
-      expect(result.runResult.payloads).toEqual([{ text: "Recovered response" }]);
+      expect(result.runResult.payloads).toEqual([
+        {
+          text: "Recovered response",
+          mediaUrl: undefined,
+          mediaUrls: undefined,
+          replyToId: undefined,
+          replyToTag: false,
+          replyToCurrent: undefined,
+          audioAsVoice: false,
+        },
+      ]);
     }
   });
 

@@ -15,7 +15,7 @@ import {
 } from "./session-accessor.sqlite-transcript-sequences.js";
 import { redactTranscriptMessageForStorage } from "./session-accessor.sqlite-transcript-store.js";
 import { appendSqliteExpectedSessionTranscriptTurn } from "./session-accessor.sqlite.js";
-import { appendTranscriptMessage, emitTranscriptUpdate } from "./session-accessor.transcript.js";
+import { withTranscriptWriteLock, emitTranscriptUpdate } from "./session-accessor.transcript.js";
 import type {
   SessionTranscriptWriteScope,
   TranscriptMessageAppendResult,
@@ -121,17 +121,20 @@ async function appendTranscriptTurnMessages(
   const appendedMessages: TranscriptMessageAppendResult<unknown>[] = [];
   for (const append of selectedMessages) {
     const { shouldAppend: _shouldAppend, ...appendOptions } = append;
-    const result = await appendTranscriptMessage(
+    const result = await withTranscriptWriteLock(
       {
         ...(target.agentId ? { agentId: target.agentId } : {}),
         ...(target.sessionId ? { sessionId: target.sessionId } : {}),
         ...(target.sessionKey ? { sessionKey: target.sessionKey } : {}),
         ...(target.storePath ? { storePath: target.storePath } : {}),
       },
-      {
-        ...appendOptions,
-        ...((append.cwd ?? options.cwd) ? { cwd: append.cwd ?? options.cwd } : {}),
-        ...((append.config ?? options.config) ? { config: append.config ?? options.config } : {}),
+      async (transcript) => {
+        await options.beforeWrite?.();
+        return await transcript.appendMessage({
+          ...appendOptions,
+          ...((append.cwd ?? options.cwd) ? { cwd: append.cwd ?? options.cwd } : {}),
+          ...((append.config ?? options.config) ? { config: append.config ?? options.config } : {}),
+        });
       },
     );
     if (result) {
@@ -231,6 +234,7 @@ async function persistExpectedSessionTranscriptTurn(
           expectedSessionState: options.expectedSessionState,
           expectedSessionId,
           atomicGroup: options.atomicGroup,
+          beforeWrite: options.beforeWrite,
           messages: options.messages,
           sessionLifecyclePatch: options.sessionLifecyclePatch,
           sessionFile: target.sessionKey!,

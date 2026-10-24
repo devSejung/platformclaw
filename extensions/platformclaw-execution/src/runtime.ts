@@ -568,7 +568,7 @@ export async function createExecutionDependenciesFromEnvironment(
         workspaceMode: "existing",
         remoteHomeDir: target.remoteHomeDir,
         additionalFilesystemRoots: [{ root: target.remoteHomeDir, access: "rw" }],
-        createSession: async () => await sshLeases.createSession(target),
+        createSession: async (signal) => await sshLeases.createSession(target, signal),
       }),
     listTargetSkills: async ({ refresh, target }) =>
       target.kind === "assigned_vm" ? await remoteSkills.list(target, refresh) : undefined,

@@ -268,6 +268,7 @@ describe("resolveSandboxContext", () => {
       expect(result?.runtimeId).toBe("test-runtime");
       expect(result?.containerName).toBe("test-runtime");
       expect(result?.backend?.id).toBe("test-backend");
+      expect(result?.outboundFileAccess).toBeUndefined();
       expect(backendFactory).toHaveBeenCalledWith(
         expect.objectContaining({
           agentId: "worker",

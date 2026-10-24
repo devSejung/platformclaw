@@ -25,7 +25,7 @@ export async function createSpaceTestFixture(runtimeReady = true) {
   });
   const users = [];
   for (const account of ["alice", "bob", "carol"]) {
-    const { user } = await store.upsertPrincipal(
+    const { user, identity } = await store.upsertPrincipal(
       { provider: "ldap", subject: account, accountId: account, employeeId: account },
       Date.now(),
     );
@@ -40,7 +40,7 @@ export async function createSpaceTestFixture(runtimeReady = true) {
       tokenHash: hashBrowserSessionToken(account),
       createdAt: Date.now(),
     });
-    users.push({ user, binding, token: account });
+    users.push({ user, identity, binding, token: account });
   }
   const [alice, bob, carol] = users as [
     (typeof users)[number],

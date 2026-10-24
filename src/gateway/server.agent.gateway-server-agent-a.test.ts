@@ -588,7 +588,7 @@ describe("gateway server agent", () => {
     expect(call.images).toEqual([]);
     expect(media).toHaveLength(1);
     expect(media?.[0]).toMatchObject({ contentType: "image/png" });
-    expect(media?.[0]?.path).toMatch(/\/media\/inbound\//);
+    expect(media?.[0]?.path).toMatch(/\/media\/agents\/main\/inbound\//);
     expect(media?.[0]?.url).toMatch(/^media:\/\/inbound\//);
     expect(call.message).toBe(`what is in the image?\n[media attached: ${media?.[0]?.url}]`);
   });

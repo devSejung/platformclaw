@@ -10,13 +10,15 @@ import { stripPlainTextToolCallBlocks } from "../../../packages/tool-call-repair
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { resolveAgentIdentity, resolveResponsePrefix } from "../../agents/identity.js";
 import type { AgentToolResult } from "../../agents/runtime/index.js";
+import { resolveAllowedManagedMediaPath } from "../../agents/sandbox-paths.js";
+import type { SandboxOutboundFileAccess } from "../../agents/sandbox/fs-bridge.types.js";
 import {
   readPositiveIntegerParam,
   readStringArrayParam,
   readStringParam,
 } from "../../agents/tools/common.js";
 import type { SourceReplyDeliveryMode } from "../../auto-reply/get-reply-options.types.js";
-import type { ReplyPayload } from "../../auto-reply/reply-payload.js";
+import { setReplyPayloadMetadata, type ReplyPayload } from "../../auto-reply/reply-payload.js";
 import { resolveResponsePrefixTemplate } from "../../auto-reply/reply/response-prefix-template.js";
 import { normalizeChatType, type ChatType } from "../../channels/chat-type.js";
 import type { InboundEventKind } from "../../channels/inbound-event/kind.js";
@@ -48,6 +50,7 @@ import {
   type ReplyPayloadDelivery,
 } from "../../interactive/payload.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { resolveOutboundMediaMaxBytes } from "../../media/configured-max-bytes.js";
 import type { OutboundMediaAccess } from "../../media/load-options.js";
 import { getAgentScopedMediaLocalRoots } from "../../media/local-roots.js";
 import { resolveAgentScopedOutboundMediaAccess } from "../../media/read-capability.js";
@@ -81,6 +84,7 @@ import {
   type MessageBroadcastAccountPlan,
   validateExplicitMessageAccountSelection,
 } from "./message-account-selection.js";
+import { normalizeSandboxMediaList } from "./message-action-media-normalizer.js";
 import {
   normalizeMessageActionInput,
   resolveImplicitMessageActionTarget,
@@ -89,7 +93,6 @@ import { hasPotentialPluginActionParam } from "./message-action-param-keys.js";
 import {
   collectActionMediaSourceHints,
   hydrateAttachmentParamsForAction,
-  normalizeSandboxMediaList,
   normalizeSandboxMediaParams,
   parseInteractiveParam,
   parseJsonMessageParam,
@@ -208,6 +211,7 @@ export type RunMessageActionParams = {
   /** @internal Runs on identified platform evidence before queue acknowledgement. */
   onDeliveryResult?: (result: OutboundDeliveryResult) => Promise<void> | void;
   sandboxRoot?: string;
+  sandboxOutboundFileAccess?: SandboxOutboundFileAccess;
   dryRun?: boolean;
   sourceReplyDeliveryMode?: SourceReplyDeliveryMode;
   sourceReplyFinal?: boolean;
@@ -922,6 +926,18 @@ function applyImplicitSourceReplySendPolicy(
   params.bestEffort = true;
 }
 
+async function assertRuntimeActionAuthority(
+  input: RunMessageActionParams,
+  dryRun: boolean,
+): Promise<void> {
+  if (dryRun) {
+    return;
+  }
+  throwIfAborted(input.abortSignal);
+  await input.sandboxOutboundFileAccess?.assertCurrentAuthority?.();
+  throwIfAborted(input.abortSignal);
+}
+
 async function runGatewayPluginMessageActionOrNull(params: {
   cfg: OpenClawConfig;
   params: Record<string, unknown>;
@@ -983,6 +999,7 @@ async function runGatewayPluginMessageActionOrNull(params: {
   let hadUnknownDeliveryOutcome = false;
   let payload: unknown;
   try {
+    await assertRuntimeActionAuthority(params.input, params.dryRun);
     payload = await callGatewayMessageAction<unknown>({
       gateway: params.gateway,
       abortSignal: params.input.abortSignal,
@@ -1160,6 +1177,28 @@ async function handleInternalSourceReplySendAction(
         ? resolveSessionAgentId({ sessionKey: input.sessionKey, config: input.cfg })
         : undefined),
   });
+  if (!dryRun && input.sandboxOutboundFileAccess) {
+    const access = input.sandboxOutboundFileAccess;
+    const mediaPublishAuthority = async () => {
+      throwIfAborted(input.abortSignal);
+      await access.assertCurrentAuthority?.();
+      throwIfAborted(input.abortSignal);
+    };
+    // The UI sink publishes later, after tool-result extraction and media preparation.
+    // Keep this run's authority private and carry it through those payload copies.
+    const stagedLocalMediaUrls = (
+      await Promise.all(
+        resolveSendableOutboundReplyParts(sourceReply.payload).mediaUrls.map(
+          resolveAllowedManagedMediaPath,
+        ),
+      )
+    ).filter((media): media is string => media !== undefined);
+    setReplyPayloadMetadata(sourceReply.payload, {
+      stagedLocalMediaUrls: stagedLocalMediaUrls.length ? stagedLocalMediaUrls : undefined,
+      mediaPublishAuthority,
+    });
+    await mediaPublishAuthority();
+  }
   const payload = {
     status: "ok",
     deliveryStatus: dryRun ? "dry_run" : "sent",
@@ -1323,6 +1362,10 @@ async function buildSendPayloadParts(params: {
   const normalizedMediaUrls = await normalizeSandboxMediaList({
     values: mergedMediaUrls,
     sandboxRoot: input.sandboxRoot,
+    sandboxOutboundFileAccess: input.sandboxOutboundFileAccess,
+    maxBytes: resolveOutboundMediaMaxBytes(params),
+    signal: input.abortSignal,
+    dryRun: Boolean(input.dryRun ?? readBooleanParam(actionParams, "dryRun")),
   });
   mergedMediaUrls.length = 0;
   mergedMediaUrls.push(...normalizedMediaUrls);
@@ -1338,9 +1381,7 @@ async function buildSendPayloadParts(params: {
   if (!actionParams.replyTo && parsed.replyToId) {
     actionParams.replyTo = parsed.replyToId;
   }
-  if (!actionParams.media) {
-    actionParams.media = mergedMediaUrls[0] || undefined;
-  }
+  actionParams.media = mergedMediaUrls[0] || undefined;
   actionParams.mediaUrls = mergedMediaUrls.length > 0 ? [...mergedMediaUrls] : undefined;
 
   const hasLocationConflict = Boolean(
@@ -1630,6 +1671,7 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
     applySendPayloadPartsToActionParams(params, sendPayload);
   }
 
+  await assertRuntimeActionAuthority(input, dryRun);
   const send = await executeSendAction({
     ctx: {
       cfg,
@@ -1956,6 +1998,7 @@ async function handlePluginAction(ctx: ResolvedActionContext): Promise<MessageAc
   }
 
   const authorization = input.messageActionAuthorization;
+  await assertRuntimeActionAuthority(input, dryRun);
   const handled = await dispatchChannelMessageAction({
     channel,
     action,
@@ -2145,6 +2188,10 @@ export async function runMessageAction(
     mediaPolicy: normalizationPolicy,
     extraParamKeys: extraActionMediaSourceParamKeys,
     structuredAttachments: structuredAttachmentMode,
+    sandboxOutboundFileAccess: input.sandboxOutboundFileAccess,
+    maxBytes: resolveOutboundMediaMaxBytes({ cfg, channel, accountId }),
+    signal: input.abortSignal,
+    dryRun,
   });
 
   const mediaAccess = resolveAgentScopedOutboundMediaAccess({
@@ -2162,7 +2209,9 @@ export async function runMessageAction(
     requesterSenderE164: input.requesterSenderE164,
   });
   const mediaPolicy = resolveAttachmentMediaPolicy({
-    sandboxRoot: input.sandboxRoot,
+    // Runtime files are now owned host snapshots; hydrate those through the
+    // agent media capability rather than the unrelated host workspace bridge.
+    sandboxRoot: input.sandboxOutboundFileAccess ? undefined : input.sandboxRoot,
     mediaAccess,
   });
   const gateway = input.gateway;

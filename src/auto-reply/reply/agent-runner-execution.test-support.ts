@@ -263,10 +263,15 @@ vi.mock("./agent-runner-utils.js", () => ({
   }),
 }));
 
-vi.mock("./reply-delivery.js", () => ({
-  createBlockReplyDeliveryHandler: (params: unknown) =>
-    state.createBlockReplyDeliveryHandlerMock(params),
-}));
+vi.mock("./reply-delivery.js", async (importOriginal) => {
+  const { normalizeReplyPayloadDirectives } =
+    await importOriginal<typeof import("./reply-delivery.js")>();
+  return {
+    normalizeReplyPayloadDirectives,
+    createBlockReplyDeliveryHandler: (params: unknown) =>
+      state.createBlockReplyDeliveryHandlerMock(params),
+  };
+});
 
 vi.mock("./reply-media-paths.runtime.js", () => ({
   createReplyMediaContext: () => ({

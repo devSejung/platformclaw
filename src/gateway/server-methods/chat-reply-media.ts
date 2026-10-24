@@ -2,17 +2,21 @@
 import path from "node:path";
 import { MAX_DOCUMENT_BYTES } from "@openclaw/media-core/constants";
 import { isPassThroughRemoteMediaSource } from "@openclaw/media-core/media-source-url";
-import { isAudioFileName, kindFromMime, mimeTypeFromFilePath } from "@openclaw/media-core/mime";
+import { isAudioFileName, mimeTypeFromFilePath } from "@openclaw/media-core/mime";
 import { resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
-import { resolveAllowedManagedMediaPath } from "../../agents/sandbox-paths.js";
-import { copyReplyPayloadMetadata, type ReplyPayload } from "../../auto-reply/reply-payload.js";
+import {
+  appendReplyMediaFailureWarning,
+  copyReplyPayloadMetadata,
+  getReplyPayloadMetadata,
+  setReplyPayloadMetadata,
+  type ReplyPayload,
+} from "../../auto-reply/reply-payload.js";
 import { createReplyMediaPathNormalizer } from "../../auto-reply/reply/reply-media-paths.runtime.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { openLocalFileSafely } from "../../infra/fs-safe.js";
-import { isPathInside } from "../../infra/path-guards.js";
+import { withAgentMediaContext } from "../../media/agent-media-context.js";
 import { assertLocalMediaAllowed } from "../../media/local-media-access.js";
 import { resolveAgentScopedOutboundMediaAccess } from "../../media/read-capability.js";
-import { getMediaDir } from "../../media/store.js";
 import { resolveSendableOutboundReplyParts } from "../../plugin-sdk/reply-payload.js";
 
 function isDataUrlMedia(mediaUrl: string): boolean {
@@ -101,50 +105,8 @@ async function trustOwnedWorkspaceHtmlPayload(params: {
   });
 }
 
-async function trustStagedDocumentPayload(
-  payload: ReplyPayload,
-  originalMediaUrls: readonly string[],
-): Promise<ReplyPayload> {
-  if (payload.trustedLocalMedia === true || payload.sensitiveMedia === true) {
-    return payload;
-  }
-  const normalizedMediaUrls = resolveSendableOutboundReplyParts(payload).mediaUrls;
-  if (normalizedMediaUrls.length === 0) {
-    return payload;
-  }
-  const originalManagedPaths = await Promise.all(
-    originalMediaUrls.map(async (mediaUrl) => {
-      try {
-        return await resolveAllowedManagedMediaPath(mediaUrl);
-      } catch {
-        return undefined;
-      }
-    }),
-  );
-  const outboundRoot = path.join(getMediaDir(), "outbound");
-  for (const mediaUrl of normalizedMediaUrls) {
-    if (
-      kindFromMime(mimeTypeFromFilePath(mediaUrl)) !== "document" ||
-      originalMediaUrls.includes(mediaUrl)
-    ) {
-      return payload;
-    }
-    const managedPath = await resolveAllowedManagedMediaPath(mediaUrl);
-    if (
-      !managedPath ||
-      !isPathInside(outboundRoot, managedPath) ||
-      originalManagedPaths.includes(managedPath)
-    ) {
-      return payload;
-    }
-  }
-  // Only newly staged document-only payloads inherit the normalizer's verified
-  // outbound ownership; remote/data mixtures and raw workspaces never do.
-  return copyReplyPayloadMetadata(payload, { ...payload, trustedLocalMedia: true });
-}
-
 /** Normalize reply media paths for webchat display without leaking sensitive media. */
-export async function normalizeWebchatReplyMediaPathsForDisplay(params: {
+async function normalizeOwnedWebchatReplyMediaPaths(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
   agentId: string;
@@ -183,8 +145,7 @@ export async function normalizeWebchatReplyMediaPathsForDisplay(params: {
     }
     const mediaUrls = resolveSendableOutboundReplyParts(payload).mediaUrls;
     if (!mediaUrls.some((mediaUrl) => shouldPreserveDisplayMediaUrl(payload, mediaUrl))) {
-      const normalizedPayload = await normalizeMediaPaths(payload);
-      normalized.push(await trustStagedDocumentPayload(normalizedPayload, mediaUrls));
+      normalized.push(await normalizeMediaPaths(payload));
       continue;
     }
     if (!mediaUrls.some((mediaUrl) => !shouldPreserveDisplayMediaUrl(payload, mediaUrl))) {
@@ -192,34 +153,76 @@ export async function normalizeWebchatReplyMediaPathsForDisplay(params: {
       continue;
     }
     const mergedMediaUrls: string[] = [];
-    const text = payload.text;
+    const stagedUrls = new Set<string>();
+    const authorities = new Set<() => Promise<void>>();
+    const originalMetadata = getReplyPayloadMetadata(payload);
+    let mediaFailure = originalMetadata?.mediaFailure;
+    let text = payload.text;
     for (const mediaUrl of mediaUrls) {
       if (shouldPreserveDisplayMediaUrl(payload, mediaUrl)) {
         mergedMediaUrls.push(mediaUrl);
+        if (originalMetadata?.stagedLocalMediaUrls?.includes(mediaUrl)) {
+          stagedUrls.add(mediaUrl);
+          if (originalMetadata.mediaPublishAuthority) {
+            authorities.add(originalMetadata.mediaPublishAuthority);
+          }
+        }
         continue;
       }
-      const normalizedPayload = await normalizeMediaPaths({
-        ...payload,
-        mediaUrl,
-        mediaUrls: [mediaUrl],
-      });
+      const normalizedPayload = await normalizeMediaPaths(
+        copyReplyPayloadMetadata(payload, {
+          ...payload,
+          mediaUrl,
+          mediaUrls: [mediaUrl],
+        }),
+      );
       const normalizedMediaUrls = resolveSendableOutboundReplyParts(normalizedPayload).mediaUrls;
       if (normalizedMediaUrls.length === 0) {
+        mediaFailure = true;
+        text = appendReplyMediaFailureWarning(text);
         continue;
       }
       mergedMediaUrls.push(...normalizedMediaUrls);
+      const metadata = getReplyPayloadMetadata(normalizedPayload);
+      for (const stagedUrl of metadata?.stagedLocalMediaUrls ?? []) {
+        if (normalizedMediaUrls.includes(stagedUrl)) {
+          stagedUrls.add(stagedUrl);
+        }
+      }
+      if (metadata?.mediaPublishAuthority) {
+        authorities.add(metadata.mediaPublishAuthority);
+      }
     }
+    // Splitting display-preserved URLs must retain private producer facts;
+    // only URLs surviving normalization may keep a staging authorization.
     normalized.push(
-      await trustStagedDocumentPayload(
-        {
+      setReplyPayloadMetadata(
+        copyReplyPayloadMetadata(payload, {
           ...payload,
           text,
           mediaUrl: mergedMediaUrls[0],
           mediaUrls: mergedMediaUrls,
+        }),
+        {
+          mediaFailure,
+          stagedLocalMediaUrls: stagedUrls.size ? [...stagedUrls] : undefined,
+          mediaPublishAuthority:
+            mergedMediaUrls.length && authorities.size
+              ? async () => {
+                  for (const assertAuthority of authorities) {
+                    await assertAuthority();
+                  }
+                }
+              : undefined,
         },
-        mediaUrls,
       ),
     );
   }
   return normalized;
+}
+
+export function normalizeWebchatReplyMediaPathsForDisplay(
+  params: Parameters<typeof normalizeOwnedWebchatReplyMediaPaths>[0],
+): Promise<ReplyPayload[]> {
+  return withAgentMediaContext(params.agentId, () => normalizeOwnedWebchatReplyMediaPaths(params));
 }

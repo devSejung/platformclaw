@@ -5,7 +5,7 @@ import type { SkillEligibilityContext, SkillUsagePath } from "../../skills/types
  * Shared by config resolution, backend creation, tool policy checks, and runtime prompt/tool wiring.
  */
 import type { SandboxBackendHandle, SandboxBackendId } from "./backend-handle.types.js";
-import type { SandboxFsBridge } from "./fs-bridge.types.js";
+import type { SandboxFsBridge, SandboxOutboundFileAccess } from "./fs-bridge.types.js";
 import type { SandboxDockerConfig } from "./types.docker.js";
 
 export type { SandboxDockerConfig } from "./types.docker.js";
@@ -108,11 +108,13 @@ export type SandboxContext = {
   runtimeLabel: string;
   containerName: string;
   containerWorkdir: string;
+  accountOwnedRoots?: readonly string[];
   docker: SandboxDockerConfig;
   tools: SandboxToolPolicy;
   browserAllowHostControl: boolean;
   browser?: SandboxBrowserContext;
   fsBridge?: SandboxFsBridge;
+  outboundFileAccess?: SandboxOutboundFileAccess;
   backend?: SandboxBackendHandle;
 };
 

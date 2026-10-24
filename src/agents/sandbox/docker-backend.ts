@@ -159,6 +159,7 @@ async function runContainerSandboxShellCommand(
     input: params.stdin,
     allowFailure: params.allowFailure,
     signal: params.signal,
+    maxBufferBytes: params.maxBufferBytes,
   });
 }
 

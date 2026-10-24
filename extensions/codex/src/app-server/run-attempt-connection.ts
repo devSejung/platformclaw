@@ -112,6 +112,7 @@ export async function prepareCodexAttemptConnection({ params, options }: CodexRu
     sessionKey: sandboxSessionKey,
     workspaceDir: resolvedWorkspace,
   });
+  params.onSandboxPrepared?.(sandbox);
   preDynamicStartupStages.mark("sandbox");
   const execPolicy = resolveOpenClawExecPolicyForCodexAppServer({
     execOverrides: params.execOverrides,

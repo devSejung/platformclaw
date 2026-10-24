@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import { MEDIA_MAX_BYTES } from "../../media/store.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
+import { normalizeSandboxMediaList } from "./message-action-media-normalizer.js";
 
 const { resolveChannelMessageToolMediaSourceParamKeysMock } = vi.hoisted(() => ({
   resolveChannelMessageToolMediaSourceParamKeysMock: vi.fn(() => ["avatarPath", "avatarUrl"]),
@@ -19,7 +20,6 @@ vi.mock("../../channels/plugins/message-action-discovery.js", () => ({
 import {
   collectActionMediaSourceHints,
   hydrateAttachmentParamsForAction,
-  normalizeSandboxMediaList,
   normalizeSandboxMediaParams,
   resolveExtraActionMediaSourceParamKeys,
   resolveAttachmentMediaPolicy,

@@ -1,6 +1,6 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { SourceReplyDeliveryMode } from "../../../auto-reply/get-reply-options.types.js";
-import type { ReplyPayload } from "../../../auto-reply/reply-payload.js";
+import { copyReplyPayloadMetadata, type ReplyPayload } from "../../../auto-reply/reply-payload.js";
 import type {
   MessagingToolSend,
   MessagingToolSourceReplyPayload,
@@ -58,7 +58,7 @@ export function buildSourceReplyPayloadState(params: {
     // These replies were already sent by the tool. Mirror them into the
     // transcript while marking channel delivery to suppress a duplicate send.
     return [
-      {
+      copyReplyPayloadMetadata(payload, {
         text,
         ...(payload.mediaUrl ? { mediaUrl: payload.mediaUrl } : {}),
         ...(media.length ? { media } : {}),
@@ -71,7 +71,7 @@ export function buildSourceReplyPayloadState(params: {
             payload.idempotencyKey ??
             (params.runId ? `${params.runId}:internal-source-reply:${index}` : undefined),
         },
-      },
+      }),
     ];
   });
   const hasSourceReplyPayload = replyItems.length > 0;

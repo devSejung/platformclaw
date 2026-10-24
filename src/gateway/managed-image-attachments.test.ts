@@ -16,6 +16,7 @@ import { resolveSqliteTargetFromSessionStorePath } from "../config/sessions/sess
 import { resolveExistingAgentSessionStoreTargetsReadOnlyResult } from "../config/sessions/targets-read-availability.js";
 import { createPinnedLookup } from "../infra/net/ssrf.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
+import { withAgentMediaContext } from "../media/agent-media-context.js";
 import { setMediaStoreNetworkDepsForTest } from "../media/store.test-support.js";
 import {
   closeOpenClawAgentDatabasesForTest,
@@ -110,6 +111,7 @@ const {
   handleManagedOutgoingMediaHttpRequest: handleManagedOutgoingImageHttpRequest,
   purgeManagedOutgoingMediaForSession,
   resolveManagedOutgoingMediaArtifactDownload: resolveManagedOutgoingImageArtifactDownload,
+  resolveManagedOutgoingMediaUrlDownload,
   resolveManagedImageAttachmentLimits,
 } = await import("./managed-image-attachments.js");
 
@@ -424,6 +426,61 @@ describe("handleManagedOutgoingImageHttpRequest", () => {
     expect(result.headers["content-type"]).toBe("image/png");
     expect(result.headers["content-disposition"]).toContain("inline");
     expect(result.body.toString("utf-8")).toBe("original-image");
+  });
+
+  it("mints global-session download tickets only for the record's Agent owner", async () => {
+    const storePath = path.join(stateDir, "agents", "work", "sessions", "sessions.json");
+    getRuntimeConfigMock.mockReturnValue({
+      agents: { entries: { main: { default: true }, work: {} } },
+      session: { store: path.join(stateDir, "agents", "{agentId}", "sessions", "sessions.json") },
+    });
+    await replaceTestSessionEntry(
+      {
+        agentId: "work",
+        env: { ...process.env, OPENCLAW_STATE_DIR: stateDir },
+        sessionKey: "global",
+        storePath,
+      },
+      { sessionId: "work-global", updatedAt: Date.now() },
+    );
+    const fixture = await createFixture(stateDir, { sessionKey: "global", agentId: "work" });
+    const url = `/api/chat/media/outgoing/global/${fixture.attachmentId}/full`;
+    const transcriptMessages = [
+      { role: "assistant", content: [{ type: "image", url }], __openclaw: { id: "msg-1" } },
+    ];
+    const served = await requestManagedImage({
+      stateDir,
+      pathName: url,
+      authResponse: { authMethod: "token" },
+      transcriptMessages,
+      sessionEntry: { sessionId: "work-global" },
+    });
+    expect(served.result.statusCode).toBe(200);
+    const artifactId = `${MANAGED_OUTGOING_IMAGE_ARTIFACT_ID_PREFIX}${fixture.attachmentId}`;
+    await expect(
+      resolveManagedOutgoingImageArtifactDownload({
+        sessionKey: "global",
+        agentId: "work",
+        artifactId,
+        stateDir,
+      }),
+    ).resolves.toMatchObject({ sessionKey: "global", artifactId });
+    await expect(
+      resolveManagedOutgoingImageArtifactDownload({
+        sessionKey: "global",
+        agentId: "main",
+        artifactId,
+        stateDir,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      resolveManagedOutgoingMediaUrlDownload({
+        sessionKey: "global",
+        agentId: "main",
+        url,
+        stateDir,
+      }),
+    ).resolves.toBeNull();
   });
 
   it("serves Unicode media filenames with an encoded content disposition", async () => {
@@ -1293,6 +1350,104 @@ describe("createManagedOutgoingImageBlocks", () => {
     },
   );
 
+  it("retains an owned document snapshot after its source disappears and serves it through a history ticket", async () => {
+    const sessionKey = "agent:main:main";
+    const sourcePath = path.join(stateDir, "workspace", "report.pdf");
+    const body = Buffer.from("%PDF-1.7\nowned document\n");
+    await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+    await fs.writeFile(sourcePath, body);
+    const blocks = await withEnvAsync(
+      { OPENCLAW_STATE_DIR: stateDir },
+      async () =>
+        await withAgentMediaContext(
+          "main",
+          async () =>
+            await createManagedOutgoingImageBlocks({
+              sessionKey,
+              agentId: "main",
+              mediaUrls: [sourcePath],
+              stateDir,
+              localRoots: [path.dirname(sourcePath)],
+              allowLocalNonImage: true,
+            }),
+        ),
+    );
+    expect(blocks).toHaveLength(1);
+    const block = blocks[0];
+    if (!block || !block.attachment || typeof block.attachment !== "object") {
+      throw new Error("Expected a managed document attachment");
+    }
+    const attachment = block.attachment as Record<string, unknown>;
+    expect(attachment).toMatchObject({
+      kind: "document",
+      label: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: body.length,
+    });
+    const attachmentId = requireAttachmentIdFromUrl(attachment.url);
+    expect(attachment.artifactId).toBe(
+      `${MANAGED_OUTGOING_MEDIA_ARTIFACT_ID_PREFIX}${attachmentId}`,
+    );
+    expect(readManagedImageRecord(attachmentId, stateDir)).toMatchObject({
+      agentId: "main",
+      original: { mediaRoot: path.join(stateDir, "media", "agents", "main") },
+    });
+    await attachManagedOutgoingImagesToMessage({ messageId: "msg-document", blocks, stateDir });
+    await fs.rm(sourcePath);
+    const transcriptMessages = [
+      { role: "assistant", content: blocks, __openclaw: { id: "msg-document" } },
+    ];
+    const first = await requestManagedImage({
+      stateDir,
+      pathName: String(attachment.url),
+      authResponse: { authMethod: "token" },
+      transcriptMessages,
+    });
+    expect(first.result.statusCode).toBe(200);
+    expect(first.result.body).toEqual(body);
+    expect(first.result.headers["content-disposition"]).toContain("attachment;");
+    const download = await resolveManagedOutgoingImageArtifactDownload({
+      sessionKey,
+      artifactId: String(attachment.artifactId),
+      stateDir,
+    });
+    expect(download).toMatchObject({
+      type: "file",
+      title: "report.pdf",
+      mimeType: "application/pdf",
+    });
+    if (!download) {
+      throw new Error("expected a document download ticket");
+    }
+    const ticketed = await requestManagedImage({
+      stateDir,
+      pathName: download.url,
+      denyAuth: true,
+      transcriptMessages,
+    });
+    expect(ticketed.result.statusCode).toBe(200);
+    expect(ticketed.result.body).toEqual(body);
+    await cleanupManagedOutgoingImageRecords({ stateDir, nowMs: Date.now() + 24 * 60 * 60 * 1000 });
+    expect(readManagedImageRecord(attachmentId, stateDir)?.retentionClass).toBe("history");
+  });
+
+  it.each(["report.txt", "unknown"])(
+    "requires explicit trust before publishing local document %s",
+    async (filename) => {
+      const sourcePath = path.join(stateDir, "workspace", filename);
+      await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+      await fs.writeFile(sourcePath, "document bytes");
+      await expect(
+        createManagedOutgoingImageBlocks({
+          sessionKey: "agent:main:main",
+          mediaUrls: [sourcePath],
+          stateDir,
+          localRoots: [path.dirname(sourcePath)],
+        }),
+      ).rejects.toThrow("could not be prepared");
+    },
+  );
+
   it("marks exotic managed media metadata for playback transcoding", async () => {
     const sourcePath = path.join(stateDir, "workspace", "voice.caf");
     await fs.mkdir(path.dirname(sourcePath), { recursive: true });
@@ -1772,17 +1927,18 @@ describe("createManagedOutgoingImageBlocks", () => {
     }
   });
 
-  it("drops downloaded non-image sources without leaving orphaned originals", async () => {
+  it("rejects untrusted local documents without leaving orphaned originals", async () => {
     const pdfPath = path.join(stateDir, "not-an-image.pdf");
     await fs.writeFile(pdfPath, Buffer.from("%PDF-1.4\n% test\n"));
 
-    const blocks = await createManagedOutgoingImageBlocks({
-      sessionKey: "agent:main:main",
-      mediaUrls: [pdfPath],
-      stateDir,
-      localRoots: [stateDir],
-    });
-    expect(blocks).toStrictEqual([]);
+    await expect(
+      createManagedOutgoingImageBlocks({
+        sessionKey: "agent:main:main",
+        mediaUrls: [pdfPath],
+        stateDir,
+        localRoots: [stateDir],
+      }),
+    ).rejects.toThrow("could not be prepared");
     const originalsDir = path.join(stateDir, "media", "outgoing", "originals");
     let originals: string[] | null = null;
     try {
@@ -2138,26 +2294,30 @@ describe("cleanupManagedOutgoingImageRecords", () => {
     await expectPathMissing(fixture.originalPath);
   });
 
-  it("reaps aged files left before a SQLite record was committed", async () => {
-    const orphanPath = path.join(
-      stateDir,
-      "media",
-      MANAGED_OUTGOING_ORIGINALS_SUBDIR,
-      "orphan.png",
-    );
-    await fs.mkdir(path.dirname(orphanPath), { recursive: true });
-    await fs.writeFile(orphanPath, "orphan");
-    await fs.utimes(orphanPath, new Date(0), new Date(0));
+  it.each(["", path.join("agents", "main")])(
+    "reaps aged uncommitted originals in store %s",
+    async (ownerSubdir) => {
+      const orphanPath = path.join(
+        stateDir,
+        "media",
+        ownerSubdir,
+        MANAGED_OUTGOING_ORIGINALS_SUBDIR,
+        "orphan.png",
+      );
+      await fs.mkdir(path.dirname(orphanPath), { recursive: true });
+      await fs.writeFile(orphanPath, "orphan");
+      await fs.utimes(orphanPath, new Date(0), new Date(0));
 
-    const result = await cleanupManagedOutgoingImageRecords({
-      stateDir,
-      nowMs: 1_000_000,
-      transientMaxAgeMs: 1_000,
-    });
+      const result = await cleanupManagedOutgoingImageRecords({
+        stateDir,
+        nowMs: 1_000_000,
+        transientMaxAgeMs: 1_000,
+      });
 
-    expect(result).toEqual({ deletedRecordCount: 0, deletedFileCount: 1, retainedCount: 0 });
-    await expectPathMissing(orphanPath);
-  });
+      expect(result).toEqual({ deletedRecordCount: 0, deletedFileCount: 1, retainedCount: 0 });
+      await expectPathMissing(orphanPath);
+    },
+  );
 
   it("does not reap old unindexed files while legacy metadata still exists", async () => {
     const orphanPath = path.join(

@@ -140,6 +140,9 @@ function normalizeSsoReturnTo(value: string | null): string {
 }
 
 function clearSessionCookie(res: ServerResponse, secure: boolean): void {
+  // Purge bytes cached before media became no-store, without clearing shared
+  // origin storage or unrelated cookies. Supporting browsers require a secure context.
+  res.setHeader("Clear-Site-Data", '"cache"');
   appendSetCookie(res, serializeSessionCookie("", secure, true));
 }
 
@@ -211,6 +214,7 @@ export async function handlePlatformClawBrowserAuthRequest(
       return true;
     }
     appendSetCookie(res, serializeSessionCookie(result.token, options.requestIsSecure));
+    res.setHeader("Clear-Site-Data", '"cache"');
     appendSetCookie(res, serializeSsoReturnCookie("", options.requestIsSecure, true));
     res.statusCode = 302;
     res.setHeader("Location", normalizeSsoReturnTo(readCookie(req, SSO_RETURN_COOKIE) ?? null));
@@ -274,6 +278,7 @@ export async function handlePlatformClawBrowserAuthRequest(
       return true;
     }
     appendSetCookie(res, serializeSessionCookie(result.token, options.requestIsSecure));
+    res.setHeader("Clear-Site-Data", '"cache"');
     sendJson(res, 200, {
       authenticated: true,
       user: {

@@ -12,6 +12,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { clearAgentRunContext } from "../../infra/agent-run-registry.js";
 import { measureDiagnosticsTimelineSpan } from "../../infra/diagnostics-timeline.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { withAgentMediaContext } from "../../media/agent-media-context.js";
 import { parseInboundMediaUri } from "../../media/media-reference.js";
 import { deleteMediaBuffer, MEDIA_MAX_BYTES } from "../../media/store.js";
 import { resolveChatAttachmentMaxBytes } from "../chat-attachment-policy.js";
@@ -180,7 +181,7 @@ async function prestageMediaPathOffloads(params: {
 }
 
 /** Parse and pre-stage attachments before the caller's synchronous pre-ACK checks. */
-export async function prepareChatSendAttachments(params: {
+async function prepareOwnedChatSendAttachments(params: {
   request: NormalizedChatSendRequest;
   session: PreparedChatSendSession;
   admission: AdmittedChatSend;
@@ -296,4 +297,12 @@ export async function prepareChatSendAttachments(params: {
       prepareAttachmentsMs,
     },
   };
+}
+
+export function prepareChatSendAttachments(
+  params: Parameters<typeof prepareOwnedChatSendAttachments>[0],
+) {
+  return withAgentMediaContext(params.session.agentId, () =>
+    prepareOwnedChatSendAttachments(params),
+  );
 }

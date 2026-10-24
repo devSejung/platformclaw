@@ -104,6 +104,98 @@ function createWorkspaceReadBridge(workspaceDir: string) {
 }
 
 describe("remote sandbox fs bridge", () => {
+  it.skipIf(process.platform !== "linux")(
+    "supports account-owned /tmp through real file operations without host mapping",
+    async () => {
+      await withTempDir("openclaw-owned-tools-", async (workspaceDir) => {
+        const { runtime } = createLocalRemoteRuntime({
+          remoteWorkspaceDir: workspaceDir,
+          remoteAgentWorkspaceDir: workspaceDir,
+        });
+        const bridge = createRemoteShellSandboxFsBridge({
+          sandbox: {
+            ...createSandbox({ workspaceDir, agentWorkspaceDir: workspaceDir }),
+            accountOwnedRoots: ["/tmp"],
+          },
+          runtime,
+        });
+        if (!bridge.copyFile || !bridge.rename || !bridge.createFileExclusive) {
+          throw new Error("The remote bridge must support copy, rename and exclusive create.");
+        }
+        const scratch = await fs.mkdtemp("/tmp/openclaw-file-tools-");
+        try {
+          const filePath = `${scratch}/nested/report.txt`;
+          await bridge.writeFile({ filePath, data: "first" });
+          expect(bridge.resolvePath({ filePath }).hostPath).toBeUndefined();
+          await expect(bridge.readFile({ filePath })).resolves.toEqual(Buffer.from("first"));
+          await bridge.writeFile({ filePath, data: "edited" });
+          await expect(bridge.stat({ filePath })).resolves.toMatchObject({ type: "file", size: 6 });
+          await expect(bridge.createFileExclusive({ filePath, data: "replace" })).resolves.toBe(
+            "exists",
+          );
+          await expect(
+            bridge.copyFile({ sourcePath: filePath, destinationPath: filePath }),
+          ).rejects.toThrow("same file");
+          expect(await fs.readFile(filePath, "utf8")).toBe("edited");
+          await bridge.copyFile({ sourcePath: filePath, destinationPath: `${scratch}/copy.txt` });
+          await bridge.rename({ from: `${scratch}/copy.txt`, to: `${scratch}/moved.txt` });
+          await expect(bridge.readFile({ filePath: `${scratch}/moved.txt` })).resolves.toEqual(
+            Buffer.from("edited"),
+          );
+          await bridge.copyFile({
+            sourcePath: filePath,
+            destinationPath: `${workspaceDir}/exported.txt`,
+          });
+          expect(await fs.readFile(`${workspaceDir}/exported.txt`, "utf8")).toBe("edited");
+          await bridge.remove({ filePath: `${scratch}/nested`, recursive: true });
+          await expect(bridge.stat({ filePath })).resolves.toBeNull();
+        } finally {
+          await fs.rm(scratch, { recursive: true, force: true });
+        }
+      });
+    },
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "denies /tmp aliases and shared writable descendants before accessing bytes",
+    async () => {
+      await withTempDir("openclaw-owned-denied-", async (workspaceDir) => {
+        const { runtime } = createLocalRemoteRuntime({
+          remoteWorkspaceDir: workspaceDir,
+          remoteAgentWorkspaceDir: workspaceDir,
+        });
+        const bridge = createRemoteShellSandboxFsBridge({
+          sandbox: {
+            ...createSandbox({ workspaceDir, agentWorkspaceDir: workspaceDir }),
+            accountOwnedRoots: ["/tmp"],
+          },
+          runtime,
+        });
+        const scratch = await fs.mkdtemp("/tmp/openclaw-file-denied-");
+        try {
+          const filePath = `${scratch}/report.txt`;
+          await fs.writeFile(filePath, "private");
+          await fs.symlink(filePath, `${scratch}/alias.txt`);
+          await fs.link(filePath, `${scratch}/hardlink.txt`);
+          await expect(bridge.readFile({ filePath: `${scratch}/alias.txt` })).rejects.toThrow();
+          await expect(
+            bridge.writeFile({ filePath: `${scratch}/hardlink.txt`, data: "tampered" }),
+          ).rejects.toThrow();
+          await expect(
+            bridge.remove({ filePath: `${scratch}/alias.txt`, force: false }),
+          ).rejects.toThrow();
+          expect(await fs.readFile(filePath, "utf8")).toBe("private");
+          await fs.mkdir(`${scratch}/shared`, { mode: 0o777 });
+          await fs.chmod(`${scratch}/shared`, 0o777);
+          await expect(
+            bridge.writeFile({ filePath: `${scratch}/shared/new.txt`, data: "blocked" }),
+          ).rejects.toThrow();
+        } finally {
+          await fs.rm(scratch, { recursive: true, force: true });
+        }
+      });
+    },
+  );
   it("keeps skill paths read-only under a broader writable remote root", async () => {
     await withTempDir("openclaw-remote-protected-skill-", async (workspaceDir) => {
       await fs.mkdir(path.join(workspaceDir, "skills"), { recursive: true });
@@ -363,7 +455,9 @@ describe("remote sandbox fs bridge", () => {
         expect(calls).toHaveLength(2);
         const readCall = calls.find((call) => call.args?.[0] === "read");
         expect(readCall?.script).toContain("python3 /dev/fd/3 \"$@\" 3<<'PY'");
-        expect(readCall?.script).toContain("read_file(parent_fd, basename)");
+        expect(readCall?.script).toContain(
+          "read_file_impl(parent_fd, basename, max_bytes, require_owner=False)",
+        );
         expect(readCall?.script).not.toContain('cat -- "$1"');
       });
     },

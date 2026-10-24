@@ -410,7 +410,10 @@ function collectArtifactsFromMessage(params: {
   }
   const content = Array.isArray(msg.content) ? msg.content : [];
   for (let contentIndex = 0; contentIndex < content.length; contentIndex += 1) {
-    const block = asOptionalRecord(content[contentIndex]);
+    const sourceBlock = asOptionalRecord(content[contentIndex]);
+    const attachment =
+      sourceBlock?.type === "attachment" ? asOptionalRecord(sourceBlock.attachment) : undefined;
+    const block = attachment?.kind === "document" ? { ...attachment, type: "file" } : sourceBlock;
     if (!block || !isArtifactBlock(block)) {
       continue;
     }
@@ -419,6 +422,7 @@ function collectArtifactsFromMessage(params: {
       asNonEmptyString(block.title) ??
       asNonEmptyString(block.fileName) ??
       asNonEmptyString(block.filename) ??
+      asNonEmptyString(block.label) ??
       asNonEmptyString(block.alt) ??
       `${type} ${params.artifacts.length + 1}`;
     const declaredArtifactId = asNonEmptyString(block.artifactId);
@@ -663,6 +667,7 @@ export const artifactsHandlers: GatewayRequestHandlers = {
       const managed = resolved
         ? await resolveManagedOutgoingMediaArtifactDownload({
             sessionKey: resolved.sessionKey,
+            ...(resolved.agentId ? { agentId: resolved.agentId } : {}),
             artifactId: params.artifactId,
           })
         : null;
@@ -707,10 +712,13 @@ export const artifactsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
+    const managedAgentId =
+      params.agentId ?? resolveQuerySession(params, context.getRuntimeConfig?.())?.agentId;
     const managedUrl =
       artifact.download.mode === "url" && artifact.url && artifact.sessionKey
         ? await resolveManagedOutgoingMediaUrlDownload({
             sessionKey: artifact.sessionKey,
+            ...(managedAgentId ? { agentId: managedAgentId } : {}),
             url: artifact.url,
           })
         : null;
