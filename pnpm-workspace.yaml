@@ -20,6 +20,8 @@ minimumReleaseAgeExclude:
   - "axios"
   - "@grpc/grpc-js@1.14.5"
   - "basic-ftp"
+  # Approved security fix; remove after its 48-hour window ends on 2026-10-24 at 11:39 UTC.
+  - "body-parser@2.4.0"
   - "baileys@7.0.0-rc13"
   - "brace-expansion@5.0.11"
   - "hono"
@@ -29,8 +31,6 @@ minimumReleaseAgeExclude:
   - "openclaw"
   - "protobufjs"
   - "vite"
-  - "undici@7.29.1"
-  - "undici@8.10.2"
   - "@cloudflare/workers-types"
   - "@hono/node-server"
   - "@mariozechner/*"
@@ -132,8 +132,8 @@ overrides:
   axios: 1.20.0
   "@grpc/grpc-js": 1.14.5
   fast-uri: 4.1.4
-  "undici@7": 7.29.1
-  "undici@8": 8.10.2
+  "undici@7": 7.30.1
+  "undici@8": 8.12.2
   follow-redirects: 1.16.1
   defu: 6.1.7
   fast-xml-parser: 5.10.1
@@ -149,7 +149,7 @@ overrides:
   # Remove when node-llama-cpp accepts the patched major; 3.x leaves Git guards vulnerable.
   "node-llama-cpp>simple-git": 4.0.2
   path-to-regexp: 8.4.2
-  qs: 6.15.3
+  qs: 6.16.1
   sharp: 0.35.5
   node-domexception: "npm:@nolyfill/domexception@1.0.28"
   "acpx>tsx": 4.23.13
@@ -192,6 +192,7 @@ packageExtensions:
         optional: true
 
 patchedDependencies:
+  "@azure/msal-node@5.4.2": patches/@azure__msal-node@5.4.2.patch
   "@discord/embedded-app-sdk@2.5.0": patches/@discord__embedded-app-sdk@2.5.0.patch
   zod@3.25.76: patches/zod@3.25.76.patch
   zod@4.6.6: patches/zod@4.6.6.patch

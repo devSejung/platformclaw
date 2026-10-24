@@ -61,7 +61,7 @@ const AUDIT_ADVISORY_VERSION_OVERRIDES = [
     unaffectedVersions: new Set(["2.2.1", "2.2.5"]),
   },
 ];
-// These parser backports are reviewed source artifacts, not version exceptions.
+// These security backports are reviewed source artifacts, not version exceptions.
 // Verify both patch bytes and pnpm's complete installation identity before
 // recognizing remediation; Zod 4.6.6 still exposes the affected /v3 parser.
 const REVIEWED_SECURITY_PATCHES = [
@@ -92,8 +92,28 @@ const REVIEWED_SECURITY_PATCHES = [
     integrity:
       "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==",
   },
+  {
+    packageName: "@azure/msal-node",
+    version: "5.4.2",
+    patchPath: "patches/@azure__msal-node@5.4.2.patch",
+    sha256: "c2854316529b20e93e91e44a4edb703526a9b2cfed9512baa9d4ac9c6f200679",
+    installHash: "c2854316529b20e93e91e44a4edb703526a9b2cfed9512baa9d4ac9c6f200679",
+    integrity:
+      "sha512-fnqOpGYAV+i0RH4W5HB6Oy1IhqGZoCdnp7Y2Sa9k18FlT8aBkCA7L8Hv19hUHLDUK6kVjUO29AfnGX6wgAHyNg==",
+  },
 ];
-const ZOD_COLLECTION_ADVISORY = "GHSA-mrhx-c7xc-m3w5";
+const REVIEWED_PATCH_ADVISORIES = [
+  {
+    packageName: "zod",
+    url: "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5",
+    vulnerableVersions: "<4.6.6",
+  },
+  {
+    packageName: "@azure/msal-node",
+    url: "https://github.com/advisories/GHSA-xcx6-jx8p-x3h5",
+    vulnerableVersions: ">=5.0.0-beta.0 <7.1.0",
+  },
+];
 
 function normalizeAuditLevel(level) {
   const normalized = String(level ?? "").toLowerCase();
@@ -371,17 +391,11 @@ export async function verifyReviewedSecurityPatches({
   requiredPatchSpecifiers = [],
 }) {
   const allVersions = collectAllResolvedPackagesFromLockfile(lockfileText);
-  const zodVersions = [...(allVersions.get("zod") ?? [])];
-  const sdkVersions = [...(allVersions.get("@discord/embedded-app-sdk") ?? [])];
   /** @type {Set<string>} */
   const specifiers = new Set(requiredPatchSpecifiers);
-  /** @type {[string, string[]][]} */
-  const packageVersions = [
-    ["zod", zodVersions],
-    ["@discord/embedded-app-sdk", sdkVersions],
-  ];
-  for (const [packageName, versions] of packageVersions) {
-    for (const version of versions) {
+  const packageNames = new Set(REVIEWED_SECURITY_PATCHES.map((artifact) => artifact.packageName));
+  for (const packageName of packageNames) {
+    for (const version of allVersions.get(packageName) ?? []) {
       specifiers.add(`${packageName}@${version}`);
     }
   }
@@ -408,32 +422,35 @@ export async function filterVerifiedPatchedAdvisories({
   versionsByPackage = collectAllResolvedPackagesFromLockfile(lockfileText),
 }) {
   await verifyReviewedSecurityPatches({ rootDir, lockfileText });
-  const resolvedZod = [...(versionsByPackage.get("zod") ?? [])];
-  const remediated =
-    resolvedZod.length > 0 &&
-    resolvedZod.every((version) =>
-      REVIEWED_SECURITY_PATCHES.some(
-        (artifact) => artifact.packageName === "zod" && artifact.version === version,
-      ),
-    );
-  if (!remediated || !Array.isArray(advisoriesByPackage?.zod)) {
-    return advisoriesByPackage;
-  }
-  // Keep querying the original versions: a fixed collection parser does not
-  // excuse a different advisory, a changed range, or an unpatched installation.
-  return {
-    ...advisoriesByPackage,
-    zod: advisoriesByPackage.zod.filter(
+  const filtered = { ...advisoriesByPackage };
+  // Keep querying original versions. A reviewed backport does not excuse a
+  // different advisory, a changed range/severity, or an unpatched installation.
+  for (const reviewed of REVIEWED_PATCH_ADVISORIES) {
+    const versions = [...(versionsByPackage.get(reviewed.packageName) ?? [])];
+    const advisories = advisoriesByPackage?.[reviewed.packageName];
+    const remediated =
+      versions.length > 0 &&
+      versions.every((version) =>
+        REVIEWED_SECURITY_PATCHES.some(
+          (artifact) =>
+            artifact.packageName === reviewed.packageName && artifact.version === version,
+        ),
+      );
+    if (!remediated || !Array.isArray(advisories)) {
+      continue;
+    }
+    filtered[reviewed.packageName] = advisories.filter(
       (advisory) =>
         !(
           advisory &&
           typeof advisory === "object" &&
-          advisory.url === `https://github.com/advisories/${ZOD_COLLECTION_ADVISORY}` &&
-          advisory.vulnerable_versions === "<4.6.6" &&
+          advisory.url === reviewed.url &&
+          advisory.vulnerable_versions === reviewed.vulnerableVersions &&
           advisory.severity === "high"
         ),
-    ),
-  };
+    );
+  }
+  return filtered;
 }
 
 function isNamedYamlSection(trimmed, sectionNames) {
