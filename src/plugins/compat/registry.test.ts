@@ -203,9 +203,7 @@ describe("plugin compatibility registry", () => {
       expect(record?.replacement).toContain("explicit breaking-release approval");
     }
     expect(sdk?.owner).toBe("sdk");
-    expect(sdk?.replacement).toContain(
-      "minimum supported plugin exclusion of v2026.7.1-beta.5",
-    );
+    expect(sdk?.replacement).toContain("minimum supported plugin exclusion of v2026.7.1-beta.5");
     expect(sdk?.surfaces).toEqual([
       "openclaw/plugin-sdk/session-store-runtime loadSessionStore",
       "openclaw/plugin-sdk/session-store-runtime updateSessionStore",
