@@ -14,7 +14,8 @@ describe("Space invitation directory search", () => {
         employeeId: "bob",
         displayName: "김보람",
       },
-      Date.now(),
+      // Refresh after the fixture's recorded authentication, independent of wall-clock adjustments.
+      f.bob.identity.lastAuthenticatedAt + 1,
     );
     const search = (query: string) =>
       f.proxy.request(f.alice.token, method, { spaceId: f.space.id, query });

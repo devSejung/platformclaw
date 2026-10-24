@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { withTempDir } from "../../test-helpers/temp-dir.js";
 import type { SandboxBackendCommandParams } from "./backend-handle.types.js";
 import { createSandboxOutboundFileAccess } from "./outbound-file-access.js";
+import { createRemoteShellSandboxFsBridge } from "./remote-fs-bridge.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -133,6 +134,84 @@ describe.skipIf(process.platform !== "linux")("sandbox outbound files", () => {
           maxBytes: 20,
           signal: controller.signal,
         });
+      } finally {
+        await fs.rm(access.tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it.each([
+    { parentDir: undefined, symlinkWorkspace: false },
+    { parentDir: process.cwd(), symlinkWorkspace: false },
+    { parentDir: process.cwd(), symlinkWorkspace: true },
+  ])("enforces workspace-only export with %j", async ({ parentDir, symlinkWorkspace }) => {
+    await withTempDir({ prefix: "openclaw-outbound-workspace-", parentDir }, async (root) => {
+      const actualWorkspace = path.join(root, "workspace");
+      await fs.mkdir(actualWorkspace);
+      const workdir = symlinkWorkspace ? path.join(root, "workspace-link") : actualWorkspace;
+      if (symlinkWorkspace) {
+        await fs.symlink(actualWorkspace, workdir);
+      }
+      await execFileAsync("mkfifo", [path.join(workdir, "fifo")]);
+      await fs.writeFile(path.join(workdir, "report.txt"), "workspace bytes");
+      await fs.writeFile(path.join(root, "home.txt"), "outside workspace");
+      await fs.symlink(path.join(root, "home.txt"), path.join(workdir, "escape.txt"));
+      await fs.symlink(root, path.join(workdir, "escape-dir"));
+      await fs.symlink("report.txt", path.join(workdir, "inside-link.txt"));
+      const backend = { ...createShellBackend(root), workdir };
+      const bridge = createRemoteShellSandboxFsBridge({
+        sandbox: {
+          workspaceDir: "/gateway/one",
+          agentWorkspaceDir: "/gateway/one",
+          workspaceAccess: "rw",
+          containerName: root,
+          containerWorkdir: workdir,
+          accountOwnedRoots: ["/tmp"],
+          docker: {},
+        },
+        runtime: {
+          remoteWorkspaceDir: workdir,
+          remoteAgentWorkspaceDir: path.join(root, "agent"),
+          remoteHomeDir: root,
+          additionalFilesystemRoots: [{ root, access: "rw" }],
+          runRemoteShellScript: backend.runShellCommand,
+        },
+      });
+      const access = await createSandboxOutboundFileAccess({
+        backend,
+        bridge,
+        scopeKey: "one",
+        workspaceDir: "/gateway/one",
+        workspaceOnly: true,
+      });
+      try {
+        for (const filePath of [
+          "report.txt",
+          "~/workspace/report.txt",
+          "/gateway/one/report.txt",
+        ]) {
+          await expect(access.readFile({ filePath, maxBytes: 100 })).resolves.toEqual(
+            Buffer.from("workspace bytes"),
+          );
+        }
+        for (const filePath of ["~/home.txt", path.join(root, "home.txt"), access.tempDir]) {
+          await expect(access.readFile({ filePath, maxBytes: 100 })).rejects.toThrow(/workspace/u);
+        }
+        if (actualWorkspace.startsWith("/tmp/")) {
+          await expect(
+            access.readFile({ filePath: "inside-link.txt", maxBytes: 100 }),
+          ).rejects.toThrow();
+        } else {
+          await expect(
+            access.readFile({ filePath: "inside-link.txt", maxBytes: 100 }),
+          ).resolves.toEqual(Buffer.from("workspace bytes"));
+        }
+        await expect(access.readFile({ filePath: "fifo", maxBytes: 100 })).rejects.toThrow(
+          /^Traceback[\s\S]+only regular files are allowed/u,
+        );
+        for (const filePath of ["escape.txt", "escape-dir/home.txt"]) {
+          await expect(access.readFile({ filePath, maxBytes: 100 })).rejects.toThrow();
+        }
       } finally {
         await fs.rm(access.tempDir, { recursive: true, force: true });
       }

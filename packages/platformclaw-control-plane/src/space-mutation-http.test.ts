@@ -109,7 +109,8 @@ describe("shared Space mutation transport", () => {
         employeeId: f.alice.token,
         displayName: "Synthetic author ".repeat(80),
       },
-      Date.now(),
+      // Refresh after the fixture's recorded authentication, independent of wall-clock adjustments.
+      f.alice.identity.lastAuthenticatedAt + 1,
     );
     for (let index = 0; index < 5; index++) {
       f.store.spaces.content.mutate(f.authorization, {

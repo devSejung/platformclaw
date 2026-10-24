@@ -3,6 +3,7 @@ import path from "node:path";
 import type { SandboxBackendHandle } from "./backend-handle.types.js";
 import { SANDBOX_PINNED_MUTATION_PYTHON } from "./fs-bridge-mutation-helper.js";
 import type { SandboxFsBridge, SandboxOutboundFileAccess } from "./fs-bridge.types.js";
+import { resolveRemoteCanonicalPath } from "./remote-fs-bridge-canonical-path.js";
 
 const OUTBOUND_FILE_SCRIPT = [
   "set -eu",
@@ -20,6 +21,7 @@ export async function createSandboxOutboundFileAccess(params: {
   bridge: Pick<SandboxFsBridge, "resolvePath" | "resolveUserPath" | "readFile">;
   scopeKey: string;
   workspaceDir: string;
+  workspaceOnly?: boolean;
 }): Promise<SandboxOutboundFileAccess> {
   const assertCurrentAuthority = params.backend.assertCurrentAuthority;
   await assertCurrentAuthority?.();
@@ -47,20 +49,65 @@ export async function createSandboxOutboundFileAccess(params: {
       await assertCurrentAuthority?.();
       const candidate = path.posix.resolve(cwd ?? params.backend.workdir, filePath);
       let data: Buffer;
-      if (candidate.startsWith("/tmp/")) {
+      if (params.workspaceOnly || candidate.startsWith("/tmp/")) {
         // /tmp belongs to the selected runtime. Never resolve it through the
         // Gateway host. Export retains its own descriptor and byte-limit checks.
-        if (filePath.split("/").includes("..") || cwd?.split("/").includes("..")) {
+        if (
+          candidate.startsWith("/tmp/") &&
+          (filePath.split("/").includes("..") || cwd?.split("/").includes(".."))
+        ) {
           throw new Error(
             "Outbound temp paths cannot contain parent traversal; use an absolute path.",
           );
         }
-        const relative = candidate.slice("/tmp/".length);
+        const logicalRoot = params.workspaceOnly ? params.backend.workdir : "/tmp";
+        const runtimePath = params.workspaceOnly
+          ? (params.bridge.resolveUserPath ?? params.bridge.resolvePath).call(params.bridge, {
+              filePath,
+              cwd: cwd ?? params.workspaceDir,
+            }).containerPath
+          : candidate;
+        const root = params.workspaceOnly
+          ? (
+              await resolveRemoteCanonicalPath({
+                containerPath: logicalRoot,
+                mountRootPath: logicalRoot,
+                action: "export attachments",
+                signal,
+                runRemoteShellScript: (command) => params.backend.runShellCommand(command),
+              })
+            ).canonicalMountRoot
+          : logicalRoot;
+        let relative = [logicalRoot, root]
+          .map((entry) => path.posix.relative(entry, runtimePath))
+          .find(
+            (entry) =>
+              entry && entry !== ".." && !entry.startsWith("../") && !path.posix.isAbsolute(entry),
+          );
+        if (relative === undefined) {
+          throw new Error("Workspace-only attachments must stay under the execution workspace.");
+        }
+        const tempSource = runtimePath.startsWith("/tmp/") || root.startsWith("/tmp/");
+        if (params.workspaceOnly && !tempSource) {
+          const canonical = await resolveRemoteCanonicalPath({
+            containerPath: path.posix.join(root, relative),
+            mountRootPath: root,
+            action: "export attachments",
+            signal,
+            runRemoteShellScript: (command) => params.backend.runShellCommand(command),
+          });
+          relative = path.posix.relative(root, canonical.canonicalPath);
+        }
+        signal?.throwIfAborted();
+        await assertCurrentAuthority?.();
+        signal?.throwIfAborted();
+        // Pin the read to the workspace itself, not a broader home mount. A
+        // configured root alias is canonicalized; child aliases cannot escape it.
         const result = await params.backend.runShellCommand({
           script: OUTBOUND_FILE_SCRIPT,
           args: [
-            "read-own",
-            "/tmp",
+            tempSource ? "read-own" : "read",
+            root,
             path.posix.dirname(relative),
             path.posix.basename(relative),
             String(maxBytes),

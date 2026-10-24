@@ -4,9 +4,9 @@ export const SANDBOX_READ_FILE_PYTHON = [
   "    require_owner = require_owner or owned_parent(parent_fd)",
   "    if max_bytes is not None and max_bytes < 0:",
   "        raise OSError(errno.EINVAL, 'read limit must be non-negative', basename)",
-  // Temp files share a runtime with other accounts. Check the opened inode;
-  // nonblocking open lets us reject FIFOs before waiting for their writer.
-  "    read_flags = READ_FLAGS | (os.O_NONBLOCK if require_owner else 0)",
+  // Every read requires a regular file. Open nonblocking so even a workspace
+  // FIFO is rejected before waiting for its writer; regular-file reads are unchanged.
+  "    read_flags = READ_FLAGS | os.O_NONBLOCK",
   "    file_fd = os.open(basename, read_flags, dir_fd=parent_fd)",
   "    try:",
   "        file_stat = os.fstat(file_fd)",

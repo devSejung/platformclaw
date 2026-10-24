@@ -19,6 +19,7 @@ import { defaultRuntime } from "../../runtime.js";
 import { prepareSkillMaterializationDirectory } from "../../skills/loading/materialization-directory.js";
 import type { SkillEligibilityContext, SkillUsagePath } from "../../skills/types.js";
 import type { ExecPolicyOverrides } from "../exec-defaults.js";
+import { resolveEffectiveToolFsWorkspaceOnly } from "../tool-fs-policy.js";
 import {
   getSandboxBackendSkillMaterializationMode,
   getSandboxBackendWorkdirResolver,
@@ -493,11 +494,16 @@ async function resolveProvisionedSandboxContext(
     createSandboxFsBridge({ sandbox: sandboxContext });
 
   if (backend.capabilities?.outboundFiles) {
+    const workspaceOnly = resolveEffectiveToolFsWorkspaceOnly({
+      cfg: params.config,
+      agentId: runtime.agentId,
+    });
     const access = await createSandboxOutboundFileAccess({
       backend,
       bridge: sandboxContext.fsBridge,
       scopeKey: `${runtime.agentId}\0${agentWorkspaceDir}\0${scopeKey}`,
       workspaceDir,
+      workspaceOnly,
     });
     sandboxContext.outboundFileAccess = access;
     // Scratch survives individual turns, just like other runtime files. Keeping
@@ -512,7 +518,10 @@ async function resolveProvisionedSandboxContext(
         }),
       runtimePromptContext: [
         backend.runtimePromptContext,
-        `Private temporary directory on this run's execution target: ${access.tempDir}. Shell TMPDIR uses this directory. Ordinary file tools also support your own /tmp files on this execution target. Attachments can come from allowed workspace/home roots. Export from /tmp additionally requires your own regular file without symlink or hardlink aliases and within the attachment size limit.`,
+        `Private temporary directory on this run's execution target: ${access.tempDir}. Shell TMPDIR uses this directory.`,
+        workspaceOnly
+          ? `Filesystem policy restricts file tools and attachments to ${backend.workdir}. Copy shell temporary files into that workspace before attaching them.`
+          : "Ordinary file tools also support your own /tmp files on this execution target. Attachments can come from allowed workspace/home roots. Export from /tmp additionally requires your own regular file without symlink or hardlink aliases and within the attachment size limit.",
       ]
         .filter(Boolean)
         .join("\n\n"),
