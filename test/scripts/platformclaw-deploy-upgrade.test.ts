@@ -7,8 +7,18 @@ import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const oldSha = "111111111111";
 const newSha = "222222222222";
+const bundledServerImage = readFileSync(
+  path.resolve("docker/platformclaw-runtime/deployment.env.example"),
+  "utf8",
+)
+  .match(/^PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=(.+)$/m)![1]!
+  .trim();
+const previousServerImage = `${bundledServerImage.slice(0, bundledServerImage.lastIndexOf(":"))}:aaaaaaaaaaaabbbbbbbbbbbb`;
 
-function createUpgradeFixture(mode: string) {
+function createUpgradeFixture(
+  mode: string,
+  skillHub?: { image: string; enabled?: boolean; bundleAvailable?: boolean },
+) {
   const root = tempDirs.make("platformclaw-deploy-upgrade-");
   const bin = path.join(root, "bin");
   const runtime = path.join(root, "runtime");
@@ -25,6 +35,13 @@ function createUpgradeFixture(mode: string) {
   }
   const deploy = path.join(runtime, "platformclaw-deploy");
   copyFileSync(path.resolve("docker/platformclaw-runtime/platformclaw-deploy"), deploy);
+  copyFileSync(
+    path.resolve("docker/platformclaw-runtime/deployment.env.example"),
+    path.join(runtime, "deployment.env.example"),
+  );
+  const skillHubState = path.join(deployment, "data/skillhub");
+  mkdirSync(skillHubState, { recursive: true });
+  writeFileSync(path.join(skillHubState, "synthetic-state"), "before-upgrade\n");
   writeFileSync(path.join(state, "synthetic-state"), "before-upgrade\n");
   writeFileSync(path.join(deployment, "certs/employee-auth-ca.pem"), "synthetic-ca\n");
   for (const name of [
@@ -36,6 +53,10 @@ function createUpgradeFixture(mode: string) {
     "initial-admin-ids",
     "ssh-credential-master-key",
     "employee-auth-adsso-secret",
+    "skillhub-token",
+    "skillhub-postgres-password",
+    "skillhub-cookie-secret",
+    "skillhub-bootstrap-password",
   ]) {
     writeFileSync(path.join(deployment, "secrets", name), "synthetic-test-secret\n");
   }
@@ -60,7 +81,8 @@ function createUpgradeFixture(mode: string) {
     [
       `PLATFORMCLAW_IMAGE=platformclaw:${oldSha}`,
       `PLATFORMCLAW_SANDBOX_IMAGE=platformclaw-sandbox:${oldSha}`,
-      "PLATFORMCLAW_SKILL_HUB_ENABLED=false",
+      `PLATFORMCLAW_SKILL_HUB_ENABLED=${skillHub?.enabled !== false && skillHub ? "true" : "false"}`,
+      ...(skillHub ? [`PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=${skillHub.image}`] : []),
       ...keys.map((key) => `PLATFORMCLAW_${key}=synthetic`),
       "",
     ].join("\n"),
@@ -84,7 +106,42 @@ case "$1" in -u|-g) printf '1000\n';; -un) printf 'synthetic\n';; *) exit 99;; e
   writeFileSync(
     path.join(bin, "docker"),
     String.raw`#!/usr/bin/env bash
-case "$*" in info|"image inspect "*) exit 0;; "load --input "*) printf 'load\n' >>"$PLATFORMCLAW_TEST_ROOT/events";; *) echo "Unexpected Docker call: $*" >&2; exit 98;; esac
+set -euo pipefail
+case "$*" in
+  info) exit 0;;
+  "image inspect "*)
+    [[ "$PLATFORMCLAW_TEST_BUNDLE_AVAILABLE" != false || "$*" != "image inspect $PLATFORMCLAW_TEST_SERVER_IMAGE" ]]
+    ;;
+  "network ls "*) printf 'synthetic-skillhub\n';;
+  "load --input "*) printf 'load\n' >>"$PLATFORMCLAW_TEST_ROOT/events";;
+  "run "*)
+    source=""; backup=""; target=""; archive=""; token=""; previous=""
+    for value in "$@"; do
+      if [[ "$previous" == --volume ]]; then
+        case "$value" in
+          *:/source:ro) source="${"$"}{value%:/source:ro}";;
+          *:/backup) backup="${"$"}{value%:/backup}";;
+          *:/target) target="${"$"}{value%:/target}";;
+          *:/backup.tar:ro) archive="${"$"}{value%:/backup.tar:ro}";;
+          *:/run/secrets/control-token) token="${"$"}{value%:/run/secrets/control-token}";;
+        esac
+      fi
+      previous="$value"
+    done
+    if [[ -n "$token" ]]; then
+      printf 'sk_synthetic-test-token\n' >"$token"
+      printf 'after-upgrade\n' >"$PLATFORMCLAW_DEPLOY_ROOT/data/skillhub/synthetic-state"
+    elif [[ -n "$source" && -n "$backup" ]]; then
+      tar -C "$source" -cpf "$backup/${"$"}{!#}" .
+    elif [[ -n "$target" && -n "$archive" ]]; then
+      find "$target" -mindepth 1 -depth -delete
+      tar -C "$target" -xpf "$archive"
+    else
+      echo "Unexpected Docker run: $*" >&2; exit 97
+    fi
+    ;;
+  *) echo "Unexpected Docker call: $*" >&2; exit 98;;
+esac
 `,
     { mode: 0o755 },
   );
@@ -116,6 +173,9 @@ case "$*" in
     event ready
     touch "$probe_root/running"
     ;;
+  "up -d --wait skillhub-server")
+    sed -n 's/^PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=//p' "$PLATFORMCLAW_ENV_FILE" >>"$probe_root/skillhub-images"
+    ;;
   "exec --no-TTY openclaw-gateway "*)
     [[ -e "$probe_root/running" ]] || exit 93
     if [[ "$*" == *"sandbox recreate --all --force"* ]]; then
@@ -136,7 +196,7 @@ esac
 `,
     { mode: 0o755 },
   );
-  return { root, bin, deploy, deployment, state, envFile, archive, mode };
+  return { root, bin, deploy, deployment, state, skillHubState, envFile, archive, mode, skillHub };
 }
 
 describe.skipIf(process.platform === "win32")("PlatformClaw image update lifecycle", () => {
@@ -206,6 +266,60 @@ describe.skipIf(process.platform === "win32")("PlatformClaw image update lifecyc
       expect(result.stdout).not.toContain("PlatformClaw updated:");
     },
   );
+
+  it.each(["platformclaw-skillhub-server:6e133c006e49", previousServerImage])(
+    "advances managed SkillHub %s only after retaining its rollback environment",
+    (image) => {
+      const fixture = createUpgradeFixture("success", { image });
+      const result = runUpgrade(fixture, "update", oldSha);
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(readFileSync(fixture.envFile, "utf8")).toContain(
+        `PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=${bundledServerImage}`,
+      );
+      expect(readFileSync(`${fixture.envFile}.previous`, "utf8")).toContain(
+        `PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=${image}`,
+      );
+      expect(readFileSync(path.join(fixture.root, "skillhub-images"), "utf8")).toBe(
+        `${bundledServerImage}\n`,
+      );
+      expect(readFileSync(path.join(fixture.skillHubState, "synthetic-state"), "utf8")).toBe(
+        "after-upgrade\n",
+      );
+    },
+  );
+
+  it("restores the prior SkillHub image and pre-update storage after health failure", () => {
+    const fixture = createUpgradeFixture("health-failure", { image: previousServerImage });
+    const result = runUpgrade(fixture, "update", oldSha);
+    expect(result.status, result.stderr || result.stdout).toBe(1);
+    expect(readFileSync(path.join(fixture.root, "skillhub-images"), "utf8")).toBe(
+      `${bundledServerImage}\n`,
+    );
+    expect(readFileSync(fixture.envFile, "utf8")).toContain(
+      `PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=${previousServerImage}`,
+    );
+    expect(readFileSync(path.join(fixture.skillHubState, "synthetic-state"), "utf8")).toBe(
+      "before-upgrade\n",
+    );
+    expect(existsSync(path.join(fixture.root, "running"))).toBe(true);
+  });
+
+  it.each([
+    { image: bundledServerImage },
+    { image: "registry.example.invalid/custom:abcdef012345" },
+    { image: `platformclaw-skillhub-server@sha256:${"a".repeat(64)}` },
+    { image: "platformclaw-skillhub-server:aaaaaaaaaaaaaaaa" },
+    { image: previousServerImage, enabled: false },
+    { image: previousServerImage, bundleAvailable: false },
+  ])("preserves an unchanged or operator-owned SkillHub selection: %j", (skillHub) => {
+    const fixture = createUpgradeFixture("success", skillHub);
+    const result = runUpgrade(fixture, "set", oldSha);
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    expect(readFileSync(fixture.envFile, "utf8")).toContain(
+      `PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=${skillHub.image}`,
+    );
+    expect(existsSync(`${fixture.envFile}.previous`)).toBe(false);
+  });
 });
 
 function readEvents(fixture: ReturnType<typeof createUpgradeFixture>) {
@@ -238,6 +352,8 @@ function runUpgrade(
         PLATFORMCLAW_ENV_FILE: fixture.envFile,
         PLATFORMCLAW_TEST_ROOT: fixture.root,
         PLATFORMCLAW_TEST_MODE: fixture.mode,
+        PLATFORMCLAW_TEST_BUNDLE_AVAILABLE: String(fixture.skillHub?.bundleAvailable !== false),
+        PLATFORMCLAW_TEST_SERVER_IMAGE: bundledServerImage,
       },
     },
   );

@@ -1,7 +1,13 @@
 // Runtime fetch tests cover header normalization and FormData conversion before
 // calls reach undici's dispatcher-aware fetch.
+import { createHash } from "node:crypto";
+import http from "node:http";
+import net from "node:net";
+import { setImmediate as nextTick } from "node:timers/promises";
+import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchWithRuntimeDispatcher } from "./runtime-fetch.js";
+import { createHttp1Agent } from "./undici-runtime.js";
 
 const TEST_UNDICI_RUNTIME_DEPS_KEY = "__OPENCLAW_TEST_UNDICI_RUNTIME_DEPS__";
 
@@ -60,6 +66,89 @@ afterEach(() => {
 });
 
 describe("fetchWithRuntimeDispatcher", () => {
+  it("rejects excessive encodings followed by early close without an orphaned stream error", async () => {
+    let requests = 0;
+    const server = net.createServer((socket) => {
+      socket.once("data", () => {
+        requests += 1;
+        const response =
+          requests === 1
+            ? "Content-Encoding: gzip, gzip, gzip, gzip, gzip, gzip\r\nContent-Length: 1\r\nConnection: close\r\n\r\n"
+            : "Content-Length: 2\r\nConnection: close\r\n\r\nok";
+        socket.end(`HTTP/1.1 200 OK\r\n${response}`);
+      });
+    });
+    const agent = createHttp1Agent();
+    try {
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("expected TCP test server address");
+      }
+      const url = `http://127.0.0.1:${address.port}`;
+      await expect(fetchWithRuntimeDispatcher(url, { dispatcher: agent })).rejects.toMatchObject({
+        cause: { message: expect.stringContaining("too many content-encodings") },
+      });
+      // GHSA-xjj6-f33q-929c emits an unhandled content-length error after fetch
+      // rejects if the early close can still reach an orphaned internal stream.
+      await nextTick();
+      const response = await fetchWithRuntimeDispatcher(url, { dispatcher: agent });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("ok");
+      expect(requests).toBe(2);
+    } finally {
+      await agent.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it.each([
+    ["gzip", gzipSync],
+    ["deflate", deflateSync],
+    ["br", brotliCompressSync],
+  ] as const)(
+    "decodes real %s HTTP responses and enforces mixed-case integrity",
+    async (encoding, compress) => {
+      const expected = JSON.stringify({ value: "runtime compressed response" });
+      const encoded = compress(expected);
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json", "content-encoding": encoding });
+        res.end(encoded);
+      });
+      const agent = createHttp1Agent();
+      try {
+        await new Promise<void>((resolve) => {
+          server.listen(0, "127.0.0.1", resolve);
+        });
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          throw new Error("expected TCP test server address");
+        }
+        const response = await fetchWithRuntimeDispatcher(`http://127.0.0.1:${address.port}`, {
+          dispatcher: agent,
+          integrity: `SHA256-${createHash("sha256").update(expected).digest("base64")}`,
+        });
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe(expected);
+        await expect(
+          fetchWithRuntimeDispatcher(`http://127.0.0.1:${address.port}`, {
+            dispatcher: agent,
+            integrity: `sHa256-${Buffer.alloc(32).toString("base64")}`,
+          }),
+        ).rejects.toThrow("fetch failed");
+      } finally {
+        await agent.close();
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+
   it("drops symbol metadata from plain header dictionaries before runtime fetch", async () => {
     const runtimeFetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get("content-type")).toBe("application/json");

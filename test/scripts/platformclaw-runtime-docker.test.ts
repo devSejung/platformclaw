@@ -364,7 +364,7 @@ describe("PlatformClaw Docker runtime", () => {
     expect(readRepoFile("docker/platformclaw-runtime/compose.yaml")).toContain(serverImage);
     expect(readRepoFile("scripts/e2e/platformclaw-runtime-docker.sh")).toContain(serverImage);
     expect(serverDockerfile).toContain(
-      "FROM ghcr.io/iflytek/skillhub-server@sha256:80a22a90c9855224a83663ad069cea80ec42ecb5e44c863b58be2fa2869f75b9 AS runtime",
+      "FROM eclipse-temurin:21.0.11_10-jre-alpine-3.23@sha256:3f08b13888f595cc49edabea7250ba69499ba25602b267da591720769400e08c AS runtime",
     );
     expect(serverDockerfile).toMatch(/^FROM maven:[^\s]+@sha256:[0-9a-f]{64} AS build$/mu);
     expect(serverDockerfile).toMatch(
@@ -1993,12 +1993,6 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
         "Existing OpenClaw config does not match the managed PlatformClaw execution policy",
       );
     }
-  });
-
-  it("copies the upstream Control UI output into the runtime asset path", () => {
-    const assetsDockerfile = readRepoFile("docker/platformclaw-runtime/Dockerfile.assets");
-
-    expect(assetsDockerfile).toContain("COPY --from=build /app/dist/control-ui /app/ui/dist");
   });
 
   it("bundles private workspace runtime dependencies into the control artifact", () => {

@@ -5,6 +5,7 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { PluginManifestRegistry } from "../plugins/manifest-registry.js";
 import type { PluginOrigin } from "../plugins/plugin-origin.types.js";
+import { configJsonSchema } from "../shared/config-json-schema.js";
 import type { ChannelUiMetadata, PluginUiMetadata } from "./schema.js";
 import { ChannelHeartbeatVisibilitySchema } from "./zod-schema.channels.js";
 
@@ -36,8 +37,9 @@ const PLUGIN_ORIGIN_RANK: Readonly<Record<PluginOrigin, number>> = {
   bundled: 3,
 };
 
-const CHANNEL_HEARTBEAT_VISIBILITY_JSON_SCHEMA =
-  ChannelHeartbeatVisibilitySchema.unwrap().toJSONSchema({ target: "draft-07" });
+const CHANNEL_HEARTBEAT_VISIBILITY_JSON_SCHEMA = configJsonSchema(
+  ChannelHeartbeatVisibilitySchema.unwrap(),
+);
 
 function normalizeCoreOwnedChannelSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const normalized = structuredClone(schema);

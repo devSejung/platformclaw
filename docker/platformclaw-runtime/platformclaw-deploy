@@ -809,8 +809,15 @@ reconcile_skillhub_environment() {
 }
 
 skillhub_server_upgrade_available() {
-  [[ "$(read_env_value PLATFORMCLAW_SKILL_HUB_ENABLED)" == "true" &&
-     "$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE)" == "platformclaw-skillhub-server:6e133c006e49" ]] &&
+  local current
+  local desired
+  [[ "$(read_env_value PLATFORMCLAW_SKILL_HUB_ENABLED)" == "true" ]] || return 1
+  current="$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE)"
+  desired="$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE "$script_dir/deployment.env.example")"
+  # Bundled tags are the source SHA plus an optional patch hash. Advance those
+  # only inside the snapshotted update; operator-selected images stay untouched.
+  [[ "$current" != "$desired" && "$current" == "${desired%:*}:"* &&
+     "${current##*:}" =~ ^[0-9a-f]{12}([0-9a-f]{12})?$ ]] &&
     skillhub_bundle_available
 }
 
@@ -818,7 +825,7 @@ upgrade_bundled_skillhub_server() {
   skillhub_server_upgrade_available || return 0
   set_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE \
     "$(read_env_value PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE "$script_dir/deployment.env.example")"
-  echo "Upgraded the bundled SkillHub server with published metadata editing."
+  echo "Upgraded the bundled SkillHub server to this deployment's image."
 }
 
 set_env_value() {
