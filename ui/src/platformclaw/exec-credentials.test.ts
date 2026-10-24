@@ -89,6 +89,7 @@ describe("PlatformClaw exec credentials", () => {
       );
     const element = document.createElement("platformclaw-exec-credentials") as CredentialElement;
     element.fetchImpl = fetchImpl;
+    element.onPersonalSaved = vi.fn();
     document.body.append(element);
     await vi.waitFor(() => expect(element.textContent).toContain("API_TOKEN"));
 
@@ -112,6 +113,7 @@ describe("PlatformClaw exec credentials", () => {
     expect(secretInput(element, "API_TOKEN").value).toBe("");
     expect(secretInput(element, "API_TOKEN").placeholder).toBe("••••••••");
     expect(element.textContent).toContain("Enter a new value and save to replace it.");
+    expect(element.onPersonalSaved).not.toHaveBeenCalled();
     clickAction(element, "save", "API_TOKEN");
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
@@ -381,15 +383,15 @@ describe("PlatformClaw exec credentials", () => {
       .mockRejectedValueOnce(new Error("synthetic-only must never appear"))
       .mockResolvedValueOnce(snapshot(true, 4));
     const element = await mount(fetchImpl, true);
-    const onSaved = vi.fn();
-    const onReturn = vi.fn();
+    const onSaved = vi.fn(() => {
+      element.target = undefined;
+    });
     element.onPersonalSaved = onSaved;
-    element.onReturnToConversation = onReturn;
     save(element);
     await vi.waitFor(() => expect(element.querySelector("[data-recheck]")).not.toBeNull());
     expect(element.querySelector<HTMLInputElement>("[data-value]")!.value).toBe("");
     expect(element.textContent).not.toContain("synthetic-only");
-    expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(true);
+    expect(element.target).toEqual(target);
     expect(onSaved).not.toHaveBeenCalled();
     element.querySelector<HTMLButtonElement>("[data-recheck]")!.click();
     await vi.waitFor(() =>
@@ -405,9 +407,10 @@ describe("PlatformClaw exec credentials", () => {
       "GET",
       "GET",
     ]);
-    expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(false);
-    element.querySelector<HTMLButtonElement>("[data-flow-return]")!.click();
-    expect(onReturn).toHaveBeenCalledOnce();
+    expect(element.target).toBeUndefined();
+    expect(element.querySelector("[data-flow-return]")).toBeNull();
+    expect(element.querySelector("[data-flow-cancel]")).toBeNull();
+    expect(element.textContent).toContain(t("platformClaw.credentialFlow.saved"));
   });
 
   it.each([
@@ -429,7 +432,7 @@ describe("PlatformClaw exec credentials", () => {
       await vi.waitFor(() => expect(element.querySelector("[role='status']")).not.toBeNull());
       expect(fetchImpl).toHaveBeenCalledTimes(expectedCalls);
       expect(onSaved).not.toHaveBeenCalled();
-      expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(true);
+      expect(element.target).toEqual(target);
     },
   );
 
@@ -527,7 +530,7 @@ describe("PlatformClaw exec credentials", () => {
     expect(onSaved).not.toHaveBeenCalled();
     expect(element.querySelector("[data-recheck]")).toBeNull();
     expect(element.textContent).not.toContain("synthetic-only");
-    expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(true);
+    expect(element.target).toEqual(target);
   });
 
   it("leaves the contextual request incomplete when its allowed definition disappears", async () => {
@@ -542,6 +545,6 @@ describe("PlatformClaw exec credentials", () => {
     save(element);
     await vi.waitFor(() => expect(element.querySelector("[data-value]")).toBeNull());
     expect(onSaved).not.toHaveBeenCalled();
-    expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(true);
+    expect(element.target).toEqual(target);
   });
 });

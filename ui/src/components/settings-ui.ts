@@ -49,7 +49,11 @@ export function renderSettingsPage(
 }
 
 export function renderDocsLink(url: string, label: unknown): TemplateResult {
-  return html`<a href=${url} target=${EXTERNAL_LINK_TARGET} rel=${buildExternalLinkRel()}
+  return html`<a
+    class="settings-docs-link"
+    href=${url}
+    target=${EXTERNAL_LINK_TARGET}
+    rel=${buildExternalLinkRel()}
     >${label}</a
   >`;
 }

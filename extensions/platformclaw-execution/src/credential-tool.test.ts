@@ -1,4 +1,7 @@
-import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
+import type {
+  OpenClawPluginApi,
+  OpenClawPluginToolContext,
+} from "openclaw/plugin-sdk/plugin-entry";
 import {
   createPluginRegistryFixture,
   registerVirtualTestPlugin,
@@ -31,7 +34,7 @@ function createPlatformClawCredentialTool(
     id: "platformclaw-execution",
     name: "PlatformClaw Execution",
     contracts: { tools: ["platformclaw_credentials"] },
-    register: (api) => registerPlatformClawCredentialTool(api, metadata),
+    register: (api) => registerPlatformClawCredentialTool(api, () => metadata),
   });
   expect(fixture.registry.registry.diagnostics).toEqual([]);
   const registration = fixture.registry.registry.tools.find((entry) =>
@@ -65,6 +68,7 @@ describe("PlatformClaw credential tool", () => {
     });
     expect(first.details).toMatchObject({
       status: "required",
+      configured: false,
       uiAction: {
         version: 1,
         kind: "settings",
@@ -85,7 +89,7 @@ describe("PlatformClaw credential tool", () => {
   });
 
   it.each(["knox", "webchat", undefined])(
-    "provides a manual registration path without a button and rechecks after saving: %s",
+    "completes registration on save without a confirmation message and rechecks saved state: %s",
     async (messageChannel) => {
       const metadata = runtime();
       const tool = createPlatformClawCredentialTool(
@@ -99,18 +103,25 @@ describe("PlatformClaw credential tool", () => {
         expect.objectContaining({
           type: "text",
           text: expect.stringContaining(
-            "If no button appears, sign in to PlatformClaw on a PC, open Settings > Credentials, save REPORT_API_TOKEN, then send a new message asking to continue in the original conversation.",
+            "If no button appears, sign in to PlatformClaw on a PC, open Settings > Credentials, and save REPORT_API_TOKEN.",
           ),
         }),
       ]);
       expect(JSON.stringify(missing.content)).toContain("Never paste a key in chat");
-      expect(JSON.stringify(missing.content)).toContain("saving alone does not restart the task");
-      expect(JSON.stringify(missing.content)).toContain("no tool call is suspended");
+      expect(JSON.stringify(missing.content)).toContain(
+        "Saving completes registration or replacement",
+      );
+      expect(JSON.stringify(missing.content)).toContain(
+        "no further confirmation message is needed",
+      );
+      expect(JSON.stringify(missing.content)).toContain("Saving never sends a chat message");
+      expect(JSON.stringify(missing.content)).toContain("send an ordinary message when ready");
+      expect(JSON.stringify(missing.content)).not.toContain("Continue");
 
       metadata.credentialMetadata.mockResolvedValue({
         definitions: [{ envName: input.envName, configured: true }],
       });
-      const saved = await tool.execute("continue-call", input);
+      const saved = await tool.execute("saved-status-call", { ...input, action: "status" });
       expect(saved.details).toEqual({ status: "configured", envName: input.envName });
       expect(metadata.credentialMetadata).toHaveBeenCalledTimes(2);
     },
@@ -130,18 +141,84 @@ describe("PlatformClaw credential tool", () => {
     ).toBeNull();
   });
 
-  it("keeps discovery visible without starting the configured runtime", () => {
-    const registerTool = vi.fn();
-    registerPlatformClawCredentialTool({ registrationMode: "tool-discovery", registerTool });
-    expect(registerTool).toHaveBeenCalledWith(expect.any(Function), {
-      name: "platformclaw_credentials",
-    });
-  });
+  describe.each(["full", "discovery", "tool-discovery"] as const)(
+    "%s registration",
+    (registrationMode) => {
+      it.each([true, false])(
+        "materializes a personal tool without starting its runtime, sandboxed=%s",
+        async (sandboxed) => {
+          const metadata = runtime();
+          const resolveRuntime = vi.fn(async () => metadata);
+          const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
+          registerPlatformClawCredentialTool({ registrationMode, registerTool }, resolveRuntime);
+          expect(registerTool).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
+            name: "platformclaw_credentials",
+          });
+          expect(resolveRuntime).not.toHaveBeenCalled();
+          const factory = registerTool.mock.calls[0]![0];
+          if (typeof factory !== "function") {
+            throw new Error("credential tool was not registered as a factory");
+          }
+          const tool = factory({ ...context, sandboxed });
+          if (!tool || Array.isArray(tool)) {
+            throw new Error("credential tool was not materialized");
+          }
+          expect(resolveRuntime).not.toHaveBeenCalled();
+          expect(metadata.credentialMetadata).not.toHaveBeenCalled();
+
+          const listed = await tool.execute("list-call", { action: "list" });
+          expect(resolveRuntime).toHaveBeenCalledOnce();
+          expect(metadata.credentialMetadata).toHaveBeenCalledExactlyOnceWith({
+            agentId: context.agentId,
+            sessionKey: context.sessionKey,
+          });
+          expect(listed.details).toEqual({
+            status: "available",
+            definitions: [{ envName: "REPORT_API_TOKEN", configured: false }],
+            truncated: false,
+          });
+
+          const required = await tool.execute("request-call", {
+            action: "request",
+            envName: "REPORT_API_TOKEN",
+          });
+          expect(required.details).toEqual({
+            status: "required",
+            envName: "REPORT_API_TOKEN",
+            configured: false,
+            uiAction: {
+              version: 1,
+              kind: "settings",
+              feature: "platformclaw.exec-credentials",
+              requestId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+              targetKey: "REPORT_API_TOKEN",
+            },
+          });
+        },
+      );
+
+      it("keeps registration metadata but hides the tool without a configured runtime", () => {
+        const registerTool = vi.fn<OpenClawPluginApi["registerTool"]>();
+        registerPlatformClawCredentialTool({ registrationMode, registerTool });
+        expect(registerTool).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
+          name: "platformclaw_credentials",
+        });
+        const factory = registerTool.mock.calls[0]![0];
+        if (typeof factory !== "function") {
+          throw new Error("credential tool was not registered as a factory");
+        }
+        expect(factory(context)).toBeNull();
+      });
+    },
+  );
 
   it.each([
     [{ action: "request", envName: "UNKNOWN_TOKEN" }, "unsupported"],
     [{ action: "request", envName: "PATH" }, "unsupported"],
     [{ action: "request", envName: "REPORT_API_TOKEN", value: "synthetic-only" }, "unsupported"],
+    [{ action: "status" }, "unsupported"],
+    [{ action: "status", envName: "UNKNOWN_TOKEN" }, "unsupported"],
+    [{ action: "status", envName: "REPORT_API_TOKEN", value: "synthetic-only" }, "unsupported"],
     [{ action: "list", envName: "REPORT_API_TOKEN" }, "unsupported"],
   ])("does not create an action for unsupported input", async (input, status) => {
     const tool = createPlatformClawCredentialTool(context, Promise.resolve(runtime()))!;
@@ -169,10 +246,85 @@ describe("PlatformClaw credential tool", () => {
     ];
     for (const [metadata, expected] of cases) {
       const tool = createPlatformClawCredentialTool(context, Promise.resolve(metadata))!;
-      const result = await tool.execute("call", { action: "request", envName: "REPORT_API_TOKEN" });
+      const result = await tool.execute("call", { action: "status", envName: "REPORT_API_TOKEN" });
       expect(result.details).toEqual(expected);
       expect(JSON.stringify(result)).not.toContain("synthetic-only");
     }
+  });
+
+  it.each([false, true])(
+    "checks saved state without creating an action: configured=%s",
+    async (configured) => {
+      const tool = createPlatformClawCredentialTool(
+        context,
+        Promise.resolve(runtime([{ envName: "REPORT_API_TOKEN", configured }])),
+      )!;
+      const result = await tool.execute("status", {
+        action: "status",
+        envName: "REPORT_API_TOKEN",
+      });
+      expect(result.details).toEqual({
+        status: configured ? "configured" : "missing",
+        envName: "REPORT_API_TOKEN",
+      });
+      expect(result.details).not.toHaveProperty("uiAction");
+    },
+  );
+
+  it("opens secure replacement for an already saved key", async () => {
+    const tool = createPlatformClawCredentialTool(
+      context,
+      Promise.resolve(runtime([{ envName: "REPORT_API_TOKEN", configured: true }])),
+    )!;
+    const result = await tool.execute("replace", {
+      action: "request",
+      envName: "REPORT_API_TOKEN",
+    });
+    expect(result.details).toMatchObject({
+      status: "required",
+      envName: "REPORT_API_TOKEN",
+      configured: true,
+      uiAction: {
+        version: 1,
+        kind: "settings",
+        feature: "platformclaw.exec-credentials",
+        targetKey: "REPORT_API_TOKEN",
+        requestId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      },
+    });
+    expect(JSON.stringify(result.content)).toContain("the secure form replaces its value");
+    expect(JSON.stringify(result.content)).toContain(
+      "Saving completes registration or replacement",
+    );
+    expect(JSON.stringify(result.content)).toContain("no further confirmation message is needed");
+    expect(JSON.stringify(result.content)).not.toContain("Continue");
+  });
+
+  it("offers allowed names for registration or replacement without another task", async () => {
+    const tool = createPlatformClawCredentialTool(
+      context,
+      Promise.resolve(runtime([{ envName: "REPORT_API_TOKEN", configured: true }])),
+    )!;
+    const result = await tool.execute("list", { action: "list" });
+    expect(result.details).toEqual({
+      status: "available",
+      definitions: [{ envName: "REPORT_API_TOKEN", configured: true }],
+      truncated: false,
+    });
+    expect(JSON.stringify(result.content)).toContain("ask which key to add or replace");
+    expect(JSON.stringify(result.content)).toContain("Registration itself is enough");
+    expect(result.details).not.toHaveProperty("uiAction");
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(1024);
+  });
+
+  it("explains that registration cannot start when no keys are allowed", async () => {
+    const tool = createPlatformClawCredentialTool(context, Promise.resolve(runtime([])))!;
+    const result = await tool.execute("list", { action: "list" });
+    expect(result.details).toEqual({ status: "available", definitions: [], truncated: false });
+    expect(JSON.stringify(result.content)).toContain("No personal execution keys are allowed");
+    expect(JSON.stringify(result.content)).toContain("Registration cannot start");
+    expect(JSON.stringify(result.content)).not.toContain("view Credentials for the full list");
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(1024);
   });
 
   it("bounds the complete list result to 1 KiB without denying names omitted from display", async () => {

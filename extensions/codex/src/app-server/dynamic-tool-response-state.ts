@@ -8,11 +8,11 @@ import type {
 export type CodexDynamicToolRuntimeResponse = CodexDynamicToolCallResponse & {
   executionStarted?: boolean;
   executedArguments?: Record<string, unknown>;
-  transcriptDetails?: { mcpAppPreview: unknown };
+  transcriptDetails?: { mcpAppPreview?: unknown; uiAction?: unknown };
   terminalResolution?: ReturnType<NonNullable<EmbeddedRunAttemptParams["observeToolTerminal"]>>;
 };
 
-/** Retains the host-owned app preview without adding it to Codex's response payload. */
+/** Retains host-owned UI metadata without adding it to Codex's response payload. */
 export function withDynamicToolTranscriptDetails<T extends CodexDynamicToolRuntimeResponse>(
   response: T,
   details: unknown,
@@ -20,14 +20,20 @@ export function withDynamicToolTranscriptDetails<T extends CodexDynamicToolRunti
   if (!details || typeof details !== "object" || Array.isArray(details)) {
     return response;
   }
-  const mcpAppPreview = (details as Record<string, unknown>).mcpAppPreview;
-  if (!mcpAppPreview || typeof mcpAppPreview !== "object" || Array.isArray(mcpAppPreview)) {
+  const transcriptDetails: NonNullable<CodexDynamicToolRuntimeResponse["transcriptDetails"]> = {};
+  for (const key of ["mcpAppPreview", "uiAction"] as const) {
+    const value = (details as Record<string, unknown>)[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      transcriptDetails[key] = value;
+    }
+  }
+  if (Object.keys(transcriptDetails).length === 0) {
     return response;
   }
   Object.defineProperty(response, "transcriptDetails", {
     configurable: true,
     enumerable: false,
-    value: { mcpAppPreview },
+    value: transcriptDetails,
   });
   return response;
 }

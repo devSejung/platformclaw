@@ -335,7 +335,9 @@ export function toCodexDynamicToolProgressResponse(
   response: CodexDynamicToolRuntimeResponse,
   protocolResponse: CodexDynamicToolCallResponse,
 ): CodexDynamicToolCallResponse & {
-  details?: { async: true; status: "started" } | { mcpAppPreview: unknown };
+  details?:
+    | { async: true; status: "started" }
+    | CodexDynamicToolRuntimeResponse["transcriptDetails"];
 } {
   const transcriptDetails = response.transcriptDetails;
   if (response.asyncStarted !== true && transcriptDetails === undefined) {

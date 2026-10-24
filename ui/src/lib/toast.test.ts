@@ -44,8 +44,9 @@ describe("shared toast", () => {
   it("runs its action once and dismisses", async () => {
     const host = await mountHost();
     const onAction = vi.fn();
-    showToast({ message: "Archived", actionLabel: "Undo", onAction });
+    showToast({ message: "Archived", actionLabel: "Undo", onAction, placement: "bottom-right" });
     await host.updateComplete;
+    expect(host.querySelector(".app-toast--bottom-right")).not.toBeNull();
 
     host.querySelector<HTMLButtonElement>(".app-toast__action")?.click();
     await host.updateComplete;
