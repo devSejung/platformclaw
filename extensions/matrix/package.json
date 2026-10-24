@@ -15,7 +15,7 @@
     "matrix-js-sdk": "41.9.0",
     "music-metadata": "11.14.0",
     "typebox": "1.3.6",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*",

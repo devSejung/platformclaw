@@ -159,6 +159,8 @@ overrides:
   yauzl: 3.4.0
   protobufjs: 8.7.1
   uuid: 14.0.1
+  # Third-party SDKs pin older Zod 4 releases; keep their major API while applying the security fix.
+  "zod@4": 4.6.6
 
 allowBuilds:
   "acpx@https://codeload.github.com/devSejung/acpx/tar.gz/d3e5dd258e5a587fa5e612fae22ff5c5697f4235": true

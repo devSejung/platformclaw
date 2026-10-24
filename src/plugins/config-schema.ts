@@ -1,5 +1,6 @@
 // Builds plugin config schemas from manifest metadata.
 import { z, type ZodTypeAny } from "zod";
+import { configJsonSchema } from "../shared/config-json-schema.js";
 import type { JsonSchemaObject } from "../shared/json-schema.types.js";
 import { parseConfigPathArrayIndex } from "../shared/path-array-index.js";
 import type { PluginConfigUiHint } from "./manifest-types.js";
@@ -148,13 +149,7 @@ export function buildPluginConfigSchema(
       safeParse,
       ...(options?.uiHints ? { uiHints: options.uiHints } : {}),
       // Normalize generated schema so plugin consumers see a stable draft-07-ish shape.
-      jsonSchema: normalizeJsonSchema(
-        schemaWithJson.toJSONSchema({
-          target: "draft-07",
-          io: "input",
-          unrepresentable: "any",
-        }),
-      ) as JsonSchemaObject,
+      jsonSchema: normalizeJsonSchema(configJsonSchema(schema, "input")) as JsonSchemaObject,
     };
   }
 

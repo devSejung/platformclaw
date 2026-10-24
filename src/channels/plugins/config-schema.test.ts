@@ -1,5 +1,5 @@
 // Config schema tests cover channel plugin config schema validation and defaults.
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   ChannelGroupEntrySchema,
@@ -134,22 +134,19 @@ describe("buildChannelConfigSchema", () => {
     expect(result.schema).toEqual({ type: "object", additionalProperties: true });
   });
 
-  it("passes draft-07 compatibility options to toJSONSchema", () => {
-    const toJSONSchema = vi.fn(() => ({
-      type: "object",
-      properties: { enabled: { type: "boolean" } },
-    }));
-    const schema = { toJSONSchema } as unknown as Parameters<typeof buildChannelConfigSchema>[0];
-
-    const result = buildChannelConfigSchema(schema);
-
-    expect(toJSONSchema).toHaveBeenCalledWith({
-      target: "draft-07",
-      unrepresentable: "any",
-    });
+  it("exports draft-07 constraints and unrepresentable transform outputs", () => {
+    const result = buildChannelConfigSchema(
+      z.object({
+        count: z.number().positive(),
+        transformed: z.string().transform((value) => value.length),
+      }),
+    );
     expect(result.schema).toEqual({
+      $schema: "http://json-schema.org/draft-07/schema#",
       type: "object",
-      properties: { enabled: { type: "boolean" } },
+      properties: { count: { type: "number", exclusiveMinimum: 0 }, transformed: {} },
+      required: ["count", "transformed"],
+      additionalProperties: false,
     });
   });
 

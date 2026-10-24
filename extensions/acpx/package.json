@@ -12,7 +12,7 @@
     "@agentclientprotocol/codex-acp": "1.1.7",
     "acpx": "github:devSejung/acpx#d3e5dd258e5a587fa5e612fae22ff5c5697f4235",
     "smol-toml": "1.7.1",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*"

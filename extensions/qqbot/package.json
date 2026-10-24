@@ -15,7 +15,7 @@
     "pretty-ms": "9.3.0",
     "silk-wasm": "3.7.1",
     "ws": "8.21.1",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*",
