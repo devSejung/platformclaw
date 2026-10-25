@@ -415,6 +415,10 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.execCredentials.sessionExpired": "세션이 만료되었습니다. 다시 로그인하세요.",
   "platformClaw.quickActions.label": "PlatformClaw 빠른 실행",
   "platformClaw.quickActions.voc": "VOC",
+  "platformClaw.quickActions.messenger": "Knox",
+  "platformClaw.quickActions.openMessenger": "Knox",
+  "platformClaw.quickActions.messengerHelp":
+    "Knox에서 sopa.ai를 엽니다. 열리지 않으면 Knox 설치·로그인 상태와 브라우저의 앱 열기 허용을 확인하세요.",
   "platformClaw.quickActions.loading": "빠른 실행을 불러오는 중…",
   "platformClaw.quickActions.unavailable":
     "빠른 실행을 사용할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",

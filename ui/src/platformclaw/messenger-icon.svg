@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="160 180 1190 1180" aria-hidden="true" focusable="false">
+  <!-- Separate grayscale faces preserve the supplied mark's folded-ribbon shape at sidebar sizes. -->
+  <g>
+    <path id="upper-fold" fill="var(--messenger-upper-fold, light-dark(#555555, #888888))" d="M512 338 512 462 585 411Z"/>
+    <path id="left-fold" fill="var(--messenger-left-fold, light-dark(#999999, #aaaaaa))" d="m311 1002 88-64 44 56Z"/>
+    <path id="lower-fold" fill="var(--messenger-lower-fold, light-dark(#444444, #999999))" d="m911 1110 64-48v130Z"/>
+  </g>
+  <g>
+    <path id="upper-ribbon" fill="var(--messenger-upper, light-dark(#777777, #aaaaaa))" d="M520 326C629 211 729 176 815 244c28 22 50 50 76 84l214 278-229 168L596 413Z"/>
+    <path id="left-ribbon" fill="var(--messenger-left, light-dark(#bbbbbb, #dddddd))" d="m591 421 171 219-366 289-94 65c-93-101-153-202-83-287Z"/>
+    <path id="lower-ribbon" fill="var(--messenger-lower, light-dark(#444444, #777777))" d="m623 752 352 454c-117 118-219 155-316 46L405 933Z"/>
+    <path id="right-ribbon" fill="var(--messenger-right, light-dark(#999999, #bbbbbb))" d="m1114 616-66-80h135c120 102 175 239 62 351l-340 215-168-220Z"/>
+  </g>
+</svg>

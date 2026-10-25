@@ -495,13 +495,12 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
             top: bounds.top,
           };
         }),
-        voc: (() => {
+        quickActions: (() => {
           const quickActions = document.querySelector<HTMLElement>("platformclaw-quick-actions");
-          const bounds = quickActions?.shadowRoot
-            ?.querySelector<HTMLElement>('button[aria-label="VOC"]')
-            ?.getBoundingClientRect();
+          // The field sits above the full footer, even when its actions share a row.
+          const bounds = quickActions?.getBoundingClientRect();
           if (!bounds) {
-            throw new Error("missing VOC anchor");
+            throw new Error("missing quick actions anchor");
           }
           return {
             bottom: bounds.bottom,
@@ -558,7 +557,7 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(overlaps(geometry.hud, geometry.player)).toBe(false);
     expect(overlaps(geometry.score, geometry.player)).toBe(false);
     expect(overlaps(geometry.score, geometry.pitcher)).toBe(false);
-    expect(overlaps(geometry.score, geometry.voc)).toBe(false);
+    expect(overlaps(geometry.score, geometry.quickActions)).toBe(false);
     expect(geometry.sidebarBody.bottom).toBeLessThanOrEqual(geometry.score.top);
     expect(geometry.sidebarBody.bottom).toBeLessThanOrEqual(geometry.player.top);
     expect(geometry.sidebarBody.bottom).toBeLessThanOrEqual(geometry.pitcher.top);
@@ -567,19 +566,19 @@ describeE2e("PlatformClaw baseball mocked Gateway E2E", () => {
     expect(geometry.scoreText).toEqual(["안타 0", "홈런 0"]);
     expect(geometry.hudMetrics).not.toContain("안타 0");
     expect(geometry.hudMetrics).not.toContain("홈런 0");
-    expect(geometry.player.left).toBeGreaterThanOrEqual(geometry.voc.left);
-    expect(geometry.player.right).toBeLessThan(geometry.voc.right);
+    expect(geometry.player.left).toBeGreaterThanOrEqual(geometry.quickActions.left);
+    expect(geometry.player.right).toBeLessThan(geometry.quickActions.right);
     expect(geometry.bat.left).toBeGreaterThanOrEqual(0);
     expect(geometry.bat.right).toBeLessThan(geometry.navRight);
     expect(geometry.pitcher.left).toBeGreaterThan(geometry.player.right);
-    expect(geometry.pitcher.right).toBeLessThanOrEqual(geometry.voc.right + 2);
+    expect(geometry.pitcher.right).toBeLessThanOrEqual(geometry.quickActions.right + 2);
     expect(geometry.pitcher.right).toBeLessThan(geometry.navRight);
-    expect(geometry.player.bottom).toBeLessThan(geometry.voc.top);
-    expect(geometry.pitcher.bottom).toBeLessThan(geometry.voc.top);
+    expect(geometry.player.bottom).toBeLessThan(geometry.quickActions.top);
+    expect(geometry.pitcher.bottom).toBeLessThan(geometry.quickActions.top);
     expect(geometry.player.top).toBeGreaterThan(geometry.lastNavBottom + 16);
     expect(geometry.pitcher.top).toBeGreaterThan(geometry.lastNavBottom + 16);
-    expect(geometry.voc.top - geometry.player.bottom).toBeGreaterThanOrEqual(8);
-    expect(geometry.voc.top - geometry.player.bottom).toBeLessThanOrEqual(16);
+    expect(geometry.quickActions.top - geometry.player.bottom).toBeGreaterThanOrEqual(8);
+    expect(geometry.quickActions.top - geometry.player.bottom).toBeLessThanOrEqual(16);
     expect(geometry.hud.left).toBeGreaterThanOrEqual(geometry.navRight + 24);
     expect((geometry.player.left + geometry.player.right) / 2).toBeGreaterThanOrEqual(56);
     expect((geometry.player.left + geometry.player.right) / 2).toBeLessThanOrEqual(60);
