@@ -385,6 +385,8 @@ export type ControlPlaneDatabase = {
   encrypted_user_mcp_credentials: EncryptedUserMcpCredentialRow;
   user_mcp_settings: UserMcpSettingsRow;
   exec_credential_definitions: ExecCredentialDefinitionRow;
+  exec_credential_definition_tokens: { env_name: string; token: string };
+  exec_credential_value_tokens: { user_id: string; env_name: string; token: string };
   encrypted_user_exec_credentials: EncryptedUserExecCredentialRow;
   mcp_oauth_states: McpOAuthStateRow;
   skill_hub_skill_ownership: SkillHubOwnershipRow;

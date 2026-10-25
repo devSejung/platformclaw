@@ -8,6 +8,8 @@ import { loadAllPlatformClawLocales } from "./i18n.ts";
 beforeAll(loadAllPlatformClawLocales);
 
 const REQUEST_ID = "d745f81c-6421-4d72-8b68-baf4c3f04e11";
+const DEFINITION_TOKEN = "a".repeat(32);
+const CREDENTIAL_TOKEN = "b".repeat(32);
 
 function fixture() {
   const identity = {
@@ -27,9 +29,26 @@ function fixture() {
     messages: [user],
     sessionInfo: { sessionId: "session-a", activeLeafEntryId: "leaf-source", hasActiveRun: false },
   };
-  let metadata = {
+  let metadata: {
+    accountId: string;
+    definitions: {
+      envName: string;
+      configured: boolean;
+      revision: number;
+      definitionToken: string;
+      credentialToken: string | null;
+    }[];
+  } = {
     accountId: identity.accountId,
-    definitions: [{ envName: "REPORT_API_TOKEN", configured: false, revision: 1 }],
+    definitions: [
+      {
+        envName: "REPORT_API_TOKEN",
+        configured: false,
+        revision: 1,
+        definitionToken: DEFINITION_TOKEN,
+        credentialToken: null,
+      },
+    ],
   };
   const client = { request: vi.fn(async () => history) };
   const hello = {};
@@ -124,12 +143,26 @@ function fixture() {
     await vi.waitFor(() => expect(application.navigate).toHaveBeenCalledWith("credentials"));
     flow.visit("credentials");
   };
-  const save = () => {
+  const save = (revision = 2, credentialToken = CREDENTIAL_TOKEN) => {
     metadata = {
       ...metadata,
-      definitions: [{ envName: "REPORT_API_TOKEN", configured: true, revision: 2 }],
+      definitions: [
+        {
+          envName: "REPORT_API_TOKEN",
+          configured: true,
+          revision,
+          definitionToken: DEFINITION_TOKEN,
+          credentialToken,
+        },
+      ],
     };
-    flow.saved({ requestId: REQUEST_ID, envName: "REPORT_API_TOKEN", revision: 2 });
+    flow.saved({
+      requestId: REQUEST_ID,
+      envName: "REPORT_API_TOKEN",
+      revision,
+      definitionToken: DEFINITION_TOKEN,
+      credentialToken,
+    });
   };
   return {
     flow,
@@ -329,7 +362,13 @@ describe("personal credential handoff", () => {
     }
     f.draw();
     expect(f.container.querySelector("[data-credential-flow='inactive']")).not.toBeNull();
-    f.flow.saved({ requestId: REQUEST_ID, envName: "REPORT_API_TOKEN", revision: 2 });
+    f.flow.saved({
+      requestId: REQUEST_ID,
+      envName: "REPORT_API_TOKEN",
+      revision: 2,
+      definitionToken: DEFINITION_TOKEN,
+      credentialToken: CREDENTIAL_TOKEN,
+    });
     expect(f.flow.target).toBeUndefined();
   });
 
@@ -348,6 +387,53 @@ describe("personal credential handoff", () => {
       expect(f.container.querySelector("[data-credential-flow='saved']")).not.toBeNull();
     });
     expect(f.container.textContent).toContain("could not confirm");
+  });
+
+  it.each(["definitionToken", "credentialToken"] as const)(
+    "does not continue after a same-revision replacement changes %s",
+    async (changedToken) => {
+      const f = setup();
+      await f.ready();
+      await f.configure();
+      f.save();
+      f.flow.visit("chat");
+      f.fetchImpl.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            accountId: "synthetic-a",
+            definitions: [
+              {
+                envName: "REPORT_API_TOKEN",
+                configured: true,
+                revision: 2,
+                definitionToken: DEFINITION_TOKEN,
+                credentialToken: CREDENTIAL_TOKEN,
+                [changedToken]: "c".repeat(32),
+              },
+            ],
+          }),
+        ),
+      );
+      f.draw();
+      (f.container.querySelector("button") as HTMLButtonElement).click();
+      await vi.waitFor(() => {
+        f.draw();
+        expect(f.container.textContent).toContain("expired");
+      });
+      expect(f.host.handleSendChat).not.toHaveBeenCalled();
+    },
+  );
+
+  it("continues with the latest confirmed value when the requested key is saved again", async () => {
+    const f = setup();
+    await f.ready();
+    await f.configure();
+    f.save();
+    f.save(3, "c".repeat(32));
+    f.flow.visit("chat");
+    f.draw();
+    (f.container.querySelector("button") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(f.host.handleSendChat).toHaveBeenCalledOnce());
   });
 
   it("rechecks the server leaf before continuing and never sends after a race", async () => {

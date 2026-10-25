@@ -54,7 +54,14 @@ export type StoredExecCredential = ExecCredentialEnvelope & {
 
 export type ExecCredentialDefinition = {
   envName: string;
+  definitionToken: string;
+  credentialToken: string | null;
   configured?: boolean;
   revision?: number;
   updatedAt?: number;
+};
+
+export type ExecCredentialPreconditions = {
+  expectedDefinitionToken: string;
+  expectedCredentialToken: string | null;
 };
