@@ -33,6 +33,7 @@ describe("platformclaw-quick-actions", () => {
   beforeEach(async () => {
     document.body.innerHTML = "";
     await i18n.setLocale("en");
+    await loadPlatformClawLocale();
   });
 
   afterEach(async () => {
@@ -40,7 +41,7 @@ describe("platformclaw-quick-actions", () => {
     await i18n.setLocale("en");
   });
 
-  it("keeps only personal work-location and VOC actions in the footer", async () => {
+  it("shares the VOC row with the messenger link above personal work-location", async () => {
     const element = await mount({ vocEnabled: true });
 
     expect(element.shadowRoot?.querySelector('[aria-label="Guide"]')).toBeNull();
@@ -50,7 +51,11 @@ describe("platformclaw-quick-actions", () => {
       element.shadowRoot?.querySelector("platformclaw-announcement-administration"),
     ).toBeNull();
     const items = [...(element.shadowRoot?.querySelector(".grid")?.children ?? [])];
-    expect(items.map((item) => item.localName)).toEqual(["button", "button"]);
+    expect(items.map((item) => item.localName)).toEqual(["button", "a", "button"]);
+    const messenger = element.shadowRoot?.querySelector<HTMLAnchorElement>("a.messenger");
+    expect(messenger?.getAttribute("href")).toBe("mysingleim://sopa.ai");
+    expect(messenger?.getAttribute("aria-label")).toBe("Knox");
+    expect(messenger?.classList.contains("messenger--split")).toBe(true);
 
     element.shadowRoot?.querySelector<HTMLButtonElement>('[aria-label="VOC"]')?.click();
     await element.updateComplete;
@@ -64,6 +69,9 @@ describe("platformclaw-quick-actions", () => {
 
     await vi.waitFor(() => expect(member.shadowRoot?.textContent).toContain("기본 서버"));
     expect(member.shadowRoot?.textContent).not.toContain("가이드");
+    const messenger = member.shadowRoot?.querySelector<HTMLAnchorElement>("a.messenger");
+    expect(messenger?.getAttribute("aria-label")).toBe("Knox");
+    expect(messenger?.classList.contains("span-two")).toBe(true);
   });
 
   it("opens the existing execution settings control", async () => {
