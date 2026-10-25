@@ -1,14 +1,17 @@
 import { asNullableRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { html, nothing, render as renderTemplate } from "lit";
-import { live } from "lit/directives/live.js";
-import { repeat } from "lit/directives/repeat.js";
-import {
-  renderSettingsEmpty,
-  renderSettingsRow,
-  renderSettingsSection,
-  renderSettingsStatus,
-} from "../components/settings-ui.ts";
+import { renderSettingsRow, renderSettingsSection } from "../components/settings-ui.ts";
 import { i18n } from "../i18n/index.ts";
+import {
+  createCredentialDraft,
+  createCredentialSelection,
+  readCredentialDefinitions,
+  readPersonalCredentialDefinitions,
+  type CredentialDefinition,
+  type CredentialDraft,
+  type PersonalCredentialDefinition,
+} from "./exec-credentials-model.ts";
+import { renderCredentialWorkspace } from "./exec-credentials-view.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import {
   PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH,
@@ -16,43 +19,35 @@ import {
 } from "./web-contract.ts";
 import "./exec-credentials.css";
 
-type Definition = { envName: string; configured?: boolean; revision?: number };
-type CredentialMutation = { action: "add" | "remove" | "replace"; envName: string; value?: string };
 export type CredentialTarget = { requestId: string; envName: string; expectedAccountId: string };
-export type PersonalCredentialSaved = { requestId: string; envName: string; revision: number };
-type SaveAcknowledgement = { envName: string; revision: number; requestId?: string };
+export type PersonalCredentialSaved = {
+  requestId: string;
+  envName: string;
+  revision: number;
+  definitionToken: string;
+  credentialToken: string;
+};
+type SaveAcknowledgement = Omit<PersonalCredentialSaved, "requestId"> & { requestId?: string };
+type CredentialMutation = {
+  action: "add" | "remove" | "replace";
+  envName: string;
+  value?: string;
+  expectedDefinitionToken?: string;
+  expectedCredentialToken?: string | null;
+};
 
 class CredentialRequestError extends Error {
-  readonly key: string;
-
-  constructor(key: string) {
+  constructor(
+    readonly key: string,
+    readonly conflict = false,
+  ) {
     super(key);
-    this.key = key;
   }
-}
-
-function readDefinitions(value: unknown): Definition[] {
-  if (!Array.isArray(value)) {
-    throw new CredentialRequestError("platformClaw.execCredentials.failed");
-  }
-  return value.map((item) => {
-    const definition = asRecord(item);
-    if (!definition || typeof definition.envName !== "string") {
-      throw new CredentialRequestError("platformClaw.execCredentials.failed");
-    }
-    return {
-      envName: definition.envName,
-      configured: definition.configured === true,
-      revision: Number.isSafeInteger(definition.revision)
-        ? (definition.revision as number)
-        : undefined,
-    };
-  });
 }
 
 export class PlatformClawExecCredentialsElement extends HTMLElement {
-  private definitions: Definition[] = [];
-  private adminDefinitions: Definition[] = [];
+  private definitions: PersonalCredentialDefinition[] = [];
+  private adminDefinitions: CredentialDefinition[] = [];
   private accountId: string | null = null;
   private accountInvalid = false;
   private loading = true;
@@ -64,7 +59,15 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
   private currentTarget?: CredentialTarget;
   private pendingAcknowledgement?: SaveAcknowledgement;
   private confirmedAcknowledgement?: PersonalCredentialSaved;
-  private readonly secretDrafts = new Map<string, string>();
+  private readonly drafts = new Map<string, CredentialDraft>();
+  private readonly selections = {
+    personal: createCredentialSelection(),
+    administration: createCredentialSelection(),
+  };
+  private tab: "personal" | "administration" = "personal";
+  private definitionName = "";
+  private creatingDefinition = false;
+  private confirmation: CredentialDefinition | null = null;
   private unsubscribeLocale = () => {};
   admin = false;
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
@@ -76,7 +79,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
   get target(): CredentialTarget | undefined {
     return this.currentTarget;
   }
-
   set target(value: CredentialTarget | undefined) {
     const previous = this.currentTarget;
     if (
@@ -88,9 +90,7 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
     }
     this.generation++;
     this.currentTarget = value ? { ...value } : undefined;
-    this.secretDrafts.clear();
-    this.pendingAcknowledgement = undefined;
-    this.confirmedAcknowledgement = undefined;
+    this.clearSecrets();
     this.focusedTarget = false;
     this.cancelled = false;
     this.accountInvalid = false;
@@ -107,25 +107,27 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
     this.unsubscribeLocale = i18n.subscribe(() => void this.initialize(false));
     void this.initialize(true);
   }
-
   disconnectedCallback(): void {
     this.generation++;
     this.unsubscribeLocale();
-    this.secretDrafts.clear();
+    this.clearSecrets();
+    this.confirmation = null;
+    this.busy = "";
+    this.definitionName = "";
+    renderTemplate(nothing, this);
+  }
+  private clearSecrets(): void {
+    this.drafts.clear();
     this.pendingAcknowledgement = undefined;
     this.confirmedAcknowledgement = undefined;
-    this.busy = "";
-    // The detached password DOM must lose the value along with the volatile map.
+    // Retained editor nodes must lose plaintext when their account/request owner ends.
     this.querySelectorAll<HTMLInputElement>("[data-value]").forEach((input) => {
       input.value = "";
     });
-    renderTemplate(nothing, this);
   }
-
   private current(generation: number): boolean {
     return this.isConnected && !this.cancelled && this.generation === generation;
   }
-
   private async initialize(load: boolean): Promise<void> {
     const generation = this.generation;
     await loadPlatformClawLocale();
@@ -137,10 +139,10 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
       await this.refresh();
     }
   }
-
   private async request(path: string, init?: RequestInit): Promise<Record<string, unknown>> {
     const response = await this.fetchImpl(path, {
       credentials: "same-origin",
+      cache: "no-store",
       headers: {
         Accept: "application/json",
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
@@ -150,20 +152,19 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
     if (response.status === 401) {
       throw new CredentialRequestError("platformClaw.execCredentials.sessionExpired");
     }
+    const body = asRecord(await response.json());
     if (response.status === 409) {
+      if (body?.code === "credential-changed") {
+        throw new CredentialRequestError("platformClaw.execCredentials.conflict", true);
+      }
       throw new CredentialRequestError("platformClaw.credentialFlow.accountChanged");
     }
-    // Never display server error text or JSON fragments: either could echo input.
-    if (!response.ok) {
-      throw new CredentialRequestError("platformClaw.execCredentials.failed");
-    }
-    const body = asRecord(await response.json());
-    if (!body) {
+    // Server messages may echo a supplied secret. Render only owner-held translation keys.
+    if (!response.ok || !body) {
       throw new CredentialRequestError("platformClaw.execCredentials.failed");
     }
     return body;
   }
-
   private fail(error: unknown, fallback = "platformClaw.execCredentials.failed"): void {
     this.messageKey = error instanceof CredentialRequestError ? error.key : fallback;
     if (
@@ -171,16 +172,80 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
       this.messageKey === "platformClaw.execCredentials.sessionExpired"
     ) {
       this.accountInvalid = true;
-      this.secretDrafts.clear();
-      this.pendingAcknowledgement = undefined;
-      this.confirmedAcknowledgement = undefined;
+      this.clearSecrets();
+      this.confirmation = null;
       if (this.messageKey === "platformClaw.execCredentials.sessionExpired") {
         this.onUnauthenticated();
       }
     }
   }
-
-  private async refresh(clearMessage = true): Promise<void> {
+  private draft(envName: string): CredentialDraft {
+    let draft = this.drafts.get(envName);
+    if (!draft) {
+      const definition = this.definitions.find((item) => item.envName === envName);
+      if (!definition) {
+        throw new Error("credential definition unavailable");
+      }
+      draft = createCredentialDraft(definition);
+      this.drafts.set(envName, draft);
+    }
+    return draft;
+  }
+  private adoptDefinitions(definitions: PersonalCredentialDefinition[], reloadEnv?: string): void {
+    const allowed = new Set(definitions.map((item) => item.envName));
+    for (const envName of this.drafts.keys()) {
+      if (!allowed.has(envName) || envName === reloadEnv) {
+        this.drafts.delete(envName);
+      }
+    }
+    this.definitions = definitions;
+    for (const item of definitions) {
+      const draft = this.drafts.get(item.envName);
+      if (!draft || (!draft.value && !draft.conflict)) {
+        const next = createCredentialDraft(item);
+        if (draft) {
+          next.message = draft.message;
+          next.error = draft.error;
+        }
+        this.drafts.set(item.envName, next);
+      } else if (
+        draft.definitionToken !== item.definitionToken ||
+        draft.credentialToken !== item.credentialToken
+      ) {
+        // The user's draft keeps the snapshot it was edited against, including delete/recreate.
+        draft.conflict = true;
+        draft.error = "platformClaw.execCredentials.conflict";
+      }
+    }
+    const acknowledgement = this.confirmedAcknowledgement;
+    if (acknowledgement && !this.matchesAcknowledgement(acknowledgement)) {
+      this.confirmedAcknowledgement = undefined;
+    }
+    const selection = this.selections.personal;
+    if (!selection.selected || !allowed.has(selection.selected)) {
+      selection.selected = definitions[0]?.envName ?? null;
+    }
+    if (this.target && !this.focusedTarget && allowed.has(this.target.envName)) {
+      this.tab = "personal";
+      this.selections.personal = {
+        ...createCredentialSelection(),
+        selected: this.target.envName,
+        page: Math.floor(
+          definitions.findIndex((item) => item.envName === this.target?.envName) / 8,
+        ),
+      };
+    }
+  }
+  private matchesAcknowledgement(ack: SaveAcknowledgement): boolean {
+    const definition = this.definitions.find((item) => item.envName === ack.envName);
+    return (
+      definition?.configured === true &&
+      definition.revision === ack.revision &&
+      definition.definitionToken === ack.definitionToken &&
+      definition.credentialToken === ack.credentialToken
+    );
+  }
+  private async refresh(clearMessage = true, reloadEnv?: string): Promise<void> {
     const generation = this.generation;
     this.loading = true;
     this.render();
@@ -203,47 +268,47 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
       ) {
         throw new CredentialRequestError("platformClaw.credentialFlow.accountChanged");
       }
+      const definitions = readPersonalCredentialDefinitions(personal.definitions);
+      const adminDefinitions = readCredentialDefinitions(admin.definitions);
       this.accountId = personal.accountId;
-      this.definitions = readDefinitions(personal.definitions);
-      this.adminDefinitions = readDefinitions(admin.definitions);
-      const allowedNames = new Set(this.definitions.map((definition) => definition.envName));
-      for (const envName of this.secretDrafts.keys()) {
-        if (!allowedNames.has(envName)) {
-          this.secretDrafts.delete(envName);
-        }
+      this.adoptDefinitions(definitions, reloadEnv);
+      this.adminDefinitions = adminDefinitions;
+      if (
+        !adminDefinitions.some((item) => item.envName === this.selections.administration.selected)
+      ) {
+        this.selections.administration.selected = adminDefinitions[0]?.envName ?? null;
       }
       if (clearMessage) {
         this.messageKey = "";
       }
       const acknowledgement = this.pendingAcknowledgement;
       if (acknowledgement) {
-        const definition = this.definitions.find(
-          (item) => item.envName === acknowledgement.envName,
-        );
         this.pendingAcknowledgement = undefined;
-        if (!definition?.configured || definition.revision !== acknowledgement.revision) {
-          this.messageKey = "platformClaw.credentialFlow.stateChanged";
+        const draft = this.drafts.get(acknowledgement.envName);
+        if (!this.matchesAcknowledgement(acknowledgement)) {
+          if (draft) {
+            draft.conflict = true;
+            draft.error = "platformClaw.credentialFlow.stateChanged";
+          }
         } else if (
           acknowledgement.requestId &&
           this.target?.requestId === acknowledgement.requestId
         ) {
-          const confirmed = {
-            requestId: acknowledgement.requestId,
-            envName: acknowledgement.envName,
-            revision: acknowledgement.revision,
-          };
+          const confirmed = { ...acknowledgement, requestId: acknowledgement.requestId };
           this.confirmedAcknowledgement = confirmed;
-          this.messageKey = "platformClaw.credentialFlow.saved";
+          if (draft) {
+            draft.message = "platformClaw.credentialFlow.saved";
+          }
           this.onPersonalSaved?.(confirmed);
-        } else {
-          this.messageKey = "platformClaw.execCredentials.saved";
+        } else if (draft) {
+          draft.message = "platformClaw.execCredentials.saved";
         }
       }
     } catch (error) {
       if (this.current(generation)) {
         this.fail(error);
         if (this.pendingAcknowledgement && !this.accountInvalid) {
-          this.messageKey = "platformClaw.credentialFlow.statusUnconfirmed";
+          this.messageKey = "";
         }
       }
     } finally {
@@ -253,74 +318,15 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
       }
     }
   }
-
-  private async mutate(path: string, body: CredentialMutation): Promise<void> {
-    if (
-      this.loading ||
-      this.busy ||
-      this.accountInvalid ||
-      this.cancelled ||
-      this.pendingAcknowledgement
-    ) {
-      return;
-    }
-    const personal = path === PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH;
-    const expectedAccountId = this.target?.expectedAccountId ?? this.accountId;
-    if (
-      personal &&
-      (!expectedAccountId || !this.definitions.some((item) => item.envName === body.envName))
-    ) {
-      this.messageKey = "platformClaw.execCredentials.failed";
-      this.render();
+  private async reloadCredential(envName: string): Promise<void> {
+    if (this.controlsBlocked) {
       return;
     }
     const generation = this.generation;
-    this.busy = body.envName;
-    this.messageKey = "";
-    this.confirmedAcknowledgement = undefined;
-    this.render();
+    // Reload discards this editor only. Block its input until the awaited snapshot is adopted.
+    this.busy = envName;
     try {
-      const result = await this.request(path, {
-        method: "POST",
-        body: JSON.stringify({ ...body, ...(personal ? { expectedAccountId } : {}) }),
-      });
-      if (!this.current(generation)) {
-        return;
-      }
-      if (personal && body.action === "replace") {
-        if (
-          result.envName !== body.envName ||
-          !Number.isSafeInteger(result.revision) ||
-          (result.revision as number) < 1
-        ) {
-          throw new CredentialRequestError("platformClaw.credentialFlow.unconfirmed");
-        }
-        // An ACK clears the secret immediately; a failed GET cannot resurrect it.
-        this.secretDrafts.delete(body.envName);
-        const definition = this.definitions.find((item) => item.envName === body.envName);
-        if (definition) {
-          definition.configured = true;
-        }
-        this.pendingAcknowledgement = {
-          envName: body.envName,
-          revision: result.revision as number,
-          ...(this.target?.envName === body.envName ? { requestId: this.target.requestId } : {}),
-        };
-      } else {
-        this.messageKey = "platformClaw.execCredentials.saved";
-        if (personal && body.action === "remove") {
-          this.secretDrafts.delete(body.envName);
-          const definition = this.definitions.find((item) => item.envName === body.envName);
-          if (definition) {
-            definition.configured = false;
-          }
-        }
-      }
-      await this.refresh(false);
-    } catch (error) {
-      if (this.current(generation)) {
-        this.fail(error, personal ? "platformClaw.credentialFlow.unconfirmed" : undefined);
-      }
+      await this.refresh(true, envName);
     } finally {
       if (this.current(generation)) {
         this.busy = "";
@@ -328,186 +334,138 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
       }
     }
   }
-
+  private async mutate(path: string, body: CredentialMutation): Promise<boolean> {
+    if (this.controlsBlocked) {
+      return false;
+    }
+    const expectedAccountId = this.target?.expectedAccountId ?? this.accountId;
+    const personal = path === PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH;
+    if (
+      !expectedAccountId ||
+      (personal && !this.definitions.some((item) => item.envName === body.envName))
+    ) {
+      this.messageKey = "platformClaw.execCredentials.failed";
+      this.render();
+      return false;
+    }
+    const generation = this.generation;
+    this.busy = body.envName;
+    this.messageKey = "";
+    const draft = personal ? this.draft(body.envName) : undefined;
+    if (draft) {
+      draft.error = "";
+      draft.message = "";
+    }
+    this.render();
+    try {
+      const result = await this.request(path, {
+        method: "POST",
+        body: JSON.stringify({ ...body, expectedAccountId }),
+      });
+      if (!this.current(generation)) {
+        return false;
+      }
+      if (personal && body.action === "replace") {
+        if (
+          result.envName !== body.envName ||
+          !Number.isSafeInteger(result.revision) ||
+          (result.revision as number) < 1 ||
+          typeof result.definitionToken !== "string" ||
+          typeof result.credentialToken !== "string"
+        ) {
+          throw new CredentialRequestError("platformClaw.credentialFlow.unconfirmed");
+        }
+        // A confirmed POST clears only its own plaintext. Other editor drafts and target ACK survive.
+        if (draft) {
+          draft.value = "";
+        }
+        this.pendingAcknowledgement = {
+          envName: body.envName,
+          revision: result.revision as number,
+          definitionToken: result.definitionToken,
+          credentialToken: result.credentialToken,
+          ...(this.target?.envName === body.envName ? { requestId: this.target.requestId } : {}),
+        };
+      } else {
+        if (personal) {
+          this.drafts.delete(body.envName);
+          if (this.confirmedAcknowledgement?.envName === body.envName) {
+            this.confirmedAcknowledgement = undefined;
+          }
+        }
+        if (!personal && body.action === "add") {
+          this.definitionName = "";
+        }
+        this.messageKey = "platformClaw.execCredentials.saved";
+      }
+      await this.refresh(false);
+      return true;
+    } catch (error) {
+      if (this.current(generation)) {
+        if (
+          personal &&
+          !(
+            error instanceof CredentialRequestError &&
+            (error.key === "platformClaw.credentialFlow.accountChanged" ||
+              error.key === "platformClaw.execCredentials.sessionExpired")
+          )
+        ) {
+          if (draft) {
+            draft.error =
+              error instanceof CredentialRequestError
+                ? error.key
+                : "platformClaw.credentialFlow.unconfirmed";
+            draft.conflict = error instanceof CredentialRequestError && error.conflict;
+          }
+        } else if (!personal && error instanceof CredentialRequestError && error.conflict) {
+          this.messageKey = "platformClaw.execCredentials.definitionConflict";
+        } else {
+          this.fail(error, personal ? "platformClaw.credentialFlow.unconfirmed" : undefined);
+        }
+      }
+      return false;
+    } finally {
+      if (this.current(generation)) {
+        this.busy = "";
+        this.render();
+      }
+    }
+  }
+  private saveCredential(envName: string): void {
+    const draft = this.draft(envName);
+    if (!draft.conflict && draft.value.trim()) {
+      void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
+        action: "replace",
+        envName,
+        value: draft.value,
+        expectedDefinitionToken: draft.definitionToken,
+        expectedCredentialToken: draft.credentialToken,
+      });
+    }
+  }
+  private removeCredential(envName: string): void {
+    const draft = this.draft(envName);
+    if (!draft.conflict) {
+      void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
+        action: "remove",
+        envName,
+        expectedDefinitionToken: draft.definitionToken,
+        expectedCredentialToken: draft.credentialToken,
+      });
+    }
+  }
   private cancelFlow(): void {
     if (this.cancelled) {
       return;
     }
     this.generation++;
     this.cancelled = true;
-    this.secretDrafts.clear();
-    this.pendingAcknowledgement = undefined;
-    this.confirmedAcknowledgement = undefined;
+    this.clearSecrets();
     this.busy = "";
     this.loading = false;
     this.render();
     this.onCancelFlow?.();
   }
-
-  private renderCredential(item: Definition) {
-    const draft = this.secretDrafts.get(item.envName) ?? "";
-    const blocked = this.controlsBlocked;
-    const inputBlocked =
-      this.accountInvalid ||
-      this.cancelled ||
-      this.targetMissing ||
-      this.busy === item.envName ||
-      this.pendingAcknowledgement?.envName === item.envName;
-    const status = draft
-      ? "platformClaw.execCredentials.unsaved"
-      : item.configured
-        ? "platformClaw.execCredentials.configured"
-        : "platformClaw.execCredentials.notConfigured";
-    return renderSettingsRow({
-      stacked: true,
-      title: html`<span class="platformclaw-credential-heading"
-        ><span>${item.envName}</span>${renderSettingsStatus({
-          kind: draft ? "warn" : item.configured ? "ok" : "muted",
-          label: t(status),
-        })}</span
-      >`,
-      description:
-        this.target?.envName === item.envName
-          ? t("platformClaw.credentialFlow.targetHint", { envName: item.envName })
-          : undefined,
-      control: html`
-        <form
-          class="platformclaw-credential-form"
-          @submit=${(event: SubmitEvent) => {
-            event.preventDefault();
-            this.saveCredential(item.envName);
-          }}
-        >
-          <input
-            class="settings-input"
-            data-value=${item.envName}
-            aria-label=${item.envName}
-            type="password"
-            autocomplete="new-password"
-            maxlength="32768"
-            required
-            placeholder=${item.configured
-              ? "••••••••"
-              : t("platformClaw.execCredentials.valuePlaceholder")}
-            .value=${live(draft)}
-            ?disabled=${inputBlocked}
-            @input=${(event: Event) => {
-              if (!this.cancelled && !this.accountInvalid) {
-                this.secretDrafts.set(
-                  item.envName,
-                  (event.currentTarget as HTMLInputElement).value,
-                );
-                this.render();
-              }
-            }}
-          />
-          <button
-            class="btn primary"
-            data-action="save"
-            data-env=${item.envName}
-            ?disabled=${blocked || !draft.trim()}
-          >
-            ${t("platformClaw.execCredentials.save")}
-          </button>
-          ${item.configured
-            ? html`<button
-                type="button"
-                class="btn"
-                data-action="remove"
-                data-env=${item.envName}
-                ?disabled=${this.controlsBlocked}
-                @click=${() =>
-                  void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
-                    action: "remove",
-                    envName: item.envName,
-                  })}
-              >
-                ${t("platformClaw.execCredentials.remove")}
-              </button>`
-            : nothing}
-        </form>
-      `,
-    });
-  }
-
-  private saveCredential(envName: string): void {
-    const value = this.secretDrafts.get(envName);
-    if (!this.controlsBlocked && value?.trim()) {
-      void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
-        action: "replace",
-        envName,
-        value,
-      });
-    }
-  }
-
-  private renderAdministration() {
-    return renderSettingsSection(
-      {
-        title: t("platformClaw.execCredentials.adminTitle"),
-        description: t("platformClaw.execCredentials.adminIntro"),
-      },
-      html`
-        ${renderSettingsRow({
-          title: t("platformClaw.execCredentials.add"),
-          stacked: true,
-          control: html`
-            <form
-              class="platformclaw-credential-definition-form"
-              data-admin-form
-              @submit=${(event: SubmitEvent) => {
-                event.preventDefault();
-                const form = event.currentTarget as HTMLFormElement;
-                const envName = (form.elements.namedItem("envName") as HTMLInputElement).value;
-                void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH, {
-                  action: "add",
-                  envName,
-                });
-              }}
-            >
-              <input
-                class="settings-input"
-                name="envName"
-                aria-label=${t("platformClaw.execCredentials.adminTitle")}
-                autocomplete="off"
-                maxlength="128"
-                placeholder="OPENAI_API_KEY"
-                required
-                ?disabled=${this.controlsBlocked}
-              />
-              <button class="btn primary" ?disabled=${this.controlsBlocked}>
-                ${t("platformClaw.execCredentials.add")}
-              </button>
-            </form>
-          `,
-        })}
-        ${repeat(
-          this.adminDefinitions,
-          (item) => item.envName,
-          (item) =>
-            renderSettingsRow({
-              title: item.envName,
-              control: html`
-                <button
-                  class="btn"
-                  data-action="remove-definition"
-                  data-env=${item.envName}
-                  ?disabled=${this.controlsBlocked}
-                  @click=${() =>
-                    void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH, {
-                      action: "remove",
-                      envName: item.envName,
-                    })}
-                >
-                  ${t("platformClaw.execCredentials.remove")}
-                </button>
-              `,
-            }),
-        )}
-      `,
-    );
-  }
-
   private get targetMissing(): boolean {
     return (
       Boolean(this.target) &&
@@ -515,7 +473,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
       !this.definitions.some((item) => item.envName === this.target?.envName)
     );
   }
-
   private get controlsBlocked(): boolean {
     return (
       this.loading ||
@@ -526,7 +483,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
       this.targetMissing
     );
   }
-
   private renderFlow() {
     return this.target
       ? renderSettingsSection(
@@ -538,8 +494,7 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
                 : "platformClaw.credentialFlow.targetHint",
               { envName: this.target.envName },
             ),
-            control: html`
-              <button
+            control: html`<button
                 type="button"
                 class="btn primary"
                 data-flow-return
@@ -550,9 +505,8 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
                   }
                 }}
               >
-                ${t("platformClaw.credentialFlow.return")}
-              </button>
-              <button
+                ${t("platformClaw.credentialFlow.return")}</button
+              ><button
                 type="button"
                 class="btn"
                 data-flow-cancel
@@ -560,54 +514,125 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
                 @click=${() => this.cancelFlow()}
               >
                 ${t("platformClaw.credentialFlow.later")}
-              </button>
-            `,
+              </button>`,
           }),
         )
       : nothing;
   }
-
   private render(): void {
     if (!this.isConnected) {
       return;
     }
-    // Keyed Lit rows retain the actual input nodes and caret while sibling saves complete.
+    const selection = this.selections[this.tab];
     renderTemplate(
-      html`
-        ${this.renderFlow()}
-        ${renderSettingsSection(
-          {
-            title: t("platformClaw.execCredentials.title"),
-            description: html`${t("platformClaw.execCredentials.intro")}
-            ${t("platformClaw.execCredentials.replaceHelp")}`,
-          },
-          this.definitions.length
-            ? repeat(
-                this.definitions,
-                (item) => item.envName,
-                (item) => this.renderCredential(item),
-              )
-            : renderSettingsEmpty(
-                t(this.loading ? "common.loading" : "platformClaw.execCredentials.empty"),
-              ),
-        )}
-        ${this.admin ? this.renderAdministration() : nothing}
-        ${this.pendingAcknowledgement && !this.loading && !this.busy
-          ? html`<button
-              type="button"
-              class="btn"
-              data-recheck
-              @click=${() => void this.refresh(false)}
-            >
-              ${t("platformClaw.credentialFlow.recheckStatus")}
-            </button>`
-          : nothing}
-        ${this.messageKey
-          ? html`<p class="settings-page__intro" role="status" aria-live="polite">
-              ${t(this.messageKey)}
-            </p>`
-          : nothing}
-      `,
+      renderCredentialWorkspace({
+        admin: this.admin,
+        tab: this.tab,
+        definitions: this.definitions,
+        adminDefinitions: this.adminDefinitions,
+        selection,
+        blocked: this.controlsBlocked,
+        inputBlocked: this.accountInvalid || this.cancelled || this.targetMissing,
+        loading: this.loading,
+        busy: this.busy,
+        pendingEnv: this.pendingAcknowledgement?.envName,
+        message: this.messageKey,
+        flow: this.renderFlow(),
+        definitionName: this.definitionName,
+        creating: this.creatingDefinition,
+        confirmation: this.confirmation,
+        draft: (envName) => this.draft(envName),
+        onTab: (tab) => {
+          this.tab = tab;
+          this.render();
+        },
+        onSelect: (envName) => {
+          selection.selected = envName;
+          selection.picking = false;
+          if (this.tab === "administration") {
+            this.creatingDefinition = false;
+          }
+          this.render();
+        },
+        onFilter: (patch) => {
+          Object.assign(selection, patch);
+          this.render();
+        },
+        onInput: (envName, value) => {
+          if (!this.cancelled && !this.accountInvalid) {
+            const draft = this.draft(envName);
+            draft.value = value;
+            draft.message = "";
+            if (!draft.conflict) {
+              draft.error = "";
+            }
+            this.render();
+          }
+        },
+        onSave: (envName) => this.saveCredential(envName),
+        onRemove: (envName) => this.removeCredential(envName),
+        onReload: (envName) => void this.reloadCredential(envName),
+        onRecheck: () => void this.refresh(false),
+        onCreate: () => {
+          this.creatingDefinition = true;
+          selection.picking = false;
+          this.render();
+        },
+        onDefinitionName: (value) => {
+          this.definitionName = value;
+          this.render();
+        },
+        onAddDefinition: () =>
+          void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH, {
+            action: "add",
+            envName: this.definitionName.trim(),
+          }),
+        onRemoveDefinition: (envName) => {
+          const definition = this.adminDefinitions.find((item) => item.envName === envName);
+          this.confirmation = definition ? { ...definition } : null;
+          this.messageKey = "";
+          this.render();
+        },
+        onConfirmRemoval: () => {
+          const confirmation = this.confirmation;
+          if (confirmation) {
+            void this.mutate(PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_API_PATH, {
+              action: "remove",
+              envName: confirmation.envName,
+              expectedDefinitionToken: confirmation.definitionToken,
+            }).then((removed) => {
+              if (removed && this.confirmation === confirmation) {
+                this.confirmation = null;
+                this.render();
+              }
+            });
+          }
+        },
+        onCancelRemoval: () => {
+          if (!this.busy) {
+            this.confirmation = null;
+            this.render();
+          }
+        },
+        onReloadDefinitions: () => {
+          if (this.controlsBlocked) {
+            return;
+          }
+          const generation = this.generation;
+          const confirmation = this.confirmation;
+          void this.refresh().then(() => {
+            // A new definition needs a new destructive confirmation, not an updated old token.
+            if (
+              this.current(generation) &&
+              !this.messageKey &&
+              this.confirmation === confirmation
+            ) {
+              this.confirmation = null;
+              this.render();
+            }
+          });
+        },
+      }),
       this,
     );
     if (!this.focusedTarget && !this.controlsBlocked && this.target) {
@@ -622,7 +647,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
     }
   }
 }
-
 if (!customElements.get("platformclaw-exec-credentials")) {
   customElements.define("platformclaw-exec-credentials", PlatformClawExecCredentialsElement);
 }

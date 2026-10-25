@@ -12,13 +12,16 @@ import {
   resolveUiSelectedSessionAgentId,
 } from "../lib/sessions/session-key.ts";
 import type { ChatHistoryResult } from "../pages/chat/chat-history.ts";
-import type { PlatformClawExecCredentialsElement } from "./exec-credentials.ts";
+import { readCredentialFlowAction } from "./exec-credentials-model.ts";
+import type {
+  PersonalCredentialSaved,
+  PlatformClawExecCredentialsElement,
+} from "./exec-credentials.ts";
 import { platformClawT as t } from "./i18n.ts";
 import type { PlatformClawSessionIdentity } from "./web-contract.ts";
 import { PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH } from "./web-contract.ts";
 
 const FLOW_TTL_MS = 30 * 60_000;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 type FlowIdentity = {
   requestId: string;
@@ -39,6 +42,8 @@ type PendingFlow = FlowIdentity &
         sessionId: string;
         expectedLeafEntryId: string;
         revision: number;
+        definitionToken: string;
+        credentialToken: string;
       }
   );
 
@@ -73,24 +78,6 @@ function latestUserTurn(messages: unknown[]): string | null {
     return typeof message.timestamp === "number" ? `timestamp:${message.timestamp}` : null;
   }
   return null;
-}
-
-function credentialAction(details: unknown): { requestId: string; targetKey: string } | null {
-  const action = record(record(details)?.uiAction);
-  if (
-    !action ||
-    Object.keys(action).length !== 5 ||
-    action.version !== 1 ||
-    action.kind !== "settings" ||
-    action.feature !== "platformclaw.exec-credentials" ||
-    typeof action.requestId !== "string" ||
-    !UUID_RE.test(action.requestId) ||
-    typeof action.targetKey !== "string" ||
-    !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/u.test(action.targetKey)
-  ) {
-    return null;
-  }
-  return { requestId: action.requestId, targetKey: action.targetKey };
 }
 
 /** One in-memory handoff. Secret values belong exclusively to the existing form. */
@@ -171,7 +158,7 @@ export class PlatformClawCredentialFlow {
   };
 
   capture(host: ChatAccessoryHost, result: ApplicationChatToolResult): void {
-    const action = credentialAction(result.details);
+    const action = readCredentialFlowAction(result.details);
     const agentId = resolveUiSelectedSessionAgentId(host);
     const parsed = parseAgentSessionKey(host.sessionKey);
     const gateway = this.application?.gateway.snapshot;
@@ -231,19 +218,27 @@ export class PlatformClawCredentialFlow {
       : undefined;
   }
 
-  saved = (ack: { requestId: string; envName: string; revision: number }): void => {
+  saved = (ack: PersonalCredentialSaved): void => {
     const state = this.pending();
     if (
-      state?.phase !== "editing" ||
+      (state?.phase !== "editing" && state?.phase !== "saved") ||
       ack.requestId !== state.requestId ||
       ack.envName !== state.targetKey ||
       !Number.isSafeInteger(ack.revision) ||
       ack.revision <= 0 ||
+      !ack.definitionToken ||
+      !ack.credentialToken ||
       !this.connectionCurrent()
     ) {
       return;
     }
-    this.state = { ...state, phase: "saved", revision: ack.revision };
+    this.state = {
+      ...state,
+      phase: "saved",
+      revision: ack.revision,
+      definitionToken: ack.definitionToken,
+      credentialToken: ack.credentialToken,
+    };
     this.host?.requestUpdate?.();
   };
 
@@ -570,7 +565,7 @@ export class PlatformClawCredentialFlow {
     }
   }
 
-  private async configured(state: PendingFlow, revision?: number): Promise<boolean> {
+  private async configured(state: PendingFlow): Promise<boolean> {
     const response = await this.fetchImpl(PLATFORMCLAW_EXEC_CREDENTIALS_API_PATH, {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
@@ -595,8 +590,14 @@ export class PlatformClawCredentialFlow {
       this.invalidate("expired");
       return false;
     }
+    // Numeric revisions restart after deletion. The stored generation tokens
+    // must still identify the exact value acknowledged for this conversation.
     return (
-      revision === undefined || (definition.configured === true && definition.revision === revision)
+      (state.phase !== "saved" && state.phase !== "submitting") ||
+      (definition.configured === true &&
+        definition.revision === state.revision &&
+        definition.definitionToken === state.definitionToken &&
+        definition.credentialToken === state.credentialToken)
     );
   }
 
@@ -653,7 +654,7 @@ export class PlatformClawCredentialFlow {
       if (
         !(await this.checkIdentity(state)) ||
         !(await this.readSource(state)) ||
-        !(await this.configured(state, state.revision)) ||
+        !(await this.configured(state)) ||
         this.state !== state ||
         !this.hostCurrent(host, state)
       ) {

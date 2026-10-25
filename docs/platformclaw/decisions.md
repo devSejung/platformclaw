@@ -723,6 +723,40 @@ creations extend the process namespace snapshot and survive restart as available
 destinations. This adds an idempotently ensured SQLite table without a schema
 version bump; existing restrictions and administrator policy remain authoritative.
 
+### PC-130 Keep personal credential edits scoped to their stored snapshot
+
+Settings > Credentials presents a searchable, paginated list beside the selected
+credential editor. Small windows switch between the list and editor. Administrators
+use separate My credentials and Allowed keys tabs; administration manages allowed
+environment-variable names, while each employee supplies their own secret values.
+Removing an allowed key also removes every employee's value for that key and
+requires an explicit confirmation that names this impact.
+
+Personal edits stay in browser memory across selection, filtering, and tab changes.
+Leaving the page, changing accounts, or cancelling a contextual request clears the
+drafts. Saved values are never returned to the browser. A saved status confirms
+storage, not successful authentication with the external service.
+
+Metadata includes opaque definition and credential tokens. Replace and personal
+delete requests submit their original `expectedDefinitionToken` and
+`expectedCredentialToken` (null when no value exists); allowed-key deletion submits
+the definition token. Every browser mutation also supplies `expectedAccountId`.
+Control compares the tokens inside the write transaction and rechecks current
+owner authority. A `409` response with code `credential-changed` preserves the
+draft for explicit reload and review; `credential-account-changed` clears it.
+Missing preconditions require the browser to reload rather than permit an
+unchecked write.
+
+Additive SQLite token tables and triggers distinguish deletion and recreation even
+when numeric revisions restart. The feature initializes them idempotently and
+backfills existing rows without changing encrypted values or the schema version.
+Older writers still advance the tokens through the triggers.
+
+The chat handoff verifies the exact acknowledged token pair before continuing the
+original conversation. Saving a different key does not discard the requested key's
+confirmation. An acknowledged save whose status refresh fails clears its submitted
+secret and offers a metadata-only retry, without automatically resending the save.
+
 ## Open operational decisions
 
 No remaining product decision blocks the implemented SQLite v2 store or the

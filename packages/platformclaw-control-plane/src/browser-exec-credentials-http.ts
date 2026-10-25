@@ -1,13 +1,35 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { asNullableRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
 import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-auth-http.js";
-import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
+import {
+  ControlPlaneAuthorizationError,
+  ControlPlaneConflictError,
+  ControlPlaneStateError,
+} from "./contracts.js";
+import type { ExecCredentialPreconditions } from "./exec-credential-contracts.js";
 import type { ExecCredentialService } from "./exec-credential-service.js";
 
 const PLATFORMCLAW_EXEC_CREDENTIALS_PATH = "/platformclaw/api/exec-credentials";
 const PLATFORMCLAW_EXEC_CREDENTIALS_ADMIN_PATH = "/platformclaw/api/admin/exec-credentials";
 
 const BODY_LIMIT_BYTES = 64 * 1024;
+
+function readExpectedToken(value: unknown): string {
+  if (typeof value !== "string" || !value || value.length > 128) {
+    throw new ControlPlaneStateError("invalid credential snapshot");
+  }
+  return value;
+}
+
+function readCredentialPreconditions(body: Record<string, unknown>): ExecCredentialPreconditions {
+  return {
+    expectedDefinitionToken: readExpectedToken(body.expectedDefinitionToken),
+    expectedCredentialToken:
+      body.expectedCredentialToken === null
+        ? null
+        : readExpectedToken(body.expectedCredentialToken),
+  };
+}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
@@ -32,7 +54,7 @@ export async function handlePlatformClawExecCredentialRequest(
   }
   const token = readPlatformClawSessionCookie(req);
   const auth = token ? await options.service.authenticate(token) : null;
-  if (!auth) {
+  if (!token || !auth) {
     sendJson(res, 401, { error: "authentication required" });
     return true;
   }
@@ -66,38 +88,64 @@ export async function handlePlatformClawExecCredentialRequest(
     if (!body || typeof body.action !== "string" || typeof body.envName !== "string") {
       throw new ControlPlaneStateError("invalid request body");
     }
-    if (!admin && body.expectedAccountId !== undefined) {
-      if (typeof body.expectedAccountId !== "string" || !body.expectedAccountId) {
-        throw new ControlPlaneStateError("invalid expected account");
-      }
-      // The cookie remains the owner; this precondition prevents an old tab writing to a new login.
-      if (body.expectedAccountId !== auth.user.accountId) {
-        sendJson(res, 409, {
-          error: "credential-account-changed",
-          code: "credential-account-changed",
-        });
-        return true;
-      }
+    // Body reads await external I/O. Recheck the session before applying either kind of mutation.
+    const currentAuth = await options.service.authenticate(token);
+    if (!currentAuth) {
+      sendJson(res, 401, { error: "authentication required" });
+      return true;
+    }
+    if (typeof body.expectedAccountId !== "string" || !body.expectedAccountId) {
+      throw new ControlPlaneStateError("invalid expected account");
+    }
+    // Bind admin changes too: another login must not inherit an old tab's intended action.
+    if (body.expectedAccountId !== currentAuth.user.accountId) {
+      sendJson(res, 409, {
+        error: "credential-account-changed",
+        code: "credential-account-changed",
+      });
+      return true;
     }
     const result = admin
       ? body.action === "add"
-        ? await options.service.addDefinition(auth.user.id, body.envName)
+        ? await options.service.addDefinition(currentAuth.user.id, body.envName)
         : body.action === "remove"
-          ? await options.service.removeDefinition(auth.user.id, body.envName)
+          ? await options.service.removeDefinition(
+              currentAuth.user.id,
+              body.envName,
+              readExpectedToken(body.expectedDefinitionToken),
+            )
           : null
       : body.action === "replace" && typeof body.value === "string"
-        ? await options.service.replace(auth.user.id, body.envName, body.value)
+        ? await options.service.replace(
+            currentAuth.user.id,
+            body.envName,
+            body.value,
+            readCredentialPreconditions(body),
+          )
         : body.action === "remove"
-          ? await options.service.remove(auth.user.id, body.envName)
+          ? await options.service.remove(
+              currentAuth.user.id,
+              body.envName,
+              readCredentialPreconditions(body),
+            )
           : null;
     if (!result) {
       throw new ControlPlaneStateError("invalid credential action");
     }
     sendJson(res, 200, result);
   } catch (error) {
-    sendJson(res, error instanceof ControlPlaneAuthorizationError ? 403 : 400, {
-      error: error instanceof Error ? error.message : "request failed",
-    });
+    sendJson(
+      res,
+      error instanceof ControlPlaneAuthorizationError
+        ? 403
+        : error instanceof ControlPlaneConflictError
+          ? 409
+          : 400,
+      {
+        error: error instanceof Error ? error.message : "request failed",
+        ...(error instanceof ControlPlaneConflictError ? { code: error.code } : {}),
+      },
+    );
   }
   return true;
 }

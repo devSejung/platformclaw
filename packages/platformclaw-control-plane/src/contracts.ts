@@ -488,6 +488,7 @@ export interface ControlPlaneManagementStore {
 }
 
 export type ControlPlaneConflictCode =
+  | "credential-changed"
   | "announcement_revision_conflict"
   | "space_changed"
   | "knowledge_vault_changed"

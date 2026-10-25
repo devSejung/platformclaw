@@ -6,62 +6,18 @@ import "./exec-credentials.ts";
 
 beforeAll(loadAllPlatformClawLocales);
 
+import {
+  response,
+  secretInput,
+  enterSecret,
+  clickAction,
+  snapshot,
+  deferredResponse,
+  mount,
+  save,
+  credentialRequestTarget as target,
+} from "./exec-credentials.test-support.ts";
 type CredentialElement = PlatformClawExecCredentialsElement;
-
-function response(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-function secretInput(element: HTMLElement, envName: string): HTMLInputElement {
-  return element.querySelector<HTMLInputElement>(`[data-value='${envName}']`)!;
-}
-
-function enterSecret(element: HTMLElement, envName: string, value: string): void {
-  const input = secretInput(element, envName);
-  input.value = value;
-  input.dispatchEvent(new Event("input"));
-}
-
-function clickAction(element: HTMLElement, action: string, envName: string): void {
-  element
-    .querySelector<HTMLButtonElement>(`[data-action='${action}'][data-env='${envName}']`)!
-    .click();
-}
-
-function snapshot(configured = false, revision = 1, accountId = "account-a"): Response {
-  return response({ accountId, definitions: [{ envName: "API_TOKEN", configured, revision }] });
-}
-
-function deferredResponse(): { promise: Promise<Response>; resolve: (value: Response) => void } {
-  let resolve!: (value: Response) => void;
-  const promise = new Promise<Response>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-const target = { requestId: "request-a", envName: "API_TOKEN", expectedAccountId: "account-a" };
-
-async function mount(fetchImpl: typeof fetch, contextual = false): Promise<CredentialElement> {
-  const element = document.createElement("platformclaw-exec-credentials") as CredentialElement;
-  element.fetchImpl = fetchImpl;
-  if (contextual) {
-    element.target = target;
-  }
-  document.body.append(element);
-  await vi.waitFor(() => expect(element.querySelector("[data-value]")).not.toBeNull());
-  return element;
-}
-
-function save(element: CredentialElement, value = "synthetic-only"): void {
-  const input = element.querySelector<HTMLInputElement>("[data-value='API_TOKEN']")!;
-  input.value = value;
-  input.dispatchEvent(new Event("input"));
-  element.querySelector<HTMLButtonElement>("[data-action='save']")!.click();
-}
 
 describe("PlatformClaw exec credentials", () => {
   afterEach(async () => {
@@ -104,6 +60,8 @@ describe("PlatformClaw exec credentials", () => {
         action: "replace",
         envName: "API_TOKEN",
         value: "  personal-secret  ",
+        expectedDefinitionToken: "definition-API_TOKEN",
+        expectedCredentialToken: null,
         expectedAccountId: "account-a",
       }),
     });
@@ -195,6 +153,8 @@ describe("PlatformClaw exec credentials", () => {
         action: "replace",
         envName: "TOKEN_B",
         value: "newer-secret-b",
+        expectedDefinitionToken: "definition-TOKEN_B",
+        expectedCredentialToken: null,
         expectedAccountId: "account-a",
       }),
     );
@@ -224,20 +184,25 @@ describe("PlatformClaw exec credentials", () => {
       enterSecret(element, "TOKEN_B", "secret-b");
       clickAction(element, "save", "TOKEN_A");
 
-      await vi.waitFor(() =>
-        expect(element.textContent).toContain(
-          t(
-            saved
-              ? "platformClaw.credentialFlow.statusUnconfirmed"
-              : "platformClaw.execCredentials.failed",
-          ),
-        ),
-      );
+      await vi.waitFor(() => {
+        if (saved) {
+          expect(element.querySelector("[data-pending-env='TOKEN_A']")?.textContent).toContain(
+            "TOKEN_A",
+          );
+        } else {
+          expect(element.textContent).toContain(t("platformClaw.execCredentials.failed"));
+        }
+      });
       expect(element.textContent).not.toContain("Service unavailable");
       expect(secretInput(element, "TOKEN_A").value).toBe(saved ? "" : "retry-secret-a");
       expect(secretInput(element, "TOKEN_B").value).toBe("secret-b");
       if (saved) {
-        expect(secretInput(element, "TOKEN_A").placeholder).toBe("••••••••");
+        expect(element.querySelector("[data-pending-env='TOKEN_A']")).not.toBeNull();
+        expect(secretInput(element, "TOKEN_A").disabled).toBe(true);
+        expect(
+          element.querySelector<HTMLButtonElement>("[data-action='save'][data-env='TOKEN_A']")!
+            .disabled,
+        ).toBe(true);
       }
     },
   );
@@ -293,6 +258,10 @@ describe("PlatformClaw exec credentials", () => {
     element.fetchImpl = fetchImpl;
     document.body.append(element);
 
+    await vi.waitFor(() => expect(element.querySelector("wa-tab-group")).not.toBeNull());
+    element
+      .querySelector("wa-tab-group")!
+      .dispatchEvent(new CustomEvent("wa-tab-show", { detail: { name: "administration" } }));
     await vi.waitFor(() => expect(element.textContent).toContain("Allowed environment variables"));
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
@@ -314,10 +283,19 @@ describe("PlatformClaw exec credentials", () => {
     element.admin = true;
     element.fetchImpl = fetchImpl;
     document.body.append(element);
+    await vi.waitFor(() => expect(element.querySelector("wa-tab-group")).not.toBeNull());
+    element
+      .querySelector("wa-tab-group")!
+      .dispatchEvent(new CustomEvent("wa-tab-show", { detail: { name: "administration" } }));
     await vi.waitFor(() =>
       expect(element.querySelector("[data-action='remove-definition']")).not.toBeNull(),
     );
     clickAction(element, "remove-definition", "API_TOKEN");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(element.querySelector("openclaw-modal-dialog")?.textContent).toContain(
+      "every user's saved value",
+    );
+    element.querySelector<HTMLButtonElement>("[data-action='confirm-remove-definition']")!.click();
     expect(
       element.querySelector<HTMLButtonElement>("[data-action='remove-definition']")?.disabled,
     ).toBe(true);
@@ -397,6 +375,8 @@ describe("PlatformClaw exec credentials", () => {
         requestId: "request-a",
         envName: "API_TOKEN",
         revision: 4,
+        definitionToken: "definition-API_TOKEN",
+        credentialToken: "credential-API_TOKEN-4",
       }),
     );
     expect(fetchImpl.mock.calls.map((call) => call[1]?.method ?? "GET")).toEqual([
@@ -426,7 +406,9 @@ describe("PlatformClaw exec credentials", () => {
       const onSaved = vi.fn();
       element.onPersonalSaved = onSaved;
       save(element);
-      await vi.waitFor(() => expect(element.querySelector("[role='status']")).not.toBeNull());
+      await vi.waitFor(() =>
+        expect(element.querySelector("[role='status'], [role='alert']")).not.toBeNull(),
+      );
       expect(fetchImpl).toHaveBeenCalledTimes(expectedCalls);
       expect(onSaved).not.toHaveBeenCalled();
       expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(true);
@@ -506,7 +488,9 @@ describe("PlatformClaw exec credentials", () => {
     element.querySelector<HTMLButtonElement>("[data-action='save']")!.click();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     pending.resolve(new Response(JSON.stringify({ error: "synthetic-only" }), { status: 503 }));
-    await vi.waitFor(() => expect(element.querySelector("[role='status']")).not.toBeNull());
+    await vi.waitFor(() =>
+      expect(element.querySelector("[role='status'], [role='alert']")).not.toBeNull(),
+    );
     expect(element.textContent).not.toContain("synthetic-only");
     expect(element.querySelector<HTMLInputElement>("[data-value]")!.value).toBe("synthetic-only");
   });

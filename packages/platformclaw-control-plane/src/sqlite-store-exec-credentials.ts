@@ -1,12 +1,18 @@
-import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
+import {
+  ControlPlaneAuthorizationError,
+  ControlPlaneConflictError,
+  ControlPlaneStateError,
+} from "./contracts.js";
 import {
   EXEC_CREDENTIAL_LIMITS,
   normalizeExecEnvName,
   type ExecCredentialDefinition,
   type ExecCredentialEnvelope,
+  type ExecCredentialPreconditions,
   type StoredExecCredential,
 } from "./exec-credential-contracts.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
+import { ensureExecCredentialSnapshotSchema } from "./sqlite-schema.js";
 import { SqliteControlPlaneCredentialStore } from "./sqlite-store-credentials.js";
 import type { EncryptedUserExecCredentialRow } from "./sqlite-store-types.js";
 
@@ -29,6 +35,60 @@ function stored(row: EncryptedUserExecCredentialRow): StoredExecCredential {
 }
 
 export abstract class SqliteControlPlaneExecCredentialStore extends SqliteControlPlaneCredentialStore {
+  private execCredentialSnapshotsReady = false;
+
+  private ensureExecCredentialSnapshots(): void {
+    if (!this.execCredentialSnapshotsReady) {
+      ensureExecCredentialSnapshotSchema(this.db);
+      this.execCredentialSnapshotsReady = true;
+    }
+  }
+
+  private requireActiveExecOwner(userId: string) {
+    const user = this.requireUserRow(userId);
+    if (user.status !== "active") {
+      throw new ControlPlaneAuthorizationError("active credential owner required");
+    }
+    return user;
+  }
+
+  private requireExecCredentialSnapshot(
+    userId: string,
+    envName: string,
+    expected: ExecCredentialPreconditions,
+  ) {
+    const snapshot = takeFirstSync(
+      this.db,
+      this.query
+        .selectFrom("exec_credential_definition_tokens")
+        .leftJoin("exec_credential_value_tokens", (join) =>
+          join
+            .onRef(
+              "exec_credential_value_tokens.env_name",
+              "=",
+              "exec_credential_definition_tokens.env_name",
+            )
+            .on("exec_credential_value_tokens.user_id", "=", userId),
+        )
+        .select([
+          "exec_credential_definition_tokens.token as definitionToken",
+          "exec_credential_value_tokens.token as credentialToken",
+        ])
+        .where("exec_credential_definition_tokens.env_name", "=", envName),
+    );
+    if (
+      !snapshot ||
+      snapshot.definitionToken !== expected.expectedDefinitionToken ||
+      snapshot.credentialToken !== expected.expectedCredentialToken
+    ) {
+      throw new ControlPlaneConflictError(
+        "credential-changed",
+        "Credential changed. Reload before saving.",
+      );
+    }
+    return snapshot;
+  }
+
   async listExecCredentialMetadataForAgent(
     agentId: string,
   ): Promise<ExecCredentialDefinition[] | null> {
@@ -48,16 +108,27 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
   }
 
   async listExecCredentialDefinitions(userId?: string): Promise<ExecCredentialDefinition[]> {
+    this.ensureExecCredentialSnapshots();
     if (!userId) {
       return executeSync(
         this.db,
-        this.query.selectFrom("exec_credential_definitions").select("env_name").orderBy("env_name"),
-      ).rows.map((row) => ({ envName: row.env_name }));
+        this.query.selectFrom("exec_credential_definition_tokens").selectAll().orderBy("env_name"),
+      ).rows.map((row) => ({
+        envName: row.env_name,
+        definitionToken: row.token,
+        credentialToken: null,
+      }));
     }
+    this.requireActiveExecOwner(userId);
     const rows = executeSync(
       this.db,
       this.query
         .selectFrom("exec_credential_definitions")
+        .innerJoin(
+          "exec_credential_definition_tokens",
+          "exec_credential_definition_tokens.env_name",
+          "exec_credential_definitions.env_name",
+        )
         .leftJoin("encrypted_user_exec_credentials", (join) =>
           join
             .onRef(
@@ -67,8 +138,19 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
             )
             .on("encrypted_user_exec_credentials.user_id", "=", userId),
         )
+        .leftJoin("exec_credential_value_tokens", (join) =>
+          join
+            .onRef(
+              "exec_credential_value_tokens.env_name",
+              "=",
+              "exec_credential_definitions.env_name",
+            )
+            .on("exec_credential_value_tokens.user_id", "=", userId),
+        )
         .select([
           "exec_credential_definitions.env_name as env_name",
+          "exec_credential_definition_tokens.token as definition_token",
+          "exec_credential_value_tokens.token as credential_token",
           "encrypted_user_exec_credentials.revision as revision",
           "encrypted_user_exec_credentials.updated_at as updated_at",
         ])
@@ -77,6 +159,8 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
     return rows.map((row) => {
       const definition: ExecCredentialDefinition = {
         envName: row.env_name,
+        definitionToken: row.definition_token,
+        credentialToken: row.credential_token,
         configured: row.revision !== null,
       };
       if (row.revision !== null) {
@@ -94,6 +178,7 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
     rawName: string,
     createdAt: number,
   ): Promise<void> {
+    this.ensureExecCredentialSnapshots();
     const envName = normalizeExecEnvName(rawName);
     runImmediateTransaction(this.db, () => {
       const actor = this.requireAdmin(actorUserId);
@@ -135,14 +220,29 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
     });
   }
 
-  async removeExecCredentialDefinition(
-    actorUserId: string,
-    rawName: string,
-    deletedAt: number,
-  ): Promise<boolean> {
-    const envName = normalizeExecEnvName(rawName);
+  async removeExecCredentialDefinition(params: {
+    actorUserId: string;
+    envName: string;
+    expectedDefinitionToken: string;
+    deletedAt: number;
+  }): Promise<boolean> {
+    this.ensureExecCredentialSnapshots();
+    const envName = normalizeExecEnvName(params.envName);
     return runImmediateTransaction(this.db, () => {
-      const actor = this.requireAdmin(actorUserId);
+      const actor = this.requireAdmin(params.actorUserId);
+      const definition = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("exec_credential_definition_tokens")
+          .select("token")
+          .where("env_name", "=", envName),
+      );
+      if (definition?.token !== params.expectedDefinitionToken) {
+        throw new ControlPlaneConflictError(
+          "credential-changed",
+          "Credential changed. Reload before deleting.",
+        );
+      }
       const result = executeSync(
         this.db,
         this.query.deleteFrom("exec_credential_definitions").where("env_name", "=", envName),
@@ -154,35 +254,26 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
           "exec-credential.definition.removed",
           "environment-variable",
           envName,
-          deletedAt,
+          params.deletedAt,
         );
       }
       return deleted;
     });
   }
 
-  async replaceExecCredential(params: {
-    actorUserId: string;
-    envName: string;
-    envelope: ExecCredentialEnvelope;
-    updatedAt: number;
-  }): Promise<number> {
+  async replaceExecCredential(
+    params: {
+      actorUserId: string;
+      envName: string;
+      envelope: ExecCredentialEnvelope;
+      updatedAt: number;
+    } & ExecCredentialPreconditions,
+  ) {
+    this.ensureExecCredentialSnapshots();
     const envName = normalizeExecEnvName(params.envName);
     return runImmediateTransaction(this.db, () => {
-      const user = this.requireUserRow(params.actorUserId);
-      if (user.status !== "active") {
-        throw new ControlPlaneAuthorizationError("active credential owner required");
-      }
-      const definition = takeFirstSync(
-        this.db,
-        this.query
-          .selectFrom("exec_credential_definitions")
-          .select("env_name")
-          .where("env_name", "=", envName),
-      );
-      if (!definition) {
-        throw new ControlPlaneStateError("environment variable is not allowed");
-      }
+      const user = this.requireActiveExecOwner(params.actorUserId);
+      const snapshot = this.requireExecCredentialSnapshot(user.id, envName, params);
       const existing = takeFirstSync(
         this.db,
         this.query
@@ -241,14 +332,33 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
         params.updatedAt,
         { revision },
       );
-      return revision;
+      const token = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("exec_credential_value_tokens")
+          .select("token")
+          .where("user_id", "=", user.id)
+          .where("env_name", "=", envName),
+      );
+      if (!token) {
+        throw new ControlPlaneStateError("credential snapshot is unavailable");
+      }
+      return { revision, definitionToken: snapshot.definitionToken, credentialToken: token.token };
     });
   }
 
-  async deleteExecCredential(userId: string, rawName: string, deletedAt: number): Promise<boolean> {
-    const envName = normalizeExecEnvName(rawName);
+  async deleteExecCredential(
+    params: {
+      actorUserId: string;
+      envName: string;
+      deletedAt: number;
+    } & ExecCredentialPreconditions,
+  ) {
+    this.ensureExecCredentialSnapshots();
+    const envName = normalizeExecEnvName(params.envName);
     return runImmediateTransaction(this.db, () => {
-      const user = this.requireUserRow(userId);
+      const user = this.requireActiveExecOwner(params.actorUserId);
+      const snapshot = this.requireExecCredentialSnapshot(user.id, envName, params);
       const result = executeSync(
         this.db,
         this.query
@@ -263,10 +373,10 @@ export abstract class SqliteControlPlaneExecCredentialStore extends SqliteContro
           "exec-credential.deleted",
           "environment-variable",
           envName,
-          deletedAt,
+          params.deletedAt,
         );
       }
-      return deleted;
+      return { deleted, envName, definitionToken: snapshot.definitionToken, credentialToken: null };
     });
   }
 

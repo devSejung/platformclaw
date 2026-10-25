@@ -1,6 +1,7 @@
 import { wikiDocumentTranslations } from "../../pages/agents/memory/wiki-document-translations.ts";
 import { announcementTranslations } from "./en-announcements.ts";
 import { baseballTranslations } from "./en-baseball.ts";
+import { credentialTranslations } from "./en-credentials.ts";
 import { dashboardTranslations } from "./en-dashboard.ts";
 import { executionTranslations } from "./en-execution.ts";
 import { mcpTranslations } from "./en-mcp.ts";
@@ -9,6 +10,7 @@ import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  ...credentialTranslations,
   "platformClaw.skillHub.namespace.create": "Create namespace",
   "platformClaw.skillHub.namespace.description":
     "Create a place to share skills company-wide or with one of your teams, groups, or parts.",

@@ -386,7 +386,7 @@ export class PlatformClawControlUiAdapter {
                     ${renderPageHelpTrigger("credentials")}
                   </div>
                 </section>
-                <main class="settings-page">
+                <main class="settings-page settings-page--wide">
                   <platformclaw-exec-credentials
                     ${ref(credentialFlow.bindForm)}
                     .admin=${identity.globalRole === "admin"}
