@@ -1,16 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
+import type { PreparedProviderStaticCatalog } from "../plugins/provider-discovery.js";
+import type { PluginRegistry } from "../plugins/registry-types.js";
 import { ensureOpenClawModelsJson, planOpenClawModelsJsonSource } from "./models-config.js";
 import {
   loadPersistedPluginModelCatalogsReadOnly,
   type PersistedPluginModelCatalog,
 } from "./plugin-model-catalog.js";
-import type {
-  PreparedModelRuntimeAgentFacts,
-  PreparedModelRuntimeWorkspaceFacts,
-} from "./prepared-model-runtime.facts.js";
 import { withPreparedModelRuntimeScope } from "./prepared-model-runtime.plugin-context.js";
-import type { PreparedModelRuntimeCatalogMode } from "./prepared-model-runtime.types.js";
+import type {
+  PreparedModelRuntimeCatalogMode,
+  PreparedModelRuntimeInput,
+} from "./prepared-model-runtime.types.js";
 
 const MODEL_RUNTIME_PROVIDER_DISCOVERY_TIMEOUT_MS = 5_000;
 
@@ -31,8 +33,16 @@ export function captureModelsJsonContents(agentDir: string): string | null {
 }
 
 export async function prepareAgentCatalogSource(
-  agentFacts: PreparedModelRuntimeAgentFacts,
-  workspaceFacts: PreparedModelRuntimeWorkspaceFacts,
+  agentFacts: {
+    input: PreparedModelRuntimeInput;
+    env: NodeJS.ProcessEnv;
+    providerIds: readonly string[];
+  },
+  workspaceFacts: {
+    pluginMetadataSnapshot: PluginMetadataSnapshot;
+    pluginRegistry?: PluginRegistry;
+    preparedStaticProviderCatalog?: PreparedProviderStaticCatalog;
+  },
   catalogMode: PreparedModelRuntimeCatalogMode,
   persist = true,
   sourceOptions: { providerDiscoveryProviderIds?: readonly string[] } = {},
