@@ -1,5 +1,6 @@
 // Verifies manifest-driven model suppression behavior.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPluginMetadataSnapshot } from "../config/plugin-auto-enable.test-helpers.js";
 
 const mocks = vi.hoisted(() => ({
   loadPluginMetadataSnapshot: vi.fn(),
@@ -24,6 +25,7 @@ function createMetadataSnapshot(plugins: Record<string, unknown>[]) {
 describe("manifest model suppression", () => {
   beforeEach(() => {
     mocks.loadPluginMetadataSnapshot.mockReset();
+    mocks.resolvePluginMetadataSnapshot.mockClear();
     mocks.loadPluginMetadataSnapshot.mockReturnValue(
       createMetadataSnapshot([
         {
@@ -57,6 +59,55 @@ describe("manifest model suppression", () => {
   });
 
   describe("buildManifestBuiltInModelSuppressionResolver", () => {
+    it("uses prepared metadata without discovery and still checks current policy and route", () => {
+      const metadataSnapshot = createPluginMetadataSnapshot({
+        manifestRegistry: {
+          diagnostics: [],
+          plugins: [
+            {
+              id: "fixture",
+              origin: "bundled",
+              rootDir: "/plugins/fixture",
+              source: "/plugins/fixture/index.js",
+              manifestPath: "/plugins/fixture/openclaw.plugin.json",
+              channels: [],
+              providers: ["fixture"],
+              cliBackends: [],
+              skills: [],
+              hooks: [],
+              modelCatalog: {
+                suppressions: [
+                  {
+                    provider: "fixture",
+                    model: "blocked",
+                    when: { baseUrlHosts: ["fixture.test"] },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      });
+      const prepared = buildManifestBuiltInModelSuppressionResolver({ metadataSnapshot });
+      const disabled = buildManifestBuiltInModelSuppressionResolver({
+        metadataSnapshot,
+        config: { plugins: { entries: { fixture: { enabled: false } } } },
+      });
+
+      expect(
+        prepared({ provider: "fixture", id: "blocked", baseUrl: "https://fixture.test/v1" })
+          ?.suppress,
+      ).toBe(true);
+      expect(
+        prepared({ provider: "fixture", id: "blocked", baseUrl: "https://custom.test/v1" }),
+      ).toBeUndefined();
+      expect(
+        disabled({ provider: "fixture", id: "blocked", baseUrl: "https://fixture.test/v1" }),
+      ).toBeUndefined();
+      expect(mocks.resolvePluginMetadataSnapshot).not.toHaveBeenCalled();
+      expect(mocks.loadPluginMetadataSnapshot).not.toHaveBeenCalled();
+    });
+
     it("reads planned manifest suppressions once per resolver creation", () => {
       const config = { plugins: { entries: { openai: { enabled: true } } } };
 

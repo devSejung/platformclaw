@@ -2,11 +2,12 @@
  * Test harness mocks for embedded-agent compaction hook coverage.
  */
 import { vi, type Mock } from "vitest";
-import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.js";
+import { createPluginMetadataSnapshot } from "../../config/plugin-auto-enable.test-helpers.js";
 import type { AuthProfileStore } from "../auth-profiles/types.js";
 import { clearAgentHarnesses } from "../harness/registry.js";
 import type { AgentHarness } from "../harness/types.js";
 import type { ModelAuthMode } from "../model-auth.js";
+import type { PreparedModelRuntimeInput } from "../prepared-model-runtime.types.js";
 import type { AgentRuntimePlan, BuildAgentRuntimePlanParams } from "../runtime-plan/types.js";
 import { agentSessionAutomaticCompaction } from "../sessions/agent-session-compaction.js";
 
@@ -394,57 +395,30 @@ export const buildAgentRuntimePlanMock = vi.fn((params: BuildAgentRuntimePlanPar
   createCompactHooksRuntimePlan(params),
 );
 
-const emptyPluginMetadataSnapshot: PluginMetadataSnapshot = {
-  policyHash: "",
-  index: {
-    version: 1,
-    hostContractVersion: "test",
-    compatRegistryVersion: "test",
-    migrationVersion: 1,
-    policyHash: "",
-    generatedAtMs: 1,
-    installRecords: {},
-    plugins: [],
-    diagnostics: [],
-  },
-  registryDiagnostics: [],
+const emptyPluginMetadataSnapshot = createPluginMetadataSnapshot({
   manifestRegistry: { plugins: [], diagnostics: [] },
-  plugins: [],
-  diagnostics: [],
-  byPluginId: new Map(),
-  normalizePluginId: (pluginId: string) => pluginId,
-  owners: {
-    channels: new Map(),
-    channelConfigs: new Map(),
-    providers: new Map(),
-    modelCatalogProviders: new Map(),
-    cliBackends: new Map(),
-    setupProviders: new Map(),
-    commandAliases: new Map(),
-    contracts: new Map(),
-  },
-  metrics: {
-    registrySnapshotMs: 0,
-    manifestRegistryMs: 0,
-    ownerMapsMs: 0,
-    totalMs: 0,
-    indexPluginCount: 0,
-    manifestPluginCount: 0,
-  },
-};
+});
 
-export const acquireAgentRunPreparedModelRuntimeMock = vi.fn(
-  async (input: Record<string, unknown>) => ({
-    snapshot: {
-      agentId: input.agentId,
-      agentDir: input.agentDir,
+function createCompactPreparedModelRuntimeSnapshot(input: PreparedModelRuntimeInput) {
+  return {
+    agentId: input.agentId,
+    agentDir: input.agentDir,
+    config: input.config,
+    workspaceDir: input.workspaceDir,
+    metadataSnapshot: createPluginMetadataSnapshot({
       config: input.config,
       workspaceDir: input.workspaceDir,
-      metadataSnapshot: { ...emptyPluginMetadataSnapshot, workspaceDir: input.workspaceDir },
-      configuredRuntimeModels: [],
-      inlineProviderModels: [],
-      createStores: () => ({ authStorage: {}, modelRegistry: {} }),
-    },
+      manifestRegistry: { plugins: [], diagnostics: [] },
+    }),
+    configuredRuntimeModels: [],
+    inlineProviderModels: [],
+    createStores: () => ({ authStorage: {}, modelRegistry: {} }),
+  };
+}
+
+export const acquireAgentRunPreparedModelRuntimeMock = vi.fn(
+  async (input: PreparedModelRuntimeInput) => ({
+    snapshot: createCompactPreparedModelRuntimeSnapshot(input),
     release: vi.fn(),
   }),
 );
@@ -654,11 +628,17 @@ export async function loadCompactHooksHarness(): Promise<{
     runGlobalGatewayStopSafely: vi.fn(async () => undefined),
   }));
 
-  vi.doMock("../../plugins/current-plugin-metadata-snapshot.js", () => ({
-    getCurrentPluginMetadataSnapshot: () => emptyPluginMetadataSnapshot,
-    resolvePluginMetadataControlPlaneFingerprint: vi.fn(() => "test-plugin-fingerprint"),
-    setCurrentPluginMetadataSnapshot: vi.fn(),
-  }));
+  vi.doMock("../../plugins/current-plugin-metadata-snapshot.js", async () => {
+    const { withPluginMetadataSnapshotScope } = await vi.importActual<
+      typeof import("../../plugins/current-plugin-metadata-snapshot.js")
+    >("../../plugins/current-plugin-metadata-snapshot.js");
+    return {
+      getCurrentPluginMetadataSnapshot: () => emptyPluginMetadataSnapshot,
+      resolvePluginMetadataControlPlaneFingerprint: vi.fn(() => "test-plugin-fingerprint"),
+      setCurrentPluginMetadataSnapshot: vi.fn(),
+      withPluginMetadataSnapshotScope,
+    };
+  });
 
   vi.doMock("../../plugins/command-registry-state.js", () => {
     const pluginCommands = new Map<string, unknown>();
@@ -765,12 +745,12 @@ export async function loadCompactHooksHarness(): Promise<{
   vi.doMock("../prepared-model-runtime.js", () => ({
     activateStandalonePreparedModelRuntime: vi.fn(async () => {}),
     acquireAgentRunPreparedModelRuntime: acquireAgentRunPreparedModelRuntimeMock,
-    prepareModelRuntimeSnapshot: vi.fn(async () => ({
-      createStores: () => ({ authStorage: {}, modelRegistry: {} }),
-    })),
-    loadPreparedModelRuntimeSnapshot: vi.fn(async () => ({
-      createStores: () => ({ authStorage: {}, modelRegistry: {} }),
-    })),
+    prepareModelRuntimeSnapshot: vi.fn(async (input: PreparedModelRuntimeInput) =>
+      createCompactPreparedModelRuntimeSnapshot(input),
+    ),
+    loadPreparedModelRuntimeSnapshot: vi.fn(async (input: PreparedModelRuntimeInput) =>
+      createCompactPreparedModelRuntimeSnapshot(input),
+    ),
   }));
 
   vi.doMock("../model-auth.js", () => ({

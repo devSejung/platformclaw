@@ -70,6 +70,7 @@ const resolveAuthStorePath = resolveAuthProfileDatabasePath;
 type LoadAuthProfileStoreOptions = {
   allowKeychainPrompt?: boolean;
   config?: OpenClawConfig;
+  workspaceDir?: string;
   database?: OpenClawAgentDatabase;
   externalCli?: ExternalCliAuthDiscovery;
   inheritedAuthDir?: string;
@@ -183,6 +184,7 @@ function preserveLegacyOAuthRefsOnSave(params: {
 type ResolvedExternalCliOverlayOptions = {
   allowKeychainPrompt?: boolean;
   config?: OpenClawConfig;
+  workspaceDir?: string;
   externalCliProviderIds?: Iterable<string>;
   externalCliProfileIds?: Iterable<string>;
 };
@@ -347,6 +349,7 @@ function resolveExternalCliOverlayOptions(
   const discovery = options?.externalCli;
   if (!discovery) {
     return {
+      workspaceDir: options?.workspaceDir,
       ...(options?.allowKeychainPrompt !== undefined
         ? { allowKeychainPrompt: options.allowKeychainPrompt }
         : {}),
@@ -362,6 +365,7 @@ function resolveExternalCliOverlayOptions(
   if (discovery.mode === "none") {
     const config = discovery.config ?? options?.config;
     return {
+      workspaceDir: options?.workspaceDir,
       allowKeychainPrompt: false,
       ...(config ? { config } : {}),
       externalCliProviderIds: [],
@@ -372,6 +376,7 @@ function resolveExternalCliOverlayOptions(
     const allowKeychainPrompt = discovery.allowKeychainPrompt ?? options?.allowKeychainPrompt;
     const config = discovery.config ?? options?.config;
     return {
+      workspaceDir: options?.workspaceDir,
       ...(allowKeychainPrompt !== undefined ? { allowKeychainPrompt } : {}),
       ...(config ? { config } : {}),
     };
@@ -379,6 +384,7 @@ function resolveExternalCliOverlayOptions(
   const allowKeychainPrompt = discovery.allowKeychainPrompt ?? options?.allowKeychainPrompt;
   const config = discovery.config ?? options?.config;
   return {
+    workspaceDir: options?.workspaceDir,
     ...(allowKeychainPrompt !== undefined ? { allowKeychainPrompt } : {}),
     ...(config ? { config } : {}),
     ...(discovery.providerIds ? { externalCliProviderIds: discovery.providerIds } : {}),
@@ -1094,6 +1100,7 @@ export function loadAuthProfileStoreForSecretsRuntime(
   options?: Pick<
     LoadAuthProfileStoreOptions,
     | "config"
+    | "workspaceDir"
     | "externalCli"
     | "externalCliProviderIds"
     | "externalCliProfileIds"
@@ -1148,6 +1155,7 @@ export function ensureAuthProfileStore(
   options?: {
     allowKeychainPrompt?: boolean;
     config?: OpenClawConfig;
+    workspaceDir?: string;
     externalCli?: ExternalCliAuthDiscovery;
     externalCliProviderIds?: Iterable<string>;
     externalCliProfileIds?: Iterable<string>;

@@ -478,7 +478,12 @@ export async function buildPreparedModelCatalogSnapshot(
     });
     logStage("registry-read", `entries=${entries.length}`);
 
-    const shouldSuppressBuiltInModel = buildShouldSuppressBuiltInModel({ config: cfg });
+    const shouldSuppressBuiltInModel = buildShouldSuppressBuiltInModel({
+      config: cfg,
+      env,
+      workspaceDir,
+      metadataSnapshot: manifestMetadataSnapshot,
+    });
     logStage("suppress-resolver-ready");
 
     for (const entry of entries) {

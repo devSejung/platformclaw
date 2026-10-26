@@ -10,7 +10,7 @@ import {
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { buildPluginApi } from "./api-builder.js";
 import { collectPluginConfigContractMatches } from "./config-contracts.js";
-import { getCurrentPluginMetadataSnapshotState } from "./current-plugin-metadata-state.js";
+import { getCurrentPluginMetadataSnapshot } from "./current-plugin-metadata-snapshot.js";
 import type { PluginManifestRecord, PluginManifestRegistry } from "./manifest-registry.js";
 import { createPluginCacheKey, PluginLruCache } from "./plugin-cache-primitives.js";
 import { resolvePluginControlPlaneFingerprint } from "./plugin-control-plane-context.js";
@@ -361,15 +361,25 @@ function resolveSetupRegistryCacheKey(params?: {
       workspaceDir: params?.workspaceDir,
     }),
     resolvePluginMetadataEnvFingerprint(env),
-    resolveCurrentSetupSnapshotCacheId(),
+    resolveCurrentSetupSnapshotCacheId(params),
     process.cwd(),
     params?.pluginIds ? [...params.pluginIds].toSorted() : null,
   ]);
 }
 
-function resolveCurrentSetupSnapshotCacheId(): string {
-  const { snapshot } = getCurrentPluginMetadataSnapshotState();
-  if (!snapshot || typeof snapshot !== "object") {
+function resolveCurrentSetupSnapshotCacheId(params?: {
+  config?: OpenClawConfig;
+  workspaceDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): string {
+  // Match the manifest loader's exact discovery scope. Concurrent leases can
+  // retain different metadata generations while the Gateway-global owner changes.
+  const snapshot = getCurrentPluginMetadataSnapshot({
+    config: params?.config,
+    env: params?.env ?? process.env,
+    ...(params?.workspaceDir ? { workspaceDir: params.workspaceDir } : {}),
+  });
+  if (!snapshot) {
     return "nosnap";
   }
   let id = setupRegistrySnapshotIds.get(snapshot);

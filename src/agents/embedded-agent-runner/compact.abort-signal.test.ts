@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPluginMetadataSnapshot } from "../../config/plugin-auto-enable.test-helpers.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 
 vi.mock("../model-fallback-candidates.js", () => ({
@@ -35,6 +36,11 @@ vi.mock("../prepared-model-runtime.js", () => ({
         agentId: input.agentId,
         agentDir: input.agentDir,
         workspaceDir: input.workspaceDir,
+        metadataSnapshot: createPluginMetadataSnapshot({
+          config: input.config,
+          workspaceDir: input.workspaceDir,
+          manifestRegistry: { plugins: [], diagnostics: [] },
+        }),
         createStores: () => ({}),
       },
       release: vi.fn(),

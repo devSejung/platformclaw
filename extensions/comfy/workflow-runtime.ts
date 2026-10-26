@@ -623,6 +623,7 @@ async function downloadOutputFile(params: {
 export function isComfyCapabilityConfigured(params: {
   cfg?: OpenClawConfig;
   agentDir?: string;
+  workspaceDir?: string;
   capability: ComfyCapability;
 }): boolean {
   const config = getComfyConfig(params.cfg);
@@ -649,6 +650,7 @@ export function isComfyCapabilityConfigured(params: {
     provider: "comfy",
     cfg: params.cfg,
     agentDir: params.agentDir,
+    workspaceDir: params.workspaceDir,
   });
 }
 

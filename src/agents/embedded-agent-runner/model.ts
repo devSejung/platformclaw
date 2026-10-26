@@ -307,6 +307,7 @@ export async function resolveModelAsync(
     modelId: normalizedRef.model,
     cfg,
     agentDir: resolvedAgentDir,
+    workspaceDir,
     authProfileId: options?.authProfileId,
     authProfileMode: options?.authProfileMode,
     preferredProfile: options?.preferredProfile,

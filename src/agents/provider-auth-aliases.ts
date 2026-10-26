@@ -38,8 +38,10 @@ const PROVIDER_AUTH_ALIAS_ORIGIN_PRIORITY: Readonly<Record<PluginOrigin, number>
   global: 2,
   workspace: 3,
 };
+type ProviderAuthAliasCacheOwner = NodeJS.ProcessEnv | Pick<PluginMetadataSnapshot, "plugins">;
+
 let providerAuthAliasMapCache = new WeakMap<
-  NodeJS.ProcessEnv,
+  ProviderAuthAliasCacheOwner,
   Map<string, Record<string, string>>
 >();
 
@@ -60,7 +62,10 @@ function buildProviderAuthAliasMapCacheKey(
 
 /** Clears auth aliases when their process-scoped plugin metadata is retired. */
 function clearProviderAuthAliasMapCache(): void {
-  providerAuthAliasMapCache = new WeakMap<NodeJS.ProcessEnv, Map<string, Record<string, string>>>();
+  providerAuthAliasMapCache = new WeakMap<
+    ProviderAuthAliasCacheOwner,
+    Map<string, Record<string, string>>
+  >();
 }
 
 // Reloads can replace plugin metadata without changing the config or env cache keys.
@@ -132,23 +137,7 @@ export function resolveProviderAuthAliasMap(
 ): Record<string, string> {
   const env = params?.env ?? process.env;
   const config = params?.config;
-  let cacheKey: string | undefined;
-  let envCache: Map<string, Record<string, string>> | undefined;
-  if (!params?.metadataSnapshot) {
-    // Plugin metadata is process-stable for a control-plane fingerprint, so
-    // cache per env object without hiding explicit test snapshots.
-    cacheKey = buildProviderAuthAliasMapCacheKey(params, env);
-    envCache = providerAuthAliasMapCache.get(env);
-    if (!envCache) {
-      envCache = new Map<string, Record<string, string>>();
-      providerAuthAliasMapCache.set(env, envCache);
-    }
-    const cached = envCache.get(cacheKey);
-    if (cached) {
-      return cached;
-    }
-  }
-  const snapshot =
+  const currentSnapshot =
     params?.metadataSnapshot ??
     (config
       ? getCurrentPluginMetadataSnapshot({
@@ -167,14 +156,33 @@ export function resolveProviderAuthAliasMap(
       if (!config || normalizePluginsConfig(config.plugins).loadPaths.length !== 0) {
         return undefined;
       }
-      const currentSnapshot = getCurrentPluginMetadataSnapshot({
+      const defaultSnapshot = getCurrentPluginMetadataSnapshot({
         ...(params?.workspaceDir !== undefined ? { workspaceDir: params.workspaceDir } : {}),
         env,
         allowWorkspaceScopedSnapshot: true,
         requireDefaultDiscoveryContext: true,
       });
-      return currentSnapshot;
-    })() ??
+      return defaultSnapshot;
+    })();
+  let cacheKey: string | undefined;
+  let envCache: Map<string, Record<string, string>> | undefined;
+  if (!params?.metadataSnapshot) {
+    // Old leased generations can outlive a reload. Scope fingerprints alone
+    // cannot separate their aliases from a concurrent replacement owner's aliases.
+    const cacheOwner = currentSnapshot ?? env;
+    cacheKey = buildProviderAuthAliasMapCacheKey(params, env);
+    envCache = providerAuthAliasMapCache.get(cacheOwner);
+    if (!envCache) {
+      envCache = new Map<string, Record<string, string>>();
+      providerAuthAliasMapCache.set(cacheOwner, envCache);
+    }
+    const cached = envCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+  }
+  const snapshot =
+    currentSnapshot ??
     loadPluginMetadataSnapshot({
       config: config ?? {},
       ...(params?.workspaceDir !== undefined ? { workspaceDir: params.workspaceDir } : {}),

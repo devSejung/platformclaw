@@ -6,11 +6,12 @@
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { normalizeLowercaseStringOrEmpty } from "../../packages/normalization-core/src/string-coerce.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { getCurrentPluginMetadataSnapshotState } from "../plugins/current-plugin-metadata-state.js";
+import { getCurrentPluginMetadataSnapshot } from "../plugins/current-plugin-metadata-snapshot.js";
 import { buildManifestBuiltInModelSuppressionResolver } from "../plugins/manifest-model-suppression.js";
 import { resolvePluginControlPlaneFingerprint } from "../plugins/plugin-control-plane-context.js";
 import { registerPluginMetadataProcessMemoLifecycleClear } from "../plugins/plugin-metadata-lifecycle.js";
 import { resolvePluginMetadataEnvFingerprint } from "../plugins/plugin-metadata-snapshot.js";
+import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
 
 type ManifestSuppressionResolver = ReturnType<typeof buildManifestBuiltInModelSuppressionResolver>;
 
@@ -19,7 +20,7 @@ type CachedManifestSuppressionResolver = {
   controlPlaneFingerprint: string;
   cwd: string;
   envFingerprint: string;
-  metadataSnapshot: unknown;
+  metadataSnapshot: PluginMetadataSnapshot | undefined;
   resolver: ManifestSuppressionResolver;
   workspaceDir: string | undefined;
 };
@@ -46,7 +47,14 @@ function resolveCachedManifestSuppressionResolver(params: {
   });
   const cwd = process.cwd();
   const envFingerprint = resolvePluginMetadataEnvFingerprint(params.env);
-  const metadataSnapshot = getCurrentPluginMetadataSnapshotState().snapshot;
+  // The same config can be leased by concurrent owner generations. Cache the
+  // effective scoped snapshot, never the unrelated Gateway-global generation.
+  const metadataSnapshot = getCurrentPluginMetadataSnapshot({
+    config: params.config,
+    env: params.env,
+    workspaceDir: params.workspaceDir,
+    allowWorkspaceScopedSnapshot: params.workspaceDir === undefined,
+  });
   if (
     cached !== undefined &&
     cached.config === params.config &&
@@ -60,6 +68,7 @@ function resolveCachedManifestSuppressionResolver(params: {
   }
   const resolver = buildManifestBuiltInModelSuppressionResolver({
     env: params.env,
+    ...(metadataSnapshot ? { metadataSnapshot } : {}),
     ...(params.config ? { config: params.config } : {}),
     ...(params.workspaceDir ? { workspaceDir: params.workspaceDir } : {}),
   });
@@ -175,9 +184,12 @@ export function buildSuppressedBuiltInModelError(params: {
 export function buildShouldSuppressBuiltInModel(params: {
   config?: OpenClawConfig;
   workspaceDir?: string;
+  env?: NodeJS.ProcessEnv;
+  metadataSnapshot?: PluginMetadataSnapshot;
 }): (input: { provider?: string | null; id?: string | null; baseUrl?: string | null }) => boolean {
   const resolver = buildManifestBuiltInModelSuppressionResolver({
-    env: process.env,
+    env: params.env ?? process.env,
+    ...(params.metadataSnapshot ? { metadataSnapshot: params.metadataSnapshot } : {}),
     ...(params.config ? { config: params.config } : {}),
     ...(params.workspaceDir ? { workspaceDir: params.workspaceDir } : {}),
   });

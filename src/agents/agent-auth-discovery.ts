@@ -91,6 +91,7 @@ export function resolveAgentCredentialsForDiscovery(
   const storeOptions = {
     allowKeychainPrompt: false,
     ...(options?.config ? { config: options.config } : {}),
+    ...(options?.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
     ...(options?.externalCli ? { externalCli: options.externalCli } : {}),
     ...(options?.inheritedAuthDir ? { inheritedAuthDir: options.inheritedAuthDir } : {}),
   };

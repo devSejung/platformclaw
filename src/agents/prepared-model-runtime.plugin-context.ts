@@ -1,13 +1,18 @@
+import { withPluginMetadataSnapshotScope } from "../plugins/current-plugin-metadata-snapshot.js";
 import type { PluginDiscoveryResult } from "../plugins/discovery.js";
 import { extractPluginInstallRecordsFromInstalledPluginIndex } from "../plugins/installed-plugin-index-install-records.js";
 import { resolvePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
 import type { PluginRegistry } from "../plugins/registry-types.js";
+import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
 import {
   resolvePluginRuntimeLoadContext,
   type PluginRuntimeLoadContext,
 } from "../plugins/runtime/load-context.js";
-import type { PreparedModelRuntimeInput } from "./prepared-model-runtime.types.js";
+import type {
+  PreparedModelRuntimeInput,
+  PreparedModelRuntimeSnapshot,
+} from "./prepared-model-runtime.types.js";
 
 const preparedPluginRuntimeLoadContext = Symbol("preparedPluginRuntimeLoadContext");
 const emptyPluginDiscovery: PluginDiscoveryResult = { candidates: [], diagnostics: [] };
@@ -73,3 +78,24 @@ export const getPreparedPluginRuntimeLoadContext = (
   registry: PluginRegistry | undefined,
 ): PluginRuntimeLoadContext | undefined =>
   (registry as PreparedPluginRegistry | undefined)?.[preparedPluginRuntimeLoadContext];
+
+/** Carries one leased owner's runtime and metadata through nested preparation. */
+export function withPreparedModelRuntimeScope<T>(
+  snapshot: Pick<
+    PreparedModelRuntimeSnapshot,
+    "config" | "workspaceDir" | "metadataSnapshot" | "pluginRegistry"
+  >,
+  run: () => T,
+  options: { env?: NodeJS.ProcessEnv } = {},
+): T {
+  const env = options.env ?? getPreparedPluginRuntimeLoadContext(snapshot.pluginRegistry)?.env;
+  // Keep metadata request-local: publishing this workspace globally would let
+  // concurrent owners replace one another. Readers still enforce their scope/policy.
+  return withPluginRuntimeRegistryScope(snapshot.pluginRegistry, () =>
+    withPluginMetadataSnapshotScope(snapshot.metadataSnapshot, run, {
+      config: snapshot.config,
+      workspaceDir: snapshot.workspaceDir,
+      env,
+    }),
+  );
+}

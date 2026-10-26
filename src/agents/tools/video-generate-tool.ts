@@ -14,6 +14,7 @@ import { saveMediaBuffer } from "../../media/store.js";
 import { loadWebMedia } from "../../media/web-media.js";
 import { readSnakeCaseParamRaw } from "../../param-key.js";
 import { isManifestPluginAvailableForControlPlane } from "../../plugins/manifest-contract-eligibility.js";
+import { isPluginMetadataSnapshotCompatible } from "../../plugins/plugin-metadata-snapshot.js";
 import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
 import { resolveUserPath } from "../../utils.js";
 import type { DeliveryContext } from "../../utils/delivery-context.js";
@@ -305,11 +306,14 @@ function shouldExposeVideoReferenceAudioParams(params: {
   agentDir?: string;
   authStore?: AuthProfileStore;
   workspaceDir?: string;
+  metadataSnapshot?: PluginMetadataSnapshot;
 }): boolean {
-  const snapshot = loadCapabilityMetadataSnapshot({
-    config: params.cfg,
-    workspaceDir: params.workspaceDir,
-  });
+  const snapshot =
+    params.metadataSnapshot ??
+    loadCapabilityMetadataSnapshot({
+      config: params.cfg,
+      workspaceDir: params.workspaceDir,
+    });
   const knownProviderIds = new Set<string>();
   const audioCandidateProviderIds = new Set<string>();
   const explicitProviderIds = collectVideoGenerationModelProviderIds({
@@ -930,11 +934,24 @@ export function createVideoGenerateTool(options?: {
     : null;
   const scheduleBackgroundWork =
     options?.scheduleBackgroundWork ?? defaultScheduleVideoGenerateBackgroundWork;
+  const preparedMetadata = options?.preparedModelRuntime?.metadataSnapshot;
+  const metadataSnapshot =
+    preparedMetadata &&
+    preparedMetadata.pluginIds === undefined &&
+    isPluginMetadataSnapshotCompatible({
+      snapshot: preparedMetadata,
+      config: cfg,
+      env: process.env,
+      workspaceDir: options?.workspaceDir,
+    })
+      ? preparedMetadata
+      : undefined;
   const includeAudioReferences = shouldExposeVideoReferenceAudioParams({
     cfg,
     agentDir: options?.agentDir,
     authStore: options?.authProfileStore,
     workspaceDir: options?.workspaceDir,
+    metadataSnapshot,
   });
 
   return {

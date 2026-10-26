@@ -24,6 +24,7 @@ type RuntimeModel = NonNullable<ModelResolution["model"]>;
 
 function loadEmbeddedRunAuthProfileStore(params: {
   agentDir: string;
+  workspaceDir: string;
   config: RunEmbeddedAgentParams["config"];
   externalCliProviderIds: Iterable<string>;
 }): AuthProfileStore {
@@ -31,6 +32,7 @@ function loadEmbeddedRunAuthProfileStore(params: {
   // explicit bindings remain available for the cross-class contracts in prepare-auth.test.ts.
   return ensureAuthProfileStore(params.agentDir, {
     config: params.config,
+    workspaceDir: params.workspaceDir,
     externalCliProviderIds: params.externalCliProviderIds,
     allowKeychainPrompt: false,
   });
@@ -111,6 +113,7 @@ export async function prepareEmbeddedRunAuthPlan(params: {
   const attemptAuthProfileStore = usesOpenAIAuthRouting
     ? loadEmbeddedRunAuthProfileStore({
         agentDir: params.agentDir,
+        workspaceDir: params.workspaceDir,
         config: runParams.config,
         externalCliProviderIds: [OPENAI_PROVIDER_ID],
       })
@@ -121,6 +124,7 @@ export async function prepareEmbeddedRunAuthPlan(params: {
       : externalCliAuthScope.providerIds
         ? loadEmbeddedRunAuthProfileStore({
             agentDir: params.agentDir,
+            workspaceDir: params.workspaceDir,
             config: runParams.config,
             externalCliProviderIds: externalCliAuthScope.providerIds,
           })
