@@ -40,6 +40,24 @@ function validParams(overrides: Record<string, unknown> = {}) {
 }
 
 describe("normalizeChatSendRequest", () => {
+  it("does not let an admin request identity override remove an internal authority restriction", () => {
+    const client = adminClient();
+    client.internal = {
+      syntheticClient: true,
+      senderAttribution: { id: "internal.user", isOwner: false },
+    };
+    expect(
+      normalizeChatSendRequest({
+        params: validParams({ senderAttribution: { id: " first.user ", agentId: "main" } }),
+        client,
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: { senderAttribution: { id: "first.user", agentId: "main", isOwner: false } },
+    });
+    expect(client.internal.senderAttribution).toEqual({ id: "internal.user", isOwner: false });
+  });
+
   it.each([
     { requireExactLeaf: true },
     { requireExactLeaf: true, sessionId: "session-1" },

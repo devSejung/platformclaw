@@ -250,9 +250,11 @@ export function startAgentRunExecution(params: {
           };
         }
       }
-      const senderIsOwner = params.restoredCronContinuation
-        ? true
-        : clientHasAdminScope(params.client);
+      const senderIsOwner = prepared.restartRecoverySenderAgentId
+        ? false
+        : params.restoredCronContinuation
+          ? true
+          : clientHasAdminScope(params.client);
       const userTurnTranscriptRecorder =
         params.resolvedSessionKey &&
         params.resolvedSessionId &&
@@ -266,6 +268,7 @@ export function startAgentRunExecution(params: {
                 idempotencyKey: buildRunUserTurnIdempotencyKey(params.runId),
                 ...gatewayClientSenderFields(params.client),
                 senderIsOwner,
+                senderAgentId: prepared.restartRecoverySenderAgentId,
                 ...(params.inputProvenance ? { provenance: params.inputProvenance } : {}),
               },
               target: () => {
@@ -420,6 +423,7 @@ export function startAgentRunExecution(params: {
           internalEvents: params.request.internalEvents,
           inputProvenance: params.inputProvenance,
           senderIsOwner,
+          senderAgentId: prepared.restartRecoverySenderAgentId,
           sessionEffects: params.sessionEffects,
           skipInitialSessionTouch: params.skipAgentInitialSessionTouch,
           preserveUserFacingSessionModelState:

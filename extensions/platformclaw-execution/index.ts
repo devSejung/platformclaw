@@ -52,9 +52,13 @@ export default definePluginEntry({
       return await executionRuntimePromise;
     };
     const targetMutations = new PlatformClawTargetMutationCoordinator();
-    const preparedAcpTargets = new Map<string, Readonly<AssignedVmTargetSnapshot>>();
+    const preparedAcpTargets = new Map<
+      string,
+      { target: Readonly<AssignedVmTargetSnapshot>; controller: AbortController }
+    >();
     const activeAcpChildren = new Map<string, Set<import("node:child_process").ChildProcess>>();
     const pendingAcpLaunches = new Map<string, number>();
+    const acpAuthorities = new Map<string, AbortController>();
     let stopping = false;
     const normalizeAgentId = (agentId: string) => agentId.trim().toLowerCase();
     const acpTargetKey = (agentId: string, sessionKey: string) =>
@@ -63,6 +67,27 @@ export default definePluginEntry({
       new AcpProcessTransportError(diagnostic, {
         cause: cause instanceof Error ? cause : undefined,
       });
+    const captureAcpAuthority = (agentId: string) => {
+      const owner = normalizeAgentId(agentId);
+      const authority = acpAuthorities.get(owner) ?? new AbortController();
+      if (!stopping) {
+        acpAuthorities.set(owner, authority);
+      }
+      return { owner, authority };
+    };
+    const assertAcpAuthority = ({ owner, authority }: ReturnType<typeof captureAcpAuthority>) => {
+      if (stopping || authority.signal.aborted || acpAuthorities.get(owner) !== authority) {
+        throw stageError(
+          {
+            stage: "target",
+            code: "target_changed",
+            message: "Assigned VM ACP authority changed. Close the ACP session and retry.",
+            retryable: true,
+          },
+          undefined,
+        );
+      }
+    };
     const requireEnabledAgent = (target: AssignedVmTargetSnapshot, agent: string) => {
       const configuration = target.codingAgents.find((entry) => entry.agent === agent);
       if (!configuration?.enabled) {
@@ -78,6 +103,8 @@ export default definePluginEntry({
     };
     const invalidateAcpProcesses = (agentId: string) => {
       const owner = normalizeAgentId(agentId);
+      acpAuthorities.get(owner)?.abort();
+      acpAuthorities.delete(owner);
       const children = activeAcpChildren.get(owner);
       activeAcpChildren.delete(owner);
       for (const child of children ?? []) {
@@ -99,6 +126,10 @@ export default definePluginEntry({
       maxConcurrentSessions: 5,
       supports: ({ agent }) => PLATFORMCLAW_VM_ACP_AGENTS.has(agent.trim().toLowerCase()),
       async prepare({ executionOwnerAgentId, sessionKey, agent }) {
+        const authority = captureAcpAuthority(executionOwnerAgentId);
+        assertAcpAuthority(authority);
+        const key = acpTargetKey(executionOwnerAgentId, sessionKey);
+        const admitted = preparedAcpTargets.get(key);
         if (!executionRuntimePromise) {
           throw stageError(
             {
@@ -112,13 +143,14 @@ export default definePluginEntry({
         }
         let target: PlatformClawExecutionTargetSnapshot;
         try {
-          target = await (
-            await requireExecutionRuntime()
-          ).resolveTarget({
+          const executionRuntime = await requireExecutionRuntime();
+          assertAcpAuthority(authority);
+          target = await executionRuntime.resolveTarget({
             agentId: executionOwnerAgentId,
             target: "assigned_vm",
           });
         } catch (error) {
+          assertAcpAuthority(authority);
           throw stageError(
             {
               stage: "target",
@@ -130,6 +162,9 @@ export default definePluginEntry({
             error,
           );
         }
+        // Invalidation may finish while the broker lookup is pending. That old
+        // admission must never repopulate the prepared-target cache.
+        assertAcpAuthority(authority);
         if (target.kind !== "assigned_vm") {
           throw stageError(
             {
@@ -141,13 +176,13 @@ export default definePluginEntry({
           );
         }
         requireEnabledAgent(target, agent.trim().toLowerCase());
-        const key = acpTargetKey(executionOwnerAgentId, sessionKey);
         const existing = preparedAcpTargets.get(key);
         if (
-          existing &&
-          (existing.allocationId !== target.allocationId ||
-            existing.revision !== target.revision ||
-            existing.credentialRevision !== target.credentialRevision)
+          (admitted && admitted !== existing) ||
+          (existing &&
+            (existing.target.allocationId !== target.allocationId ||
+              existing.target.revision !== target.revision ||
+              existing.target.credentialRevision !== target.credentialRevision))
         ) {
           throw stageError(
             {
@@ -159,10 +194,16 @@ export default definePluginEntry({
             undefined,
           );
         }
-        preparedAcpTargets.set(key, target);
+        if (existing) {
+          // Re-ensuring the same session retains its lifetime and live children.
+          existing.target = target;
+        } else {
+          preparedAcpTargets.set(key, { target, controller: new AbortController() });
+        }
         return { cwd: target.remoteWorkspaceDir };
       },
       async diagnose({ executionOwnerAgentId, agent, signal }) {
+        const authority = captureAcpAuthority(executionOwnerAgentId);
         if (!executionRuntimePromise) {
           return {
             ok: false,
@@ -176,6 +217,7 @@ export default definePluginEntry({
         let target: PlatformClawExecutionTargetSnapshot;
         try {
           executionRuntime = await requireExecutionRuntime();
+          assertAcpAuthority(authority);
           target = await executionRuntime.resolveTarget({
             agentId: executionOwnerAgentId,
             target: "assigned_vm",
@@ -187,6 +229,18 @@ export default definePluginEntry({
             code: "target_prepare_failed",
             message:
               "Assigned VM ACP target could not be prepared. Verify the personal VM assignment and Gateway execution service, then retry.",
+            retryable: true,
+          };
+        }
+        const currentSignal = signal
+          ? AbortSignal.any([signal, authority.authority.signal])
+          : authority.authority.signal;
+        if (stopping || currentSignal.aborted) {
+          return {
+            ok: false,
+            stage: "target",
+            code: "target_changed",
+            message: "Assigned VM ACP authority changed. Retry the diagnostic.",
             retryable: true,
           };
         }
@@ -206,7 +260,7 @@ export default definePluginEntry({
             message: `${agent} is disabled for this personal coding agent. Enable it in Coding agents settings and retry.`,
           };
         }
-        const report = await executionRuntime.diagnoseAcpProcess(agent, target, signal);
+        const report = await executionRuntime.diagnoseAcpProcess(agent, target, currentSignal);
         if (!report.ok) {
           return report;
         }
@@ -226,6 +280,8 @@ export default definePluginEntry({
           };
         }
         if (
+          stopping ||
+          currentSignal.aborted ||
           current.kind !== "assigned_vm" ||
           current.allocationId !== target.allocationId ||
           current.revision !== target.revision ||
@@ -242,9 +298,11 @@ export default definePluginEntry({
         return report;
       },
       async launch(input) {
+        const authority = captureAcpAuthority(input.executionOwnerAgentId);
+        assertAcpAuthority(authority);
         const key = acpTargetKey(input.executionOwnerAgentId, input.sessionKey);
         const prepared = preparedAcpTargets.get(key);
-        if (!prepared || prepared.agentId !== input.executionOwnerAgentId) {
+        if (!prepared || prepared.target.agentId !== input.executionOwnerAgentId) {
           throw stageError(
             {
               stage: "target",
@@ -255,7 +313,13 @@ export default definePluginEntry({
             undefined,
           );
         }
+        const preparedTarget = prepared.target;
+        const launchSignal = AbortSignal.any([
+          authority.authority.signal,
+          prepared.controller.signal,
+        ]);
         const executionRuntime = await requireExecutionRuntime();
+        assertAcpAuthority(authority);
         let current;
         try {
           current = await executionRuntime.resolveTarget({
@@ -263,6 +327,7 @@ export default definePluginEntry({
             target: "assigned_vm",
           });
         } catch (error) {
+          assertAcpAuthority(authority);
           throw stageError(
             {
               stage: "target",
@@ -274,13 +339,17 @@ export default definePluginEntry({
             error,
           );
         }
+        assertAcpAuthority(authority);
         if (
+          preparedAcpTargets.get(key) !== prepared ||
           current.kind !== "assigned_vm" ||
-          current.allocationId !== prepared.allocationId ||
-          current.revision !== prepared.revision ||
-          current.credentialRevision !== prepared.credentialRevision
+          current.allocationId !== preparedTarget.allocationId ||
+          current.revision !== preparedTarget.revision ||
+          current.credentialRevision !== preparedTarget.credentialRevision
         ) {
-          preparedAcpTargets.delete(key);
+          if (preparedAcpTargets.get(key) === prepared) {
+            preparedAcpTargets.delete(key);
+          }
           throw stageError(
             {
               stage: "target",
@@ -312,7 +381,7 @@ export default definePluginEntry({
         pendingAcpLaunches.set(owner, pending + 1);
         let child: Awaited<ReturnType<typeof executionRuntime.launchAcpProcess>>;
         try {
-          child = await executionRuntime.launchAcpProcess(input, prepared);
+          child = await executionRuntime.launchAcpProcess(input, preparedTarget, launchSignal);
         } finally {
           const remaining = (pendingAcpLaunches.get(owner) ?? 1) - 1;
           if (remaining > 0) {
@@ -324,22 +393,36 @@ export default definePluginEntry({
             }
           }
         }
-        if (stopping) {
+        if (stopping || launchSignal.aborted || preparedAcpTargets.get(key) !== prepared) {
           child.kill("SIGTERM");
-          throw new Error("Assigned VM ACP transport stopped during process launch.");
+          assertAcpAuthority(authority);
+          throw stageError(
+            {
+              stage: "target",
+              code: "target_changed",
+              message: "Assigned VM ACP target changed during process launch. Close and retry.",
+              retryable: true,
+            },
+            undefined,
+          );
         }
         active.add(child);
         activeAcpChildren.set(owner, active);
         child.once("close", () => {
           active.delete(child);
-          if (active.size === 0) {
+          if (active.size === 0 && activeAcpChildren.get(owner) === active) {
             activeAcpChildren.delete(owner);
           }
         });
         return child;
       },
       release({ executionOwnerAgentId, sessionKey }) {
-        preparedAcpTargets.delete(acpTargetKey(executionOwnerAgentId, sessionKey));
+        const key = acpTargetKey(executionOwnerAgentId, sessionKey);
+        const prepared = preparedAcpTargets.get(key);
+        preparedAcpTargets.delete(key);
+        // ACPX may release after its close timeout while a custom process
+        // launcher is still awaiting SSH. Retire that exact session admission.
+        prepared?.controller.abort();
       },
     });
     registerSandboxBackend(PLATFORMCLAW_EXECUTION_BACKEND_ID, {
@@ -374,7 +457,7 @@ export default definePluginEntry({
     api.on("gateway_stop", async () => {
       stopping = true;
       unregisterAcpTransport();
-      for (const agentId of activeAcpChildren.keys()) {
+      for (const agentId of acpAuthorities.keys()) {
         invalidateAcpProcesses(agentId);
       }
       preparedAcpTargets.clear();

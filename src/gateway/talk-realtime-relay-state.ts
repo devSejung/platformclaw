@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ChatSenderAttribution } from "../../packages/gateway-protocol/src/schema/logs-chat.js";
 import type { OpenClawConfig } from "../config/types.js";
 import type { RealtimeVoiceProviderPlugin } from "../plugins/types.js";
 import type { BoundedSerialQueue } from "../shared/bounded-serial-queue.js";
@@ -86,6 +87,7 @@ export type RelayAgentControlProviderSubmission = {
 export type RelaySession = {
   id: string;
   connId: string;
+  clientOwnerId?: string;
   context: GatewayRequestContext;
   bridge: RealtimeVoiceBridgeSession;
   harness: RealtimeVoiceSessionHarness;
@@ -119,8 +121,10 @@ export type RelaySession = {
 };
 
 export type CreateTalkRealtimeRelaySessionParams = {
+  senderAttribution?: ChatSenderAttribution;
   context: GatewayRequestContext;
   connId: string;
+  clientOwnerId?: string;
   cfg?: OpenClawConfig;
   provider: RealtimeVoiceProviderPlugin;
   providerConfig: RealtimeVoiceProviderConfig;

@@ -39,7 +39,12 @@ import {
   waitForMediaCleanupDrains,
   waitForMediaCleanupDrainsToSettle,
 } from "./server-media-cleanup-lifecycle.js";
-import { PENDING_CHAT_SEND_DEDUPE_PREFIX, type DedupeEntry } from "./server-shared.js";
+import {
+  CHAT_SEND_SCOPE_DEDUPE_PREFIX,
+  PENDING_CHAT_SEND_DEDUPE_PREFIX,
+  pendingChatSendDedupeKey,
+  type DedupeEntry,
+} from "./server-shared.js";
 import { formatError } from "./server-utils.js";
 import { setBroadcastHealthUpdate } from "./server/health-state.js";
 
@@ -226,8 +231,29 @@ export function startGatewayMaintenanceTimers(params: {
       }
       return Boolean(isChatKey && runId && params.chatQueuedTurns.has(runId));
     };
+    const isRetainedChatSendScope = (key: string) => {
+      if (!key.startsWith(CHAT_SEND_SCOPE_DEDUPE_PREFIX)) {
+        return false;
+      }
+      const runId = key.slice(CHAT_SEND_SCOPE_DEDUPE_PREFIX.length);
+      const pendingKey = pendingChatSendDedupeKey(runId);
+      const pending = params.dedupe.get(pendingKey);
+      // A scope must outlive every record that can produce an idempotent ACK,
+      // including queued and aborted work after the active controller is gone.
+      return Boolean(
+        params.dedupe.has(`chat:${runId}`) ||
+        params.chatAbortControllers.has(runId) ||
+        params.chatQueuedTurns.has(runId) ||
+        params.chatRunState.runs.get(runId)?.abortMarker !== undefined ||
+        (pending && isPendingAcceptedRunDedupeKey(pendingKey, pending)),
+      );
+    };
     for (const [k, v] of params.dedupe) {
-      if (isActiveRunDedupeKey(k, v) || isPendingAcceptedRunDedupeKey(k, v)) {
+      if (
+        isActiveRunDedupeKey(k, v) ||
+        isPendingAcceptedRunDedupeKey(k, v) ||
+        isRetainedChatSendScope(k)
+      ) {
         continue;
       }
       if (now - v.ts > DEDUPE_TTL_MS) {
@@ -239,7 +265,9 @@ export function startGatewayMaintenanceTimers(params: {
       const oldestKeys = [...params.dedupe.entries()]
         .filter(
           ([key, entry]) =>
-            !isActiveRunDedupeKey(key, entry) && !isPendingAcceptedRunDedupeKey(key, entry),
+            !isActiveRunDedupeKey(key, entry) &&
+            !isPendingAcceptedRunDedupeKey(key, entry) &&
+            !isRetainedChatSendScope(key),
         )
         .toSorted(([, left], [, right]) => left.ts - right.ts)
         .slice(0, excess)

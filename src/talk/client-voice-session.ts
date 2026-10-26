@@ -235,15 +235,20 @@ export async function ensureClientVoiceAgentSessionEntry(params: {
   agentId: string;
   sessionKey: string;
   deadlineAt?: number;
+  assertActive?: () => void;
 }): Promise<string> {
+  const assertActive = () => {
+    params.assertActive?.();
+    // Credentials and connection authority must survive queued planning and the
+    // SQLite commit edge, so neither can leave an unusable empty chat behind.
+    if (params.deadlineAt !== undefined && Date.now() >= params.deadlineAt) {
+      throw new Error("Realtime browser session expired during startup; try again");
+    }
+  };
   const created = await patchSessionEntry(
     params,
     (_entry, context) => {
-      // Browser credentials can be short-lived. Check at the authoritative
-      // write boundary so a queued write cannot create an unusable empty chat.
-      if (params.deadlineAt !== undefined && Date.now() >= params.deadlineAt) {
-        throw new Error("Realtime browser session expired during startup; try again");
-      }
+      assertActive();
       if (context.existingEntry?.sessionId) {
         return null;
       }
@@ -252,7 +257,7 @@ export async function ensureClientVoiceAgentSessionEntry(params: {
       }
       return buildSessionCreationStamp({ via: "talk", actor: { type: "human" } });
     },
-    { fallbackEntry: mergeSessionEntry(undefined, {}) },
+    { fallbackEntry: mergeSessionEntry(undefined, {}), assertCommitAllowed: assertActive },
   );
   if (!created?.sessionId) {
     throw new Error(`agent session could not be initialized (${params.sessionKey})`);

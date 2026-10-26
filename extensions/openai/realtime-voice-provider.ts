@@ -1836,6 +1836,8 @@ type OpenAIInternalRealtimeBrowserSessionCreateRequest =
       role: "user" | "assistant";
       text: string;
     }>;
+    onClosed?: () => void;
+    onServerSessionStarting?: () => void;
   };
 
 type OpenAIInternalRealtimeVoiceCapabilities = RealtimeVoiceProviderCapabilities & {

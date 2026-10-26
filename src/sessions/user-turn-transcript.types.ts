@@ -44,6 +44,8 @@ export type UserTurnInput = {
   timestamp?: number;
   idempotencyKey?: string;
   senderIsOwner?: boolean;
+  /** Trusted personal-Agent boundary; grants only that Agent's workspace tools. */
+  senderAgentId?: string;
   provenance?: InputProvenance;
   /** Durable participant attribution. Callers must opt in at the product boundary. */
   sender?: {

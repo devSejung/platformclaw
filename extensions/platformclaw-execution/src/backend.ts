@@ -66,6 +66,7 @@ export type PlatformClawExecutionDependencies = {
   launchAcpProcess: (
     input: AcpProcessTransportLaunch,
     target: Readonly<AssignedVmTargetSnapshot>,
+    signal?: AbortSignal,
   ) => Promise<ChildProcessByStdio<Writable, Readable, Readable>>;
   diagnoseAcpProcess: (
     agent: string,

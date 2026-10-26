@@ -19,7 +19,10 @@ import {
   normalizeMessageChannel,
 } from "../utils/message-channel.js";
 import { isNativeCommandTurn, resolveCommandTurnContext } from "./command-turn-context.js";
-import { shouldUseFromAsSenderFallback } from "./sender-identity.js";
+import {
+  resolvePersonalAgentCommandScope,
+  shouldUseFromAsSenderFallback,
+} from "./sender-identity.js";
 import type { MsgContext } from "./templating.js";
 
 export type CommandAuthorization = {
@@ -526,13 +529,23 @@ export function resolveCommandAuthorization(params: {
     ctx.GatewayClientScopes.includes("operator.admin");
   const senderIsOwnerByIngress = ctx.SenderIsOwner === true;
   const ownerAllowlistConfigured = ownerState.explicitOwners.length > 0;
-  const senderIsOwner = senderIsOwnerByIdentity || senderIsOwnerByScope || senderIsOwnerByIngress;
+  // An internal ingress can explicitly restrict a delegated human even when its
+  // service credential or that account's separate owner identity is privileged.
+  const restrictedInternalSender =
+    isInternalMessageChannel(ctx.Provider) && ctx.SenderIsOwner === false;
+  const senderIsOwner =
+    !restrictedInternalSender &&
+    (senderIsOwnerByIdentity || senderIsOwnerByScope || senderIsOwnerByIngress);
   const requireOwner = enforceOwner || ownerAllowlistConfigured;
-  const isOwnerForCommands = !requireOwner
-    ? true
-    : ownerAllowlistConfigured
-      ? senderIsOwner
-      : senderIsOwner || Boolean(matchedCommandOwner);
+  // The ingress may authorize personal commands without granting owner-only
+  // actions. Explicit commands.allowFrom still applies below.
+  const personalAgentCommandScope = resolvePersonalAgentCommandScope(ctx);
+  const isOwnerForCommands =
+    !requireOwner || Boolean(personalAgentCommandScope)
+      ? true
+      : ownerAllowlistConfigured
+        ? senderIsOwner
+        : senderIsOwner || Boolean(matchedCommandOwner);
   const nativeCommandAuthorized =
     commandAuthorized && isNativeCommandTurn(resolveCommandTurnContext(ctx)) && !requireOwner;
   const isAuthorizedSender = resolveCommandSenderAuthorization({

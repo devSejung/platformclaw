@@ -26,6 +26,10 @@ import {
   type ChatSendExplicitOrigin,
 } from "./chat-origin-routing.js";
 import { resolveControlUiReconnectResumeParams } from "./chat-server-timing.js";
+import {
+  normalizeRequestedGatewaySenderAttribution,
+  resolveGatewaySenderAttribution,
+} from "./gateway-client-identity.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
 
 type ChatSendRequestParams = {
@@ -120,21 +124,11 @@ export function normalizeChatSendRequest(params: {
     p.queueMode = "followup";
   }
   const suppressCommandInterpretation = p.suppressCommandInterpretation === true;
-  const requestedSenderAttribution = p.senderAttribution
-    ? {
-        id: p.senderAttribution.id.trim(),
-        ...(p.senderAttribution.name?.trim() ? { name: p.senderAttribution.name.trim() } : {}),
-        ...(p.senderAttribution.profileId?.trim()
-          ? { profileId: p.senderAttribution.profileId.trim() }
-          : {}),
-        ...(p.senderAttribution.agentId?.trim()
-          ? { agentId: p.senderAttribution.agentId.trim() }
-          : {}),
-      }
-    : undefined;
-  if (requestedSenderAttribution && !requestedSenderAttribution.id) {
-    return { ok: false, error: "sender attribution id must not be blank" };
+  const requestedSenderResult = normalizeRequestedGatewaySenderAttribution(p.senderAttribution);
+  if (!requestedSenderResult.ok) {
+    return requestedSenderResult;
   }
+  const requestedSenderAttribution = requestedSenderResult.value;
   const explicitOriginResult = normalizeExplicitChatSendOrigin({
     originatingChannel: p.originatingChannel,
     originatingTo: p.originatingTo,
@@ -175,8 +169,7 @@ export function normalizeChatSendRequest(params: {
   const inboundMessage = sanitizedMessageResult.message;
   const systemInputProvenance = normalizeInputProvenance(p.systemInputProvenance);
   const systemProvenanceReceipt = systemReceiptResult.receipt;
-  const senderAttribution =
-    requestedSenderAttribution ?? params.client?.internal?.senderAttribution;
+  const senderAttribution = resolveGatewaySenderAttribution(client, requestedSenderAttribution);
   const stopCommand = !suppressCommandInterpretation && isChatStopCommandText(inboundMessage);
   if (p.toolBindings) {
     if (

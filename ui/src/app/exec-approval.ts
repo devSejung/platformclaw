@@ -597,6 +597,7 @@ export async function refreshPendingApprovalQueue(
   state: ExecApprovalPromptState,
   options?: {
     isCurrentClient?: (client: NonNullable<ExecApprovalPromptState["client"]>) => boolean;
+    isMethodAvailable?: (method: string) => boolean;
   },
 ): Promise<boolean> {
   const client = state.client;
@@ -606,26 +607,34 @@ export async function refreshPendingApprovalQueue(
   if (options?.isCurrentClient && !options.isCurrentClient(client)) {
     return false;
   }
+  const listExec = options?.isMethodAvailable?.("exec.approval.list") !== false;
+  const listPlugin = options?.isMethodAvailable?.("plugin.approval.list") !== false;
+  const listSystemAgent = options?.isMethodAvailable?.("openclaw.approval.list") !== false;
+  if (!listExec && !listPlugin && !listSystemAgent) {
+    // Session-scoped endpoints replay approvals through message subscriptions;
+    // probing absent global lists creates denied requests on every reconnect.
+    return false;
+  }
   const refresh = { removedIds: new Set<string>() };
   const refreshes = (state.execApprovalRefreshes ??= new Set());
   refreshes.add(refresh);
   const refreshStartedWith = pruneExecApprovalQueue(state.execApprovalQueue);
   try {
     const [execResult, pluginResult, systemAgentResult] = await Promise.allSettled([
-      client.request("exec.approval.list", {}),
-      client.request("plugin.approval.list", {}),
-      client.request("openclaw.approval.list", {}),
+      listExec ? client.request("exec.approval.list", {}) : Promise.resolve(undefined),
+      listPlugin ? client.request("plugin.approval.list", {}) : Promise.resolve(undefined),
+      listSystemAgent ? client.request("openclaw.approval.list", {}) : Promise.resolve(undefined),
     ]);
     const execApprovals =
-      execResult.status === "fulfilled"
+      listExec && execResult.status === "fulfilled"
         ? (parseApprovalList(execResult.value, parseExecApprovalRequested) ?? [])
         : currentApprovalsForKind(state.execApprovalQueue, "exec");
     const pluginApprovals =
-      pluginResult.status === "fulfilled"
+      listPlugin && pluginResult.status === "fulfilled"
         ? (parseApprovalList(pluginResult.value, parsePluginApprovalRequested) ?? [])
         : currentApprovalsForKind(state.execApprovalQueue, "plugin");
     const systemAgentApprovals =
-      systemAgentResult.status === "fulfilled"
+      listSystemAgent && systemAgentResult.status === "fulfilled"
         ? (parseApprovalList(systemAgentResult.value, parseSystemAgentApprovalRequested) ?? [])
         : currentApprovalsForKind(state.execApprovalQueue, "system-agent");
     const refreshed = mergeRefreshedApprovalQueue(

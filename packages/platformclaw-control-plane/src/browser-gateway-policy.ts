@@ -1,5 +1,9 @@
 import { BASEBALL_RPC, BASEBALL_RPC_METHODS } from "./baseball-contracts.js";
 import {
+  PLATFORMCLAW_WEB_TALK_METHODS,
+  PLATFORMCLAW_WEB_TALK_PARAMS,
+} from "./browser-gateway-talk-policy.js";
+import {
   KNOWLEDGE_VAULT_RPC_METHODS,
   KNOWLEDGE_VAULT_RPC_PARAMS,
 } from "./browser-gateway-vault-policy.js";
@@ -9,6 +13,7 @@ import { SPACE_RPC_METHODS, SPACE_RPC_PARAMS } from "./space-contracts.js";
 export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   ...KNOWLEDGE_VAULT_RPC_METHODS,
   ...SPACE_RPC_METHODS,
+  ...PLATFORMCLAW_WEB_TALK_METHODS,
   "agent.identity.get",
   "agents.files.get",
   "agents.files.list",
@@ -17,6 +22,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "agents.workspace.get",
   "agents.workspace.list",
   "artifacts.download",
+  "artifacts.get",
   "artifacts.list",
   "chat.abort",
   "chat.history",
@@ -26,6 +32,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "chat.startup",
   "chat.toolTitles",
   "commands.list",
+  "controlUi.githubPreview",
   "controlUi.sessionPullRequests.subscribe",
   "cron.add",
   "cron.get",
@@ -64,6 +71,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "sessions.branches.switch",
   "sessions.compact",
   "sessions.compaction.branch",
+  "sessions.compaction.get",
   "sessions.compaction.list",
   "sessions.compaction.restore",
   "sessions.companion.ask",
@@ -87,9 +95,12 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "sessions.reset",
   "sessions.resolve",
   "sessions.search",
+  "sessions.send",
   "sessions.steer",
   "sessions.subscribe",
   "sessions.usage",
+  "sessions.usage.logs",
+  "sessions.usage.timeseries",
   "skills.detail",
   "skills.install",
   "skills.proposals.apply",
@@ -121,6 +132,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "tools.catalog",
   "tools.effective",
   "usage.cost",
+  "usage.status",
   "users.self",
   "wiki.delete",
   "wiki.document.get",
@@ -168,6 +180,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   [HORSE_RACING_RPC.snapshot, new Set(["raceId"])],
   [HORSE_RACING_RPC.bet, new Set(["requestId", "raceId", "market", "selection", "amount"])],
   [HORSE_RACING_RPC.cancel, new Set(["betId"])],
+  ...PLATFORMCLAW_WEB_TALK_PARAMS,
   ["agent.identity.get", new Set(["agentId", "sessionKey"])],
   ["agents.files.get", new Set(["agentId", "name"])],
   ["agents.files.list", new Set(["agentId"])],
@@ -176,6 +189,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["agents.workspace.get", new Set(["agentId", "path"])],
   ["agents.workspace.list", new Set(["agentId", "path"])],
   ["artifacts.download", new Set(["sessionKey", "artifactId", "agentId"])],
+  ["artifacts.get", new Set(["sessionKey", "artifactId", "agentId"])],
   ["artifacts.list", new Set(["sessionKey", "agentId"])],
   ["chat.abort", new Set(["sessionKey", "agentId", "preserveSideRuns", "runId"])],
   [
@@ -211,6 +225,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ],
   ["chat.toolTitles", new Set(["sessionKey", "agentId", "items"])],
   ["commands.list", new Set(["agentId", "includeArgs", "scope"])],
+  ["controlUi.githubPreview", new Set(["kind", "number", "owner", "repo"])],
   ["controlUi.sessionPullRequests.subscribe", new Set(["sessionKeys", "refreshSessionKeys"])],
   [
     "cron.add",
@@ -301,6 +316,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   ["sessions.branches.switch", new Set(["sessionKey", "agentId", "leafEntryId"])],
   ["sessions.compact", new Set(["key", "agentId"])],
   ["sessions.compaction.branch", new Set(["key", "agentId", "checkpointId"])],
+  ["sessions.compaction.get", new Set(["key", "agentId", "checkpointId"])],
   ["sessions.compaction.list", new Set(["key", "agentId"])],
   ["sessions.compaction.restore", new Set(["key", "agentId", "checkpointId"])],
   ["sessions.companion.ask", new Set(["sessionKey", "question"])],
@@ -314,6 +330,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
       "label",
       "model",
       "thinkingLevel",
+      "model",
       "catalogId",
       "parentSessionKey",
       "fork",
@@ -396,7 +413,30 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     "sessions.search",
     new Set(["agentId", "sessionKeys", "query", "limit", "mode", "scope", "sessionId", "offset"]),
   ],
-  ["sessions.steer", new Set(["key", "agentId", "message"])],
+  [
+    "sessions.send",
+    new Set([
+      "key",
+      "agentId",
+      "message",
+      "thinking",
+      "attachments",
+      "timeoutMs",
+      "idempotencyKey",
+    ]),
+  ],
+  [
+    "sessions.steer",
+    new Set([
+      "key",
+      "agentId",
+      "message",
+      "thinking",
+      "attachments",
+      "timeoutMs",
+      "idempotencyKey",
+    ]),
+  ],
   ["sessions.subscribe", new Set()],
   [
     "sessions.usage",
@@ -417,6 +457,8 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     ]),
   ],
   ["skills.detail", new Set(["slug"])],
+  ["sessions.usage.logs", new Set(["key", "agentId", "limit"])],
+  ["sessions.usage.timeseries", new Set(["key", "agentId"])],
   [
     "skills.install",
     new Set([
@@ -498,6 +540,7 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
     "wiki.document.save",
     new Set(["agentId", "path", "editMode", "content", "expectedRevision", "title"]),
   ],
+  ["usage.status", new Set(["agentId"])],
   ["wiki.get", new Set(["agentId", "lookup", "fromLine", "lineCount"])],
   ["wiki.graph", new Set(["agentId"])],
   ["wiki.importInsights", new Set(["agentId"])],
@@ -534,6 +577,7 @@ export const PLATFORMCLAW_WEB_AGENT_ONLY_METHODS = new Set([
   "tasks.list",
   "tools.catalog",
   "usage.cost",
+  "usage.status",
 ]);
 
 export const PLATFORMCLAW_WEB_ADMIN_METHODS = new Set<string>([
@@ -552,12 +596,14 @@ export const PLATFORMCLAW_WEB_SESSION_KEY_METHODS = new Map<string, string>([
   ["chat.startup", "sessionKey"],
   ["chat.toolTitles", "sessionKey"],
   ["artifacts.download", "sessionKey"],
+  ["artifacts.get", "sessionKey"],
   ["artifacts.list", "sessionKey"],
   ["sessions.abort", "key"],
   ["sessions.branches.list", "sessionKey"],
   ["sessions.branches.switch", "sessionKey"],
   ["sessions.compact", "key"],
   ["sessions.compaction.branch", "key"],
+  ["sessions.compaction.get", "key"],
   ["sessions.compaction.list", "key"],
   ["sessions.compaction.restore", "key"],
   ["sessions.describe", "key"],
@@ -572,5 +618,8 @@ export const PLATFORMCLAW_WEB_SESSION_KEY_METHODS = new Map<string, string>([
   ["sessions.reset", "key"],
   ["sessions.rewind", "sessionKey"],
   ["sessions.steer", "key"],
+  ["sessions.send", "key"],
+  ["sessions.usage.logs", "key"],
+  ["sessions.usage.timeseries", "key"],
   ["tools.effective", "sessionKey"],
 ]);

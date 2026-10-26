@@ -4,6 +4,7 @@ import {
 } from "../../../packages/gateway-protocol/src/client-info.js";
 import { CHAT_SEND_SESSION_KEY_MAX_LENGTH } from "../../../packages/gateway-protocol/src/schema.js";
 import { listAgentIds } from "../../agents/agent-scope.js";
+import { resolveAgentMainSessionKey } from "../../config/sessions/main-session.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
@@ -154,6 +155,22 @@ export function resolveRequestedChatAgentId(params: {
     return undefined;
   }
   return normalizeAgentId(parsed.agentId);
+}
+
+export function resolveChatSendSessionLoadKey(params: {
+  cfg?: OpenClawConfig;
+  sessionKey: string;
+  agentId?: string;
+}): string {
+  // Outside configured global scope, `global` + agentId is the shipped webchat
+  // alias for that Agent's main thread. Every messaging owner must resolve it
+  // before store lookup, idempotency reservation, and interruption.
+  return params.cfg &&
+    params.cfg.session?.scope !== "global" &&
+    params.sessionKey.trim().toLowerCase() === "global" &&
+    params.agentId
+    ? resolveAgentMainSessionKey({ cfg: params.cfg, agentId: params.agentId })
+    : params.sessionKey;
 }
 
 export function resolveChatSendActiveScopeKey(params: {

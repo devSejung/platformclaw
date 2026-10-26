@@ -23,11 +23,15 @@ const READ_METHODS = new Set([
   "sessions.messages.unsubscribe",
   "sessions.branches.list",
   "sessions.compaction.list",
+  "sessions.compaction.get",
   "sessions.files.list",
   "sessions.files.get",
   "sessions.files.download",
   "sessions.usage",
+  "sessions.usage.logs",
+  "sessions.usage.timeseries",
   "artifacts.list",
+  "artifacts.get",
   "artifacts.download",
   "tools.effective",
 ]);
@@ -504,7 +508,7 @@ export class SpaceConversationService {
     const admissionKey =
       method === "chat.send"
         ? request.sessionKey
-        : method === "sessions.steer"
+        : method === "sessions.steer" || method === "sessions.send"
           ? request.key
           : undefined;
     const admission =
@@ -548,12 +552,10 @@ export class SpaceConversationService {
         (revisionChanged || !this.canAccessNative(userId, admission.sessionKey, true))
       ) {
         const runId =
-          method === "chat.send" && typeof request.idempotencyKey === "string"
-            ? request.idempotencyKey
-            : returnedRunId;
+          typeof request.idempotencyKey === "string" ? request.idempotencyKey : returnedRunId;
         try {
           if (runId) {
-            // chat.send's client run id is its idempotency key. Stop the old admission,
+            // Native sends use their idempotency key as the run id. Stop the old admission,
             // not a newer turn admitted after the employee was reauthorized.
             const stopped = await this.gateway.request("chat.abort", {
               sessionKey: admission.sessionKey,

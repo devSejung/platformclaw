@@ -117,6 +117,8 @@ export const ChatSenderAttributionSchema = closedObject({
   profileId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
   /** Personal agent boundary that owns this externally attributed sender. */
   agentId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+  /** A trusted proxy may restrict its sender, never grant its service's owner authority. */
+  isOwner: Type.Optional(Type.Literal(false)),
 });
 
 /** User-to-agent send request; idempotency key lets clients safely retry transport failures. */

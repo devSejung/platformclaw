@@ -1,7 +1,9 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationGatewaySnapshot } from "../../app/gateway.ts";
+import { i18n } from "../../i18n/index.ts";
+import { captureI18nStateForTesting } from "../../i18n/lib/translate.test-support.ts";
 import {
   SLASH_COMMANDS,
   buildFallbackSlashCommands,
@@ -12,8 +14,16 @@ import {
 } from "../../lib/chat/commands.ts";
 import { dispatchChatSlashCommand, refreshSlashCommands } from "./chat-commands.ts";
 
-afterEach(() => {
+let restoreI18nState: () => Promise<void>;
+
+beforeEach(async () => {
+  restoreI18nState = captureI18nStateForTesting();
+  await i18n.setLocale("en");
+});
+
+afterEach(async () => {
   replaceSlashCommands(buildFallbackSlashCommands());
+  await restoreI18nState();
 });
 
 function requireCommandByName(name: string): Record<string, unknown> {
@@ -578,5 +588,116 @@ describe("conversation reset confirmation", () => {
     await expect(pending).resolves.toBe("failed");
     expect(reset).not.toHaveBeenCalled();
     expect(host.lastError).toContain("operator.admin");
+  });
+});
+
+describe("manual compaction outcome", () => {
+  function compactHost(result: unknown) {
+    let finishRefresh: (() => void) | undefined;
+    let markRefreshStarted: (() => void) | undefined;
+    const refreshDone = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    const compact = vi.fn().mockResolvedValue(result);
+    const refreshedHistory = [{ role: "assistant", content: "Refreshed transcript", timestamp: 1 }];
+    const host = {
+      ...legacyConnectedSessionAccess(),
+      connectionEpoch: 1,
+      sessionKey: "agent:main:current",
+      chatRunId: null,
+      chatMessages: [{ role: "assistant", content: "Old transcript", timestamp: 0 }],
+      chatModelCatalog: [],
+      sessions: { compact },
+      lastError: null as string | null,
+      chatError: null as string | null,
+      chatScrollFrame: null,
+      chatScrollGuardFrame: null,
+      chatScrollCommitCleanup: null,
+      chatScrollGeneration: 0,
+      renderLifecycle: { afterCommit: vi.fn(() => () => undefined) },
+      refreshCurrentChat: vi.fn(async () => {
+        host.chatMessages = [...refreshedHistory];
+        markRefreshStarted?.();
+        await refreshDone;
+      }),
+    };
+    return { host, compact, refreshedHistory, refreshStarted, finishRefresh };
+  }
+
+  it.each([
+    {
+      outcome: "success",
+      result: {
+        ok: true,
+        compacted: true,
+        result: { tokensBefore: 2000, tokensAfter: 900 },
+      },
+      notice: null,
+    },
+    {
+      outcome: "skipped",
+      result: { ok: true, compacted: false, reason: "Already compacted" },
+      notice: "Compaction skipped: Already compacted",
+    },
+  ])(
+    "preserves refreshed history and only the $outcome response content",
+    async ({ result, notice }) => {
+      const { host, compact, refreshedHistory, refreshStarted, finishRefresh } =
+        compactHost(result);
+      const pending = dispatchChatSlashCommand(host as never, "compact", "", {
+        sendResetMessage: vi.fn(),
+      });
+      await refreshStarted;
+      expect(host.chatMessages).toEqual(refreshedHistory);
+      finishRefresh?.();
+      await expect(pending).resolves.toBe("completed");
+      expect(compact).toHaveBeenCalledOnce();
+      expect(host.refreshCurrentChat).toHaveBeenCalledExactlyOnceWith({ awaitHistory: true });
+      expect(host.chatMessages).toEqual([
+        ...refreshedHistory,
+        ...(notice ? [{ role: "system", content: notice, timestamp: expect.any(Number) }] : []),
+      ]);
+    },
+  );
+
+  it.each(["session", "connection"] as const)(
+    "does not append the old outcome when the %s changes during refresh",
+    async (change) => {
+      const { host, refreshStarted, finishRefresh } = compactHost({
+        ok: true,
+        compacted: true,
+      });
+      const pending = dispatchChatSlashCommand(host as never, "compact", "", {
+        sendResetMessage: vi.fn(),
+      });
+      await refreshStarted;
+      if (change === "session") {
+        host.sessionKey = "agent:main:other";
+      } else {
+        host.client = { request: vi.fn() } as unknown as GatewayBrowserClient;
+        host.connectionEpoch += 1;
+      }
+      const currentHistory = [{ role: "assistant", content: "Current conversation", timestamp: 2 }];
+      host.chatMessages = currentHistory;
+      finishRefresh?.();
+      await expect(pending).resolves.toBe("completed");
+      expect(host.chatMessages).toEqual(currentHistory);
+    },
+  );
+
+  it("keeps a failed compaction visible without refreshing history", async () => {
+    const { host } = compactHost({ ok: false, reason: "Session is busy" });
+    await expect(
+      dispatchChatSlashCommand(host as never, "compact", "", { sendResetMessage: vi.fn() }),
+    ).resolves.toBe("failed");
+    expect(host.refreshCurrentChat).not.toHaveBeenCalled();
+    expect(host.chatMessages.at(-1)).toMatchObject({
+      role: "system",
+      content: "Compaction failed: Session is busy",
+    });
+    expect(host.chatError).toBe("Compaction failed: Session is busy");
   });
 });

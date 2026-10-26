@@ -3,6 +3,11 @@
 import type { ErrorShape } from "../../packages/gateway-protocol/src/schema/frames.js";
 
 export const PENDING_CHAT_SEND_DEDUPE_PREFIX = "pending-chat:";
+export const CHAT_SEND_SCOPE_DEDUPE_PREFIX = "chat-scope:";
+
+export function chatSendScopeDedupeKey(runId: string): string {
+  return `${CHAT_SEND_SCOPE_DEDUPE_PREFIX}${runId}`;
+}
 
 export function pendingChatSendDedupeKey(runId: string): string {
   return `${PENDING_CHAT_SEND_DEDUPE_PREFIX}${runId}`;

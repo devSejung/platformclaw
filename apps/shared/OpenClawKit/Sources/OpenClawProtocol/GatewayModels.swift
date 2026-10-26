@@ -7633,6 +7633,9 @@ public struct SessionsSendParams: Codable, Sendable {
     public let agentid: String?
     public let message: String
     public let thinking: String?
+    public let deliver: Bool?
+    public let suppresscommandinterpretation: Bool?
+    public let senderattribution: [String: AnyCodable]?
     public let attachments: [[String: AnyCodable]]?
     public let timeoutms: Int?
     public let idempotencykey: String?
@@ -7642,6 +7645,9 @@ public struct SessionsSendParams: Codable, Sendable {
         agentid: String? = nil,
         message: String,
         thinking: String? = nil,
+        deliver: Bool? = nil,
+        suppresscommandinterpretation: Bool? = nil,
+        senderattribution: [String: AnyCodable]? = nil,
         attachments: [[String: AnyCodable]]? = nil,
         timeoutms: Int? = nil,
         idempotencykey: String? = nil)
@@ -7650,6 +7656,9 @@ public struct SessionsSendParams: Codable, Sendable {
         self.agentid = agentid
         self.message = message
         self.thinking = thinking
+        self.deliver = deliver
+        self.suppresscommandinterpretation = suppresscommandinterpretation
+        self.senderattribution = senderattribution
         self.attachments = attachments
         self.timeoutms = timeoutms
         self.idempotencykey = idempotencykey
@@ -7660,6 +7669,9 @@ public struct SessionsSendParams: Codable, Sendable {
         case agentid = "agentId"
         case message
         case thinking
+        case deliver
+        case suppresscommandinterpretation = "suppressCommandInterpretation"
+        case senderattribution = "senderAttribution"
         case attachments
         case timeoutms = "timeoutMs"
         case idempotencykey = "idempotencyKey"
@@ -10488,7 +10500,19 @@ public struct TalkEvent: Codable, Sendable {
     }
 }
 
-public struct TalkCatalogParams: Codable, Sendable {}
+public struct TalkCatalogParams: Codable, Sendable {
+    public let sessionkey: String?
+
+    public init(
+        sessionkey: String? = nil)
+    {
+        self.sessionkey = sessionkey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+    }
+}
 
 public struct TalkCatalogResult: Codable, Sendable {
     public let modes: [AnyCodable]
@@ -10525,6 +10549,7 @@ public struct TalkCatalogResult: Codable, Sendable {
 }
 
 public struct TalkClientCreateParams: Codable, Sendable {
+    public let senderattribution: [String: AnyCodable]?
     public let sessionkey: String?
     public let voicesessionid: String?
     public let provider: String?
@@ -10540,6 +10565,7 @@ public struct TalkClientCreateParams: Codable, Sendable {
     public let capabilities: [AnyCodable]?
 
     public init(
+        senderattribution: [String: AnyCodable]? = nil,
         sessionkey: String? = nil,
         voicesessionid: String? = nil,
         provider: String? = nil,
@@ -10554,6 +10580,7 @@ public struct TalkClientCreateParams: Codable, Sendable {
         brain: AnyCodable? = nil,
         capabilities: [AnyCodable]? = nil)
     {
+        self.senderattribution = senderattribution
         self.sessionkey = sessionkey
         self.voicesessionid = voicesessionid
         self.provider = provider
@@ -10570,6 +10597,7 @@ public struct TalkClientCreateParams: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case senderattribution = "senderAttribution"
         case sessionkey = "sessionKey"
         case voicesessionid = "voiceSessionId"
         case provider
@@ -10715,6 +10743,7 @@ public struct TalkAgentControlResult: Codable, Sendable {
 }
 
 public struct TalkClientToolCallParams: Codable, Sendable {
+    public let senderattribution: [String: AnyCodable]?
     public let sessionkey: String
     public let voicesessionid: String?
     public let callid: String
@@ -10723,6 +10752,7 @@ public struct TalkClientToolCallParams: Codable, Sendable {
     public let relaysessionid: String?
 
     public init(
+        senderattribution: [String: AnyCodable]? = nil,
         sessionkey: String,
         voicesessionid: String? = nil,
         callid: String,
@@ -10730,6 +10760,7 @@ public struct TalkClientToolCallParams: Codable, Sendable {
         args: AnyCodable? = nil,
         relaysessionid: String? = nil)
     {
+        self.senderattribution = senderattribution
         self.sessionkey = sessionkey
         self.voicesessionid = voicesessionid
         self.callid = callid
@@ -10739,6 +10770,7 @@ public struct TalkClientToolCallParams: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case senderattribution = "senderAttribution"
         case sessionkey = "sessionKey"
         case voicesessionid = "voiceSessionId"
         case callid = "callId"
@@ -10913,7 +10945,9 @@ public struct TalkSessionCancelTurnParams: Codable, Sendable {
 }
 
 public struct TalkSessionCreateParams: Codable, Sendable {
+    public let senderattribution: [String: AnyCodable]?
     public let sessionkey: String?
+    public let clientownerid: String?
     public let spawnedby: String?
     public let provider: String?
     public let model: String?
@@ -10929,7 +10963,9 @@ public struct TalkSessionCreateParams: Codable, Sendable {
     public let ttlms: Int?
 
     public init(
+        senderattribution: [String: AnyCodable]? = nil,
         sessionkey: String? = nil,
+        clientownerid: String? = nil,
         spawnedby: String? = nil,
         provider: String? = nil,
         model: String? = nil,
@@ -10944,7 +10980,9 @@ public struct TalkSessionCreateParams: Codable, Sendable {
         brain: AnyCodable? = nil,
         ttlms: Int? = nil)
     {
+        self.senderattribution = senderattribution
         self.sessionkey = sessionkey
+        self.clientownerid = clientownerid
         self.spawnedby = spawnedby
         self.provider = provider
         self.model = model
@@ -10961,7 +10999,9 @@ public struct TalkSessionCreateParams: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case senderattribution = "senderAttribution"
         case sessionkey = "sessionKey"
+        case clientownerid = "clientOwnerId"
         case spawnedby = "spawnedBy"
         case provider
         case model

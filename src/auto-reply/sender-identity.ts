@@ -4,6 +4,21 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
+import { isInternalMessageChannel } from "../utils/message-channel.js";
+import type { MsgContext } from "./templating.js";
+
+/** Personal commands carry a bounded Agent grant, never Gateway-owner authority. */
+export function resolvePersonalAgentCommandScope(
+  ctx: Pick<MsgContext, "Provider" | "SenderIsOwner" | "SenderAgentId" | "AgentId">,
+): string | undefined {
+  if (!isInternalMessageChannel(ctx.Provider) || ctx.SenderIsOwner !== false) {
+    return undefined;
+  }
+  const senderAgentId = normalizeOptionalString(ctx.SenderAgentId);
+  return senderAgentId && senderAgentId === normalizeOptionalString(ctx.AgentId)
+    ? senderAgentId
+    : undefined;
+}
 
 function isConversationLikeIdentity(value: string): boolean {
   const normalized = normalizeOptionalLowercaseString(value);

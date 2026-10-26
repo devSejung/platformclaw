@@ -120,6 +120,36 @@ function expectNoRequestCall(request: ReturnType<typeof vi.fn>, method: string) 
 }
 
 describe("executeSlashCommand directives", () => {
+  it("runs compact through a write-scoped endpoint without global admin", async () => {
+    const request = vi.fn().mockResolvedValue({ ok: true, compacted: true });
+    const client = { request } as unknown as GatewayBrowserClient;
+
+    const result = await executeSlashCommand(client, "agent:work:main", "compact", "", {
+      sessionAccessSnapshot: {
+        client,
+        phase: "connected",
+        hello: {
+          type: "hello-ok",
+          protocol: 4,
+          auth: {
+            role: "operator",
+            scopes: ["operator.write"],
+          },
+          features: {
+            methods: ["sessions.compact"],
+            capabilities: ["control-ui.server-authorized-methods"],
+          },
+        },
+      },
+    });
+
+    expect(result.failed).not.toBe(true);
+    expect(request).toHaveBeenCalledExactlyOnceWith("sessions.compact", {
+      key: "agent:work:main",
+      agentId: "work",
+    });
+  });
+
   it("does not compact a session without operator.admin", async () => {
     const request = vi.fn();
     const client = { request } as unknown as GatewayBrowserClient;

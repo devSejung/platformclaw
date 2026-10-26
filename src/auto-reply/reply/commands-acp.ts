@@ -1,7 +1,10 @@
 // Implements ACP session commands and runtime status formatting.
 import { logVerbose } from "../../globals.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
+import { isInternalMessageChannel } from "../../utils/message-channel.js";
+import { resolvePersonalAgentCommandScope } from "../sender-identity.js";
 import { rejectNonOwnerCommand, requireGatewayClientScope } from "./command-gates.js";
+import { resolveAcpCommandAgentScope } from "./commands-acp/agent-scope.js";
 import {
   COMMAND,
   type AcpAction,
@@ -104,7 +107,20 @@ export const handleAcpCommand: CommandHandler = async (params, _allowTextCommand
     return stopWithText(resolveAcpHelpText());
   }
 
-  if (ACP_OWNER_REQUIRED_ACTIONS.has(action)) {
+  const personalAgentScope = resolvePersonalAgentCommandScope(params.ctx);
+  if (
+    action !== "install" &&
+    isInternalMessageChannel(params.ctx.Provider) &&
+    params.ctx.SenderIsOwner === false &&
+    ((resolveAcpCommandAgentScope(params) && !personalAgentScope) ||
+      (personalAgentScope && params.agentId !== personalAgentScope))
+  ) {
+    return stopWithText("ACP commands require the attributed Agent to match the active Agent.");
+  }
+
+  // A personal grant owns only isolated ACP targets. Each action still resolves
+  // and checks its persisted execution owner before entering the runtime manager.
+  if (ACP_OWNER_REQUIRED_ACTIONS.has(action) && !personalAgentScope) {
     const scopeBlock = requireGatewayClientScope(params, {
       label: "/acp",
       allowedScopes: ["operator.admin"],

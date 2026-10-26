@@ -5,12 +5,109 @@ import { resolveOwnerPromptNumbers } from "../agents/owner-display.js";
 import { buildAgentSystemPrompt } from "../agents/system-prompt.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveCommandAuthorization } from "./command-auth.js";
+import { resolvePersonalAgentCommandScope } from "./sender-identity.js";
 import type { MsgContext } from "./templating.js";
 import { installDiscordRegistryHooks } from "./test-helpers/command-auth-registry-fixture.js";
 
 installDiscordRegistryHooks();
 
 describe("senderIsOwner only reflects explicit owner authorization", () => {
+  it.each([
+    { provider: "webchat", senderAgentId: "main", agentId: "main", owner: false, allowed: true },
+    {
+      provider: "webchat",
+      senderAgentId: "foreign",
+      agentId: "main",
+      owner: false,
+      allowed: false,
+    },
+    {
+      provider: "webchat",
+      senderAgentId: undefined,
+      agentId: "main",
+      owner: false,
+      allowed: false,
+    },
+    {
+      provider: "webchat",
+      senderAgentId: "main",
+      agentId: undefined,
+      owner: false,
+      allowed: false,
+    },
+    {
+      provider: "webchat",
+      senderAgentId: "main",
+      agentId: "main",
+      owner: undefined,
+      allowed: false,
+    },
+    { provider: "discord", senderAgentId: "main", agentId: "main", owner: false, allowed: false },
+  ])(
+    "keeps personal command authority separate from owner identity ($provider/$senderAgentId/$agentId/$owner)",
+    ({ provider, senderAgentId, agentId, owner, allowed }) => {
+      const ctx: MsgContext = {
+        Provider: provider,
+        Surface: provider,
+        SenderId: "first.user",
+        SenderIsOwner: owner,
+        SenderAgentId: senderAgentId,
+        AgentId: agentId,
+        GatewayClientScopes: [],
+      };
+      expect(resolvePersonalAgentCommandScope(ctx)).toBe(allowed ? "main" : undefined);
+      const auth = resolveCommandAuthorization({
+        cfg: { commands: { ownerAllowFrom: ["global.owner"] } },
+        ctx,
+        commandAuthorized: true,
+      });
+      expect(auth.isAuthorizedSender).toBe(allowed);
+      expect(auth.senderIsOwner).toBe(false);
+    },
+  );
+
+  it("retains explicit commands.allowFrom for a bound personal Agent", () => {
+    const ctx: MsgContext = {
+      Provider: "webchat",
+      SenderId: "first.user",
+      SenderIsOwner: false,
+      SenderAgentId: "main",
+      AgentId: "main",
+      GatewayClientScopes: [],
+    };
+    for (const [allowed, sender] of [
+      [false, "other.user"],
+      [true, "first.user"],
+    ] as const) {
+      const auth = resolveCommandAuthorization({
+        cfg: { commands: { ownerAllowFrom: ["global.owner"], allowFrom: { "*": [sender] } } },
+        ctx,
+        commandAuthorized: true,
+      });
+      expect(auth.isAuthorizedSender).toBe(allowed);
+      expect(auth.senderIsOwner).toBe(false);
+    }
+  });
+
+  it.each([false, undefined, true])(
+    "respects internal ingress owner authority %s before shared scopes and owner identity",
+    (senderIsOwner) => {
+      const auth = resolveCommandAuthorization({
+        cfg: { commands: { ownerAllowFrom: ["first.user"] } },
+        ctx: {
+          Provider: "webchat",
+          Surface: "webchat",
+          ChatType: "direct",
+          SenderId: "first.user",
+          SenderIsOwner: senderIsOwner,
+          GatewayClientScopes: ["operator.admin"],
+        },
+        commandAuthorized: true,
+      });
+      expect(auth.senderIsOwner).toBe(senderIsOwner !== false);
+    },
+  );
+
   it("accepts trusted post-admission owner proof from an external channel", () => {
     const auth = resolveCommandAuthorization({
       cfg: {},

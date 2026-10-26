@@ -77,6 +77,7 @@ export class BrowserGatewayLiveCapabilities {
     params: JsonObject;
     context?: BrowserGatewayRequestContext;
     cronContext: BrowserCronContext;
+    gateway: BrowserGatewayRpc;
     auditDenied: (reason: BrowserGatewayProxyErrorCode) => Promise<void>;
   }): Promise<SpecialRequestResult> {
     try {
@@ -174,6 +175,7 @@ export class BrowserGatewayLiveCapabilities {
     method: string;
     params: JsonObject;
     context?: BrowserGatewayRequestContext;
+    gateway: BrowserGatewayRpc;
   }): Promise<SpecialRequestResult> {
     if (
       options.method === "sessions.messages.subscribe" ||
@@ -187,15 +189,23 @@ export class BrowserGatewayLiveCapabilities {
       }
       const result =
         options.method === "sessions.messages.subscribe"
-          ? await this.messageSubscriptions.subscribe(options.context.connectionId, {
-              key: options.params.key as string,
-              agentId: options.params.agentId as string | undefined,
-              ...(options.params.includeApprovals === true ? { includeApprovals: true } : {}),
-            })
-          : await this.messageSubscriptions.unsubscribe(options.context.connectionId, {
-              key: options.params.key as string,
-              agentId: options.params.agentId as string | undefined,
-            });
+          ? await this.messageSubscriptions.subscribe(
+              options.context.connectionId,
+              {
+                key: options.params.key as string,
+                agentId: options.params.agentId as string | undefined,
+                ...(options.params.includeApprovals === true ? { includeApprovals: true } : {}),
+              },
+              options.gateway,
+            )
+          : await this.messageSubscriptions.unsubscribe(
+              options.context.connectionId,
+              {
+                key: options.params.key as string,
+                agentId: options.params.agentId as string | undefined,
+              },
+              options.gateway,
+            );
       if (options.method === "sessions.messages.subscribe") {
         return this.projectResult(options.agentId, options.method, result);
       }
@@ -221,6 +231,7 @@ export class BrowserGatewayLiveCapabilities {
       this.access(options.agentId),
       options.method,
       options.params,
+      options.gateway,
     );
   }
 }

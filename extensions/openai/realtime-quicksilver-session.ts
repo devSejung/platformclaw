@@ -50,6 +50,8 @@ const WEBSOCKET_OPEN = 1;
 
 type OpenAIQuicksilverSessionRequest = RealtimeVoiceBrowserSessionCreateRequest & {
   initialItems?: OpenAIQuicksilverInitialItem[];
+  onClosed?: () => void;
+  onServerSessionStarting?: () => void;
 };
 
 type PreparedOpenAIQuicksilverSessionRequest = OpenAIQuicksilverSessionRequest & {
@@ -62,6 +64,7 @@ type PendingOffer = {
   expiresAt: number;
   requestIds: OpenAIQuicksilverRequestIds;
   request: PreparedOpenAIQuicksilverSessionRequest;
+  timer: NodeJS.Timeout;
 };
 
 type ActiveSession = {
@@ -70,6 +73,7 @@ type ActiveSession = {
   socket: OpenAIQuicksilverSocket;
   timer: NodeJS.Timeout;
   token: string;
+  onClosed?: () => void;
 };
 
 type ResponseDeliveryWaiter = {
@@ -176,6 +180,25 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
   const createSocket = params.webSocketFactory ?? ((url, options) => new WebSocket(url, options));
   let cleanedUp = false;
 
+  const forgetPendingOffer = (token: string) => {
+    const offer = pendingOffers.get(token);
+    if (offer) {
+      pendingOffers.delete(token);
+      clearTimeout(offer.timer);
+    }
+    return offer;
+  };
+
+  const expirePendingOffer = (token: string) => {
+    const offer = forgetPendingOffer(token);
+    if (!offer) {
+      return;
+    }
+    reservations.delete(token);
+    releaseOpenAIQuicksilverSession(token);
+    offer.request.onClosed?.();
+  };
+
   const finalizeSession = (session: ActiveSession) => {
     if (activeSessions.get(session.token) !== session) {
       return false;
@@ -184,6 +207,7 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
     reservations.delete(session.token);
     releaseOpenAIQuicksilverSession(session.token);
     clearTimeout(session.timer);
+    session.onClosed?.();
     session.delegations.stop(new Error("GPT-Live delegation stopped"));
     session.abortController.abort(new Error("GPT-Live session closed"));
     return true;
@@ -234,9 +258,7 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
     const now = Date.now();
     for (const [token, offer] of pendingOffers) {
       if (offer.expiresAt <= now) {
-        pendingOffers.delete(token);
-        reservations.delete(token);
-        releaseOpenAIQuicksilverSession(token);
+        expirePendingOffer(token);
       }
     }
   };
@@ -259,10 +281,11 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
       }
       prunePendingOffers();
       const voice = resolveOpenAIQuicksilverVoice(request.voice);
+      request.onServerSessionStarting?.();
       const token = randomBytes(32).toString("base64url");
       const expiresAt = Date.now() + OPENAI_QUICKSILVER_PENDING_TTL_MS;
       reserveOpenAIQuicksilverSession(token, { expiresAtMs: expiresAt });
-      pendingOffers.set(token, {
+      const pending: PendingOffer = {
         auth,
         expiresAt,
         requestIds: {
@@ -271,7 +294,12 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
           threadId: randomUUID(),
         },
         request: { ...request, model, voice },
-      });
+        // This is only the unused offer credential's lifetime. Active calls
+        // transfer to their separate provider-owned session expiry below.
+        timer: setTimeout(() => expirePendingOffer(token), OPENAI_QUICKSILVER_PENDING_TTL_MS),
+      };
+      pending.timer.unref?.();
+      pendingOffers.set(token, pending);
       reservations.add(token);
       return {
         provider: "openai",
@@ -287,7 +315,8 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
       if (session.transport !== "webrtc") {
         return;
       }
-      pendingOffers.delete(session.clientSecret);
+      const pending = forgetPendingOffer(session.clientSecret);
+      pending?.request.onClosed?.();
       inFlightOffers.get(session.clientSecret)?.abort(new Error("GPT-Live session canceled"));
       const active = activeSessions.get(session.clientSecret);
       if (active) {
@@ -341,7 +370,7 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
       return true;
     }
     // Offer credentials are single-use so a captured browser request cannot join twice.
-    pendingOffers.delete(token);
+    forgetPendingOffer(token);
     const requestController = new AbortController();
     let browserDisconnected = false;
     inFlightOffers.set(token, requestController);
@@ -442,6 +471,7 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
         socket: connected.socket,
         timer,
         token,
+        onClosed: offer.request.onClosed,
       };
       activeSessions.set(token, session);
       reserveOpenAIQuicksilverSession(token);
@@ -497,6 +527,7 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
       if (!reservationTransferred) {
         reservations.delete(token);
         releaseOpenAIQuicksilverSession(token);
+        offer.request.onClosed?.();
       }
     }
   };
@@ -513,7 +544,9 @@ export function createOpenAIQuicksilverBrowserSessionBroker(params: {
     }
     cleanedUp = true;
     shutdownController.abort(new Error("OpenAI GPT-Live broker stopped"));
-    pendingOffers.clear();
+    for (const token of pendingOffers.keys()) {
+      expirePendingOffer(token);
+    }
     for (const controller of inFlightOffers.values()) {
       controller.abort(new Error("OpenAI GPT-Live broker stopped"));
     }

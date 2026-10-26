@@ -161,6 +161,9 @@ function buildChatSendMessageContext(params: {
   toolBindings?: Readonly<Record<string, unknown>>;
 }) {
   const commandBody = params.parsedMessage;
+  // Transport scopes and capabilities authorize the proxy, not its delegated
+  // human's in-agent commands, tools, or follow-up continuations.
+  const restrictedSender = params.senderAttribution?.isOwner === false;
   const commandSource =
     !params.suppressCommandInterpretation && params.parsedMessage.trim().startsWith("/")
       ? "text"
@@ -214,6 +217,7 @@ function buildChatSendMessageContext(params: {
     MessageSid: params.clientRunId,
     SessionCreation: resolveOperatorSessionCreation(params.client),
     ApprovalReviewerDeviceId: queuedFollowupOwnerDeviceId,
+    ...(restrictedSender ? { SenderIsOwner: false } : {}),
     ...(params.senderAttribution
       ? {
           SenderId: params.senderAttribution.id,
@@ -228,8 +232,8 @@ function buildChatSendMessageContext(params: {
             SenderUsername: params.clientInfo?.displayName,
           }
         : {}),
-    GatewayClientScopes: params.client?.connect?.scopes ?? [],
-    GatewayClientCaps: params.client?.connect?.caps ?? [],
+    GatewayClientScopes: restrictedSender ? [] : (params.client?.connect?.scopes ?? []),
+    GatewayClientCaps: restrictedSender ? [] : (params.client?.connect?.caps ?? []),
     GatewayRunToolBindings: params.toolBindings,
   };
   if (params.mediaPathOffloadPaths.length > 0) {

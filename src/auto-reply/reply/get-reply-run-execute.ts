@@ -245,6 +245,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
       ? {
           text: userTurnTranscriptText,
           senderIsOwner: command.senderIsOwner,
+          senderAgentId: normalizeOptionalString(sessionCtx.SenderAgentId),
           ...(sourceTurnId ? { idempotencyKey: sourceTurnId } : {}),
           ...(inputProvenance && !isHeartbeat ? { provenance: inputProvenance } : {}),
           ...(isHeartbeat
@@ -365,6 +366,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
       // Queued system events are prompt content in the same trusted session;
       // they do not rewrite the sender identity used by command/action auth.
       senderIsOwner: command.senderIsOwner,
+      senderAgentId: normalizeOptionalString(sessionCtx.SenderAgentId),
       traceAuthorized:
         command.senderIsOwner || (ctx.GatewayClientScopes ?? []).includes("operator.admin"),
       approvalReviewerDeviceId: normalizeOptionalString(ctx.ApprovalReviewerDeviceId),

@@ -229,6 +229,7 @@ export function prepareEmbeddedAttemptToolBase(params: {
           senderUsername: attempt.senderUsername,
           senderE164: attempt.senderE164,
           senderIsOwner: attempt.senderIsOwner,
+          senderAgentId: attempt.senderAgentId,
           allowGatewaySubagentBinding: attempt.allowGatewaySubagentBinding,
           sessionKey: params.sandboxSessionKey,
           runSessionKey:

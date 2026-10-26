@@ -16,6 +16,7 @@ import { McpAdministrationService } from "./browser-mcp-admin-http.js";
 import { EmployeeMcpService } from "./browser-mcp-http.js";
 import { PlatformClawBrowserMediaRelay } from "./browser-media-http.js";
 import { BrowserOrganizationService } from "./browser-organization-http.js";
+import { PlatformClawBrowserTalkRelay } from "./browser-talk-http.js";
 import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import { JiraVocService, type JiraVocConfig } from "./browser-voc-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
@@ -124,6 +125,7 @@ export function createPlatformClawWebIngressRuntime(
 ): PlatformClawWebIngressRuntime {
   const racingNow = options.racingNow ?? options.employeeAuth?.now ?? Date.now;
   let closeTerminalForAgent = async (_agentId: string, _reason: string): Promise<void> => {};
+  let closeTalkForAgent = async (_agentId: string, _reason: string): Promise<void> => {};
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
   const auth = createEmployeeBrowserAuthRuntime({
     databasePath: options.databasePath,
@@ -134,12 +136,14 @@ export function createPlatformClawWebIngressRuntime(
       await Promise.allSettled([
         options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId }),
         closeTerminalForAgent(agentId, "logout"),
+        closeTalkForAgent(agentId, "logout"),
       ]);
     },
     onAgentCredentialsRevoked: async (agentId) => {
       await Promise.allSettled([
         options.adminRpc.call("platformclaw-user-mcp.invalidateAgent", { agentId }),
         closeTerminalForAgent(agentId, "user_disabled"),
+        closeTalkForAgent(agentId, "user_disabled"),
       ]);
     },
     ...options.employeeAuth,
@@ -296,6 +300,7 @@ export function createPlatformClawWebIngressRuntime(
     spaceService,
     auditWriter: auth.store,
     gateway,
+    talkOfferRelayAvailable: Boolean(options.mediaGateway),
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
     resolveAgentIdFromSessionKey: (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
@@ -308,6 +313,8 @@ export function createPlatformClawWebIngressRuntime(
       options.adminRpc.call("platformclaw-execution.invalidateAgent", { agentId }),
     ]);
   };
+  closeTalkForAgent = async (agentId, reason) =>
+    await gatewayProxy.closeTalkForAgent(agentId, reason);
   const mediaRelay = options.mediaGateway
     ? new PlatformClawBrowserMediaRelay({
         gatewayOrigin: options.mediaGateway.origin,
@@ -317,6 +324,14 @@ export function createPlatformClawWebIngressRuntime(
           options.resolveAgentIdFromSessionKey(sessionKey),
         ...(options.mediaGateway.fetchImpl ? { fetchImpl: options.mediaGateway.fetchImpl } : {}),
         ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
+      })
+    : undefined;
+  const talkRelay = options.mediaGateway
+    ? new PlatformClawBrowserTalkRelay({
+        publicOrigin: options.publicOrigin,
+        gatewayOrigin: options.mediaGateway.origin,
+        gatewayProxy,
+        ...(options.mediaGateway.fetchImpl ? { fetchImpl: options.mediaGateway.fetchImpl } : {}),
       })
     : undefined;
   const canvasRelay = options.mediaGateway
@@ -338,6 +353,7 @@ export function createPlatformClawWebIngressRuntime(
     gateway,
     vaultService,
     ...(mediaRelay ? { mediaRelay } : {}),
+    ...(talkRelay ? { talkRelay } : {}),
     ...(canvasRelay ? { canvasRelay } : {}),
     executionService: employeeExecution,
     vmAdministrationService: vmAdministration,

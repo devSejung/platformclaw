@@ -472,6 +472,33 @@ describe("approval queue ordering and countdown timer", () => {
 });
 
 describe("refreshPendingApprovalQueue", () => {
+  it("does not probe absent global lists or discard session-scoped approvals", async () => {
+    const request = vi.fn<RequestFn>();
+    const pending = { ...createExecApproval(), sessionScoped: true as const };
+    const state = createPromptState(request, [pending]);
+
+    expect(await refreshPendingApprovalQueue(state, { isMethodAvailable: () => false })).toBe(
+      false,
+    );
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.execApprovalQueue).toEqual([pending]);
+  });
+
+  it("refreshes advertised lists while retaining pending approvals from unavailable lists", async () => {
+    const request = vi.fn<RequestFn>(async () => []);
+    const pending = createExecApproval({ expiresAtMs: Date.now() + 60_000 });
+    const state = createPromptState(request, [pending]);
+
+    await refreshPendingApprovalQueue(state, {
+      isMethodAvailable: (method) => method === "plugin.approval.list",
+    });
+
+    expect(request).toHaveBeenCalledExactlyOnceWith("plugin.approval.list", {});
+    expect(state.execApprovalQueue.map((entry) => entry.id)).toEqual([pending.id]);
+    clearExecApprovalTimers(state);
+  });
+
   it("sorts refreshed approvals oldest-first", async () => {
     const request = vi.fn<RequestFn>(async (method) => {
       if (method === "exec.approval.list") {

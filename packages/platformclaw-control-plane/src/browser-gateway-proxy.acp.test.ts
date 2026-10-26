@@ -65,6 +65,7 @@ describe("BrowserGatewayProxy ACP commands", () => {
         name: user.displayName,
         profileId: user.id,
         agentId: binding.agentId,
+        isOwner: false,
       },
       suppressCommandInterpretation: false,
     });

@@ -543,7 +543,7 @@ export function attachGatewayWsConnectionHandler(params: AttachGatewayWsConnecti
       }
       if (connectionKind === "gateway") {
         const context = buildRequestContext();
-        cleanupTalkConnection(connId, logGateway);
+        void cleanupTalkConnection(connId, logGateway);
         context.unsubscribeAllSessionEvents(connId);
         // Detach (or, with a zero grace period, kill) any PTY shells this
         // connection owned; detached sessions stay reattachable via

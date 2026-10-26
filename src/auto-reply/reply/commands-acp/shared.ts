@@ -10,6 +10,7 @@ import type { AcpRuntimeError } from "../../../acp/runtime/errors.js";
 import { supportsAutomaticThreadBindingSpawn } from "../../../channels/thread-bindings-policy.js";
 import type { AcpSessionRuntimeOptions } from "../../../config/sessions/types.js";
 import { normalizeAgentId } from "../../../routing/session-key.js";
+import { resolvePersonalAgentCommandScope } from "../../sender-identity.js";
 import type { CommandHandlerResult, HandleCommandsParams } from "../commands-types.js";
 import { resolveAcpCommandChannel, resolveAcpCommandThreadId } from "./context.js";
 
@@ -172,6 +173,9 @@ function normalizeAcpOptionToken(raw: string): string {
 }
 
 function resolveDefaultSpawnThreadMode(params: HandleCommandsParams): AcpSpawnThreadMode {
+  if (resolvePersonalAgentCommandScope(params.ctx)) {
+    return "off";
+  }
   const channel = resolveAcpCommandChannel(params);
   if (!supportsAutomaticThreadBindingSpawn(channel)) {
     return "off";

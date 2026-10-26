@@ -168,7 +168,7 @@ describe("talk realtime gateway relay", () => {
         throw new Error("provider close failed");
       });
 
-      expect(() => cleanupTalkConnection("conn-owner", logGateway)).not.toThrow();
+      await cleanupTalkConnection("conn-owner", logGateway);
       await Promise.resolve();
       await Promise.resolve();
 
@@ -251,7 +251,7 @@ describe("talk realtime gateway relay", () => {
         relaySessionId: unrelated.relaySessionId,
         connId: "conn-other",
       });
-      cleanupTalkConnection("conn-other", logGateway);
+      await cleanupTalkConnection("conn-other", logGateway);
       expect(bridgeCloses[2]).toHaveBeenCalledOnce();
     } finally {
       clientVoiceSessionTesting.reset();
@@ -4240,10 +4240,11 @@ describe("talk realtime gateway relay", () => {
         isConnected: vi.fn(() => true),
       }),
     };
-    const createSession = (connId: string) =>
+    const createSession = (connId: string, clientOwnerId?: string) =>
       createTalkRealtimeRelaySession({
         context: { broadcastToConnIds: vi.fn() } as never,
         connId,
+        clientOwnerId,
         provider,
         providerConfig: {},
         instructions: "brief",
@@ -4263,6 +4264,15 @@ describe("talk realtime gateway relay", () => {
     expectRecordFields(session.audio, {
       inputEncoding: "pcm16",
       outputEncoding: "pcm16",
+    });
+    createSession("conn-1", "browser-1");
+    createSession("conn-1", "browser-1");
+    expect(() => createSession("conn-1", "browser-1")).toThrow(
+      "Too many active realtime relay sessions for this connection",
+    );
+    expectRecordFields(createSession("conn-1", "browser-2"), {
+      provider: "relay-test",
+      transport: "gateway-relay",
     });
   });
 });

@@ -28,6 +28,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
   "task",
   "terminal.data",
   "terminal.exit",
+  "talk.event",
 ] as const;
 
 const SAFE_GLOBAL_EVENTS = new Set<string>(["shutdown", "tick", "skills.changed"]);

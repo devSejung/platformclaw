@@ -8,6 +8,7 @@ function snapshot(params: {
   scopes?: string[];
   includeAuth?: boolean;
   includeScopes?: boolean;
+  capabilities?: string[];
 }): ApplicationGatewaySnapshot {
   const connected = params.connected ?? true;
   return {
@@ -23,7 +24,7 @@ function snapshot(params: {
               scopes:
                 params.includeScopes === false ? undefined : (params.scopes ?? ["operator.admin"]),
             },
-      features: params.methods === undefined ? {} : { methods: params.methods },
+      features: { methods: params.methods, capabilities: params.capabilities },
     } as ApplicationGatewaySnapshot["hello"],
     canvasPluginSurfaceRoute: { mode: "direct" },
     assistantAgentId: null,
@@ -64,5 +65,32 @@ describe("canCallGatewayMethod", () => {
         { requireAdvertisement: false },
       ),
     ).toBe(true);
+  });
+  it("uses the server-owned catalog for personal writes without granting global admin", () => {
+    const current = snapshot({
+      methods: ["agents.files.set"],
+      scopes: ["operator.write"],
+      capabilities: ["control-ui.server-authorized-methods"],
+    });
+    expect(canCallGatewayMethod(current, "agents.files.set", "operator.admin")).toBe(true);
+    expect(canCallGatewayMethod(current, "config.patch", "operator.admin")).toBe(false);
+    expect(
+      canCallGatewayMethod(current, "config.openFile", "operator.admin", {
+        requireAdvertisement: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("requires explicit method metadata when the server owns authorization", () => {
+    expect(
+      canCallGatewayMethod(
+        snapshot({
+          scopes: ["operator.admin"],
+          capabilities: ["control-ui.server-authorized-methods"],
+        }),
+        "agents.files.set",
+        "operator.admin",
+      ),
+    ).toBe(false);
   });
 });

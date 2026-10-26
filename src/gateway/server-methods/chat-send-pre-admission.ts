@@ -19,6 +19,7 @@ import {
 } from "./chat-abort-runtime.js";
 import { resolveDurableChatClaim } from "./chat-restart-recovery.js";
 import type { NormalizedChatSendRequest } from "./chat-send-request.js";
+import { requireChatSendScope } from "./chat-send-scope.js";
 import type { PreparedChatSendSession } from "./chat-send-session.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
 
@@ -111,6 +112,20 @@ export async function runChatSendPreAdmission(params: {
       return false;
     }
     respond(true, { ok: true, aborted: res.aborted, runIds: res.runIds });
+    return false;
+  }
+
+  if (
+    !requireChatSendScope({
+      context,
+      client,
+      respond,
+      runId: clientRunId,
+      agentId: session.agentId,
+      sessionKey,
+      senderAttribution: request.senderAttribution,
+    })
+  ) {
     return false;
   }
 

@@ -94,6 +94,31 @@ describe("followup queue collect routing", () => {
     expect(cancelA).toEqual(cancelB);
   });
 
+  it("does not collect messages with different personal Agent grants", async () => {
+    const key = `test-collect-agent-scope-${Date.now()}`;
+    const { calls, done, runFollowup } = createDrainRecorder(2);
+    for (const senderAgentId of ["main", "foreign"]) {
+      const run = createRun({ prompt: senderAgentId });
+      run.run.senderIsOwner = false;
+      run.run.senderAgentId = senderAgentId;
+      enqueueFollowupRun(key, run, createQueueSettings());
+    }
+    scheduleFollowupDrain(key, runFollowup);
+    await done.promise;
+    expect(
+      calls.map((call) => ({ prompt: call.prompt, senderAgentId: call.run.senderAgentId })),
+    ).toEqual([
+      {
+        prompt: "[Queued messages while agent was busy]\n\n---\nQueued #1\nmain",
+        senderAgentId: "main",
+      },
+      {
+        prompt: "[Queued messages while agent was busy]\n\n---\nQueued #1\nforeign",
+        senderAgentId: "foreign",
+      },
+    ]);
+  });
+
   it("retries lifecycle admission after a callback rejection", async () => {
     const onAdmitted = vi
       .fn<() => Promise<void>>()

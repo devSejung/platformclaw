@@ -491,17 +491,20 @@ export async function createExecutionDependenciesFromEnvironment(
       return value as Record<string, string>;
     },
     resolveTarget,
-    launchAcpProcess: async (input, target) =>
+    launchAcpProcess: async (input, target, signal) =>
       await launchAssignedVmAcpProcess({
         input,
         target,
-        createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
+        createSession: async (preparedTarget, launchSignal) =>
+          await sshLeases.createSession(preparedTarget, launchSignal),
+        signal,
       }),
     diagnoseAcpProcess: async (agent, target, signal) =>
       await diagnoseAssignedVmAcpProcess({
         agent,
         target,
-        createSession: async (preparedTarget) => await sshLeases.createSession(preparedTarget),
+        createSession: async (preparedTarget, diagnosticSignal) =>
+          await sshLeases.createSession(preparedTarget, diagnosticSignal),
         signal,
       }),
     detectCodingAgent: async ({ agentId, agent, expectedRevision }) => {

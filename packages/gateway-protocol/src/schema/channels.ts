@@ -2,6 +2,7 @@
 import type { Static } from "typebox";
 import { Type } from "typebox";
 import { closedObject } from "./closed-object.js";
+import { ChatSenderAttributionSchema } from "./logs-chat.js";
 import { NonEmptyString, SecretInputSchema } from "./primitives.js";
 
 /**
@@ -192,6 +193,7 @@ const VoiceIdString = Type.String({ pattern: "^[A-Za-z0-9_-]{1,128}$" });
 
 /** Creates a browser-facing Talk client session. */
 export const TalkClientCreateParamsSchema = closedObject({
+  senderAttribution: Type.Optional(ChatSenderAttributionSchema),
   sessionKey: Type.Optional(NonEmptyString),
   voiceSessionId: Type.Optional(VoiceIdString),
   provider: Type.Optional(Type.String()),
@@ -213,6 +215,7 @@ export const TalkClientCreateParamsSchema = closedObject({
 
 /** Tool-call request from a browser/client session back into the agent runtime. */
 export const TalkClientToolCallParamsSchema = closedObject({
+  senderAttribution: Type.Optional(ChatSenderAttributionSchema),
   sessionKey: NonEmptyString,
   voiceSessionId: Type.Optional(VoiceIdString),
   callId: NonEmptyString,
@@ -288,7 +291,10 @@ export const TalkSessionJoinParamsSchema = closedObject({
 
 /** Creates a gateway-managed Talk session for realtime, transcription, or relay use. */
 export const TalkSessionCreateParamsSchema = closedObject({
+  senderAttribution: Type.Optional(ChatSenderAttributionSchema),
   sessionKey: Type.Optional(Type.String()),
+  /** Trusted multiplexing proxies partition relay quotas without changing the delivery connection. */
+  clientOwnerId: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
   spawnedBy: Type.Optional(NonEmptyString),
   provider: Type.Optional(Type.String()),
   model: Type.Optional(Type.String()),
@@ -384,8 +390,10 @@ const TalkSessionManagedRoomRecordSchema = closedObject({
   room: TalkSessionManagedRoomStateSchema,
 });
 
-/** Empty request payload for reading configured Talk provider capabilities. */
-export const TalkCatalogParamsSchema = closedObject({});
+/** Reads Talk provider capabilities for the selected agent session. */
+export const TalkCatalogParamsSchema = closedObject({
+  sessionKey: Type.Optional(NonEmptyString),
+});
 
 /** One provider entry in the Talk capability catalog. */
 const TalkCatalogProviderSchema = closedObject({

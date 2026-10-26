@@ -77,6 +77,7 @@ export type PlatformClawWebIngressOptions = {
   knoxRouting?: { service: KnoxRoutingService; serviceToken: string };
   knoxIngressProxy?: { targetUrl: string };
   mediaRelay?: PlatformClawBrowserMediaRelay;
+  talkRelay?: PlatformClawBrowserMediaRelay;
   canvasRelay?: PlatformClawBrowserCanvasRelay;
   webAssets?: PlatformClawWebAssetHandler;
   gatewayPath?: string;

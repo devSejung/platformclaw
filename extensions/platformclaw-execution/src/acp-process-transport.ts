@@ -45,11 +45,16 @@ async function waitForSpawn(
 export async function launchAssignedVmAcpProcess(params: {
   input: AcpProcessTransportLaunch;
   target: Readonly<AssignedVmTargetSnapshot>;
-  createSession: (target: AssignedVmTargetSnapshot) => Promise<SshSandboxSession>;
+  createSession: (
+    target: AssignedVmTargetSnapshot,
+    signal?: AbortSignal,
+  ) => Promise<SshSandboxSession>;
+  signal?: AbortSignal;
 }): Promise<ChildProcessByStdio<Writable, Readable, Readable>> {
+  params.signal?.throwIfAborted();
   let session: SshSandboxSession;
   try {
-    session = await params.createSession(params.target);
+    session = await params.createSession(params.target, params.signal);
   } catch (error) {
     const failure = classifyVmConnectionFailure(error);
     throw transportError(
@@ -63,19 +68,25 @@ export async function launchAssignedVmAcpProcess(params: {
     );
   }
   let disposed = false;
+  let abortChild: (() => void) | undefined;
   const dispose = async () => {
     if (disposed) {
       return;
     }
     disposed = true;
+    if (abortChild) {
+      params.signal?.removeEventListener("abort", abortChild);
+    }
     await disposeSshSandboxSession(session);
   };
   try {
+    params.signal?.throwIfAborted();
     try {
+      const timeout = AbortSignal.timeout(ACP_DIAGNOSTIC_TIMEOUT_MS);
       await runSshSandboxCommand({
         session,
         remoteCommand: buildAssignedVmAcpDiagnosticCommand(params.input.agent, params.target),
-        signal: AbortSignal.timeout(ACP_DIAGNOSTIC_TIMEOUT_MS),
+        signal: params.signal ? AbortSignal.any([params.signal, timeout]) : timeout,
         maxBufferBytes: 1_024,
       });
     } catch (error) {
@@ -94,6 +105,9 @@ export async function launchAssignedVmAcpProcess(params: {
         error,
       );
     }
+    // The SSH preflight can outlive the Agent admission even when a transport
+    // ignores cancellation. Recheck before starting the remote adapter.
+    params.signal?.throwIfAborted();
     const remoteCommand = buildAssignedVmAcpRemoteCommand(params.input, params.target);
     const argv = buildSshSandboxArgv({ session, remoteCommand, tty: false });
     let child: ChildProcessByStdio<Writable, Readable, Readable>;
@@ -104,8 +118,20 @@ export async function launchAssignedVmAcpProcess(params: {
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });
+      abortChild = () => {
+        child.kill("SIGTERM");
+      };
+      child.once("close", () => void dispose().catch(() => {}));
+      child.once("error", () => void dispose().catch(() => {}));
+      params.signal?.addEventListener("abort", abortChild, { once: true });
+      if (params.signal?.aborted) {
+        abortChild();
+        params.signal.throwIfAborted();
+      }
       await waitForSpawn(child);
+      params.signal?.throwIfAborted();
     } catch (error) {
+      abortChild?.();
       throw transportError(
         {
           stage: "ssh",
@@ -116,8 +142,6 @@ export async function launchAssignedVmAcpProcess(params: {
         error,
       );
     }
-    child.once("close", () => void dispose().catch(() => {}));
-    child.once("error", () => void dispose().catch(() => {}));
     return child;
   } catch (error) {
     await dispose().catch(() => {});
@@ -168,12 +192,16 @@ function diagnosticForRemoteExit(error: unknown): AcpProcessTransportDiagnostic 
 export async function diagnoseAssignedVmAcpProcess(params: {
   agent: string;
   target: Readonly<AssignedVmTargetSnapshot>;
-  createSession: (target: AssignedVmTargetSnapshot) => Promise<SshSandboxSession>;
+  createSession: (
+    target: AssignedVmTargetSnapshot,
+    signal?: AbortSignal,
+  ) => Promise<SshSandboxSession>;
   signal?: AbortSignal;
 }): Promise<AcpProcessTransportDiagnostic> {
   let session: SshSandboxSession;
   try {
-    session = await params.createSession(params.target);
+    params.signal?.throwIfAborted();
+    session = await params.createSession(params.target, params.signal);
   } catch (error) {
     const failure = classifyVmConnectionFailure(error);
     return {
@@ -185,6 +213,7 @@ export async function diagnoseAssignedVmAcpProcess(params: {
     };
   }
   try {
+    params.signal?.throwIfAborted();
     const timeout = AbortSignal.timeout(ACP_DIAGNOSTIC_TIMEOUT_MS);
     const signal = params.signal ? AbortSignal.any([params.signal, timeout]) : timeout;
     await runSshSandboxCommand({
@@ -193,6 +222,7 @@ export async function diagnoseAssignedVmAcpProcess(params: {
       signal,
       maxBufferBytes: 1_024,
     });
+    params.signal?.throwIfAborted();
     return {
       ok: true,
       stage: "ready",

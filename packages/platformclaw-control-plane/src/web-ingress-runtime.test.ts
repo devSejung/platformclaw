@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { GatewayClientOptions } from "@openclaw/gateway-client";
 import type { HelloOk } from "@openclaw/gateway-protocol";
 import { describe, expect, it, vi } from "vitest";
+import { BrowserGatewayProxy } from "./browser-gateway-proxy.js";
 import { redeemLocalCredentialGrant } from "./credential-broker-local.js";
 import { ExecutionHandoffClient } from "./execution-handoff-client.js";
 import { deriveExecutionHandoffAddress } from "./execution-handoff-http.js";
@@ -41,6 +42,7 @@ function hello(): HelloOk {
 
 describe("createPlatformClawWebIngressRuntime", () => {
   it("assembles employee auth, the private Gateway, policy proxy, and listener", async () => {
+    const closeTalk = vi.spyOn(BrowserGatewayProxy.prototype, "closeTalkForAgent");
     const controlUiRoot = mkdtempSync(join(tmpdir(), "platformclaw-ingress-ui-"));
     mkdirSync(join(controlUiRoot, "assets"));
     writeFileSync(join(controlUiRoot, "platformclaw-login.html"), "<!doctype html>Login");
@@ -320,8 +322,18 @@ describe("createPlatformClawWebIngressRuntime", () => {
       expect(appAfterLogin.status).toBe(200);
       expect(await appAfterLogin.text()).toContain("<body>App</body>");
       expect(provisionOrRefresh).toHaveBeenCalledOnce();
+      await expect(runtime.auth.service.logout(login.token)).resolves.toBe(true);
+      expect(closeTalk).toHaveBeenCalledWith("person_one", "logout");
+      await runtime.auth.store.setManagedUserStatus({
+        actorUserId: admin.id,
+        targetUserId: login.user.id,
+        status: "disabled",
+        changedAt: Date.now(),
+      });
+      expect(closeTalk).toHaveBeenCalledWith("person_one", "user_disabled");
     } finally {
       await runtime.close();
+      closeTalk.mockRestore();
       rmSync(controlUiRoot, { recursive: true, force: true });
     }
     expect(stop).toHaveBeenCalledOnce();

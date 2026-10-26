@@ -14,6 +14,7 @@ import {
   resolveAcpDispatchPolicyError,
   resolveAcpDispatchPolicyMessage,
 } from "../../../acp/policy.js";
+import { getAcpRuntimeBackend } from "../../../acp/runtime/registry.js";
 import { resolveSessionStorePathForAcp } from "../../../acp/runtime/session-meta.js";
 import {
   resolveAcpSpawnRuntimePlan,
@@ -28,7 +29,9 @@ import {
   getSessionBindingService,
   type SessionBindingRecord,
 } from "../../../infra/outbound/session-binding-service.js";
+import { resolvePersonalAgentCommandScope } from "../../sender-identity.js";
 import type { CommandHandlerResult, HandleCommandsParams } from "../commands-types.js";
+import { supportsAcpAgentScope } from "./agent-scope.js";
 import {
   resolveAcpBindingLabelNoun,
   resolveBoundReplyPayload,
@@ -120,14 +123,29 @@ export async function handleAcpSpawnAction(
   }
 
   const spawn = parsed.value;
+  const personalAgentScope = resolvePersonalAgentCommandScope(params.ctx);
+  if (personalAgentScope && (spawn.bind !== "off" || spawn.thread !== "off")) {
+    return stopWithText(
+      "Personal ACP sessions cannot change channel bindings. Use --thread off and --bind off.",
+    );
+  }
   const runtimePlan = resolveAcpSpawnRuntimePlan({
     cfg: params.cfg,
     requesterSessionKey: params.sessionKey,
-    executionOwnerAgentId: params.agentId,
+    executionOwnerAgentId: personalAgentScope ?? params.agentId,
     targetAgentId: spawn.agentId,
   });
   if (!runtimePlan.ok) {
     return stopWithText(`⚠️ ${runtimePlan.error}`);
+  }
+  if (
+    personalAgentScope &&
+    (runtimePlan.executionOwnerAgentId !== personalAgentScope ||
+      !supportsAcpAgentScope(getAcpRuntimeBackend(params.cfg.acp?.backend)))
+  ) {
+    return stopWithText(
+      "Personal ACP sessions require an available isolated execution target. Ask a Gateway administrator to restore the assigned runtime and retry.",
+    );
   }
   const agentPolicyError = resolveAcpAgentPolicyError(params.cfg, spawn.agentId);
   if (agentPolicyError) {
@@ -318,7 +336,7 @@ function resolveAcpSessionForCommandOrStop(params: {
   return null;
 }
 
-async function resolveAcpTokenTargetSessionKeyOrStop(params: {
+async function resolveAcpCleanupTargetSessionKeyOrStop(params: {
   commandParams: HandleCommandsParams;
   restTokens: string[];
 }): Promise<string | CommandHandlerResult> {
@@ -326,6 +344,7 @@ async function resolveAcpTokenTargetSessionKeyOrStop(params: {
   const target = await resolveAcpTargetSessionKey({
     commandParams: params.commandParams,
     token,
+    allowUnavailableBackendForCleanup: true,
   });
   if (!target.ok) {
     return stopWithText(`⚠️ ${target.error}`);
@@ -333,7 +352,7 @@ async function resolveAcpTokenTargetSessionKeyOrStop(params: {
   return target.sessionKey;
 }
 
-async function withResolvedAcpSessionTarget(params: {
+async function withResolvedAcpCleanupTarget(params: {
   commandParams: HandleCommandsParams;
   restTokens: string[];
   run: (ctx: {
@@ -342,7 +361,7 @@ async function withResolvedAcpSessionTarget(params: {
   }) => Promise<CommandHandlerResult>;
 }): Promise<CommandHandlerResult> {
   const acpManager = getAcpSessionManager();
-  const targetSessionKey = await resolveAcpTokenTargetSessionKeyOrStop({
+  const targetSessionKey = await resolveAcpCleanupTargetSessionKeyOrStop({
     commandParams: params.commandParams,
     restTokens: params.restTokens,
   });
@@ -367,7 +386,7 @@ export async function handleAcpCancelAction(
   params: HandleCommandsParams,
   restTokens: string[],
 ): Promise<CommandHandlerResult> {
-  return await withResolvedAcpSessionTarget({
+  return await withResolvedAcpCleanupTarget({
     commandParams: params,
     restTokens,
     run: async ({ acpManager, sessionKey }) =>
@@ -480,7 +499,7 @@ export async function handleAcpCloseAction(
   params: HandleCommandsParams,
   restTokens: string[],
 ): Promise<CommandHandlerResult> {
-  return await withResolvedAcpSessionTarget({
+  return await withResolvedAcpCleanupTarget({
     commandParams: params,
     restTokens,
     run: async ({ acpManager, sessionKey }) => {

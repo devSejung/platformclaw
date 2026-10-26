@@ -1,4 +1,9 @@
+import { PLATFORMCLAW_WEB_TALK_METHODS } from "./browser-gateway-talk-policy.js";
+
 const MUTATING_BROWSER_METHODS = new Set([
+  ...PLATFORMCLAW_WEB_TALK_METHODS.filter(
+    (method) => method !== "talk.catalog" && method !== "talk.config" && method !== "agent.wait",
+  ),
   "approval.resolve",
   "agents.files.set",
   "chat.abort",
@@ -19,10 +24,23 @@ const MUTATING_BROWSER_METHODS = new Set([
   "cron.update",
   "question.resolve",
   "sessions.abort",
+  "sessions.branches.switch",
+  "sessions.compact",
+  "sessions.compaction.branch",
+  "sessions.compaction.restore",
   "sessions.create",
   "sessions.delete",
   "sessions.observer.visibility",
   "sessions.patch",
+  "sessions.reset",
+  "sessions.rewind",
+  "sessions.send",
+  "sessions.steer",
+  "skills.proposals.apply",
+  "skills.proposals.evaluate",
+  "skills.proposals.historyScan",
+  "skills.proposals.reject",
+  "skills.proposals.requestRevision",
   "taskSuggestions.accept",
   "taskSuggestions.dismiss",
   "terminal.attach",

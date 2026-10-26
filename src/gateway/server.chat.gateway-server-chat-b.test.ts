@@ -44,6 +44,7 @@ import {
   createTextTranscriptEvent,
 } from "./server-chat.agent-events.test-helpers.js";
 import { getMaxChatHistoryMessagesBytes } from "./server-constants.js";
+import { requireChatSendScope } from "./server-methods/chat-send-scope.js";
 import type {
   GatewayRequestContext,
   GatewayRequestHandlerOptions,
@@ -371,6 +372,14 @@ test("chat.send replays a cached result after the session is archived", async ()
     const context = createDirectChatContext();
     const runId = "idem-archived-cached-result";
     const cachedPayload = { runId, status: "ok", summary: "already completed" };
+    requireChatSendScope({
+      context,
+      client: null,
+      respond: () => {},
+      runId,
+      agentId: "main",
+      sessionKey: "agent:main:main",
+    });
     context.dedupe.set(`chat:${runId}`, {
       ts: Date.now(),
       ok: true,
@@ -488,6 +497,115 @@ async function prepareMainHistoryHarness(params: {
 }
 
 describe("gateway server chat", () => {
+  test.each(
+    (["sessions.send", "sessions.steer"] as const).flatMap((method) => [
+      { method, scope: "per-sender" as const, expectedKey: "agent:work:main" },
+      { method, scope: "global" as const, expectedKey: "global" },
+    ]),
+  )(
+    "$method resolves the selected Agent before $scope send admission",
+    async ({ method, scope, expectedKey }) => {
+      const configPath = expectDefined(process.env.OPENCLAW_CONFIG_PATH, "test config path");
+      const originalConfig = await fs.readFile(configPath, "utf-8");
+      openDirectChatSession();
+      const releaseDispatch = createDeferred();
+      const context = createDirectChatContext({ getRuntimeConfig });
+      try {
+        await writeGatewayConfig({
+          session: { scope },
+          agents: { entries: { main: { default: true }, work: {} } },
+        });
+        // A literal row can remain from an earlier global configuration. Outside
+        // global scope it must not be loaded or reserved before the main alias.
+        await writeSessionStore({
+          agentId: "work",
+          entries: {
+            global: { sessionId: "sess-work-global", updatedAt: Date.now() },
+            "agent:work:main": { sessionId: "sess-work-main", updatedAt: Date.now() },
+          },
+        });
+        const { sessionMessagingHandlers } = await import("./server-methods/sessions-messaging.js");
+        const handler = expectDefined(
+          sessionMessagingHandlers[method],
+          "session messaging handler",
+        );
+        const runId = `idem-${method}-${scope}-alias`;
+        const params = { key: "global", agentId: "work", message: "hello", idempotencyKey: runId };
+        const respond = vi.fn();
+        dispatchInboundMessageMock.mockImplementation(async () => releaseDispatch.promise);
+        const invoke = async () =>
+          await handler({
+            req: { type: "req", id: runId, method, params },
+            params,
+            respond,
+            context,
+            client: null,
+            isWebchatConnect: () => false,
+          });
+
+        await invoke();
+        expect(respond).toHaveBeenCalledExactlyOnceWith(
+          true,
+          expect.objectContaining({ runId, status: "started" }),
+          undefined,
+          expect.objectContaining({ runId }),
+        );
+        await waitForFast(
+          () => expect(dispatchInboundMessageMock).toHaveBeenCalledTimes(1),
+          FAST_WAIT_OPTS,
+        );
+        expect(dispatchInboundMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ctx: expect.objectContaining({ SessionKey: expectedKey }),
+            replyOptions: expect.objectContaining({ runId }),
+          }),
+        );
+        expect(context.chatAbortControllers.get(runId)?.sessionId).toBe(
+          scope === "global" ? "sess-work-global" : "sess-work-main",
+        );
+
+        respond.mockClear();
+        await invoke();
+        expect(respond).toHaveBeenCalledExactlyOnceWith(
+          true,
+          { runId, status: "in_flight" },
+          undefined,
+          expect.objectContaining({ cached: true, runId }),
+        );
+        const directReplay = vi.fn();
+        await callDirectChat("chat.send", {
+          id: `${runId}-direct-replay`,
+          params: {
+            sessionKey: expectedKey,
+            agentId: "work",
+            message: "hello",
+            idempotencyKey: runId,
+          },
+          respond: directReplay,
+          context,
+        });
+        expect(directReplay).toHaveBeenCalledExactlyOnceWith(
+          true,
+          { runId, status: "in_flight" },
+          undefined,
+          expect.objectContaining({ cached: true, runId }),
+        );
+        expect(dispatchInboundMessageMock).toHaveBeenCalledTimes(1);
+      } finally {
+        releaseDispatch.resolve();
+        try {
+          await waitForFast(
+            () => expect(context.chatAbortControllers.size).toBe(0),
+            FAST_WAIT_OPTS,
+          );
+        } finally {
+          await fs.writeFile(configPath, originalConfig, "utf-8");
+          resetDirectChatSession();
+        }
+      }
+    },
+  );
+
   test.each(["chat.history", "chat.startup"] as const)(
     "%s replays the active plan snapshot in inFlightRun",
     async (method) => {

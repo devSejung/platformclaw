@@ -168,6 +168,7 @@ function resolveFollowupAuthorizationKey(run: FollowupRun["run"]): string {
     JSON.stringify(run.channelContext ?? null),
     run.senderE164 ?? "",
     run.senderIsOwner === true,
+    run.senderAgentId ?? "",
     run.execOverrides?.host ?? "",
     run.execOverrides?.security ?? "",
     run.execOverrides?.ask ?? "",
@@ -410,6 +411,7 @@ function createCollectUserTurnTranscriptRecorder(items: FollowupRun[]) {
     return {
       text: transcriptPrompt,
       senderIsOwner: source.run.senderIsOwner,
+      senderAgentId: source.run.senderAgentId,
       provenance: source.run.inputProvenance,
       idempotencyKey: `followup-collect:${source.run.sessionId}:${identityHash}`,
       ...(timestamp === undefined ? {} : { timestamp }),
@@ -421,6 +423,7 @@ function createCollectUserTurnTranscriptRecorder(items: FollowupRun[]) {
     input: {
       text: initialTranscriptPrompt,
       senderIsOwner: source.run.senderIsOwner,
+      senderAgentId: source.run.senderAgentId,
       provenance: source.run.inputProvenance,
     },
     resolveInput: buildInput,
@@ -969,6 +972,7 @@ async function runSyntheticOverflowSummary(params: {
       text: params.prompt,
       idempotencyKey: `followup-overflow:${params.source.run.sessionId}:${routeHash}:${params.source.messageId ?? params.source.enqueuedAt}:${promptHash}`,
       senderIsOwner: params.source.run.senderIsOwner,
+      senderAgentId: params.source.run.senderAgentId,
       provenance: params.source.run.inputProvenance,
     },
     target: () => resolveFollowupTranscriptTarget(params.source),

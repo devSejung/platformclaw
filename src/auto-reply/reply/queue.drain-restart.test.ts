@@ -431,6 +431,7 @@ describe("followup queue drain restart after idle window", () => {
       for (const prompt of ["dropped while busy", "kept while busy"]) {
         const followup = createRun({ prompt });
         followup.run.senderIsOwner = senderIsOwner;
+        followup.run.senderAgentId = "main";
         followup.run.inputProvenance = inputProvenance;
         enqueueFollowupRun(key, followup, settings);
       }
@@ -441,9 +442,12 @@ describe("followup queue drain restart after idle window", () => {
       expect(attempts).toBe(2);
       for (const run of followups) {
         expect(run).toMatchObject({
-          run: { senderIsOwner, inputProvenance },
+          run: { senderIsOwner, senderAgentId: "main", inputProvenance },
           userTurnTranscriptRecorder: {
-            message: { provenance: inputProvenance, __openclaw: { senderIsOwner: owner } },
+            message: {
+              provenance: inputProvenance,
+              __openclaw: { senderIsOwner: owner, senderAgentId: "main" },
+            },
           },
         });
       }
@@ -467,9 +471,10 @@ describe("followup queue drain restart after idle window", () => {
     for (const prompt of ["first", "second"]) {
       const followup = createRun({ prompt });
       followup.run.senderIsOwner = senderIsOwner;
+      followup.run.senderAgentId = "main";
       followup.run.inputProvenance = inputProvenance;
       followup.userTurnTranscriptRecorder = createUserTurnTranscriptRecorder({
-        input: { text: prompt, senderIsOwner, provenance: inputProvenance },
+        input: { text: prompt, senderIsOwner, senderAgentId: "main", provenance: inputProvenance },
         target: {
           agentId: followup.run.agentId,
           sessionId: followup.run.sessionId,
@@ -482,13 +487,14 @@ describe("followup queue drain restart after idle window", () => {
     scheduleFollowupDrain(key, async (run) => collected.resolve(run));
     const followup = await collected.promise;
     expect(followup.run.senderIsOwner).toBe(senderIsOwner);
+    expect(followup.run.senderAgentId).toBe("main");
     for (const message of [
       followup.userTurnTranscriptRecorder?.message,
       await followup.userTurnTranscriptRecorder?.resolveMessage(),
     ]) {
       expect(message).toMatchObject({
         provenance: inputProvenance,
-        __openclaw: { senderIsOwner: owner },
+        __openclaw: { senderIsOwner: owner, senderAgentId: "main" },
       });
     }
   });

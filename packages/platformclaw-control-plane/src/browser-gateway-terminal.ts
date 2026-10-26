@@ -122,6 +122,7 @@ export class BrowserGatewayTerminalController {
     method: string;
     request: Record<string, unknown>;
     context?: BrowserGatewayRequestContext;
+    gateway: BrowserGatewayProxyOptions["gateway"];
   }): Promise<unknown> {
     const connectionId = params.context?.connectionId;
     if (!connectionId) {
@@ -170,7 +171,7 @@ export class BrowserGatewayTerminalController {
           );
         }
         const raw = object(
-          await this.options.gateway.request("terminal.open", {
+          await params.gateway.request("terminal.open", {
             agentId: params.access.binding.agentId,
             cols: params.request.cols,
             rows: params.request.rows,
@@ -214,7 +215,7 @@ export class BrowserGatewayTerminalController {
         this.bySession.set(sessionId, record);
         try {
           const attached = object(
-            await this.options.gateway.request("terminal.attach", { sessionId }),
+            await params.gateway.request("terminal.attach", { sessionId }),
             "terminal.attach result",
           );
           if (
@@ -274,10 +275,7 @@ export class BrowserGatewayTerminalController {
       if (records.length === 0) {
         return { sessions: [] };
       }
-      const raw = object(
-        await this.options.gateway.request("terminal.list"),
-        "terminal.list result",
-      );
+      const raw = object(await params.gateway.request("terminal.list"), "terminal.list result");
       const sessions = Array.isArray(raw.sessions) ? raw.sessions : [];
       const projected: Record<string, unknown>[] = [];
       for (const record of records) {
@@ -331,7 +329,7 @@ export class BrowserGatewayTerminalController {
       this.assertConnection(connectionId);
       if (params.method === "terminal.attach") {
         const result = object(
-          await this.options.gateway.request("terminal.attach", { sessionId }),
+          await params.gateway.request("terminal.attach", { sessionId }),
           "terminal.attach result",
         );
         if (
@@ -357,11 +355,11 @@ export class BrowserGatewayTerminalController {
         );
       }
       if (params.method === "terminal.close") {
-        const result = await this.options.gateway.request("terminal.close", { sessionId });
+        const result = await params.gateway.request("terminal.close", { sessionId });
         await this.remove(record, "closed");
         return result;
       }
-      return await this.options.gateway.request(params.method, params.request);
+      return await params.gateway.request(params.method, params.request);
     } finally {
       release();
     }

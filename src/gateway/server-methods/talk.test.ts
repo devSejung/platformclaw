@@ -3,11 +3,13 @@
  */
 
 import { expectDefined } from "@openclaw/normalization-core";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { normalizeResolvedSecretInputString } from "../../config/types.secrets.js";
 import { REALTIME_VOICE_DESCRIBE_VIEW_TOOL_NAME } from "../../talk/describe-view-tool.js";
+import type { InternalRealtimeVoiceBrowserSessionCreateRequest } from "../../talk/provider-internal.js";
+import { cleanupTalkConnection } from "../talk-session-registry.js";
 import { buildTalkRealtimeConfig } from "./talk-shared.js";
 import { talkHandlers } from "./talk.js";
 
@@ -75,6 +77,8 @@ const mocks = vi.hoisted(() => ({
     { role: "tool", text: "internal tool output" },
   ]),
   closeStaleClientVoiceSessions: vi.fn(async () => 0),
+  closeClientVoiceSession: vi.fn(async () => undefined),
+  resolveClientVoiceSessionOrigin: vi.fn(() => "client"),
   createOrResumeClientVoiceSession: vi.fn(() => "voice-test"),
   ensureClientVoiceAgentSessionEntry: vi.fn(async () => "session-main"),
   resolveClientVoiceAgentSessionId: vi.fn<() => string | undefined>(() => "session-main"),
@@ -169,6 +173,8 @@ vi.mock("../../talk/client-voice-session.js", async (importOriginal) => {
   return {
     ...actual,
     assertClientVoiceSessionOpen: mocks.assertClientVoiceSessionOpen,
+    closeClientVoiceSession: mocks.closeClientVoiceSession,
+    resolveClientVoiceSessionOrigin: mocks.resolveClientVoiceSessionOrigin,
     closeStaleClientVoiceSessions: mocks.closeStaleClientVoiceSessions,
     createOrResumeClientVoiceSession: mocks.createOrResumeClientVoiceSession,
     ensureClientVoiceAgentSessionEntry: mocks.ensureClientVoiceAgentSessionEntry,
@@ -313,6 +319,39 @@ beforeEach(() => {
   });
 });
 
+afterEach(async () => {
+  await cleanupTalkConnection("conn-1", { warn: vi.fn() });
+});
+
+describe("Talk delegated sender authorization", () => {
+  it.each(["talk.client.create", "talk.client.toolCall", "talk.session.create"] as const)(
+    "rejects untrusted sender metadata at %s before provider or chat dispatch",
+    async (method) => {
+      const respond = vi.fn();
+      await callTalkHandler(method, {
+        params: {
+          sessionKey: "agent:main:main",
+          senderAttribution: { id: "first.user", agentId: "main", isOwner: false },
+          ...(method === "talk.client.toolCall"
+            ? { callId: "call-1", name: "openclaw_agent_consult", args: { question: "hello" } }
+            : {}),
+        },
+        respond,
+        context: { getRuntimeConfig: () => ({}) },
+        client: { connId: "member", connect: { scopes: ["operator.write"] } },
+      });
+      expect(respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({
+          code: ErrorCodes.INVALID_REQUEST,
+          message: expect.stringContaining("operator.admin"),
+        }),
+      );
+    },
+  );
+});
+
 describe("talk.catalog handler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -321,6 +360,41 @@ describe("talk.catalog handler", () => {
     mocks.listRealtimeVoiceProviders.mockReturnValue([]);
     mocks.getResolvedSpeechProviderConfig.mockReturnValue({});
     mocks.resolveTtsConfig.mockReturnValue({ timeoutMs: 30_000 });
+  });
+
+  it("resolves readiness against the requested session's agent", async () => {
+    const respond = vi.fn();
+    const provider = { id: "voice-test", isConfigured: () => true };
+    mocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({ provider, providerConfig: {} });
+    await callTalkHandler("talk.catalog", {
+      params: { sessionKey: "agent:employee:main" },
+      respond,
+      context: {
+        getRuntimeConfig: () => ({
+          agents: { entries: { main: { default: true }, employee: {} } },
+        }),
+      },
+    });
+    expectRespondOk(respond);
+    expect(mocks.resolveConfiguredRealtimeVoiceProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "employee" }),
+    );
+  });
+
+  it("rejects untrusted relay quota partitions before creating a provider session", async () => {
+    const respond = vi.fn();
+    await callTalkHandler("talk.session.create", {
+      params: { mode: "transcription", clientOwnerId: "browser-owner" },
+      respond,
+      client: { connId: "untrusted", connect: { scopes: ["operator.talk"] } },
+      context: {},
+    });
+    expectRespondError(respond, {
+      code: ErrorCodes.INVALID_REQUEST,
+      message: "talk.session.create clientOwnerId requires gateway scope: operator.admin",
+    });
+    expect(mocks.createTalkTranscriptionRelaySession).not.toHaveBeenCalled();
+    expect(mocks.createTalkRealtimeRelaySession).not.toHaveBeenCalled();
   });
 
   it("returns safe speech, transcription, and realtime catalogs without provider secrets", async () => {
@@ -1608,6 +1682,62 @@ describe("talk.session unified handlers", () => {
     });
   });
 
+  it.each(["bootstrap", "session entry"])(
+    "rejects a relay create disconnected during %s planning before its factory runs",
+    async (phase) => {
+      const planningStarted = createDeferred();
+      const finishPlanning = createDeferred();
+      mocks.resolveRealtimeBootstrapContextInstructions.mockResolvedValue(undefined);
+      if (phase === "bootstrap") {
+        mocks.resolveRealtimeBootstrapContextInstructions.mockImplementationOnce(async () => {
+          planningStarted.resolve();
+          await finishPlanning.promise;
+          return "Bounded relay context.";
+        });
+      } else {
+        mocks.ensureClientVoiceAgentSessionEntry.mockImplementationOnce(async () => {
+          planningStarted.resolve();
+          await finishPlanning.promise;
+          return "session-main";
+        });
+      }
+      mocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({
+        provider: {
+          id: "openai",
+          label: "OpenAI Realtime",
+          isConfigured: () => true,
+          createBridge: vi.fn(),
+        },
+        providerConfig: {},
+      });
+      const respond = vi.fn();
+      const warn = vi.fn();
+      const creating = callTalkHandler("talk.session.create", {
+        params: {
+          sessionKey: "agent:main:main",
+          mode: "realtime",
+          transport: "gateway-relay",
+          brain: "agent-consult",
+        },
+        respond,
+        context: { getRuntimeConfig: () => ({}) as OpenClawConfig, logGateway: { warn } },
+      });
+      await planningStarted.promise;
+      await cleanupTalkConnection("conn-1", { warn });
+      finishPlanning.resolve();
+      await creating;
+
+      expect(mocks.createTalkRealtimeRelaySession).not.toHaveBeenCalled();
+      expect(mocks.ensureClientVoiceAgentSessionEntry).toHaveBeenCalledTimes(
+        phase === "bootstrap" ? 0 : 1,
+      );
+      expectRespondError(respond, {
+        code: ErrorCodes.UNAVAILABLE,
+        message: "Error: Talk connection closed during session creation",
+      });
+    },
+  );
+
   it("creates and drives a realtime gateway-relay session through the unified API", async () => {
     const provider = {
       id: "openai",
@@ -1679,6 +1809,7 @@ describe("talk.session unified handlers", () => {
     expect(mocks.ensureClientVoiceAgentSessionEntry).toHaveBeenCalledWith({
       agentId: "main",
       sessionKey: "agent:main:main",
+      assertActive: expect.any(Function),
     });
     const relayCreateInput = mockCallArg(mocks.createTalkRealtimeRelaySession) as Record<
       string,
@@ -1922,6 +2053,7 @@ describe("talk.session unified handlers", () => {
     expect(mocks.ensureClientVoiceAgentSessionEntry).toHaveBeenCalledWith({
       agentId: "voice-agent",
       sessionKey: "agent:voice-agent:main",
+      assertActive: expect.any(Function),
     });
     expectRespondOk(respond, { relaySessionId: "relay-effective-model" });
   });
@@ -2564,6 +2696,35 @@ describe("talk.client.toolCall handler", () => {
     );
   });
 
+  it("forwards the trusted browser sender as text without inheriting proxy command privileges", async () => {
+    const respond = vi.fn();
+    const senderAttribution = { id: "first.user", agentId: "main", isOwner: false };
+    await callTalkHandler("talk.client.toolCall", {
+      params: {
+        sessionKey: "agent:main:main",
+        voiceSessionId: "voice-test",
+        callId: "browser-call",
+        name: "openclaw_agent_consult",
+        args: { question: "/config show" },
+        senderAttribution,
+      },
+      respond,
+      context: { getRuntimeConfig: () => ({}) },
+      client: { connId: "proxy", connect: { scopes: ["operator.admin"] } },
+    });
+    expect(mocks.chatSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({
+          message: "/config show",
+          senderAttribution,
+          suppressCommandInterpretation: true,
+          deliver: false,
+        }),
+      }),
+    );
+    expectRespondOk(respond, { runId: "run-voice-1" });
+  });
+
   it("implicitly creates a voice session for consults without a binding", async () => {
     const respond = vi.fn();
 
@@ -3053,7 +3214,7 @@ describe("talk.client.create handler", () => {
           { role: "assistant", text: `3:${"🙂".repeat(799)}` },
         ],
         surface: "a browser Talk session",
-        abortSignal: consultSignal,
+        abortSignal: expect.any(AbortSignal),
       }),
     );
     expect(createInput).not.toHaveProperty("provider");
@@ -3062,6 +3223,7 @@ describe("talk.client.create handler", () => {
     expect(mocks.ensureClientVoiceAgentSessionEntry).toHaveBeenCalledWith({
       agentId: "main",
       sessionKey: "main",
+      assertActive: expect.any(Function),
     });
     expect(mocks.readSessionPreviewItemsFromTranscript).toHaveBeenCalledWith(
       {
@@ -3150,11 +3312,16 @@ describe("talk.client.create handler", () => {
       getRuntimeConfig: () => config,
       logGateway: { warn: vi.fn() },
     };
-    const createBrowserSession = vi.fn(async () => ({
-      provider: "openai",
-      transport: "webrtc" as const,
-      clientSecret: "secret",
-    }));
+    const createBrowserSession = vi.fn(
+      async (request: InternalRealtimeVoiceBrowserSessionCreateRequest) => {
+        request.onServerSessionStarting?.();
+        return {
+          provider: "openai",
+          transport: "webrtc" as const,
+          clientSecret: "secret",
+        };
+      },
+    );
     mocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({
       provider: {
         id: "openai",
@@ -3253,7 +3420,92 @@ describe("talk.client.create handler", () => {
     release.resolve();
     await expect(consult).resolves.toEqual({ text: "Done" });
     expect(chatAbortControllers.has("talk-realtime-consult:gpt-live")).toBe(false);
+    const closeRespond = vi.fn();
+    await callTalkHandler("talk.client.close", {
+      params: { sessionKey: "main", voiceSessionId: "voice-test" },
+      respond: closeRespond,
+      context,
+    });
+    expectRespondOk(closeRespond, { ok: true });
+    expect(mocks.cancelInternalRealtimeVoiceBrowserSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session: expect.objectContaining({ clientSecret: "secret", transport: "webrtc" }),
+      }),
+    );
+    const runner = createInput.runAgentConsult;
+    if (typeof runner !== "function") {
+      throw new Error("Expected native consult runner");
+    }
+    await expect(runner({ prompt: "Must not start after close" })).rejects.toThrow(
+      "voice session is closed",
+    );
   });
+
+  it.each(["google", "openai"])(
+    "resumes pure %s browser credentials repeatedly without server terminal notifications",
+    async (providerId) => {
+      const createBrowserSession = vi.fn(async () =>
+        providerId === "google"
+          ? {
+              provider: "google",
+              transport: "provider-websocket" as const,
+              protocol: "google-live-bidi",
+              clientSecret: "test-google-ephemeral",
+              websocketUrl: "wss://generativelanguage.googleapis.com/live",
+              audio: {
+                inputEncoding: "pcm16" as const,
+                inputSampleRateHz: 16000,
+                outputEncoding: "pcm16" as const,
+                outputSampleRateHz: 24000,
+              },
+            }
+          : {
+              provider: "openai",
+              transport: "webrtc" as const,
+              clientSecret: "test-openai-ephemeral",
+              offerUrl: "https://api.openai.com/v1/realtime/calls",
+            },
+      );
+      mocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({
+        provider: {
+          id: providerId,
+          label: providerId,
+          isConfigured: () => true,
+          createBrowserSession,
+          createBridge: vi.fn(),
+        },
+        providerConfig: {},
+      });
+      const context = {
+        getRuntimeConfig: () => ({ talk: { realtime: { provider: providerId } } }),
+        logGateway: { warn: vi.fn() },
+      };
+      for (let index = 0; index < 5; index++) {
+        const respond = vi.fn();
+        await callTalkHandler("talk.client.create", {
+          params: {
+            sessionKey: "agent:main:main",
+            ...(index ? { voiceSessionId: "voice-test" } : {}),
+          },
+          respond,
+          context,
+        });
+        expectRespondOk(respond, { provider: providerId, voiceSessionId: "voice-test" });
+      }
+      expect(createBrowserSession).toHaveBeenCalledTimes(5);
+      expect(mocks.cancelInternalRealtimeVoiceBrowserSession).not.toHaveBeenCalled();
+      expect(mocks.closeClientVoiceSession).not.toHaveBeenCalled();
+      const respond = vi.fn();
+      await callTalkHandler("talk.client.close", {
+        params: { sessionKey: "agent:main:main", voiceSessionId: "voice-test" },
+        respond,
+        context,
+      });
+      expectRespondOk(respond, { ok: true });
+      expect(mocks.closeClientVoiceSession).toHaveBeenCalledOnce();
+      expect(mocks.cancelInternalRealtimeVoiceBrowserSession).not.toHaveBeenCalled();
+    },
+  );
 
   it("lets native agent handoff own the Codex OAuth prompt and omits direct tools", async () => {
     mocks.resolveClientVoiceAgentSessionId.mockReturnValue(undefined);
@@ -3313,6 +3565,80 @@ describe("talk.client.create handler", () => {
     expect(createInput).not.toHaveProperty("tools");
     expect(createInput.instructions).not.toContain("openclaw_agent_consult");
     expectRespondOk(respond, { provider: "openai", transport: "webrtc" });
+  });
+
+  it("rejects a create disconnected during bootstrap planning before the provider factory runs", async () => {
+    const planningStarted = createDeferred();
+    const finishPlanning = createDeferred();
+    mocks.resolveRealtimeBootstrapContextInstructions.mockImplementationOnce(async () => {
+      planningStarted.resolve();
+      await finishPlanning.promise;
+      return "Bounded profile context.";
+    });
+    const createBrowserSession = vi.fn(async () => ({
+      provider: "openai",
+      transport: "webrtc" as const,
+      clientSecret: "unused-ephemeral",
+    }));
+    mocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({
+      provider: {
+        id: "openai",
+        label: "OpenAI Realtime",
+        isConfigured: () => true,
+        createBrowserSession,
+        createBridge: vi.fn(),
+      },
+      providerConfig: {},
+    });
+    const respond = vi.fn();
+    const warn = vi.fn();
+    const creating = callTalkHandler("talk.client.create", {
+      params: { sessionKey: "main", transport: "webrtc" },
+      respond,
+      context: { getRuntimeConfig: () => ({}) as OpenClawConfig, logGateway: { warn } },
+    });
+    await planningStarted.promise;
+    await cleanupTalkConnection("conn-1", { warn });
+    finishPlanning.resolve();
+    await creating;
+
+    expect(createBrowserSession).not.toHaveBeenCalled();
+    expect(mocks.ensureClientVoiceAgentSessionEntry).not.toHaveBeenCalled();
+    expect(mocks.createOrResumeClientVoiceSession).not.toHaveBeenCalled();
+    expectRespondError(respond, {
+      code: ErrorCodes.UNAVAILABLE,
+      message: "Error: Realtime browser voice session is closed",
+    });
+  });
+
+  it("releases native admission after bootstrap planning failures", async () => {
+    mocks.resolveRealtimeBootstrapContextInstructions.mockRejectedValue(
+      new Error("bootstrap unavailable"),
+    );
+    const createBrowserSession = vi.fn();
+    mocks.resolveConfiguredRealtimeVoiceProvider.mockReturnValue({
+      provider: {
+        id: "openai",
+        label: "OpenAI Realtime",
+        isConfigured: () => true,
+        createBrowserSession,
+        createBridge: vi.fn(),
+      },
+      providerConfig: {},
+    });
+    // More sequential failures than the 16 pending-native limit must all reach planning.
+    for (let index = 0; index < 17; index++) {
+      const respond = vi.fn();
+      await callTalkHandler("talk.client.create", {
+        params: { sessionKey: "main", transport: "webrtc" },
+        respond,
+        context: { getRuntimeConfig: () => ({}) as OpenClawConfig },
+      });
+      expectRespondError(respond, { message: "Error: bootstrap unavailable" });
+    }
+    expect(mocks.resolveRealtimeBootstrapContextInstructions).toHaveBeenCalledTimes(17);
+    expect(createBrowserSession).not.toHaveBeenCalled();
+    expect(mocks.createOrResumeClientVoiceSession).not.toHaveBeenCalled();
   });
 
   it("does not persist a new chat when browser-session startup fails", async () => {

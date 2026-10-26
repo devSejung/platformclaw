@@ -3960,6 +3960,18 @@ describe("runPreparedReply media-only handling", () => {
     expect(call?.followupRun.run.senderIsOwner).toBe(true);
   });
 
+  it("carries the trusted personal Agent binding into queued execution and transcript input", async () => {
+    const params = ownerParams();
+    params.command.senderIsOwner = false;
+    params.sessionCtx.SenderAgentId = "main";
+    await runPreparedReply(params);
+    const call = requireRunReplyAgentCall();
+    expect(call.followupRun.run).toMatchObject({ senderIsOwner: false, senderAgentId: "main" });
+    expect(call.followupRun.userTurnTranscriptRecorder?.message).toMatchObject({
+      __openclaw: { senderIsOwner: false, senderAgentId: "main" },
+    });
+  });
+
   it("does not downgrade sender ownership when event text contains a system marker", async () => {
     vi.mocked(drainFormattedSystemEvents).mockResolvedValueOnce(
       "System: [t] Relay text mentions System: but event is trusted.",

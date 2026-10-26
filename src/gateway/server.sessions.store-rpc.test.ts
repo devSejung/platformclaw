@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { expect, test, vi } from "vitest";
+import type { ModelCatalogEntry } from "../agents/model-catalog.types.js";
 import {
   loadSessionEntry,
   loadTranscriptEvents,
@@ -12,6 +13,9 @@ import {
 } from "../config/sessions/session-accessor.js";
 import type { CronJob } from "../cron/types.js";
 import { deliveryContextFromSession } from "../utils/delivery-context.shared.js";
+import { createDirectChatContext } from "./server-chat.agent-events.test-helpers.js";
+import { requireChatSendScope } from "./server-methods/chat-send-scope.js";
+import type { RespondFn } from "./server-methods/types.js";
 import { agentDiscoveryMock, rpcReq, testState, writeSessionStore } from "./test-helpers.js";
 import {
   directSessionReq as directSessionHandlerReq,
@@ -127,16 +131,12 @@ test("lists and patches session store via sessions.* RPC", async () => {
   expect(methods).toContain("sessions.compact");
   const sessionsHandlers = await getSessionsHandlers();
   const { getRuntimeConfig } = await getGatewayConfigModule();
-  const directContext = {
-    broadcastToConnIds: vi.fn(),
-    chatAbortControllers: new Map(),
+  const modelCatalog: ModelCatalogEntry[] = [];
+  const directContext = createDirectChatContext({
     chatQueuedTurns: new Map(),
-    dedupe: new Map(),
-    getSessionEventSubscriberConnIds: () => new Set<string>(),
-    logGateway: { debug: vi.fn() },
-    loadGatewayModelCatalog: async () => agentDiscoveryMock.models,
+    loadGatewayModelCatalog: async () => modelCatalog,
     getRuntimeConfig,
-  };
+  });
   async function directSessionReq<TPayload = unknown>(
     method: keyof typeof sessionsHandlers,
     params: Record<string, unknown>,
@@ -167,7 +167,7 @@ test("lists and patches session store via sessions.* RPC", async () => {
           error,
         };
       },
-      context: directContext as never,
+      context: directContext,
       client: null,
       isWebchatConnect: () => false,
     });
@@ -343,6 +343,14 @@ test("lists and patches session store via sessions.* RPC", async () => {
   });
 
   const cachedArchivedRunId = "cached-before-archive";
+  requireChatSendScope({
+    context: directContext,
+    client: null,
+    respond: vi.fn<RespondFn>(),
+    runId: cachedArchivedRunId,
+    agentId: "main",
+    sessionKey: "agent:main:subagent:one",
+  });
   directContext.dedupe.set(`chat:${cachedArchivedRunId}`, {
     ts: Date.now(),
     ok: true,
@@ -477,7 +485,8 @@ test("lists and patches session store via sessions.* RPC", async () => {
   );
 
   agentDiscoveryMock.enabled = true;
-  agentDiscoveryMock.models = [{ id: "gpt-test-a", name: "A", provider: "openai" }];
+  modelCatalog.push({ id: "gpt-test-a", name: "A", provider: "openai" });
+  agentDiscoveryMock.models = modelCatalog;
   const modelPatched = await directSessionReq<{
     ok: true;
     entry: {

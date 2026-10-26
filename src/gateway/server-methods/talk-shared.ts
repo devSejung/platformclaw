@@ -6,7 +6,7 @@ import {
   normalizeOptionalLowercaseString,
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
-import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
+import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveRealtimeBootstrapContextInstructions } from "../../agents/realtime-bootstrap-context.js";
 import type { TalkRealtimeConfig } from "../../config/types.gateway.js";
 import type { OpenClawConfig } from "../../config/types.js";
@@ -34,6 +34,8 @@ import {
 } from "../../tts/voice-models.js";
 import { ADMIN_SCOPE } from "../operator-scopes.js";
 import type { TalkHandoffTurnResult } from "../talk-handoff.js";
+import { formatForLog } from "../ws-log.js";
+import type { RespondFn } from "./types.js";
 
 /** Resolve the Talk session mode, defaulting managed-room transports to stt-tts. */
 export function normalizeTalkSessionMode(params: { mode?: string; transport?: string }): TalkMode {
@@ -136,6 +138,18 @@ export function talkHandoffErrorCode(reason: TalkHandoffFailureReason) {
   return reason === "invalid_token" || reason === "no_active_turn" || reason === "stale_turn"
     ? ErrorCodes.INVALID_REQUEST
     : ErrorCodes.UNAVAILABLE;
+}
+
+/** Preserve the structured Talk issue used by voice clients for actionable errors. */
+export function respondTalkUnavailable(respond: RespondFn, err: unknown): void {
+  const message = formatForLog(err);
+  respond(
+    false,
+    undefined,
+    errorShape(ErrorCodes.UNAVAILABLE, message, {
+      details: { talkIssue: { code: "realtime_unavailable", message, phase: "request" } },
+    }),
+  );
 }
 
 function getRecord(value: unknown): Record<string, unknown> | undefined {

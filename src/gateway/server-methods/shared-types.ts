@@ -10,6 +10,7 @@ import type {
   ErrorShape,
   RequestFrame,
 } from "../../../packages/gateway-protocol/src/schema/frames.js";
+import type { ChatSenderAttribution } from "../../../packages/gateway-protocol/src/schema/logs-chat.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.types.js";
 import type { CliDeps } from "../../cli/deps.types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -93,7 +94,7 @@ export type GatewayClient = {
     /** Marks the server-constructed client used by trusted in-process dispatch. */
     syntheticClient?: true;
     /** Overrides persisted sender attribution without changing the authorizing client identity. */
-    senderAttribution?: { id: string; name?: string; profileId?: string };
+    senderAttribution?: ChatSenderAttribution;
     /** Trusted session creation provenance; never accepted from Gateway wire params. */
     sessionCreation?: TrustedSessionCreation;
     allowModelOverride?: boolean;

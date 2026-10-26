@@ -139,27 +139,29 @@ function pruneExpiredRelaySessions(nowMs = Date.now()): void {
   });
 }
 
-function countRelaySessionsForConn(connId: string): number {
+function countRelaySessionsForConn(connId: string, clientOwnerId?: string): number {
   let count = 0;
   for (const session of relaySessions.values()) {
-    if (session.connId === connId) {
+    if (session.connId === connId && session.clientOwnerId === clientOwnerId) {
       count += 1;
     }
   }
   for (const session of drainingRelaySessions.values()) {
-    if (session.connId === connId) {
+    if (session.connId === connId && session.clientOwnerId === clientOwnerId) {
       count += 1;
     }
   }
   return count;
 }
 
-export function enforceRelaySessionLimits(connId: string): void {
+export function enforceRelaySessionLimits(connId: string, clientOwnerId?: string): void {
   pruneExpiredRelaySessions();
   if (relaySessions.size + drainingRelaySessions.size >= MAX_RELAY_SESSIONS_GLOBAL) {
     throw new Error("Too many active realtime relay sessions");
   }
-  if (countRelaySessionsForConn(connId) >= MAX_RELAY_SESSIONS_PER_CONN) {
+  // Admin-authenticated proxies may carry several browser owners on one delivery
+  // connection. The global cap still includes every owner and draining session.
+  if (countRelaySessionsForConn(connId, clientOwnerId) >= MAX_RELAY_SESSIONS_PER_CONN) {
     throw new Error("Too many active realtime relay sessions for this connection");
   }
 }
