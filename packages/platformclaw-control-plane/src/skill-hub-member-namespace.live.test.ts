@@ -156,7 +156,7 @@ describe.skipIf(!registryUrl || !username || !passwordFile || !tokenFile)(
               provisioner: { provisionOrRefresh: async () => undefined },
             }),
             workspaceRoot,
-            allowedNamespaces: ["global"],
+            allowedNamespaces: ["unbound-extra"],
             maxPackageBytes: 1024 * 1024,
             buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
           });
@@ -199,6 +199,12 @@ describe.skipIf(!registryUrl || !username || !passwordFile || !tokenFile)(
         expect(await store.getSkillHubNamespaceBinding("global")).toMatchObject({
           scopeKind: "global",
           accessState: "active",
+        });
+        // No organization or explicit Global allowlist entry is needed to publish.
+        expect((await request("outsider", "/config")).body).toMatchObject({
+          admin: false,
+          defaultNamespace: "global",
+          namespaces: ["global"],
         });
         const globalRequest = { namespace: globalNamespace, scopeKind: "global" };
         expect(
@@ -341,7 +347,7 @@ describe.skipIf(!registryUrl || !username || !passwordFile || !tokenFile)(
           expect((await request("outsider", `/skills/${namespace}/${skillSlug}`)).status).toBe(404);
         }
         expect(
-          await request("member", "/publish", {
+          await request("outsider", "/publish", {
             namespace: "global",
             skill: sharedSlug,
             source: "platform_server",
@@ -360,7 +366,7 @@ describe.skipIf(!registryUrl || !username || !passwordFile || !tokenFile)(
         // The normal worker owns approval. Allow two 30-second queue passes and
         // await its persisted completion notification without advancing its clock.
         await expect
-          .poll(async () => await request("member", "/notifications"), {
+          .poll(async () => await request("outsider", "/notifications"), {
             interval: 1_000,
             timeout: 60_000,
           })
@@ -396,7 +402,7 @@ describe.skipIf(!registryUrl || !username || !passwordFile || !tokenFile)(
             }),
           ]),
         );
-        expect(await request("outsider", `/skills/global/${sharedSlug}`)).toMatchObject({
+        expect(await request("member", `/skills/global/${sharedSlug}`)).toMatchObject({
           status: 200,
           body: {
             skill: { visibility: "NAMESPACE_ONLY" },

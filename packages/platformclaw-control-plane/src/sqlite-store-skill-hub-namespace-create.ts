@@ -49,9 +49,29 @@ export abstract class SqliteControlPlaneSkillHubNamespaceCreationStore extends S
       if (actor.status !== "active") {
         throw new ControlPlaneAuthorizationError("active PlatformClaw user required");
       }
-      // Provision the managed registry default once without requiring an admin login.
-      // Existing administrator restrictions and bindings remain authoritative.
-      const inserted = executeSync(
+      const existing = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("skill_hub_namespace_bindings")
+          .selectAll()
+          .where("namespace", "=", DEFAULT_SKILL_HUB_NAMESPACE),
+      );
+      if (
+        existing?.scope_kind === "global" &&
+        existing.scope_id === null &&
+        existing.access_state === "active" &&
+        existing.visibility_ceiling !== "PRIVATE"
+      ) {
+        return;
+      }
+      // Global is implicit membership, including deployments that previously
+      // restricted or rebound it. Repair its canonical row before owner reconciliation.
+      const changedAt = existing
+        ? Math.max(params.changedAt, existing.updated_at + 1)
+        : params.changedAt;
+      const visibilityCeiling =
+        existing?.visibility_ceiling === "PUBLIC" ? "PUBLIC" : "NAMESPACE_ONLY";
+      executeSync(
         this.db,
         this.query
           .insertInto("skill_hub_namespace_bindings")
@@ -59,24 +79,37 @@ export abstract class SqliteControlPlaneSkillHubNamespaceCreationStore extends S
             namespace: DEFAULT_SKILL_HUB_NAMESPACE,
             scope_kind: "global",
             scope_id: null,
-            visibility_ceiling: "NAMESPACE_ONLY",
+            visibility_ceiling: visibilityCeiling,
             access_state: "active",
-            created_by_user_id: actor.id,
-            created_at: params.changedAt,
-            updated_at: params.changedAt,
+            created_by_user_id: existing?.created_by_user_id ?? actor.id,
+            created_at: existing?.created_at ?? changedAt,
+            updated_at: changedAt,
           })
-          .onConflict((conflict) => conflict.column("namespace").doNothing()),
+          .onConflict((conflict) =>
+            conflict.column("namespace").doUpdateSet({
+              scope_kind: "global",
+              scope_id: null,
+              visibility_ceiling: visibilityCeiling,
+              access_state: "active",
+              updated_at: changedAt,
+            }),
+          ),
       );
-      if (inserted.insertId !== undefined) {
-        this.insertAudit(
-          actor.id,
-          "skill-hub.namespace.initialized",
-          "skill-hub-namespace",
-          DEFAULT_SKILL_HUB_NAMESPACE,
-          params.changedAt,
-          { accessState: "active" },
-        );
-      }
+      this.insertAudit(
+        actor.id,
+        existing ? "skill-hub.namespace.default-restored" : "skill-hub.namespace.initialized",
+        "skill-hub-namespace",
+        DEFAULT_SKILL_HUB_NAMESPACE,
+        changedAt,
+        {
+          accessState: "active",
+          previousUpdatedAt: existing?.updated_at ?? null,
+          previousScopeKind: existing?.scope_kind ?? null,
+          previousScopeId: existing?.scope_id ?? null,
+          previousAccessState: existing?.access_state ?? null,
+          previousVisibilityCeiling: existing?.visibility_ceiling ?? null,
+        },
+      );
     });
   }
 

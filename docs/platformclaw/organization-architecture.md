@@ -365,8 +365,10 @@ PR2 performs one atomic migration:
    scope ID is denied, so migrated Global bindings start in a restricted,
    administrator-only review state. An administrator must explicitly activate
    organization-wide read/install after reviewing visibility; migration never
-   turns a previous denial into access. Public catalog visibility remains the
-   existing Skill Hub domain rule.
+   turns a previous denial into access. On first Skill Hub use, the canonical
+   `global` namespace is restored to its fixed policy of including every active
+   employee; other Global-scoped namespaces retain administrator review.
+   Public catalog visibility remains the existing Skill Hub domain rule.
 9. Set schema version 3 only after validation succeeds and commit the migration
    transaction.
 

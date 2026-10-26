@@ -306,9 +306,9 @@ function loadSkillHubConfig(env: NodeJS.ProcessEnv): PlatformClawDeploymentConfi
   if (!url && !tokenFile && !namespaceList && !bootstrapPasswordFile) {
     return undefined;
   }
-  if (!url || !tokenFile || !namespaceList || !bootstrapPasswordFile) {
+  if (!url || !tokenFile || !bootstrapPasswordFile) {
     throw new Error(
-      `${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl}, ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile}, ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces}, and ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile} must be set together`,
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl}, ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile}, and ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile} must be set together`,
     );
   }
   const parsed = new URL(url);
@@ -323,7 +323,7 @@ function loadSkillHubConfig(env: NodeJS.ProcessEnv): PlatformClawDeploymentConfi
   }
   const namespaces = [
     ...new Map(
-      namespaceList
+      (namespaceList ?? "")
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean)
@@ -339,9 +339,6 @@ function loadSkillHubConfig(env: NodeJS.ProcessEnv): PlatformClawDeploymentConfi
         }),
     ),
   ].map(([namespace]) => namespace);
-  if (namespaces.length === 0) {
-    throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces} is empty`);
-  }
   return {
     url: parsed.toString(),
     token: readDeploymentSecret(tokenFile, PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile),

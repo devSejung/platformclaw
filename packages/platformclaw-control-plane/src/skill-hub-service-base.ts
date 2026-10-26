@@ -12,6 +12,7 @@ import {
 } from "./skill-hub-adapter.js";
 import { isExcludedSkillArchivePath } from "./skill-hub-archive-policy.js";
 import {
+  DEFAULT_SKILL_HUB_NAMESPACE,
   resolveSkillHubNamespaceCapabilities,
   type SkillHubNamespaceCapabilities,
 } from "./skill-hub-organization-policy.js";
@@ -51,12 +52,11 @@ export abstract class SkillHubServiceBase {
 
   constructor(protected readonly options: SkillHubServiceOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
-    this.namespaces = new Set(
-      options.allowedNamespaces.map((value) => safeName(value, "namespace", NAMESPACE_PATTERN)),
-    );
-    if (this.namespaces.size === 0) {
-      throw new Error("Skill Hub requires at least one allowed namespace");
-    }
+    // Every active employee belongs to Global; configuration only adds destinations.
+    this.namespaces = new Set([
+      DEFAULT_SKILL_HUB_NAMESPACE,
+      ...options.allowedNamespaces.map((value) => safeName(value, "namespace", NAMESPACE_PATTERN)),
+    ]);
     if (!Number.isSafeInteger(options.maxPackageBytes) || options.maxPackageBytes <= 0) {
       throw new Error("Skill Hub package limit must be a positive integer");
     }
