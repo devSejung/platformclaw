@@ -155,30 +155,40 @@ describe("loadPlatformClawDeploymentConfig", () => {
     expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must contain 32 to 512 bytes");
   });
 
-  it("loads an optional Skill Hub adapter configuration from server-only values", () => {
-    const env = fixtureEnv();
-    const tokenPath = join(
-      resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.databasePath] ?? "", "..", ".."),
-      "skill-hub-token",
-    );
-    writeFileSync(tokenPath, "skill-hub-service-token", { mode: 0o600 });
-    const bootstrapPasswordPath = `${tokenPath}-bootstrap`;
-    writeFileSync(bootstrapPasswordPath, "skill-hub-bootstrap-password", { mode: 0o600 });
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl] = "https://skillhub.example.test/registry";
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile] = tokenPath;
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces] =
-      "Engineering=ENG-Skill-Publishers, shared=*,engineering=eng-skill-publishers";
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes] = "2097152";
-    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile] = bootstrapPasswordPath;
-
-    expect(loadPlatformClawDeploymentConfig(env).skillHub).toEqual({
-      url: "https://skillhub.example.test/registry",
-      token: "skill-hub-service-token",
+  it.each([
+    { namespaceList: undefined, namespaces: [] },
+    { namespaceList: "", namespaces: [] },
+    { namespaceList: " , ", namespaces: [] },
+    {
+      namespaceList: "Engineering=ENG-Skill-Publishers, shared=*,engineering=eng-skill-publishers",
       namespaces: ["engineering", "shared"],
-      maxPackageBytes: 2 * 1024 * 1024,
-      bootstrapPassword: "skill-hub-bootstrap-password",
-    });
-  });
+    },
+  ])(
+    "loads Skill Hub with optional additional namespaces: $namespaceList",
+    ({ namespaceList, namespaces }) => {
+      const env = fixtureEnv();
+      const tokenPath = join(
+        resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.databasePath] ?? "", "..", ".."),
+        "skill-hub-token",
+      );
+      writeFileSync(tokenPath, "skill-hub-service-token", { mode: 0o600 });
+      const bootstrapPasswordPath = `${tokenPath}-bootstrap`;
+      writeFileSync(bootstrapPasswordPath, "skill-hub-bootstrap-password", { mode: 0o600 });
+      env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl] = "https://skillhub.example.test/registry";
+      env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile] = tokenPath;
+      env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces] = namespaceList;
+      env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes] = "2097152";
+      env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile] = bootstrapPasswordPath;
+
+      expect(loadPlatformClawDeploymentConfig(env).skillHub).toEqual({
+        url: "https://skillhub.example.test/registry",
+        token: "skill-hub-service-token",
+        namespaces,
+        maxPackageBytes: 2 * 1024 * 1024,
+        bootstrapPassword: "skill-hub-bootstrap-password",
+      });
+    },
+  );
 
   it("rejects the retired Skill Hub primary-admin fallback", () => {
     const env = fixtureEnv();

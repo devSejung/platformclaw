@@ -159,6 +159,7 @@ describe("PlatformClaw Skill Hub integration", () => {
       })),
     } as unknown as BrowserAuthService;
     const store = {
+      ensureDefaultSkillHubNamespace: vi.fn(async () => undefined),
       listCompletedSkillHubNamespaces: vi.fn(async () => []),
       getSkillHubPendingEdit: vi.fn(async () => null),
       getUserById: vi.fn(async () => ({

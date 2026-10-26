@@ -26,12 +26,10 @@ export abstract class SkillHubCatalogService extends SkillHubServiceBase {
     if (this.namespacesInitialized) {
       return;
     }
-    if (this.namespaces.has(DEFAULT_SKILL_HUB_NAMESPACE)) {
-      await this.options.store.ensureDefaultSkillHubNamespace({
-        actorUserId: user.id,
-        changedAt: this.now(),
-      });
-    }
+    await this.options.store.ensureDefaultSkillHubNamespace({
+      actorUserId: user.id,
+      changedAt: this.now(),
+    });
     // Completed creation rows extend deployment metadata at process startup.
     // Administrator-only bindings outside the configured allowlist stay excluded.
     for (const namespace of await this.options.store.listCompletedSkillHubNamespaces()) {
@@ -122,8 +120,7 @@ export abstract class SkillHubCatalogService extends SkillHubServiceBase {
     return {
       namespaces: namespaceOptions.map((option) => option.namespace),
       namespaceOptions,
-      defaultNamespace:
-        namespaceOptions.find((option) => option.scopeKind === "global")?.namespace ?? null,
+      defaultNamespace: DEFAULT_SKILL_HUB_NAMESPACE,
       maxPackageBytes: this.options.maxPackageBytes,
       maxUploadBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
       capabilities: {

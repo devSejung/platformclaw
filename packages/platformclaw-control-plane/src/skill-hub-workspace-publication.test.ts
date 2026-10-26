@@ -139,19 +139,8 @@ describe("Skill Hub workspace publication", () => {
   });
 
   it("publishes the active workspace skill from a Knox slash command", async () => {
-    const { service, adminRpcCall, adapterMocks, getSkillHubNamespaceBinding } = await fixture(
-      undefined,
-      undefined,
-      { registrySkill: "absent" },
-    );
-    getSkillHubNamespaceBinding.mockResolvedValue({
-      namespace: "engineering",
-      scopeKind: "global",
-      accessState: "active",
-      visibilityCeiling: "NAMESPACE_ONLY",
-      createdByUserId: "admin-1",
-      createdAt: 1,
-      updatedAt: 1,
+    const { service, adminRpcCall, adapterMocks } = await fixture(undefined, undefined, {
+      registrySkill: "absent",
     });
     adminRpcCall.mockResolvedValue({
       skills: [
@@ -167,23 +156,30 @@ describe("Skill Hub workspace publication", () => {
       text: expect.stringContaining("## Published"),
     });
     expect(adapterMocks.publish).toHaveBeenCalledOnce();
+    expect(adapterMocks.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ namespace: "global" }),
+    );
   });
 
-  it("requires explicit managed namespace selection when no Global default is authorized", async () => {
-    const { service, actor, adminRpcCall, adapterMocks } = await fixture(undefined, undefined, {
-      registrySkill: "absent",
+  it("includes Global for a member without organization groups and keeps organizational publication explicit", async () => {
+    const { service, actor, adminRpcCall, adapterMocks, ensureDefaultSkillHubNamespace } =
+      await fixture([], undefined, {
+        registrySkill: "absent",
+      });
+    await expect(service.config(actor)).resolves.toMatchObject({
+      admin: false,
+      namespaces: ["global", "engineering"],
+      defaultNamespace: "global",
     });
-    await expect(service.config(actor)).resolves.toMatchObject({ defaultNamespace: null });
+    expect(ensureDefaultSkillHubNamespace).toHaveBeenCalledWith({
+      actorUserId: actor.user.id,
+      changedAt: 100,
+    });
     adminRpcCall.mockResolvedValue({
       skills: [
         { source: "openclaw-workspace", baseDir: "/workspace/skills/demo-skill", version: "1.2.3" },
       ],
     });
-    await expect(service.command("person.one", "publish demo-skill")).rejects.toMatchObject({
-      statusCode: 403,
-      message: expect.stringContaining("specify namespace/slug"),
-    });
-    expect(adminRpcCall).not.toHaveBeenCalled();
     await expect(
       service.command("person.one", "publish engineering/demo-skill"),
     ).resolves.toMatchObject({ text: expect.stringContaining("`engineering/demo-skill`") });

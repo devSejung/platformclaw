@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EnterprisePrincipal } from "./contracts.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
@@ -35,7 +36,7 @@ afterEach(() => {
 });
 
 describe("durable Skill Hub namespace creation", () => {
-  it("preserves default Global restrictions across restart and allows custom Global removal", async () => {
+  it("restores implicit Global membership across restart and allows custom Global removal", async () => {
     const { db, databasePath } = fixture();
     const member = (await db.upsertPrincipal(principal("member.user"), 1)).user;
     await db.ensureDefaultSkillHubNamespace({ actorUserId: member.id, changedAt: 2 });
@@ -48,20 +49,34 @@ describe("durable Skill Hub namespace creation", () => {
         actorUserId: admin.id,
         changedAt: 4,
       }),
-    ).rejects.toThrow("restrict its access instead");
-    const restricted = await db.setSkillHubNamespaceAccessState({
-      namespace: "global",
-      accessState: "restricted",
-      expectedUpdatedAt: 2,
-      reason: "disable default explicitly",
-      actorUserId: admin.id,
-      changedAt: 4,
-    });
+    ).rejects.toThrow("available to every active user");
+    await expect(
+      db.setSkillHubNamespaceAccessState({
+        namespace: "global",
+        accessState: "restricted",
+        expectedUpdatedAt: 2,
+        reason: "disable default explicitly",
+        actorUserId: admin.id,
+        changedAt: 4,
+      }),
+    ).rejects.toThrow("available to every active user");
     db.close();
     stores.splice(stores.indexOf(db), 1);
+    const legacy = new DatabaseSync(databasePath);
+    legacy
+      .prepare(
+        "UPDATE skill_hub_namespace_bindings SET access_state = 'restricted', visibility_ceiling = 'PRIVATE' WHERE namespace = 'global'",
+      )
+      .run();
+    legacy.close();
     const restarted = open(databasePath);
     await restarted.ensureDefaultSkillHubNamespace({ actorUserId: member.id, changedAt: 5 });
-    await expect(restarted.getSkillHubNamespaceBinding("global")).resolves.toEqual(restricted);
+    await expect(restarted.getSkillHubNamespaceBinding("global")).resolves.toMatchObject({
+      scopeKind: "global",
+      accessState: "active",
+      visibilityCeiling: "NAMESPACE_ONLY",
+      updatedAt: 5,
+    });
     const custom = await restarted.setSkillHubNamespaceBinding({
       namespace: "company",
       scopeKind: "global",

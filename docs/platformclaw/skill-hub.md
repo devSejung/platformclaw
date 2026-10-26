@@ -83,17 +83,21 @@ adapter on the PlatformClaw control process:
 ```bash
 PLATFORMCLAW_SKILL_HUB_URL=https://skillhub.internal.example
 PLATFORMCLAW_SKILL_HUB_TOKEN_FILE=/run/secrets/platformclaw_skill_hub_token
+PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/platformclaw_skill_hub_bootstrap_password
 PLATFORMCLAW_SKILL_HUB_NAMESPACES=engineering=eng-skill-publishers,shared=*
 PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES=524288000
 ```
 
-The URL, token file, and namespace list must be set together. The managed
+The URL, token file, and bootstrap password file must be set together. The managed
 deployment generates these values; set them manually only for an external
-registry. `PLATFORMCLAW_SKILL_HUB_NAMESPACES` is only the registry bootstrap
-allowlist. The optional right-hand value in legacy `namespace=value` syntax is
+registry. `PLATFORMCLAW_SKILL_HUB_NAMESPACES` is an optional allowlist for
+additional registry namespaces; omit it or leave it empty for Global only.
+The optional right-hand value in legacy `namespace=value` syntax is
 retained for registry bootstrap compatibility and is never employee
-authorization. The canonical `global` namespace receives an active Global
-binding on first authenticated use when it is allowlisted and has no binding.
+authorization. Every active employee is automatically included in `global`,
+which is always the default publication destination. First authenticated use
+establishes its canonical active binding, including repair of older restrictions
+or organization assignments. No administrator login or manual membership is required.
 Employees can create additional namespaces from Skill Hub; successful creation
 records the registry namespace and its authorized organization binding, without
 requiring an environment change or restart. Administrators can bind other
@@ -129,9 +133,10 @@ PlatformClaw ownership record, use a new skill name or ask an administrator to
 publish and transfer ownership. Ordinary publication cannot claim an existing
 registry skill.
 
-Administrators disable the default `global` destination by restricting its
-access in the namespace view. Its binding cannot be removed, so restarting
-the control process preserves that decision.
+The default `global` destination cannot be restricted, assigned to an organization,
+removed, or given a Private visibility ceiling. Administrators can still manage
+custom namespaces. Skill ownership and an individual skill's Private visibility
+remain authoritative.
 
 The server resolves the authenticated user's personal-Agent binding and
 packages the explicitly selected real Basic or assigned-VM workspace without
@@ -444,7 +449,7 @@ policy remains authoritative even if a browser calls the BFF directly.
 
 Skill Hub consumes the shared organization authorization boundary for
 Global/Team/Group/Part. Global is the default publication destination for active
-employees. Existing administrator restrictions remain effective; changing an
+employees. Restrictions on custom namespaces remain effective; changing an
 existing namespace's policy still requires administrator authority, a reason,
 and the current binding revision. See
 [PlatformClaw organization architecture](/platformclaw/organization-architecture)
