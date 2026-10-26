@@ -19,7 +19,6 @@ import { formatErrorMessage } from "../../infra/errors.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import type { ProviderRuntimeModel } from "../../plugins/provider-runtime-model.types.js";
 import { requireActivePluginRegistry } from "../../plugins/runtime.js";
-import { withPluginRuntimeRegistryScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { enqueueCommandInLane } from "../../process/command-queue.js";
 import { resolveUserPath } from "../../utils.js";
 import { normalizeOptionalAgentRuntimeId } from "../agent-runtime-id.js";
@@ -32,6 +31,7 @@ import {
   acquireAgentRunPreparedModelRuntime,
   type PreparedModelRuntimeSnapshot,
 } from "../prepared-model-runtime.js";
+import { withPreparedModelRuntimeScope } from "../prepared-model-runtime.plugin-context.js";
 import { resolveAgentRunSessionTarget } from "../run-session-target.js";
 import { materializePreparedRuntimeModel } from "../runtime-plan/materialize-model.js";
 import { SessionManager } from "../sessions/index.js";
@@ -373,7 +373,7 @@ async function compactEmbeddedAgentSessionImpl(
     }
   };
   try {
-    return await withPluginRuntimeRegistryScope(lease.snapshot.pluginRegistry, run);
+    return await withPreparedModelRuntimeScope(lease.snapshot, run);
   } finally {
     lease.release();
   }

@@ -10,17 +10,21 @@ import {
   isManifestPluginAvailableForControlPlane,
   loadManifestMetadataSnapshot,
 } from "./manifest-contract-eligibility.js";
+import type { PluginMetadataSnapshot } from "./plugin-metadata-snapshot.types.js";
 
 function listManifestModelCatalogSuppressions(params: {
   config?: OpenClawConfig;
   workspaceDir?: string;
   env: NodeJS.ProcessEnv;
+  metadataSnapshot?: PluginMetadataSnapshot;
 }): readonly ManifestModelCatalogSuppressionEntry[] {
-  const snapshot = loadManifestMetadataSnapshot({
-    config: params.config,
-    workspaceDir: params.workspaceDir,
-    env: params.env,
-  });
+  const snapshot =
+    params.metadataSnapshot ??
+    loadManifestMetadataSnapshot({
+      config: params.config,
+      workspaceDir: params.workspaceDir,
+      env: params.env,
+    });
   const registry = {
     diagnostics: snapshot.diagnostics,
     plugins: snapshot.plugins.filter((plugin) =>
@@ -123,11 +127,13 @@ export function buildManifestBuiltInModelSuppressionResolver(params: {
   config?: OpenClawConfig;
   workspaceDir?: string;
   env?: NodeJS.ProcessEnv;
+  metadataSnapshot?: PluginMetadataSnapshot;
 }) {
   const suppressions = listManifestModelCatalogSuppressions({
     config: params.config,
     workspaceDir: params.workspaceDir,
     env: params.env ?? process.env,
+    metadataSnapshot: params.metadataSnapshot,
   });
 
   return (input: {

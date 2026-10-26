@@ -3,6 +3,7 @@
  * Verifies plugin manifest suppression rules, cache reuse, and lifecycle clears.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createPluginMetadataSnapshot } from "../config/plugin-auto-enable.test-helpers.js";
 
 const mocks = vi.hoisted(() => ({
   buildManifestBuiltInModelSuppressionResolver: vi.fn(),
@@ -12,7 +13,11 @@ vi.mock("../plugins/manifest-model-suppression.js", () => ({
   buildManifestBuiltInModelSuppressionResolver: mocks.buildManifestBuiltInModelSuppressionResolver,
 }));
 
-import { setCurrentPluginMetadataSnapshotState } from "../plugins/current-plugin-metadata-state.js";
+import {
+  setCurrentPluginMetadataSnapshot,
+  withPluginMetadataSnapshotScope,
+} from "../plugins/current-plugin-metadata-snapshot.js";
+import { clearCurrentPluginMetadataSnapshot } from "../plugins/current-plugin-metadata-state.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
 import {
   buildShouldSuppressBuiltInModel,
@@ -28,6 +33,7 @@ describe("model suppression", () => {
   });
 
   afterEach(() => {
+    clearCurrentPluginMetadataSnapshot();
     if (originalBundledPluginsDir === undefined) {
       delete process.env.OPENCLAW_BUNDLED_PLUGINS_DIR;
     } else {
@@ -99,15 +105,63 @@ describe("model suppression", () => {
       .mockReturnValueOnce(firstResolver)
       .mockReturnValueOnce(secondResolver);
 
-    setCurrentPluginMetadataSnapshotState({ id: "first" }, undefined);
+    setCurrentPluginMetadataSnapshot(
+      createPluginMetadataSnapshot({ config, manifestRegistry: { plugins: [], diagnostics: [] } }),
+      { config },
+    );
     expect(shouldSuppressBuiltInModel({ provider: "openai", id: "gpt-5.3", config })).toBe(false);
 
-    setCurrentPluginMetadataSnapshotState({ id: "second" }, undefined);
+    setCurrentPluginMetadataSnapshot(
+      createPluginMetadataSnapshot({ config, manifestRegistry: { plugins: [], diagnostics: [] } }),
+      { config },
+    );
     expect(shouldSuppressBuiltInModel({ provider: "openai", id: "gpt-5.3", config })).toBe(false);
 
     expect(mocks.buildManifestBuiltInModelSuppressionResolver).toHaveBeenCalledTimes(2);
     expect(firstResolver).toHaveBeenCalledOnce();
     expect(secondResolver).toHaveBeenCalledOnce();
+  });
+
+  it("isolates concurrent suppression generations with the same config and workspace", async () => {
+    const config = {};
+    const workspaceDir = "/workspace/shared";
+    const first = createPluginMetadataSnapshot({
+      config,
+      workspaceDir,
+      manifestRegistry: { plugins: [], diagnostics: [] },
+    });
+    const second = createPluginMetadataSnapshot({
+      config,
+      workspaceDir,
+      manifestRegistry: { plugins: [], diagnostics: [] },
+    });
+    const firstResolver = vi.fn(() => ({ suppress: true }));
+    const secondResolver = vi.fn(() => undefined);
+    mocks.buildManifestBuiltInModelSuppressionResolver
+      .mockReturnValueOnce(firstResolver)
+      .mockReturnValueOnce(secondResolver)
+      .mockReturnValueOnce(firstResolver);
+    const check = () => shouldSuppressBuiltInModel({ provider: "fixture", id: "model", config });
+
+    const results = await Promise.all([
+      withPluginMetadataSnapshotScope(
+        first,
+        async () => {
+          const initial = check();
+          await Promise.resolve();
+          return [initial, check()];
+        },
+        { config, workspaceDir },
+      ),
+      withPluginMetadataSnapshotScope(second, async () => check(), { config, workspaceDir }),
+    ]);
+
+    expect(results).toEqual([[true, true], false]);
+    expect(
+      mocks.buildManifestBuiltInModelSuppressionResolver.mock.calls.map(
+        ([params]) => params.metadataSnapshot,
+      ),
+    ).toEqual([first, second, first]);
   });
 
   it("refreshes manifest suppression resolver when process env plugin metadata inputs change", () => {

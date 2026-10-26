@@ -51,6 +51,7 @@ describe("embedded run auth plan provider pin", () => {
 
     const authProfileStore = authPlanTesting.loadEmbeddedRunAuthProfileStore({
       agentDir,
+      workspaceDir: agentDir,
       config,
       externalCliProviderIds: ["openai"],
     });

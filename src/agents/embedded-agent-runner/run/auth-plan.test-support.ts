@@ -5,6 +5,7 @@ import type { RunEmbeddedAgentParams } from "./params.js";
 type EmbeddedRunAuthPlanTestApi = {
   loadEmbeddedRunAuthProfileStore(params: {
     agentDir: string;
+    workspaceDir: string;
     config: RunEmbeddedAgentParams["config"];
     externalCliProviderIds: Iterable<string>;
   }): AuthProfileStore;

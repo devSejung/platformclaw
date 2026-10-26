@@ -347,8 +347,10 @@ function shouldAllowPrivateImageEndpoint(req: {
 }
 
 function resolveRequestAuthStore(req: {
+  cfg?: OpenClawConfig;
   authStore?: AuthProfileStore;
   agentDir?: string;
+  workspaceDir?: string;
 }): AuthProfileStore | undefined {
   if (req.authStore) {
     return req.authStore;
@@ -359,12 +361,15 @@ function resolveRequestAuthStore(req: {
   }
   return ensureAuthProfileStore(agentDir, {
     allowKeychainPrompt: false,
+    config: req.cfg,
+    workspaceDir: req.workspaceDir,
   });
 }
 
 function hasDirectOpenAIImageApiKeyAuth(params: {
   cfg?: OpenClawConfig;
   agentDir?: string;
+  workspaceDir?: string;
 }): boolean {
   if (hasExplicitOpenAIImageApiKeyConfig(params.cfg)) {
     return true;
@@ -375,6 +380,8 @@ function hasDirectOpenAIImageApiKeyAuth(params: {
   const store = params.agentDir
     ? ensureAuthProfileStore(params.agentDir, {
         allowKeychainPrompt: false,
+        config: params.cfg,
+        workspaceDir: params.workspaceDir,
       })
     : undefined;
   if (!store) {
@@ -388,8 +395,10 @@ function hasDirectOpenAIImageApiKeyAuth(params: {
 }
 
 function hasCodexResponseTransportProfileConfigured(req: {
+  cfg?: OpenClawConfig;
   authStore?: AuthProfileStore;
   agentDir?: string;
+  workspaceDir?: string;
 }): boolean {
   const store = resolveRequestAuthStore(req);
   if (!store) {
@@ -900,7 +909,7 @@ export function buildOpenAIImageGenerationProvider(): ImageGenerationProvider {
   return createOpenAIImageGenerationProviderBase({
     id: "openai",
     label: "OpenAI",
-    isConfigured: ({ cfg, agentDir }) => {
+    isConfigured: ({ cfg, agentDir, workspaceDir }) => {
       // generateImage already authenticates from a config apiKey; count a
       // usable one (non-blank literal or secret ref) as configured here too,
       // so image gen works from config alone, like chat.
@@ -913,19 +922,22 @@ export function buildOpenAIImageGenerationProvider(): ImageGenerationProvider {
       if (
         isProviderApiKeyConfigured({
           provider: "openai",
+          cfg,
           agentDir,
+          workspaceDir,
         })
       ) {
         return (
           hasPublicOpenAIBaseUrl ||
-          hasDirectOpenAIImageApiKeyAuth({ cfg, agentDir }) ||
-          (hasChatGPTRouteConfig && hasCodexResponseTransportProfileConfigured({ agentDir }))
+          hasDirectOpenAIImageApiKeyAuth({ cfg, agentDir, workspaceDir }) ||
+          (hasChatGPTRouteConfig &&
+            hasCodexResponseTransportProfileConfigured({ cfg, agentDir, workspaceDir }))
         );
       }
       if (!hasPublicOpenAIBaseUrl && !hasChatGPTRouteConfig) {
         return false;
       }
-      return hasCodexResponseTransportProfileConfigured({ agentDir });
+      return hasCodexResponseTransportProfileConfigured({ cfg, agentDir, workspaceDir });
     },
     async generateImage(req) {
       const inputImages = req.inputImages ?? [];

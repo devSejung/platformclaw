@@ -22,6 +22,7 @@ type ResolveExternalAuthProfiles = typeof resolveExternalAuthProfilesWithPlugins
 type ExternalCliOverlayOptions = {
   allowKeychainPrompt?: boolean;
   config?: OpenClawConfig;
+  workspaceDir?: string;
   externalCliProviderIds?: Iterable<string>;
   externalCliProfileIds?: Iterable<string>;
 };
@@ -67,6 +68,7 @@ function isExternalAuthProfileAllowed(
   config: OpenClawConfig | undefined,
   explicitProfileIds: ReadonlySet<string> | undefined,
   env: NodeJS.ProcessEnv,
+  workspaceDir?: string,
 ): boolean {
   // A provider pin protects its declared auth from ambient takeover. Stored and explicitly
   // bound profiles deliberately keep precedence; see runtime-plan/prepare-auth.test.ts.
@@ -75,7 +77,7 @@ function isExternalAuthProfileAllowed(
   }
   return isAmbientCredentialAllowedByProviderAuthPin({
     config,
-    authAliasLookupParams: { env },
+    authAliasLookupParams: { env, workspaceDir },
     provider: profile.credential.provider,
     type: profile.credential.type,
   });
@@ -93,10 +95,11 @@ function resolveExternalAuthProfileMap(params: {
   const profiles = resolveProfiles({
     env,
     config: params.externalCli?.config,
+    workspaceDir: params.externalCli?.workspaceDir,
     context: {
       config: params.externalCli?.config,
       agentDir: params.agentDir,
-      workspaceDir: undefined,
+      workspaceDir: params.externalCli?.workspaceDir,
       env,
       store: params.store,
     },
@@ -118,6 +121,7 @@ function resolveExternalAuthProfileMap(params: {
         params.externalCli?.config,
         explicitProfileIds,
         env,
+        params.externalCli?.workspaceDir,
       )
     ) {
       continue;
@@ -140,6 +144,7 @@ function resolveExternalAuthProfileMap(params: {
         params.externalCli?.config,
         explicitProfileIds,
         env,
+        params.externalCli?.workspaceDir,
       )
     ) {
       continue;
@@ -221,7 +226,14 @@ export function syncPersistedExternalCliAuthProfiles(
   const persistedProfiles = cliProfiles.filter(
     (profile) =>
       profile.persistence === "persisted" &&
-      isExternalAuthProfileAllowed(profile, store, params?.config, explicitProfileIds, env),
+      isExternalAuthProfileAllowed(
+        profile,
+        store,
+        params?.config,
+        explicitProfileIds,
+        env,
+        params?.workspaceDir,
+      ),
   );
   if (persistedProfiles.length === 0) {
     return store;

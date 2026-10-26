@@ -87,6 +87,8 @@ export function hasAuthForProvider(params: {
   }
   return hasAuthProfileForProvider({
     provider: params.provider,
+    cfg: params.cfg,
+    workspaceDir: params.workspaceDir,
     agentDir: params.agentDir,
     authStore: params.authStore,
     includeExternalCli: true,
@@ -96,6 +98,8 @@ export function hasAuthForProvider(params: {
 /** Returns whether an auth profile exists for a provider, optionally filtered by type. */
 export function hasAuthProfileForProvider(params: {
   provider: string;
+  cfg?: OpenClawConfig;
+  workspaceDir?: string;
   agentDir?: string;
   authStore?: AuthProfileStore;
   includeExternalCli?: boolean;
@@ -114,7 +118,12 @@ export function hasAuthProfileForProvider(params: {
     // provider availability, not when checking stored profile shape.
     store = params.includeExternalCli
       ? ensureAuthProfileStore(agentDir, {
-          externalCli: externalCliDiscoveryForProviderAuth({ provider: params.provider }),
+          config: params.cfg,
+          workspaceDir: params.workspaceDir,
+          externalCli: externalCliDiscoveryForProviderAuth({
+            provider: params.provider,
+            cfg: params.cfg,
+          }),
         })
       : ensureAuthProfileStoreWithoutExternalProfiles(agentDir, {
           allowKeychainPrompt: false,
@@ -148,6 +157,7 @@ export function hasProviderAuthForTool(params: {
       store: loadAuthStoreForProvider({
         provider: params.provider,
         cfg: params.cfg,
+        workspaceDir: params.workspaceDir,
         agentDir: params.agentDir,
         authStore: params.authStore,
       }),
@@ -172,6 +182,7 @@ function formatProviderModelRef(provider: string, model: string): string {
 function loadAuthStoreForProvider(params: {
   provider: string;
   cfg?: OpenClawConfig;
+  workspaceDir?: string;
   agentDir?: string;
   authStore?: AuthProfileStore;
   includeExternalCli?: boolean;
@@ -185,6 +196,8 @@ function loadAuthStoreForProvider(params: {
   }
   return params.includeExternalCli
     ? ensureAuthProfileStore(agentDir, {
+        config: params.cfg,
+        workspaceDir: params.workspaceDir,
         externalCli: externalCliDiscoveryForProviderAuth({
           provider: params.provider,
           cfg: params.cfg,
@@ -226,6 +239,7 @@ function hasAuthProfileTypeInStore(params: {
 function hasAuthProfileTypeForProvider(params: {
   provider: string;
   cfg?: OpenClawConfig;
+  workspaceDir?: string;
   agentDir?: string;
   authStore?: AuthProfileStore;
   includeExternalCli?: boolean;
@@ -273,6 +287,7 @@ function hasDirectProviderApiKeyAuthForTool(params: {
       store: loadAuthStoreForProvider({
         provider: params.provider,
         cfg: params.cfg,
+        workspaceDir: params.workspaceDir,
         agentDir: params.agentDir,
         authStore: params.authStore,
       }),
@@ -283,6 +298,7 @@ function hasDirectProviderApiKeyAuthForTool(params: {
   return hasAuthProfileTypeForProvider({
     provider: params.provider,
     cfg: params.cfg,
+    workspaceDir: params.workspaceDir,
     agentDir: params.agentDir,
     authStore: params.authStore,
     type: "api_key",
@@ -297,12 +313,14 @@ if (process.env.VITEST || process.env.NODE_ENV === "test") {
 
 function hasCanonicalOpenAiCodexAuthSignal(params: {
   cfg?: OpenClawConfig;
+  workspaceDir?: string;
   agentDir?: string;
   authStore?: AuthProfileStore;
 }): boolean {
   return hasAuthProfileTypeForProvider({
     provider: OPENAI_PROVIDER_ID,
     cfg: params.cfg,
+    workspaceDir: params.workspaceDir,
     agentDir: params.agentDir,
     authStore: params.authStore,
     includeExternalCli: true,
@@ -313,6 +331,7 @@ function hasCanonicalOpenAiCodexAuthSignal(params: {
 function resolveDirectProviderEntryAuthFromProfileReference(params: {
   provider: string;
   cfg?: OpenClawConfig;
+  workspaceDir?: string;
   agentDir?: string;
   authStore?: AuthProfileStore;
 }): boolean | undefined {
@@ -337,6 +356,7 @@ function resolveDirectProviderEntryAuthFromProfileReference(params: {
   const store = loadAuthStoreForProvider({
     provider: params.provider,
     cfg: params.cfg,
+    workspaceDir: params.workspaceDir,
     agentDir: params.agentDir,
     authStore: params.authStore,
     includeExternalCli: true,

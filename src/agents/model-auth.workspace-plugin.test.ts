@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { isProviderApiKeyConfigured } from "../plugin-sdk/provider-auth.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import type { AuthProfileStore } from "./auth-profiles.js";
 import { resolveEnvApiKey } from "./model-auth-env.js";
@@ -49,7 +50,9 @@ describe("workspace plugin model auth evidence", () => {
   it("uses trusted workspace plugin auth evidence across runtime and picker auth checks", async () => {
     // Without workspace scope the same env var is ignored; with scope, the
     // plugin-owned marker is accepted across all auth surfaces.
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-workspace-auth-"));
+    const tempRoot = await fs.realpath(
+      await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-workspace-auth-")),
+    );
     const workspaceDir = path.join(tempRoot, "workspace");
     const bundledDir = path.join(tempRoot, "bundled");
     const stateDir = path.join(tempRoot, "state");
@@ -84,6 +87,17 @@ describe("workspace plugin model auth evidence", () => {
             apiKey: "workspace-cloud-local-credentials",
             source: "workspace cloud credentials",
           });
+          const readiness = (selectedWorkspace: string, config = cfg) =>
+            isProviderApiKeyConfigured({
+              provider: "workspace-cloud",
+              cfg: config,
+              workspaceDir: selectedWorkspace,
+            });
+          expect(readiness(workspaceDir)).toBe(true);
+          expect(readiness(path.join(tempRoot, "other-project"))).toBe(false);
+          expect(readiness(workspaceDir)).toBe(true);
+          expect(readiness(workspaceDir, { plugins: { enabled: false } })).toBe(false);
+          expect(readiness(workspaceDir)).toBe(true);
           await expect(
             resolveApiKeyForProvider({
               provider: "workspace-cloud",
@@ -115,6 +129,8 @@ describe("workspace plugin model auth evidence", () => {
               store,
             }),
           ).resolves.toBe(true);
+          await fs.rm(credentialsPath);
+          expect(readiness(workspaceDir)).toBe(false);
         },
       );
     } finally {

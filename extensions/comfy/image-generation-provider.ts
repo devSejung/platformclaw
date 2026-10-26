@@ -15,10 +15,11 @@ export function buildComfyImageGenerationProvider(): ImageGenerationProvider {
     label: "ComfyUI",
     defaultModel: DEFAULT_COMFY_MODEL,
     models: [DEFAULT_COMFY_MODEL],
-    isConfigured: ({ cfg, agentDir }) =>
+    isConfigured: ({ cfg, agentDir, workspaceDir }) =>
       isComfyCapabilityConfigured({
         cfg,
         agentDir,
+        workspaceDir,
         capability: "image",
       }),
     capabilities: {

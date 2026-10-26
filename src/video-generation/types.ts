@@ -56,6 +56,7 @@ export type VideoGenerationSourceAsset = {
 export type VideoGenerationProviderConfiguredContext = {
   cfg?: OpenClawConfig;
   agentDir?: string;
+  workspaceDir?: string;
 };
 
 export type VideoGenerationRequest = {
