@@ -2,19 +2,29 @@ import { html, nothing, type TemplateResult } from "lit";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import { platformClawT as t } from "./i18n.ts";
 import "./horse-racing-game.ts";
+import "./fishing-game.ts";
 
 export function renderArcade(view: {
-  screen: "closed" | "selector" | "baseball" | "racing";
+  screen: "closed" | "selector" | "baseball" | "racing" | "fishing";
   client: GatewayBrowserClient | null;
   preferenceScope: string | null;
   onBaseball: () => void;
   onRacing: () => void;
+  onFishing: () => void;
   onGames: () => void;
   onClose: () => void;
   baseball: () => TemplateResult | typeof nothing;
 }) {
   if (view.screen === "closed") {
     return nothing;
+  }
+  if (view.screen === "fishing") {
+    return html`<platformclaw-fishing
+      .client=${view.client}
+      .preferenceScope=${view.preferenceScope}
+      @fishing-exit=${(event: CustomEvent<string>) =>
+        event.detail === "games" ? view.onGames() : view.onClose()}
+    ></platformclaw-fishing>`;
   }
   if (view.screen === "racing") {
     return html`<platformclaw-horse-racing
@@ -57,6 +67,10 @@ export function renderArcade(view: {
           <button data-game-choice="racing" @click=${view.onRacing}>
             <span aria-hidden="true">🏇</span><strong>${t("platformClaw.racing.title")}</strong
             ><small>${t("platformClaw.racing.schedule")}</small>
+          </button>
+          <button data-game-choice="fishing" @click=${view.onFishing}>
+            <span aria-hidden="true">♧</span><strong>${t("platformClaw.fishing.title")}</strong>
+            <small>${t("platformClaw.fishing.choice")}</small>
           </button>
         </div>
       </section>

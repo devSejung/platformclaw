@@ -67,7 +67,7 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
   @property({ attribute: false }) now: () => number = () => performance.now();
 
   @state() private active = false;
-  @state() private gameScreen: "closed" | "selector" | "baseball" | "racing" = "closed";
+  @state() private gameScreen: "closed" | "selector" | "baseball" | "racing" | "fishing" = "closed";
   @state() private shopOpen = false;
   @state() private phase: GamePhase = "ready";
   @state() private round = 0;
@@ -191,6 +191,10 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
       preferenceScope: this.preferenceScope,
       onBaseball: () => void this.startGame(),
       onRacing: () => this.startRacing(),
+      onFishing: () => {
+        this.finishGame();
+        this.gameScreen = "fishing";
+      },
       onGames: () => this.showGameSelector(),
       onClose: () => this.finishGame(),
       baseball: () => this.renderBaseball(),
@@ -219,7 +223,7 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
       settings: this.settings,
       settingsStatus: this.settingsStatus,
       awardedGold: this.awardedGold,
-      bonusVisible: this.celebration.visible,
+      bonus: this.celebration.bonus,
       pendingMutationMethod: this.pendingMutation?.method ?? null,
       roundBatId: getBaseballEnhancementAppearance(roundEnhancementLevel ?? 0).batId,
       roundEnhancementLevel,
@@ -511,6 +515,7 @@ class PlatformClawEasterEgg extends BaseballWorkshop {
       this.celebration.confirm(
         mutation.params.requestId,
         response.homeRunBonusGold,
+        response.homeRunStreakBonusGold,
         !this.isPaused(),
       );
     }

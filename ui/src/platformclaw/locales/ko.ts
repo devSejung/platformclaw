@@ -4,6 +4,7 @@ import { baseballTranslations } from "./ko-baseball.ts";
 import { credentialFlowTranslations } from "./ko-credentials.ts";
 import { dashboardTranslations } from "./ko-dashboard.ts";
 import { executionTranslations } from "./ko-execution.ts";
+import { fishingTranslations } from "./ko-fishing.ts";
 import { mcpTranslations } from "./ko-mcp.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
 import { racingTranslations } from "./ko-racing.ts";
@@ -186,6 +187,7 @@ export const translations: Readonly<Record<string, string>> = {
   ...credentialFlowTranslations,
   ...dashboardTranslations,
   ...baseballTranslations,
+  ...fishingTranslations,
   ...announcementTranslations,
   ...racingTranslations,
   ...vaultTranslations,

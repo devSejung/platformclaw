@@ -5,6 +5,7 @@ import type {
   BrowserGatewayProxyErrorCode,
 } from "./browser-gateway-contracts.js";
 import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
+import { requestBrowserFishing } from "./browser-gateway-fishing.js";
 import { requestBrowserHorseRacing } from "./browser-gateway-horse-racing.js";
 import { projectBrowserSelfUser } from "./browser-gateway-self-service-projections.js";
 import { requestBrowserKnowledgeVault } from "./browser-gateway-vault.js";
@@ -27,6 +28,16 @@ export async function requestBrowserGatewayLocal(
     return { handled: true, result: { subscribed: true } };
   }
   try {
+    const fishing = requestBrowserFishing({
+      store: options.fishingStore,
+      userId: access.user.id,
+      method,
+      request,
+      now: options.now?.() ?? Date.now(),
+    });
+    if (fishing.handled) {
+      return fishing;
+    }
     const search = await requestBrowserKnowledgeSearch(options, access, method, request);
     if (search.handled) {
       return search;

@@ -128,8 +128,10 @@ export type BaseballAtBat = {
 
 export type BaseballPlateAppearanceResult = {
   awardedGold: number;
-  /** Absent on receipts issued before the cumulative-bonus celebration was added. */
-  homeRunBonusGold?: 0 | 5;
+  /** Older immutable receipts may omit this or retain the historical 5G bonus. */
+  homeRunBonusGold?: 0 | 5 | 10;
+  /** Absent on receipts issued before the three-home-run streak bonus. */
+  homeRunStreakBonusGold?: 0 | 10;
   progress: BaseballProgress;
 };
 

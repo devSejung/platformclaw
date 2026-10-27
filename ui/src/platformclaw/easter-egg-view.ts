@@ -8,7 +8,7 @@ import {
   type BaseballProgress,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import { getBaseballEnhancementAppearance } from "../../../packages/platformclaw-control-plane/src/baseball-enhancement.ts";
-import { BASEBALL_CELEBRATION_MS } from "./easter-egg-celebration.ts";
+import { BASEBALL_CELEBRATION_MS, type BaseballBonus } from "./easter-egg-celebration.ts";
 import { renderBaseballForge, renderBaseballTaunt } from "./easter-egg-forge-view.ts";
 import { BASEBALL_TEAMS, type BaseballSettings } from "./easter-egg-settings.ts";
 import type { Pitch } from "./easter-egg-simulation.ts";
@@ -55,7 +55,7 @@ export function renderBaseballGame(params: {
   settings: BaseballSettings;
   settingsStatus: string;
   awardedGold: number | null;
-  bonusVisible: boolean;
+  bonus: BaseballBonus | null;
   pendingMutationMethod: string | null;
   roundBatId: BaseballBatId;
   roundEnhancementLevel: number | null;
@@ -116,9 +116,20 @@ export function renderBaseballGame(params: {
   >
     ${!params.shopOpen ? saveStatus : nothing} ${renderBaseballTaunt(params.workshopTaunt)}
     <div class="platformclaw-easter-egg__scene">
-      ${params.bonusVisible
+      ${params.bonus
         ? html`<div class="platformclaw-easter-egg__bonus" role="status">
-            <strong>${t("platformClaw.baseball.bonus")}</strong>
+            ${params.bonus.total
+              ? html`<strong
+                  >${t("platformClaw.baseball.bonus", { gold: String(params.bonus.total) })}</strong
+                >`
+              : nothing}
+            ${params.bonus.streak
+              ? html`<strong
+                  >${t("platformClaw.baseball.streakBonus", {
+                    gold: String(params.bonus.streak),
+                  })}</strong
+                >`
+              : nothing}
             <span class="platformclaw-easter-egg__sparks" aria-hidden="true">
               ${Array.from(
                 { length: 8 },

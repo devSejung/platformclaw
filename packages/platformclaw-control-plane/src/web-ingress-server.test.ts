@@ -9,6 +9,7 @@ import type { BrowserAuthService } from "./browser-auth-service.js";
 import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import type { BrowserOrganizationService } from "./browser-organization-http.js";
 import { ControlPlaneAuthorizationError } from "./contracts.js";
+import { FISHING_RPC_METHODS } from "./fishing-contracts.js";
 import { SPACE_RPC_METHODS } from "./space-contracts.js";
 import {
   PlatformClawWebIngressServer,
@@ -233,6 +234,7 @@ describe("PlatformClawWebIngressServer", () => {
             "platformclaw.racing.snapshot",
             "platformclaw.racing.bet",
             "platformclaw.racing.cancel",
+            ...FISHING_RPC_METHODS,
           ],
         },
         snapshot: {

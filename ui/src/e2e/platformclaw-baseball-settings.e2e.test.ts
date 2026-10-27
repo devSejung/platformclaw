@@ -293,9 +293,16 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     await page.getByText("타석 저장 실패", { exact: true }).waitFor();
     expect(await bonus.count()).toBe(0);
     const receipt = {
-      awardedGold: 10,
-      homeRunBonusGold: 5,
-      progress: { ...progress, gold: 1244, totalHomers: 10, currentHomeRunStreak: 1, revision: 43 },
+      awardedGold: 28,
+      homeRunBonusGold: 10,
+      homeRunStreakBonusGold: 10,
+      progress: {
+        ...progress,
+        gold: 1262,
+        totalHomers: 15,
+        currentHomeRunStreak: 15,
+        revision: 43,
+      },
     };
     await gateway.setMethodResponse(BASEBALL_RPC.plateAppearance, receipt);
     await gateway.deferNext(BASEBALL_RPC.progress);
@@ -305,7 +312,9 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     const requests = await gateway.getRequests(BASEBALL_RPC.plateAppearance);
     expect(requests).toHaveLength(2);
     expect(requests[1]!.params).toEqual(requests[0]!.params);
-    expect(await bonus.textContent()).toContain("누적 5홈런 보너스 +5G");
+    expect(await bonus.textContent()).toContain("누적 5홈런 보너스 +10G");
+    expect(await bonus.textContent()).toContain("3연속 홈런 보너스 +10G");
+    expect(await game.textContent()).toContain("직전 보상 +28G");
     expect(await bonus.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
     expect(await bonus.locator("..").evaluate((element) => getComputedStyle(element).opacity)).toBe(
       "0.3",
@@ -321,7 +330,7 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     expect(await game.getAttribute("data-pitch-state")).toBe("ready");
     await gateway.resolveDeferred(BASEBALL_RPC.progress);
     await expect.poll(() => game.textContent()).toContain("투구 준비 중");
-    expect(await game.textContent()).toContain("골드 1244");
+    expect(await game.textContent()).toContain("골드 1262");
     expect(
       await bonus
         .locator("i")
@@ -331,7 +340,7 @@ describeE2e("baseball settings in a real browser with synthetic account data", (
     await capture(page, "07-bonus-next-round-ready.png");
     await page.clock.runFor(250);
     expect(await bonus.count()).toBe(0);
-    expect(await game.textContent()).toContain("직전 보상 +10G");
+    expect(await game.textContent()).toContain("직전 보상 +28G");
     await gateway.resolveDeferred(BASEBALL_RPC.beginAtBat);
     await host.evaluate((element, params) => {
       void (

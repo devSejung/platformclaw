@@ -145,16 +145,25 @@ export class BrowserGatewayProxy {
         "Browser connection is no longer active.",
       );
     }
-    const revalidate = async () => {
-      const current = await this.revalidateAccess(token, access);
-      if (context?.isConnected?.() === false) {
-        throw new BrowserGatewayProxyError(
-          "unauthenticated",
-          "Browser connection is no longer active.",
-        );
+    const revalidate = async (requestDisposition?: "outcome-unknown") => {
+      try {
+        const current = await this.revalidateAccess(token, access);
+        if (context?.isConnected?.() === false) {
+          throw new BrowserGatewayProxyError(
+            "unauthenticated",
+            "Browser connection is no longer active.",
+          );
+        }
+        validateAdmission?.();
+        return current;
+      } catch (error) {
+        if (requestDisposition && error instanceof BrowserGatewayProxyError) {
+          // A return-time authority failure cannot undo a committed effect.
+          // Keep the original nonce retryable rather than claiming rejection.
+          throw new BrowserGatewayProxyError(error.code, error.message, requestDisposition);
+        }
+        throw error;
       }
-      validateAdmission?.();
-      return current;
     };
     // Helpers may perform more than one RPC. Authenticate at every dispatch,
     // including the initial chat.send after an awaited sessions.create.
@@ -304,13 +313,16 @@ export class BrowserGatewayProxy {
     }
     const spaceResult = await this.spaceGateway.request(token, access, method, prepared, context);
     if (spaceResult.handled) {
-      await revalidate();
+      await revalidate("outcome-unknown");
       return spaceResult.result as T;
     }
     const emptySearch = this.spaceAccess.emptySessionSearchResult(method, prepared);
     if (emptySearch !== undefined) {
       return emptySearch as T;
     }
+    // Space dispatch can yield even for a local RPC. Recheck before the local
+    // owner commits a wallet or other effect, not only after it has happened.
+    await revalidate();
     const localResult = await requestBrowserGatewayLocal(
       this.options,
       access,
@@ -319,7 +331,7 @@ export class BrowserGatewayProxy {
       async (reason) => await auditBrowserGatewayDenied(this.options, access, method, reason),
     );
     if (localResult.handled) {
-      await revalidate();
+      await revalidate("outcome-unknown");
       return localResult.result as T;
     }
     const specialResult = await this.liveCapabilities.requestSpecial({
@@ -333,7 +345,7 @@ export class BrowserGatewayProxy {
       gateway,
     });
     if (specialResult.handled) {
-      await revalidate();
+      await revalidate("outcome-unknown");
       return specialResult.result as T;
     }
     if (method === "sessions.files.upload" || method === "sessions.files.download") {
@@ -353,7 +365,7 @@ export class BrowserGatewayProxy {
       request: prepared,
       agentId: access.binding.agentId,
     });
-    await revalidate();
+    await revalidate("outcome-unknown");
     try {
       if (method === "sessions.files.list") {
         // The file listing may outlive a target switch; project current availability.

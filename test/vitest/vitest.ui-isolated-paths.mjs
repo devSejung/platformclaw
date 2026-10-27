@@ -12,6 +12,7 @@ export const uiIsolatedTestFiles = [
   "ui/src/platformclaw/execution-settings-agents.test.ts",
   "ui/src/platformclaw/execution-settings-progress.test.ts",
   "ui/src/platformclaw/execution-settings.test.ts",
+  "ui/src/platformclaw/fishing-game.test.ts",
   "ui/src/platformclaw/organization-join-panel.test.ts",
   "ui/src/platformclaw/spaces-management.test.ts",
   "ui/src/platformclaw/spaces-page.test.ts",
