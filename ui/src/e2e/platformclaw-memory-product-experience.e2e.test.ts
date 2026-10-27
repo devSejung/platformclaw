@@ -457,6 +457,50 @@ suite("PlatformClaw search-first Memory product experience", () => {
     }
   }, 60_000);
 
+  it("returns from settings to the same Memory query and filter with fresh results", async () => {
+    const context = await createContext({
+      locale: "en-US",
+      mode: "light",
+      viewport: { height: 900, width: 1440 },
+    });
+    try {
+      const { gateway, page, surface } = await openMemory(context, {
+        methodResponses: populatedResponses,
+      });
+      await surface.locator("#memory-search-input").fill("release");
+      await surface.locator("#memory-search-input").press("Enter");
+      await expect
+        .poll(() => surface.locator(".memory-memories__results .memory-memories__result").count())
+        .toBe(2);
+      await surface.locator('.memory-memories__filters wa-radio[value="memory"]').click();
+      await expect
+        .poll(() => surface.locator(".memory-memories__results .memory-memories__result").count())
+        .toBe(1);
+
+      await page.getByRole("button", { name: "Appearance", exact: true }).click();
+      await waitForControlUiRoute(page, {
+        routeId: "appearance",
+        pathname: "/platformclaw/app/settings/appearance",
+      });
+      await page.getByRole("button", { name: "Back to app", exact: true }).click();
+      await waitForControlUiRoute(page, {
+        routeId: "memory",
+        pathname: "/platformclaw/app/settings/memory/memories",
+      });
+      await expect.poll(() => surface.locator("#memory-search-input").inputValue()).toBe("release");
+      await expect
+        .poll(() => surface.locator(".memory-memories__results .memory-memories__result").count())
+        .toBe(1);
+      await expect
+        .poll(() => surface.locator(".memory-memories__results").textContent())
+        .toContain("Release preflight");
+      expect(await gateway.getRequests("memory.search")).toHaveLength(2);
+      await captureScreenshot(page, "12-memory-search-restored-from-settings.png");
+    } finally {
+      await context.close();
+    }
+  }, 60_000);
+
   it("shows independent long-term and recent errors with a visible retry", async () => {
     const context = await createContext({
       locale: "en-US",

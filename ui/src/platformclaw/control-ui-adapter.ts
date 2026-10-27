@@ -147,7 +147,8 @@ export class PlatformClawControlUiAdapter {
       this.clearBrowserSessionState();
       this.redirectToLogin(true);
     };
-    const quickActions = Promise.all([import("./quick-actions.ts"), loadPlatformClawLocale()])
+    const quickActionsReady = Promise.all([import("./quick-actions.ts"), loadPlatformClawLocale()]);
+    const quickActions = quickActionsReady
       .then(
         () => html`
           <platformclaw-quick-actions
@@ -160,6 +161,20 @@ export class PlatformClawControlUiAdapter {
       .catch(
         () =>
           html`<p class="muted" role="status">${t("platformClaw.quickActions.unavailable")}</p>`,
+      );
+    // This is the selected personal profile, not the pinned location of an active run.
+    const selectedLocation = quickActionsReady
+      .then(
+        () => html`<platformclaw-quick-actions
+          location-only
+          .fetchImpl=${this.fetchImpl}
+          .onUnauthenticated=${onUnauthenticated}
+        ></platformclaw-quick-actions>`,
+      )
+      .catch(
+        () => html`<span class="muted" role="status"
+          >${t("platformClaw.execution.locationUnknown")}</span
+        >`,
       );
     const joinPrompt = Promise.all([
       import("./organization-join-prompt.ts"),
@@ -218,7 +233,10 @@ export class PlatformClawControlUiAdapter {
         ></platformclaw-announcements
         >${until(joinPrompt, nothing)}
       `,
-      renderPageHeaderAccessory: renderPageHelpTrigger,
+      renderPageHeaderAccessory: (routeId, routeLocation) => html`
+        ${renderPageHelpTrigger(routeId, routeLocation)}
+        ${routeId === "chat" ? until(selectedLocation, nothing) : nothing}
+      `,
       renderPageOverlay: (routeId, routeLocation) => {
         credentialFlow.visit(routeId);
         const currentLocation = routeLocation ?? new URL(this.location.href);

@@ -457,6 +457,14 @@ async function main(): Promise<void> {
         response.writeHead(404).end("Preview control not found");
         return;
       }
+      const balances = await Promise.all(
+        TEST_ACCOUNTS.map(async (accountId) => {
+          const user = await liveRuntime.auth.store.getUserByAccountId(accountId);
+          return user
+            ? `${accountId}: ${(await liveRuntime.auth.store.loadBaseballProgress(user.id)).gold}G`
+            : `${accountId}: 최초 로그인 대기`;
+        }),
+      );
       const buttons = [
         ["demo", "지금 출발 · 혼자 보는 데모"],
         ["open", "베팅 접수"],
@@ -477,7 +485,7 @@ async function main(): Promise<void> {
         <h1>TEST · 경마 미리보기</h1><p>격리된 테스트 서버 · 가상 한국시간 · 실제 포인트가 아닙니다.</p>
         <p>가상 시각: ${new Date(clockNow()).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}<br>이번 경주: ${new Date(raceStartsAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</p>
         <p><a href="${APP_ORIGIN}/platformclaw/login" target="_blank" rel="noopener">PlatformClaw 테스트 서버 열기</a></p>
-        <p>person.one / admin.user · 비밀번호: test-password<br>최초 로그인 후 TEST POINTS 3,000G를 야구 보상 경로로 한 번 지급합니다.<br>혼자 보는 데모는 전용 테스트 참가자 2명이 참여하며, 관전자의 G를 차감하지 않습니다.<br>직접 베팅할 때는 두 계정에서 참여하세요.</p>
+        <p>person.one / admin.user · 비밀번호: test-password<br>최초 로그인 후 기존 500홈런 정산 경로로 TEST POINTS를 한 번 지급합니다.<br>현재 잔액: ${balances.join(" · ")}<br>혼자 보는 데모는 전용 테스트 참가자 2명이 참여하며, 관전자의 G를 차감하지 않습니다.<br>직접 베팅할 때는 두 계정에서 참여하세요.</p>
         ${buttons.map(([action, label]) => `<form method="post" action="/${action}"><button>${label}</button></form>`).join("")}
         <p>시간은 앞으로만 이동합니다. 새 경주는 이전 베팅을 정상 정산하거나 환불하며, 계정 잔액을 삭제하지 않습니다.</p></html>`);
     };
@@ -493,7 +501,7 @@ async function main(): Promise<void> {
     console.log(`TEST preview ready: ${APP_ORIGIN}/platformclaw/login`);
     console.log(`TEST clock controls: ${CLOCK_ORIGIN}`);
     console.log(
-      "Synthetic accounts: person.one / admin.user; password: test-password; TEST POINTS: 3000G each.",
+      "Synthetic accounts: person.one / admin.user; password: test-password; current TEST POINTS balances are shown on the developer page.",
     );
     await stopped;
   } finally {

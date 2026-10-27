@@ -2012,6 +2012,10 @@ export const en: TranslationMap = {
     acknowledgeRisk: "Acknowledge risk and install",
     disconnected: "Not connected to gateway.",
     empty: "No skills found.",
+    emptyInstalled: "No skills are available in this workspace yet.",
+    noMatching: "No skills match your filters.",
+    clearFilters: "Clear filters",
+    browseSkillHub: "Find skills in Skill Hub",
     noClawHubResults: "No skills found on ClawHub.",
     skillHub: {
       title: "Skill Hub",

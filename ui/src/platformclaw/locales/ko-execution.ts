@@ -6,6 +6,7 @@ export const executionTranslations: Readonly<Record<string, string>> = {
   "platformClaw.execution.availableVms": "추가 가능한 승인된 VM",
   "platformClaw.execution.addVm": "추가 및 연결",
   "platformClaw.execution.previousLocationKept": "현재 작업 위치: {target}.",
+  "platformClaw.execution.selectedLocation": "선택 위치: {target}",
   "platformClaw.execution.workLocation": "작업 위치",
   "platformClaw.execution.openSettings": "작업 위치 설정 열기",
   "platformClaw.execution.current": "현재 작업 위치",

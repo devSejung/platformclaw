@@ -7,6 +7,7 @@ import type {
   PlatformUser,
   BrowserSession,
 } from "./contracts.js";
+import type { FishingStore } from "./fishing-contracts.js";
 import type { HorseRacingStore } from "./horse-racing-contracts.js";
 
 export type BrowserGatewayEvent = {
@@ -44,7 +45,7 @@ export class BrowserGatewayProxyError extends Error {
   constructor(
     readonly code: BrowserGatewayProxyErrorCode,
     message: string,
-    readonly requestDisposition?: "rejected-before-dispatch",
+    readonly requestDisposition?: "rejected-before-dispatch" | "outcome-unknown",
   ) {
     super(message);
     this.name = "BrowserGatewayProxyError";
@@ -68,6 +69,7 @@ export type BrowserGatewayProxyOptions = {
   gateway: BrowserGatewayRpc;
   baseballStore?: BaseballGameStore;
   racingStore?: HorseRacingStore;
+  fishingStore?: FishingStore;
   racingNow?: () => number;
   spaceService?: import("./space-service.js").SpaceService;
   vaultService?: import("./knowledge-vault-service.js").KnowledgeVaultService;

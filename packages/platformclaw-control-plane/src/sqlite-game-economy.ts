@@ -13,7 +13,8 @@ type GoldReason =
   | "baseball_team_change"
   | "horse_bet"
   | "horse_payout"
-  | "horse_refund";
+  | "horse_refund"
+  | "fishing_catch";
 type EconomyDatabase = ControlPlaneDatabase & {
   game_gold_transactions: {
     id: string;

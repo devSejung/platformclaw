@@ -7,6 +7,7 @@ import {
   KNOWLEDGE_VAULT_RPC_METHODS,
   KNOWLEDGE_VAULT_RPC_PARAMS,
 } from "./browser-gateway-vault-policy.js";
+import { FISHING_RPC, FISHING_RPC_METHODS } from "./fishing-contracts.js";
 import { HORSE_RACING_RPC, HORSE_RACING_RPC_METHODS } from "./horse-racing-contracts.js";
 import { SPACE_RPC_METHODS, SPACE_RPC_PARAMS } from "./space-contracts.js";
 
@@ -63,6 +64,7 @@ export const PLATFORMCLAW_WEB_GATEWAY_METHODS = [
   "plugin.surface.refresh",
   ...BASEBALL_RPC_METHODS,
   ...HORSE_RACING_RPC_METHODS,
+  ...FISHING_RPC_METHODS,
   "question.get",
   "question.list",
   "question.resolve",
@@ -153,6 +155,7 @@ export const PLATFORMCLAW_WEB_LOCAL_METHODS = new Set<string>([
   ...SPACE_RPC_METHODS,
   ...BASEBALL_RPC_METHODS,
   ...HORSE_RACING_RPC_METHODS,
+  ...FISHING_RPC_METHODS,
   "commands.list",
 ]);
 export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<string>>([
@@ -180,6 +183,13 @@ export const PLATFORMCLAW_WEB_ALLOWED_PARAMS = new Map<string, ReadonlySet<strin
   [HORSE_RACING_RPC.snapshot, new Set(["raceId"])],
   [HORSE_RACING_RPC.bet, new Set(["requestId", "raceId", "market", "selection", "amount"])],
   [HORSE_RACING_RPC.cancel, new Set(["betId"])],
+  [FISHING_RPC.snapshot, new Set()],
+  [FISHING_RPC.leaderboard, new Set()],
+  [FISHING_RPC.begin, new Set(["requestId"])],
+  [FISHING_RPC.hook, new Set(["requestId", "attemptId"])],
+  [FISHING_RPC.reel, new Set(["requestId", "attemptId", "held"])],
+  [FISHING_RPC.settle, new Set(["requestId", "attemptId"])],
+  [FISHING_RPC.finish, new Set(["requestId", "attemptId"])],
   ...PLATFORMCLAW_WEB_TALK_PARAMS,
   ["agent.identity.get", new Set(["agentId", "sessionKey"])],
   ["agents.files.get", new Set(["agentId", "name"])],

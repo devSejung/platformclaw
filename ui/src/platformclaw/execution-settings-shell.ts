@@ -1,6 +1,7 @@
 import { html, nothing, svg } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { strokeIcon } from "../components/icons-tools.ts";
+import { icons } from "../components/icons.ts";
 import {
   executionServerIcon,
   executionLocationStyles,
@@ -222,6 +223,7 @@ function renderProgressPanel(options: SettingsShellOptions, message: string) {
 }
 
 const shellStyles = `
+  .badge>svg{width:16px;height:16px;flex:none}
   .panel main,.panel .tab-panel{align-content:start}
   .header-actions{display:flex;align-items:center;gap:8px}.refresh-icon{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:var(--radius-md);background:transparent;color:var(--muted);cursor:pointer}.refresh-icon>svg{width:17px;height:17px}.refresh-icon:hover:not(:disabled){background:var(--bg-hover)}.refresh-icon:focus-visible{outline:none;box-shadow:var(--focus-ring)}.refresh-icon:disabled{opacity:.5;cursor:not-allowed}
   .panel[data-settings-panel]{height:min(720px,calc(100dvh - 48px));grid-template-rows:auto auto minmax(0,1fr) auto}
@@ -278,7 +280,7 @@ const shellStyles = `
 `;
 
 export function renderExecutionSettingsShell(options: SettingsShellOptions) {
-  const { badgeLabel, busyMessage, message, messageKind, warn } = executionStatusView(
+  const { busyMessage, message, messageKind, warn } = executionStatusView(
     options.settings,
     options.activity,
     options.message,
@@ -298,7 +300,8 @@ export function renderExecutionSettingsShell(options: SettingsShellOptions) {
       aria-busy=${String(options.busy)}
       aria-label=${t("platformClaw.execution.openSettings")}
     >
-      <span class="dot" aria-hidden="true"></span><span>${busyMessage || badgeLabel}</span>
+      ${busyMessage ? html`<span class="dot" aria-hidden="true"></span>` : icons.monitor}
+      <span>${busyMessage || t("platformClaw.execution.workLocation")}</span>
     </button>
     <openclaw-modal-dialog
       data-settings-modal

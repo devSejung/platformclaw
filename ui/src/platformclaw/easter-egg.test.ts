@@ -6,6 +6,7 @@ import {
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import { getBaseballEnhancementAppearance } from "../../../packages/platformclaw-control-plane/src/baseball-enhancement.ts";
 import { i18n } from "../i18n/index.ts";
+import type { BaseballMutationResponse } from "./easter-egg-persistence.ts";
 import {
   BASEBALL_TEAMS,
   loadBaseballSettings,
@@ -14,7 +15,7 @@ import {
 import type { Pitch } from "./easter-egg-simulation.ts";
 import { classifyTimingDelta, formatTimingFeedback } from "./easter-egg-timing.ts";
 import { PLATFORMCLAW_EASTER_EGG_EVENT, recordPlatformClawEasterEggClick } from "./easter-egg.ts";
-import { loadAllPlatformClawLocales } from "./i18n.ts";
+import { loadAllPlatformClawLocales, platformClawT as t } from "./i18n.ts";
 import "./easter-egg-game.ts";
 
 type EasterEggElement = HTMLElement & {
@@ -70,7 +71,10 @@ async function openBaseball(egg: EasterEggElement): Promise<void> {
   await flush(egg);
 }
 
-async function openPitchGame(sample: number) {
+async function openPitchGame(
+  sample: number,
+  plateResponse: BaseballMutationResponse = { awardedGold: 0, progress: progress() },
+) {
   vi.useFakeTimers();
   const egg = document.querySelector("platformclaw-easter-egg") as EasterEggElement & {
     pitch: Pitch | null;
@@ -78,6 +82,8 @@ async function openPitchGame(sample: number) {
     phase: string;
     lastFrameAt: number;
     swingTimingDeltaMs: number | null;
+    awardedGold: number;
+    resolveAtBat: (outcome: "home_run", distanceM: number) => void;
   };
   egg.now = () => Date.now();
   egg.random = () => 0;
@@ -92,7 +98,7 @@ async function openPitchGame(sample: number) {
       return leaderboard() as T;
     }
     if (method === BASEBALL_RPC.plateAppearance) {
-      return { awardedGold: 0, progress: progress() } as T;
+      return plateResponse as T;
     }
     throw new Error(`unexpected method: ${method}`);
   });
@@ -121,6 +127,38 @@ describe("PlatformClaw easter egg", () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
+
+  it.each([
+    [10, 0, 18],
+    [0, 10, 18],
+    [10, 10, 28],
+  ] as const)(
+    "shows confirmed total %s and streak %s bonuses with the full %sG reward",
+    async (totalBonus, streakBonus, gold) => {
+      const { egg } = await openPitchGame(0.1171875, {
+        awardedGold: gold,
+        homeRunBonusGold: totalBonus,
+        homeRunStreakBonusGold: streakBonus,
+        progress: progress({
+          gold,
+          revision: 1,
+          totalHomers: 15,
+          currentHomeRunStreak: 15,
+        }),
+      });
+      egg.resolveAtBat("home_run", 145);
+      await vi.waitFor(() => expect(egg.awardedGold).toBe(gold));
+      await flush(egg);
+      const effect = egg.querySelector(".platformclaw-easter-egg__bonus");
+      expect(effect?.textContent?.includes(t("platformClaw.baseball.bonus", { gold: "10" }))).toBe(
+        totalBonus > 0,
+      );
+      expect(
+        effect?.textContent?.includes(t("platformClaw.baseball.streakBonus", { gold: "10" })),
+      ).toBe(streakBonus > 0);
+      expect(egg.textContent).toContain(t("platformClaw.baseball.reward", { gold: String(gold) }));
+    },
+  );
 
   it.each(["ControlLeft", "ControlRight"])(
     "resumes %s after closing the workshop and judges keydown between animation frames",

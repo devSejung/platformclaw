@@ -27,10 +27,11 @@ suite("Team Space rendered browser workflows", () => {
       await expect.poll(() => spacesLink.isVisible()).toBe(true);
       await spacesLink.click();
       const ui = page.locator("platformclaw-spaces-page");
-      await expect
-        .poll(() => ui.getByRole("button", { name: "Create Space", exact: true }).isVisible())
-        .toBe(true);
-      await ui.getByRole("button", { name: "Create Space", exact: true }).click();
+      const createSpace = ui
+        .locator(".pc-space-welcome")
+        .getByRole("button", { name: "Create Space", exact: true });
+      await expect.poll(() => createSpace.isVisible()).toBe(true);
+      await createSpace.click();
       await ui.getByLabel("Title", { exact: true }).fill(space.name);
       await gateway.setMethodResponse(`${rpc}list`, [space]);
       await gateway.setMethodResponse(`${rpc}get`, { ...snapshot, pages: [], members: [alice] });

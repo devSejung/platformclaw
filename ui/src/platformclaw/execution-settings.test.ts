@@ -15,7 +15,7 @@ import {
 } from "./execution-settings.test-support.ts";
 import { mountPlatformClawExecutionSettings } from "./execution-settings.ts";
 import { subscribeToPlatformClawExecutionTargetChanges } from "./execution-target-events.ts";
-import { platformClawT as t } from "./i18n.ts";
+import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 
 describe("PlatformClaw execution settings", () => {
   afterEach(async () => {
@@ -39,6 +39,7 @@ describe("PlatformClaw execution settings", () => {
     const unsubscribe = subscribeToPlatformClawExecutionTargetChanges(window, listener, () => {});
     try {
       const root = await mountExecutionSettings(fetchImpl);
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
       const switchButton = root.querySelector<HTMLButtonElement>("[data-target='assigned_vm']")!;
       switchButton.click();
       switchButton.click();
@@ -64,16 +65,64 @@ describe("PlatformClaw execution settings", () => {
         t("platformClaw.execution.switching", { target: "Development VM" }),
       );
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("true");
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+        t("platformClaw.execution.switching", { target: "Development VM" }),
+      );
       expect(listener).not.toHaveBeenCalled();
 
       target.resolve(executionSettingsResponse(changedSettings));
 
       await vi.waitFor(() => expect(listener).toHaveBeenCalledOnce());
-      expect(root.querySelector("[data-action='open']")?.textContent).toContain("Development VM");
+      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM");
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("false");
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
     } finally {
       unsubscribe();
     }
+  });
+
+  it("exposes only the current translated VM status while retaining both layout captions", async () => {
+    const active = {
+      ...EXECUTION_SETTINGS,
+      activeTarget: "assigned_vm",
+      targetRevision: 4,
+      savedVms: EXECUTION_SETTINGS.savedVms.map((vm) => ({ ...vm, active: true })),
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(executionSettingsResponse(EXECUTION_SETTINGS))
+      .mockResolvedValueOnce(executionSettingsResponse(active));
+    const root = await mountExecutionSettings(fetchImpl);
+    const tile = root.querySelector<HTMLButtonElement>("[data-connection-id='connection-one']")!;
+    const status = tile.querySelector<HTMLElement>(".location-state")!;
+    const exposedCaption = () => status.querySelectorAll('[aria-hidden="false"]');
+    await i18n.setLocale("ko");
+    await loadPlatformClawLocale();
+    await vi.waitFor(() =>
+      expect(exposedCaption()[0]?.textContent?.trim()).toBe(
+        t("platformClaw.execution.connectionReady"),
+      ),
+    );
+    expect(status.children).toHaveLength(2);
+    expect(exposedCaption()).toHaveLength(1);
+    expect(status.querySelector('[aria-hidden="true"]')?.textContent?.trim()).toBe(
+      t("platformClaw.execution.currentlyActive"),
+    );
+    tile.click();
+    await vi.waitFor(() =>
+      expect(exposedCaption()[0]?.textContent?.trim()).toBe(
+        t("platformClaw.execution.currentlyActive"),
+      ),
+    );
+    expect(root.querySelector("[data-connection-id='connection-one'] .location-state")).toBe(
+      status,
+    );
+    expect(status.children).toHaveLength(2);
+    expect(exposedCaption()).toHaveLength(1);
+    expect(status.querySelector('[aria-hidden="true"]')?.textContent?.trim()).toBe(
+      t("platformClaw.execution.connectionReady"),
+    );
+    expect(tile.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("registers and activates once through the atomic server selection", async () => {
@@ -83,24 +132,63 @@ describe("PlatformClaw execution settings", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(executionSettingsResponse(UNASSIGNED_EXECUTION_SETTINGS))
       .mockReturnValueOnce(selection.promise);
-    const root = await mountExecutionSettings(fetchImpl);
-    setExecutionInput(root, "[name='password']", "fixture-password");
-    submitVmSelection(root);
-    expect(executionProgressState(root, "connection")).toBe("active");
-    expectExecutionControlsDisabled(root);
-    expect(fetchImpl.mock.calls[1]?.[1]?.body).toBe(
-      JSON.stringify({
-        vmHostId: "vm-one",
-        linuxAccount: "person.one",
-        password: "fixture-password",
-        expectedRevision: 3,
-      }),
-    );
-    expect(root.querySelector<HTMLInputElement>("input[name='password']")?.value).toBe("");
-    selection.resolve(executionSettingsResponse(active));
-    await vi.waitFor(() => expect(executionProgressState(root, "activation")).toBe("complete"));
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM");
+    const listener = vi.fn();
+    const unsubscribe = subscribeToPlatformClawExecutionTargetChanges(window, listener, () => {});
+    try {
+      const root = await mountExecutionSettings(fetchImpl);
+      setExecutionInput(root, "[name='password']", "fixture-password");
+      const form = submitVmSelection(root);
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      expect(executionProgressState(root, "connection")).toBe("active");
+      expect(executionProgressState(root, "activation")).toBe("pending");
+      expect(root.querySelector("[data-connection-progress]")?.getAttribute("role")).toBe("status");
+      expectExecutionControlsDisabled(root);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(fetchImpl.mock.calls[1]?.[1]?.body).toBe(
+        JSON.stringify({
+          vmHostId: "vm-one",
+          linuxAccount: "person.one",
+          password: "fixture-password",
+          expectedRevision: 3,
+        }),
+      );
+      expect(root.querySelector<HTMLInputElement>("input[name='password']")?.value).toBe("");
+      expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("true");
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+        t("platformClaw.execution.connecting"),
+      );
+      expect(listener).not.toHaveBeenCalled();
+      const settings = root.querySelector<OpenClawModalDialog>("[data-settings-modal]")!;
+      const progress = root.querySelector<OpenClawModalDialog>("[data-progress-modal]")!;
+      root.querySelector<HTMLButtonElement>("[data-action='hide-progress']")!.click();
+      expect(progress.open).toBe(false);
+      expect(settings.open).toBe(true);
+      root.querySelector<HTMLButtonElement>("[data-action='open']")!.click();
+      expect(root.querySelector("[data-progress-modal]")).toBe(progress);
+      expect(progress.open).toBe(true);
+      expect(executionProgressState(root, "connection")).toBe("active");
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      selection.resolve(executionSettingsResponse(active));
+      await vi.waitFor(() => expect(executionProgressState(root, "activation")).toBe("complete"));
+      expect(executionProgressState(root, "connection")).toBe("complete");
+      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM");
+      expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("false");
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
+      expect(listener).toHaveBeenCalledOnce();
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      await i18n.setLocale("ko");
+      await vi.waitFor(() =>
+        expect(
+          root.querySelector("[data-progress-modal] .progress-message")?.textContent,
+        ).toContain(t("platformClaw.execution.usingTarget", { target: "Development VM" })),
+      );
+      expect(
+        root.querySelector("[data-progress-modal] .progress-message")?.textContent,
+      ).not.toContain("Now using");
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("작업 위치");
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("resyncs after a failed connection and preserves the selected VM and Linux account", async () => {
@@ -132,7 +220,7 @@ describe("PlatformClaw execution settings", () => {
     expect(root.querySelector<HTMLInputElement>("[name='linuxAccount']")?.value).toBe(
       "custom.account",
     );
-    expect(root.querySelector("[data-action='open']")?.textContent).toContain("Basic server");
+    expect(root.querySelector("[data-current-target]")?.textContent).toContain("Basic server");
     expect(
       root.querySelector<HTMLButtonElement>("[data-action='select-vm'] button")?.disabled,
     ).toBe(false);
@@ -232,7 +320,26 @@ describe("PlatformClaw execution settings", () => {
     );
     expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM");
     expect(root.querySelector("[data-progress-panel]")?.textContent).toContain("Second VM");
-    root.querySelector<HTMLButtonElement>("[data-action='retry-progress']")!.click();
+    expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
+    const keptLocation = t("platformClaw.execution.previousLocationKept", {
+      target: "Development VM",
+    });
+    expect(root.textContent).toContain(keptLocation);
+    await i18n.setLocale("ko");
+    await vi.waitFor(() =>
+      expect(root.textContent).toContain(
+        t("platformClaw.execution.previousLocationKept", { target: "Development VM" }),
+      ),
+    );
+    expect(root.textContent).not.toContain(keptLocation);
+    await i18n.setLocale("en");
+    await vi.waitFor(() => expect(root.textContent).toContain(keptLocation));
+    const retry = root.querySelector<HTMLButtonElement>("[data-action='retry-progress']")!;
+    expect(retry.disabled).toBe(false);
+    retry.click();
+    expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+      t("platformClaw.execution.switching", { target: "Second VM" }),
+    );
     await vi.waitFor(() =>
       expect(root.querySelector("[data-current-target]")?.textContent).toContain("Second VM"),
     );
@@ -259,18 +366,30 @@ describe("PlatformClaw execution settings", () => {
       .mockResolvedValueOnce(executionSettingsResponse(UNASSIGNED_EXECUTION_SETTINGS))
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockResolvedValueOnce(executionSettingsResponse(active));
-    const root = await mountExecutionSettings(fetchImpl);
-    setExecutionInput(root, "[name='password']", "fixture-password");
-    submitVmSelection(root);
-    await vi.waitFor(() =>
-      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM"),
-    );
-    expect(root.querySelector("[role='alert']")).toBeNull();
-    expect(fetchImpl.mock.calls.map(([path]) => path)).toEqual([
-      "/platformclaw/api/execution",
-      "/platformclaw/api/execution/selection",
-      "/platformclaw/api/execution",
-    ]);
+    const listener = vi.fn();
+    const unsubscribe = subscribeToPlatformClawExecutionTargetChanges(window, listener, () => {});
+    try {
+      const root = await mountExecutionSettings(fetchImpl);
+      setExecutionInput(root, "[name='password']", "fixture-password");
+      submitVmSelection(root);
+      await vi.waitFor(() =>
+        expect(root.querySelector("[data-current-target]")?.textContent).toContain(
+          "Development VM",
+        ),
+      );
+      expect(root.querySelector("[role='alert']")).toBeNull();
+      expect(executionProgressState(root, "connection")).toBe("complete");
+      expect(executionProgressState(root, "activation")).toBe("complete");
+      expect(listener).toHaveBeenCalledOnce();
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
+      expect(fetchImpl.mock.calls.map(([path]) => path)).toEqual([
+        "/platformclaw/api/execution",
+        "/platformclaw/api/execution/selection",
+        "/platformclaw/api/execution",
+      ]);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it.each(["credential", "test"] as const)(
@@ -296,6 +415,9 @@ describe("PlatformClaw execution settings", () => {
       );
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("true");
       expectExecutionControlsDisabled(root);
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+        t("platformClaw.execution.testing"),
+      );
       verification.resolve(executionSettingsResponse(EXECUTION_SETTINGS));
 
       await vi.waitFor(() =>
@@ -308,7 +430,7 @@ describe("PlatformClaw execution settings", () => {
             : "platformClaw.execution.connectionTested",
         ),
       );
-      expect(root.querySelector("[data-action='open']")?.textContent).toContain("Basic server");
+      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Basic server");
       expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
         "/platformclaw/api/execution",
         `/platformclaw/api/execution/${action}`,
@@ -409,7 +531,7 @@ describe("PlatformClaw execution settings", () => {
     expect(root.querySelector("[data-action='activate-verified-vm']")).not.toBeNull();
     root.querySelector<HTMLButtonElement>("[data-action='hide-progress']")!.click();
     expect(progress.open).toBe(false);
-    expect(root.querySelector("[data-action='open']")?.textContent).toContain("Basic server");
+    expect(root.querySelector("[data-current-target]")?.textContent).toContain("Basic server");
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       "/platformclaw/api/execution",
       "/platformclaw/api/execution/credential",
@@ -427,7 +549,7 @@ describe("PlatformClaw execution settings", () => {
       mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
       const root = document.querySelector("platformclaw-execution-settings")!.shadowRoot!;
       await vi.waitFor(() =>
-        expect(root.querySelector("[data-action='open']")?.textContent).toContain(
+        expect(root.querySelector("[data-current-target]")?.textContent).toContain(
           activeTarget === "assigned_vm" ? "Development VM" : "Basic server",
         ),
       );
@@ -493,7 +615,11 @@ describe("PlatformClaw execution settings", () => {
     );
     mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-execution-settings")!;
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Basic server"));
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector("[data-current-target]")?.textContent).toContain(
+        "Basic server",
+      ),
+    );
     element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
     const dialog = element.shadowRoot?.querySelector<OpenClawModalDialog>("[data-settings-modal]");
 

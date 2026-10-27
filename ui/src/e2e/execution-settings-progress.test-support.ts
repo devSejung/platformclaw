@@ -24,9 +24,19 @@ type ProofHost = HTMLElement & {
 };
 
 async function captureDialogIdentity(component: Locator, kind: "settings" | "progress") {
-  const dialog = component.locator(`[data-${kind}-modal] dialog`);
+  const modal = component.locator(`[data-${kind}-modal]`);
+  const dialog = modal.locator("dialog");
   await expect
     .poll(() => dialog.evaluate((element) => (element as HTMLDialogElement).open))
+    .toBe(true);
+  // Native opening precedes the adapter's next-frame content and focus admission.
+  await expect
+    .poll(() =>
+      modal.evaluate((element) => {
+        const slot = element.shadowRoot?.querySelector("slot");
+        return Boolean(slot && !slot.inert && !slot.hasAttribute("data-focus-pending"));
+      }),
+    )
     .toBe(true);
   await component.evaluate((element, dialogKind) => {
     const host = element as ProofHost;
@@ -182,6 +192,18 @@ export async function assertExecutionProgressLayout(
   return box;
 }
 
+function currentLocationLayoutBox(card: Locator) {
+  return card.evaluate((element) => {
+    const main = element.closest("main");
+    if (!main) {
+      throw new Error("Current location card must belong to the settings scroll area");
+    }
+    const { x, y, width, height } = element.getBoundingClientRect();
+    // Field focus can scroll the form; compare its flow position rather than the viewport offset.
+    return { x, y: y + main.scrollTop, width, height };
+  });
+}
+
 export async function runExecutionProgressCase({
   browser,
   server,
@@ -192,9 +214,32 @@ export async function runExecutionProgressCase({
 }: CaseOptions): Promise<void> {
   const locale = mode === "light" ? "en" : "ko";
   const reducedMotion = family === "custom";
+  const copy =
+    locale === "en"
+      ? {
+          basic: "Basic server",
+          workLocation: "Work location",
+          settings: "Work environment settings",
+          connecting: "Connecting to your VM",
+          switching: "Switching work location",
+          success: "Ready to work",
+          failure: "Work location needs attention",
+          retry: "Retry work location change",
+        }
+      : {
+          basic: "기본 서버",
+          workLocation: "작업 위치",
+          settings: "작업 환경 설정",
+          connecting: "VM 연결 중",
+          switching: "작업 위치 전환 중",
+          success: "작업 준비 완료",
+          failure: "작업 위치를 확인해 주세요",
+          retry: "작업 위치 전환 다시 시도",
+        };
   const context = await browser.newContext({
     colorScheme: mode,
-    locale: locale === "ko" ? "ko-KR" : "en-US",
+    // App language must win even when the browser's date locale differs.
+    locale: family === "platformclaw" || locale === "ko" ? "ko-KR" : "en-US",
     reducedMotion: reducedMotion ? "reduce" : "no-preference",
     serviceWorkers: "block",
     viewport: { width: 1440, height: 1000 },
@@ -230,6 +275,16 @@ export async function runExecutionProgressCase({
   let revision = 1;
   const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
   let release: (() => void) | undefined;
+  let failNextSwitch = false;
+  let retryObserved = false;
+  const releasePendingRequest = () => {
+    const resolve = release;
+    if (!resolve) {
+      throw new Error("Expected a pending execution request");
+    }
+    release = undefined;
+    resolve();
+  };
   const settings = () => ({
     activeTarget,
     targetRevision: revision,
@@ -270,6 +325,11 @@ export async function runExecutionProgressCase({
         activeTarget = "assigned_vm";
       } else {
         expect(pathname.endsWith("/target")).toBe(true);
+        if (failNextSwitch && body.target === "assigned_vm") {
+          failNextSwitch = false;
+          await route.fulfill({ status: 503, json: { error: "Fixture activation failed" } });
+          return;
+        }
         activeTarget = String(body.target);
         if (activeTarget === "assigned_vm") {
           const connection = saved.find((vm) => vm.id === body.connectionId)!;
@@ -288,6 +348,7 @@ export async function runExecutionProgressCase({
         type: "module",
         content: `import { importCustomThemeFromUrl, syncCustomThemeStyleTag } from ${JSON.stringify(`${server.baseUrl}src/app/custom-theme.ts`)}; const theme = await importCustomThemeFromUrl("https://tweakcn.com/themes/connection-proof", async () => new Response(JSON.stringify(${JSON.stringify(createTweakcnThemePayload())}), { headers: { "Content-Type": "application/json" } })); syncCustomThemeStyleTag(theme);`,
       });
+      await page.locator("#openclaw-custom-theme").waitFor({ state: "attached" });
     }
     await page.evaluate(
       ({ family: f, mode: m }) => {
@@ -298,40 +359,111 @@ export async function runExecutionProgressCase({
       { family, mode },
     );
     const component = page.locator("platformclaw-execution-settings");
-    const basic = locale === "en" ? "Basic server" : "기본 서버";
+    const basic = copy.basic;
+    const badge = component.locator("[data-action='open']");
+    const currentLocation = component.locator("[data-current-location]");
+    const currentTarget = currentLocation.locator("[data-current-target]");
+    await expect.poll(() => currentTarget.textContent()).toContain(basic);
+    expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
+    await badge.click();
     await expect
-      .poll(() => component.locator("[data-action='open']").textContent())
-      .toContain(basic);
-    await component.locator("[data-action='open']").click();
+      .poll(() => component.getByRole("dialog", { name: copy.settings, exact: true }).isVisible())
+      .toBe(true);
     await captureDialogIdentity(component, "settings");
+    expect(
+      await currentLocation.locator("[data-target='platform_server']").getAttribute("aria-pressed"),
+    ).toBe("true");
+    if (locale === "en") {
+      expect(await component.locator("[data-settings-modal]").textContent()).not.toMatch(
+        /[가-힣]/u,
+      );
+    }
     async function complete(to: string, from: string, registration = false) {
+      const expectFailure = failNextSwitch && !registration;
       await expect.poll(() => typeof release).toBe("function");
       await captureDialogIdentity(component, "progress");
       await assertDialogIdentity(component, "settings");
       await assertLayeredDialogs(component);
-      await assertExecutionProgressLayout(component);
-      expect(await component.locator("[data-current-target]").textContent()).toContain(from);
+      const settingsBox = await settledPanelBox(component, "settings");
+      const progressBox = await assertExecutionProgressLayout(component);
+      const locationBox = await currentLocationLayoutBox(currentLocation);
+      const viewport = page.viewportSize()!;
+      expect(progressBox.x).toBeGreaterThanOrEqual(0);
+      expect(progressBox.y).toBeGreaterThanOrEqual(0);
+      expect(progressBox.x + progressBox.width).toBeLessThanOrEqual(viewport.width);
+      expect(progressBox.y + progressBox.height).toBeLessThanOrEqual(viewport.height);
+      expect(settingsBox.y).toBeGreaterThanOrEqual(0);
+      expect(settingsBox.y + settingsBox.height).toBeLessThanOrEqual(viewport.height);
+      expect(await currentTarget.textContent()).toContain(from);
+      expect(await badge.getAttribute("aria-busy")).toBe("true");
+      const upper = component.locator("[data-progress-modal]");
+      expect(
+        await upper
+          .getByRole("heading", {
+            name: registration ? copy.connecting : copy.switching,
+            exact: true,
+          })
+          .isVisible(),
+      ).toBe(true);
+      if (locale === "en") {
+        expect(await upper.textContent()).not.toMatch(/[가-힣]/u);
+      }
       if (!registration) {
         await assertExecutionTransfer(component, reducedMotion, { from, to });
       }
-      const resolve = release!;
-      release = undefined;
-      resolve();
+      const attempt = requests.at(-1)!;
+      releasePendingRequest();
+      if (expectFailure) {
+        await expect
+          .poll(() => upper.locator("[data-progress-panel]").getAttribute("data-phase"))
+          .toBe("error");
+        expect(await currentTarget.textContent()).toContain(from);
+        expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
+        expect(
+          await upper.getByRole("heading", { name: copy.failure, exact: true }).isVisible(),
+        ).toBe(true);
+        const retry = upper.getByRole("button", { name: copy.retry, exact: true });
+        expect(await retry.isEnabled()).toBe(true);
+        await screenshot(page, `multi-vm-${family}-${mode}-failed.png`);
+        await retry.click();
+        await expect.poll(() => typeof release).toBe("function");
+        expect(requests.at(-1)).toEqual(attempt);
+        await assertDialogIdentity(component, "progress");
+        await assertExecutionTransfer(component, reducedMotion, { from, to });
+        retryObserved = true;
+        releasePendingRequest();
+      }
+      await expect.poll(() => currentTarget.textContent()).toContain(to);
       await expect
-        .poll(() => component.locator("[data-current-target]").textContent())
-        .toContain(to);
-      await expect
-        .poll(() => component.locator("[data-progress-panel]").getAttribute("data-phase"))
+        .poll(() => upper.locator("[data-progress-panel]").getAttribute("data-phase"))
         .toBe("success");
+      expect(
+        await upper.getByRole("heading", { name: copy.success, exact: true }).isVisible(),
+      ).toBe(true);
+      await assertExecutionProgressLayout(component);
+      expect(await badge.getAttribute("aria-busy")).toBe("false");
+      expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
       await screenshot(page, `multi-vm-${family}-${mode}-${requests.length}.png`);
       await expect
-        .poll(() =>
-          component
-            .locator("[data-progress-modal] dialog")
-            .evaluate((node) => (node as HTMLDialogElement).open),
-        )
+        .poll(() => upper.locator("dialog").evaluate((node) => (node as HTMLDialogElement).open))
         .toBe(false);
       await assertDialogIdentity(component, "settings");
+      await assertDialogIdentity(component, "progress", false);
+      expect(
+        await component.locator("[data-settings-modal] main").evaluate((node) => node.scrollTop),
+      ).toBe(0);
+      expect(await component.locator("[data-settings-modal] .message--success").count()).toBe(0);
+      expect(await currentTarget.getAttribute("role")).toBe("status");
+      expect(await currentTarget.getAttribute("aria-live")).toBe("polite");
+      if (!registration) {
+        const completedBox = await currentLocationLayoutBox(currentLocation);
+        for (const coordinate of ["x", "y", "width", "height"] as const) {
+          expect(
+            Math.abs(completedBox[coordinate] - locationBox[coordinate]),
+            `Current location card ${coordinate}`,
+          ).toBeLessThan(1);
+        }
+      }
       expect(
         await component
           .locator("[data-settings-panel]")
@@ -352,7 +484,8 @@ export async function runExecutionProgressCase({
       current = vm.label;
     }
     expect(await component.locator("[data-saved-vm]").count()).toBe(3);
-    for (const destination of [0, 1, 2, 0, -1, 1]) {
+    expect(await currentLocation.locator("[data-target] svg").count()).toBe(4);
+    async function switchTo(destination: number) {
       const label = destination < 0 ? basic : labels[destination]!;
       const selector =
         destination < 0
@@ -362,8 +495,20 @@ export async function runExecutionProgressCase({
       await complete(label, current);
       current = label;
     }
+    for (const destination of [0, 1, 2, 0, -1, 1]) {
+      await switchTo(destination);
+    }
+    // Preserve desktop matrix proof and narrow-screen switching without repeating the full matrix.
+    await page.setViewportSize({ width: 390, height: 844 });
+    failNextSwitch = family === "platformclaw";
+    for (const destination of [0, -1]) {
+      await switchTo(destination);
+    }
     expect(requests.filter((request) => request.path.endsWith("/selection"))).toHaveLength(3);
-    expect(requests.filter((request) => request.path.endsWith("/target"))).toHaveLength(6);
+    expect(requests.filter((request) => request.path.endsWith("/target"))).toHaveLength(
+      family === "platformclaw" ? 9 : 8,
+    );
+    expect(retryObserved).toBe(family === "platformclaw");
   } finally {
     release?.();
     await context.close();

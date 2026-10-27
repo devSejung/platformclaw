@@ -16,6 +16,7 @@ export const executionTranslations: Readonly<Record<string, string>> = {
   "platformClaw.vmAdmin.endpointRenamed": "SafeConnect display name saved.",
   "platformClaw.vmAdmin.confirmRevokeSaved":
     "Remove the saved connection for {label}? The user's current work location and files stay unchanged. A new connection will require authentication.",
+  "platformClaw.execution.selectedLocation": "Selected location: {target}",
   "platformClaw.execution.codingAgents": "Coding agents",
   "platformClaw.execution.useAgent": "Allow {agent}",
   "platformClaw.execution.agentSavedOn": "Saved permission: on",

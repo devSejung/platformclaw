@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 describe("SqliteControlPlaneStore baseball state", () => {
-  it("persists progress across reopen and rewards three gold per hit and five per home run", async () => {
+  it("persists progress across reopen and rewards five gold per hit and eight per home run", async () => {
     const databasePath = createDatabasePath();
     const first = createStore(databasePath);
     const user = await seedUser(first);
@@ -112,10 +112,11 @@ describe("SqliteControlPlaneStore baseball state", () => {
       distanceM: 132,
     });
     expect(homeRun).toMatchObject({
-      awardedGold: 5,
+      awardedGold: 8,
       homeRunBonusGold: 0,
+      homeRunStreakBonusGold: 0,
       progress: {
-        gold: 5,
+        gold: 8,
         totalHomers: 1,
         bestDistanceM: 132,
         currentHomeRunStreak: 1,
@@ -131,9 +132,9 @@ describe("SqliteControlPlaneStore baseball state", () => {
         distanceM: 140,
       }),
     ).resolves.toMatchObject({
-      awardedGold: 3,
+      awardedGold: 5,
       progress: {
-        gold: 8,
+        gold: 13,
         totalHomers: 1,
         bestDistanceM: 140,
         currentHomeRunStreak: 0,
@@ -150,7 +151,7 @@ describe("SqliteControlPlaneStore baseball state", () => {
       }),
     ).resolves.toMatchObject({
       awardedGold: 0,
-      progress: { gold: 8, totalHomers: 1, bestDistanceM: 140, revision: 2 },
+      progress: { gold: 13, totalHomers: 1, bestDistanceM: 140, revision: 2 },
     });
     await expect(
       first.rewardBaseballPlateAppearance({
@@ -160,13 +161,13 @@ describe("SqliteControlPlaneStore baseball state", () => {
       }),
     ).resolves.toMatchObject({
       awardedGold: 0,
-      progress: { gold: 8, totalHomers: 1, bestDistanceM: 140, revision: 2 },
+      progress: { gold: 13, totalHomers: 1, bestDistanceM: 140, revision: 2 },
     });
     first.close();
 
     const reopened = createStore(databasePath);
     await expect(reopened.loadBaseballProgress(user.id)).resolves.toMatchObject({
-      gold: 8,
+      gold: 13,
       ownedBatIds: ["wood"],
       equippedBatId: "wood",
       totalHomers: 1,
@@ -192,8 +193,10 @@ describe("SqliteControlPlaneStore baseball state", () => {
           distanceM: 120 + homer,
         }),
       ).resolves.toMatchObject({
-        awardedGold: 5,
-        progress: { gold: homer * 5, totalHomers: homer, revision: homer * 2 - 1 },
+        awardedGold: 8,
+        homeRunBonusGold: 0,
+        homeRunStreakBonusGold: 0,
+        progress: { gold: homer * 8, totalHomers: homer, revision: homer * 2 - 1 },
       });
       await expect(
         first.rewardBaseballPlateAppearance({
@@ -203,7 +206,7 @@ describe("SqliteControlPlaneStore baseball state", () => {
         }),
       ).resolves.toMatchObject({
         awardedGold: 0,
-        progress: { gold: homer * 5, currentHomeRunStreak: 0, revision: homer * 2 },
+        progress: { gold: homer * 8, currentHomeRunStreak: 0, revision: homer * 2 },
       });
     }
     const milestoneRequest = {
@@ -214,10 +217,11 @@ describe("SqliteControlPlaneStore baseball state", () => {
     };
     const milestone = await first.rewardBaseballPlateAppearance(milestoneRequest);
     expect(milestone).toMatchObject({
-      awardedGold: 10,
-      homeRunBonusGold: 5,
+      awardedGold: 18,
+      homeRunBonusGold: 10,
+      homeRunStreakBonusGold: 0,
       progress: {
-        gold: 30,
+        gold: 50,
         totalHomers: 5,
         currentHomeRunStreak: 1,
         bestHomeRunStreak: 1,
@@ -229,7 +233,7 @@ describe("SqliteControlPlaneStore baseball state", () => {
 
     const reopened = createStore(databasePath);
     await expect(reopened.loadBaseballProgress(user.id)).resolves.toMatchObject({
-      gold: 30,
+      gold: 50,
       totalHomers: 5,
       revision: 9,
     });
@@ -241,9 +245,160 @@ describe("SqliteControlPlaneStore baseball state", () => {
         distanceM: 90,
       }),
     ).resolves.toMatchObject({
-      awardedGold: 3,
-      progress: { gold: 33, totalHomers: 5, revision: 10 },
+      awardedGold: 5,
+      progress: { gold: 55, totalHomers: 5, revision: 10 },
     });
+    reopened.close();
+  });
+
+  it("awards both periodic bonuses through fifteen consecutive home runs and replays the overlap once", async () => {
+    const databasePath = createDatabasePath();
+    const store = createStore(databasePath);
+    const user = await seedUser(store);
+    const expectedAwards = [8, 8, 18, 8, 18, 18, 8, 8, 18, 18, 8, 18, 8, 8, 28];
+    let balance = 0;
+    for (let homer = 1; homer <= 15; homer++) {
+      const request = {
+        userId: user.id,
+        requestId: `periodic-${homer}`,
+        outcome: "home_run" as const,
+        distanceM: 130,
+      };
+      const result = await store.rewardBaseballPlateAppearance(request);
+      balance += expectedAwards[homer - 1]!;
+      expect(result).toMatchObject({
+        awardedGold: expectedAwards[homer - 1],
+        homeRunBonusGold: homer % 5 === 0 ? 10 : 0,
+        homeRunStreakBonusGold: homer % 3 === 0 ? 10 : 0,
+        progress: {
+          gold: balance,
+          totalHomers: homer,
+          currentHomeRunStreak: homer,
+          bestHomeRunStreak: homer,
+          revision: homer,
+        },
+      });
+      expect(await store.rewardBaseballPlateAppearance(request)).toEqual(result);
+    }
+    expect(balance).toBe(200);
+    store.close();
+    const reopened = createStore(databasePath);
+    await expect(reopened.loadBaseballProgress(user.id)).resolves.toMatchObject({
+      gold: 200,
+      totalHomers: 15,
+      currentHomeRunStreak: 15,
+    });
+    const db = new DatabaseSync(databasePath);
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count, SUM(delta) AS total FROM game_gold_transactions WHERE user_id = ? AND reason = 'baseball_reward'",
+        )
+        .get(user.id),
+    ).toEqual({ count: 15, total: 200 });
+    db.close();
+    reopened.close();
+  });
+
+  it.each(["hit", "miss", "out"] as const)(
+    "resets the current home-run bonus with a %s while retaining cumulative milestones",
+    async (outcome) => {
+      const store = createStore(createDatabasePath());
+      const user = await seedUser(store);
+      for (let homer = 1; homer <= 2; homer++) {
+        await store.rewardBaseballPlateAppearance({
+          userId: user.id,
+          requestId: `before-${homer}`,
+          outcome: "home_run",
+        });
+      }
+      const reset = await store.rewardBaseballPlateAppearance({
+        userId: user.id,
+        requestId: "reset-streak",
+        outcome,
+      });
+      expect(reset).toMatchObject({
+        awardedGold: outcome === "hit" ? 5 : 0,
+        homeRunBonusGold: 0,
+        homeRunStreakBonusGold: 0,
+        progress: { totalHomers: 2, currentHomeRunStreak: 0, bestHomeRunStreak: 2 },
+      });
+      for (let homer = 1; homer <= 3; homer++) {
+        const result = await store.rewardBaseballPlateAppearance({
+          userId: user.id,
+          requestId: `after-${homer}`,
+          outcome: "home_run",
+        });
+        expect(result).toMatchObject({
+          awardedGold: homer === 3 ? 28 : 8,
+          homeRunBonusGold: homer === 3 ? 10 : 0,
+          homeRunStreakBonusGold: homer === 3 ? 10 : 0,
+          progress: { currentHomeRunStreak: homer, totalHomers: homer + 2 },
+        });
+      }
+      store.close();
+    },
+  );
+
+  it("rolls overlapping bonuses, pitch consumption and the ledger back when the receipt fails", async () => {
+    const databasePath = createDatabasePath();
+    const store = createStore(databasePath);
+    const user = await seedUser(store);
+    for (let homer = 1; homer <= 14; homer++) {
+      await store.rewardBaseballPlateAppearance({
+        userId: user.id,
+        requestId: `rollback-seed-${homer}`,
+        outcome: "home_run",
+      });
+    }
+    const before = await store.loadBaseballProgress(user.id);
+    const atBat = await store.beginBaseballAtBat({
+      userId: user.id,
+      requestId: "overlap-pitch",
+      now: 1000,
+    });
+    const request = {
+      userId: user.id,
+      requestId: "faulted-overlap",
+      atBatId: atBat.id,
+      timingDeltaMs: 0,
+      now: 2000,
+    };
+    const db = new DatabaseSync(databasePath);
+    db.exec(
+      "CREATE TRIGGER fail_overlap_receipt BEFORE INSERT ON baseball_idempotency WHEN NEW.request_id = 'faulted-overlap' BEGIN SELECT RAISE(ABORT, 'injected receipt failure'); END",
+    );
+    await expect(store.rewardBaseballPlateAppearance(request)).rejects.toThrow(
+      /injected receipt failure/,
+    );
+    expect(await store.loadBaseballProgress(user.id)).toEqual(before);
+    expect(
+      db.prepare("SELECT consumed_at FROM baseball_at_bats WHERE id = ?").get(atBat.id),
+    ).toEqual({ consumed_at: null });
+    expect(
+      db
+        .prepare("SELECT COUNT(*) AS count FROM game_gold_transactions WHERE user_id = ?")
+        .get(user.id),
+    ).toEqual({ count: 14 });
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM baseball_idempotency WHERE request_id = 'faulted-overlap'",
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+    db.exec("DROP TRIGGER fail_overlap_receipt");
+    db.close();
+    store.close();
+    const reopened = createStore(databasePath);
+    const result = await reopened.rewardBaseballPlateAppearance(request);
+    expect(result).toMatchObject({
+      awardedGold: 28,
+      homeRunBonusGold: 10,
+      homeRunStreakBonusGold: 10,
+      progress: { gold: before.gold + 28, totalHomers: 15, currentHomeRunStreak: 15 },
+    });
+    expect(await reopened.rewardBaseballPlateAppearance(request)).toEqual(result);
     reopened.close();
   });
 
@@ -313,11 +468,12 @@ describe("SqliteControlPlaneStore baseball state", () => {
       distanceM: 130,
     });
     expect(reward).toEqual({
-      awardedGold: 10,
-      homeRunBonusGold: 5,
+      awardedGold: 18,
+      homeRunBonusGold: 10,
+      homeRunStreakBonusGold: 0,
       progress: {
         ...expectedProgress,
-        gold: 1_244,
+        gold: 1_252,
         totalHomers: 10,
         currentHomeRunStreak: 1,
         revision: 43,
@@ -329,6 +485,76 @@ describe("SqliteControlPlaneStore baseball state", () => {
     await expect(reopened.loadBaseballProgress(user.id)).resolves.toEqual(reward.progress);
     await expect(reopened.rewardBaseballPlateAppearance(request)).resolves.toEqual(priorResult);
     await expect(reopened.loadBaseballProgress(user.id)).resolves.toEqual(reward.progress);
+    reopened.close();
+  });
+
+  it("replays an immutable historical five-gold bonus without repricing its balance", async () => {
+    const databasePath = createDatabasePath();
+    const store = createStore(databasePath);
+    const user = await seedUser(store);
+    const initial = await store.loadBaseballProgress(user.id);
+    const priorProgress = {
+      ...initial,
+      gold: 30,
+      totalHomers: 5,
+      currentHomeRunStreak: 5,
+      bestHomeRunStreak: 5,
+      revision: 5,
+    };
+    const priorResult = { awardedGold: 10, homeRunBonusGold: 5, progress: priorProgress };
+    const request = {
+      userId: user.id,
+      requestId: "historical-fifth",
+      outcome: "home_run" as const,
+      distanceM: 125,
+    };
+    const receipt = JSON.stringify({ ok: true, result: priorResult });
+    const db = new DatabaseSync(databasePath);
+    db.prepare(
+      "UPDATE baseball_game_progress SET gold = 30, total_homers = 5, revision = 5 WHERE user_id = ?",
+    ).run(user.id);
+    db.prepare(
+      "UPDATE baseball_home_run_streaks SET current_streak = 5, best_streak = 5 WHERE user_id = ?",
+    ).run(user.id);
+    db.prepare(
+      "INSERT INTO baseball_idempotency (user_id, request_id, operation, payload_digest, result_json) VALUES (?, ?, 'plate_appearance', ?, ?)",
+    ).run(
+      user.id,
+      request.requestId,
+      createHash("sha256")
+        .update(JSON.stringify({ outcome: "home_run", distanceM: 125 }), "utf8")
+        .digest("hex"),
+      receipt,
+    );
+    store.close();
+    const reopened = createStore(databasePath);
+    expect(await reopened.rewardBaseballPlateAppearance(request)).toEqual(priorResult);
+    expect(await reopened.loadBaseballProgress(user.id)).toEqual(priorProgress);
+    const current = await reopened.rewardBaseballPlateAppearance({
+      userId: user.id,
+      requestId: "new-sixth",
+      outcome: "home_run",
+    });
+    expect(current).toMatchObject({
+      awardedGold: 18,
+      homeRunBonusGold: 0,
+      homeRunStreakBonusGold: 10,
+      progress: { gold: 48, totalHomers: 6, currentHomeRunStreak: 6 },
+    });
+    expect(await reopened.rewardBaseballPlateAppearance(request)).toEqual(priorResult);
+    expect(
+      db
+        .prepare(
+          "SELECT result_json FROM baseball_idempotency WHERE user_id = ? AND request_id = ?",
+        )
+        .get(user.id, request.requestId),
+    ).toEqual({ result_json: receipt });
+    expect(
+      db
+        .prepare("SELECT COUNT(*) AS count FROM game_gold_transactions WHERE user_id = ?")
+        .get(user.id),
+    ).toEqual({ count: 1 });
+    db.close();
     reopened.close();
   });
 
@@ -357,7 +583,7 @@ describe("SqliteControlPlaneStore baseball state", () => {
       }),
     ).rejects.toMatchObject({ code: "legacy_purchase_closed" });
     await expect(store.loadBaseballProgress(user.id)).resolves.toMatchObject({
-      gold: 5,
+      gold: 8,
       totalHomers: 1,
       bestDistanceM: 125,
       currentHomeRunStreak: 1,
@@ -387,12 +613,12 @@ describe("SqliteControlPlaneStore baseball state", () => {
     });
 
     await expect(store.loadBaseballProgress(userA.id)).resolves.toMatchObject({
-      gold: 5,
+      gold: 8,
       totalHomers: 1,
       bestDistanceM: 125,
     });
     await expect(store.loadBaseballProgress(userB.id)).resolves.toMatchObject({
-      gold: 3,
+      gold: 5,
       totalHomers: 0,
       bestDistanceM: 90,
     });
@@ -510,7 +736,7 @@ describe("SqliteControlPlaneStore baseball state", () => {
     ]);
     expect(duplicateResults[0]).toEqual(duplicateResults[1]);
     await expect(first.loadBaseballProgress(user.id)).resolves.toMatchObject({
-      gold: 15,
+      gold: 34,
       totalHomers: 3,
       bestDistanceM: 123,
       currentHomeRunStreak: 3,
@@ -560,11 +786,13 @@ describe("SqliteControlPlaneStore baseball state", () => {
     ]);
 
     expect(rewards[0]).toEqual(rewards[1]);
+    expect(rewards[0]).toMatchObject({ homeRunBonusGold: 10, homeRunStreakBonusGold: 0 });
+    expect(rewards[2]).toMatchObject({ homeRunBonusGold: 0, homeRunStreakBonusGold: 10 });
     expect(rewards.map((reward) => reward.awardedGold).toSorted((a, b) => a - b)).toEqual([
-      5, 10, 10,
+      18, 18, 18,
     ]);
     await expect(first.loadBaseballProgress(user.id)).resolves.toMatchObject({
-      gold: 35,
+      gold: 78,
       totalHomers: 6,
       revision: 6,
     });

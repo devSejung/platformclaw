@@ -64,7 +64,7 @@ describe("SQLite horse racing betting policy", () => {
     expect(
       settled.race!.positions.every((entry) => entry.position === 100 && !("motion" in entry)),
     ).toBe(true);
-    expect(settled.gold).toBe(1200 - 50 + receipt.potentialPayout!);
+    expect(settled.gold).toBe(2000 - 50 + receipt.potentialPayout!);
     closeStore(reopened);
     inspect(databasePath, (db) =>
       db
@@ -105,7 +105,7 @@ describe("SQLite horse racing betting policy", () => {
     closeStore(second);
     const reopened = createStore(databasePath);
     expect(reopened.racing.snapshot(alice.id, OPEN, race.id)).toMatchObject({
-      gold: 1200,
+      gold: 2000,
       race: {
         status: "cancelled",
         cancellationReason: "engine_changed",
@@ -154,12 +154,12 @@ describe("SQLite horse racing betting policy", () => {
         first.racing.placeBet(alice.id, bet(race.id, `invalid-${amount}`, amount, ["1"]), OPEN),
       ).toThrow(/50~1,000G/);
     }
-    expect(first.racing.snapshot(alice.id, OPEN).gold).toBe(1200);
+    expect(first.racing.snapshot(alice.id, OPEN).gold).toBe(2000);
     const minimum = first.racing.placeBet(alice.id, bet(race.id, "minimum", 50, ["1"]), OPEN);
     expect(minimum.receipt).toMatchObject({ quotedOdds: 3.03125, potentialPayout: 151 });
     const maximum = first.racing.placeBet(alice.id, bet(race.id, "maximum", 1000, ["1"]), OPEN);
     expect(maximum.receipt.potentialPayout).toBe(3031);
-    expect(maximum.snapshot.gold).toBe(150);
+    expect(maximum.snapshot.gold).toBe(950);
     expect(race.quotes).toHaveLength(36);
     expect(race.pricingVersion).toBe("probability-net-3pct-v2");
   });
@@ -231,7 +231,7 @@ describe("SQLite horse racing betting policy", () => {
       potentialPayout: receipt.potentialPayout,
       payout: receipt.potentialPayout,
     });
-    expect(settled.gold).toBe(1200 - 50 + receipt.potentialPayout!);
+    expect(settled.gold).toBe(2000 - 50 + receipt.potentialPayout!);
     reopened.racing.advance(end + 10_000);
     expect(reopened.racing.snapshot(alice.id, end + 10_000, race.id).gold).toBe(settled.gold);
     expect(reopened.racing.snapshot(alice.id, START + 6 * 3_600_000).recentRaces).toHaveLength(7);
@@ -278,11 +278,11 @@ describe("SQLite horse racing betting policy", () => {
       refunded: true,
       cancelledAt: now,
     });
-    expect(cancelled.snapshot.gold).toBe(1200);
+    expect(cancelled.snapshot.gold).toBe(2000);
     expect(
       reopened.racing.snapshot(alice.id, now).recentRaces.some((entry) => entry.id === futureId),
     ).toBe(false);
-    expect(reopened.racing.cancelBet(alice.id, receipt.id, futureStart).snapshot.gold).toBe(1200);
+    expect(reopened.racing.cancelBet(alice.id, receipt.id, futureStart).snapshot.gold).toBe(2000);
     expect(
       inspect(databasePath, (db) =>
         db
@@ -366,7 +366,7 @@ describe("SQLite horse racing betting policy", () => {
       expect.objectContaining({ id: loser.id, payout: 0, refunded: false }),
     ]);
     expect(settled.gold).toBe(
-      1200 -
+      2000 -
         151 +
         previousPayout +
         accepted.reduce((sum, ticket) => sum + ticket.potentialPayout!, 0),
@@ -414,7 +414,7 @@ describe("SQLite horse racing betting policy", () => {
     closeStore(second);
     const reopened = createStore(databasePath);
     const history = reopened.racing.snapshot(alice.id, OPEN, legacyId);
-    expect(history.gold).toBe(1200);
+    expect(history.gold).toBe(2000);
     expect(history.race).toMatchObject({
       status: "settled",
       pricingVersion: "pool-v1",
@@ -444,6 +444,6 @@ describe("SQLite horse racing betting policy", () => {
       reopened.racing.snapshot(alice.id, START + HORSE_RACE_DURATION_MS, legacyId).race!.myBets[0]!
         .payout,
     ).toBe(21);
-    expect((await reopened.loadBaseballProgress(bob.id)).gold).toBe(1200);
+    expect((await reopened.loadBaseballProgress(bob.id)).gold).toBe(2000);
   });
 });

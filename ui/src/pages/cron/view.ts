@@ -362,17 +362,23 @@ function renderCronSelect(
   field: CronStringFormField,
   options: CronSelectOptions,
 ) {
+  const selectedValue = options.value ?? props.form[field];
+  // Lit sets select.value before inserting dynamic options on the first render.
+  // Keep the options selected too so the visible choice matches the submitted form.
   return html`
     <select
       id=${ifDefined(options.standalone ? undefined : inputIdForField(field))}
       class="settings-select"
-      .value=${options.value ?? props.form[field]}
+      .value=${selectedValue}
       aria-label=${ifDefined(options.standalone ? options.label : undefined)}
       ?disabled=${options.disabled ?? false}
       @change=${(event: Event) =>
         props.onFormChange({ [field]: (event.currentTarget as HTMLSelectElement).value })}
     >
-      ${options.options.map(({ value, label }) => html`<option value=${value}>${label}</option>`)}
+      ${options.options.map(
+        ({ value, label }) =>
+          html`<option value=${value} ?selected=${value === selectedValue}>${label}</option>`,
+      )}
     </select>
   `;
 }
@@ -580,7 +586,10 @@ function renderJobsFilter(
         @change=${(event: Event) =>
           props.onJobsFiltersChange({ [field]: (event.currentTarget as HTMLSelectElement).value })}
       >
-        ${params.options.map(({ value, label }) => html`<option value=${value}>${label}</option>`)}
+        ${params.options.map(
+          ({ value, label }) =>
+            html`<option value=${value} ?selected=${value === params.value}>${label}</option>`,
+        )}
       </select>
     </label>
   `;
@@ -1570,26 +1579,16 @@ function renderPersonalDeliverySection(
 ) {
   return renderSettingsSection(
     { title: t("cron.detail.deliverySection") },
-    renderFieldRow({
+    renderCronSelectField(props, "deliveryMode", {
       label: t("cron.form.deliveryModeLabel"),
-      controlId: "cron-delivery-mode",
       help: t("cron.form.deliveryHelp"),
-      control: html`
-        <select
-          id="cron-delivery-mode"
-          class="settings-select"
-          .value=${ctx.selectedDeliveryMode}
-          @change=${(e: Event) =>
-            props.onFormChange({
-              deliveryMode: (e.target as HTMLSelectElement).value as CronFormState["deliveryMode"],
-            })}
-        >
-          ${ctx.supportsAnnounce
-            ? html`<option value="announce">${t("cron.form.personalAnnounce")}</option>`
-            : nothing}
-          <option value="none">${t("cron.form.noneInternal")}</option>
-        </select>
-      `,
+      value: ctx.selectedDeliveryMode,
+      options: [
+        ...(ctx.supportsAnnounce
+          ? [{ value: "announce", label: t("cron.form.personalAnnounce") }]
+          : []),
+        { value: "none", label: t("cron.form.noneInternal") },
+      ],
     }),
   );
 }

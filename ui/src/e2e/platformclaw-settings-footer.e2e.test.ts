@@ -88,7 +88,7 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
     await server?.close();
   });
 
-  it("keeps the VM buttons readable for both member and admin settings", async () => {
+  it("keeps the work-location launcher readable and exposes the selected VM for member and admin settings", async () => {
     const roles = ["member", "admin"] as const;
     const executionSettings = {
       accountId: "person.one",
@@ -167,12 +167,29 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
         name: "Open work location settings",
       });
       await expect.poll(() => workLocationButton.isVisible()).toBe(true);
-      await expect.poll(() => workLocationButton.textContent()).toContain("Development VM");
+      await expect
+        .poll(async () => (await workLocationButton.textContent())?.trim())
+        .toBe("Work location");
       const workLabelLineCount = await workLocationButton
-        .locator("span")
-        .nth(1)
+        .locator(".label")
         .evaluate((element) => element.getClientRects().length);
       expect(workLabelLineCount).toBe(1);
+
+      await workLocationButton.click();
+      const executionSettingsPanel = quickActions.locator("platformclaw-execution-settings");
+      await expect
+        .poll(() => executionSettingsPanel.locator("[data-current-target]").textContent())
+        .toContain("Development VM");
+      expect(
+        await executionSettingsPanel
+          .locator("[data-target='assigned_vm']")
+          .getAttribute("aria-pressed"),
+      ).toBe("true");
+      expect((await workLocationButton.textContent())?.trim()).toBe("Work location");
+      await executionSettingsPanel.locator("[data-action='close']").click();
+      await executionSettingsPanel
+        .getByRole("dialog", { name: "Work environment settings", exact: true })
+        .waitFor({ state: "hidden" });
 
       expect(await quickActions.locator("platformclaw-vm-administration").count()).toBe(0);
       expect(await quickActions.locator("platformclaw-announcement-administration").count()).toBe(

@@ -41,6 +41,33 @@ function changeRoute(
 }
 
 describe("Space route selection lifetime", () => {
+  it.each([0, 1])("uses first-Space guidance only with %i accessible Spaces", async (count) => {
+    const { element, request } = await mount("viewer");
+    const original = request.getMockImplementation()!;
+    request.mockImplementation(async (method, params) =>
+      method === "platformclaw.spaces.list"
+        ? count === 0
+          ? []
+          : [{ ...space, role: "viewer" }]
+        : original(method, params),
+    );
+    history.replaceState(null, "", "/spaces");
+    element.routeSearch = "";
+    const label = count === 0 ? "Create your first Space" : "Create Space";
+    await vi.waitFor(() =>
+      expect(element.querySelector(".pc-space-welcome button")?.textContent?.trim()).toBe(label),
+    );
+    await vi.waitFor(() =>
+      expect(element.querySelector(".pc-space-feedback [role='status']")).toBeNull(),
+    );
+    const welcome = element.querySelector(".pc-space-welcome")!;
+    expect(welcome.textContent).toContain("Choose a Space or create one.");
+    expect(welcome.textContent).not.toContain("Start an issue");
+    welcome.querySelector<HTMLButtonElement>("button")!.click();
+    await element.updateComplete;
+    expect(element.querySelector(".pc-space-panel-header")?.textContent).toContain("Create Space");
+  });
+
   it("keeps a newer offline selection through reconnect and ignores pending loader data", async () => {
     const { element, request, gateway } = await mount("viewer", [own]);
     const original = request.getMockImplementation()!;

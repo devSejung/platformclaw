@@ -109,6 +109,7 @@ type SkillsProps = {
   onAgentChange: (agentId: string) => void;
   onStatusFilterChange: (next: SkillsStatusFilter) => void;
   onRefresh: () => void;
+  onBrowseSkillHub?: () => void;
   onToggle: (skillKey: string, enabled: boolean) => void;
   onEdit: (skillKey: string, value: string) => void;
   onSaveKey: (skillKey: string) => void;
@@ -312,11 +313,7 @@ export function renderSkills(props: SkillsProps) {
           : nothing}
         ${props.personalAccess ? nothing : renderClawHubSection(props)}
         ${filtered.length === 0
-          ? renderSettingsEmpty(
-              !props.connected && !props.report
-                ? t("skillsPage.disconnected")
-                : t("skillsPage.empty"),
-            )
+          ? renderSkillsEmpty(props, skills.length)
           : groups.map((group) => renderSkillGroup(group, props))}
       `,
       { wide: true },
@@ -336,6 +333,37 @@ export function renderSkills(props: SkillsProps) {
         </div>`
       : nothing}
   `;
+}
+
+function renderSkillsEmpty(props: SkillsProps, total: number) {
+  if (!props.connected && !props.report) {
+    return renderSettingsEmpty(t("skillsPage.disconnected"));
+  }
+  if (props.loading && !props.report) {
+    return renderSettingsEmpty(t("common.loading"));
+  }
+  if (props.error && !props.report) {
+    return nothing;
+  }
+  return renderSettingsEmpty(html`
+    <p>${t(total > 0 ? "skillsPage.noMatching" : "skillsPage.emptyInstalled")}</p>
+    ${total > 0
+      ? html`<button
+          type="button"
+          class="btn"
+          @click=${() => {
+            props.onFilterChange("");
+            props.onStatusFilterChange("all");
+          }}
+        >
+          ${t("skillsPage.clearFilters")}
+        </button>`
+      : props.onBrowseSkillHub
+        ? html`<button type="button" class="btn primary" @click=${props.onBrowseSkillHub}>
+            ${t("skillsPage.browseSkillHub")}
+          </button>`
+        : nothing}
+  `);
 }
 
 function renderPlatformClawSkillHubPublish(props: SkillsProps) {

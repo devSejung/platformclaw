@@ -1,0 +1,236 @@
+.platformclaw-fishing {
+  /* The arcade host is pointer-transparent; this small dock owns its input. */
+  pointer-events: auto;
+  position: fixed;
+  z-index: 160;
+  right: 24px;
+  bottom: 24px;
+  width: min(340px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--text, #292c2d);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  opacity: var(--fish-opacity, 0.45);
+  font: 10px/1.45 var(--font-body, system-ui, sans-serif);
+}
+.platformclaw-fishing button,
+.platformclaw-fishing select {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font: inherit;
+  cursor: pointer;
+}
+.platformclaw-fishing button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.platformclaw-fishing button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.platformclaw-fishing :focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+.platformclaw-fishing__header,
+.platformclaw-fishing__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.platformclaw-fishing__header > span {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.platformclaw-fishing__header {
+  padding-inline: 8px;
+}
+.platformclaw-fishing__scene {
+  position: relative;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.platformclaw-fishing canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 460 / 165;
+  background: transparent;
+}
+:root[data-theme-mode="dark"] .platformclaw-fishing canvas {
+  filter: invert(1);
+}
+.platformclaw-fishing__cue {
+  position: absolute;
+  inset: 5px 8px auto;
+  text-align: right;
+  font-size: 9px;
+  pointer-events: none;
+}
+.platformclaw-fishing__cue strong {
+  display: block;
+  letter-spacing: 0.1em;
+}
+.platformclaw-fishing__controls {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.platformclaw-fishing__controls [data-fishing-action] {
+  margin-right: auto;
+  touch-action: none;
+  user-select: none;
+}
+.platformclaw-fishing__bite {
+  position: absolute;
+  left: 22%;
+  top: 30%;
+  color: #ba4b2f;
+  font:
+    900 28px/1 system-ui,
+    sans-serif;
+  text-shadow:
+    0 0 3px #fff,
+    0 0 6px #fff;
+  pointer-events: none;
+}
+.platformclaw-fishing__gauges {
+  padding: 4px 8px;
+}
+.platformclaw-fishing__tension {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 6px;
+  font-size: 10px;
+}
+.platformclaw-fishing__tension > span:nth-of-type(2n) {
+  text-align: right;
+}
+.platformclaw-fishing__tension[data-danger="high"] {
+  color: #b7462e;
+}
+.platformclaw-fishing__tension[data-danger="low"] {
+  color: #af751d;
+}
+.platformclaw-fishing__tension meter {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  overflow: hidden;
+}
+.platformclaw-fishing__tension-track {
+  position: relative;
+  grid-column: 1 / -1;
+  height: 10px;
+  border-radius: 2px;
+  background: linear-gradient(to right, #b68a43 0% 12%, #62947c 12% 85%, #c85a45 85% 100%);
+}
+.platformclaw-fishing__tension-track i {
+  position: absolute;
+  top: -3px;
+  width: 3px;
+  height: 16px;
+  background: var(--text, #292c2d);
+  border: 1px solid var(--bg, #fff);
+  transform: translateX(-50%);
+}
+.platformclaw-fishing__progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.platformclaw-fishing__progress progress {
+  flex: 1;
+  height: 5px;
+  accent-color: currentColor;
+}
+.platformclaw-fishing__catch {
+  padding: 2px 8px;
+  text-align: right;
+  font-size: 9px;
+}
+.platformclaw-fishing__opacity {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 4px;
+  font-size: 9px;
+}
+.platformclaw-fishing__opacity input {
+  width: 70px;
+  height: 12px;
+  margin: 0;
+  accent-color: currentColor;
+}
+.platformclaw-fishing__opacity span {
+  width: 28px;
+  text-align: right;
+}
+.platformclaw-fishing__notice {
+  padding: 4px 8px;
+}
+.platformclaw-fishing__panel {
+  max-height: 180px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-top: 1px dotted currentColor;
+}
+.platformclaw-fishing__panel h3 {
+  font-size: 10px;
+  margin: 5px 0;
+}
+.platformclaw-fishing__panel p {
+  margin: 4px 0;
+}
+.platformclaw-fishing__panel ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+.platformclaw-fishing__mine {
+  font-weight: 700;
+}
+
+.platformclaw-fishing__finish {
+  padding: 7px 8px 2px;
+  text-align: center;
+  font-size: 9px;
+}
+.platformclaw-fishing__finish-track {
+  position: relative;
+  height: 6px;
+  margin: 2px 0 5px;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+.platformclaw-fishing__finish-target {
+  position: absolute;
+  left: 45%;
+  width: 10%;
+  height: 100%;
+  background: #527766;
+}
+.platformclaw-fishing__finish-track::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  width: 1px;
+  height: 8px;
+  background: currentColor;
+}
+.platformclaw-fishing__finish-cursor {
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  width: 2px;
+  height: 12px;
+  background: currentColor;
+  transform: translateX(-50%);
+}

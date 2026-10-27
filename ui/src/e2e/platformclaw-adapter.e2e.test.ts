@@ -333,7 +333,7 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     });
 
     await page.goto(`${server.baseUrl}platformclaw/app/chat`);
-    const quickActions = page.locator("platformclaw-quick-actions");
+    const quickActions = page.locator("platformclaw-quick-actions:not([location-only])");
     await expect.poll(() => quickActions.isVisible()).toBe(true);
     await expect
       .poll(() => quickActions.getByRole("button", { name: "VOC" }).isVisible())
