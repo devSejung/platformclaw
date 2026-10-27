@@ -219,14 +219,11 @@ describe("PlatformClaw Docker runtime", () => {
       name: "PlatformClaw Execution",
       contracts: { tools: ["platformclaw_credentials"] },
       register: (api) =>
-        registerPlatformClawCredentialTool(
-          api,
-          Promise.resolve({
-            credentialMetadata: async () => ({
-              definitions: [{ envName: "REPORT_API_TOKEN", configured: false }],
-            }),
+        registerPlatformClawCredentialTool(api, async () => ({
+          credentialMetadata: async () => ({
+            definitions: [{ envName: "REPORT_API_TOKEN", configured: false }],
           }),
-        ),
+        })),
     });
     const policy = resolveSandboxToolPolicyForAgent(config, "person_one");
     const context = {

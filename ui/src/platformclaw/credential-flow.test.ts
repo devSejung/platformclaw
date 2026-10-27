@@ -19,9 +19,9 @@ function fixture() {
     department: "",
     globalRole: "member" as const,
   };
-  const user = {
+  const user: Record<string, unknown> = {
     role: "user",
-    __openclaw: { idempotencyKey: "source-run" },
+    __openclaw: { idempotencyKey: "source-run:user" },
     content: [{ type: "text", text: "Run a synthetic report" }],
   };
   let history = {
@@ -99,14 +99,7 @@ function fixture() {
     chatQueue: [],
     selectedChatSessionArchived: false,
     requestUpdate: vi.fn(),
-    handleSendChat: vi.fn(
-      async (
-        _message: string,
-        options: { onAdmitted?: (value: { queueId: string; runId: string }) => void },
-      ) => {
-        options.onAdmitted?.({ queueId: "queue-a", runId: REQUEST_ID });
-      },
-    ),
+    handleSendChat: vi.fn(),
   } as unknown as ChatPageHost;
   const result: ApplicationChatToolResult = {
     name: "platformclaw_credentials",
@@ -125,7 +118,8 @@ function fixture() {
     },
   };
   const container = document.createElement("div");
-  document.body.append(container);
+  const toast = document.createElement("openclaw-toast-host");
+  document.body.append(container, toast);
   flow.attach(application);
   const draw = () => render(flow.render(host), container);
   const ready = async () => {
@@ -169,6 +163,7 @@ function fixture() {
     host,
     result,
     container,
+    toast,
     draw,
     ready,
     configure,
@@ -201,6 +196,21 @@ function setup() {
 }
 
 describe("personal credential handoff", () => {
+  it("matches a persisted top-level user idempotency key to its source run", async () => {
+    const f = setup();
+    const history = f.getHistory();
+    const user = {
+      ...history.messages[0],
+      __openclaw: {},
+      idempotencyKey: "source-run:user",
+    };
+    f.setHistory({ ...history, messages: [user] });
+    f.host.chatMessages = [user];
+    await f.ready();
+    await f.configure();
+    expect(f.flow.target?.envName).toBe("REPORT_API_TOKEN");
+  });
+
   it("captures the first live request before its user row and session snapshot arrive", async () => {
     const f = setup();
     f.host.chatMessages = [];
@@ -245,7 +255,7 @@ describe("personal credential handoff", () => {
     });
   });
 
-  it("returns to the same session, preserves a mounting pane, and admits one explicit new turn", async () => {
+  it("completes a confirmed save in place and dismisses the handoff without sending a turn", async () => {
     const f = setup();
     await f.ready();
     await f.configure();
@@ -255,38 +265,60 @@ describe("personal credential handoff", () => {
       expectedAccountId: "synthetic-a",
     });
     expect(f.host.handleSendChat).not.toHaveBeenCalled();
+    const form = document.createElement("div") as HTMLDivElement & { target?: unknown };
+    f.flow.bindForm(form);
+    expect(form.target).toEqual(f.flow.target);
     f.save();
-    await f.flow.returnToConversation();
-    expect(f.application.gateway.setSessionKey).toHaveBeenCalledWith("agent:personal:main");
-    expect(f.application.navigate).toHaveBeenLastCalledWith(
-      "chat",
-      expect.objectContaining({ pathname: expect.stringContaining("/platformclaw/app/") }),
-    );
+    expect(f.flow.target).toBeUndefined();
+    expect(form.target).toBeUndefined();
+    f.draw();
+    expect(f.container.textContent).toBe("");
+    expect(f.application.navigate).toHaveBeenCalledExactlyOnceWith("credentials");
+    expect(f.application.gateway.setSessionKey).not.toHaveBeenCalled();
+    await f.toast.updateComplete;
+    expect(f.toast.querySelector(".app-toast--bottom-right")).not.toBeNull();
+    expect(f.toast.querySelector(".app-toast__action")?.textContent?.trim()).toBe("Back to chat");
     f.flow.visit("chat");
-    f.host.chatLoading = true;
-    f.host.currentSessionId = undefined;
     f.draw();
-    expect(f.container.querySelector("[data-credential-flow='saved']")).not.toBeNull();
-    f.host.chatLoading = false;
-    f.host.currentSessionId = "session-a";
-    f.draw();
-    const button = f.container.querySelector("button") as HTMLButtonElement;
-    button.click();
-    button.click();
-    await vi.waitFor(() => expect(f.host.handleSendChat).toHaveBeenCalledTimes(1));
-    expect(f.host.handleSendChat).toHaveBeenCalledWith(
-      expect.stringContaining("REPORT_API_TOKEN"),
-      expect.objectContaining({
-        runId: REQUEST_ID,
-        ignoreReplyTarget: true,
-        actionScope: {
-          agentId: "personal",
-          sessionKey: "agent:personal:main",
-          sessionId: "session-a",
-          expectedLeafEntryId: "leaf-source",
-        },
-      }),
-    );
+    expect(f.container.textContent).toBe("");
+    expect(f.host.handleSendChat).not.toHaveBeenCalled();
+  });
+
+  it("offers an optional return to the source conversation without sending a turn", async () => {
+    const f = setup();
+    await f.ready();
+    await f.configure();
+    f.save();
+    await f.toast.updateComplete;
+    f.toast.querySelector<HTMLButtonElement>(".app-toast__action")!.click();
+    await f.toast.updateComplete;
+    expect(f.application.agentSelection.set).toHaveBeenCalledWith("personal");
+    expect(f.application.gateway.setSessionKey).toHaveBeenCalledWith("agent:personal:main");
+    expect(f.application.navigate).toHaveBeenLastCalledWith("chat", {
+      pathname: "/platformclaw/app/chat/personal",
+    });
+    expect(f.host.handleSendChat).not.toHaveBeenCalled();
+    expect(f.toast.querySelector(".app-toast")).toBeNull();
+  });
+
+  it("does not offer a return action for a save without a chat handoff", async () => {
+    const f = setup();
+    f.save();
+    await f.toast.updateComplete;
+    expect(f.toast.querySelector(".app-toast")).toBeNull();
+    expect(f.application.navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate from a saved notification after its flow owner is disposed", async () => {
+    const f = setup();
+    await f.ready();
+    await f.configure();
+    f.save();
+    await f.toast.updateComplete;
+    f.flow.dispose();
+    f.toast.querySelector<HTMLButtonElement>(".app-toast__action")!.click();
+    expect(f.application.navigate).toHaveBeenCalledExactlyOnceWith("credentials");
+    expect(f.host.handleSendChat).not.toHaveBeenCalled();
   });
 
   it("ends editing on Back and ignores a late save acknowledgement", async () => {
@@ -311,13 +343,11 @@ describe("personal credential handoff", () => {
   });
 
   it.each(["session", "turn", "leaf", "archive"])(
-    "invalidates a saved request when %s changes",
+    "invalidates an editing request when %s changes",
     async (change) => {
       const f = setup();
       await f.ready();
       await f.configure();
-      f.save();
-      f.flow.visit("chat");
       if (change === "session") {
         f.host.currentSessionId = "replacement";
       }
@@ -372,76 +402,9 @@ describe("personal credential handoff", () => {
     expect(f.flow.target).toBeUndefined();
   });
 
-  it("keeps a request available after rejected local admission, retaining its id", async () => {
+  it("rechecks the server leaf before opening the form", async () => {
     const f = setup();
     await f.ready();
-    await f.configure();
-    f.save();
-    f.flow.visit("chat");
-    vi.mocked(f.host.handleSendChat).mockResolvedValue(undefined);
-    f.draw();
-    (f.container.querySelector("button") as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(f.host.handleSendChat).toHaveBeenCalledOnce());
-    await vi.waitFor(() => {
-      f.draw();
-      expect(f.container.querySelector("[data-credential-flow='saved']")).not.toBeNull();
-    });
-    expect(f.container.textContent).toContain("could not confirm");
-  });
-
-  it.each(["definitionToken", "credentialToken"] as const)(
-    "does not continue after a same-revision replacement changes %s",
-    async (changedToken) => {
-      const f = setup();
-      await f.ready();
-      await f.configure();
-      f.save();
-      f.flow.visit("chat");
-      f.fetchImpl.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            accountId: "synthetic-a",
-            definitions: [
-              {
-                envName: "REPORT_API_TOKEN",
-                configured: true,
-                revision: 2,
-                definitionToken: DEFINITION_TOKEN,
-                credentialToken: CREDENTIAL_TOKEN,
-                [changedToken]: "c".repeat(32),
-              },
-            ],
-          }),
-        ),
-      );
-      f.draw();
-      (f.container.querySelector("button") as HTMLButtonElement).click();
-      await vi.waitFor(() => {
-        f.draw();
-        expect(f.container.textContent).toContain("expired");
-      });
-      expect(f.host.handleSendChat).not.toHaveBeenCalled();
-    },
-  );
-
-  it("continues with the latest confirmed value when the requested key is saved again", async () => {
-    const f = setup();
-    await f.ready();
-    await f.configure();
-    f.save();
-    f.save(3, "c".repeat(32));
-    f.flow.visit("chat");
-    f.draw();
-    (f.container.querySelector("button") as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(f.host.handleSendChat).toHaveBeenCalledOnce());
-  });
-
-  it("rechecks the server leaf before continuing and never sends after a race", async () => {
-    const f = setup();
-    await f.ready();
-    await f.configure();
-    f.save();
-    f.flow.visit("chat");
     f.setHistory({
       ...f.getHistory(),
       sessionInfo: { ...f.getHistory().sessionInfo, activeLeafEntryId: "server-new-leaf" },
@@ -453,27 +416,13 @@ describe("personal credential handoff", () => {
       expect(f.container.querySelector("[data-credential-flow='inactive']")).not.toBeNull();
     });
     expect(f.host.handleSendChat).not.toHaveBeenCalled();
+    expect(f.application.navigate).not.toHaveBeenCalled();
   });
 
-  it("leaves a newer request intact when an older admission finishes", async () => {
+  it("leaves a newer request intact when an older save acknowledgement arrives", async () => {
     const f = setup();
     await f.ready();
     await f.configure();
-    f.save();
-    f.flow.visit("chat");
-    let finish!: () => void;
-    vi.mocked(f.host.handleSendChat).mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          finish = resolve;
-        }),
-    );
-    f.draw();
-    (f.container.querySelector("button") as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(f.host.handleSendChat).toHaveBeenCalledOnce());
-    const options = vi.mocked(f.host.handleSendChat).mock.calls[0]?.[1] as {
-      onAdmitted: () => void;
-    };
     f.host.chatRunId = "next-source";
     f.host.chatMessages = [{ role: "user", __openclaw: { idempotencyKey: "next-source" } }];
     f.flow.capture(f.host, {
@@ -486,10 +435,9 @@ describe("personal credential handoff", () => {
         },
       },
     });
-    options.onAdmitted();
-    finish();
-    await Promise.resolve();
+    f.save();
     f.draw();
     expect(f.container.querySelector("[data-credential-flow='awaiting-source']")).not.toBeNull();
+    expect(f.host.handleSendChat).not.toHaveBeenCalled();
   });
 });

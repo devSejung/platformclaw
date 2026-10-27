@@ -90,18 +90,23 @@ describe("Credential workspace state", () => {
     const onSaved = vi.fn();
     element.onPersonalSaved = onSaved;
     save(element);
-    await vi.waitFor(() =>
-      expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(false),
-    );
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(onSaved).toHaveBeenCalledWith({
+      requestId: "request-a",
+      envName: "API_TOKEN",
+      revision: 4,
+      definitionToken: "definition-API_TOKEN",
+      credentialToken: "credential-API_TOKEN-4",
+    });
+    expect(element.target).toBeUndefined();
+    expect(secretInput(element, "API_TOKEN").value).toBe("");
     clickAction(element, "select", "TOKEN_B");
     enterSecret(element, "TOKEN_B", "synthetic-b");
     clickAction(element, "save", "TOKEN_B");
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(5));
-    await vi.waitFor(() =>
-      expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(false),
-    );
-    expect(onSaved).toHaveBeenCalledTimes(1);
-    expect(onSaved.mock.calls[0]![0].envName).toBe("API_TOKEN");
+    await vi.waitFor(() => expect(secretInput(element, "TOKEN_B").value).toBe(""));
+    expect(onSaved).toHaveBeenCalledOnce();
+    expect(element.target).toBeUndefined();
   });
 
   it("pins a dirty draft across sibling refresh and reloads changed tokens only after explicit discard", async () => {
@@ -205,6 +210,8 @@ describe("Credential workspace state", () => {
         }),
       );
     const element = await mount(fetchImpl, true);
+    const onSaved = vi.fn();
+    element.onPersonalSaved = onSaved;
     save(element);
     await vi.waitFor(() => expect(element.querySelector("[data-recheck]")).not.toBeNull());
     clickAction(element, "select", "TOKEN_B");
@@ -216,10 +223,19 @@ describe("Credential workspace state", () => {
       element.querySelector<HTMLButtonElement>("[data-action='save'][data-env='TOKEN_B']")!
         .disabled,
     ).toBe(true);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(element.target?.envName).toBe("API_TOKEN");
     element.querySelector<HTMLButtonElement>("[data-recheck]")!.click();
-    await vi.waitFor(() =>
-      expect(element.querySelector<HTMLButtonElement>("[data-flow-return]")!.disabled).toBe(false),
-    );
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(onSaved).toHaveBeenCalledWith({
+      requestId: "request-a",
+      envName: "API_TOKEN",
+      revision: 4,
+      definitionToken: "definition-API_TOKEN",
+      credentialToken: "credential-API_TOKEN-4",
+    });
+    expect(element.target).toBeUndefined();
+    expect(element.querySelector("[data-pending-env='API_TOKEN']")).toBeNull();
     expect(secretInput(element, "TOKEN_B").value).toBe("keep-b");
     expect(element.querySelector("[data-editor='TOKEN_B']")!.hasAttribute("hidden")).toBe(false);
   });

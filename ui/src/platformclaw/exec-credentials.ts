@@ -58,7 +58,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
   private focusedTarget = false;
   private currentTarget?: CredentialTarget;
   private pendingAcknowledgement?: SaveAcknowledgement;
-  private confirmedAcknowledgement?: PersonalCredentialSaved;
   private readonly drafts = new Map<string, CredentialDraft>();
   private readonly selections = {
     personal: createCredentialSelection(),
@@ -73,7 +72,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
   fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   onUnauthenticated: () => void = () => {};
   onPersonalSaved?: (ack: PersonalCredentialSaved) => void;
-  onReturnToConversation?: () => void;
   onCancelFlow?: () => void;
 
   get target(): CredentialTarget | undefined {
@@ -119,7 +117,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
   private clearSecrets(): void {
     this.drafts.clear();
     this.pendingAcknowledgement = undefined;
-    this.confirmedAcknowledgement = undefined;
     // Retained editor nodes must lose plaintext when their account/request owner ends.
     this.querySelectorAll<HTMLInputElement>("[data-value]").forEach((input) => {
       input.value = "";
@@ -217,10 +214,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
         draft.error = "platformClaw.execCredentials.conflict";
       }
     }
-    const acknowledgement = this.confirmedAcknowledgement;
-    if (acknowledgement && !this.matchesAcknowledgement(acknowledgement)) {
-      this.confirmedAcknowledgement = undefined;
-    }
     const selection = this.selections.personal;
     if (!selection.selected || !allowed.has(selection.selected)) {
       selection.selected = definitions[0]?.envName ?? null;
@@ -295,7 +288,9 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
           this.target?.requestId === acknowledgement.requestId
         ) {
           const confirmed = { ...acknowledgement, requestId: acknowledgement.requestId };
-          this.confirmedAcknowledgement = confirmed;
+          // Retire the handoff without its setter refresh so the confirmed status survives.
+          this.currentTarget = undefined;
+          this.focusedTarget = false;
           if (draft) {
             draft.message = "platformClaw.credentialFlow.saved";
           }
@@ -389,9 +384,6 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
       } else {
         if (personal) {
           this.drafts.delete(body.envName);
-          if (this.confirmedAcknowledgement?.envName === body.envName) {
-            this.confirmedAcknowledgement = undefined;
-          }
         }
         if (!personal && body.action === "add") {
           this.definitionName = "";
@@ -495,26 +487,14 @@ export class PlatformClawExecCredentialsElement extends HTMLElement {
               { envName: this.target.envName },
             ),
             control: html`<button
-                type="button"
-                class="btn primary"
-                data-flow-return
-                ?disabled=${!this.confirmedAcknowledgement || this.controlsBlocked}
-                @click=${() => {
-                  if (this.confirmedAcknowledgement && !this.controlsBlocked) {
-                    this.onReturnToConversation?.();
-                  }
-                }}
-              >
-                ${t("platformClaw.credentialFlow.return")}</button
-              ><button
-                type="button"
-                class="btn"
-                data-flow-cancel
-                ?disabled=${this.cancelled}
-                @click=${() => this.cancelFlow()}
-              >
-                ${t("platformClaw.credentialFlow.later")}
-              </button>`,
+              type="button"
+              class="btn"
+              data-flow-cancel
+              ?disabled=${this.cancelled}
+              @click=${() => this.cancelFlow()}
+            >
+              ${t("platformClaw.credentialFlow.later")}
+            </button>`,
           }),
         )
       : nothing;

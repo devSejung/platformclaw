@@ -195,6 +195,7 @@ async function finishRecoveredTurn(
   page: Page,
   gateway: MockGatewayControls,
   runId: string,
+  prompt: string,
   finalText: string,
 ): Promise<void> {
   await gateway.emitGatewayEvent("agent", {
@@ -212,11 +213,55 @@ async function finishRecoveredTurn(
   });
   await expect.poll(() => page.locator(".chat-tool-row--running").count()).toBe(0);
   await expect.poll(() => page.locator(".chat-tool-row").count()).toBe(1);
+  // The Gateway retires the active run before publishing its final; subsequent
+  // history reads must serve the completed transcript, including after reload.
+  const snapshot = activeRunSnapshot(runId, prompt, "", { persistedToolCall: true });
+  const completed = {
+    ...snapshot,
+    inFlightRun: undefined,
+    messages: [
+      ...snapshot.messages,
+      {
+        role: "toolResult",
+        toolCallId: "tool-active-turn-recovery",
+        content: [{ type: "text", text: "README recovered" }],
+      },
+      { role: "assistant", content: [{ type: "text", text: finalText }] },
+    ].map((message, index) =>
+      Object.assign({}, message, {
+        __openclaw: {
+          id: `${runId}:message:${index}`,
+          seq: index + 1,
+          ...(index === 0 ? { idempotencyKey: `${runId}:user` } : {}),
+          ...(index === 3 ? { idempotencyKey: runId } : {}),
+        },
+      }),
+    ),
+    sessionInfo: { ...snapshot.sessionInfo, activeRunIds: [], hasActiveRun: false, status: "done" },
+  };
+  await gateway.setMethodResponse("chat.startup", completed);
+  await gateway.setMethodResponse("chat.history", completed);
+  await gateway.setMethodResponse("sessions.list", {
+    count: 1,
+    defaults: { contextTokens: null, model: "gpt-5.5", modelProvider: "openai" },
+    path: "",
+    sessions: [completed.sessionInfo],
+    ts: 1_200,
+  });
+  const historyReads = (await gateway.getRequests("chat.history")).length;
   await gateway.emitChatFinal({ runId, text: finalText });
   const visibleFinal = page.getByRole("paragraph").filter({ hasText: finalText });
   await visibleFinal.waitFor({ timeout: 10_000 });
   await expect.poll(() => page.getByRole("button", { name: "Stop generating" }).count()).toBe(0);
   expect(await visibleFinal.count()).toBe(1);
+  await expect
+    .poll(async () => (await gateway.getRequests("chat.history")).length)
+    .toBeGreaterThan(historyReads);
+  await page.reload();
+  await visibleFinal.waitFor({ timeout: 10_000 });
+  expect(await visibleFinal.count()).toBe(1);
+  expect(await page.getByRole("button", { name: "Stop generating" }).count()).toBe(0);
+  await capture(page, "07-recovered-final");
 }
 
 async function openActiveTurn() {
@@ -259,7 +304,7 @@ suite.define(() => {
         page.locator(".chat-working-indicator openclaw-elapsed-time").filter({ hasText: "10m" }),
       ).not.toHaveCount(0);
       await capture(page, "02-navigation-after");
-      await finishRecoveredTurn(page, gateway, runId, "Navigation delivery complete.");
+      await finishRecoveredTurn(page, gateway, runId, prompt, "Navigation delivery complete.");
     } finally {
       await suite.closeBrowserContext(context);
     }
@@ -288,7 +333,7 @@ suite.define(() => {
         page.locator(".chat-working-indicator openclaw-elapsed-time").filter({ hasText: "10m" }),
       ).not.toHaveCount(0);
       await capture(page, "04-reconnect-after");
-      await finishRecoveredTurn(page, gateway, runId, "Reconnect delivery complete.");
+      await finishRecoveredTurn(page, gateway, runId, prompt, "Reconnect delivery complete.");
     } finally {
       await suite.closeBrowserContext(context);
     }
@@ -314,7 +359,7 @@ suite.define(() => {
         page.locator(".chat-working-indicator openclaw-elapsed-time").filter({ hasText: "10m" }),
       ).not.toHaveCount(0);
       await capture(page, "06-reload-after");
-      await finishRecoveredTurn(page, gateway, runId, "Reload delivery complete.");
+      await finishRecoveredTurn(page, gateway, runId, prompt, "Reload delivery complete.");
     } finally {
       await suite.closeBrowserContext(context);
     }

@@ -205,7 +205,7 @@ async function startCredentialFixture() {
             registrations.push(tool);
           },
         },
-        Promise.resolve({
+        async () => ({
           credentialMetadata: (request) =>
             client.execCredentialMetadata(request.agentId, request.sessionKey),
         }),
@@ -336,6 +336,16 @@ async function requestCredential(
   const request = await gateway.waitForRequest("chat.send");
   const params = request.params as { idempotencyKey: string };
   const runId = params.idempotencyKey;
+  // The real Gateway acknowledges the run before dispatching tools. Request
+  // observation alone can precede the mock's timer-delivered ACK.
+  await expect
+    .poll(() =>
+      page.locator("openclaw-chat-pane").evaluate((element) => {
+        const pane = element as HTMLElement & { state: { chatRunId: string | null } };
+        return pane.state.chatRunId;
+      }),
+    )
+    .toBe(runId);
   const result = await fixture.callRegisteredTool(runId);
   expect(fixture.metadataCalls()).toBeGreaterThan(0);
   const details = result.details as { status: string; uiAction: { requestId: string } };
@@ -343,7 +353,7 @@ async function requestCredential(
   const user = {
     role: "user",
     id: "credential-proof-source-user",
-    __openclaw: { idempotencyKey: runId },
+    __openclaw: { idempotencyKey: `${runId}:user` },
     content: [{ type: "text", text: `Create the synthetic report using ${envName}.` }],
   };
   const final = {
@@ -352,7 +362,7 @@ async function requestCredential(
     content: [
       {
         type: "text",
-        text: "이 합성 보고서 작업에는 개인 키가 필요합니다. 아래에서 안전하게 등록한 뒤 계속하기를 눌러 주세요.",
+        text: "이 합성 보고서 작업에는 개인 키가 필요합니다. 아래에서 안전하게 등록하세요. 저장하면 등록이 완료됩니다.",
       },
     ],
   };
@@ -407,7 +417,7 @@ async function requestCredential(
   await gateway.emitChatFinal({
     runId,
     sessionKey: fixture.sessionKey,
-    text: "이 합성 보고서 작업에는 개인 키가 필요합니다. 아래에서 안전하게 등록한 뒤 계속하기를 눌러 주세요.",
+    text: "이 합성 보고서 작업에는 개인 키가 필요합니다. 아래에서 안전하게 등록하세요. 저장하면 등록이 완료됩니다.",
   });
   await expect.poll(() => page.locator('[data-credential-flow="required"]').count()).toBe(1);
   return { requestId: details.uiAction.requestId, result, history };
@@ -435,12 +445,11 @@ describeCredentialFlow("PlatformClaw contextual personal credentials on PC", () 
   });
 
   it.each(["ko", "en"] as const)(
-    "registers from a real tool result, returns, and admits one scoped new turn in %s",
+    "completes registration in place without sending another turn in %s",
     async (locale) => {
-      const { page, gateway, fixture, conversationPath } = await openConversation(locale);
-      const { requestId } = await requestCredential(page, gateway, fixture);
+      const { page, gateway, fixture } = await openConversation(locale);
+      await requestCredential(page, gateway, fixture);
       const configure = locale === "ko" ? "키 등록하기" : "Add key";
-      const continueLabel = locale === "ko" ? "계속하기" : "Continue";
       await screenshot(page, locale, "01-required");
       await page.getByRole("button", { name: configure, exact: true }).evaluate((button) => {
         (button as HTMLButtonElement).click();
@@ -465,41 +474,31 @@ describeCredentialFlow("PlatformClaw contextual personal credentials on PC", () 
         (button as HTMLButtonElement).click();
       });
       await expect.poll(() => input.inputValue()).toBe("");
-      await expect.poll(() => form.locator("[data-flow-return]").isEnabled()).toBe(true);
+      await expect.poll(() => form.locator("[data-flow-cancel]").count()).toBe(0);
+      expect(await form.locator("[data-flow-return]").count()).toBe(0);
       expect(fixture.saveCalls()).toBe(1);
       expect(await fixture.snapshot()).toMatchObject({
         definitions: [{ envName, configured: true }],
       });
       await screenshot(page, locale, "03-saved-unverified");
-      await form.locator("[data-flow-return]").click();
-      await expect.poll(() => new URL(page.url()).pathname).toBe(conversationPath);
-      const composer = page.locator(".agent-chat__composer-combobox textarea");
-      await composer.fill("Keep this unsent draft");
-      await screenshot(page, locale, "04-returned");
-      await page.getByRole("button", { name: continueLabel, exact: true }).evaluate((button) => {
-        (button as HTMLButtonElement).click();
-        (button as HTMLButtonElement).click();
+      expect(new URL(page.url()).pathname).toBe("/platformclaw/app/settings/credentials");
+      expect((await gateway.getRequests("chat.send")).length).toBe(1);
+      expect(await page.locator("[data-credential-flow]").count()).toBe(0);
+      expect(await form.getByRole("status").textContent()).toMatch(
+        locale === "ko" ? /저장했습니다/ : /Saved/u,
+      );
+      const backToChat = page.locator(".app-toast--bottom-right").getByRole("button", {
+        name: locale === "ko" ? "챗으로 돌아가기" : "Back to chat",
+        exact: true,
       });
-      await expect.poll(async () => (await gateway.getRequests("chat.send")).length).toBe(2);
-      const sent = (await gateway.getRequests("chat.send"))[1]!.params;
-      expect(sent).toMatchObject({
-        idempotencyKey: requestId,
-        sessionKey: fixture.sessionKey,
-        sessionId,
-        expectedLeafEntryId: finalLeaf,
-        requireExactLeaf: true,
-      });
+      await backToChat.waitFor();
+      await screenshot(page, locale, "04-return-notification");
+      await backToChat.click();
+      await page.locator(".agent-chat__composer-combobox textarea").waitFor();
+      expect(new URL(page.url()).pathname).toContain("/platformclaw/app/chat/");
+      expect((await gateway.getRequests("chat.send")).length).toBe(1);
+      expect(await page.locator("[data-credential-flow]").count()).toBe(0);
       expect(JSON.stringify(await gateway.getRequests())).not.toContain("synthetic-fixture-only");
-      expect(await composer.inputValue()).toBe("Keep this unsent draft");
-      await gateway.emitChatFinal({
-        runId: requestId,
-        sessionKey: fixture.sessionKey,
-        text:
-          locale === "ko"
-            ? "합성 작업을 이어갔습니다. 서비스 인증은 별도로 확인해야 합니다."
-            : "The synthetic task continued. Service authentication still needs verification.",
-      });
-      await screenshot(page, locale, "05-continued");
     },
   );
 
@@ -514,7 +513,7 @@ describeCredentialFlow("PlatformClaw contextual personal credentials on PC", () 
     await form.locator(`[data-action="save"][data-env="${envName}"]`).click();
     await expect.poll(() => form.getByRole("alert").textContent()).not.toBe("");
     expect(await input.inputValue()).toBe("synthetic-failed-save-only");
-    expect(await form.locator("[data-flow-return]").isEnabled()).toBe(false);
+    expect(await form.locator("[data-flow-cancel]").count()).toBe(1);
     // Capture only a cleared field; neither screenshots nor gateway traffic retain its value.
     await input.fill("");
     await screenshot(page, "ko", "06-save-failed");
@@ -540,20 +539,24 @@ describeCredentialFlow("PlatformClaw contextual personal credentials on PC", () 
     const { page, gateway, fixture, conversationPath } = await openConversation("en");
     const siblingName = "SIBLING_API_TOKEN";
     await fixture.addSiblingDefinition(siblingName);
-    const { requestId } = await requestCredential(page, gateway, fixture);
+    await requestCredential(page, gateway, fixture);
     await page.getByRole("button", { name: "Add key", exact: true }).click();
     const form = page.locator("platformclaw-exec-credentials");
     const requestedInput = form.locator(`[data-value="${envName}"]`);
     await requestedInput.fill("synthetic-requested-value");
     await form.locator(`[data-action="save"][data-env="${envName}"]`).click();
-    await expect.poll(() => form.locator("[data-flow-return]").isEnabled()).toBe(true);
+    const backToChat = page.locator(".app-toast--bottom-right").getByRole("button", {
+      name: "Back to chat",
+      exact: true,
+    });
+    await backToChat.waitFor();
 
     await form.locator(`[data-action="select"][data-env="${siblingName}"]`).click();
     const siblingInput = form.locator(`[data-value="${siblingName}"]`);
     await siblingInput.fill("synthetic-sibling-value");
     await form.locator(`[data-action="save"][data-env="${siblingName}"]`).click();
     await expect.poll(() => siblingInput.inputValue()).toBe("");
-    await expect.poll(() => form.locator("[data-flow-return]").isEnabled()).toBe(true);
+    expect(await backToChat.count()).toBe(1);
     expect(fixture.saveCalls()).toBe(2);
     expect((await fixture.snapshot()).definitions).toEqual(
       expect.arrayContaining([
@@ -562,53 +565,47 @@ describeCredentialFlow("PlatformClaw contextual personal credentials on PC", () 
       ]),
     );
     await screenshot(page, "en", "08-target-return-after-sibling-save");
-    await form.locator("[data-flow-return]").click();
+    await backToChat.click();
     await expect.poll(() => new URL(page.url()).pathname).toBe(conversationPath);
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await expect.poll(async () => (await gateway.getRequests("chat.send")).length).toBe(2);
-    expect((await gateway.getRequests("chat.send"))[1]!.params).toMatchObject({
-      idempotencyKey: requestId,
-      sessionKey: fixture.sessionKey,
-      sessionId,
-      expectedLeafEntryId: finalLeaf,
-      requireExactLeaf: true,
-    });
+    expect((await gateway.getRequests("chat.send")).length).toBe(1);
+    expect(await page.locator("[data-credential-flow]").count()).toBe(0);
     const gatewayTraffic = JSON.stringify(await gateway.getRequests());
     expect(gatewayTraffic).not.toContain("synthetic-requested-value");
     expect(gatewayTraffic).not.toContain("synthetic-sibling-value");
   });
 
-  it("rejects Continue after the real store deletes and recreates the acknowledged value at the same revision", async () => {
-    const { page, gateway, fixture, conversationPath } = await openConversation("en");
+  it("rejects save confirmation after the real store recreates the value at the same revision", async () => {
+    const { page, gateway, fixture } = await openConversation("en");
     await requestCredential(page, gateway, fixture);
     await page.getByRole("button", { name: "Add key", exact: true }).click();
     const form = page.locator("platformclaw-exec-credentials");
+    fixture.failRefreshAfterSave();
     await form.locator(`[data-value="${envName}"]`).fill("synthetic-original-value");
     await form.locator(`[data-action="save"][data-env="${envName}"]`).click();
-    await expect.poll(() => form.locator("[data-flow-return]").isEnabled()).toBe(true);
+    await form.locator("[data-recheck]").waitFor();
 
-    // Keep the browser's genuine ACK while another client replaces the stored generation.
+    // The pending genuine ACK must not confirm a different generation on its GET retry.
     const { before, after } = await fixture.recreateRequestedValue("synthetic-recreated-value");
     expect(after.revision).toBe(before.revision);
     expect(after.definitionToken).toBe(before.definitionToken);
     expect(after.credentialToken).not.toBe(before.credentialToken);
-    await form.locator("[data-flow-return]").click();
-    await expect.poll(() => new URL(page.url()).pathname).toBe(conversationPath);
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await page
-      .getByText("This request has expired. Ask for key setup again in the conversation.", {
-        exact: true,
-      })
-      .waitFor();
+    await form.locator("[data-recheck]").click();
+    await form.getByRole("alert").waitFor();
+    expect(await form.locator("[data-flow-cancel]").count()).toBe(1);
+    expect(await page.locator(".app-toast__action").count()).toBe(0);
+    expect(fixture.saveCalls()).toBe(1);
+    expect((await fixture.snapshot()).definitions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ credentialToken: after.credentialToken })]),
+    );
     expect((await gateway.getRequests("chat.send")).length).toBe(1);
     const gatewayTraffic = JSON.stringify(await gateway.getRequests());
     expect(gatewayTraffic).not.toContain("synthetic-original-value");
     expect(gatewayTraffic).not.toContain("synthetic-recreated-value");
-    await screenshot(page, "en", "09-aba-continue-rejected");
+    await screenshot(page, "en", "09-aba-confirmation-rejected");
   });
 
   it("keeps an acknowledged save unconfirmed after GET failure and rechecks without repeating POST", async () => {
-    const { page, gateway, fixture, conversationPath } = await openConversation("ko");
+    const { page, gateway, fixture } = await openConversation("ko");
     await requestCredential(page, gateway, fixture);
     await page.getByRole("button", { name: "키 등록하기", exact: true }).click();
     const form = page.locator("platformclaw-exec-credentials");
@@ -620,7 +617,8 @@ describeCredentialFlow("PlatformClaw contextual personal credentials on PC", () 
     await form.locator("[data-recheck]").waitFor();
     expect(await input.inputValue()).toBe("");
     // The ACK clears plaintext, but saved metadata is not confirmed until GET succeeds.
-    expect(await form.locator("[data-flow-return]").isEnabled()).toBe(false);
+    expect(await form.locator("[data-flow-cancel]").count()).toBe(1);
+    expect(await page.locator(".app-toast__action").count()).toBe(0);
     expect(fixture.saveCalls()).toBe(1);
     expect(await fixture.snapshot()).toMatchObject({
       definitions: [{ envName, configured: true }],
@@ -628,11 +626,10 @@ describeCredentialFlow("PlatformClaw contextual personal credentials on PC", () 
     await screenshot(page, "ko", "07-saved-status-unconfirmed");
     const readsBeforeRecheck = fixture.readCalls();
     await form.locator("[data-recheck]").click();
-    await expect.poll(() => form.locator("[data-flow-return]").isEnabled()).toBe(true);
+    await expect.poll(() => form.locator("[data-flow-cancel]").count()).toBe(0);
     expect(fixture.readCalls()).toBeGreaterThan(readsBeforeRecheck);
     expect(fixture.saveCalls()).toBe(1);
-    await form.locator("[data-flow-return]").click();
-    await expect.poll(() => new URL(page.url()).pathname).toBe(conversationPath);
+    expect(new URL(page.url()).pathname).toBe("/platformclaw/app/settings/credentials");
     expect((await gateway.getRequests("chat.send")).length).toBe(1);
     expect(JSON.stringify(await gateway.getRequests())).not.toContain("synthetic-ack-only");
   });
@@ -649,7 +646,7 @@ describeCredentialFlow("PlatformClaw contextual personal credentials on PC", () 
     await expect.poll(() => input.inputValue()).toBe("");
     expect(await input.isDisabled()).toBe(true);
     expect(await form.getByRole("status").textContent()).toMatch(/account/iu);
-    expect(await form.locator("[data-flow-return]").isEnabled()).toBe(false);
+    expect(await form.locator("[data-flow-return]").count()).toBe(0);
     expect(fixture.saveCalls()).toBe(1);
     expect(await fixture.snapshot()).toMatchObject({
       definitions: [{ envName, configured: false }],

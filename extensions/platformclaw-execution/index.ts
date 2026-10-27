@@ -29,20 +29,20 @@ export default definePluginEntry({
   name: "PlatformClaw Execution",
   description: "Private execution-target router for PlatformClaw personal agents.",
   register(api) {
-    if (api.registrationMode !== "full") {
-      registerPlatformClawCredentialTool(api);
-      return;
-    }
     const configured =
       process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS &&
       process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
     const logTiming = (message: string) => api.logger.info(message);
-    const executionRuntimePromise = configured
-      ? createExecutionDependenciesFromEnvironment(process.env, { logTiming })
-      : undefined;
+    let runtimePromise: ReturnType<typeof createExecutionDependenciesFromEnvironment> | undefined;
+    const getExecutionRuntime = () =>
+      (runtimePromise ??= createExecutionDependenciesFromEnvironment(process.env, { logTiming }));
+    registerPlatformClawCredentialTool(api, configured ? getExecutionRuntime : undefined);
+    if (api.registrationMode !== "full") {
+      return;
+    }
+    const executionRuntimePromise = configured ? getExecutionRuntime() : undefined;
     const dependenciesPromise =
       executionRuntimePromise ?? Promise.resolve(createUnavailableExecutionDependencies());
-    registerPlatformClawCredentialTool(api, executionRuntimePromise);
     const requireExecutionRuntime = async () => {
       if (!executionRuntimePromise) {
         throw new Error(
