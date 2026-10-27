@@ -39,6 +39,7 @@ describe("PlatformClaw execution settings", () => {
     const unsubscribe = subscribeToPlatformClawExecutionTargetChanges(window, listener, () => {});
     try {
       const root = await mountExecutionSettings(fetchImpl);
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
       const switchButton = root.querySelector<HTMLButtonElement>("[data-target='assigned_vm']")!;
       switchButton.click();
       switchButton.click();
@@ -60,13 +61,17 @@ describe("PlatformClaw execution settings", () => {
         t("platformClaw.execution.switching", { target: t("platformClaw.execution.vm") }),
       );
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("true");
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+        t("platformClaw.execution.switching", { target: t("platformClaw.execution.vm") }),
+      );
       expect(listener).not.toHaveBeenCalled();
 
       target.resolve(executionSettingsResponse(changedSettings));
 
       await vi.waitFor(() => expect(listener).toHaveBeenCalledOnce());
-      expect(root.querySelector("[data-action='open']")?.textContent).toContain("Development VM");
+      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM");
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("false");
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
     } finally {
       unsubscribe();
     }
@@ -110,6 +115,9 @@ describe("PlatformClaw execution settings", () => {
       expect(executionProgressState(root, "connection")).toBe("active");
       expect(executionProgressState(root, "activation")).toBe("pending");
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("true");
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+        t("platformClaw.execution.connecting"),
+      );
       expectExecutionControlsDisabled(root);
 
       selection.resolve(executionSettingsResponse(selectedSettings));
@@ -125,6 +133,9 @@ describe("PlatformClaw execution settings", () => {
       expect(executionProgressState(root, "connection")).toBe("complete");
       expect(executionProgressState(root, "activation")).toBe("active");
       expectExecutionControlsDisabled(root);
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+        t("platformClaw.execution.switching", { target: t("platformClaw.execution.vm") }),
+      );
       expect(listener).not.toHaveBeenCalled();
 
       const settings = root.querySelector<OpenClawModalDialog>("[data-settings-modal]")!;
@@ -142,7 +153,7 @@ describe("PlatformClaw execution settings", () => {
       activation.resolve(executionSettingsResponse(activeSettings));
 
       await vi.waitFor(() => expect(executionProgressState(root, "activation")).toBe("complete"));
-      expect(root.querySelector("[data-action='open']")?.textContent).toContain("Development VM");
+      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM");
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("false");
       expect(listener).toHaveBeenCalledOnce();
       expect(fetchImpl).toHaveBeenCalledTimes(3);
@@ -189,7 +200,7 @@ describe("PlatformClaw execution settings", () => {
     expect(root.querySelector<HTMLInputElement>("[name='linuxAccount']")?.value).toBe(
       "custom.account",
     );
-    expect(root.querySelector("[data-action='open']")?.textContent).toContain("Basic server");
+    expect(root.querySelector("[data-current-target]")?.textContent).toContain("Basic server");
     expect(
       root.querySelector<HTMLButtonElement>("[data-action='select-vm'] button")?.disabled,
     ).toBe(false);
@@ -274,13 +285,13 @@ describe("PlatformClaw execution settings", () => {
     expect(root.textContent).not.toContain("VM connected, but");
     await i18n.setLocale("en");
     await vi.waitFor(() => expect(root.textContent).toContain("VM connected, but"));
-    expect(root.querySelector("[data-action='open']")?.textContent).toContain("Basic server");
+    expect(root.querySelector("[data-current-target]")?.textContent).toContain("Basic server");
     const retry = root.querySelector<HTMLButtonElement>("[data-target='assigned_vm']")!;
     expect(retry.disabled).toBe(false);
     retry.click();
 
     await vi.waitFor(() =>
-      expect(root.querySelector("[data-action='open']")?.textContent).toContain("Development VM"),
+      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM"),
     );
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       "/platformclaw/api/execution",
@@ -314,7 +325,9 @@ describe("PlatformClaw execution settings", () => {
       submitVmSelection(root);
 
       await vi.waitFor(() =>
-        expect(root.querySelector("[data-action='open']")?.textContent).toContain("Development VM"),
+        expect(root.querySelector("[data-current-target]")?.textContent).toContain(
+          "Development VM",
+        ),
       );
       expect(root.querySelector("[role='alert']")).toBeNull();
       expect(executionProgressState(root, "connection")).toBe("complete");
@@ -354,6 +367,9 @@ describe("PlatformClaw execution settings", () => {
       );
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("true");
       expectExecutionControlsDisabled(root);
+      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+        t("platformClaw.execution.testing"),
+      );
       verification.resolve(executionSettingsResponse(EXECUTION_SETTINGS));
 
       await vi.waitFor(() =>
@@ -366,7 +382,7 @@ describe("PlatformClaw execution settings", () => {
             : "platformClaw.execution.connectionTested",
         ),
       );
-      expect(root.querySelector("[data-action='open']")?.textContent).toContain("Basic server");
+      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Basic server");
       expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
         "/platformclaw/api/execution",
         `/platformclaw/api/execution/${action}`,
@@ -467,7 +483,7 @@ describe("PlatformClaw execution settings", () => {
     expect(root.querySelector("[data-action='activate-verified-vm']")).not.toBeNull();
     root.querySelector<HTMLButtonElement>("[data-action='hide-progress']")!.click();
     expect(progress.open).toBe(false);
-    expect(root.querySelector("[data-action='open']")?.textContent).toContain("Basic server");
+    expect(root.querySelector("[data-current-target]")?.textContent).toContain("Basic server");
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       "/platformclaw/api/execution",
       "/platformclaw/api/execution/credential",
@@ -485,7 +501,7 @@ describe("PlatformClaw execution settings", () => {
       mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
       const root = document.querySelector("platformclaw-execution-settings")!.shadowRoot!;
       await vi.waitFor(() =>
-        expect(root.querySelector("[data-action='open']")?.textContent).toContain(
+        expect(root.querySelector("[data-current-target]")?.textContent).toContain(
           activeTarget === "assigned_vm" ? "Development VM" : "Basic server",
         ),
       );
@@ -552,7 +568,11 @@ describe("PlatformClaw execution settings", () => {
     );
     mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const element = document.querySelector("platformclaw-execution-settings")!;
-    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Basic server"));
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector("[data-current-target]")?.textContent).toContain(
+        "Basic server",
+      ),
+    );
     element.shadowRoot?.querySelector<HTMLElement>("[data-action='open']")?.click();
     const dialog = element.shadowRoot?.querySelector<OpenClawModalDialog>("[data-settings-modal]");
 

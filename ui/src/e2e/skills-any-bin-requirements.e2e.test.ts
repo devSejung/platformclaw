@@ -194,8 +194,17 @@ describeControlUiE2e("Control UI alternative skill binary requirements", () => {
       const search = page.locator('input[name="skills-filter"]');
       await search.fill("missing result");
       await expect
-        .poll(() => page.getByText("No skills found.", { exact: true }).isVisible())
+        .poll(() => page.getByText("No skills match your filters.", { exact: true }).isVisible())
         .toBe(true);
+      await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+      await expect.poll(() => search.inputValue()).toBe("");
+      for (const name of ["Coding Agent", "Needs Setup Agent", "Disabled Agent"]) {
+        await expect.poll(() => page.getByText(name, { exact: true }).isVisible()).toBe(true);
+      }
+      expect(await page.getByRole("button", { name: "Clear filters", exact: true }).count()).toBe(
+        0,
+      );
+      await page.locator('wa-radio[value="needs-setup"]').click();
       await search.fill("needs setup");
       await expect
         .poll(() => page.getByText("Needs Setup Agent", { exact: true }).isVisible())

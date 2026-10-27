@@ -3,25 +3,64 @@ import { property, state } from "lit/decorators.js";
 import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import { icons } from "../components/icons.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
+import type { ExecutionSettings } from "./execution-settings-view.ts";
+import { subscribeToPlatformClawExecutionTargetChanges } from "./execution-target-events.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import messengerIcon from "./messenger-icon.svg?raw";
+import { PLATFORMCLAW_EXECUTION_API_PATH } from "./web-contract.ts";
 import "./voc-dialog.ts";
 
 export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => undefined;
   @property({ type: Boolean }) vocEnabled = false;
+  @property({ type: Boolean, attribute: "location-only", reflect: true }) locationOnly = false;
   @state() private executionSettingsLoaded = false;
   @state() private executionTarget: "platform_server" | "assigned_vm" | null = null;
+  @state() private executionLoading = true;
   @state() private vocOpen = false;
 
-  private executionSettingsSnapshot: unknown;
+  private executionSettingsSnapshot: ExecutionSettings | undefined;
+  private executionRequest = 0;
+  private unsubscribeExecutionTarget = () => {};
+  private readonly clearExecutionTarget = () => {
+    this.executionTarget = null;
+    this.executionSettingsSnapshot = undefined;
+  };
+  private readonly refreshExecutionTarget = () => {
+    this.clearExecutionTarget();
+    void this.loadExecutionTarget();
+  };
+  private readonly handleVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      this.refreshExecutionTarget();
+    }
+  };
 
   static override styles = css`
     :host {
       display: grid;
       min-width: 0;
       gap: 4px;
+    }
+    :host([location-only]) {
+      display: inline-flex;
+      max-width: 160px;
+    }
+    .location-status {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      gap: 6px;
+      color: var(--muted-strong);
+      font-size: 12px;
+    }
+    .location-status[data-state="loading"] .execution-dot {
+      background: var(--muted);
+    }
+    .location-status[data-state="warning"] .execution-dot,
+    .location-status[data-state="unavailable"] .execution-dot {
+      background: var(--warn);
     }
     .grid {
       display: grid;
@@ -99,15 +138,38 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     void loadPlatformClawLocale().then(() => this.requestUpdate());
-    void this.loadExecutionTarget();
+    this.unsubscribeExecutionTarget = subscribeToPlatformClawExecutionTargetChanges(
+      window,
+      this.clearExecutionTarget,
+      () => void this.loadExecutionTarget(),
+    );
+    // Another tab can change the same personal profile without a local Window event.
+    window.addEventListener("focus", this.refreshExecutionTarget);
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    this.refreshExecutionTarget();
+  }
+
+  override disconnectedCallback(): void {
+    this.executionRequest++;
+    this.unsubscribeExecutionTarget();
+    window.removeEventListener("focus", this.refreshExecutionTarget);
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    this.clearExecutionTarget();
+    super.disconnectedCallback();
   }
 
   private async loadExecutionTarget(): Promise<void> {
+    const request = ++this.executionRequest;
+    this.executionLoading = true;
     try {
-      const response = await this.fetchImpl("/platformclaw/api/execution", {
+      const response = await this.fetchImpl(PLATFORMCLAW_EXECUTION_API_PATH, {
         credentials: "same-origin",
         headers: { Accept: "application/json" },
+        cache: "no-store",
       });
+      if (request !== this.executionRequest || !this.isConnected) {
+        return;
+      }
       if (response.status === 401) {
         this.onUnauthenticated();
         return;
@@ -115,13 +177,20 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       if (!response.ok) {
         return;
       }
-      const settings = (await response.json()) as { activeTarget?: unknown };
+      const settings = (await response.json()) as ExecutionSettings;
+      if (request !== this.executionRequest || !this.isConnected) {
+        return;
+      }
       if (settings.activeTarget === "platform_server" || settings.activeTarget === "assigned_vm") {
         this.executionSettingsSnapshot = settings;
         this.executionTarget = settings.activeTarget;
       }
     } catch {
       // The launcher remains usable; the full view reports actionable errors when opened.
+    } finally {
+      if (request === this.executionRequest && this.isConnected) {
+        this.executionLoading = false;
+      }
     }
   }
 
@@ -140,6 +209,41 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   override render() {
+    if (this.locationOnly) {
+      const settings = this.executionSettingsSnapshot;
+      const vmNeedsConnection =
+        this.executionTarget === "assigned_vm" &&
+        (settings?.assignment?.status !== "ready" || settings.credentialStatus !== "current");
+      const status = this.executionLoading
+        ? "loading"
+        : !this.executionTarget
+          ? "unavailable"
+          : vmNeedsConnection
+            ? "warning"
+            : "ready";
+      const target = this.executionLoading
+        ? t("common.loading")
+        : !this.executionTarget
+          ? t("platformClaw.execution.locationUnknown")
+          : t(
+              this.executionTarget === "assigned_vm"
+                ? "platformClaw.execution.vm"
+                : "platformClaw.execution.basic",
+            );
+      const label = t("platformClaw.execution.selectedLocation", { target });
+      const detail = vmNeedsConnection
+        ? `${label} · ${t("platformClaw.execution.connectionRequired")}`
+        : label;
+      return html`<span
+        class="location-status"
+        data-state=${status}
+        role="status"
+        aria-label=${detail}
+        title=${`${detail}. ${t("platformClaw.execution.boundary")}`}
+      >
+        <span class="execution-dot" aria-hidden="true"></span><span class="label">${detail}</span>
+      </span>`;
+    }
     return html`
       <div class="grid" aria-label=${t("platformClaw.quickActions.label")}>
         ${this.vocEnabled
@@ -175,16 +279,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
               @click=${() => void this.openExecutionSettings()}
               aria-label=${t("platformClaw.execution.openSettings")}
             >
-              <span class="execution-dot" aria-hidden="true"></span>
-              <span class="label"
-                >${t(
-                  this.executionTarget === "assigned_vm"
-                    ? "platformClaw.execution.vm"
-                    : this.executionTarget === "platform_server"
-                      ? "platformClaw.execution.basic"
-                      : "platformClaw.execution.workLocation",
-                )}</span
-              >
+              ${icons.monitor}<span class="label">${t("platformClaw.execution.workLocation")}</span>
             </button>`}
       </div>
       ${this.vocOpen

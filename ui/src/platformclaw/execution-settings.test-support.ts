@@ -72,7 +72,7 @@ export async function mountExecutionSettings(fetchImpl: typeof fetch): Promise<S
   mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
   const element = document.querySelector("platformclaw-execution-settings")!;
   await vi.waitFor(() =>
-    expect(element.shadowRoot?.querySelector("[data-action='open']")?.textContent).toContain(
+    expect(element.shadowRoot?.querySelector("[data-current-target]")?.textContent).toContain(
       "Basic server",
     ),
   );

@@ -1,4 +1,5 @@
 export const executionTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.execution.selectedLocation": "Selected location: {target}",
   "platformClaw.execution.codingAgents": "Coding agents",
   "platformClaw.execution.useAgent": "Allow {agent}",
   "platformClaw.execution.agentSavedOn": "Saved permission: on",

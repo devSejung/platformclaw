@@ -678,7 +678,7 @@ export function renderSpacesView(p: SpacesViewProps) {
                     ?disabled=${p.busy || Boolean(p.editor)}
                     @click=${() => p.onCreate("space")}
                   >
-                    ${icons.plus}${t("startSpace")}
+                    ${icons.plus}${t(p.spaces.length === 0 ? "startSpace" : "createSpace")}
                   </button>`
                 : nothing}
             <span class="pc-space-privacy-hint">${t("intro")}</span>

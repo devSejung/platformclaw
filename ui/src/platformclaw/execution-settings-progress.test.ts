@@ -197,7 +197,9 @@ describe("PlatformClaw layered execution progress", () => {
       .mockReturnValueOnce(target.promise);
     mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const root = document.querySelector("platformclaw-execution-settings")!.shadowRoot!;
-    await vi.waitFor(() => expect(root.textContent).toContain("Development VM"));
+    await vi.waitFor(() =>
+      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM"),
+    );
     openExecutionSettings(root);
     const settings = await nativeExecutionModal(root, "[data-settings-modal]");
     const basicTile = settings.modal.querySelector("[data-target='platform_server']");
@@ -219,7 +221,7 @@ describe("PlatformClaw layered execution progress", () => {
     expect(root.querySelector("[data-settings-modal]")).toBe(settings.modal);
     expect(settings.modal.querySelector("[data-target='platform_server']")).toBe(basicTile);
     expectCurrentExecutionLocation(settings.modal, "platform_server", "Basic server");
-    expect(root.querySelector("[data-action='open']")?.textContent).toContain("Basic server");
+    expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
     expect(fetchImpl.mock.calls[1]).toEqual([
       "/platformclaw/api/execution/target",
       expect.objectContaining({
@@ -400,7 +402,7 @@ describe("PlatformClaw layered execution progress", () => {
     mountPlatformClawExecutionSettings({ fetchImpl, onUnauthenticated: vi.fn() });
     const root = document.querySelector("platformclaw-execution-settings")!.shadowRoot!;
     await vi.waitFor(() =>
-      expect(root.querySelector("[data-action='open']")?.textContent).toContain("Development VM"),
+      expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM"),
     );
     openExecutionSettings(root);
     const settings = await nativeExecutionModal(root, "[data-settings-modal]");

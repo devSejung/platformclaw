@@ -1,11 +1,13 @@
 .content--skill-hub .content-header--page {
   align-items: flex-start;
   flex-wrap: wrap;
+  /* Wrapped publishing actions must remain visible and reachable on narrow screens. */
+  max-height: none;
 }
 
 .skill-hub-page {
   display: grid;
-  gap: 22px;
+  gap: var(--space-4);
   padding: 8px 0 28px;
 }
 
@@ -14,6 +16,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.skill-hub-header-actions {
+  flex-wrap: wrap;
+}
+
+.skill-hub-header-actions .btn {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .skill-hub-dialog__header > div {
@@ -151,34 +163,26 @@
   gap: 3px;
 }
 
-.skill-hub-hero {
+.skill-hub-toolbar {
   display: grid;
-  gap: 22px;
-  padding: 28px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: linear-gradient(135deg, var(--card), var(--bg-elevated));
+  gap: var(--space-2);
 }
 
-.skill-hub-hero h2,
 .skill-hub-detail h2 {
   margin: 6px 0 8px;
   font-size: clamp(1.45rem, 3vw, 2rem);
 }
 
-.skill-hub-hero p,
+.skill-hub-toolbar p,
 .skill-hub-detail p {
   margin: 0;
   color: var(--muted);
 }
 
-.skill-hub-hero .skill-hub-registry-status {
-  margin-top: 10px;
-  color: var(--text);
+.skill-hub-toolbar .skill-hub-registry-status {
   font-size: 0.8rem;
 }
 
-.skill-hub-eyebrow,
 .skill-hub-card__namespace {
   color: var(--accent);
   font-size: 0.72rem;
@@ -219,8 +223,7 @@
 
 .skill-hub-card {
   display: grid;
-  min-height: 190px;
-  padding: 18px;
+  padding: var(--space-4);
   color: inherit;
   text-align: left;
   border: 1px solid var(--border);
@@ -245,7 +248,7 @@
 
 .skill-hub-card__summary {
   display: -webkit-box;
-  margin: 10px 0 18px;
+  margin: var(--space-2) 0 var(--space-3);
   overflow: hidden;
   color: var(--muted);
   -webkit-box-orient: vertical;
@@ -500,11 +503,6 @@ openclaw-skill-hub-user-picker {
 }
 
 @media (max-width: 600px) {
-  .skill-hub-hero {
-    padding: 20px;
-  }
-
-  .skill-hub-search,
   .skill-hub-grid,
   .skill-hub-upload__fields,
   .skill-hub-admin__form {
@@ -515,7 +513,6 @@ openclaw-skill-hub-user-picker {
     grid-template-columns: 1fr;
   }
 
-  .skill-hub-search .btn,
   .skill-hub-install-actions .btn {
     width: 100%;
   }

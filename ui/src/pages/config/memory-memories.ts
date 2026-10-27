@@ -4,15 +4,12 @@ import { property, state } from "lit/decorators.js";
 import type { AgentsWorkspaceGetResult } from "../../../../packages/gateway-protocol/src/index.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationGatewayPhase } from "../../app/gateway.ts";
-import {
-  renderSettingsEmpty,
-  renderSettingsRow,
-  renderSettingsSection,
-} from "../../components/settings-ui.ts";
+import { renderSettingsEmpty } from "../../components/settings-ui.ts";
 import { t } from "../../i18n/index.ts";
 import { redactToolDetail } from "../../lib/browser-redact.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import "../../styles/memory-memories.css";
+import { renderMemoryBrowse } from "./memory-memories-browse-view.ts";
 import {
   type BrowserMemorySearchResponse,
   type BrowseListResult,
@@ -33,6 +30,10 @@ import {
   type WikiGetResult,
   type WikiSearchResult,
 } from "./memory-memories-view.ts";
+import {
+  memorySearchResultIdentity,
+  type MemorySearchNavigationState,
+} from "./memory-search-navigation.ts";
 
 const RECENT_MEMORY_LIMIT = 7;
 
@@ -66,6 +67,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   @property({ attribute: false }) itemActions?: MemoryResultActions;
   @property({ type: Number }) refreshRevision = 0;
   @property({ attribute: false }) openVaultDocument?: (vaultId: string, documentId: string) => void;
+  @property({ attribute: false }) navigationState: MemorySearchNavigationState | null = null;
 
   @state() private query = "";
   @state() private searchState: SearchState = { kind: "idle" };
@@ -78,6 +80,36 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
   private searchRequest: object | null = null;
   private detailRequests = new Map<string, object>();
   private browseRequest: object | null = null;
+  private restoreNavigation: MemorySearchNavigationState | null = null;
+  private restoreScrollTop: number | null = null;
+  private scrollContainer: HTMLElement | null = null;
+
+  override connectedCallback() {
+    super.connectedCallback();
+    this.scrollContainer = this.closest<HTMLElement>("#control-ui-main");
+  }
+
+  override disconnectedCallback() {
+    if (this.navigationState) {
+      const selected =
+        this.searchState.kind === "ready"
+          ? this.searchState.results.find(
+              (result, index) => resultKey(result, index) === this.openResultKey,
+            )
+          : undefined;
+      Object.assign(this.navigationState, {
+        kind: this.searchState.kind === "idle" ? "draft" : "search",
+        query: this.query,
+        sourceFilter: this.sourceFilter,
+        selectedResult: selected ? memorySearchResultIdentity(selected) : null,
+        scrollTop: this.scrollContainer?.scrollTop ?? 0,
+      } satisfies MemorySearchNavigationState);
+    }
+    this.searchRequest = this.browseRequest = null;
+    this.detailRequests.clear();
+    this.scrollContainer = null;
+    super.disconnectedCallback();
+  }
 
   protected override willUpdate(changed: PropertyValues<this>) {
     const identityChanged = changed.has("agentId") || changed.has("client");
@@ -125,12 +157,71 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
         this.browseRefresh = "idle";
       }
     }
+    if (changed.has("navigationState")) {
+      this.resetSearch();
+      this.resetBrowse();
+      const navigation = this.navigationState;
+      this.query = navigation?.query ?? "";
+      this.sourceFilter = navigation?.sourceFilter ?? "all";
+      this.restoreNavigation = navigation?.kind === "search" ? { ...navigation } : null;
+      this.restoreScrollTop = navigation?.scrollTop ?? null;
+    } else if (
+      identityChanged ||
+      changed.has("vaultId") ||
+      changed.has("searchScope") ||
+      (changed.has("unifiedSearch") && !this.restoreNavigation) ||
+      (this.methodAdvertised === false && this.wikiSearchAdvertised === false)
+    ) {
+      this.restoreNavigation = null;
+      this.restoreScrollTop = null;
+    } else if (this.restoreNavigation) {
+      // Capability discovery can finish after this page remounts. Keep only its
+      // intent while resetSearch discards results; the current catalog gates the requery.
+      this.query = this.restoreNavigation.query;
+      this.sourceFilter = this.restoreNavigation.sourceFilter;
+    }
   }
 
   protected override updated(changed: PropertyValues<this>) {
     const identityChanged = changed.has("agentId") || changed.has("client");
     const connectionChanged = changed.has("connected") || changed.has("connectionPhase");
-    if (changed.has("refreshRevision") && this.gatewayReady && this.query.trim()) {
+    if (
+      this.restoreNavigation &&
+      this.gatewayReady &&
+      this.methodAdvertised !== null &&
+      this.wikiSearchAdvertised !== null &&
+      (this.methodAdvertised || this.wikiSearchAdvertised)
+    ) {
+      const navigation = this.restoreNavigation;
+      const navigationOwner = this.navigationState;
+      this.restoreNavigation = null;
+      void this.search(navigation.query, true).then((restored) => {
+        if (
+          !restored ||
+          !this.isConnected ||
+          !this.gatewayReady ||
+          this.navigationState !== navigationOwner ||
+          this.searchState !== restored
+        ) {
+          return;
+        }
+        const index = restored.results.findIndex(
+          (result) =>
+            memorySearchResultIdentity(result) === navigation.selectedResult &&
+            (this.sourceFilter === "all" || result.source === this.sourceFilter),
+        );
+        const result = restored.results[index];
+        if (result) {
+          this.toggleResult(result, index);
+        }
+      });
+    }
+    if (
+      changed.has("refreshRevision") &&
+      changed.get("refreshRevision") !== undefined &&
+      this.gatewayReady &&
+      this.query.trim()
+    ) {
       void this.search(this.query, true);
     }
     if (
@@ -144,6 +235,18 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
         changed.has("browseListAdvertised"))
     ) {
       queueMicrotask(() => void this.loadBrowse());
+    }
+    if (
+      this.restoreScrollTop !== null &&
+      !this.restoreNavigation &&
+      this.searchState.kind !== "loading" &&
+      (!this.browseEnabled || this.browseState.kind === "ready") &&
+      this.detailRequests.size === 0
+    ) {
+      if (this.scrollContainer) {
+        this.scrollContainer.scrollTop = this.restoreScrollTop;
+      }
+      this.restoreScrollTop = null;
     }
   }
 
@@ -284,7 +387,10 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     };
   }
 
-  private async search(query: string, preserveFilter = false) {
+  private async search(
+    query: string,
+    preserveFilter = false,
+  ): Promise<Extract<SearchState, { kind: "ready" }> | null> {
     const normalizedQuery = query.trim();
     const client = this.gatewayReady ? this.client : null;
     const agentId = this.agentId;
@@ -294,7 +400,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
       !agentId ||
       (this.methodAdvertised !== true && this.wikiSearchAdvertised !== true)
     ) {
-      return;
+      return null;
     }
     const request = { client, agentId, query: normalizedQuery };
     this.searchRequest = request;
@@ -327,7 +433,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
         : Promise.resolve(null),
     ]);
     if (this.searchRequest !== request || !this.isCurrentRequest(request)) {
-      return;
+      return null;
     }
     if (personal?.ok !== true && wiki?.ok !== true) {
       this.searchState = {
@@ -340,7 +446,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
               ? wiki.message
               : this.text("memoryPage.memories.gatewayUpdateRequired"),
       };
-      return;
+      return null;
     }
     const result: BrowserMemorySearchResponse =
       personal?.ok === true
@@ -380,6 +486,7 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
         : {}),
       ...(wiki?.ok === false ? { personalWikiUnavailable: true } : {}),
     };
+    return this.searchState;
   }
 
   private toggleResult(result: SearchResult, index: number, content?: string) {
@@ -510,130 +617,21 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
     });
   }
 
-  private renderBrowseReady(ready: Extract<BrowseState, { kind: "ready" }>) {
-    const memoryRow =
-      ready.memoryError && !ready.memory
-        ? nothing
-        : !ready.memory || ready.memory.missing
-          ? renderSettingsEmpty(this.text("memoryPage.memories.longTermEmpty"))
-          : this.renderBrowseFile(
-              "MEMORY.md",
-              "MEMORY.md",
-              -1,
-              this.text("memoryPage.memories.previewHint"),
-              ready.memory.content,
-              ready.memory.updatedAtMs,
-            );
-    const longTerm =
-      this.gatewayReady && this.personalDetailAdvertised === null
-        ? renderSettingsEmpty(this.text("memoryPage.memories.capabilitiesLoading"))
-        : this.gatewayReady && this.personalDetailAdvertised === false
-          ? renderSettingsEmpty(this.text("memoryPage.memories.previewUnavailable"))
-          : html`${ready.memoryError
-              ? html`<div class="settings-empty" role="alert">
-                  ${this.text("memoryPage.memories.browseErrorWithMessage", {
-                    message: ready.memoryError,
-                  })}
-                </div>`
-              : nothing}${memoryRow}`;
-    const recentRows =
-      this.gatewayReady && this.browseListAdvertised === null
-        ? renderSettingsEmpty(this.text("memoryPage.memories.capabilitiesLoading"))
-        : this.gatewayReady && this.browseListAdvertised === false
-          ? renderSettingsEmpty(this.text("memoryPage.memories.recentUnavailable"))
-          : ready.recentError && ready.recent.length === 0
-            ? nothing
-            : ready.recent.length === 0
-              ? ready.additionalEntries
-                ? nothing
-                : renderSettingsEmpty(this.text("memoryPage.memories.recentEmpty"))
-              : ready.recent.map((entry, index) =>
-                  this.renderBrowseFile(
-                    entry.path,
-                    entry.name,
-                    -index - 2,
-                    undefined,
-                    undefined,
-                    entry.updatedAtMs,
-                  ),
-                );
-    const refreshBusy = this.browseRefresh === "loading";
-    return html`
-      ${renderSettingsSection(
-        {
-          title: this.text("memoryPage.memories.longTermTitle"),
-          description: this.text("memoryPage.memories.longTermDescription"),
-          actions: html`<button
-            class="btn btn--sm"
-            ?disabled=${refreshBusy || !this.gatewayReady}
-            @click=${() => void this.loadBrowse(true)}
-          >
-            ${this.text(
-              refreshBusy ? "memoryPage.memories.refreshing" : "memoryPage.memories.refresh",
-            )}
-          </button>`,
-        },
-        html`${longTerm}${this.browseRefresh === "done"
-          ? html`<p role="status">${this.text("memoryPage.memories.refreshed")}</p>`
-          : nothing}`,
-      )}
-      ${renderSettingsSection(
-        {
-          title: this.text("memoryPage.memories.recentTitle"),
-          description: this.text("memoryPage.memories.recentDescription"),
-        },
-        html`${ready.recentError
-          ? html`<div class="settings-empty" role="alert">
-              ${this.text("memoryPage.memories.recentPartialError", {
-                message: ready.recentError,
-              })}
-            </div>`
-          : nothing}${recentRows}${ready.additionalEntries
-          ? renderSettingsRow({
-              title: this.text("memoryPage.memories.recentMoreTitle"),
-              description: this.text("memoryPage.memories.recentTruncated"),
-              ...(this.methodAdvertised === true || this.wikiSearchAdvertised === true
-                ? {
-                    control: html`<button class="btn btn--sm" @click=${() => this.focusSearch()}>
-                      ${this.text("memoryPage.memories.searchButton")}
-                    </button>`,
-                  }
-                : {}),
-            })
-          : nothing}`,
-      )}
-    `;
-  }
-
   private renderBrowse() {
-    if (!this.browseEnabled) {
-      return nothing;
-    }
-    if (
-      this.phase === "connected" &&
-      this.personalDetailAdvertised === false &&
-      this.browseListAdvertised === false
-    ) {
-      return renderSettingsSection(
-        { title: this.text("memoryPage.memories.longTermTitle") },
-        renderSettingsEmpty(this.text("memoryPage.memories.browseUpdateRequired")),
-      );
-    }
-    if (this.browseState.kind === "ready") {
-      return this.renderBrowseReady(this.browseState);
-    }
-    return renderSettingsSection(
-      { title: this.text("memoryPage.memories.longTermTitle") },
-      html`<div class="settings-empty" role="status">
-        ${this.gatewayReady
-          ? this.text(
-              this.personalDetailAdvertised === null || this.browseListAdvertised === null
-                ? "memoryPage.memories.capabilitiesLoading"
-                : "memoryPage.memories.browseLoading",
-            )
-          : this.connectionLabel}
-      </div>`,
-    );
+    return renderMemoryBrowse(this.browseState, {
+      enabled: this.browseEnabled,
+      connected: this.phase === "connected",
+      connectionLabel: this.connectionLabel,
+      gatewayReady: this.gatewayReady,
+      personalDetailAdvertised: this.personalDetailAdvertised,
+      browseListAdvertised: this.browseListAdvertised,
+      browseRefresh: this.browseRefresh,
+      searchAvailable: this.methodAdvertised === true || this.wikiSearchAdvertised === true,
+      renderFile: this.renderBrowseFile.bind(this),
+      text: this.text.bind(this),
+      onRefresh: () => void this.loadBrowse(true),
+      onFocusSearch: () => this.focusSearch(),
+    });
   }
 
   private renderSearchState() {
@@ -698,6 +696,8 @@ class MemoryMemoriesElement extends OpenClawLightDomElement {
               onSubmit: () => void this.search(this.query),
               onInput: (next) => {
                 if (next !== this.query) {
+                  this.restoreNavigation = null;
+                  this.restoreScrollTop = null;
                   this.cancelPendingSearch();
                   this.clearDetails(false);
                   this.searchState = { kind: "idle" };

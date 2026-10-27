@@ -22,6 +22,7 @@ import type { MemoryMenuAction } from "./memory-item-menu.ts";
 import "./memory-item-menu.ts";
 import "./memory-delete-dialog.ts";
 import "./memory-vault-reader.ts";
+import { platformClawMemoryNavigationState } from "./memory-search-navigation.ts";
 import type { VaultAuthorSaved } from "./memory-vault-author.ts";
 import type { VaultReaderSelection } from "./memory-vault-reader.ts";
 
@@ -76,6 +77,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
   @state() private actionMessage = "";
   @state() private refreshRevision = 0;
   private gatewayClient: ApplicationContext["gateway"]["snapshot"]["client"] | undefined;
+  private gatewayUserId: string | null | undefined;
   private readonly subscriptions = new SubscriptionsController(this).watch(
     () => this.context?.gateway,
     (gateway, notify) => gateway.subscribe(notify),
@@ -97,6 +99,7 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     if (
       changed.has("agentId") ||
       this.gatewayClient !== gateway.client ||
+      (gateway.phase === "connected" && this.gatewayUserId !== (gateway.selfUser?.id ?? null)) ||
       gateway.phase === "stopped"
     ) {
       this.menu = null;
@@ -108,6 +111,9 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
       this.actionMessage = "";
     }
     this.gatewayClient = gateway.client;
+    if (gateway.phase === "connected") {
+      this.gatewayUserId = gateway.selfUser?.id ?? null;
+    }
     if (gateway.phase !== "connected") {
       this.menu = null;
       this.deleteTarget = null;
@@ -267,6 +273,9 @@ class PlatformClawMemoryPage extends OpenClawLightDomElement {
     switch (this.activeTab) {
       case "memory":
         return html`<openclaw-memory-memories
+          .navigationState=${this.agentId
+            ? platformClawMemoryNavigationState(this.context.gateway, this.agentId)
+            : null}
           .documentDialogs=${true}
           .client=${gateway.client}
           .connected=${gateway.phase === "connected"}

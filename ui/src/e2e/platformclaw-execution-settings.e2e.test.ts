@@ -475,8 +475,11 @@ suite("PlatformClaw coding agent settings", () => {
         password: "fixture-only",
       });
     await expect
-      .poll(() => component.locator("[data-action='open']").textContent())
+      .poll(() => component.locator("[data-current-target]").textContent())
       .toContain("Development VM");
+    expect((await component.locator("[data-action='open']").textContent())?.trim()).toBe(
+      "Work location",
+    );
     await component.locator("[data-target='platform_server']").click();
     await expect.poll(() => component.locator("[data-action='release']").isEnabled()).toBe(true);
 

@@ -555,6 +555,11 @@ class SkillsPage extends OpenClawLightDomElement {
           onFilterChange: (next) => (this.skillsFilter = next),
           onStatusFilterChange: (next) => (this.skillsStatusFilter = next),
           onRefresh: () => void this.refreshPage(),
+          onBrowseSkillHub:
+            this.context.accessMode === "personal-agent" &&
+            this.context.isRouteEnabled?.("skill-hub") !== false
+              ? () => this.context.navigate("skill-hub")
+              : undefined,
           onToggle: (key, enabled) => {
             if (this.canUpdateSkills()) {
               void updateSkillEnabled(this, key, enabled, () => this.canUpdateSkills());

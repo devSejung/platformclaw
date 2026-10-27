@@ -285,6 +285,7 @@ export async function runExecutionProgressCase({
       ? {
           basic: "Basic server",
           vm: "Development VM",
+          workLocation: "Work location",
           settings: "Work environment settings",
           connect: "Connect and use VM",
           connection: "Connect and prepare workspace",
@@ -299,6 +300,7 @@ export async function runExecutionProgressCase({
       : {
           basic: "기본 서버",
           vm: "개발 VM",
+          workLocation: "작업 위치",
           settings: "작업 환경 설정",
           connect: "연결하고 사용",
           connection: "VM 연결 및 작업 공간 준비",
@@ -443,16 +445,17 @@ export async function runExecutionProgressCase({
     );
     const component = page.locator("platformclaw-execution-settings");
     const badge = component.locator("[data-action='open']");
-    await expect.poll(() => badge.textContent()).toContain(copy.basic);
+    const currentLocation = component.locator("[data-current-location]");
+    const currentTarget = currentLocation.locator("[data-current-target]");
+    await expect.poll(() => currentTarget.textContent()).toContain(copy.basic);
+    expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
     await badge.click();
     await expect
       .poll(() => component.getByRole("dialog", { name: copy.settings, exact: true }).isVisible())
       .toBe(true);
     await captureDialogIdentity(component, "settings");
     const settingsPanelBox = await settledPanelBox(component, "settings");
-    const currentLocation = component.locator("[data-current-location]");
     const currentLocationBox = await currentLocationLayoutBox(currentLocation);
-    const currentTarget = currentLocation.locator("[data-current-target]");
     expect(await currentTarget.textContent()).toContain(copy.basic);
     expect(await currentLocation.locator("[data-target] svg").count()).toBe(2);
     expect(
@@ -615,7 +618,7 @@ export async function runExecutionProgressCase({
       await assertDialogIdentity(component, "progress");
       releaseRetry();
     }
-    await expect.poll(() => badge.textContent()).toContain(copy.vm);
+    await expect.poll(() => currentTarget.textContent()).toContain(copy.vm);
     await expect
       .poll(() =>
         component.evaluate((element) => (element as ProofHost).executionSuccessProof?.heading),
@@ -646,6 +649,7 @@ export async function runExecutionProgressCase({
     expect(requests).toHaveLength(failActivation ? 3 : 2);
     expect(await component.locator("[data-action='confirm-switch']").count()).toBe(0);
     await expect.poll(() => badge.getAttribute("aria-busy")).not.toBe("true");
+    expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
     await expect
       .poll(() =>
         upper.locator("dialog").evaluate((element) => (element as HTMLDialogElement).open),
