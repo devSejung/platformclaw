@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import { createDeferred } from "../../../src/shared/deferred.js";
 import {
   PlatformClawBrowserMediaRelay,
   type PlatformClawBrowserMediaPolicy,
@@ -89,6 +90,7 @@ describe("PlatformClaw browser media relay", () => {
         headers: {
           "Content-Disposition": 'inline; filename="upload.pdf"',
           "Content-Type": "application/pdf",
+          "Cache-Control": "private, max-age=31536000, immutable",
           "Set-Cookie": "gateway-secret=must-not-escape",
         },
       });
@@ -130,6 +132,7 @@ describe("PlatformClaw browser media relay", () => {
     expect(await bytes.text()).toBe("owned-bytes");
     expect(bytes.headers.get("content-disposition")).toBe('inline; filename="upload.pdf"');
     expect(bytes.headers.get("set-cookie")).toBeNull();
+    expect(bytes.headers.get("cache-control")).toBe("no-store");
 
     query.set("sessionKey", "agent:employee-one:other");
     const replay = await fetch(
@@ -660,7 +663,11 @@ describe("PlatformClaw browser media relay", () => {
     const upstreamFetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
       return new Response("managed-bytes", {
         status: 206,
-        headers: { "Content-Range": "bytes 0-12/13", "Content-Type": "application/pdf" },
+        headers: {
+          "Content-Range": "bytes 0-12/13",
+          "Content-Type": "application/pdf",
+          "Cache-Control": "private, max-age=300, immutable",
+        },
       });
     });
     const upstreamFetch = upstreamFetchMock as typeof fetch;
@@ -679,6 +686,7 @@ describe("PlatformClaw browser media relay", () => {
       headers: { Cookie: SESSION_COOKIE, Range: "bytes=0-12" },
     });
     expect(own.status).toBe(206);
+    expect(own.headers.get("cache-control")).toBe("no-store");
     expect(await own.text()).toBe("managed-bytes");
     const forwardedHeaders = new Headers(upstreamFetchMock.mock.calls[0]?.[1]?.headers);
     expect(forwardedHeaders.has("authorization")).toBe(false);
@@ -710,4 +718,176 @@ describe("PlatformClaw browser media relay", () => {
     expect(response.status).toBe(401);
     expect(vi.mocked(policy.resolveAccess)).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { method: "HEAD", upstreamStatus: 200 },
+    { method: "GET", upstreamStatus: 304 },
+    { method: "GET", upstreamStatus: 404 },
+    { method: "POST", upstreamStatus: 200 },
+  ])("prevents cached media for $method and upstream $upstreamStatus", async (scenario) => {
+    const relay = new PlatformClawBrowserMediaRelay({
+      gatewayOrigin: "http://private-gateway.invalid",
+      gatewayAuth: "service-secret",
+      gatewayProxy: createPolicy({ messages: [] }),
+      resolveAgentIdFromSessionKey,
+      fetchImpl: vi.fn(
+        async () =>
+          new Response(null, {
+            status: scenario.upstreamStatus,
+            headers: { "Cache-Control": "private, max-age=300, immutable" },
+          }),
+      ),
+    });
+    const runtime = await listen(relay);
+    servers.push(runtime.server);
+    const response = await fetch(
+      `${runtime.origin}/api/chat/media/outgoing/${encodeURIComponent(OWN_SESSION)}/attachment-1/full?mediaTicket=signed`,
+      { method: scenario.method, headers: { Cookie: SESSION_COOKIE } },
+    );
+    expect(response.status).toBe(scenario.method === "POST" ? 405 : scenario.upstreamStatus);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it.each(
+    ["metadata-proof", "metadata-upstream", "assistant-bytes", "managed-bytes"].flatMap((phase) =>
+      ["revoked", "reassigned"].map((change) => ({ phase, change })),
+    ),
+  )("rejects $change authority while $phase is pending", async ({ phase, change }) => {
+    let reachedPending!: () => void;
+    let finishPending!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      reachedPending = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      finishPending = resolve;
+    });
+    const pause = async () => {
+      reachedPending();
+      await pending;
+    };
+    let currentAgent: string | null = "employee-one";
+    const policy = createPolicy({
+      messages: [{ role: "assistant", content: [{ type: "attachment", url: SOURCE }] }],
+    });
+    vi.mocked(policy.resolveAccess).mockImplementation(async () => {
+      if (!currentAgent) {
+        throw new Error("synthetic session revoked");
+      }
+      return { binding: { agentId: currentAgent } };
+    });
+    policy.requestMock.mockImplementation(async () => {
+      if (phase === "metadata-proof") {
+        await pause();
+      }
+      return { messages: [{ role: "assistant", content: [{ type: "attachment", url: SOURCE }] }] };
+    });
+    const upstreamFetch = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.searchParams.get("meta") === "1") {
+        if (phase === "metadata-upstream") {
+          await pause();
+        }
+        return Response.json({ available: true, mimeType: "application/pdf" });
+      }
+      await pause();
+      return new Response("must-not-escape");
+    });
+    const runtime = await listen(
+      new PlatformClawBrowserMediaRelay({
+        gatewayOrigin: "http://private-gateway.invalid",
+        gatewayAuth: "service-secret",
+        gatewayProxy: policy,
+        resolveAgentIdFromSessionKey,
+        fetchImpl: upstreamFetch,
+      }),
+    );
+    servers.push(runtime.server);
+    const query = new URLSearchParams({ source: SOURCE, sessionKey: OWN_SESSION, meta: "1" });
+    let url = `${runtime.origin}/__openclaw__/assistant-media?${query}`;
+    if (phase === "managed-bytes") {
+      url = `${runtime.origin}/api/chat/media/outgoing/${encodeURIComponent(OWN_SESSION)}/attachment-1/full?mediaTicket=signed`;
+    } else if (phase === "assistant-bytes") {
+      const meta = await fetch(url, { headers: { Cookie: SESSION_COOKIE } });
+      const ticket = (await meta.json()) as { mediaTicket: string };
+      query.delete("meta");
+      query.set("mediaTicket", ticket.mediaTicket);
+      url = `${runtime.origin}/__openclaw__/assistant-media?${query}`;
+    }
+    const operation = fetch(url, { headers: { Cookie: SESSION_COOKIE } });
+    await reached;
+    currentAgent = change === "revoked" ? null : "employee-two";
+    finishPending();
+    const response = await operation;
+    expect(response.status).toBe(change === "revoked" ? 401 : 404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.text();
+    expect(body).not.toContain("must-not-escape");
+    expect(body).not.toContain("mediaTicket");
+    if (phase === "metadata-proof") {
+      expect(upstreamFetch).not.toHaveBeenCalled();
+    }
+  });
+  it.each(["revoked", "reassigned"] as const)(
+    "rejects %s access after headers but before the first streamed byte",
+    async (change) => {
+      const bodyPending = createDeferred();
+      const headersChecked = createDeferred();
+      const releaseBody = createDeferred();
+      let owner: string | null = "employee-one";
+      let checks = 0;
+      const policy = createPolicy({ messages: [] });
+      vi.mocked(policy.resolveAccess).mockImplementation(async () => {
+        const checkedOwner = owner;
+        if (++checks === 2) {
+          headersChecked.resolve();
+        }
+        if (!checkedOwner) {
+          throw new Error("session revoked");
+        }
+        return { binding: { agentId: checkedOwner } };
+      });
+      const runtime = await listen(
+        new PlatformClawBrowserMediaRelay({
+          gatewayOrigin: "http://private-gateway.invalid",
+          gatewayAuth: "service-secret",
+          gatewayProxy: policy,
+          resolveAgentIdFromSessionKey,
+          fetchImpl: vi.fn(
+            async () =>
+              new Response(
+                new ReadableStream({
+                  async pull(controller) {
+                    bodyPending.resolve();
+                    await releaseBody.promise;
+                    controller.enqueue(new TextEncoder().encode("must-not-escape"));
+                    controller.close();
+                  },
+                }),
+                {
+                  headers: {
+                    "Content-Type": "application/pdf",
+                    "Content-Length": "15",
+                    "Content-Disposition": "attachment; filename=private.pdf",
+                  },
+                },
+              ),
+          ),
+        }),
+      );
+      servers.push(runtime.server);
+      const pending = fetch(
+        `${runtime.origin}/api/chat/media/outgoing/${encodeURIComponent(OWN_SESSION)}/attachment-1/full?mediaTicket=signed`,
+        { headers: { Cookie: SESSION_COOKIE } },
+      );
+      await Promise.all([bodyPending.promise, headersChecked.promise]);
+      owner = change === "revoked" ? null : "employee-two";
+      releaseBody.resolve();
+      const response = await pending;
+      expect(response.status).toBe(change === "revoked" ? 401 : 404);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(response.headers.get("content-disposition")).toBeNull();
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.text()).not.toContain("must-not-escape");
+    },
+  );
 });

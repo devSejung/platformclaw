@@ -99,7 +99,7 @@ export PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE="$work_dir/gateway-serv
 export PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE="$work_dir/initial-admin-ids"
 export PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE="$work_dir/ssh-credential-master-key"
 export PLATFORMCLAW_SKILL_HUB_ENABLED=true
-export PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e49099555e5c88b
+export PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e49cb1217a0ba75
 export PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE=platformclaw-skillhub-scanner:6e133c006e49
 export PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE=platformclaw-skillhub-postgres:44c4ee9810ef
 export PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE=platformclaw-skillhub-redis:e7723ff73d96
@@ -172,6 +172,9 @@ if ! "${compose[@]}" up --detach --wait --wait-timeout 180; then
   dump_logs
   exit 1
 fi
+
+echo "==> Checking SafeConnect streaming and disconnect cleanup"
+MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T fake-safeconnect python /fixture/test_server.py
 
 origin="$PLATFORMCLAW_PUBLIC_ORIGIN"
 cookie_jar="$work_dir/cookies.txt"

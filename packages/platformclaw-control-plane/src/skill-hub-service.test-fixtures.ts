@@ -29,7 +29,7 @@ export const skillHubTestUser: PlatformUser = {
 export async function createSkillHubServiceFixture(
   groups: string[] = ["engineering"],
   governance?: SkillHubGovernanceClient,
-  options: { registrySkill?: "absent" | "existing" } = {},
+  options: { registrySkill?: "absent" | "existing"; allowedNamespaces?: readonly string[] } = {},
 ) {
   const user = skillHubTestUser;
   const workspaceRoot = tempDirs.make("platformclaw-skill-hub-");
@@ -62,20 +62,21 @@ export async function createSkillHubServiceFixture(
     ControlPlaneExecutionManagementStore["getVmAllocationForAgent"]
   >(async () => null);
   let ownership: SkillHubOwnership | null = null;
-  const getSkillHubNamespaceBinding = vi.fn<() => Promise<SkillHubNamespaceBinding | null>>(
-    async () => ({
-      namespace: "engineering",
-      scopeKind: "team" as const,
-      scopeId: "scope-1",
-      accessState: "active" as const,
-      visibilityCeiling: "PUBLIC" as const,
-      createdByUserId: "admin-1",
-      createdAt: 1,
-      updatedAt: 1,
-    }),
-  );
+  const ensureDefaultSkillHubNamespace = vi.fn(async () => undefined);
+  const getSkillHubNamespaceBinding = vi.fn<
+    (namespace: string) => Promise<SkillHubNamespaceBinding | null>
+  >(async (namespace) => ({
+    namespace,
+    scopeKind: namespace === "global" ? ("global" as const) : ("team" as const),
+    ...(namespace === "global" ? {} : { scopeId: "scope-1" }),
+    accessState: "active" as const,
+    visibilityCeiling: "PUBLIC" as const,
+    createdByUserId: "admin-1",
+    createdAt: 1,
+    updatedAt: 1,
+  }));
   const store = {
-    ensureDefaultSkillHubNamespace: vi.fn(async () => undefined),
+    ensureDefaultSkillHubNamespace,
     listCompletedSkillHubNamespaces: vi.fn(async () => []),
     getSkillHubPendingEdit: vi.fn(async () => null),
     listPendingSkillHubEdits: vi.fn(async () => []),
@@ -242,7 +243,7 @@ export async function createSkillHubServiceFixture(
     adapter,
     adminRpc,
     workspaceRoot,
-    allowedNamespaces: ["engineering"],
+    allowedNamespaces: options.allowedNamespaces ?? ["engineering"],
     organization,
     maxPackageBytes: 1024 * 1024,
     now: () => 100,
@@ -256,6 +257,7 @@ export async function createSkillHubServiceFixture(
     workspaceRoot,
     store,
     skillDir,
+    ensureDefaultSkillHubNamespace,
     service,
     actor,
     adapterMocks,

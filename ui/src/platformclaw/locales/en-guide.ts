@@ -1,13 +1,20 @@
 import { wikiDocumentTranslations } from "../../pages/agents/memory/wiki-document-translations.ts";
 import { announcementTranslations } from "./en-announcements.ts";
 import { baseballTranslations } from "./en-baseball.ts";
+import { credentialTranslations } from "./en-credentials.ts";
 import { dashboardTranslations } from "./en-dashboard.ts";
 import { executionTranslations } from "./en-execution.ts";
+import { mcpTranslations } from "./en-mcp.ts";
 import { racingTranslations } from "./en-racing.ts";
 import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  ...credentialTranslations,
+  "platformClaw.quickActions.messenger": "Knox",
+  "platformClaw.quickActions.openMessenger": "Knox",
+  "platformClaw.quickActions.messengerHelp":
+    "Open sopa.ai in Knox. If it does not open, check that Knox is installed and signed in, and allow the browser to open the app.",
   "platformClaw.skillHub.namespace.create": "Create namespace",
   "platformClaw.skillHub.namespace.description":
     "Create a place to share skills company-wide or with one of your teams, groups, or parts.",
@@ -94,6 +101,7 @@ export const translations: Readonly<Record<string, string>> = {
   ...vaultTranslations,
   ...spaceTranslations,
   ...executionTranslations,
+  ...mcpTranslations,
   ...wikiDocumentTranslations.en,
   "dreaming.wiki.documentActions": "Document actions",
   "dreaming.wiki.edit": "Edit",

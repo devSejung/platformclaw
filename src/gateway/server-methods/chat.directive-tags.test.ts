@@ -552,7 +552,14 @@ vi.mock("../../media/store.js", async () => {
     deleteMediaBuffer: vi.fn(async (id: string, subdir?: string) => {
       mockState.deleteMediaBufferCalls.push({ id, subdir });
     }),
-    saveMediaBuffer: vi.fn(async (buffer: Buffer, contentType?: string, subdir?: string) => {
+    saveMediaBuffer: vi.fn(async (...args: Parameters<typeof original.saveMediaBuffer>) => {
+      const [buffer, contentType, subdir] = args;
+      if (subdir === "outbound" || subdir === "outgoing/originals") {
+        mockState.savedMediaCalls.push({ contentType, subdir, size: buffer.byteLength });
+        // Outbound materialization must create real bytes for the managed reader.
+        // Only inbound publication is controlled by this fixture's fault injection.
+        return original.saveMediaBuffer(...args);
+      }
       mockState.activeSaveMediaCalls += 1;
       mockState.maxActiveSaveMediaCalls = Math.max(
         mockState.maxActiveSaveMediaCalls,
@@ -593,6 +600,17 @@ function createFixturePaths(prefix: string): { dir: string; transcriptPath: stri
   const transcriptPath = path.join(dir, "sess.jsonl");
   mockState.sessionId = `chat-directive-${suiteFixtureSeq}`;
   mockState.transcriptPath = transcriptPath;
+  const agents = mockState.config.agents as Record<string, unknown> | undefined;
+  mockState.config = {
+    ...mockState.config,
+    agents: {
+      ...agents,
+      defaults: {
+        ...(agents?.defaults as Record<string, unknown> | undefined),
+        workspace: dir,
+      },
+    },
+  };
   return { dir, transcriptPath };
 }
 
@@ -1144,7 +1162,7 @@ async function expectUnpersistedAgentRunFinal(params: {
           ? {
               mediaUrl: staleAudioPath,
               mediaUrls: [staleAudioPath],
-              trustedLocalMedia: true,
+              trustedLocalMedia: params.payload.trustedLocalMedia ?? true,
             }
           : {}),
       },
@@ -1153,7 +1171,24 @@ async function expectUnpersistedAgentRunFinal(params: {
   const { send } = createChatRequestFixture();
   await send({ idempotencyKey: params.idempotencyKey, expectBroadcast: false, waitFor: "dedupe" });
 
-  // Agent-run delivery is a live projection; message_end alone owns persisted assistant turns.
+  if (params.staleAudio) {
+    const expected = [
+      {
+        type: "text",
+        attachmentError: true,
+        text: "[Attachment unavailable] This file could not be saved for download. Attach it again.",
+      },
+    ];
+    const updates = findAssistantTranscriptUpdates();
+    expect(updates).toHaveLength(1);
+    expect((updates[0]?.message as { content?: unknown })?.content).toEqual(expected);
+    const messages = await readActiveAssistantTranscriptMessages();
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.content).toEqual(expected);
+    expect(JSON.stringify(messages)).not.toContain(params.payload.text);
+    return;
+  }
+  // Agent-run prose belongs to message_end; delivery must not append a duplicate.
   expect(findAssistantTranscriptUpdates()).toStrictEqual([]);
   expect(
     readTranscriptJsonLines(mockState.transcriptPath).filter(
@@ -1175,8 +1210,13 @@ async function expectImageOnlyFinal(params: {
   const payload = await send({ idempotencyKey: params.idempotencyKey });
   const content = getMessageContent(payload);
   expect(getMessage(payload)?.role).toBe("assistant");
-  expect(content[0]).toEqual({ type: "text", text: "Image reply" });
-  expect(content[1]).toEqual({ type: "input_image", image_url: "data:image/png;base64,cG5n" });
+  expect(content).toHaveLength(1);
+  expect(content[0]).toMatchObject({
+    type: "image",
+    artifactId: expect.stringMatching(/^artifact_managed_image_/u),
+    mimeType: "image/png",
+    url: expect.stringContaining("/api/chat/media/outgoing/"),
+  });
 }
 
 beforeAll(() => {
@@ -2581,16 +2621,20 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     );
   });
 
-  it("does not mirror agent-run stale media final text from live delivery", async () => {
-    await expectUnpersistedAgentRunFinal({
-      transcriptPrefix: "openclaw-chat-send-agent-stale-tts-",
-      idempotencyKey: "idem-stale-agent-media",
-      payload: {
-        text: "Text-only test: one clean reply, no TTS, no media, no tool narration.",
-      },
-      staleAudio: true,
-    });
-  });
+  it.each([true, false])(
+    "records an attachment failure without duplicating agent-run prose (trusted=%s)",
+    async (trustedLocalMedia) => {
+      await expectUnpersistedAgentRunFinal({
+        transcriptPrefix: "openclaw-chat-send-agent-stale-tts-",
+        idempotencyKey: "idem-stale-agent-media",
+        payload: {
+          text: "Text-only test: one clean reply, no TTS, no media, no tool narration.",
+          trustedLocalMedia,
+        },
+        staleAudio: true,
+      });
+    },
+  );
 
   it("does not mirror normal agent-run final text from live delivery", async () => {
     await expectUnpersistedAgentRunFinal({
@@ -4073,7 +4117,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     await createTranscriptFixture("openclaw-chat-send-agent-image-");
     mockState.finalPayload = {
       text: "Scan this QR code with the OpenClaw iOS app:",
-      mediaUrl: "data:image/png;base64,cG5n",
+      mediaUrl: `data:image/png;base64,${TINY_PNG_BASE64}`,
     };
     const { send } = createChatRequestFixture();
 
@@ -4087,8 +4131,15 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       type: "text",
       text: "Scan this QR code with the OpenClaw iOS app:",
     });
-    expect(content[1]).toEqual({ type: "input_image", image_url: "data:image/png;base64,cG5n" });
-    expect(JSON.stringify(payload?.message)).not.toContain("MEDIA:data:image/png;base64,cG5n");
+    expect(content[1]).toMatchObject({
+      type: "image",
+      artifactId: expect.stringMatching(/^artifact_managed_image_/u),
+      mimeType: "image/png",
+      url: expect.stringContaining("/api/chat/media/outgoing/"),
+    });
+    expect(JSON.stringify(payload?.message)).not.toContain(
+      `MEDIA:data:image/png;base64,${TINY_PNG_BASE64}`,
+    );
   });
 
   it("suppresses reasoning payloads from webchat transcript replies", async () => {
@@ -5295,7 +5346,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     await expectImageOnlyFinal({
       transcriptPrefix: "openclaw-chat-send-media-only-final-",
       idempotencyKey: "idem-media-only-final",
-      finalPayload: { mediaUrl: "data:image/png;base64,cG5n" },
+      finalPayload: { mediaUrl: `data:image/png;base64,${TINY_PNG_BASE64}` },
     });
   });
 
@@ -5303,7 +5354,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     await expectImageOnlyFinal({
       transcriptPrefix: "openclaw-chat-send-media-only-silent-final-",
       idempotencyKey: "idem-media-only-silent-final",
-      finalPayload: { text: "NO_REPLY", mediaUrl: "data:image/png;base64,cG5n" },
+      finalPayload: { text: "NO_REPLY", mediaUrl: `data:image/png;base64,${TINY_PNG_BASE64}` },
     });
   });
 
@@ -5311,7 +5362,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     await expectImageOnlyFinal({
       transcriptPrefix: "openclaw-chat-send-media-reply-tags-",
       idempotencyKey: "idem-media-reply-tags",
-      finalPayload: { replyToCurrent: true, mediaUrl: "data:image/png;base64,cG5n" },
+      finalPayload: { replyToCurrent: true, mediaUrl: `data:image/png;base64,${TINY_PNG_BASE64}` },
     });
     const transcriptUpdate = mockState.emittedTranscriptUpdates.find(
       (update) =>

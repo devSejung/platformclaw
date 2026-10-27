@@ -5,7 +5,6 @@ import { basenameFromAnyPath } from "@openclaw/media-core/file-name";
 import { extensionForMime } from "@openclaw/media-core/mime";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
-import { assertMediaNotDataUrl, resolveSandboxedMediaSource } from "../../agents/sandbox-paths.js";
 import { readStringArrayParam, readStringParam } from "../../agents/tools/common.js";
 import { resolveChannelMessageToolMediaSourceParamKeys } from "../../channels/plugins/message-action-discovery.js";
 import type { ChannelId, ChannelMessageActionName } from "../../channels/plugins/types.public.js";
@@ -26,6 +25,11 @@ import { MEDIA_MAX_BYTES } from "../../media/store.js";
 import { loadWebMedia } from "../../media/web-media.js";
 import { resolveSnakeCaseParamKey } from "../../param-key.js";
 import { readBooleanParam as readBooleanParamShared } from "../../plugin-sdk/boolean-param.js";
+import {
+  createSandboxMediaNormalizer,
+  MESSAGE_SEND_BUFFER_MEDIA_URL,
+  type SandboxMediaNormalizationOptions,
+} from "./message-action-media-normalizer.js";
 import { hasPotentialPluginActionParam } from "./message-action-param-keys.js";
 
 /** Shared boolean param reader used by message-action argument normalization. */
@@ -49,7 +53,6 @@ const STRUCTURED_ATTACHMENT_MEDIA_SOURCE_PARAM_KEYS = [
   "url",
 ] as const;
 const STRUCTURED_ATTACHMENT_FILE_SOURCE_PARAM_KEYS = new Set(["path", "filePath", "fileUrl"]);
-const SEND_BUFFER_DRY_RUN_MEDIA_URL = "buffer://message-send/attachment";
 
 type StructuredAttachmentSource = {
   attachment: Record<string, unknown>;
@@ -105,7 +108,7 @@ function hasExplicitSendMediaSource(
     buildActionMediaSourceParamKeys(extraParamKeys).some((key) => {
       const entry = resolveMediaParamEntry(args, key);
       const value = entry ? normalizeOptionalString(entry.value) : undefined;
-      return Boolean(value && value !== SEND_BUFFER_DRY_RUN_MEDIA_URL);
+      return Boolean(value && value !== MESSAGE_SEND_BUFFER_MEDIA_URL);
     })
   ) {
     return true;
@@ -114,7 +117,7 @@ function hasExplicitSendMediaSource(
   if (
     mediaUrls?.some((value) => {
       const normalized = normalizeOptionalString(value);
-      return Boolean(normalized && normalized !== SEND_BUFFER_DRY_RUN_MEDIA_URL);
+      return Boolean(normalized && normalized !== MESSAGE_SEND_BUFFER_MEDIA_URL);
     })
   ) {
     return true;
@@ -126,6 +129,7 @@ function hasExplicitSendMediaSource(
 
 function collectStructuredAttachmentSources(
   args: Record<string, unknown>,
+  allSources = false,
 ): StructuredAttachmentSource[] {
   const attachments = args.attachments;
   if (!Array.isArray(attachments)) {
@@ -150,7 +154,9 @@ function collectStructuredAttachmentSources(
           readStringParam(attachment, "contentType") ?? readStringParam(attachment, "mimeType"),
         filename: readStringParam(attachment, "filename") ?? readStringParam(attachment, "name"),
       });
-      break;
+      if (!allSources) {
+        break;
+      }
     }
   }
   return sources;
@@ -359,9 +365,9 @@ async function hydrateSendBufferMediaParams(params: {
       base64: normalized.base64,
       maxBytes,
     });
-    params.args.media = SEND_BUFFER_DRY_RUN_MEDIA_URL;
-    params.args.mediaUrl = SEND_BUFFER_DRY_RUN_MEDIA_URL;
-    params.args.mediaUrls = [SEND_BUFFER_DRY_RUN_MEDIA_URL];
+    params.args.media = MESSAGE_SEND_BUFFER_MEDIA_URL;
+    params.args.mediaUrl = MESSAGE_SEND_BUFFER_MEDIA_URL;
+    params.args.mediaUrls = [MESSAGE_SEND_BUFFER_MEDIA_URL];
     if (!params.preserveBuffer) {
       delete params.args.buffer;
     }
@@ -542,77 +548,51 @@ async function hydrateAttachmentPayload(params: {
   }
 }
 
-/** Rewrites action media params to sandbox-safe paths and rejects data URLs. */
-export async function normalizeSandboxMediaParams(params: {
-  args: Record<string, unknown>;
-  mediaPolicy: AttachmentMediaPolicy;
-  extraParamKeys?: readonly string[];
-  structuredAttachments?: StructuredAttachmentMode;
-}): Promise<void> {
+/** Resolves action media through its execution runtime or the local sandbox bridge. */
+export async function normalizeSandboxMediaParams(
+  params: {
+    args: Record<string, unknown>;
+    mediaPolicy: AttachmentMediaPolicy;
+    extraParamKeys?: readonly string[];
+    structuredAttachments?: StructuredAttachmentMode;
+  } & Omit<SandboxMediaNormalizationOptions, "sandboxRoot">,
+): Promise<void> {
   const sandboxRoot =
     params.mediaPolicy.mode === "sandbox" ? params.mediaPolicy.sandboxRoot.trim() : undefined;
+  const normalize = createSandboxMediaNormalizer({ ...params, sandboxRoot });
   for (const key of buildActionMediaSourceParamKeys(params.extraParamKeys)) {
     const entry = resolveMediaParamEntry(params.args, key);
     if (!entry) {
       continue;
     }
-    assertMediaNotDataUrl(entry.value);
-    if (!sandboxRoot) {
-      continue;
-    }
-    const normalized = await resolveSandboxedMediaSource({ media: entry.value, sandboxRoot });
+    const normalized = await normalize(entry.value);
     if (normalized !== entry.value) {
       params.args[entry.key] = normalized;
     }
   }
   const attachmentSources =
     params.structuredAttachments === "all"
-      ? collectStructuredAttachmentSources(params.args)
+      ? collectStructuredAttachmentSources(params.args, true)
       : [resolveStructuredAttachmentSource(params.args, params.extraParamKeys)].filter(
           (source): source is StructuredAttachmentSource => Boolean(source),
         );
-  if (attachmentSources.length === 0) {
-    return;
-  }
   for (const attachmentSource of attachmentSources) {
-    assertMediaNotDataUrl(attachmentSource.value);
-    if (!sandboxRoot) {
-      continue;
-    }
-    const normalized = await resolveSandboxedMediaSource({
-      media: attachmentSource.value,
-      sandboxRoot,
-    });
+    const normalized = await normalize(attachmentSource.value);
     if (normalized !== attachmentSource.value) {
       attachmentSource.attachment[attachmentSource.key] = normalized;
     }
   }
-}
-
-/** Normalizes a list of media hints against an optional sandbox root. */
-export async function normalizeSandboxMediaList(params: {
-  values: string[];
-  sandboxRoot?: string;
-}): Promise<string[]> {
-  const sandboxRoot = params.sandboxRoot?.trim();
-  const normalized: string[] = [];
-  const seen = new Set<string>();
-  for (const value of params.values) {
-    const raw = value?.trim();
-    if (!raw) {
-      continue;
+  if (params.sandboxOutboundFileAccess) {
+    const mediaUrls = readStringArrayParam(params.args, "mediaUrls");
+    if (mediaUrls) {
+      const key = resolveSnakeCaseParamKey(params.args, "mediaUrls")!;
+      const normalized: string[] = [];
+      for (const source of mediaUrls) {
+        normalized.push(await normalize(source));
+      }
+      params.args[key] = normalized;
     }
-    assertMediaNotDataUrl(raw);
-    const resolved = sandboxRoot
-      ? await resolveSandboxedMediaSource({ media: raw, sandboxRoot })
-      : raw;
-    if (seen.has(resolved)) {
-      continue;
-    }
-    seen.add(resolved);
-    normalized.push(resolved);
   }
-  return normalized;
 }
 
 async function hydrateAttachmentActionPayload(params: {

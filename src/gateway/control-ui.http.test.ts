@@ -18,6 +18,8 @@ import {
   requestDevicePairing,
 } from "../infra/device-pairing.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
+import { withAgentMediaContext } from "../media/agent-media-context.js";
+import { resolveMediaReferenceLocalPath } from "../media/media-reference.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import { AVATAR_MAX_DATA_URL_CHARS } from "../shared/avatar-limits.js";
@@ -257,6 +259,12 @@ describe("handleControlUiHttpRequest", () => {
     remoteAddress?: string;
   }) {
     const { res, end, setHeader } = makeMockHttpResponse();
+    const chunks: Buffer[] = [];
+    res.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const body = new Promise<Buffer>((resolve, reject) => {
+      res.once("end", () => resolve(Buffer.concat(chunks)));
+      res.once("error", reject);
+    });
     const handled = await handleControlUiAssistantMediaRequest(
       {
         url: params.url,
@@ -281,7 +289,7 @@ describe("handleControlUiHttpRequest", () => {
         ...(params.trustedProxies ? { trustedProxies: params.trustedProxies } : {}),
       },
     );
-    return { res, end, setHeader, handled };
+    return { res, end, setHeader, handled, body };
   }
 
   function createTrustedProxyAuth(): ResolvedGatewayAuth {
@@ -953,6 +961,179 @@ describe("handleControlUiHttpRequest", () => {
     );
   });
 
+  it("serves owned inbound media through authenticated and owner-bound ticket requests", async () => {
+    const id = `owned---${randomUUID()}.pdf`;
+    const filePath = path.join(resolveStateDir(), "media", "agents", "person_one", "inbound", id);
+    const source = `media://inbound/${id}`;
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, Buffer.from("%PDF-1.7 owned upload"));
+    const config: OpenClawConfig = {
+      agents: { list: [{ id: "main", default: true }, { id: "person_one" }, { id: "person_two" }] },
+    };
+    const auth = { mode: "token", token: "test-token", allowTailscale: false } as const;
+    const url = `/__openclaw__/assistant-media?source=${encodeURIComponent(source)}`;
+    const ownerHeaders = {
+      authorization: "Bearer test-token",
+      "x-openclaw-agent-id": "person_one",
+    };
+    try {
+      await expect(
+        withAgentMediaContext("person_one", () => resolveMediaReferenceLocalPath(source)),
+      ).resolves.toBe(filePath);
+      const metadata = await runAssistantMediaRequest({
+        url: `${url}&meta=1`,
+        method: "GET",
+        auth,
+        config,
+        agentId: "main",
+        headers: ownerHeaders,
+      });
+      expect(responseJson(metadata.end)).toMatchObject({
+        available: true,
+        mimeType: "application/pdf",
+      });
+      const ticket = (responseJson(metadata.end) as { mediaTicket: string }).mediaTicket;
+      const decoded = JSON.parse(
+        Buffer.from(ticket.split(".")[1] ?? "", "base64url").toString("utf8"),
+      );
+      expect(decoded.agentId).toBe("person_one");
+      for (const request of [
+        { url, headers: ownerHeaders },
+        {
+          url: `${url}&mediaTicket=${encodeURIComponent(ticket)}`,
+          headers: { "x-openclaw-agent-id": "person_two" },
+        },
+      ]) {
+        const bytes = await runAssistantMediaRequest({
+          ...request,
+          method: "GET",
+          auth,
+          config,
+          agentId: "main",
+        });
+        expect(bytes.res.statusCode).toBe(200);
+        expect((await bytes.body).toString()).toBe("%PDF-1.7 owned upload");
+      }
+      const wrongHeaders = {
+        authorization: "Bearer test-token",
+        "x-openclaw-agent-id": "person_two",
+      };
+      const wrongMetadata = await runAssistantMediaRequest({
+        url: `${url}&meta=1`,
+        method: "GET",
+        auth,
+        config,
+        agentId: "main",
+        headers: wrongHeaders,
+      });
+      expect(responseJson(wrongMetadata.end)).toMatchObject({ available: false });
+      const wrongBytes = await runAssistantMediaRequest({
+        url,
+        method: "GET",
+        auth,
+        config,
+        agentId: "main",
+        headers: wrongHeaders,
+      });
+      expectNotFoundResponse(wrongBytes);
+      const foreignPath = `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}`;
+      const foreignMetadata = await runAssistantMediaRequest({
+        url: `${foreignPath}&meta=1`,
+        method: "GET",
+        auth,
+        config,
+        agentId: "main",
+        headers: wrongHeaders,
+      });
+      expect(responseJson(foreignMetadata.end)).toMatchObject({ available: false });
+      expectNotFoundResponse(
+        await runAssistantMediaRequest({
+          url: foreignPath,
+          method: "GET",
+          auth,
+          config,
+          agentId: "main",
+          headers: wrongHeaders,
+        }),
+      );
+      for (const suffix of ["", "&meta=1"]) {
+        const unauthenticated = await runAssistantMediaRequest({
+          url: `${url}${suffix}`,
+          method: "GET",
+          auth,
+          config,
+          agentId: "main",
+          headers: { "x-openclaw-agent-id": "person_one" },
+        });
+        expect(unauthenticated.res.statusCode).toBe(401);
+      }
+      const altered = { ...decoded, agentId: "person_two" };
+      const parts = ticket.split(".");
+      parts[1] = Buffer.from(JSON.stringify(altered)).toString("base64url");
+      const forged = await runAssistantMediaRequest({
+        url: `${url}&mediaTicket=${encodeURIComponent(parts.join("."))}`,
+        method: "GET",
+        auth,
+        config,
+        agentId: "main",
+        headers: { "x-openclaw-agent-id": "person_one" },
+      });
+      expect(forged.res.statusCode).toBe(401);
+    } finally {
+      await fs.rm(filePath, { force: true });
+    }
+  });
+
+  it("does not let source-only tickets adopt an Agent header", async () => {
+    const id = `shared---${randomUUID()}.pdf`;
+    const filePath = path.join(resolveStateDir(), "media", "inbound", id);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, Buffer.from("%PDF-1.7 shared upload"));
+    const url = `/__openclaw__/assistant-media?source=${encodeURIComponent(`media://inbound/${id}`)}`;
+    const auth = { mode: "token", token: "test-token", allowTailscale: false } as const;
+    try {
+      const metadata = await runAssistantMediaRequest({
+        url: `${url}&meta=1`,
+        method: "GET",
+        auth,
+        headers: { authorization: "Bearer test-token" },
+      });
+      const ticket = (responseJson(metadata.end) as { mediaTicket: string }).mediaTicket;
+      const bytes = await runAssistantMediaRequest({
+        url: `${url}&mediaTicket=${encodeURIComponent(ticket)}`,
+        method: "GET",
+        auth,
+        config: { agents: { list: [{ id: "main", default: true }, { id: "person_one" }] } },
+        agentId: "main",
+        headers: { "x-openclaw-agent-id": "person_one" },
+      });
+      expect(bytes.res.statusCode).toBe(200);
+      expect((await bytes.body).toString()).toBe("%PDF-1.7 shared upload");
+      // A real Agent-scoped request must not inherit ownership of a shared upload.
+      const scoped = await runAssistantMediaRequest({
+        url: `${url}&meta=1`,
+        method: "GET",
+        auth,
+        config: { agents: { list: [{ id: "main", default: true }] } },
+        agentId: "main",
+        headers: { authorization: "Bearer test-token" },
+      });
+      expect(responseJson(scoped.end)).toMatchObject({ available: false });
+      expectNotFoundResponse(
+        await runAssistantMediaRequest({
+          url,
+          method: "GET",
+          auth,
+          config: { agents: { list: [{ id: "main", default: true }] } },
+          agentId: "main",
+          headers: { authorization: "Bearer test-token" },
+        }),
+      );
+    } finally {
+      await fs.rm(filePath, { force: true });
+    }
+  });
+
   it("serves assistant media from canonical inbound media refs", async () => {
     const stateDir = resolveStateDir();
     const id = `report---${randomUUID()}.pdf`;
@@ -1070,7 +1251,7 @@ describe("handleControlUiHttpRequest", () => {
     });
     expect(downloaded.res.statusCode).toBe(200);
 
-    const ticketOnlyOwnerOverride = await runAssistantMediaRequest({
+    const ownerBoundTicket = await runAssistantMediaRequest({
       url: `/__openclaw__/assistant-media?source=${source}&mediaTicket=${encodeURIComponent(mediaTicket)}`,
       method: "GET",
       auth,
@@ -1078,7 +1259,7 @@ describe("handleControlUiHttpRequest", () => {
       agentId: "main",
       headers: { "x-openclaw-agent-id": "person_one" },
     });
-    expectNotFoundResponse(ticketOnlyOwnerOverride);
+    expect(ownerBoundTicket.res.statusCode).toBe(200);
 
     const wrongOwner = await runAssistantMediaRequest({
       url: `/__openclaw__/assistant-media?source=${source}`,
@@ -1113,6 +1294,49 @@ describe("handleControlUiHttpRequest", () => {
     });
     expect(unauthenticated.res.statusCode).toBe(401);
   });
+
+  it.each(["default workspace", "shared temporary root"])(
+    "rejects owner-scoped assistant media from the %s",
+    async (location) => {
+      await withAllowedAssistantMediaRoot({
+        prefix: "ui-media-owner-roots-",
+        fn: async (root) =>
+          withEnvAsync({ OPENCLAW_STATE_DIR: root }, async () => {
+            const defaultWorkspace = path.join(root, "workspace");
+            const personalWorkspace = path.join(root, "person_one");
+            const filePath = path.join(
+              location === "default workspace" ? defaultWorkspace : root,
+              "private.pdf",
+            );
+            await fs.mkdir(path.dirname(filePath), { recursive: true });
+            await fs.writeFile(filePath, Buffer.from("%PDF-1.7 other owner"));
+            const config: OpenClawConfig = {
+              agents: {
+                defaults: { workspace: defaultWorkspace },
+                list: [
+                  { id: "main", default: true, workspace: defaultWorkspace },
+                  { id: "person_one", workspace: personalWorkspace },
+                ],
+              },
+            };
+            const request = {
+              method: "GET" as const,
+              auth: { mode: "token", token: "test-token", allowTailscale: false } as const,
+              config,
+              agentId: "main",
+              headers: {
+                authorization: "Bearer test-token",
+                "x-openclaw-agent-id": "person_one",
+              },
+            };
+            const url = `/__openclaw__/assistant-media?source=${encodeURIComponent(filePath)}`;
+            const metadata = await runAssistantMediaRequest({ ...request, url: `${url}&meta=1` });
+            expect(responseJson(metadata.end)).toMatchObject({ available: false });
+            expectNotFoundResponse(await runAssistantMediaRequest({ ...request, url }));
+          }),
+      });
+    },
+  );
 
   it("reports assistant local media availability metadata", async () => {
     await withAllowedAssistantMediaRoot({

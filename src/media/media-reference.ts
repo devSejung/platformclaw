@@ -4,6 +4,7 @@ import path from "node:path";
 import { hasHttpUrlPrefix } from "@openclaw/net-policy/url-protocol";
 import { safeFileURLToPath } from "../infra/local-file-access.js";
 import { resolveUserPath } from "../utils.js";
+import { assertAgentMediaSourceOwner } from "./agent-media-context.js";
 import { getMediaDir, resolveMediaBufferPath } from "./store.js";
 
 type MediaReferenceErrorCode = "invalid-path" | "path-not-allowed";
@@ -203,6 +204,12 @@ export async function resolveInboundMediaReference(
   const localPath = maybeLocalPathFromSource(normalizedSource);
   if (!localPath) {
     return null;
+  }
+  try {
+    assertAgentMediaSourceOwner(localPath);
+    assertAgentMediaSourceOwner(await resolvePathForContainment(localPath));
+  } catch (error) {
+    throw new MediaReferenceError("path-not-allowed", (error as Error).message, { cause: error });
   }
 
   const rawInboundDir = path.resolve(getMediaDir(), "inbound");

@@ -39,7 +39,7 @@ function session(index: number): SshSandboxSession {
   };
 }
 
-function createHarness(options: { maxChannels?: number } = {}) {
+function createHarness(options: { maxChannels?: number; maxQueuedChannels?: number } = {}) {
   let nextSession = 0;
   const handles: Array<
     SafeConnectMasterHandle & {
@@ -81,6 +81,7 @@ function createHarness(options: { maxChannels?: number } = {}) {
     startMaster,
     idleTtlMs: 60_000,
     ...(options.maxChannels ? { maxChannels: options.maxChannels } : {}),
+    ...(options.maxQueuedChannels ? { maxQueuedChannels: options.maxQueuedChannels } : {}),
   });
   return {
     manager,
@@ -147,6 +148,36 @@ describe("SafeConnectSshLeaseManager", () => {
     await harness.manager.dispose();
   });
 
+  it("removes a canceled queued read so the next command can use the remaining capacity", async () => {
+    const harness = createHarness({ maxChannels: 1, maxQueuedChannels: 1 });
+    try {
+      const active = await harness.manager.createSession(TARGET);
+      const controller = new AbortController();
+      const canceled = harness.manager.createSession(TARGET, controller.signal);
+      const rejection = expect(canceled).rejects.toMatchObject({ name: "AbortError" });
+      controller.abort();
+      await rejection;
+      expect(harness.createMultiplexedSession).toHaveBeenCalledOnce();
+      // Queue capacity is one: this would reject if the canceled waiter stayed.
+      const next = harness.manager.createSession(TARGET);
+      await active.onDispose?.();
+      const admitted = await next;
+      expect(harness.createMultiplexedSession).toHaveBeenCalledTimes(2);
+      await admitted.onDispose?.();
+      const future = await harness.manager.createSession(TARGET);
+      expect(harness.createMultiplexedSession).toHaveBeenCalledTimes(3);
+      await future.onDispose?.();
+      const alreadyAborted = new AbortController();
+      alreadyAborted.abort();
+      await expect(
+        harness.manager.createSession(TARGET, alreadyAborted.signal),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(harness.createMultiplexedSession).toHaveBeenCalledTimes(3);
+    } finally {
+      await harness.manager.dispose();
+    }
+  });
+
   it("retires an old master when credential revision changes", async () => {
     const harness = createHarness();
     const first = await harness.manager.createSession(TARGET);
@@ -160,6 +191,26 @@ describe("SafeConnectSshLeaseManager", () => {
     await vi.waitFor(() => expect(harness.handles[0]?.stopped).toBe(true));
     await second.onDispose?.();
     await harness.manager.dispose();
+  });
+
+  it("disposes a session prepared after cancellation and releases its acquired channel", async () => {
+    const harness = createHarness({ maxChannels: 1 });
+    const controller = new AbortController();
+    const canceledSession = session(999);
+    harness.createMultiplexedSession.mockImplementationOnce(async () => {
+      controller.abort();
+      return canceledSession;
+    });
+    try {
+      await expect(harness.manager.createSession(TARGET, controller.signal)).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      expect(harness.disposeSession).toHaveBeenCalledWith(canceledSession);
+      const future = await harness.manager.createSession(TARGET);
+      await future.onDispose?.();
+    } finally {
+      await harness.manager.dispose();
+    }
   });
 
   it("reauthenticates once after the master exits", async () => {

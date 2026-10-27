@@ -39,6 +39,7 @@ describeControlUiE2e("Control UI terminal file upload", () => {
 
   it("uploads picked and dropped files, then pastes staged paths without Enter", async () => {
     const context = await browser.newContext({
+      locale: "en-US",
       serviceWorkers: "block",
       viewport: { width: 1280, height: 800 },
       ...(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 800 } } } : {}),

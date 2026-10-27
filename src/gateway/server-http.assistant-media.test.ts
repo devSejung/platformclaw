@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { withAgentMediaContext } from "../media/agent-media-context.js";
+import { resolveMediaReferenceLocalPath } from "../media/media-reference.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { parseMessageWithAttachments } from "./chat-attachments.js";
 import { createGatewayHttpServer } from "./server-http.js";
@@ -37,17 +39,25 @@ describe("attachment HTTP access without the bundled UI", () => {
             }
             const origin = `http://127.0.0.1:${address.port}`;
             const content = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
-            const uploaded = await parseMessageWithAttachments("read this PDF", [
-              {
-                type: "file",
-                fileName: "보고서.pdf",
-                mimeType: "application/pdf",
-                content: content.toString("base64"),
-              },
-            ]);
+            // chat.send persists uploads under the resolved session's Agent owner.
+            const uploaded = await withAgentMediaContext("main", () =>
+              parseMessageWithAttachments("read this PDF", [
+                {
+                  type: "file",
+                  fileName: "보고서.pdf",
+                  mimeType: "application/pdf",
+                  content: content.toString("base64"),
+                },
+              ]),
+            );
             const attachment = uploaded.offloadedRefs[0];
             expect(attachment).toBeDefined();
             // The agent can read the upload even when the separate browser route is missing.
+            expect(
+              await withAgentMediaContext("main", () =>
+                resolveMediaReferenceLocalPath(attachment!.mediaRef),
+              ),
+            ).toBe(attachment!.path);
             expect(await readFile(attachment!.path)).toEqual(content);
             const route = `${origin}${basePath}/__openclaw__/assistant-media`;
             const query = new URLSearchParams({ source: attachment!.mediaRef });

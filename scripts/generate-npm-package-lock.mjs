@@ -315,12 +315,21 @@ function resolvePnpmLockOverridePlan(lockfile) {
     ) {
       continue;
     }
-    const parentSelector = `${parent.name}@${parent.version}`;
+    // Hosted-source snapshots use a URL key, while npm matches the package's
+    // published semantic version when applying a scoped child policy.
+    const parentVersion = exactVersionFromOverrideSpec(
+      lockfile.packages?.[`${parent.name}@${parent.version}`]?.version ?? parent.version,
+    );
+    if (!parentVersion) {
+      continue;
+    }
+    const parentSelector = `${parent.name}@${parentVersion}`;
     for (const [dependencyName, dependencySpec] of Object.entries(dependencies)) {
       if (!multiVersionPackageNames.has(dependencyName)) {
         continue;
       }
-      const version = exactVersionFromOverrideSpec(String(dependencySpec));
+      const reference = parsePnpmPackageKey(`${dependencyName}@${String(dependencySpec)}`);
+      const version = exactVersionFromOverrideSpec(reference?.version);
       if (!version || !versionsByName.get(dependencyName)?.has(version)) {
         continue;
       }

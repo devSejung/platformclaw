@@ -1,6 +1,6 @@
 import type { ModelCatalogSnapshot } from "./model-catalog.types.js";
+import { prepareAgentCatalogSource } from "./prepared-model-runtime.catalog-source.js";
 import {
-  prepareAgentCatalogSource,
   prepareFullCatalogFacts,
   prepareWorkspaceBuildGroup,
 } from "./prepared-model-runtime.facts.js";

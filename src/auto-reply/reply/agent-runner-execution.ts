@@ -190,6 +190,8 @@ async function executeAgentTurnInternalWithRetryState(
       agentTurnTiming.measureSync("reply_media_context", () =>
         createReplyMediaContext({
           cfg: runtimeConfig,
+          ownerScoped: shouldSurfaceToControlUi,
+          abortSignal: params.replyOperation?.abortSignal ?? params.opts?.abortSignal,
           sessionKey: params.sessionKey,
           workspaceDir: params.followupRun.run.workspaceDir,
           messageProvider: params.followupRun.run.messageProvider,

@@ -1,5 +1,6 @@
 // Shared media tool tests cover root separation, provider availability, and
 // model-registry normalization for generation/understanding tools.
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
@@ -182,6 +183,33 @@ describe("resolveModelFromRegistry", () => {
 });
 
 describe("hasGenerationToolAvailability", () => {
+  it("checks provider readiness in the selected project rather than the agent default", () => {
+    const workspaceDir = path.join(os.tmpdir(), "selected-media-project");
+    const cfg = { agents: { defaults: { workspace: path.join(os.tmpdir(), "agent-default") } } };
+    const provider = {
+      id: "workspace-image",
+      defaultModel: "workflow",
+      isConfigured: (context: { workspaceDir?: string }) => context.workspaceDir === workspaceDir,
+    };
+
+    expect(
+      hasGenerationToolAvailability({
+        cfg,
+        workspaceDir,
+        providerKey: "imageGenerationProviders",
+        providers: [provider],
+      }),
+    ).toBe(true);
+    expect(
+      hasGenerationToolAvailability({
+        cfg,
+        workspaceDir: cfg.agents.defaults.workspace,
+        providerKey: "imageGenerationProviders",
+        providers: [provider],
+      }),
+    ).toBe(false);
+  });
+
   it("accepts config-backed custom provider auth for generation providers", () => {
     const cfg = {
       models: {

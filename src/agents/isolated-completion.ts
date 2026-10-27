@@ -11,7 +11,6 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { withTempWorkspace } from "../infra/private-temp-workspace.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 import type { AssistantMessage } from "../llm/types.js";
-import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
 import { resolveAgentDir, resolveAgentWorkspaceDir, resolveDefaultAgentId } from "./agent-scope.js";
 import { resolveCliBackendConfig, resolveCliRuntimeCanonicalProvider } from "./cli-backends.js";
 import { normalizeCliModel } from "./cli-runner/helpers.js";
@@ -24,6 +23,7 @@ import {
   resolveCliRuntimeExecutionProvider,
 } from "./model-runtime-aliases.js";
 import { acquireAgentRunPreparedModelRuntime } from "./prepared-model-runtime.js";
+import { withPreparedModelRuntimeScope } from "./prepared-model-runtime.plugin-context.js";
 import {
   unwrapModelHeaderSentinelsForProviderEgress,
   unwrapSecretSentinelsForProviderEgress,
@@ -428,7 +428,7 @@ export async function runIsolatedCompletion(
         usage: result.assistant.usage,
       };
     };
-    return await withPluginRuntimeRegistryScope(pluginRegistry, run);
+    return await withPreparedModelRuntimeScope(lease.snapshot, run);
   } finally {
     lease.release();
   }

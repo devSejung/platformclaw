@@ -117,18 +117,20 @@ existing registry skill without a PlatformClaw ownership record cannot be claime
 through ordinary publication. An administrator may establish its accountable
 owner through publication and then use the existing ownership-transfer flow.
 
-New Global bindings start active. When the managed registry allowlist includes
-the canonical `global` namespace, the first authenticated Skill Hub use persists
-its missing Global binding automatically. Existing bindings, including explicit
-restrictions, are preserved. Administrators can restrict or reactivate a Global
-binding with a reason and the current binding revision.
-The canonical `global` binding cannot be removed: restrict its access instead
-so a restart cannot reinterpret an administrator's removal as first-time setup.
+Every active employee is implicitly included in the canonical `global` namespace.
+It is always available and is the default publication destination, even when
+the configured additional namespace list is empty or omits `global`. No employee
+membership assignment, administrator login, or manual namespace creation is needed.
+First authenticated use persists its canonical Global binding and repairs older
+restricted, organization-bound, or Private-ceiling rows before owner reconciliation.
+The canonical namespace cannot be restricted, rebound to an organization, removed,
+or limited to Private. Custom Global namespaces retain revision-checked
+administrator restriction and activation. Individual Private skills and skill
+ownership remain protected.
 
 Publication dialogs select an authorized Global destination by default. Team,
 Group, and Part destinations are explicit alternatives; opening a new publication
-does not reuse an earlier organizational destination. If no Global destination
-is authorized, the employee must explicitly choose an available destination.
+does not reuse an earlier organizational destination.
 
 ## Namespace creation
 

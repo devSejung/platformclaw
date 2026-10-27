@@ -517,11 +517,22 @@ OAuth server, authorization, discovery, and token endpoints require HTTPS.
 Control applies DNS-pinned SSRF checks to discovery, registration, token, and redirect hops,
 bounds each network request and response, and serializes refresh-token rotation
 per user and server with revision-checked persistence.
-The same **Settings > MCP** route is visible to employees, but it lists only
-administrator-approved servers that require a personal credential. An
-administrator sees the global server registry first and their own personal
-credential section below it. Credential-free and shared-credential servers are
-shown in the administrator registry but never create employee setup work.
+The same **Settings > MCP** route lists all administrator-approved remote
+servers for employees. Each server distinguishes no credentials, organization
+shared credentials, and per-user credentials. Administrators switch between
+**Server management** and **My settings**. A searchable, filtered, paginated
+list and selected-server editor share a desktop workspace; small windows use
+a server picker. Personal server registration is reserved for a future,
+separately owner-scoped catalog and is not exposed by the current API.
+
+Administrators can add or remove optional header guides (name and description,
+never values). Employees may supply those values and add custom headers.
+Blank new values are omitted. Stored values are never returned to the browser;
+an omitted value preserves that named saved header and an explicit empty value
+removes it. Transport-owned headers and configured authentication headers cannot
+be overridden. Each employee can independently turn a server Off without
+deleting credentials or additional headers. Administrator Off blocks the
+connection even when an upstream session override enables the server.
 PlatformClaw opts into the generic Control UI Settings navigation shell for
 personal-agent sessions, so MCP stays in Settings instead of becoming a raw
 product footer shortcut. The work-location control remains a downstream footer
@@ -531,7 +542,19 @@ the credential binding and fail closed after a mismatch. MCP policy is
 process-stable; changing it requires a coordinated Gateway and Control restart.
 
 `platformclaw-control` stores personal MCP credentials as AES-256-GCM envelopes
-in the control SQLite database. It reuses the deployment credential master key
+in the control SQLite database. Additional header values and their approved
+destination use a separate encrypted settings envelope and authenticated-data
+domain; On/Off and revision metadata are stored separately. A browser Save
+atomically checks revisions and commits optional credential replacement with
+settings. Credential replacement also checks the editor's encrypted-record
+fingerprint inside that transaction, rejecting intervening deletion or
+replacement even when deletion and recreation restart the numeric revision.
+Value saves also check the connection-policy fingerprint captured by
+the editor, so an administrator URL or authentication change cannot redirect a
+previously entered secret. Concurrent edits require reloading and re-entering
+the affected values. Turning a server back On preserves its saved values. Changing the
+approved URL requires new header values and never forwards old values to a
+new destination. It reuses the deployment credential master key
 with an MCP-specific authenticated-data domain and binds ciphertext to user,
 server, format, and key ID. The additive tables do not advance schema version 2.
 Secrets never enter OpenClaw config, browser responses, Gateway state, logs, or
@@ -543,10 +566,12 @@ transient headers over the existing authenticated owner-only local execution
 handoff socket. Missing, disabled, mismatched, expired, or undecryptable state
 fails closed. The employee browser Gateway allowlist remains unchanged.
 
-Replacing or deleting a credential disposes that Agent's requester-scoped MCP
-runtime before the update is reported complete. Browser logout also requests
+Saving settings or replacing/deleting a credential retires that Agent's MCP
+sessions, cached tool catalogs, and pending connections before the update is
+reported complete. Browser logout also requests
 runtime disposal but preserves the encrypted credential. Account disablement
-revokes browser sessions and deletes all personal MCP credentials. The
+revokes browser sessions and deletes personal MCP credentials, header settings,
+and pending OAuth state. The
 administrator path invalidates requester-scoped MCP connections for every
 configured Agent after a server, credential mode, or tool filter changes.
 Normal runtime expiry is secondary cleanup, not revocation authority.
@@ -697,6 +722,40 @@ without taking over existing registry names. Only completed self-service
 creations extend the process namespace snapshot and survive restart as available
 destinations. This adds an idempotently ensured SQLite table without a schema
 version bump; existing restrictions and administrator policy remain authoritative.
+
+### PC-130 Keep personal credential edits scoped to their stored snapshot
+
+Settings > Credentials presents a searchable, paginated list beside the selected
+credential editor. Small windows switch between the list and editor. Administrators
+use separate My credentials and Allowed keys tabs; administration manages allowed
+environment-variable names, while each employee supplies their own secret values.
+Removing an allowed key also removes every employee's value for that key and
+requires an explicit confirmation that names this impact.
+
+Personal edits stay in browser memory across selection, filtering, and tab changes.
+Leaving the page, changing accounts, or cancelling a contextual request clears the
+drafts. Saved values are never returned to the browser. A saved status confirms
+storage, not successful authentication with the external service.
+
+Metadata includes opaque definition and credential tokens. Replace and personal
+delete requests submit their original `expectedDefinitionToken` and
+`expectedCredentialToken` (null when no value exists); allowed-key deletion submits
+the definition token. Every browser mutation also supplies `expectedAccountId`.
+Control compares the tokens inside the write transaction and rechecks current
+owner authority. A `409` response with code `credential-changed` preserves the
+draft for explicit reload and review; `credential-account-changed` clears it.
+Missing preconditions require the browser to reload rather than permit an
+unchecked write.
+
+Additive SQLite token tables and triggers distinguish deletion and recreation even
+when numeric revisions restart. The feature initializes them idempotently and
+backfills existing rows without changing encrypted values or the schema version.
+Older writers still advance the tokens through the triggers.
+
+The chat handoff verifies the exact acknowledged token pair before continuing the
+original conversation. Saving a different key does not discard the requested key's
+confirmation. An acknowledged save whose status refresh fails clears its submitted
+secret and offers a metadata-only retry, without automatically resending the save.
 
 ## Open operational decisions
 

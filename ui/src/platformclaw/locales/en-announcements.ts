@@ -17,6 +17,8 @@ export const announcementTranslations: Readonly<Record<string, string>> = {
   "platformClaw.announcements.new": "New announcement",
   "platformClaw.announcements.reload": "Reload",
   "platformClaw.announcements.close": "Close",
+  "platformClaw.announcements.collapse": "Collapse",
+  "platformClaw.announcements.expand": "Expand",
   "platformClaw.announcements.back": "Back to editing",
   "platformClaw.announcements.details": "View announcement",
   "platformClaw.announcements.active": "Published",

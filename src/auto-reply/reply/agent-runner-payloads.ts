@@ -54,7 +54,12 @@ async function normalizeReplyPayloadMedia(params: {
 
   try {
     const normalized = await params.normalizeMediaPaths(params.payload);
-    return copyReplyPayloadMetadata(params.payload, normalized);
+    // The media owner can replace or clear staging facts; inherited metadata
+    // must not overwrite those freshly verified results after normalization.
+    return setReplyPayloadMetadata(normalized, {
+      ...getReplyPayloadMetadata(params.payload),
+      ...getReplyPayloadMetadata(normalized),
+    });
   } catch (err) {
     logVerbose(`reply payload media normalization failed: ${String(err)}`);
     // Preserve the text reply and drop unusable media so channels can still send the answer.

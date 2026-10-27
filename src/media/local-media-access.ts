@@ -6,6 +6,7 @@ import { readFileHandleBounded } from "../infra/fs-safe-advanced.js";
 import { FsSafeError, openLocalFileSafely } from "../infra/fs-safe.js";
 import { assertNoWindowsNetworkPath } from "../infra/local-file-access.js";
 import { isPathInside } from "../infra/path-guards.js";
+import { assertAgentMediaSourceOwner, getCurrentAgentMediaId } from "./agent-media-context.js";
 import { getDefaultMediaLocalRoots } from "./local-roots.js";
 import { MediaReferenceError, resolveInboundMediaReference } from "./media-reference.js";
 
@@ -85,6 +86,14 @@ type ResolvedLocalMediaBoundary = {
 
 type ManagedReferenceErrorPolicy = "ignore" | "reject";
 
+function assertScopedMediaOwner(mediaPath: string): void {
+  try {
+    assertAgentMediaSourceOwner(mediaPath);
+  } catch (error) {
+    throw new LocalMediaAccessError("path-not-allowed", (error as Error).message, { cause: error });
+  }
+}
+
 async function resolveLocalMediaBoundary(
   mediaPath: string,
   localRoots: readonly string[] | "any" | undefined,
@@ -95,8 +104,12 @@ async function resolveLocalMediaBoundary(
     resolveRoots?: () => Promise<readonly string[]>;
   },
 ): Promise<ResolvedLocalMediaBoundary> {
+  assertScopedMediaOwner(mediaPath);
+  if (getCurrentAgentMediaId()) {
+    assertScopedMediaOwner(await resolveLocalMediaPathForContainment(mediaPath));
+  }
   if (localRoots === "any") {
-    return { rejectHardlinks: false, roots: "any" };
+    return { rejectHardlinks: Boolean(getCurrentAgentMediaId()), roots: "any" };
   }
   let inboundReference;
   try {
@@ -176,7 +189,7 @@ async function resolveLocalMediaBoundary(
       );
     }
     if (isPathInside(resolvedRoot, resolved)) {
-      return { rejectHardlinks: false, roots: resolvedRoots };
+      return { rejectHardlinks: Boolean(getCurrentAgentMediaId()), roots: resolvedRoots };
     }
   }
 
@@ -213,6 +226,7 @@ export async function readLocalMediaFile(
   const boundary = await resolveLocalMediaBoundary(mediaPath, localRoots, "reject", options);
   const opened = await openLocalFileSafely({ filePath: mediaPath });
   try {
+    assertScopedMediaOwner(opened.realPath);
     if (
       boundary.roots !== "any" &&
       !boundary.roots.some((resolvedRoot) => isPathInside(resolvedRoot, opened.realPath))

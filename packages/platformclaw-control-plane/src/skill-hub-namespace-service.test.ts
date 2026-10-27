@@ -2,6 +2,41 @@ import { describe, expect, it, vi } from "vitest";
 import { createSkillHubServiceFixture as fixture } from "./skill-hub-service.test-fixtures.js";
 
 describe("Skill Hub namespace service policy", () => {
+  it.each([{ namespaces: [] }, { namespaces: ["engineering"] }])(
+    "includes implicit Global membership with additional namespaces $namespaces",
+    async ({ namespaces }) => {
+      const { service, actor, adapterMocks, ensureDefaultSkillHubNamespace } = await fixture(
+        [],
+        undefined,
+        {
+          registrySkill: "absent",
+          allowedNamespaces: namespaces,
+        },
+      );
+      await expect(service.config(actor)).resolves.toMatchObject({
+        admin: false,
+        defaultNamespace: "global",
+        namespaces: ["global", ...namespaces],
+      });
+      expect(ensureDefaultSkillHubNamespace).toHaveBeenCalledWith({
+        actorUserId: actor.user.id,
+        changedAt: 100,
+      });
+      await expect(
+        service.publish(actor, {
+          skill: "demo-skill",
+          namespace: "global",
+          source: "platform_server",
+          version: "1.2.3",
+          visibility: "NAMESPACE_ONLY",
+        }),
+      ).resolves.toMatchObject({ namespace: "global" });
+      expect(adapterMocks.publish).toHaveBeenCalledWith(
+        expect.objectContaining({ namespace: "global", visibility: "NAMESPACE_ONLY" }),
+      );
+    },
+  );
+
   it("replays completed creation without another registry call or reactivating a restricted binding", async () => {
     const createNamespace = vi.fn();
     const { service, actor, store, getSkillHubNamespaceBinding } = await fixture(undefined, {
@@ -85,11 +120,18 @@ describe("Skill Hub namespace service policy", () => {
       statusCode: 404,
     });
 
-    getSkillHubNamespaceBinding.mockResolvedValue({ ...binding, accessState: "active" });
+    getSkillHubNamespaceBinding.mockImplementation(async (namespace) => ({
+      ...binding,
+      namespace,
+      accessState: "active",
+    }));
     await expect(service.config(actor)).resolves.toMatchObject({
-      namespaces: ["engineering"],
-      defaultNamespace: "engineering",
-      namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
+      namespaces: ["global", "engineering"],
+      defaultNamespace: "global",
+      namespaceOptions: [
+        { namespace: "global", scopeKind: "global" },
+        { namespace: "engineering", scopeKind: "global" },
+      ],
     });
     await expect(service.detail(actor.user, "engineering", "demo-skill")).resolves.toMatchObject({
       skill: { slug: "demo-skill" },

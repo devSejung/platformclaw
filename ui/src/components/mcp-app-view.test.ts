@@ -112,6 +112,7 @@ describe("mcp-app-view localization", () => {
     viewId: string,
     messageSupported = true,
     updateModelContextSupported = messageSupported,
+    messageEnabled = true,
   ) {
     vi.spyOn(HTMLIFrameElement.prototype, "contentWindow", "get").mockReturnValue(window);
     const messageListeners: EventListenerOrEventListenerObject[] = [];
@@ -151,6 +152,7 @@ describe("mcp-app-view localization", () => {
     });
     view.sessionKey = "agent:main:main";
     view.viewId = viewId;
+    view.messageEnabled = messageEnabled;
     document.body.append(view);
 
     await expect.poll(() => view.shadowRoot?.querySelector("iframe")).not.toBeNull();
@@ -203,7 +205,9 @@ describe("mcp-app-view localization", () => {
 
     const received: string[] = [];
     view.addEventListener(WIDGET_PROMPT_EVENT, (event: Event) => {
-      received.push((event as CustomEvent<WidgetPromptEventDetail>).detail.text);
+      const detail = (event as CustomEvent<WidgetPromptEventDetail>).detail;
+      received.push(detail.text);
+      detail.respondWith(Promise.resolve(true));
     });
     const send = async (content: Array<{ type: string; text?: string }>) =>
       await bridge.messageHandler!({ role: "user", content });
@@ -216,6 +220,8 @@ describe("mcp-app-view localization", () => {
     (frame as HTMLIFrameElement & { checkVisibility: () => boolean }).checkVisibility = () => true;
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     expect(await send([{ type: "text", text: "Needs approval" }])).toEqual({ isError: true });
+    await view.updateComplete;
+    expect(view.shadowRoot?.querySelector('[role="alert"]')).toBeNull();
     expect(confirm).toHaveBeenLastCalledWith("Confirm:\n\nNeeds approval");
     confirm.mockReturnValue(true);
     expect(await send([{ type: "text", text: "  Show details  " }])).toEqual({});
@@ -242,6 +248,46 @@ describe("mcp-app-view localization", () => {
     }
     expect(await send([{ type: "text", text: "Prompt 10" }])).toEqual({ isError: true });
     expect(received).toHaveLength(9);
+  });
+
+  it("does not advertise messaging in a surface without a chat owner", async () => {
+    const { bridge } = await mountBridge("preview-no-messages", true, true, false);
+    expect(bridge.capabilities).not.toHaveProperty("message");
+    expect(bridge.messageHandler).toBeUndefined();
+    expect(bridge.capabilities).toHaveProperty("serverTools");
+  });
+
+  it("waits for admission and visibly rejects an unowned message", async () => {
+    const { bridge, frame, view } = await mountBridge("message-admission");
+    frame.checkVisibility = () => true;
+    Object.defineProperty(document, "activeElement", { get: () => frame, configurable: true });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const send = () =>
+      bridge.messageHandler!({ role: "user", content: [{ type: "text", text: "Selection" }] });
+    expect(await send()).toEqual({ isError: true });
+    await view.updateComplete;
+    expect(view.shadowRoot?.querySelector('[role="alert"]')?.textContent).toContain(
+      "Message not sent",
+    );
+    const admission = deferred<boolean>();
+    view.addEventListener(
+      WIDGET_PROMPT_EVENT,
+      (event) => {
+        (event as CustomEvent<WidgetPromptEventDetail>).detail.respondWith(admission.promise);
+      },
+      { once: true },
+    );
+    let settled = false;
+    const sending = send().then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    admission.resolve(true);
+    expect(await sending).toEqual({});
+    await view.updateComplete;
+    expect(view.shadowRoot?.querySelector('[role="alert"]')).toBeNull();
   });
 
   it("signals its board owner when the view lease has expired", async () => {

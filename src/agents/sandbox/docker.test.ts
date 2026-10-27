@@ -499,6 +499,18 @@ describe("execDockerRaw", () => {
     expect(spawnState.lastOptions?.maxBuffer).toBe(SANDBOX_COMMAND_MAX_BUFFER_BYTES);
   });
 
+  it("honors smaller file-transfer caps without raising the runtime output ceiling", async () => {
+    await execDockerRaw(["image", "inspect", DEFAULT_SANDBOX_IMAGE], { maxBufferBytes: 32768 });
+    expect(spawnState.lastOptions?.maxBuffer).toBe(32768);
+    await execDockerRaw(["image", "inspect", DEFAULT_SANDBOX_IMAGE], {
+      maxBufferBytes: SANDBOX_COMMAND_MAX_BUFFER_BYTES + 1,
+    });
+    expect(spawnState.lastOptions?.maxBuffer).toBe(SANDBOX_COMMAND_MAX_BUFFER_BYTES);
+    await expect(
+      execDockerRaw(["image", "inspect", DEFAULT_SANDBOX_IMAGE], { maxBufferBytes: 0 }),
+    ).rejects.toThrow(/positive safe integer/u);
+  });
+
   it("rejects transport failures even when Docker exits zero", async () => {
     spawnState.transportFailure = true;
 

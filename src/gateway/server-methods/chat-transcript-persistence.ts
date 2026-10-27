@@ -278,6 +278,7 @@ export async function appendAssistantTranscriptMessage(params: {
   };
   ttsSupplement?: GatewayInjectedTtsSupplementMarker;
   cfg?: OpenClawConfig;
+  beforeWrite?: () => Promise<void>;
 }): Promise<TranscriptAppendResult> {
   const scope = assistantTranscriptScope(params);
   if (!scope) {
@@ -299,6 +300,7 @@ export async function appendAssistantTranscriptMessage(params: {
     abortMeta: params.abortMeta,
     ttsSupplement: params.ttsSupplement,
     config: params.cfg,
+    beforeWrite: params.beforeWrite,
   });
   return appended;
 }
@@ -335,6 +337,7 @@ export async function rewriteSourceReplyTranscriptMirrors(params: {
     state: SourceReplyContentState;
   }[];
   scope: SessionTranscriptWriteScope;
+  beforeRewrite?: () => Promise<void>;
 }): Promise<
   Array<{
     messageId: string;
@@ -412,6 +415,7 @@ export async function rewriteSourceReplyTranscriptMirrors(params: {
         },
       });
     });
+    await params.beforeRewrite?.();
     await transcript.replaceEvents(rewrittenEvents);
     return rewriteTargets.map((target) => ({
       messageId: target.messageId,
@@ -424,6 +428,7 @@ export async function rewriteAssistantTranscriptMessageByIdempotencyKey(params: 
   content: AssistantDisplayContentBlock[];
   idempotencyKey: string;
   scope: SessionTranscriptWriteScope;
+  beforeRewrite?: () => Promise<void>;
 }): Promise<{ messageId: string } | null> {
   const idempotencyKey = params.idempotencyKey.trim();
   if (!idempotencyKey || params.content.length === 0) {
@@ -445,6 +450,7 @@ export async function rewriteAssistantTranscriptMessageByIdempotencyKey(params: 
           })
         : event,
     );
+    await params.beforeRewrite?.();
     await transcript.replaceEvents(rewrittenEvents);
     return { messageId: target.messageId };
   });
@@ -457,6 +463,7 @@ export async function rewriteAssistantTranscriptMessageByTurnIndexAndMedia(param
   expectedGeneration: string | null;
   mediaUrls: readonly string[];
   scope: ResolvedAssistantTranscriptScope;
+  beforeRewrite?: () => Promise<void>;
 }): Promise<{ generation: string; messageId: string } | null> {
   if (params.content.length === 0 || params.mediaUrls.length === 0) {
     return null;
@@ -497,6 +504,7 @@ export async function rewriteAssistantTranscriptMessageByTurnIndexAndMedia(param
   });
   const rewritten = await rewriteTranscriptEventRowsExact(params.scope, {
     allowInitialGenerationMaterialization: initialGenerationMaterialized,
+    beforeWrite: params.beforeRewrite,
     expectedGeneration: params.expectedGeneration,
     rows: [
       {

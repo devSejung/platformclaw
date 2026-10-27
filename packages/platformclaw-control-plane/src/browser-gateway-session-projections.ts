@@ -11,6 +11,7 @@ type ProjectBrowserSessionResultParams = {
   prepared: JsonObject;
   result: unknown;
   canAccessWorkspaceFiles?: (write: boolean) => boolean;
+  scopeDownloadUrl(value: string): string;
   assertOwnedResultSessionKey(value: unknown): void;
   projectSessionPayloadForAccess(value: unknown): JsonObject | null;
   fail(message: string): never;
@@ -406,10 +407,11 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
     if (artifact.id !== input.prepared.artifactId) {
       return input.fail("Gateway returned a different artifact than requested");
     }
-    return {
-      artifact,
-      ...projectObjectKeys(payload, ["encoding", "data", "url", "expiresAt"]),
-    };
+    const download = projectObjectKeys(payload, ["encoding", "data", "url", "expiresAt"]);
+    if (typeof download.url === "string") {
+      download.url = input.scopeDownloadUrl(download.url);
+    }
+    return { artifact, ...download };
   }
   if (input.method === "sessions.patch") {
     const payload = asObject(input.result, "session patch result", fail);

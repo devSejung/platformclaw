@@ -72,7 +72,10 @@ describeBrowser("Skill Workshop history scan browser flow", () => {
     if (!browser || !server) {
       throw new Error("Expected browser test fixtures");
     }
-    const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
+    const page = await browser.newPage({
+      locale: "en-US",
+      viewport: { width: 1366, height: 900 },
+    });
     try {
       const gateway = await installMockGateway(page, {
         assistantAgentId: "main",

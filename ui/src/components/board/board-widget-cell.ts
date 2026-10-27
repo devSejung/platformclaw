@@ -81,6 +81,7 @@ class OpenClawBoardWidgetCell extends OpenClawLightDomElement {
   @property({ type: Boolean }) busy = false;
   @property({ type: Boolean }) canMutate = true;
   @property({ type: Boolean }) canGrant = true;
+  @property({ type: Boolean }) messageEnabled = true;
   @property({ type: Boolean }) ticketRefreshEnabled = true;
 
   @state() private actionError = "";
@@ -223,6 +224,7 @@ class OpenClawBoardWidgetCell extends OpenClawLightDomElement {
       appView: this.appView.state,
       busy: this.busy || this.actionPending || !this.canMutate,
       loading: this.appView.loading,
+      messageEnabled: this.messageEnabled,
       nearVisible: this.appView.nearVisible,
       rectHeight: this.rect?.h ?? 4,
       sessionKey: this.sessionKey,

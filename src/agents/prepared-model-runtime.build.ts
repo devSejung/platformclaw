@@ -4,19 +4,21 @@ import { withTimeout } from "../node-host/with-timeout.js";
 import { runTasksWithConcurrency } from "../utils/run-with-concurrency.js";
 import type { ModelCatalogSnapshot } from "./model-catalog.types.js";
 import {
+  prepareAgentCatalogSource,
+  type PreparedModelRuntimeCatalogSource,
+} from "./prepared-model-runtime.catalog-source.js";
+import {
   PreparedModelRuntimePublicationSupersededError,
   toPreparedModelRuntimeError,
 } from "./prepared-model-runtime.errors.js";
 import {
   fingerprintPreparedRuntimeFacts,
-  prepareAgentCatalogSource,
   prepareConfiguredRuntimeFactsBatch,
   prepareFullCatalogFacts,
   preparedModelRuntimeWorkspaceFactsKey,
   prepareWorkspaceBuildGroup,
   type PreparedModelRuntimeAgentFacts,
   type PreparedModelRuntimeCatalogFacts,
-  type PreparedModelRuntimeCatalogSource,
   type PreparedModelRuntimeWorkspaceFacts,
 } from "./prepared-model-runtime.facts.js";
 import type {

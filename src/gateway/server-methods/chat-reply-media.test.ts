@@ -342,7 +342,14 @@ describe("normalizeWebchatReplyMediaPathsForDisplay", () => {
       managedMediaLocalRoots: [workspaceDir],
     });
 
-    expect(content).toEqual([expect.objectContaining({ type: "audio", mimeType: "audio/mpeg" })]);
+    expect(content).toEqual([
+      expect.objectContaining({ type: "audio", mimeType: "audio/mpeg" }),
+      {
+        type: "text",
+        attachmentError: true,
+        text: "[Attachment unavailable] This file could not be saved for download. Attach it again.",
+      },
+    ]);
   });
 
   it("preserves media order across interleaved trust classes", async () => {
@@ -407,16 +414,28 @@ describe("normalizeWebchatReplyMediaPathsForDisplay", () => {
     expect(blocks).toHaveLength(2);
   });
 
-  it("does not add a failure warning when a mixed inline image survives", async () => {
+  it("reports the rejected local image even when a mixed inline image survives", async () => {
     const dataUrl = dataImageUrl();
     const { stateDir, payload } = await normalizeCodexHomeImage({
       allowRead: false,
       payload: (imagePath) => ({ mediaUrls: [imagePath, dataUrl] }),
     });
 
-    expect(payload?.text).toBeUndefined();
+    expect(payload?.text).toBe("⚠️ Media failed.");
     expect(payload?.mediaUrl).toBe(dataUrl);
     expect(payload?.mediaUrls).toEqual([dataUrl]);
+    await expectOutboundMediaMissing(stateDir);
+  });
+
+  it("does not expose another Agent's output directory when host reads are enabled", async () => {
+    const { stateDir, cfg } = createMediaTestContext({ allowRead: true });
+    const foreignPath = await createCodexHomeImage({
+      agentDir: path.join(stateDir, "agents", "other", "agent"),
+    });
+    const payload = await normalizeReplyMedia({ cfg, payloads: [{ mediaUrl: foreignPath }] });
+    expect(payload?.mediaUrl).toBeUndefined();
+    expect(payload?.mediaUrls).toBeUndefined();
+    expect(payload?.text).toBe("⚠️ Media failed.");
     await expectOutboundMediaMissing(stateDir);
   });
 });

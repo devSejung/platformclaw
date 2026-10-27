@@ -1,11 +1,11 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { parseUserMcpServerPolicies } from "./src/config.js";
+import { parseUserMcpServerPolicies, type UserMcpServerPolicy } from "./src/config.js";
 import { createUserMcpConnectionRuntime } from "./src/runtime.js";
 
 export function configuredRemoteUrl(
   config: unknown,
   serverName: string,
-  auth: "bearer" | "api_key" | "oauth",
+  auth?: "bearer" | "api_key" | "oauth",
 ): string {
   const root = config as { mcp?: { servers?: Record<string, unknown> } };
   const raw = root.mcp?.servers?.[serverName];
@@ -44,29 +44,86 @@ export default definePluginEntry({
     if (api.registrationMode !== "full") {
       return;
     }
-    const policies = parseUserMcpServerPolicies(api.pluginConfig);
+    const personalPolicies = parseUserMcpServerPolicies(api.pluginConfig);
+    const declared =
+      (
+        api.config as {
+          mcp?: {
+            servers?: Record<
+              string,
+              { url?: string; command?: string; headers?: Record<string, string>; auth?: string }
+            >;
+          };
+        }
+      ).mcp?.servers ?? {};
+    const policies = new Map(personalPolicies.map((policy) => [policy.serverName, policy]));
+    // Adopt existing common remote declarations at startup. Personal settings
+    // must cover shared/no-auth servers too, rather than leaving a static bypass.
+    for (const [serverName, server] of Object.entries(declared)) {
+      if (policies.has(serverName) || !server.url || server.command) {
+        continue;
+      }
+      configuredRemoteUrl(api.config, serverName);
+      policies.set(serverName, {
+        serverName,
+        credentialMode:
+          server.auth === "oauth" || Object.keys(server.headers ?? {}).length ? "shared" : "none",
+        headerGuides: [],
+      });
+    }
+    const serverForConfig = (config: unknown, serverName: string) =>
+      (
+        config as {
+          mcp?: {
+            servers?: Record<
+              string,
+              { enabled?: boolean; headers?: Record<string, string>; auth?: string }
+            >;
+          };
+        }
+      ).mcp?.servers?.[serverName];
+    const projectPolicy = (config: unknown, policy: UserMcpServerPolicy) => ({
+      ...policy,
+      url: configuredRemoteUrl(config, policy.serverName, policy.auth),
+      enabled: serverForConfig(config, policy.serverName)?.enabled !== false,
+      commonHeaderNames: Object.keys(serverForConfig(config, policy.serverName)?.headers ?? {}),
+      configuredOAuth: serverForConfig(config, policy.serverName)?.auth === "oauth",
+    });
     const catalogForConfig = (config: unknown) =>
-      policies.map((policy) => ({
-        ...policy,
-        url: configuredRemoteUrl(config, policy.serverName, policy.auth),
-      }));
+      Array.from(policies.values())
+        .toSorted((a, b) => a.serverName.localeCompare(b.serverName))
+        .map((policy) => projectPolicy(config, policy));
     catalogForConfig(api.config);
-    const runtime = policies.length > 0 ? createUserMcpConnectionRuntime() : undefined;
-    for (const policy of policies) {
+    const runtime = policies.size > 0 ? createUserMcpConnectionRuntime() : undefined;
+    for (const policy of policies.values()) {
       api.registerMcpServerConnectionResolver({
         serverName: policy.serverName,
         resolve: async () => null,
         resolveForAgent: async ({ agentId }) => {
           // MCP definitions hot-reload without replacing plugin registrations.
           // Pin one current URL across the broker request and its credential result.
-          const url = configuredRemoteUrl(
-            api.runtime.config.current(),
-            policy.serverName,
-            policy.auth,
-          );
+          const config = api.runtime.config.current();
+          const server = serverForConfig(config, policy.serverName);
+          const url = configuredRemoteUrl(config, policy.serverName, policy.auth);
+          // Upstream session overrides can enable a default-disabled server.
+          // Organization Off remains authoritative at the connection owner.
+          if (server?.enabled === false) {
+            return null;
+          }
           const connection = await runtime?.resolve(agentId, policy.serverName, url);
+          const headers = new Headers(server?.headers);
+          for (const [name, value] of Object.entries(connection?.headers ?? {})) {
+            headers.set(name, value);
+          }
           return connection
-            ? { url, headers: connection.headers, expiresAt: connection.expiresAt }
+            ? {
+                url,
+                headers: Object.fromEntries(headers),
+                expiresAt: connection.expiresAt,
+                ...(server?.auth === "oauth" && policy.credentialMode === "shared"
+                  ? { preserveConfiguredAuth: true }
+                  : {}),
+              }
             : null;
         },
       });
@@ -86,7 +143,12 @@ export default definePluginEntry({
           respond(false, undefined, { code: "INVALID_REQUEST", message: "agentId is required" });
           return;
         }
-        respond(true, { disposed: await api.runtime.mcp.disposeAgentConnections({ agentId }) });
+        respond(true, {
+          disposed: await api.runtime.mcp.disposeAgentConnections({
+            agentId,
+            retireSessionCatalog: true,
+          }),
+        });
       },
       { scope: "operator.admin" },
     );

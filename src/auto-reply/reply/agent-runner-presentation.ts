@@ -1,5 +1,6 @@
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { sanitizeUserFacingText } from "../../agents/embedded-agent-helpers/sanitize-user-facing-text.js";
+import type { RunEmbeddedAgentParams } from "../../agents/embedded-agent-runner/run/params.js";
 import { logVerbose } from "../../globals.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
 import {
@@ -12,10 +13,15 @@ import {
 } from "../tokens.js";
 import type { ReplyPayload } from "../types.js";
 import type { AgentTurnParams } from "./agent-runner-execution.types.js";
-import { createBlockReplyDeliveryHandler } from "./reply-delivery.js";
+import {
+  createBlockReplyDeliveryHandler,
+  normalizeReplyPayloadDirectives,
+} from "./reply-delivery.js";
 import type { ReplyMediaContext } from "./reply-media-paths.js";
 
 type AgentTurnPresentation = {
+  onSandboxPrepared?: RunEmbeddedAgentParams["onSandboxPrepared"];
+  normalizeMediaPayload?: (payload: ReplyPayload) => Promise<ReplyPayload>;
   classifyStreamingPartial: (payload: ReplyPayload) => { text?: string; skip: boolean };
   sanitizeStreamingText: (
     text: string | undefined,
@@ -128,6 +134,11 @@ export function createAgentTurnPresentation(params: {
     : undefined;
 
   return {
+    onSandboxPrepared: (sandbox) => params.replyMediaContext.setSandbox?.(sandbox),
+    normalizeMediaPayload: (payload) =>
+      params.replyMediaContext.normalizePayload(
+        normalizeReplyPayloadDirectives({ payload }).payload,
+      ),
     classifyStreamingPartial,
     sanitizeStreamingText,
     normalizeStreamingText,

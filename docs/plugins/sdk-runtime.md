@@ -56,6 +56,21 @@ owner admission and releases resumable idle handles before reporting capacity
 failure; the provider must still reserve physical launch capacity before awaiting
 process creation. Runtime release retains persistent conversation metadata and IDs.
 
+## MCP connection lifecycle
+
+`api.runtime.mcp.disposeAgentConnections({ agentId })` immediately revokes that
+agent's requester-scoped MCP transports. Pass `retireSessionCatalog: true` when
+a policy change must also remove cached advertised tools and retire pending
+connection/catalog work. This opt-in retires each whole owning session, including
+other requesters in that session; separate sessions remain active.
+
+Connection resolvers normally replace configured authentication with their
+resolved headers. A trusted resolver may return `preserveConfiguredAuth: true`
+to retain configured OAuth lifecycle while supplying a complete additional
+header map for the same approved destination. Headers are still replaced rather
+than implicitly merged. Do not enable this for a different destination or allow
+additional headers to override configured authentication.
+
 ## Config loading and writes
 
 Prefer config that was already passed into the active call path, for example `api.config` during registration or a `cfg` argument on channel/provider callbacks. This keeps one process snapshot flowing through the work instead of reparsing config on hot paths.

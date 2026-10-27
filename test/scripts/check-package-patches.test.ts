@@ -1,12 +1,17 @@
 // Check Package Patches tests cover check package patches script behavior.
-import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { collectPackagePatchViolations } from "../../scripts/check-package-patches.mjs";
+import {
+  getReviewedSecurityPatchRegistrations,
+  verifyReviewedSecurityPatches,
+} from "../../scripts/pre-commit/pnpm-audit-prod.mjs";
 import { cleanupTempDirs, makeTempRepoRoot, writeJsonFile } from "../helpers/temp-repo.js";
 
 const tempDirs: string[] = [];
+const repoRoot = path.resolve(import.meta.dirname, "../..");
 
 const nestedGitEnvKeys = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -47,11 +52,95 @@ function makeRepo() {
   return dir;
 }
 
+function makeSecurityRepo() {
+  const dir = makeRepo();
+  for (const name of ["pnpm-workspace.yaml", "pnpm-lock.yaml"]) {
+    copyFileSync(path.join(repoRoot, name), path.join(dir, name));
+  }
+  for (const { patchPath } of getReviewedSecurityPatchRegistrations()) {
+    mkdirSync(path.dirname(path.join(dir, patchPath)), { recursive: true });
+    copyFileSync(path.join(repoRoot, patchPath), path.join(dir, patchPath));
+  }
+  git(dir, ["add", "pnpm-workspace.yaml", "pnpm-lock.yaml", "patches"]);
+  return dir;
+}
+
+function runPatchGuard(cwd: string) {
+  return spawnSync(process.execPath, [path.join(repoRoot, "scripts/check-package-patches.mjs")], {
+    cwd,
+    encoding: "utf8",
+    env: createNestedGitEnv(),
+  });
+}
+
 afterEach(() => {
   cleanupTempDirs(tempDirs);
 });
 
 describe("check-package-patches", () => {
+  it("admits the approved security artifacts only after actual CLI verification", () => {
+    const dir = makeSecurityRepo();
+    expect(collectPackagePatchViolations(dir)).toEqual([]);
+    const result = runPatchGuard(dir);
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("security artifact verification");
+  });
+
+  it.each([
+    "changed bytes",
+    "missing patch",
+    "wrong lock hash",
+    "unpatched snapshots",
+    "orphaned known patch",
+    "tampered orphaned known patch",
+    "missing declared orphaned patch",
+  ])("rejects %s at the actual CLI boundary", async (change) => {
+    const dir = makeSecurityRepo();
+    const artifact = getReviewedSecurityPatchRegistrations()[0]!;
+    if (change === "changed bytes" || change === "tampered orphaned known patch") {
+      writeFileSync(path.join(dir, artifact.patchPath), "unreviewed bytes\n");
+    } else if (change === "missing patch") {
+      rmSync(path.join(dir, artifact.patchPath));
+    }
+    const lockPath = path.join(dir, "pnpm-lock.yaml");
+    if (change === "wrong lock hash") {
+      writeFileSync(lockPath, readFileSync(lockPath, "utf8").replaceAll(artifact.installHash, "0"));
+    } else if (change === "unpatched snapshots") {
+      writeFileSync(
+        lockPath,
+        readFileSync(lockPath, "utf8").replaceAll(`(patch_hash=${artifact.installHash})`, ""),
+      );
+    } else if (change.includes("orphaned")) {
+      const missingDeclared = change === "missing declared orphaned patch";
+      const prefix = missingDeclared
+        ? readFileSync(lockPath, "utf8").split("importers:")[0]!
+        : "lockfileVersion: '9.0'\n";
+      const inactiveLock = `${prefix}importers:\n  .:\npackages:\nsnapshots:\n`;
+      writeFileSync(lockPath, inactiveLock);
+      if (missingDeclared) {
+        for (const { patchPath } of getReviewedSecurityPatchRegistrations()) {
+          rmSync(path.join(dir, patchPath));
+        }
+      } else {
+        writeFileSync(path.join(dir, "pnpm-workspace.yaml"), "packages:\n  - .\n");
+      }
+      expect(collectPackagePatchViolations(dir)).toEqual([]);
+      await expect(
+        verifyReviewedSecurityPatches({ rootDir: dir, lockfileText: inactiveLock }),
+      ).resolves.toBeUndefined();
+    }
+    const result = runPatchGuard(dir);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).not.toEqual("");
+    if (change.includes("orphaned")) {
+      expect(result.stderr).toContain(
+        `Reviewed audit patch registration or integrity changed: ${artifact.specifier}`,
+      );
+    }
+  });
+
   it("allows approved pnpm patches", () => {
     const dir = makeRepo();
     mkdirSync(path.join(dir, "patches"), { recursive: true });

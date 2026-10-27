@@ -18,6 +18,7 @@ import {
   buildCodexSystemPromptReport,
   getCodexAvailableToolNames,
   getCodexWorkspaceMemoryToolNames,
+  prependCodexOpenClawPromptContext,
   readContextEngineThreadBootstrapProjection,
   readMirroredSessionHistoryMessages,
   resolveContextEngineBootstrapProjectionDecision,
@@ -397,5 +398,44 @@ describe("Codex app-server attempt context", () => {
         sessionKey: "agent:codex-test:main",
       }),
     ).toBe(undefined);
+  });
+
+  it("uses only the current backend facts after changing work locations", () => {
+    const params = { config: {} } as EmbeddedRunAttemptParams;
+    const basic = buildCodexOpenClawPromptContext({
+      params,
+      runtimePromptContext: "Current target: Basic; workspace=/workspace; revision=1",
+    });
+    const vm = buildCodexOpenClawPromptContext({
+      params,
+      runtimePromptContext: "Current target: VM; workspace=/home/person/work; revision=2",
+    });
+    expect(basic).toContain("Current target: Basic");
+    expect(vm).toContain("Current target: VM");
+    expect(vm).not.toContain("Current target: Basic");
+    expect(vm).not.toContain("workspace=/workspace");
+    expect(buildCodexOpenClawPromptContext({ params })).toBeUndefined();
+  });
+
+  it("keeps exact-command cron payloads intact while supplying the selected backend", () => {
+    const params = {
+      config: {},
+      bootstrapContextMode: "lightweight",
+      bootstrapContextRunKind: "cron",
+    } as EmbeddedRunAttemptParams;
+    const context = buildCodexOpenClawPromptContext({
+      params,
+      runtimePromptContext: "Current target: VM; workspace=/home/person/work",
+      workspacePromptContext: "workspace bootstrap",
+      watchedSessionsContext: "watched sessions",
+    });
+    expect(context).toContain("Current target: VM");
+    expect(context).not.toContain("workspace bootstrap");
+    expect(context).not.toContain("watched sessions");
+    const command = "printf '%s\\n' '/tmp/report.txt'";
+    const prompt = prependCodexOpenClawPromptContext(command, context);
+    expect(prompt).toContain("Current target: VM");
+    expect(prompt.endsWith(`Current user request:\n${command}`)).toBe(true);
+    expect(buildCodexOpenClawPromptContext({ params })).toBeUndefined();
   });
 });

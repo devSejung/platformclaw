@@ -1,9 +1,33 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildMcpAppHostCapabilities,
   dispatchWidgetPrompt,
   resolveMcpAppSandboxUrl,
+  WIDGET_PROMPT_EVENT,
+  type WidgetPromptEventDetail,
 } from "./mcp-app-security.ts";
+
+function focusedFrame() {
+  const frame = document.createElement("iframe");
+  document.body.append(frame);
+  frame.checkVisibility = () => true;
+  Object.defineProperty(document, "activeElement", { get: () => frame, configurable: true });
+  return frame;
+}
+
+function receivePrompt(
+  frame: HTMLIFrameElement,
+  receive: (detail: WidgetPromptEventDetail) => void,
+) {
+  frame.addEventListener(WIDGET_PROMPT_EVENT, (event) => {
+    receive((event as CustomEvent<WidgetPromptEventDetail>).detail);
+  });
+}
+
+afterEach(() => {
+  document.body.replaceChildren();
+  delete (document as unknown as Record<string, unknown>).activeElement;
+});
 
 describe("MCP App sandbox security", () => {
   it("advertises the CSP applied to MCP Apps", () => {
@@ -80,26 +104,107 @@ describe("MCP App sandbox security", () => {
     }
   });
 
-  it("keeps the per-view prompt budget across iframe remounts", () => {
+  it("rejects a focused prompt when no chat owner accepts it", async () => {
+    const frame = focusedFrame();
+    expect(await dispatchWidgetPrompt(frame, "Show details", crypto.randomUUID())).toBe(false);
+  });
+
+  it("does not park an unfocused MCP App message for later frame focus", async () => {
+    const frame = focusedFrame();
+    const input = document.createElement("textarea");
+    document.body.append(input);
+    Object.defineProperty(document, "activeElement", { get: () => input, configurable: true });
+    const received: string[] = [];
+    receivePrompt(frame, (detail) => {
+      received.push(detail.text);
+      detail.respondWith(Promise.resolve(true));
+    });
+
+    expect(await dispatchWidgetPrompt(frame, "Unfocused App message", crypto.randomUUID())).toBe(
+      false,
+    );
+    Object.defineProperty(document, "activeElement", { get: () => frame, configurable: true });
+    window.dispatchEvent(new Event("blur"));
+    await Promise.resolve();
+    expect(received).toEqual([]);
+    expect(await dispatchWidgetPrompt(frame, "New focused App message", crypto.randomUUID())).toBe(
+      true,
+    );
+    expect(received).toEqual(["New focused App message"]);
+  });
+
+  it("waits for the owning chat to acknowledge admission", async () => {
+    const frame = focusedFrame();
+    let admit!: (accepted: boolean) => void;
+    const admission = new Promise<boolean>((resolve) => {
+      admit = resolve;
+    });
+    receivePrompt(frame, (detail) => {
+      expect(detail.text).toBe("Show details");
+      expect(detail.sessionKey).toBe("agent:main:bound");
+      expect(detail.respondWith(admission)).toBe(true);
+    });
+    const dispatch = dispatchWidgetPrompt(
+      frame,
+      "  Show details  ",
+      crypto.randomUUID(),
+      undefined,
+      "agent:main:bound",
+    );
+    let settled = false;
+    void dispatch.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    admit(true);
+    expect(await dispatch).toBe(true);
+  });
+
+  it.each([false, "rejected"] as const)("reports failed owner admission: %s", async (result) => {
+    const frame = focusedFrame();
+    receivePrompt(frame, (detail) => {
+      detail.respondWith(
+        result === "rejected" ? Promise.reject(new Error("offline")) : Promise.resolve(result),
+      );
+    });
+    expect(await dispatchWidgetPrompt(frame, "Show details", crypto.randomUUID())).toBe(false);
+  });
+
+  it("accepts only the first synchronous owner claim", async () => {
+    const frame = focusedFrame();
+    let prompt!: WidgetPromptEventDetail;
+    receivePrompt(frame, (detail) => {
+      prompt = detail;
+      expect(detail.respondWith(Promise.resolve(true))).toBe(true);
+      expect(detail.respondWith(Promise.resolve(false))).toBe(false);
+    });
+    expect(await dispatchWidgetPrompt(frame, "Show details", crypto.randomUUID())).toBe(true);
+    expect(prompt.respondWith(Promise.resolve(false))).toBe(false);
+  });
+
+  it("rejects an owner claim made after event dispatch", async () => {
+    const frame = focusedFrame();
+    let prompt!: WidgetPromptEventDetail;
+    receivePrompt(frame, (detail) => {
+      prompt = detail;
+    });
+    expect(await dispatchWidgetPrompt(frame, "Show details", crypto.randomUUID())).toBe(false);
+    expect(prompt.respondWith(Promise.resolve(true))).toBe(false);
+  });
+
+  it("keeps the per-view prompt budget across iframe remounts", async () => {
     const key = `agent:main:main\0view-${crypto.randomUUID()}`;
-    const first = document.createElement("iframe");
-    document.body.append(first);
-    first.checkVisibility = () => true;
-    Object.defineProperty(document, "activeElement", { get: () => first, configurable: true });
+    const first = focusedFrame();
+    receivePrompt(first, (detail) => detail.respondWith(Promise.resolve(true)));
     for (let index = 0; index < 10; index += 1) {
-      expect(dispatchWidgetPrompt(first, `Prompt ${index}`, key)).toBe(true);
+      expect(await dispatchWidgetPrompt(first, `Prompt ${index}`, key)).toBe(true);
     }
 
     first.remove();
-    const replacement = document.createElement("iframe");
-    document.body.append(replacement);
-    replacement.checkVisibility = () => true;
-    Object.defineProperty(document, "activeElement", {
-      get: () => replacement,
-      configurable: true,
-    });
-    expect(dispatchWidgetPrompt(replacement, "Prompt after remount", key)).toBe(false);
-    replacement.remove();
-    delete (document as unknown as Record<string, unknown>).activeElement;
+    const replacement = focusedFrame();
+    receivePrompt(replacement, (detail) => detail.respondWith(Promise.resolve(true)));
+    expect(await dispatchWidgetPrompt(replacement, "Prompt after remount", key)).toBe(false);
   });
 });

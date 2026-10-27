@@ -863,7 +863,15 @@ timeline for current status.
 
     Official plugins released with `v2026.7.1-beta.5` imported the four
     deprecated helpers above. `openclaw/plugin-sdk/session-store-runtime` keeps
-    that exact bridge through 2026-10-12; new plugins must use the replacements.
+    that exact bridge pending verified published-reader migration and exclusion
+    of that release from the minimum supported plugin version, with 2026-10-12
+    preserved as the review date. Removal also requires explicit breaking-release
+    approval; new plugins must use the replacements.
+    Package-root `loadSessionStore(...)` and `saveSessionStore(...)`
+    retain their separate condition: the v2026.7.x upgrade window must no longer
+    require the legacy doctor importer before those aliases are removed.
+    Published-reader migration must also be verified and explicit breaking-release
+    approval granted for those aliases.
     `resolveStorePath(...)` remains a supported SDK helper and is not part of
     this deprecation.
 

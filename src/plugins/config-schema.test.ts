@@ -36,28 +36,21 @@ describe("buildPluginConfigSchema", () => {
   });
 
   it("uses input mode and strips helper-only draft metadata", () => {
-    const toJSONSchema = vi.fn(() => ({
-      $schema: "http://json-schema.org/draft-07/schema#",
-      type: "object",
-      propertyNames: { type: "string" },
-      required: [],
-      properties: {
-        enabled: { type: "boolean", default: true },
-      },
-    }));
-    const schema = { toJSONSchema } as unknown as Parameters<typeof buildPluginConfigSchema>[0];
-
-    const result = buildPluginConfigSchema(schema);
-
-    expect(toJSONSchema).toHaveBeenCalledWith({
-      target: "draft-07",
-      io: "input",
-      unrepresentable: "any",
+    const schema = z.object({
+      enabled: z.boolean().default(true),
+      count: z
+        .string()
+        .transform((value) => value.length)
+        .optional(),
+      labels: z.record(z.string(), z.boolean()).optional(),
     });
+    const result = buildPluginConfigSchema(schema);
     expect(result.jsonSchema).toEqual({
       type: "object",
       properties: {
         enabled: { type: "boolean", default: true },
+        count: { type: "string" },
+        labels: { type: "object", additionalProperties: { type: "boolean" } },
       },
     });
   });

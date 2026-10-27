@@ -1,20 +1,33 @@
 import { ControlPlaneStateError } from "./contracts.js";
 import type {
   ControlPlaneMcpCredentialStore,
+  ControlPlaneMcpSettingsStore,
   McpCredentialKind,
   McpCredentialPayload,
   StoredUserMcpCredential,
   UserMcpCredentialMetadata,
+  McpUserSettingsPayload,
+  StoredUserMcpSettings,
 } from "./mcp-credential-contracts.js";
 import { McpCredentialCipher } from "./mcp-credential-crypto.js";
+import { mcpCredentialFingerprint } from "./mcp-credential-fingerprint.js";
+import { assertAdditionalMcpHeader } from "./mcp-header-policy.js";
+
+function hasInvalidHttpHeaderValue(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if ((code < 32 && code !== 9) || code === 127 || code > 255) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function requireSecret(value: string): string {
   const normalized = value.trim();
   if (
     !normalized ||
-    normalized.includes("\0") ||
-    normalized.includes("\r") ||
-    normalized.includes("\n") ||
+    hasInvalidHttpHeaderValue(value) ||
     Buffer.byteLength(normalized, "utf8") > 32 * 1024
   ) {
     throw new ControlPlaneStateError("MCP credential secret is invalid");
@@ -24,10 +37,41 @@ function requireSecret(value: string): string {
 
 function requireHeaderName(value: string): string {
   const normalized = value.trim();
-  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(normalized)) {
-    throw new ControlPlaneStateError("MCP credential header name is invalid");
-  }
+  assertAdditionalMcpHeader(normalized, []);
   return normalized;
+}
+
+export function normalizeMcpAdditionalHeaders(
+  headers: Record<string, string>,
+): Record<string, string> {
+  const entries = Object.entries(headers);
+  if (entries.length > 32) {
+    throw new ControlPlaneStateError("MCP additional headers exceed 32 entries");
+  }
+  const result: Array<[string, string]> = [];
+  const names = new Set<string>();
+  let bytes = 0;
+  for (const [rawName, rawValue] of entries) {
+    const name = requireHeaderName(rawName);
+    if (name.length > 128 || typeof rawValue !== "string" || hasInvalidHttpHeaderValue(rawValue)) {
+      throw new ControlPlaneStateError("MCP additional header is invalid");
+    }
+    const normalizedName = name.toLowerCase();
+    if (names.has(normalizedName)) {
+      throw new ControlPlaneStateError("MCP additional header names must be unique");
+    }
+    names.add(normalizedName);
+    const value = rawValue.trim();
+    const valueBytes = Buffer.byteLength(value, "utf8");
+    bytes += Buffer.byteLength(name, "utf8") + valueBytes;
+    if (valueBytes > 8 * 1024 || bytes > 32 * 1024) {
+      throw new ControlPlaneStateError("MCP additional headers are too large");
+    }
+    if (value) {
+      result.push([name, value]);
+    }
+  }
+  return Object.fromEntries(result.toSorted(([left], [right]) => left.localeCompare(right)));
 }
 
 function requireServerUrl(value: string, kind: McpCredentialKind): string {
@@ -75,11 +119,119 @@ export type AgentMcpCredentialPayload = {
   payload: McpCredentialPayload;
 };
 
+export type UserMcpSettings = Omit<
+  StoredUserMcpSettings,
+  "ciphertext" | "nonce" | "authTag" | "keyId" | "formatVersion"
+> & {
+  payload: McpUserSettingsPayload;
+};
+
 export class McpCredentialVault {
   constructor(
-    private readonly store: ControlPlaneMcpCredentialStore,
+    private readonly store: ControlPlaneMcpCredentialStore & ControlPlaneMcpSettingsStore,
     private readonly cipher: McpCredentialCipher,
   ) {}
+
+  async replaceSettings(params: {
+    actorUserId: string;
+    userId: string;
+    serverName: string;
+    enabled: boolean;
+    payload: McpUserSettingsPayload;
+    updatedAt: number;
+    expectedRevision: number;
+    credential?: { payload: McpCredentialPayload; expectedFingerprint: string | null };
+  }) {
+    const serverName = params.serverName.trim();
+    const payload = {
+      serverUrl: requireServerUrl(params.payload.serverUrl, "api_key"),
+      headers: normalizeMcpAdditionalHeaders(params.payload.headers),
+    };
+    const credential = params.credential
+      ? this.normalizePayload(params.credential.payload)
+      : undefined;
+    if (credential && credential.serverUrl !== payload.serverUrl) {
+      throw new ControlPlaneStateError("MCP credential and settings destinations must match");
+    }
+    return await this.store.replaceEncryptedUserMcpSettings({
+      actorUserId: params.actorUserId,
+      userId: params.userId,
+      serverName,
+      enabled: params.enabled,
+      envelope: this.cipher.encryptSettings(params.userId, serverName, payload),
+      updatedAt: params.updatedAt,
+      expectedRevision: params.expectedRevision,
+      ...(credential && params.credential
+        ? {
+            credential: {
+              kind: credential.kind,
+              envelope: this.cipher.encrypt(params.userId, serverName, credential),
+              expectedFingerprint: params.credential.expectedFingerprint,
+            },
+          }
+        : {}),
+    });
+  }
+
+  async readSettingsForUser(userId: string, serverName: string): Promise<UserMcpSettings | null> {
+    const stored = await this.store.readEncryptedUserMcpSettings(userId, serverName);
+    return stored ? this.decryptSettings(stored) : null;
+  }
+
+  async readStatusForUser(
+    userId: string,
+    serverName: string,
+  ): Promise<{
+    metadata: UserMcpCredentialMetadata;
+    fingerprint: string;
+    payload: McpCredentialPayload | null;
+  } | null> {
+    const stored = await this.store.readEncryptedUserMcpCredential(userId, serverName);
+    if (!stored) {
+      return null;
+    }
+    let payload: McpCredentialPayload | null = null;
+    // Retained undecryptable secrets still need an accurate editor snapshot
+    // and a visible deletion action; metadata must come from this same row.
+    try {
+      payload = this.decrypt(stored);
+    } catch {
+      /* Mark only this credential unconfigured. */
+    }
+    return {
+      metadata: {
+        userId: stored.userId,
+        serverName: stored.serverName,
+        kind: stored.kind,
+        revision: stored.revision,
+        createdAt: stored.createdAt,
+        updatedAt: stored.updatedAt,
+      },
+      fingerprint: mcpCredentialFingerprint(stored),
+      payload,
+    };
+  }
+
+  async readSettingsForAgent(agentId: string, serverName: string): Promise<UserMcpSettings | null> {
+    const stored = await this.store.readEncryptedMcpSettingsForAgent(agentId, serverName);
+    return stored ? this.decryptSettings(stored) : null;
+  }
+
+  private decryptSettings(stored: StoredUserMcpSettings): UserMcpSettings {
+    const payload = this.cipher.decryptSettings(stored.userId, stored.serverName, stored);
+    return {
+      userId: stored.userId,
+      serverName: stored.serverName,
+      enabled: stored.enabled,
+      revision: stored.revision,
+      createdAt: stored.createdAt,
+      updatedAt: stored.updatedAt,
+      payload: {
+        serverUrl: requireServerUrl(payload.serverUrl, "api_key"),
+        headers: normalizeMcpAdditionalHeaders(payload.headers),
+      },
+    };
+  }
 
   async replace(params: {
     actorUserId: string;

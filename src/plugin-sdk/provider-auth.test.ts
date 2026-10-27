@@ -641,20 +641,43 @@ describe("provider auth profile helpers", () => {
       updateAuthProfileStoreWithLock: vi.fn(),
     }));
 
-    const { isProviderAuthProfileConfigured } = await import("./provider-auth.js");
+    const { isProviderAuthProfileConfigured, resolveProviderAuthProfileApiKey } =
+      await import("./provider-auth.js");
 
-    expect(isProviderAuthProfileConfigured({ provider: "openai" })).toBe(false);
+    const cfg: OpenClawConfig = { plugins: { allow: ["openai"] } };
+    const workspaceDir = "/tmp/selected-project";
+    expect(isProviderAuthProfileConfigured({ provider: "openai", cfg, workspaceDir })).toBe(false);
     expect(
       isProviderAuthProfileConfigured({
         provider: "openai",
         includeExternalCliAuth: true,
+        cfg,
+        workspaceDir,
       }),
     ).toBe(true);
-    expect(loadAuthProfileStoreForSecretsRuntime).toHaveBeenNthCalledWith(1, "/tmp/openclaw-agent");
+    expect(loadAuthProfileStoreForSecretsRuntime).toHaveBeenNthCalledWith(
+      1,
+      "/tmp/openclaw-agent",
+      {
+        config: cfg,
+        workspaceDir,
+      },
+    );
     expect(loadAuthProfileStoreForSecretsRuntime).toHaveBeenNthCalledWith(
       2,
       "/tmp/openclaw-agent",
-      { externalCli },
+      { externalCli, config: cfg, workspaceDir },
+    );
+    await expect(
+      resolveProviderAuthProfileApiKey({ provider: "openai", cfg, workspaceDir }),
+    ).resolves.toBeUndefined();
+    expect(loadAuthProfileStoreForSecretsRuntime).toHaveBeenNthCalledWith(
+      3,
+      "/tmp/openclaw-agent",
+      {
+        config: cfg,
+        workspaceDir,
+      },
     );
   });
 

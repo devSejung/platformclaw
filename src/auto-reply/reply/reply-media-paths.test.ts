@@ -115,6 +115,22 @@ describe("createReplyMediaPathNormalizer", () => {
     expect(mediaAccess.workspaceDir).toBe("/tmp/agent-workspace");
   });
 
+  it("preserves workspace normalization for sandboxes without runtime export capability", async () => {
+    const normalize = createReplyMediaPathNormalizer({
+      cfg: {},
+      sessionKey: "session-key",
+      workspaceDir: "/tmp/agent-workspace",
+      runtimeSandbox: {},
+    });
+    const result = await normalize({ mediaUrl: "./out/photo.png" });
+    expectMedia(result, "/tmp/outbound-media/photo.png", ["/tmp/outbound-media/photo.png"]);
+    expectOutboundAttachmentCall(
+      0,
+      path.join("/tmp/agent-workspace", "out", "photo.png"),
+      5 * 1024 * 1024,
+    );
+  });
+
   it("preserves reply metadata when media normalization clones the payload", async () => {
     const normalize = createReplyMediaPathNormalizer({
       cfg: {},

@@ -90,6 +90,7 @@ export type VideoGenerationSourceAsset = {
 export type VideoGenerationProviderConfiguredContext = {
   cfg?: OpenClawConfig;
   agentDir?: string;
+  workspaceDir?: string;
 };
 
 /** Context passed when resolving model-specific video generation capabilities. */

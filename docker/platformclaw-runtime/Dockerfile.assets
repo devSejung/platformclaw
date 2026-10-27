@@ -15,4 +15,3 @@ COPY --from=build /app/packages/platformclaw-control-plane/package.json /app/pac
 COPY --from=build /app/packages/platformclaw-control-plane/dist /app/packages/platformclaw-control-plane/dist
 COPY --from=build /app/packages/platformclaw-coding-agent-contract/package.json /app/packages/platformclaw-coding-agent-contract/package.json
 COPY --from=build /app/packages/platformclaw-coding-agent-contract/dist /app/packages/platformclaw-coding-agent-contract/dist
-COPY --from=build /app/dist/control-ui /app/ui/dist

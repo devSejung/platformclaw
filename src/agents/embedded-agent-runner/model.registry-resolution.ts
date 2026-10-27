@@ -204,6 +204,7 @@ export function resolveDynamicModelAuthProfile(params: {
   modelId: string;
   cfg?: OpenClawConfig;
   agentDir?: string;
+  workspaceDir?: string;
   authProfileId?: string;
   authProfileMode?: AuthProfileCredential["type"] | "aws-sdk";
   preferredProfile?: string;
@@ -212,7 +213,11 @@ export function resolveDynamicModelAuthProfile(params: {
   authProfileMode?: AuthProfileCredential["type"] | "aws-sdk";
 } {
   const explicitProfileId = params.authProfileId?.trim() || undefined;
-  const store = ensureAuthProfileStore(params.agentDir, { allowKeychainPrompt: false });
+  const store = ensureAuthProfileStore(params.agentDir, {
+    allowKeychainPrompt: false,
+    config: params.cfg,
+    workspaceDir: params.workspaceDir,
+  });
   if (explicitProfileId) {
     const credential = store.profiles[explicitProfileId];
     const configuredMode = params.cfg?.auth?.profiles?.[explicitProfileId]?.mode;
@@ -285,6 +290,7 @@ function resolvePluginDynamicModelWithRegistry(params: {
     modelId,
     cfg,
     agentDir,
+    workspaceDir,
     authProfileId: params.authProfileId,
     authProfileMode: params.authProfileMode,
     preferredProfile: params.preferredProfile,

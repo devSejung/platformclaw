@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   handlePlatformClawBrowserAuthRequest,
   PLATFORMCLAW_LOGIN_PATH,
+  PLATFORMCLAW_LOGOUT_PATH,
   PLATFORMCLAW_SESSION_COOKIE,
   PLATFORMCLAW_SESSION_PATH,
 } from "./browser-auth-http.js";
@@ -136,6 +137,7 @@ describe("PlatformClaw browser auth HTTP boundary", () => {
       },
     );
     expect(start.res.statusCode).toBe(302);
+    expect(start.headers.has("Clear-Site-Data")).toBe(false);
     expect(start.headers.get("Location")).toBe("https://auth.example.test/adsso/login");
     const returnCookie = String(start.headers.get("Set-Cookie"));
     expect(returnCookie).toContain("platformclaw_sso_return_to=");
@@ -160,6 +162,7 @@ describe("PlatformClaw browser auth HTTP boundary", () => {
       },
     );
     expect(callback.res.statusCode).toBe(302);
+    expect(callback.headers.get("Clear-Site-Data")).toBe('"cache"');
     expect(callback.headers.get("Location")).toBe("/platformclaw/app/sessions");
     expect(callback.headers.get("Set-Cookie")).toEqual(
       expect.arrayContaining([
@@ -209,6 +212,7 @@ describe("PlatformClaw browser auth HTTP boundary", () => {
 
     expect(handled).toBe(true);
     expect(harness.res.statusCode).toBe(200);
+    expect(harness.headers.get("Clear-Site-Data")).toBe('"cache"');
     expect(harness.headers.get("Set-Cookie")).toContain(
       `${PLATFORMCLAW_SESSION_COOKIE}=test-token-factory`,
     );
@@ -277,6 +281,7 @@ describe("PlatformClaw browser auth HTTP boundary", () => {
       },
     );
     expect(harness.res.statusCode).toBe(429);
+    expect(harness.headers.has("Clear-Site-Data")).toBe(false);
     expect(harness.headers.get("Retry-After")).toBe("15");
     expect(readJsonBody).not.toHaveBeenCalled();
   });
@@ -300,6 +305,40 @@ describe("PlatformClaw browser auth HTTP boundary", () => {
       },
     );
     expect(harness.res.statusCode).toBe(403);
+    expect(harness.headers.has("Clear-Site-Data")).toBe(false);
     expect(readJsonBody).not.toHaveBeenCalled();
+  });
+
+  it("clears cached bytes on logout while revoking only the current session cookie", async () => {
+    const service = createService();
+    await service.loginPassword({
+      login: { identifier: "seungon.jung", password: "test-password" },
+      context: {},
+    });
+    const harness = responseHarness();
+    await handlePlatformClawBrowserAuthRequest(
+      {
+        url: PLATFORMCLAW_LOGOUT_PATH,
+        method: "POST",
+        headers: { cookie: `${PLATFORMCLAW_SESSION_COOKIE}=test-token-factory` },
+      } as IncomingMessage,
+      harness.res,
+      {
+        service,
+        requestIsSecure: true,
+        isMutationOriginAllowed: () => true,
+        rateLimiter: createRateLimiter(),
+        readJsonBody: vi.fn(),
+      },
+    );
+    expect(harness.res.statusCode).toBe(200);
+    expect(harness.headers.get("Clear-Site-Data")).toBe('"cache"');
+    expect(harness.headers.get("Set-Cookie")).toContain(
+      `${PLATFORMCLAW_SESSION_COOKIE}=; Max-Age=0`,
+    );
+    await expect(service.authenticateToken("test-token-factory")).resolves.toMatchObject({
+      status: "unauthenticated",
+      reason: "revoked",
+    });
   });
 });

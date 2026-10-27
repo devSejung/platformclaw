@@ -18,7 +18,12 @@ import {
 import { assertNoPathAliasEscape, type PathAliasPolicy } from "../infra/path-alias-guards.js";
 import { isNotFoundPathError, isPathInside } from "../infra/path-guards.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
-import { resolveConfigDir, shortenHomePath } from "../utils.js";
+import {
+  assertAgentMediaSourceOwner,
+  getAgentMediaDir,
+  getCurrentAgentMediaId,
+} from "../media/agent-media-context.js";
+import { shortenHomePath } from "../utils.js";
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 const DATA_URL_RE = /^data:/i;
@@ -199,7 +204,7 @@ function isManagedMediaPathUnderRoot(candidate: string): boolean {
   if (!hostPathLooksAbsolute(expanded)) {
     return false;
   }
-  const mediaRoot = path.join(resolveConfigDir(), "media");
+  const mediaRoot = getAgentMediaDir();
   const resolvedMediaRoot = path.resolve(mediaRoot);
   const resolvedExpanded = path.resolve(expanded);
   if (
@@ -221,7 +226,8 @@ export async function resolveAllowedManagedMediaPath(
     return undefined;
   }
   const resolved = path.resolve(expanded);
-  const managedMediaRoot = path.resolve(resolveConfigDir(), "media");
+  const managedMediaRoot = path.resolve(getAgentMediaDir());
+  assertAgentMediaSourceOwner(await resolveRawPathViaExistingAncestor(resolved));
   await assertNoManagedMediaAliasEscape({
     filePath: resolved,
     managedMediaRoot,
@@ -359,6 +365,11 @@ async function resolveAllowedTmpMediaPath(params: {
   candidate: string;
   sandboxRoot: string;
 }): Promise<string | undefined> {
+  // Scoped executions export temporary files through their pinned backend;
+  // Gateway-wide temp storage is shared by unrelated Agents.
+  if (getCurrentAgentMediaId()) {
+    return undefined;
+  }
   const candidateIsAbsolute = hostPathLooksAbsolute(expandPath(params.candidate));
   if (!candidateIsAbsolute) {
     return undefined;

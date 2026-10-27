@@ -29,6 +29,7 @@ import {
   resolveSandboxFsPathWithMounts,
   type SandboxResolvedFsPath,
 } from "./fs-paths.js";
+import { createRemoteShellSandboxFsBridge } from "./remote-fs-bridge.js";
 import type { SandboxWorkspaceAccess } from "./types.js";
 
 type RunCommandOptions = {
@@ -44,6 +45,24 @@ export type { SandboxFsBridge, SandboxFsStat, SandboxResolvedPath } from "./fs-b
 export function createSandboxFsBridge(params: {
   sandbox: SandboxFsBridgeContext;
 }): SandboxFsBridge {
+  if (params.sandbox.accountOwnedRoots?.length && params.sandbox.backend) {
+    const { sandbox } = params;
+    return createRemoteShellSandboxFsBridge({
+      sandbox,
+      runtime: {
+        remoteWorkspaceDir: sandbox.containerWorkdir,
+        remoteAgentWorkspaceDir: "/agent",
+        remoteHomeDir: sandbox.containerWorkdir,
+        runRemoteShellScript: (command) => sandbox.backend!.runShellCommand(command),
+      },
+      mounts: buildSandboxFsMounts(sandbox).map((mount) => ({
+        localRoot: mount.hostRoot,
+        containerRoot: mount.containerRoot,
+        writable: mount.writable,
+        source: mount.source === "bind" ? "additional" : mount.source,
+      })),
+    });
+  }
   return new SandboxFsBridgeImpl(params.sandbox);
 }
 

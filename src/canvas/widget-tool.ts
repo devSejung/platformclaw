@@ -22,7 +22,10 @@ const WIDGET_MAX_PER_SCOPE = 32;
 
 const ShowWidgetToolSchema = Type.Object({
   title: Type.String(),
-  widget_code: Type.String(),
+  widget_code: Type.String({
+    description:
+      "Raw HTML or SVG string, not a tool response. With widget_path, preserve the complete saved file text, including all leading and trailing whitespace. Command output may trim whitespace: retain the exact saved string, or JSON-encode file text when reading and JSON.parse the result.",
+  }),
   widget_path: Type.Optional(
     Type.String({
       description:

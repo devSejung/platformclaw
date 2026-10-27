@@ -7,6 +7,17 @@ import { SqliteControlPlaneStore } from "./sqlite-store.js";
 
 const directories: string[] = [];
 
+class SkillHubFixtureStore extends SqliteControlPlaneStore {
+  seedLegacyGlobalBinding(scopeId?: string) {
+    // Reproduce rows written by older builds, bypassing the repaired mutation guard.
+    this.db
+      .prepare(
+        "UPDATE skill_hub_namespace_bindings SET scope_kind = ?, scope_id = ?, access_state = 'restricted', visibility_ceiling = 'PRIVATE' WHERE namespace = 'global'",
+      )
+      .run(scopeId ? "team" : "global", scopeId ?? null);
+  }
+}
+
 function store() {
   const directory = mkdtempSync(join(tmpdir(), "platformclaw-skill-hub-state-"));
   directories.push(directory);
@@ -18,7 +29,7 @@ function store() {
     nextManagedScopeId: () => `scope-${++id}`,
     nextAuditEventId: () => `audit-${++id}`,
   };
-  return new SqliteControlPlaneStore({
+  return new SkillHubFixtureStore({
     databasePath: join(directory, "control.sqlite"),
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
     initialAdminAccountIds: ["admin.user"],
@@ -43,7 +54,7 @@ afterEach(() => {
 });
 
 describe("SQLite Skill Hub state", () => {
-  it("provisions Global from an ordinary first user once and preserves administrator restrictions", async () => {
+  it("provisions Global from an ordinary first user once and prevents membership restrictions", async () => {
     const db = store();
     const member = (await db.upsertPrincipal(principal("member.user"), 1)).user;
     await db.ensureDefaultSkillHubNamespace({ actorUserId: member.id, changedAt: 2 });
@@ -58,16 +69,18 @@ describe("SQLite Skill Hub state", () => {
     await db.ensureDefaultSkillHubNamespace({ actorUserId: member.id, changedAt: 3 });
     await expect(db.getSkillHubNamespaceBinding("global")).resolves.toEqual(initialized);
     const admin = (await db.upsertPrincipal(principal("admin.user"), 4)).user;
-    const restricted = await db.setSkillHubNamespaceAccessState({
-      namespace: "global",
-      accessState: "restricted",
-      expectedUpdatedAt: 2,
-      reason: "pause company-wide publication",
-      actorUserId: admin.id,
-      changedAt: 5,
-    });
+    await expect(
+      db.setSkillHubNamespaceAccessState({
+        namespace: "global",
+        accessState: "restricted",
+        expectedUpdatedAt: 2,
+        reason: "pause company-wide publication",
+        actorUserId: admin.id,
+        changedAt: 5,
+      }),
+    ).rejects.toThrow("available to every active user");
     await db.ensureDefaultSkillHubNamespace({ actorUserId: member.id, changedAt: 6 });
-    await expect(db.getSkillHubNamespaceBinding("global")).resolves.toEqual(restricted);
+    await expect(db.getSkillHubNamespaceBinding("global")).resolves.toEqual(initialized);
     const audits = await db.listAuditEvents(100);
     expect(
       audits.filter((event) => event.eventType === "skill-hub.namespace.initialized"),
@@ -84,30 +97,103 @@ describe("SQLite Skill Hub state", () => {
     db.close();
   });
 
-  it("preserves an existing managed binding for the canonical Global namespace", async () => {
-    const db = store();
-    const admin = (await db.upsertPrincipal(principal("admin.user"), 1)).user;
-    const team = await db.createManagedScope({
-      actorUserId: admin.id,
-      kind: "team",
-      name: "Product",
-      createdAt: 2,
-    });
-    const existing = await db.setSkillHubNamespaceBinding({
-      namespace: "global",
-      scopeKind: "team",
-      scopeId: team.id,
-      accessState: "active",
-      visibilityCeiling: "PRIVATE",
-      expectedUpdatedAt: null,
-      reason: "existing deployment binding",
-      actorUserId: admin.id,
-      changedAt: 3,
-    });
-    await db.ensureDefaultSkillHubNamespace({ actorUserId: admin.id, changedAt: 4 });
-    await expect(db.getSkillHubNamespaceBinding("global")).resolves.toEqual(existing);
-    db.close();
-  });
+  it.each([false, true])(
+    "repairs a legacy Global binding before member ownership is reconciled (managed=%s)",
+    async (managed) => {
+      const db = store();
+      const admin = (await db.upsertPrincipal(principal("admin.user"), 1)).user;
+      const team = await db.createManagedScope({
+        actorUserId: admin.id,
+        kind: "team",
+        name: "Product",
+        createdAt: 2,
+      });
+      const existing = await db.setSkillHubNamespaceBinding({
+        namespace: "global",
+        scopeKind: "global",
+        accessState: "active",
+        visibilityCeiling: "PUBLIC",
+        expectedUpdatedAt: null,
+        reason: "existing deployment binding",
+        actorUserId: admin.id,
+        changedAt: 3,
+      });
+      const member = (await db.upsertPrincipal(principal("member.user"), 4)).user;
+      await db.ensureDefaultSkillHubNamespace({ actorUserId: member.id, changedAt: 4 });
+      await expect(db.getSkillHubNamespaceBinding("global")).resolves.toEqual(existing);
+      await db.recordSkillHubPublication({
+        namespace: "global",
+        slug: "existing-skill",
+        ownerUserId: member.id,
+        expectedOwnerUserId: null,
+        expectedOwnerUpdatedAt: null,
+        expectedBindingUpdatedAt: existing.updatedAt,
+        visibility: "NAMESPACE_ONLY",
+        version: "1.0.0",
+        changedAt: 4,
+      });
+      db.seedLegacyGlobalBinding(managed ? team.id : undefined);
+      await db.ensureDefaultSkillHubNamespace({ actorUserId: member.id, changedAt: 5 });
+      const repaired = await db.getSkillHubNamespaceBinding("global");
+      expect(repaired).toEqual({
+        ...existing,
+        scopeKind: "global",
+        accessState: "active",
+        visibilityCeiling: "NAMESPACE_ONLY",
+        updatedAt: 5,
+      });
+      await db.ensureDefaultSkillHubNamespace({ actorUserId: member.id, changedAt: 6 });
+      await expect(db.getSkillHubNamespaceBinding("global")).resolves.toEqual(repaired);
+      await expect(
+        db.recordSkillHubPublication({
+          namespace: "global",
+          slug: "member-skill",
+          ownerUserId: member.id,
+          expectedOwnerUserId: null,
+          expectedOwnerUpdatedAt: null,
+          expectedBindingUpdatedAt: 5,
+          visibility: "NAMESPACE_ONLY",
+          version: "1.0.0",
+          changedAt: 7,
+        }),
+      ).resolves.toMatchObject({ ownerUserId: member.id });
+      await expect(db.reconcileInactiveSkillHubOwners(8)).resolves.toEqual({
+        reassigned: 0,
+        unassigned: 0,
+      });
+      await expect(
+        db.setSkillHubNamespaceBinding({
+          namespace: "global",
+          scopeKind: "team",
+          scopeId: team.id,
+          accessState: "active",
+          visibilityCeiling: "NAMESPACE_ONLY",
+          expectedUpdatedAt: 5,
+          reason: "attempt organization assignment",
+          actorUserId: admin.id,
+          changedAt: 9,
+        }),
+      ).rejects.toThrow("available to every active user");
+      await expect(
+        db.setSkillHubNamespaceBinding({
+          namespace: "global",
+          scopeKind: "global",
+          accessState: "active",
+          visibilityCeiling: "PRIVATE",
+          expectedUpdatedAt: 5,
+          reason: "attempt private ceiling",
+          actorUserId: admin.id,
+          changedAt: 9,
+        }),
+      ).rejects.toThrow("available to every active user");
+      expect(
+        (await db.listAuditEvents(100)).filter(
+          (event) => event.eventType === "skill-hub.namespace.default-restored",
+        ),
+      ).toHaveLength(1);
+      db.close();
+    },
+  );
 
   it("retains ordinary Global owners and transfers ownership only through the current owner", async () => {
     const db = store();

@@ -206,6 +206,7 @@ describe("generate-npm-package-lock", () => {
     expect(exactVersionFromOverrideSpec("8.4.0")).toBe("8.4.0");
     expect(exactVersionFromOverrideSpec("npm:@nolyfill/domexception@1.0.28")).toBe("1.0.28");
     expect(exactVersionFromOverrideSpec("^8.4.0")).toBeNull();
+    expect(exactVersionFromOverrideSpec("4.6.6(patch_hash=reviewed)")).toBeNull();
   });
 
   it("pins same-line pnpm lock versions to the newest locked patch", () => {
@@ -251,6 +252,57 @@ describe("generate-npm-package-lock", () => {
       },
       versionOverrides: { "@emnapi/core": "1.11.2" },
     });
+  });
+
+  it("preserves decorated snapshot children under the hosted parent's actual package version", () => {
+    const source = "https://codeload.github.com/example/acpx/tar.gz/reviewed";
+    const plan = resolvePnpmLockOverridePlan({
+      packages: {
+        [`acpx@${source}`]: { version: "0.13.2" },
+        "@agentclientprotocol/sdk@1.3.0": {},
+        "@agentclientprotocol/sdk@1.4.0": {},
+        "zod@3.25.76": {},
+        "zod@4.6.6": {},
+      },
+      snapshots: {
+        [`acpx@${source}`]: {
+          dependencies: {
+            "@agentclientprotocol/sdk": "1.4.0(zod@4.6.6(patch_hash=reviewed))",
+            zod: "4.6.6(patch_hash=reviewed)",
+          },
+        },
+        "@agentclientprotocol/sdk@1.4.0(zod@4.6.6(patch_hash=reviewed))": {
+          dependencies: { zod: "4.6.6(patch_hash=reviewed)" },
+        },
+        "@agentclientprotocol/sdk@1.3.0(zod@3.25.76(patch_hash=other))": {
+          dependencies: { zod: "3.25.76(patch_hash=other)" },
+        },
+      },
+    });
+    expect(plan.scopedVersionOverrides).toEqual({
+      "@agentclientprotocol/sdk@1.3.0": { zod: "3.25.76" },
+      "@agentclientprotocol/sdk@1.4.0": { zod: "4.6.6" },
+      "acpx@0.13.2": {
+        "@agentclientprotocol/sdk": { ".": "1.4.0", zod: "4.6.6" },
+        zod: "4.6.6",
+      },
+    });
+    expect(plan.versionOverrides).not.toHaveProperty("zod");
+  });
+
+  it("does not invent a semantic parent version for an unversioned hosted package", () => {
+    const source = "https://codeload.github.com/example/acpx/tar.gz/reviewed";
+    const plan = resolvePnpmLockOverridePlan({
+      packages: {
+        [`acpx@${source}`]: {},
+        "zod@3.25.76": {},
+        "zod@4.6.6": {},
+      },
+      snapshots: {
+        [`acpx@${source}`]: { dependencies: { zod: "4.6.6(patch_hash=reviewed)" } },
+      },
+    });
+    expect(plan.scopedVersionOverrides).toEqual({});
   });
 
   it("parses nested scoped package paths", () => {

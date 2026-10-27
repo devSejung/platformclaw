@@ -25,7 +25,6 @@ const REQUEST_HEADER_ALLOWLIST = [
 ] as const;
 const RESPONSE_HEADER_ALLOWLIST = [
   "accept-ranges",
-  "cache-control",
   "content-disposition",
   "content-length",
   "content-range",
@@ -61,6 +60,10 @@ type BrowserMediaTicketPayload = {
 };
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
+  // A denied first chunk may follow upstream headers with a different length/type.
+  for (const name of RESPONSE_HEADER_ALLOWLIST) {
+    res.removeHeader(name);
+  }
   res.statusCode = statusCode;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
@@ -256,6 +259,9 @@ export class PlatformClawBrowserMediaRelay {
     if (!managedMatch && !isAssistantMedia) {
       return false;
     }
+    // The browser cookie owns access, even when the upstream capability is cacheable.
+    // Never let a previous account's cached bytes bypass the current session check.
+    res.setHeader("Cache-Control", "no-store");
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.statusCode = 405;
       res.setHeader("Allow", "GET, HEAD");
@@ -277,7 +283,7 @@ export class PlatformClawBrowserMediaRelay {
     }
 
     if (managedMatch) {
-      return this.handleManagedMedia(req, res, requestUrl, managedMatch, access);
+      return this.handleManagedMedia(req, res, requestUrl, managedMatch, token, access);
     }
     return this.handleAssistantMedia(req, res, requestUrl, token, access);
   }
@@ -287,6 +293,7 @@ export class PlatformClawBrowserMediaRelay {
     res: ServerResponse,
     requestUrl: URL,
     match: RegExpExecArray,
+    token: string,
     access: BrowserMediaAccess,
   ): Promise<true> {
     const sessionKey = decodeOwnedSessionKey(match[1] ?? "", access.binding.agentId, (value) =>
@@ -298,7 +305,7 @@ export class PlatformClawBrowserMediaRelay {
       sendJson(res, 404, { error: "media not found" });
       return true;
     }
-    await this.proxyBytes(req, res);
+    await this.proxyBytes(req, res, token, access);
     return true;
   }
 
@@ -333,7 +340,7 @@ export class PlatformClawBrowserMediaRelay {
       sendJson(res, 404, { error: "media not found" });
       return true;
     }
-    await this.proxyBytes(req, res, access.binding.agentId);
+    await this.proxyBytes(req, res, token, access, true);
     return true;
   }
 
@@ -369,6 +376,9 @@ export class PlatformClawBrowserMediaRelay {
       : historyContainsOwnedMediaSource(transcriptProof, source);
     if (!ownsSource) {
       sendJson(res, 404, { available: false, reason: "Attachment unavailable" });
+      return true;
+    }
+    if (!(await this.revalidateAccess(res, token, access))) {
       return true;
     }
 
@@ -411,6 +421,9 @@ export class PlatformClawBrowserMediaRelay {
       availability = asRecord(JSON.parse(raw));
     } catch {
       // The private Gateway is trusted, but a malformed response must not escape the BFF.
+    }
+    if (!(await this.revalidateAccess(res, token, access))) {
+      return true;
     }
     if (!availability || availability.available !== true) {
       sendJson(res, 200, availability ?? { available: false, reason: "Attachment unavailable" });
@@ -476,9 +489,10 @@ export class PlatformClawBrowserMediaRelay {
   private async proxyBytes(
     req: IncomingMessage,
     res: ServerResponse,
-    agentId?: string,
+    token: string,
+    access: BrowserMediaAccess,
+    assistantMedia = false,
   ): Promise<void> {
-    const assistantMedia = agentId !== undefined;
     const incomingUrl = new URL(req.url ?? "/", "http://localhost");
     const upstreamUrl = assistantMedia
       ? new URL("/__openclaw__/assistant-media", this.gatewayOrigin)
@@ -500,7 +514,7 @@ export class PlatformClawBrowserMediaRelay {
     }
     if (assistantMedia) {
       headers.set("Authorization", `Bearer ${this.options.gatewayAuth}`);
-      headers.set("X-OpenClaw-Agent-Id", agentId);
+      headers.set("X-OpenClaw-Agent-Id", access.binding.agentId);
     }
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -519,6 +533,10 @@ export class PlatformClawBrowserMediaRelay {
         redirect: "error",
         signal: controller.signal,
       });
+      if (!(await this.revalidateAccess(res, token, access))) {
+        await upstream.body?.cancel().catch(() => {});
+        return;
+      }
       res.statusCode = upstream.status;
       for (const name of RESPONSE_HEADER_ALLOWLIST) {
         const value = upstream.headers.get(name);
@@ -533,6 +551,12 @@ export class PlatformClawBrowserMediaRelay {
         return;
       }
       for await (const chunk of upstream.body) {
+        // Receiving headers and receiving bytes are separate awaits. Recheck the
+        // current browser owner at each write, including after backpressure.
+        if (!(await this.revalidateAccess(res, token, access))) {
+          controller.abort();
+          return;
+        }
         if (!res.write(Buffer.from(chunk)) && !res.writableEnded) {
           await Promise.race([once(res, "drain"), once(res, "close")]);
           if (res.destroyed) {
@@ -552,5 +576,34 @@ export class PlatformClawBrowserMediaRelay {
       req.off("aborted", abort);
       res.off("close", close);
     }
+  }
+
+  private async revalidateAccess(
+    res: ServerResponse,
+    token: string,
+    access: BrowserMediaAccess,
+  ): Promise<boolean> {
+    // History and upstream reads yield. A logout or reassignment during either
+    // must take effect before minting a ticket or sending the first byte.
+    let current: BrowserMediaAccess;
+    try {
+      current = await this.options.gatewayProxy.resolveAccess(token, false);
+    } catch {
+      if (res.headersSent) {
+        res.destroy();
+      } else {
+        sendJson(res, 401, { error: "active browser session required" });
+      }
+      return false;
+    }
+    if (current.binding.agentId !== access.binding.agentId) {
+      if (res.headersSent) {
+        res.destroy();
+      } else {
+        sendJson(res, 404, { error: "media not found" });
+      }
+      return false;
+    }
+    return true;
   }
 }

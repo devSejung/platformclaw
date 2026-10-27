@@ -33,6 +33,10 @@ export const uiIsolatedTestFiles = [
   "ui/src/pages/config/memory-page.test.ts",
   "ui/src/pages/sessions/sessions-page.archived.test.ts",
   "ui/src/pages/workboard/view.test.ts",
+  // Dashboard constructors must share the provider graph used by lease assertions
+  // and page spies, even when another file has already registered the element.
+  "ui/src/pages/workboard/workboard-card-dashboard.test.ts",
+  "ui/src/pages/workboard/workboard-page.test.ts",
 ];
 
 const uiIsolatedTestFileSet = new Set(uiIsolatedTestFiles);

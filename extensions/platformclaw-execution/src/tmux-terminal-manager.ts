@@ -12,7 +12,7 @@ import {
   type SshSandboxSession,
 } from "openclaw/plugin-sdk/sandbox";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
-import { leaseIdentity } from "./ssh-lease-manager.js";
+import { leaseIdentity } from "./ssh-lease-identity.js";
 import { TmuxControlParser, type TmuxControlEvent } from "./tmux-control-protocol.js";
 
 const MAX_TABS = 8;

@@ -418,6 +418,8 @@ export function isProviderApiKeyConfigured(params: {
   cfg?: OpenClawConfig;
   /** Agent directory containing auth profiles. */
   agentDir?: string;
+  /** Workspace that owns provider metadata for this readiness check. */
+  workspaceDir?: string;
   /** Optional allowed profile credential types. */
   profileTypes?: readonly AuthProfileCredential["type"][];
   /** Optional provider-owned acceptance predicate for a known selected credential. */
@@ -433,7 +435,11 @@ export function isProviderApiKeyConfigured(params: {
     const providerConfig = resolveProviderConfig(params.cfg, params.provider);
     const authoredApiKey = providerConfig?.apiKey;
     const store = agentDir
-      ? ensureAuthProfileStore(agentDir, { allowKeychainPrompt: false })
+      ? ensureAuthProfileStore(agentDir, {
+          allowKeychainPrompt: false,
+          config: params.cfg,
+          workspaceDir: params.workspaceDir,
+        })
       : undefined;
     let profile =
       typeof authoredApiKey === "string" ? store?.profiles[authoredApiKey.trim()] : undefined;
@@ -461,8 +467,10 @@ export function isProviderApiKeyConfigured(params: {
     const selectedKey =
       providerConfig?.auth === "api-key" && authoredApiKey !== undefined
         ? configKey
-        : (resolveEnvApiKey(params.provider, process.env, { config: params.cfg })?.apiKey ??
-          configKey);
+        : (resolveEnvApiKey(params.provider, process.env, {
+            config: params.cfg,
+            workspaceDir: params.workspaceDir,
+          })?.apiKey ?? configKey);
     return selectedKey === undefined || acceptsApiKey(selectedKey);
   }
 
@@ -522,7 +530,12 @@ export function isProviderApiKeyConfigured(params: {
       return true;
     }
   }
-  if (resolveEnvApiKey(params.provider)?.apiKey) {
+  if (
+    resolveEnvApiKey(params.provider, process.env, {
+      config: params.cfg,
+      workspaceDir: params.workspaceDir,
+    })?.apiKey
+  ) {
     return true;
   }
   if (!agentDir) {
@@ -530,6 +543,8 @@ export function isProviderApiKeyConfigured(params: {
   }
   const store = ensureAuthProfileStore(agentDir, {
     allowKeychainPrompt: false,
+    config: params.cfg,
+    workspaceDir: params.workspaceDir,
   });
   const profileIds = listProfilesForProvider(store, params.provider);
   if (!params.profileTypes?.length) {
@@ -552,6 +567,8 @@ export function listUsableProviderAuthProfileIds(params: {
   cfg?: OpenClawConfig;
   /** Agent directory containing auth profiles. */
   agentDir?: string;
+  /** Workspace that owns provider metadata for this lookup. */
+  workspaceDir?: string;
   /** Optional allowed profile credential types. */
   profileTypes?: readonly AuthProfileCredential["type"][];
   /** Whether profile store reads may prompt for keychain-backed credentials. */
@@ -577,6 +594,8 @@ export function isProviderAuthProfileConfigured(params: {
   cfg?: OpenClawConfig;
   /** Agent directory containing auth profiles. */
   agentDir?: string;
+  /** Workspace that owns provider metadata for this readiness check. */
+  workspaceDir?: string;
   /** Optional allowed profile credential types. */
   profileTypes?: readonly AuthProfileCredential["type"][];
   /** Whether profile store reads may prompt for keychain-backed credentials. */
@@ -597,6 +616,8 @@ export async function resolveProviderAuthProfileApiKey(params: {
   cfg?: OpenClawConfig;
   /** Agent directory containing auth profiles. */
   agentDir?: string;
+  /** Workspace that owns provider metadata for this lookup. */
+  workspaceDir?: string;
   /** Optional allowed profile credential types. */
   profileTypes?: readonly AuthProfileCredential["type"][];
   /** Whether profile store reads may prompt for keychain-backed credentials. */
@@ -626,6 +647,7 @@ function resolveUsableProviderAuthProfiles(params: {
   provider: string;
   cfg?: OpenClawConfig;
   agentDir?: string;
+  workspaceDir?: string;
   allowKeychainPrompt?: boolean;
   includeExternalCliAuth?: boolean;
 }): { agentDir: string; profileIds: string[]; store: AuthProfileStore } {
@@ -637,9 +659,11 @@ function resolveUsableProviderAuthProfiles(params: {
         allowKeychainPrompt: params.allowKeychainPrompt,
       })
     : undefined;
-  const store = externalCli
-    ? loadAuthProfileStoreForSecretsRuntime(agentDir, { externalCli })
-    : loadAuthProfileStoreForSecretsRuntime(agentDir);
+  const store = loadAuthProfileStoreForSecretsRuntime(agentDir, {
+    config: params.cfg,
+    workspaceDir: params.workspaceDir,
+    ...(externalCli ? { externalCli } : {}),
+  });
   const profileIds = resolveAuthProfileOrder({
     cfg: params.cfg,
     store,

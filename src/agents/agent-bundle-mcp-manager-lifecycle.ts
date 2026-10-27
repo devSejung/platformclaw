@@ -30,6 +30,8 @@ type AdvertisedScopedCatalogEntry = {
 export type SessionMcpConfigGeneration = {
   digest: string;
   retirement: Promise<void>;
+  // Catalogs outlive idle connections; retain their trusted agent owners until session retirement.
+  agentIds: Set<string>;
 };
 
 type SessionMcpRuntimeManagerStore = {

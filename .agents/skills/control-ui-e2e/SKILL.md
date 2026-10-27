@@ -16,19 +16,22 @@ Use this for Control UI changes that need a real browser flow with deterministic
 
 ## Commands
 
-- Target one E2E test in a Codex worktree:
+Select the execution environment through root `AGENTS.md` Validation before running browser proof. Trusted E2E and recording use Docker Desktop Linux first, healthy WSL when Docker is unsuitable, and existing CI for required hosted/native proof. Untrusted source stays on secretless fork CI at the reviewed immutable SHA. Crabbox and Testbox are unavailable; do not probe or invoke them.
+
+- Target one E2E test in the selected trusted Linux checkout, with existing dependencies and Chromium ready:
 
 ```bash
-node scripts/run-vitest.mjs run --config test/vitest/vitest.ui-e2e.config.ts --configLoader runner ui/src/ui/e2e/chat-flow.e2e.test.ts
+node scripts/ensure-playwright-chromium.mjs
+node scripts/run-vitest.mjs run --config test/vitest/vitest.ui-e2e.config.ts --configLoader runner ui/src/e2e/chat-flow.messaging.e2e.test.ts
 ```
 
-- Run the whole local lane in a normal checkout:
+- Run the whole lane in that environment; this command also prepares Chromium:
 
 ```bash
 pnpm test:ui:e2e
 ```
 
-If dependencies are missing in a Codex worktree, install once with `pnpm install`; for broad GUI proof or dependency-heavy checks, use Testbox/Crabbox instead of running a wide local pnpm lane.
+Never run `pnpm install` or dependency reconciliation in a Windows linked/sparse worktree. Reuse the primary checkout toolchain for permitted bounded host checks; provision browser dependencies in a separate Linux checkout/dependency volume, never through a bind mount onto the Windows checkout or its `node_modules`. Record missing browser or environment prerequisites as a proof gap; textual checks do not replace required visual proof.
 
 ## Visual Proof Default
 

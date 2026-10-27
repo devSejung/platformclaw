@@ -23,6 +23,7 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
   private readonly notice = new AnnouncementState();
   @state() private popupRevision: number | null = null;
   @state() private error = false;
+  @state() private collapsedRevision: string | null = null;
   private sequence = 0;
   private epoch = 0;
   private pending: Promise<void> | null = null;
@@ -59,6 +60,28 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
     }
     aside[data-kind="maintenance"] {
       border-inline-start-color: var(--warn, #e0a83a);
+    }
+    .heading {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .heading strong {
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    aside[data-collapsed] .heading {
+      margin-bottom: 0;
+    }
+    aside[data-collapsed] strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .heading button {
+      flex-shrink: 0;
     }
     h2,
     p {
@@ -202,6 +225,10 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
         this.error = false;
         this.requestUpdate();
         const active = this.notice.active(performance.now());
+        // Polling keeps the choice; a different published revision starts expanded.
+        if (this.collapsedRevision !== `${active?.id}:${active?.revision}`) {
+          this.collapsedRevision = null;
+        }
         if (this.popupRevision !== active?.revision) {
           this.popupRevision = null;
         }
@@ -296,6 +323,8 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
 
   override render() {
     const active = this.notice.active(performance.now());
+    const revision = active ? `${active.id}:${active.revision}` : null;
+    const collapsed = revision !== null && this.collapsedRevision === revision;
     return html`
       ${this.error
         ? html`<p class="status" role="status">
@@ -306,9 +335,26 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
           </p>`
         : nothing}
       ${active
-        ? html`<aside data-kind=${active.kind} aria-label=${t("platformClaw.announcements.notice")}>
-            <strong>${active.title}</strong>
-            <p class="body">${active.body}</p>
+        ? html`<aside
+            data-kind=${active.kind}
+            ?data-collapsed=${collapsed}
+            aria-label=${t("platformClaw.announcements.notice")}
+          >
+            <div class="heading">
+              <strong title=${active.title}>${active.title}</strong>
+              <button
+                aria-expanded=${String(!collapsed)}
+                aria-controls="announcement-body"
+                @click=${() => {
+                  this.collapsedRevision = this.collapsedRevision === revision ? null : revision;
+                }}
+              >
+                ${collapsed
+                  ? t("platformClaw.announcements.expand")
+                  : t("platformClaw.announcements.collapse")}
+              </button>
+            </div>
+            <p id="announcement-body" class="body" ?hidden=${collapsed}>${active.body}</p>
             ${active.maintenanceAt !== null
               ? html`<p class="countdown">
                     ${this.countdown(active.maintenanceAt)} ·

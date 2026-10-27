@@ -10,7 +10,7 @@ description: Refactor an existing OpenClaw docs page with source-audited preserv
 Use this skill when the user gives a target OpenClaw docs page and asks to
 rewrite, refactor, reorganize, split, shorten, or improve it.
 
-This skill builds on `openclaw-docs`: use that skill for style, page types,
+This skill builds on `technical-documentation`: use that skill for style, page types,
 structure, examples, discoverability, and verification. This skill adds the
 rewrite workflow needed to avoid losing accurate behavior during a major docs
 refactor.
@@ -53,7 +53,7 @@ Prefer this split:
 
 ### 1. Load the doc standard
 
-Read `../openclaw-docs/SKILL.md` first. Apply its page-type, style,
+Read `../technical-documentation/SKILL.md` first. Apply its page-type, style,
 examples, navigation, and verification guidance throughout the refactor.
 
 Run `pnpm docs:list` when available, then read only the target page and the
@@ -61,7 +61,7 @@ likely entry points, references, or related pages needed for the refactor.
 
 ### 2. Classify the page
 
-Before editing, decide the intended page type from `openclaw-docs`.
+Before editing, decide the intended page type from `technical-documentation`.
 
 If the current page mixes page types, choose the main page type and plan where
 the other material belongs:
@@ -167,11 +167,12 @@ it was removed in the final report.
 
 ### 8. Verify
 
-Run the smallest reliable docs checks for the touched surface:
+Run the smallest reliable docs checks for the touched surface, using the root
+`AGENTS.md` Validation section for environment and dependency-install routing:
 
 - `pnpm docs:list`
 - `git diff --check -- <touched-files>`
-- Targeted `pnpm exec oxfmt --check --threads=1 <touched-files>`
+- Targeted formatting through the existing `oxfmt` binary (`--check --threads=1 <touched-files>`), without dependency reconciliation in a Windows linked/sparse checkout
 - `pnpm docs:check-mdx`
 - `pnpm docs:check-links`
 - `pnpm docs:check-i18n-glossary` when link text, navigation, labels, or glossary

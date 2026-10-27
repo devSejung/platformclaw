@@ -20,7 +20,6 @@ import {
   buildAgentHookContextIdentityFields,
 } from "../../plugins/hook-agent-context.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
-import { withPluginRuntimeRegistryScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { resolveUserPath } from "../../utils.js";
 import { isMarkdownCapableMessageChannel } from "../../utils/message-channel.js";
 import {
@@ -34,6 +33,7 @@ import {
   acquireAgentRunPreparedModelRuntime,
   acquireReadOnlyPreparedModelRuntime,
 } from "../prepared-model-runtime.js";
+import { withPreparedModelRuntimeScope } from "../prepared-model-runtime.plugin-context.js";
 import { resolveProjectKey } from "../project-memory-scope.js";
 import {
   applyAgentRunSessionTargetIdentity,
@@ -413,10 +413,7 @@ async function runEmbeddedAgentInternal(
             preparedModelRuntime,
           });
         };
-        return await withPluginRuntimeRegistryScope(
-          preparedModelRuntime.pluginRegistry,
-          runPrepared,
-        );
+        return await withPreparedModelRuntimeScope(preparedModelRuntime, runPrepared);
       } finally {
         preparedModelRuntimeLease.release();
       }

@@ -17,6 +17,7 @@ import {
   MESSAGE_TOOL_ONLY_DELIVERY_HINT,
 } from "../../plugin-sdk/message-tool-delivery-hints.js";
 import { wrapToolWithBeforeToolCallHook } from "../agent-tools.before-tool-call.js";
+import type { SandboxOutboundFileAccess } from "../sandbox/fs-bridge.types.js";
 type CreateMessageTool = typeof import("./message-tool.js").createMessageTool;
 type CreateOpenClawTools = typeof import("../openclaw-tools.js").createOpenClawTools;
 type ResetPluginRuntimeStateForTest =
@@ -174,6 +175,8 @@ type RunMessageActionInput = {
     toolContext?: RunMessageActionInput["toolContext"];
   };
   sandboxRoot?: string;
+  sandboxOutboundFileAccess?: SandboxOutboundFileAccess;
+  abortSignal?: AbortSignal;
   sessionKey?: string;
   sourceReplyDeliveryMode?: string;
   sourceReplyFinal?: boolean;
@@ -4504,6 +4507,32 @@ describe("message tool internal-runtime-context sanitization", () => {
 });
 
 describe("message tool sandbox passthrough", () => {
+  it("preserves runtime outbound access and invocation cancellation through OpenClaw tools", async () => {
+    mockSendResult({ channel: "webchat", to: "current-run" });
+    const fileAccess: SandboxOutboundFileAccess = {
+      tempDir: "/tmp/synthetic-private",
+      readFile: vi.fn(async () => Buffer.from("runtime")),
+    };
+    const tool = createOpenClawTools({
+      config: {},
+      agentChannel: "webchat",
+      agentSessionKey: "agent:main:webchat:dm:dashboard",
+      sandboxOutboundFileAccess: fileAccess,
+    }).find((candidate) => candidate.name === "message");
+    if (!tool) {
+      throw new Error("message tool not found");
+    }
+    const signal = new AbortController().signal;
+    await tool.execute(
+      "runtime-file",
+      { action: "send", media: "/tmp/synthetic-report.txt" },
+      signal,
+    );
+    const call = firstRunMessageActionInput();
+    expect(call?.sandboxOutboundFileAccess).toBe(fileAccess);
+    expect(call?.abortSignal).toBe(signal);
+  });
+
   it.each([
     {
       name: "forwards sandboxRoot to runMessageAction",

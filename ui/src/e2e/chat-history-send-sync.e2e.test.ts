@@ -83,7 +83,7 @@ suite.define(() => {
     },
   );
 
-  it("recovers a follow-up after the first response history read fails", async () => {
+  it("recovers a follow-up after the current terminal history read fails", async () => {
     const context = await suite.newBrowserContext({ locale: "en-US", serviceWorkers: "block" });
     const page = await context.newPage();
     const sessionId = "control-ui-e2e-session";
@@ -114,8 +114,17 @@ suite.define(() => {
           activeRunIds: [],
         },
       });
-      await gateway.emitChatFinal({ runId, text: "first response" });
       await waitForRequests(gateway, "chat.history", previousReads + 1);
+      await gateway.deferNext("chat.history");
+      await gateway.emitChatFinal({ runId, text: "first response" });
+      await waitForRequests(gateway, "chat.history", previousReads + 2);
+      // The final supersedes the session-message read; only the current read's
+      // failure may own the visible error and the next send's recovery.
+      await gateway.rejectDeferred("chat.history", {
+        code: "INVALID_REQUEST",
+        message: "superseded history failure",
+      });
+      expect(await page.getByText(/superseded history failure/).count()).toBe(0);
       await gateway.rejectDeferred("chat.history", {
         code: "INVALID_REQUEST",
         message: "history temporarily unavailable",

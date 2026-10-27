@@ -3,6 +3,10 @@ import type { ApplicationContext, ApplicationGatewaySnapshot } from "../../app/c
 import { createWorkboardCapability } from "../../lib/workboard/capability.ts";
 import type { WorkboardCapability } from "../../lib/workboard/capability.ts";
 import * as workboardLib from "../../lib/workboard/index.ts";
+import {
+  createGatewaySession,
+  createWorkboardCard,
+} from "../../lib/workboard/test/index-helpers.ts";
 import type { WorkboardRouteData } from "./route.ts";
 
 const configureLiveRefresh = vi.fn((): boolean => false);
@@ -92,6 +96,40 @@ afterEach(() => {
 });
 
 describe("WorkboardPage lifecycle", () => {
+  it("opens dashboard message recovery on the linked dashboard despite the preferred chat face", async () => {
+    const sessionKey = "agent:main:workboard-message-recovery";
+    const workboard = createWorkboardCapability();
+    const context = contextWithWorkboard(workboard);
+    workboard.state.loaded = true;
+    workboard.state.cards = [createWorkboardCard({ sessionKey, agentId: "main" })];
+    workboard.state.detailCardId = workboard.state.cards[0]!.id;
+    context.sessions.state.result = {
+      count: 1,
+      ts: 1,
+      defaults: { modelProvider: null, model: null, contextTokens: null },
+      path: "",
+      sessions: [createGatewaySession({ key: sessionKey, boardFace: "chat" })],
+    };
+    const page = document.createElement("openclaw-workboard-page") as WorkboardPageTestElement;
+    page.context = context;
+    document.body.append(page);
+    await page.updateComplete;
+    await vi.waitFor(() =>
+      expect(page.querySelector("openclaw-workboard-card-dashboard")).not.toBeNull(),
+    );
+    await customElements.whenDefined("openclaw-workboard-card-dashboard");
+    const dashboard = page.querySelector("openclaw-workboard-card-dashboard");
+    expect(dashboard).not.toBeNull();
+    await dashboard?.updateComplete;
+
+    dashboard?.onOpenDashboard?.(sessionKey);
+
+    expect(context.navigate).toHaveBeenCalledExactlyOnceWith(
+      "dashboard",
+      expect.objectContaining({ pathname: expect.stringContaining("/dashboard/") }),
+    );
+  });
+
   it("routes Workboard invalidation events to the active capability", async () => {
     const workboard = createWorkboardCapability();
     const context = contextWithWorkboard(workboard);

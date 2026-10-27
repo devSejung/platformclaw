@@ -10,12 +10,22 @@ import {
   resolveSandboxedMediaSource,
 } from "../../agents/sandbox-paths.js";
 import { ensureSandboxWorkspaceForSession } from "../../agents/sandbox.js";
+import type { SandboxContext } from "../../agents/sandbox/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
+import { withAgentMediaContext } from "../../media/agent-media-context.js";
 import { resolveOutboundMediaMaxBytes } from "../../media/configured-max-bytes.js";
-import { resolveOutboundAttachmentFromUrl } from "../../media/outbound-attachment.js";
+import {
+  resolveOutboundAttachmentFromRuntime,
+  resolveOutboundAttachmentFromUrl,
+} from "../../media/outbound-attachment.js";
 import { resolveAgentScopedOutboundMediaAccess } from "../../media/read-capability.js";
-import { appendReplyMediaFailureWarning, copyReplyPayloadMetadata } from "../reply-payload.js";
+import {
+  appendReplyMediaFailureWarning,
+  copyReplyPayloadMetadata,
+  getReplyPayloadMetadata,
+  setReplyPayloadMetadata,
+} from "../reply-payload.js";
 import type { ReplyPayload } from "../types.js";
 
 const FILE_URL_RE = /^file:\/\//i;
@@ -55,6 +65,10 @@ export function createReplyMediaPathNormalizer(params: {
   requesterSenderName?: string;
   requesterSenderUsername?: string;
   requesterSenderE164?: string;
+  /** Authenticated personal-chat owner; other channel staging keeps its own scope. */
+  ownerScoped?: boolean;
+  runtimeSandbox?: Pick<SandboxContext, "outboundFileAccess">;
+  abortSignal?: AbortSignal;
 }): (payload: ReplyPayload) => Promise<ReplyPayload> {
   // Prefer an explicit agentId so callers without a resolved sessionKey (e.g.
   // `openclaw agent --deliver` with `--reply-channel/--reply-to`) still get
@@ -71,6 +85,7 @@ export function createReplyMediaPathNormalizer(params: {
   });
   let sandboxRootPromise: Promise<string | undefined> | undefined;
   const persistedMediaBySource = new Map<string, Promise<string>>();
+  const stagedLocalPaths = new Set<string>();
 
   const resolveSandboxRoot = async (): Promise<string | undefined> => {
     if (!sandboxRootPromise) {
@@ -102,7 +117,7 @@ export function createReplyMediaPathNormalizer(params: {
     });
 
   const persistLocalReplyMedia = async (media: string): Promise<string> => {
-    if (!isLikelyLocalMediaSource(media)) {
+    if (!params.runtimeSandbox?.outboundFileAccess && !isLikelyLocalMediaSource(media)) {
       return media;
     }
     const managedMediaPath = await resolveAllowedManagedMediaPath(media);
@@ -113,10 +128,21 @@ export function createReplyMediaPathNormalizer(params: {
     if (cached) {
       return await cached;
     }
-    const persistPromise = resolveOutboundAttachmentFromUrl(media, maxBytes, {
-      mediaAccess: resolveMediaAccessForSource(media),
-    })
-      .then((saved) => saved.path)
+    const runtimeAccess = params.runtimeSandbox?.outboundFileAccess;
+    const persistPromise = (
+      runtimeAccess
+        ? resolveOutboundAttachmentFromRuntime(media, maxBytes, {
+            fileAccess: runtimeAccess,
+            signal: params.abortSignal,
+          })
+        : resolveOutboundAttachmentFromUrl(media, maxBytes, {
+            mediaAccess: resolveMediaAccessForSource(media),
+          })
+    )
+      .then((saved) => {
+        stagedLocalPaths.add(saved.path);
+        return saved.path;
+      })
       .catch((err: unknown) => {
         persistedMediaBySource.delete(media);
         throw err;
@@ -151,6 +177,9 @@ export function createReplyMediaPathNormalizer(params: {
     assertMediaNotDataUrl(media);
     if (isPassThroughRemoteMediaSource(media)) {
       return media;
+    }
+    if (params.runtimeSandbox?.outboundFileAccess) {
+      return await persistLocalReplyMedia(media);
     }
     const absoluteWorkspaceMedia = resolveAbsoluteWorkspaceMedia(media);
     if (absoluteWorkspaceMedia) {
@@ -195,7 +224,7 @@ export function createReplyMediaPathNormalizer(params: {
     return await persistLocalReplyMedia(media);
   };
 
-  return async (payload) => {
+  const normalizePayload = async (payload: ReplyPayload): Promise<ReplyPayload> => {
     const mediaList = getPayloadMediaList(payload);
     if (mediaList.length === 0) {
       return payload;
@@ -226,31 +255,87 @@ export function createReplyMediaPathNormalizer(params: {
         : appendReplyMediaFailureWarning(payload.text);
 
     if (normalizedMedia.length === 0) {
-      return copyReplyPayloadMetadata(payload, {
-        ...payload,
-        text,
-        mediaUrl: undefined,
-        mediaUrls: undefined,
-      });
+      return setReplyPayloadMetadata(
+        copyReplyPayloadMetadata(payload, {
+          ...payload,
+          text,
+          mediaUrl: undefined,
+          mediaUrls: undefined,
+        }),
+        {
+          stagedLocalMediaUrls: undefined,
+          mediaPublishAuthority: undefined,
+          mediaFailure:
+            firstMediaDropError !== undefined || getReplyPayloadMetadata(payload)?.mediaFailure,
+        },
+      );
     }
 
-    return copyReplyPayloadMetadata(payload, {
+    const normalizedPayload = copyReplyPayloadMetadata(payload, {
       ...payload,
       text,
       mediaUrl: normalizedMedia[0],
       mediaUrls: normalizedMedia,
     });
+    const previousStagedUrls = getReplyPayloadMetadata(payload)?.stagedLocalMediaUrls ?? [];
+    // Staging owns this read-authorization fact. Later projection must not infer
+    // ownership from a shared-store path or retain facts about dropped URLs.
+    const stagedLocalMediaUrls = normalizedMedia.filter(
+      (media) => stagedLocalPaths.has(media) || previousStagedUrls.includes(media),
+    );
+    const previousAuthority = previousStagedUrls.some((media) => normalizedMedia.includes(media))
+      ? getReplyPayloadMetadata(payload)?.mediaPublishAuthority
+      : undefined;
+    const backendAuthority = params.runtimeSandbox?.outboundFileAccess?.assertCurrentAuthority;
+    const currentAuthority =
+      normalizedMedia.some((media) => stagedLocalPaths.has(media)) &&
+      (backendAuthority || params.abortSignal)
+        ? async () => {
+            params.abortSignal?.throwIfAborted();
+            await backendAuthority?.();
+            params.abortSignal?.throwIfAborted();
+          }
+        : undefined;
+    // A stored copy keeps its producer's authority. Re-normalizing it under
+    // another attempt must never relabel it as that attempt's successful read.
+    const mediaPublishAuthority =
+      previousAuthority && currentAuthority && previousAuthority !== currentAuthority
+        ? async () => {
+            await previousAuthority();
+            await currentAuthority();
+          }
+        : (previousAuthority ?? currentAuthority);
+    return setReplyPayloadMetadata(normalizedPayload, {
+      stagedLocalMediaUrls: stagedLocalMediaUrls.length ? stagedLocalMediaUrls : undefined,
+      mediaPublishAuthority,
+      mediaFailure:
+        firstMediaDropError !== undefined || getReplyPayloadMetadata(payload)?.mediaFailure,
+    });
   };
+  return (payload) =>
+    params.ownerScoped && agentId
+      ? withAgentMediaContext(agentId, () => normalizePayload(payload))
+      : normalizePayload(payload);
 }
 
 export type ReplyMediaContext = {
   normalizePayload: (payload: ReplyPayload) => Promise<ReplyPayload>;
+  setSandbox?: (sandbox: Pick<SandboxContext, "outboundFileAccess"> | null) => void;
 };
 
 export function createReplyMediaContext(
   params: Parameters<typeof createReplyMediaPathNormalizer>[0],
 ): ReplyMediaContext {
+  let normalizePayload = createReplyMediaPathNormalizer(params);
   return {
-    normalizePayload: createReplyMediaPathNormalizer(params),
+    normalizePayload: (payload) => normalizePayload(payload),
+    setSandbox: (sandbox) => {
+      // An attempt owns its prepared reader and source cache. A fallback must
+      // never reinterpret the preceding attempt's runtime paths.
+      normalizePayload = createReplyMediaPathNormalizer({
+        ...params,
+        runtimeSandbox: sandbox ?? undefined,
+      });
+    },
   };
 }

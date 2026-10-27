@@ -536,6 +536,9 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       : createMemoryWriteProvenanceObserver({
           mutationRoot: sandboxRoot ?? workspaceRoot,
           workspaceDir: workspaceRoot,
+          resolveMutationPath: sandboxFsBridge
+            ? (filePath) => sandboxFsBridge.resolvePath({ filePath, cwd: sandboxRoot }).hostPath
+            : undefined,
           plan: resolveMemoryFlushPlan({ cfg: options?.config }) ?? {},
           resolveOriginClass: () =>
             options?.senderIsOwner === false || options?.isTurnTainted?.() === true
@@ -792,6 +795,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
             sandboxRoot,
             sandboxContainerWorkdir: sandbox?.containerWorkdir,
             sandboxFsBridge,
+            sandboxOutboundFileAccess: sandbox?.outboundFileAccess,
             fsPolicy,
             workspaceDir: workspaceRoot,
             spawnWorkspaceDir: capabilityProfile.workspace.spawnWorkspaceRoot,

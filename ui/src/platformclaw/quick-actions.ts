@@ -1,8 +1,10 @@
 import { css, html } from "lit";
 import { property, state } from "lit/decorators.js";
+import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import { icons } from "../components/icons.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
+import messengerIcon from "./messenger-icon.svg?raw";
 import "./voc-dialog.ts";
 
 export class PlatformClawQuickActionsElement extends OpenClawLitElement {
@@ -24,7 +26,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     .grid {
       display: grid;
       min-width: 0;
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 4px;
     }
     platformclaw-execution-settings,
@@ -46,6 +48,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       color: var(--muted-strong);
       font: 13px/1.45 var(--font-sans, system-ui, sans-serif);
       text-align: left;
+      text-decoration: none;
       cursor: pointer;
       transition:
         background var(--duration-fast) ease,
@@ -57,10 +60,24 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       color: var(--text);
       outline: none;
     }
+    .split-action {
+      justify-content: center;
+    }
     .action svg {
       width: 16px;
       height: 16px;
       flex: none;
+    }
+    .messenger {
+      position: relative;
+    }
+    .messenger--split::before {
+      position: absolute;
+      top: 9px;
+      bottom: 9px;
+      left: 0;
+      border-left: 1px solid var(--border);
+      content: "";
     }
     .execution-dot {
       width: 7px;
@@ -127,7 +144,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       <div class="grid" aria-label=${t("platformClaw.quickActions.label")}>
         ${this.vocEnabled
           ? html`<button
-              class="action"
+              class="action split-action"
               type="button"
               @click=${() => (this.vocOpen = true)}
               aria-label=${t("platformClaw.quickActions.voc")}
@@ -135,6 +152,15 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
               ${icons.messageSquare}<span class="label">${t("platformClaw.quickActions.voc")}</span>
             </button>`
           : null}
+        <a
+          class="action messenger ${this.vocEnabled ? "messenger--split split-action" : "span-two"}"
+          href="mysingleim://sopa.ai"
+          aria-label=${t("platformClaw.quickActions.openMessenger")}
+          title=${t("platformClaw.quickActions.messengerHelp")}
+        >
+          ${unsafeSVG(messengerIcon)}
+          <span class="label">${t("platformClaw.quickActions.messenger")}</span>
+        </a>
         ${this.executionSettingsLoaded
           ? html`<platformclaw-execution-settings
               class="span-two"

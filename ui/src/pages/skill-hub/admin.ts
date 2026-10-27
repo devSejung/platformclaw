@@ -45,6 +45,7 @@ export function renderSkillHubAdmin(props: {
     return nothing;
   }
   const eligibleScopes = props.scopes.filter((scope) => scope.kind === props.draft.scopeKind);
+  const defaultGlobal = props.draft.namespace.trim().toLowerCase() === "global";
   return html`<openclaw-modal-dialog
     label=${t("skillHubPage.admin")}
     @modal-cancel=${(event: Event) => (props.busy ? event.preventDefault() : props.onClose())}
@@ -74,17 +75,25 @@ export function renderSkillHubAdmin(props: {
                     <span>${t("skillsPage.skillHub.namespace")}</span>
                     <input
                       .value=${props.draft.namespace}
-                      @input=${(event: Event) =>
-                        props.onDraft({
-                          ...props.draft,
-                          namespace: (event.target as HTMLInputElement).value,
-                        })}
+                      @input=${(event: Event) => {
+                        const namespace = (event.target as HTMLInputElement).value;
+                        const draft = { ...props.draft, namespace };
+                        if (namespace.trim().toLowerCase() === "global") {
+                          draft.scopeKind = "global";
+                          draft.scopeId = "";
+                          if (draft.visibilityCeiling === "PRIVATE") {
+                            draft.visibilityCeiling = "NAMESPACE_ONLY";
+                          }
+                        }
+                        props.onDraft(draft);
+                      }}
                     />
                   </label>
                   <label class="field">
                     <span>${t("skillHubPage.scope")}</span>
                     <select
                       .value=${props.draft.scopeKind}
+                      ?disabled=${defaultGlobal}
                       @change=${(event: Event) => {
                         const scopeKind = (event.target as HTMLSelectElement)
                           .value as SkillHubAdminDraft["scopeKind"];
@@ -98,7 +107,11 @@ export function renderSkillHubAdmin(props: {
                     </select>
                   </label>
                   ${props.draft.scopeKind === "global"
-                    ? html`<p class="skill-hub-state">${t("skillHubPage.globalRestrictedHelp")}</p>`
+                    ? defaultGlobal
+                      ? nothing
+                      : html`<p class="skill-hub-state">
+                          ${t("skillHubPage.globalRestrictedHelp")}
+                        </p>`
                     : html`<label class="field">
                         <span>${t("skillHubPage.scopeUnit")}</span>
                         <select
@@ -132,7 +145,9 @@ export function renderSkillHubAdmin(props: {
                       <option value="NAMESPACE_ONLY">
                         ${t("skillsPage.skillHub.namespaceOnly")}
                       </option>
-                      <option value="PRIVATE">${t("skillsPage.skillHub.private")}</option>
+                      <option value="PRIVATE" ?disabled=${defaultGlobal}>
+                        ${t("skillsPage.skillHub.private")}
+                      </option>
                     </select>
                   </label>
                   <label class="field">
@@ -180,7 +195,7 @@ export function renderSkillHubAdmin(props: {
                               · ${skillHubVisibilityLabel(binding.visibilityCeiling)}</small
                             >
                           </div>
-                          ${binding.scopeKind === "global"
+                          ${binding.scopeKind === "global" && binding.namespace !== "global"
                             ? html`<button
                                 class="btn btn--sm"
                                 ?disabled=${props.busy}
@@ -197,14 +212,16 @@ export function renderSkillHubAdmin(props: {
                                   : t("skillHubPage.activateGlobal")}
                               </button>`
                             : nothing}
-                          <button
-                            class="btn btn--sm danger"
-                            ?disabled=${props.busy}
-                            @click=${() =>
-                              props.onRequestAction({ binding, action: "remove", reason: "" })}
-                          >
-                            ${t("skillHubPage.removeBinding")}
-                          </button>
+                          ${binding.namespace !== "global"
+                            ? html`<button
+                                class="btn btn--sm danger"
+                                ?disabled=${props.busy}
+                                @click=${() =>
+                                  props.onRequestAction({ binding, action: "remove", reason: "" })}
+                              >
+                                ${t("skillHubPage.removeBinding")}
+                              </button>`
+                            : nothing}
                         </article>`,
                       )}
                 </div>

@@ -44,6 +44,7 @@ type AttemptWorkspaceParams = Pick<
   | "sessionId"
   | "sessionKey"
   | "workspaceDir"
+  | "onSandboxPrepared"
 >;
 
 /** Resolves the shared workspace and sandbox policy used by native and plugin harnesses. */
@@ -58,6 +59,7 @@ export async function resolveAttemptWorkspaceSandbox(params: AttemptWorkspacePar
     sessionKey: sandboxSessionKey,
     workspaceDir: resolvedWorkspace,
   });
+  params.onSandboxPrepared?.(sandbox);
   const effectiveWorkspace =
     sandbox?.enabled && sandbox.workspaceAccess !== "rw" ? sandbox.workspaceDir : resolvedWorkspace;
   const requestedCwd = params.cwd ? resolveUserPath(params.cwd) : undefined;

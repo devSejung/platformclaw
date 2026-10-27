@@ -1,0 +1,62 @@
+diff --git a/output/lib/zod/lib/index.cjs b/output/lib/zod/lib/index.cjs
+index 8c7b0fcff7f43973f610396feaa4c92cccafb883..edb48b61a285385914e9f1b729fc7e64c5d16075 100644
+--- a/output/lib/zod/lib/index.cjs
++++ b/output/lib/zod/lib/index.cjs
+@@ -2188,6 +2188,8 @@ class ZodArray extends ZodType {
+                     exact: true,
+                     message: def.exactLength.message,
+                 });
++                // Reject oversized input before allocating per-element parse results.
++                if (tooBig) return INVALID;
+                 status.dirty();
+             }
+         }
+@@ -2214,7 +2216,7 @@ class ZodArray extends ZodType {
+                     exact: false,
+                     message: def.maxLength.message,
+                 });
+-                status.dirty();
++                return INVALID;
+             }
+         }
+         if (ctx.common.async) {
+@@ -3236,7 +3238,7 @@ class ZodSet extends ZodType {
+                     exact: false,
+                     message: def.maxSize.message,
+                 });
+-                status.dirty();
++                return INVALID;
+             }
+         }
+         const valueType = this._def.valueType;
+diff --git a/output/lib/zod/lib/index.mjs b/output/lib/zod/lib/index.mjs
+index 3d650148ec830e5de33c55d30a92267ab5a776ef..f90e1205cd71de2b900f9a3dd65c30d6dc28c172 100644
+--- a/output/lib/zod/lib/index.mjs
++++ b/output/lib/zod/lib/index.mjs
+@@ -2184,6 +2184,8 @@ class ZodArray extends ZodType {
+                     exact: true,
+                     message: def.exactLength.message,
+                 });
++                // Reject oversized input before allocating per-element parse results.
++                if (tooBig) return INVALID;
+                 status.dirty();
+             }
+         }
+@@ -2210,7 +2212,7 @@ class ZodArray extends ZodType {
+                     exact: false,
+                     message: def.maxLength.message,
+                 });
+-                status.dirty();
++                return INVALID;
+             }
+         }
+         if (ctx.common.async) {
+@@ -3232,7 +3234,7 @@ class ZodSet extends ZodType {
+                     exact: false,
+                     message: def.maxSize.message,
+                 });
+-                status.dirty();
++                return INVALID;
+             }
+         }
+         const valueType = this._def.valueType;

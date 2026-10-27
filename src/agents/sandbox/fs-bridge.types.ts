@@ -74,3 +74,16 @@ export type SandboxFsBridge = {
     signal?: AbortSignal;
   }): Promise<SandboxFsStat | null>;
 };
+
+/** Bounded attachment export pinned to the prepared execution target. */
+export type SandboxOutboundFileAccess = {
+  /** Stable account-owned scratch directory on this exact runtime. */
+  tempDir: string;
+  assertCurrentAuthority?: () => Promise<void>;
+  readFile(params: {
+    filePath: string;
+    cwd?: string;
+    maxBytes: number;
+    signal?: AbortSignal;
+  }): Promise<Buffer>;
+};

@@ -335,6 +335,8 @@ describe("PlatformClaw execution backend", () => {
       skillCatalog: { revision: "gateway:test", files: [] },
     });
     expect(first.runtimePromptContext).toContain('"activeWorkspace": "/server-person_one-3"');
+    expect(first.runtimePromptContext).toContain("authoritative execution facts for this run");
+    expect(first.runtimePromptContext).toContain("Completed attachments are stored snapshots");
     expect(first.capabilities?.separateAgentWorkspace).toBeUndefined();
     expect(second).toMatchObject({
       id: PLATFORMCLAW_EXECUTION_BACKEND_ID,
@@ -355,6 +357,13 @@ describe("PlatformClaw execution backend", () => {
     expect(second.runtimePromptContext).toContain(
       "Never prefix activeWorkspace to paths beginning with ~ or /",
     );
+    expect(second.runtimePromptContext).toContain(
+      "File tools support configured workspace/home roots",
+    );
+    expect(second.runtimePromptContext).toContain(
+      "Shell paths follow the account's OS permissions",
+    );
+    expect(second.runtimePromptContext).not.toContain("Paths outside linuxHome stay unavailable");
     expect(second.runtimePromptContext).toContain(
       '"activeWorkspace": "/srv/person-two/.platformclaw/workspace"',
     );
@@ -410,6 +419,9 @@ describe("PlatformClaw execution backend", () => {
 
     expect(handle.runtimeId).toBe("server-1");
     expect(dependencies.resolveTarget).toHaveBeenCalledOnce();
+    await expect(handle.assertCurrentAuthority?.()).rejects.toThrow(
+      "Work location or VM authority changed",
+    );
   });
 
   it("exposes local Workshop on Basic and the pinned VM Workshop target on a VM", async () => {
@@ -456,6 +468,31 @@ describe("PlatformClaw execution backend", () => {
       SHARED_BUILD_FLAG: "server-default",
       HOME: "/srv/person-one",
     });
+    await expect(vmHandle.assertCurrentAuthority?.()).resolves.toBeUndefined();
+    const originalTarget = structuredClone(vmTarget);
+    for (const changed of [
+      { revision: 5 },
+      { targetId: "other-target" },
+      { allocationId: "other-allocation" },
+      { credentialRevision: 4 },
+      { endpointHost: "other.example" },
+      { endpointPort: 44423 },
+      { adDomain: "other-domain" },
+      { adAccount: "other-account" },
+      { targetAddress: "192.0.2.99" },
+      { linuxAccount: "other-linux-account" },
+      { hostKeyAlgorithm: "other-algorithm" },
+      { hostKeyPublicKey: "other-key" },
+      { hostKeyFingerprint: "SHA256:other" },
+      { remoteHomeDir: "/users/other" },
+      { remoteWorkspaceDir: "/users/other/workspace" },
+    ]) {
+      Object.assign(vmTarget, originalTarget, changed);
+      await expect(vmHandle.assertCurrentAuthority?.()).rejects.toThrow(
+        "Work location or VM authority changed",
+      );
+    }
+    Object.assign(vmTarget, originalTarget);
 
     const basicDependencies = createDependencies(async () => ({
       kind: "platform_server",

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPluginMetadataSnapshot } from "../config/plugin-auto-enable.test-helpers.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
 import { resolveOAuthApiKeyMarker } from "./model-auth-markers.js";
@@ -89,6 +90,61 @@ describe("prepared model catalog builder", () => {
   beforeEach(() => {
     mocks.augmentModelCatalogWithProviderPlugins.mockReset();
     mocks.augmentModelCatalogWithProviderPlugins.mockResolvedValue([]);
+  });
+
+  it("filters registry rows with the prepared manifest generation and current route", async () => {
+    const provider = "fixture";
+    const config: OpenClawConfig = {
+      models: {
+        providers: {
+          fixture: { api: "openai-responses", baseUrl: "https://fixture.test/v1", models: [] },
+        },
+      },
+    };
+    const preparedMetadata = createPluginMetadataSnapshot({
+      config,
+      workspaceDir: "/workspace/catalog",
+      manifestRegistry: {
+        diagnostics: [],
+        plugins: [
+          {
+            id: provider,
+            origin: "bundled",
+            rootDir: "/plugins/fixture",
+            source: "/plugins/fixture/index.js",
+            manifestPath: "/plugins/fixture/openclaw.plugin.json",
+            channels: [],
+            providers: [provider],
+            cliBackends: [],
+            skills: [],
+            hooks: [],
+            modelCatalog: {
+              suppressions: [
+                {
+                  provider,
+                  model: "blocked",
+                  when: { baseUrlHosts: ["fixture.test"] },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    const snapshot = await buildPreparedModelCatalogSnapshot({
+      agentDir: "/tmp/model-catalog-test",
+      workspaceDir: "/workspace/catalog",
+      authCredentials: {},
+      config,
+      metadataSnapshot: preparedMetadata,
+      modelRegistry: registry([
+        { provider, id: "blocked", name: "Blocked", baseUrl: "https://fixture.test/v1" },
+        { provider, id: "visible", name: "Visible" },
+      ]),
+      readOnly: true,
+    });
+
+    expect(snapshot.entries.map((entry) => entry.id)).toEqual(["visible"]);
   });
 
   it("projects and sorts one lifecycle registry generation", async () => {

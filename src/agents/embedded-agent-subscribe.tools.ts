@@ -8,6 +8,7 @@ import {
   readStringValue,
 } from "@openclaw/normalization-core/string-coerce";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
+import { copyReplyPayloadMetadata } from "../auto-reply/reply-payload.js";
 import { getChannelPlugin, normalizeChannelId } from "../channels/plugins/index.js";
 import type { ChannelMessageActionName } from "../channels/plugins/types.public.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -593,7 +594,9 @@ export function extractMessagingToolSourceReplyPayload(
   if (idempotencyKey) {
     payload.idempotencyKey = idempotencyKey;
   }
-  return Object.keys(payload).length > 0 ? payload : undefined;
+  return Object.keys(payload).length > 0
+    ? copyReplyPayloadMetadata(sourceReply, payload)
+    : undefined;
 }
 
 // Core tool names that are allowed to emit trusted local media artifacts.

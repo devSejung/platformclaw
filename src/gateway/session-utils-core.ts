@@ -53,6 +53,7 @@ export function deriveSessionTitle(
   entry: SessionEntry | undefined,
   firstUserMessage?: string | null,
   externalDisplayName?: string | null,
+  options?: { includeSessionIdFallback?: boolean },
 ): string | undefined {
   if (!entry) {
     return undefined;
@@ -83,7 +84,7 @@ export function deriveSessionTitle(
     return truncateTitle(normalized, DERIVED_TITLE_MAX_LEN);
   }
 
-  if (entry.sessionId) {
+  if (entry.sessionId && options?.includeSessionIdFallback !== false) {
     return formatSessionIdPrefix(entry.sessionId, entry.updatedAt);
   }
 

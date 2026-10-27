@@ -4,6 +4,7 @@ import path from "node:path";
 import { sanitizeEnvVars, type SshSandboxSession } from "openclaw/plugin-sdk/sandbox";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
 import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
+import { leaseIdentity } from "./ssh-lease-identity.js";
 
 // Five long-lived ACP processes must leave one channel for normal execution/terminal work.
 const DEFAULT_MAX_CHANNELS = 6;
@@ -48,24 +49,6 @@ type ChannelWaiter = {
   reject: (error: Error) => void;
   queuedAt: number;
 };
-
-export function leaseIdentity(target: AssignedVmTargetSnapshot): string {
-  return JSON.stringify([
-    target.agentId,
-    target.allocationId,
-    target.revision,
-    target.credentialRevision,
-    target.endpointHost,
-    target.endpointPort,
-    target.adDomain,
-    target.adAccount,
-    target.targetAddress,
-    target.linuxAccount,
-    target.hostKeyAlgorithm,
-    target.hostKeyPublicKey,
-    target.hostKeyFingerprint,
-  ]);
-}
 
 function timingMs(now: () => number, startedAt: number): number {
   return Math.max(0, Math.round((now() - startedAt) * 10) / 10);
@@ -238,13 +221,20 @@ class SafeConnectSshLease {
       >,
   ) {}
 
-  async createSession(): Promise<SshSandboxSession> {
-    const release = await this.acquireChannel();
+  async createSession(signal?: AbortSignal): Promise<SshSandboxSession> {
+    signal?.throwIfAborted();
+    const release = await this.acquireChannel(signal);
     try {
+      signal?.throwIfAborted();
       const reused = this.master?.isRunning() === true;
       const startedAt = this.options.now();
       await this.ensureMaster();
+      signal?.throwIfAborted();
       const session = await this.options.createMultiplexedSession(this.target, this.controlPath());
+      if (signal?.aborted) {
+        await this.options.disposeSession(session);
+        signal.throwIfAborted();
+      }
       let released = false;
       session.onDispose = async () => {
         if (released) {
@@ -310,7 +300,8 @@ class SafeConnectSshLease {
     return path.join(path.dirname(this.masterSession.configPath), "control.sock");
   }
 
-  private async acquireChannel(): Promise<() => void> {
+  private async acquireChannel(signal?: AbortSignal): Promise<() => void> {
+    signal?.throwIfAborted();
     if (this.retired || this.closed) {
       throw new Error("SafeConnect SSH lease is unavailable");
     }
@@ -326,7 +317,28 @@ class SafeConnectSshLease {
       throw new Error("SafeConnect SSH channel queue capacity reached");
     }
     return await new Promise<() => void>((resolve, reject) => {
-      this.waiters.push({ resolve, reject, queuedAt: this.options.now() });
+      const onAbort = () => {
+        const index = this.waiters.indexOf(waiter);
+        if (index !== -1) {
+          this.waiters.splice(index, 1);
+        }
+        waiter.reject(new DOMException("SafeConnect SSH acquisition aborted", "AbortError"));
+      };
+      const waiter: ChannelWaiter = {
+        resolve: (release) => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve(release);
+        },
+        reject: (error) => {
+          signal?.removeEventListener("abort", onAbort);
+          reject(error);
+        },
+        queuedAt: this.options.now(),
+      };
+      // A canceled read must leave no queued lease claim behind, otherwise
+      // future commands can lose capacity to a caller that already stopped.
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.waiters.push(waiter);
     });
   }
 
@@ -499,7 +511,11 @@ export class SafeConnectSshLeaseManager {
     }
   }
 
-  async createSession(target: AssignedVmTargetSnapshot): Promise<SshSandboxSession> {
+  async createSession(
+    target: AssignedVmTargetSnapshot,
+    signal?: AbortSignal,
+  ): Promise<SshSandboxSession> {
+    signal?.throwIfAborted();
     if (!Number.isSafeInteger(target.credentialRevision) || target.credentialRevision < 1) {
       throw new Error("assigned VM credential revision is unavailable");
     }
@@ -510,7 +526,7 @@ export class SafeConnectSshLeaseManager {
       lease = new SafeConnectSshLease(identity, target, this.options);
       this.leases.set(target.agentId, lease);
     }
-    return await lease.createSession();
+    return await lease.createSession(signal);
   }
 
   async dispose(): Promise<void> {

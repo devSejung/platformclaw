@@ -89,6 +89,10 @@ Both implementations use the same required fields:
 
 Discord also accepts optional `button_label` text for the Activity launch button. The Canvas schema intentionally omits this Discord-only field.
 
+For Canvas, pass `widget_path` when rendering a saved HTML file. Its contents must exactly match `widget_code`. Relative image URLs are embedded from the HTML file's directory through the active workspace's file access. Assigned-VM source paths also accept `~/` for the VM account's home directory; `~` inside an HTML image URL remains a literal relative path.
+
+Preserve all leading and trailing whitespace in `widget_code`. Command output may trim it; retain the exact string saved to the file, or JSON-encode the complete file text when reading and decode it with `JSON.parse` before passing it. Creating the file alone does not display a widget; correct any tool error and retry `show_widget`.
+
 The core Canvas tool accepts these optional dashboard placement fields:
 
 - `pin`: also place the widget on the session dashboard.
@@ -117,9 +121,11 @@ Every prompt is validated on both sides of the frame boundary:
 - The widget frame must be visible in the chat transcript and hold focus — an additional host-observed signal that the user is actually interacting with this widget.
 - The text must be non-empty after trimming and at most 4,000 characters.
 - Prompts starting with `/` are rejected, so widget code cannot trigger chat commands such as `/approve` or `/stop`.
-- Each widget document may send at most 10 prompts per rolling minute; excess prompts are dropped silently.
+- Each widget document may send at most 10 prompts per rolling minute. A rejected submission displays a message below that widget.
 
-Accepted prompts appear in the transcript as regular user messages and start a normal agent turn in the session that owns the widget. There is no feedback channel into the widget: a dropped prompt fails silently, and the widget cannot read the agent's reply.
+Accepted prompts appear in the transcript as regular user messages in the session that owns the widget. `sendPrompt(text)` remains a fire-and-forget helper; the host displays a rejection if the message cannot be added. For a new inline widget that needs acknowledgement, `await openclaw.prompt.send(text)` returns `true` only after the chat queue accepts the message, or `false` if submission is rejected. Neither API exposes the agent's reply to the widget. Older saved widget documents keep their original helper behavior, while the current host also displays their submission failures.
+
+Queue acceptance is separate from delivery. If delivery later fails, the conversation shows the error and a **Retry** action. Retry that queued message instead of clicking the widget again. Archived and read-only conversations cannot accept widget messages; use a conversation where you can send messages, then try again.
 
 ## Dashboard capabilities
 

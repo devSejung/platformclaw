@@ -602,6 +602,37 @@ describe("ssh sandbox backend", () => {
     expect(String(requireSshRunCommandParams(1).remoteCommand)).toContain("/users/worker");
   });
 
+  it("passes shell-read cancellation to the pinned session owner and avoids already-canceled work", async () => {
+    const createOwnedSession = vi.fn(async (_signal?: AbortSignal) => createSession());
+    const backend = await createSshSandboxBackendWithSessionFactory(
+      {
+        sessionKey: "agent:worker:task",
+        scopeKey: "agent:worker",
+        workspaceDir: "/gateway/workspace",
+        agentWorkspaceDir: "/gateway/workspace",
+        cfg: createBackendSandboxConfig(),
+      },
+      {
+        targetLabel: "assigned-vm",
+        workspaceRoot: "/users/worker/workspace",
+        workspaceMode: "existing",
+        createSession: createOwnedSession,
+      },
+    );
+    const controller = new AbortController();
+    await backend.runShellCommand({ script: "printf ok", signal: controller.signal });
+    expect(createOwnedSession).toHaveBeenLastCalledWith(controller.signal);
+    expect(sshMocks.runSshSandboxCommand).toHaveBeenLastCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+    controller.abort();
+    const acquired = createOwnedSession.mock.calls.length;
+    await expect(
+      backend.runShellCommand({ script: "printf never", signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(createOwnedSession).toHaveBeenCalledTimes(acquired);
+  });
+
   it("validates remote workdirs before exec accepts backend-owned cwd", async () => {
     sshMocks.runSshSandboxCommand
       .mockResolvedValueOnce({
@@ -795,7 +826,12 @@ describe("ssh sandbox backend", () => {
     });
     await backend.runShellCommand({
       script: "printf ok",
+      maxBufferBytes: 32768,
     });
+
+    expect(sshMocks.runSshSandboxCommand).toHaveBeenLastCalledWith(
+      expect.objectContaining({ maxBufferBytes: 32768 }),
+    );
 
     expect(sshMocks.uploadDirectoryToSshTarget).toHaveBeenCalledTimes(3);
     const skillsUploadParams = requireSshUploadParams(0, "skills upload params");

@@ -129,6 +129,16 @@ export abstract class SqliteControlPlaneSkillHubNamespaceStore extends SqliteCon
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
       this.requireAdmin(params.actorUserId);
+      if (
+        params.namespace === DEFAULT_SKILL_HUB_NAMESPACE &&
+        (params.scopeKind !== "global" ||
+          params.accessState !== "active" ||
+          params.visibilityCeiling === "PRIVATE")
+      ) {
+        throw new ControlPlaneStateError(
+          "The default Global namespace is available to every active user",
+        );
+      }
       const reason = params.reason.trim();
       if (!reason || reason.length > 500) {
         throw new ControlPlaneStateError(
@@ -288,6 +298,11 @@ export abstract class SqliteControlPlaneSkillHubNamespaceStore extends SqliteCon
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
       this.requireAdmin(params.actorUserId);
+      if (params.namespace === DEFAULT_SKILL_HUB_NAMESPACE && params.accessState !== "active") {
+        throw new ControlPlaneStateError(
+          "The default Global namespace is available to every active user",
+        );
+      }
       const reason = params.reason.trim();
       if (!reason || reason.length > 500) {
         throw new ControlPlaneStateError(
@@ -343,11 +358,10 @@ export abstract class SqliteControlPlaneSkillHubNamespaceStore extends SqliteCon
     this.ensureSkillHubStateSchema();
     return runImmediateTransaction(this.db, () => {
       this.requireAdmin(params.actorUserId);
-      // Missing canonical metadata is initialized on process startup. Preserve an
-      // administrator's disablement through the existing restricted state instead.
+      // Global is a system destination shared by every active employee.
       if (params.namespace === DEFAULT_SKILL_HUB_NAMESPACE) {
         throw new ControlPlaneStateError(
-          "The default Global namespace binding cannot be removed; restrict its access instead",
+          "The default Global namespace is available to every active user and cannot be removed",
         );
       }
       const reason = params.reason.trim();

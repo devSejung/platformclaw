@@ -12,7 +12,7 @@ import type {
   VaultDocumentsBulkDeleted,
 } from "./memory-vault-document-bulk-delete.ts";
 import type { VaultDocumentPublishSummary } from "./memory-vault-document-bulk-publish.ts";
-import "./memory-vault-document-bulk-delete.ts";
+import "./memory-vault-document-bulk-delete-registration.ts";
 import "./memory-vault-document-bulk-publish.ts";
 import { renderVaultDocumentList } from "./memory-vault-document.ts";
 

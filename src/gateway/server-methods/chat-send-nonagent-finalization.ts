@@ -1,5 +1,6 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { getReplyPayloadMetadata, type ReplyPayload } from "../../auto-reply/reply-payload.js";
+import { withAgentMediaContext } from "../../media/agent-media-context.js";
 import {
   appendLocalMediaParentRoots,
   getAgentScopedMediaLocalRoots,
@@ -143,6 +144,14 @@ export async function finalizeChatSendNonAgentReplies(params: {
   >;
   suppressReplies: boolean;
 }): Promise<void> {
+  return withAgentMediaContext(params.session.agentId, () =>
+    finalizeOwnedChatSendNonAgentReplies(params),
+  );
+}
+
+async function finalizeOwnedChatSendNonAgentReplies(
+  params: Parameters<typeof finalizeChatSendNonAgentReplies>[0],
+): Promise<void> {
   const {
     accountId,
     context,

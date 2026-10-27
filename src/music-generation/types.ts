@@ -32,6 +32,7 @@ export type MusicGenerationSourceImage = {
 type MusicGenerationProviderConfiguredContext = {
   cfg?: OpenClawConfig;
   agentDir?: string;
+  workspaceDir?: string;
 };
 
 /** Provider request after runtime fallback and override normalization. */

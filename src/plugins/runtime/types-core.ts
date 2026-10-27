@@ -310,7 +310,11 @@ export type PluginRuntimeCore = {
   version: string;
   mcp: {
     /** Immediately revoke requester-scoped MCP transports owned by one agent. */
-    disposeAgentConnections: (params: { agentId: string }) => Promise<number>;
+    disposeAgentConnections: (params: {
+      agentId: string;
+      /** Retire whole owning sessions, including other requesters' cached catalogs and pending work. */
+      retireSessionCatalog?: boolean;
+    }) => Promise<number>;
   };
   config: {
     /** Current process runtime config snapshot. Prefer config passed into the active call path. */

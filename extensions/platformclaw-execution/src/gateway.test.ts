@@ -11,13 +11,16 @@ import { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordin
 type GatewayHandler = Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
 type BeforeRunHandler = Parameters<OpenClawPluginApi["on"]>[1];
 
-function createHarness(runtime: {
-  testConnection: ReturnType<typeof vi.fn>;
-  testCandidateConnection: ReturnType<typeof vi.fn>;
-  changeTarget: ReturnType<typeof vi.fn>;
-  detectCodingAgent?: ReturnType<typeof vi.fn>;
-  checkCodingAgent?: ReturnType<typeof vi.fn>;
-}) {
+function createHarness(
+  runtime: {
+    testConnection: ReturnType<typeof vi.fn>;
+    testCandidateConnection: ReturnType<typeof vi.fn>;
+    changeTarget: ReturnType<typeof vi.fn>;
+    detectCodingAgent?: ReturnType<typeof vi.fn>;
+    checkCodingAgent?: ReturnType<typeof vi.fn>;
+  },
+  readiness: Promise<void> = Promise.resolve(),
+) {
   const methods = new Map<string, GatewayHandler>();
   let beforeRun: BeforeRunHandler | undefined;
   const api = {
@@ -34,7 +37,7 @@ function createHarness(runtime: {
   const targetMutations = new PlatformClawTargetMutationCoordinator();
   registerPlatformClawExecutionGateway(
     api as never,
-    Promise.resolve(runtime as never),
+    readiness.then(() => runtime as never),
     targetMutations,
     vi.fn(),
   );
@@ -165,6 +168,7 @@ describe("PlatformClaw execution Gateway methods", () => {
       params: { agentId: "person_one", target: "assigned_vm", expectedRevision: 1 },
       context: {
         chatAbortControllers: new Map([["run-one", { agentId: "person_one" }]]),
+        chatQueuedTurns: new Map(),
       },
       respond,
     } as never);
@@ -175,6 +179,93 @@ describe("PlatformClaw execution Gateway methods", () => {
       undefined,
       expect.objectContaining({ code: "CONFLICT" }),
     );
+  });
+
+  it.each([true, false])(
+    "keeps a deferred turn on its original target until settlement (abortable=%s)",
+    async (abortable) => {
+      const runtime = {
+        testConnection: vi.fn(),
+        testCandidateConnection: vi.fn(),
+        changeTarget: vi.fn().mockResolvedValue({ kind: "assigned_vm", revision: 2 }),
+      };
+      const harness = createHarness(runtime);
+      const respond = vi.fn();
+      const queued = new Map([
+        [
+          "queued-one",
+          {
+            agentId: "person_one",
+            sessionId: "session-one",
+            sessionKey: "agent:person_one:main",
+            controller: new AbortController(),
+            abortable,
+          },
+        ],
+      ]);
+      const request = {
+        params: { agentId: "person_one", target: "assigned_vm", expectedRevision: 1 },
+        context: { chatAbortControllers: new Map(), chatQueuedTurns: queued },
+        respond,
+      };
+      const change = harness.methods.get("platformclaw-execution.changeTarget")!;
+
+      await change(request as never);
+      expect(runtime.changeTarget).not.toHaveBeenCalled();
+      expect(respond).toHaveBeenLastCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({ code: "CONFLICT" }),
+      );
+      expect(queued.has("queued-one")).toBe(true);
+
+      // The queue owner removes the settled turn. Another Agent's work remains independent.
+      queued.delete("queued-one");
+      queued.set("queued-two", {
+        agentId: "person_two",
+        sessionId: "session-two",
+        sessionKey: "agent:person_two:main",
+        controller: new AbortController(),
+        abortable: true,
+      });
+      await change(request as never);
+      expect(runtime.changeTarget).toHaveBeenCalledExactlyOnceWith(request.params);
+      expect(respond).toHaveBeenLastCalledWith(true, { kind: "assigned_vm", revision: 2 });
+    },
+  );
+
+  it("rechecks queued work admitted while the runtime becomes ready", async () => {
+    let ready!: () => void;
+    const readiness = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const runtime = {
+      testConnection: vi.fn(),
+      testCandidateConnection: vi.fn(),
+      changeTarget: vi.fn(),
+    };
+    const harness = createHarness(runtime, readiness);
+    const respond = vi.fn();
+    const queued = new Map();
+    const changing = harness.methods.get("platformclaw-execution.changeTarget")!({
+      params: { agentId: "person_one", target: "assigned_vm", expectedRevision: 1 },
+      context: { chatAbortControllers: new Map(), chatQueuedTurns: queued },
+      respond,
+    } as never);
+    expect(harness.beforeRun()({} as never, { agentId: "person_one" } as never)).toMatchObject({
+      outcome: "block",
+    });
+    queued.set("queued-one", { agentId: "person_one" });
+    ready();
+    await changing;
+
+    expect(runtime.changeTarget).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "CONFLICT" }),
+    );
+    expect(harness.targetMutations.isHeld("person_one")).toBe(false);
   });
 
   it("blocks a new run until the atomic target change finishes", async () => {
@@ -199,7 +290,7 @@ describe("PlatformClaw execution Gateway methods", () => {
     const respond = vi.fn();
     const changing = harness.methods.get("platformclaw-execution.changeTarget")!({
       params: { agentId: "person_one", target: "platform_server", expectedRevision: 1 },
-      context: { chatAbortControllers: new Map() },
+      context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
       respond,
     } as never);
 
@@ -226,7 +317,7 @@ describe("PlatformClaw execution Gateway methods", () => {
 
     await harness.methods.get("platformclaw-execution.changeTarget")!({
       params: { agentId: "person_one", target: "assigned_vm", expectedRevision: 1 },
-      context: { chatAbortControllers: new Map() },
+      context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
       respond,
     } as never);
 
@@ -255,7 +346,7 @@ describe("PlatformClaw execution Gateway methods", () => {
 
     await harness.methods.get("platformclaw-execution.changeTarget")!({
       params: { agentId: "person_one", target: "assigned_vm", expectedRevision: 1 },
-      context: { chatAbortControllers: new Map() },
+      context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
       respond,
     } as never);
 

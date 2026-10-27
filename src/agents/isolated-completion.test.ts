@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPluginMetadataSnapshot } from "../config/plugin-auto-enable.test-helpers.js";
 import type { AssistantMessage } from "../llm/types.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { mintSecretSentinel } from "../secrets/sentinel.js";
 import type { AgentHarness } from "./harness/types.js";
+import type { PreparedModelRuntimeInput } from "./prepared-model-runtime.types.js";
 
 const mocks = vi.hoisted(() => ({
   acquireAgentRunPreparedModelRuntime: vi.fn(),
@@ -99,10 +101,21 @@ function request() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.acquireAgentRunPreparedModelRuntime.mockResolvedValue({
-    snapshot: { pluginRegistry: createEmptyPluginRegistry() },
-    release: vi.fn(),
-  });
+  mocks.acquireAgentRunPreparedModelRuntime.mockImplementation(
+    async (input: PreparedModelRuntimeInput) => ({
+      snapshot: {
+        config: input.config,
+        workspaceDir: input.workspaceDir,
+        pluginRegistry: createEmptyPluginRegistry(),
+        metadataSnapshot: createPluginMetadataSnapshot({
+          config: input.config,
+          workspaceDir: input.workspaceDir,
+          manifestRegistry: { plugins: [], diagnostics: [] },
+        }),
+      },
+      release: vi.fn(),
+    }),
+  );
   mocks.isCliRuntimeAliasForProvider.mockReturnValue(false);
   mocks.resolveCliRuntimeExecutionProvider.mockReturnValue(undefined);
   mocks.resolveEmbeddedCliBackendDispatchEligibility.mockReturnValue(undefined);

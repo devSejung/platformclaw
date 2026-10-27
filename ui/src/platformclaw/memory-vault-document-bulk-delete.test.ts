@@ -9,11 +9,17 @@ import { GatewayBrowserClient, GatewayRequestError } from "../api/gateway.ts";
 import { i18n } from "../i18n/index.ts";
 import { waitForFast } from "../test-helpers/wait-for.ts";
 import { loadPlatformClawLocale, platformClawT } from "./i18n.ts";
-import type {
-  VaultDocumentBulkDeleteResult,
-  VaultDocumentsBulkDeleted,
+import {
+  PlatformClawVaultDocumentBulkDelete,
+  type VaultDocumentBulkDeleteResult,
+  type VaultDocumentsBulkDeleted,
 } from "./memory-vault-document-bulk-delete.ts";
-import "./memory-vault-document-bulk-delete.ts";
+
+const BULK_DELETE_TEST_TAG = `test-platformclaw-vault-document-bulk-delete-${crypto.randomUUID()}`;
+// Shared workers reset modules between files while registered custom elements
+// retain their original dependency classes. Mount this file's actual component
+// graph so injected Gateway errors match the component's Gateway client.
+customElements.define(BULK_DELETE_TEST_TAG, class extends PlatformClawVaultDocumentBulkDelete {});
 
 const RPC = "platformclaw.vault.document.";
 type BulkElement = HTMLElement & {
@@ -111,7 +117,8 @@ async function mount(
   documents = [summary("one"), summary("two")],
   selectedVault = vault(),
 ) {
-  const element = document.createElement("platformclaw-vault-document-bulk-delete") as BulkElement;
+  const element = document.createElement(BULK_DELETE_TEST_TAG) as BulkElement;
+  expect(element).toBeInstanceOf(PlatformClawVaultDocumentBulkDelete);
   Object.assign(element, {
     client: { request },
     connected: true,

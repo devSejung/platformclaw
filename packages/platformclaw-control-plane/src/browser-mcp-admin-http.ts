@@ -5,11 +5,15 @@ import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-au
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { ControlPlaneStateError } from "./contracts.js";
 import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
+import {
+  assertAdditionalMcpHeader,
+  parseMcpHeaderGuides,
+  type McpHeaderGuide,
+} from "./mcp-header-policy.js";
 
 export const PLATFORMCLAW_MCP_ADMIN_PATH = "/platformclaw/api/admin/mcp";
 const BODY_LIMIT_BYTES = 48 * 1024;
 const SERVER_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
-const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u;
 const INVALIDATION_RETRY_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 4_000, 4_000] as const;
 
 type ConfigSnapshot = { config: Record<string, unknown>; hash: string };
@@ -26,6 +30,9 @@ type AdminMcpServer = {
   editable: boolean;
   credentialMode: CredentialMode;
   personalAuth?: PersonalAuth;
+  sharedAuth?: "bearer" | "api_key";
+  sharedConfigured: boolean;
+  headerGuides: McpHeaderGuide[];
   headerName?: string;
   scope?: string;
   toolPolicy: "all" | "blocked" | "allowlist" | "custom";
@@ -71,7 +78,9 @@ function secretField(body: Record<string, unknown>, name: string): string {
   const value = body[name];
   if (
     typeof value !== "string" ||
-    !value ||
+    !value.trim() ||
+    Buffer.byteLength(value, "utf8") > 32 * 1024 ||
+    /[^\x20-\x7e\x80-\xff]/u.test(value) ||
     value.includes("\0") ||
     value.includes("\r") ||
     value.includes("\n")
@@ -175,7 +184,8 @@ function projectServer(name: string, raw: unknown, rawPolicy: unknown): AdminMcp
         ? "streamable-http"
         : "invalid";
   const personalAuth =
-    policy?.auth === "bearer" || policy?.auth === "api_key" || policy?.auth === "oauth"
+    policy?.credentialMode !== "shared" &&
+    (policy?.auth === "bearer" || policy?.auth === "api_key" || policy?.auth === "oauth")
       ? policy.auth
       : undefined;
   const headers = asRecord(server.headers);
@@ -204,6 +214,18 @@ function projectServer(name: string, raw: unknown, rawPolicy: unknown): AdminMcp
       !hasAdvancedTls,
     credentialMode,
     ...(personalAuth ? { personalAuth } : {}),
+    ...(credentialMode === "shared"
+      ? {
+          sharedAuth:
+            policy?.auth === "api_key" || sharedHeaderName?.toLowerCase() !== "authorization"
+              ? ("api_key" as const)
+              : ("bearer" as const),
+        }
+      : {}),
+    sharedConfigured: credentialMode === "shared" && headerNames.length > 0,
+    headerGuides: Array.isArray(policy?.headerGuides)
+      ? (policy.headerGuides as McpHeaderGuide[])
+      : [],
     ...(typeof policy?.headerName === "string"
       ? { headerName: policy.headerName }
       : sharedHeaderName
@@ -329,18 +351,49 @@ export class McpAdministrationService {
         oauth: null,
         toolFilter: blockedTools.length > 0 ? { exclude: blockedTools } : null,
       };
-      let personalPolicy: Record<string, unknown> | null = null;
+      const personalPolicy: Record<string, unknown> = {
+        credentialMode: mode,
+        auth: null,
+        headerName: null,
+        scope: null,
+      };
+      let protectedHeaderNames: string[] = [];
       if (mode === "shared") {
         const auth = body.auth;
-        const secret = secretField(body, "secret");
         const headerName = auth === "bearer" ? "Authorization" : stringField(body, "headerName");
-        if ((auth !== "bearer" && auth !== "api_key") || !HEADER_NAME_PATTERN.test(headerName)) {
+        if (auth !== "bearer" && auth !== "api_key") {
           throw new ControlPlaneStateError("shared credential type or header is invalid");
         }
-        serverPatch.headers = {
-          ...clearRecordKeys(current?.headers),
-          [headerName]: auth === "bearer" ? `Bearer ${secret}` : secret,
-        };
+        assertAdditionalMcpHeader(headerName, []);
+        const previous = current
+          ? projectServer(name, current, personalPolicies(snapshot.config)[name])
+          : null;
+        if (body.secret === undefined) {
+          if (
+            !previous?.sharedConfigured ||
+            previous.credentialMode !== "shared" ||
+            previous.target !== url.toString() ||
+            previous.sharedAuth !== auth ||
+            previous.headerName?.toLowerCase() !== headerName.toLowerCase()
+          ) {
+            throw new ControlPlaneStateError(
+              "A new shared credential is required after changing its URL, type, or header",
+            );
+          }
+          // config.get is redacted. Omit headers from the merge patch to preserve
+          // the actual secret; never write the redaction sentinel back as a value.
+        } else {
+          const secret = secretField(body, "secret");
+          serverPatch.headers = {
+            ...clearRecordKeys(current?.headers),
+            [headerName]: auth === "bearer" ? `Bearer ${secret}` : secret,
+          };
+        }
+        personalPolicy.auth = auth;
+        if (auth === "api_key") {
+          personalPolicy.headerName = headerName;
+        }
+        protectedHeaderNames = [headerName];
       } else {
         serverPatch.headers = current ? clearRecordKeys(current.headers) : null;
       }
@@ -349,12 +402,13 @@ export class McpAdministrationService {
         if (auth !== "bearer" && auth !== "api_key" && auth !== "oauth") {
           throw new ControlPlaneStateError("personal credential type is invalid");
         }
-        personalPolicy = { auth, headerName: null, scope: null };
+        personalPolicy.auth = auth;
+        protectedHeaderNames = [
+          auth === "api_key" ? stringField(body, "headerName") : "Authorization",
+        ];
         if (auth === "api_key") {
           const headerName = stringField(body, "headerName");
-          if (!HEADER_NAME_PATTERN.test(headerName)) {
-            throw new ControlPlaneStateError("personal API-key header is invalid");
-          }
+          assertAdditionalMcpHeader(headerName, []);
           personalPolicy.headerName = headerName;
         }
         if (auth === "oauth" && typeof body.scope === "string" && body.scope.trim()) {
@@ -370,6 +424,10 @@ export class McpAdministrationService {
           personalPolicy.scope = scope;
         }
       }
+      personalPolicy.headerGuides = parseMcpHeaderGuides(
+        body.headerGuides ?? [],
+        protectedHeaderNames,
+      );
       patch = {
         mcp: { servers: { [name]: serverPatch } },
         plugins: {

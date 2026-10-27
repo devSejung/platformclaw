@@ -1,7 +1,10 @@
 import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import { ControlPlaneAuthorizationError } from "./contracts.js";
-import { normalizeExecEnvName } from "./exec-credential-contracts.js";
+import {
+  normalizeExecEnvName,
+  type ExecCredentialPreconditions,
+} from "./exec-credential-contracts.js";
 import { ExecCredentialCipher } from "./exec-credential-crypto.js";
 import { isSpaceConversationSession } from "./space-contracts.js";
 import type { SqliteControlPlaneStore } from "./sqlite-store.js";
@@ -64,7 +67,7 @@ export class ExecCredentialService {
 
   async adminSnapshot(actorUserId: string) {
     const actor = await this.options.store.getUserById(actorUserId);
-    if (actor?.globalRole !== "admin") {
+    if (actor?.globalRole !== "admin" || actor.status !== "active") {
       throw new ControlPlaneAuthorizationError("administrator required");
     }
     return { definitions: await this.options.store.listExecCredentialDefinitions() };
@@ -79,35 +82,41 @@ export class ExecCredentialService {
     return this.adminSnapshot(actorUserId);
   }
 
-  async removeDefinition(actorUserId: string, envName: string) {
-    await this.options.store.removeExecCredentialDefinition(
+  async removeDefinition(actorUserId: string, envName: string, expectedDefinitionToken: string) {
+    await this.options.store.removeExecCredentialDefinition({
       actorUserId,
       envName,
-      (this.options.now ?? Date.now)(),
-    );
+      expectedDefinitionToken,
+      deletedAt: (this.options.now ?? Date.now)(),
+    });
     return this.adminSnapshot(actorUserId);
   }
 
-  async replace(userId: string, rawName: string, value: string) {
+  async replace(
+    userId: string,
+    rawName: string,
+    value: string,
+    expected: ExecCredentialPreconditions,
+  ) {
     const envName = normalizeExecEnvName(rawName);
     const envelope = this.options.cipher.encrypt(userId, envName, value);
-    const revision = await this.options.store.replaceExecCredential({
+    const snapshot = await this.options.store.replaceExecCredential({
       actorUserId: userId,
       envName,
       envelope,
       updatedAt: (this.options.now ?? Date.now)(),
+      ...expected,
     });
-    return { envName, revision };
+    return { envName, ...snapshot };
   }
 
-  async remove(userId: string, envName: string) {
-    return {
-      deleted: await this.options.store.deleteExecCredential(
-        userId,
-        envName,
-        (this.options.now ?? Date.now)(),
-      ),
-    };
+  async remove(userId: string, envName: string, expected: ExecCredentialPreconditions) {
+    return this.options.store.deleteExecCredential({
+      actorUserId: userId,
+      envName,
+      ...expected,
+      deletedAt: (this.options.now ?? Date.now)(),
+    });
   }
 
   async resolveForAgent(agentId: string): Promise<Record<string, string>> {

@@ -31,6 +31,7 @@ async function contextAndPage() {
     await fs.mkdir(output, { recursive: true });
   }
   const context = await browser.newContext({
+    locale: "en-US",
     viewport: { height: 760, width: 1180 },
     ...(output ? { recordVideo: { dir: output, size: { height: 760, width: 1180 } } } : {}),
   });

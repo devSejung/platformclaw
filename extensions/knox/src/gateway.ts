@@ -31,7 +31,7 @@ export async function startKnoxGatewayAccount(ctx: {
     resolveQuestionAnswerBinding: async (message) =>
       await resolveKnoxQuestionAnswerBinding({ account, message }),
     notifyQueued: async (message, context) => {
-      await sendKnoxQueuedNotice({ account, message, ...context });
+      await sendKnoxQueuedNotice({ account, message, ...context, warn: ctx.log?.warn });
     },
     dispatch: async (message, lifecycle, questionAnswerBinding) => {
       await dispatchKnoxInbound({

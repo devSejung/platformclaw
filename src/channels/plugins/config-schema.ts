@@ -7,6 +7,7 @@ import { z, type ZodRawShape, type ZodTypeAny } from "zod";
 import { ToolPolicySchema } from "../../config/zod-schema.agent-runtime.js";
 import { DmPolicySchema, MentionPatternsPolicySchema } from "../../config/zod-schema.core.js";
 import { validateJsonSchemaValue } from "../../plugins/schema-validator.js";
+import { configJsonSchema } from "../../shared/config-json-schema.js";
 import type { JsonSchemaObject } from "../../shared/json-schema.types.js";
 import { parseConfigPathArrayIndex } from "../../shared/path-array-index.js";
 import type {
@@ -253,11 +254,7 @@ export function buildChannelConfigSchema(
   const schemaWithJson = schema as ZodSchemaWithToJsonSchema;
   if (typeof schemaWithJson.toJSONSchema === "function") {
     return {
-      schema: schemaWithJson.toJSONSchema({
-        target: "draft-07",
-        ...(options?.jsonSchemaMode ? { io: options.jsonSchemaMode } : {}),
-        unrepresentable: "any",
-      }) as JsonSchemaObject,
+      schema: configJsonSchema(schema, options?.jsonSchemaMode) as JsonSchemaObject,
       ...(options?.uiHints ? { uiHints: options.uiHints } : {}),
       runtime: {
         safeParse: (value) => safeParseRuntimeSchema(schema, value),

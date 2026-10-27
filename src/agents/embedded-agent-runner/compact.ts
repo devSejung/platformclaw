@@ -3,7 +3,6 @@
  */
 import { resolveAgentModelFallbackValues } from "../../config/model-input.js";
 import { formatErrorMessage } from "../../infra/errors.js";
-import { withPluginRuntimeRegistryScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { resolveUserPath } from "../../utils.js";
 import { normalizeOptionalAgentRuntimeId } from "../agent-runtime-id.js";
 import {
@@ -21,6 +20,7 @@ import { isFallbackSummaryError } from "../model-fallback-attempt.js";
 import { resolveModelCandidateChain } from "../model-fallback-candidates.js";
 import { runWithModelFallback } from "../model-fallback-runner.js";
 import { acquireAgentRunPreparedModelRuntime } from "../prepared-model-runtime.js";
+import { withPreparedModelRuntimeScope } from "../prepared-model-runtime.plugin-context.js";
 import { resolveProjectKey } from "../project-memory-scope.js";
 import {
   applyAgentRunSessionTargetIdentity,
@@ -324,10 +324,7 @@ export async function compactEmbeddedAgentSessionDirect(
       });
       return fallbackResult.result;
     };
-    return await withPluginRuntimeRegistryScope(
-      preparedModelRuntime.pluginRegistry,
-      compactPrepared,
-    );
+    return await withPreparedModelRuntimeScope(preparedModelRuntime, compactPrepared);
   } catch (err) {
     return fallbackFailureToCompactionResult(err);
   } finally {

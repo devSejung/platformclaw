@@ -26,6 +26,7 @@
   },
   "tools": {
     "alsoAllow": [
+      "canvas",
       "platformclaw_credentials",
       "memory_search",
       "memory_get",
@@ -44,6 +45,7 @@
         "alsoAllow": [
           "bundle-mcp",
           "automations",
+          "canvas",
           "platformclaw_credentials",
           "memory_search",
           "memory_get",
@@ -53,8 +55,8 @@
           "wiki_lint",
           "wiki_search",
           "wiki_status",
-      "space_search",
-      "space_get"
+          "space_search",
+          "space_get"
         ]
       }
     }

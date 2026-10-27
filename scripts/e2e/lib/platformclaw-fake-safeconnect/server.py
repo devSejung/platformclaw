@@ -9,7 +9,7 @@ import hmac
 import json
 import os
 import pwd
-import subprocess
+import signal
 from pathlib import Path
 from typing import Any
 
@@ -131,8 +131,8 @@ async def handle_process(process: asyncssh.SSHServerProcess[bytes]) -> None:
         # Keep the fixture interactive so browser-terminal proof exercises that path.
         append_event("login_shell_started", username=username, linuxAccount=linux_account)
         argv = [shell, "-il"]
-    child = subprocess.Popen(
-        argv,
+    child = await asyncio.create_subprocess_exec(
+        *argv,
         cwd=account.pw_dir,
         env={
             "HOME": account.pw_dir,
@@ -143,27 +143,77 @@ async def handle_process(process: asyncssh.SSHServerProcess[bytes]) -> None:
             "TERM": process.get_terminal_type() or "xterm-256color",
             "USER": linux_account,
         },
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
         user=account.pw_uid,
         group=account.pw_gid,
         extra_groups=(),
+        start_new_session=True,
     )
+    assert child.stdin is not None and child.stdout is not None and child.stderr is not None
+
+    async def forward_input() -> None:
+        try:
+            while chunk := await process.stdin.read(64 * 1024):
+                child.stdin.write(chunk)
+                await child.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # The command may finish before its client finishes sending input.
+        finally:
+            child.stdin.close()
+
+    async def forward_output(
+        source: asyncio.StreamReader, destination: asyncssh.SSHWriter[bytes]
+    ) -> None:
+        while chunk := await source.read(64 * 1024):
+            destination.write(chunk)
+            await destination.drain()
+
+    input_task = asyncio.create_task(forward_input())
+    # Per-pipe EOF must not become SSH-channel EOF: OpenSSH multiplexed clients
+    # otherwise return 255 before receiving the command's actual exit status.
+    completion = asyncio.gather(
+        forward_output(child.stdout, process.stdout),
+        forward_output(child.stderr, process.stderr),
+        child.wait(),
+    )
+    disconnected = asyncio.create_task(process.wait_closed())
+    completed = False
     try:
-        await process.redirect(stdin=child.stdin, stdout=child.stdout, stderr=child.stderr)
-        return_code = await asyncio.to_thread(child.wait)
-        await process.stdout.drain()
+        done, _ = await asyncio.wait(
+            (completion, disconnected), return_when=asyncio.FIRST_COMPLETED
+        )
+        if completion not in done:
+            return
+        await completion
+        completed = True
+        return_code = child.returncode
+        assert return_code is not None
         append_event(
             "command_finished",
             username=username,
             linuxAccount=linux_account,
             exitStatus=return_code,
         )
-        process.exit(return_code)
+        if return_code < 0:
+            process.exit_with_signal(signal.Signals(-return_code).name.removeprefix("SIG"))
+        else:
+            process.exit(return_code)
     finally:
-        if child.poll() is None:
-            child.kill()
+        if not completed:
+            # The fixture lacks CAP_KILL. Signal the whole command group as its
+            # account so disconnected shells cannot leave descendants running.
+            cleanup = await asyncio.create_subprocess_exec(
+                "/bin/bash", "-c", 'kill -KILL -- "-$1"', "cleanup", str(child.pid),
+                user=account.pw_uid, group=account.pw_gid, extra_groups=(),
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await cleanup.wait()
+            await child.wait()
+        for task in (input_task, completion, disconnected):
+            task.cancel()
+        await asyncio.gather(input_task, completion, disconnected, return_exceptions=True)
 
 
 def prepare_host_key() -> None:

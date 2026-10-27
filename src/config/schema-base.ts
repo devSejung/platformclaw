@@ -1,5 +1,6 @@
 // Builds base config schema metadata shared across generated config surfaces.
 import { isSensitiveUrlConfigPath } from "@openclaw/net-policy/redact-sensitive-url";
+import { configJsonSchema } from "../shared/config-json-schema.js";
 import { VERSION } from "../version.js";
 import { FIELD_HELP } from "./schema.help.js";
 import type { ConfigUiHints } from "./schema.hints.js";
@@ -180,11 +181,7 @@ function computeBaseConfigSchemaStablePayload(): BaseConfigSchemaStablePayload {
       version: baseConfigSchemaStablePayload.version,
     };
   }
-  const schema = OpenClawSchema.toJSONSchema({
-    io: "input",
-    target: "draft-07",
-    unrepresentable: "any",
-  });
+  const schema = configJsonSchema(OpenClawSchema, "input");
   schema.title = "OpenClawConfig";
   const schemaRoot = asSchemaObject(schema);
   if (schemaRoot) {

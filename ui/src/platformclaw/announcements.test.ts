@@ -80,14 +80,90 @@ describe("announcement automatic presentation deferral", () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot()));
     const element = mount(fetchImpl, true);
     const root = element.shadowRoot!;
-    await vi.waitFor(() => expect(root.querySelector("aside button")).not.toBeNull());
-    root.querySelector<HTMLButtonElement>("aside button")!.click();
+    await vi.waitFor(() => expect(root.querySelector("aside > button")).not.toBeNull());
+    root.querySelector<HTMLButtonElement>("aside > button")!.click();
     await vi.waitFor(() =>
       expect(root.querySelector("openclaw-modal-dialog")?.textContent).toContain(
         "Existing work continues.",
       ),
     );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["general", "maintenance"] as const)(
+    "reversibly collapses only the %s body without claiming a popup",
+    async (kind) => {
+      const current = snapshot();
+      current.announcement.kind = kind;
+      if (kind === "general") {
+        Object.assign(current.announcement, { maintenanceAt: null });
+      }
+      const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(current));
+      const element = mount(fetchImpl, true);
+      const root = element.shadowRoot!;
+      await vi.waitFor(() => expect(root.querySelector("aside")).not.toBeNull());
+      const button = root.querySelector<HTMLButtonElement>("[aria-controls]")!;
+      const body = root.querySelector<HTMLElement>("#announcement-body")!;
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      for (const collapsed of [true, false, true, false]) {
+        button.click();
+        await element.updateComplete;
+        expect(body.hidden).toBe(collapsed);
+        expect(button.getAttribute("aria-expanded")).toBe(String(!collapsed));
+        expect(root.querySelector("aside strong")?.textContent).toBe(current.announcement.title);
+        expect(Boolean(root.querySelector(".countdown"))).toBe(kind === "maintenance");
+      }
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      if (kind === "maintenance") {
+        button.click();
+        await element.updateComplete;
+        root.querySelector<HTMLButtonElement>("aside > button")!.click();
+        await element.updateComplete;
+        expect(root.querySelector("openclaw-modal-dialog .body")?.textContent).toBe(
+          current.announcement.body,
+        );
+        root.querySelector<HTMLButtonElement>(".panel button")!.click();
+        await element.updateComplete;
+        expect(body.hidden).toBe(true);
+      }
+    },
+  );
+
+  it("retains collapse through polling and reconnection, then expands edited or replaced notices", async () => {
+    const current = snapshot();
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(current));
+    const element = mount(fetchImpl, true);
+    const root = element.shadowRoot!;
+    await vi.waitFor(() => expect(root.querySelector("aside")).not.toBeNull());
+    const button = root.querySelector<HTMLButtonElement>("[aria-controls]")!;
+    button.click();
+    await element.updateComplete;
+    await element.refresh();
+    await element.updateComplete;
+    expect(root.querySelector<HTMLElement>("#announcement-body")!.hidden).toBe(true);
+    element.remove();
+    document.body.append(element);
+    await element.refresh();
+    await element.updateComplete;
+    expect(root.querySelector<HTMLElement>("#announcement-body")!.hidden).toBe(true);
+    current.revision++;
+    current.announcement.revision++;
+    current.announcement.body = "Updated notice";
+    await element.refresh();
+    await vi.waitFor(() =>
+      expect(root.querySelector("#announcement-body")?.textContent).toBe("Updated notice"),
+    );
+    expect(root.querySelector<HTMLElement>("#announcement-body")!.hidden).toBe(false);
+    button.click();
+    await element.updateComplete;
+    current.revision++;
+    current.announcement.id = "replacement";
+    current.announcement.title = "Replacement notice";
+    await element.refresh();
+    await vi.waitFor(() =>
+      expect(root.querySelector("aside strong")?.textContent).toBe("Replacement notice"),
+    );
+    expect(root.querySelector<HTMLElement>("#announcement-body")!.hidden).toBe(false);
   });
 
   it("holds an already claimed popup through administration and resumes it without another claim", async () => {

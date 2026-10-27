@@ -14,14 +14,11 @@ import {
   SANDBOX_PINNED_MUTATION_PYTHON,
 } from "./fs-bridge-mutation-helper.js";
 import { createWritableRenameTargetResolver } from "./fs-bridge-rename-targets.js";
-import {
-  hasMultipleHardlinks,
-  parseSandboxStatMtimeMs,
-  parseSandboxStatSize,
-} from "./fs-bridge-stat-parse.js";
+import { parseSandboxStatMtimeMs, parseSandboxStatSize } from "./fs-bridge-stat-parse.js";
 import type { SandboxFsBridge, SandboxFsStat, SandboxResolvedPath } from "./fs-bridge.types.js";
 import { isPathInsideContainerRoot, relativePathEscapesContainerRoot } from "./path-utils.js";
 import {
+  assertRemoteFileHasNoHardlinks,
   resolveRemoteCanonicalPath,
   type RemoteCanonicalPath,
 } from "./remote-fs-bridge-canonical-path.js";
@@ -46,8 +43,9 @@ export type {
 export function createRemoteShellSandboxFsBridge(params: {
   sandbox: SandboxFsBridgeContext;
   runtime: RemoteShellSandboxHandle;
+  mounts?: readonly RemoteMountInfo[];
 }): SandboxFsBridge {
-  return new RemoteShellSandboxFsBridge(params.sandbox, params.runtime);
+  return new RemoteShellSandboxFsBridge(params.sandbox, params.runtime, params.mounts);
 }
 
 class RemoteShellSandboxFsBridge implements SandboxFsBridge {
@@ -59,6 +57,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
   constructor(
     private readonly sandbox: SandboxFsBridgeContext,
     private readonly runtime: RemoteShellSandboxHandle,
+    private readonly mounts?: readonly RemoteMountInfo[],
   ) {}
 
   resolvePath(params: { filePath: string; cwd?: string }): SandboxResolvedPath {
@@ -127,7 +126,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       cwd: params.cwd,
     });
     await this.ensureRemoteWritable(destination, "copy files", params.signal);
-    await this.assertNoHardlinkedFile({
+    await assertRemoteFileHasNoHardlinks(this.runtime, {
       containerPath: destination.containerPath,
       action: "copy files",
       signal: params.signal,
@@ -177,7 +176,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       requireWritable: true,
       signal: params.signal,
     });
-    await this.assertNoHardlinkedFile({
+    await assertRemoteFileHasNoHardlinks(this.runtime, {
       containerPath: target.containerPath,
       action: "write files",
       signal: params.signal,
@@ -304,7 +303,6 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
         params.force === false ? "0" : "1",
       ],
       signal: params.signal,
-      allowFailure: params.force !== false,
     });
   }
 
@@ -353,6 +351,20 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     signal?: AbortSignal;
   }): Promise<SandboxFsStat | null> {
     const target = this.resolveTarget(params);
+    if (this.sandbox.accountOwnedRoots?.includes(target.mountRootPath)) {
+      const relative = path.posix.relative(target.mountRootPath, target.containerPath);
+      const result = await this.runMutation({
+        args: [
+          "stat",
+          target.mountRootPath,
+          path.posix.dirname(relative),
+          path.posix.basename(relative),
+        ],
+        signal: params.signal,
+      });
+      const text = result.stdout.toString("utf8");
+      return text ? JSON.parse(text) : null;
+    }
     const exists = await this.remotePathExists(target.containerPath, params.signal);
     if (!exists) {
       return null;
@@ -363,7 +375,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       action: "stat files",
       signal: params.signal,
     });
-    await this.assertNoHardlinkedFile({
+    await assertRemoteFileHasNoHardlinks(this.runtime, {
       containerPath: canonicalPath,
       action: "stat files",
       signal: params.signal,
@@ -383,11 +395,21 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
   }
 
   private getMounts(): RemoteMountInfo[] {
+    const ownedMounts: RemoteMountInfo[] = (this.sandbox.accountOwnedRoots ?? []).map((root) => ({
+      localRoot: null,
+      containerRoot: normalizeContainerPath(root),
+      writable: true,
+      source: "additional",
+    }));
+    if (this.mounts) {
+      return [...this.mounts, ...ownedMounts];
+    }
     const workspaceRoot = path.resolve(this.sandbox.workspaceDir);
     const agentRoot = path.resolve(this.sandbox.agentWorkspaceDir);
     const workspaceContainerRoot = normalizeContainerPath(this.runtime.remoteWorkspaceDir);
     const agentContainerRoot = normalizeContainerPath(this.runtime.remoteAgentWorkspaceDir);
     const mounts: RemoteMountInfo[] = [
+      ...ownedMounts,
       {
         localRoot: workspaceRoot,
         containerRoot: workspaceContainerRoot,
@@ -433,6 +455,12 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     const mounts = this.getMounts();
     const input = params.filePath;
     const inputPosix = input.replace(/\\/g, "/");
+    if (
+      this.sandbox.accountOwnedRoots?.some((root) => inputPosix.startsWith(`${root}/`)) &&
+      inputPosix.split("/").includes("..")
+    ) {
+      throw new Error("Account-owned paths cannot contain parent traversal.");
+    }
     const maybeContainerMount = path.posix.isAbsolute(inputPosix)
       ? this.resolveMountByContainerPath(mounts, normalizeContainerPath(inputPosix))
       : null;
@@ -603,35 +631,6 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     });
   }
 
-  private async assertNoHardlinkedFile(params: {
-    containerPath: string;
-    action: string;
-    signal?: AbortSignal;
-  }): Promise<void> {
-    // Remote mutation helpers pin by parent path. Rejecting hardlinked regular
-    // files avoids editing another mount-visible name through the same inode.
-    const result = await this.runtime.runRemoteShellScript({
-      script: [
-        'if [ ! -e "$1" ] && [ ! -L "$1" ]; then exit 0; fi',
-        'stats=$(LC_ALL=C stat -c "%F|%h" -- "$1")',
-        'printf "%s\\n" "$stats"',
-      ].join("\n"),
-      args: [params.containerPath],
-      signal: params.signal,
-      allowFailure: true,
-    });
-    const output = result.stdout.toString("utf8").trim();
-    if (!output) {
-      return;
-    }
-    const [kind = "", linksRaw = "1"] = output.split("|");
-    if (kind === "regular file" && hasMultipleHardlinks(linksRaw)) {
-      throw new Error(
-        `Hardlinked path is not allowed under sandbox mount root: ${params.containerPath}`,
-      );
-    }
-  }
-
   private async resolvePinnedParent(params: {
     containerPath: string;
     mountRootPath: string;
@@ -643,6 +642,18 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     const basename = path.posix.basename(params.containerPath);
     if (!basename || basename === "." || basename === "/") {
       throw new Error(`Invalid sandbox entry target: ${params.containerPath}`);
+    }
+    if (this.sandbox.accountOwnedRoots?.includes(params.mountRootPath)) {
+      // Keep the lexical path: canonicalizing an alias before the descriptor
+      // walk would erase the symlink that the account boundary must reject.
+      return {
+        mountRootPath: params.mountRootPath,
+        relativeParentPath: path.posix.relative(
+          params.mountRootPath,
+          path.posix.dirname(params.containerPath),
+        ),
+        basename,
+      };
     }
     const { canonicalPath, canonicalMountRoot, logicalPath } = await this.resolveCanonicalPath({
       containerPath: normalizeContainerPath(path.posix.dirname(params.containerPath)),
@@ -698,7 +709,9 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
         SANDBOX_PINNED_MUTATION_PYTHON,
         "PY",
       ].join("\n"),
-      args: params.args,
+      args: this.sandbox.accountOwnedRoots?.length
+        ? ["owned", JSON.stringify(this.sandbox.accountOwnedRoots), ...params.args]
+        : params.args,
       stdin: params.stdin,
       signal: params.signal,
       allowFailure: params.allowFailure,

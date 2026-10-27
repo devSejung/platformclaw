@@ -9,6 +9,7 @@ import {
   REQUIRED_MANAGED_AGENT_TOOL_IDS,
   REQUIRED_MANAGED_PLUGIN_IDS,
   REQUIRED_MANAGED_SANDBOX_TOOL_IDS,
+  normalizeManagedPolicyEntries,
   sandboxPolicyDeniesBundleMcp,
   sandboxPolicyDeniesManagedTool,
 } from "./validate-managed-config.mjs";
@@ -146,21 +147,15 @@ function reconcileSandboxToolPolicy(sandboxTools, createWhenMissing) {
       ? { policy: { alsoAllow: [...REQUIRED_MANAGED_SANDBOX_TOOL_IDS] }, changed: true }
       : { policy: sandboxTools, changed: false };
   }
-  // Upstream defines `allow: []` as unrestricted. Adding one item would turn
-  // it into a restrictive allowlist and silently remove unrelated tools.
-  if (Array.isArray(sandboxTools?.allow) && sandboxTools.allow.length === 0) {
-    return { policy: sandboxTools, changed: false };
-  }
-  const allowKey = Array.isArray(sandboxTools?.allow) ? "allow" : "alsoAllow";
+  // Keep `allow: []` unrestricted; explicit alsoAllow entries still remove
+  // inherited default denies for managed tools such as Canvas.
+  const allowKey =
+    Array.isArray(sandboxTools?.allow) && sandboxTools.allow.length > 0 ? "allow" : "alsoAllow";
   const currentAllow = sandboxTools?.[allowKey];
   if (currentAllow !== undefined && !Array.isArray(currentAllow)) {
     return { policy: sandboxTools, changed: false };
   }
-  const normalizedAllow = new Set(
-    (currentAllow ?? []).flatMap((entry) =>
-      typeof entry === "string" ? [entry.trim().toLowerCase()] : [],
-    ),
-  );
+  const normalizedAllow = new Set(normalizeManagedPolicyEntries(currentAllow));
   const missingTools = REQUIRED_MANAGED_SANDBOX_TOOL_IDS.filter(
     (toolId) => !normalizedAllow.has(toolId),
   );
@@ -177,15 +172,14 @@ function reconcileSandboxToolPolicy(sandboxTools, createWhenMissing) {
 }
 
 function sandboxPolicyAllowsManagedTools(globalPolicy, agentPolicy) {
-  const allow = Array.isArray(agentPolicy?.allow) ? agentPolicy.allow : globalPolicy?.allow;
-  const alsoAllow = Array.isArray(agentPolicy?.alsoAllow)
-    ? agentPolicy.alsoAllow
-    : globalPolicy?.alsoAllow;
+  const allow = normalizeManagedPolicyEntries(
+    Array.isArray(agentPolicy?.allow) ? agentPolicy.allow : globalPolicy?.allow,
+  );
+  const alsoAllow = normalizeManagedPolicyEntries(
+    Array.isArray(agentPolicy?.alsoAllow) ? agentPolicy.alsoAllow : globalPolicy?.alsoAllow,
+  );
   return REQUIRED_MANAGED_SANDBOX_TOOL_IDS.every(
-    (toolId) =>
-      (Array.isArray(allow) && allow.length === 0) ||
-      allow?.includes(toolId) ||
-      alsoAllow?.includes(toolId),
+    (toolId) => allow.includes(toolId) || alsoAllow.includes(toolId),
   );
 }
 
@@ -260,14 +254,8 @@ function reconcileManagedAgentToolPolicy(config) {
   const tools = config?.tools && typeof config.tools === "object" ? config.tools : {};
   const currentDeny = Array.isArray(tools.deny) ? tools.deny : [];
   const currentAlsoAllow = Array.isArray(tools.alsoAllow) ? tools.alsoAllow : [];
-  const normalizedDeny = new Set(
-    currentDeny.flatMap((entry) => (typeof entry === "string" ? [entry.trim().toLowerCase()] : [])),
-  );
-  const normalizedAlsoAllow = new Set(
-    currentAlsoAllow.flatMap((entry) =>
-      typeof entry === "string" ? [entry.trim().toLowerCase()] : [],
-    ),
-  );
+  const normalizedDeny = new Set(normalizeManagedPolicyEntries(currentDeny));
+  const normalizedAlsoAllow = new Set(normalizeManagedPolicyEntries(currentAlsoAllow));
   const missingDeny = MANAGED_DISABLED_AGENT_TOOLS.filter(
     (toolName) => !normalizedDeny.has(toolName),
   );

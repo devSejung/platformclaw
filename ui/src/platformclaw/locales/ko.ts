@@ -4,6 +4,7 @@ import { baseballTranslations } from "./ko-baseball.ts";
 import { credentialFlowTranslations } from "./ko-credentials.ts";
 import { dashboardTranslations } from "./ko-dashboard.ts";
 import { executionTranslations } from "./ko-execution.ts";
+import { mcpTranslations } from "./ko-mcp.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
 import { racingTranslations } from "./ko-racing.ts";
 import { spaceTranslations } from "./ko-spaces.ts";
@@ -414,6 +415,10 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.execCredentials.sessionExpired": "세션이 만료되었습니다. 다시 로그인하세요.",
   "platformClaw.quickActions.label": "PlatformClaw 빠른 실행",
   "platformClaw.quickActions.voc": "VOC",
+  "platformClaw.quickActions.messenger": "Knox",
+  "platformClaw.quickActions.openMessenger": "Knox",
+  "platformClaw.quickActions.messengerHelp":
+    "Knox에서 sopa.ai를 엽니다. 열리지 않으면 Knox 설치·로그인 상태와 브라우저의 앱 열기 허용을 확인하세요.",
   "platformClaw.quickActions.loading": "빠른 실행을 불러오는 중…",
   "platformClaw.quickActions.unavailable":
     "빠른 실행을 사용할 수 없습니다. 새로고침한 뒤 다시 시도하세요.",
@@ -593,71 +598,7 @@ export const translations: Readonly<Record<string, string>> = {
     "VM에서 조회한 스킬입니다. 새로고침과 Skill Workshop 제안 적용을 사용할 수 있으며, 직접 설치는 기본 작업공간에서 합니다.",
   ...executionTranslations,
   ...vmAdminTranslations,
-  "platformClaw.mcp.open": "MCP 연결",
-  "platformClaw.mcp.title": "MCP 연결",
-  "platformClaw.mcp.connected": "연결됨",
-  "platformClaw.mcp.notConnected": "연결 안 됨",
-  "platformClaw.mcp.connect": "연결",
-  "platformClaw.mcp.reconnect": "다시 연결",
-  "platformClaw.mcp.connectLabel": "OAuth로 {server} 연결",
-  "platformClaw.mcp.reconnectLabel": "OAuth로 {server} 다시 연결",
-  "platformClaw.mcp.save": "저장",
-  "platformClaw.mcp.saveLabel": "{server} 인증정보 저장",
-  "platformClaw.mcp.remove": "삭제",
-  "platformClaw.mcp.removeLabel": "{server} 인증정보 삭제",
-  "platformClaw.mcp.removeConfirm":
-    "{server}에 저장된 인증정보를 삭제할까요? Agent 접근이 즉시 해제됩니다.",
-  "platformClaw.mcp.token": "토큰 입력",
-  "platformClaw.mcp.tokenLabel": "{server} Bearer 토큰",
-  "platformClaw.mcp.apiKey": "API 키 입력",
-  "platformClaw.mcp.apiKeyLabel": "{server} API 키",
-  "platformClaw.mcp.secretRequired": "저장하기 전에 {server} 인증정보를 입력하세요.",
-  "platformClaw.mcp.scope": "권한 범위: {scope}",
-  "platformClaw.mcp.personalTitle": "내 MCP 인증정보",
-  "platformClaw.mcp.personalIntro":
-    "개인 인증정보가 필요한 서버만 표시됩니다. 공용 인증정보 또는 인증정보가 필요 없는 서버는 자동으로 사용할 수 있습니다.",
-  "platformClaw.mcp.automatic":
-    "막힌 것이 아닙니다. 개인 인증정보가 필요 없는 서버는 여기서 설정할 필요가 없습니다.",
-  "platformClaw.mcp.empty": "개인이 연결해야 하는 MCP 인증정보가 없습니다.",
-  "platformClaw.mcp.saved": "MCP 연결을 업데이트했습니다.",
-  "platformClaw.mcp.oauthConnected": "OAuth 연결을 완료했습니다.",
-  "platformClaw.mcp.oauthFailed": "OAuth 연결에 실패했습니다. 다시 연결해 보세요.",
-  "platformClaw.mcp.failed": "MCP 연결 요청에 실패했습니다.",
-  "platformClaw.mcp.sessionExpired": "세션이 만료되었습니다. 다시 로그인하세요.",
-  "platformClaw.mcp.close": "닫기",
-  "platformClaw.mcp.refresh": "새로고침",
-  "platformClaw.mcp.adminTitle": "MCP 서버 관리",
-  "platformClaw.mcp.adminIntro":
-    "승인된 서버를 등록하고 인증정보 정책과 개별 도구 차단을 설정합니다. 새 서버는 기본적으로 모든 도구를 허용합니다.",
-  "platformClaw.mcp.adminAdd": "MCP 서버 추가",
-  "platformClaw.mcp.adminEmpty": "등록된 MCP 서버가 없습니다.",
-  "platformClaw.mcp.adminName": "서버 이름",
-  "platformClaw.mcp.adminUrl": "서버 URL",
-  "platformClaw.mcp.adminTransport": "전송 방식",
-  "platformClaw.mcp.adminCredentialMode": "인증정보 정책",
-  "platformClaw.mcp.adminNoCredential": "인증정보 없음 — 사용자가 자동으로 사용",
-  "platformClaw.mcp.adminNoCredentialShort": "인증정보 없음",
-  "platformClaw.mcp.adminSharedCredential": "조직 공용 인증정보",
-  "platformClaw.mcp.adminPersonalCredential": "사용자별 개인 인증정보",
-  "platformClaw.mcp.adminAuth": "인증정보 종류",
-  "platformClaw.mcp.adminChooseAuth": "인증정보 종류 선택",
-  "platformClaw.mcp.adminHeader": "API 키 헤더",
-  "platformClaw.mcp.adminSharedSecret": "공용 인증정보 (저장할 때 필수)",
-  "platformClaw.mcp.adminScope": "OAuth 권한 범위",
-  "platformClaw.mcp.adminBlockedTools": "차단할 도구",
-  "platformClaw.mcp.adminBlockedToolsHelp":
-    "선택 사항입니다. 정확한 도구 이름 또는 glob을 한 줄에 하나씩 입력하세요. 비워 두면 모든 도구를 허용합니다.",
-  "platformClaw.mcp.adminEnabled": "서버 사용",
-  "platformClaw.mcp.adminAllTools": "모든 도구 허용",
-  "platformClaw.mcp.adminCliToolPolicy": "CLI에서 관리하는 도구 정책",
-  "platformClaw.mcp.adminBlockedCount": "도구 {count}개 차단",
-  "platformClaw.mcp.adminEdit": "수정",
-  "platformClaw.mcp.adminEnable": "사용",
-  "platformClaw.mcp.adminDisable": "사용 중지",
-  "platformClaw.mcp.adminCliManaged": "고급 서버 — 서버 CLI에서 수정",
-  "platformClaw.mcp.adminRemoveConfirm": "모든 사용자에게서 MCP 서버 {server}를 삭제할까요?",
-  "platformClaw.mcp.adminSaved": "MCP 서버 설정을 업데이트했습니다.",
-  "platformClaw.mcp.adminFailed": "MCP 서버 관리 요청에 실패했습니다.",
+  ...mcpTranslations,
   "platformClaw.guide.wikiHubTitle": "Wiki Hub: 개인·공유 지식",
   "platformClaw.guide.wikiHubBody":
     "개인 지식과 프로젝트 지식을 같은 화면에서 읽고 작성하고 연결하세요.",

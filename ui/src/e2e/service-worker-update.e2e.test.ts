@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   buildProductionControlUiE2e,
   canRunPlaywrightChromium,
@@ -153,96 +153,119 @@ describe("Control UI service-worker production update E2E", () => {
     if (!canRunPlaywrightChromium(chromiumExecutablePath)) {
       throw new Error(`Playwright Chromium is unavailable at ${chromiumExecutablePath}`);
     }
+    browser = await chromium.launch({ executablePath: chromiumExecutablePath });
+  }, 120_000);
+
+  beforeEach(async () => {
     outDir = await mkdtemp(path.join(os.tmpdir(), "openclaw-service-worker-update-"));
     server = await startProductionControlUiE2eServer(outDir, buildA);
-    browser = await chromium.launch({ executablePath: chromiumExecutablePath });
   }, 120_000);
 
   afterAll(async () => {
     await browser?.close();
+  });
+
+  afterEach(async () => {
     await server?.close();
     if (outDir) {
       await rm(outDir, { force: true, recursive: true });
     }
   });
 
-  it("activates the next production worker and serves its refreshed build asset", async () => {
-    if (captureUiProof) {
-      await mkdir(artifactDir, { recursive: true });
-    }
-    const context = await browser.newContext({
-      locale: "en-US",
-      serviceWorkers: "allow",
-      viewport: { height: 720, width: 1280 },
-      ...(captureUiProof
-        ? { recordVideo: { dir: artifactDir, size: { height: 720, width: 1280 } } }
-        : {}),
-    });
-    // An update keeps the incumbent script URL while installing changed bytes.
-    // The worker emits its embedded version only after clients.claim() resolves.
-    await context.addInitScript((storageKey) => {
-      navigator.serviceWorker.addEventListener("message", (event) => {
-        if (event.data?.type !== "sw-updated" || typeof event.data.version !== "string") {
-          return;
-        }
-        const stored = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]") as unknown;
-        const versions = Array.isArray(stored)
-          ? stored.filter((value): value is string => typeof value === "string")
-          : [];
-        versions.push(event.data.version);
-        sessionStorage.setItem(storageKey, JSON.stringify(versions));
-      });
-    }, workerUpdateVersionsStorageKey);
-    const page = await context.newPage();
-    const pageErrors: string[] = [];
-    page.on("pageerror", (error) => pageErrors.push(`${error.name}:${error.message}`));
-
-    try {
-      expect((await page.goto(`${server.baseUrl}chat`))?.status()).toBe(200);
-      await ensureControlledPage(page, pageErrors, buildA);
-      await expect.poll(() => readWorkerUpdateVersions(page)).toContain(buildA);
-
-      const assetA = await findBuildAsset(buildA);
-      const initialAsset = await fetchControlledAsset(page, assetA.path);
-      expect(initialAsset).toEqual({
-        controllerState: "activated",
-        sha256: assetA.sha256,
-      });
-      await expect
-        .poll(() => page.evaluate(() => caches.keys()))
-        .toContain(`openclaw-control-${buildA}`);
-
-      await buildProductionControlUiE2e(outDir, buildB);
-      const assetB = await findBuildAsset(buildB);
-      expect(assetB.path).not.toBe(assetA.path);
-      expect(assetB.sha256).not.toBe(assetA.sha256);
-
-      const reloaded = page.waitForEvent("domcontentloaded");
-      await page.evaluate(() => {
-        void navigator.serviceWorker.ready.then((registration) => registration.update());
-      });
-      await reloaded;
-      await ensureControlledPage(page, pageErrors, buildB);
-      await expect.poll(() => readWorkerUpdateVersions(page)).toContain(buildB);
-
-      await expect
-        .poll(() => page.evaluate(() => caches.keys()))
-        .toContain(`openclaw-control-${buildB}`);
-      const refreshedAsset = await fetchControlledAsset(page, assetB.path);
-      expect(refreshedAsset).toEqual({
-        controllerState: "activated",
-        sha256: assetB.sha256,
-      });
-      expect(refreshedAsset.sha256).not.toBe(initialAsset.sha256);
-
+  it.each(["requested update", "update before explicit request"] as const)(
+    "activates the next production worker and serves its refreshed build asset (%s)",
+    async (updateTiming) => {
       if (captureUiProof) {
-        await page.screenshot({
-          animations: "disabled",
-          path: path.join(artifactDir, "updated-worker-controlled-page.png"),
-        });
+        await mkdir(artifactDir, { recursive: true });
       }
-    } finally {
-      await context.close();
-    }
-  }, 120_000);
+      const context = await browser.newContext({
+        locale: "en-US",
+        serviceWorkers: "allow",
+        viewport: { height: 720, width: 1280 },
+        ...(captureUiProof
+          ? { recordVideo: { dir: artifactDir, size: { height: 720, width: 1280 } } }
+          : {}),
+      });
+      // An update keeps the incumbent script URL while installing changed bytes.
+      // The worker emits its embedded version only after clients.claim() resolves.
+      await context.addInitScript((storageKey) => {
+        navigator.serviceWorker.addEventListener("message", (event) => {
+          if (event.data?.type !== "sw-updated" || typeof event.data.version !== "string") {
+            return;
+          }
+          const stored = JSON.parse(sessionStorage.getItem(storageKey) ?? "[]") as unknown;
+          const versions = Array.isArray(stored)
+            ? stored.filter((value): value is string => typeof value === "string")
+            : [];
+          versions.push(event.data.version);
+          sessionStorage.setItem(storageKey, JSON.stringify(versions));
+        });
+      }, workerUpdateVersionsStorageKey);
+      const page = await context.newPage();
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(`${error.name}:${error.message}`));
+
+      try {
+        expect((await page.goto(`${server.baseUrl}chat`))?.status()).toBe(200);
+        await ensureControlledPage(page, pageErrors, buildA);
+        await expect.poll(() => readWorkerUpdateVersions(page)).toContain(buildA);
+
+        const assetA = await findBuildAsset(buildA);
+        const initialAsset = await fetchControlledAsset(page, assetA.path);
+        expect(initialAsset).toEqual({
+          controllerState: "activated",
+          sha256: assetA.sha256,
+        });
+        await expect
+          .poll(() => page.evaluate(() => caches.keys()))
+          .toContain(`openclaw-control-${buildA}`);
+
+        // Publishing B can trigger a browser update before the explicit request.
+        // Record reload first; start its timeout after the synchronous build finishes.
+        let updateReloaded = false;
+        page.once("domcontentloaded", () => {
+          updateReloaded = true;
+        });
+        await buildProductionControlUiE2e(outDir, buildB);
+        const assetB = await findBuildAsset(buildB);
+        expect(assetB.path).not.toBe(assetA.path);
+        expect(assetB.sha256).not.toBe(assetA.sha256);
+
+        if (updateTiming === "update before explicit request") {
+          await page.evaluate(() => {
+            void navigator.serviceWorker.ready.then((registration) => registration.update());
+          });
+          await expect.poll(() => updateReloaded, { timeout: 30_000 }).toBe(true);
+          await ensureControlledPage(page, pageErrors, buildB);
+          await expect.poll(() => readWorkerUpdateVersions(page)).toContain(buildB);
+        }
+        await page.evaluate(() => {
+          void navigator.serviceWorker.ready.then((registration) => registration.update());
+        });
+        await expect.poll(() => updateReloaded, { timeout: 30_000 }).toBe(true);
+        await ensureControlledPage(page, pageErrors, buildB);
+        await expect.poll(() => readWorkerUpdateVersions(page)).toContain(buildB);
+
+        await expect
+          .poll(() => page.evaluate(() => caches.keys()))
+          .toContain(`openclaw-control-${buildB}`);
+        const refreshedAsset = await fetchControlledAsset(page, assetB.path);
+        expect(refreshedAsset).toEqual({
+          controllerState: "activated",
+          sha256: assetB.sha256,
+        });
+        expect(refreshedAsset.sha256).not.toBe(initialAsset.sha256);
+
+        if (captureUiProof) {
+          await page.screenshot({
+            animations: "disabled",
+            path: path.join(artifactDir, "updated-worker-controlled-page.png"),
+          });
+        }
+      } finally {
+        await context.close();
+      }
+    },
+    120_000,
+  );
 });

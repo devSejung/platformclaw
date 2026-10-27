@@ -10,12 +10,22 @@ function harness() {
           servers: [
             {
               serverName: "docs",
+              credentialMode: "personal",
+              enabled: true,
+              configuredOAuth: false,
+              commonHeaderNames: [],
+              headerGuides: [],
               auth: "api_key",
               headerName: "X-Approved-Key",
               url: "https://mcp.example.test/docs",
             },
             {
               serverName: "oauth",
+              credentialMode: "personal",
+              enabled: true,
+              configuredOAuth: false,
+              commonHeaderNames: [],
+              headerGuides: [],
               auth: "oauth",
               url: "https://mcp.example.test/oauth",
               scope: "read",
@@ -37,6 +47,8 @@ function harness() {
       updatedAt: 1,
     })),
     listUserMcpCredentials: vi.fn(async () => []),
+    getActivePersonalMcpOwner: vi.fn(async () => "user-one"),
+    getActiveCommonMcpAgent: vi.fn(async () => false),
     deleteUserMcpCredential: vi.fn(async () => true),
   };
   const vault = {
@@ -50,6 +62,8 @@ function harness() {
     })),
     readPayload: vi.fn(async () => null),
     readForUser: vi.fn(async () => null),
+    readStatusForUser: vi.fn(async () => null),
+    readSettingsForUser: vi.fn(async () => null),
     readForAgent: vi.fn(async () => null),
     resolveForAgent: vi.fn(async () => null),
   };
@@ -136,36 +150,37 @@ describe("EmployeeMcpService", () => {
   });
 
   it("does not show stale or undecryptable credentials as connected", async () => {
-    const { service, store, vault } = harness();
-    store.listUserMcpCredentials.mockResolvedValue([
-      {
-        userId: "user-one",
-        serverName: "docs",
-        kind: "api_key",
-        revision: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      },
-      {
-        userId: "user-one",
-        serverName: "oauth",
-        kind: "oauth",
-        revision: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    ] as never);
-    vault.readForUser.mockRejectedValueOnce(new Error("decryption failed")).mockResolvedValueOnce({
-      userId: "user-one",
-      serverName: "oauth",
-      revision: 1,
-      payload: {
-        kind: "oauth",
-        serverUrl: "https://mcp.example.test/oauth",
-        scope: "write",
-        tokens: { access_token: "old-token", token_type: "Bearer" },
-      },
-    } as never);
+    const { service, vault } = harness();
+    vault.readStatusForUser
+      .mockResolvedValueOnce({
+        metadata: {
+          userId: "user-one",
+          serverName: "docs",
+          kind: "api_key",
+          revision: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        fingerprint: "opaque-retained-credential",
+        payload: null,
+      } as never)
+      .mockResolvedValueOnce({
+        metadata: {
+          userId: "user-one",
+          serverName: "oauth",
+          kind: "oauth",
+          revision: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        fingerprint: "opaque-stale-credential",
+        payload: {
+          kind: "oauth",
+          serverUrl: "https://mcp.example.test/oauth",
+          scope: "write",
+          tokens: { access_token: "old-token", token_type: "Bearer" },
+        },
+      } as never);
 
     await expect(service.getSettings("user-one")).resolves.toEqual({
       servers: [

@@ -3,6 +3,7 @@ import {
   isReplyPayloadStatusNotice,
   type ReplyPayload,
 } from "../../auto-reply/reply-payload.js";
+import { withAgentMediaContext } from "../../media/agent-media-context.js";
 import {
   appendLocalMediaParentRoots,
   getAgentScopedMediaLocalRoots,
@@ -65,6 +66,14 @@ export async function finalizeChatSendSourceReplies(params: {
     "agentId" | "backingSessionId" | "cfg" | "clientRunId" | "sessionKey" | "sessionLoadOptions"
   >;
 }): Promise<boolean> {
+  return withAgentMediaContext(params.session.agentId, () =>
+    finalizeOwnedChatSendSourceReplies(params),
+  );
+}
+
+async function finalizeOwnedChatSendSourceReplies(
+  params: Parameters<typeof finalizeChatSendSourceReplies>[0],
+): Promise<boolean> {
   const {
     accountId,
     context,
@@ -81,6 +90,14 @@ export async function finalizeChatSendSourceReplies(params: {
   if (agentRunReplyPayloads.length === 0) {
     return false;
   }
+  const assertMediaAuthority = async () => {
+    for (const payload of agentRunReplyPayloads) {
+      await getReplyPayloadMetadata(payload)?.mediaPublishAuthority?.();
+    }
+  };
+  // Source mirrors bypass normal reply dispatch. Keep their producer's
+  // authority across asynchronous preparation and recheck before persistence.
+  await assertMediaAuthority();
 
   const hasSourceReplyTranscriptMirror = agentRunReplyPayloads.some(
     isSourceReplyTranscriptMirrorPayload,
@@ -92,6 +109,7 @@ export async function finalizeChatSendSourceReplies(params: {
     accountId,
     payloads: agentRunReplyPayloads,
   });
+  await assertMediaAuthority();
   const { storePath: latestStorePath, entry: latestEntry } = loadSessionEntry(
     sessionKey,
     sessionLoadOptions,
@@ -163,6 +181,7 @@ export async function finalizeChatSendSourceReplies(params: {
     }
   }
 
+  await assertMediaAuthority();
   const displayReply =
     extractAssistantDisplayTextFromContent(sourceReplyBroadcastContent) ??
     buildTranscriptReplyText(finalPayloads);
@@ -242,10 +261,12 @@ export async function finalizeChatSendSourceReplies(params: {
     agentId,
   });
   if (sourceReplyScope && sourceReplyPersistenceRequests.length > 0) {
+    await assertMediaAuthority();
     const rewritten = await rewriteSourceReplyTranscriptMirrors({
       candidates: sourceReplyMirrorCandidates,
       requests: sourceReplyPersistenceRequests,
       scope: sourceReplyScope,
+      beforeRewrite: assertMediaAuthority,
     });
     if (rewritten.length > 0) {
       await publishAssistantTranscriptRewrite({

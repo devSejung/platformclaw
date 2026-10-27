@@ -33,6 +33,8 @@ export type SandboxBackendCommandParams = {
   stdin?: Buffer | string;
   allowFailure?: boolean;
   signal?: AbortSignal;
+  /** Bounds buffered transport output for operations with a smaller product limit. */
+  maxBufferBytes?: number;
 };
 
 /** Buffered command result returned by sandbox backend shell helpers. */
@@ -70,6 +72,8 @@ export type SandboxFsBridgeContext = {
   workspaceAccess: "none" | "ro" | "rw";
   containerName: string;
   containerWorkdir: string;
+  /** Runtime-only roots whose entries must belong to the executing OS account. */
+  accountOwnedRoots?: readonly string[];
   docker: {
     binds?: string[];
   };
@@ -106,12 +110,18 @@ export type SandboxBackendHandle = {
    * Embedded runs deliver it as hidden runtime context, never user-authored text.
    */
   runtimePromptContext?: string;
+  /** Owner-held authority check for operations on this pinned execution target. */
+  assertCurrentAuthority?: () => Promise<void>;
   /** Mutable Workshop target pinned to the same execution target as this handle. */
   skillWorkshopTarget?: SkillWorkshopTargetAccess | { kind: "workspace" };
   capabilities?: {
     browser?: boolean;
     /** Active project files live outside the canonical Gateway Agent workspace. */
     separateAgentWorkspace?: boolean;
+    /** Supports descriptor-guarded outbound files and an account-owned private temp directory. */
+    outboundFiles?: boolean;
+    /** Exposes account-owned /tmp entries through ordinary filesystem tools. */
+    temporaryFiles?: boolean;
   };
   buildExecSpec(params: {
     command: string;

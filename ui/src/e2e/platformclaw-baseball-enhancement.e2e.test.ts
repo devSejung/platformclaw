@@ -379,6 +379,37 @@ describeE2e("enhancement workshop in notebook Chrome with synthetic server recei
     }
     await firstGateway.setMethodResponse(BASEBALL_RPC.progress, maintained);
     await secondGateway.setMethodResponse(BASEBALL_RPC.progress, maintained);
+    // Observe before releasing receipts: a loaded runner can sample the DOM after
+    // the two-second taunt disappears. Count actual additions across both tabs,
+    // including duplicates that never overlap. Closing the context owns cleanup.
+    const tauntObservations = await Promise.all(
+      [first, second].map((page) =>
+        page.evaluateHandle(() => {
+          const observations = { count: 0 };
+          const seen = new WeakSet<Element>();
+          new MutationObserver((records) => {
+            for (const record of records) {
+              for (const node of record.addedNodes) {
+                if (!(node instanceof Element)) {
+                  continue;
+                }
+                for (const element of [node, ...node.querySelectorAll("[data-forge-taunt]")]) {
+                  if (element.matches("[data-forge-taunt]") && !seen.has(element)) {
+                    seen.add(element);
+                    observations.count += 1;
+                  }
+                }
+              }
+            }
+          }).observe(document, { childList: true, subtree: true });
+          return observations;
+        }),
+      ),
+    );
+    const tauntCount = async () =>
+      (
+        await Promise.all(tauntObservations.map((handle) => handle.evaluate(({ count }) => count)))
+      ).reduce((total, count) => total + count, 0);
     await Promise.all([
       firstGateway.resolveDeferred(BASEBALL_RPC.enhanceBat),
       secondGateway.resolveDeferred(BASEBALL_RPC.enhanceBat),
@@ -397,15 +428,9 @@ describeE2e("enhancement workshop in notebook Chrome with synthetic server recei
         )
         .toBe("synthetic-queue-b");
     }
-    await expect
-      .poll(
-        async () =>
-          (await first.locator("[data-forge-taunt]").count()) +
-          (await second.locator("[data-forge-taunt]").count()),
-      )
-      .toBe(1);
+    await expect.poll(tauntCount).toBe(1);
     await capture(
-      (await first.locator("[data-forge-taunt]").count()) ? first : second,
+      (await tauntObservations[0]!.evaluate(({ count }) => count)) ? first : second,
       "20-two-tabs-one-taunt-pending-queue",
     );
     const confirmed = progress(1, { gold: 49_800, revision: 32 });
@@ -435,6 +460,8 @@ describeE2e("enhancement workshop in notebook Chrome with synthetic server recei
         .poll(() => page.locator(".platformclaw-baseball-forge").textContent())
         .toContain("골드 49,800G");
     }
+    expect(await tauntCount()).toBe(1);
+    await Promise.all(tauntObservations.map((handle) => handle.dispose()));
   });
 
   it("shows normal destruction and paid restore without changing saved records", async () => {

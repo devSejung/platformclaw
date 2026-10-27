@@ -286,6 +286,55 @@ describe("artifacts RPC handlers", () => {
     expectFields(expectFirstArtifact(calls), { sessionKey: "agent:work:main" });
   });
 
+  it("lists and downloads nested managed document attachments as file artifacts", async () => {
+    const id = "artifact_managed_media_11111111-1111-4111-8111-111111111111";
+    const url =
+      "/api/chat/media/outgoing/agent%3Amain%3Amain/11111111-1111-4111-8111-111111111111/full";
+    mockedMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "attachment",
+            attachment: {
+              kind: "document",
+              label: "report.pdf",
+              artifactId: id,
+              url,
+              mimeType: "application/pdf",
+              sizeBytes: 25,
+            },
+          },
+        ],
+        __openclaw: { seq: 3 },
+      },
+    ]);
+    const listed = await listArtifacts({ sessionKey: "agent:main:main" });
+    expectFields(expectFirstArtifact(listed.calls), {
+      id,
+      type: "file",
+      title: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 25,
+    });
+    hoisted.resolveManagedArtifactDownload.mockResolvedValue({
+      artifactId: id,
+      sessionKey: "agent:main:main",
+      type: "file",
+      title: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 25,
+      url: `${url}?mediaTicket=ticket`,
+      expiresAt: "2026-10-24T10:00:00.000Z",
+    });
+    const downloaded = await downloadArtifact({ sessionKey: "agent:main:main", artifactId: id });
+    expect(downloaded.calls[0]?.ok).toBe(true);
+    expect(downloaded.calls[0]?.payload).toMatchObject({
+      artifact: { id, type: "file", title: "report.pdf" },
+      url: `${url}?mediaTicket=ticket`,
+    });
+  });
+
   it("canonicalizes scoped sessionKey aliases with runtime config", async () => {
     const { calls } = await listArtifacts(
       { sessionKey: "main", agentId: "work" },

@@ -229,6 +229,7 @@ describe("dead config keys", () => {
           },
         },
       },
+      "allowInsecurePath",
     ],
     [
       "exec provider symlink bypass",
@@ -243,16 +244,10 @@ describe("dead config keys", () => {
           },
         },
       },
+      "allowSymlinkCommand",
     ],
-  ] as const)("rejects retired secret provider %s", (_name, config) => {
-    const result = validateConfigObjectRaw(config, { validateBundledChannels: true });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.issues).toContainEqual({
-        path: "secrets.providers.legacy",
-        message: "Invalid input",
-      });
-    }
+  ] as const)("rejects retired secret provider %s", (_name, config, key) => {
+    expectUnknownKey({ config, path: "secrets.providers.legacy", key });
   });
 
   it.each([

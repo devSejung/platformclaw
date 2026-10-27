@@ -31,7 +31,7 @@ function setup(
     ),
   };
   const confirmPrompt = vi.fn(() => true);
-  const dispatchPrompt = vi.fn(() => true);
+  const dispatchPrompt = vi.fn(async () => true);
   const controller = new BoardWidgetBridgeController({
     frame: document.createElement("iframe"),
     ticket: "ticket",

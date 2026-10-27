@@ -18,6 +18,8 @@ import * as videoGenerationRuntime from "../../video-generation/runtime.js";
 import type { AuthProfileStore } from "../auth-profiles/types.js";
 import { formatAgentInternalEventsForPrompt } from "../internal-events.js";
 import { resetRecentMediaGenerationDuplicateGuardsForTests } from "../media-generation-task-status-shared.test-support.js";
+import type { PreparedModelRuntimeSnapshot } from "../prepared-model-runtime.js";
+import * as capabilityAvailability from "./manifest-capability-availability.js";
 import { canonicalizeMediaGenerationTestConfig } from "./media-generation-config.test-support.js";
 import * as videoGenerateBackground from "./video-generate-background.js";
 import { createVideoGenerateTool as createVideoGenerateToolImpl } from "./video-generate-tool.js";
@@ -239,6 +241,26 @@ function createVideoProviderSnapshot(params: {
       totalMs: 0,
       indexPluginCount: 1,
       manifestPluginCount: 1,
+    },
+  };
+}
+
+function createPreparedVideoRuntime(
+  config: OpenClawConfig,
+  metadataSnapshot: PluginMetadataSnapshot,
+): PreparedModelRuntimeSnapshot {
+  return {
+    agentDir: "/tmp/video-tool-agent",
+    workspaceDir: metadataSnapshot.workspaceDir,
+    activeProjectKeys: [],
+    config,
+    metadataSnapshot,
+    allowGatewaySubagentBinding: false,
+    modelCatalog: { entries: [], routeVariants: [] },
+    configuredRuntimeModels: [],
+    inlineProviderModels: [],
+    createStores: () => {
+      throw new Error("schema construction must not create model stores");
     },
   };
 }
@@ -504,6 +526,89 @@ describe("createVideoGenerateTool", () => {
     expect(properties.audioRefs).toBeUndefined();
     expect(properties.audioRoles).toBeUndefined();
   });
+
+  it.each([false, true])(
+    "reuses prepared audio schema metadata (%s) with equivalent output",
+    (referenceAudioInputs) => {
+      const config: OpenClawConfig = {
+        agents: { defaults: { mediaModels: { video: { primary: "fixture/vid-v1" } } } },
+      };
+      const workspaceDir = "/workspace/video";
+      const metadataSnapshot = createVideoProviderSnapshot({
+        config,
+        id: "fixture",
+        origin: "bundled",
+        referenceAudioInputs,
+        workspaceDir,
+      });
+      setCurrentPluginMetadataSnapshot(metadataSnapshot, { config, workspaceDir });
+      const expected = toolParameterProperties(createVideoGenerateTool({ config, workspaceDir }));
+      setCurrentPluginMetadataSnapshot(
+        createVideoProviderSnapshot({
+          config,
+          id: "fixture",
+          origin: "bundled",
+          referenceAudioInputs: !referenceAudioInputs,
+          workspaceDir,
+        }),
+        { config, workspaceDir },
+      );
+      const loadMetadata = vi.spyOn(capabilityAvailability, "loadCapabilityMetadataSnapshot");
+
+      const actual = toolParameterProperties(
+        createVideoGenerateTool({
+          config,
+          workspaceDir,
+          preparedModelRuntime: createPreparedVideoRuntime(config, metadataSnapshot),
+        }),
+      );
+
+      expect(actual).toEqual(expected);
+      expect(Boolean(actual.audioRef)).toBe(referenceAudioInputs);
+      expect(loadMetadata).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["workspace", "policy", "subset"] as const)(
+    "rejects prepared schema metadata with a different %s",
+    (mismatch) => {
+      const config: OpenClawConfig = {
+        agents: { defaults: { mediaModels: { video: { primary: "fixture/vid-v1" } } } },
+      };
+      const workspaceDir = "/workspace/video";
+      setCurrentPluginMetadataSnapshot(
+        createVideoProviderSnapshot({
+          config,
+          id: "fixture",
+          origin: "bundled",
+          referenceAudioInputs: false,
+          workspaceDir,
+        }),
+        { config, workspaceDir },
+      );
+      const metadataSnapshot = createVideoProviderSnapshot({
+        config: mismatch === "policy" ? { plugins: { allow: ["other"] } } : config,
+        id: "fixture",
+        origin: "bundled",
+        referenceAudioInputs: true,
+        workspaceDir: mismatch === "workspace" ? "/workspace/other" : workspaceDir,
+      });
+      if (mismatch === "subset") {
+        metadataSnapshot.pluginIds = ["fixture"];
+      }
+
+      const properties = toolParameterProperties(
+        createVideoGenerateTool({
+          config,
+          workspaceDir,
+          preparedModelRuntime: createPreparedVideoRuntime(config, metadataSnapshot),
+        }),
+      );
+
+      expect(properties.audioRef).toBeUndefined();
+      expect(properties.audioRefs).toBeUndefined();
+    },
+  );
 
   it("exposes reference-audio params for configured audio-capable model overrides", () => {
     vi.stubEnv("FAL_KEY", "test-fal-key");

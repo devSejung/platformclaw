@@ -172,15 +172,6 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
           isError: true,
         };
       }
-      if (error.details?.code === "skill-hub-publish-namespace-required") {
-        return {
-          text:
-            locale === "ko"
-              ? "게시 가능한 전사 공용 대상이 없습니다. /skillhub publish namespace/slug로 권한이 있는 게시 대상을 지정해 주세요."
-              : error.message,
-          isError: true,
-        };
-      }
       if (error.details?.code === "legacy-list-category") {
         return {
           text:
@@ -415,13 +406,6 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
         separator < 0
           ? (await this.config(actor)).defaultNamespace
           : this.authorizeNamespace(reference.slice(0, separator));
-      if (!namespace) {
-        throw new SkillHubServiceError(
-          "no authorized Global publishing namespace is available; specify namespace/slug",
-          403,
-          { code: "skill-hub-publish-namespace-required" },
-        );
-      }
       const execution = await this.resolveExecutionTarget(actor.agentId);
       const workspace = await this.workspaceSkills(actor, execution.activeTarget);
       const skill = workspace.items.find((item) => item.skillKey === slug);

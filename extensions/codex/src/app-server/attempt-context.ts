@@ -519,17 +519,19 @@ function readNonEmptyString(value: unknown): string | undefined {
  */
 export function buildCodexOpenClawPromptContext(params: {
   params: EmbeddedRunAttemptParams;
+  runtimePromptContext?: string;
   workspacePromptContext?: string;
   watchedSessionsContext?: string;
 }): string | undefined {
-  if (!shouldInjectCodexOpenClawPromptContext(params.params)) {
-    return undefined;
-  }
+  const includeWorkspaceContext = shouldInjectCodexOpenClawPromptContext(params.params);
   const sections = [
-    params.workspacePromptContext?.trim()
+    // Backend facts describe this execution, including exact-command cron runs.
+    // Never replace them with location hints retained in a reused thread's history.
+    params.runtimePromptContext?.trim() || undefined,
+    includeWorkspaceContext && params.workspacePromptContext?.trim()
       ? ["## OpenClaw Workspace Context", "", params.workspacePromptContext.trim()].join("\n")
       : undefined,
-    params.watchedSessionsContext?.trim() || undefined,
+    includeWorkspaceContext ? params.watchedSessionsContext?.trim() || undefined : undefined,
   ].filter(isNonEmptyString);
   if (sections.length === 0) {
     return undefined;

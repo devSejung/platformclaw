@@ -44,10 +44,11 @@ export function buildComfyMusicGenerationProvider(): MusicGenerationProvider {
     label: "ComfyUI",
     defaultModel: DEFAULT_COMFY_MODEL,
     models: [DEFAULT_COMFY_MODEL],
-    isConfigured: ({ cfg, agentDir }) =>
+    isConfigured: ({ cfg, agentDir, workspaceDir }) =>
       isComfyCapabilityConfigured({
         cfg,
         agentDir,
+        workspaceDir,
         capability: "music",
       }),
     capabilities: {

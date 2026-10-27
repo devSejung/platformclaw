@@ -1,24 +1,32 @@
 // PlatformClaw Canvas E2E crosses client capability gating, show_widget, Gateway hosting, and BFF relay.
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { PlatformClawBrowserCanvasRelay } from "../../../packages/platformclaw-control-plane/src/browser-canvas-http.js";
 import { PlatformClawBrowserMediaRelay } from "../../../packages/platformclaw-control-plane/src/browser-media-http.js";
 import { filterToolsByPolicy } from "../../../src/agents/agent-tools.policy.js";
 import { createOpenClawTools } from "../../../src/agents/openclaw-tools.js";
+import { createSandboxFsBridge } from "../../../src/agents/sandbox/fs-bridge.js";
 import { createSandboxFsBridgeFromResolver } from "../../../src/agents/test-helpers/host-sandbox-fs-bridge.js";
 import { expandToolGroups } from "../../../src/agents/tool-policy-shared.js";
 import { resolveCanvasNodeCapability } from "../../../src/canvas/constants.js";
+import { replaceSessionEntry } from "../../../src/config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../../../src/config/types.openclaw.js";
 import type { ResolvedGatewayAuth } from "../../../src/gateway/auth.js";
+import {
+  attachManagedOutgoingMediaToMessage,
+  resolveManagedOutgoingMediaArtifactDownload,
+} from "../../../src/gateway/managed-image-attachments.js";
 import { createGatewayHttpServer } from "../../../src/gateway/server-http.js";
-import { replaceAssistantContentTextBlocks } from "../../../src/gateway/server-methods/chat-assistant-content.js";
-import { buildWebchatAssistantMessageFromReplyPayloads } from "../../../src/gateway/server-methods/chat-webchat-media.js";
+import { buildAssistantDisplayContentFromReplyPayloads } from "../../../src/gateway/server-methods/chat-assistant-content.js";
+import { normalizeWebchatReplyMediaPathsForDisplay } from "../../../src/gateway/server-methods/chat-reply-media.js";
+import { appendAssistantTranscriptMessage } from "../../../src/gateway/server-methods/chat-transcript-persistence.js";
 import type { GatewayWsClient } from "../../../src/gateway/server/ws-types.js";
+import { withAgentMediaContext } from "../../../src/media/agent-media-context.js";
 import { withEnvAsync } from "../../../src/test-utils/env.js";
+import { createOpenClawTestState } from "../../../src/test-utils/openclaw-test-state.js";
 import {
   canRunPlaywrightChromium,
   installMockGateway,
@@ -26,12 +34,18 @@ import {
   startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
+import {
+  canvasPromptProbeMarkup,
+  exerciseCanvasPromptDelivery,
+} from "./platformclaw-canvas.test-support.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
 const allowMissingChromium = process.env.OPENCLAW_UI_E2E_ALLOW_MISSING_CHROMIUM === "1";
 const describeControlUiE2e = chromiumAvailable || !allowMissingChromium ? describe : describe.skip;
-const proofDir = path.resolve(process.cwd(), ".artifacts/control-ui-e2e/platformclaw-canvas");
+const proofDir = path.resolve(
+  process.env.OPENCLAW_UI_E2E_ARTIFACT_DIR ?? ".artifacts/control-ui-e2e/platformclaw-canvas",
+);
 const agentId = "assigned-personal";
 const sessionKey = `agent:${agentId}:main`;
 const gatewayToken = "platformclaw-canvas-e2e-token";
@@ -89,11 +103,25 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
   ] as const)(
     "renders show_widget through the BFF on $label",
     async ({ label, target, locale }) => {
-      const stateDir = await mkdtemp(path.join(tmpdir(), "platformclaw-canvas-e2e-"));
+      const state = await createOpenClawTestState({ prefix: "platformclaw-canvas-e2e-" });
+      const stateDir = state.stateDir;
+      onTestFinished(() => state.cleanup());
       await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
         const generatedWorkspace = path.join(stateDir, "workspace");
         const generatedDocumentSource = path.join(generatedWorkspace, generatedDocumentName);
         await mkdir(generatedWorkspace, { recursive: true });
+        const basicBridge = createSandboxFsBridge({
+          sandbox: {
+            workspaceDir: generatedWorkspace,
+            agentWorkspaceDir: generatedWorkspace,
+            workspaceAccess: "rw",
+            containerName: "canvas-e2e-unused",
+            containerWorkdir: "/workspace",
+            docker: {},
+          },
+        });
+        // Local mapping covers the assigned-VM bridge contract. A separate
+        // real SSH fixture proves remote execution without an operator VM.
         const assignedVmBridge = createSandboxFsBridgeFromResolver((filePath, cwd) => {
           const remoteCwd = cwd?.startsWith("/workspace") ? cwd : "/workspace";
           const containerPath = path.posix.resolve(remoteCwd, filePath);
@@ -108,12 +136,13 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           };
         });
         const config: OpenClawConfig = {
-          agents: { entries: { [agentId]: { default: true } } },
+          agents: { entries: { [agentId]: { default: true, workspace: generatedWorkspace } } },
           plugins: {
             entries: { canvas: { enabled: false, config: { host: { enabled: true } } } },
           },
           tools: { deny: ["group:nodes"] },
         };
+        await state.writeConfig(config);
         const tools = filterToolsByPolicy(
           createOpenClawTools({
             agentSessionKey: sessionKey,
@@ -125,9 +154,8 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             sessionId: `${target}-session`,
             wrapBeforeToolCallHook: false,
             workspaceDir: generatedWorkspace,
-            ...(target === "assigned_vm"
-              ? { sandboxRoot: "/workspace", sandboxFsBridge: assignedVmBridge }
-              : {}),
+            sandboxRoot: target === "assigned_vm" ? "/workspace" : generatedWorkspace,
+            sandboxFsBridge: target === "assigned_vm" ? assignedVmBridge : basicBridge,
           }),
           { deny: expandToolGroups(config.tools?.deny) },
         );
@@ -150,6 +178,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         ).rejects.toThrow("widget_code required");
         const widgetCode = [
           `<main data-proof-target="${target}"><h1>${label}</h1><p>Gateway-owned widget</p>`,
+          canvasPromptProbeMarkup(),
           '<img data-proof-relative-image src="pixel.png" alt="Workspace image">',
           `<img data-proof-image src="data:image/png;base64,${inlineImageBase64}" alt="Inline image">`,
           '<img data-proof-blob-image alt="Blob image">',
@@ -170,10 +199,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         const toolResult = await showWidget.execute(`show-widget-${target}`, {
           title: `${label} widget`,
           widget_code: await readFile(generatedDocumentSource, "utf8"),
-          widget_path:
-            target === "assigned_vm"
-              ? `/workspace/${generatedDocumentName}`
-              : generatedDocumentSource,
+          widget_path: `/workspace/${generatedDocumentName}`,
         });
         const details = toolResult.details as {
           view?: { url?: string };
@@ -182,23 +208,62 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         if (!documentPath) {
           throw new Error("show_widget did not return a document URL");
         }
-        const generatedAssistantMessage = await buildWebchatAssistantMessageFromReplyPayloads(
-          [
+        const normalized = await normalizeWebchatReplyMediaPathsForDisplay({
+          cfg: config,
+          agentId,
+          sessionKey,
+          payloads: [
             {
               text: "Generated HTML document",
               mediaUrl: generatedDocumentSource,
               trustedLocalMedia: true,
             },
           ],
-          { localRoots: [generatedWorkspace] },
+        });
+        const persistedAssistantContent = await withAgentMediaContext(agentId, () =>
+          buildAssistantDisplayContentFromReplyPayloads({
+            agentId,
+            sessionKey,
+            payloads: normalized,
+            managedMediaLocalRoots: [generatedWorkspace],
+          }),
         );
-        if (!generatedAssistantMessage) {
-          throw new Error("trusted generated HTML did not produce assistant attachment content");
+        const attachmentBlock = persistedAssistantContent?.find(
+          (block) => block.type === "attachment",
+        );
+        const attachment = attachmentBlock?.attachment as { artifactId?: string } | undefined;
+        if (!persistedAssistantContent || !attachment?.artifactId) {
+          throw new Error("generated HTML did not produce a managed artifact");
         }
-        const persistedAssistantContent = replaceAssistantContentTextBlocks(
-          [{ type: "text", text: "Generated HTML document" }],
-          generatedAssistantMessage,
-        );
+        const sessionId = `${target}-session`;
+        const storePath = path.join(state.sessionsDir(agentId), "sessions.json");
+        await replaceSessionEntry({ agentId, sessionKey, storePath }, { sessionId, updatedAt: 1 });
+        const appended = await appendAssistantTranscriptMessage({
+          agentId,
+          sessionKey,
+          sessionId,
+          storePath,
+          cfg: config,
+          createIfMissing: true,
+          message: "Generated HTML document",
+          content: persistedAssistantContent,
+        });
+        if (!appended.ok || !appended.messageId) {
+          throw new Error("generated HTML transcript was not persisted");
+        }
+        await attachManagedOutgoingMediaToMessage({
+          messageId: appended.messageId,
+          blocks: persistedAssistantContent,
+        });
+        const managedDownload = await resolveManagedOutgoingMediaArtifactDownload({
+          agentId,
+          sessionKey,
+          artifactId: attachment.artifactId,
+        });
+        if (!managedDownload) {
+          throw new Error("generated HTML artifact has no authenticated download");
+        }
+        await unlink(generatedDocumentSource);
 
         const gateway = createGatewayHttpServer({
           clients: new Set<GatewayWsClient>(),
@@ -269,23 +334,23 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
               typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
             );
             mediaRequests.push(url);
+            if (url.pathname.startsWith("/api/chat/media/outgoing/")) {
+              return fetch(input, init);
+            }
             const source = url.searchParams.get("source");
-            expect([attachmentSource, generatedDocumentSource]).toContain(source);
+            expect(source).toBe(attachmentSource);
             expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${gatewayToken}`);
             expect(new Headers(init?.headers).get("x-openclaw-agent-id")).toBe(agentId);
-            const generated = source === generatedDocumentSource;
-            const fileName = generated ? generatedDocumentName : attachmentName;
-            const mimeType = generated ? "text/html" : "application/pdf";
             return url.searchParams.get("meta") === "1"
               ? Response.json({
                   available: true,
-                  mimeType,
+                  mimeType: "application/pdf",
                   mediaTicket: "upstream-ticket-must-not-escape",
                 })
-              : new Response(generated ? widgetCode : "%PDF-1.4\nowned attachment", {
+              : new Response("%PDF-1.4\nowned attachment", {
                   headers: {
-                    "Content-Disposition": `attachment; filename="document"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-                    "Content-Type": mimeType,
+                    "Content-Disposition": `attachment; filename="document"; filename*=UTF-8''${encodeURIComponent(attachmentName)}`,
+                    "Content-Type": "application/pdf",
                   },
                 });
           },
@@ -312,7 +377,19 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         const surface = relay.issueSurface({ binding: { agentId } });
         canvasNow = surface.expiresAtMs + 1;
         const refreshedSurface = relay.issueSurface({ binding: { agentId } });
-        const context = await browser.newContext({ locale, acceptDownloads: true });
+        const context = await browser.newContext({
+          locale,
+          acceptDownloads: true,
+          viewport: { width: 1280, height: 900 },
+          ...(process.env.OPENCLAW_CAPTURE_UI_PROOF === "1"
+            ? {
+                recordVideo: {
+                  dir: path.join(proofDir, target),
+                  size: { width: 1280, height: 900 },
+                },
+              }
+            : {}),
+        });
         try {
           await context.addCookies([
             { name: "platformclaw_session", value: "browser-token", url: bffOrigin },
@@ -331,11 +408,33 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             assistantAgentId: agentId,
             defaultAgentId: agentId,
             deferredMethods: ["plugin.surface.refresh"],
-            featureMethods: ["chat.metadata", "chat.startup", "plugin.surface.refresh"],
+            featureMethods: [
+              "chat.metadata",
+              "chat.startup",
+              "chat.send",
+              "sessions.describe",
+              "sessions.list",
+              "plugin.surface.refresh",
+            ],
             historyMessages,
-            methodResponses: { "plugin.surface.refresh": refreshedSurface },
+            methodResponses: {
+              "plugin.surface.refresh": refreshedSurface,
+              "artifacts.download": {
+                artifact: {
+                  id: attachment.artifactId,
+                  type: "file",
+                  title: managedDownload.title,
+                  mimeType: managedDownload.mimeType,
+                  download: { mode: "url" },
+                },
+                url: `${bffOrigin}${managedDownload.url}`,
+                expiresAt: managedDownload.expiresAt,
+              },
+            },
             pluginSurfaceUrls: surface.pluginSurfaceUrls,
             sessionKey,
+            // Retry reconciles against the idle-run metadata real history includes.
+            sessionInfo: { key: sessionKey, hasActiveRun: false, activeRunIds: [], status: "done" },
           });
           await page.goto(`${controlUi.baseUrl}chat`);
           await expect
@@ -446,7 +545,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             (request) => request.searchParams.get("meta") === "1",
           );
           expect(metadataRequests.map((request) => request.searchParams.get("source"))).toEqual(
-            expect.arrayContaining([attachmentSource, generatedDocumentSource]),
+            expect.arrayContaining([attachmentSource]),
           );
           for (const request of metadataRequests) {
             expect(request.searchParams.get("sessionKey")).toBe(sessionKey);
@@ -457,14 +556,20 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           ]) {
             const [download] = await Promise.all([page.waitForEvent("download"), document.click()]);
             expect(download.suggestedFilename()).toBe(fileName);
+            const saved = await download.path();
+            if (!saved) {
+              throw new Error("document download did not complete");
+            }
+            expect(await readFile(saved, "utf8")).toBe(
+              fileName === generatedDocumentName ? widgetCode : "%PDF-1.4\nowned attachment",
+            );
           }
           const downloads = browserMediaRequests.filter(
             (request) => request.searchParams.get("meta") !== "1",
           );
-          expect(downloads).toHaveLength(2);
+          expect(downloads).toHaveLength(1);
           expect(downloads.map((download) => download.searchParams.get("source"))).toEqual([
             attachmentSource,
-            generatedDocumentSource,
           ]);
           for (const download of downloads) {
             expect(download.searchParams.get("sessionKey")).toBe(sessionKey);
@@ -474,6 +579,14 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           expect(mediaRequests.some((request) => request.searchParams.get("meta") === "1")).toBe(
             true,
           );
+          expect(
+            (await gatewayMock.getRequests("artifacts.download")).map((request) => request.params),
+          ).toContainEqual({ sessionKey, artifactId: attachment.artifactId });
+          expect(
+            mediaRequests.some((request) =>
+              request.pathname.startsWith("/api/chat/media/outgoing/"),
+            ),
+          ).toBe(true);
 
           const uploadedBytes = Buffer.from("%PDF-1.4\nowned attachment");
           await page.locator(".agent-chat__file-input").setInputFiles({
@@ -502,6 +615,14 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
               content: uploadedBytes.toString("base64"),
             },
           ]);
+          await exerciseCanvasPromptDelivery({
+            page,
+            gateway: gatewayMock,
+            target,
+            sessionKey,
+            historyMessages,
+            proofDir,
+          });
           await page.screenshot({
             path: path.join(proofDir, `${target}.png`),
             fullPage: true,
@@ -511,7 +632,6 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           await Promise.all([close(bff), close(gateway)]);
         }
       });
-      await rm(stateDir, { recursive: true, force: true });
     },
   );
 });

@@ -7,20 +7,27 @@ description: Investigate OpenClaw pnpm test memory growth, Vitest OOMs, RSS spik
 
 Use this skill for test-memory investigations. Do not guess from RSS alone when heap snapshots are available. Treat snapshot-name deltas as triage evidence, not proof, until retainers or dominators support the call.
 
-For **runtime fixes** (e.g., closure leaks in long-running services like the gateway), see [Validating runtime fixes](#validating-runtime-fixes-not-test-memory) below — that uses a dedicated harness, not the test-parallel snapshot machinery.
+Read root `AGENTS.md` Validation and `$openclaw-testing` first. Use the permitted
+environment and existing wrappers; heavy profiling and Linux proof run in the
+selected trusted Linux environment. Never install in a Windows linked/sparse
+worktree or invoke an unavailable backend. Untrusted source runs only in
+supported secretless fork CI at the immutable reviewed SHA.
+
+For **runtime fixes** (e.g., closure leaks in long-running services like the gateway), see [Validating runtime fixes](#validating-runtime-fixes-not-test-memory) below for the dedicated full-snapshot harness.
 
 ## Workflow
 
 1. Reproduce the failing shape first.
-   - Match the real entrypoint if possible. For Linux CI-style unit failures, start with:
-   - `pnpm canvas:a2ui:bundle && OPENCLAW_TEST_MEMORY_TRACE=1 OPENCLAW_TEST_HEAPSNAPSHOT_INTERVAL_MS=60000 OPENCLAW_TEST_HEAPSNAPSHOT_DIR=.tmp/heapsnap OPENCLAW_TEST_WORKERS=2 OPENCLAW_TEST_MAX_OLD_SPACE_SIZE_MB=6144 pnpm test`
-   - Keep `OPENCLAW_TEST_MEMORY_TRACE=1` enabled so the wrapper prints per-file RSS summaries alongside the snapshots.
-   - If the report is about a specific shard or worker budget, preserve that shape.
-   - Before you analyze snapshots, identify the real lane names from `[test-parallel] start ...` lines or `pnpm test --plan`. Do not assume a single `unit-fast` lane; local plans often split into `unit-fast-batch-*`.
+   - Match the real entrypoint, preflight, config, shard, worker budget, execution order, and runtime. Record the original failure before changing concurrency or adding instrumentation.
+   - Use current `scripts/test-projects.mjs` output: `[test] starting <config>` identifies the executed config. Keep worker PIDs and artifact paths alongside it; do not infer lanes from retired wrapper names.
+   - For ranking, use `pnpm test:perf:groups --full-suite --allow-failures --output .artifacts/test-perf/memory-groups.json`. This diagnostic changes isolation/worker defaults and does not reproduce every shared-worker failure. Preserve the original run separately. Inspect `failed`, each run's `status`, and logs; `--allow-failures` can write a report and exit 0 despite failed tests.
+   - For a focused CPU/allocation investigation, use `pnpm test:perf:profile:runner --output-dir .artifacts/test-perf/runner -- <file>`. The current `scripts/run-vitest-profile.mjs` defaults to the unit config and no file parallelism; use it as supplemental triage, not a replacement for the failing shape. `test:perf:profile:main` provides main-process CPU profiles.
+   - Runner `.heapprofile` files are sampling profiles, not full `.heapsnapshot` files. They do not provide the snapshot schema required by `heapsnapshot-delta.mjs` or prove that an object is retained.
 
-2. Wait for repeated snapshots before concluding anything.
-   - Take at least two intervals from the same lane.
-   - Compare snapshots from the same PID inside the real lane directory such as `.tmp/heapsnap/unit-fast-batch-2/`.
+2. Capture full snapshots when making retention claims.
+   - Use an existing scenario harness that calls `v8.writeHeapSnapshot()` or capture full snapshots through DevTools attached to the actual suspect worker. The profiling wrapper does not schedule interval snapshots; do not assume automatic snapshot files exist.
+   - Capture at least two comparable lifecycle points from the same worker PID and config while preserving the relevant reproduction. Record the capture method, elapsed work, GC conditions, and overhead. Do not compare snapshots from different processes as retained-object growth.
+   - Keep task-owned artifacts in a directory such as `.tmp/heapsnap/<config>/`; never attach the debugger to an operator-owned process or expose a debug port beyond the task boundary.
    - Use `.agents/skills/openclaw-test-heap-leaks/scripts/heapsnapshot-delta.mjs` to compare either two files directly or the earliest/latest pair per PID in one lane directory.
    - If the helper suggests transformed-module retention, confirm the top entries in DevTools retainers/dominators before calling it solved.
 
@@ -31,25 +38,24 @@ For **runtime fixes** (e.g., closure leaks in long-running services like the gat
 
 4. Fix the right layer.
    - For likely retained transformed-module growth in shared workers:
-   - Prefer timing and hotspot-driven scheduling fixes first. Check whether the file is already represented in `test/fixtures/test-timings.unit.json` and whether `scripts/test-update-memory-hotspots.mjs` should refresh the measured hotspot manifest before hand-editing behavior overrides.
-   - Move hotspot files out of the real shared lane by updating `test/fixtures/test-parallel.behavior.json` only when timing-driven peeling is insufficient.
-   - Prefer `singletonIsolated` for files that are safe alone but inflate shared worker heaps.
-   - If the file should already have been peeled out by timings but is absent from `test/fixtures/test-timings.unit.json`, call that out explicitly. Missing timings are a scheduling blind spot.
+   - Use current grouped timing/import evidence and `scripts/test-projects.mjs`, `scripts/test-projects.test-support.mjs`, and the owning `test/vitest/*.config.ts` to locate the import or worker-lifetime owner.
+   - Prefer removing broad imports, stale retained state, or unnecessary worker lifetime at that owner. Any measured scheduling/isolation change must preserve coverage and be checked against sibling configs and the original failing order; isolation alone does not prove an application leak fixed.
    - For real leaks:
    - Patch the implicated test or runtime cleanup path.
    - Look for missing `afterEach`/`afterAll`, module-reset gaps, retained global state, unreleased DB handles, or listeners/timers that survive the file.
 
 5. Verify with the most direct proof.
-   - Re-run the targeted lane or file with heap snapshots enabled if the suite still finishes in reasonable time.
-   - If snapshot overhead pushes tests over Vitest timeouts, fall back to the same lane without snapshots and confirm the RSS trend or OOM is reduced.
-   - For wrapper-only changes, at minimum verify the expected lanes start and the snapshot files are written.
+   - Re-run the original config/shard/order/concurrency and repeat comparable same-PID full snapshots when feasible.
+   - If snapshot overhead causes timeouts, also run the original shape without snapshots and report RSS/OOM changes, but keep retention proof explicitly inconclusive until full-snapshot retainer/dominator evidence is available. Never extend timeouts or weaken assertions to hide the failure.
+   - For wrapper-only changes, verify expected configs, argument forwarding, actual exits, and the artifacts that the changed wrapper promises. A sampling-profile wrapper is not expected to emit full snapshots.
+   - Preserve focused regression and sibling tests, changed checks, conditional builds and SDK gates from `$openclaw-testing`; use `openclaw-test-performance` for the full performance verification matrix. Retain required autoreview, independent review, security, and landing gates.
 
 ## Heuristics
 
-- Do not call everything a leak. In this repo, large `unit-fast` or `unit-fast-batch-*` growth can be a worker-lifetime problem rather than an application object leak.
-- `scripts/test-parallel.mjs` and `scripts/test-parallel-memory.mjs` are the primary control points for wrapper diagnostics.
-- The lane names printed by `[test-parallel] start ...` and `[test-parallel][mem] summary ...` tell you where to focus.
-- When one or two files account for most of the delta and they are missing from timings, reducing impact by isolating them is usually the first pragmatic fix.
+- Do not call everything a leak. Long-lived shared-worker module graphs and application object leaks require different owner repairs.
+- `scripts/test-projects.mjs`, `scripts/test-group-report.mjs`, and `scripts/run-vitest-profile.mjs` own current execution, grouped measurements, and sampling profiles respectively.
+- Grouped reports and `[test] starting <config>` lines identify current execution surfaces; full-suite reports deliberately isolate files and may hide shared-lifetime growth.
+- When one or two files dominate, compare their imports/lifecycle in the failing worker before choosing an import, cleanup, or scheduling fix.
 - When the same retained object families grow across multiple intervals in the same worker PID, trust the snapshots over intuition, then confirm ambiguous calls with retainer evidence.
 
 ## Snapshot Comparison
@@ -57,13 +63,14 @@ For **runtime fixes** (e.g., closure leaks in long-running services like the gat
 - Direct comparison:
   - `node .agents/skills/openclaw-test-heap-leaks/scripts/heapsnapshot-delta.mjs before.heapsnapshot after.heapsnapshot`
 - Auto-select earliest/latest snapshots per PID within one lane:
-  - `node .agents/skills/openclaw-test-heap-leaks/scripts/heapsnapshot-delta.mjs --lane-dir .tmp/heapsnap/unit-fast-batch-2`
+  - `node .agents/skills/openclaw-test-heap-leaks/scripts/heapsnapshot-delta.mjs --lane-dir .tmp/heapsnap/<config> --pid <pid>`
+  - Auto-selection accepts Node's `Heap.<stamp>.<pid>.0.<seq>.heapsnapshot` filenames. For DevTools exports or harness-specific names, pass exactly two resolved snapshot paths directly and verify their PID independently.
 - Useful flags:
   - `--top 40`
   - `--min-kb 32`
   - `--pid 16133`
 
-Read the top positive deltas first. Large positive growth in module-transform artifacts suggests lane isolation; large positive growth in runtime objects suggests a real leak. If the names alone do not settle it, open the same snapshot pair in DevTools and inspect retainers/dominators for the top rows before declaring root cause.
+Read the top positive deltas first. Large growth in module-transform artifacts suggests retained module graphs; growth in runtime objects suggests a lifecycle leak. Snapshot-name deltas alone do not establish ownership. Open the same snapshot pair in DevTools and inspect retainers/dominators for the top rows before declaring root cause.
 
 ## Validating runtime fixes (not test-memory)
 
@@ -78,19 +85,20 @@ dedicated harness:
 
 Modes:
 
-- `closure-extracted` (default) — production fix shape (helper at module scope).
+- `production` (default) — imports the real `abortable` from `src/agents/embedded-agent-runner/run/abortable.ts`; use this mode to verify the production implementation.
+- `closure-extracted` — self-contained helper at module scope, mirroring the fixed lexical shape; its PASS alone does not prove production code.
 - `closure-inline` — pre-fix shape (closure inside the runner scope). Use as a
   sensitivity check: if it passes you've broken the harness, not fixed a bug.
 - `synthetic-leak` — deliberately retains via a module-level bucket. Use to
   confirm the harness can detect leaks before trusting a PASS on a real fix.
 
-Snapshots land in `.tmp/embedded-run-abort-leak/`. Diff with the same script
-as above:
+Snapshots land in `.tmp/embedded-run-abort-leak/`. Resolve one baseline and one
+later batch snapshot from the same PID, then pass those exact filenames (shell
+wildcards can expand to more than two files):
 
 ```
 node .agents/skills/openclaw-test-heap-leaks/scripts/heapsnapshot-delta.mjs \
-  .tmp/embedded-run-abort-leak/baseline-*.heapsnapshot \
-  .tmp/embedded-run-abort-leak/batch-N-*.heapsnapshot --top 30
+  <baseline-snapshot-path> <later-batch-snapshot-path> --top 30
 ```
 
 When fixing a different runtime leak, add a new harness alongside this one
@@ -102,6 +110,7 @@ scope of the function where the leak lives, not be a generic abort-loop.
 When using this skill, report:
 
 - The exact reproduce command.
+- Environment, reviewed SHA/patch identity, actual exits, artifact paths, and any hosted proof URLs.
 - Which lane and PID were compared.
 - The dominant retained object families from the snapshot delta.
 - Whether the issue is a likely real leak or likely shared-worker retained module growth, plus whether retainers/dominators confirmed it.

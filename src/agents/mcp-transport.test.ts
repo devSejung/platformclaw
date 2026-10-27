@@ -1,5 +1,6 @@
 // Covers MCP HTTP transport redirects, SSRF guardrails, and auth/TLS handoff.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { applyMcpConnectionOverride } from "./mcp-connection-resolver.js";
 import { resolveMcpTransport } from "./mcp-transport.js";
 
 type StreamableTransportOptions = {
@@ -329,14 +330,22 @@ describe("resolveMcpTransport", () => {
   it("keeps OAuth runtime headers scoped to the MCP resource origin", async () => {
     runtimeFetchMock.mockImplementation(async () => new Response("ok"));
 
-    resolveMcpTransport("probe", {
-      url: "https://mcp.example.com/mcp",
-      transport: "streamable-http",
-      auth: "oauth",
-      headers: {
-        "X-Tenant": "docs",
-      },
-    });
+    resolveMcpTransport(
+      "probe",
+      applyMcpConnectionOverride(
+        {
+          url: "https://mcp.example.com/mcp",
+          transport: "streamable-http",
+          auth: "oauth",
+          oauth: { scope: "docs" },
+        },
+        {
+          url: "https://mcp.example.com/mcp",
+          headers: { "X-Tenant": "docs" },
+          preserveConfiguredAuth: true,
+        },
+      ),
+    );
 
     const options = latestStreamableTransportOptions();
     await options.fetch?.("https://mcp.example.com/mcp");
