@@ -1,7 +1,15 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  appendTranscriptMessages,
+  replaceSessionEntry,
+} from "../../config/sessions/session-accessor.js";
 import {
   resolveAgentRestartRecoveryChannelContext,
   resolveAgentRestartRecoveryExecutionIdentityAdmission,
+  resolveAgentRestartRecoverySenderAgentId,
 } from "./agent-restart-recovery-context.js";
 
 const matchingParams = {
@@ -178,4 +186,69 @@ describe("resolveAgentRestartRecoveryExecutionIdentityAdmission", () => {
       }),
     ).toThrow("admission mode is unavailable");
   });
+});
+
+const transcriptRoots: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    transcriptRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })),
+  );
+});
+
+describe("restart recovery personal Agent authority", () => {
+  it.each([false, true, undefined])(
+    "reads only the exact source turn with explicit non-owner authority (%s)",
+    async (senderIsOwner) => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "restart-agent-authority-"));
+      transcriptRoots.push(root);
+      const storePath = path.join(root, "agents", "main", "sessions", "sessions.json");
+      const sessionKey = "agent:main:main";
+      const sessionEntry = {
+        sessionId: "scope-session",
+        updatedAt: 1,
+        restartRecoveryDeliveryRunId: "recovery",
+        restartRecoveryDeliverySourceRunId: "source",
+      };
+      const scope = { agentId: "main", sessionKey, sessionId: sessionEntry.sessionId, storePath };
+      await replaceSessionEntry(scope, sessionEntry);
+      await appendTranscriptMessages(scope, {
+        messages: [
+          {
+            message: {
+              role: "user",
+              content: "original profile request",
+              idempotencyKey: "source:user",
+              __openclaw: { senderIsOwner, senderAgentId: "main" },
+            },
+          },
+          ...Array.from({ length: 25 }, (_, index) => ({
+            message: { role: "assistant", content: `step ${index}` },
+          })),
+          {
+            message: {
+              role: "user",
+              content: "unrelated latest request",
+              idempotencyKey: "other:user",
+              __openclaw: { senderIsOwner: false, senderAgentId: "foreign" },
+            },
+          },
+        ],
+      });
+      await expect(
+        resolveAgentRestartRecoverySenderAgentId({ ...scope, sessionEntry }),
+      ).resolves.toBe(senderIsOwner === false ? "main" : undefined);
+      await expect(
+        resolveAgentRestartRecoverySenderAgentId({
+          ...scope,
+          sessionEntry: { ...sessionEntry, restartRecoveryDeliverySourceRunId: "missing" },
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        resolveAgentRestartRecoverySenderAgentId({
+          ...scope,
+          sessionEntry: { ...sessionEntry, sessionId: "foreign-session" },
+        }),
+      ).resolves.toBeUndefined();
+    },
+  );
 });

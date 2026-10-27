@@ -1,5 +1,6 @@
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { createDevicePairSetupState } from "../lib/device-pair-setup.ts";
+import { isGatewayMethodAdvertised } from "../lib/gateway-methods.ts";
 import { refreshPendingApprovalQueue, type ExecApprovalPromptState } from "./exec-approval.ts";
 import type { ApplicationGateway } from "./gateway.ts";
 import { readGatewayOperatorAccess } from "./operator-access.ts";
@@ -102,6 +103,8 @@ export function createOverlayApprovalRefresher(params: {
       return;
     }
     const applied = await refreshPendingApprovalQueue(params.state, {
+      isMethodAvailable: (method) =>
+        isGatewayMethodAdvertised(params.gateway.snapshot, method) !== false,
       isCurrentClient: (requestClient) =>
         requestClient === client &&
         epoch === params.getConnectedEpoch() &&

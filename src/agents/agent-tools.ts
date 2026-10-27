@@ -355,6 +355,8 @@ type OpenClawCodingToolsOptions = {
   systemAgentTool?: import("./tools/system-agent-tool.js").SystemAgentToolOptions;
   /** Trusted sender identity bit for command/channel-action auth and owner-gated plugin tools. */
   senderIsOwner?: boolean;
+  /** Trusted personal-Agent boundary; grants only that Agent's workspace tools. */
+  senderAgentId?: string;
   /** Auth profiles already loaded for this run; used for prompt-time tool availability. */
   authProfileStore?: AuthProfileStore;
   /** Callback invoked when sessions_yield tool is called. */
@@ -442,6 +444,11 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       scheduledToolPolicy: options?.scheduledToolPolicy,
     });
   const { agentId, runtimePluginToolGrant } = capabilityProfile.policy;
+  // A personal-Agent binding grants its bounded workspace without inheriting
+  // Gateway-owner tools from the privileged relay connection.
+  const canAccessAgentWorkspace =
+    options?.senderIsOwner !== false ||
+    (typeof options?.senderAgentId === "string" && options.senderAgentId === agentId);
 
   const enableHeartbeatTool =
     options?.enableHeartbeatTool === true ||
@@ -483,7 +490,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     ...(sandbox?.backend?.capabilities?.separateAgentWorkspace === true &&
     typeof agentId === "string" &&
     agentId.length > 0 &&
-    options?.senderIsOwner !== false &&
+    canAccessAgentWorkspace &&
     !isSubagentSessionKey(options?.sessionKey) &&
     !isCronSessionKey(options?.sessionKey)
       ? AGENT_WORKSPACE_TOOL_NAMES
@@ -759,7 +766,7 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
     sandbox?.backend?.capabilities?.separateAgentWorkspace === true &&
     typeof agentId === "string" &&
     agentId.length > 0 &&
-    options?.senderIsOwner !== false &&
+    canAccessAgentWorkspace &&
     !isSubagentSessionKey(options?.sessionKey) &&
     !isCronSessionKey(options?.sessionKey)
       ? createAgentWorkspaceTools({ workspaceDir: sandbox.agentWorkspaceDir, agentId })

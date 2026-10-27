@@ -29,6 +29,10 @@ export type InternalRealtimeVoiceBrowserSessionCreateRequest =
       role: "user" | "assistant";
       text: string;
     }>;
+    /** Retire this exact native transport when its provider owner reaches terminal close. */
+    onClosed?: () => void;
+    /** Declare an actual Gateway-owned resource before the provider allocates it. */
+    onServerSessionStarting?: () => void;
   };
 
 type InternalRealtimeVoiceProviderApi = {

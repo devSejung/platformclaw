@@ -35,6 +35,7 @@ import {
   respondChatSessionRoutingChanged,
 } from "./chat-send-pre-admission.js";
 import type { NormalizedChatSendRequest } from "./chat-send-request.js";
+import { requireChatSendScope } from "./chat-send-scope.js";
 import type { PreparedChatSendSession } from "./chat-send-session.js";
 import { normalizeOptionalChatText, normalizeUnknownChatText } from "./chat-text-normalization.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
@@ -49,6 +50,21 @@ export async function admitChatSend(params: {
   onAdmissionOwned?: () => Promise<boolean>;
 }) {
   const { request, session, respond, context, client } = params;
+  // Durable recovery can suspend between pre-admission and this reservation.
+  // Reclaim here so an expired/reassigned scope cannot overwrite pending work.
+  if (
+    !requireChatSendScope({
+      context,
+      client,
+      respond,
+      runId: session.clientRunId,
+      agentId: session.agentId,
+      sessionKey: session.sessionKey,
+      senderAttribution: request.senderAttribution,
+    })
+  ) {
+    return { ok: false as const };
+  }
   const { p, explicitOrigin, normalizedAttachments, turnKind } = request;
   const {
     rawSessionKey,

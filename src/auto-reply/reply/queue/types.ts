@@ -156,6 +156,8 @@ export type FollowupRun = {
     senderUsername?: string;
     senderE164?: string;
     senderIsOwner?: boolean;
+    /** Trusted personal-Agent boundary retained by this admitted turn. */
+    senderAgentId?: string;
     traceAuthorized?: boolean;
     approvalReviewerDeviceId?: string;
     sessionFile: string;

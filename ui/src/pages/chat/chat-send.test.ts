@@ -5875,6 +5875,62 @@ describe("handleSendChat", () => {
     expect(executeSlashCommandMock).toHaveBeenCalledOnce();
   });
 
+  it("consumes a successful compact while preserving its real history refresh failure", async () => {
+    const host = makeHost({
+      chatError: "Previous action failed",
+      lastError: "Previous action failed",
+      requestHandlers: {
+        "sessions.compact": () => {
+          expect(host.chatError).toBeNull();
+          for (const phase of ["start", "end"]) {
+            handlePageGatewayEvent(asChatPageHost(host), {
+              type: "event",
+              event: "session.operation",
+              payload: {
+                operation: "compact",
+                operationId: "manual-compact-warning",
+                sessionKey: host.sessionKey,
+                phase,
+                ...(phase === "end" ? { completed: true } : {}),
+              },
+            });
+          }
+          return {
+            ok: true,
+            compacted: true,
+            result: { tokensBefore: 2000, tokensAfter: 900 },
+          };
+        },
+        "chat.history": () => {
+          throw new Error("History refresh unavailable");
+        },
+      },
+    });
+    host.refreshCurrentChat = async () => {
+      await loadChatHistory(host as unknown as Parameters<typeof loadChatHistory>[0], {
+        deferBranches: true,
+      });
+    };
+
+    await handleSendChat(host, "/compact");
+
+    expect(host.chatMessages).toEqual([]);
+    expect(asChatPageHost(host).compactionStatus).toMatchObject({
+      phase: "complete",
+      runId: "manual-compact-warning",
+    });
+    expect(host.chatError).toBe("Error: History refresh unavailable");
+    expect(host.lastError).toBe("Error: History refresh unavailable");
+    expect(host.chatQueue).toStrictEqual([]);
+    expect(listStoredChatOutboxes(host)).toStrictEqual([]);
+    await retryReconnectableQueuedChatSends(host);
+    expect(
+      host.request.mock.calls.filter(([method]) => method === "sessions.compact"),
+    ).toHaveLength(1);
+    expect(host.request.mock.calls.filter(([method]) => method === "chat.history")).toHaveLength(1);
+    expect(host.chatError).toBe("Error: History refresh unavailable");
+  });
+
   it("keeps normal prompt text visible as pending until chat.send is acknowledged", async () => {
     const sent = createDeferred<unknown>();
 

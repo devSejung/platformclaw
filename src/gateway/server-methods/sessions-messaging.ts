@@ -28,8 +28,11 @@ import {
 import { asWorkerInferenceControl } from "../worker-environments/inference-control.js";
 import { formatForLog } from "../ws-log.js";
 import { handleChatAbortRequestWithLifecycle } from "./chat-abort-handler.js";
+import { hasGatewayAdminScope, resolveChatSendSessionLoadKey } from "./chat-origin-routing.js";
 import { handleChatSend } from "./chat-send-handler.js";
+import { requireChatSendScope } from "./chat-send-scope.js";
 import { chatHandlers } from "./chat.js";
+import { normalizeRequestedGatewaySenderAttribution } from "./gateway-client-identity.js";
 import { resolveGatewayInflightRequest, type GatewayInflightResult } from "./inflight.js";
 import { hasTrackedActiveSessionRun } from "./session-active-runs.js";
 import { emitSessionsChanged } from "./session-change-event.js";
@@ -55,10 +58,13 @@ type SessionSteerInflightOwner = {
 function beginSessionSteerInflight(params: {
   context: GatewayRequestContext;
   idempotencyKey: string;
+  requestIdentity: string;
   request: { respond: RespondFn };
 }): { kind: "handled"; done: Promise<void> } | { kind: "owner"; owner: SessionSteerInflightOwner } {
   const originalRespond = params.request.respond;
-  const dedupeKey = `sessions.steer:${params.idempotencyKey}`;
+  // Scope joins independently of TTL-pruned claims: a suspended old owner must
+  // never be joined by another session after its claim expires.
+  const dedupeKey = `sessions.steer:${JSON.stringify([params.idempotencyKey, params.requestIdentity])}`;
   const inflight = resolveGatewayInflightRequest({
     context: params.context,
     dedupeKey,
@@ -320,14 +326,39 @@ async function handleSessionSend(params: {
     return;
   }
   const p = params.params;
-  const key = requireSessionKey((p as { key?: unknown }).key, params.respond);
-  if (!key) {
+  // Relayed provenance must be authorized before creating or interrupting a session.
+  if (
+    (p.suppressCommandInterpretation === true || p.senderAttribution !== undefined) &&
+    !hasGatewayAdminScope(params.client)
+  ) {
+    params.respond(
+      false,
+      undefined,
+      errorShape(
+        ErrorCodes.INVALID_REQUEST,
+        "relayed sender and command controls require admin scope",
+      ),
+    );
+    return;
+  }
+  const requestedSenderResult = normalizeRequestedGatewaySenderAttribution(p.senderAttribution);
+  if (!requestedSenderResult.ok) {
+    params.respond(
+      false,
+      undefined,
+      errorShape(ErrorCodes.INVALID_REQUEST, requestedSenderResult.error),
+    );
+    return;
+  }
+  const senderAttribution = requestedSenderResult.value;
+  const requestedKey = requireSessionKey((p as { key?: unknown }).key, params.respond);
+  if (!requestedKey) {
     return;
   }
   const cfg = params.context.getRuntimeConfig();
   const requestedAgent = resolveRequestedGlobalAgentId(
     cfg,
-    key,
+    requestedKey,
     (p as { agentId?: string }).agentId,
   );
   if (!requestedAgent.ok) {
@@ -335,6 +366,11 @@ async function handleSessionSend(params: {
     return;
   }
   const requestedAgentId = requestedAgent.agentId;
+  const key = resolveChatSendSessionLoadKey({
+    cfg,
+    sessionKey: requestedKey,
+    agentId: requestedAgentId,
+  });
   const loaded = loadSessionEntry(key, { agentId: requestedAgentId });
   const { legacyKey } = loaded;
   let { entry, canonicalKey, storePath } = loaded;
@@ -359,11 +395,25 @@ async function handleSessionSend(params: {
       ? rawIdempotencyKey.trim()
       : undefined;
   const idempotencyKey = explicitIdempotencyKey ?? randomUUID();
+  const sendScope = requireChatSendScope({
+    context: params.context,
+    client: params.client,
+    respond: params.respond,
+    runId: idempotencyKey,
+    agentId:
+      parseAgentSessionKey(canonicalKey)?.agentId ?? requestedAgentId ?? resolveDefaultAgentId(cfg),
+    sessionKey: canonicalKey,
+    senderAttribution,
+  });
+  if (!sendScope) {
+    return;
+  }
   const steerInflight =
     params.interruptIfActive && explicitIdempotencyKey
       ? beginSessionSteerInflight({
           context: params.context,
           idempotencyKey,
+          requestIdentity: sendScope.requestIdentity,
           request: params,
         })
       : undefined;
@@ -386,6 +436,11 @@ async function handleSessionSend(params: {
           ...(canonicalKey === "global" && requestedAgentId ? { agentId: requestedAgentId } : {}),
           message: (p as { message: string }).message,
           thinking: (p as { thinking?: string }).thinking,
+          ...(p.deliver !== undefined ? { deliver: p.deliver } : {}),
+          ...(p.suppressCommandInterpretation !== undefined
+            ? { suppressCommandInterpretation: p.suppressCommandInterpretation }
+            : {}),
+          ...(senderAttribution !== undefined ? { senderAttribution } : {}),
           attachments: (p as { attachments?: unknown[] }).attachments,
           timeoutMs: (p as { timeoutMs?: number }).timeoutMs,
           idempotencyKey,

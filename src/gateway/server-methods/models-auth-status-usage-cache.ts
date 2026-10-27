@@ -297,20 +297,25 @@ async function loadProviderUsageSummaryStaleWhileRevalidate(
   return await refresh;
 }
 
-/** Shares the models.authStatus cache contract with the unscoped usage.status RPC. */
+/** Shares the credential-bound models.authStatus cache with usage.status. */
 export async function loadUsageStatusStaleWhileRevalidate(params: {
   config: OpenClawConfig;
+  agentId?: string;
+  providerIds?: readonly UsageProviderId[];
   now?: number;
 }): Promise<UsageSummary> {
-  const agentId = resolveDefaultAgentId(params.config);
+  const agentId = params.agentId ?? resolveDefaultAgentId(params.config);
   const agentDir = resolveAgentDir(params.config, agentId);
   const store = ensureAuthProfileStore(agentDir, {
     externalCli: externalCliDiscoveryForConfigStatus({ cfg: params.config }),
   });
+  const requestedProviders = params.providerIds ? new Set(params.providerIds) : undefined;
   const providerIds = listProviderUsagePluginDescriptors({
     config: params.config,
     env: process.env,
-  }).map((descriptor) => descriptor.provider);
+  })
+    .map((descriptor) => descriptor.provider)
+    .filter((provider) => !requestedProviders || requestedProviders.has(provider));
   const directApiKeys = new Map<
     string,
     { source: "config" | "env"; envVar?: string } | undefined

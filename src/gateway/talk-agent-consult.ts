@@ -8,10 +8,12 @@ import {
   type ConnectParams,
   type ErrorShape,
 } from "../../packages/gateway-protocol/src/index.js";
+import type { ChatSenderAttribution } from "../../packages/gateway-protocol/src/schema/logs-chat.js";
 import { normalizeTalkSection } from "../config/talk.js";
 import { buildRealtimeVoiceAgentConsultChatMessage } from "../talk/agent-consult-tool.js";
 import { abortChatRunById } from "./chat-abort.js";
 import { chatHandlers } from "./server-methods/chat.js";
+import { resolveGatewaySenderAttribution } from "./server-methods/gateway-client-identity.js";
 import type {
   GatewayClient,
   GatewayRequestContext,
@@ -65,6 +67,7 @@ export async function startTalkRealtimeAgentConsult(params: {
   sessionKey: string;
   callId: string;
   args: unknown;
+  senderAttribution?: ChatSenderAttribution;
   relaySessionId?: string;
   connId?: string;
   onRunStarted?: (runId: string) => void;
@@ -79,6 +82,10 @@ export async function startTalkRealtimeAgentConsult(params: {
   }
   const idempotencyKey = `talk-${params.callId}-${randomUUID()}`;
   const normalizedTalk = normalizeTalkSection(params.context.getRuntimeConfig().talk);
+  const senderAttribution = resolveGatewaySenderAttribution(
+    params.client,
+    params.senderAttribution,
+  );
   let acknowledgedRunId: string | undefined;
   const chatResponse = await new Promise<
     { ok: true; result: unknown } | { ok: false; error: ErrorShape } | undefined
@@ -100,6 +107,14 @@ export async function startTalkRealtimeAgentConsult(params: {
         sessionKey: params.sessionKey,
         message,
         idempotencyKey,
+        ...(params.senderAttribution
+          ? {
+              senderAttribution,
+            }
+          : {}),
+        ...(senderAttribution?.isOwner === false
+          ? { suppressCommandInterpretation: true, deliver: false }
+          : {}),
         ...(normalizedTalk?.consultThinkingLevel
           ? { thinking: normalizedTalk.consultThinkingLevel }
           : {}),

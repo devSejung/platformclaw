@@ -69,4 +69,23 @@ describe("BrowserGatewaySessionMessageSubscriptions", () => {
     await releasing;
     expect(request).toHaveBeenLastCalledWith("sessions.messages.unsubscribe", params);
   });
+  it("retains the owned upstream lease for cleanup when unsubscribe authority is revoked", async () => {
+    const { request, subscriptions } = createSubscriptions();
+    const params = { key: "agent:alice:main", agentId: "alice" };
+    await subscriptions.subscribe("browser-a", params);
+    const guardedGateway = {
+      request: vi.fn(async () => {
+        throw new Error("browser authority revoked before dispatch");
+      }),
+    };
+
+    await expect(subscriptions.unsubscribe("browser-a", params, guardedGateway)).rejects.toThrow(
+      "browser authority revoked before dispatch",
+    );
+    await subscriptions.releaseConnection("browser-a");
+
+    expect(guardedGateway.request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith("sessions.messages.unsubscribe", params);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
 });

@@ -1,11 +1,6 @@
 // chat.send owns admission, ACK timing, detached dispatch, and terminalization.
 import { performance } from "node:perf_hooks";
-import {
-  GATEWAY_CLIENT_CAPS,
-  hasGatewayClientCap,
-} from "../../../packages/gateway-protocol/src/client-info.js";
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
-import { resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { resolveProviderIdForAuth } from "../../agents/provider-auth-aliases.js";
 import { createAgentRunRestartAbortError } from "../../agents/run-termination.js";
 import { dispatchInboundMessageWithProjectedDispatcher } from "../../auto-reply/dispatch.js";
@@ -23,7 +18,6 @@ import type { ChatRunTiming } from "../server-chat-state.js";
 import { formatForLog } from "../ws-log.js";
 import { setGatewayDedupeEntry } from "./agent-job.js";
 import { broadcastChatError, broadcastChatFinal } from "./chat-broadcast.js";
-import { hasGatewayAdminScope } from "./chat-origin-routing.js";
 import { terminalizeRestartSafeChatAdmission } from "./chat-restart-recovery.js";
 import { prepareChatSendAttachments } from "./chat-send-attachments.js";
 import {
@@ -41,6 +35,7 @@ import {
 import { createChatSendReplyDispatch } from "./chat-send-reply-dispatch.js";
 import { prepareAndAdmitChatSend } from "./chat-send-setup.js";
 import { finalizeChatSendSourceReplies } from "./chat-send-source-finalization.js";
+import { registerChatSendToolEventRecipients } from "./chat-send-tool-events.js";
 import { applyChatSendManagedMedia, prepareChatSendUserTurn } from "./chat-send-user-turn.js";
 import {
   chatSendAckServerTimingAttributes,
@@ -51,7 +46,10 @@ import {
 } from "./chat-server-timing.js";
 import { normalizeOptionalChatText as normalizeOptionalText } from "./chat-text-normalization.js";
 import { createGatewayChatUserTurnController } from "./chat-user-turn-recorder.js";
-import { gatewayClientSenderFields } from "./gateway-client-identity.js";
+import {
+  gatewayClientSenderFields,
+  gatewayClientSenderIsOwner,
+} from "./gateway-client-identity.js";
 import { emitSessionsChanged } from "./session-change-event.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
 
@@ -157,7 +155,8 @@ export async function handleChatSend(
       rawMessage,
       ...(restartSafeAdmission ? { restartAdmission: restartSafeAdmission } : {}),
       ...gatewayClientSenderFields(client, senderAttribution),
-      senderIsOwner: hasGatewayAdminScope(client),
+      senderIsOwner: gatewayClientSenderIsOwner(client, senderAttribution),
+      senderAgentId: senderAttribution?.agentId,
       sessionKey,
       ...(sessionLoadOptions ? { sessionLoadOptions } : {}),
       startedAt: admissionStartedAt,
@@ -465,38 +464,14 @@ export async function handleChatSend(
                     runId !== clientRunId ? { agentRunId: runId } : undefined,
                     dispatchStartedAtMs,
                   );
-                  const connId = typeof client?.connId === "string" ? client.connId : undefined;
-                  const wantsToolEvents = hasGatewayClientCap(
-                    client?.connect?.caps,
-                    GATEWAY_CLIENT_CAPS.TOOL_EVENTS,
-                  );
-                  if (connId && wantsToolEvents) {
-                    context.registerToolEventRecipient(runId, connId);
-                    // Register for any other active runs *in the same session* so
-                    // late-joining clients (e.g. page refresh mid-response) receive
-                    // in-progress tool events without leaking cross-session data.
-                    const defaultAgentId = resolveDefaultAgentId(cfg);
-                    const selectedGlobalAgentId =
-                      sessionKey === "global"
-                        ? (selectedAgent.agentId ?? defaultAgentId)
-                        : undefined;
-                    for (const [activeRunId, active] of context.chatAbortControllers) {
-                      const activeGlobalAgentId =
-                        active.sessionKey === "global"
-                          ? (active.agentId ?? defaultAgentId)
-                          : undefined;
-                      const sameSelectedGlobalAgent =
-                        sessionKey === "global" &&
-                        selectedGlobalAgentId !== undefined &&
-                        activeGlobalAgentId === selectedGlobalAgentId;
-                      const sameSession =
-                        active.sessionKey === sessionKey &&
-                        (sessionKey !== "global" || sameSelectedGlobalAgent);
-                      if (activeRunId !== runId && sameSession) {
-                        context.registerToolEventRecipient(activeRunId, connId);
-                      }
-                    }
-                  }
+                  registerChatSendToolEventRecipients({
+                    context,
+                    client,
+                    cfg,
+                    agentId: selectedAgent.agentId,
+                    sessionKey,
+                    runId,
+                  });
                 },
                 onModelSelected: (modelSelection) => {
                   updateChatRunProvider(context.chatAbortControllers, {

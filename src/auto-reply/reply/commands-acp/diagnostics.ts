@@ -14,8 +14,15 @@ import { listAcpSessionEntries, readAcpSessionEntry } from "../../../acp/runtime
 import type { SessionEntry } from "../../../config/sessions/types.js";
 import type { SessionAcpMeta } from "../../../config/sessions/types.js";
 import { getSessionBindingService } from "../../../infra/outbound/session-binding-service.js";
+import { isInternalMessageChannel } from "../../../utils/message-channel.js";
+import { resolvePersonalAgentCommandScope } from "../../sender-identity.js";
+import { rejectNonOwnerCommand, requireGatewayClientScope } from "../command-gates.js";
 import type { CommandHandlerResult, HandleCommandsParams } from "../commands-types.js";
-import { acpSessionBelongsToAgentScope, resolveAcpCommandAgentScope } from "./agent-scope.js";
+import {
+  acpSessionBelongsToAgentScope,
+  resolveAcpCommandAgentScope,
+  supportsAcpAgentScope,
+} from "./agent-scope.js";
 import { resolveAcpCommandBindingContext } from "./context.js";
 import { resolveAcpInstallCommandHint } from "./install-hints.js";
 import {
@@ -57,14 +64,7 @@ function shouldDeferRuntimeDoctorToIsolatedTarget(
   params: HandleCommandsParams,
   backend: ReturnType<typeof getAcpRuntimeBackend>,
 ): boolean {
-  if (!resolveAcpCommandAgentScope(params) || !backend?.isolatesSandboxedRequesters) {
-    return false;
-  }
-  try {
-    return backend.isolatesSandboxedRequesters();
-  } catch {
-    return false;
-  }
+  return Boolean(resolveAcpCommandAgentScope(params)) && supportsAcpAgentScope(backend);
 }
 
 export async function handleAcpDoctorAction(
@@ -78,24 +78,38 @@ export async function handleAcpDoctorAction(
   const backendId = normalizeOptionalString(params.cfg.acp?.backend) ?? "acpx";
   const installHint = resolveAcpInstallCommandHint(params.cfg);
   const registeredBackend = getAcpRuntimeBackend(backendId);
-  const managerSnapshot = getAcpSessionManager().getObservabilitySnapshot();
+  const personalAgentScope = resolvePersonalAgentCommandScope(params.ctx);
+  const runtimeDoctorDeferred = shouldDeferRuntimeDoctorToIsolatedTarget(params, registeredBackend);
+  if (
+    (isInternalMessageChannel(params.ctx.Provider) &&
+      params.ctx.SenderIsOwner === false &&
+      !personalAgentScope) ||
+    (personalAgentScope && !runtimeDoctorDeferred)
+  ) {
+    return stopWithText(
+      "Personal ACP diagnostics require a matching Agent and an isolated execution target. Ask a Gateway administrator to restore the assigned runtime; Gateway-host diagnostics are not available here.",
+    );
+  }
   const lines = ["ACP doctor:", "-----", `configuredBackend: ${backendId}`];
-  lines.push(`activeRuntimeSessions: ${managerSnapshot.runtimeCache.activeSessions}`);
-  lines.push(`runtimeIdleTtlMs: ${managerSnapshot.runtimeCache.idleTtlMs}`);
-  lines.push(`evictedIdleRuntimes: ${managerSnapshot.runtimeCache.evictedTotal}`);
-  lines.push(`activeTurns: ${managerSnapshot.turns.active}`);
-  lines.push(`queueDepth: ${managerSnapshot.turns.queueDepth}`);
-  lines.push(
-    `turnLatencyMs: avg=${managerSnapshot.turns.averageLatencyMs}, max=${managerSnapshot.turns.maxLatencyMs}`,
-  );
-  lines.push(
-    `turnCounts: completed=${managerSnapshot.turns.completed}, failed=${managerSnapshot.turns.failed}`,
-  );
-  const errorStatsText =
-    Object.entries(managerSnapshot.errorsByCode)
-      .map(([code, count]) => `${code}=${count}`)
-      .join(", ") || "(none)";
-  lines.push(`errorCodes: ${errorStatsText}`);
+  if (!personalAgentScope) {
+    const managerSnapshot = getAcpSessionManager().getObservabilitySnapshot();
+    lines.push(`activeRuntimeSessions: ${managerSnapshot.runtimeCache.activeSessions}`);
+    lines.push(`runtimeIdleTtlMs: ${managerSnapshot.runtimeCache.idleTtlMs}`);
+    lines.push(`evictedIdleRuntimes: ${managerSnapshot.runtimeCache.evictedTotal}`);
+    lines.push(`activeTurns: ${managerSnapshot.turns.active}`);
+    lines.push(`queueDepth: ${managerSnapshot.turns.queueDepth}`);
+    lines.push(
+      `turnLatencyMs: avg=${managerSnapshot.turns.averageLatencyMs}, max=${managerSnapshot.turns.maxLatencyMs}`,
+    );
+    lines.push(
+      `turnCounts: completed=${managerSnapshot.turns.completed}, failed=${managerSnapshot.turns.failed}`,
+    );
+    const errorStatsText =
+      Object.entries(managerSnapshot.errorsByCode)
+        .map(([code, count]) => `${code}=${count}`)
+        .join(", ") || "(none)";
+    lines.push(`errorCodes: ${errorStatsText}`);
+  }
   if (registeredBackend) {
     lines.push(`registeredBackend: ${registeredBackend.id}`);
   } else {
@@ -109,7 +123,6 @@ export async function handleAcpDoctorAction(
     lines.push(`pluginActivation: blocked (${backendId} is missing from plugins.allow)`);
   }
 
-  const runtimeDoctorDeferred = shouldDeferRuntimeDoctorToIsolatedTarget(params, registeredBackend);
   let transportDiagnosticReady = false;
   if (runtimeDoctorDeferred) {
     // Browser attribution identifies a personal execution target. Probing the
@@ -148,6 +161,16 @@ export async function handleAcpDoctorAction(
       }
     }
   } else if (registeredBackend?.runtime.doctor) {
+    const scopeBlock =
+      requireGatewayClientScope(params, {
+        label: "/acp doctor",
+        allowedScopes: ["operator.admin"],
+        missingText:
+          "Gateway-host ACP diagnostics require operator.admin. Use your assigned isolated execution target instead.",
+      }) ?? rejectNonOwnerCommand(params, "/acp doctor");
+    if (scopeBlock) {
+      return scopeBlock;
+    }
     try {
       const report = await registeredBackend.runtime.doctor();
       lines.push(`runtimeDoctor: ${report.ok ? "ok" : "error"} (${report.message})`);
@@ -272,6 +295,7 @@ export async function handleAcpSessionsAction(
           agentScope,
           entry: stored.entry,
           acp: stored.acp,
+          requireExecutionOwner: Boolean(resolvePersonalAgentCommandScope(params.ctx)),
         }),
       )
     : params.command.senderIsOwner

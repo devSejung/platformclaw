@@ -84,6 +84,10 @@ describe("ACP session metadata SQLite store", () => {
       });
 
       expect(result?.acp?.runtimeSessionName).toBe("codex-discord");
+      expect(result?.lifecycleRevision).toBeUndefined();
+      expect(
+        readStoredAcpSessionEntry({ storePath, sessionKey })?.lifecycleRevision,
+      ).toBeUndefined();
       expect(fs.existsSync(storePath)).toBe(false);
       expect(
         readAcpSessionEntry({
@@ -168,6 +172,7 @@ describe("ACP session metadata SQLite store", () => {
           backend: "acpx",
           agent: "codex",
           runtimeSessionName: "codex-new",
+          executionOwnerAgentId: "person_one",
           mode: "persistent",
           state: "idle",
           lastActivityAt: 123,
@@ -180,6 +185,14 @@ describe("ACP session metadata SQLite store", () => {
       expect(storedEntry?.sessionId).toEqual(expect.any(String));
       expect(storedEntry?.updatedAt).toEqual(expect.any(Number));
       expect(storedEntry?.acp).toBeUndefined();
+      const fresh = readAcpSessionEntry({ cfg, databasePath, sessionKey });
+      expect(fresh?.acp).toMatchObject({
+        runtimeSessionName: "codex-new",
+        executionOwnerAgentId: "person_one",
+      });
+      expect(result?.lifecycleRevision).toEqual(expect.any(String));
+      expect(storedEntry?.lifecycleRevision).toBe(result?.lifecycleRevision);
+      expect(fresh?.entry?.lifecycleRevision).toBe(result?.lifecycleRevision);
     });
   });
 

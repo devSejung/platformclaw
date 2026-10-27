@@ -225,7 +225,7 @@ function buildTalkTtsConfig(
   };
 }
 
-function buildTalkCatalog(config: OpenClawConfig) {
+function buildTalkCatalog(config: OpenClawConfig, sessionKey?: string) {
   const ttsConfig = resolveTtsConfig(config);
   const talkResolved = resolveActiveTalkProviderConfig(config.talk);
   const activeSpeechProvider = canonicalizeSpeechProviderId(talkResolved?.provider, config);
@@ -247,7 +247,7 @@ function buildTalkCatalog(config: OpenClawConfig) {
   // Mirror talk.client.create's resolution inputs (agent scope + top-level model
   // override) so catalog readiness matches what session creation will actually do;
   // diverging here previously reported GPT-Live over OAuth as unconfigured.
-  const realtimeAgentId = resolveTalkSessionAgentId(config);
+  const realtimeAgentId = resolveTalkSessionAgentId(config, sessionKey);
   const realtimeModelOverride = realtimeConfig.model
     ? { providerConfigOverrides: { model: realtimeConfig.model } }
     : {};
@@ -735,7 +735,11 @@ export const talkHandlers: GatewayRequestHandlers = {
     }
 
     try {
-      respond(true, buildTalkCatalog(context.getRuntimeConfig()), undefined);
+      respond(
+        true,
+        buildTalkCatalog(context.getRuntimeConfig(), catalogParams.sessionKey),
+        undefined,
+      );
     } catch (err) {
       respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
     }

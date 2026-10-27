@@ -1159,6 +1159,7 @@ export function runAgentAttempt(params: {
     hasRepliedRef: params.runContext.hasRepliedRef,
     senderId: params.runContext.senderId,
     senderIsOwner: params.opts.senderIsOwner,
+    senderAgentId: params.opts.senderAgentId,
     sessionFile: params.sessionFile,
     workspaceDir: params.workspaceDir,
     cwd: params.cwd,

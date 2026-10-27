@@ -480,6 +480,7 @@ describe("runReplyAgent auto-compaction token update", () => {
     config?: OpenClawConfig;
     tmpPrefix: string;
     workspaceDir?: string;
+    senderAgentId?: string;
   }) {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), params.tmpPrefix));
     const storePath = path.join(tmp, "sessions.json");
@@ -512,6 +513,10 @@ describe("runReplyAgent auto-compaction token update", () => {
       workspaceDir: params.workspaceDir,
     });
 
+    if (params.senderAgentId) {
+      followupRun.run.senderIsOwner = false;
+      followupRun.run.senderAgentId = params.senderAgentId;
+    }
     try {
       await runReplyAgent({
         commandBody: "hello",
@@ -546,6 +551,17 @@ describe("runReplyAgent auto-compaction token update", () => {
     const usageEvent = diagnostics.find((event) => event.type === "model.usage");
     return { sessionKey, stored, usageEvent };
   }
+
+  it("retains the personal Agent binding at the embedded execution boundary", async () => {
+    await runBaseReplyWithAgentMeta({
+      tmpPrefix: "openclaw-personal-agent-run-",
+      agentMeta: {},
+      senderAgentId: "main",
+    });
+    expect(runEmbeddedAgentMock).toHaveBeenCalledWith(
+      expect.objectContaining({ senderIsOwner: false, senderAgentId: "main" }),
+    );
+  });
 
   it("updates totalTokens from lastCallUsage even without compaction", async () => {
     const { sessionKey, stored } = await runBaseReplyWithAgentMeta({

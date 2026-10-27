@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildAssignedVmAcpDiagnosticCommand,
@@ -10,9 +11,15 @@ import {
 } from "./acp-process-transport.js";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
 
-const { runSshSandboxCommandMock, disposeSshSandboxSessionMock } = vi.hoisted(() => ({
+const { runSshSandboxCommandMock, disposeSshSandboxSessionMock, spawnMock } = vi.hoisted(() => ({
   runSshSandboxCommandMock: vi.fn(),
   disposeSshSandboxSessionMock: vi.fn(async () => undefined),
+  spawnMock: vi.fn(),
+}));
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawn: spawnMock,
 }));
 
 vi.mock("openclaw/plugin-sdk/sandbox", async (importOriginal) => ({
@@ -62,6 +69,7 @@ describe("assigned VM ACP process transport", () => {
   beforeEach(() => {
     runSshSandboxCommandMock.mockReset();
     disposeSshSandboxSessionMock.mockClear();
+    spawnMock.mockReset();
   });
 
   it.each([
@@ -226,6 +234,96 @@ describe("assigned VM ACP process transport", () => {
         })),
       }),
     ).resolves.toMatchObject({ ok: false, stage: "ssh", code: "vm_connection_timeout" });
+    expect(disposeSshSandboxSessionMock).toHaveBeenCalledOnce();
+  });
+
+  it.each(["session", "preflight"])(
+    "releases an invalidated %s wait without starting a remote adapter",
+    async (stage) => {
+      const authority = new AbortController();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const session = { command: "ssh", configPath: "/tmp/test/config", host: "assigned-vm" };
+      const createSession = vi.fn(async () => {
+        if (stage === "session") {
+          await gate;
+        }
+        return session;
+      });
+      runSshSandboxCommandMock.mockImplementationOnce(async () => {
+        if (stage === "preflight") {
+          await gate;
+        }
+      });
+      const launched = launchAssignedVmAcpProcess({
+        input: {
+          executionOwnerAgentId: TARGET.agentId,
+          agent: "codex",
+          sessionKey: "session-one",
+          command: "ignored",
+          args: [],
+          cwd: "/ignored",
+          env: {},
+        },
+        target: TARGET,
+        createSession,
+        signal: authority.signal,
+      });
+      const rejected = expect(launched).rejects.toMatchObject({ name: "AbortError" });
+      await vi.waitFor(() =>
+        expect(
+          stage === "session" ? createSession : runSshSandboxCommandMock,
+        ).toHaveBeenCalledOnce(),
+      );
+      authority.abort();
+      release();
+      await rejected;
+      expect(createSession).toHaveBeenCalledWith(TARGET, authority.signal);
+      expect(spawnMock).not.toHaveBeenCalled();
+      expect(disposeSshSandboxSessionMock).toHaveBeenCalledExactlyOnceWith(session);
+      if (stage === "session") {
+        expect(runSshSandboxCommandMock).not.toHaveBeenCalled();
+      } else {
+        expect(runSshSandboxCommandMock.mock.calls[0]?.[0].signal.aborted).toBe(true);
+      }
+    },
+  );
+
+  it("kills an invalidated SSH child and releases its session once", async () => {
+    const authority = new AbortController();
+    const session = { command: "ssh", configPath: "/tmp/test/config", host: "assigned-vm" };
+    const events = new EventEmitter();
+    const child = Object.assign(events, {
+      pid: 123,
+      kill: vi.fn(() => {
+        events.emit("close");
+        return true;
+      }),
+    });
+    spawnMock.mockReturnValueOnce(child);
+    runSshSandboxCommandMock.mockResolvedValueOnce(undefined);
+    await expect(
+      launchAssignedVmAcpProcess({
+        input: {
+          executionOwnerAgentId: TARGET.agentId,
+          agent: "codex",
+          sessionKey: "session-one",
+          command: "ignored",
+          args: [],
+          cwd: "/ignored",
+          env: {},
+        },
+        target: TARGET,
+        createSession: vi.fn(async () => session),
+        signal: authority.signal,
+      }),
+    ).resolves.toBe(child);
+    authority.abort();
+    expect(child.kill).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+    expect(disposeSshSandboxSessionMock).toHaveBeenCalledExactlyOnceWith(session);
+    child.emit("error", new Error("late SSH failure"));
     expect(disposeSshSandboxSessionMock).toHaveBeenCalledOnce();
   });
 });

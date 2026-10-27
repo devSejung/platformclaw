@@ -41,6 +41,7 @@ export async function setupBrowserGatewayProxyTest(
     racingStore?: HorseRacingStore;
     racingNow?: () => number;
     now?: () => number;
+    talkOfferRelayAvailable?: boolean;
   } = {},
 ) {
   let sequence = 0;
@@ -109,6 +110,7 @@ export async function setupBrowserGatewayProxyTest(
     ...(options.racingNow ? { racingNow: options.racingNow } : {}),
     auditWriter,
     gateway: { request },
+    talkOfferRelayAvailable: options.talkOfferRelayAvailable ?? true,
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
     resolveAgentIdFromSessionKey: sessionAgentId,
     now: options.now ?? (() => NOW),

@@ -130,6 +130,8 @@ export type RunEmbeddedAgentParams = {
   senderE164?: string | null;
   /** Trusted sender identity bit for command/channel-action auth. */
   senderIsOwner?: boolean;
+  /** Trusted personal-Agent boundary; grants only that Agent's workspace tools. */
+  senderAgentId?: string;
   /** Device-scoped operator session allowed to review approvals initiated by this run. */
   approvalReviewerDeviceId?: string;
   /** Current channel ID for auto-threading (Slack). */

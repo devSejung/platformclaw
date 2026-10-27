@@ -5,7 +5,9 @@
 import { resolveGlobalMap } from "../shared/global-singleton.js";
 import { formatError } from "./server-utils.js";
 
-type TalkConnectionCleanupKind = "realtime-relay" | "transcription-relay";
+type TalkConnectionCleanupKind = "realtime-relay" | "transcription-relay" | "client" | "creation";
+type TalkConnectionCleanup = () => void | Promise<void>;
+type TalkConnectionCreation = { active: boolean };
 
 export type UnifiedTalkSessionRecord =
   | {
@@ -29,8 +31,12 @@ const unifiedTalkSessions = resolveGlobalMap<string, UnifiedTalkSessionRecord>(
   Symbol.for("openclaw.unifiedTalkSessions"),
   "close-and-restart",
 );
-const talkConnectionCleanups = resolveGlobalMap<string, Map<TalkConnectionCleanupKind, () => void>>(
-  Symbol.for("openclaw.talkConnectionCleanups"),
+const talkConnectionCleanups = resolveGlobalMap<
+  string,
+  Map<TalkConnectionCleanupKind, TalkConnectionCleanup>
+>(Symbol.for("openclaw.talkConnectionCleanups"), "close-and-restart");
+const pendingTalkCreations = resolveGlobalMap<string, Set<TalkConnectionCreation>>(
+  Symbol.for("openclaw.pendingTalkCreations"),
   "close-and-restart",
 );
 
@@ -41,34 +47,78 @@ const talkConnectionCleanups = resolveGlobalMap<string, Map<TalkConnectionCleanu
 export function registerTalkConnectionCleanup(
   connId: string,
   kind: TalkConnectionCleanupKind,
-  cleanup: () => void,
+  cleanup: TalkConnectionCleanup,
 ): void {
   const cleanups =
-    talkConnectionCleanups.get(connId) ?? new Map<TalkConnectionCleanupKind, () => void>();
+    talkConnectionCleanups.get(connId) ??
+    new Map<TalkConnectionCleanupKind, TalkConnectionCleanup>();
   cleanups.set(kind, cleanup);
   talkConnectionCleanups.set(connId, cleanups);
 }
 
+/** Fence asynchronous creation planning until the concrete session owns connection cleanup. */
+export async function withTalkConnectionCreation<T>(
+  connId: string,
+  create: (assertActive: () => void) => Promise<T>,
+): Promise<T> {
+  const creations = pendingTalkCreations.get(connId) ?? new Set<TalkConnectionCreation>();
+  const creation = { active: true };
+  creations.add(creation);
+  pendingTalkCreations.set(connId, creations);
+  registerTalkConnectionCleanup(connId, "creation", () => {
+    pendingTalkCreations.delete(connId);
+    for (const pending of creations) {
+      pending.active = false;
+    }
+  });
+  try {
+    return await create(() => {
+      if (!creation.active) {
+        throw new Error("Talk connection closed during session creation");
+      }
+    });
+  } finally {
+    creation.active = false;
+    creations.delete(creation);
+    if (!creations.size && pendingTalkCreations.get(connId) === creations) {
+      pendingTalkCreations.delete(connId);
+      const cleanups = talkConnectionCleanups.get(connId);
+      cleanups?.delete("creation");
+      if (!cleanups?.size) {
+        talkConnectionCleanups.delete(connId);
+      }
+    }
+  }
+}
+
 /** Runs and forgets every Talk cleanup owned by a disconnected gateway connection. */
-export function cleanupTalkConnection(
+export async function cleanupTalkConnection(
   connId: string,
   log: { warn: (message: string) => void },
-): void {
+): Promise<void> {
   const cleanups = talkConnectionCleanups.get(connId);
   if (!cleanups) {
     return;
   }
   // Delete first so cleanup failures or re-entrancy cannot retain stale connection owners.
   talkConnectionCleanups.delete(connId);
+  const pending: Promise<void>[] = [];
+  const recordFailure = (kind: TalkConnectionCleanupKind, error: unknown) => {
+    log.warn(
+      `failed to run ${kind} Talk cleanup after connection disconnect: ${formatError(error)}`,
+    );
+  };
+  // Invoke every owner before awaiting so each connection fence takes effect immediately.
   for (const [kind, cleanup] of cleanups) {
     try {
-      cleanup();
-    } catch (error) {
-      log.warn(
-        `failed to run ${kind} Talk cleanup after connection disconnect: ${formatError(error)}`,
+      pending.push(
+        Promise.resolve(cleanup()).catch((error: unknown) => recordFailure(kind, error)),
       );
+    } catch (error) {
+      recordFailure(kind, error);
     }
   }
+  await Promise.all(pending);
 }
 
 /** Associates a public Talk session id with its concrete gateway backend. */

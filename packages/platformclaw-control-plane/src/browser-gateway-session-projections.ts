@@ -49,6 +49,22 @@ function projectObjectKeys(value: JsonObject, keys: readonly string[]): JsonObje
   return projected;
 }
 
+function projectScalarKeys(
+  value: JsonObject,
+  keys: readonly string[],
+  fail: (message: string) => never,
+): JsonObject {
+  const projected = projectObjectKeys(value, keys);
+  if (
+    Object.values(projected).some(
+      (field) => !["string", "number", "boolean"].includes(typeof field),
+    )
+  ) {
+    return fail("Gateway returned invalid scalar session metadata");
+  }
+  return projected;
+}
+
 function requireNonEmptyString(
   value: unknown,
   label: string,
@@ -111,7 +127,6 @@ const ARTIFACT_SUMMARY_KEYS = [
   "taskId",
   "messageSeq",
   "source",
-  "download",
 ] as const;
 
 function projectCompactionCheckpoint(
@@ -250,16 +265,55 @@ function projectArtifactSummary(
   value: unknown,
   input: ProjectBrowserSessionResultParams,
 ): JsonObject {
-  const artifact = asObject(value, "artifact summary", (message) => input.fail(message));
+  const fail = (message: string): never => input.fail(message);
+  const artifact = asObject(value, "artifact summary", fail);
   if (artifact.sessionKey === undefined) {
     return input.fail("Gateway returned an artifact without session ownership");
   }
   input.assertOwnedResultSessionKey(artifact.sessionKey);
-  return projectObjectKeys(artifact, ARTIFACT_SUMMARY_KEYS);
+  const download = asObject(artifact.download, "artifact download metadata", fail);
+  if (download.mode !== "bytes" && download.mode !== "url" && download.mode !== "unsupported") {
+    return input.fail("Gateway returned invalid artifact download metadata");
+  }
+  return {
+    ...projectScalarKeys(artifact, ARTIFACT_SUMMARY_KEYS, fail),
+    download: { mode: download.mode },
+  };
 }
 
 export function projectBrowserSessionResult(input: ProjectBrowserSessionResultParams): unknown {
   const fail = (message: string): never => input.fail(message);
+  if (input.method === "sessions.usage.timeseries" || input.method === "sessions.usage.logs") {
+    input.assertOwnedResultSessionKey(input.prepared.key);
+    const payload = asObject(input.result, "session usage detail", fail);
+    const timeseries = input.method === "sessions.usage.timeseries";
+    const field = timeseries ? "points" : "logs";
+    const entries = payload[field];
+    if (!Array.isArray(entries) || entries.length > (timeseries ? 200 : 1000)) {
+      return fail("Gateway returned an invalid session usage detail list");
+    }
+    const fields = timeseries
+      ? [
+          "timestamp",
+          "input",
+          "output",
+          "cacheRead",
+          "cacheWrite",
+          "totalTokens",
+          "cost",
+          "cumulativeTokens",
+          "cumulativeCost",
+        ]
+      : ["timestamp", "role", "content", "tokens", "cost"];
+    return {
+      ...(timeseries && typeof payload.sessionId === "string"
+        ? { sessionId: payload.sessionId }
+        : {}),
+      [field]: entries.map((entry) =>
+        projectScalarKeys(asObject(entry, "session usage detail entry", fail), fields, fail),
+      ),
+    };
+  }
   if (input.method === "sessions.files.list") {
     const payload = asObject(input.result, "session files list result", fail);
     input.assertOwnedResultSessionKey(payload.sessionKey);
@@ -400,12 +454,15 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
       artifacts: payload.artifacts.map((artifact) => projectArtifactSummary(artifact, input)),
     };
   }
-  if (input.method === "artifacts.download") {
+  if (input.method === "artifacts.get" || input.method === "artifacts.download") {
     const payload = asObject(input.result, "artifact download result", fail);
     input.assertOwnedResultSessionKey(input.prepared.sessionKey);
     const artifact = projectArtifactSummary(payload.artifact, input);
     if (artifact.id !== input.prepared.artifactId) {
       return input.fail("Gateway returned a different artifact than requested");
+    }
+    if (input.method === "artifacts.get") {
+      return { artifact };
     }
     const download = projectObjectKeys(payload, ["encoding", "data", "url", "expiresAt"]);
     if (typeof download.url === "string") {
@@ -460,6 +517,20 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
           }
         : {}),
     };
+  }
+  if (input.method === "sessions.compaction.get") {
+    const payload = asObject(input.result, "session compaction checkpoint result", fail);
+    if (payload.ok !== true) {
+      return fail("Gateway returned an invalid compaction checkpoint result");
+    }
+    input.assertOwnedResultSessionKey(input.prepared.key);
+    const key = requireNonEmptyString(payload.key, "session compaction checkpoint key", fail);
+    input.assertOwnedResultSessionKey(key);
+    const checkpoint = projectCompactionCheckpoint(payload.checkpoint, input);
+    if (checkpoint.checkpointId !== input.prepared.checkpointId || checkpoint.sessionKey !== key) {
+      return fail("Gateway returned a different compaction checkpoint than requested");
+    }
+    return { ok: true, key, checkpoint };
   }
   if (input.method === "sessions.compaction.list") {
     const payload = asObject(input.result, "session compaction list result", fail);
@@ -540,15 +611,33 @@ export function projectBrowserSessionResult(input: ProjectBrowserSessionResultPa
     input.assertOwnedResultSessionKey(input.prepared.sessionKey);
     return {};
   }
-  if (input.method === "sessions.steer") {
+  if (input.method === "sessions.send" || input.method === "sessions.steer") {
     const payload = asObject(input.result, "session steer result", fail);
+    input.assertOwnedResultSessionKey(input.prepared.key);
+    // A native /stop completes at chat pre-admission and returns the abort ACK
+    // rather than a started run. Preserve that successful, visible outcome.
+    if (
+      payload.ok === true &&
+      typeof payload.aborted === "boolean" &&
+      Array.isArray(payload.runIds) &&
+      payload.runIds.every((id) => typeof id === "string")
+    ) {
+      return { ok: true, aborted: payload.aborted, runIds: [...payload.runIds] };
+    }
     if (typeof payload.status !== "string") {
       return input.fail("Gateway returned an invalid session steer result");
     }
-    input.assertOwnedResultSessionKey(input.prepared.key);
     return {
       status: payload.status,
       ...(typeof payload.runId === "string" ? { runId: payload.runId } : {}),
+      ...(typeof payload.messageSeq === "number" &&
+      Number.isSafeInteger(payload.messageSeq) &&
+      payload.messageSeq > 0
+        ? { messageSeq: payload.messageSeq }
+        : {}),
+      ...(typeof payload.interruptedActiveRun === "boolean"
+        ? { interruptedActiveRun: payload.interruptedActiveRun }
+        : {}),
     };
   }
   if (input.method === "sessions.fork") {

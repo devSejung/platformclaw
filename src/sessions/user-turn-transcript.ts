@@ -158,6 +158,7 @@ export function buildPersistedUserTurnMessage(params: UserTurnInput): PersistedU
             params.senderIsOwner &&
             (!params.provenance || params.provenance.kind === "external_user"),
         }),
+    ...(params.senderAgentId ? { senderAgentId: params.senderAgentId } : {}),
     ...senderMeta,
     ...(params.transport ? { transport: params.transport } : {}),
     ...(normalizedMedia.length > 0 ? { media: normalizedMedia } : {}),
@@ -293,12 +294,27 @@ export function restorePreparedUserTurnOperationalMetaForRuntime(params: {
   }
   const preparedMeta = readOpenClawMessageMeta(params.preparedMessage);
   const senderIsOwner = preparedMeta?.senderIsOwner;
-  if (typeof senderIsOwner !== "boolean") {
+  const senderAgentId = normalizeOptionalString(preparedMeta?.senderAgentId);
+  const runtimeMeta = readOpenClawMessageMeta(params.runtimeMessage);
+  if (
+    typeof senderIsOwner !== "boolean" &&
+    !senderAgentId &&
+    runtimeMeta?.senderAgentId === undefined
+  ) {
     return params.runtimeMessage;
+  }
+  const protectedMeta = { ...runtimeMeta };
+  // Hooks cannot forge a personal-Agent grant when the admitted input had none.
+  delete protectedMeta.senderAgentId;
+  if (senderAgentId) {
+    protectedMeta.senderAgentId = senderAgentId;
+  }
+  if (typeof senderIsOwner === "boolean") {
+    protectedMeta.senderIsOwner = senderIsOwner;
   }
   return {
     ...(params.runtimeMessage as unknown as Record<string, unknown>),
-    __openclaw: { ...readOpenClawMessageMeta(params.runtimeMessage), senderIsOwner },
+    __openclaw: protectedMeta,
   } as unknown as AgentMessage;
 }
 
@@ -317,6 +333,7 @@ export function preparePersistedUserTurnMessageForTranscriptWrite(
     (message as unknown as { provenance?: unknown }).provenance,
   );
   const senderIsOwner = readOpenClawMessageMeta(message)?.senderIsOwner;
+  const senderAgentId = normalizeOptionalString(readOpenClawMessageMeta(message)?.senderAgentId);
   const originalTransport = readOpenClawMessageMeta(message)?.transport;
   const lateMedia = readOpenClawMessageMeta(message)?.lateMedia === true;
   const originalMedia = readOpenClawMessageMeta(message)?.media;
@@ -342,6 +359,8 @@ export function preparePersistedUserTurnMessageForTranscriptWrite(
   if (
     !idempotencyKey &&
     typeof senderIsOwner !== "boolean" &&
+    !senderAgentId &&
+    readOpenClawMessageMeta(nextUserMessage)?.senderAgentId === undefined &&
     !transport &&
     !lateMedia &&
     media === undefined &&
@@ -349,7 +368,7 @@ export function preparePersistedUserTurnMessageForTranscriptWrite(
   ) {
     return nextUserMessage;
   }
-  const protectedMeta = {
+  const protectedMeta: Record<string, unknown> = {
     ...readOpenClawMessageMeta(nextUserMessage),
     ...(typeof senderIsOwner === "boolean" ? { senderIsOwner } : {}),
     ...(transport ? { transport } : {}),
@@ -357,6 +376,10 @@ export function preparePersistedUserTurnMessageForTranscriptWrite(
     ...(media === undefined ? {} : { media }),
     ...(mediaImageLayout === undefined ? {} : { mediaImageLayout }),
   };
+  delete protectedMeta.senderAgentId;
+  if (senderAgentId) {
+    protectedMeta.senderAgentId = senderAgentId;
+  }
   return {
     ...(nextUserMessage as unknown as Record<string, unknown>),
     ...(idempotencyKey ? { idempotencyKey } : {}),

@@ -2,10 +2,7 @@ import { performance } from "node:perf_hooks";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { resolveProviderIdForAuth } from "../../agents/provider-auth-aliases.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
-import {
-  resolveAgentMainSessionKey,
-  resolveSessionRoutingContract,
-} from "../../config/sessions/main-session.js";
+import { resolveSessionRoutingContract } from "../../config/sessions/main-session.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { measureDiagnosticsTimelineSpanSync } from "../../infra/diagnostics-timeline.js";
 import { isIncognitoSessionKey } from "../../routing/session-key.js";
@@ -20,6 +17,7 @@ import {
 import {
   hasGatewayAdminScope,
   resolveChatSendActiveScopeKey,
+  resolveChatSendSessionLoadKey,
   resolveRequestedChatAgentId,
   validateChatSelectedAgent,
 } from "./chat-origin-routing.js";
@@ -45,16 +43,11 @@ function loadChatSendSessionContext(params: {
     requestedSessionKey: rawSessionKey,
     agentId: agentIdOverride,
   });
-  // Outside configured global scope, `global` + agentId is the shipped webchat
-  // alias for that agent's main thread. Resolve it before every store lookup so
-  // reconnect replay cannot create a parallel literal `global` transcript.
-  const sessionLoadKey =
-    runtimeConfig &&
-    runtimeConfig.session?.scope !== "global" &&
-    rawSessionKey.trim().toLowerCase() === "global" &&
-    requestedAgentId
-      ? resolveAgentMainSessionKey({ cfg: runtimeConfig, agentId: requestedAgentId })
-      : rawSessionKey;
+  const sessionLoadKey = resolveChatSendSessionLoadKey({
+    cfg: runtimeConfig,
+    sessionKey: rawSessionKey,
+    agentId: requestedAgentId,
+  });
   const sessionLoadOptions = requestedAgentId ? { agentId: requestedAgentId } : undefined;
   const sessionLoadStartedAtMs = performance.now();
   const sessionLoadResult = measureDiagnosticsTimelineSpanSync(

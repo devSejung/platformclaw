@@ -102,19 +102,20 @@ export class BrowserGatewayInteractiveOwnership {
     access: BrowserInteractiveAccess,
     method: string,
     params: JsonObject,
+    gateway: BrowserGatewayRpc = this.gateway,
   ): Promise<BrowserInteractiveRequestResult> {
     if (method === "question.list") {
-      const result = await this.gateway.request(method, {});
+      const result = await gateway.request(method, {});
       return { handled: true, result: this.projectQuestionList(access, result) };
     }
     if (method === "question.get") {
       const id = this.requireId(params.id, method);
-      const result = await this.gateway.request(method, { id });
+      const result = await gateway.request(method, { id });
       return { handled: true, result: this.projectQuestionGet(access, result) };
     }
     if (method === "question.resolve") {
       const id = this.requireId(params.id, method);
-      const current = await this.gateway.request("question.get", { id });
+      const current = await gateway.request("question.get", { id });
       this.projectQuestionGet(access, current);
       const request = { id } as JsonObject;
       if (params.cancel === true) {
@@ -124,7 +125,7 @@ export class BrowserGatewayInteractiveOwnership {
       } else {
         this.fail("invalid-params", "question.resolve requires answers or cancel=true");
       }
-      const result = await this.gateway.request(method, request);
+      const result = await gateway.request(method, request);
       this.projectQuestionGet(access, current);
       return { handled: true, result };
     }
@@ -133,7 +134,7 @@ export class BrowserGatewayInteractiveOwnership {
       if (sessionKey && access.resolveAgentIdFromSessionKey(sessionKey) !== access.agentId) {
         this.fail("cross-agent-denied", "task suggestion session is not owned by browser agent");
       }
-      const result = await this.gateway.request(method, {
+      const result = await gateway.request(method, {
         agentId: access.agentId,
         ...(sessionKey ? { sessionKey } : {}),
       });
@@ -141,8 +142,8 @@ export class BrowserGatewayInteractiveOwnership {
     }
     if (method === "taskSuggestions.accept" || method === "taskSuggestions.dismiss") {
       const taskId = this.requireId(params.taskId, method);
-      await this.ensureTaskSuggestionOwner(access, taskId);
-      const result = await this.gateway.request(method, {
+      await this.ensureTaskSuggestionOwner(access, taskId, gateway);
+      const result = await gateway.request(method, {
         taskId,
         ...(method === "taskSuggestions.dismiss" && typeof params.reason === "string"
           ? { reason: params.reason }
@@ -167,7 +168,7 @@ export class BrowserGatewayInteractiveOwnership {
       if (!binding || !bindingBelongsToAccess(access, binding)) {
         this.fail("cross-agent-denied", "approval is not bound to the browser agent");
       }
-      const result = asRecord(await this.gateway.request(method, { id }));
+      const result = asRecord(await gateway.request(method, { id }));
       const approval = asRecord(result?.approval);
       const projected = approval ? projectSessionApproval(approval) : null;
       const presentation = projected ? asRecord(projected.presentation) : null;
@@ -193,7 +194,7 @@ export class BrowserGatewayInteractiveOwnership {
       if (!kind || kind !== binding.kind || !decision || !binding.allowedDecisions.has(decision)) {
         this.fail("invalid-params", "approval kind or decision does not match the session prompt");
       }
-      const result = asRecord(await this.gateway.request(method, { id, kind, decision }));
+      const result = asRecord(await gateway.request(method, { id, kind, decision }));
       if (!bindingBelongsToAccess(access, binding)) {
         this.fail("cross-agent-denied", "approval is no longer bound to the browser agent");
       }
@@ -316,6 +317,7 @@ export class BrowserGatewayInteractiveOwnership {
   private async ensureTaskSuggestionOwner(
     access: BrowserInteractiveAccess,
     taskId: string,
+    gateway: BrowserGatewayRpc,
   ): Promise<void> {
     const existing = this.taskSuggestionOwners.get(taskId);
     if (existing && bindingBelongsToAccess(access, existing)) {
@@ -323,7 +325,7 @@ export class BrowserGatewayInteractiveOwnership {
     }
     const listed = this.projectTaskSuggestionList(
       access,
-      await this.gateway.request("taskSuggestions.list", { agentId: access.agentId }),
+      await gateway.request("taskSuggestions.list", { agentId: access.agentId }),
     ) as { suggestions: JsonObject[] };
     if (!listed.suggestions.some((suggestion) => suggestion.id === taskId)) {
       this.fail("cross-agent-denied", "task suggestion is not owned by browser agent");

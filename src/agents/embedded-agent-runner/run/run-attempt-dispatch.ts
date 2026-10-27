@@ -229,6 +229,7 @@ export async function dispatchEmbeddedRunAttempt(input: {
     senderUsername: params.senderUsername,
     senderE164: params.senderE164,
     senderIsOwner: params.senderIsOwner,
+    senderAgentId: params.senderAgentId,
     approvalReviewerDeviceId: params.approvalReviewerDeviceId,
     currentChannelId: params.currentChannelId,
     chatId: params.chatId,

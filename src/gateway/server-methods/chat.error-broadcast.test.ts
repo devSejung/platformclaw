@@ -4,6 +4,7 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
 import { createChatRunState } from "../server-chat-state.js";
+import { requireChatSendScope } from "./chat-send-scope.js";
 import { chatHandlers } from "./chat.js";
 import type { GatewayRequestContext } from "./types.js";
 
@@ -98,6 +99,14 @@ describe("chat.send error broadcast", () => {
   it("returns an idempotent cached send after session routing changes", async () => {
     const ctx = createMockContext();
     const respond = vi.fn();
+    requireChatSendScope({
+      context: ctx as unknown as GatewayRequestContext,
+      client: null,
+      respond,
+      runId: "test-cached-routing",
+      agentId: "main",
+      sessionKey: "agent:main:main",
+    });
     ctx.dedupe.set("chat:test-cached-routing", {
       ts: Date.now(),
       ok: true,

@@ -1,3 +1,4 @@
+import { CONTROL_UI_SERVER_AUTHORIZED_METHODS_CAPABILITY } from "../../../src/gateway/control-ui-contract.js";
 import { roleScopesAllow } from "../../../src/shared/operator-scope-compat.js";
 import type { ApplicationGatewaySnapshot } from "../app/gateway.ts";
 
@@ -48,11 +49,20 @@ export function canCallGatewayMethod(
   if (!snapshot?.client || snapshot.phase !== "connected") {
     return false;
   }
+  const advertised = isGatewayMethodAdvertised(snapshot, method);
+  const serverAuthorizesAdvertisedMethods =
+    isGatewayCapabilityAdvertised(snapshot, CONTROL_UI_SERVER_AUTHORIZED_METHODS_CAPABILITY) ===
+    true;
   if (
-    options.requireAdvertisement !== false &&
-    isGatewayMethodAdvertised(snapshot, method) === false
+    (serverAuthorizesAdvertisedMethods && advertised !== true) ||
+    (options.requireAdvertisement !== false && advertised === false)
   ) {
     return false;
+  }
+  // The proxy owns resource authorization; this capability applies only to its
+  // explicit catalog, so it never enables an unadvertised administrative method.
+  if (serverAuthorizesAdvertisedMethods && advertised === true) {
+    return true;
   }
   const auth = snapshot.hello?.auth ?? null;
   return (

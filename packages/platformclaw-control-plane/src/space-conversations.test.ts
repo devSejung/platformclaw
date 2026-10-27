@@ -1,18 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SpaceConversation } from "./space-contracts.js";
+import { createSpaceTestConversation as create } from "./space-conversation.test-helpers.js";
 import { projectSpaceRecallResult, validateSpaceRecallWindow } from "./space-recall-projection.js";
 import { createSpaceTestFixture as fixture } from "./spaces.test-fixtures.js";
 
 const rpc = "platformclaw.spaces.";
-type Fixture = Awaited<ReturnType<typeof fixture>>;
-async function create(f: Fixture, actor = f.alice, requestId = "own-tab") {
-  return f.proxy.request<SpaceConversation>(actor.token, rpc + "conversation.create", {
-    spaceId: f.space.id,
-    pageId: f.page.id,
-    title: `${actor.token} work`,
-    requestId,
-  });
-}
 const textMessage = (role: string, id: string, text: string, ownerId?: string) => ({
   role,
   content: [{ type: "text", text }],
@@ -712,87 +704,6 @@ describe("Space-created personal conversations", () => {
       ).rejects.toThrow(changed === "membership" ? "unavailable" : "active personal agent");
     },
   );
-
-  it("cancels a native send admitted during membership revocation", async () => {
-    const f = await fixture();
-    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "owner", 1);
-    const conversation = await create(f);
-    const original = f.request.getMockImplementation()!;
-    let release!: () => void;
-    f.request.mockImplementation(async (method, params) => {
-      if (method === "chat.send") {
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        return { status: "started" };
-      }
-      return original(method, params);
-    });
-    const sending = f.proxy.request(f.alice.token, "chat.send", {
-      sessionKey: conversation.sessionKey,
-      message: "run",
-      idempotencyKey: "race",
-    });
-    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
-    f.store.spaces.setMember(f.bob.user.id, f.space.id, f.alice.user.id, null, 2);
-    release();
-    await expect(sending).rejects.toThrow("unavailable");
-    expect(f.request).toHaveBeenLastCalledWith("chat.abort", {
-      sessionKey: conversation.sessionKey,
-      agentId: conversation.agentId,
-      runId: "race",
-    });
-    expect(
-      await f.proxy.filterEvent(f.alice.token, {
-        event: "chat",
-        payload: {
-          sessionKey: conversation.sessionKey,
-          message: { content: "after revoke" },
-        },
-      }),
-    ).toBeNull();
-  });
-
-  it("fences a pending old admission after remove and re-add without cancelling a newer run", async () => {
-    const f = await fixture();
-    f.store.spaces.setMember(f.alice.user.id, f.space.id, f.bob.user.id, "owner", 1);
-    const conversation = await create(f);
-    const original = f.request.getMockImplementation()!;
-    let release!: () => void;
-    f.request.mockImplementation(async (method, params) => {
-      if (
-        method === "chat.send" &&
-        (params as { idempotencyKey?: string }).idempotencyKey === "old-admission"
-      ) {
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        return { status: "started", runId: "old-admission" };
-      }
-      return original(method, params);
-    });
-    const old = f.proxy.request(f.alice.token, "chat.send", {
-      sessionKey: conversation.sessionKey,
-      message: "old",
-      idempotencyKey: "old-admission",
-    });
-    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
-    f.store.spaces.setMember(f.bob.user.id, f.space.id, f.alice.user.id, null, 2);
-    f.store.spaces.setMember(f.bob.user.id, f.space.id, f.alice.user.id, "editor", 3);
-    await f.proxy.request(f.alice.token, "chat.send", {
-      sessionKey: conversation.sessionKey,
-      message: "new authorization",
-      idempotencyKey: "new-admission",
-    });
-    release();
-    await expect(old).rejects.toThrow("membership changed");
-    expect(f.request).toHaveBeenLastCalledWith("chat.abort", {
-      sessionKey: conversation.sessionKey,
-      agentId: conversation.agentId,
-      runId: "old-admission",
-    });
-    expect(f.request).not.toHaveBeenCalledWith("sessions.abort", expect.anything());
-  });
 
   it.each(["creation", "history", "recall"] as const)(
     "rejects %s results completed after access removal",

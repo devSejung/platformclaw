@@ -311,11 +311,7 @@ describe("revision-pinned document publication boundary", () => {
       });
       return result;
     });
-    expect(
-      (await f.publish()).documents.every(
-        (item) => item.status === "failed" && item.error === "forbidden",
-      ),
-    ).toBe(true);
+    await expect(f.publish()).rejects.toMatchObject({ code: "agent-unavailable" });
     expect(f.request).toHaveBeenCalledTimes(1);
     expect(f.selected().documents).toHaveLength(0);
   });

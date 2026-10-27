@@ -29,10 +29,14 @@ export class BrowserGatewaySessionMessageSubscriptions {
     }
   }
 
-  subscribe(connectionId: string, params: SubscriptionParams): Promise<unknown> {
+  subscribe(
+    connectionId: string,
+    params: SubscriptionParams,
+    gateway: GatewayRequest = this.gateway,
+  ): Promise<unknown> {
     const operation = this.barrier.then(async () => {
       this.assertActive(connectionId);
-      const result = await this.gateway.request("sessions.messages.subscribe", params);
+      const result = await gateway.request("sessions.messages.subscribe", params);
       if (!this.activeConnections.has(connectionId)) {
         const id = subscriptionId(params);
         if (!this.isDesiredElsewhere(id)) {
@@ -55,21 +59,22 @@ export class BrowserGatewaySessionMessageSubscriptions {
   unsubscribe(
     connectionId: string,
     params: Pick<SubscriptionParams, "key" | "agentId">,
+    gateway: GatewayRequest = this.gateway,
   ): Promise<unknown> {
     const operation = this.barrier.then(async () => {
       this.assertActive(connectionId);
       const id = subscriptionId(params);
       const subscriptions = this.desired.get(connectionId);
+      // Keep ownership until the guarded dispatch succeeds. If authority expires
+      // while it waits, connection cleanup must still release the upstream lease.
+      const result = this.isDesiredElsewhere(id, connectionId)
+        ? { subscribed: false }
+        : await gateway.request("sessions.messages.unsubscribe", params);
       subscriptions?.delete(id);
       if (subscriptions?.size === 0) {
         this.desired.delete(connectionId);
       }
-      // The upstream registry is keyed only by its shared connection and session.
-      // Preserve that lease until the final browser connection releases it.
-      if (this.isDesiredElsewhere(id)) {
-        return { subscribed: false };
-      }
-      return await this.gateway.request("sessions.messages.unsubscribe", params);
+      return result;
     });
     this.advanceBarrier(operation);
     return operation;
@@ -102,9 +107,9 @@ export class BrowserGatewaySessionMessageSubscriptions {
     }
   }
 
-  private isDesiredElsewhere(id: string): boolean {
-    for (const subscriptions of this.desired.values()) {
-      if (subscriptions.has(id)) {
+  private isDesiredElsewhere(id: string, excludedConnectionId?: string): boolean {
+    for (const [connectionId, subscriptions] of this.desired) {
+      if (connectionId !== excludedConnectionId && subscriptions.has(id)) {
         return true;
       }
     }

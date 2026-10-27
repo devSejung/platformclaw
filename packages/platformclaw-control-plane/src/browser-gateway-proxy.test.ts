@@ -169,6 +169,7 @@ describe("BrowserGatewayProxy", () => {
     await expect(
       proxy.request(token, "sessions.messages.subscribe", { key, includeApprovals: false }),
     ).rejects.toMatchObject({ code: "invalid-params" });
+    expect(request).not.toHaveBeenCalled();
     await expect(
       proxy.request(token, "sessions.create", { key, futureCreateOption: true }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });
@@ -558,7 +559,12 @@ describe("BrowserGatewayProxy", () => {
         queueMode: "steer",
         expectedLeafEntryId: "leaf-1",
         replyToId: "message-1",
-        senderAttribution: expect.objectContaining({ id: user.accountId, profileId: user.id }),
+        senderAttribution: expect.objectContaining({
+          id: user.accountId,
+          profileId: user.id,
+          agentId: binding.agentId,
+          isOwner: false,
+        }),
         suppressCommandInterpretation: true,
       }),
     );
@@ -756,7 +762,12 @@ describe("BrowserGatewayProxy", () => {
       message: "hello",
       idempotencyKey: expect.any(String),
       deliver: false,
-      senderAttribution: expect.objectContaining({ id: user.accountId, profileId: user.id }),
+      senderAttribution: expect.objectContaining({
+        id: user.accountId,
+        profileId: user.id,
+        agentId: binding.agentId,
+        isOwner: false,
+      }),
       suppressCommandInterpretation: true,
     });
   });
@@ -798,7 +809,12 @@ describe("BrowserGatewayProxy", () => {
       attachments: [attachment],
       idempotencyKey: expect.any(String),
       deliver: false,
-      senderAttribution: expect.objectContaining({ id: user.accountId, profileId: user.id }),
+      senderAttribution: expect.objectContaining({
+        id: user.accountId,
+        profileId: user.id,
+        agentId: binding.agentId,
+        isOwner: false,
+      }),
       suppressCommandInterpretation: true,
     });
   });
@@ -816,13 +832,8 @@ describe("BrowserGatewayProxy", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("keeps unsafe session message relay methods blocked", async () => {
+  it("keeps privileged session creation inputs blocked", async () => {
     const { binding, proxy, request, token } = await setup();
-    const key = `agent:${binding.agentId}:main`;
-
-    await expect(
-      proxy.request(token, "sessions.send", { key, message: "hello" }),
-    ).rejects.toMatchObject({ code: "method-not-allowed" });
     await expect(
       proxy.request(token, "sessions.create", { agentId: binding.agentId, task: "run a task" }),
     ).rejects.toMatchObject({ code: "method-not-allowed" });

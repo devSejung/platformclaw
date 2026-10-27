@@ -1,7 +1,9 @@
 // Usage gateway methods aggregate provider and session cost/token metrics from
 // caches, logs, session stores, and discovered transcript files.
 import fs from "node:fs";
+import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { expectDefined } from "@openclaw/normalization-core";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
   ErrorCodes,
@@ -21,6 +23,7 @@ import {
   resolveTimezone,
   resolveTimeZoneDayStartMs,
 } from "../../infra/format-time/format-datetime.js";
+import { resolveUsageProviderId } from "../../infra/provider-usage.shared.js";
 import {
   addCostUsageTotals,
   createEmptyCostUsageTotals,
@@ -69,6 +72,10 @@ import {
   resolveStoredSessionKeyForAgentStore,
 } from "../session-store-key.js";
 import { loadCombinedSessionStoreForGateway, loadSessionEntryReadOnly } from "../session-utils.js";
+import {
+  resolveModelAuthAgentScope,
+  unknownModelAuthAgentIdError,
+} from "./model-auth-agent-scope.js";
 import { loadUsageStatusStaleWhileRevalidate } from "./models-auth-status-usage-cache.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
@@ -1149,9 +1156,37 @@ export { testApi as __test };
 export type { SessionUsageEntry, SessionsUsageAggregates, SessionsUsageResult };
 
 export const usageHandlers: GatewayRequestHandlers = {
-  "usage.status": async ({ respond, context }) => {
+  "usage.status": async ({ respond, params, context }) => {
+    const config = context.getRuntimeConfig();
+    const scope = resolveModelAuthAgentScope(config, params?.agentId);
+    if (!scope.ok) {
+      respond(false, undefined, unknownModelAuthAgentIdError(scope.agentId));
+      return;
+    }
+    // Explicit Agent reads use that Agent's model catalog and credential owner;
+    // filtering a default-Agent snapshot afterward can expose another account's quota.
+    const metadata =
+      params?.agentId === undefined
+        ? undefined
+        : await context.readChatMetadata({ agentId: scope.agentId });
+    const providerIds = metadata
+      ? [
+          ...new Set(
+            (metadata.models ?? []).flatMap((model) => {
+              if (!isRecord(model) || typeof model.provider !== "string") {
+                return [];
+              }
+              const provider =
+                resolveUsageProviderId(model.provider) ?? normalizeProviderId(model.provider);
+              return provider ? [provider] : [];
+            }),
+          ),
+        ]
+      : undefined;
     const summary = await loadUsageStatusStaleWhileRevalidate({
-      config: context.getRuntimeConfig(),
+      config,
+      agentId: scope.agentId,
+      ...(providerIds ? { providerIds } : {}),
     });
     respond(true, summary, undefined);
   },

@@ -359,8 +359,10 @@ export class PlatformClawWebIngressServer {
       }
       // Media bytes use HTTP, not the browser Gateway WebSocket. Resolve this
       // exact authenticated surface before the application SPA fallback.
-      if (this.options.mediaRelay && (await this.options.mediaRelay.handle(req, res))) {
-        return;
+      for (const relay of [this.options.talkRelay, this.options.mediaRelay]) {
+        if (relay && (await relay.handle(req, res))) {
+          return;
+        }
       }
       if (this.options.canvasRelay && (await this.options.canvasRelay.handle(req, res))) {
         return;

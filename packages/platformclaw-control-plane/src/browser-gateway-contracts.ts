@@ -71,6 +71,8 @@ export type BrowserGatewayProxyOptions = {
   racingNow?: () => number;
   spaceService?: import("./space-service.js").SpaceService;
   vaultService?: import("./knowledge-vault-service.js").KnowledgeVaultService;
+  /** Derived from the ingress HTTP relay wiring; never browser-controlled. */
+  talkOfferRelayAvailable?: boolean;
   buildAgentMainSessionKey(params: { agentId: string }): string;
   resolveAgentIdFromSessionKey(sessionKey: string): string | null;
   now?: () => number;

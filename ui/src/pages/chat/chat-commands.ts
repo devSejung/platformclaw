@@ -456,7 +456,7 @@ export async function dispatchChatSlashCommand(
     return "failed";
   }
 
-  if (result.content && targetIsCurrent()) {
+  if (result.content && (result.failed || result.action !== "refresh") && targetIsCurrent()) {
     injectCommandResult(host, result.content);
   }
   if (result.failed) {
@@ -497,10 +497,15 @@ export async function dispatchChatSlashCommand(
   }
 
   if (result.action === "refresh" && targetIsCurrent()) {
-    await host.refreshCurrentChat?.();
+    await host.refreshCurrentChat?.({ awaitHistory: true });
   }
 
   if (targetIsCurrent()) {
+    // History refresh replaces the transcript. Publish the command outcome only
+    // after it settles, while this connection still owns the displayed session.
+    if (result.content && result.action === "refresh") {
+      injectCommandResult(host, result.content);
+    }
     scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0], false, false, {
       contentChanged: Boolean(result.content),
     });

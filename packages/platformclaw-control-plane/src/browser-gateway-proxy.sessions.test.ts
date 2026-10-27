@@ -372,7 +372,7 @@ describe("BrowserGatewayProxy session lifecycle", () => {
   });
 
   it("allows compact, reset, and hard steer only for an owned session", async () => {
-    const { binding, proxy, request, token } = await setup();
+    const { binding, proxy, request, token, user } = await setup();
     const key = `agent:${binding.agentId}:thread`;
     request
       .mockResolvedValueOnce({ ok: true, key, compacted: true, result: { tokensAfter: 1200 } })
@@ -392,7 +392,23 @@ describe("BrowserGatewayProxy session lifecycle", () => {
     expect(request.mock.calls).toEqual([
       ["sessions.compact", { key, agentId: binding.agentId }],
       ["sessions.reset", { key, reason: "reset", agentId: binding.agentId }],
-      ["sessions.steer", { key, message: "restart with this", agentId: binding.agentId }],
+      [
+        "sessions.steer",
+        {
+          key,
+          message: "restart with this",
+          agentId: binding.agentId,
+          deliver: false,
+          suppressCommandInterpretation: true,
+          senderAttribution: {
+            id: user.accountId,
+            name: user.displayName,
+            profileId: user.id,
+            agentId: binding.agentId,
+            isOwner: false,
+          },
+        },
+      ],
     ]);
 
     await expect(

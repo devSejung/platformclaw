@@ -103,6 +103,98 @@ describe("GPT-Live session shaping", () => {
 });
 
 describe("GPT-Live offer broker", () => {
+  it("notifies the private transport owner once when a native session reaches terminal close", async () => {
+    const { realtime, sockets } = createBroker();
+    const onClosed = vi.fn();
+    const onServerSessionStarting = vi.fn();
+    try {
+      const reservation = await realtime.broker.createBrowserSession(
+        {
+          providerConfig: {},
+          model: "gpt-live-1",
+          onClosed,
+          onServerSessionStarting,
+          runAgentConsult: async () => ({ text: "Done" }),
+        },
+        { type: "oauth", token: "test-oauth", accountId: "test-account" },
+      );
+      if (reservation.transport !== "webrtc") {
+        throw new Error("Expected WebRTC reservation");
+      }
+      expect(onServerSessionStarting).toHaveBeenCalledOnce();
+      await realtime.handler(
+        createRequest({ token: reservation.clientSecret }),
+        createResponseHarness().res,
+      );
+      expect(onClosed).not.toHaveBeenCalled();
+      sockets[0]?.close();
+      expect(onClosed).toHaveBeenCalledOnce();
+      realtime.broker.cancelBrowserSession(reservation);
+      await realtime.cleanup();
+      expect(onClosed).toHaveBeenCalledOnce();
+    } finally {
+      await realtime.cleanup();
+    }
+  });
+
+  it("retires an unused offer at its provider-owned startup deadline without another create", async () => {
+    vi.useFakeTimers();
+    const { realtime } = createBroker();
+    const onClosed = vi.fn();
+    try {
+      const reservation = await realtime.broker.createBrowserSession(
+        {
+          providerConfig: {},
+          model: "gpt-live-1",
+          onClosed,
+          runAgentConsult: async () => ({ text: "Done" }),
+        },
+        { type: "oauth", token: "test-oauth", accountId: "test-account" },
+      );
+      if (reservation.transport !== "webrtc") {
+        throw new Error("Expected WebRTC reservation");
+      }
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(onClosed).toHaveBeenCalledOnce();
+      const response = createResponseHarness();
+      await realtime.handler(createRequest({ token: reservation.clientSecret }), response.res);
+      expect(response.res.statusCode).toBe(401);
+      await realtime.cleanup();
+      expect(onClosed).toHaveBeenCalledOnce();
+    } finally {
+      await realtime.cleanup();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retires a failed offer transport so the original call can remain usable", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      throw new Error("candidate setup failed");
+    });
+    const { realtime } = createBroker({ fetchImpl });
+    const onClosed = vi.fn();
+    try {
+      const reservation = await realtime.broker.createBrowserSession(
+        {
+          providerConfig: {},
+          model: "gpt-live-1",
+          onClosed,
+          runAgentConsult: async () => ({ text: "Done" }),
+        },
+        { type: "oauth", token: "test-oauth", accountId: "test-account" },
+      );
+      if (reservation.transport !== "webrtc") {
+        throw new Error("Expected WebRTC reservation");
+      }
+      const response = createResponseHarness();
+      await realtime.handler(createRequest({ token: reservation.clientSecret }), response.res);
+      expect(response.res.statusCode).toBe(502);
+      expect(onClosed).toHaveBeenCalledOnce();
+    } finally {
+      await realtime.cleanup();
+    }
+  });
+
   it("brokers GA OAuth with raw SDP and no sideband while preserving single-use tokens", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {

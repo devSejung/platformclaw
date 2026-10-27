@@ -61,15 +61,22 @@ function createStore(access = "access-one") {
   };
 }
 
-async function runUsageStatus() {
+async function runUsageStatus(
+  params: { agentId?: unknown } = {},
+  scopedConfig: OpenClawConfig = config,
+  models: unknown[] = [{ provider: "openai" }],
+) {
   const respond = vi.fn();
   await expectDefined(
     usageHandlers["usage.status"],
     'usageHandlers["usage.status"] test invariant',
   )({
     respond,
-    params: {},
-    context: { getRuntimeConfig: () => config },
+    params,
+    context: {
+      getRuntimeConfig: () => scopedConfig,
+      readChatMetadata: async () => ({ models }),
+    },
   } as unknown as Parameters<(typeof usageHandlers)["usage.status"]>[0]);
   expect(respond).toHaveBeenCalledTimes(1);
   expect(respond.mock.calls[0]?.[0]).toBe(true);
@@ -161,4 +168,99 @@ describe("usage.status provider usage cache", () => {
     expect(rotated.providers[0]?.windows[0]?.usedPercent).toBe(20);
     expect(mocks.loadProviderUsageSummary).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps interleaved Agent credential owners in separate usage caches", async () => {
+    const scopedConfig: OpenClawConfig = {
+      agents: { list: [{ id: "main", default: true }, { id: "personal" }] },
+    };
+    const mainDir = resolveAgentDir(scopedConfig, "main");
+    const personalDir = resolveAgentDir(scopedConfig, "personal");
+    const mainStore = createStore("main-credential");
+    const personalStore = createStore("personal-credential");
+    mocks.ensureAuthProfileStore.mockImplementation((agentDir: string) =>
+      agentDir === personalDir ? personalStore : mainStore,
+    );
+    const pending = new Map<string, (usedPercent: number) => void>();
+    mocks.loadProviderUsageSummary.mockImplementation(
+      ({ agentDir }: { agentDir: string }) =>
+        new Promise((resolve) => {
+          pending.set(agentDir, (usedPercent) =>
+            resolve({
+              updatedAt: now,
+              providers: [
+                {
+                  provider: "openai",
+                  displayName: "OpenAI",
+                  windows: [{ label: "5h", usedPercent }],
+                },
+              ],
+            }),
+          );
+        }),
+    );
+    const main = runUsageStatus({}, scopedConfig);
+    const personal = runUsageStatus({ agentId: "personal" }, scopedConfig);
+    await vi.waitFor(() => expect(pending.size).toBe(2));
+    expectDefined(pending.get(personalDir), "personal usage resolver")(70);
+    expectDefined(pending.get(mainDir), "main usage resolver")(10);
+    const [mainResult, personalResult] = await Promise.all([main, personal]);
+    expect(mainResult).toMatchObject({ providers: [{ windows: [{ usedPercent: 10 }] }] });
+    expect(personalResult).toMatchObject({ providers: [{ windows: [{ usedPercent: 70 }] }] });
+    expect(await runUsageStatus({}, scopedConfig)).toEqual(mainResult);
+    expect(await runUsageStatus({ agentId: "personal" }, scopedConfig)).toEqual(personalResult);
+    expect(mocks.loadProviderUsageSummary).toHaveBeenCalledTimes(2);
+    expect(mocks.loadProviderUsageSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentDir: personalDir,
+        providers: ["openai"],
+      }),
+    );
+  });
+
+  it("limits explicit Agent quota reads to its model providers using canonical usage aliases", async () => {
+    mocks.listProviderUsagePluginDescriptors.mockReturnValue([
+      { provider: "openai" },
+      { provider: "anthropic" },
+      { provider: "zai" },
+    ]);
+    await runUsageStatus({ agentId: "main" }, config, [{ provider: "claude-cli" }]);
+    expect(mocks.loadProviderUsageSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providers: ["anthropic"],
+      }),
+    );
+    mocks.loadProviderUsageSummary.mockClear();
+    await runUsageStatus({}, config);
+    expect(mocks.loadProviderUsageSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providers: ["anthropic", "openai", "zai"],
+      }),
+    );
+  });
+
+  it.each(["other", " ", null, 42])(
+    "rejects explicit unknown Agent %j before credential reads",
+    async (agentId) => {
+      const respond = vi.fn();
+      const readChatMetadata = vi.fn();
+      await expectDefined(
+        usageHandlers["usage.status"],
+        "usage.status handler",
+      )({
+        respond,
+        params: { agentId },
+        context: { getRuntimeConfig: () => config, readChatMetadata },
+      } as unknown as Parameters<(typeof usageHandlers)["usage.status"]>[0]);
+      expect(respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({
+          code: "INVALID_REQUEST",
+        }),
+      );
+      expect(readChatMetadata).not.toHaveBeenCalled();
+      expect(mocks.ensureAuthProfileStore).not.toHaveBeenCalled();
+      expect(mocks.loadProviderUsageSummary).not.toHaveBeenCalled();
+    },
+  );
 });

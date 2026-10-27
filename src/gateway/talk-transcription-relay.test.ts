@@ -124,6 +124,42 @@ describe("talk transcription gateway relay", () => {
     vi.useRealTimers();
   });
 
+  it("partitions a trusted proxy's quota while preserving connection cleanup", async () => {
+    vi.useFakeTimers();
+    const { context, logGateway } = createBroadcastContext();
+    const sttSession = createSttSessionMock();
+    const provider = createTranscriptionProvider(sttSession);
+    const create = (clientOwnerId: string) =>
+      createTalkTranscriptionRelaySession({
+        context,
+        connId: "shared-proxy",
+        clientOwnerId,
+        provider,
+        providerConfig: {},
+      });
+    try {
+      create("browser-1");
+      create("browser-1");
+      expect(() => create("browser-1")).toThrow(
+        "Too many active transcription Talk sessions for this connection",
+      );
+      const other = create("browser-2");
+      const audio = {
+        transcriptionSessionId: other.transcriptionSessionId,
+        connId: "shared-proxy",
+        audioBase64: "AQID",
+      };
+      expect(() => sendTalkTranscriptionRelayAudio(audio)).not.toThrow();
+      await cleanupTalkConnection("shared-proxy", logGateway);
+      expect(() => sendTalkTranscriptionRelayAudio(audio)).toThrow(
+        "Unknown transcription Talk session",
+      );
+      expect(sttSession.close).toHaveBeenCalledTimes(3);
+    } finally {
+      await cleanupTalkConnection("shared-proxy", logGateway);
+    }
+  });
+
   it("bridges browser audio into a transcription-only Talk event stream", async () => {
     vi.useFakeTimers();
     let sttRequest: RealtimeTranscriptionSessionCreateRequest | undefined;
@@ -498,7 +534,7 @@ describe("talk transcription gateway relay", () => {
       transcriptionSessionId: session.transcriptionSessionId,
       connId: "conn-1",
     });
-    cleanupTalkConnection("conn-1", logGateway);
+    await cleanupTalkConnection("conn-1", logGateway);
     await Promise.resolve();
 
     expect(
@@ -679,7 +715,7 @@ describe("talk transcription gateway relay", () => {
       throw new Error("provider close failed");
     });
 
-    expect(() => cleanupTalkConnection("conn-owner", logGateway)).not.toThrow();
+    await cleanupTalkConnection("conn-owner", logGateway);
     await Promise.resolve();
     await Promise.resolve();
 
@@ -740,7 +776,7 @@ describe("talk transcription gateway relay", () => {
       transcriptionSessionId: unrelatedSession.transcriptionSessionId,
       connId: "conn-other",
     });
-    cleanupTalkConnection("conn-other", logGateway);
+    await cleanupTalkConnection("conn-other", logGateway);
     expect(unrelated.close).toHaveBeenCalledOnce();
   });
 

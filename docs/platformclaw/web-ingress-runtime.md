@@ -99,6 +99,35 @@ sessions owned by that personal Agent; rewind cannot select another employee's
 session. Unsupported Control UI actions are hidden through projected method
 advertisement instead of being rendered as dead controls.
 
+Personal session actions include manual compaction, checkpoint inspection and
+restore, branch switching, reset, rewind, configured-model selection, thinking,
+and fast mode. New sessions accept a configured model before the first message.
+The projected hello uses the server-authorized method capability for personal
+writes, so members can use those actions without global operator administration.
+The proxy enforces parameter and ownership checks for each advertised method.
+Agent Core Files and personal Skill Workshop actions use the same capability.
+
+Manual compaction uses Gateway operation events and persisted history markers
+for one completion row. A skipped notice remains visible after the transcript
+refresh. If that refresh fails, the UI preserves the completed operation and the
+warning without retrying compaction.
+
+Personal ACP commands require an isolated runtime and sessions with an explicit
+matching execution owner. New personal ACP sessions are unbound to external
+channels. `/acp doctor` checks the assigned target; `/acp install` displays
+administrator installation instructions without changing the Gateway. Global
+configuration, restart, and host shell shortcuts remain unavailable to members.
+
+`chat.send`, `sessions.send`, and `sessions.steer` pin the personal Agent,
+suppress unapproved commands, disable external delivery, and inject the
+authenticated sender. Browsers cannot supply those relay controls. Authority is
+checked again at dispatch after asynchronous preparation and before a newly
+created session's first message. A first-turn failure returns `runStarted: false`
+and an actionable `runError`, preserving the visible session-creation outcome.
+Session usage timelines and logs remain personal-Agent scoped. Provider quota
+status uses that Agent's credentials and omits account, billing, and raw errors.
+GitHub hovercards expose bounded metadata for public targets.
+
 The Session Files rail exposes `sessions.files.list`, `sessions.files.get`,
 and `sessions.files.upload`. **Upload files** sends selected local files to
 the currently browsed folder of the Basic workspace; assigned-VM workspaces
@@ -177,10 +206,31 @@ ownership flow. Assigned-VM approvals record the same personal Agent owner, so
 their terminal history appears here without exposing VM connection metadata.
 
 Transcript attachments and other downloadable session artifacts use
-`artifacts.list` and `artifacts.download` with an owned `sessionKey`.
+`artifacts.list`, `artifacts.get`, and `artifacts.download` with an owned `sessionKey`.
 Browser-supplied `runId` and `taskId` scopes are rejected, returned artifact
-metadata is revalidated against the same Agent boundary, and `artifacts.get`
-remains unadvertised because the Control UI does not require it.
+metadata is revalidated against the same Agent boundary. Artifact details omit
+private paths and expose only the browser download mode.
+
+Microphone conversation and dictation use personal Talk leases on the shared
+Gateway connection. The BFF binds each lease and its consult runs to the current
+browser session, user, Agent, and connection; foreign IDs and service-owned
+parameters are rejected. Closing the browser connection releases its leases.
+Provider-native transports receive only the ephemeral credentials required to
+connect. Gateway relay audio and events remain lease scoped. Voice consults retain
+the authenticated browser sender without granting Gateway owner-only tools or
+interpreting spoken slash commands as operator commands. The sender's own Agent
+workspace access remains separate from global owner authority through queued
+runs. Existing Gateway restart recovery preserves that binding only for runs
+already eligible for recovery; this does not enable new automatic restart
+recovery for browser or voice requests.
+
+A provider's Gateway-local WebRTC offer uses a one-shot same-origin
+`POST /platformclaw/api/talk/offer/<ticket>` with `application/sdp`. The ingress
+requires its existing private Gateway media-relay wiring, validates the exact
+public origin and current browser authority, bounds both SDP bodies, and
+forwards only the leased ephemeral token to the fixed provider plugin endpoint.
+If the relay is unavailable, voice setup reports an actionable error. Global
+Talk settings and durable provider credentials remain private.
 
 Attachment bytes use a separate same-origin HTTP bridge. Managed artifact URLs
 must carry the short-lived capability minted by `artifacts.download`. User
@@ -227,6 +277,7 @@ limit alone would create roughly 133 MB frames and bypass the upstream ceiling.
 | `/platformclaw/api/auth/logout`                       | `POST`        | Revoke the active browser session and clear its cookie       |
 | `/platformclaw/api/auth/session`                      | `GET`, `HEAD` | Return the current browser authentication state              |
 | `/platformclaw/api/skill-hub/*`                       | `GET`, `POST` | Search, publish, and install registry skills                 |
+| `/platformclaw/api/talk/offer/*`                      | `POST`        | Exchange a leased WebRTC SDP offer                           |
 | `/platformclaw/app/__openclaw__/assistant-media`      | `GET`, `HEAD` | Download transcript-owned user or assistant attachments      |
 | `/api/chat/media/outgoing/*`                          | `GET`, `HEAD` | Download an owned artifact with its Gateway media ticket     |
 | `/__openclaw__/cap/*/__openclaw__/canvas/documents/*` | `GET`, `HEAD` | Render an Agent-owned Canvas document through a BFF lease    |

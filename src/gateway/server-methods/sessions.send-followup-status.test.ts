@@ -95,6 +95,7 @@ vi.mock("./chat-abort-handler.js", () => ({
     handleChatAbortRequestWithLifecycleMock(...args),
 }));
 
+import { requireChatSendScope } from "./chat-send-scope.js";
 import { sessionMessagingHandlers } from "./sessions-messaging.js";
 
 function createRequestContext(overrides: Record<string, unknown> = {}): GatewayRequestContext {
@@ -141,6 +142,77 @@ describe("sessions.send completed subagent follow-up status", () => {
   });
 
   for (const method of ["sessions.send", "sessions.steer"] as const) {
+    it(`${method} checks relay authority before session lifecycle work`, async () => {
+      const respond = vi.fn();
+      await expectDefined(
+        sessionMessagingHandlers[method],
+        "session messaging handler",
+      )({
+        req: { id: "untrusted-relay" } as never,
+        params: {
+          key: "agent:main:main",
+          message: "hello",
+          senderAttribution: { id: "forged-sender" },
+          suppressCommandInterpretation: true,
+        },
+        respond,
+        context: createRequestContext(),
+        client: null,
+        isWebchatConnect: () => false,
+      });
+      expect(respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({ code: ErrorCodes.INVALID_REQUEST }),
+      );
+      expect(loadSessionEntryMock).not.toHaveBeenCalled();
+      expect(abortEmbeddedAgentRunMock).not.toHaveBeenCalled();
+      expect(chatSendMock).not.toHaveBeenCalled();
+    });
+
+    it(`${method} forwards trusted relay controls to the chat owner`, async () => {
+      const key = "agent:main:main";
+      loadSessionEntryMock.mockReturnValue({
+        cfg: {},
+        canonicalKey: key,
+        storePath: "/tmp/sessions.json",
+        entry: { sessionId: "relay-session" },
+      });
+      chatSendMock.mockImplementation(async ({ respond }: { respond: RespondFn }) => {
+        respond(true, { status: "started", runId: "relay-run" });
+      });
+      const senderAttribution = { id: "employee-1", name: "Employee One", profileId: "user-1" };
+      const respond = vi.fn();
+      await expectDefined(
+        sessionMessagingHandlers[method],
+        "session messaging handler",
+      )({
+        req: { id: "trusted-relay" } as never,
+        params: {
+          key,
+          message: "Explain /config",
+          deliver: false,
+          senderAttribution,
+          suppressCommandInterpretation: true,
+        },
+        respond,
+        context: createRequestContext(),
+        client: { connect: { scopes: ["operator.admin"] } } as never,
+        isWebchatConnect: () => false,
+      });
+      expect(chatSendMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({
+            sessionKey: key,
+            deliver: false,
+            senderAttribution,
+            suppressCommandInterpretation: true,
+          }),
+        }),
+      );
+      expect(respond.mock.calls[0]?.[0]).toBe(true);
+    });
+
     it(`${method} rejects keys belonging to a deleted agent`, async () => {
       const orphanKey = "agent:deleted-agent:main";
       loadSessionEntryMock.mockReturnValue({
@@ -421,6 +493,20 @@ describe("sessions.send completed subagent follow-up status", () => {
 
   it("sessions.steer replaying a cached idempotency key leaves the active run alone", async () => {
     const sessionKey = "agent:main:main";
+    const context = createRequestContext();
+    requireChatSendScope({
+      context,
+      client: null,
+      respond: vi.fn<RespondFn>(),
+      runId: "steer-retry",
+      agentId: "main",
+      sessionKey,
+    });
+    context.dedupe.set("chat:steer-retry", {
+      ts: 1,
+      ok: true,
+      payload: { runId: "steer-retry" },
+    });
     loadSessionEntryMock.mockReturnValue({
       cfg: {},
       canonicalKey: sessionKey,
@@ -451,11 +537,7 @@ describe("sessions.send completed subagent follow-up status", () => {
         idempotencyKey: "steer-retry",
       },
       respond: respondMock as unknown as RespondFn,
-      context: createRequestContext({
-        dedupe: new Map([
-          ["chat:steer-retry", { ts: 1, ok: true, payload: { runId: "steer-retry" } }],
-        ]),
-      }),
+      context,
       client: null,
       isWebchatConnect: () => false,
     });
@@ -505,6 +587,20 @@ describe("sessions.send completed subagent follow-up status", () => {
 
   it("sessions.steer replaying an in-flight idempotency key leaves its own run alone", async () => {
     const sessionKey = "agent:main:main";
+    const context = createRequestContext();
+    requireChatSendScope({
+      context,
+      client: null,
+      respond: vi.fn<RespondFn>(),
+      runId: "steer-inflight",
+      agentId: "main",
+      sessionKey,
+    });
+    Object.assign(context, {
+      chatAbortControllers: new Map([
+        ["steer-inflight", { sessionKey, sessionId: "sess-in-flight" }],
+      ]),
+    });
     loadSessionEntryMock.mockReturnValue({
       cfg: {},
       canonicalKey: sessionKey,
@@ -538,11 +634,7 @@ describe("sessions.send completed subagent follow-up status", () => {
       },
       respond: respondMock as unknown as RespondFn,
       // The run the first attempt started is still registered under its own id.
-      context: createRequestContext({
-        chatAbortControllers: new Map([
-          ["steer-inflight", { sessionKey, sessionId: "sess-in-flight" }],
-        ]),
-      }),
+      context,
       client: null,
       isWebchatConnect: () => false,
     });
@@ -558,12 +650,12 @@ describe("sessions.send completed subagent follow-up status", () => {
     const idempotencyKey = "steer-concurrent-success";
     const abortEntered = createDeferred();
     const releaseAbort = createDeferred();
-    loadSessionEntryMock.mockReturnValue({
+    loadSessionEntryMock.mockImplementation((key: string) => ({
       cfg: {},
-      canonicalKey: sessionKey,
+      canonicalKey: key,
       storePath: "/tmp/sessions.json",
       entry: { sessionId: "sess-concurrent-success" },
-    });
+    }));
     handleChatAbortRequestWithLifecycleMock.mockImplementationOnce(
       async (options: { respond: RespondFn }, lifecycle: { excludeRunIds?: Set<string> }) => {
         expect(lifecycle.excludeRunIds).toEqual(new Set([idempotencyKey]));
@@ -590,14 +682,14 @@ describe("sessions.send completed subagent follow-up status", () => {
     });
     const firstRespond = vi.fn();
     const secondRespond = vi.fn();
-    const invoke = (reqId: string, respond: ReturnType<typeof vi.fn>) =>
+    const invoke = (reqId: string, respond: ReturnType<typeof vi.fn>, key = sessionKey) =>
       expectDefined(
         sessionMessagingHandlers["sessions.steer"],
         'sessionMessagingHandlers["sessions.steer"] test invariant',
       )({
         req: { id: reqId } as never,
         params: {
-          key: sessionKey,
+          key,
           message: "replacement turn",
           idempotencyKey,
         },
@@ -610,6 +702,16 @@ describe("sessions.send completed subagent follow-up status", () => {
     const first = invoke("req-concurrent-success-1", firstRespond);
     await abortEntered.promise;
     const second = invoke("req-concurrent-success-2", secondRespond);
+    const foreignRespond = vi.fn();
+    await invoke("req-concurrent-foreign", foreignRespond, "agent:other:main");
+    expect(foreignRespond).toHaveBeenCalledExactlyOnceWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        code: ErrorCodes.INVALID_REQUEST,
+        details: { reason: "idempotency-key-conflict" },
+      }),
+    );
     await Promise.resolve();
 
     expect(secondRespond).not.toHaveBeenCalled();
@@ -711,8 +813,55 @@ describe("sessions.send completed subagent follow-up status", () => {
   });
 
   for (const method of ["sessions.send", "sessions.steer"] as const) {
+    it(`${method} rejects another Agent's completed idempotency key before lifecycle work`, async () => {
+      const context = createRequestContext();
+      const runId = `${method}-foreign-cache`;
+      loadSessionEntryMock.mockImplementation((key: string) => ({
+        cfg: {},
+        canonicalKey: key,
+        storePath: "/tmp/sessions.json",
+        entry: { sessionId: "owned-session" },
+      }));
+      chatSendMock.mockImplementation(async ({ respond }: { respond: RespondFn }) => {
+        respond(true, { status: "started", runId });
+      });
+      const send = (key: string, respond: RespondFn) =>
+        expectDefined(
+          sessionMessagingHandlers[method],
+          "session messaging handler",
+        )({
+          req: { id: key } as never,
+          params: { key, message: "hello", idempotencyKey: runId },
+          context,
+          client: null,
+          respond,
+          isWebchatConnect: () => false,
+        });
+      const ownerRespond = vi.fn<RespondFn>();
+      await send("agent:main:main", ownerRespond);
+      context.dedupe.set(`chat:${runId}`, {
+        ts: Date.now(),
+        ok: true,
+        payload: { runId, status: "ok" },
+      });
+      const foreignRespond = vi.fn<RespondFn>();
+      await send("agent:other:main", foreignRespond);
+      expect(foreignRespond).toHaveBeenCalledExactlyOnceWith(
+        false,
+        undefined,
+        expect.objectContaining({ details: { reason: "idempotency-key-conflict" } }),
+      );
+      expect(chatSendMock).toHaveBeenCalledTimes(1);
+      expect(readSessionMessageCountAsyncMock).toHaveBeenCalledTimes(
+        method === "sessions.steer" ? 2 : 1,
+      );
+    });
+
     it(`${method} passes selected-global agent scope through chat.send`, async () => {
-      const cfg = { agents: { list: [{ id: "main", default: true }, { id: "work" }] } };
+      const cfg = {
+        session: { scope: "global" as const },
+        agents: { entries: { main: { default: true }, work: {} } },
+      };
       loadSessionEntryMock.mockReturnValue({
         cfg,
         canonicalKey: "global",

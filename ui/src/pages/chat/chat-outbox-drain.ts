@@ -394,6 +394,11 @@ async function drainStoredChatOutbox(
         return "blocked";
       };
       try {
+        if (commandScopeIsCurrent()) {
+          // Clear the previous action's error before dispatch. A successful
+          // command can still publish a refresh warning that must remain visible.
+          dependencies.setChatError(host, null);
+        }
         const dispatchResult = await dispatchChatSlashCommand(
           host,
           claimed.localCommandName ?? item.localCommandName,
@@ -447,9 +452,6 @@ async function drainStoredChatOutbox(
         if (dispatchResult === "uncertain") {
           // The unconfirmed successor is the FIFO lane's durable review barrier.
           return "blocked";
-        }
-        if (commandScopeIsCurrent()) {
-          dependencies.setChatError(host, null);
         }
       } catch (err) {
         return failCommand(String(err), true);

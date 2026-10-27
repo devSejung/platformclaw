@@ -61,6 +61,7 @@ type TalkTranscriptionRelayEvent = TalkTranscriptionRelayEventPayload & {
 type TranscriptionRelaySession = {
   id: string;
   connId: string;
+  clientOwnerId?: string;
   context: GatewayRequestContext;
   provider: RealtimeTranscriptionProviderPlugin;
   sttSession: ReturnType<RealtimeTranscriptionProviderPlugin["createSession"]>;
@@ -75,6 +76,7 @@ type TranscriptionRelaySession = {
 type CreateTalkTranscriptionRelaySessionParams = {
   context: GatewayRequestContext;
   connId: string;
+  clientOwnerId?: string;
   provider: RealtimeTranscriptionProviderPlugin;
   providerConfig: RealtimeTranscriptionProviderConfig;
 };
@@ -238,22 +240,26 @@ function pruneExpiredTranscriptionSessions(nowMs = Date.now()): void {
   });
 }
 
-function countTranscriptionSessionsForConn(connId: string): number {
+function countTranscriptionSessionsForConn(connId: string, clientOwnerId?: string): number {
   let count = 0;
   for (const session of transcriptionSessions.values()) {
-    if (session.connId === connId) {
+    if (session.connId === connId && session.clientOwnerId === clientOwnerId) {
       count += 1;
     }
   }
   return count;
 }
 
-function enforceTranscriptionSessionLimits(connId: string): void {
+function enforceTranscriptionSessionLimits(connId: string, clientOwnerId?: string): void {
   pruneExpiredTranscriptionSessions();
   if (transcriptionSessions.size >= MAX_TRANSCRIPTION_SESSIONS_GLOBAL) {
     throw new Error("Too many active transcription Talk sessions");
   }
-  if (countTranscriptionSessionsForConn(connId) >= MAX_TRANSCRIPTION_SESSIONS_PER_CONN) {
+  // The delivery connection can multiplex trusted browser owners; each keeps the
+  // existing two-session limit while all owners share the process-wide ceiling.
+  if (
+    countTranscriptionSessionsForConn(connId, clientOwnerId) >= MAX_TRANSCRIPTION_SESSIONS_PER_CONN
+  ) {
     throw new Error("Too many active transcription Talk sessions for this connection");
   }
 }
@@ -262,7 +268,7 @@ function enforceTranscriptionSessionLimits(connId: string): void {
 export function createTalkTranscriptionRelaySession(
   params: CreateTalkTranscriptionRelaySessionParams,
 ): TalkTranscriptionRelaySessionResult {
-  enforceTranscriptionSessionLimits(params.connId);
+  enforceTranscriptionSessionLimits(params.connId, params.clientOwnerId);
   assertRelayInputAudioConfig(params.providerConfig);
   const transcriptionSessionId = randomUUID();
   const expiresAtMs = resolveExpiresAtMsFromDurationMs(TRANSCRIPTION_SESSION_TTL_MS);
@@ -360,6 +366,7 @@ export function createTalkTranscriptionRelaySession(
   const relay: TranscriptionRelaySession = {
     id: transcriptionSessionId,
     connId: params.connId,
+    clientOwnerId: params.clientOwnerId,
     context: params.context,
     provider: params.provider,
     sttSession,

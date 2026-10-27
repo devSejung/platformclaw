@@ -24,6 +24,7 @@ type SkillExecutionTarget = "platform_server" | "assigned_vm";
 
 const PASSTHROUGH_METHODS = new Set([
   "sessions.subscribe",
+  "controlUi.githubPreview",
   "plugins.search",
   "plugins.install",
   "plugins.setEnabled",

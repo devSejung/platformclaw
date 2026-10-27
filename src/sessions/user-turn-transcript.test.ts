@@ -8,6 +8,9 @@ import { formatSqliteSessionFileMarker } from "../config/sessions/legacy-sqlite-
 import { loadTranscriptEvents } from "../config/sessions/session-accessor.js";
 import {
   buildLateMediaAttachedProjection,
+  buildPersistedUserTurnMessage,
+  preparePersistedUserTurnMessageForTranscriptWrite,
+  restorePreparedUserTurnOperationalMetaForRuntime,
   createUserTurnTranscriptRecorder,
   mergePreparedUserTurnMessageForRuntime,
   resolvePersistedUserTurnText,
@@ -123,6 +126,65 @@ describe("user turn transcript persistence", () => {
       });
     });
   });
+
+  it.each([undefined, "main"])(
+    "protects scoped Agent authority from transcript hooks (%s)",
+    async (senderAgentId) => {
+      const target = createSqliteTranscriptTarget({
+        dir: createTempDir("agent-scope-transcript-"),
+      });
+      const admitted = buildPersistedUserTurnMessage({
+        text: "profile update",
+        idempotencyKey: "scope-run:user",
+        senderIsOwner: false,
+        senderAgentId,
+      });
+      const hook = ({ message }: { message: typeof admitted }) => {
+        const forged = {
+          ...message,
+          __openclaw: { senderIsOwner: true, senderAgentId: "foreign" },
+        };
+        return forged;
+      };
+      const prepared = preparePersistedUserTurnMessageForTranscriptWrite(admitted, {
+        beforeMessageWrite: hook,
+      });
+      expect(prepared).toMatchObject({ __openclaw: { senderIsOwner: false } });
+      expect(prepared).toMatchObject({
+        __openclaw: senderAgentId
+          ? { senderAgentId }
+          : expect.not.objectContaining({ senderAgentId: expect.anything() }),
+      });
+      const runtime = restorePreparedUserTurnOperationalMetaForRuntime({
+        preparedMessage: admitted,
+        runtimeMessage: castAgentMessage({
+          role: "user",
+          content: "hook output",
+          __openclaw: { senderIsOwner: true, senderAgentId: "foreign" },
+        }),
+      });
+      expect(runtime).toMatchObject({ __openclaw: { senderIsOwner: false } });
+      expect(runtime).toMatchObject({
+        __openclaw: senderAgentId
+          ? { senderAgentId }
+          : expect.not.objectContaining({ senderAgentId: expect.anything() }),
+      });
+      const recorder = createUserTurnTranscriptRecorder({
+        input: { text: "profile update", senderIsOwner: false, senderAgentId },
+        target,
+        beforeMessageWrite: hook,
+      });
+      await recorder.persistFallback();
+      const messages = await readTranscriptMessages(target);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({ __openclaw: { senderIsOwner: false } });
+      expect(messages[0]).toMatchObject({
+        __openclaw: senderAgentId
+          ? { senderAgentId }
+          : expect.not.objectContaining({ senderAgentId: expect.anything() }),
+      });
+    },
+  );
 
   describe("mergePreparedUserTurnMessageForRuntime", () => {
     it("adds prepared transcript metadata to runtime user messages", () => {

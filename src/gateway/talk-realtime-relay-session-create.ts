@@ -75,7 +75,7 @@ function isRelayAssistantEchoTranscript(session: RelaySession | undefined, text:
 export function createTalkRealtimeRelaySession(
   params: CreateTalkRealtimeRelaySessionParams,
 ): TalkRealtimeRelaySessionResult {
-  enforceRelaySessionLimits(params.connId);
+  enforceRelaySessionLimits(params.connId, params.clientOwnerId);
   const forceAgentConsultOnFinalTranscript = params.forceAgentConsultOnFinalTranscript === true;
   const relaySessionId = randomUUID();
   const expiresAtMs = resolveExpiresAtMsFromDurationMs(RELAY_SESSION_TTL_MS);
@@ -145,6 +145,9 @@ export function createTalkRealtimeRelaySession(
       logger: params.context.logGateway,
       agentId,
       sessionKey,
+      senderId: params.senderAttribution?.id,
+      senderAgentId: params.senderAttribution?.agentId,
+      senderIsOwner: params.senderAttribution?.isOwner,
       messageProvider: "webchat",
       lane: "talk",
       runIdPrefix: "talk-realtime-relay-consult",
@@ -561,6 +564,7 @@ export function createTalkRealtimeRelaySession(
   const relay: RelaySession = {
     id: relaySessionId,
     connId: params.connId,
+    clientOwnerId: params.clientOwnerId,
     context: params.context,
     bridge,
     harness,

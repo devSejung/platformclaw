@@ -268,6 +268,8 @@ export async function consultRealtimeVoiceAgent(params: {
   spawnedBy?: string | null;
   /** Sender identity established by the caller's ingress authorization boundary. */
   senderId?: string | null;
+  /** Routed Agent ownership established by the ingress; separate from Gateway ownership. */
+  senderAgentId?: string;
   /** Trusted owner bit established by the caller's ingress authorization boundary. */
   senderIsOwner?: boolean;
   contextMode?: RealtimeVoiceAgentConsultContextMode;
@@ -392,6 +394,7 @@ export async function consultRealtimeVoiceAgent(params: {
         agentId,
         spawnedBy: params.spawnedBy,
         senderId: params.senderId,
+        senderAgentId: params.senderAgentId,
         senderIsOwner: params.senderIsOwner,
         messageProvider: consultDeliveryContext?.channel ?? params.messageProvider,
         agentAccountId: consultDeliveryContext?.accountId,

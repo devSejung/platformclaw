@@ -257,7 +257,12 @@ describe("PlatformClaw execution plugin", () => {
         agentId: "person_one",
         target: "assigned_vm",
       });
-      expect(diagnoseAcpProcess).toHaveBeenCalledWith("claude", target, undefined);
+      expect(diagnoseAcpProcess).toHaveBeenCalledWith("claude", target, expect.any(AbortSignal));
+      expect(diagnoseAcpProcess).toHaveBeenCalledWith(
+        "claude",
+        target,
+        expect.objectContaining({ aborted: false }),
+      );
     } finally {
       await Promise.all(stopHandlers.map(async (handler) => await handler()));
       if (previousBroker === undefined) {

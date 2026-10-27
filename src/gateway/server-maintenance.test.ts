@@ -7,7 +7,7 @@ const CURATOR_INITIAL_DELAY_MS = 5 * 60_000;
 const CURATOR_SWEEP_INTERVAL_MS = 24 * 60 * 60_000;
 import type { ChatAbortControllerEntry } from "./chat-abort.js";
 import { DEDUPE_MAX, DEDUPE_TTL_MS } from "./server-constants.js";
-import { pendingChatSendDedupeKey } from "./server-shared.js";
+import { chatSendScopeDedupeKey, pendingChatSendDedupeKey } from "./server-shared.js";
 import { createGatewayMaintenanceStateForTest } from "./test-helpers.maintenance-state.js";
 
 const cleanOldMediaMock = vi.fn(async () => {});
@@ -787,6 +787,53 @@ describe("startGatewayMaintenanceTimers", () => {
     expect(deps.dedupe.has("agent:stale-agent")).toBe(false);
 
     await stopMaintenanceTimers(timers);
+  });
+
+  it("keeps send ownership while replayable state exists, then expires it", async () => {
+    const { startGatewayMaintenanceTimers, deps, now } = await createTimedMaintenanceScenario();
+    const runIds = ["cached", "active", "queued", "pending", "aborted"];
+    for (const runId of runIds) {
+      deps.dedupe.set(chatSendScopeDedupeKey(runId), {
+        ts: now - DEDUPE_TTL_MS - 1,
+        ok: true,
+        requestIdentity: `owner-${runId}`,
+      });
+    }
+    deps.dedupe.set("chat:cached", {
+      ts: now,
+      ok: true,
+      payload: { runId: "cached", status: "ok" },
+    });
+    deps.chatAbortControllers.set("active", createActiveRun("agent:main:main", "chat-send"));
+    deps.chatQueuedTurns.set("queued", {
+      controller: new AbortController(),
+      sessionId: "queued-session",
+      sessionKey: "agent:main:main",
+    });
+    deps.dedupe.set(pendingChatSendDedupeKey("pending"), {
+      ts: now,
+      ok: true,
+      payload: { runId: "pending", status: "accepted", expiresAtMs: now + 120_000 },
+    });
+    deps.chatRunState.getOrCreate("aborted").abortMarker = now;
+    const timers = startGatewayMaintenanceTimers(deps);
+    try {
+      await vi.advanceTimersByTimeAsync(60_000);
+      for (const runId of runIds) {
+        expect(deps.dedupe.has(chatSendScopeDedupeKey(runId))).toBe(true);
+      }
+      deps.dedupe.delete("chat:cached");
+      deps.dedupe.delete(pendingChatSendDedupeKey("pending"));
+      deps.chatAbortControllers.clear();
+      deps.chatQueuedTurns.clear();
+      deps.chatRunState.runs.delete("aborted");
+      await vi.advanceTimersByTimeAsync(60_000);
+      for (const runId of runIds) {
+        expect(deps.dedupe.has(chatSendScopeDedupeKey(runId))).toBe(false);
+      }
+    } finally {
+      await stopMaintenanceTimers(timers);
+    }
   });
 
   it("keeps pending accepted agent dedupe entries until their run expiry", async () => {

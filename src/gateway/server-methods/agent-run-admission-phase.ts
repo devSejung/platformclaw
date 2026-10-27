@@ -34,6 +34,7 @@ import {
 import type { AgentDeliveryPhaseResult } from "./agent-delivery-phase.js";
 import type { RestoredCronContinuation } from "./agent-handler-helpers.js";
 import type { AgentRunRequest } from "./agent-request-types.js";
+import { resolveAgentRestartRecoverySenderAgentId } from "./agent-restart-recovery-context.js";
 import {
   isConfirmedAcpManualSpawnTaskOwner,
   registerPluginSubagentRunFromGateway,
@@ -50,6 +51,7 @@ export type PreparedAgentRunDispatch = {
   effectiveThinking?: string;
   effectiveAllowModelOverride: boolean;
   trustedInternalHandoff?: TrustedSubagentCompletionHandoff;
+  restartRecoverySenderAgentId?: string;
   restoredCronContinuationLifecycleRevision?: string;
   lifecycleStorePath: string;
   resolvedThreadId?: string | number;
@@ -337,6 +339,7 @@ export async function prepareAgentRunDispatch(params: {
       return undefined;
     }
   }
+  let restartRecoverySenderAgentId: string | undefined;
   let restoreAdmittedRestartRecoveryInterrupted:
     | (() => Promise<MainSessionRecoveryPendingTarget | undefined>)
     | undefined;
@@ -399,7 +402,22 @@ export async function prepareAgentRunDispatch(params: {
             }
           : undefined;
       };
+      if (recoveryAdmission.entry) {
+        restartRecoverySenderAgentId = await resolveAgentRestartRecoverySenderAgentId({
+          agentId: params.activeSessionAgentId,
+          sessionEntry: recoveryAdmission.entry,
+          sessionKey: admittedRecoverySessionKey,
+          storePath: lifecycleStorePath,
+        });
+      }
     } catch (err) {
+      try {
+        await restoreAdmittedRestartRecoveryInterrupted?.();
+      } catch (restoreError) {
+        params.context.logGateway.warn(
+          `failed to restore interrupted recovery admission: ${formatForLog(restoreError)}`,
+        );
+      }
       activeRunAbort.cleanup({ force: true });
       activeGatewayWorkAdmission.release();
       params.respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)));
@@ -439,6 +457,7 @@ export async function prepareAgentRunDispatch(params: {
     effectiveThinking,
     effectiveAllowModelOverride,
     trustedInternalHandoff,
+    restartRecoverySenderAgentId,
     restoredCronContinuationLifecycleRevision: params.restoredCronContinuation?.lifecycleRevision,
     lifecycleStorePath,
     resolvedThreadId,

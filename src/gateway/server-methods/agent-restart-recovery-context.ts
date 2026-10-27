@@ -1,7 +1,10 @@
+import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { parseExecutionIdentityAdmissionToken } from "../../audit/execution-identity-admission.js";
 import type { InternalSessionEntry, SessionEntry } from "../../config/sessions.js";
 import { resolveRestartRecoveryChannelAuthority } from "../../config/sessions/restart-recovery-state.js";
+import { findTranscriptEvent } from "../../config/sessions/session-accessor.js";
+import { buildRunUserTurnIdempotencyKey } from "../../sessions/user-turn-transcript.js";
 
 type AgentRestartRecoveryChannelContext = {
   channel: string;
@@ -78,4 +81,37 @@ export function resolveAgentRestartRecoveryChannelContext(params: {
     sameChannelThreadRequired:
       params.sessionEntry?.restartRecoverySameChannelThreadRequired === true,
   };
+}
+
+/** Restores only the bounded Agent grant from the exact admitted source turn. */
+export async function resolveAgentRestartRecoverySenderAgentId(params: {
+  agentId: string;
+  sessionEntry: SessionEntry;
+  sessionKey: string;
+  storePath: string;
+}): Promise<string | undefined> {
+  const sourceRunId = normalizeOptionalString(
+    params.sessionEntry.restartRecoveryDeliverySourceRunId,
+  );
+  if (!sourceRunId) {
+    return undefined;
+  }
+  const sourceTurnKey = buildRunUserTurnIdempotencyKey(sourceRunId);
+  const found = await findTranscriptEvent(
+    {
+      agentId: params.agentId,
+      sessionEntry: params.sessionEntry,
+      sessionId: params.sessionEntry.sessionId,
+      sessionKey: params.sessionKey,
+      storePath: params.storePath,
+    },
+    (event) => {
+      const message = asOptionalRecord(asOptionalRecord(event)?.message);
+      return message?.role === "user" && message.idempotencyKey === sourceTurnKey;
+    },
+  );
+  const message = asOptionalRecord(asOptionalRecord(found?.event)?.message);
+  const meta = asOptionalRecord(message?.["__openclaw"]);
+  // This capability never restores global ownership or guesses from the latest user message.
+  return meta?.senderIsOwner === false ? normalizeOptionalString(meta.senderAgentId) : undefined;
 }
