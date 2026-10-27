@@ -1,6 +1,8 @@
 /* @vitest-environment jsdom */
-import { render } from "lit";
-import { describe, expect, it, vi } from "vitest";
+import { nothing, render } from "lit";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { hasOpenModalDialog } from "../../components/modal-dialog.ts";
+import { getRenderedModalDialog } from "../../test-helpers/modal-dialog.ts";
 import {
   renderChannelPairingDetail,
   renderChannelPairingPrompt,
@@ -107,8 +109,20 @@ function createProps(overrides: Partial<ChannelsProps> = {}): ChannelsProps {
   };
 }
 
+const containers: HTMLDivElement[] = [];
+
+afterEach(() => {
+  // Connected pairing prompts otherwise defer automatic modals in later shared-worker tests.
+  for (const container of containers.splice(0)) {
+    render(nothing, container);
+    container.remove();
+  }
+  expect(hasOpenModalDialog()).toBe(false);
+});
+
 function renderInto(template: unknown): HTMLDivElement {
   const container = document.createElement("div");
+  containers.push(container);
   document.body.append(container);
   render(template as never, container);
   return container;
@@ -194,7 +208,7 @@ describe("channel DM access request views", () => {
     expect(actionButtons.every((button) => button.disabled)).toBe(true);
   });
 
-  it("shows explicit notification and first-owner choices for an admin", () => {
+  it("shows explicit notification and first-owner choices for an admin", async () => {
     const container = renderInto(
       renderChannelPairingPrompt(
         createProps({
@@ -211,6 +225,8 @@ describe("channel DM access request views", () => {
     expect(container.textContent).toContain("Notify the requester after approval");
     expect(container.textContent).toContain("Also make this sender the first command owner");
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    await getRenderedModalDialog(container);
+    expect(hasOpenModalDialog()).toBe(true);
   });
 
   it("links a channel account detail back to the filtered request queue", () => {
