@@ -23,6 +23,17 @@ export type SandboxFsBridge = {
   /** Resolve model-facing path syntax owned by this backend (for example a remote home alias). */
   resolveUserPath?(params: { filePath: string; cwd?: string }): SandboxResolvedPath;
   resolvePath(params: { filePath: string; cwd?: string }): SandboxResolvedPath;
+  /**
+   * Resolve a mutation entry relative to the canonical runtime workspace.
+   * Follow parent aliases but preserve an atomically replaced final basename.
+   * Return undefined for allowed paths outside that workspace. Host-backed
+   * bridges may omit this method and use their real hostPath instead.
+   */
+  resolveWorkspaceRelativePath?(params: {
+    filePath: string;
+    cwd?: string;
+    signal?: AbortSignal;
+  }): Promise<string | undefined>;
   /** Reads a safely opened regular file, rejecting growth beyond an optional byte limit. */
   readFile(params: {
     filePath: string;

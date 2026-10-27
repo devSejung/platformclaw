@@ -68,7 +68,10 @@ import {
   filterLocalModelLeanTools,
   resolveLocalModelLeanPreserveToolNames,
 } from "./local-model-lean.js";
-import { createMemoryWriteProvenanceObserver } from "./memory-write-provenance.js";
+import {
+  createMemoryWriteProvenanceObserver,
+  resolveHostProvenanceRelativePath,
+} from "./memory-write-provenance.js";
 import type { ModelAuthMode } from "./model-auth.js";
 import { resolveOpenClawPluginToolsForOptions } from "./openclaw-plugin-tools.js";
 import { createOpenClawTools, filterToolsByClientCaps } from "./openclaw-tools.js";
@@ -543,8 +546,25 @@ function createOpenClawCodingToolsInternal(options?: OpenClawCodingToolsOptions)
       : createMemoryWriteProvenanceObserver({
           mutationRoot: sandboxRoot ?? workspaceRoot,
           workspaceDir: workspaceRoot,
-          resolveMutationPath: sandboxFsBridge
-            ? (filePath) => sandboxFsBridge.resolvePath({ filePath, cwd: sandboxRoot }).hostPath
+          resolveRelativePath: sandboxFsBridge
+            ? async (filePath, operation) => {
+                if (sandboxFsBridge.resolveWorkspaceRelativePath) {
+                  return await sandboxFsBridge.resolveWorkspaceRelativePath({
+                    filePath,
+                    cwd: sandboxRoot,
+                  });
+                }
+                // Existing third-party host-backed bridges expose real hostPath
+                // mappings; runtime-only bridges must own canonical resolution.
+                const hostPath = sandboxFsBridge.resolvePath({
+                  filePath,
+                  cwd: sandboxRoot,
+                }).hostPath;
+                if (!hostPath) {
+                  throw new Error("Sandbox filesystem bridge cannot classify memory writes.");
+                }
+                return resolveHostProvenanceRelativePath(sandboxRoot!, hostPath, operation);
+              }
             : undefined,
           plan: resolveMemoryFlushPlan({ cfg: options?.config }) ?? {},
           resolveOriginClass: () =>

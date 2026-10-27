@@ -1,12 +1,13 @@
 /** Pure mount and path helpers for the remote sandbox filesystem bridge. */
 import path from "node:path";
+import { isPathInside } from "../../infra/path-guards.js";
+import { isPathInsideContainerRoot, relativePathEscapesContainerRoot } from "./path-utils.js";
 import { normalizeContainerPath as normalizeSandboxContainerPath } from "./path-utils.js";
+import type { RemoteMountSource, ResolvedRemotePath } from "./remote-fs-bridge.types.js";
 import {
   isExistingWorkspaceSkillMountSource,
   resolveMaterializedSandboxSkillsWorkspaceDir,
 } from "./workspace-mounts.js";
-
-export type RemoteMountSource = "workspace" | "agent" | "additional" | "protectedSkill";
 
 export type RemoteMountInfo = {
   localRoot: string | null;
@@ -93,11 +94,11 @@ export function buildRemoteProtectedSkillMounts(params: {
     .map(({ allowedRoot: _allowedRoot, ...mount }) => mount);
 }
 
-export function compareRemoteMountsByContainerPath(a: RemoteMountInfo, b: RemoteMountInfo): number {
+function compareRemoteMountsByContainerPath(a: RemoteMountInfo, b: RemoteMountInfo): number {
   return b.containerRoot.length - a.containerRoot.length || mountPriority(b) - mountPriority(a);
 }
 
-export function compareRemoteMountsByLocalPath(a: RemoteMountInfo, b: RemoteMountInfo): number {
+function compareRemoteMountsByLocalPath(a: RemoteMountInfo, b: RemoteMountInfo): number {
   return (
     (b.localRoot?.length ?? 0) - (a.localRoot?.length ?? 0) || mountPriority(b) - mountPriority(a)
   );
@@ -148,4 +149,55 @@ export function expandRemoteHomeAlias(filePath: string, remoteHomeDir?: string):
 
 export function toPosixRelative(root: string, candidate: string): string {
   return path.relative(root, candidate).split(path.sep).filter(Boolean).join(path.posix.sep);
+}
+
+export function resolveRemoteMountedPath(params: {
+  workspaceRoot: string;
+  mount: RemoteMountInfo;
+  containerPath: string;
+}): ResolvedRemotePath {
+  const relative = path.posix.relative(params.mount.containerRoot, params.containerPath);
+  if (relativePathEscapesContainerRoot(relative)) {
+    throw new Error(`Sandbox path escapes allowed mounts; cannot access: ${params.containerPath}`);
+  }
+  return {
+    relativePath:
+      params.mount.source === "workspace" || params.mount.source === "protectedSkill"
+        ? relative === "."
+          ? ""
+          : path.posix.relative(params.workspaceRoot, params.containerPath)
+        : relative === "."
+          ? params.mount.containerRoot
+          : `${params.mount.containerRoot}/${relative}`,
+    containerPath: params.containerPath,
+    writable: params.mount.writable,
+    mountRootPath: params.mount.containerRoot,
+    source: params.mount.source,
+  };
+}
+
+export function resolveRemoteMountByContainerPath(
+  mounts: RemoteMountInfo[],
+  containerPath: string,
+): RemoteMountInfo | null {
+  const ordered = [...mounts].toSorted(compareRemoteMountsByContainerPath);
+  for (const mount of ordered) {
+    if (isPathInsideContainerRoot(mount.containerRoot, containerPath)) {
+      return mount;
+    }
+  }
+  return null;
+}
+
+export function resolveRemoteMountByLocalPath(
+  mounts: RemoteMountInfo[],
+  localPath: string,
+): (RemoteMountInfo & { localRoot: string }) | null {
+  const ordered = [...mounts].toSorted(compareRemoteMountsByLocalPath);
+  for (const mount of ordered) {
+    if (mount.localRoot && isPathInside(mount.localRoot, localPath)) {
+      return { ...mount, localRoot: mount.localRoot };
+    }
+  }
+  return null;
 }

@@ -105,6 +105,52 @@ function createWorkspaceReadBridge(workspaceDir: string) {
 
 describe("remote sandbox fs bridge", () => {
   it.skipIf(process.platform !== "linux")(
+    "deletes and renames through parent aliases without touching root decoys",
+    async () => {
+      await withTempDir("openclaw-parent-alias-", async (workspaceDir) => {
+        const bridge = createWorkspaceReadBridge(workspaceDir);
+        await fs.mkdir(path.join(workspaceDir, "memory"));
+        await fs.symlink("memory", path.join(workspaceDir, "alias"));
+        for (const name of ["delete.md", "move.md"]) {
+          await fs.writeFile(path.join(workspaceDir, name), "root decoy");
+          await fs.writeFile(path.join(workspaceDir, "memory", name), "memory entry");
+        }
+        await bridge.remove({ filePath: "alias/delete.md", force: false });
+        await expect(fs.stat(path.join(workspaceDir, "memory/delete.md"))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        await bridge.rename({ from: "alias/move.md", to: "alias/moved.md" });
+        expect(await fs.readFile(path.join(workspaceDir, "memory/moved.md"), "utf8")).toBe(
+          "memory entry",
+        );
+        await expect(fs.stat(path.join(workspaceDir, "memory/move.md"))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        for (const name of ["delete.md", "move.md"]) {
+          expect(await fs.readFile(path.join(workspaceDir, name), "utf8")).toBe("root decoy");
+        }
+      });
+    },
+  );
+  it.skipIf(process.platform !== "linux")(
+    "preserves missing-file identity without masking rejected reads",
+    async () => {
+      await withTempDir("openclaw-missing-read-", async (workspaceDir) => {
+        const bridge = createWorkspaceReadBridge(workspaceDir);
+        await expect(bridge.readFile({ filePath: "missing.md" })).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        await expect(bridge.readFile({ filePath: "missing/parent/note.md" })).rejects.toMatchObject(
+          {
+            code: "ENOENT",
+          },
+        );
+        await fs.mkdir(path.join(workspaceDir, "directory"));
+        await expect(bridge.readFile({ filePath: "directory" })).rejects.toThrow(/regular file/u);
+      });
+    },
+  );
+  it.skipIf(process.platform !== "linux")(
     "supports account-owned /tmp through real file operations without host mapping",
     async () => {
       await withTempDir("openclaw-owned-tools-", async (workspaceDir) => {

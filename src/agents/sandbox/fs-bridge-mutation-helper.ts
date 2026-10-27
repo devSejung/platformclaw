@@ -30,9 +30,13 @@ const SANDBOX_PINNED_MUTATION_PYTHON_CANDIDATES = [
 // callers can tell a lost exclusive-create race from a real failure. Any other
 // nonzero exit stays an error.
 export const SANDBOX_CREATE_EXISTS_EXIT_CODE = 17;
+// Reads preserve missing-entry identity across the shell boundary. Other
+// failures (including permissions and rejected aliases) remain hard errors.
+export const SANDBOX_READ_MISSING_EXIT_CODE = 2;
 
 export const SANDBOX_PINNED_MUTATION_PYTHON = [
   `SANDBOX_CREATE_EXISTS_EXIT_CODE = ${SANDBOX_CREATE_EXISTS_EXIT_CODE}`,
+  `SANDBOX_READ_MISSING_EXIT_CODE = ${SANDBOX_READ_MISSING_EXIT_CODE}`,
   "import ctypes",
   "import errno",
   "import os",
@@ -496,6 +500,8 @@ export const SANDBOX_PINNED_MUTATION_PYTHON = [
   "        parent_fd = walk_dir(root_fd, sys.argv[3], False)",
   "        max_bytes = int(sys.argv[5]) if len(sys.argv) > 5 else None",
   "        read_file_impl(parent_fd, sys.argv[4], max_bytes, operation == 'read-own')",
+  "    except FileNotFoundError:",
+  "        sys.exit(SANDBOX_READ_MISSING_EXIT_CODE)",
   "    finally:",
   "        if parent_fd is not None:",
   "            os.close(parent_fd)",
