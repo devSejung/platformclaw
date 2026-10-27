@@ -80,8 +80,10 @@ describe("announcement automatic presentation deferral", () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(snapshot()));
     const element = mount(fetchImpl, true);
     const root = element.shadowRoot!;
-    await vi.waitFor(() => expect(root.querySelector("aside > button")).not.toBeNull());
-    root.querySelector<HTMLButtonElement>("aside > button")!.click();
+    await vi.waitFor(() =>
+      expect(root.querySelector("#announcement-content > button")).not.toBeNull(),
+    );
+    root.querySelector<HTMLButtonElement>("#announcement-content > button")!.click();
     await vi.waitFor(() =>
       expect(root.querySelector("openclaw-modal-dialog")?.textContent).toContain(
         "Existing work continues.",
@@ -91,7 +93,7 @@ describe("announcement automatic presentation deferral", () => {
   });
 
   it.each(["general", "maintenance"] as const)(
-    "reversibly collapses only the %s body without claiming a popup",
+    "hides the entire %s notice and restores it without claiming a popup",
     async (kind) => {
       const current = snapshot();
       current.announcement.kind = kind;
@@ -103,28 +105,31 @@ describe("announcement automatic presentation deferral", () => {
       const root = element.shadowRoot!;
       await vi.waitFor(() => expect(root.querySelector("aside")).not.toBeNull());
       const button = root.querySelector<HTMLButtonElement>("[aria-controls]")!;
-      const body = root.querySelector<HTMLElement>("#announcement-body")!;
+      const content = root.querySelector<HTMLElement>("#announcement-content")!;
+      const title = root.querySelector<HTMLElement>("aside strong")!;
       expect(button.getAttribute("aria-expanded")).toBe("true");
+      button.focus();
       for (const collapsed of [true, false, true, false]) {
         button.click();
         await element.updateComplete;
-        expect(body.hidden).toBe(collapsed);
+        expect(content.hidden).toBe(collapsed);
+        expect(title.hidden).toBe(collapsed);
+        expect(element.hasAttribute("data-active")).toBe(!collapsed);
+        expect(root.activeElement).toBe(button);
         expect(button.getAttribute("aria-expanded")).toBe(String(!collapsed));
         expect(root.querySelector("aside strong")?.textContent).toBe(current.announcement.title);
         expect(Boolean(root.querySelector(".countdown"))).toBe(kind === "maintenance");
       }
       expect(fetchImpl).toHaveBeenCalledTimes(1);
       if (kind === "maintenance") {
-        button.click();
-        await element.updateComplete;
-        root.querySelector<HTMLButtonElement>("aside > button")!.click();
+        root.querySelector<HTMLButtonElement>("#announcement-content > button")!.click();
         await element.updateComplete;
         expect(root.querySelector("openclaw-modal-dialog .body")?.textContent).toBe(
           current.announcement.body,
         );
         root.querySelector<HTMLButtonElement>(".panel button")!.click();
         await element.updateComplete;
-        expect(body.hidden).toBe(true);
+        expect(content.hidden).toBe(false);
       }
     },
   );
@@ -140,20 +145,20 @@ describe("announcement automatic presentation deferral", () => {
     await element.updateComplete;
     await element.refresh();
     await element.updateComplete;
-    expect(root.querySelector<HTMLElement>("#announcement-body")!.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("#announcement-content")!.hidden).toBe(true);
     element.remove();
     document.body.append(element);
     await element.refresh();
     await element.updateComplete;
-    expect(root.querySelector<HTMLElement>("#announcement-body")!.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("#announcement-content")!.hidden).toBe(true);
     current.revision++;
     current.announcement.revision++;
     current.announcement.body = "Updated notice";
     await element.refresh();
     await vi.waitFor(() =>
-      expect(root.querySelector("#announcement-body")?.textContent).toBe("Updated notice"),
+      expect(root.querySelector("#announcement-content .body")?.textContent).toBe("Updated notice"),
     );
-    expect(root.querySelector<HTMLElement>("#announcement-body")!.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>("#announcement-content")!.hidden).toBe(false);
     button.click();
     await element.updateComplete;
     current.revision++;
@@ -163,7 +168,7 @@ describe("announcement automatic presentation deferral", () => {
     await vi.waitFor(() =>
       expect(root.querySelector("aside strong")?.textContent).toBe("Replacement notice"),
     );
-    expect(root.querySelector<HTMLElement>("#announcement-body")!.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>("#announcement-content")!.hidden).toBe(false);
   });
 
   it("holds an already claimed popup through administration and resumes it without another claim", async () => {

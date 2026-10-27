@@ -375,6 +375,21 @@ describe("global web announcements", () => {
       }));
       expect(thread.scrollHeight).toBeGreaterThan(thread.height);
       await shot(page, `ko-stack-scroll-${viewport.width}x${viewport.height}.png`);
+      const viewer = page.locator("platformclaw-announcements");
+      await viewer.getByRole("button", { name: "숨기기", exact: true }).click();
+      await expect.poll(() => viewer.getAttribute("data-active")).toBeNull();
+      expect(await notice.locator("strong").isVisible()).toBe(false);
+      expect(await notice.locator("#announcement-content").isVisible()).toBe(false);
+      expect(await notice.getByRole("button").count()).toBe(1);
+      expect((await notice.boundingBox())!.height).toBeLessThanOrEqual(32);
+      expect(
+        await page.locator("#control-ui-main").evaluate((main) => getComputedStyle(main).overflowY),
+      ).toBe("hidden");
+      await shot(page, `ko-hidden-${viewport.width}x${viewport.height}.png`);
+      const reopen = viewer.getByRole("button", { name: "공지 보기", exact: true });
+      await reopen.focus();
+      await page.keyboard.press("Enter");
+      await expect.poll(() => notice.locator("#announcement-content").isVisible()).toBe(true);
     }
     await writeFile(
       path.join(proof, "banner-stacking.json"),
