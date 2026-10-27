@@ -555,19 +555,21 @@ describe("AcpSessionManager", () => {
   it("clears liveness when retry setup throws before task terminal update (#88205)", async () => {
     await withAcpManagerTaskStateDir(async () => {
       const runtimeState = createRuntime();
+      let firstAttemptFailed = false;
       runtimeState.runTurn.mockImplementationOnce(async function* () {
         yield { type: "error" as const, message: "acpx exited with code 1" };
+        firstAttemptFailed = true;
       });
       hoisted.requireAcpRuntimeBackendMock.mockReturnValue({
         id: "acpx",
         runtime: runtimeState.runtime,
       });
-      let childReads = 0;
       hoisted.readAcpSessionEntryMock.mockImplementation((paramsUnknown: unknown) => {
         const sessionKey = (paramsUnknown as { sessionKey?: string }).sessionKey;
         if (sessionKey === "agent:codex:acp:child-1") {
-          childReads += 1;
-          if (childReads > 2) {
+          // Admission and task creation must succeed. Fail the retry's metadata
+          // lookup after the first error stream, regardless of preparatory reads.
+          if (firstAttemptFailed) {
             throw new Error("session store unavailable");
           }
           return {
@@ -604,6 +606,7 @@ describe("AcpSessionManager", () => {
         }),
       ).rejects.toThrow("session store unavailable");
 
+      expect(runtimeState.runTurn).toHaveBeenCalledOnce();
       const childSessionKey = requireTaskByRunId("retry-cleanup-failure-acp-turn").childSessionKey;
       if (!childSessionKey) {
         throw new Error("Expected the ACP task record to carry a childSessionKey");

@@ -108,7 +108,7 @@ describe("reply turn admission", () => {
       return;
     }
     try {
-      result.operation.fail("publication_failed");
+      result.operation.fail("run_failed");
       expect(hasPendingAgentWork(owner)).toBe(true);
       expect(tryAcquireAgentWorkMutation(owner)).toBeNull();
     } finally {

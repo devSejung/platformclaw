@@ -1,7 +1,7 @@
 import type { PersonalSavedVmConnection } from "./execution-contracts.js";
 import type { SavedVmConnectionRow } from "./sqlite-store-types.js";
 
-export type SavedVmConnectionViewRow = SavedVmConnectionRow & {
+type SavedVmConnectionViewRow = SavedVmConnectionRow & {
   vm_label: string;
   safeconnect_label: string;
   host_status: string;

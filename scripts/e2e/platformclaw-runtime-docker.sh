@@ -264,8 +264,8 @@ vm_host_id="$(jq -er '.hosts[] | select(.targetAddress == "10.0.0.10") | .id' \
   "$vm_admin_response")"
 for vm_number in 2 3; do
   admin_vm_mutation "$(jq -cn --arg endpointId "$endpoint_id" \
-    --arg label "Development VM $vm_number" --arg address "10.0.0.$((vm_number * 10))" \
-    '{action:"hosts", endpointId:$endpointId, label:$label, targetAddress:$address}')"
+    --arg hostLabel "Development VM $vm_number" --arg address "10.0.0.$((vm_number * 10))" \
+    '{action:"hosts", endpointId:$endpointId, label:$hostLabel, targetAddress:$address}')"
 done
 vm_host_two_id="$(jq -er '.hosts[] | select(.targetAddress == "10.0.0.20") | .id' "$vm_admin_response")"
 vm_host_three_id="$(jq -er '.hosts[] | select(.targetAddress == "10.0.0.30") | .id' "$vm_admin_response")"

@@ -9,7 +9,7 @@ import {
 import { platformClawT as t } from "./i18n.ts";
 
 export type ExecutionTarget = "platform_server" | "assigned_vm";
-export type SavedVmConnection = {
+type SavedVmConnection = {
   id: string;
   vmHostId: string;
   vmLabel: string;
@@ -20,7 +20,7 @@ export type SavedVmConnection = {
   remoteWorkspaceDir?: string;
   lastConnectionSucceededAt?: number;
 };
-export type ExecutionLocation = { target: ExecutionTarget; label?: string; connectionId?: string };
+type ExecutionLocation = { target: ExecutionTarget; label?: string; connectionId?: string };
 export type ExecutionTransition = { from: ExecutionLocation; to: ExecutionLocation };
 export type ExecutionSettings = {
   activeTarget: ExecutionTarget;

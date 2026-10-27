@@ -311,7 +311,9 @@ export async function runExecutionProgressCase({
       await assertLayeredDialogs(component);
       await assertExecutionProgressLayout(component);
       expect(await component.locator("[data-current-target]").textContent()).toContain(from);
-      if (!registration) await assertExecutionTransfer(component, reducedMotion, { from, to });
+      if (!registration) {
+        await assertExecutionTransfer(component, reducedMotion, { from, to });
+      }
       const resolve = release!;
       release = undefined;
       resolve();
@@ -338,7 +340,9 @@ export async function runExecutionProgressCase({
     }
     let current = basic;
     for (const vm of available) {
-      if (saved.length) await component.locator(`[data-connect-vm='${vm.id}']`).click();
+      if (saved.length) {
+        await component.locator(`[data-connect-vm='${vm.id}']`).click();
+      }
       const form = component.locator("form[data-action='select-vm']");
       await form.locator("select[name='vmHostId']").selectOption(vm.id);
       await form.locator("input[name='linuxAccount']").fill("person.one");
