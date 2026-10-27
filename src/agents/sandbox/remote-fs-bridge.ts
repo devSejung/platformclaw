@@ -4,7 +4,6 @@
  * Resolves sandbox paths against uploaded remote mounts and performs guarded operations through backend shell commands.
  */
 import path from "node:path";
-import { isPathInside } from "../../infra/path-guards.js";
 import type {
   SandboxBackendCommandResult,
   SandboxFsBridgeContext,
@@ -12,6 +11,7 @@ import type {
 import {
   SANDBOX_CREATE_EXISTS_EXIT_CODE,
   SANDBOX_PINNED_MUTATION_PYTHON,
+  SANDBOX_READ_MISSING_EXIT_CODE,
 } from "./fs-bridge-mutation-helper.js";
 import { createWritableRenameTargetResolver } from "./fs-bridge-rename-targets.js";
 import { parseSandboxStatMtimeMs, parseSandboxStatSize } from "./fs-bridge-stat-parse.js";
@@ -25,8 +25,9 @@ import {
 import {
   buildRemoteProtectedSkillRoots,
   buildRemoteProtectedSkillMounts,
-  compareRemoteMountsByContainerPath,
-  compareRemoteMountsByLocalPath,
+  resolveRemoteMountedPath,
+  resolveRemoteMountByContainerPath,
+  resolveRemoteMountByLocalPath,
   expandRemoteHomeAlias,
   normalizeContainerPath,
   type RemoteMountInfo,
@@ -73,6 +74,44 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     return this.resolvePath({ ...params, filePath });
   }
 
+  async resolveWorkspaceRelativePath(params: {
+    filePath: string;
+    cwd?: string;
+    signal?: AbortSignal;
+  }): Promise<string | undefined> {
+    const target = this.resolveTarget(params);
+    // Account-owned scratch entries cannot alias workspace files: the mutation
+    // helper rejects symlinks, hardlinks, and entries owned by another account.
+    if (this.sandbox.accountOwnedRoots?.includes(target.mountRootPath)) {
+      return undefined;
+    }
+    const pinned = await this.resolvePinnedParent({
+      containerPath: target.containerPath,
+      mountRootPath: target.mountRootPath,
+      action: "classify file mutations",
+      signal: params.signal,
+    });
+    const workspaceRoot = normalizeContainerPath(this.runtime.remoteWorkspaceDir);
+    const canonicalWorkspaceRoot =
+      target.mountRootPath === workspaceRoot
+        ? pinned.mountRootPath
+        : (
+            await this.resolveCanonicalPath({
+              containerPath: workspaceRoot,
+              mountRootPath: workspaceRoot,
+              action: "classify file mutations",
+              signal: params.signal,
+            })
+          ).canonicalPath;
+    const canonicalEntry = path.posix.join(
+      pinned.mountRootPath,
+      pinned.relativeParentPath,
+      pinned.basename,
+    );
+    const relative = path.posix.relative(canonicalWorkspaceRoot, canonicalEntry);
+    return relativePathEscapesContainerRoot(relative) ? undefined : relative;
+  }
+
   async readFile(params: {
     filePath: string;
     cwd?: string;
@@ -108,8 +147,19 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
         pinned.basename,
         ...(params.maxBytes === undefined ? [] : [String(params.maxBytes)]),
       ],
+      allowFailure: true,
       signal: params.signal,
     });
+    if (result.code === SANDBOX_READ_MISSING_EXIT_CODE) {
+      throw Object.assign(new Error(`Sandbox file not found: ${target.containerPath}`), {
+        code: "ENOENT",
+      });
+    }
+    if (result.code !== 0) {
+      throw new Error(
+        `Sandbox read failed for ${target.containerPath}: ${result.stderr.toString("utf8").trim()}`,
+      );
+    }
     return result.stdout;
   }
 
@@ -252,7 +302,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     if (relativePath === "" || relativePath === ".") {
       return;
     }
-    const pinned = await this.resolvePinnedParent({
+    const directory = await this.resolvePinnedPath({
       containerPath: target.containerPath,
       mountRootPath: target.mountRootPath,
       action: "create directories",
@@ -260,11 +310,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       signal: params.signal,
     });
     await this.runMutation({
-      args: [
-        "mkdirp",
-        pinned.mountRootPath,
-        path.posix.join(pinned.relativeParentPath, pinned.basename),
-      ],
+      args: ["mkdirp", directory.mountRootPath, directory.relativePath],
       signal: params.signal,
     });
   }
@@ -290,7 +336,6 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       mountRootPath: target.mountRootPath,
       action: "remove files",
       requireWritable: true,
-      allowFinalSymlinkForUnlink: true,
       signal: params.signal,
     });
     await this.runMutation({
@@ -320,7 +365,6 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       mountRootPath: from.mountRootPath,
       action: "rename files",
       requireWritable: true,
-      allowFinalSymlinkForUnlink: true,
       signal: params.signal,
     });
     const toPinned = await this.resolvePinnedParent({
@@ -462,10 +506,11 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       throw new Error("Account-owned paths cannot contain parent traversal.");
     }
     const maybeContainerMount = path.posix.isAbsolute(inputPosix)
-      ? this.resolveMountByContainerPath(mounts, normalizeContainerPath(inputPosix))
+      ? resolveRemoteMountByContainerPath(mounts, normalizeContainerPath(inputPosix))
       : null;
     if (maybeContainerMount) {
-      return this.toResolvedPath({
+      return resolveRemoteMountedPath({
+        workspaceRoot: this.runtime.remoteWorkspaceDir,
         mount: maybeContainerMount,
         containerPath: normalizeContainerPath(inputPosix),
       });
@@ -475,10 +520,11 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     const hostCandidate = path.isAbsolute(input)
       ? path.resolve(input)
       : path.resolve(hostCwd, input);
-    const hostMount = this.resolveMountByLocalPath(mounts, hostCandidate);
+    const hostMount = resolveRemoteMountByLocalPath(mounts, hostCandidate);
     if (hostMount) {
       const relative = toPosixRelative(hostMount.localRoot, hostCandidate);
-      return this.toResolvedPath({
+      return resolveRemoteMountedPath({
+        workspaceRoot: this.runtime.remoteWorkspaceDir,
         mount: hostMount,
         containerPath: relative
           ? path.posix.join(hostMount.containerRoot, relative)
@@ -490,13 +536,14 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
       const cwdPosix = params.cwd.replace(/\\/g, "/");
       if (path.posix.isAbsolute(cwdPosix)) {
         const cwdContainer = normalizeContainerPath(cwdPosix);
-        const cwdMount = this.resolveMountByContainerPath(mounts, cwdContainer);
+        const cwdMount = resolveRemoteMountByContainerPath(mounts, cwdContainer);
         if (cwdMount) {
           const containerPath = normalizeContainerPath(
             path.posix.resolve(cwdContainer, inputPosix),
           );
-          const targetMount = this.resolveMountByContainerPath(mounts, containerPath) ?? cwdMount;
-          return this.toResolvedPath({
+          const targetMount = resolveRemoteMountByContainerPath(mounts, containerPath) ?? cwdMount;
+          return resolveRemoteMountedPath({
+            workspaceRoot: this.runtime.remoteWorkspaceDir,
             mount: targetMount,
             containerPath,
           });
@@ -505,58 +552,6 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     }
 
     throw new Error(`Sandbox path escapes allowed mounts; cannot access: ${params.filePath}`);
-  }
-
-  private toResolvedPath(params: {
-    mount: RemoteMountInfo;
-    containerPath: string;
-  }): ResolvedRemotePath {
-    const relative = path.posix.relative(params.mount.containerRoot, params.containerPath);
-    if (relativePathEscapesContainerRoot(relative)) {
-      throw new Error(
-        `Sandbox path escapes allowed mounts; cannot access: ${params.containerPath}`,
-      );
-    }
-    return {
-      relativePath:
-        params.mount.source === "workspace" || params.mount.source === "protectedSkill"
-          ? relative === "."
-            ? ""
-            : path.posix.relative(this.runtime.remoteWorkspaceDir, params.containerPath)
-          : relative === "."
-            ? params.mount.containerRoot
-            : `${params.mount.containerRoot}/${relative}`,
-      containerPath: params.containerPath,
-      writable: params.mount.writable,
-      mountRootPath: params.mount.containerRoot,
-      source: params.mount.source,
-    };
-  }
-
-  private resolveMountByContainerPath(
-    mounts: RemoteMountInfo[],
-    containerPath: string,
-  ): RemoteMountInfo | null {
-    const ordered = [...mounts].toSorted(compareRemoteMountsByContainerPath);
-    for (const mount of ordered) {
-      if (isPathInsideContainerRoot(mount.containerRoot, containerPath)) {
-        return mount;
-      }
-    }
-    return null;
-  }
-
-  private resolveMountByLocalPath(
-    mounts: RemoteMountInfo[],
-    localPath: string,
-  ): (RemoteMountInfo & { localRoot: string }) | null {
-    const ordered = [...mounts].toSorted(compareRemoteMountsByLocalPath);
-    for (const mount of ordered) {
-      if (mount.localRoot && isPathInside(mount.localRoot, localPath)) {
-        return { ...mount, localRoot: mount.localRoot };
-      }
-    }
-    return null;
   }
 
   private ensureWritable(target: ResolvedRemotePath, action: string) {
@@ -622,7 +617,6 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     containerPath: string;
     mountRootPath: string;
     action: string;
-    allowFinalSymlinkForUnlink?: boolean;
     signal?: AbortSignal;
   }): Promise<RemoteCanonicalPath> {
     return await resolveRemoteCanonicalPath({
@@ -636,33 +630,45 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     mountRootPath: string;
     action: string;
     requireWritable?: boolean;
-    allowFinalSymlinkForUnlink?: boolean;
     signal?: AbortSignal;
   }): Promise<{ mountRootPath: string; relativeParentPath: string; basename: string }> {
     const basename = path.posix.basename(params.containerPath);
     if (!basename || basename === "." || basename === "/") {
       throw new Error(`Invalid sandbox entry target: ${params.containerPath}`);
     }
+    const pinned = await this.resolvePinnedPath({
+      ...params,
+      containerPath: normalizeContainerPath(path.posix.dirname(params.containerPath)),
+    });
+    return {
+      mountRootPath: pinned.mountRootPath,
+      relativeParentPath: pinned.relativePath,
+      basename,
+    };
+  }
+
+  private async resolvePinnedPath(params: {
+    containerPath: string;
+    mountRootPath: string;
+    action: string;
+    requireWritable?: boolean;
+    signal?: AbortSignal;
+  }): Promise<{ mountRootPath: string; relativePath: string }> {
     if (this.sandbox.accountOwnedRoots?.includes(params.mountRootPath)) {
       // Keep the lexical path: canonicalizing an alias before the descriptor
       // walk would erase the symlink that the account boundary must reject.
       return {
         mountRootPath: params.mountRootPath,
-        relativeParentPath: path.posix.relative(
-          params.mountRootPath,
-          path.posix.dirname(params.containerPath),
-        ),
-        basename,
+        relativePath: path.posix.relative(params.mountRootPath, params.containerPath),
       };
     }
     const { canonicalPath, canonicalMountRoot, logicalPath } = await this.resolveCanonicalPath({
-      containerPath: normalizeContainerPath(path.posix.dirname(params.containerPath)),
+      containerPath: params.containerPath,
       mountRootPath: params.mountRootPath,
       action: params.action,
-      allowFinalSymlinkForUnlink: params.allowFinalSymlinkForUnlink,
       signal: params.signal,
     });
-    const mount = this.resolveMountByContainerPath(this.getMounts(), logicalPath);
+    const mount = resolveRemoteMountByContainerPath(this.getMounts(), logicalPath);
     if (!mount) {
       throw new Error(
         `Sandbox path escapes allowed mounts; cannot ${params.action}: ${params.containerPath}`,
@@ -691,8 +697,7 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     }
     return {
       mountRootPath: canonicalMountRoot,
-      relativeParentPath: relativeParentPath === "." ? "" : relativeParentPath,
-      basename,
+      relativePath: relativeParentPath === "." ? "" : relativeParentPath,
     };
   }
 

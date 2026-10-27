@@ -4,14 +4,14 @@ import { logWarn } from "../logger.js";
 import type { MemoryFlushPlan } from "../plugins/memory-state.js";
 
 export type MemoryWriteProvenanceObserver = {
-  classifies: (absolutePath: string) => boolean;
+  classifies: (absolutePath: string) => Promise<boolean>;
   write: (params: {
     absolutePath: string;
     contentBefore: string;
     contentAfter: string;
     commit: () => Promise<void>;
   }) => Promise<void>;
-  clearAfterDelete: (absolutePath: string) => Promise<void>;
+  remove: (params: { absolutePath: string; commit: () => Promise<void> }) => Promise<void>;
 };
 
 type ProvenanceWriteOperations = {
@@ -36,7 +36,7 @@ export function withMemoryWriteProvenance<T extends ProvenanceWriteOperations>(
   return {
     ...operations,
     writeFile: async (absolutePath: string, content: string) => {
-      if (!observer.classifies(absolutePath)) {
+      if (!(await observer.classifies(absolutePath))) {
         await operations.writeFile(absolutePath, content);
         return;
       }
@@ -58,23 +58,26 @@ export function withMemoryWriteProvenance<T extends ProvenanceWriteOperations>(
     },
     ...(remove
       ? {
-          remove: async (absolutePath: string) => {
-            const isMemoryFile = observer.classifies(absolutePath);
-            await remove(absolutePath);
-            if (isMemoryFile) {
-              await observer.clearAfterDelete(absolutePath);
-            }
-          },
+          remove: (absolutePath: string) =>
+            observer.remove({ absolutePath, commit: () => remove(absolutePath) }),
         }
       : {}),
   } as T;
 }
 
-function resolveMemoryRelativePath(root: string, absolutePath: string): string | undefined {
-  const relativePath = path.relative(
-    resolvePathViaExistingAncestorSync(root),
-    resolvePathViaExistingAncestorSync(absolutePath),
-  );
+export function resolveHostProvenanceRelativePath(
+  root: string,
+  absolutePath: string,
+  operation: "write" | "remove" = "write",
+): string | undefined {
+  const mutationPath =
+    operation === "remove"
+      ? path.join(
+          resolvePathViaExistingAncestorSync(path.dirname(absolutePath)),
+          path.basename(absolutePath),
+        )
+      : resolvePathViaExistingAncestorSync(absolutePath);
+  const relativePath = path.relative(resolvePathViaExistingAncestorSync(root), mutationPath);
   if (
     !relativePath ||
     path.isAbsolute(relativePath) ||
@@ -83,7 +86,14 @@ function resolveMemoryRelativePath(root: string, absolutePath: string): string |
   ) {
     return undefined;
   }
-  const normalized = relativePath.replaceAll(path.sep, "/");
+  return relativePath.replaceAll(path.sep, "/");
+}
+
+function classifyMemoryRelativePath(relativePath: string | undefined): string | undefined {
+  if (!relativePath) {
+    return undefined;
+  }
+  const normalized = path.posix.normalize(relativePath.replaceAll("\\", "/"));
   if (["MEMORY.md", "memory.md", "USER.md"].includes(normalized)) {
     return normalized;
   }
@@ -93,8 +103,11 @@ function resolveMemoryRelativePath(root: string, absolutePath: string): string |
 export function createMemoryWriteProvenanceObserver(params: {
   mutationRoot: string;
   workspaceDir: string;
-  /** Map backend paths to the host filesystem that owns memory provenance. */
-  resolveMutationPath?: (absolutePath: string) => string | undefined;
+  /** Resolve mutation entries in the filesystem owner's canonical workspace. */
+  resolveRelativePath?: (
+    absolutePath: string,
+    operation: "write" | "remove",
+  ) => Promise<string | undefined>;
   plan: Pick<MemoryFlushPlan, "recordWriteProvenance" | "clearWriteProvenance">;
   resolveOriginClass: () => "agent" | "untrusted";
   now?: () => number;
@@ -103,21 +116,19 @@ export function createMemoryWriteProvenanceObserver(params: {
     return undefined;
   }
   const now = params.now ?? Date.now;
-  const resolveRelativePath = (absolutePath: string) => {
-    const mutationPath = params.resolveMutationPath
-      ? params.resolveMutationPath(absolutePath)
-      : absolutePath;
-    // Remote-only paths cannot be safely classified with host realpath or a
-    // lexical relative path; keep provenance fail-closed until the backend owns it.
-    if (!mutationPath) {
-      throw new Error("Memory write provenance requires a host-backed workspace.");
-    }
-    return resolveMemoryRelativePath(params.mutationRoot, mutationPath);
+  const resolveRelativePath = async (
+    absolutePath: string,
+    operation: "write" | "remove" = "write",
+  ) => {
+    const relativePath = params.resolveRelativePath
+      ? await params.resolveRelativePath(absolutePath, operation)
+      : resolveHostProvenanceRelativePath(params.mutationRoot, absolutePath, operation);
+    return classifyMemoryRelativePath(relativePath);
   };
   return {
-    classifies: (absolutePath) => resolveRelativePath(absolutePath) !== undefined,
+    classifies: async (absolutePath) => (await resolveRelativePath(absolutePath)) !== undefined,
     write: async ({ absolutePath, contentBefore, contentAfter, commit }) => {
-      const relativePath = resolveRelativePath(absolutePath);
+      const relativePath = await resolveRelativePath(absolutePath);
       if (!relativePath) {
         await commit();
         return;
@@ -144,8 +155,11 @@ export function createMemoryWriteProvenanceObserver(params: {
         throw error;
       }
     },
-    clearAfterDelete: async (absolutePath) => {
-      const relativePath = resolveRelativePath(absolutePath);
+    remove: async ({ absolutePath, commit }) => {
+      // Pin provenance identity before deletion. Cleanup must not resolve an
+      // already-deleted entry or fail after the filesystem effect succeeded.
+      const relativePath = await resolveRelativePath(absolutePath, "remove");
+      await commit();
       if (!relativePath) {
         return;
       }
