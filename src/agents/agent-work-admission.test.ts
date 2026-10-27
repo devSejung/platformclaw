@@ -39,7 +39,7 @@ describe("agent work admission", () => {
   });
 
   it("holds through awaits and releases synchronous and asynchronous failures", async () => {
-    const pending = createDeferred<void>();
+    const pending = createDeferred();
     const work = withAgentWorkAdmission("await-owner", async () => await pending.promise);
     expect(hasPendingAgentWork("await-owner")).toBe(true);
     expect(tryAcquireAgentWorkMutation("await-owner")).toBeNull();

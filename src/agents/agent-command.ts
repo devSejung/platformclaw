@@ -28,6 +28,7 @@ import { executionIdentity } from "./agent-command-execution-identity.js";
 import { runWithAgentCommandRecoveryOwner } from "./agent-command-recovery-owner.js";
 import {
   buildCurrentRunRestartRecoveryClaim,
+  resolveAgentCommandRecoveryDeliveryOptions,
   shouldPersistRestartRecoveryCleanup,
   shouldPersistRestartRecoveryContextClaim,
 } from "./agent-command-restart-recovery.js";
@@ -82,35 +83,11 @@ async function agentCommandInternal(
   const preserveUserFacingSessionModelState =
     initialOpts.preserveUserFacingSessionModelState === true;
   const lifecycleAbortController = new AbortController();
-  const storedDeliveryMediaUrls =
-    prepared.sessionEntry?.restartRecoveryDeliveryRunId === prepared.runId &&
-    Array.isArray(prepared.sessionEntry.restartRecoveryDeliveryMediaUrls)
-      ? prepared.sessionEntry.restartRecoveryDeliveryMediaUrls
-      : undefined;
-  const preparedOpts =
-    storedDeliveryMediaUrls !== undefined
-      ? {
-          ...prepared.opts,
-          internalDeliveryMediaUrls: [...storedDeliveryMediaUrls],
-          internalDeliverySuppressText: prepared.sessionEntry?.restartRecoverySuppressTextDelivery,
-          sourceReplyDeliveryMode: prepared.sessionEntry?.restartRecoverySourceReplyDeliveryMode,
-          disableMessageTool: prepared.sessionEntry?.restartRecoveryDisableMessageTool,
-          forceRestartSafeTools: prepared.sessionEntry?.restartRecoveryForceSafeTools,
-        }
-      : prepared.opts;
-  if (
-    (preparedOpts.internalDeliverySuppressText === true &&
-      preparedOpts.internalDeliveryMediaUrls === undefined) ||
-    ((preparedOpts.internalDeliveryMediaUrls !== undefined ||
-      preparedOpts.internalDeliverySuppressText === true) &&
-      (preparedOpts.forceRestartSafeTools !== true ||
-        preparedOpts.disableMessageTool !== true ||
-        preparedOpts.sourceReplyDeliveryMode !== "automatic"))
-  ) {
-    throw new Error(
-      "internal delivery media constraints require automatic delivery with restart-safe tools and no message tool",
-    );
-  }
+  const preparedOpts = resolveAgentCommandRecoveryDeliveryOptions({
+    opts: prepared.opts,
+    sessionEntry: prepared.sessionEntry,
+    runId: prepared.runId,
+  });
   let opts: AgentCommandOpts = {
     ...preparedOpts,
     abortSignal: preparedOpts.abortSignal

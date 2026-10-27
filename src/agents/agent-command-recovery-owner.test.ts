@@ -48,9 +48,7 @@ describe("agent command restart recovery ownership", () => {
         runWithAgentCommandRecoveryOwner({
           lifecycleGeneration: getAgentEventLifecycleGeneration(),
           mode: "reject_uncoordinated",
-          opts: {
-            ...(failure !== "claim" ? { sessionEffects: "internal" } : {}),
-          } as AgentCommandOpts,
+          opts: (failure !== "claim" ? { sessionEffects: "internal" } : {}) as AgentCommandOpts,
           prepare: async () => prepared,
           run: async () => {
             if (failure === "run") {

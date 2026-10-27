@@ -156,7 +156,7 @@ describe("ACP owner work admission", () => {
   it("releases a failed runtime turn's owner claim", async () => {
     const runtime = configure("failed-owner");
     runtime.runTurn.mockImplementation(async function* () {
-      throw new Error("runtime failed");
+      yield await Promise.reject(new Error("runtime failed"));
     });
     const manager = new AcpSessionManager();
     try {
