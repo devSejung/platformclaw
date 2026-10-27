@@ -94,6 +94,8 @@ def normalize_account(raw: dict[str, Any]) -> dict[str, Any]:
         "notes": optional_string(raw.get("notes") or raw.get("note")),
         "groups": groups if isinstance(groups, list) else [],
         "attributes": attributes if isinstance(attributes, dict) else {},
+        # Forward explicit directory authority; display labels cannot identify memberships.
+        **{key: raw[key] for key in ("org", "isTestAccount") if key in raw},
     }
 
 
@@ -137,6 +139,7 @@ def build_adsso_token(account: dict[str, Any], secret: bytes) -> str:
         "department": account.get("department"),
         "part": account.get("part"),
         "confluenceSpace": account.get("confluenceSpace"),
+        **{key: account[key] for key in ("org", "isTestAccount") if key in account},
         "agentId": account_id.replace(".", "_"),
         "sessionKey": f"agent:{account_id.replace('.', '_')}:main",
         "iat": issued_at,
