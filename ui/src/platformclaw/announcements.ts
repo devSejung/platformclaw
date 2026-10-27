@@ -72,13 +72,19 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
       min-width: 0;
       overflow-wrap: anywhere;
     }
+    aside[data-collapsed] {
+      margin-bottom: 4px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
     aside[data-collapsed] .heading {
+      justify-content: flex-end;
       margin-bottom: 0;
     }
-    aside[data-collapsed] strong {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    aside[data-collapsed] button {
+      padding: 3px 8px;
+      font-size: 12px;
     }
     .heading button {
       flex-shrink: 0;
@@ -155,7 +161,12 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
   }
 
   protected override updated(_changes: PropertyValues) {
-    this.toggleAttribute("data-active", Boolean(this.notice.active(performance.now())));
+    const active = this.notice.active(performance.now());
+    // Only the expanded card needs the shell's notice-stack scrolling layout.
+    this.toggleAttribute(
+      "data-active",
+      Boolean(active && this.collapsedRevision !== `${active.id}:${active.revision}`),
+    );
     const gateway = this.context?.gateway;
     if (gateway && gateway !== this.gateway) {
       this.stopEvents?.();
@@ -341,10 +352,10 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
             aria-label=${t("platformClaw.announcements.notice")}
           >
             <div class="heading">
-              <strong title=${active.title}>${active.title}</strong>
+              <strong ?hidden=${collapsed}>${active.title}</strong>
               <button
                 aria-expanded=${String(!collapsed)}
-                aria-controls="announcement-body"
+                aria-controls="announcement-content"
                 @click=${() => {
                   this.collapsedRevision = this.collapsedRevision === revision ? null : revision;
                 }}
@@ -354,23 +365,25 @@ export class PlatformClawAnnouncements extends OpenClawLitElement {
                   : t("platformClaw.announcements.collapse")}
               </button>
             </div>
-            <p id="announcement-body" class="body" ?hidden=${collapsed}>${active.body}</p>
-            ${active.maintenanceAt !== null
-              ? html`<p class="countdown">
-                    ${this.countdown(active.maintenanceAt)} ·
-                    ${new Date(active.maintenanceAt).toLocaleString()}
-                  </p>
-                  <button
-                    @click=${(event: Event) => {
-                      this.returnFocus = event.currentTarget as HTMLElement;
-                      this.presentedRevision = active.revision;
-                      this.pendingPopupRevision = null;
-                      this.popupRevision = active.revision;
-                    }}
-                  >
-                    ${t("platformClaw.announcements.details")}
-                  </button>`
-              : nothing}
+            <div id="announcement-content" ?hidden=${collapsed}>
+              <p class="body">${active.body}</p>
+              ${active.maintenanceAt !== null
+                ? html`<p class="countdown">
+                      ${this.countdown(active.maintenanceAt)} ·
+                      ${new Date(active.maintenanceAt).toLocaleString()}
+                    </p>
+                    <button
+                      @click=${(event: Event) => {
+                        this.returnFocus = event.currentTarget as HTMLElement;
+                        this.presentedRevision = active.revision;
+                        this.pendingPopupRevision = null;
+                        this.popupRevision = active.revision;
+                      }}
+                    >
+                      ${t("platformClaw.announcements.details")}
+                    </button>`
+                : nothing}
+            </div>
           </aside>`
         : nothing}
       ${active && this.popupRevision === active.revision

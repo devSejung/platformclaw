@@ -1,6 +1,6 @@
 export const announcementTranslations: Readonly<Record<string, string>> = {
-  "platformClaw.announcements.collapse": "접기",
-  "platformClaw.announcements.expand": "펼치기",
+  "platformClaw.announcements.collapse": "숨기기",
+  "platformClaw.announcements.expand": "공지 보기",
   "platformClaw.announcements.manage": "웹 공지 관리",
   "platformClaw.announcements.notice": "전체 공지",
   "platformClaw.announcements.title": "제목",
