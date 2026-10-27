@@ -20,6 +20,7 @@ import { openLocalFileSafely, FsSafeError } from "../infra/fs-safe.js";
 import { safeFileURLToPath } from "../infra/local-file-access.js";
 import { verifyPairingToken } from "../infra/pairing-token.js";
 import { isWithinDir } from "../infra/path-safety.js";
+import { withAgentMediaContext } from "../media/agent-media-context.js";
 import { assertLocalMediaAllowed, getDefaultLocalRoots } from "../media/local-media-access.js";
 import { getAgentScopedMediaLocalRoots } from "../media/local-roots.js";
 import { probePlaybackMediaFileDescriptor, type MediaProbeResult } from "../media/media-probe.js";
@@ -454,6 +455,7 @@ type AssistantMediaAvailability =
 type AssistantMediaTicketPayload = {
   scope: typeof CONTROL_UI_ASSISTANT_MEDIA_TICKET_SCOPE;
   source: string;
+  agentId?: string;
   exp: number;
 };
 
@@ -463,7 +465,7 @@ function signAssistantMediaTicketPayload(encodedPayload: string): string {
     .digest("base64url");
 }
 
-function createAssistantMediaTicket(source: string, nowMs = Date.now()) {
+function createAssistantMediaTicket(source: string, agentId?: string, nowMs = Date.now()) {
   const now = asDateTimestampMs(nowMs);
   if (now === undefined) {
     return {};
@@ -475,6 +477,7 @@ function createAssistantMediaTicket(source: string, nowMs = Date.now()) {
   const payload: AssistantMediaTicketPayload = {
     scope: CONTROL_UI_ASSISTANT_MEDIA_TICKET_SCOPE,
     source,
+    ...(agentId ? { agentId } : {}),
     exp,
   };
   const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
@@ -488,33 +491,38 @@ function createAssistantMediaTicket(source: string, nowMs = Date.now()) {
 function verifyAssistantMediaTicket(ticket: string | null, source: string, nowMs = Date.now()) {
   const now = asDateTimestampMs(nowMs);
   if (now === undefined) {
-    return false;
+    return null;
   }
   const parts = ticket?.split(".");
   if (!parts || parts.length !== 3 || parts[0] !== "v1") {
-    return false;
+    return null;
   }
   const [, encodedPayload, sig] = parts;
   if (!encodedPayload || !sig) {
-    return false;
+    return null;
   }
   const expectedSig = signAssistantMediaTicketPayload(encodedPayload);
   if (!safeEqualSecret(sig, expectedSig)) {
-    return false;
+    return null;
   }
   try {
     const payload = JSON.parse(
       Buffer.from(encodedPayload, "base64url").toString("utf8"),
     ) as Partial<AssistantMediaTicketPayload>;
-    return (
+    if (
       payload.scope === CONTROL_UI_ASSISTANT_MEDIA_TICKET_SCOPE &&
       payload.source === source &&
       typeof payload.exp === "number" &&
       Number.isFinite(payload.exp) &&
-      payload.exp >= now
-    );
+      payload.exp >= now &&
+      (payload.agentId === undefined ||
+        (typeof payload.agentId === "string" && isValidAgentId(payload.agentId)))
+    ) {
+      return payload as AssistantMediaTicketPayload;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -655,10 +663,11 @@ export async function handleControlUiAssistantMediaRequest(
     return true;
   }
   const isMetaRequest = url.searchParams.get("meta") === "1";
-  const hasValidMediaTicket =
-    !isMetaRequest && verifyAssistantMediaTicket(url.searchParams.get("mediaTicket"), source);
+  const mediaTicket = isMetaRequest
+    ? null
+    : verifyAssistantMediaTicket(url.searchParams.get("mediaTicket"), source);
   if (
-    !hasValidMediaTicket &&
+    !mediaTicket &&
     !(await authorizeControlUiReadRequest(req, res, {
       auth: opts?.auth,
       trustedProxies: opts?.trustedProxies,
@@ -669,8 +678,8 @@ export async function handleControlUiAssistantMediaRequest(
   ) {
     return true;
   }
-  let agentId = opts?.agentId;
-  if (opts?.config && !hasValidMediaTicket) {
+  let agentId = mediaTicket?.agentId ?? opts?.agentId;
+  if (opts?.config && !mediaTicket) {
     try {
       // Only an operator-authenticated relay may select another agent; legacy
       // source-only media tickets must never widen their workspace roots.
@@ -680,17 +689,34 @@ export async function handleControlUiAssistantMediaRequest(
       return true;
     }
   }
-  const localRoots = opts?.config
-    ? getAgentScopedMediaLocalRoots(opts.config, agentId)
-    : getDefaultLocalRoots();
+  // Only authenticated selection or the signed ticket can supply a media owner.
+  // Source-only tickets retain their unscoped lookup and cannot adopt request headers.
+  const mediaOwner = mediaTicket ? mediaTicket.agentId : agentId;
+  const serve = () => {
+    // Shared roots must not enter an owner-bound ticket's allowlist.
+    const localRoots = opts?.config
+      ? getAgentScopedMediaLocalRoots(opts.config, agentId)
+      : getDefaultLocalRoots();
+    return serveAssistantMediaRequest(req, res, url, source, localRoots, mediaOwner);
+  };
+  return mediaOwner ? withAgentMediaContext(mediaOwner, serve) : serve();
+}
 
-  if (isMetaRequest) {
+async function serveAssistantMediaRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  source: string,
+  localRoots: readonly string[],
+  agentId?: string,
+): Promise<boolean> {
+  if (url.searchParams.get("meta") === "1") {
     const availability = await resolveAssistantMediaAvailability(source, localRoots);
     sendJson(
       res,
       200,
       availability.available
-        ? { ...availability, ...createAssistantMediaTicket(source) }
+        ? { ...availability, ...createAssistantMediaTicket(source, agentId) }
         : availability,
     );
     return true;
