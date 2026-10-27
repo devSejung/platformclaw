@@ -647,7 +647,10 @@ describe("global web announcements", () => {
     await expect.poll(() => claimed).toBe(true);
     // Manually viewing the same revision also consumes its automatic popup.
     const notice = page.locator("platformclaw-announcements");
-    await notice.locator("aside button").click();
+    // This standalone source fixture does not initialize the app's locale bundle.
+    await notice
+      .getByRole("button", { name: "platformClaw.announcements.details", exact: true })
+      .click();
     await expect.poll(() => notice.locator("openclaw-modal-dialog").count()).toBe(1);
     await page.keyboard.press("Escape");
     const firstClaim = page.waitForResponse((response) => response.url().endsWith("/seen"));
