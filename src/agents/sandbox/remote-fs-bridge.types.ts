@@ -3,7 +3,8 @@ import type {
   SandboxBackendCommandResult,
 } from "./backend-handle.types.js";
 import type { SandboxResolvedPath } from "./fs-bridge.types.js";
-import type { RemoteMountSource } from "./remote-fs-bridge-paths.js";
+
+export type RemoteMountSource = "workspace" | "agent" | "additional" | "protectedSkill";
 
 export type ResolvedRemotePath = SandboxResolvedPath & {
   writable: boolean;

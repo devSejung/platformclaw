@@ -3,13 +3,11 @@ import path from "node:path";
 import { isPathInside } from "../../infra/path-guards.js";
 import { isPathInsideContainerRoot, relativePathEscapesContainerRoot } from "./path-utils.js";
 import { normalizeContainerPath as normalizeSandboxContainerPath } from "./path-utils.js";
-import type { ResolvedRemotePath } from "./remote-fs-bridge.types.js";
+import type { RemoteMountSource, ResolvedRemotePath } from "./remote-fs-bridge.types.js";
 import {
   isExistingWorkspaceSkillMountSource,
   resolveMaterializedSandboxSkillsWorkspaceDir,
 } from "./workspace-mounts.js";
-
-export type RemoteMountSource = "workspace" | "agent" | "additional" | "protectedSkill";
 
 export type RemoteMountInfo = {
   localRoot: string | null;
