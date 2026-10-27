@@ -22,6 +22,7 @@ const opacityKey = (scope: string) => "platformclaw.fishing.opacity:" + scope;
 const storage = new Map<string, string>();
 let frames: Map<number, FrameRequestCallback>;
 let nextFrame: number;
+let frameTime: number;
 
 const snapshot = (extra: Partial<FishingSnapshot> = {}): FishingSnapshot => ({
   serverNow: NOW,
@@ -93,7 +94,7 @@ async function flush(element: FishingElement) {
   }
 }
 async function paintFrame(element: FishingElement, time: number) {
-  vi.mocked(performance.now).mockReturnValue(time);
+  frameTime = time;
   const callbacks = [...frames.values()];
   frames.clear();
   callbacks.forEach((callback) => callback(time));
@@ -247,7 +248,8 @@ beforeEach(async () => {
       frames.delete(id);
     }),
   );
-  vi.spyOn(performance, "now").mockReturnValue(5_000);
+  frameTime = 5_000;
+  vi.spyOn(performance, "now").mockImplementation(() => frameTime);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 });
 afterEach(() => {

@@ -1,9 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FishingScene, type FishingSceneState } from "./fishing-scene.ts";
 
-beforeEach(() => {
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
-});
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -58,10 +55,8 @@ function sceneCanvas() {
       }
     },
   };
-  vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(
-    context as unknown as CanvasRenderingContext2D,
-  );
   const canvas = document.createElement("canvas");
+  vi.spyOn(canvas, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D);
   Object.defineProperty(canvas, "clientWidth", { value: 460 });
   return { canvas, drawing };
 }
