@@ -103,17 +103,23 @@ describeControlUiE2e("Control UI offline locale retry", () => {
     }
   });
 
-  it("applies a locale whose first chunk request failed after the Gateway reconnects", async () => {
+  it("reloads once after a locale import keeps failing through the Gateway reconnect", async () => {
     const context = await createContext();
     const page = await context.newPage();
     const gateway = await installMockGateway(page);
     let abortedLocaleRequests = 0;
+    let navigationCount = 0;
     const abortFrenchLocale = async (route: Route) => {
-      abortedLocaleRequests += 1;
-      await route.abort("internetdisconnected");
+      // Engines may refetch failed imports or retain the failed module. Keep
+      // the old document's retry failing so both exercise guarded reload.
+      if (navigationCount === 0) {
+        abortedLocaleRequests += 1;
+        await route.abort("internetdisconnected");
+      } else {
+        await route.continue();
+      }
     };
     await page.route(frenchLocaleModule, abortFrenchLocale);
-    let navigationCount = 0;
 
     try {
       const response = await page.goto(`${server.baseUrl}settings/appearance`);
@@ -143,8 +149,11 @@ describeControlUiE2e("Control UI offline locale retry", () => {
       expect(await documentMarker(page)).toBe("same-document");
       expect(navigationCount).toBe(0);
 
-      await page.unroute(frenchLocaleModule, abortFrenchLocale);
-      await reconnect(page, gateway);
+      const reloaded = page.waitForEvent("framenavigated", {
+        predicate: (frame) => frame === page.mainFrame(),
+        timeout: 10_000,
+      });
+      await Promise.all([reloaded, reconnect(page, gateway)]);
 
       await page
         .locator(".settings-row__title", { hasText: "Langue" })
