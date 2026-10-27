@@ -209,6 +209,61 @@ describeControlUiE2e("PlatformClaw workspace Skill Hub publishing at FHD", () =>
     await verifySkillHubManagement(page, server.baseUrl, proofDir);
   });
 
+  it.each([320, 390, 1440])(
+    "keeps member publishing actions reachable at %ipx and the catalog near its search",
+    async (width) => {
+      const { page, executionMutations } = await newPage("ko-KR");
+      await page.setViewportSize({ width, height: 900 });
+      await page.route("**/platformclaw/api/skill-hub/search?**", (route) =>
+        route.fulfill({
+          json: {
+            total: 1,
+            items: [
+              {
+                namespace: "global",
+                slug: "release-checklist",
+                latestVersion: "1.0.0",
+                summary: "기본 서버와 VM에서 사용할 검증 체크리스트",
+              },
+            ],
+          },
+        }),
+      );
+      await page.goto(`${server.baseUrl}platformclaw/app/skills/hub`);
+      const header = page.locator(".content--skill-hub .content-header--page");
+      const actions = ["작업 공간 스킬 게시", "ZIP 업로드", "알림"];
+      for (const name of actions) {
+        const action = header.getByRole("button", { name, exact: true });
+        await action.waitFor({ state: "visible" });
+        const reachable = await action.evaluate((button) => {
+          const rect = button.getBoundingClientRect();
+          const bounds = button.closest(".content-header--page")!.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+          return {
+            contained: rect.top >= bounds.top && rect.bottom <= bounds.bottom,
+            hit: hit !== null && button.contains(hit),
+          };
+        });
+        expect(reachable).toEqual({ contained: true, hit: true });
+        await action.click();
+        const dialog = page.locator("openclaw-skill-hub-page openclaw-modal-dialog");
+        await dialog.waitFor({ state: "visible" });
+        await dialog.getByRole("button", { name: "닫기", exact: true }).click();
+        await dialog.waitFor({ state: "detached" });
+      }
+      const search = page.getByRole("searchbox", { name: "스킬 허브 검색", exact: true });
+      await search.fill("release");
+      await search.press("Enter");
+      await page
+        .locator(".skill-hub-card")
+        .getByText("release-checklist", { exact: true })
+        .waitFor();
+      await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("release");
+      expect(executionMutations).toEqual([]);
+      await page.screenshot({ path: path.join(proofDir, `member-catalog-${width}.png`) });
+    },
+  );
+
   it("edits a published skill, protects an in-flight move, and publishes the next version under its new identity", async () => {
     const { page } = await newPage("en-US");
     let skill = {

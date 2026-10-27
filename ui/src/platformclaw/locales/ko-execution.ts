@@ -1,4 +1,5 @@
 export const executionTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.execution.selectedLocation": "선택 위치: {target}",
   "platformClaw.execution.workLocation": "작업 위치",
   "platformClaw.execution.openSettings": "작업 위치 설정 열기",
   "platformClaw.execution.current": "현재 작업 위치",

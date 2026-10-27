@@ -436,22 +436,12 @@ class SkillHubPage extends SkillHubAdminController {
         </div>
       </section>`,
       content: html`<main class="skill-hub-page">
-          <section class="skill-hub-hero">
-            <div>
-              <span class="skill-hub-eyebrow">${t("skillHubPage.companyRegistry")}</span>
-              <h2>${t("skillHubPage.heroTitle")}</h2>
-              <p>${t("skillHubPage.heroDescription")}</p>
-              ${this.config
-                ? html`<p class="skill-hub-registry-status">
-                    ${t("skillHubPage.namespacesAvailable", {
-                      count: String(this.config.namespaces.length),
-                    })}
-                  </p>`
-                : nothing}
-            </div>
+          <section class="skill-hub-toolbar">
             <div class="skill-hub-search">
               <input
                 class="settings-input"
+                type="search"
+                aria-label=${t("skillsPage.skillHub.searchPlaceholder")}
                 .value=${this.query}
                 placeholder=${t("skillsPage.skillHub.searchPlaceholder")}
                 @input=${(event: Event) => (this.query = (event.target as HTMLInputElement).value)}
@@ -467,6 +457,13 @@ class SkillHubPage extends SkillHubAdminController {
                   : t("skillsPage.skillHub.search")}
               </button>
             </div>
+            ${this.config
+              ? html`<p class="skill-hub-registry-status">
+                  ${t("skillHubPage.namespacesAvailable", {
+                    count: String(this.config.namespaces.length),
+                  })}
+                </p>`
+              : nothing}
           </section>
           ${this.error ? html`<div class="callout danger">${this.error}</div>` : nothing}
           ${this.message

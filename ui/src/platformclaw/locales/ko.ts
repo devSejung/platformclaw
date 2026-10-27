@@ -21,6 +21,12 @@ export const nativeTranslations = {
   subtitles: {
     profile: "이 Gateway에서 사용하는 내 표시 이름, 아바타, 신원 정보입니다.",
   },
+  skillsPage: {
+    emptyInstalled: "이 작업 공간에는 아직 스킬이 없습니다.",
+    noMatching: "현재 필터와 일치하는 스킬이 없습니다.",
+    clearFilters: "필터 지우기",
+    browseSkillHub: "Skill Hub에서 스킬 찾기",
+  },
   skillHubPage: {
     downloadLocation: "스킬을 어디에 다운로드할까요?",
     downloadLocationHelp:
