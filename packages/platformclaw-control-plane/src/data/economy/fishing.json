@@ -1,0 +1,685 @@
+{
+  "economyVersion": 1,
+  "fish": [
+    {
+      "id": "crucian",
+      "nameKo": "붕어",
+      "rarity": "common",
+      "probabilityWeight": 2400,
+      "basePrice": 1.2,
+      "difficulty": 3,
+      "lengthCm": [
+        10,
+        35
+      ],
+      "weightKg": [
+        0.1,
+        1.2
+      ],
+      "behavior": "steady"
+    },
+    {
+      "id": "minnow",
+      "nameKo": "피라미",
+      "rarity": "common",
+      "probabilityWeight": 1900,
+      "basePrice": 0.8,
+      "difficulty": 1,
+      "lengthCm": [
+        5,
+        15
+      ],
+      "weightKg": [
+        0.01,
+        0.08
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "bluegill",
+      "nameKo": "블루길",
+      "rarity": "common",
+      "probabilityWeight": 1300,
+      "basePrice": 1.3,
+      "difficulty": 3,
+      "lengthCm": [
+        8,
+        25
+      ],
+      "weightKg": [
+        0.04,
+        0.4
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "silver-crucian",
+      "nameKo": "떡붕어",
+      "rarity": "common",
+      "probabilityWeight": 1100,
+      "basePrice": 1.8,
+      "difficulty": 4,
+      "lengthCm": [
+        15,
+        45
+      ],
+      "weightKg": [
+        0.2,
+        2
+      ],
+      "behavior": "steady"
+    },
+    {
+      "id": "carp",
+      "nameKo": "잉어",
+      "rarity": "uncommon",
+      "probabilityWeight": 1400,
+      "basePrice": 3,
+      "difficulty": 6,
+      "lengthCm": [
+        25,
+        80
+      ],
+      "weightKg": [
+        0.5,
+        8
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "bass",
+      "nameKo": "배스",
+      "rarity": "uncommon",
+      "probabilityWeight": 900,
+      "basePrice": 4.2,
+      "difficulty": 6,
+      "lengthCm": [
+        20,
+        60
+      ],
+      "weightKg": [
+        0.3,
+        4
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "catfish",
+      "nameKo": "메기",
+      "rarity": "rare",
+      "probabilityWeight": 600,
+      "basePrice": 8.5,
+      "difficulty": 7,
+      "lengthCm": [
+        30,
+        100
+      ],
+      "weightKg": [
+        0.6,
+        12
+      ],
+      "behavior": "deep"
+    },
+    {
+      "id": "snakehead",
+      "nameKo": "가물치",
+      "rarity": "rare",
+      "probabilityWeight": 250,
+      "basePrice": 14,
+      "difficulty": 8,
+      "lengthCm": [
+        35,
+        90
+      ],
+      "weightKg": [
+        0.7,
+        9
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "golden-crucian",
+      "nameKo": "황금붕어",
+      "rarity": "epic",
+      "probabilityWeight": 130,
+      "basePrice": 42,
+      "difficulty": 9,
+      "lengthCm": [
+        20,
+        50
+      ],
+      "weightKg": [
+        0.4,
+        3
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "legendary-carp",
+      "nameKo": "전설의 잉어",
+      "rarity": "legendary",
+      "probabilityWeight": 20,
+      "basePrice": 220,
+      "difficulty": 10,
+      "lengthCm": [
+        90,
+        160
+      ],
+      "weightKg": [
+        12,
+        40
+      ],
+      "behavior": "ancient"
+    },
+    {
+      "id": "dark-chub",
+      "nameKo": "갈겨니",
+      "rarity": "common",
+      "probabilityWeight": 2200,
+      "basePrice": 2,
+      "difficulty": 4,
+      "lengthCm": [
+        8,
+        25
+      ],
+      "weightKg": [
+        0.02,
+        0.2
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "willow-minnow",
+      "nameKo": "버들치",
+      "rarity": "common",
+      "probabilityWeight": 1800,
+      "basePrice": 1.8,
+      "difficulty": 4,
+      "lengthCm": [
+        6,
+        18
+      ],
+      "weightKg": [
+        0.01,
+        0.1
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "barbel",
+      "nameKo": "누치",
+      "rarity": "common",
+      "probabilityWeight": 1400,
+      "basePrice": 2.5,
+      "difficulty": 5,
+      "lengthCm": [
+        20,
+        60
+      ],
+      "weightKg": [
+        0.2,
+        3
+      ],
+      "behavior": "steady"
+    },
+    {
+      "id": "korean-perch",
+      "nameKo": "꺽지",
+      "rarity": "common",
+      "probabilityWeight": 1100,
+      "basePrice": 3.2,
+      "difficulty": 5,
+      "lengthCm": [
+        10,
+        30
+      ],
+      "weightKg": [
+        0.05,
+        0.5
+      ],
+      "behavior": "deep"
+    },
+    {
+      "id": "piscivorous-chub",
+      "nameKo": "끄리",
+      "rarity": "uncommon",
+      "probabilityWeight": 1500,
+      "basePrice": 5.5,
+      "difficulty": 6,
+      "lengthCm": [
+        15,
+        45
+      ],
+      "weightKg": [
+        0.1,
+        1.5
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "mandarin-fish",
+      "nameKo": "쏘가리",
+      "rarity": "uncommon",
+      "probabilityWeight": 1000,
+      "basePrice": 8.5,
+      "difficulty": 7,
+      "lengthCm": [
+        20,
+        55
+      ],
+      "weightKg": [
+        0.2,
+        3
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "sweetfish",
+      "nameKo": "은어",
+      "rarity": "rare",
+      "probabilityWeight": 650,
+      "basePrice": 17,
+      "difficulty": 8,
+      "lengthCm": [
+        15,
+        35
+      ],
+      "weightKg": [
+        0.08,
+        0.6
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "salmon",
+      "nameKo": "연어",
+      "rarity": "rare",
+      "probabilityWeight": 250,
+      "basePrice": 24,
+      "difficulty": 8,
+      "lengthCm": [
+        45,
+        110
+      ],
+      "weightKg": [
+        1,
+        15
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "golden-mandarin",
+      "nameKo": "황금쏘가리",
+      "rarity": "epic",
+      "probabilityWeight": 80,
+      "basePrice": 70,
+      "difficulty": 9,
+      "lengthCm": [
+        40,
+        80
+      ],
+      "weightKg": [
+        1,
+        6
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "river-guardian",
+      "nameKo": "강의 수호자",
+      "rarity": "legendary",
+      "probabilityWeight": 20,
+      "basePrice": 400,
+      "difficulty": 10,
+      "lengthCm": [
+        120,
+        220
+      ],
+      "weightKg": [
+        20,
+        80
+      ],
+      "behavior": "ancient"
+    },
+    {
+      "id": "horse-mackerel",
+      "nameKo": "전갱이",
+      "rarity": "common",
+      "probabilityWeight": 2200,
+      "basePrice": 4.5,
+      "difficulty": 5,
+      "lengthCm": [
+        15,
+        40
+      ],
+      "weightKg": [
+        0.1,
+        1
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "mackerel",
+      "nameKo": "고등어",
+      "rarity": "common",
+      "probabilityWeight": 1700,
+      "basePrice": 5,
+      "difficulty": 5,
+      "lengthCm": [
+        20,
+        50
+      ],
+      "weightKg": [
+        0.2,
+        1.8
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "halfbeak",
+      "nameKo": "학꽁치",
+      "rarity": "common",
+      "probabilityWeight": 1400,
+      "basePrice": 5.5,
+      "difficulty": 5,
+      "lengthCm": [
+        15,
+        40
+      ],
+      "weightKg": [
+        0.05,
+        0.4
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "sillago",
+      "nameKo": "보리멸",
+      "rarity": "common",
+      "probabilityWeight": 1200,
+      "basePrice": 6,
+      "difficulty": 5,
+      "lengthCm": [
+        10,
+        30
+      ],
+      "weightKg": [
+        0.04,
+        0.3
+      ],
+      "behavior": "steady"
+    },
+    {
+      "id": "rockfish",
+      "nameKo": "우럭",
+      "rarity": "uncommon",
+      "probabilityWeight": 1500,
+      "basePrice": 12,
+      "difficulty": 7,
+      "lengthCm": [
+        20,
+        60
+      ],
+      "weightKg": [
+        0.3,
+        4
+      ],
+      "behavior": "deep"
+    },
+    {
+      "id": "flounder",
+      "nameKo": "광어",
+      "rarity": "uncommon",
+      "probabilityWeight": 900,
+      "basePrice": 16,
+      "difficulty": 7,
+      "lengthCm": [
+        25,
+        90
+      ],
+      "weightKg": [
+        0.5,
+        10
+      ],
+      "behavior": "deep"
+    },
+    {
+      "id": "red-seabream",
+      "nameKo": "참돔",
+      "rarity": "rare",
+      "probabilityWeight": 700,
+      "basePrice": 30,
+      "difficulty": 8,
+      "lengthCm": [
+        30,
+        90
+      ],
+      "weightKg": [
+        0.8,
+        12
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "sea-bass",
+      "nameKo": "농어",
+      "rarity": "rare",
+      "probabilityWeight": 250,
+      "basePrice": 41,
+      "difficulty": 9,
+      "lengthCm": [
+        40,
+        120
+      ],
+      "weightKg": [
+        1,
+        15
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "golden-flounder",
+      "nameKo": "황금광어",
+      "rarity": "epic",
+      "probabilityWeight": 120,
+      "basePrice": 120,
+      "difficulty": 9,
+      "lengthCm": [
+        60,
+        140
+      ],
+      "weightKg": [
+        4,
+        25
+      ],
+      "behavior": "deep"
+    },
+    {
+      "id": "sea-king",
+      "nameKo": "바다의 왕",
+      "rarity": "legendary",
+      "probabilityWeight": 30,
+      "basePrice": 800,
+      "difficulty": 10,
+      "lengthCm": [
+        180,
+        350
+      ],
+      "weightKg": [
+        60,
+        250
+      ],
+      "behavior": "ancient"
+    },
+    {
+      "id": "bullseye-rockfish",
+      "nameKo": "열기",
+      "rarity": "common",
+      "probabilityWeight": 2200,
+      "basePrice": 10,
+      "difficulty": 5,
+      "lengthCm": [
+        15,
+        40
+      ],
+      "weightKg": [
+        0.1,
+        1
+      ],
+      "behavior": "deep"
+    },
+    {
+      "id": "cod",
+      "nameKo": "대구",
+      "rarity": "common",
+      "probabilityWeight": 1700,
+      "basePrice": 13,
+      "difficulty": 5,
+      "lengthCm": [
+        35,
+        100
+      ],
+      "weightKg": [
+        0.7,
+        12
+      ],
+      "behavior": "steady"
+    },
+    {
+      "id": "spanish-mackerel",
+      "nameKo": "삼치",
+      "rarity": "common",
+      "probabilityWeight": 1400,
+      "basePrice": 15,
+      "difficulty": 6,
+      "lengthCm": [
+        40,
+        110
+      ],
+      "weightKg": [
+        1,
+        12
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "yellowtail",
+      "nameKo": "방어",
+      "rarity": "common",
+      "probabilityWeight": 1200,
+      "basePrice": 18,
+      "difficulty": 6,
+      "lengthCm": [
+        45,
+        130
+      ],
+      "weightKg": [
+        1.5,
+        20
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "tuna",
+      "nameKo": "참치",
+      "rarity": "uncommon",
+      "probabilityWeight": 1500,
+      "basePrice": 35,
+      "difficulty": 8,
+      "lengthCm": [
+        70,
+        250
+      ],
+      "weightKg": [
+        8,
+        250
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "grouper",
+      "nameKo": "다금바리",
+      "rarity": "uncommon",
+      "probabilityWeight": 900,
+      "basePrice": 50,
+      "difficulty": 8,
+      "lengthCm": [
+        40,
+        130
+      ],
+      "weightKg": [
+        2,
+        35
+      ],
+      "behavior": "deep"
+    },
+    {
+      "id": "swordfish",
+      "nameKo": "황새치",
+      "rarity": "rare",
+      "probabilityWeight": 700,
+      "basePrice": 100,
+      "difficulty": 9,
+      "lengthCm": [
+        120,
+        350
+      ],
+      "weightKg": [
+        20,
+        350
+      ],
+      "behavior": "surge"
+    },
+    {
+      "id": "sailfish",
+      "nameKo": "돛새치",
+      "rarity": "rare",
+      "probabilityWeight": 250,
+      "basePrice": 150,
+      "difficulty": 9,
+      "lengthCm": [
+        140,
+        330
+      ],
+      "weightKg": [
+        25,
+        120
+      ],
+      "behavior": "dart"
+    },
+    {
+      "id": "anglerfish",
+      "nameKo": "심해아귀",
+      "rarity": "epic",
+      "probabilityWeight": 120,
+      "basePrice": 350,
+      "difficulty": 10,
+      "lengthCm": [
+        50,
+        150
+      ],
+      "weightKg": [
+        5,
+        60
+      ],
+      "behavior": "deep"
+    },
+    {
+      "id": "ancient-leviathan",
+      "nameKo": "고대 리바이어던",
+      "rarity": "legendary",
+      "probabilityWeight": 30,
+      "basePrice": 1800,
+      "difficulty": 10,
+      "lengthCm": [
+        500,
+        1200
+      ],
+      "weightKg": [
+        1000,
+        12000
+      ],
+      "behavior": "ancient"
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import type { ControlPlaneExecutionManagementStore } from "./execution-contracts
 import { reconcileWikiAccess } from "./knowledge-vault-access.js";
 import { executeSync, runImmediateTransaction } from "./kysely-sync.js";
 import { SqliteAnnouncementStore } from "./sqlite-announcements.js";
+import { SqliteFishingStore } from "./sqlite-fishing.js";
 import { SqliteHorseRacingStore } from "./sqlite-horse-racing.js";
 import { SqliteKnowledgeVaultStore } from "./sqlite-knowledge-vault-store.js";
 import { ensureKnowledgeVaultSchema } from "./sqlite-schema-knowledge-vault.js";
@@ -53,6 +54,13 @@ export class SqliteControlPlaneStore
     ).rows;
   }
   readonly spaces = new SqliteSpaceStore(this.db);
+  readonly fishing = new SqliteFishingStore(this.db, {
+    prepare: () => this.ensureBaseballGameSchema(),
+    ensure: (userId) => {
+      this.ensureBaseballProgress(userId);
+    },
+    economy: this.economy,
+  });
   readonly racing = new SqliteHorseRacingStore(this.db, {
     prepare: () => this.ensureBaseballGameSchema(),
     ensure: (userId) => {

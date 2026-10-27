@@ -17,11 +17,11 @@ import {
 } from "./sqlite-horse-racing.test-harness.js";
 describe("SQLite horse racing and shared game economy", () => {
   it("uses baseball-earned gold for racing and enhancement across connections", async () => {
-    const { first, second, alice, bob, race } = await setup(49);
+    const { first, second, alice, bob, race } = await setup(29);
     const ticket = first.racing.placeBet(alice.id, bet(race.id, "alice-bet", 50, ["1"]), OPEN);
-    expect(ticket.snapshot.gold).toBe(97);
+    expect(ticket.snapshot.gold).toBe(95);
     const progress = await second.loadBaseballProgress(alice.id);
-    expect(progress.gold).toBe(97);
+    expect(progress.gold).toBe(95);
     await expect(
       second.enhanceBaseballBat({
         userId: alice.id,
@@ -43,7 +43,7 @@ describe("SQLite horse racing and shared game economy", () => {
     expect(enhanced.chargedGold).toBe(100);
     expect(enhanced.progress.gold).toBe(0);
     expect(first.racing.snapshot(alice.id, OPEN).gold).toBe(0);
-    expect(first.racing.snapshot(bob.id, OPEN).gold).toBe(147);
+    expect(first.racing.snapshot(bob.id, OPEN).gold).toBe(145);
     expect(first.racing.snapshot(bob.id, OPEN).race?.myBets).toEqual([]);
     expect(first.racing.snapshot(bob.id, OPEN).race?.totalStake).toBe(50);
     const winQuote = race.quotes.find(
@@ -115,7 +115,7 @@ describe("SQLite horse racing and shared game economy", () => {
       OPEN + 1,
     );
     expect(replay.receipt).toEqual(firstTicket.receipt);
-    expect(replay.snapshot.gold).toBe(850);
+    expect(replay.snapshot.gold).toBe(1650);
     expect(() => second.racing.placeBet(alice.id, { ...request, amount: 400 }, OPEN + 2)).toThrow(
       /같은 요청/,
     );
@@ -138,7 +138,7 @@ describe("SQLite horse racing and shared game economy", () => {
     expect(lateReplay.receipt.id).toBe(firstTicket.receipt.id);
     expect(lateReplay.snapshot.race?.totalStake).toBe(500);
     expect(lateReplay.snapshot.race?.quotes).toEqual(race.quotes);
-    expect(lateReplay.snapshot.gold).toBe(850);
+    expect(lateReplay.snapshot.gold).toBe(1650);
   });
 
   it("refunds a solo participant exactly once and preserves their gold after reopening", async () => {
@@ -151,7 +151,7 @@ describe("SQLite horse racing and shared game economy", () => {
     );
     const cancelled = second.racing.snapshot(alice.id, START - HORSE_RACE_LOCK_BEFORE_MS, race.id);
     expect(cancelled).toMatchObject({
-      gold: 1200,
+      gold: 2000,
       race: {
         status: "cancelled",
         cancellationReason: "insufficient_participants",
@@ -168,7 +168,7 @@ describe("SQLite horse racing and shared game economy", () => {
     closeStore(second);
     const reopened = createStore(databasePath);
     reopened.racing.advance(START + HORSE_RACE_DURATION_MS);
-    expect((await reopened.loadBaseballProgress(alice.id)).gold).toBe(1200);
+    expect((await reopened.loadBaseballProgress(alice.id)).gold).toBe(2000);
     expect(
       inspect(databasePath, (db) =>
         db
@@ -194,7 +194,7 @@ describe("SQLite horse racing and shared game economy", () => {
     ).receipt;
     second.racing.placeBet(bob.id, bet(race.id, "bob-stays", 100, ["1"]), OPEN);
     expect(() => second.racing.cancelBet(bob.id, ticket.id, OPEN)).toThrow(/찾을 수 없습니다/);
-    expect(second.racing.snapshot(bob.id, OPEN).gold).toBe(1100);
+    expect(second.racing.snapshot(bob.id, OPEN).gold).toBe(1900);
     const closesAt = START - HORSE_RACE_LOCK_BEFORE_MS;
     const cancelled = second.racing.cancelBet(alice.id, ticket.id, closesAt - 1);
     expect(cancelled.receipt).toEqual({
@@ -203,7 +203,7 @@ describe("SQLite horse racing and shared game economy", () => {
       refunded: true,
       cancelledAt: closesAt - 1,
     });
-    expect(cancelled.snapshot.gold).toBe(1050);
+    expect(cancelled.snapshot.gold).toBe(1850);
     expect(cancelled.snapshot.race).toMatchObject({ totalStake: 250, participants: 2 });
     expect(() => first.racing.cancelBet(alice.id, late.id, closesAt)).toThrow(/마감/);
     expect(first.racing.cancelBet(alice.id, ticket.id, closesAt).receipt).toEqual(
@@ -236,7 +236,7 @@ describe("SQLite horse racing and shared game economy", () => {
     ).receipt;
     const cancelled = first.racing.cancelBet(bob.id, bobTicket.id, OPEN + 1);
     expect(cancelled.snapshot).toMatchObject({
-      gold: 1200,
+      gold: 2000,
       race: { participants: 1, totalStake: 500 },
     });
     expect(
@@ -248,7 +248,7 @@ describe("SQLite horse racing and shared game economy", () => {
     const replay = reopened.racing.cancelBet(bob.id, bobTicket.id, START + HORSE_RACE_DURATION_MS);
     expect(replay.receipt).toEqual(cancelled.receipt);
     expect(replay.snapshot).toMatchObject({
-      gold: 1200,
+      gold: 2000,
       race: {
         status: "cancelled",
         cancellationReason: "insufficient_participants",
@@ -265,7 +265,7 @@ describe("SQLite horse racing and shared game economy", () => {
         cancelledAt: null,
       }),
     ]);
-    expect((await reopened.loadBaseballProgress(alice.id)).gold).toBe(1200);
+    expect((await reopened.loadBaseballProgress(alice.id)).gold).toBe(2000);
     expect(
       inspect(databasePath, (db) =>
         db
@@ -310,7 +310,7 @@ describe("SQLite horse racing and shared game economy", () => {
       cancelledAt: OPEN + 1,
     });
     expect(settled.gold).toBe(
-      1200 - 950 + tickets.slice(1).reduce((sum, ticket) => sum + ticket.potentialPayout!, 0),
+      2000 - 950 + tickets.slice(1).reduce((sum, ticket) => sum + ticket.potentialPayout!, 0),
     );
     expect(
       inspect(databasePath, (db) =>
@@ -339,7 +339,7 @@ describe("SQLite horse racing and shared game economy", () => {
       /refund ledger failed/,
     );
     expect(first.racing.snapshot(alice.id, OPEN + 1)).toMatchObject({
-      gold: 700,
+      gold: 1500,
       race: {
         totalStake: 500,
         myBets: [{ id: ticket.id, payout: null, refunded: false, cancelledAt: null }],
@@ -351,7 +351,7 @@ describe("SQLite horse racing and shared game economy", () => {
       ),
     ).toEqual({ count: 0 });
     inspect(databasePath, (db) => db.exec("DROP TRIGGER reject_test_refund"));
-    expect(first.racing.cancelBet(alice.id, ticket.id, OPEN + 2).snapshot.gold).toBe(1200);
+    expect(first.racing.cancelBet(alice.id, ticket.id, OPEN + 2).snapshot.gold).toBe(2000);
   });
 
   it("rolls back the ticket and debit together if its fixed payout cannot be recorded", async () => {
@@ -364,7 +364,7 @@ describe("SQLite horse racing and shared game economy", () => {
     expect(() =>
       first.racing.placeBet(alice.id, bet(race.id, "atomic-quote", 500, ["1"]), OPEN),
     ).toThrow(/quote storage failed/);
-    expect(first.racing.snapshot(alice.id, OPEN).gold).toBe(1200);
+    expect(first.racing.snapshot(alice.id, OPEN).gold).toBe(2000);
     expect(first.racing.snapshot(alice.id, OPEN).race?.myBets).toEqual([]);
     expect(
       inspect(databasePath, (db) =>
@@ -373,7 +373,7 @@ describe("SQLite horse racing and shared game economy", () => {
     ).toEqual({ count: 0 });
     inspect(databasePath, (db) => db.exec("DROP TRIGGER reject_test_quote"));
     const retry = first.racing.placeBet(alice.id, bet(race.id, "atomic-quote", 500, ["1"]), OPEN);
-    expect(retry.snapshot.gold).toBe(700);
+    expect(retry.snapshot.gold).toBe(1500);
     expect(retry.receipt.potentialPayout).toBeGreaterThan(500);
     expect(
       inspect(databasePath, (db) =>
@@ -462,7 +462,7 @@ describe("SQLite horse racing and shared game economy", () => {
         .filter((ticket) => ticket.market === "quinella")
         .every((ticket) => !ticket.refunded && ticket.payout === 0),
     ).toBe(true);
-    expect(settledA.gold + settledB.gold).toBe(2400 - 350 + expectedPayout);
+    expect(settledA.gold + settledB.gold).toBe(4000 - 350 + expectedPayout);
     expect(settledA.race!.myBets.find((ticket) => ticket.id === aliceQuote.id)).toMatchObject({
       quotedOdds: aliceQuote.quotedOdds,
       potentialPayout: aliceQuote.potentialPayout,
@@ -514,9 +514,9 @@ describe("SQLite horse racing and shared game economy", () => {
         status: "cancelled",
         cancellationReason: "engine_changed",
       });
-      expect(snapshot.gold).toBe(1200);
+      expect(snapshot.gold).toBe(2000);
       reopened.racing.advance(START + HORSE_RACE_DURATION_MS);
-      expect((await reopened.loadBaseballProgress(bob.id)).gold).toBe(1200);
+      expect((await reopened.loadBaseballProgress(bob.id)).gold).toBe(2000);
       expect(
         inspect(databasePath, (db) =>
           db
@@ -569,7 +569,7 @@ describe("SQLite horse racing and shared game economy", () => {
       refunded: false,
     });
     expect(snapshotA.gold + snapshotB.gold).toBe(
-      2400 - 500 + aliceQuote.potentialPayout! + bobQuote.potentialPayout!,
+      4000 - 500 + aliceQuote.potentialPayout! + bobQuote.potentialPayout!,
     );
   });
 
@@ -591,7 +591,7 @@ describe("SQLite horse racing and shared game economy", () => {
     });
     expect(spoof).toMatchObject({
       awardedGold: 0,
-      progress: { gold: 60, totalHomers: 0, bestDistanceM: 80 },
+      progress: { gold: 100, totalHomers: 0, bestDistanceM: 80 },
     });
     const pitch = await first.beginBaseballAtBat({
       userId: alice.id,
@@ -633,9 +633,9 @@ describe("SQLite horse racing and shared game economy", () => {
       distanceM: 999,
     });
     expect(reward).toMatchObject({
-      awardedGold: 5,
+      awardedGold: 8,
       progress: {
-        gold: 65,
+        gold: 108,
         totalHomers: 1,
         equippedBatId: "silver",
         enhancement: { level: 20, equipped: true },
@@ -653,7 +653,7 @@ describe("SQLite horse racing and shared game economy", () => {
     closeStore(second);
     const reopened = createStore(databasePath);
     expect(await reopened.rewardBaseballPlateAppearance(request)).toEqual(reward);
-    expect((await reopened.loadBaseballProgress(alice.id)).gold).toBe(65);
+    expect((await reopened.loadBaseballProgress(alice.id)).gold).toBe(108);
     expect(
       inspect(databasePath, (db) =>
         db

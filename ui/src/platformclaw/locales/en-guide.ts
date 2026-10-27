@@ -4,6 +4,7 @@ import { baseballTranslations } from "./en-baseball.ts";
 import { credentialTranslations } from "./en-credentials.ts";
 import { dashboardTranslations } from "./en-dashboard.ts";
 import { executionTranslations } from "./en-execution.ts";
+import { fishingTranslations } from "./en-fishing.ts";
 import { mcpTranslations } from "./en-mcp.ts";
 import { racingTranslations } from "./en-racing.ts";
 import { spaceTranslations } from "./en-spaces.ts";
@@ -96,6 +97,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.waitingTips.support": "Still stuck? Ask Jung Seungon. The hidden final tool.",
   ...dashboardTranslations,
   ...baseballTranslations,
+  ...fishingTranslations,
   ...announcementTranslations,
   ...racingTranslations,
   ...vaultTranslations,

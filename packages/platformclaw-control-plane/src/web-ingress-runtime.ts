@@ -295,6 +295,7 @@ export function createPlatformClawWebIngressRuntime(
     store: auth.store,
     baseballStore: auth.store,
     racingStore: auth.store.racing,
+    fishingStore: auth.store.fishing,
     racingNow,
     vaultService,
     spaceService,

@@ -2,6 +2,7 @@ import type { HelloOk } from "@openclaw/gateway-protocol";
 import { describe, expect, it } from "vitest";
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
 import type { BrowserGatewayAccess } from "./browser-gateway-proxy.js";
+import { FISHING_RPC_METHODS } from "./fishing-contracts.js";
 import { SPACE_RPC_METHODS } from "./space-contracts.js";
 
 function upstreamHello(): HelloOk {
@@ -158,6 +159,7 @@ describe("projectPlatformClawBrowserHello", () => {
         "platformclaw.racing.snapshot",
         "platformclaw.racing.bet",
         "platformclaw.racing.cancel",
+        ...FISHING_RPC_METHODS,
         "sessions.branches.list",
         "sessions.branches.switch",
         "sessions.compaction.branch",

@@ -14,6 +14,7 @@ import {
 } from "./easter-egg-workshop-journal.ts";
 import "./easter-egg-game.ts";
 import { PLATFORMCLAW_EASTER_EGG_EVENT } from "./easter-egg.ts";
+import { platformClawT as t } from "./i18n.ts";
 
 type WorkshopElement = HTMLElement & {
   client: { request<T>(method: string, params?: unknown): Promise<T> } | null;
@@ -787,6 +788,42 @@ describe("baseball enhancement workshop", () => {
     expect(first.egg.querySelector('[data-forge-result="success"]')).not.toBeNull();
     expect(first.egg.querySelector('[data-forge-result="maintain"]')).toBeNull();
   });
+
+  it.each([
+    [10, 0, 18],
+    [0, 10, 18],
+    [10, 10, 28],
+  ])(
+    "shows confirmed total %s and streak %s bonuses with the full %sG reward",
+    async (totalBonus, streakBonus, gold) => {
+      const awarded = enhanced(0, {
+        gold: 1000 + gold,
+        revision: 1,
+        totalHomers: 15,
+        currentHomeRunStreak: 15,
+      });
+      const { egg } = await openWorkshop(enhanced(), () =>
+        Promise.resolve({
+          awardedGold: gold,
+          homeRunBonusGold: totalBonus,
+          homeRunStreakBonusGold: streakBonus,
+          progress: awarded,
+        }),
+      );
+      await click(egg, ".platformclaw-easter-egg__shop header button");
+      egg.resolveAtBat("home_run", 145);
+      await flush(egg);
+      const effect = egg.querySelector(".platformclaw-easter-egg__bonus");
+      expect(effect?.textContent?.includes(t("platformClaw.baseball.bonus", { gold: "10" }))).toBe(
+        totalBonus > 0,
+      );
+      expect(
+        effect?.textContent?.includes(t("platformClaw.baseball.streakBonus", { gold: "10" })),
+      ).toBe(streakBonus > 0);
+      expect(egg.awardedGold).toBe(gold);
+      expect(egg.textContent).toContain(t("platformClaw.baseball.reward", { gold: String(gold) }));
+    },
+  );
 
   it("keeps an active plate receipt through another tab's workshop entry and preserves the next-round timer", async () => {
     const plate = deferred<unknown>();

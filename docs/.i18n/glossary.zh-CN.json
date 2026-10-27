@@ -1750,5 +1750,37 @@
   {
     "source": "Organization architecture",
     "target": "组织架构"
+  },
+  {
+    "source": "Fishing architecture",
+    "target": "钓鱼架构"
+  },
+  {
+    "source": "Fishing offline deployment handoff",
+    "target": "钓鱼离线部署交接"
+  },
+  {
+    "source": "Fishing economic specification",
+    "target": "钓鱼经济规范"
+  },
+  {
+    "source": "Fishing game design",
+    "target": "钓鱼游戏设计"
+  },
+  {
+    "source": "Fishing implementation report",
+    "target": "钓鱼实现报告"
+  },
+  {
+    "source": "Fishing integration audit",
+    "target": "钓鱼集成审计"
+  },
+  {
+    "source": "Fishing known issues",
+    "target": "钓鱼已知问题"
+  },
+  {
+    "source": "Fishing release checklist",
+    "target": "钓鱼发布检查清单"
   }
 ]

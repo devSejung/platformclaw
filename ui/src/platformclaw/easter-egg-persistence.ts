@@ -3,6 +3,7 @@ import {
   BASEBALL_RPC,
   type BaseballLeaderboard,
   type BaseballProgress,
+  type BaseballPlateAppearanceResult,
 } from "../../../packages/platformclaw-control-plane/src/baseball-contracts.ts";
 import { GatewayRequestError, type GatewayBrowserClient } from "../api/gateway.ts";
 import { OpenClawLightDomContentsElement } from "../lit/openclaw-element.ts";
@@ -14,11 +15,9 @@ export type BaseballMutation = {
   onSuccess?: (response: BaseballMutationResponse) => void;
   journaled?: boolean;
 };
-export type BaseballMutationResponse = {
-  progress: BaseballProgress;
-  awardedGold?: number;
-  homeRunBonusGold?: 0 | 5;
-};
+export type BaseballMutationResponse = { progress: BaseballProgress } & Partial<
+  Pick<BaseballPlateAppearanceResult, "awardedGold" | "homeRunBonusGold" | "homeRunStreakBonusGold">
+>;
 
 /** The mutation owner keeps unknown outcomes retryable and rejects responses from a replaced account/game. */
 export abstract class BaseballPersistence extends OpenClawLightDomContentsElement {

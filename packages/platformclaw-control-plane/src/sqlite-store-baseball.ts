@@ -206,13 +206,17 @@ export class SqliteControlPlaneBaseballStore
         const streak = this.requireBaseballHomeRunStreakRow(params.userId);
         const isHomeRun = outcome === "home_run";
         const totalHomers = current.total_homers + (isHomeRun ? 1 : 0);
-        const homeRunBonusGold: 0 | 5 = isHomeRun && totalHomers % 5 === 0 ? 5 : 0;
-        const awardedGold = (isHomeRun ? 5 : outcome === "hit" ? 3 : 0) + homeRunBonusGold;
+        const currentHomeRunStreak = isHomeRun ? streak.current_streak + 1 : 0;
+        // Both milestones belong to this accepted appearance. Independent terms
+        // preserve their overlap without replaying or repricing old receipts.
+        const homeRunBonusGold: 0 | 10 = isHomeRun && totalHomers % 5 === 0 ? 10 : 0;
+        const homeRunStreakBonusGold: 0 | 10 = isHomeRun && currentHomeRunStreak % 3 === 0 ? 10 : 0;
+        const awardedGold =
+          (isHomeRun ? 8 : outcome === "hit" ? 5 : 0) + homeRunBonusGold + homeRunStreakBonusGold;
         const bestDistanceM =
           distanceM === undefined
             ? current.best_distance_m
             : Math.max(current.best_distance_m, distanceM);
-        const currentHomeRunStreak = isHomeRun ? streak.current_streak + 1 : 0;
         const bestHomeRunStreak = Math.max(streak.best_streak, currentHomeRunStreak);
         const streakChanged =
           currentHomeRunStreak !== streak.current_streak ||
@@ -253,6 +257,7 @@ export class SqliteControlPlaneBaseballStore
         return {
           awardedGold,
           homeRunBonusGold,
+          homeRunStreakBonusGold,
           progress: this.readBaseballProgress(params.userId),
         };
       },
