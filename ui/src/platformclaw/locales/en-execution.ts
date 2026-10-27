@@ -1,4 +1,21 @@
 export const executionTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.execution.useNamedVm": "Use {name}",
+  "platformClaw.execution.reauthenticationRequired": "Sign in again to connect",
+  "platformClaw.execution.connectionSettings": "Connection settings",
+  "platformClaw.execution.forgetVm": "Forget connection",
+  "platformClaw.execution.availableVms": "Approved VMs to add",
+  "platformClaw.execution.addVm": "Add and connect",
+  "platformClaw.execution.previousLocationKept": "Current work location: {target}.",
+  "platformClaw.execution.releaseConfirmBody":
+    "Remove this saved VM connection. Its files remain on the VM; other VM connections and their credentials are kept.",
+  "platformClaw.execution.editVm": "Add or reconnect VM",
+  "platformClaw.vmAdmin.renameEndpoint": "Rename connection",
+  "platformClaw.vmAdmin.renameEndpointHelp":
+    "Changes only the display name. Approved host keys, VM access, credentials, and running tasks are preserved.",
+  "platformClaw.vmAdmin.stageRenameEndpoint": "Saving the SafeConnect display name…",
+  "platformClaw.vmAdmin.endpointRenamed": "SafeConnect display name saved.",
+  "platformClaw.vmAdmin.confirmRevokeSaved":
+    "Remove the saved connection for {label}? The user's current work location and files stay unchanged. A new connection will require authentication.",
   "platformClaw.execution.codingAgents": "Coding agents",
   "platformClaw.execution.useAgent": "Allow {agent}",
   "platformClaw.execution.agentSavedOn": "Saved permission: on",

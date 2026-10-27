@@ -1,7 +1,12 @@
-import { ControlPlaneAuthorizationError, ControlPlaneStateError } from "./contracts.js";
+import {
+  ControlPlaneAuthorizationError,
+  ControlPlaneConflictError,
+  ControlPlaneStateError,
+} from "./contracts.js";
 import type { ControlPlaneAtomicVmCredentialStore } from "./execution-contracts.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
+import { rowToAllocation } from "./sqlite-store-execution-mappers.js";
 import { SqliteControlPlaneExecutionStore } from "./sqlite-store-execution.js";
 import type { EncryptedUserSshCredentialRow } from "./sqlite-store-types.js";
 import type {
@@ -42,6 +47,71 @@ export abstract class SqliteControlPlaneCredentialStore
   extends SqliteControlPlaneExecutionStore
   implements ControlPlaneSshCredentialEnvelopeStore, ControlPlaneAtomicVmCredentialStore
 {
+  async commitPersonalVmCredential(
+    params: Parameters<ControlPlaneAtomicVmCredentialStore["commitPersonalVmCredential"]>[0],
+  ) {
+    return runImmediateTransaction(this.db, () => {
+      const allocation = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("vm_allocations as a")
+          .innerJoin("agent_bindings as b", "b.id", "a.agent_binding_id")
+          .innerJoin("personal_execution_profiles as p", "p.agent_binding_id", "b.id")
+          .selectAll("a")
+          .where("a.id", "=", params.expectedAllocationId)
+          .where("a.status", "!=", "revoked")
+          .where("b.agent_id", "=", params.agentId)
+          .where("b.kind", "=", "personal")
+          .where("b.state", "=", "active")
+          .where("b.user_id", "=", params.actorUserId)
+          .where("p.target_revision", "=", params.expectedTargetRevision),
+      );
+      if (!allocation) {
+        throw new ControlPlaneConflictError(
+          "execution_target_conflict",
+          "execution target changed before credential verification was committed",
+        );
+      }
+      if (
+        !params.remoteHomeDir.startsWith("/") ||
+        params.remoteHomeDir === "/" ||
+        !params.remoteWorkspaceDir.startsWith(`${params.remoteHomeDir}/`)
+      ) {
+        throw new ControlPlaneStateError(
+          "connection-verified remote workspace must be inside the Linux account home",
+        );
+      }
+      this.replaceCredentialInTransaction({
+        actorUserId: params.actorUserId,
+        userId: params.actorUserId,
+        envelope: params.credentialEnvelope,
+        replacedAt: params.checkedAt,
+      });
+      const updated = {
+        ...allocation,
+        status: "ready" as const,
+        remote_home_dir: params.remoteHomeDir,
+        remote_workspace_dir: params.remoteWorkspaceDir,
+        last_connection_check_at: params.checkedAt,
+        last_connection_succeeded_at: params.checkedAt,
+        failure_code: null,
+        updated_at: params.checkedAt,
+      };
+      executeSync(
+        this.db,
+        this.query.updateTable("vm_allocations").set(updated).where("id", "=", allocation.id),
+      );
+      this.insertAudit(
+        params.actorUserId,
+        "vm.connection.succeeded",
+        "vm-allocation",
+        allocation.id,
+        params.checkedAt,
+      );
+      return rowToAllocation(updated);
+    });
+  }
+
   async replaceEncryptedUserSshCredential(
     params: Parameters<
       ControlPlaneSshCredentialEnvelopeStore["replaceEncryptedUserSshCredential"]
@@ -76,23 +146,29 @@ export abstract class SqliteControlPlaneCredentialStore
   async releasePersonalVmAccess(
     params: Parameters<ControlPlaneAtomicVmCredentialStore["releasePersonalVmAccess"]>[0],
   ) {
-    return runImmediateTransaction(this.db, () => {
-      const current = this.getVmAllocationForAgentInTransaction(params.agentId);
-      const allocation = current
-        ? this.revokePersonalVmAllocationInTransaction({
-            actorUserId: params.actorUserId,
-            agentId: params.agentId,
-            releasedAt: params.releasedAt,
-            requireAdmin: false,
-          })
-        : null;
-      this.deleteCredentialInTransaction({
-        actorUserId: params.actorUserId,
-        userId: params.actorUserId,
-        deletedAt: params.releasedAt,
-      });
-      return allocation;
+    return runImmediateTransaction(this.db, () =>
+      this.releasePersonalVmAccessInTransaction(params),
+    );
+  }
+
+  protected releasePersonalVmAccessInTransaction(
+    params: Parameters<ControlPlaneAtomicVmCredentialStore["releasePersonalVmAccess"]>[0],
+  ) {
+    const current = this.getVmAllocationForAgentInTransaction(params.agentId);
+    const allocation = current
+      ? this.revokePersonalVmAllocationInTransaction({
+          actorUserId: params.actorUserId,
+          agentId: params.agentId,
+          releasedAt: params.releasedAt,
+          requireAdmin: false,
+        })
+      : null;
+    this.deleteCredentialInTransaction({
+      actorUserId: params.actorUserId,
+      userId: params.actorUserId,
+      deletedAt: params.releasedAt,
     });
+    return allocation;
   }
 
   async getUserSshCredentialMetadata(

@@ -24,6 +24,31 @@ export type AgentRunSessionTarget = {
 /** Canonical SQLite target resolved from the storage-neutral run identity. */
 type ResolvedAgentRunSessionTarget = SessionTranscriptRuntimeTarget;
 
+/** Resolves the transcript owner's admission identity before asynchronous lookup. */
+export function resolveAgentRunWorkOwner(params: {
+  agentId?: string;
+  config?: OpenClawConfig;
+  sessionId: string;
+  sessionFile?: string;
+  sessionKey?: string;
+  sessionTarget?: AgentRunSessionTarget;
+}): string {
+  const target = params.sessionTarget;
+  const owner =
+    normalizeOptionalString(target?.agentId) ??
+    parseSqliteSessionFileMarker(normalizeOptionalString(params.sessionFile))?.agentId ??
+    params.agentId;
+  return (
+    owner ??
+    resolveAgentIdFromSessionKey(
+      normalizeOptionalString(target?.sessionKey) ??
+        normalizeOptionalString(params.sessionKey) ??
+        (params.sessionFile?.startsWith("agent:") ? params.sessionFile : params.sessionId),
+      resolveDefaultAgentId(params.config ?? {}),
+    )
+  );
+}
+
 /** Resolves the active runtime target used by current run/session internals. */
 export async function resolveAgentRunSessionTarget(params: {
   agentId?: string;
@@ -153,8 +178,7 @@ export async function resolveAgentRunSessionTarget(params: {
   ) {
     throw new Error("Compatibility session key conflicts with the supplied agent identity");
   }
-  const effectiveAgentId =
-    agentId ?? resolveAgentIdFromSessionKey(sessionKey, resolveDefaultAgentId(params.config ?? {}));
+  const effectiveAgentId = resolveAgentRunWorkOwner({ ...params, sessionKey });
   if (sessionTarget && sessionKey) {
     const storePath =
       targetStorePath ??

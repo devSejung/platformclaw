@@ -7,7 +7,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir --requirement /fixture/requirements.txt \
     && useradd --uid 2001 --home-dir /users/person_one --create-home --shell /bin/bash person_one \
-    && useradd --uid 2002 --home-dir /appdata/person_two --create-home --shell /bin/bash person_two
+    && useradd --uid 2002 --home-dir /appdata/person_two --create-home --shell /bin/bash person_two \
+    && useradd --uid 2003 --home-dir /users/person_one_vm2 --create-home --shell /bin/bash person_one_vm2 \
+    && useradd --uid 2004 --home-dir /users/person_one_vm3 --create-home --shell /bin/bash person_one_vm3
 
 COPY scripts/e2e/lib/platformclaw-fake-safeconnect/server.py /fixture/server.py
 COPY scripts/e2e/lib/platformclaw-fake-safeconnect/test_server.py /fixture/test_server.py

@@ -85,6 +85,7 @@ function childProcess() {
 
 function registerRuntime() {
   const resolveTarget = vi.fn(async () => target);
+  const changeTarget = vi.fn(async () => ({ ...target, revision: 2 }));
   const launchAcpProcess = vi.fn<
     (
       input: AcpProcessTransportLaunch,
@@ -102,6 +103,7 @@ function registerRuntime() {
   );
   createRuntime.mockResolvedValue({
     resolveTarget,
+    changeTarget,
     launchAcpProcess,
     diagnoseAcpProcess,
     dispose: vi.fn(async () => undefined),
@@ -156,7 +158,15 @@ function registerRuntime() {
     });
     expect(respond).toHaveBeenCalledWith(true, { invalidated: true });
   };
-  return { resolveTarget, launchAcpProcess, diagnoseAcpProcess, invalidate, stop };
+  return {
+    resolveTarget,
+    changeTarget,
+    launchAcpProcess,
+    diagnoseAcpProcess,
+    methods,
+    invalidate,
+    stop,
+  };
 }
 
 const launch = (selectedRoute = route) =>
@@ -178,6 +188,39 @@ describe("assigned ACP Agent authority invalidation", () => {
   afterEach(async () => {
     await harness.stop();
     vi.unstubAllEnvs();
+  });
+
+  it("rejects ACP handle preparation and launch while a target switch owns admission", async () => {
+    await prepareAcpProcessTransport(route);
+    const gate = deferred<typeof target>();
+    harness.changeTarget.mockImplementationOnce(async () => await gate.promise);
+    const change = harness.methods.get("platformclaw-execution.changeTarget");
+    if (!change) {
+      throw new Error("missing registered work location method");
+    }
+    const changing = change({
+      params: {
+        agentId: route.executionOwnerAgentId,
+        target: "platform_server",
+        expectedRevision: 1,
+      },
+      context: {
+        tryAcquireAgentWorkMutation: () => () => {},
+        hasPendingAgentWork: () => false,
+      },
+      respond: vi.fn(),
+    } as never);
+    try {
+      await vi.waitFor(() => expect(harness.changeTarget).toHaveBeenCalledOnce());
+      await expect(
+        prepareAcpProcessTransport({ ...route, sessionKey: `${route.sessionKey}-new` }),
+      ).rejects.toMatchObject({ code: "target_changed" });
+      await expect(launch()).rejects.toMatchObject({ code: "target_changed" });
+      expect(harness.launchAcpProcess).not.toHaveBeenCalled();
+    } finally {
+      gate.resolve({ ...target, revision: 2 });
+      await changing;
+    }
   });
 
   it.each(["invalidate", "stop"])(

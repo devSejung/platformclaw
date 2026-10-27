@@ -91,7 +91,15 @@ function renderProgressPanel(options: SettingsShellOptions, message: string) {
         : activity.kind === "success"
           ? "progressSuccessTitle"
           : "progressFailureTitle";
-  const targetIsBasic = target === "platform_server";
+  const from = activity.transition?.from ?? { target: "platform_server" as const };
+  const to = activity.transition?.to ?? { target };
+  const locationLabel = (location: typeof from) =>
+    location.label ??
+    t(
+      location.target === "platform_server"
+        ? "platformClaw.execution.basic"
+        : "platformClaw.execution.vm",
+    );
   const busy =
     activity.kind === "connecting" ||
     activity.kind === "switching" ||
@@ -113,16 +121,15 @@ function renderProgressPanel(options: SettingsShellOptions, message: string) {
     <div
       class="execution-diagram"
       aria-hidden="true"
-      data-direction=${credential ? "credential" : target}
+      data-direction=${credential ? "credential" : "forward"}
     >
       <div
-        class=${`execution-endpoint ${!credential && targetIsBasic ? "execution-destination" : "execution-source"}`}
-        data-endpoint=${credential ? "credential" : "platform_server"}
+        class="execution-endpoint execution-source"
+        data-endpoint=${credential ? "credential" : (from.connectionId ?? from.target)}
       >
-        ${credential ? credentialIcon : executionServerIcon("platform_server")}<span
-          >${t(
-            credential ? "platformClaw.execution.credentialSource" : "platformClaw.execution.basic",
-          )}</span
+        ${credential ? credentialIcon : executionServerIcon(from.target)}<span
+          title=${credential ? t("platformClaw.execution.credentialSource") : locationLabel(from)}
+          >${credential ? t("platformClaw.execution.credentialSource") : locationLabel(from)}</span
         >
       </div>
       <div class="execution-link">
@@ -138,10 +145,17 @@ function renderProgressPanel(options: SettingsShellOptions, message: string) {
         >
       </div>
       <div
-        class=${`execution-endpoint ${!credential && targetIsBasic ? "execution-source" : "execution-destination"}`}
-        data-endpoint="assigned_vm"
+        class="execution-endpoint execution-destination"
+        data-endpoint=${to.connectionId ?? to.target}
       >
-        ${executionServerIcon("assigned_vm")}<span>${t("platformClaw.execution.vm")}</span>
+        ${executionServerIcon(credential ? "assigned_vm" : to.target)}<span
+          title=${credential
+            ? (options.settings?.assignment?.vmLabel ?? t("platformClaw.execution.vm"))
+            : locationLabel(to)}
+          >${credential
+            ? (options.settings?.assignment?.vmLabel ?? t("platformClaw.execution.vm"))
+            : locationLabel(to)}</span
+        >
       </div>
     </div>
     <h2>${t(`platformClaw.execution.${headingKey}`)}</h2>
@@ -227,21 +241,17 @@ const shellStyles = `
   .activation-offer{display:grid;gap:12px;width:100%}
   .activation-offer .row{grid-template-columns:minmax(0,1fr) auto}
   .execution-diagram{display:grid;grid-template-columns:94px minmax(70px,1fr) 94px;align-items:center;gap:8px;padding:4px 0 0;color:var(--run)}
-  .execution-endpoint{display:grid;justify-items:center;align-content:center;gap:6px;color:var(--muted);font-size:11px;text-align:center}
-  .execution-endpoint>svg{width:32px;height:32px;stroke-width:1.5;border-radius:6px}
+  .execution-endpoint{display:grid;min-width:0;justify-items:center;align-content:center;gap:4px;color:var(--muted);font-size:11px;text-align:center}.execution-endpoint>span{max-width:100%;overflow-wrap:anywhere;line-height:13px;max-height:26px;overflow:hidden}
+  .execution-endpoint>svg{width:28px;height:28px;stroke-width:1.5;border-radius:6px}
   .execution-destination{color:var(--run)}
   .execution-link{position:relative;align-self:start;height:38px;display:grid;place-items:center;overflow:clip}
   .execution-track{position:absolute;inset-inline:0;height:1px;background:var(--border-strong)}
   .execution-route-fill{display:block;width:100%;height:2px;background:var(--run);transform:scaleX(0);transform-origin:left}
-  [data-direction="platform_server"] .execution-route-fill{transform-origin:right}
   .execution-transfer{position:absolute;inset:0 24px 0 0;display:none;align-items:center;pointer-events:none}
   .execution-transfer>span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--run);color:var(--bg-elevated);box-shadow:0 0 0 4px var(--bg-elevated)}
   .execution-transfer svg{width:16px;height:16px}
   [data-phase="switching"] .execution-transfer{display:flex;animation:execution-transfer 700ms cubic-bezier(.2,.8,.2,1) both}
   [data-phase="switching"] .execution-route-fill{animation:execution-route 700ms cubic-bezier(.2,.8,.2,1) both}
-  /* Reverse endpoints rather than playback so both directions keep the same easing. */
-  [data-direction="platform_server"] .execution-transfer{--execution-from:100%;--execution-to:0%}
-  [data-direction="platform_server"] .execution-transfer svg{transform:rotate(180deg)}
   [data-phase="switching"] .execution-source>svg{opacity:.45}
   [data-phase="switching"] .execution-destination>svg{animation:execution-arrival 1.1s ease-out infinite}
   [data-phase="switching"] .execution-orb{visibility:hidden}

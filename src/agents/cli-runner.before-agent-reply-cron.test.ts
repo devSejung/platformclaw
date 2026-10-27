@@ -170,6 +170,20 @@ afterEach(() => {
 });
 
 describe("runCliAgent before_agent_reply seam", () => {
+  it("rejects direct CLI entry during an owner mutation before hooks or preparation", async () => {
+    const { tryAcquireAgentWorkMutation } = await import("./agent-work-admission.js");
+    const release = tryAcquireAgentWorkMutation("direct-cli-owner");
+    expect(release).not.toBeNull();
+    try {
+      await expect(runCliAgent({ ...baseRunParams, agentId: "direct-cli-owner" })).rejects.toThrow(
+        "Retry when it completes",
+      );
+      expect(prepareCliRunContextMock).not.toHaveBeenCalled();
+      expect(executePreparedCliRunMock).not.toHaveBeenCalled();
+    } finally {
+      release?.();
+    }
+  });
   it("adds Claude CLI harness and run ownership at the runner entrypoint", async () => {
     const events: DiagnosticEventPayload[] = [];
     const unsubscribe = onTrustedInternalDiagnosticEvent((event) => {

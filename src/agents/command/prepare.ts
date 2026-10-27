@@ -36,6 +36,7 @@ import {
   resolveSessionAgentId,
   resolveAgentWorkspaceDir,
 } from "../agent-scope.js";
+import { beginAgentWorkAdmission } from "../agent-work-admission.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../defaults.js";
 import { AGENT_LANE_SUBAGENT } from "../lanes.js";
 import type { ModelManifestNormalizationContext } from "../model-ref-shared.js";
@@ -344,12 +345,14 @@ export async function prepareAgentCommandExecution(opts: AgentCommandOpts, runti
     throw new Error(`Invalid one-shot thinking level. Use one of: ${thinkingLevelsHint}.`);
   }
   const resolvedCwd = cwd ? resolveUserPath(cwd) : undefined;
-  const worktreeId = await resolveWorktreeIdForPath({
-    sessionEntry: sessionEntryRaw,
-    candidatePaths: [resolvedCwd ?? workspaceDir, workspaceDir],
-  });
-  const runLease = worktreeId ? await acquireWorktreeRunLease(worktreeId) : undefined;
+  const releaseAgentWork = beginAgentWorkAdmission(sessionAgentId);
+  let runLease: Awaited<ReturnType<typeof acquireWorktreeRunLease>> | undefined;
   try {
+    const worktreeId = await resolveWorktreeIdForPath({
+      sessionEntry: sessionEntryRaw,
+      candidatePaths: [resolvedCwd ?? workspaceDir, workspaceDir],
+    });
+    runLease = worktreeId ? await acquireWorktreeRunLease(worktreeId) : undefined;
     await ensureAgentWorkspace({
       dir: workspaceDirRaw,
       ensureBootstrapFiles: !agentCfg?.skipBootstrap,
@@ -401,10 +404,15 @@ export async function prepareAgentCommandExecution(opts: AgentCommandOpts, runti
       acpManager,
       acpResolution,
       runLease,
+      releaseAgentWork,
     };
     return prepared;
   } catch (error) {
-    await runLease?.release();
+    try {
+      await runLease?.release();
+    } finally {
+      releaseAgentWork();
+    }
     throw error;
   }
 }

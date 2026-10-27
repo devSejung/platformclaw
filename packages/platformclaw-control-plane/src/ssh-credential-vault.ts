@@ -21,6 +21,10 @@ export class SshCredentialVault {
     return this.cipher.encrypt(userId, password);
   }
 
+  openSavedCredential(userId: string, envelope: SshCredentialEnvelope): Buffer {
+    return this.cipher.decryptBytes(userId, envelope);
+  }
+
   replace(params: {
     actorUserId: string;
     userId: string;

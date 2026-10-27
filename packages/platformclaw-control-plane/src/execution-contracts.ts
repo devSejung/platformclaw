@@ -154,6 +154,69 @@ export type PersonalVmCatalog = {
   hosts: AvailableVmHost[];
 };
 
+export type PersonalSavedVmConnection = {
+  id: string;
+  revision: number;
+  vmHostId: string;
+  vmLabel: string;
+  safeConnectLabel: string;
+  linuxAccount: string;
+  status: "ready" | "connection_required" | "unavailable";
+  active: boolean;
+  remoteHomeDir?: string;
+  remoteWorkspaceDir?: string;
+  lastConnectionSucceededAt?: number;
+  failureCode?: string;
+};
+
+export interface ControlPlaneSavedVmConnectionStore {
+  getPersonalSavedVmConnections(params: {
+    actorUserId: string;
+    agentId: string;
+  }): Promise<PersonalSavedVmConnection[]>;
+  getSavedVmConnectionCredential(params: {
+    actorUserId: string;
+    agentId: string;
+    connectionId: string;
+  }): Promise<{
+    connection: PersonalSavedVmConnection;
+    credentialEnvelope: SshCredentialEnvelope;
+    candidate: AssignedVmConnectionTarget;
+  }>;
+  savePersonalVmConnection(params: {
+    actorUserId: string;
+    agentId: string;
+    vmHostId: string;
+    linuxAccount: string;
+    remoteHomeDir: string;
+    remoteWorkspaceDir: string;
+    credentialEnvelope: SshCredentialEnvelope;
+    candidate: AssignedVmConnectionTarget;
+    expectedRevision: number;
+    verifiedAt: number;
+  }): Promise<PersonalSavedVmConnection>;
+  activatePersonalVmConnection(params: {
+    agentId: string;
+    connectionId: string;
+    expectedRevision: number;
+    expectedConnectionRevision: number;
+    changedAt: number;
+  }): Promise<PersonalExecutionTarget>;
+  removePersonalSavedVmConnection(params: {
+    actorUserId: string;
+    agentId: string;
+    connectionId: string;
+    removedAt: number;
+  }): Promise<void>;
+  markSavedVmConnectionUpdateRequired(params: {
+    actorUserId: string;
+    agentId: string;
+    connectionId: string;
+    expectedConnectionRevision: number;
+    failedAt: number;
+  }): Promise<void>;
+}
+
 export type VmAdministrationAgent = {
   userId: string;
   accountId: string;
@@ -175,6 +238,7 @@ export type VmAdministrationSnapshot = {
   hosts: VmHost[];
   agents: VmAdministrationAgent[];
   allocations: VmAdministrationAllocation[];
+  savedConnections?: Array<PersonalSavedVmConnection & { agentId: string; accountId: string }>;
 };
 
 export interface ControlPlaneExecutionRuntimeStore {
@@ -260,6 +324,12 @@ export interface ControlPlaneExecutionManagementStore {
 }
 
 export interface ControlPlaneVmLifecycleStore {
+  renameSafeConnectEndpoint(params: {
+    actorUserId: string;
+    endpointId: string;
+    label: string;
+    updatedAt: number;
+  }): Promise<SafeConnectEndpoint>;
   updateVmHostExecutionEnvironment(params: {
     actorUserId: string;
     vmHostId: string;
@@ -338,6 +408,16 @@ export interface ControlPlaneVmSelfServiceStore {
 }
 
 export interface ControlPlaneAtomicVmCredentialStore {
+  commitPersonalVmCredential(params: {
+    actorUserId: string;
+    agentId: string;
+    expectedAllocationId: string;
+    expectedTargetRevision: number;
+    remoteHomeDir: string;
+    remoteWorkspaceDir: string;
+    credentialEnvelope: SshCredentialEnvelope;
+    checkedAt: number;
+  }): Promise<VmAllocation>;
   commitPersonalVmSelection(params: {
     actorUserId: string;
     agentId: string;

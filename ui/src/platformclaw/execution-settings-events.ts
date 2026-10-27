@@ -23,7 +23,9 @@ const BUTTON_ACTIONS = [
 ] as const;
 export type ExecutionSettingsAction =
   | { kind: (typeof BUTTON_ACTIONS)[number] }
-  | { kind: "target"; target: ExecutionTarget }
+  | { kind: "target"; target: ExecutionTarget; connectionId?: string }
+  | { kind: "connect-vm"; vmHostId: string }
+  | { kind: "configure-vm" | "forget-vm"; connectionId: string }
   | { kind: "tab"; tab: string }
   | { kind: "agent-action"; agent: CodingAgentId; action: "detect" | "check" | "save" | "expand" }
   | { kind: "agent-toggle"; agent: CodingAgentId; enabled: boolean }
@@ -50,7 +52,7 @@ export function bindExecutionSettingsEvents(
         (item): item is HTMLElement =>
           item instanceof HTMLElement &&
           item.matches(
-            "[data-action],[data-target],[data-settings-tab],[data-agent-action],[data-agent-quick-save],[data-agent-expand]",
+            "[data-action],[data-target],[data-connect-vm],[data-configure-vm],[data-forget-vm],[data-settings-tab],[data-agent-action],[data-agent-quick-save],[data-agent-expand]",
           ),
       );
     if (!element) {
@@ -63,7 +65,22 @@ export function bindExecutionSettingsEvents(
     }
     const target = element.dataset.target;
     if (target === "platform_server" || target === "assigned_vm") {
-      dispatch({ kind: "target", target });
+      dispatch({
+        kind: "target",
+        target,
+        ...(element.dataset.connectionId ? { connectionId: element.dataset.connectionId } : {}),
+      });
+      return;
+    }
+    if (element.dataset.connectVm) {
+      dispatch({ kind: "connect-vm", vmHostId: element.dataset.connectVm });
+      return;
+    }
+    if (element.dataset.configureVm || element.dataset.forgetVm) {
+      dispatch({
+        kind: element.dataset.configureVm ? "configure-vm" : "forget-vm",
+        connectionId: element.dataset.configureVm ?? element.dataset.forgetVm!,
+      });
       return;
     }
     if (element.dataset.settingsTab) {

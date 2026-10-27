@@ -83,6 +83,76 @@ function createLegacyDatabase(databasePath: string, variables: Record<string, st
 }
 
 describe("coding agent storage migration", () => {
+  it("imports existing VM registrations once without a schema bump or resurrection after release", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "platformclaw-saved-vm-migration-"));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, "control.sqlite");
+    createLegacyDatabase(databasePath, {});
+    const oldDb = new DatabaseSync(databasePath);
+    const oldVersion = oldDb.prepare("PRAGMA user_version").get();
+    oldDb
+      .prepare(`INSERT INTO encrypted_user_ssh_credentials (
+      id, user_id, ciphertext, nonce, auth_tag, key_id, format_version, revision, status, created_at, updated_at
+    ) VALUES ('credential-one', 'user-one', ?, ?, ?, ?, 1, 1, 'current', 8, 8)`)
+      .run(new Uint8Array([1]), new Uint8Array(12), new Uint8Array(16), `sha256:${"A".repeat(43)}`);
+    oldDb.close();
+    const openStore = () =>
+      new SqliteControlPlaneStore({
+        databasePath,
+        buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
+      });
+    const identity = { actorUserId: "user-one", agentId: "person_one" };
+    const store = openStore();
+    const saved = await store.getPersonalSavedVmConnections(identity);
+    const imported = saved[0];
+    if (!imported) {
+      throw new Error("imported VM registration missing");
+    }
+    expect(saved).toMatchObject([
+      {
+        id: "allocation-one",
+        active: true,
+        status: "ready",
+        remoteWorkspaceDir: "/home/person.one/workspace",
+      },
+    ]);
+    expect(await store.resolvePersonalExecutionTarget(identity.agentId)).toMatchObject({
+      targetId: "allocation-one",
+      allocationId: "allocation-one",
+    });
+    expect(await store.resolveAssignedVmConnectionTarget(identity.agentId)).toMatchObject({
+      targetId: "allocation-one",
+      allocationId: "allocation-one",
+    });
+    store.close();
+    const reopened = openStore();
+    expect(await reopened.getPersonalSavedVmConnections(identity)).toEqual(saved);
+    await reopened.changePersonalExecutionTarget({
+      agentId: identity.agentId,
+      target: "platform_server",
+      expectedRevision: 1,
+      changedAt: 20,
+    });
+    await reopened.removePersonalSavedVmConnection({
+      ...identity,
+      connectionId: imported.id,
+      removedAt: 21,
+    });
+    reopened.close();
+    const final = openStore();
+    expect(await final.getPersonalSavedVmConnections(identity)).toEqual([]);
+    final.close();
+    const checkedDb = new DatabaseSync(databasePath);
+    expect(checkedDb.prepare("PRAGMA user_version").get()).toEqual(oldVersion);
+    expect(
+      checkedDb
+        .prepare("SELECT name FROM sqlite_master WHERE name = 'vm_allocations_active_agent'")
+        .get(),
+    ).toBeDefined();
+    expect(checkedDb.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    checkedDb.close();
+  });
+
   it("promotes a usable legacy Claude path and VM environment exactly once", async () => {
     const directory = mkdtempSync(join(tmpdir(), "platformclaw-coding-agent-migration-"));
     temporaryDirectories.push(directory);

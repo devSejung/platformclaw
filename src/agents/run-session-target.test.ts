@@ -5,9 +5,32 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { formatSqliteSessionFileMarker } from "../config/sessions/legacy-sqlite-marker.js";
 import { upsertSessionEntry } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { resolveAgentRunSessionTarget } from "./run-session-target.js";
+import { resolveAgentRunSessionTarget, resolveAgentRunWorkOwner } from "./run-session-target.js";
 
 describe("agent run session target", () => {
+  it("uses the same typed and marker owners before asynchronous target resolution", () => {
+    const params = {
+      sessionId: "session",
+      sessionKey: "agent:session-owner:chat",
+      agentId: "explicit-owner",
+    };
+    expect(resolveAgentRunWorkOwner(params)).toBe("explicit-owner");
+    expect(resolveAgentRunWorkOwner({ ...params, sessionTarget: { agentId: "typed-owner" } })).toBe(
+      "typed-owner",
+    );
+    const marker = formatSqliteSessionFileMarker({
+      agentId: "marker-owner",
+      sessionId: "session",
+      storePath: "/tmp/marker-owner/sessions.json",
+    });
+    expect(resolveAgentRunWorkOwner({ sessionId: "session", sessionFile: marker })).toBe(
+      "marker-owner",
+    );
+    expect(resolveAgentRunWorkOwner({ sessionId: "session", sessionKey: params.sessionKey })).toBe(
+      "session-owner",
+    );
+  });
+
   let tempDir: string;
 
   beforeEach(() => {

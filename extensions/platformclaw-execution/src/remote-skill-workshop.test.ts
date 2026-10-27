@@ -4,8 +4,9 @@ import path from "node:path";
 import type { RunSshSandboxCommandParams } from "openclaw/plugin-sdk/sandbox";
 import { resolvePreferredOpenClawTmpDir, withTempWorkspace } from "openclaw/plugin-sdk/temp-path";
 import { describe, expect, it, vi } from "vitest";
-import type { AssignedVmTargetSnapshot } from "./backend.js";
+import type { AssignedVmTargetSnapshot, PlatformClawExecutionTargetSnapshot } from "./backend.js";
 import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
+import { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
 
 const TARGET: AssignedVmTargetSnapshot = {
   kind: "assigned_vm",
@@ -61,7 +62,163 @@ async function runLocalRemoteCommand(
   });
 }
 
+function createWorkshopHarness() {
+  const mutations = new PlatformClawTargetMutationCoordinator();
+  const session = { command: "ssh", configPath: "/tmp/config", host: "vm" };
+  const io = {
+    mutations,
+    resolveTarget: vi.fn(async (): Promise<PlatformClawExecutionTargetSnapshot> => TARGET),
+    createSession: vi.fn(async () => session),
+    disposeSession: vi.fn(async () => undefined),
+    runCommand: vi.fn(async () => ({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), code: 0 })),
+  };
+  const refreshCatalog = vi.fn(async () => ({ revision: "initial", files: [] }));
+  const access = new VmRemoteSkillWorkshopService(io).createAccess({
+    target: TARGET,
+    refreshCatalog,
+  });
+  const skillDir = `${TARGET.remoteWorkspaceDir}/skills/demo`;
+  const mutate = () =>
+    access.mutateSkill({ mode: "create", skillDir, expectedTree: [], files: [] });
+  return { io, mutations, session, access, skillDir, mutate, refreshCatalog };
+}
+
 describe("VM remote Skill Workshop", () => {
+  it.each([
+    "target-change",
+    "skill-install",
+    "skill-export",
+    "skill-workshop",
+    "terminal-open",
+  ] as const)("rejects mutation during %s before opening SSH", async (kind) => {
+    const h = createWorkshopHarness();
+    const release = h.mutations.tryAcquire(TARGET.agentId, kind);
+    try {
+      await expect(h.mutate()).rejects.toThrow("mutation is already in progress");
+      expect(h.io.createSession).not.toHaveBeenCalled();
+      expect(h.io.runCommand).not.toHaveBeenCalled();
+      if (kind === "target-change") {
+        await expect(h.access.readSkillTree(h.skillDir)).rejects.toThrow(
+          "mutation is already in progress",
+        );
+        expect(h.io.createSession).not.toHaveBeenCalled();
+      }
+    } finally {
+      release?.();
+    }
+  });
+
+  it("guards catalog refresh and rejects stale refresh without opening SSH", async () => {
+    const h = createWorkshopHarness();
+    h.refreshCatalog.mockImplementationOnce(async () => {
+      expect(h.mutations.tryAcquire(TARGET.agentId, "target-change")).toBeNull();
+      return { revision: "refreshed", files: [] };
+    });
+    await h.access.listSkills();
+    expect(h.refreshCatalog).toHaveBeenCalledOnce();
+    expect(h.mutations.isHeld(TARGET.agentId)).toBe(false);
+    h.io.resolveTarget.mockResolvedValue({ ...TARGET, revision: TARGET.revision + 1 });
+    await expect(h.access.notifyChanged?.()).rejects.toThrow("target changed");
+    expect(h.refreshCatalog).toHaveBeenCalledOnce();
+    expect(h.mutations.isHeld(TARGET.agentId)).toBe(false);
+  });
+
+  it("rejects stale filesystem bridge access before opening SSH", async () => {
+    const h = createWorkshopHarness();
+    h.io.resolveTarget.mockResolvedValue({ ...TARGET, revision: TARGET.revision + 1 });
+    await expect(
+      h.access.fsBridge.readFile({ filePath: `${h.skillDir}/SKILL.md` }),
+    ).rejects.toThrow("target changed");
+    expect(h.io.createSession).not.toHaveBeenCalled();
+    expect(h.io.runCommand).not.toHaveBeenCalled();
+    expect(h.mutations.isHeld(TARGET.agentId)).toBe(false);
+  });
+
+  it("holds the shared guard across SSH authentication, command, and cleanup", async () => {
+    const h = createWorkshopHarness();
+    let authenticate!: (session: typeof h.session) => void;
+    let finishCommand!: (result: Awaited<ReturnType<typeof h.io.runCommand>>) => void;
+    let finishCleanup!: () => void;
+    h.io.createSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          authenticate = resolve;
+        }),
+    );
+    h.io.runCommand.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishCommand = resolve;
+        }),
+    );
+    h.io.disposeSession.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          finishCleanup = () => resolve(undefined);
+        }),
+    );
+    const pending = h.mutate();
+    await vi.waitFor(() => expect(h.io.createSession).toHaveBeenCalledOnce());
+    expect(h.mutations.tryAcquire(TARGET.agentId, "target-change")).toBeNull();
+    authenticate(h.session);
+    await vi.waitFor(() => expect(h.io.runCommand).toHaveBeenCalledOnce());
+    expect(h.mutations.tryAcquire(TARGET.agentId, "target-change")).toBeNull();
+    finishCommand({ stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), code: 0 });
+    await vi.waitFor(() => expect(h.io.disposeSession).toHaveBeenCalledOnce());
+    expect(h.mutations.tryAcquire(TARGET.agentId, "target-change")).toBeNull();
+    finishCleanup();
+    await pending;
+    expect(h.mutations.isHeld(TARGET.agentId)).toBe(false);
+    expect(h.io.resolveTarget).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { ...TARGET, targetId: "another-saved-vm" },
+    { ...TARGET, allocationId: "returned-allocation" },
+    { ...TARGET, revision: TARGET.revision + 1 },
+    { ...TARGET, credentialRevision: TARGET.credentialRevision + 1 },
+    { ...TARGET, remoteHomeDir: "/users/reassigned" },
+    { ...TARGET, remoteWorkspaceDir: "/users/person.one/other-workspace" },
+    {
+      kind: "platform_server",
+      agentId: TARGET.agentId,
+      targetId: "platform-server",
+      revision: TARGET.revision + 1,
+    },
+  ] satisfies PlatformClawExecutionTargetSnapshot[])(
+    "rejects stale Workshop access before it can replace the current SSH lease: %j",
+    async (current) => {
+      const h = createWorkshopHarness();
+      h.io.resolveTarget.mockResolvedValue(current);
+      await expect(h.mutate()).rejects.toThrow("target changed");
+      expect(h.io.createSession).not.toHaveBeenCalled();
+      expect(h.io.runCommand).not.toHaveBeenCalled();
+      expect(h.mutations.isHeld(TARGET.agentId)).toBe(false);
+    },
+  );
+
+  it("revalidates authority after authentication before sending a write", async () => {
+    const h = createWorkshopHarness();
+    h.io.resolveTarget
+      .mockResolvedValueOnce(TARGET)
+      .mockResolvedValueOnce({ ...TARGET, credentialRevision: TARGET.credentialRevision + 1 });
+    await expect(h.mutate()).rejects.toThrow("target changed");
+    expect(h.io.createSession).toHaveBeenCalledOnce();
+    expect(h.io.runCommand).not.toHaveBeenCalled();
+    expect(h.io.disposeSession).toHaveBeenCalledExactlyOnceWith(h.session);
+    expect(h.mutations.isHeld(TARGET.agentId)).toBe(false);
+  });
+
+  it.each(["resolveTarget", "createSession", "runCommand", "disposeSession"] as const)(
+    "releases mutation ownership when %s fails",
+    async (stage) => {
+      const h = createWorkshopHarness();
+      h.io[stage].mockRejectedValueOnce(new Error("operation failed"));
+      await expect(h.mutate()).rejects.toThrow("operation failed");
+      expect(h.mutations.isHeld(TARGET.agentId)).toBe(false);
+    },
+  );
+
   it.runIf(process.platform !== "win32")(
     "creates, reads, updates, and CAS-protects a real VM-style skill tree",
     async () => {
@@ -78,6 +235,8 @@ describe("VM remote Skill Workshop", () => {
           const secondSkill = "---\nname: demo\ndescription: Second\n---\nRun safely.\n";
           const reference = "# Reference\n";
           const service = new VmRemoteSkillWorkshopService({
+            mutations: new PlatformClawTargetMutationCoordinator(),
+            resolveTarget: async () => target,
             createSession: vi.fn(async () => ({
               command: "ssh",
               configPath: path.join(dir, "ssh-config"),
@@ -128,7 +287,7 @@ describe("VM remote Skill Workshop", () => {
     },
   );
 
-  it("pins proposals to allocation identity and refreshes the catalog after apply", async () => {
+  it("pins proposals to saved VM identity across activations and refreshes the catalog after apply", async () => {
     const refreshCatalog = vi.fn(async () => ({
       revision: "next",
       files: [
@@ -139,8 +298,16 @@ describe("VM remote Skill Workshop", () => {
         },
       ],
     }));
+    const createSession = vi.fn(async () => ({
+      command: "ssh",
+      configPath: "/tmp/config",
+      host: "vm",
+    }));
+    let activeTarget = TARGET;
     const service = new VmRemoteSkillWorkshopService({
-      createSession: vi.fn(async () => ({ command: "ssh", configPath: "/tmp/config", host: "vm" })),
+      mutations: new PlatformClawTargetMutationCoordinator(),
+      resolveTarget: async () => activeTarget,
+      createSession,
       disposeSession: vi.fn(async () => undefined),
       runCommand: vi.fn(async () => ({
         stdout: Buffer.alloc(0),
@@ -154,10 +321,26 @@ describe("VM remote Skill Workshop", () => {
       refreshCatalog,
     });
 
-    expect(access.targetId).toBe(TARGET.allocationId);
+    const restoredTarget = {
+      ...TARGET,
+      allocationId: "allocation-returned",
+      revision: 5,
+      credentialRevision: 4,
+    };
+    const restoredAccess = service.createAccess({ target: restoredTarget, refreshCatalog });
+    const otherAccess = service.createAccess({
+      target: { ...restoredTarget, targetId: "vm-two", allocationId: "allocation-two" },
+      refreshCatalog,
+    });
+    expect(access.targetId).toBe(TARGET.targetId);
+    expect(restoredAccess.targetId).toBe(access.targetId);
+    expect(otherAccess.targetId).not.toBe(access.targetId);
+    activeTarget = restoredTarget;
+    await restoredAccess.readSkillTree(`${TARGET.remoteWorkspaceDir}/skills/new-skill`);
+    expect(createSession).toHaveBeenCalledWith(restoredTarget);
     expect(await access.listSkills()).toEqual([]);
-    await access.notifyChanged?.();
-    expect(await access.listSkills()).toEqual([
+    await restoredAccess.notifyChanged?.();
+    expect(await restoredAccess.listSkills()).toEqual([
       expect.objectContaining({ name: "new-skill", skillKey: "new-skill" }),
     ]);
     expect(refreshCatalog).toHaveBeenCalledOnce();

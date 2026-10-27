@@ -56,20 +56,37 @@ Each personal agent has one active target:
 The default is `platform_server`. A user without a VM retains the same
 `exec` and `process` feature policy in the basic workspace. VM registration and
 target selection are separate: an administrator publishes an approved VM
-catalog, while the employee selects one VM and confirms their Linux account.
+catalog, while the employee registers approved VMs and confirms their Linux account on each.
 
-The first release permits one active VM/Linux-account allocation per personal
-agent. The Linux account defaults to the authenticated employee account ID and
+Each personal agent may retain multiple verified VM connections and has one
+active VM/Linux-account allocation. The Linux account defaults to the authenticated employee account ID and
 may be edited when the VM account differs. Users cannot submit arbitrary hosts,
 ports, or target addresses. A VM/Linux-account pair has only one active owner.
 
-Selection is atomic at the product boundary: PlatformClaw tests the candidate
-VM and transient credential before replacing the current allocation. A failed
-test leaves the existing allocation unchanged. Selection, replacement, and
-release require the basic workspace. Target switching is rejected during an
-active Agent run; administrator revocation first uses that same guarded switch
-when the VM is active. Files and background processes remain in the previous
-environment.
+Selection is atomic at the product boundary: PlatformClaw tests the destination
+before the Gateway commits a revision-checked switch. Users may move directly
+between registered VMs without visiting Basic. A failed preparation or stale
+revision preserves the previous target. First registration and reauthentication
+use a transient password; returning to a saved VM tests that connection's scoped
+encrypted credential. Authentication failure requires reconnecting that VM.
+Credentials from another VM or AD domain are never tried implicitly.
+
+Saved connections retain their remote workspace and Coding Agent settings.
+Their stable identity also keeps Skill Workshop proposals bound to the same
+registered workspace when the active runtime allocation changes. Imported
+registrations retain the original allocation identity for existing proposals.
+Changing the Linux account, endpoint security identity, or verified workspace
+requires forgetting that registration and registering it again; proposals must
+never be redirected to a different account or workspace. Password-only
+reauthentication preserves the registration and its settings.
+They reserve their VM/Linux-account pair while inactive. Releasing a connection
+or administrator revocation removes that registration; switching away does not.
+The currently active connection must first be deselected through the guarded
+switch before removal. Active and admitted Agent work, including cron runs,
+queued preparation, and turns using an already running ACP session, blocks
+switching. Successful activation changes the target revision, retires old
+SSH and browser terminal access, and invalidates ACP process ownership. Files,
+conversation history, and background processes are not copied between VMs.
 
 ## Stable plugin routing
 
@@ -111,9 +128,10 @@ environment variables, packages, or processes.
 
 A change follows this sequence:
 
-1. Reject the change while an agent run, queued turn, foreground tool call, or
-   attachment publication is active. Finish or cancel pending work before retrying.
-2. For a VM target, require an active allocation, current credential, strict
+1. Reject the change while an agent run, admitted or queued preparation,
+   foreground tool call, or attachment publication is active. This includes
+   cron and warm ACP turns. Finish or cancel pending work before retrying.
+2. For a VM target, require an authorized saved registration, current scoped credential, strict
    host-key match, and successful SafeConnect connection check.
 3. Commit the new target and monotonically increasing revision in one
    control-plane transaction.
@@ -123,6 +141,20 @@ A change follows this sequence:
    changed and files were not transferred.
 
 Any failed prerequisite leaves the previous target and revision active.
+
+The host provides one shared admission fence per Agent, acquired before run
+preparation or queueing and held through execution and publication. A target
+change takes that fence only when no admitted work remains; new runs are rejected
+with a retry message while the change holds it. This generic host seam carries
+Agent ownership and work lifetime only. SafeConnect, saved-VM selection, and
+workspace policy remain in the private execution plugin.
+
+The plugin also serializes target changes against its workspace operations,
+including Skill Workshop SSH reads, writes, and catalog refresh. Workshop checks
+the current target and SSH authority again after authentication before sending a
+command. A stable proposal binding never authorizes reuse of an old runtime
+allocation or credential revision. If a response is lost after the commit, reload
+the server state before deciding which target is active.
 
 Administrators may attach a credential-free build environment to each VM host.
 It consists of bounded absolute PATH-prepend entries and bounded non-secret
@@ -411,11 +443,32 @@ Active assignments must be released or revoked before a VM is disabled; active
 VMs must be disabled before their endpoint is disabled. Administrators cannot
 retrieve stored passwords.
 
+SafeConnect display names have a separate administrator-only rename operation.
+It changes the label and redacted audit record without changing endpoint identity,
+host-key approval, credentials, allocations, or running work. Host, port, and AD
+domain edits retain the disabled-endpoint restriction. Changing the endpoint
+security identity or VM address requires removing the affected saved connection
+and registering it again, preserving existing proposals' original destination.
+
 ## Credential storage and transport
 
-The approved persistent design advances `platformclaw-control` to SQLite
-schema version 2 with personal execution profiles, VM hosts, allocations, and
-encrypted credentials.
+Personal execution profiles, VM hosts, allocations, and encrypted credentials
+were introduced in control schema version 2. The current base control schema is
+version 3; adding multiple saved VM connections does not advance that version.
+
+Multiple registrations use additive saved-connection and saved Coding Agent
+tables without increasing the schema version. The existing single live allocation
+and user credential remain the active runtime projection. Initialization imports
+existing live allocations once, retaining their IDs for durable workspace
+bindings; activation projects the selected saved connection
+in one SQLite transaction and never revives a revoked allocation. Older builds
+supporting the same base schema can read the active projection but cannot manage
+the additional saved connections.
+Back up the stopped database and its matching master key before an upgrade or
+rollback; downgrade only after selecting Basic. An older build cannot select,
+release, or administer the additional inactive registrations, even though their
+tables and reservation guards remain in the database. Restore a compatible
+database/key backup when a complete rollback is required.
 
 Credentials use AES-256-GCM with a fresh 96-bit nonce per write and additional
 authenticated data binding the ciphertext to its owner, key identifier, and
@@ -539,10 +592,12 @@ create, update, revise, list, and inspect pending proposals, but only an
 explicit Skill Workshop UI action can evaluate, apply, or reject them. Proposal
 records, events, evaluations, and rollback facts remain in the Gateway state
 SQLite database. Apply writes only
-`$HOME/.platformclaw/workspace/skills/<skill>` on the proposal's original VM
-allocation, using a target-tree compare-and-swap, an exclusive VM lock, and
-rollback recovery. `SKILL.md` is written last. A changed allocation, changed
-tree, unsupported entry, or unavailable VM fails closed; there is no Basic
+`$HOME/.platformclaw/workspace/skills/<skill>` on the proposal's original saved
+VM registration, using a target-tree compare-and-swap, an exclusive VM lock, and
+rollback recovery. `SKILL.md` is written last. Returning to the same registration
+can resume a pending proposal after the runtime allocation changes. A different
+registration, stale runtime authority, changed tree, unsupported entry, or
+unavailable VM fails closed; there is no Basic
 workspace fallback and no remote `openclaw` CLI dependency.
 
 The Basic workspace continues to use upstream Workshop storage and mutation.
@@ -553,9 +608,10 @@ The personal Workshop UI is shared across both work locations. It always shows
 the current location and a proposal target (`Basic workspace` for an unbound
 proposal, otherwise the private target label). Location changes reload both
 the target and proposal views. Proposals for another location remain visible,
-but the UI disables evaluate, revise, and apply until the user switches back;
-reject stays available. The UI check does not replace the server's exact
-allocation, revision, and tree validation.
+but evaluate, revise, and apply require the matching registered workspace;
+reject stays available. Server checks enforce the stable proposal binding,
+current allocation and credential revisions, and target tree even when both
+locations are VMs.
 
 ## Upstream synchronization gate
 

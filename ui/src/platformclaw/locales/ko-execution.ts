@@ -1,4 +1,11 @@
 export const executionTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.execution.useNamedVm": "{name} 사용",
+  "platformClaw.execution.reauthenticationRequired": "재인증 필요",
+  "platformClaw.execution.connectionSettings": "연결 설정",
+  "platformClaw.execution.forgetVm": "연결 삭제",
+  "platformClaw.execution.availableVms": "추가 가능한 승인된 VM",
+  "platformClaw.execution.addVm": "추가 및 연결",
+  "platformClaw.execution.previousLocationKept": "현재 작업 위치: {target}.",
   "platformClaw.execution.workLocation": "작업 위치",
   "platformClaw.execution.openSettings": "작업 위치 설정 열기",
   "platformClaw.execution.current": "현재 작업 위치",
@@ -18,7 +25,7 @@ export const executionTranslations: Readonly<Record<string, string>> = {
   "platformClaw.execution.credentialStep": "AD 인증정보 확인 및 저장",
   "platformClaw.execution.activateVmPrompt": "연결을 확인한 개발 VM을 지금 작업 위치로 사용할까요?",
   "platformClaw.execution.later": "나중에",
-  "platformClaw.execution.editVm": "VM 변경",
+  "platformClaw.execution.editVm": "VM 추가 또는 재연결",
   "platformClaw.execution.credentialHelp":
     "저장된 연결을 갱신하거나 복구하려면 현재 AD 비밀번호를 입력하세요.",
   "platformClaw.execution.connectionReady": "연결 확인됨",
@@ -67,7 +74,7 @@ export const executionTranslations: Readonly<Record<string, string>> = {
   "platformClaw.execution.release": "VM 할당 해제",
   "platformClaw.execution.releaseConfirmTitle": "VM 할당을 해제할까요?",
   "platformClaw.execution.releaseConfirmBody":
-    "VM의 파일과 백그라운드 프로세스는 남고 저장된 AD 자격증명은 삭제됩니다.",
+    "저장된 VM 연결을 삭제합니다. VM 파일, 다른 VM 연결과 인증정보는 유지됩니다.",
   "platformClaw.execution.releaseConfirm": "할당 해제",
   "platformClaw.execution.password": "AD 비밀번호",
   "platformClaw.execution.saveAndTest": "연결 확인 후 저장",

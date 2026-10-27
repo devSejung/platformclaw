@@ -1,6 +1,10 @@
 // Tests lifecycle/work admission ordering across canonical keys and backing ids.
 import { importFreshModule } from "openclaw/plugin-sdk/test-fixtures";
 import { expect, it } from "vitest";
+import {
+  hasPendingAgentWork,
+  tryAcquireAgentWorkMutation,
+} from "../agents/agent-work-admission.js";
 import { runExclusiveSessionStoreWrite } from "../config/sessions/store-writer.js";
 import {
   resetGatewayWorkAdmission,
@@ -29,6 +33,55 @@ function createDeferred() {
   });
   return { promise, resolve };
 }
+
+it("claims the agent owner before async preflight and retains it until session release", async () => {
+  const preflight = createDeferred();
+  const pending = beginSessionWorkAdmission({
+    scope: "owner-admission",
+    agentId: "cron-owner",
+    identities: ["opaque-cron-id"],
+    assertAllowed: async () => await preflight.promise,
+  });
+  expect(hasPendingAgentWork("cron-owner")).toBe(true);
+  expect(tryAcquireAgentWorkMutation("cron-owner")).toBeNull();
+  preflight.resolve();
+  const admission = await pending;
+  try {
+    expect(hasPendingAgentWork("cron-owner")).toBe(true);
+  } finally {
+    admission.release();
+  }
+  expect(hasPendingAgentWork("cron-owner")).toBe(false);
+});
+
+it("rejects canonical-key work before preflight under a mutation and releases preflight errors", async () => {
+  const release = tryAcquireAgentWorkMutation("reply-owner");
+  let checked = false;
+  try {
+    await expect(
+      beginSessionWorkAdmission({
+        scope: "owner-fence",
+        identities: ["agent:reply-owner:channel:peer"],
+        assertAllowed: () => {
+          checked = true;
+        },
+      }),
+    ).rejects.toThrow("Retry when it completes");
+    expect(checked).toBe(false);
+  } finally {
+    release?.();
+  }
+  await expect(
+    beginSessionWorkAdmission({
+      scope: "owner-fence",
+      identities: ["agent:reply-owner:channel:peer"],
+      assertAllowed: () => {
+        throw new Error("preflight failed");
+      },
+    }),
+  ).rejects.toThrow("preflight failed");
+  expect(hasPendingAgentWork("reply-owner")).toBe(false);
+});
 
 it("counts one multi-identity admission once", async () => {
   const admission = await beginSessionWorkAdmission({

@@ -7,6 +7,7 @@ import type {
 } from "./execution-contracts.js";
 import { executeSync } from "./kysely-sync.js";
 import { rowToAllocation, rowToEndpoint, rowToVmHost } from "./sqlite-store-execution-mappers.js";
+import { rowToSavedVmConnection } from "./sqlite-store-saved-vm-mappers.js";
 import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
 
 export function readVmAdministrationSnapshot(params: {
@@ -86,5 +87,40 @@ export function readVmAdministrationSnapshot(params: {
       row.display_name ? { displayName: row.display_name } : {},
     ),
   );
-  return { endpoints, hosts, agents, allocations };
+  const savedConnections = executeSync(
+    params.db,
+    params.query
+      .selectFrom("saved_vm_connections as s")
+      .innerJoin("agent_bindings as b", "b.id", "s.agent_binding_id")
+      .innerJoin("platform_users as u", "u.id", "b.user_id")
+      .innerJoin("personal_execution_profiles as p", "p.agent_binding_id", "b.id")
+      .innerJoin("vm_hosts as h", "h.id", "s.vm_host_id")
+      .innerJoin("safeconnect_endpoints as e", "e.id", "h.endpoint_id")
+      .selectAll("s")
+      .select([
+        "b.agent_id",
+        "u.account_id",
+        "p.active_allocation_id",
+        "h.label as vm_label",
+        "e.label as safeconnect_label",
+        "h.status as host_status",
+        "e.status as endpoint_status",
+        "e.host",
+        "e.port",
+        "e.ad_domain",
+        "e.host_key_algorithm",
+        "e.host_key_public_key",
+        "e.host_key_fingerprint",
+        "h.target_address",
+      ])
+      .orderBy("u.account_id")
+      .orderBy("h.label")
+      .orderBy("s.id"),
+  ).rows.map((row) =>
+    Object.assign(rowToSavedVmConnection(row, row.active_allocation_id), {
+      agentId: row.agent_id,
+      accountId: row.account_id,
+    }),
+  );
+  return { endpoints, hosts, agents, allocations, savedConnections };
 }

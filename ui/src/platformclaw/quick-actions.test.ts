@@ -15,6 +15,7 @@ const BASIC_EXECUTION_SETTINGS = {
   credentialStatus: "current",
   accountId: "person.one",
   availableVms: [],
+  savedVms: [],
 };
 
 async function mount(options: { fetchImpl?: typeof fetch; vocEnabled?: boolean } = {}) {

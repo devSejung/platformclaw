@@ -204,6 +204,29 @@ export type EncryptedUserSshCredentialRow = {
   updated_at: number;
 };
 
+export type SavedVmConnectionRow = {
+  id: string;
+  revision: number;
+  agent_binding_id: string;
+  vm_host_id: string;
+  linux_account: string;
+  allocation_id: string | null;
+  endpoint_identity: string;
+  remote_home_dir: string | null;
+  remote_workspace_dir: string | null;
+  last_connection_succeeded_at: number | null;
+  credential_ciphertext: Uint8Array | null;
+  credential_nonce: Uint8Array | null;
+  credential_auth_tag: Uint8Array | null;
+  credential_key_id: string | null;
+  credential_format_version: number | null;
+  credential_status: "current" | "update_required" | "missing";
+  connection_status: "ready" | "connection_required";
+  failure_code: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
 export type EncryptedUserMcpCredentialRow = {
   user_id: string;
   server_name: string;
@@ -380,6 +403,10 @@ export type ControlPlaneDatabase = {
   vm_allocation_claude_code_settings: VmAllocationClaudeCodeSettingRow;
   vm_allocation_coding_agent_settings: VmAllocationCodingAgentSettingRow;
   vm_allocations: VmAllocationRow;
+  saved_vm_connections: SavedVmConnectionRow;
+  saved_vm_coding_agent_settings: Omit<VmAllocationCodingAgentSettingRow, "allocation_id"> & {
+    connection_id: string;
+  };
   personal_execution_profiles: PersonalExecutionProfileRow;
   encrypted_user_ssh_credentials: EncryptedUserSshCredentialRow;
   encrypted_user_mcp_credentials: EncryptedUserMcpCredentialRow;

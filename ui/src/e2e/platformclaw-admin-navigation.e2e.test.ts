@@ -91,6 +91,7 @@ async function newPage(role: "admin" | "member", locale = "en") {
           targetRevision: 0,
           credentialStatus: "missing",
           availableVms: [],
+          savedVms: [],
           codingAgents: [],
         },
       });

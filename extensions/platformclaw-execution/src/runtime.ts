@@ -39,6 +39,10 @@ import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 import type { PlatformClawSkillExportRuntime } from "./skill-export-gateway.js";
 import { SafeConnectSshLeaseManager } from "./ssh-lease-manager.js";
+import {
+  PlatformClawTargetChangeError,
+  type PlatformClawTargetMutationCoordinator,
+} from "./target-mutation-coordinator.js";
 import { createTmuxSshTransport, VmTmuxTerminalManager } from "./tmux-terminal-manager.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
@@ -349,8 +353,11 @@ async function testAssignedVmConnection(params: {
 }
 
 export async function createExecutionDependenciesFromEnvironment(
-  env: NodeJS.ProcessEnv = process.env,
-  timing: { logTiming?: (message: string) => void } = {},
+  env: NodeJS.ProcessEnv,
+  options: {
+    targetMutations: PlatformClawTargetMutationCoordinator;
+    logTiming?: (message: string) => void;
+  },
 ): Promise<
   PlatformClawExecutionDependencies &
     PlatformClawCredentialRuntime &
@@ -379,6 +386,8 @@ export async function createExecutionDependenciesFromEnvironment(
         agentId: string;
         target: "platform_server" | "assigned_vm";
         expectedRevision: number;
+        connectionId?: string;
+        expectedConnectionRevision?: number;
       }): Promise<PlatformClawExecutionTargetSnapshot>;
       detectCodingAgent(params: {
         agentId: string;
@@ -409,7 +418,7 @@ export async function createExecutionDependenciesFromEnvironment(
     createAuthenticatedSession: async (target) => await createSafeConnectSession(target),
     createMultiplexedSession: createMultiplexedSafeConnectSession,
     disposeSession: disposeSshSandboxSession,
-    logTiming: timing.logTiming,
+    logTiming: options.logTiming,
   });
   const terminals = new VmTmuxTerminalManager(
     createTmuxSshTransport(async (target) => await sshLeases.createSession(target)),
@@ -422,10 +431,12 @@ export async function createExecutionDependenciesFromEnvironment(
       runCommand: runSshSandboxCommand,
     },
     {
-      logTiming: timing.logTiming,
+      logTiming: options.logTiming,
     },
   );
   const remoteSkillWorkshop = new VmRemoteSkillWorkshopService({
+    mutations: options.targetMutations,
+    resolveTarget: async (agentId) => await resolveTarget({ agentId }),
     createSession: async (target) => await sshLeases.createSession(target),
     disposeSession: disposeSshSandboxSession,
     runCommand: runSshSandboxCommand,
@@ -610,7 +621,7 @@ export async function createExecutionDependenciesFromEnvironment(
         target,
         credentialBrokerAddress,
         credentialGrantToken,
-        logTiming: timing.logTiming,
+        logTiming: options.logTiming,
       });
     },
     testCandidateConnection: async ({
@@ -626,20 +637,73 @@ export async function createExecutionDependenciesFromEnvironment(
         target,
         credentialBrokerAddress,
         credentialGrantToken,
-        logTiming: timing.logTiming,
+        logTiming: options.logTiming,
       });
     },
-    changeTarget: async ({ agentId, target, expectedRevision }) => {
-      const changed = parseTarget(
-        await callExecutionHandoff({
-          socketPath: executionHandoffAddress(brokerAddress),
-          serviceToken,
-          path: EXECUTION_CHANGE_TARGET_PATH,
-          body: { agentId, target, expectedRevision },
-        }),
-      );
-      await terminals.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
-      sshLeases.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
+    changeTarget: async ({
+      agentId,
+      target,
+      expectedRevision,
+      connectionId,
+      expectedConnectionRevision,
+    }) => {
+      let changed: PlatformClawExecutionTargetSnapshot;
+      try {
+        changed = parseTarget(
+          await callExecutionHandoff({
+            socketPath: executionHandoffAddress(brokerAddress),
+            serviceToken,
+            path: EXECUTION_CHANGE_TARGET_PATH,
+            body: {
+              agentId,
+              target,
+              expectedRevision,
+              ...(connectionId ? { connectionId, expectedConnectionRevision } : {}),
+            },
+          }),
+        );
+      } catch (error) {
+        let targetChanged = false;
+        try {
+          // A lost response can follow a committed switch. Reconcile authority,
+          // but never turn an uncertain request into a reported success.
+          const current = parseTarget(
+            await callExecutionHandoff({
+              socketPath: executionHandoffAddress(brokerAddress),
+              serviceToken,
+              path: EXECUTION_TARGET_PATH,
+              body: { agentId },
+            }),
+          );
+          if (current.revision !== expectedRevision) {
+            targetChanged = true;
+            try {
+              await terminals.observeTarget(
+                agentId,
+                current.kind === "assigned_vm" ? current : undefined,
+              );
+            } finally {
+              sshLeases.observeTarget(
+                agentId,
+                current.kind === "assigned_vm" ? current : undefined,
+              );
+            }
+          }
+        } catch {
+          // Future operations still revalidate current authority if reconciliation is unavailable.
+        }
+        throw targetChanged ? new PlatformClawTargetChangeError(error) : error;
+      }
+      try {
+        await terminals.observeTarget(
+          agentId,
+          changed.kind === "assigned_vm" ? changed : undefined,
+        );
+      } catch (error) {
+        throw new PlatformClawTargetChangeError(error);
+      } finally {
+        sshLeases.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
+      }
       return changed;
     },
     exportWorkspaceSkill: async ({

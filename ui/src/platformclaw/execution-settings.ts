@@ -10,6 +10,16 @@ import "../components/modal-dialog.ts";
 import "../components/web-awesome-tabs.ts";
 import { i18n } from "../i18n/index.ts";
 import {
+  applyCodingAgentDetection,
+  EXECUTION_SETTINGS_ELEMENT_NAME,
+  createExecutionTransition,
+  executionMutationTarget,
+  reconcileExecutionMutation,
+  requestExecutionSettings,
+  resolveExecutionConnectionId,
+  verifyExecutionTarget,
+} from "./execution-settings-actions.ts";
+import {
   bindExecutionSettingsEvents,
   type ExecutionSettingsAction,
 } from "./execution-settings-events.ts";
@@ -19,7 +29,6 @@ import {
 } from "./execution-settings-shell.ts";
 import {
   AGENT_LABELS,
-  CLAUDE_ENVIRONMENT,
   type ClaudeEnvironmentKey,
   type ExecutionSettings,
   type ExecutionCodingAgentView,
@@ -27,6 +36,7 @@ import {
   type ExecutionTarget,
   type ExecutionAction,
   type ExecutionActivity,
+  type ExecutionTransition,
   type VmSelectionDraft,
   codingAgentValidationErrors,
   canActivateVerifiedVm,
@@ -56,6 +66,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
   private vmDraft: VmSelectionDraft | null = null;
   private assignmentId = "";
   private pendingRelease = false;
+  private releaseConnectionId?: string;
   private editingVm = false;
   private progressVisible = false;
   private progressTimer: number | undefined;
@@ -140,23 +151,12 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     }
   }
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await this.fetchImpl(path, {
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/json",
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      },
-      ...init,
-    });
-    if (response.status === 401) {
-      this.onUnauthenticated();
-      throw new ExecutionRequestError(undefined, "platformClaw.execution.sessionExpired");
-    }
-    const body = (await response.json()) as Record<string, unknown>;
-    if (!response.ok) {
-      throw new ExecutionRequestError(body.error, "platformClaw.execution.requestFailed");
-    }
-    return body as T;
+    return await requestExecutionSettings<T>(
+      (url, options) => this.fetchImpl(url, options),
+      () => this.onUnauthenticated(),
+      path,
+      init,
+    );
   }
   private syncCodingAgentDrafts(settings: ExecutionSettings, force = false): void {
     for (const agent of AGENTS) {
@@ -209,48 +209,60 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
       this.render();
     }
   }
-  private async changeTarget(target: ExecutionTarget, connected: boolean): Promise<void> {
-    this.activity = { kind: "switching", target, connected };
+  private async changeTarget(
+    target: ExecutionTarget,
+    connected: boolean,
+    connectionId?: string,
+    transition?: ExecutionTransition,
+  ): Promise<void> {
+    this.activity = { kind: "switching", target, connected, transition };
     this.render();
     const settings = await this.request<ExecutionSettings>(
       `${PLATFORMCLAW_EXECUTION_API_PATH}/target`,
       {
         method: "POST",
-        body: JSON.stringify({ target, expectedRevision: this.settings!.targetRevision }),
+        body: JSON.stringify({
+          target,
+          ...(connectionId ? { connectionId } : {}),
+          expectedRevision: this.settings!.targetRevision,
+        }),
       },
     );
     this.applySettings(settings);
-    if (settings.activeTarget !== target) {
-      throw new ExecutionRequestError(undefined, "platformClaw.execution.switchFailed");
-    }
+    verifyExecutionTarget(settings, target, connectionId);
   }
 
   private async mutate(
     action: ExecutionAction | ExecutionTarget,
     body?: unknown,
     connectedBefore = false,
+    requestedConnectionId?: string,
+    retryTransition?: ExecutionTransition,
   ): Promise<void> {
     if (this.busy || this.loading || !this.settings) {
       return;
     }
+    const connectionId = resolveExecutionConnectionId(this.settings, action, requestedConnectionId);
     const previousRevision = this.settings.targetRevision;
     const previousAssignment = this.assignmentId;
     // Editor resets must not erase the in-flight selection used to reconcile a lost response.
     const requestedSelection = action === "selection" ? this.vmDraft : null;
     let connected = connectedBefore;
-    const target =
-      action === "selection"
-        ? "assigned_vm"
-        : action === "assigned_vm" || action === "platform_server"
-          ? action
-          : null;
+    const target = executionMutationTarget(action);
+    const transition = createExecutionTransition({
+      settings: this.settings,
+      action,
+      selection: requestedSelection,
+      connectionId,
+      retry: retryTransition,
+    });
     this.clearProgressTimer();
     this.progressVisible = target !== null || action === "credential";
     this.activity =
       action === "selection"
-        ? { kind: "connecting" }
+        ? { kind: "connecting", transition }
         : action === "assigned_vm" || action === "platform_server"
-          ? { kind: "switching", target: action, connected }
+          ? { kind: "switching", target: action, connected, transition }
           : { kind: "working", action };
     this.busy = true;
     this.message = "";
@@ -258,26 +270,43 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     this.render();
     try {
       if (action === "assigned_vm" || action === "platform_server") {
-        await this.changeTarget(action, connected);
+        await this.changeTarget(action, connected, connectionId, transition);
       } else {
         this.applySettings(
           await this.request<ExecutionSettings>(`${PLATFORMCLAW_EXECUTION_API_PATH}/${action}`, {
             method: "POST",
-            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            ...(body === undefined
+              ? {}
+              : {
+                  body: JSON.stringify(
+                    action === "selection"
+                      ? { ...(body as Record<string, unknown>), expectedRevision: previousRevision }
+                      : body,
+                  ),
+                }),
           }),
         );
         if (action === "selection") {
           connected = true;
-          // Selection stores a verified VM; Gateway still owns the guarded target change.
-          // Use its returned revision so a concurrent location change cannot be overwritten.
-          await this.changeTarget("assigned_vm", true);
+          // Registration and activation share one server-owned revision check.
+          // A second browser mutation would expose a partial selection on failure.
+          if (
+            this.settings.activeTarget !== "assigned_vm" ||
+            this.settings.assignment?.vmHostId !== requestedSelection?.vmHostId ||
+            this.settings.assignment?.linuxAccount !== requestedSelection?.linuxAccount
+          ) {
+            throw new ExecutionRequestError(undefined, "platformClaw.execution.switchFailed");
+          }
         }
       }
       this.pendingRelease = false;
       if (action === "release") {
         this.vmDraft = null;
       }
-      this.activity = completedExecutionActivity(this.settings, action, connected);
+      this.activity = {
+        ...completedExecutionActivity(this.settings, action, connected),
+        transition,
+      };
     } catch (error) {
       // A failed response can follow a committed selection or target change. Reconcile
       // from the owner instead of presenting the previous location as current.
@@ -288,52 +317,19 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         this.settings = null;
         locationUnknown = true;
       }
-      if (
-        action === "selection" &&
-        this.settings?.assignment &&
-        this.settings.assignment.id !== previousAssignment &&
-        this.settings.assignment.vmHostId === requestedSelection?.vmHostId &&
-        this.settings.assignment.linuxAccount === requestedSelection?.linuxAccount &&
-        this.settings.assignment.status === "ready" &&
-        this.settings.credentialStatus === "current"
-      ) {
-        connected = true;
-      }
-      this.activity = {
-        kind: "error",
+      this.activity = reconcileExecutionMutation({
+        settings: this.settings,
         action,
-        connection: connected ? "complete" : action === "selection" ? "failed" : null,
+        previousAssignment,
+        selection: requestedSelection,
+        connected,
+        connectionId,
         error,
         locationUnknown,
-        target,
-      };
-      const requestedTarget =
-        action === "selection" || action === "assigned_vm"
-          ? "assigned_vm"
-          : action === "platform_server"
-            ? "platform_server"
-            : null;
-      const released = action === "release" && this.settings && !this.settings.assignment;
-      // Release has an observable end state. Current credentials/ready status can predate
-      // a failed save/check, so they cannot prove that particular request succeeded.
-      if (
-        released ||
-        (requestedTarget &&
-          this.settings?.activeTarget === requestedTarget &&
-          (action !== "selection" ||
-            (connected &&
-              this.settings.assignment?.vmHostId === requestedSelection?.vmHostId &&
-              this.settings.assignment?.linuxAccount === requestedSelection?.linuxAccount)))
-      ) {
-        if (released) {
-          this.vmDraft = null;
-        }
-        this.activity = {
-          kind: "success",
-          action,
-          connection: connected ? "complete" : null,
-          target: requestedTarget,
-        };
+        transition,
+      });
+      if (action === "release" && this.activity.kind === "success") {
+        this.vmDraft = null;
       }
     } finally {
       if (this.activity.kind === "success") {
@@ -450,23 +446,17 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
     }
   }
   private applyDetection(agent: CodingAgentId, probe: CodingAgentProbeResult): void {
-    const current = structuredClone(this.configuration(agent));
     const dirty = this.codingAgentDirtyFields.get(agent) ?? new Set<string>();
-    const manual = this.codingAgentManualFields.get(agent) ?? new Set<string>();
     const errors = this.codingAgentErrors.get(agent);
-    if (probe.executablePath && !manual.has("executablePath")) {
-      current.executablePath = probe.executablePath;
-      dirty.add("executablePath");
-      delete errors?.executablePath;
-    }
+    const current = applyCodingAgentDetection({
+      agent,
+      configuration: this.configuration(agent),
+      probe,
+      dirty,
+      manual: this.codingAgentManualFields.get(agent) ?? new Set<string>(),
+      errors,
+    });
     if (agent === "claude" && current.agent === "claude" && probe.environment) {
-      for (const { key } of CLAUDE_ENVIRONMENT) {
-        if (!manual.has(key) && probe.environment[key]) {
-          current.environment[key] = probe.environment[key];
-          dirty.add(key);
-          delete errors?.[key];
-        }
-      }
       this.gatewayExpanded = true;
     }
     this.codingAgentDrafts.set(agent, current);
@@ -554,6 +544,8 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
             this.activity.target,
             undefined,
             this.activity.connection === "complete",
+            this.activity.transition?.to.connectionId,
+            this.activity.transition,
           );
         }
         break;
@@ -597,13 +589,42 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         break;
       case "edit-vm":
       case "cancel-edit-vm":
-        if (this.settings?.activeTarget === "platform_server") {
+        if (this.settings) {
           this.editingVm = action.kind === "edit-vm";
           this.render();
         }
         break;
       case "target":
-        void this.mutate(action.target);
+        void this.mutate(action.target, undefined, false, action.connectionId);
+        break;
+      case "connect-vm":
+      case "configure-vm": {
+        if (!this.settings) {
+          break;
+        }
+        const connection =
+          action.kind === "configure-vm"
+            ? this.settings.savedVms.find((vm) => vm.id === action.connectionId)
+            : undefined;
+        if (action.kind === "configure-vm" && !connection) {
+          break;
+        }
+        this.vmDraft = {
+          vmHostId: connection?.vmHostId ?? (action.kind === "connect-vm" ? action.vmHostId : ""),
+          linuxAccount: connection?.linuxAccount ?? this.settings.accountId,
+        };
+        this.editingVm = true;
+        this.render();
+        this.root
+          .querySelector<HTMLInputElement>("form[data-action='select-vm'] input[name='password']")
+          ?.focus();
+        break;
+      }
+      case "forget-vm":
+        this.releaseConnectionId = action.connectionId;
+        this.pendingRelease = true;
+        this.render();
+        this.root.querySelector<HTMLElement>("[data-action='confirm-release']")?.focus();
         break;
       case "refresh":
         void this.refresh();
@@ -618,6 +639,11 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         break;
       case "release":
       case "cancel-release":
+        this.releaseConnectionId = this.settings?.savedVms.find(
+          (vm) =>
+            vm.vmHostId === this.settings?.assignment?.vmHostId &&
+            vm.linuxAccount === this.settings?.assignment?.linuxAccount,
+        )?.id;
         this.pendingRelease = action.kind === "release";
         this.render();
         this.root
@@ -628,7 +654,12 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         break;
       case "confirm-release":
         this.pendingRelease = false;
-        void this.mutate("release");
+        void this.mutate(
+          "release",
+          { connectionId: this.releaseConnectionId },
+          false,
+          this.releaseConnectionId,
+        );
         break;
     }
   }
@@ -679,25 +710,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
   }
 }
 
-const ELEMENT_NAME = "platformclaw-execution-settings";
-if (!customElements.get(ELEMENT_NAME)) {
-  customElements.define(ELEMENT_NAME, PlatformClawExecutionSettingsElement);
+if (!customElements.get(EXECUTION_SETTINGS_ELEMENT_NAME)) {
+  customElements.define(EXECUTION_SETTINGS_ELEMENT_NAME, PlatformClawExecutionSettingsElement);
 }
-export function mountPlatformClawExecutionSettings(options: {
-  fetchImpl: typeof fetch;
-  onUnauthenticated: () => void;
-}): () => void {
-  const existing = document.querySelector<PlatformClawExecutionSettingsElement>(ELEMENT_NAME);
-  const element =
-    existing ?? (document.createElement(ELEMENT_NAME) as PlatformClawExecutionSettingsElement);
-  element.fetchImpl = options.fetchImpl;
-  element.onUnauthenticated = options.onUnauthenticated;
-  if (!existing) {
-    document.body.append(element);
-  }
-  return () => {
-    if (!existing) {
-      element.remove();
-    }
-  };
-}
+export { mountPlatformClawExecutionSettings } from "./execution-settings-actions.ts";

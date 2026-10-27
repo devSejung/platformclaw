@@ -5,9 +5,14 @@ import type {
   AcpRuntimeHandle,
   AcpRuntimeStatus,
 } from "@openclaw/acp-core/runtime/types";
+import {
+  beginAgentWorkAdmission,
+  withAgentWorkAdmission,
+} from "../../agents/agent-work-admission.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import { toErrorObject } from "../../infra/errors.js";
+import { resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { isAcpSessionKey } from "../../sessions/session-key-utils.js";
 import { AcpRuntimeError } from "../runtime/errors.js";
 import { runManagerCancelSession } from "./manager.cancel-session.js";
@@ -66,6 +71,7 @@ export class AcpSessionManager {
   private readonly actorQueue = new SessionActorQueue();
   private readonly runtimeHandles = new ManagerRuntimeHandleCache();
   private readonly activeTurnBySession = new Map<string, ActiveTurnState>();
+  private readonly initializingOwners = new Map<string, Map<object, string>>();
   private readonly turnLatencyStats: TurnLatencyStats = {
     completed: 0,
     failed: 0,
@@ -164,25 +170,41 @@ export class AcpSessionManager {
     if (!sessionKey) {
       throw new AcpRuntimeError("ACP_SESSION_INIT_FAILED", "ACP session key is required.");
     }
-    await this.evictIdleRuntimeHandles();
-    return await this.withSessionActor(sessionKey, async () => {
-      return await this.runtimeHandles.withCapacity(
-        {
-          sessionKey,
-          agent: input.agent,
-          executionOwnerAgentId: input.executionOwnerAgentId,
-          actorQueue: this.actorQueue,
-          activeTurnBySession: this.activeTurnBySession,
-        },
-        async () =>
-          await runManagerInitializeSession({
-            input,
-            sessionKey,
-            deps: this.deps,
-            runtimeHandles: this.runtimeHandles,
-            writeSessionMeta: this.writeSessionMeta.bind(this),
-          }),
-      );
+    const owner = input.executionOwnerAgentId ?? this.resolveWorkOwner(input.cfg, sessionKey);
+    return await withAgentWorkAdmission(owner, async () => {
+      // Metadata is persisted only after ensureSession. Retain its producer's
+      // owner so a turn queued during initialization cannot use the coding-agent id.
+      const token = {};
+      const owners = this.initializingOwners.get(sessionKey) ?? new Map<object, string>();
+      owners.set(token, owner);
+      this.initializingOwners.set(sessionKey, owners);
+      try {
+        await this.evictIdleRuntimeHandles();
+        return await this.withSessionActor(sessionKey, async () => {
+          return await this.runtimeHandles.withCapacity(
+            {
+              sessionKey,
+              agent: input.agent,
+              executionOwnerAgentId: input.executionOwnerAgentId,
+              actorQueue: this.actorQueue,
+              activeTurnBySession: this.activeTurnBySession,
+            },
+            async () =>
+              await runManagerInitializeSession({
+                input,
+                sessionKey,
+                deps: this.deps,
+                runtimeHandles: this.runtimeHandles,
+                writeSessionMeta: this.writeSessionMeta.bind(this),
+              }),
+          );
+        });
+      } finally {
+        owners.delete(token);
+        if (!owners.size) {
+          this.initializingOwners.delete(sessionKey);
+        }
+      }
     });
   }
 
@@ -310,26 +332,54 @@ export class AcpSessionManager {
     if (!sessionKey) {
       throw new AcpRuntimeError("ACP_SESSION_INIT_FAILED", "ACP session key is required.");
     }
-    await this.evictIdleRuntimeHandles();
-    await this.withSessionActor(
-      sessionKey,
-      async () =>
-        await runManagerTurn({
-          input,
-          sessionKey,
-          deps: this.deps,
-          runtimeHandles: this.runtimeHandles,
-          activeTurnBySession: this.activeTurnBySession,
-          resolveSession: this.resolveSession.bind(this),
-          ensureRuntimeHandle: this.ensureRuntimeHandle.bind(this),
-          applyRuntimeControls: this.applyRuntimeControls.bind(this),
-          setSessionState: this.setSessionState.bind(this),
-          recordTurnCompletion: this.recordTurnCompletion.bind(this),
-          reconcileRuntimeSessionIdentifiers: this.reconcileRuntimeSessionIdentifiers.bind(this),
-          writeSessionMeta: this.writeSessionMeta.bind(this),
-        }),
-      input.signal,
-    );
+    const owners = new Set(this.initializingOwners.get(sessionKey)?.values());
+    const session = this.resolveSession({ cfg: input.cfg, sessionKey });
+    if (session.kind === "ready" || !owners.size) {
+      owners.add(
+        session.kind === "ready" && session.meta.executionOwnerAgentId
+          ? session.meta.executionOwnerAgentId
+          : resolveAgentIdFromSessionKey(sessionKey),
+      );
+    }
+    const releases: Array<() => void> = [];
+    try {
+      // Warm turns bypass process launch hooks. Claim before eviction and actor
+      // queue awaits, then retain every authoritative owner until publication ends.
+      for (const owner of owners) {
+        releases.push(beginAgentWorkAdmission(owner));
+      }
+      await this.evictIdleRuntimeHandles();
+      await this.withSessionActor(
+        sessionKey,
+        async () =>
+          await runManagerTurn({
+            input,
+            sessionKey,
+            deps: this.deps,
+            runtimeHandles: this.runtimeHandles,
+            activeTurnBySession: this.activeTurnBySession,
+            resolveSession: this.resolveSession.bind(this),
+            ensureRuntimeHandle: this.ensureRuntimeHandle.bind(this),
+            applyRuntimeControls: this.applyRuntimeControls.bind(this),
+            setSessionState: this.setSessionState.bind(this),
+            recordTurnCompletion: this.recordTurnCompletion.bind(this),
+            reconcileRuntimeSessionIdentifiers: this.reconcileRuntimeSessionIdentifiers.bind(this),
+            writeSessionMeta: this.writeSessionMeta.bind(this),
+          }),
+        input.signal,
+      );
+    } finally {
+      releases.forEach((release) => release());
+    }
+  }
+
+  private resolveWorkOwner(cfg: OpenClawConfig, sessionKey: string): string {
+    const session = this.resolveSession({ cfg, sessionKey });
+    // ACP's agent is a coding backend; only executionOwnerAgentId names the
+    // requester whose environment is used. Older sessions use their canonical key.
+    return session.kind === "ready" && session.meta.executionOwnerAgentId
+      ? session.meta.executionOwnerAgentId
+      : resolveAgentIdFromSessionKey(sessionKey);
   }
 
   async cancelSession(params: {

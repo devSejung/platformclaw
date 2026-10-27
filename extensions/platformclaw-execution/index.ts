@@ -33,9 +33,13 @@ export default definePluginEntry({
       process.env.PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS &&
       process.env.PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE;
     const logTiming = (message: string) => api.logger.info(message);
+    const targetMutations = new PlatformClawTargetMutationCoordinator();
     let runtimePromise: ReturnType<typeof createExecutionDependenciesFromEnvironment> | undefined;
     const getExecutionRuntime = () =>
-      (runtimePromise ??= createExecutionDependenciesFromEnvironment(process.env, { logTiming }));
+      (runtimePromise ??= createExecutionDependenciesFromEnvironment(process.env, {
+        logTiming,
+        targetMutations,
+      }));
     registerPlatformClawCredentialTool(api, configured ? getExecutionRuntime : undefined);
     if (api.registrationMode !== "full") {
       return;
@@ -51,7 +55,6 @@ export default definePluginEntry({
       }
       return await executionRuntimePromise;
     };
-    const targetMutations = new PlatformClawTargetMutationCoordinator();
     const preparedAcpTargets = new Map<
       string,
       { target: Readonly<AssignedVmTargetSnapshot>; controller: AbortController }
@@ -76,7 +79,14 @@ export default definePluginEntry({
       return { owner, authority };
     };
     const assertAcpAuthority = ({ owner, authority }: ReturnType<typeof captureAcpAuthority>) => {
-      if (stopping || authority.signal.aborted || acpAuthorities.get(owner) !== authority) {
+      // Status/control calls can warm an ACP handle without starting a turn.
+      // They must not create an SSH lease while a target switch owns admission.
+      if (
+        stopping ||
+        targetMutations.isHeld(owner, "target-change") ||
+        authority.signal.aborted ||
+        acpAuthorities.get(owner) !== authority
+      ) {
         throw stageError(
           {
             stage: "target",

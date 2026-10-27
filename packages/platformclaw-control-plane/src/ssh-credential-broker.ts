@@ -60,14 +60,21 @@ export class SshCredentialBroker {
     });
   }
 
-  issueTransient(password: string): CredentialBrokerGrant {
+  issueTransient(
+    password: string | Uint8Array,
+    validate?: () => Promise<void>,
+  ): CredentialBrokerGrant {
     this.server.assertAvailable();
-    const secret = Buffer.from(password, "utf8");
+    const secret =
+      typeof password === "string" ? Buffer.from(password, "utf8") : Buffer.from(password);
     if (secret.length === 0) {
       throw new Error("SSH credential must not be empty");
     }
     return this.grants.issue(
-      async () => ({ password: Buffer.from(secret), revision: 1 }),
+      async () => {
+        await validate?.();
+        return { password: Buffer.from(secret), revision: 1 };
+      },
       () => secret.fill(0),
     );
   }

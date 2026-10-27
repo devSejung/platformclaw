@@ -146,6 +146,36 @@ async function postResponse(
 }
 
 describe("PlatformClawExecutionHandoffServer", () => {
+  it("forwards saved connection CAS over the authenticated socket", async () => {
+    const { socketPath, service } = await startServer();
+    service.changeTarget.mockResolvedValue({
+      kind: "platform_server",
+      agentId: "person_one",
+      targetId: "platform-server",
+      revision: 5,
+    });
+    const body = {
+      agentId: "person_one",
+      target: "assigned_vm",
+      connectionId: "saved-two",
+      expectedConnectionRevision: 3,
+      expectedRevision: 4,
+    };
+    expect(
+      (await postResponse(socketPath, "/platformclaw/internal/execution/change-target", body))
+        .status,
+    ).toBe(200);
+    expect(service.changeTarget).toHaveBeenCalledWith({ ...body, changedAt: expect.any(Number) });
+    expect(
+      (
+        await postResponse(socketPath, "/platformclaw/internal/execution/change-target", {
+          ...body,
+          expectedConnectionRevision: undefined,
+        })
+      ).status,
+    ).toBe(409);
+    expect(service.changeTarget).toHaveBeenCalledOnce();
+  });
   it("serves metadata through the authenticated handoff and rejects wider input", async () => {
     const { socketPath, service } = await startServer();
     const client = new ExecutionHandoffClient(

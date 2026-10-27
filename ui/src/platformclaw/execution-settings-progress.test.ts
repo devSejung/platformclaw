@@ -66,18 +66,15 @@ describe("PlatformClaw layered execution progress", () => {
 
   it("updates the same native dialogs and progress list across phases and locales, then dismisses only progress", async () => {
     const selection = deferredExecutionResponse();
-    const activation = deferredExecutionResponse();
     const active = { ...EXECUTION_SETTINGS, activeTarget: "assigned_vm", targetRevision: 4 };
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(executionSettingsResponse(UNASSIGNED_EXECUTION_SETTINGS))
-      .mockReturnValueOnce(selection.promise)
-      .mockReturnValueOnce(activation.promise);
+      .mockReturnValueOnce(selection.promise);
     const root = await mountExecutionSettings(fetchImpl);
     const settings = await nativeExecutionModal(root, "[data-settings-modal]");
     const progress = await nativeExecutionModal(root, "[data-progress-modal]");
     const currentLocation = settings.modal.querySelector("[data-current-location]");
-    const vmTile = settings.modal.querySelector("[data-target='assigned_vm']");
     const show = vi.spyOn(HTMLDialogElement.prototype, "showModal");
     const close = vi.spyOn(HTMLDialogElement.prototype, "close");
     const focus = vi.spyOn(progress.dialog, "focus");
@@ -97,9 +94,6 @@ describe("PlatformClaw layered execution progress", () => {
       expect(progress.modal.textContent).toContain("VM에 연결하고 작업 공간을 준비하고 있습니다"),
     );
     expect(progress.modal.textContent).not.toContain("Connecting to the VM");
-    selection.resolve(executionSettingsResponse(EXECUTION_SETTINGS));
-    await vi.waitFor(() => expect(executionProgressState(root, "activation")).toBe("active"));
-    expect(progress.modal.textContent).toContain("작업 위치를 개발 VM");
     expect(root.querySelector("[data-settings-modal]")).toBe(settings.modal);
     expect(root.querySelector("[data-progress-modal]")).toBe(progress.modal);
     expect(settings.surface.shadowRoot!.querySelector("dialog")).toBe(settings.dialog);
@@ -108,9 +102,9 @@ describe("PlatformClaw layered execution progress", () => {
 
     // Only the presentation timeout is virtual; request completion stays explicit.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    activation.resolve(executionSettingsResponse(active));
+    selection.resolve(executionSettingsResponse(active));
     await vi.waitFor(() => expect(executionProgressState(root, "activation")).toBe("complete"));
-    expect(progress.modal.textContent).toContain("이제 개발 VM에서 작업합니다.");
+    expect(progress.modal.textContent).toContain("이제 Development VM에서 작업합니다.");
     await i18n.setLocale("en");
     await vi.waitFor(() =>
       expect(progress.modal.textContent).toContain("Now using Development VM."),
@@ -130,61 +124,9 @@ describe("PlatformClaw layered execution progress", () => {
     expect(settings.modal.open).toBe(true);
     expect(settings.dialog.open).toBe(true);
     expect(settings.modal.querySelector("[data-current-location]")).toBe(currentLocation);
-    expect(settings.modal.querySelector("[data-target='assigned_vm']")).toBe(vmTile);
     expectCurrentExecutionLocation(settings.modal, "assigned_vm", "Development VM");
     expect(close.mock.instances).toEqual([progress.dialog]);
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
-  });
-
-  it("keeps a failed activation visible and retries the target without another connection", async () => {
-    const retry = deferredExecutionResponse();
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(executionSettingsResponse(UNASSIGNED_EXECUTION_SETTINGS))
-      .mockResolvedValueOnce(executionSettingsResponse(EXECUTION_SETTINGS))
-      .mockResolvedValueOnce(
-        executionSettingsResponse(
-          { error: "finish the current task before changing work location" },
-          409,
-        ),
-      )
-      .mockResolvedValueOnce(executionSettingsResponse(EXECUTION_SETTINGS))
-      .mockReturnValueOnce(retry.promise);
-    const root = await mountExecutionSettings(fetchImpl);
-    const settings = await nativeExecutionModal(root, "[data-settings-modal]");
-    const progress = await nativeExecutionModal(root, "[data-progress-modal]");
-    setExecutionInput(root, "[name='password']", "employee-password");
-    submitVmSelection(root);
-    await vi.waitFor(() => expect(executionProgressState(root, "activation")).toBe("failed"));
-    expect(progress.modal.textContent).toContain(
-      "VM connected, but the work location could not be changed.",
-    );
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    await vi.advanceTimersByTimeAsync(EXECUTION_PROGRESS_SUCCESS_DELAY_MS * 2);
-    expect(progress.modal.open).toBe(true);
-    expect(settings.modal.open).toBe(true);
-    const button = root.querySelector<HTMLButtonElement>("[data-action='retry-progress']")!;
-    button.click();
-    button.click();
-    expect(fetchImpl).toHaveBeenCalledTimes(5);
-    expect(executionProgressState(root, "connection")).toBe("complete");
-    expect(executionProgressState(root, "activation")).toBe("active");
-    expect(root.querySelector("[data-progress-modal]")).toBe(progress.modal);
-    retry.resolve(
-      executionSettingsResponse({
-        ...EXECUTION_SETTINGS,
-        activeTarget: "assigned_vm",
-        targetRevision: 4,
-      }),
-    );
-    await vi.waitFor(() => expect(executionProgressState(root, "activation")).toBe("complete"));
-    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
-      "/platformclaw/api/execution",
-      "/platformclaw/api/execution/selection",
-      "/platformclaw/api/execution/target",
-      "/platformclaw/api/execution",
-      "/platformclaw/api/execution/target",
-    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("switches directly back to Basic without claiming to connect to a VM", async () => {
@@ -300,7 +242,11 @@ describe("PlatformClaw layered execution progress", () => {
     accept.click();
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(fetchImpl.mock.calls[2]?.[1]?.body).toBe(
-      JSON.stringify({ target: "assigned_vm", expectedRevision: 7 }),
+      JSON.stringify({
+        target: "assigned_vm",
+        connectionId: "connection-one",
+        expectedRevision: 7,
+      }),
     );
     expect(executionProgressState(root, "connection")).toBe("complete");
     expect(executionProgressState(root, "activation")).toBe("active");
@@ -320,7 +266,11 @@ describe("PlatformClaw layered execution progress", () => {
     retryButton.click();
     expect(fetchImpl).toHaveBeenCalledTimes(5);
     expect(fetchImpl.mock.calls[4]?.[1]?.body).toBe(
-      JSON.stringify({ target: "assigned_vm", expectedRevision: 9 }),
+      JSON.stringify({
+        target: "assigned_vm",
+        connectionId: "connection-one",
+        expectedRevision: 9,
+      }),
     );
     retry.resolve(
       executionSettingsResponse({ ...refreshed, activeTarget: "assigned_vm", targetRevision: 10 }),
@@ -361,7 +311,11 @@ describe("PlatformClaw layered execution progress", () => {
 
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(4));
     expect(fetchImpl.mock.calls[2]?.[1]?.body).toBe(
-      JSON.stringify({ target: "assigned_vm", expectedRevision: 7 }),
+      JSON.stringify({
+        target: "assigned_vm",
+        connectionId: "connection-one",
+        expectedRevision: 7,
+      }),
     );
     expect(executionProgressState(root, "connection")).toBe("complete");
     expect(executionProgressState(root, "activation")).toBe("active");

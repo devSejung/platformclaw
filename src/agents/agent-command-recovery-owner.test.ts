@@ -25,6 +25,45 @@ afterEach(() => {
 });
 
 describe("agent command restart recovery ownership", () => {
+  it.each(["claim", "run", "worktree"] as const)(
+    "releases prepared agent work after %s failure",
+    async (failure) => {
+      const releaseAgentWork = vi.fn();
+      const target = createTarget();
+      const prepared = {
+        ...target,
+        releaseAgentWork,
+        runLease: {
+          release: vi.fn(async () => {
+            if (failure === "worktree") {
+              throw new Error("worktree failed");
+            }
+          }),
+        },
+      };
+      if (failure === "claim") {
+        await write(target, { sessionId: "other-session", updatedAt: 1 });
+      }
+      await expect(
+        runWithAgentCommandRecoveryOwner({
+          lifecycleGeneration: getAgentEventLifecycleGeneration(),
+          mode: "reject_uncoordinated",
+          opts: {
+            ...(failure !== "claim" ? { sessionEffects: "internal" } : {}),
+          } as AgentCommandOpts,
+          prepare: async () => prepared,
+          run: async () => {
+            if (failure === "run") {
+              throw new Error("run failed");
+            }
+            return undefined;
+          },
+        }),
+      ).rejects.toThrow();
+      expect(releaseAgentWork).toHaveBeenCalledOnce();
+    },
+  );
+
   function createTarget() {
     const storePath = path.join(tempDirs.make("openclaw-agent-command-owner-"), "sessions.json");
     return {

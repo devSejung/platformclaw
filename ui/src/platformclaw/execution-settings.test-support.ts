@@ -20,6 +20,18 @@ export const EXECUTION_SETTINGS = {
   credentialStatus: "current",
   accountId: "person.one",
   availableVms: [{ id: "vm-one", label: "Development VM" }],
+  savedVms: [
+    {
+      id: "connection-one",
+      vmHostId: "vm-one",
+      vmLabel: "Development VM",
+      safeConnectLabel: "SafeConnect",
+      linuxAccount: "person.one",
+      status: "ready",
+      active: false,
+      lastConnectionSucceededAt: 1_700_000_000_000,
+    },
+  ],
   assignment: {
     id: "allocation-one",
     vmHostId: "vm-one",
@@ -46,6 +58,7 @@ export const EXECUTION_SETTINGS = {
 export const UNASSIGNED_EXECUTION_SETTINGS = {
   ...EXECUTION_SETTINGS,
   assignment: undefined,
+  savedVms: [],
   credentialStatus: "missing",
 };
 

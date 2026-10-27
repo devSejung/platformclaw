@@ -180,6 +180,9 @@ export type GatewayRequestContext = {
   cron: GatewayCronServiceContract;
   cronStorePath: string;
   getRuntimeConfig: () => OpenClawConfig;
+  /** Owner-held admissions include preparation, queued turns and final publication. */
+  hasPendingAgentWork: (agentId: string) => boolean;
+  tryAcquireAgentWorkMutation: (agentId: string) => (() => void) | null;
   controlUiSessionPullRequests?: ReturnType<
     typeof import("../control-ui-session-pr-subscriptions.js").createControlUiSessionPullRequestSubscriptions
   >;

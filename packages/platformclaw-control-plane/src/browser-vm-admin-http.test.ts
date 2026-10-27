@@ -10,6 +10,7 @@ import type { ControlPlaneAuditReader } from "./contracts.js";
 import type {
   ControlPlaneEmployeeExecutionStore,
   ControlPlaneExecutionManagementStore,
+  ControlPlaneSavedVmConnectionStore,
   ControlPlaneVmLifecycleStore,
 } from "./execution-contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
@@ -36,17 +37,24 @@ function createService(
   const getVmAdministrationSnapshot = vi.fn(async () => snapshot);
   const createSafeConnectEndpoint = vi.fn(async () => ({ id: "endpoint-one" }));
   const enableSafeConnectEndpoint = vi.fn(async () => ({ id: "endpoint-one", status: "active" }));
+  const renameSafeConnectEndpoint = vi.fn(async () => ({
+    id: "endpoint-one",
+    label: "New name",
+    status: "active",
+  }));
   const updateVmHostExecutionEnvironment = vi.fn(async () => ({ id: "vm-one" }));
   const store = {
     getVmAdministrationSnapshot,
     listAuditEvents: vi.fn(async () => []),
     createSafeConnectEndpoint,
     enableSafeConnectEndpoint,
+    renameSafeConnectEndpoint,
     updateVmHostExecutionEnvironment,
     getPersonalExecutionSettings: vi.fn(async () => null),
   } as unknown as ControlPlaneExecutionManagementStore &
     ControlPlaneEmployeeExecutionStore &
     ControlPlaneVmLifecycleStore &
+    ControlPlaneSavedVmConnectionStore &
     ControlPlaneAuditReader;
   const authService = {
     authenticateToken: vi.fn(async () => ({
@@ -65,11 +73,53 @@ function createService(
     getVmAdministrationSnapshot,
     createSafeConnectEndpoint,
     enableSafeConnectEndpoint,
+    renameSafeConnectEndpoint,
     updateVmHostExecutionEnvironment,
   };
 }
 
 describe("VM administration HTTP", () => {
+  it.each(["member", "admin"] as const)(
+    "authorizes label-only rename on the server for %s",
+    async (role) => {
+      const { service, renameSafeConnectEndpoint } = createService(role);
+      const harness = responseHarness();
+      await handlePlatformClawVmAdministrationRequest(
+        {
+          url: PLATFORMCLAW_VM_ADMIN_PATH,
+          method: "POST",
+          headers: { cookie: "platformclaw_session=test-token" },
+        } as IncomingMessage,
+        harness.response,
+        {
+          service,
+          isMutationOriginAllowed: () => true,
+          readJsonBody: async () => ({
+            ok: true,
+            value: {
+              action: "rename-endpoint",
+              endpointId: "endpoint-one",
+              label: "New name",
+              host: "ignored.example.test",
+              port: 1,
+              adDomain: "ignored.test",
+            },
+          }),
+        },
+      );
+      expect(harness.response.statusCode).toBe(role === "admin" ? 200 : 403);
+      if (role === "admin") {
+        expect(renameSafeConnectEndpoint).toHaveBeenCalledWith({
+          actorUserId: "user-one",
+          endpointId: "endpoint-one",
+          label: "New name",
+          updatedAt: 123,
+        });
+      } else {
+        expect(renameSafeConnectEndpoint).not.toHaveBeenCalled();
+      }
+    },
+  );
   it("rejects non-administrators before reading administration state", async () => {
     const { service, getVmAdministrationSnapshot } = createService("member");
     const harness = responseHarness();

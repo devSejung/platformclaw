@@ -1,4 +1,3 @@
-import { emptyCodingAgentConfigurations } from "@platformclaw/coding-agent-contract";
 import { ControlPlaneConflictError, ControlPlaneStateError } from "./contracts.js";
 import type {
   AssignedVmConnectionTarget,
@@ -12,7 +11,6 @@ import {
   normalizeLinuxAccount,
   normalizeSafeConnectHost,
   normalizeVmTargetAddress,
-  parseVmHostExecutionEnvironmentJson,
 } from "./execution-validation.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
@@ -20,6 +18,7 @@ import { SqliteControlPlaneAuthStore } from "./sqlite-store-auth.js";
 import { required } from "./sqlite-store-core.js";
 import { rowToAllocation, rowToEndpoint, rowToVmHost } from "./sqlite-store-execution-mappers.js";
 import type { VmAllocationRow } from "./sqlite-store-types.js";
+import { preparePersonalVmCandidateInStore } from "./sqlite-store-vm-candidate.js";
 
 export abstract class SqliteControlPlaneVmSelfServiceStore
   extends SqliteControlPlaneAuthStore
@@ -61,85 +60,7 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
     linuxAccount: string;
   }): Promise<AssignedVmConnectionTarget> {
     this.ensureVmHostExecutionEnvironmentSchema();
-    const row = takeFirstSync(
-      this.db,
-      this.query
-        .selectFrom("agent_bindings")
-        .innerJoin("platform_users", "platform_users.id", "agent_bindings.user_id")
-        .innerJoin(
-          "personal_execution_profiles",
-          "personal_execution_profiles.agent_binding_id",
-          "agent_bindings.id",
-        )
-        .innerJoin("vm_hosts", (join) =>
-          join.on("vm_hosts.id", "=", params.vmHostId).on("vm_hosts.status", "=", "active"),
-        )
-        .innerJoin("safeconnect_endpoints", (join) =>
-          join
-            .onRef("safeconnect_endpoints.id", "=", "vm_hosts.endpoint_id")
-            .on("safeconnect_endpoints.status", "=", "active"),
-        )
-        .leftJoin(
-          "vm_host_execution_environments",
-          "vm_host_execution_environments.vm_host_id",
-          "vm_hosts.id",
-        )
-        .select([
-          "agent_bindings.user_id as user_id",
-          "platform_users.account_id as account_id",
-          "personal_execution_profiles.target_revision as target_revision",
-          "vm_hosts.id as vm_host_id",
-          "vm_hosts.label as vm_label",
-          "vm_hosts.target_address as target_address",
-          "safeconnect_endpoints.label as safeconnect_label",
-          "safeconnect_endpoints.host as endpoint_host",
-          "safeconnect_endpoints.port as endpoint_port",
-          "safeconnect_endpoints.ad_domain as ad_domain",
-          "safeconnect_endpoints.host_key_algorithm as host_key_algorithm",
-          "safeconnect_endpoints.host_key_public_key as host_key_public_key",
-          "safeconnect_endpoints.host_key_fingerprint as host_key_fingerprint",
-          "vm_host_execution_environments.config_json as execution_environment_json",
-        ])
-        .where("agent_bindings.agent_id", "=", params.agentId)
-        .where("agent_bindings.kind", "=", "personal")
-        .where("agent_bindings.state", "=", "active")
-        .where("platform_users.status", "=", "active"),
-    );
-    if (
-      !row ||
-      row.user_id !== params.actorUserId ||
-      !row.host_key_algorithm ||
-      !row.host_key_public_key ||
-      !row.host_key_fingerprint
-    ) {
-      throw new ControlPlaneStateError("selected development VM is unavailable");
-    }
-    const allocationId = `candidate:${row.vm_host_id}`;
-    const executionEnvironment = parseVmHostExecutionEnvironmentJson(
-      row.execution_environment_json,
-    );
-    return {
-      kind: "assigned_vm",
-      agentId: params.agentId,
-      userId: row.user_id,
-      targetId: allocationId,
-      revision: row.target_revision,
-      allocationId,
-      allocationStatus: "assigned",
-      vmLabel: row.vm_label,
-      safeConnectLabel: row.safeconnect_label,
-      endpointHost: row.endpoint_host,
-      endpointPort: row.endpoint_port,
-      adDomain: row.ad_domain,
-      adAccount: row.account_id,
-      targetAddress: row.target_address,
-      linuxAccount: normalizeLinuxAccount(params.linuxAccount),
-      hostKeyAlgorithm: row.host_key_algorithm,
-      hostKeyPublicKey: row.host_key_public_key,
-      hostKeyFingerprint: row.host_key_fingerprint,
-      codingAgents: emptyCodingAgentConfigurations(),
-      ...(executionEnvironment ? { executionEnvironment } : {}),
-    };
+    return preparePersonalVmCandidateInStore({ db: this.db, query: this.query, input: params });
   }
 
   async disableSafeConnectEndpoint(params: {
@@ -189,6 +110,46 @@ export abstract class SqliteControlPlaneVmSelfServiceStore
         );
       }
       return rowToEndpoint({ ...endpoint, status: "disabled", updated_at: params.disabledAt });
+    });
+  }
+
+  async renameSafeConnectEndpoint(params: {
+    actorUserId: string;
+    endpointId: string;
+    label: string;
+    updatedAt: number;
+  }): Promise<SafeConnectEndpoint> {
+    return runImmediateTransaction(this.db, () => {
+      this.requireAdmin(params.actorUserId);
+      const endpoint = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("safeconnect_endpoints")
+          .selectAll()
+          .where("id", "=", params.endpointId),
+      );
+      if (!endpoint) {
+        throw new ControlPlaneStateError(`SafeConnect endpoint not found: ${params.endpointId}`);
+      }
+      const label = required(params.label, "endpoint.label");
+      if (label.length > 256) {
+        throw new ControlPlaneStateError("SafeConnect name must not exceed 256 characters");
+      }
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("safeconnect_endpoints")
+          .set({ label, updated_at: params.updatedAt })
+          .where("id", "=", endpoint.id),
+      );
+      this.insertAudit(
+        params.actorUserId,
+        "safeconnect.endpoint.renamed",
+        "safeconnect-endpoint",
+        endpoint.id,
+        params.updatedAt,
+      );
+      return rowToEndpoint({ ...endpoint, label, updated_at: params.updatedAt });
     });
   }
 

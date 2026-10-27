@@ -2,9 +2,20 @@ type PlatformClawTargetMutationKind =
   | "target-change"
   | "skill-install"
   | "skill-export"
+  | "skill-workshop"
   | "terminal-open";
 
 type HeldMutation = { kind: PlatformClawTargetMutationKind; token: symbol };
+
+/** A failed response was reconciled against a different committed target revision. */
+export class PlatformClawTargetChangeError extends Error {
+  readonly targetChanged = true;
+
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : "work location change failed", { cause });
+    this.name = "PlatformClawTargetChangeError";
+  }
+}
 
 /** Serializes target selection and workspace mutations for one personal Agent. */
 export class PlatformClawTargetMutationCoordinator {

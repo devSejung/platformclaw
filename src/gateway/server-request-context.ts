@@ -6,7 +6,12 @@ import {
   hasGatewayClientCap,
   type GatewayClientId,
 } from "../../packages/gateway-protocol/src/client-info.js";
+import {
+  hasPendingAgentWork,
+  tryAcquireAgentWorkMutation,
+} from "../agents/agent-work-admission.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { normalizeAgentId } from "../routing/session-key.js";
 import type { GatewayServerLiveState } from "./server-live-state.js";
 import type { GatewayClient, GatewayRequestContext } from "./server-methods/types.js";
 import { disconnectAllSharedGatewayAuthClients } from "./server-shared-auth-generation.js";
@@ -166,6 +171,16 @@ export function createGatewayRequestContext(
       return params.runtimeState.cronState.storePath;
     },
     getRuntimeConfig: params.getRuntimeConfig,
+    hasPendingAgentWork: (agentId) => {
+      const owner = normalizeAgentId(agentId);
+      return (
+        hasPendingAgentWork(owner) ||
+        [...params.chatAbortControllers.values(), ...params.chatQueuedTurns.values()].some(
+          (entry) => entry.agentId && normalizeAgentId(entry.agentId) === owner,
+        )
+      );
+    },
+    tryAcquireAgentWorkMutation,
     controlUiSessionPullRequests: params.runtimeState.controlUiSessionPullRequests,
     sessionViewerPresence: params.runtimeState.sessionViewerPresence,
     sessionCompanion: params.sessionCompanion,

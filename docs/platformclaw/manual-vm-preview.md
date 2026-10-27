@@ -50,12 +50,14 @@ Use another browser profile or sign out between the two roles:
    personal Agent.
 2. Sign in as `admin.user` and open **Settings > Administration > VM administration**.
 3. Register the endpoint and host key printed by the launcher.
-4. Register target VM `10.0.0.10`.
+4. Register three target VMs: `10.0.0.10`, `10.0.0.20`, and `10.0.0.30`.
 5. Sign out and sign in as `person.one`.
 6. Open **Work location**, select the registered VM, keep the default Linux
    account `person.one`, and enter the printed Fake AD password. The allocation
    is created only after the connection test succeeds.
-7. Change the work location to **Personal VM**.
+7. Confirm the verified VM becomes the current location. Register VM2 and VM3
+   using the fixture values below; each registration activates the verified VM
+   without visiting Basic. All three cards remain in **Work location**.
 8. If a model provider is configured, start a chat and ask the Agent to run
    `whoami`, `pwd`, create and read `relative-proof.txt`, then create and read
    `~/home-proof.txt`. Confirm the relative file is under the remote workspace
@@ -83,6 +85,54 @@ new credential is not trusted until this check passes. TCP setup keeps its
 five-second limit; authentication plus the remote identity command has a
 15-second overall limit. Gateway logs
 `platformclaw_vm_connection_test_timing` for diagnosing slow enterprise paths.
+
+### Verify saved VM switching
+
+The synthetic employee `person.one` can register these independent Linux homes:
+
+| VM  | Target      | Linux account    | Fixture AD password                             |
+| --- | ----------- | ---------------- | ----------------------------------------------- |
+| VM1 | `10.0.0.10` | `person_one`     | `platformclaw-safeconnect-fixture-password`     |
+| VM2 | `10.0.0.20` | `person_one_vm2` | `platformclaw-safeconnect-fixture-vm2-password` |
+| VM3 | `10.0.0.30` | `person_one_vm3` | `platformclaw-safeconnect-fixture-vm3-password` |
+
+After registration, switch VM1 → VM2 → VM3 → VM1, then Basic → VM2. Confirm
+the progress animation names its actual source and destination, and only the
+confirmed server target receives the current-location badge. Reload and sign in
+again; all saved cards must remain. Save distinct Coding Agent settings per VM
+and confirm they return with that VM. Switching does not copy workspace files.
+
+While VM1 is active, reconnect VM2 with an intentionally wrong password: VM1
+must stay active and usable. Also try a switch during an Agent run, a queued
+turn or its preparation, a cron run, and a turn using a warm ACP session. These
+cases must block switching; checking only a visible chat run is insufficient.
+During a pending switch, try starting new work and confirm it receives a retry
+error. Verify a stale revision and a duplicate request cannot activate a second
+target. After a successful switch, the old browser terminal closes and the next
+ACP process belongs to the new VM.
+
+Create a pending Skill Workshop proposal on VM1, switch to VM2, and confirm that
+VM2 cannot evaluate, revise, or apply the VM1 proposal. Return to VM1 and exercise
+that same proposal. Its durable registration binding must survive the new
+runtime allocation, while SSH still uses the new allocation and credential
+revisions. Also attempt a switch during Workshop SSH access or apply: its
+workspace coordinator must exclude the switch, and a stale access handle must
+fail visibly. Neither case may write to Basic or a different VM.
+
+As administrator, rename the enabled SafeConnect endpoint. Refresh both the
+administration and Work location pages; the new label must appear while its
+approved fingerprint and running Agent remain unchanged. Revoke an inactive
+saved connection and confirm the active VM is untouched and the removed
+connection does not return after refresh. Check dark mode, long VM labels,
+keyboard navigation, and the system reduced-motion preference.
+
+Saved registrations use additive tables without a control schema version bump.
+When testing an upgrade with a disposable existing database, confirm the live
+allocation imports once with its original durable target ID and that removed
+registrations remain absent after reopening. An older build supporting the same
+base schema can read the current runtime projection but cannot manage inactive saved connections; select Basic
+and retain the matching database/key backup before a rollback test. These are
+verification scenarios, not a claim that this preview has passed them.
 
 ## Verify uploaded attachments
 
