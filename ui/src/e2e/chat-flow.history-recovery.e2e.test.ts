@@ -752,12 +752,17 @@ suite.define(() => {
       await gateway.setHistoryMessages([
         {
           role: "user",
+          content: prompt,
           __openclaw: { idempotencyKey: `${runId}:user` },
         },
       ]);
       await gateway.emitChatFinal({ runId, text: "Delivered after reconnect." });
       await queue.waitFor({ state: "detached", timeout: 10_000 });
       await page.locator(".chat-thread").getByText(prompt).waitFor({ timeout: 10_000 });
+      await page
+        .locator(".chat-thread")
+        .getByText(attachmentName, { exact: true })
+        .waitFor({ timeout: 10_000 });
       await expect
         .poll(async () => {
           const proof = await readStoredProof();
