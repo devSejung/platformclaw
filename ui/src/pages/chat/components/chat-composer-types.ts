@@ -142,6 +142,7 @@ type SkillMenuTarget = {
 };
 
 export type ChatComposerState = {
+  prediction?: import("../../../platformclaw/composer-predictions.ts").ComposerPredictionController;
   slashMenuOpen: boolean;
   slashMenuItems: SlashCommandDef[];
   slashMenuIndex: number;

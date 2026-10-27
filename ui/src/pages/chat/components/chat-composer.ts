@@ -1,8 +1,8 @@
 // Chat-owned composer orchestration.
 import { nothing } from "lit";
 import { loadSettings, normalizeChatSendShortcut, patchSettings } from "../../../app/settings.ts";
-import "../../../components/tooltip.ts";
 import { t } from "../../../i18n/index.ts";
+import "../../../components/tooltip.ts";
 import { areUiSessionKeysEquivalent } from "../../../lib/sessions/session-key.ts";
 import { resolveControlUiProductName } from "../../../platformclaw/branding.ts";
 import { ComposerDictationController, insertComposerDictation } from "../composer-dictation.ts";
@@ -18,6 +18,11 @@ import {
   restoreHistoryCaret,
   scheduleTextareaHeightAdjustment,
 } from "./chat-composer-dom.ts";
+import { handleComposerMenuKeyDown } from "./chat-composer-menu-keydown.ts";
+import {
+  syncComposerPrediction,
+  handleComposerPredictionKeydown,
+} from "./chat-composer-prediction.ts";
 import {
   getActiveSkillMenuOptionId,
   getActiveSkillMenuOptionLabel,
@@ -33,7 +38,6 @@ import {
   getActiveSlashMenuOptionLabel,
   isSlashMenuVisible,
   paneDomId,
-  resetSlashMenuState,
   scrollActiveSlashMenuOptionIntoView,
   selectSlashArg,
   selectSlashCommand,
@@ -52,68 +56,11 @@ import {
   markComposerInputIntent,
   suppressStaleSubmittedDraftReplay,
 } from "./chat-composer-state.ts";
-import type { ChatComposerProps, ChatComposerState } from "./chat-composer-types.ts";
+import type { ChatComposerProps } from "./chat-composer-types.ts";
 import { renderChatComposerView } from "./chat-composer-view.ts";
 import { createGatewayQuestionPanelProps } from "./chat-question-card.ts";
 
 export { isChatRunWorking, resetChatComposerState } from "./chat-composer-state.ts";
-
-function handleComposerMenuKeyDown<T>(
-  event: KeyboardEvent,
-  state: ChatComposerState,
-  items: readonly T[],
-  paneId: string,
-  requestUpdate: () => void,
-  onSelect: (item: T, submit: boolean) => void,
-  scrollActive: (state: ChatComposerState, paneId: string) => void,
-  menu: "slash" | "skill" = "slash",
-): boolean {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    if (menu === "skill") {
-      resetSkillMenuState(state);
-    } else {
-      state.slashMenuOpen = false;
-      resetSlashMenuState(state);
-    }
-    requestUpdate();
-    return true;
-  }
-  if (items.length === 0) {
-    if (
-      menu === "skill" &&
-      state.skillCommandRefreshPending &&
-      ["ArrowDown", "ArrowUp", "Enter", "Tab"].includes(event.key)
-    ) {
-      event.preventDefault();
-      return true;
-    }
-    return false;
-  }
-  const indexKey = menu === "skill" ? "skillMenuIndex" : "slashMenuIndex";
-  switch (event.key) {
-    case "ArrowDown":
-    case "ArrowUp": {
-      event.preventDefault();
-      const offset = event.key === "ArrowDown" ? 1 : items.length - 1;
-      state[indexKey] = (state[indexKey] + offset) % items.length;
-      requestUpdate();
-      scrollActive(state, paneId);
-      return true;
-    }
-    case "Tab":
-    case "Enter": {
-      event.preventDefault();
-      const item = items[state[indexKey]];
-      if (item !== undefined) {
-        onSelect(item, event.key === "Enter");
-      }
-      return true;
-    }
-    default:
-      return false;
-  }
-}
 
 export function renderChatComposer(props: ChatComposerProps) {
   const state = getChatComposerState(props.paneId);
@@ -146,6 +93,7 @@ export function renderChatComposer(props: ChatComposerProps) {
     const prevTextarea = state.composerTextarea;
     if (prevTextarea && prevTextarea !== nextTextarea) {
       disconnectTextareaOverflowObserver(prevTextarea);
+      state.prediction?.dismiss();
     }
     state.composerTextarea = nextTextarea;
     if (nextTextarea) {
@@ -199,6 +147,19 @@ export function renderChatComposer(props: ChatComposerProps) {
           ? t("chat.composer.runDone")
           : t("chat.composer.runInterrupted");
   const requestUpdate = props.onRequestUpdate ?? (() => {});
+  syncComposerPrediction(
+    props,
+    state,
+    !isBusy && !showAbortableUi && !compactBusy,
+    props.connected &&
+      canCompose &&
+      !visibleDraft &&
+      !state.composerComposing &&
+      !props.attachments?.length &&
+      !props.realtimeTalkActive &&
+      !props.suggestionComposer,
+    requestUpdate,
+  );
   const sendShortcut = normalizeChatSendShortcut(props.sendShortcut);
   const gatewayQuestionPrompts =
     props.gatewayQuestionPrompts?.filter(
@@ -398,6 +359,9 @@ export function renderChatComposer(props: ChatComposerProps) {
       }
     }
 
+    if (handleComposerPredictionKeydown(event, state, props, requestUpdate)) {
+      return;
+    }
     const sendShortcutMatches = sendShortcut === "enter" || event.metaKey || event.ctrlKey;
     if (event.key === "Enter" && !event.shiftKey && sendShortcutMatches) {
       if (!canSubmitDraft((event.target as HTMLTextAreaElement).value)) {
@@ -427,11 +391,13 @@ export function renderChatComposer(props: ChatComposerProps) {
     requestUpdate();
   };
   const handleBeforeInput = (event: InputEvent) => {
+    state.prediction?.dismiss();
     if (!state.composerComposing && !event.isComposing) {
       markComposerInputIntent(state, composerDraftKey(props));
     }
   };
   const handleInput = (event: InputEvent) => {
+    state.prediction?.dismiss();
     const target = event.target as HTMLTextAreaElement;
     const hasInputIntent = consumeComposerInputIntent(state, draftKey);
     if (state.composerComposing || event.isComposing) {

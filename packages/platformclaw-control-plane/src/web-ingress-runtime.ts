@@ -345,6 +345,7 @@ export function createPlatformClawWebIngressRuntime(
       })
     : undefined;
   const server = new PlatformClawWebIngressServer({
+    composerAdminRpc: options.adminRpc,
     publicOrigin: options.publicOrigin,
     authService: auth.service,
     ...(employeeSsoService ? { employeeSsoService } : {}),

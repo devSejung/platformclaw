@@ -5,6 +5,7 @@ import {
   waitForControlUiRoute,
   type ControlUiE2eServer,
 } from "./control-ui-e2e.ts";
+import { openComposerPredictionFixture } from "./platformclaw-composer-fixture.ts";
 import {
   platformClawMemoryBusyResponses,
   platformClawMemoryEmptyResponses,
@@ -138,6 +139,14 @@ const platformClawMemoryEmptyFixture = createPlatformClawMemoryFixture({
 });
 
 export const CONTROL_UI_PREVIEW_FIXTURES: readonly ControlUiPreviewFixture[] = [
+  {
+    id: "platformclaw-composer-predictions",
+    label: "Composer Predictions · MOCK",
+    description:
+      "Real Web composer with synthetic chat and success/delay/timeout/busy predictions.",
+    defaults: platformClawMemoryDefaults,
+    open: openComposerPredictionFixture,
+  },
   platformClawMemoryFixture,
   platformClawWikiHubFixture,
   platformClawMemoryBusyFixture,

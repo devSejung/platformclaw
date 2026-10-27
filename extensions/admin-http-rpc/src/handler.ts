@@ -10,6 +10,7 @@ import {
   requestBodyErrorToText,
   WEBHOOK_BODY_READ_DEFAULTS,
 } from "openclaw/plugin-sdk/webhook-request-guards";
+import { COMPOSER_RPC } from "./composer-predictions.js";
 import { isAdminHttpRpcAllowedMethod, listAdminHttpRpcAllowedMethods } from "./methods.js";
 
 const ErrorCodes = {
@@ -324,6 +325,7 @@ async function dispatchAdminRpc(request: ParsedRequest): Promise<RpcResponse> {
 export async function handleAdminHttpRpcRequest(
   req: IncomingMessage,
   res: ServerResponse,
+  composer?: (params: unknown, signal: AbortSignal) => Promise<unknown>,
 ): Promise<boolean> {
   if ((req.method ?? "GET").toUpperCase() !== "POST") {
     res.setHeader("Allow", "POST");
@@ -359,6 +361,24 @@ export async function handleAdminHttpRpcRequest(
     return true;
   }
 
+  if (parsed.request.method === COMPOSER_RPC && composer) {
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    res.once("close", cancel);
+    try {
+      const payload = await composer(parsed.request.params, controller.signal);
+      sendJson(res, 200, { id: parsed.request.id, ok: true, payload });
+    } catch {
+      sendJson(res, 400, {
+        id: parsed.request.id,
+        ok: false,
+        error: createError(ErrorCodes.INVALID_REQUEST, "Invalid composer request"),
+      });
+    } finally {
+      res.off("close", cancel);
+    }
+    return true;
+  }
   if (!isAdminHttpRpcAllowedMethod(parsed.request.method)) {
     const response = methodNotAllowed(parsed.request.id, parsed.request.method);
     sendJson(res, rpcHttpStatus(response), response);

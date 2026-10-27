@@ -149,11 +149,13 @@ export function resetChatComposerState(paneId?: string) {
     // Goal elapsed timers are keyed by element and cleaned up when their
     // element leaves the DOM, so a per-pane reset does not need to touch them.
     composerStates.get(paneId)?.dictation?.dispose();
+    composerStates.get(paneId)?.prediction?.dispose();
     composerStates.delete(paneId);
     return;
   }
   for (const state of composerStates.values()) {
     state.dictation?.dispose();
+    state.prediction?.dispose();
   }
   composerStates.clear();
   clearGoalElapsedTimers();

@@ -57,6 +57,7 @@ export type PlatformClawBrowserCanvasRelay = {
 };
 
 export type PlatformClawWebIngressOptions = {
+  composerAdminRpc?: import("./gateway-admin-rpc-client.js").GatewayAdminRpc;
   publicOrigin: string;
   authService: BrowserAuthService;
   employeeSsoService?: EmployeeSsoService;

@@ -10,6 +10,12 @@ import { spaceTranslations } from "./en-spaces.ts";
 import { vaultTranslations } from "./en-vaults.ts";
 
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.composerPredictions.title": "Composer Predictions",
+  "platformClaw.composerPredictions.description":
+    "Account preference, off by default. Suggest the next prompt using Fast. Tab accepts; Escape dismisses. Nothing is sent automatically.",
+  "platformClaw.composerPredictions.unavailable":
+    "A server administrator must enable this feature first.",
+  "platformClaw.composerPredictions.saveError": "Could not save the preference. Try again.",
   ...credentialTranslations,
   "platformClaw.quickActions.messenger": "Knox",
   "platformClaw.quickActions.openMessenger": "Knox",

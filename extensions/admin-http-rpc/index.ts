@@ -7,6 +7,7 @@ import {
   handleAgentConfigStatus,
   PLATFORMCLAW_AGENT_CONFIG_STATUS_METHOD,
 } from "./src/agent-runtime-status.js";
+import { createComposerPredictions } from "./src/composer-predictions.js";
 import {
   handleEmployeeProfileSeed,
   handleEmployeeProfileStatus,
@@ -28,6 +29,7 @@ export default definePluginEntry({
   name: "Admin HTTP RPC",
   description: "Expose selected admin RPC and PlatformClaw profile context",
   register(api) {
+    const composer = createComposerPredictions(api);
     const employeeProfiles = api.runtime.state.openKeyedStore<unknown>({
       namespace: PLATFORMCLAW_PROFILE_STORE_NAMESPACE,
       maxEntries: MAX_EMPLOYEE_PROFILES,
@@ -48,7 +50,7 @@ export default definePluginEntry({
       auth: "gateway",
       match: "exact",
       gatewayRuntimeScopeSurface: "trusted-operator",
-      handler: handleAdminHttpRpcRequest,
+      handler: (req, res) => handleAdminHttpRpcRequest(req, res, composer),
     });
     api.registerGatewayMethod(PLATFORMCLAW_AGENT_CONFIG_STATUS_METHOD, handleAgentConfigStatus, {
       scope: "operator.admin",
