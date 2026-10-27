@@ -55,20 +55,16 @@ async function observeFishingFrames(page: Page, durationMs: number) {
       Object.defineProperty(drawing, "clearRect", {
         configurable: true,
         writable: true,
-        value: function (
-          this: CanvasRenderingContext2D,
-          x: number,
-          y: number,
-          width: number,
-          height: number,
-        ) {
+        value(this: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
           timestamps.push(performance.now());
           Reflect.apply(clearRect, this, [x, y, width, height]);
         },
       });
       const startedAt = performance.now();
       try {
-        await new Promise((resolve) => window.setTimeout(resolve, duration));
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, duration);
+        });
       } finally {
         if (previous) {
           Object.defineProperty(drawing, "clearRect", previous);
@@ -271,9 +267,13 @@ it("plays manual fishing through physical input, credits shared gold once, and p
     await composer.waitFor({ state: "visible" });
     const assertFixedDock = async () => {
       const bounds = await game.boundingBox();
-      if (!bounds) throw new Error("Missing fishing overlay bounds");
+      if (!bounds) {
+        throw new Error("Missing fishing overlay bounds");
+      }
       const viewport = page.viewportSize();
-      if (!viewport) throw new Error("Missing browser viewport");
+      if (!viewport) {
+        throw new Error("Missing browser viewport");
+      }
       expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.y).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
@@ -320,7 +320,9 @@ it("plays manual fishing through physical input, credits shared gold once, and p
     await expect
       .poll(() => game.evaluate((element) => getComputedStyle(element).opacity))
       .toBe("0.1");
-    for (let step = 0; step < 7; step++) await page.keyboard.press("ArrowRight");
+    for (let step = 0; step < 7; step++) {
+      await page.keyboard.press("ArrowRight");
+    }
     await expect.poll(() => opacity.inputValue()).toBe("45");
     await expect
       .poll(() => game.evaluate((element) => getComputedStyle(element).opacity))
@@ -338,7 +340,9 @@ it("plays manual fishing through physical input, credits shared gold once, and p
       let dark = 0;
       let transparent = 0;
       for (let index = 0; index < pixels.length; index += 4) {
-        if (pixels[index + 3] === 0) transparent++;
+        if (pixels[index + 3] === 0) {
+          transparent++;
+        }
         if (
           pixels[index]! < 100 &&
           pixels[index + 1]! < 100 &&
@@ -399,7 +403,9 @@ it("plays manual fishing through physical input, credits shared gold once, and p
     }
     expect(hooked.difficulty).toBeGreaterThanOrEqual(1);
     expect(hooked.difficulty).toBeLessThanOrEqual(10);
-    if (hooked.hookedAt === null) throw new Error("Missing server hook timestamp");
+    if (hooked.hookedAt === null) {
+      throw new Error("Missing server hook timestamp");
+    }
     expect(hooked.quality).toBe(fishingHookQuality(hooked.hookedAt - issued.biteAt));
     expect(hooked.quality).not.toBeNull();
     expect(await game.locator(".platformclaw-fishing__tension").count()).toBe(1);
@@ -445,8 +451,9 @@ it("plays manual fishing through physical input, credits shared gold once, and p
     expect(finishing.gold).toBe(initialGold);
     expect(finishing.totalCaught).toBe(0);
     const finish = finishing.attempt!;
-    if (finish.finishStartedAt === null || finish.finishDeadlineAt === null)
+    if (finish.finishStartedAt === null || finish.finishDeadlineAt === null) {
       throw new Error("Missing server finish window");
+    }
     const cursor = game.locator("[data-fishing-finish-cursor]");
     const cursorBefore = await cursor.getAttribute("style");
     await page.waitForTimeout(60);
@@ -460,7 +467,9 @@ it("plays manual fishing through physical input, credits shared gold once, and p
         break;
       }
     }
-    if (targetAt === null) throw new Error("No center crossing remains in the real finish window");
+    if (targetAt === null) {
+      throw new Error("No center crossing remains in the real finish window");
+    }
     await page.waitForTimeout(Math.max(0, targetAt - Date.now()));
     await page.keyboard.down("Control");
     await gateway.waitForRequest(FISHING_RPC.finish);
@@ -471,7 +480,9 @@ it("plays manual fishing through physical input, credits shared gold once, and p
     expect(caught.totalCaught).toBe(1);
     const fish = caught.attempt?.result;
     expect(fish).not.toBeNull();
-    if (!fish) throw new Error("Missing completed server catch");
+    if (!fish) {
+      throw new Error("Missing completed server catch");
+    }
     expect(fish.lengthCm).toBeGreaterThan(0);
     expect(caught.gold).toBe(initialGold + fish.rewardGold);
     expect(caught.totalEarnedGold).toBe(fish.rewardGold);
@@ -487,7 +498,9 @@ it("plays manual fishing through physical input, credits shared gold once, and p
     // Repeat an actual accepted terminal request; the ledger effect stays singular.
     const finished = await gateway.getRequests(FISHING_RPC.finish);
     const terminal = finished.at(-1);
-    if (!terminal) throw new Error("No recorded fight/settlement request");
+    if (!terminal) {
+      throw new Error("No recorded fight/settlement request");
+    }
     requestBrowserFishing({
       store: store.fishing,
       userId: user.id,
@@ -532,11 +545,15 @@ it("plays manual fishing through physical input, credits shared gold once, and p
     await expect.poll(() => game.locator("meter").count()).toBe(1);
     let secondHeld = true;
     for (let sample = 0; sample < 80; sample++) {
-      if (await game.locator("[data-fishing-finish]").count()) break;
+      if (await game.locator("[data-fishing-finish]").count()) {
+        break;
+      }
       const tension = await game
         .locator("meter")
         .evaluateAll((meters) => (meters[0] as HTMLMeterElement | undefined)?.value ?? null);
-      if (tension === null) break;
+      if (tension === null) {
+        break;
+      }
       if (secondHeld && tension > 0.68) {
         await page.keyboard.up("Control");
         secondHeld = false;
@@ -551,14 +568,17 @@ it("plays manual fishing through physical input, credits shared gold once, and p
     const timeoutPending = store.fishing.loadFishingSnapshot(user.id, Date.now());
     expect(timeoutPending.gold).toBe(caught.gold);
     const deadline = timeoutPending.attempt?.finishDeadlineAt;
-    if (deadline === null || deadline === undefined)
+    if (deadline === null || deadline === undefined) {
       throw new Error("Missing timeout finish deadline");
+    }
     const finishesBeforeTimeout = (await gateway.getRequests(FISHING_RPC.finish)).length;
     await page.waitForTimeout(Math.max(0, deadline - Date.now() + 100));
     await expect.poll(() => game.locator("[data-fishing-catch]").count()).toBe(1);
     const timedOut = store.fishing.loadFishingSnapshot(user.id, Date.now());
     const timeoutFish = timedOut.attempt?.result;
-    if (!timeoutFish) throw new Error("Missing baseline catch after finish timeout");
+    if (!timeoutFish) {
+      throw new Error("Missing baseline catch after finish timeout");
+    }
     expect(timeoutFish.accuracy).toBe(0);
     expect(timeoutFish.bonusMultiplier).toBe(1);
     expect(timedOut.totalCaught).toBe(2);

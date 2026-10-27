@@ -18,7 +18,11 @@ import {
   runImmediateTransaction,
   takeFirstSync,
 } from "./kysely-sync.js";
-import { selectFishingBestCatch, type SqliteFishingState } from "./sqlite-fishing-state.js";
+import {
+  mergeFishingSpeciesRecord,
+  selectFishingBestCatch,
+  type SqliteFishingState,
+} from "./sqlite-fishing-state.js";
 import type { SqliteGameEconomy } from "./sqlite-game-economy.js";
 import type { FishingDatabase } from "./sqlite-schema-fishing.js";
 
@@ -31,7 +35,7 @@ type PriorFishingState = {
   totalCaught: number;
   totalSoldGold: number;
   inventory: PriorCatch[];
-  catalog: { fishId: string; bestLengthCm: number; bestWeightKg: number }[];
+  catalog: { fishId: string; count: number; bestLengthCm: number; bestWeightKg: number }[];
   attempt:
     | (Omit<
         FishingAttempt,
@@ -161,7 +165,9 @@ function choosePreviewAutoCatch(region: PriorRegion, random: () => number) {
   let size = 0;
   const fish = chooseFishingCatch(() => {
     const sample = random();
-    if (!first) size = sample;
+    if (!first) {
+      size = sample;
+    }
     const value = first ? (group + sample) / 4 : sample;
     first = false;
     return value;
@@ -186,6 +192,8 @@ function convertProfile(
     attempt: retainAttempt(prior.attempt),
     rewardSeed: prior.rewardSeed,
     rewardQuote: null,
+    speciesRecords: {},
+    speciesRecordsComplete: true,
     lastNowAt: now,
     goalDay: prior.goalDay,
     goalWeek: prior.goalWeek,
@@ -193,6 +201,15 @@ function convertProfile(
     weeklyCaught: prior.weeklyCaught,
   };
   for (const record of prior.catalog) {
+    mergeFishingSpeciesRecord(
+      state.speciesRecords,
+      {
+        fishId: record.fishId,
+        lengthCm: record.bestLengthCm,
+        weightKg: record.bestWeightKg,
+      },
+      record.count,
+    );
     state.bestCatch = selectFishingBestCatch(state.bestCatch, {
       fishId: record.fishId,
       lengthCm: record.bestLengthCm,
@@ -217,6 +234,7 @@ function convertProfile(
       const fish = choosePreviewAutoCatch(lease.region, random);
       paidGold += fish.rewardGold;
       state.totalCaught += 1;
+      mergeFishingSpeciesRecord(state.speciesRecords, fish, 1);
       state.bestCatch = selectFishingBestCatch(state.bestCatch, fish);
       const caughtDay = Math.floor((lease.startedAt + (index + 1) * 60_000) / 86_400_000);
       const caughtWeek = Math.floor((caughtDay + 3) / 7);
@@ -256,6 +274,22 @@ export function migrateFishingProfilesToDirectPlay(
       if ("gameplayVersion" in stored && stored.gameplayVersion === 2) {
         const attempt = stored.attempt;
         let changed = false;
+        if (!Object.hasOwn(stored, "speciesRecords")) {
+          stored.speciesRecords = {};
+          // Earlier direct-play previews retained only these two confirmed facts.
+          // Deduplicate their species and never invent missing historical counts.
+          stored.speciesRecordsComplete = stored.totalCaught === 0;
+          for (const fish of [stored.bestCatch, attempt?.result]) {
+            if (fish) {
+              mergeFishingSpeciesRecord(
+                stored.speciesRecords,
+                fish,
+                stored.speciesRecords[fish.fishId] ? 0 : 1,
+              );
+            }
+          }
+          changed = true;
+        }
         if (!Object.hasOwn(stored, "rewardQuote")) {
           stored.rewardQuote =
             attempt && ["waiting", "fighting", "finishing"].includes(attempt.phase)

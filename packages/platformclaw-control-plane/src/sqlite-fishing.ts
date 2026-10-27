@@ -31,7 +31,11 @@ import {
   takeFirstSync,
 } from "./kysely-sync.js";
 import { migrateFishingProfilesToDirectPlay } from "./sqlite-fishing-migration.js";
-import { selectFishingBestCatch, type SqliteFishingState } from "./sqlite-fishing-state.js";
+import {
+  mergeFishingSpeciesRecord,
+  selectFishingBestCatch,
+  type SqliteFishingState,
+} from "./sqlite-fishing-state.js";
 import type { SqliteGameEconomy } from "./sqlite-game-economy.js";
 import { ensureFishingSchema, type FishingDatabase } from "./sqlite-schema-fishing.js";
 import type { ControlPlaneDatabase } from "./sqlite-store-types.js";
@@ -93,6 +97,8 @@ export class SqliteFishingStore implements FishingStore {
       attempt: null,
       rewardSeed: 0,
       rewardQuote: null,
+      speciesRecords: {},
+      speciesRecordsComplete: true,
       lastNowAt: 0,
       goalDay: 0,
       goalWeek: 0,
@@ -329,7 +335,6 @@ export class SqliteFishingStore implements FishingStore {
       // millisecond. Replay applies equal-time edges in order under the input cap.
       attempt.inputs.push({ atMs: now - attempt.hookedAt, held: request.held });
       this.advanceAttempt(userId, state, now);
-      return;
     }
   }
 
@@ -423,6 +428,7 @@ export class SqliteFishingStore implements FishingStore {
     state.weeklyCaught += 1;
     state.totalCaught += 1;
     state.totalEarnedGold += fish.rewardGold;
+    mergeFishingSpeciesRecord(state.speciesRecords, fish, 1);
     state.bestCatch = selectFishingBestCatch(state.bestCatch, fish);
   }
 

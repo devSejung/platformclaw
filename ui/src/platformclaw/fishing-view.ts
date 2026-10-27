@@ -9,7 +9,7 @@ import type { FishingScenePhase } from "./fishing-scene.ts";
 import { platformClawT as t } from "./i18n.ts";
 
 export type FishingPanel = "ranking" | "records";
-export type FishingView = {
+type FishingView = {
   snapshot: FishingSnapshot | null;
   leaderboard: FishingLeaderboard | null;
   panel: FishingPanel | null;
@@ -40,7 +40,9 @@ const number = (value: number) => value.toLocaleString();
 
 function renderPanel(view: FishingView) {
   const snapshot = view.snapshot;
-  if (!snapshot) return nothing;
+  if (!snapshot) {
+    return nothing;
+  }
   if (view.panel === "ranking") {
     return html`<button @click=${view.onRefresh} ?disabled=${view.busy}>${copy("refresh")}</button>
       ${view.leaderboard
@@ -84,21 +86,25 @@ export function renderFishing(view: FishingView) {
   const attempt = snapshot?.attempt;
   const reeling = attempt?.phase === "fighting";
   const expiredBite = attempt?.phase === "waiting" && view.phase === "miss";
+  const finishing = attempt?.phase === "finishing" && view.phase === "finishing";
+  const expiredFinish = attempt?.phase === "finishing" && !finishing;
   const disabled =
     expiredBite ||
+    expiredFinish ||
     (view.busy && !reeling) ||
     (view.pending && !view.busy) ||
     view.stale ||
     !snapshot ||
     ["prepare", "casting", "splash"].includes(view.phase);
-  const finishing = attempt?.phase === "finishing";
-  const action = finishing
-    ? "finish"
-    : reeling
-      ? "reel"
-      : attempt?.phase === "waiting" && !expiredBite
-        ? "hook"
-        : "cast";
+  const action = expiredFinish
+    ? "landing"
+    : finishing
+      ? "finish"
+      : reeling
+        ? "reel"
+        : attempt?.phase === "waiting" && !expiredBite
+          ? "hook"
+          : "cast";
   const cue = copy(
     {
       idle: "ready",

@@ -6,7 +6,7 @@ import type {
   FishingRarity,
 } from "./fishing-contracts.js";
 
-export type FishingSpecies = {
+type FishingSpecies = {
   id: string;
   nameKo: string;
   rarity: FishingRarity;

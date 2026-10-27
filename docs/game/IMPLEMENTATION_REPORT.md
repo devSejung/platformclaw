@@ -7,6 +7,16 @@ title: "Fishing implementation report"
 
 # Fishing implementation report
 
+Official review21046 found a P2 in legacy per-species record preservation.
+The owner correction keeps private counts and independent maxima; its two
+focused SQLite files passed31 tests. Follow-up review7363 confirmed that repair
+and found a P2 in finish-window presentation: the bar and input could remain
+active after the issued deadline while a snapshot was delayed. The UI now
+projects expiry immediately, disables new finish actions and waits for the
+server's baseline catch without repeated automatic reads. An already submitted
+operation keeps its original retry nonce. Fresh UI regression tests, official
+re-review and final exact-head CI remain pending at this checkpoint.
+
 Status: the user has resumed shipping. The final candidate targets15G fishing
 base rewards, hides current species/size/rarity until capture, uses a1500ms hook
 window and keeps immediate Control-keydown input. The independent transparent
@@ -15,15 +25,89 @@ rankings/records remain. Baseball pays5/8G with stacking10G streak/cumulative
 bonuses. Fresh final proof, latest-main integration, autoreview and required CI
 must finish before a ready PR. No clean final verdict is claimed.
 
-The live synthetic preview remains on the earlier/16 candidate, with3445G and
-eleven catches preserved at its last cutover. No further preview deployment is
+## Shipping checkpoint
+
+The feature branch is now `feature/stickman-fishing`, based on validated main
+`e6dd20821eff090f37c1c6cae0569b9b23263c44`. All69 task file hashes survived the
+fast-forward unchanged. The isolated Linux checkout additionally verified32,375
+unchanged Git blobs and installed frozen dependencies offline without downloads.
+Candidate `344eee506eab2ebbd1cb43887be9d466e0c1f502` contains the complete feature;
+its only difference from the first Windows review input was normal formatter
+layout at two TypeScript type sites. The current correction cycle is not yet
+covered by that candidate verdict.
+
+Observed hosted results for that candidate:
+
+- [CI](https://github.com/devSejung/platformclaw/actions/runs/40545920136):
+  production and test types passed; the UI package passed695 files/9,904 tests;
+  all four browser shards passed. Fishing exercised real physical input, hidden
+  catch metadata, fast release, timing finish, exactly-once shared rewards,
+  timeout, line break and strict320px/125% zoom bounds. Baseball settings proved
+  the stacked28G bonus and account/settings preservation. Core-support passed
+  the14 affected backend files/223 tests. The overall run failed lint, dead
+  exports and one fishing error-class identity assertion in the shared UI lane.
+- [PlatformClaw CI](https://github.com/devSejung/platformclaw/actions/runs/40545854869)
+  failed control-plane lint after normal SDK declaration preparation.
+- [Full CI](https://github.com/devSejung/platformclaw/actions/runs/40545879676)
+  passed its initial guards, then failed the nine-symbol dead-export gate;
+  later stages did not run.
+- [Docker smoke](https://github.com/devSejung/platformclaw/actions/runs/40545900034)
+  passed. This does not constitute the full Jammy release image/export proof.
+
+The correction cycle removes internal exports, registers the real simulation CLI
+as a Knip executable root, fixes the reported lint and tests canvas output through
+the public renderer. Fishing joins the existing isolated UI registry so registered
+elements and error classes share one module graph. Bonus rendering tests move
+from the enhancement workshop suite into the baseball suite without removing
+assertions. The existing browser workflow now retains fishing screenshot/video
+artifacts. The corrected Windows checkpoint passed fishing38, baseball31 and
+workshop42 tests,111 total, plus the official19-path formatting check. These
+passes precede the new species-record correction and do not cover that patch.
+
+The actual/10 economy run completed400,000conditional catches and12,000fight
+policies with seed20261027. GOOD averaged15.5472175G, PERFECT17.0766475G and
+PERFECT plus100% finish34.153295G. Raw theoretical/observed prices were
+15.4905/15.56242625G, relative error0.46%; the skilled policies all won and
+hold-only/idle each won zero. The retained report
+`.artifacts/fishing-proof/final-balance-data-before-lint.json` has SHA-256
+`0ad46fc8121e8a07532d1eff6e9e91ab181b05f1d46f399a31981be926a03307`.
+`balance-computation-identity.json` confirms identical canonical JSON bytes
+against344eee50, with only private export modifiers changed in the economy and
+pure simulation modules. The computation remains valid; rerunning the lint-fixed
+CLI is a separate pending check. These are conditional model results, not human
+success rates or hourly income.
+
+The first official autoreview ended `reviewer_unavailable`, with no report:
+its default and fallback models were unavailable to the CLI account. A fresh
+native model list and isolated inference identified GPT-5.6 Sol as available.
+The same Windows host and official helper isolation were retained for review21046,
+which completed with the P2 above. The corrected private state stores
+`speciesRecords: Record<string, { count, bestLengthCm, bestWeightKg }>` and
+`speciesRecordsComplete`, without changing public snapshots, RPC, UI or schema
+version. A legacy v1 catalog preserves its complete records; already-converted v2
+data without the map can recover only verified global-best/last-result facts.
+Its counts remain lower bounds when completeness is false. Missing historical
+species records cannot be reconstructed by guessing; a verified backup requires
+separate recovery. No runtime fallback reader is added. The new preservation
+tests, official re-review and final CI remain pending.
+
+The local full gate was attempted without quick/skip options. It failed canonical
+SDK declaration preparation at its300-second limit under host memory pressure;
+later local gates did not execute. No timeout, assertion or prerequisite was
+weakened. The preview container is stopped with its volume, database and previous
+assets preserved; the final candidate has not been deployed as another preview.
+The final PR must record its own successful review and exact-head CI evidence.
+
+The stopped synthetic preview retains the earlier/16 candidate, with3445G and
+eleven catches observed at its last cutover. No further preview deployment is
 authorized. Its partial browser proof and all historical runs below apply only
 to their recorded revisions, including their failed gates.
 
 ## Source and environment
 
-Base: `9570348b4c57f1de0bed6e7b9f678403dd81e97d`; branch
-`feat/stickman-fishing`. The original dirty checkout remains separate.
+The historical checkpoints below began at
+`9570348b4c57f1de0bed6e7b9f678403dd81e97d` on `feat/stickman-fishing`.
+The current shipping base/branch is recorded above. The original dirty checkout remains separate.
 The existing arcade entry, authenticated connection, control SQLite database and
 shared wallet are reused. There is no new 500 G grant or game service.
 

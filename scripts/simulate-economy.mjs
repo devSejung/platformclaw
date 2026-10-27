@@ -92,7 +92,9 @@ function probeFightPolicies() {
         let held = true;
         for (let atMs = 100; atMs < FISHING_FIGHT_DURATION_MS; atMs += 100) {
           const fight = replayFishingFight(seed * 307, difficulty, inputs, atMs, fish.behavior);
-          if (fight.status !== "fighting") break;
+          if (fight.status !== "fighting") {
+            break;
+          }
           if ((held && fight.tension > 0.72) || (!held && fight.tension < 0.28)) {
             held = !held;
             inputs.push({ atMs, held });
@@ -106,7 +108,9 @@ function probeFightPolicies() {
           fish.behavior,
         );
         skilledCatches += Number(result.status === "caught");
-        if (result.escapeReason) escapeReasons[result.escapeReason] += 1;
+        if (result.escapeReason) {
+          escapeReasons[result.escapeReason] += 1;
+        }
         times.push(result.elapsedMs);
         const holdOnly = replayFishingFight(
           seed,
@@ -189,7 +193,9 @@ try {
       const outcome = resolveFishingFinish(0, elapsedMs);
       return {
         elapsedMs,
-        ...outcome,
+        position: outcome.position,
+        accuracy: outcome.accuracy,
+        bonusMultiplier: outcome.bonusMultiplier,
         baseGold: 100,
         rewardGold: calculateFishingFinishRewardGold(100, outcome.accuracy),
       };

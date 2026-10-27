@@ -34,7 +34,7 @@ const WATER = 184;
 const INK = "#292c2d";
 
 /** Square-root scaling keeps tiny and giant specimens legible within the small dock. */
-export function fishingFishScale(lengthCm: number | null): number {
+function fishingFishScale(lengthCm: number | null): number {
   return lengthCm === null ? 0.72 : 0.8 * Math.sqrt(lengthCm / 25);
 }
 
@@ -44,7 +44,7 @@ function ease(value: number): number {
 }
 
 /** Fixed-size visual rope, independent of authoritative gameplay and frame rate. */
-export class FishingLine {
+class FishingLine {
   readonly points: RopePoint[] = Array.from({ length: 18 }, () => ({
     x: 142,
     y: 135,
@@ -260,7 +260,9 @@ export class FishingScene {
         ? bobber.x
         : 266 + Math.sin(time * 0.4) * 45;
     if (!["landing", "success", "finishing"].includes(state.phase)) {
-      if (escaped) ctx.globalAlpha *= Math.max(0, 1 - state.phaseTime / 700);
+      if (escaped) {
+        ctx.globalAlpha *= Math.max(0, 1 - state.phaseTime / 700);
+      }
       fish(
         ctx,
         fishX,

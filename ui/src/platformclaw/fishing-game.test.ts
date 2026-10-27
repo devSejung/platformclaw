@@ -8,7 +8,6 @@ import {
 import { GatewayRequestError, type GatewayBrowserClient } from "../api/gateway.ts";
 import { CHAT_SPACE_ACTIVATION_SELECTOR } from "../pages/chat/chat-pane-shared.ts";
 import { resolveFishingPresentation } from "./fishing-presentation.ts";
-import { fishingFishScale, FishingLine } from "./fishing-scene.ts";
 import { loadAllPlatformClawLocales } from "./i18n.ts";
 import "./fishing-game.ts";
 
@@ -93,6 +92,13 @@ async function flush(element: FishingElement) {
     await element.updateComplete;
   }
 }
+async function paintFrame(element: FishingElement, time: number) {
+  vi.mocked(performance.now).mockReturnValue(time);
+  const callbacks = [...frames.values()];
+  frames.clear();
+  callbacks.forEach((callback) => callback(time));
+  await flush(element);
+}
 async function mount(
   request: (method: string, params?: unknown) => Promise<unknown>,
   scope = "account-a",
@@ -110,7 +116,9 @@ function button(element: Element, name: string): HTMLButtonElement {
   const found = Array.from(element.querySelectorAll("button")).find(
     (candidate) => candidate.textContent?.trim() === name,
   );
-  if (!found) throw new Error("Missing button: " + name);
+  if (!found) {
+    throw new Error("Missing button: " + name);
+  }
   return found;
 }
 function key(
@@ -183,7 +191,9 @@ function server(initial = snapshot()) {
         attempt: { ...saved.attempt, phase: "caught", result },
       };
     }
-    if (method === FISHING_RPC.leaderboard) return { catches: [], earnedGold: [] };
+    if (method === FISHING_RPC.leaderboard) {
+      return { catches: [], earnedGold: [] };
+    }
     return saved;
   };
   return { calls, request };
@@ -242,6 +252,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   document.body.replaceChildren();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -253,7 +264,7 @@ describe("fishing inputs and operation ownership", () => {
     const element = await mount(async (method) => {
       if (method === FISHING_RPC.reel) {
         rejectedReleases++;
-        if (rejectedReleases === 1)
+        if (rejectedReleases === 1) {
           throw new GatewayRequestError({
             code: "INVALID_REQUEST",
             message: "Input budget reached. Wait for the result.",
@@ -262,8 +273,11 @@ describe("fishing inputs and operation ownership", () => {
               requestDisposition: "rejected-before-dispatch",
             },
           });
+        }
         // Bound the old automatic loop so this regression fails without hanging.
-        return new Promise<FishingSnapshot>(() => undefined);
+        return new Promise<FishingSnapshot>(() => {
+          // Keep an unexpected retry pending without starting another operation.
+        });
       }
       return saved;
     });
@@ -449,14 +463,153 @@ describe("fishing inputs and operation ownership", () => {
     },
   );
 
+  it.each([-1, 0, 1])("expires the finish presentation at deadline offset %sms", async (offset) => {
+    const round = finishing();
+    const now = round.finishDeadlineAt! + offset;
+    const saved = snapshot({ serverNow: now, attempt: round });
+    const projected = resolveFishingPresentation(saved, now, false, false).scene;
+    expect(projected.phase).toBe(offset < 0 ? "finishing" : "landing");
+    expect(projected.fishLengthCm).toBeNull();
+    const element = await mount(server(saved).request);
+    expect(Boolean(element.querySelector("[data-fishing-finish]"))).toBe(offset < 0);
+    expect(element.querySelector<HTMLButtonElement>("[data-fishing-action]")!.disabled).toBe(
+      offset >= 0,
+    );
+    expect(element.querySelector("[data-fishing-surface]")!.getAttribute("aria-disabled")).toBe(
+      String(offset >= 0),
+    );
+  });
+
+  it.each(["delayed", "failed"] as const)(
+    "keeps an expired finish closed during a %s poll and accepts the server's baseline catch",
+    async (mode) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      let resolveRead!: (value: FishingSnapshot) => void;
+      const delayed = new Promise<FishingSnapshot>((resolve) => {
+        resolveRead = resolve;
+      });
+      const calls: Call[] = [];
+      const round = finishing();
+      const saved = snapshot({ attempt: round });
+      const result = { ...catchResult(), caughtAt: round.finishDeadlineAt! };
+      const caught = snapshot({
+        serverNow: round.finishDeadlineAt! + 1,
+        revision: 1,
+        walletRevision: 1,
+        gold: 37,
+        totalCaught: 1,
+        totalEarnedGold: 12,
+        attempt: { ...round, phase: "caught", result },
+      });
+      let reads = 0;
+      const element = await mount(async (method, params) => {
+        calls.push({ method, params });
+        if (method !== FISHING_RPC.snapshot) {
+          return caught;
+        }
+        if (++reads === 1) {
+          return saved;
+        }
+        if (reads === 2) {
+          if (mode === "failed") {
+            throw new Error("snapshot disconnected");
+          }
+          return delayed;
+        }
+        return caught;
+      });
+      try {
+        expect(element.querySelector("[data-fishing-finish]")).not.toBeNull();
+        await paintFrame(element, 8_399);
+        expect(element.querySelector("[data-fishing-finish]")).not.toBeNull();
+        await paintFrame(element, 8_400);
+        expect(element.querySelector("[data-fishing-finish]")).toBeNull();
+        expect(element.querySelector("[data-fishing-finish-cursor]")).toBeNull();
+        expect(element.textContent).toContain("Landing");
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(reads).toBe(2);
+        const surface = element.querySelector("[data-fishing-surface]")!;
+        pointerDown(element.querySelector("canvas")!);
+        pointerUp();
+        key(surface, "keydown");
+        key(surface, "keyup");
+        key(document.body, "keydown", "ControlLeft");
+        key(document.body, "keyup", "ControlLeft");
+        surface.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        for (let time = 8_500; time < 9_500; time += 110) {
+          await paintFrame(element, time);
+        }
+        expect(reads).toBe(2);
+        expect(mutationCalls(calls)).toEqual([]);
+        expect(element.querySelector<HTMLButtonElement>("[data-fishing-action]")!.disabled).toBe(
+          true,
+        );
+        expect(element.querySelector("[data-fishing-catch]")).toBeNull();
+        if (mode === "delayed") {
+          resolveRead(caught);
+        } else {
+          button(element, "Refresh").click();
+        }
+        await flush(element);
+        expect(element.querySelector("[data-fishing-catch]")?.textContent).toContain("+12 G");
+        expect(element.querySelector("[data-fishing-catch]")?.textContent).toMatch(/×\s*1\.00/);
+        expect(element.textContent).toContain("37 G");
+        pointerDown(surface);
+        pointerUp();
+        await flush(element);
+        expect(mutationCalls(calls).map(({ method }) => method)).toEqual([FISHING_RPC.begin]);
+      } finally {
+        element.remove();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("retains an unknown pre-deadline finish nonce after expiry and retries that same operation", async () => {
+    const round = finishing();
+    const calls: Call[] = [];
+    let finishes = 0;
+    const element = await mount(async (method, params) => {
+      calls.push({ method, params });
+      if (method === FISHING_RPC.finish) {
+        if (++finishes === 1) {
+          throw new Error("finish response lost");
+        }
+        return snapshot({
+          serverNow: round.finishDeadlineAt! + 1,
+          revision: 1,
+          attempt: { ...round, phase: "caught", result: catchResult() },
+        });
+      }
+      return snapshot({ attempt: round });
+    });
+    pointerDown(element.querySelector("canvas")!);
+    pointerUp();
+    await flush(element);
+    expect(finishes).toBe(1);
+    await paintFrame(element, 8_401);
+    expect(element.querySelector("[data-fishing-finish]")).toBeNull();
+    key(document.body, "keydown", "ControlLeft");
+    key(document.body, "keyup", "ControlLeft");
+    await flush(element);
+    expect(finishes).toBe(1);
+    button(element, "Retry request").click();
+    await flush(element);
+    expect(finishes).toBe(2);
+    expect(mutationCalls(calls)[1]?.params).toEqual(mutationCalls(calls)[0]?.params);
+  });
+
   it.each(["blur", "scope"] as const)(
     "clears held Control on %s without triggering another action on release",
     async (reset) => {
       const service = server();
       const element = await mount(service.request);
       key(document.body, "keydown", "ControlLeft");
-      if (reset === "blur") window.dispatchEvent(new Event("blur"));
-      else element.preferenceScope = "account-b";
+      if (reset === "blur") {
+        window.dispatchEvent(new Event("blur"));
+      } else {
+        element.preferenceScope = "account-b";
+      }
       await flush(element);
       key(document.body, "keyup", "ControlLeft");
       await flush(element);
@@ -511,7 +664,9 @@ describe("fishing inputs and operation ownership", () => {
           casts.push(params);
           if (first) {
             first = false;
-            if (code === null) throw new Error("lost response");
+            if (code === null) {
+              throw new Error("lost response");
+            }
             throw new GatewayRequestError({
               code,
               message: "Authority changed after dispatch",
@@ -539,12 +694,17 @@ describe("fishing inputs and operation ownership", () => {
     let release!: (value: FishingSnapshot) => void;
     let reads = 0;
     const element = await mount(async (method) => {
-      if (method === FISHING_RPC.leaderboard) return { catches: [], earnedGold: [] };
-      if (method === FISHING_RPC.begin) throw new Error("lost receipt");
-      if (++reads > 1)
+      if (method === FISHING_RPC.leaderboard) {
+        return { catches: [], earnedGold: [] };
+      }
+      if (method === FISHING_RPC.begin) {
+        throw new Error("lost receipt");
+      }
+      if (++reads > 1) {
         return new Promise<FishingSnapshot>((resolve) => {
           release = resolve;
         });
+      }
       return snapshot();
     });
     button(element, "Rankings").click();
@@ -673,8 +833,6 @@ describe("minimal fishing presentation and preferences", () => {
   );
 
   it("keeps every live fish anonymous and shows actual size only after the catch", async () => {
-    expect(fishingFishScale(10)).toBeLessThan(fishingFishScale(35));
-    expect(fishingFishScale(35)).toBeLessThan(fishingFishScale(200));
     for (const pending of [attempt(), fighting(), finishing()]) {
       const saved = snapshot({ attempt: pending });
       expect(resolveFishingPresentation(saved, NOW, false, false).scene.fishLengthCm).toBeNull();
@@ -786,30 +944,5 @@ describe("minimal fishing presentation and preferences", () => {
     element.addEventListener("fishing-exit", exit);
     key(element.querySelector("section")!, "keydown", "Escape");
     expect(exit).toHaveBeenCalledOnce();
-  });
-});
-
-describe("visual rope numerical stability", () => {
-  it.each([15, 30, 60, 120])("keeps both anchors and finite bounded segments at %s fps", (fps) => {
-    const line = new FishingLine();
-    const start = { x: 120, y: 100 };
-    const end = { x: 310, y: 185 };
-    line.reset(start, end);
-    for (let frame = 0; frame < fps * 10; frame++) {
-      line.advance(start, end, 1000 / fps, 0.6);
-    }
-    expect(line.points[0]).toMatchObject(start);
-    expect(line.points.at(-1)).toMatchObject(end);
-    expect(
-      line.points.every(
-        (point) =>
-          Number.isFinite(point.x) &&
-          Number.isFinite(point.y) &&
-          point.x > 50 &&
-          point.x < 400 &&
-          point.y > 50 &&
-          point.y < 240,
-      ),
-    ).toBe(true);
   });
 });

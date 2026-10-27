@@ -20,7 +20,9 @@ function skilledInputs(
   let held = true;
   for (let atMs = 100; atMs < FISHING_FIGHT_DURATION_MS; atMs += 100) {
     const state = replayFishingFight(seed, difficulty, inputs, atMs, behavior);
-    if (state.status !== "fighting") break;
+    if (state.status !== "fighting") {
+      break;
+    }
     if ((held && state.tension > 0.72) || (!held && state.tension < 0.28)) {
       held = !held;
       inputs.push({ atMs, held });

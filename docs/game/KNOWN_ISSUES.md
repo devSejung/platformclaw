@@ -7,15 +7,35 @@ title: "Fishing known issues"
 
 # Fishing known issues
 
+Official review21046 found a P2 in legacy per-species record preservation.
+The private record-map correction passed31 focused SQLite tests. Follow-up
+review7363 confirmed that repair and found stale finish-window controls after
+the issued deadline. The corrected UI closes the bar and new finish input at
+expiry, including delayed or failed snapshot reads, while retaining the nonce
+of an already submitted operation. Fresh UI tests, re-review and final exact-head
+CI remain pending at this recorded checkpoint.
+
 The final candidate hides species/size/rarity until capture, targets15G base
 rewards and uses a1500ms hook window. Shipping review and required CI have been
 reauthorized; final exact-revision proof remains pending. No ready PR or clean
 review verdict is claimed. Existing preview data/assets are preserved, and no
 additional preview deployment is requested.
 
+The complete candidate on validated main has now passed hosted production/test
+types, all UI browser shards, the UI package and the affected backend suite.
+Its overall CI remains red on lint, dead exports and a shared-runner error-class
+identity test. Those findings are being corrected together; the new source still
+needs final affected checks and a successful official autoreview. The corrected
+Windows checkpoint passed111 tests (fishing38/baseball31/workshop42) and the
+19-path format check before the new records patch. The first review returned
+`reviewer_unavailable`; review21046 subsequently produced the P2 above. See the current checkpoint
+in the [implementation report](/game/IMPLEMENTATION_REPORT); table entries below
+retain the earlier checkpoint gaps and are superseded only by recorded proof.
+
 | Item                        | Status and consequence                                                                                                                                                                                                                                                                   |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Final contract proof        | The/10 reward data, hidden pre-catch metadata,1500ms deadline and final CSS require fresh owner/browser proof                                                                                                                                                                            |
+| Final contract proof        | The actual/10 simulation averaged15.5472175G GOOD over400,000conditional catches; its calculation identity is retained. The new species-record patch still needs its own tests, re-review and exact-head CI                                                                              |
+| Historical species records  | Legacy v1 counts/maxima must survive in private canonical state. Already-lossy v2 records cannot be guessed back; incomplete counts are lower bounds, and recovery from a verified backup is separate                                                                                    |
 | Browser zoom                | The prior/16 scenario completed two fights, explicit finish, timeout baseline and exactly-once wallet assertions, then failed at320px/bodyzoom125% with x−50. A containing-block percentage width corrects the independently measured CSS cause; final integrated rerun remains required |
 | Baseball browser regression | Team/save/account/mobile case passed. The bonus case reached+28G correctly but retained an obsolete+10G expectation at line343; that fixture correction awaits rerun                                                                                                                     |
 | Input                       | Physical pointer opt-in, scene-button Space ownership, immediate Control keydown and fast release were repaired. Final browser proof must retain real input and native editor protection                                                                                                 |

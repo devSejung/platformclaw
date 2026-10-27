@@ -1,8 +1,3 @@
-import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FishingRequest } from "./fishing-contracts.js";
 import {
@@ -11,200 +6,21 @@ import {
   resolveFishingDifficulty,
 } from "./fishing-economy.js";
 import { FISHING_FINISH_WINDOW_MS, replayFishingFight } from "./fishing-simulation.js";
-import { SqliteControlPlaneStore } from "./sqlite-store.js";
+import { START, createFishingFixtures } from "./sqlite-fishing.test-harness.js";
 
-const START = Date.parse("2026-10-26T10:00:00Z");
-const directories: string[] = [];
-const stores = new Set<SqliteControlPlaneStore>();
-function openStore(databasePath: string) {
-  const store = new SqliteControlPlaneStore({
-    databasePath,
-    initialAdminAccountIds: ["alice"],
-    buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
-  });
-  stores.add(store);
-  return store;
-}
-function closeStore(store: SqliteControlPlaneStore) {
-  stores.delete(store);
-  store.close();
-}
-async function setup() {
-  const directory = mkdtempSync(join(tmpdir(), "platformclaw-fishing-"));
-  directories.push(directory);
-  const databasePath = join(directory, "control.sqlite");
-  const store = openStore(databasePath);
-  const createUser = async (name: string) =>
-    (
-      await store.upsertPrincipal(
-        {
-          provider: "ldap",
-          subject: name,
-          accountId: name,
-          employeeId: name,
-          displayName: name,
-        },
-        START,
-      )
-    ).user;
-  return { store, databasePath, alice: await createUser("alice"), bob: await createUser("bob") };
-}
-function inspect<T>(path: string, operation: (db: DatabaseSync) => T): T {
-  const db = new DatabaseSync(path);
-  try {
-    return operation(db);
-  } finally {
-    db.close();
-  }
-}
-function execute(
-  store: SqliteControlPlaneStore,
-  userId: string,
-  request: FishingRequest,
-  now = START,
-) {
-  return store.fishing.executeFishing(userId, request, now);
-}
-function stageCatch(store: SqliteControlPlaneStore, userId: string, now = START) {
-  let state = execute(store, userId, { action: "begin", requestId: `begin-${now}` }, now);
-  const attempt = state.attempt!;
-  state = execute(
-    store,
-    userId,
-    { action: "hook", requestId: `hook-${now}`, attemptId: attempt.id },
-    attempt.biteAt,
-  );
-  let held = false;
-  for (let atMs = 0; atMs <= 7000; atMs += 100) {
-    const current = state.attempt!;
-    const fight = replayFishingFight(
-      current.seed,
-      current.difficulty!,
-      current.inputs,
-      atMs,
-      current.behavior!,
-    );
-    if (fight.status === "caught") {
-      const landedAt = Math.ceil(attempt.biteAt + fight.elapsedMs);
-      const phase = ((attempt.seed >>> 0) % 1200) / 1200;
-      const centerAt = Math.round(((0.5 - phase + 2) % 2) * 1200);
-      return {
-        attemptId: attempt.id,
-        landedAt,
-        finishAt: landedAt + centerAt,
-        deadlineAt: landedAt + FISHING_FINISH_WINDOW_MS,
-      };
-    }
-    expect(fight.status).toBe("fighting");
-    const nextHeld: boolean = held ? fight.tension < 0.7 : fight.tension < 0.36;
-    if (nextHeld !== held) {
-      held = nextHeld;
-      state = execute(
-        store,
-        userId,
-        { action: "reel", requestId: `reel-${now}-${atMs}`, attemptId: attempt.id, held },
-        attempt.biteAt + atMs,
-      );
-    }
-  }
-  throw new Error("Skilled input did not land its fish");
-}
-function catchFish(store: SqliteControlPlaneStore, userId: string, now = START) {
-  const staged = stageCatch(store, userId, now);
-  const result = execute(
-    store,
-    userId,
-    { action: "finish", requestId: `finish-${now}`, attemptId: staged.attemptId },
-    staged.finishAt,
-  );
-  expect(result.attempt?.phase).toBe("caught");
-  return result;
-}
-function seedPreview(databasePath: string, userId: string, auto = false) {
-  const priorFish = {
-    id: "saved-fish",
-    fishId: "crucian",
-    lengthCm: 15,
-    weightKg: 0.1,
-    salePrice: 12,
-    quality: "GOOD",
-    caughtAt: START - 1000,
-  };
-  const legacyRequest = { action: "begin", requestId: "legacy-completed", region: "pond" };
-  const prior = {
-    economyVersion: 1,
-    revision: 7,
-    rodLevel: 5,
-    unlockedRegions: ["pond", "river"],
-    inventory: [priorFish],
-    catalog: [{ fishId: "crucian", count: 9, bestLengthCm: 60, bestWeightKg: 2 }],
-    totalCaught: 9,
-    totalSoldGold: 80,
-    attempt: {
-      id: "saved-fish",
-      region: "pond",
-      issuedAt: START - 30_000,
-      biteAt: START - 15_000,
-      hookDeadlineAt: START - 14_350,
-      seed: 7,
-      rodLevel: 5,
-      phase: "caught",
-      quality: "GOOD",
-      rarity: "common",
-      behavior: "steady",
-      hookedAt: START - 15_000,
-      inputs: [],
-      fight: { elapsedMs: 5000, tension: 0.5, progress: 1, status: "caught" },
-      result: priorFish,
-    },
-    auto: auto ? { region: "pond", startedAt: START, expiresAt: START + 30 * 60_000 } : null,
-    autoSeed: 12345,
-    autoProcessed: 0,
-    rewardSeed: 7,
-    lastBeginAt: START - 30_000,
-    lastNowAt: START,
-    goalDay: Math.floor(START / 86_400_000),
-    goalWeek: Math.floor((Math.floor(START / 86_400_000) + 3) / 7),
-    dailyCaught: 2,
-    weeklyCaught: 5,
-  };
-  const oldReceipt = JSON.stringify({
-    action: "begin",
-    revision: 7,
-    attemptId: "saved-fish",
-    goldDelta: 0,
-    acceptedAt: START - 30_000,
-  });
-  inspect(databasePath, (db) => {
-    db.prepare("UPDATE baseball_game_progress SET gold = 987 WHERE user_id = ?").run(userId);
-    db.prepare(
-      "UPDATE fishing_profiles SET state_json = ?, total_caught = 9, total_sold_gold = 80 WHERE user_id = ?",
-    ).run(JSON.stringify(prior), userId);
-    const digest = createHash("sha256")
-      .update(
-        JSON.stringify(
-          Object.fromEntries(
-            Object.entries(legacyRequest).toSorted(([a], [b]) => a.localeCompare(b)),
-          ),
-        ),
-      )
-      .digest("hex");
-    db.prepare(
-      "INSERT INTO fishing_receipts (user_id,request_id,payload_digest,receipt_json) VALUES (?,?,?,?)",
-    ).run(userId, legacyRequest.requestId, digest, oldReceipt);
-  });
-  return { prior, oldReceipt, legacyRequest: legacyRequest as FishingRequest };
-}
-afterEach(() => {
-  for (const store of stores) {
-    store.close();
-  }
-  stores.clear();
-  for (const directory of directories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
+const {
+  setup,
+  openStore,
+  closeStore,
+  inspect,
+  execute,
+  stageCatch,
+  catchFish,
+  seedPreview,
+  readProfile,
+  cleanup,
+} = createFishingFixtures();
+afterEach(cleanup);
 describe("direct fishing records and shared gold", () => {
   it("anchors fractional fixed-step landings to integer server time and the ledger clock", async () => {
     const { store, databasePath, alice } = await setup();
@@ -265,8 +81,9 @@ describe("direct fishing records and shared gold", () => {
       const saved = JSON.parse(row.state_json) as { rewardSeed: number };
       return chooseFishingCatch(createFishingRandom(saved.rewardSeed), "GOOD");
     });
-    for (const field of ["fishId", "fishLengthCm", "rarity"])
+    for (const field of ["fishId", "fishLengthCm", "rarity"]) {
       expect(attempt).not.toHaveProperty(field);
+    }
     expect(attempt).not.toHaveProperty("rewardSeed");
     expect(attempt).not.toHaveProperty("rewardGold");
     expect(attempt).not.toHaveProperty("region");
@@ -277,8 +94,9 @@ describe("direct fishing records and shared gold", () => {
       { action: "hook", requestId: "actual-hook", attemptId: attempt.id },
       attempt.biteAt,
     );
-    for (const field of ["fishId", "fishLengthCm", "rarity"])
+    for (const field of ["fishId", "fishLengthCm", "rarity"]) {
       expect(hooked.attempt).not.toHaveProperty(field);
+    }
     expect(hooked.attempt!.difficulty).toBeGreaterThanOrEqual(1);
     expect(hooked.attempt!.difficulty).toBeLessThanOrEqual(10);
     expect(hooked.attempt).toMatchObject({
@@ -292,7 +110,9 @@ describe("direct fishing records and shared gold", () => {
     const selected: { seed: number; fish: ReturnType<typeof chooseFishingCatch> }[] = [];
     for (let seed = 0; seed < 10_000 && selected.length < 2; seed++) {
       const fish = chooseFishingCatch(createFishingRandom(seed), "GOOD");
-      if (fish.fishId !== "crucian") continue;
+      if (fish.fishId !== "crucian") {
+        continue;
+      }
       if (
         (!selected.length && fish.lengthCm <= 13) ||
         (selected.length === 1 && fish.lengthCm >= 32)
@@ -365,8 +185,9 @@ describe("direct fishing records and shared gold", () => {
       totalCaught: 0,
       attempt: { phase: "finishing", result: null },
     });
-    for (const field of ["fishId", "fishLengthCm", "rarity"])
+    for (const field of ["fishId", "fishLengthCm", "rarity"]) {
       expect(pending.attempt).not.toHaveProperty(field);
+    }
     expect(pending.attempt?.finishDeadlineAt).toBe(staged.deadlineAt);
     expect(() =>
       execute(store, alice.id, { action: "begin", requestId: "premature-cast" }, staged.landedAt),
@@ -445,13 +266,15 @@ describe("direct fishing records and shared gold", () => {
       bestCatch: { fishId: fish.fishId, lengthCm: fish.lengthCm, weightKg: fish.weightKg },
     });
     expect(fish.quality).toBe("PERFECT");
-    for (const field of ["fishId", "fishLengthCm", "rarity"])
+    for (const field of ["fishId", "fishLengthCm", "rarity"]) {
       expect(caught.attempt).not.toHaveProperty(field);
+    }
     expect(caught.attempt!.difficulty).toBe(resolveFishingDifficulty(fish.fishId, fish.lengthCm));
     expect(fish.accuracy).toBeCloseTo(1, 3);
     expect(fish.bonusMultiplier).toBeCloseTo(2, 3);
     expect(JSON.stringify(caught)).not.toContain("rewardSeed");
     expect(JSON.stringify(caught)).not.toContain("rewardQuote");
+    expect(caught).not.toHaveProperty("speciesRecords");
     const second = openStore(databasePath);
     const retry: FishingRequest = {
       action: "settle",
@@ -468,6 +291,12 @@ describe("direct fishing records and shared gold", () => {
     expect(reopened.fishing.loadFishingSnapshot(alice.id, caught.serverNow + 300)).toMatchObject({
       gold: fish.rewardGold,
       totalCaught: 1,
+    });
+    expect(readProfile(databasePath, alice.id)).toMatchObject({
+      speciesRecordsComplete: true,
+      speciesRecords: {
+        [fish.fishId]: { count: 1, bestLengthCm: fish.lengthCm, bestWeightKg: fish.weightKg },
+      },
     });
     inspect(databasePath, (db) => {
       expect(
@@ -707,6 +536,8 @@ describe("direct fishing records and shared gold", () => {
       expect(JSON.parse(row.state_json)).toMatchObject({
         totalCaught: 0,
         totalEarnedGold: 0,
+        speciesRecords: {},
+        speciesRecordsComplete: true,
         attempt: { phase: "fighting" },
       });
       db.exec("DROP TRIGGER fishing_receipt_failure");
@@ -715,6 +546,11 @@ describe("direct fishing records and shared gold", () => {
     const result = execute(reopened, alice.id, finish, staged.finishAt + 100);
     expect(result).toMatchObject({ totalCaught: 1, gold: result.attempt!.result!.rewardGold });
     expect(execute(reopened, alice.id, finish, staged.finishAt + 200).gold).toBe(result.gold);
+    expect(
+      Object.values(readProfile(databasePath, alice.id).speciesRecords).map(
+        (record) => record.count,
+      ),
+    ).toEqual([1]);
   });
 
   it("preserves preview records, credits saved fish once and replays historical nonces through canonical state", async () => {
@@ -799,8 +635,9 @@ describe("direct fishing records and shared gold", () => {
         revision: before.revision + 1,
         attempt: { phase },
       });
-      for (const field of ["fishId", "fishLengthCm", "rarity"])
+      for (const field of ["fishId", "fishLengthCm", "rarity"]) {
         expect(after.attempt).not.toHaveProperty(field);
+      }
       if (phase === "escaped") {
         expect(after.attempt).toMatchObject({
           difficulty: 6,
@@ -944,6 +781,7 @@ describe("direct fishing records and shared gold", () => {
     closeStore(store);
     let expectedGold = 999;
     let expectedCaught = 9;
+    const expectedFish: ReturnType<typeof chooseFishingCatch>[] = [];
     const previewPondPrices: Record<string, number> = {
       crucian: 12,
       minnow: 8,
@@ -963,12 +801,15 @@ describe("direct fishing records and shared gold", () => {
         let size = 0;
         const previewRandom = () => {
           const sample = random();
-          if (!first) size = sample;
+          if (!first) {
+            size = sample;
+          }
           const value = first ? sample / 4 : sample;
           first = false;
           return value;
         };
         const fish = chooseFishingCatch(previewRandom, "GOOD");
+        expectedFish.push(fish);
         expectedGold += Math.round(previewPondPrices[fish.fishId]! * (0.85 + 0.3 * size));
         expectedCaught++;
       }
@@ -978,6 +819,18 @@ describe("direct fishing records and shared gold", () => {
       gold: expectedGold,
       totalCaught: expectedCaught,
     });
+    const preserved = readProfile(databasePath, alice.id);
+    expect(preserved.speciesRecordsComplete).toBe(true);
+    expect(
+      Object.values(preserved.speciesRecords).reduce((sum, record) => sum + record.count, 0),
+    ).toBe(expectedCaught);
+    expect(preserved.speciesRecords.crucian!.bestLengthCm).toBeGreaterThanOrEqual(60);
+    expect(preserved.speciesRecords.crucian!.bestWeightKg).toBeGreaterThanOrEqual(2);
+    for (const fish of expectedFish) {
+      const record = preserved.speciesRecords[fish.fishId]!;
+      expect(record.bestLengthCm).toBeGreaterThanOrEqual(fish.lengthCm);
+      expect(record.bestWeightKg).toBeGreaterThanOrEqual(fish.weightKg);
+    }
     expect(migrated.fishing.loadFishingSnapshot(alice.id, START + 86_400_000)).toMatchObject({
       gold: expectedGold,
       totalCaught: expectedCaught,
@@ -986,6 +839,7 @@ describe("direct fishing records and shared gold", () => {
     expect(
       openStore(databasePath).fishing.loadFishingSnapshot(alice.id, START + 172_800_000).gold,
     ).toBe(expectedGold);
+    expect(readProfile(databasePath, alice.id).speciesRecords).toEqual(preserved.speciesRecords);
   });
 
   it("resets UTC goal periods, ranks paid catches and rejects disabled users", async () => {

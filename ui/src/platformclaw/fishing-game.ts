@@ -139,13 +139,14 @@ class PlatformClawFishing extends OpenClawLightDomContentsElement {
     this.start();
   }
 
-  private async refresh(): Promise<void> {
+  private async refresh(automatic = false): Promise<void> {
     const client = this.client;
     if (
       !client ||
       this.busy ||
       this.pending ||
       this.refreshing ||
+      (automatic && (this.pollTimer !== null || this.stale)) ||
       document.hidden ||
       !this.isConnected
     ) {
@@ -270,7 +271,9 @@ class PlatformClawFishing extends OpenClawLightDomContentsElement {
           void this.refresh();
           // Drain a newer physical edge only after success. A confirmed
           // rejection must wait for a new gesture, rather than loop new nonces.
-          if (accepted) this.pumpReel();
+          if (accepted) {
+            this.pumpReel();
+          }
         }
       }
     }
@@ -293,6 +296,12 @@ class PlatformClawFishing extends OpenClawLightDomContentsElement {
     const phase = this.presentation().scene.phase;
     if (attempt?.phase === "waiting" && phase === "miss") {
       void this.refresh();
+      return;
+    }
+    if (attempt?.phase === "finishing" && phase !== "finishing") {
+      // Expiry closes the input locally; the normal poll confirms the server's
+      // outcome without erasing an unknown mutation or starting new nonces.
+      void this.refresh(true);
       return;
     }
     if (this.held || this.stale || ["prepare", "casting", "splash"].includes(phase)) {
@@ -327,13 +336,17 @@ class PlatformClawFishing extends OpenClawLightDomContentsElement {
   private readonly globalKeyup = (event: KeyboardEvent): void => {
     if (event.key === "Control") {
       this.controlsHeld.delete(event.code);
-      if (this.controlsHeld.size === 0) this.release();
+      if (this.controlsHeld.size === 0) {
+        this.release();
+      }
     } else if (event.code === "Space" || event.code === "Enter") {
       this.release();
     }
   };
   private readonly controlKeydown = (event: KeyboardEvent): void => {
-    if (event.key !== "Control") return;
+    if (event.key !== "Control") {
+      return;
+    }
     const held = this.controlsHeld.size > 0;
     this.controlsHeld.add(event.code);
     if (
@@ -346,8 +359,9 @@ class PlatformClawFishing extends OpenClawLightDomContentsElement {
       event.target.closest(
         "input, select, textarea, [contenteditable], button:not([data-fishing-action]), a, [role=dialog]",
       )
-    )
+    ) {
       return;
+    }
     // Match baseball: every action begins on keydown; release only eases the line.
     this.press();
   };
@@ -418,15 +432,23 @@ class PlatformClawFishing extends OpenClawLightDomContentsElement {
   }
 
   private paint(): void {
+    const { scene } = this.presentation();
     const canvas = this.querySelector<HTMLCanvasElement>("canvas");
     if (canvas && !document.hidden) {
-      this.scene.paint(canvas, this.presentation().scene);
+      this.scene.paint(canvas, scene);
     }
     const attempt = this.snapshot?.attempt;
     const cursor = this.querySelector<HTMLElement>("[data-fishing-finish-cursor]");
-    if (cursor && attempt?.phase === "finishing" && attempt.finishStartedAt !== null) {
+    if (
+      cursor &&
+      scene.phase === "finishing" &&
+      attempt?.phase === "finishing" &&
+      attempt.finishStartedAt !== null
+    ) {
       // The timing marker paints at canvas cadence, not the slower text refresh.
       cursor.style.left = `${fishingFinishPosition(attempt.seed, this.serverNow - attempt.finishStartedAt) * 100}%`;
+    } else if (cursor) {
+      this.requestUpdate();
     }
   }
   private readonly tick = (now: number): void => {
@@ -440,7 +462,13 @@ class PlatformClawFishing extends OpenClawLightDomContentsElement {
       this.requestUpdate();
       const attempt = this.snapshot?.attempt;
       const { scene, fight } = this.presentation();
-      if (attempt?.phase === "waiting" && scene.phase === "miss") void this.refresh();
+      if (
+        (attempt?.phase === "waiting" && scene.phase === "miss") ||
+        (attempt?.phase === "finishing" && scene.phase !== "finishing")
+      ) {
+        // Animation cannot turn a slow or failed poll into a 10 Hz retry loop.
+        void this.refresh(true);
+      }
       if (attempt?.phase === "fighting" && fight && !this.busy && !this.pending && !this.stale) {
         if (fight.status !== "fighting" && this.settlingAttempt !== attempt.id) {
           this.settlingAttempt = attempt.id;
@@ -494,7 +522,7 @@ class PlatformClawFishing extends OpenClawLightDomContentsElement {
         ? Number(
             getSafeLocalStorage()?.getItem(`platformclaw.fishing.opacity:${this.preferenceScope}`),
           )
-        : NaN;
+        : Number.NaN;
       return Number.isInteger(value) && value >= 10 && value <= 100 && value % 5 === 0 ? value : 45;
     } catch {
       return 45;
@@ -502,14 +530,17 @@ class PlatformClawFishing extends OpenClawLightDomContentsElement {
   }
 
   private setOpacity(value: number): void {
-    if (!Number.isInteger(value) || value < 10 || value > 100 || value % 5 !== 0) return;
+    if (!Number.isInteger(value) || value < 10 || value > 100 || value % 5 !== 0) {
+      return;
+    }
     this.opacity = value;
     try {
-      if (this.preferenceScope)
+      if (this.preferenceScope) {
         getSafeLocalStorage()?.setItem(
           `platformclaw.fishing.opacity:${this.preferenceScope}`,
           String(value),
         );
+      }
     } catch {
       /* Session rendering still applies when browser storage is unavailable. */
     }

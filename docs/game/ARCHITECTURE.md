@@ -23,7 +23,7 @@ fishing with a post-fight timing finish and immediate completed-catch rewards; r
 | SQLite fishing owner | One active account-bound attempt, completed catches, personal records and immutable receipts                               |
 | `SqliteGameEconomy`  | Canonical shared balance/revision and existing gold transaction ledger                                                     |
 
-There is no inventory, sale operation, catalog, equipment progression, region
+There is no inventory, sale operation, catalog UI, equipment progression, region
 purchase or automatic-fishing lease. There is no region selection or regional data surface. Removed operations must also disappear from
 RPC advertisement, parsing, production callers and tests; a hidden menu alone
 does not remove a contract.
@@ -44,7 +44,10 @@ A won fight enters a timing-finish phase, not a paid catch. The server records
 against its own clock, and derives accuracy/bonus from canonical rules. The
 additive `finish` RPC takes only request/attempt IDs; it accepts no client timing
 or accuracy. Shared pure position/accuracy functions make browser and server
-agree. Deadline expiry completes the won catch at baseline 1×, once. Do not trust client bar
+agree. Deadline expiry completes the won catch at baseline 1×, once. The browser closes
+the bar and new finish input at that same issued deadline while awaiting the
+authoritative catch; failed or delayed reads do not reopen the window. A pending
+accepted-or-unknown operation retains its retry nonce. Do not trust client bar
 coordinates, claimed accuracy or timestamps. Species difficulty must be pinned
 as an explicit 1–10 value per attempt and replay identically in browser/server.
 Species identity, size and rarity remain hidden until successful capture.
@@ -113,6 +116,19 @@ once, stops retired automatic state and retains prior immutable receipts without
 rerunning their accepted operations. This is a bounded
 transactional migration, not a second steady-state reader or fallback. It must
 not advance the schema version or erase sibling data.
+
+Review21046 identified that retaining only a global best loses the legacy
+catalog's other species records. The owner correction retains private
+`speciesRecords: Record<string, { count, bestLengthCm, bestWeightKg }>` plus
+`speciesRecordsComplete`. It adds no public snapshot fields, RPC, catalog UI or
+schema version. Fresh accounts and complete legacy v1 conversions have complete
+records; already-converted v2 accounts without the map preserve only verified
+global-best/last-result facts and remain incomplete when historical catches exist.
+Counts on incomplete records are lower bounds. New catches increment once;
+paying an already-counted inventory item does not increment again.
+Already-discarded history cannot be inferred or reconstructed without a verified
+backup and a separate recovery decision. Runtime reads only canonical state.
+The new records regression tests, re-review and final CI are still pending.
 
 Code rollback retains the current database and already committed G movements.
 Restoring an old database would also erase later baseball/racing activity and

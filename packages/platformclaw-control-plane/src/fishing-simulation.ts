@@ -7,7 +7,7 @@ import type {
 import { FISHING_MAX_INPUTS } from "./fishing-economy.ts";
 
 export const FISHING_FIGHT_DURATION_MS = 7_000;
-export const FISHING_FIXED_STEP_MS = 1_000 / 60;
+const FISHING_FIXED_STEP_MS = 1_000 / 60;
 export const FISHING_FINISH_WINDOW_MS = 4_000;
 const FISHING_BEHAVIOR_PULL: Record<
   FishingBehavior,

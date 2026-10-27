@@ -24,7 +24,9 @@ export function resolveFishingPresentation(
     fishLengthCm: attempt?.result?.lengthCm ?? null,
     escapeReason: null,
   };
-  if (!attempt) return { scene: { ...base, phase: "idle" }, fight: null };
+  if (!attempt) {
+    return { scene: { ...base, phase: "idle" }, fight: null };
+  }
   if (
     attempt.phase === "fighting" &&
     attempt.hookedAt !== null &&
@@ -53,10 +55,13 @@ export function resolveFishingPresentation(
     };
   }
   if (attempt.phase === "finishing" && attempt.finishStartedAt !== null) {
+    // Close the bonus window on the projected server deadline, while only a
+    // fresh authoritative snapshot can reveal the catch and credited reward.
+    const expired = attempt.finishDeadlineAt !== null && now >= attempt.finishDeadlineAt;
     return {
       scene: {
         ...base,
-        phase: "finishing",
+        phase: expired ? "landing" : "finishing",
         phaseTime: Math.max(0, now - attempt.finishStartedAt),
         progress: 1,
       },
@@ -85,12 +90,18 @@ export function resolveFishingPresentation(
     };
   }
   // The bite signal ends with the server's hook window, even between snapshot polls.
-  if (now > attempt.hookDeadlineAt) return { scene: { ...base, phase: "miss" }, fight: null };
-  if (elapsed < 550) return { scene: { ...base, phase: "prepare" }, fight: null };
-  if (elapsed < 1950)
+  if (now > attempt.hookDeadlineAt) {
+    return { scene: { ...base, phase: "miss" }, fight: null };
+  }
+  if (elapsed < 550) {
+    return { scene: { ...base, phase: "prepare" }, fight: null };
+  }
+  if (elapsed < 1950) {
     return { scene: { ...base, phase: "casting", phaseTime: elapsed - 550 }, fight: null };
-  if (elapsed < 2500)
+  }
+  if (elapsed < 2500) {
     return { scene: { ...base, phase: "splash", phaseTime: elapsed - 1950 }, fight: null };
+  }
   const nibble = attempt.nibbles.find(
     (event) => now >= event.at && now < event.at + event.durationMs,
   );
