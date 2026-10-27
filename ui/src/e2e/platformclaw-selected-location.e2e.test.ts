@@ -54,6 +54,23 @@ const settings: ExecutionSettings = {
   codingAgents: [],
 };
 
+function savedVmsForTarget(
+  target: ExecutionSettings["activeTarget"],
+  connectionId: string | undefined,
+): ExecutionSettings["savedVms"] {
+  return settings.savedVms.map((vm) => ({
+    id: vm.id,
+    vmHostId: vm.vmHostId,
+    vmLabel: vm.vmLabel,
+    safeConnectLabel: vm.safeConnectLabel,
+    linuxAccount: vm.linuxAccount,
+    status: vm.status,
+    active: target === "assigned_vm" && vm.id === connectionId,
+    remoteWorkspaceDir: vm.remoteWorkspaceDir,
+    lastConnectionSucceededAt: vm.lastConnectionSucceededAt,
+  }));
+}
+
 suite.define(() => {
   it.each(["platform_server", "assigned_vm"] as const)(
     "keeps the member's selected %s visible on mobile and preserves the draft when switching",
@@ -74,20 +91,21 @@ suite.define(() => {
       let current: ExecutionSettings = {
         ...settings,
         activeTarget: target,
-        savedVms: settings.savedVms.map((vm) => ({
-          ...vm,
-          active: target === "assigned_vm" && vm.id === "connection-one",
-        })),
+        savedVms: savedVmsForTarget(target, "connection-one"),
       };
       const destinations: Array<string | undefined> =
         target === "platform_server"
           ? ["connection-one", "connection-two"]
           : [undefined, "connection-one", "connection-two"];
-      const expectedChanges = destinations.map((connectionId, index) => ({
-        target: connectionId ? ("assigned_vm" as const) : ("platform_server" as const),
-        ...(connectionId ? { connectionId } : {}),
-        expectedRevision: 8 + index,
-      }));
+      const expectedChanges = destinations.map((connectionId, index) =>
+        connectionId
+          ? {
+              target: "assigned_vm" as const,
+              connectionId,
+              expectedRevision: 8 + index,
+            }
+          : { target: "platform_server" as const, expectedRevision: 8 + index },
+      );
       const changes: unknown[] = [];
       const executionResponse = async (route: Route) => {
         if (route.request().method() === "POST") {
@@ -116,10 +134,7 @@ suite.define(() => {
                   linuxAccount: vm.linuxAccount,
                 }
               : current.assignment,
-            savedVms: current.savedVms.map((entry) => ({
-              ...entry,
-              active: change.target === "assigned_vm" && entry.id === change.connectionId,
-            })),
+            savedVms: savedVmsForTarget(change.target, change.connectionId),
           };
         }
         await route.fulfill({ json: current });

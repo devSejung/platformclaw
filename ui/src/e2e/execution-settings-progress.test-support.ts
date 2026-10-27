@@ -24,15 +24,15 @@ type ProofHost = HTMLElement & {
 };
 
 async function captureDialogIdentity(component: Locator, kind: "settings" | "progress") {
-  const modal = component.locator(`[data-${kind}-modal]`);
-  const dialog = modal.locator("dialog");
+  const modalHost = component.locator(`[data-${kind}-modal]`);
+  const dialog = modalHost.locator("dialog");
   await expect
     .poll(() => dialog.evaluate((element) => (element as HTMLDialogElement).open))
     .toBe(true);
   // Native opening precedes the adapter's next-frame content and focus admission.
   await expect
     .poll(() =>
-      modal.evaluate((element) => {
+      modalHost.evaluate((element) => {
         const slot = element.shadowRoot?.querySelector("slot");
         return Boolean(slot && !slot.inert && !slot.hasAttribute("data-focus-pending"));
       }),
