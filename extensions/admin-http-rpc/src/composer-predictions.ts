@@ -27,16 +27,7 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
   const enabled = () =>
     api.runtime.config.current().plugins?.entries?.["admin-http-rpc"]?.config
       ?.composerPredictionsEnabled === true;
-  // All ordinary model calls, including Knox and Cron, outrank speculative work.
-  api.on("model_call_started", (event) => {
-    modelCalls.add(event.callId);
-    active?.abort();
-  });
-  api.on("model_call_ended", (event) => {
-    modelCalls.delete(event.callId);
-  });
-
-  return async (params: unknown, signal: AbortSignal): Promise<unknown> => {
+  const handleRequest = async (params: unknown, signal: AbortSignal): Promise<unknown> => {
     if (!isRecord(params) || typeof params.userId !== "string" || !params.userId) {
       throw new Error("Invalid composer request");
     }
@@ -188,5 +179,15 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
         active = null;
       }
     }
+  };
+  return {
+    handleRequest,
+    modelCallStarted(callId: string): void {
+      modelCalls.add(callId);
+      active?.abort();
+    },
+    modelCallEnded(callId: string): void {
+      modelCalls.delete(callId);
+    },
   };
 }

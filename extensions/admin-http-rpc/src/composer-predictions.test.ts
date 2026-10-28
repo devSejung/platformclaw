@@ -11,7 +11,6 @@ vi.mock("openclaw/plugin-sdk/ssrf-runtime", () => ({
 
 function setup() {
   const values = new Map<string, boolean>();
-  const hooks = new Map<string, (event: { callId: string }) => void>();
   const config = {
     plugins: { entries: { "admin-http-rpc": { config: { composerPredictionsEnabled: true } } } },
     models: {
@@ -36,14 +35,14 @@ function setup() {
         }),
       },
     },
-    on: (name: string, hook: (event: { callId: string }) => void) => hooks.set(name, hook),
   } as unknown as OpenClawPluginApi;
   mocks.lookup.mockResolvedValue([{ address: "10.1.2.3", family: 4 }]);
   mocks.fetch.mockImplementation(async () => ({
     response: Response.json({ choices: [{ message: { content: "다음 단계는 무엇인가요?" } }] }),
     release: async () => {},
   }));
-  const call = createComposerPredictions(api);
+  const composer = createComposerPredictions(api);
+  const call = composer.handleRequest;
   const params = {
     action: "predict",
     userId: "user-1",
@@ -53,7 +52,7 @@ function setup() {
     ],
   };
   const predict = (signal = new AbortController().signal) => call(params, signal);
-  return { call, predict, hooks, config, values, params };
+  return { call, predict, composer, config, values, params };
 }
 afterEach(() => {
   vi.clearAllMocks();
@@ -76,7 +75,7 @@ describe("Fast-only isolated inference", () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
   it("skips concurrent predictions and preempts them for ordinary chat", async () => {
-    const { predict, hooks, values } = setup();
+    const { predict, composer, values } = setup();
     values.set("user-1", true);
     let abortSignal: AbortSignal | undefined;
     mocks.fetch.mockImplementationOnce(
@@ -89,11 +88,11 @@ describe("Fast-only isolated inference", () => {
     const pending = predict();
     await vi.waitFor(() => expect(abortSignal).toBeDefined());
     expect(await predict()).toEqual({ text: null });
-    hooks.get("model_call_started")?.({ callId: "normal-chat" });
+    composer.modelCallStarted("normal-chat");
     expect(abortSignal?.aborted).toBe(true);
     expect(await pending).toEqual({ text: null });
     expect(await predict()).toEqual({ text: null });
-    hooks.get("model_call_ended")?.({ callId: "normal-chat" });
+    composer.modelCallEnded("normal-chat");
     expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?" });
   });
   it("rejects public destinations and does not retry or fall back on failure", async () => {

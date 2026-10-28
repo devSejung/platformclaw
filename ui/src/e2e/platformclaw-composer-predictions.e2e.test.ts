@@ -2,17 +2,20 @@ import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
 import { openComposerPredictionFixture } from "../test-helpers/platformclaw-composer-fixture.ts";
+
+const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 
 describe("PlatformClaw composer prediction keyboard behavior", () => {
   let browser: Browser;
   let server: ControlUiE2eServer;
   beforeAll(async () => {
     server = await startControlUiE2eServer();
-    browser = await chromium.launch();
+    browser = await chromium.launch({ executablePath: chromiumExecutablePath });
   });
   afterAll(async () => {
     await browser?.close();

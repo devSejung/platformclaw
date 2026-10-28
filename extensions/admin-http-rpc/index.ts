@@ -30,6 +30,10 @@ export default definePluginEntry({
   description: "Expose selected admin RPC and PlatformClaw profile context",
   register(api) {
     const composer = createComposerPredictions(api);
+    // Ordinary model calls, including Knox and Cron, outrank speculative work.
+    // Keep lifecycle registration here; the service owns admission and cancellation.
+    api.on("model_call_started", (event) => composer.modelCallStarted(event.callId));
+    api.on("model_call_ended", (event) => composer.modelCallEnded(event.callId));
     const employeeProfiles = api.runtime.state.openKeyedStore<unknown>({
       namespace: PLATFORMCLAW_PROFILE_STORE_NAMESPACE,
       maxEntries: MAX_EMPLOYEE_PROFILES,
@@ -50,7 +54,7 @@ export default definePluginEntry({
       auth: "gateway",
       match: "exact",
       gatewayRuntimeScopeSurface: "trusted-operator",
-      handler: (req, res) => handleAdminHttpRpcRequest(req, res, composer),
+      handler: (req, res) => handleAdminHttpRpcRequest(req, res, composer.handleRequest),
     });
     api.registerGatewayMethod(PLATFORMCLAW_AGENT_CONFIG_STATUS_METHOD, handleAgentConfigStatus, {
       scope: "operator.admin",

@@ -383,13 +383,18 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
                   @input=${handleInput}
                   @select=${handleSelect}
                   @compositionstart=${(event: CompositionEvent) => {
+                    const hadVisiblePrediction = Boolean(state.prediction?.text && !visibleDraft);
                     state.prediction?.dismiss();
                     state.composerComposing = true;
                     state.composingDraft = {
                       key: draftKey,
                       value: (event.target as HTMLTextAreaElement).value,
                     };
-                    requestUpdate();
+                    // Composing input owns the usual render. Paint earlier only to
+                    // remove visible ghost text before the first composing character.
+                    if (hadVisiblePrediction) {
+                      requestUpdate();
+                    }
                   }}
                   @compositionend=${handleCompositionEnd}
                   @blur=${handleBlur}
@@ -403,8 +408,8 @@ export function renderChatComposerView(context: ChatComposerViewContext) {
                 ></textarea>
                 ${state.prediction?.text && !visibleDraft
                   ? html`<div class="platformclaw-composer-prediction" aria-hidden="true">
-                      ${state.prediction.text}<span class="platformclaw-composer-prediction__hint">
-                        Tab ↹</span
+                      ${state.prediction.text}<span class="platformclaw-composer-prediction__hint"
+                        >${t("chat.composer.predictionAcceptHint")}</span
                       >
                     </div>`
                   : nothing}

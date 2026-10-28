@@ -260,7 +260,14 @@ session, provisioning, authorization, and UI checks do not.
 
 ## Composer Predictions fixture
 
-From the feature checkout, run:
+From a normal feature checkout with dependencies ready, run:
+
+```powershell
+pnpm platformclaw:composer-preview
+```
+
+In a Windows linked worktree, reuse the primary checkout toolchain and run the
+Node entry point directly:
 
 ```powershell
 node --import tsx scripts/platformclaw-composer-preview.ts

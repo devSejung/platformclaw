@@ -36,7 +36,12 @@ const BUNDLED_TYPED_HOOK_REGISTRATION_FILES = [
 const BUNDLED_TYPED_HOOK_REGISTRATION_GUARDS = {
   "extensions/acpx/index.ts": ["reply_dispatch"],
   "extensions/active-memory/index.ts": ["agent_end", "before_model_resolve", "before_prompt_build"],
-  "extensions/admin-http-rpc/index.ts": ["before_prompt_build", "before_tool_call"],
+  "extensions/admin-http-rpc/index.ts": [
+    "before_prompt_build",
+    "before_tool_call",
+    "model_call_ended",
+    "model_call_started",
+  ],
   "extensions/clickclack/src/discussions/register.ts": ["before_tool_call"],
   "extensions/codex/index.ts": ["after_compaction", "inbound_claim", "session_end"],
   "extensions/diffs/src/plugin.ts": ["before_prompt_build"],

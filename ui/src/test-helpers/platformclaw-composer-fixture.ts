@@ -1,6 +1,5 @@
 import type { Browser, Page } from "playwright";
 import { installMockGateway, type ControlUiE2eServer } from "./control-ui-e2e.ts";
-import type { ControlUiPreviewOptions } from "./control-ui-preview-fixtures.ts";
 import {
   createPlatformClawMemoryContext,
   installPlatformClawMemoryDocument,
@@ -11,7 +10,7 @@ import {
 export async function openComposerPredictionFixture(params: {
   browser: Browser;
   server: ControlUiE2eServer;
-  options: ControlUiPreviewOptions;
+  options: Parameters<typeof createPlatformClawMemoryContext>[2];
 }) {
   const { browser, server, options } = params;
   const context = await createPlatformClawMemoryContext(browser, server.baseUrl, options);
