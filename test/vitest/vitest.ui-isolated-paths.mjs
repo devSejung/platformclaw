@@ -1,9 +1,13 @@
 // Preserve the dedicated UI project's ownership for scoped and full scheduling.
 // Both UI projects isolate their DOM registry and module graph together per file.
+// Module-resetting suites must not invalidate another file's registered constructors.
 export const uiIsolatedTestFiles = [
   "ui/src/app/app-host.server-prefs.test.ts",
   "ui/src/app/bootstrap.test.ts",
+  "ui/src/app/native-gateways.test.ts",
   "ui/src/app/router-outlet.test.ts",
+  "ui/src/build-info.test.ts",
+  "ui/src/components/modal-dialog.test.ts",
   "ui/src/components/resizable-divider.test.ts",
   "ui/src/components/viewer-facepile.test.ts",
   "ui/src/platformclaw/easter-egg-workshop.test.ts",
@@ -31,6 +35,7 @@ export const uiIsolatedTestFiles = [
   "ui/src/pages/config/config-page.custom-theme.test.ts",
   "ui/src/pages/config/memory-mutation-owner.test.ts",
   "ui/src/pages/config/memory-page.test.ts",
+  "ui/src/pages/plugins/view.test.ts",
   "ui/src/pages/sessions/sessions-page.archived.test.ts",
   "ui/src/pages/workboard/view.test.ts",
   // Dashboard constructors must share the provider graph used by lease assertions
