@@ -32,9 +32,21 @@ Predictions are returned only to that request; they are neither broadcast nor
 written to conversation history. Caller-supplied user identities, context, model,
 or endpoint parameters are rejected.
 
-The trusted admin HTTP plugin calls only configured `codemate/codellm-fast`
-(`ornith-1.5-35b` in the company catalog), using the existing OpenAI-compatible
-provider URL, headers, and resolved credentials. The destination must resolve to
+Set the prediction model separately from conversation models:
+
+```dotenv
+PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL=codemate/codellm-fast
+```
+
+Use a full `provider/model` reference from the existing Gateway model configuration.
+Unset or blank values keep the default `codemate/codellm-fast`. For a Docker runtime
+deployment, edit `deployment.env` and run `./platformclaw-compose up -d openclaw-gateway`
+to recreate the Gateway with the new environment. For a directly launched Gateway,
+set the variable in its environment and restart it. The plugin pins the selection
+until it is recreated.
+
+The trusted admin HTTP plugin calls only that selected model using the existing
+OpenAI-compatible provider URL, headers, and resolved credentials. The destination must resolve to
 private or loopback addresses, DNS is pinned, and redirects are forbidden. Missing
 configuration or unsupported API adapters yield no suggestion. No external LLM,
 Agent Loop, tools, skills, memory retrieval, retries, or model fallback are used.

@@ -1,5 +1,5 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createComposerPredictions } from "./composer-predictions.js";
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), lookup: vi.fn() }));
@@ -9,16 +9,16 @@ vi.mock("openclaw/plugin-sdk/ssrf-runtime", () => ({
   isPrivateOrLoopbackHost: (address: string) => address === "10.1.2.3",
 }));
 
-function setup() {
+function setup(providerId = "codemate", modelId = "codellm-fast", apiType = "openai-completions") {
   const values = new Map<string, boolean>();
   const config = {
     plugins: { entries: { "admin-http-rpc": { config: { composerPredictionsEnabled: true } } } },
     models: {
       providers: {
-        codemate: {
+        [providerId]: {
           baseUrl: "http://company.internal/v1",
-          api: "openai-completions",
-          models: [{ id: "codellm-fast" }],
+          api: apiType,
+          models: [{ id: modelId }],
         },
       },
     },
@@ -52,14 +52,19 @@ function setup() {
     ],
   };
   const predict = (signal = new AbortController().signal) => call(params, signal);
-  return { call, predict, composer, config, values, params };
+  return { call, predict, composer, values, params };
 }
+beforeEach(() => {
+  vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", undefined);
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
   vi.useRealTimers();
 });
 
-describe("Fast-only isolated inference", () => {
+describe("Explicit isolated prediction inference", () => {
   it("defaults OFF, isolates account preferences, and never follows conversation models", async () => {
     const { call, predict, params } = setup();
     expect(await predict()).toEqual({ text: null });
@@ -73,6 +78,41 @@ describe("Fast-only isolated inference", () => {
     expect(body.tools).toBeUndefined();
     expect(request.capture).toBe(false);
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+  it("uses the configured provider/model and pins it until plugin recreation", async () => {
+    vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", "  company-fast/org/followup-v2  ");
+    const { predict, values } = setup("company-fast", "org/followup-v2");
+    values.set("user-1", true);
+    vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", "codemate/codellm-fast");
+    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?" });
+    const request = mocks.fetch.mock.calls[0]?.[0];
+    expect(JSON.parse(request.init.body).model).toBe("org/followup-v2");
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each(["", "   "])("keeps the default for an empty model environment (%j)", async (value) => {
+    vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", value);
+    const { predict, values } = setup();
+    values.set("user-1", true);
+    await predict();
+    expect(JSON.parse(mocks.fetch.mock.calls[0]?.[0].init.body).model).toBe("codellm-fast");
+  });
+  it.each(["codellm-fast", "/fast", "codemate/", "missing/fast", "codemate/missing"])(
+    "skips an invalid or unavailable explicit selection (%s) without fallback",
+    async (value) => {
+      vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", value);
+      const { predict, values } = setup();
+      values.set("user-1", true);
+      expect(await predict()).toEqual({ text: null });
+      expect(mocks.fetch).not.toHaveBeenCalled();
+      expect(mocks.lookup).not.toHaveBeenCalled();
+    },
+  );
+  it("rejects an unsupported API on the selected provider", async () => {
+    vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", "company-fast/followup-v2");
+    const { predict, values } = setup("company-fast", "followup-v2", "anthropic-messages");
+    values.set("user-1", true);
+    expect(await predict()).toEqual({ text: null });
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
   it("skips concurrent predictions and preempts them for ordinary chat", async () => {
     const { predict, composer, values } = setup();
@@ -96,7 +136,8 @@ describe("Fast-only isolated inference", () => {
     expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?" });
   });
   it("rejects public destinations and does not retry or fall back on failure", async () => {
-    const { predict, values } = setup();
+    vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", "company-fast/followup-v2");
+    const { predict, values } = setup("company-fast", "followup-v2");
     values.set("user-1", true);
     mocks.lookup.mockResolvedValueOnce([{ address: "8.8.8.8", family: 4 }]);
     expect(await predict()).toEqual({ text: null });

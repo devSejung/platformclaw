@@ -1,10 +1,11 @@
 import { lookup } from "node:dns/promises";
+import { findNormalizedProviderValue, parseModelRef } from "openclaw/plugin-sdk/agent-runtime";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { fetchWithSsrFGuard, isPrivateOrLoopbackHost } from "openclaw/plugin-sdk/ssrf-runtime";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
 export const COMPOSER_RPC = "platformclaw.composer";
-const MODEL_ID = "codellm-fast";
+const DEFAULT_MODEL_REF = "codemate/codellm-fast";
 const SYSTEM_PROMPT = [
   "Predict one short, useful next message the USER might type in this conversation.",
   "Write in the user's voice and language (Korean when appropriate). Return only one concise question.",
@@ -17,6 +18,16 @@ const SYSTEM_PROMPT = [
 
 /** Trusted HTTP only: deliberately not registered as a Gateway/agent RPC. */
 export function createComposerPredictions(api: OpenClawPluginApi) {
+  const modelRefText =
+    process.env.PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL?.trim() || DEFAULT_MODEL_REF;
+  // Pin the explicit deployment selection for this plugin lifecycle; never
+  // resolve aliases or fall back to the employee's conversation model.
+  const modelRef = modelRefText.includes("/")
+    ? parseModelRef(modelRefText, "", {
+        allowManifestNormalization: false,
+        allowPluginNormalization: false,
+      })
+    : null;
   const preferences = api.runtime.state.openKeyedStore<boolean>({
     namespace: "platformclaw.composer-preferences",
     maxEntries: 50_000,
@@ -64,8 +75,14 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
     active = controller;
     const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(10_000)]);
     try {
-      const provider = api.runtime.config.current().models?.providers?.codemate;
-      const model = provider?.models.find((candidate) => candidate.id === MODEL_ID);
+      if (!modelRef) {
+        return { text: null };
+      }
+      const provider = findNormalizedProviderValue(
+        api.runtime.config.current().models?.providers,
+        modelRef.provider,
+      );
+      const model = provider?.models.find((candidate) => candidate.id === modelRef.model);
       if (!provider || !model || (model.api ?? provider.api) !== "openai-completions") {
         return { text: null };
       }
@@ -111,7 +128,7 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
           method: "POST",
           headers,
           body: JSON.stringify({
-            model: MODEL_ID,
+            model: model.id,
             messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
             max_tokens: 64,
             stream: false,
