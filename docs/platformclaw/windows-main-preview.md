@@ -257,3 +257,55 @@ the primary checkout toolchain through repository wrappers or remote checks.
 Close the three service windows to stop the local stack. Actual model replies
 still require an approved OpenAI-compatible provider configuration; login,
 session, provisioning, authorization, and UI checks do not.
+
+## Composer Predictions fixture
+
+From a normal feature checkout with dependencies ready, run:
+
+```powershell
+pnpm platformclaw:composer-preview
+```
+
+In a Windows linked worktree, reuse the primary checkout toolchain and run the
+Node entry point directly:
+
+```powershell
+node --import tsx scripts/platformclaw-composer-preview.ts
+```
+
+Open `http://127.0.0.1:60326/platformclaw/app/chat/assigned-personal/main` in any
+browser tab. This serves the real Web UI with synthetic chat and a clearly
+marked development Mock. Every document receives the same fixture bootstrap;
+closing a browser tab does not stop the server. Keep the command running until
+manual testing finishes, then press Ctrl-C. The fixed loopback port must be free.
+The fixture is test tooling and is excluded from the production application.
+
+For an agent handoff on Windows, launch it independently of the command session:
+
+```powershell
+$previewRoot = (Get-Location).Path
+$previewLogs = Join-Path $previewRoot '.artifacts/composer-predictions'
+New-Item -ItemType Directory -Force -Path $previewLogs | Out-Null
+$previewProcess = Start-Process -FilePath (Get-Command node).Source -ArgumentList @('--import', 'tsx', 'scripts/platformclaw-composer-preview.ts') -WorkingDirectory $previewRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $previewLogs 'server.log') -RedirectStandardError (Join-Path $previewLogs 'server.err.log') -PassThru
+$previewProcess.Id
+```
+
+Retain the returned process ID to stop this preview with `Stop-Process -Id <id>`.
+Preferences and scenario selection belong to the single synthetic account for
+this server process and reset when it restarts. No real Gateway or LLM runs.
+
+Open **Settings > Appearance > Chat preferences**, enable **다음 프롬프트 예측**,
+and return to Chat. Send any synthetic message. After the mock answer completes,
+the next prompt appears in gray italic Ghost Text. Tab inserts it without sending.
+Escape dismisses it. Typing and Korean IME composition invalidate it.
+
+Use the Mock banner's scenario selector for immediate success, a four-second
+model delay, a ten-second timeout without a suggestion, or a busy-model skip.
+In the delay scenario, type or switch sessions before the reply arrives and
+verify that no stale suggestion appears. Disable the account preference and send
+another message to verify that no prediction request occurs.
+
+The fixture proves interaction behavior only. It does not validate company Fast
+availability, model quality, GPU cancellation, or normal-chat latency under real
+load. See [Web ingress runtime](/platformclaw/web-ingress-runtime#composer-predictions)
+for the actual model path, server flag, and operational limits.

@@ -7,7 +7,6 @@ import {
   type ConnectParams,
   type EventFrame,
   type RequestFrame,
-  type ResponseFrame,
   validateConnectParams,
   validateRequestFrame,
 } from "@openclaw/gateway-protocol";
@@ -19,10 +18,10 @@ import {
   readPlatformClawSessionCookie,
 } from "./browser-auth-http.js";
 import { handlePlatformClawBrowserBootstrapRequest } from "./browser-bootstrap-http.js";
+import { createBrowserComposerHandler } from "./browser-composer-http.js";
 import { handlePlatformClawDashboardRequest } from "./browser-dashboard-http.js";
 import { handlePlatformClawExecCredentialRequest } from "./browser-exec-credentials-http.js";
 import { handlePlatformClawEmployeeExecutionRequest } from "./browser-execution-http.js";
-import { reportBrowserGatewayRequestFailure } from "./browser-gateway-errors.js";
 import {
   createBrowserGatewayEventForwarder,
   createBrowserGatewayEventSender,
@@ -30,6 +29,7 @@ import {
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
 import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
+import { responseError, responseOk } from "./browser-gateway-responses.js";
 import { readBrowserJsonBody, sendBrowserJson } from "./browser-http-shared.js";
 import { handlePlatformClawMcpAdministrationRequest } from "./browser-mcp-admin-http.js";
 import { handlePlatformClawEmployeeMcpRequest } from "./browser-mcp-http.js";
@@ -112,24 +112,6 @@ function rawDataByteLength(data: RawData): number {
   return data.reduce((total, chunk) => total + chunk.byteLength, 0);
 }
 
-function responseError(
-  id: string,
-  error: unknown,
-  context = { method: "connect", elapsedMs: 0 },
-): ResponseFrame {
-  return { type: "res", id, ok: false, error: reportBrowserGatewayRequestFailure(error, context) };
-}
-
-function responseOk(id: string, payload: unknown): ResponseFrame {
-  return { type: "res", id, ok: true, payload };
-}
-
-function isProtocolCompatible(params: ConnectParams): boolean {
-  return (
-    params.minProtocol <= PROTOCOL_VERSION && params.maxProtocol >= MIN_CLIENT_PROTOCOL_VERSION
-  );
-}
-
 export class PlatformClawWebIngressServer {
   private readonly publicOrigin: string;
   private readonly gatewayPath: string;
@@ -139,9 +121,17 @@ export class PlatformClawWebIngressServer {
     void this.handleHttpRequest(req, res);
   });
   private started = false;
+  private readonly composerHandler: ReturnType<typeof createBrowserComposerHandler> | undefined;
   private unsubscribeGatewayDisconnect = () => {};
 
   constructor(private readonly options: PlatformClawWebIngressOptions) {
+    this.composerHandler = options.composerAdminRpc
+      ? createBrowserComposerHandler({
+          adminRpc: options.composerAdminRpc,
+          gatewayProxy: options.gatewayProxy,
+          isOriginAllowed: (req) => this.isOriginAllowed(req),
+        })
+      : undefined;
     this.publicOrigin = normalizePublicOrigin(options.publicOrigin);
     this.gatewayPath = options.gatewayPath ?? PLATFORMCLAW_GATEWAY_PATH;
     this.healthPath = options.healthPath ?? PLATFORMCLAW_HEALTH_PATH;
@@ -226,6 +216,9 @@ export class PlatformClawWebIngressServer {
 
   private async handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
+      if (await this.composerHandler?.(req, res)) {
+        return;
+      }
       const handled = await handlePlatformClawBrowserAuthRequest(req, res, {
         service: this.options.authService,
         readJsonBody: readBrowserJsonBody,
@@ -524,7 +517,10 @@ export class PlatformClawWebIngressServer {
         return;
       }
       const params = frame.params as ConnectParams;
-      if (!isProtocolCompatible(params)) {
+      if (
+        params.minProtocol > PROTOCOL_VERSION ||
+        params.maxProtocol < MIN_CLIENT_PROTOCOL_VERSION
+      ) {
         send(
           responseError(
             frame.id,

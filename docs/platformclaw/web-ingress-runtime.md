@@ -16,6 +16,54 @@ The runtime lives in `packages/platformclaw-control-plane`. It is intentionally
 separate from OpenClaw `src/gateway/**` so upstream Gateway and Control UI
 updates remain practical to merge.
 
+## Composer Predictions
+
+Composer Predictions is a Web-only opt-in in **Settings > Appearance > Chat preferences**.
+It is off by default for both the server and each account. Enable the server gate
+in `plugins.entries.admin-http-rpc.config.composerPredictionsEnabled`, then restart
+the development Gateway. Each employee can enable or disable their own preference;
+it persists in the plugin's SQLite keyed store without a schema-version change.
+
+The browser waits one second after a completed response while the composer is
+empty. It requests `/platformclaw/api/composer-predictions` using the employee
+cookie and same-origin policy. The BFF reads history through the existing personal
+or Space conversation authorization and checks access again after inference.
+Predictions are returned only to that request; they are neither broadcast nor
+written to conversation history. Caller-supplied user identities, context, model,
+or endpoint parameters are rejected.
+
+The trusted admin HTTP plugin calls only configured `codemate/codellm-fast`
+(`ornith-1.5-35b` in the company catalog), using the existing OpenAI-compatible
+provider URL, headers, and resolved credentials. The destination must resolve to
+private or loopback addresses, DNS is pinned, and redirects are forbidden. Missing
+configuration or unsupported API adapters yield no suggestion. No external LLM,
+Agent Loop, tools, skills, memory retrieval, retries, or model fallback are used.
+Normal conversation defaults and fallback settings remain unchanged.
+
+Inference receives only the last six user/assistant text messages, each capped
+at 300 Unicode characters. This bounded context supports two or three exchanges
+without copying attachments, reasoning, tool output, or an unbounded transcript.
+Output is capped at 64 tokens and 300 characters. The whole browser/BFF request
+has a ten-second deadline, including Gateway history access. There is one active
+prediction per Gateway process and no prediction queue. Ordinary model calls
+preempt predictions. No vLLM load metrics are assumed; the single-slot policy is
+the conservative admission control. A multi-Gateway deployment needs a shared
+admission owner before enabling this feature across instances.
+
+Tab inserts Ghost Text without sending. Escape, typing, IME composition, session
+changes, and a new response invalidate it. Enter retains its existing behavior.
+Cancellation closes the HTTP request to the model; actual GPU cancellation
+depends on the company's serving stack and must be measured there. A server
+that continues inference after disconnect can still consume up to the 64-token
+budget. Real chat latency and GPU effects require a company-environment load test.
+
+Knox, Cron, API adapters, and background runs do not trigger prediction inference.
+The browser records a bounded run-ownership fact when it dispatches a message;
+an unrelated final event in the same visible session does not qualify.
+The private composer operation has no Gateway WebSocket method or agent tool.
+Only the authenticated Web BFF may supply employee identity and approved context
+through the existing trusted admin HTTP transport.
+
 ## Request flow
 
 1. The browser signs in through the PlatformClaw authentication endpoints.

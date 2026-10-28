@@ -135,6 +135,12 @@ export const nativeTranslations = {
 } satisfies TranslationMap;
 
 export const translations: Readonly<Record<string, string>> = {
+  "platformClaw.composerPredictions.title": "다음 프롬프트 예측 (Composer Predictions)",
+  "platformClaw.composerPredictions.description":
+    "계정별 설정 · 기본 OFF · Fast 모델로 다음 질문을 추천합니다. Tab 수락, Escape 제거. 자동 전송하지 않습니다.",
+  "platformClaw.composerPredictions.unavailable":
+    "서버 관리자가 기능을 먼저 활성화해야 사용할 수 있습니다.",
+  "platformClaw.composerPredictions.saveError": "설정을 저장하지 못했습니다. 다시 시도해 주세요.",
   "platformClaw.skillHub.namespace.create": "네임스페이스 만들기",
   "platformClaw.skillHub.namespace.description":
     "전사 공용 또는 소속 팀·그룹·파트에서 스킬을 공유할 공간을 만듭니다.",

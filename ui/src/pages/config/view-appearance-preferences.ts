@@ -1,4 +1,5 @@
 import { html, nothing, type TemplateResult } from "lit";
+import "../../platformclaw/composer-predictions-settings.ts";
 import type { ServerUiPrefProvenance } from "../../app/server-prefs.ts";
 import {
   normalizeCatalogOpenTarget,
@@ -231,6 +232,9 @@ export function renderChatPreferencesSection(
         <h2 class="settings-section__heading">${t("configView.chatPrefs.title")}</h2>
       </div>
       <div class="settings-group">
+        ${resolvePlatformClawBranding()
+          ? html`<platformclaw-composer-predictions-settings></platformclaw-composer-predictions-settings>`
+          : nothing}
         ${renderSettingsRow({
           title: t("configView.chatPrefs.messageWidth"),
           description: html`${t("configView.chatPrefs.messageWidthHint")}<br />

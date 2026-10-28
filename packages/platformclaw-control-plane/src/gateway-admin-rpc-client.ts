@@ -15,7 +15,7 @@ export type GatewayAdminRpcClientConfig = {
 };
 
 export interface GatewayAdminRpc {
-  call<T>(method: string, params: unknown): Promise<T>;
+  call<T>(method: string, params: unknown, signal?: AbortSignal): Promise<T>;
 }
 
 type RpcErrorBody = {
@@ -170,7 +170,7 @@ export class HttpGatewayAdminRpcClient implements GatewayAdminRpc {
     this.config = { rpcUrl: normalizeRpcUrl(config.rpcUrl), bearerToken, timeoutMs };
   }
 
-  async call<T>(method: string, params: unknown): Promise<T> {
+  async call<T>(method: string, params: unknown, signal?: AbortSignal): Promise<T> {
     const normalizedMethod = method.trim();
     if (!normalizedMethod) {
       throw new Error("Gateway Admin RPC method is required");
@@ -186,7 +186,7 @@ export class HttpGatewayAdminRpcClient implements GatewayAdminRpc {
           Authorization: `Bearer ${this.config.bearerToken}`,
           "Content-Type": "application/json",
         },
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]),
         body: JSON.stringify({ id, method: normalizedMethod, params }),
       });
     } catch {

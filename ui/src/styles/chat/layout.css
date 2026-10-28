@@ -2474,6 +2474,28 @@ openclaw-chat-video-player {
   min-width: 0;
 }
 
+.platformclaw-composer-prediction {
+  position: absolute;
+  inset: 0 0 auto;
+  padding: var(--chat-box-inset);
+  padding-left: calc(var(--chat-box-inset) - 4px);
+  pointer-events: none;
+  color: var(--muted);
+  opacity: 0.55;
+  font-size: var(--control-ui-text-md);
+  font-family: inherit;
+  font-style: italic;
+  line-height: 1.4;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.platformclaw-composer-prediction__hint {
+  font-size: 0.8em;
+  font-style: normal;
+}
+
 .agent-chat__sr-only {
   position: absolute;
   width: 1px;

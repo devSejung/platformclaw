@@ -5675,6 +5675,7 @@ export const en: TranslationMap = {
     },
     composer: {
       placeholder: "Message {name}",
+      predictionAcceptHint: "Tab ↹",
       placeholderWithAttachments: "Add a message or paste more images...",
       placeholderDisconnected: "Connect to the gateway to start chatting...",
       offlineHint: "Offline — messages will be queued and sent when the connection returns.",
