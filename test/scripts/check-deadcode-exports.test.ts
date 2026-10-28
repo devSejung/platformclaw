@@ -228,6 +228,7 @@ describe("check-deadcode-exports", () => {
   it("models non-imported runtime and build entrypoints explicitly", () => {
     expect(knipConfig.workspaces["."].entry).toEqual(
       expect.arrayContaining([
+        "scripts/e2e/lib/platformclaw-vm-reauth/client.mjs!",
         "src/agents/subagent-registry.runtime.ts!",
         "src/mcp/plugin-tools-serve.ts!",
         "src/plugins/build-smoke-entry.ts!",
