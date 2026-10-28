@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
-import { notifyPlatformClawExecutionTargetChanged } from "./execution-target-events.ts";
+import {
+  notifyPlatformClawExecutionSettingsChanged,
+  notifyPlatformClawExecutionTargetChanged,
+} from "./execution-target-events.ts";
 import { loadPlatformClawLocale } from "./i18n.ts";
 import { PlatformClawQuickActionsElement } from "./quick-actions.ts";
 
@@ -14,6 +17,7 @@ const BASIC_EXECUTION_SETTINGS = {
   activeTarget: "platform_server",
   targetRevision: 4,
   credentialStatus: "current",
+  credentialRevision: 1,
   accountId: "person.one",
   availableVms: [],
   savedVms: [],
@@ -92,6 +96,32 @@ describe("platformclaw-quick-actions", () => {
     await vi.waitFor(() =>
       expect(member.shadowRoot?.querySelector("platformclaw-execution-settings")).not.toBeNull(),
     );
+  });
+
+  it("refreshes the visible location status when credential state changes without a target revision change", async () => {
+    let credentialStatus = "current";
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        ...BASIC_EXECUTION_SETTINGS,
+        activeTarget: "assigned_vm",
+        credentialStatus,
+        assignment: { id: "allocation-one", vmLabel: "Build VM", status: "ready" },
+      }),
+    );
+    const element = await mount({ locationOnly: true, fetchImpl });
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector("[role='status']")?.getAttribute("data-state")).toBe(
+        "ready",
+      ),
+    );
+    credentialStatus = "update_required";
+    notifyPlatformClawExecutionSettingsChanged();
+    await vi.waitFor(() =>
+      expect(element.shadowRoot?.querySelector("[role='status']")?.getAttribute("data-state")).toBe(
+        "warning",
+      ),
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it.each([

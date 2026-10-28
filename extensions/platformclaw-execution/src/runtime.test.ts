@@ -3,9 +3,10 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { disposeSshSandboxSession, type SshSandboxSession } from "openclaw/plugin-sdk/sandbox";
+import * as sandboxSdk from "openclaw/plugin-sdk/sandbox";
 import { describe, expect, it, vi } from "vitest";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
+import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
 import {
   createMultiplexedSafeConnectSession,
   createExecutionDependenciesFromEnvironment,
@@ -19,6 +20,9 @@ import {
 } from "./target-mutation-coordinator.js";
 import { VmTmuxTerminalManager } from "./tmux-terminal-manager.js";
 
+type SshSandboxSession = sandboxSdk.SshSandboxSession;
+const { disposeSshSandboxSession } = sandboxSdk;
+
 const leaseIo = vi.hoisted(() => ({
   manager: undefined as import("./ssh-lease-manager.js").SafeConnectSshLeaseManager | undefined,
   startMaster: vi.fn(async () => {
@@ -31,12 +35,18 @@ const leaseIo = vi.hoisted(() => ({
       }),
     };
   }),
+  authenticateProbe: vi.fn(async (_params: unknown) => ({
+    isRunning: () => true,
+    onExit: () => {},
+    stop: vi.fn(async () => {}),
+  })),
 }));
 
 vi.mock("./ssh-lease-manager.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./ssh-lease-manager.js")>();
   return {
     ...actual,
+    startSafeConnectMaster: leaseIo.authenticateProbe,
     SafeConnectSshLeaseManager: class extends actual.SafeConnectSshLeaseManager {
       constructor(options: ConstructorParameters<typeof actual.SafeConnectSshLeaseManager>[0]) {
         super({ ...options, startMaster: leaseIo.startMaster });
@@ -84,6 +94,133 @@ const TARGET: AssignedVmTargetSnapshot = {
 };
 
 describe("PlatformClaw SafeConnect session", () => {
+  it.each([5, 255])(
+    "does not classify post-authentication command exit %s as AD rejection",
+    async (code) => {
+      leaseIo.authenticateProbe.mockClear();
+      const commandError = Object.assign(new Error("remote shell startup failed"), {
+        code,
+        stderr: Buffer.from("employee@host: Permission denied (keyboard-interactive).\n"),
+      });
+      const command = vi
+        .spyOn(sandboxSdk, "runSshSandboxCommand")
+        .mockRejectedValueOnce(commandError);
+      const directory = await mkdtemp(path.join(tmpdir(), "platformclaw-runtime-probe-"));
+      const tokenFile = path.join(directory, "execution-token");
+      await writeFile(tokenFile, "test-probe-token");
+      let dependencies:
+        | Awaited<ReturnType<typeof createExecutionDependenciesFromEnvironment>>
+        | undefined;
+      try {
+        dependencies = await createExecutionDependenciesFromEnvironment(
+          {
+            PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: path.join(directory, "broker.sock"),
+            PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: tokenFile,
+          },
+          { targetMutations: new PlatformClawTargetMutationCoordinator() },
+        );
+        await expect(
+          dependencies.testCandidateConnection({
+            target: TARGET,
+            credentialBrokerAddress: "/run/platformclaw/broker.sock",
+            credentialGrantToken: "probe_grant",
+          }),
+        ).rejects.toBe(commandError);
+        const master = await leaseIo.authenticateProbe.mock.results[0]!.value;
+        expect(master.stop).toHaveBeenCalledOnce();
+        expect(command).toHaveBeenCalledOnce();
+      } finally {
+        command.mockRestore();
+        await dependencies?.dispose();
+        leaseIo.manager = undefined;
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each(["recorded", "stale", "unavailable", "invalid"] as const)(
+    "reports authentication failure through authenticated handoff: %s",
+    async (result) => {
+      leaseIo.startMaster.mockClear();
+      leaseIo.startMaster.mockRejectedValueOnce(new PlatformClawVmAuthenticationError());
+      const directory = await mkdtemp(path.join(tmpdir(), "platformclaw-runtime-recovery-"));
+      const tokenFile = path.join(directory, "execution-token");
+      await writeFile(tokenFile, "test-recovery-token");
+      const brokerAddress =
+        process.platform === "win32"
+          ? String.raw`\\.\pipe\platformclaw-recovery-${randomUUID()}`
+          : path.join(directory, "broker.sock");
+      const socketPath =
+        process.platform === "win32"
+          ? `${brokerAddress}-execution`
+          : path.join(directory, "execution.sock");
+      const requests: Array<{ authorization?: string; path?: string; body: unknown }> = [];
+      const server = createServer((req, res) => {
+        void (async () => {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(Buffer.from(chunk));
+          }
+          if (req.url === "/platformclaw/internal/execution/target") {
+            res.end(JSON.stringify(TARGET));
+            return;
+          }
+          requests.push({
+            authorization: req.headers.authorization,
+            path: req.url,
+            body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+          });
+          res.statusCode = result === "unavailable" ? 503 : 200;
+          res.end(JSON.stringify(result === "invalid" ? {} : { recorded: result !== "stale" }));
+        })().catch((error: unknown) => {
+          res.destroy(error instanceof Error ? error : new Error(String(error)));
+        });
+      });
+      let dependencies:
+        | Awaited<ReturnType<typeof createExecutionDependenciesFromEnvironment>>
+        | undefined;
+      try {
+        await new Promise<void>((resolve) => {
+          server.listen(socketPath, resolve);
+        });
+        dependencies = await createExecutionDependenciesFromEnvironment(
+          {
+            PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: brokerAddress,
+            PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: tokenFile,
+          },
+          { targetMutations: new PlatformClawTargetMutationCoordinator() },
+        );
+        const failed = leaseIo.manager!.createSession(TARGET);
+        await expect(failed).rejects.toBeInstanceOf(PlatformClawVmAuthenticationError);
+        await expect(leaseIo.manager!.createSession(TARGET)).rejects.toThrow(
+          result === "unavailable" || result === "invalid"
+            ? "recovery service is unavailable"
+            : "authentication failed",
+        );
+        expect(requests).toEqual([
+          {
+            authorization: "Bearer test-recovery-token",
+            path: "/platformclaw/internal/execution/authentication-failure",
+            body: {
+              agentId: TARGET.agentId,
+              allocationId: TARGET.allocationId,
+              targetRevision: TARGET.revision,
+              credentialRevision: TARGET.credentialRevision,
+            },
+          },
+        ]);
+        expect(leaseIo.startMaster).toHaveBeenCalledOnce();
+      } finally {
+        await dependencies?.dispose();
+        leaseIo.manager = undefined;
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it.each([
     { destination: "platform_server", lostResponse: false },
     { destination: "assigned_vm", lostResponse: false },
@@ -141,9 +278,9 @@ describe("PlatformClaw SafeConnect session", () => {
             connectionId?: string;
             expectedConnectionRevision?: number;
           };
-          requests.push(body);
           res.setHeader("Content-Type", "application/json");
           if (req.url?.endsWith("/change-target")) {
+            requests.push(body);
             if (rejectChange) {
               res.statusCode = 409;
               res.end(JSON.stringify({ error: "target changed" }));
@@ -236,18 +373,7 @@ describe("PlatformClaw SafeConnect session", () => {
           TARGET.agentId,
           destination === "assigned_vm" ? changed : undefined,
         );
-        expect(requests.findLast((request) => request.target === destination)).toEqual(selection);
-        expect(requests.map((request) => request.target)).toEqual([
-          undefined,
-          "platform_server",
-          "assigned_vm",
-          "assigned_vm",
-          undefined,
-          destination,
-          undefined,
-          destination,
-          ...(lostResponse ? [undefined] : []),
-        ]);
+        expect(requests).toEqual([selection, selection]);
       } finally {
         await Promise.all(channels.map((channel) => disposeSshSandboxSession(channel)));
         await dependencies?.dispose();

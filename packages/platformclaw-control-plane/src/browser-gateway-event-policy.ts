@@ -5,8 +5,10 @@ import type {
   BrowserInteractiveAccess,
 } from "./browser-gateway-interactive-ownership.js";
 import type { BrowserGatewaySessionPullRequestSubscriptions } from "./browser-gateway-session-pull-requests.js";
+import { PLATFORMCLAW_EXECUTION_CHANGED } from "./execution-contracts.js";
 
 export const PLATFORMCLAW_WEB_GATEWAY_EVENTS = [
+  PLATFORMCLAW_EXECUTION_CHANGED,
   "shutdown",
   "tick",
   "agent",

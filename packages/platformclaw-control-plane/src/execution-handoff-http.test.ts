@@ -80,6 +80,7 @@ async function startServer() {
       credentialRevision: 3,
     })),
     resolveConnectionTarget: vi.fn(),
+    reportAuthenticationFailure: vi.fn(async () => ({ recorded: true })),
     changeTarget: vi.fn(),
     resolveMcpConnection: vi.fn(async () => ({
       headers: { Authorization: "Bearer secret" },
@@ -115,6 +116,7 @@ async function postResponse(
   socketPath: string,
   pathname: string,
   body: unknown,
+  authorization = "Bearer service-token-that-is-at-least-32-bytes",
 ): Promise<{ status: number; body: unknown }> {
   const payload = Buffer.from(JSON.stringify(body));
   return await new Promise((resolve, reject) => {
@@ -124,7 +126,7 @@ async function postResponse(
         path: pathname,
         method: "POST",
         headers: {
-          authorization: "Bearer service-token-that-is-at-least-32-bytes",
+          authorization,
           "content-type": "application/json",
           "content-length": payload.length,
         },
@@ -146,6 +148,39 @@ async function postResponse(
 }
 
 describe("PlatformClawExecutionHandoffServer", () => {
+  it("accepts a bounded current authentication failure only through service authentication", async () => {
+    const { socketPath, service } = await startServer();
+    const route = "/platformclaw/internal/execution/authentication-failure";
+    const input = {
+      agentId: "person_one",
+      allocationId: "allocation-one",
+      targetRevision: 4,
+      credentialRevision: 3,
+    };
+    expect(
+      await postResponse(socketPath, route, input, "Bearer incorrect-service-token"),
+    ).toMatchObject({ status: 401 });
+    expect(service.reportAuthenticationFailure).not.toHaveBeenCalled();
+    for (const body of [
+      { ...input, password: "synthetic-only" },
+      { ...input, credentialRevision: 0 },
+      { ...input, targetRevision: 0.5 },
+      { ...input, allocationId: "" },
+    ]) {
+      expect(await postResponse(socketPath, route, body)).toMatchObject({ status: 409 });
+    }
+    expect(service.reportAuthenticationFailure).not.toHaveBeenCalled();
+    expect(await postResponse(socketPath, route, input)).toEqual({
+      status: 200,
+      body: { recorded: true },
+    });
+    expect(service.reportAuthenticationFailure).toHaveBeenCalledExactlyOnceWith(input);
+    service.reportAuthenticationFailure.mockResolvedValueOnce({ recorded: false });
+    expect(await postResponse(socketPath, route, input)).toEqual({
+      status: 200,
+      body: { recorded: false },
+    });
+  });
   it("forwards saved connection CAS over the authenticated socket", async () => {
     const { socketPath, service } = await startServer();
     service.changeTarget.mockResolvedValue({
@@ -522,6 +557,7 @@ describe("PlatformClawExecutionHandoffServer", () => {
           resolveConnectionTarget: vi.fn(),
           changeTarget: vi.fn(),
           issueCredentialGrant: vi.fn(),
+          reportAuthenticationFailure: vi.fn(),
         },
         socketPath,
       );
@@ -564,11 +600,16 @@ describe("PlatformClawExecutionHandoffServer", () => {
           revision: 0,
         })),
         issueCredentialGrant: vi.fn(),
+        reportAuthenticationFailure: vi.fn(),
         resolveConnectionTarget: vi.fn(),
         changeTarget: vi.fn(),
       } satisfies Pick<
         ExecutionHandoffService,
-        "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
+        | "resolveTarget"
+        | "resolveConnectionTarget"
+        | "changeTarget"
+        | "issueCredentialGrant"
+        | "reportAuthenticationFailure"
       >;
       const candidates = [
         new PlatformClawExecutionHandoffServer(

@@ -1,8 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { chmod, lstat, rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createConnection } from "node:net";
-import { dirname, isAbsolute, join } from "node:path";
 import { isValidAgentId } from "@openclaw/normalization-core/agent-id";
 import lockfile from "proper-lockfile";
 import {
@@ -12,6 +10,7 @@ import {
 } from "./contracts.js";
 import type { ExecCredentialService } from "./exec-credential-service.js";
 import type { ExecutionHandoffService } from "./execution-handoff-service.js";
+import * as socket from "./execution-handoff-socket.js";
 import {
   KnowledgeVaultSearchError,
   type KnowledgeVaultTurnScope,
@@ -24,6 +23,8 @@ import type { SpaceService } from "./space-service.js";
 
 export const PLATFORMCLAW_EXECUTION_TARGET_PATH = "/platformclaw/internal/execution/target";
 export const PLATFORMCLAW_EXECUTION_GRANT_PATH = "/platformclaw/internal/execution/grant";
+export const PLATFORMCLAW_EXECUTION_AUTH_FAILURE_PATH =
+  "/platformclaw/internal/execution/authentication-failure";
 export const PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH =
   "/platformclaw/internal/execution/connection-target";
 export const PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH =
@@ -50,7 +51,11 @@ const MAX_VAULT_SEARCH_BYTES = 144 * 1024;
 
 type ExecutionHandoffHandler = Pick<
   ExecutionHandoffService,
-  "resolveTarget" | "resolveConnectionTarget" | "changeTarget" | "issueCredentialGrant"
+  | "resolveTarget"
+  | "resolveConnectionTarget"
+  | "changeTarget"
+  | "issueCredentialGrant"
+  | "reportAuthenticationFailure"
 > & {
   spaceService?: Pick<SpaceService, "agentRead"> & Partial<Pick<SpaceService, "agentMutation">>;
   vaultService?: Pick<KnowledgeVaultService, "search" | "get" | "captureScope" | "wiki">;
@@ -67,66 +72,7 @@ type ExecutionHandoffHandler = Pick<
   execCredentialMetadata?: ExecCredentialService["metadataForAgent"];
 };
 
-export function deriveExecutionHandoffAddress(credentialBrokerAddress: string): string {
-  if (process.platform === "win32") {
-    if (!credentialBrokerAddress.startsWith("\\\\.\\pipe\\")) {
-      throw new Error("Windows credential broker address must be a named pipe");
-    }
-    return `${credentialBrokerAddress}-execution`;
-  }
-  if (!isAbsolute(credentialBrokerAddress)) {
-    throw new Error("credential broker socket path must be absolute");
-  }
-  return join(dirname(credentialBrokerAddress), "execution.sock");
-}
-
-async function existingSocket(path: string) {
-  try {
-    return await lstat(path);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return null;
-    }
-    throw error;
-  }
-}
-
-type SocketIdentity = {
-  dev: number | bigint;
-  ino: number | bigint;
-};
-
-function socketIdentity(stats: Awaited<ReturnType<typeof lstat>>): SocketIdentity {
-  return { dev: stats.dev, ino: stats.ino };
-}
-
-function sameSocket(stats: Awaited<ReturnType<typeof lstat>>, identity: SocketIdentity): boolean {
-  return stats.dev === identity.dev && stats.ino === identity.ino;
-}
-
-async function socketAcceptsConnections(path: string): Promise<boolean> {
-  return await new Promise<boolean>((resolve, reject) => {
-    const socket = createConnection(path);
-    socket.once("connect", () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "ECONNREFUSED" || error.code === "ENOENT") {
-        resolve(false);
-        return;
-      }
-      reject(error);
-    });
-  });
-}
-
-async function removeSocketIfUnchanged(path: string, identity: SocketIdentity): Promise<void> {
-  const current = await existingSocket(path);
-  if (current && sameSocket(current, identity)) {
-    await rm(path);
-  }
-}
+export { deriveExecutionHandoffAddress } from "./execution-handoff-socket.js";
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
   res.statusCode = statusCode;
@@ -214,7 +160,7 @@ export class PlatformClawExecutionHandoffServer {
     });
   });
   private started = false;
-  private ownedSocket: SocketIdentity | undefined;
+  private ownedSocket: socket.ExecutionSocketIdentity | undefined;
 
   constructor(
     serviceToken: string,
@@ -233,7 +179,7 @@ export class PlatformClawExecutionHandoffServer {
       throw new Error("PlatformClaw execution handoff is already listening");
     }
     this.started = true;
-    let ownedSocket: SocketIdentity | undefined;
+    let ownedSocket: socket.ExecutionSocketIdentity | undefined;
     let releaseStartupLock: (() => Promise<void>) | undefined;
     try {
       if (process.platform !== "win32") {
@@ -250,17 +196,15 @@ export class PlatformClawExecutionHandoffServer {
           },
           stale: 10_000,
         });
-        const existing = await existingSocket(this.socketPath);
+        const existing = await socket.readExecutionSocket(this.socketPath);
         if (existing) {
-          if (!existing.isSocket() || existing.uid !== process.getuid?.()) {
-            throw new Error("execution handoff path is not an owner-owned socket");
-          }
-          const identity = socketIdentity(existing);
-          if (await socketAcceptsConnections(this.socketPath)) {
+          socket.assertExecutionSocketOwner(existing);
+          const identity = socket.executionSocketIdentity(existing);
+          if (await socket.executionSocketAcceptsConnections(this.socketPath)) {
             throw new Error("execution handoff socket is already active");
           }
-          const current = await existingSocket(this.socketPath);
-          if (!current || !sameSocket(current, identity)) {
+          const current = await socket.readExecutionSocket(this.socketPath);
+          if (!current || !socket.executionSocketMatches(current, identity)) {
             throw new Error("execution handoff socket changed during startup");
           }
           await rm(this.socketPath);
@@ -281,7 +225,7 @@ export class PlatformClawExecutionHandoffServer {
       });
       if (process.platform !== "win32") {
         const created = await lstat(this.socketPath);
-        ownedSocket = socketIdentity(created);
+        ownedSocket = socket.executionSocketIdentity(created);
         this.ownedSocket = ownedSocket;
         await chmod(this.socketPath, 0o600);
       }
@@ -293,7 +237,7 @@ export class PlatformClawExecutionHandoffServer {
         });
       }
       if (ownedSocket && process.platform !== "win32") {
-        await removeSocketIfUnchanged(this.socketPath, ownedSocket);
+        await socket.removeUnchangedExecutionSocket(this.socketPath, ownedSocket);
       }
       this.ownedSocket = undefined;
       this.started = false;
@@ -319,7 +263,7 @@ export class PlatformClawExecutionHandoffServer {
     });
     if (process.platform !== "win32") {
       if (this.ownedSocket) {
-        await removeSocketIfUnchanged(this.socketPath, this.ownedSocket);
+        await socket.removeUnchangedExecutionSocket(this.socketPath, this.ownedSocket);
       }
       this.ownedSocket = undefined;
     }
@@ -346,6 +290,7 @@ export class PlatformClawExecutionHandoffServer {
         !SPACE_MUTATION_PATHS.has(pathname) &&
         pathname !== PLATFORMCLAW_EXECUTION_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_GRANT_PATH &&
+        pathname !== PLATFORMCLAW_EXECUTION_AUTH_FAILURE_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CONNECTION_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH &&
         pathname !== PLATFORMCLAW_EXEC_CREDENTIALS_INTERNAL_PATH &&
@@ -384,6 +329,37 @@ export class PlatformClawExecutionHandoffServer {
         return;
       }
       const agentId = requestAgentId(body);
+      if (pathname === PLATFORMCLAW_EXECUTION_AUTH_FAILURE_PATH) {
+        const { allocationId, targetRevision, credentialRevision } = body;
+        if (
+          Object.keys(body).some(
+            (key) =>
+              !["agentId", "allocationId", "targetRevision", "credentialRevision"].includes(key),
+          ) ||
+          typeof allocationId !== "string" ||
+          !allocationId.trim() ||
+          allocationId.length > 256 ||
+          typeof targetRevision !== "number" ||
+          !Number.isSafeInteger(targetRevision) ||
+          targetRevision < 0 ||
+          typeof credentialRevision !== "number" ||
+          !Number.isSafeInteger(credentialRevision) ||
+          credentialRevision < 1
+        ) {
+          throw new ControlPlaneStateError("invalid VM authentication failure report");
+        }
+        sendJson(
+          res,
+          200,
+          await this.service.reportAuthenticationFailure({
+            agentId,
+            allocationId,
+            targetRevision,
+            credentialRevision,
+          }),
+        );
+        return;
+      }
       if (pathname === SPACE_READ_PATH) {
         if (!this.service.spaceService) {
           sendJson(res, 503, { error: "Spaces unavailable" });

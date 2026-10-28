@@ -54,6 +54,7 @@ async function fixture() {
       resolveConnectionTarget: vi.fn(),
       changeTarget: vi.fn(),
       issueCredentialGrant: vi.fn(),
+      reportAuthenticationFailure: vi.fn(),
     },
     socketPath,
   );

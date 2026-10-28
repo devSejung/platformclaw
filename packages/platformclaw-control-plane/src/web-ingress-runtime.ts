@@ -23,6 +23,7 @@ import type { MainSessionKeyBuilder } from "./contracts.js";
 import { DashboardService } from "./dashboard-service.js";
 import { EmployeeSsoService, type EmployeeSsoConfig } from "./employee-sso.js";
 import { ExecCredentialService } from "./exec-credential-service.js";
+import type { VmCredentialStateChange } from "./execution-contracts.js";
 import {
   deriveExecutionHandoffAddress,
   PlatformClawExecutionHandoffServer,
@@ -123,6 +124,18 @@ export function createPlatformClawWebIngressRuntime(
   const racingNow = options.racingNow ?? options.employeeAuth?.now ?? Date.now;
   let closeTerminalForAgent = async (_agentId: string, _reason: string): Promise<void> => {};
   let closeTalkForAgent = async (_agentId: string, _reason: string): Promise<void> => {};
+  let closeAuthenticationTerminals = async (_agentId: string): Promise<void> => {};
+  const executionListeners = new Set<(change: VmCredentialStateChange) => void>();
+  const onVmCredentialStateChanged = async (change: VmCredentialStateChange): Promise<void> => {
+    for (const listener of executionListeners) {
+      listener(change);
+    }
+    if (change.status === "update_required") {
+      // The failing master is awaiting this handoff response. Calling the full
+      // Gateway invalidation RPC here could wait for that same authentication.
+      await closeAuthenticationTerminals(change.agentId);
+    }
+  };
   const gateway = new PlatformClawGatewayRuntimeClient(options.gatewayClient);
   const auth = createEmployeeBrowserAuthRuntime({
     databasePath: options.databasePath,
@@ -184,7 +197,8 @@ export function createPlatformClawWebIngressRuntime(
     throw new Error("execution handoff requires a credential broker");
   }
   const executionService =
-    credentialBroker && new ExecutionHandoffService(auth.store, credentialBroker);
+    credentialBroker &&
+    new ExecutionHandoffService(auth.store, credentialBroker, { onVmCredentialStateChanged });
   const executionHandoff =
     options.executionServiceToken && executionService && options.credentialBrokerAddress
       ? new PlatformClawExecutionHandoffServer(
@@ -196,6 +210,8 @@ export function createPlatformClawWebIngressRuntime(
             resolveConnectionTarget: (agentId) => executionService.resolveConnectionTarget(agentId),
             changeTarget: (params) => executionService.changeTarget(params),
             issueCredentialGrant: (params) => executionService.issueCredentialGrant(params),
+            reportAuthenticationFailure: (params) =>
+              executionService.reportAuthenticationFailure(params),
             ...(mcpService
               ? {
                   resolveMcpConnection: (agentId: string, serverName: string, serverUrl: string) =>
@@ -237,6 +253,7 @@ export function createPlatformClawWebIngressRuntime(
     store: auth.store,
     adminRpc: options.adminRpc,
     closeTerminalForAgent: async (agentId, reason) => await closeTerminalForAgent(agentId, reason),
+    onVmCredentialStateChanged,
     ...(auth.credentialVault ? { credentialVault: auth.credentialVault } : {}),
     ...(credentialBroker ? { credentialBroker } : {}),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
@@ -297,6 +314,7 @@ export function createPlatformClawWebIngressRuntime(
     auditWriter: auth.store,
     gateway,
     talkOfferRelayAvailable: Boolean(options.mediaGateway),
+    isVmConnectionMutationActive: (agentId) => employeeExecution.isConnectionAttemptActive(agentId),
     buildAgentMainSessionKey: options.buildAgentMainSessionKey,
     resolveAgentIdFromSessionKey: (sessionKey) => options.resolveAgentIdFromSessionKey(sessionKey),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
@@ -311,6 +329,8 @@ export function createPlatformClawWebIngressRuntime(
   };
   closeTalkForAgent = async (agentId, reason) =>
     await gatewayProxy.closeTalkForAgent(agentId, reason);
+  closeAuthenticationTerminals = async (agentId) =>
+    await gatewayProxy.closeTerminalsForAgent(agentId, "credential_rejected");
   const mediaRelay = options.mediaGateway
     ? new PlatformClawBrowserMediaRelay({
         gatewayOrigin: options.mediaGateway.origin,
@@ -353,6 +373,10 @@ export function createPlatformClawWebIngressRuntime(
     ...(talkRelay ? { talkRelay } : {}),
     ...(canvasRelay ? { canvasRelay } : {}),
     executionService: employeeExecution,
+    subscribeExecutionChanges: (listener) => {
+      executionListeners.add(listener);
+      return () => executionListeners.delete(listener);
+    },
     vmAdministrationService: vmAdministration,
     announcementService: new BrowserAnnouncementService(
       auth.service,
@@ -438,6 +462,7 @@ export function createPlatformClawWebIngressRuntime(
     },
     async close() {
       unsubscribeSpaceEvents();
+      executionListeners.clear();
       if (closed) {
         return;
       }

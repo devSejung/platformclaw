@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import type { OpenClawModalDialog } from "../components/modal-dialog.ts";
 import { installMockGateway } from "../test-helpers/control-ui-e2e.ts";
 import {
   installPlatformClawMemoryDocument,
@@ -218,6 +219,76 @@ suite.define(() => {
       await trigger.evaluate((element) => element.remove());
     }
   });
+
+  it.each(["owner", "Escape"] as const)(
+    "honors a reopen during %s hide without losing modality, focus, or cancellation",
+    async (source) => {
+      const { page } = await setup();
+      await page.evaluate(() => {
+        const trigger = document.createElement("button");
+        trigger.id = "reopen-trigger";
+        trigger.textContent = "Open retained dialog";
+        trigger.style.cssText = "position:fixed;top:12px;left:50%;z-index:9999";
+        const modal = document.createElement("openclaw-modal-dialog");
+        modal.id = "reopen-modal";
+        modal.manual = true;
+        modal.label = "Retained dialog";
+        modal.innerHTML = '<input autofocus aria-label="Retained field" />';
+        modal.dataset.cancels = "0";
+        modal.addEventListener("modal-cancel", (event) => {
+          modal.dataset.cancels = String(Number(modal.dataset.cancels) + 1);
+          if (modal.dataset.preventCancel === "true") {
+            event.preventDefault();
+          } else {
+            modal.hide();
+          }
+        });
+        trigger.addEventListener("click", () => modal.show());
+        document.body.append(trigger, modal);
+      });
+      const trigger = page.locator("#reopen-trigger");
+      const modal = page.locator("#reopen-modal");
+      const dialog = modal.locator("dialog");
+      await trigger.click();
+      await expect.poll(() => modal.getAttribute("data-after-show")).toBe("1");
+      await modal.evaluate((element) => {
+        element
+          .shadowRoot!.querySelector("wa-dialog")!
+          .addEventListener(
+            "wa-hide",
+            () => queueMicrotask(() => (element as OpenClawModalDialog).show()),
+            { once: true },
+          );
+      });
+      if (source === "owner") {
+        await modal.evaluate((element) => (element as OpenClawModalDialog).hide());
+      } else {
+        await page.keyboard.press("Escape");
+      }
+      await expect.poll(() => modal.getAttribute("data-after-show")).toBe("2");
+      expect(await modal.evaluate((element) => (element as OpenClawModalDialog).open)).toBe(true);
+      expect(await dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+      const field = modal.getByRole("textbox", { name: "Retained field" });
+      await expect
+        .poll(() => field.evaluate((element) => element === document.activeElement))
+        .toBe(true);
+      expect(await modal.getAttribute("data-cancels")).toBe(source === "owner" ? "0" : "1");
+      await modal.evaluate((element) => {
+        element.dataset.preventCancel = "true";
+      });
+      await page.keyboard.press("Escape");
+      expect(await dialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+      expect(await modal.evaluate((element) => (element as OpenClawModalDialog).open)).toBe(true);
+      await modal.evaluate((element) => {
+        element.dataset.preventCancel = "false";
+      });
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "hidden" });
+      await expect
+        .poll(() => trigger.evaluate((element) => element === document.activeElement))
+        .toBe(true);
+    },
+  );
 
   it.each(["keyboard", "assistive", "reduced"] as const)(
     "keeps %s document activation instant",

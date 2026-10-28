@@ -94,6 +94,25 @@ class ProcessTransportTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(self.finished.get(), 3)
         self.assertEqual(result.exit_status, 0)
 
+    async def test_rotated_password_can_return_one_final_authentication_rejection(self):
+        username = "test\\test+person_one+test"
+        self.server.AUTH_BEHAVIOR_PATH.write_text(json.dumps({username: {
+            "password": "synthetic-rotated-value", "finalRejection": True,
+        }}))
+        authentication = self.server.FakeSafeConnectServer()
+        authentication.begin_auth(username)
+        self.assertIs(authentication.validate_kbdint_response(username, ["synthetic-test-value"]), False)
+        self.assertIs(authentication.validate_kbdint_response(username, ["synthetic-rotated-value"]), True)
+
+    async def test_authenticated_remote_exit_five_can_emit_authentication_shaped_stderr(self):
+        self.server.AUTH_BEHAVIOR_PATH.write_text(json.dumps({
+            "test\\test+person_one+test": {"commandExit": 5},
+        }))
+        result = await self.run_python("raise SystemExit('must not run')")
+        self.assertEqual(result.exit_status, 5)
+        self.assertEqual(result.stdout, b"")
+        self.assertEqual(result.stderr, b"fixture@remote: Permission denied (keyboard-interactive).\n")
+
     async def test_login_shell_still_accepts_input(self):
         process = await self.connection.create_process(encoding=None)
         process.stdin.write(b"printf 'login-shell-ok\\n'; exit 7\n")

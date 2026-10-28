@@ -602,6 +602,7 @@ export abstract class SqliteControlPlaneExecutionStore
     agentId: string;
     expectedAllocationId: string;
     expectedTargetRevision: number;
+    expectedCredentialRevision?: number;
     checkedAt: number;
     result:
       | { status: "ready"; remoteHomeDir: string; remoteWorkspaceDir: string }
@@ -613,6 +614,7 @@ export abstract class SqliteControlPlaneExecutionStore
         this.query
           .selectFrom("vm_allocations")
           .innerJoin("agent_bindings", "agent_bindings.id", "vm_allocations.agent_binding_id")
+          .innerJoin("platform_users", "platform_users.id", "agent_bindings.user_id")
           .innerJoin(
             "personal_execution_profiles",
             "personal_execution_profiles.agent_binding_id",
@@ -621,15 +623,35 @@ export abstract class SqliteControlPlaneExecutionStore
           .select(["vm_allocations.id as allocation_id", "agent_bindings.user_id as user_id"])
           .where("agent_bindings.agent_id", "=", params.agentId)
           .where("agent_bindings.kind", "=", "personal")
+          .where("agent_bindings.state", "=", "active")
+          .where("platform_users.status", "=", "active")
           .where("vm_allocations.id", "=", params.expectedAllocationId)
           .where("personal_execution_profiles.target_revision", "=", params.expectedTargetRevision)
           .where("vm_allocations.status", "!=", "revoked"),
       );
-      if (!row) {
+      if (!row || !row.user_id) {
         throw new ControlPlaneConflictError(
           "execution_target_conflict",
           "execution target changed before the connection result was stored",
         );
+      }
+      if (params.expectedCredentialRevision !== undefined) {
+        const credential = takeFirstSync(
+          this.db,
+          this.query
+            .selectFrom("encrypted_user_ssh_credentials")
+            .select(["revision", "status"])
+            .where("user_id", "=", row.user_id),
+        );
+        if (
+          credential?.revision !== params.expectedCredentialRevision ||
+          credential.status !== "current"
+        ) {
+          throw new ControlPlaneConflictError(
+            "execution_target_conflict",
+            "VM credential changed during the connection test",
+          );
+        }
       }
       if (row.user_id !== params.actorUserId) {
         this.requireAdmin(params.actorUserId);

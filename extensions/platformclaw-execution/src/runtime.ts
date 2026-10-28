@@ -14,6 +14,7 @@ import {
   uploadDirectoryToSshTarget,
   type SshSandboxSession,
 } from "openclaw/plugin-sdk/sandbox";
+import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   diagnoseAssignedVmAcpProcess,
   launchAssignedVmAcpProcess,
@@ -24,10 +25,6 @@ import type {
   PlatformClawExecutionTargetSnapshot,
 } from "./backend.js";
 import { checkAssignedVmCodingAgent, detectAssignedVmCodingAgent } from "./coding-agent-probe.js";
-import {
-  isSshpassAuthenticationFailure,
-  PlatformClawVmAuthenticationError,
-} from "./connection-errors.js";
 import { parseCredentialMetadata, type PlatformClawCredentialRuntime } from "./credential-tool.js";
 import { callExecutionHandoff, executionHandoffAddress } from "./execution-handoff-client.js";
 import { parseTarget } from "./execution-target-parser.js";
@@ -38,7 +35,7 @@ import { VmRemoteSkillInstallerService } from "./remote-skill-install.js";
 import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 import type { PlatformClawSkillExportRuntime } from "./skill-export-gateway.js";
-import { SafeConnectSshLeaseManager } from "./ssh-lease-manager.js";
+import { SafeConnectSshLeaseManager, startSafeConnectMaster } from "./ssh-lease-manager.js";
 import {
   PlatformClawTargetChangeError,
   type PlatformClawTargetMutationCoordinator,
@@ -51,6 +48,8 @@ const EXECUTION_CONNECTION_TARGET_PATH = "/platformclaw/internal/execution/conne
 const EXECUTION_CHANGE_TARGET_PATH = "/platformclaw/internal/execution/change-target";
 const EXECUTION_CREDENTIALS_PATH = "/platformclaw/internal/execution/credentials";
 const EXECUTION_CREDENTIAL_METADATA_PATH = "/platformclaw/internal/execution/credential-metadata";
+const EXECUTION_AUTHENTICATION_FAILURE_PATH =
+  "/platformclaw/internal/execution/authentication-failure";
 const VM_CONNECTION_TEST_TIMEOUT_MS = 15_000;
 function requireSshToken(value: unknown, label: string): string {
   const token = requireString(value, label);
@@ -225,8 +224,9 @@ async function testAssignedVmConnection(params: {
   remoteWorkspaceDir: string;
 }> {
   const startedAt = performance.now();
+  const signal = AbortSignal.timeout(VM_CONNECTION_TEST_TIMEOUT_MS);
   let timingStatus = "failed";
-  const session = await createSafeConnectSession(
+  const authenticatedSession = await createSafeConnectSession(
     params.target,
     "/usr/local/bin/platformclaw-sshpass",
     {
@@ -234,24 +234,21 @@ async function testAssignedVmConnection(params: {
       credentialGrantToken: params.credentialGrantToken,
     },
   );
+  let master: Awaited<ReturnType<typeof startSafeConnectMaster>> | undefined;
+  let session: SshSandboxSession | undefined;
   try {
-    let result;
-    try {
-      result = await runSshSandboxCommand({
-        session,
-        remoteCommand:
-          'set -eu; test -n "$HOME"; home=$(cd -- "$HOME" && pwd -P); mkdir -p -- "$home/.platformclaw/workspace"; printf \'%s\\n%s\\n\' "$home" "$(id -un)"',
-        signal: AbortSignal.timeout(VM_CONNECTION_TEST_TIMEOUT_MS),
-        maxBufferBytes: 4 * 1024,
-      });
-    } catch (error) {
-      // sshpass exit 5 specifically means invalid/expired credentials. Infrastructure,
-      // broker, host-key, and transport failures must not invalidate a healthy VM target.
-      if (isSshpassAuthenticationFailure(error)) {
-        throw new PlatformClawVmAuthenticationError();
-      }
-      throw error;
-    }
+    const controlPath = path.join(path.dirname(authenticatedSession.configPath), "control.sock");
+    // Authentication owns error classification. A remote shell or command that
+    // exits 5/255 after login must never be treated as a rejected AD credential.
+    master = await startSafeConnectMaster({ session: authenticatedSession, controlPath, signal });
+    session = await createMultiplexedSafeConnectSession(params.target, controlPath);
+    const result = await runSshSandboxCommand({
+      session,
+      remoteCommand:
+        'set -eu; test -n "$HOME"; home=$(cd -- "$HOME" && pwd -P); mkdir -p -- "$home/.platformclaw/workspace"; printf \'%s\\n%s\\n\' "$home" "$(id -un)"',
+      signal,
+      maxBufferBytes: 4 * 1024,
+    });
     const [remoteHomeDir, remoteUser, ...extra] = result.stdout
       .toString("utf8")
       .trimEnd()
@@ -272,7 +269,14 @@ async function testAssignedVmConnection(params: {
       remoteWorkspaceDir: path.posix.join(remoteHomeDir, ".platformclaw/workspace"),
     };
   } finally {
-    await disposeSshSandboxSession(session);
+    try {
+      await master?.stop();
+    } finally {
+      await Promise.all([
+        disposeSshSandboxSession(authenticatedSession),
+        ...(session ? [disposeSshSandboxSession(session)] : []),
+      ]);
+    }
     params.logTiming?.(
       `event=platformclaw_vm_connection_test_timing status=${timingStatus} durationMs=${String(Math.max(0, Math.round(performance.now() - startedAt)))} timeoutMs=${String(VM_CONNECTION_TEST_TIMEOUT_MS)}`,
     );
@@ -342,9 +346,34 @@ export async function createExecutionDependenciesFromEnvironment(
     throw new Error("execution service token is empty");
   }
   const sshLeases = new SafeConnectSshLeaseManager({
+    resolveCurrentTarget: async (agentId, requestedTarget) =>
+      parseTarget(
+        await callExecutionHandoff({
+          socketPath: executionHandoffAddress(brokerAddress),
+          serviceToken,
+          path: EXECUTION_TARGET_PATH,
+          body: { agentId, ...(requestedTarget ? { target: requestedTarget } : {}) },
+        }),
+      ),
     createAuthenticatedSession: async (target) => await createSafeConnectSession(target),
     createMultiplexedSession: createMultiplexedSafeConnectSession,
     disposeSession: disposeSshSandboxSession,
+    onAuthenticationFailure: async (target) => {
+      const result = await callExecutionHandoff({
+        socketPath: executionHandoffAddress(brokerAddress),
+        serviceToken,
+        path: EXECUTION_AUTHENTICATION_FAILURE_PATH,
+        body: {
+          agentId: target.agentId,
+          allocationId: target.allocationId,
+          targetRevision: target.revision,
+          credentialRevision: target.credentialRevision,
+        },
+      });
+      if (!isRecord(result) || typeof result.recorded !== "boolean") {
+        throw new Error("VM recovery response is invalid");
+      }
+    },
     logTiming: options.logTiming,
   });
   const terminals = new VmTmuxTerminalManager(
@@ -397,7 +426,7 @@ export async function createExecutionDependenciesFromEnvironment(
     // VM operations remain authorized while Basic is selected. Only a VM snapshot
     // change or the explicit changeTarget commit below may retire their SSH lease.
     if (target.kind === "assigned_vm") {
-      sshLeases.observeTarget(agentId, target);
+      await sshLeases.observeTarget(agentId, target);
     }
     return target;
   };
@@ -610,10 +639,7 @@ export async function createExecutionDependenciesFromEnvironment(
                 current.kind === "assigned_vm" ? current : undefined,
               );
             } finally {
-              sshLeases.observeTarget(
-                agentId,
-                current.kind === "assigned_vm" ? current : undefined,
-              );
+              await sshLeases.observeTarget(agentId, current);
             }
           }
         } catch {
@@ -629,7 +655,7 @@ export async function createExecutionDependenciesFromEnvironment(
       } catch (error) {
         throw new PlatformClawTargetChangeError(error);
       } finally {
-        sshLeases.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
+        await sshLeases.observeTarget(agentId, changed);
       }
       return changed;
     },

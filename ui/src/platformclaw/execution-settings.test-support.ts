@@ -1,4 +1,5 @@
 import { expect, vi } from "vitest";
+import type { ExecutionSettings } from "./execution-settings-view.ts";
 import { mountPlatformClawExecutionSettings } from "./execution-settings.ts";
 
 export function executionSettingsResponse(body: unknown, status = 200): Response {
@@ -18,6 +19,7 @@ export const EXECUTION_SETTINGS = {
   activeTarget: "platform_server",
   targetRevision: 3,
   credentialStatus: "current",
+  credentialRevision: 1,
   accountId: "person.one",
   availableVms: [{ id: "vm-one", label: "Development VM" }],
   savedVms: [
@@ -44,6 +46,7 @@ export const EXECUTION_SETTINGS = {
   },
   codingAgents: [
     {
+      hasSavedConfiguration: false,
       configuration: {
         agent: "claude",
         enabled: false,
@@ -51,10 +54,16 @@ export const EXECUTION_SETTINGS = {
         environment: EMPTY_ENVIRONMENT,
       },
     },
-    { configuration: { agent: "codex", enabled: false, executablePath: "" } },
-    { configuration: { agent: "opencode", enabled: false, executablePath: "" } },
+    {
+      hasSavedConfiguration: false,
+      configuration: { agent: "codex", enabled: false, executablePath: "" },
+    },
+    {
+      hasSavedConfiguration: false,
+      configuration: { agent: "opencode", enabled: false, executablePath: "" },
+    },
   ],
-};
+} satisfies ExecutionSettings;
 export const UNASSIGNED_EXECUTION_SETTINGS = {
   ...EXECUTION_SETTINGS,
   assignment: undefined,

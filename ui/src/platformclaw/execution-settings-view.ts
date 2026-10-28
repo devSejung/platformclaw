@@ -26,6 +26,8 @@ export type ExecutionSettings = {
   activeTarget: ExecutionTarget;
   targetRevision: number;
   credentialStatus: "missing" | "current" | "update_required";
+  credentialRevision: number;
+  credentialLastAuthFailureAt?: number;
   accountId: string;
   availableVms: Array<{ id: string; label: string }>;
   savedVms: SavedVmConnection[];

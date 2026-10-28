@@ -485,7 +485,12 @@ describe("PlatformClaw execution settings", () => {
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     expect(firstInput.value).toBe("");
     expect(fetchImpl.mock.calls[1]?.[1]?.body).toBe(
-      JSON.stringify({ password: "rejected-password" }),
+      JSON.stringify({
+        password: "rejected-password",
+        expectedRevision: EXECUTION_SETTINGS.targetRevision,
+        expectedCredentialRevision: EXECUTION_SETTINGS.credentialRevision,
+        expectedAllocationId: EXECUTION_SETTINGS.assignment.id,
+      }),
     );
     rejected.resolve(executionSettingsResponse({ error: "AD password was not accepted" }, 422));
 
@@ -516,7 +521,12 @@ describe("PlatformClaw execution settings", () => {
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     expect(secondInput.value).toBe("");
     expect(fetchImpl.mock.calls[3]?.[1]?.body).toBe(
-      JSON.stringify({ password: "corrected-password" }),
+      JSON.stringify({
+        password: "corrected-password",
+        expectedRevision: EXECUTION_SETTINGS.targetRevision,
+        expectedCredentialRevision: EXECUTION_SETTINGS.credentialRevision,
+        expectedAllocationId: EXECUTION_SETTINGS.assignment.id,
+      }),
     );
     accepted.resolve(executionSettingsResponse(EXECUTION_SETTINGS));
 

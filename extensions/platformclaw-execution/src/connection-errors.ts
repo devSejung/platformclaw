@@ -1,6 +1,11 @@
 export class PlatformClawVmAuthenticationError extends Error {
-  constructor() {
-    super("development VM authentication failed");
+  constructor(options: { recoveryReportFailed?: boolean; cause?: unknown } = {}) {
+    super(
+      options.recoveryReportFailed
+        ? "development VM authentication failed; the recovery service is unavailable, open work location settings to reconnect"
+        : "development VM authentication failed",
+      options.cause === undefined ? undefined : { cause: options.cause },
+    );
     this.name = "PlatformClawVmAuthenticationError";
   }
 }
@@ -91,11 +96,30 @@ export function classifyVmConnectionFailure(error: unknown): PlatformClawVmConne
   };
 }
 
-/** The PlatformClaw sshpass launcher preserves sshpass exit 5 for rejected credentials. */
+/** Only call before remote execution: sshpass and remote commands can both exit 5. */
 export function isSshpassAuthenticationFailure(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
   }
-  const result = error as { code?: unknown; exitCode?: unknown };
-  return result.code === 5 || result.exitCode === 5;
+  const result = error as {
+    code?: unknown;
+    exitCode?: unknown;
+    stderr?: unknown;
+  };
+  const code = result.exitCode ?? result.code;
+  if (code === 5) {
+    return true;
+  }
+  if (code !== 255) {
+    return false;
+  }
+  const diagnostic = Buffer.isBuffer(result.stderr)
+    ? result.stderr.toString("utf8")
+    : typeof result.stderr === "string"
+      ? result.stderr
+      : "";
+  // OpenSSH userauth() emits this terminal line when authentication methods
+  // are exhausted; sshfatal() exits 255. Other 255 failures remain connection errors.
+  const methods = /(?:^|\n)[^\r\n]+: Permission denied \(([^()\s]+)\)\.\s*$/u.exec(diagnostic)?.[1];
+  return methods?.split(",").includes("keyboard-interactive") === true;
 }

@@ -18,6 +18,15 @@ type MutationAction = ExecutionAction | ExecutionTarget;
 
 export const EXECUTION_SETTINGS_ELEMENT_NAME = "platformclaw-execution-settings";
 
+export function executionCredentialUpdateBody(settings: ExecutionSettings, password: string) {
+  return {
+    password,
+    expectedRevision: settings.targetRevision,
+    expectedCredentialRevision: settings.credentialRevision,
+    expectedAllocationId: settings.assignment?.id,
+  };
+}
+
 export function mountPlatformClawExecutionSettings(options: {
   fetchImpl: typeof fetch;
   onUnauthenticated: () => void;
@@ -90,17 +99,23 @@ export function applyCodingAgentDetection(params: {
   return current;
 }
 
+export function resolveActiveExecutionConnectionId(
+  settings: ExecutionSettings | null,
+): string | undefined {
+  return settings?.savedVms.find(
+    (vm) =>
+      vm.vmHostId === settings.assignment?.vmHostId &&
+      vm.linuxAccount === settings.assignment?.linuxAccount,
+  )?.id;
+}
+
 export function resolveExecutionConnectionId(
   settings: ExecutionSettings,
   action: MutationAction,
   connectionId?: string,
 ): string | undefined {
   return action === "assigned_vm" && !connectionId
-    ? settings.savedVms.find(
-        (vm) =>
-          vm.vmHostId === settings.assignment?.vmHostId &&
-          vm.linuxAccount === settings.assignment?.linuxAccount,
-      )?.id
+    ? resolveActiveExecutionConnectionId(settings)
     : connectionId;
 }
 

@@ -18,6 +18,7 @@ import type {
   ControlPlaneVmLifecycleStore,
   ControlPlaneVmSelfServiceStore,
   ControlPlaneSavedVmConnectionStore,
+  ControlPlaneVmAuthenticationFailureStore,
 } from "./execution-contracts.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
@@ -32,6 +33,7 @@ type ExecutionTestStore = ExecutionManagementTestStore &
   ControlPlaneEmployeeExecutionStore &
   ControlPlaneExecutionTargetStore &
   ControlPlaneAtomicVmCredentialStore &
+  ControlPlaneVmAuthenticationFailureStore &
   ControlPlaneSshCredentialEnvelopeStore &
   ControlPlaneVmLifecycleStore &
   ControlPlaneVmSelfServiceStore &

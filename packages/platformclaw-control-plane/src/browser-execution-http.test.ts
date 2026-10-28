@@ -85,6 +85,22 @@ const CANDIDATE = {
   codingAgents: SETTINGS.codingAgents.map((entry) => entry.configuration),
 };
 
+const CREDENTIAL_REQUEST = {
+  userId: "user-one",
+  agentId: "person_one",
+  sessionToken: "session-token",
+  expectedRevision: 2,
+  expectedCredentialRevision: 3,
+  expectedAllocationId: "allocation-one",
+};
+
+const ACTIVE_CREDENTIAL_AUTH = {
+  status: "active" as const,
+  user: { id: "user-one" },
+  session: { id: "session-one" },
+  binding: { id: "binding-one", agentId: "person_one", state: "active" },
+};
+
 function createHarness() {
   const store = {
     getPersonalAgentBinding: vi.fn(async () => ({
@@ -95,6 +111,7 @@ function createHarness() {
       async () => SETTINGS,
     ),
     recordVmConnectionResult: vi.fn(async () => SETTINGS.allocation),
+    recordVmAuthenticationFailure: vi.fn(async () => ({ recorded: true })),
     getPersonalVmCatalog: vi.fn(async () => ({
       accountId: "person.one",
       hosts: [{ id: "vm-one", label: "Development VM" }],
@@ -138,7 +155,7 @@ function createHarness() {
   };
   const vault = {
     openSavedCredential: vi.fn(() => Buffer.from("saved-secret")),
-    getMetadata: vi.fn(async () => ({ status: "current" })),
+    getMetadata: vi.fn(async () => ({ status: "current", revision: 3 })),
     replace: vi.fn(async () => ({ status: "current" })),
     delete: vi.fn(async () => true),
     sealForStorage: vi.fn(() => ({
@@ -169,22 +186,33 @@ function createHarness() {
   const adminRpc: GatewayAdminRpc = {
     call: async <T>(method: string, params: unknown) => (await adminRpcCall(method, params)) as T,
   };
-  const closeTerminalForAgent = vi.fn(async () => undefined);
+  const closeTerminalForAgent = vi.fn<() => Promise<void>>(async () => undefined);
+  const onVmCredentialStateChanged = vi.fn(async () => undefined);
+  const authenticateToken = vi.fn<
+    () => Promise<typeof ACTIVE_CREDENTIAL_AUTH | { status: "unauthenticated"; reason: "revoked" }>
+  >(async () => ACTIVE_CREDENTIAL_AUTH);
   const service = new EmployeeExecutionService({
     authService: {
-      authenticateToken: vi.fn(async () => ({
-        status: "active" as const,
-        user: { id: "user-one" },
-      })),
+      authenticateToken,
     } as never,
     store: store as never,
     credentialVault: vault as never,
     credentialBroker: broker as never,
     adminRpc,
     closeTerminalForAgent,
+    onVmCredentialStateChanged,
     now: () => 1234,
   });
-  return { adminRpcCall, broker, closeTerminalForAgent, service, store, vault };
+  return {
+    adminRpcCall,
+    broker,
+    closeTerminalForAgent,
+    onVmCredentialStateChanged,
+    authenticateToken,
+    service,
+    store,
+    vault,
+  };
 }
 
 describe("EmployeeExecutionService", () => {
@@ -272,8 +300,7 @@ describe("EmployeeExecutionService", () => {
     const harness = createHarness();
 
     await harness.service.registerCredential({
-      userId: "user-one",
-      agentId: "person_one",
+      ...CREDENTIAL_REQUEST,
       password: "secret",
     });
 
@@ -293,6 +320,148 @@ describe("EmployeeExecutionService", () => {
     expect(harness.store.recordVmConnectionResult).not.toHaveBeenCalled();
     expect(harness.broker.revoke).toHaveBeenCalledWith("transient-grant");
     expect(harness.closeTerminalForAgent).toHaveBeenCalledWith("person_one", "credential_replaced");
+    expect(harness.onVmCredentialStateChanged).toHaveBeenCalledWith({
+      agentId: "person_one",
+      allocationId: "allocation-one",
+      targetRevision: 2,
+      credentialRevision: 4,
+      status: "current",
+    });
+  });
+
+  it("rejects stale recovery UI before authenticating the supplied password", async () => {
+    const harness = createHarness();
+    await expect(
+      harness.service.registerCredential({
+        ...CREDENTIAL_REQUEST,
+        expectedCredentialRevision: 2,
+        password: "secret",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(harness.adminRpcCall).not.toHaveBeenCalled();
+    expect(harness.store.commitPersonalVmCredential).not.toHaveBeenCalled();
+  });
+
+  it("revalidates browser authority after SSH authentication and before credential commit", async () => {
+    const harness = createHarness();
+    harness.adminRpcCall.mockImplementationOnce(async () => {
+      harness.authenticateToken.mockResolvedValue({ status: "unauthenticated", reason: "revoked" });
+      return {
+        allocationId: "allocation-one",
+        targetRevision: 2,
+        remoteHomeDir: "/users/person.one",
+        remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+      };
+    });
+    await expect(
+      harness.service.registerCredential({ ...CREDENTIAL_REQUEST, password: "secret" }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(harness.store.commitPersonalVmCredential).not.toHaveBeenCalled();
+    expect(harness.onVmCredentialStateChanged).not.toHaveBeenCalled();
+    expect(harness.broker.revoke).toHaveBeenCalledWith("transient-grant");
+  });
+
+  it("does not notify when the atomic credential commit rejects a changed revision", async () => {
+    const harness = createHarness();
+    harness.store.commitPersonalVmCredential.mockRejectedValueOnce(
+      new ControlPlaneConflictError(
+        "execution_target_conflict",
+        "VM credential changed during the connection test",
+      ),
+    );
+    await expect(
+      harness.service.registerCredential({ ...CREDENTIAL_REQUEST, password: "secret" }),
+    ).rejects.toMatchObject({ code: "execution_target_conflict" });
+    expect(harness.closeTerminalForAgent).not.toHaveBeenCalled();
+    expect(harness.onVmCredentialStateChanged).not.toHaveBeenCalled();
+  });
+
+  it("holds VM mutation admission through credential commit and terminal cleanup", async () => {
+    const harness = createHarness();
+    let finishCleanup: (() => void) | undefined;
+    harness.closeTerminalForAgent.mockImplementationOnce(
+      async () =>
+        await new Promise<void>((resolve) => {
+          finishCleanup = resolve;
+        }),
+    );
+    const pending = harness.service.registerCredential({
+      ...CREDENTIAL_REQUEST,
+      password: "synthetic",
+    });
+    await vi.waitFor(() => expect(harness.closeTerminalForAgent).toHaveBeenCalledOnce());
+    expect(harness.store.commitPersonalVmCredential).toHaveBeenCalledOnce();
+    expect(harness.service.isConnectionAttemptActive("person_one")).toBe(true);
+    expect(harness.service.isConnectionAttemptActive("another_person")).toBe(false);
+    await expect(
+      harness.service.changeTarget({
+        userId: "user-one",
+        agentId: "person_one",
+        target: "platform_server",
+        expectedRevision: 2,
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    await expect(
+      harness.service.releaseVm("user-one", "person_one", "saved-one"),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(harness.store.removePersonalSavedVmConnection).not.toHaveBeenCalled();
+    expect(harness.adminRpcCall).toHaveBeenCalledTimes(1);
+    if (!finishCleanup) {
+      throw new Error("credential cleanup did not start");
+    }
+    finishCleanup();
+    await pending;
+    expect(harness.service.isConnectionAttemptActive("person_one")).toBe(false);
+    await harness.service.changeTarget({
+      userId: "user-one",
+      agentId: "person_one",
+      target: "platform_server",
+      expectedRevision: 2,
+    });
+    expect(harness.adminRpcCall).toHaveBeenCalledWith("platformclaw-execution.changeTarget", {
+      agentId: "person_one",
+      target: "platform_server",
+      expectedRevision: 2,
+    });
+  });
+
+  it("rechecks public target admission after loading its work location", async () => {
+    const harness = createHarness();
+    let loadSettings: ((settings: PersonalExecutionSettings) => void) | undefined;
+    harness.store.getPersonalExecutionSettings.mockImplementationOnce(
+      async () =>
+        await new Promise<PersonalExecutionSettings>((resolve) => {
+          loadSettings = resolve;
+        }),
+    );
+    const changing = harness.service.changeTarget({
+      userId: "user-one",
+      agentId: "person_one",
+      target: "platform_server",
+      expectedRevision: 2,
+    });
+    let finishTest: ((value: unknown) => void) | undefined;
+    harness.adminRpcCall.mockImplementationOnce(
+      async () =>
+        await new Promise((resolve) => {
+          finishTest = resolve;
+        }),
+    );
+    const testing = harness.service.testStoredCredential("user-one", "person_one");
+    await vi.waitFor(() => expect(harness.adminRpcCall).toHaveBeenCalledOnce());
+    if (!loadSettings || !finishTest) {
+      throw new Error("interleaved target and connection test did not start");
+    }
+    loadSettings(SETTINGS);
+    await expect(changing).rejects.toMatchObject({ statusCode: 409 });
+    expect(harness.adminRpcCall).toHaveBeenCalledTimes(1);
+    finishTest({
+      allocationId: "allocation-one",
+      targetRevision: 2,
+      remoteHomeDir: "/users/person.one",
+      remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
+    });
+    await testing;
   });
 
   it("does not replace the durable credential when the transient connection test fails", async () => {
@@ -301,8 +470,7 @@ describe("EmployeeExecutionService", () => {
 
     await expect(
       harness.service.registerCredential({
-        userId: "user-one",
-        agentId: "person_one",
+        ...CREDENTIAL_REQUEST,
         password: "wrong",
       }),
     ).rejects.toThrow("authentication failed");
@@ -316,8 +484,7 @@ describe("EmployeeExecutionService", () => {
     const invalid = createHarness();
     await expect(
       invalid.service.registerCredential({
-        userId: "user-one",
-        agentId: "person_one",
+        ...CREDENTIAL_REQUEST,
         password: "",
       }),
     ).rejects.toMatchObject({ statusCode: 400, message: "AD password is required" });
@@ -330,8 +497,7 @@ describe("EmployeeExecutionService", () => {
     );
     await expect(
       rejected.service.registerCredential({
-        userId: "user-one",
-        agentId: "person_one",
+        ...CREDENTIAL_REQUEST,
         password: "wrong",
       }),
     ).rejects.toMatchObject({ statusCode: 422, message: "AD password was not accepted" });
@@ -373,14 +539,17 @@ describe("EmployeeExecutionService", () => {
       "authentication failed",
     );
 
-    expect(harness.store.recordVmConnectionResult).toHaveBeenCalledWith(
+    expect(harness.store.recordVmAuthenticationFailure).toHaveBeenCalledWith(
       expect.objectContaining({
-        expectedAllocationId: "allocation-one",
-        expectedTargetRevision: 2,
-        result: {
-          status: "connection_required",
-          failureCode: "vm_authentication_failed",
-        },
+        allocationId: "allocation-one",
+        targetRevision: 2,
+        credentialRevision: 3,
+      }),
+    );
+    expect(harness.onVmCredentialStateChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "person_one",
+        status: "update_required",
       }),
     );
   });
@@ -645,6 +814,53 @@ describe("EmployeeExecutionService", () => {
 });
 
 describe("employee execution HTTP errors", () => {
+  it("requires the displayed VM revisions and uses the authenticated cookie for credential recovery", async () => {
+    const harness = createHarness();
+    let responseBody = "";
+    const response = {
+      statusCode: 200,
+      setHeader: vi.fn(),
+      end: (body?: unknown) => {
+        responseBody = typeof body === "string" ? body : "";
+      },
+    } as unknown as ServerResponse;
+    const req = {
+      url: "/platformclaw/api/execution/credential",
+      method: "POST",
+      headers: { cookie: "platformclaw_session=session-token" },
+    } as IncomingMessage;
+    await handlePlatformClawEmployeeExecutionRequest(req, response, {
+      service: harness.service,
+      isMutationOriginAllowed: () => true,
+      readJsonBody: async () => ({ ok: true, value: { password: "synthetic" } }),
+    });
+    expect(response.statusCode).toBe(400);
+    expect(harness.broker.issueTransient).not.toHaveBeenCalled();
+    await handlePlatformClawEmployeeExecutionRequest(req, response, {
+      service: harness.service,
+      isMutationOriginAllowed: () => true,
+      readJsonBody: async () => ({
+        ok: true,
+        value: {
+          password: "synthetic",
+          expectedRevision: 2,
+          expectedCredentialRevision: 3,
+          expectedAllocationId: "allocation-one",
+          sessionToken: "ignored-body-token",
+        },
+      }),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(responseBody)).toMatchObject({ credentialRevision: 3 });
+    expect(harness.authenticateToken).toHaveBeenCalledWith("session-token", false);
+    expect(harness.store.commitPersonalVmCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedBindingId: "binding-one",
+        expectedSessionId: "session-one",
+        expectedCredentialRevision: 3,
+      }),
+    );
+  });
   it("routes an authenticated employee detection through the internal admin RPC", async () => {
     const harness = createHarness();
     harness.adminRpcCall.mockResolvedValueOnce({

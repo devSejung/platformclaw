@@ -226,6 +226,7 @@ async function assembledFixture(
       resolveConnectionTarget: vi.fn(),
       changeTarget: vi.fn(),
       issueCredentialGrant: vi.fn(),
+      reportAuthenticationFailure: vi.fn(),
     },
     socketPath,
   );

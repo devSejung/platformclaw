@@ -5,6 +5,17 @@ import {
   type CodingAgentProbeResult,
 } from "@platformclaw/coding-agent-contract";
 import type { BrowserAuthService } from "./browser-auth-service.js";
+import {
+  assertCurrentVmCandidate,
+  requireVmCredentialBrowserAuthority,
+} from "./browser-execution-authorization.js";
+import {
+  connectionTestResult,
+  vmConnectionFailureKind,
+  isVmAuthenticationFailure,
+  type ConnectionTestResult,
+} from "./browser-execution-connection.js";
+import { EmployeeExecutionHttpError } from "./browser-execution-errors.js";
 import type { ControlPlaneStore } from "./contracts.js";
 import type {
   ControlPlaneAtomicVmCredentialStore,
@@ -12,53 +23,33 @@ import type {
   ControlPlaneSavedVmConnectionStore,
   ControlPlaneVmSelfServiceStore,
   PersonalExecutionSettings,
-  AssignedVmConnectionTarget,
+  VmCredentialStateChange,
+  ControlPlaneVmAuthenticationFailureStore,
 } from "./execution-contracts.js";
-import { GatewayAdminRpcError, type GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
+import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type { SshCredentialBroker } from "./ssh-credential-broker.js";
 import type { SshCredentialVault } from "./ssh-credential-vault.js";
 
 const CONNECTION_ATTEMPT_WINDOW_MS = 5 * 60_000;
 const CONNECTION_ATTEMPT_LIMIT = 5;
 
-function assertCurrentVmCandidate(
-  expected: AssignedVmConnectionTarget,
-  current: AssignedVmConnectionTarget,
-): void {
-  const identityFields = [
-    "agentId",
-    "userId",
-    "revision",
-    "allocationId",
-    "endpointHost",
-    "endpointPort",
-    "adDomain",
-    "adAccount",
-    "targetAddress",
-    "linuxAccount",
-    "hostKeyAlgorithm",
-    "hostKeyPublicKey",
-    "hostKeyFingerprint",
-  ] as const;
-  if (identityFields.some((field) => expected[field] !== current[field])) {
-    throw new EmployeeExecutionHttpError(409, "VM authorization changed; reload and reconnect");
-  }
-}
+type VmCredentialRegistration = {
+  userId: string;
+  agentId: string;
+  password: string;
+  sessionToken: string;
+  expectedRevision: number;
+  expectedCredentialRevision: number;
+  expectedAllocationId: string;
+};
 
-export class EmployeeExecutionHttpError extends Error {
-  constructor(
-    readonly statusCode: 400 | 409 | 422 | 429,
-    message: string,
-  ) {
-    super(message);
-    this.name = "EmployeeExecutionHttpError";
-  }
-}
+export { EmployeeExecutionHttpError } from "./browser-execution-errors.js";
 
 type EmployeeExecutionStore = ControlPlaneStore &
   ControlPlaneEmployeeExecutionStore &
   ControlPlaneVmSelfServiceStore &
   ControlPlaneSavedVmConnectionStore &
+  ControlPlaneVmAuthenticationFailureStore &
   ControlPlaneAtomicVmCredentialStore;
 
 type EmployeeExecutionServiceOptions = {
@@ -71,41 +62,9 @@ type EmployeeExecutionServiceOptions = {
   >;
   adminRpc: GatewayAdminRpc;
   closeTerminalForAgent?: (agentId: string, reason: string) => Promise<void>;
+  onVmCredentialStateChanged?: (change: VmCredentialStateChange) => Promise<void>;
   now?: () => number;
 };
-
-type ConnectionTestResult = {
-  allocationId: string;
-  targetRevision: number;
-  remoteHomeDir: string;
-  remoteWorkspaceDir: string;
-};
-
-function connectionTestResult(value: unknown): ConnectionTestResult {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("development VM returned an invalid connection result");
-  }
-  const result = value as Record<string, unknown>;
-  if (
-    typeof result.remoteHomeDir !== "string" ||
-    !result.remoteHomeDir.startsWith("/") ||
-    typeof result.remoteWorkspaceDir !== "string" ||
-    !result.remoteWorkspaceDir.startsWith(`${result.remoteHomeDir}/`) ||
-    typeof result.allocationId !== "string" ||
-    !result.allocationId.trim() ||
-    typeof result.targetRevision !== "number" ||
-    !Number.isSafeInteger(result.targetRevision) ||
-    result.targetRevision < 0
-  ) {
-    throw new Error("development VM returned an invalid connection result");
-  }
-  return {
-    allocationId: result.allocationId,
-    targetRevision: result.targetRevision,
-    remoteHomeDir: result.remoteHomeDir,
-    remoteWorkspaceDir: result.remoteWorkspaceDir,
-  };
-}
 
 function publicCodingAgentProbe(
   result: ReturnType<typeof parseCodingAgentVmProbeResult>,
@@ -119,21 +78,7 @@ function publicCodingAgentProbe(
   };
 }
 
-function vmConnectionFailureKind(error: unknown): string | null {
-  if (!(error instanceof GatewayAdminRpcError)) {
-    return null;
-  }
-  const details = error.details;
-  const kind =
-    details && typeof details === "object" && !Array.isArray(details)
-      ? (details as Record<string, unknown>).kind
-      : undefined;
-  return typeof kind === "string" && kind.startsWith("vm_") ? kind : null;
-}
-
-export function isVmAuthenticationFailure(error: unknown): boolean {
-  return vmConnectionFailureKind(error) === "vm_authentication_failed";
-}
+export { isVmAuthenticationFailure } from "./browser-execution-connection.js";
 
 export class EmployeeExecutionService {
   private readonly now: () => number;
@@ -142,6 +87,10 @@ export class EmployeeExecutionService {
 
   constructor(private readonly options: EmployeeExecutionServiceOptions) {
     this.now = options.now ?? Date.now;
+  }
+
+  isConnectionAttemptActive(agentId: string): boolean {
+    return this.activeConnectionTests.has(agentId);
   }
 
   async authenticate(token: string) {
@@ -169,7 +118,14 @@ export class EmployeeExecutionService {
       actorUserId: userId,
       agentId,
     });
-    return { ...this.project(settings, credential?.status ?? "missing", catalog), savedVms };
+    return {
+      ...this.project(settings, credential?.status ?? "missing", catalog),
+      credentialRevision: credential?.revision ?? 0,
+      ...(credential?.lastAuthFailureAt === undefined
+        ? {}
+        : { credentialLastAuthFailureAt: credential.lastAuthFailureAt }),
+      savedVms,
+    };
   }
 
   async selectVm(params: {
@@ -252,6 +208,7 @@ export class EmployeeExecutionService {
   }
 
   async releaseVm(userId: string, agentId: string, connectionId?: string) {
+    this.assertNoConnectionAttempt(agentId);
     if (connectionId) {
       await this.options.store.removePersonalSavedVmConnection({
         actorUserId: userId,
@@ -269,6 +226,7 @@ export class EmployeeExecutionService {
       );
     }
     const releasedAt = this.now();
+    this.assertNoConnectionAttempt(agentId);
     await this.options.store.releasePersonalVmAccess({
       actorUserId: userId,
       agentId,
@@ -278,24 +236,47 @@ export class EmployeeExecutionService {
     return await this.getSettings(userId, agentId);
   }
 
-  async registerCredential(params: { userId: string; agentId: string; password: string }) {
+  async registerCredential(params: VmCredentialRegistration) {
     return await this.withConnectionAttempt(params.agentId, async () => {
       return await this.registerCredentialLocked(params);
     });
   }
 
-  private async registerCredentialLocked(params: {
-    userId: string;
-    agentId: string;
-    password: string;
-  }) {
+  private async registerCredentialLocked(params: VmCredentialRegistration) {
     const { credentialBroker, credentialVault } = this.requireCredentialRuntime();
     const settings = await this.requireOwnedSettings(params.userId, params.agentId);
+    const authority = await requireVmCredentialBrowserAuthority(this.options.authService, params);
+    const credential = await credentialVault.getMetadata({
+      actorUserId: params.userId,
+      userId: params.userId,
+    });
+    const expectedCredentialRevision = credential?.revision ?? null;
+    if (!settings.allocation) {
+      throw new EmployeeExecutionHttpError(409, "development VM is not assigned");
+    }
+    if (
+      settings.targetRevision !== params.expectedRevision ||
+      settings.allocation.id !== params.expectedAllocationId ||
+      (credential?.revision ?? 0) !== params.expectedCredentialRevision
+    ) {
+      throw new EmployeeExecutionHttpError(
+        409,
+        "VM credential or work location changed; reload and retry",
+      );
+    }
     if (!params.password || Buffer.byteLength(params.password, "utf8") > 4 * 1024) {
       throw new EmployeeExecutionHttpError(400, "AD password is required");
     }
     const grant = credentialBroker.issueTransient(params.password, async () => {
       await this.assertCurrentAssignment(params.userId, params.agentId, settings);
+      const current = await credentialVault.getMetadata({
+        actorUserId: params.userId,
+        userId: params.userId,
+      });
+      if ((current?.revision ?? null) !== expectedCredentialRevision) {
+        throw new EmployeeExecutionHttpError(409, "VM credential changed; reload and retry");
+      }
+      await requireVmCredentialBrowserAuthority(this.options.authService, params, authority);
     });
     let connection: ConnectionTestResult;
     try {
@@ -314,10 +295,20 @@ export class EmployeeExecutionService {
     } finally {
       credentialBroker.revoke(grant.token);
     }
+    if (
+      connection.allocationId !== settings.allocation.id ||
+      connection.targetRevision !== settings.targetRevision
+    ) {
+      throw new EmployeeExecutionHttpError(409, "development VM changed during authentication");
+    }
+    await requireVmCredentialBrowserAuthority(this.options.authService, params, authority);
     const checkedAt = this.now();
     await this.options.store.commitPersonalVmCredential({
       actorUserId: params.userId,
       agentId: params.agentId,
+      expectedBindingId: authority.binding.id,
+      expectedSessionId: authority.session.id,
+      expectedCredentialRevision,
       expectedAllocationId: connection.allocationId,
       expectedTargetRevision: connection.targetRevision,
       credentialEnvelope: credentialVault.sealForStorage(params.userId, params.password),
@@ -326,6 +317,13 @@ export class EmployeeExecutionService {
       remoteWorkspaceDir: connection.remoteWorkspaceDir,
     });
     await this.options.closeTerminalForAgent?.(params.agentId, "credential_replaced");
+    await this.options.onVmCredentialStateChanged?.({
+      agentId: params.agentId,
+      allocationId: connection.allocationId,
+      targetRevision: connection.targetRevision,
+      credentialRevision: (expectedCredentialRevision ?? 0) + 1,
+      status: "current",
+    });
     return await this.getSettings(params.userId, params.agentId);
   }
 
@@ -336,14 +334,22 @@ export class EmployeeExecutionService {
   }
 
   private async testStoredCredentialLocked(userId: string, agentId: string) {
-    const { credentialBroker } = this.requireCredentialRuntime();
+    const { credentialBroker, credentialVault } = this.requireCredentialRuntime();
     const settings = await this.requireOwnedSettings(userId, agentId);
     const expectedAllocationId = settings.allocation?.id;
     if (!expectedAllocationId) {
       throw new EmployeeExecutionHttpError(409, "development VM is not assigned");
     }
+    const credential = await credentialVault.getMetadata({ actorUserId: userId, userId });
+    if (!credential || credential.status !== "current") {
+      throw new EmployeeExecutionHttpError(409, "AD password requires an update");
+    }
     const grant = credentialBroker.issueForUser(userId, async () => {
       await this.assertCurrentAssignment(userId, agentId, settings);
+      const current = await credentialVault.getMetadata({ actorUserId: userId, userId });
+      if (current?.revision !== credential.revision || current.status !== "current") {
+        throw new EmployeeExecutionHttpError(409, "VM credential changed; reload and retry");
+      }
     });
     let rawConnection: unknown;
     try {
@@ -354,12 +360,27 @@ export class EmployeeExecutionService {
       });
     } catch (error) {
       const failureKind = vmConnectionFailureKind(error);
-      if (failureKind) {
+      if (isVmAuthenticationFailure(error)) {
+        const change = {
+          agentId,
+          allocationId: expectedAllocationId,
+          targetRevision: settings.targetRevision,
+          credentialRevision: credential.revision,
+        };
+        const result = await this.options.store.recordVmAuthenticationFailure({
+          ...change,
+          failedAt: this.now(),
+        });
+        if (result.recorded) {
+          await this.options.onVmCredentialStateChanged?.({ ...change, status: "update_required" });
+        }
+      } else if (failureKind) {
         await this.options.store.recordVmConnectionResult({
           actorUserId: userId,
           agentId,
           expectedAllocationId,
           expectedTargetRevision: settings.targetRevision,
+          expectedCredentialRevision: credential.revision,
           checkedAt: this.now(),
           result: { status: "connection_required", failureCode: failureKind },
         });
@@ -375,6 +396,7 @@ export class EmployeeExecutionService {
       agentId,
       expectedAllocationId: connection.allocationId,
       expectedTargetRevision: connection.targetRevision,
+      expectedCredentialRevision: credential.revision,
       checkedAt: this.now(),
       result: { status: "ready", ...connection },
     });
@@ -388,6 +410,7 @@ export class EmployeeExecutionService {
     expectedRevision: number;
     connectionId?: string;
   }) {
+    this.assertNoConnectionAttempt(params.agentId);
     const settings = await this.requireOwnedSettings(params.userId, params.agentId);
     if (settings.targetRevision !== params.expectedRevision) {
       throw new EmployeeExecutionHttpError(409, "work location changed; reload and retry");
@@ -479,6 +502,7 @@ export class EmployeeExecutionService {
         "reload Work location and select a saved VM to verify its connection",
       );
     }
+    this.assertNoConnectionAttempt(params.agentId);
     await this.options.adminRpc.call("platformclaw-execution.changeTarget", {
       agentId: params.agentId,
       target: params.target,
@@ -653,9 +677,7 @@ export class EmployeeExecutionService {
     run: () => Promise<T>,
     source: "supplied" | "saved" = "supplied",
   ): Promise<T> {
-    if (this.activeConnectionTests.has(agentId)) {
-      throw new EmployeeExecutionHttpError(409, "a connection test is already in progress");
-    }
+    this.assertNoConnectionAttempt(agentId);
     // Saved switches cannot guess passwords; failed authentication marks that
     // registration for reauthentication instead of rate-limiting normal navigation.
     if (source === "supplied") {
@@ -674,6 +696,12 @@ export class EmployeeExecutionService {
       return await run();
     } finally {
       this.activeConnectionTests.delete(agentId);
+    }
+  }
+
+  private assertNoConnectionAttempt(agentId: string): void {
+    if (this.isConnectionAttemptActive(agentId)) {
+      throw new EmployeeExecutionHttpError(409, "a connection test is already in progress");
     }
   }
 

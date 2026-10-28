@@ -23,9 +23,11 @@ import { handlePlatformClawDashboardRequest } from "./browser-dashboard-http.js"
 import { handlePlatformClawExecCredentialRequest } from "./browser-exec-credentials-http.js";
 import { handlePlatformClawEmployeeExecutionRequest } from "./browser-execution-http.js";
 import {
+  createBrowserExecutionChangeForwarder,
   createBrowserGatewayEventForwarder,
   createBrowserGatewayEventSender,
 } from "./browser-gateway-event-forwarder.js";
+import { decodeTextFrame, rawDataByteLength } from "./browser-gateway-frames.js";
 import { projectPlatformClawBrowserHello } from "./browser-gateway-hello.js";
 import { BrowserGatewayProxyError, type BrowserGatewayAccess } from "./browser-gateway-proxy.js";
 import { isMutatingBrowserGatewayMethod } from "./browser-gateway-request-ordering.js";
@@ -90,26 +92,6 @@ function rejectUpgrade(socket: Duplex, statusCode: number, statusText: string): 
       `HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
     );
   }
-}
-
-function decodeTextFrame(data: RawData): string {
-  if (Buffer.isBuffer(data)) {
-    return data.toString("utf8");
-  }
-  if (data instanceof ArrayBuffer) {
-    return Buffer.from(data).toString("utf8");
-  }
-  return Buffer.concat(data).toString("utf8");
-}
-
-function rawDataByteLength(data: RawData): number {
-  if (Buffer.isBuffer(data)) {
-    return data.byteLength;
-  }
-  if (data instanceof ArrayBuffer) {
-    return data.byteLength;
-  }
-  return data.reduce((total, chunk) => total + chunk.byteLength, 0);
 }
 
 export class PlatformClawWebIngressServer {
@@ -460,6 +442,7 @@ export class PlatformClawWebIngressServer {
     let unsubscribe = () => {};
     let unsubscribeLocal = () => {};
     let unsubscribeAnnouncements = () => {};
+    let unsubscribeExecution = () => {};
     let handshakeChain = Promise.resolve();
     let handshakePendingCount = 0;
     let pendingRequestCount = 0;
@@ -501,6 +484,13 @@ export class PlatformClawWebIngressServer {
       token,
       proxy: this.options.gatewayProxy,
       isConnected: () => connected,
+      closeUnauthorized,
+      sendEvent,
+    });
+    const forwardExecutionChange = createBrowserExecutionChangeForwarder({
+      token,
+      proxy: this.options.gatewayProxy,
+      isConnected: () => connected && !connectionClosed,
       closeUnauthorized,
       sendEvent,
     });
@@ -562,6 +552,12 @@ export class PlatformClawWebIngressServer {
             .catch(() => websocket.close(1011, "event filtering failed"));
         });
         connected = true;
+        unsubscribeExecution =
+          this.options.subscribeExecutionChanges?.((change) => {
+            eventChain = eventChain
+              .then(() => forwardExecutionChange(change))
+              .catch(() => websocket.close(1011, "execution state delivery failed"));
+          }) ?? (() => {});
         // BFF-local invalidations carry no content or admin data. Recheck the session;
         // authoritative content is always fetched through the authenticated HTTP route.
         unsubscribeAnnouncements =
@@ -734,6 +730,7 @@ export class PlatformClawWebIngressServer {
       unsubscribe();
       unsubscribeLocal();
       unsubscribeAnnouncements();
+      unsubscribeExecution();
       void this.options.gatewayProxy.releaseBrowserConnection?.(connectionId);
     });
   }

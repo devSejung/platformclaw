@@ -6,6 +6,42 @@ import {
 } from "./browser-gateway-proxy.test-harness.js";
 
 describe("BrowserGatewayTerminalController", () => {
+  it.each(["before", "during"])(
+    "waits for credential replacement that starts %s terminal preparation",
+    async (when) => {
+      let updating = when === "before";
+      const { binding, proxy, request, store, token } = await setup({
+        isVmConnectionMutationActive: () => updating,
+      });
+      vi.spyOn(store, "getPersonalExecutionProfile").mockImplementation(async () => {
+        updating = true;
+        return {
+          agentBindingId: binding.id,
+          activeTarget: "assigned_vm",
+          activeAllocationId: "allocation-1",
+          targetRevision: 7,
+          updatedAt: NOW,
+        };
+      });
+      try {
+        await expect(
+          proxy.request(
+            token,
+            "terminal.open",
+            { cols: 80, rows: 24 },
+            { connectionId: "web-recovery" },
+          ),
+        ).rejects.toMatchObject({
+          code: "method-not-allowed",
+          message: "VM connection update is in progress. Try opening the terminal again afterward.",
+        });
+        expect(request.mock.calls.some(([method]) => method === "terminal.open")).toBe(false);
+      } finally {
+        await proxy.releaseBrowserConnection("web-recovery");
+      }
+    },
+  );
+
   it("cleans up failed open audits and reports asynchronous exit audit failures", async () => {
     const { auditWriter, binding, proxy, request, store, token } = await setup();
     vi.spyOn(store, "getPersonalExecutionProfile").mockResolvedValue({

@@ -62,6 +62,21 @@ have produced side effects. The runtime emits bounded
 `platformclaw_ssh_channel_queue` timing events without accounts, hosts, paths,
 commands, or credentials.
 
+Confirmed authentication rejection is reported through the authenticated
+execution handoff with the prepared Agent, allocation, target revision, and
+credential revision. Control updates only that exact current credential and
+its active saved VM registration. Stale or duplicate reports cannot invalidate
+a replacement. Browser recovery notices contain only non-secret state metadata,
+are checked against the current authenticated owner, and prompt the browser to
+reload its execution settings. A failed report remains a visible recovery-service
+error; it is not silently treated as successful notification.
+
+Connection tests establish an authenticated master before running the remote
+identity command. A command exit code after authentication therefore cannot be
+mistaken for a rejected password. A failed immutable credential revision is not
+retried by queued callers; successful replacement creates a new revision and
+retires the old lease.
+
 ## Local transport
 
 Production Linux uses an absolute Unix-domain socket. Startup requires its
@@ -80,9 +95,8 @@ must also be overwritten by the caller immediately after use.
 
 Neither the master key nor decrypted passwords enter the Gateway, command-line
 arguments, ordinary environment variables, files, JSON, logs, browser state,
-workspaces, audit details, or model input. The following VM backend slice will
-connect the response bytes directly to `sshpass -d <fd>` and must preserve this
-rule.
+workspaces, audit details, or model input. The SSH launcher connects the response
+bytes directly to `sshpass -d <fd>` and preserves this rule.
 
 ## Deployment
 

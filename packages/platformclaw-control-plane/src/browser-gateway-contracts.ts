@@ -75,6 +75,7 @@ export type BrowserGatewayProxyOptions = {
   vaultService?: import("./knowledge-vault-service.js").KnowledgeVaultService;
   /** Derived from the ingress HTTP relay wiring; never browser-controlled. */
   talkOfferRelayAvailable?: boolean;
+  isVmConnectionMutationActive?: (agentId: string) => boolean;
   buildAgentMainSessionKey(params: { agentId: string }): string;
   resolveAgentIdFromSessionKey(sessionKey: string): string | null;
   now?: () => number;

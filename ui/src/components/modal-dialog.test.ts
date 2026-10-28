@@ -174,7 +174,8 @@ describe("openclaw-modal-dialog", () => {
 
   it("tracks the open lifecycle through prevented and completed hides", async () => {
     const { modal, webAwesomeDialog } = await renderModal();
-    modal.addEventListener("modal-cancel", (event) => event.preventDefault());
+    const preventCancel = (event: Event) => event.preventDefault();
+    modal.addEventListener("modal-cancel", preventCancel);
     expect(hasOpenModalDialog()).toBe(true);
 
     const preventedHide = new Event("wa-hide", { cancelable: true });
@@ -182,7 +183,9 @@ describe("openclaw-modal-dialog", () => {
     expect(preventedHide.defaultPrevented).toBe(true);
     expect(hasOpenModalDialog()).toBe(true);
 
-    webAwesomeDialog.dispatchEvent(new Event("wa-after-hide"));
+    modal.removeEventListener("modal-cancel", preventCancel);
+    modal.hide();
+    await vi.waitFor(() => expect(webAwesomeDialog.open).toBe(false));
     expect(hasOpenModalDialog()).toBe(false);
   });
 
@@ -333,14 +336,11 @@ describe("openclaw-modal-dialog", () => {
     const returnTarget = document.createElement("button");
     document.body.append(originalTrigger, returnTarget);
     originalTrigger.focus();
-    const { modal, webAwesomeDialog } = await renderModal();
+    const { modal } = await renderModal();
 
     modal.setReturnFocusTarget(returnTarget);
-    setTimeout(() => originalTrigger.focus(), 0);
-    webAwesomeDialog.dispatchEvent(new Event("wa-after-hide"));
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
-    });
+    modal.hide();
+    await vi.waitFor(() => expect(document.activeElement).toBe(returnTarget));
 
     expect(document.activeElement).toBe(returnTarget);
     originalTrigger.remove();
@@ -351,17 +351,41 @@ describe("openclaw-modal-dialog", () => {
     const originalTrigger = document.createElement("button");
     document.body.append(originalTrigger);
     originalTrigger.focus();
-    const { modal, webAwesomeDialog } = await renderModal();
+    const { modal, dialog } = await renderModal();
 
     modal.setReturnFocusTarget(null);
-    setTimeout(() => originalTrigger.focus(), 0);
-    webAwesomeDialog.dispatchEvent(new Event("wa-after-hide"));
+    modal.hide();
+    await vi.waitFor(() => expect(dialog.open).toBe(false));
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
 
     expect(document.activeElement).not.toBe(originalTrigger);
     originalTrigger.remove();
+  });
+
+  it("honors an owner reopen during the dependency hide lifecycle", async () => {
+    const trigger = document.createElement("button");
+    document.body.append(trigger);
+    trigger.focus();
+    const { modal, webAwesomeDialog, dialog } = await renderModal();
+    const onCancel = vi.fn();
+    const shown = vi.fn();
+    modal.addEventListener("modal-cancel", onCancel);
+    webAwesomeDialog.addEventListener("wa-after-show", shown);
+    webAwesomeDialog.addEventListener("wa-hide", () => queueMicrotask(() => modal.show()), {
+      once: true,
+    });
+    modal.hide();
+    await vi.waitFor(() => expect(shown).toHaveBeenCalledOnce());
+    expect(modal.open).toBe(true);
+    expect(dialog.open).toBe(true);
+    expect(hasOpenModalDialog()).toBe(true);
+    expect(onCancel).not.toHaveBeenCalled();
+    modal.hide();
+    await vi.waitFor(() => expect(dialog.open).toBe(false));
+    await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
+    trigger.remove();
   });
 
   it("does not restore the original trigger when a suppressed modal is removed", async () => {

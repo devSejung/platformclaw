@@ -71,6 +71,27 @@ describe("SafeConnect authentication failure classification", () => {
     expect(isSshpassAuthenticationFailure({ code: 255 })).toBe(false);
   });
 
+  it.each(["keyboard-interactive", "publickey,keyboard-interactive"])(
+    "recognizes OpenSSH final authentication rejection with methods %s",
+    (methods) => {
+      const stderr = `employee@host: Permission denied (${methods}).\r\n`;
+      expect(isSshpassAuthenticationFailure({ code: 255, stderr })).toBe(true);
+      expect(isSshpassAuthenticationFailure({ exitCode: 255, stderr: Buffer.from(stderr) })).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each([
+    "ssh: connect to host safe.example.test port 22: Connection refused\n",
+    "Host key verification failed.\n",
+    "employee@host: Permission denied (publickey).\n",
+    "employee@host: Permission denied (keyboard-interactive).\nConnection closed by host\n",
+    "Permission denied\n",
+  ])("does not infer rejected AD credentials from a generic SSH failure: %s", (stderr) => {
+    expect(isSshpassAuthenticationFailure({ code: 255, stderr })).toBe(false);
+  });
+
   it("omits non-scalar transport codes from diagnostics", () => {
     const error = Object.assign(new Error("connection failed"), { code: { nested: true } });
 
