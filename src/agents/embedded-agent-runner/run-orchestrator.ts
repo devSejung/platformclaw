@@ -28,6 +28,7 @@ import {
   resolveDefaultAgentDir,
   resolveRunModelFallbacksOverride,
 } from "../agent-scope.js";
+import { withAgentWorkAdmission } from "../agent-work-admission.js";
 import { resolveModelCandidateChain } from "../model-fallback-candidates.js";
 import {
   acquireAgentRunPreparedModelRuntime,
@@ -38,6 +39,7 @@ import { resolveProjectKey } from "../project-memory-scope.js";
 import {
   applyAgentRunSessionTargetIdentity,
   resolveAgentRunSessionTarget,
+  resolveAgentRunWorkOwner,
 } from "../run-session-target.js";
 import {
   resolveSessionSuspensionTarget,
@@ -88,12 +90,11 @@ export function runEmbeddedAgent(
   const lifecycleGeneration =
     internalParamsInput.lifecycleGeneration ??
     captureAgentRunLifecycleGeneration(internalParamsInput.runId);
-  return withAgentRunLifecycleGeneration(lifecycleGeneration, () =>
-    runEmbeddedAgentInternal({
-      ...internalParamsInput,
-      config,
-      lifecycleGeneration,
-    }),
+  const params = applyAgentRunSessionTargetIdentity({ ...internalParamsInput, config });
+  return withAgentWorkAdmission(resolveAgentRunWorkOwner(params), () =>
+    withAgentRunLifecycleGeneration(lifecycleGeneration, () =>
+      runEmbeddedAgentInternal({ ...params, lifecycleGeneration }),
+    ),
   );
 }
 

@@ -1619,6 +1619,7 @@ registerAgentEventLifecycleRotationHandler("reply-runs", evictPriorLifecycleRepl
 
 const replyRunRegistryTestApi = {
   resetReplyRunRegistry(): void {
+    const operations = [...replyRunState.activeRunsByKey.values()];
     for (const [sessionKey, sessionId] of replyRunState.activeSessionIdsByKey) {
       markReplyRunDiagnosticProgress({
         sessionKey,
@@ -1630,6 +1631,9 @@ const replyRunRegistryTestApi = {
     replyRunState.activeSessionIdsByKey.clear();
     replyRunState.activeKeysBySessionId.clear();
     replyRunState.waitKeysBySessionId.clear();
+    for (const operation of operations) {
+      flushReplyOperationAfterClear(operation, operation.sessionId);
+    }
     replyRunSettle.resetReplyRunSettleTimersForTesting();
     for (const waiters of replyRunState.waitersByKey.values()) {
       for (const waiter of waiters) {

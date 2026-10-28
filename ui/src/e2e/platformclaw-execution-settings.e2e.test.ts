@@ -104,6 +104,17 @@ suite("PlatformClaw coding agent settings", () => {
       credentialStatus: "current",
       accountId: "person.one",
       availableVms: [{ id: "vm-one", label: "Development VM" }],
+      savedVms: [
+        {
+          id: "connection-one",
+          vmHostId: "vm-one",
+          vmLabel: "Development VM",
+          safeConnectLabel: "Corporate access",
+          linuxAccount: "person.one",
+          status: "ready",
+          active: true,
+        },
+      ],
       assignment: {
         id: "allocation-one",
         vmHostId: "vm-one",
@@ -360,6 +371,17 @@ suite("PlatformClaw coding agent settings", () => {
       credentialStatus: "current",
       accountId: "person.one",
       availableVms: [{ id: "vm-one", label: "Development VM" }],
+      savedVms: [
+        {
+          id: "connection-one",
+          vmHostId: "vm-one",
+          vmLabel: "Development VM",
+          safeConnectLabel: "Corporate access",
+          linuxAccount: "person.one",
+          status: "ready",
+          active: true,
+        },
+      ],
       assignment: {
         id: "allocation-one",
         vmHostId: "vm-one",
@@ -402,6 +424,18 @@ suite("PlatformClaw coding agent settings", () => {
       } else if (requestPath.endsWith("/selection")) {
         settings = {
           ...settings,
+          activeTarget: "assigned_vm",
+          savedVms: [
+            {
+              id: "connection-one",
+              vmHostId: body.vmHostId,
+              vmLabel: "Development VM",
+              safeConnectLabel: "Corporate access",
+              linuxAccount: body.linuxAccount,
+              status: "ready",
+              active: true,
+            },
+          ],
           targetRevision: Number(settings.targetRevision) + 1,
           assignment: {
             id: "allocation-two",
@@ -414,7 +448,7 @@ suite("PlatformClaw coding agent settings", () => {
         };
       } else if (requestPath.endsWith("/release")) {
         const { assignment: _assignment, ...rest } = settings;
-        settings = { ...rest, availableVms: [] };
+        settings = { ...rest, availableVms: [], savedVms: [] };
       }
       await route.fulfill({ json: settings });
     });
@@ -473,6 +507,7 @@ suite("PlatformClaw coding agent settings", () => {
         vmHostId: "vm-one",
         linuxAccount: "pc-user",
         password: "fixture-only",
+        expectedRevision: 4,
       });
     await expect
       .poll(() => component.locator("[data-current-target]").textContent())
@@ -515,6 +550,17 @@ suite("PlatformClaw coding agent settings", () => {
       credentialStatus: "missing",
       accountId: "person.one",
       availableVms: [],
+      savedVms: [
+        {
+          id: "connection-one",
+          vmHostId: "vm-one",
+          vmLabel: "Development VM",
+          safeConnectLabel: "Corporate access",
+          linuxAccount: "person.one",
+          status: "connection_required",
+          active: false,
+        },
+      ],
       assignment: {
         id: "allocation-one",
         vmHostId: "vm-one",
@@ -533,7 +579,11 @@ suite("PlatformClaw coding agent settings", () => {
         const pathname = new URL(request.url()).pathname;
         mutations.push({ path: pathname, body: request.postDataJSON() });
         if (pathname.endsWith("/target")) {
-          expect(request.postDataJSON()).toEqual({ target: "assigned_vm", expectedRevision: 3 });
+          expect(request.postDataJSON()).toEqual({
+            target: "assigned_vm",
+            connectionId: "connection-one",
+            expectedRevision: 3,
+          });
           settings = { ...settings, activeTarget: "assigned_vm", targetRevision: 4 };
         } else {
           expect(pathname).toBe("/platformclaw/api/execution/credential");
@@ -547,6 +597,7 @@ suite("PlatformClaw coding agent settings", () => {
           settings = {
             ...settings,
             credentialStatus: "current",
+            savedVms: settings.savedVms.map((vm) => ({ ...vm, status: "ready" })),
             targetRevision: settings.targetRevision + 1,
             assignment: { ...settings.assignment, status: "ready" },
           };
@@ -662,7 +713,7 @@ suite("PlatformClaw coding agent settings", () => {
     await waitForProgressClosed(component);
     expect(mutations.at(-1)).toEqual({
       path: "/platformclaw/api/execution/target",
-      body: { target: "assigned_vm", expectedRevision: 3 },
+      body: { target: "assigned_vm", connectionId: "connection-one", expectedRevision: 3 },
     });
     expect(await component.locator("[data-current-target]").textContent()).toContain(
       "Development VM",
@@ -681,7 +732,7 @@ suite("PlatformClaw coding agent settings", () => {
   });
 
   it.each(themeCases)(
-    "connects and activates the VM with visible progress on mobile $family $mode",
+    "registers three VMs and switches directly with visible progress on desktop $family $mode",
     ({ family, mode }) =>
       runExecutionProgressCase({ browser, server, family, mode, mount, screenshot }),
   );

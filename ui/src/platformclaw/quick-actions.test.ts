@@ -16,6 +16,7 @@ const BASIC_EXECUTION_SETTINGS = {
   credentialStatus: "current",
   accountId: "person.one",
   availableVms: [],
+  savedVms: [],
 };
 
 async function mount(
@@ -199,6 +200,36 @@ describe("platformclaw-quick-actions", () => {
     notifyPlatformClawExecutionTargetChanged();
     window.dispatchEvent(new Event("focus"));
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes the named VM in the header after a direct VM-to-VM change", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    for (const vmLabel of ["Research VM", "Build VM"]) {
+      fetchImpl.mockResolvedValueOnce(
+        jsonResponse({
+          ...BASIC_EXECUTION_SETTINGS,
+          activeTarget: "assigned_vm",
+          assignment: { status: "ready", vmLabel },
+        }),
+      );
+    }
+    const element = await mount({ locationOnly: true, fetchImpl });
+    const expectLocation = async (label: string) => {
+      await vi.waitFor(() => {
+        const indicator = element.shadowRoot?.querySelector('[role="status"]');
+        expect(indicator?.textContent?.trim()).toBe(label);
+        expect(indicator?.getAttribute("aria-label")).toBe(label);
+        expect(indicator?.getAttribute("title")).toContain(label);
+      });
+    };
+    await expectLocation("Selected location: Research VM");
+    notifyPlatformClawExecutionTargetChanged();
+    await expectLocation("Selected location: Build VM");
+    expect(element.shadowRoot?.textContent).not.toContain("Research VM");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    await i18n.setLocale("ko");
+    await loadPlatformClawLocale();
+    await expectLocation("선택 위치: Build VM");
   });
 
   it("revalidates the selected profile when returning from another window", async () => {

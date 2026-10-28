@@ -103,6 +103,17 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
         lastConnectionSucceededAt: 1_787_642_400_000,
       },
       availableVms: [{ id: "development", label: "Development VM" }],
+      savedVms: [
+        {
+          id: "connection-one",
+          vmHostId: "development",
+          vmLabel: "Development VM",
+          safeConnectLabel: "Corporate access",
+          linuxAccount: "person.one",
+          status: "ready",
+          active: true,
+        },
+      ],
       credentialStatus: "current",
       targetRevision: 3,
     };

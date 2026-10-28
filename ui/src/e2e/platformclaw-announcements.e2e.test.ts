@@ -94,7 +94,9 @@ async function newPage(
     } else if (pathname.includes("organization")) {
       await route.fulfill({ json: { actor: users.get(user), joinPromptEligible: true } });
     } else {
-      await route.fulfill({ json: { activeTarget: "platform_server", availableVms: [] } });
+      await route.fulfill({
+        json: { activeTarget: "platform_server", availableVms: [], savedVms: [] },
+      });
     }
   });
   const gateway = await installMockGateway(page, {

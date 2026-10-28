@@ -25,6 +25,7 @@ type PreparedRecoveryOwnerTarget = object & {
   sessionStore?: Record<string, InternalSessionEntry>;
   storePath: string;
   runLease?: { release: () => Promise<void> };
+  releaseAgentWork?: () => void;
 };
 
 type AcquiredRecoveryOwner = {
@@ -189,6 +190,7 @@ export async function runWithAgentCommandRecoveryOwner<
     try {
       await prepared?.runLease?.release();
     } finally {
+      prepared?.releaseAgentWork?.();
       scheduleMainSessionRecoveryPendingTarget(pendingRecovery);
     }
   }

@@ -82,6 +82,78 @@ describe("PlatformClaw VM administration", () => {
     await i18n.setLocale("en");
   });
 
+  it("renames an active endpoint without offering security fields or probing its key", async () => {
+    const endpoint = {
+      id: "endpoint-one",
+      label: "Original access",
+      host: "safeconnect.example.test",
+      port: 44422,
+      adDomain: "example.test",
+      status: "active",
+      hostKeyFingerprint: "SHA256:verified",
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ...SNAPSHOT, endpoints: [endpoint] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ ...SNAPSHOT, endpoints: [{ ...endpoint, label: "Renamed access" }] }),
+      );
+    const element = mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+    await openEditor(element.shadowRoot!, "[data-rename-endpoint='endpoint-one']", "endpoints");
+    const root = element.shadowRoot!;
+    expect(
+      root.querySelector<HTMLButtonElement>("[data-edit-endpoint='endpoint-one']")?.disabled,
+    ).toBe(true);
+    const form = root.querySelector<HTMLFormElement>("[data-rename-endpoint-form]")!;
+    expect(form.querySelectorAll("input")).toHaveLength(1);
+    form.querySelector<HTMLInputElement>("input[name='label']")!.value = "Renamed access";
+    form.requestSubmit();
+    await vi.waitFor(() =>
+      expect(root.querySelector("[data-operation-phase='success']")).not.toBeNull(),
+    );
+    expect(parseRequestBody(fetchImpl.mock.calls[1]?.[1])).toEqual({
+      action: "rename-endpoint",
+      endpointId: "endpoint-one",
+      label: "Renamed access",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(root.querySelector("[data-endpoint-id='endpoint-one']")?.textContent).toContain(
+      "SHA256:verified",
+    );
+    expect(root.textContent).toContain("SafeConnect display name saved.");
+  });
+
+  it("shows and revokes an inactive saved connection separately from the active allocation", async () => {
+    const saved = {
+      id: "saved-two",
+      vmHostId: "vm-two",
+      vmLabel: "VM two",
+      safeConnectLabel: "SafeConnect",
+      linuxAccount: "person.one",
+      accountId: "person.one",
+      agentId: "person_one",
+      status: "ready",
+      active: false,
+      revision: 1,
+    };
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ...SNAPSHOT, savedConnections: [saved] }))
+      .mockResolvedValueOnce(jsonResponse({ ...SNAPSHOT, savedConnections: [] }));
+    const element = mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });
+    await openEditor(
+      element.shadowRoot!,
+      "[data-mutation='revoke-saved-connection']",
+      "allocations",
+    );
+    click(element.shadowRoot!, "[data-confirm-mutation]");
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    expect(parseRequestBody(fetchImpl.mock.calls[1]?.[1])).toEqual({
+      action: "revoke-saved-connection",
+      connectionId: "saved-two",
+    });
+  });
+
   it("loads the VM overview with a closed editor and no expanded forms", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(SNAPSHOT));
     mountAdministration({ fetchImpl, onUnauthenticated: vi.fn() });

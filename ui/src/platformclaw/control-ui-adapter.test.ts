@@ -610,6 +610,7 @@ describe("PlatformClawControlUiAdapter", () => {
           credentialStatus: "missing",
           accountId: "admin.user",
           availableVms: [],
+          savedVms: [],
           assignment: null,
         });
       }

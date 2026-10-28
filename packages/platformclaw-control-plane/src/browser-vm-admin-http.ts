@@ -11,6 +11,7 @@ import type {
   ControlPlaneEmployeeExecutionStore,
   ControlPlaneExecutionManagementStore,
   ControlPlaneVmLifecycleStore,
+  ControlPlaneSavedVmConnectionStore,
   VmAdministrationSnapshot,
 } from "./execution-contracts.js";
 import { normalizeVmHostExecutionEnvironment } from "./execution-validation.js";
@@ -19,11 +20,17 @@ import { probeSafeConnectEndpoint, type SafeConnectProbeResult } from "./safecon
 
 export const PLATFORMCLAW_VM_ADMIN_PATH = "/platformclaw/api/admin/vm";
 const BODY_LIMIT_BYTES = 24 * 1024;
-const VM_AUDIT_TARGETS = new Set(["safeconnect-endpoint", "vm-host", "vm-allocation"]);
+const VM_AUDIT_TARGETS = new Set([
+  "safeconnect-endpoint",
+  "vm-host",
+  "vm-allocation",
+  "saved-vm-connection",
+]);
 
 type VmAdministrationStore = ControlPlaneExecutionManagementStore &
   ControlPlaneEmployeeExecutionStore &
   ControlPlaneVmLifecycleStore &
+  ControlPlaneSavedVmConnectionStore &
   ControlPlaneAuditReader;
 type VmAdministrationResponse = VmAdministrationSnapshot & {
   auditEvents: Awaited<ReturnType<ControlPlaneAuditReader["listAuditEvents"]>>;
@@ -107,6 +114,14 @@ export class VmAdministrationService {
         });
         break;
       }
+      case "rename-endpoint":
+        await this.options.store.renameSafeConnectEndpoint({
+          actorUserId,
+          endpointId: stringField(body, "endpointId"),
+          label: stringField(body, "label"),
+          updatedAt: now,
+        });
+        break;
       case "update-endpoint": {
         const port = body.port;
         if (typeof port !== "number" || !Number.isSafeInteger(port)) {
@@ -212,6 +227,24 @@ export class VmAdministrationService {
           enabledAt: now,
         });
         break;
+      case "revoke-saved-connection": {
+        const connectionId = stringField(body, "connectionId");
+        const snapshot = await this.options.store.getVmAdministrationSnapshot(actorUserId);
+        const connection = snapshot.savedConnections?.find((entry) => entry.id === connectionId);
+        if (!connection) {
+          throw new ControlPlaneStateError("saved VM connection is unavailable");
+        }
+        if (connection.active) {
+          throw new ControlPlaneStateError("use the active assignment revocation flow for this VM");
+        }
+        await this.options.store.removePersonalSavedVmConnection({
+          actorUserId,
+          agentId: connection.agentId,
+          connectionId,
+          removedAt: now,
+        });
+        break;
+      }
       case "revoke-allocation": {
         const allocationId = stringField(body, "allocationId");
         const allocation = (

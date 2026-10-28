@@ -6,7 +6,10 @@ import {
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
 import { registerPlatformClawExecutionGateway } from "./gateway.js";
-import { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
+import {
+  PlatformClawTargetChangeError,
+  PlatformClawTargetMutationCoordinator,
+} from "./target-mutation-coordinator.js";
 
 type GatewayHandler = Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
 type BeforeRunHandler = Parameters<OpenClawPluginApi["on"]>[1];
@@ -31,17 +34,34 @@ function createHarness(
       }
     }),
     registerGatewayMethod: vi.fn((name: string, handler: GatewayHandler) => {
-      methods.set(name, handler);
+      methods.set(name, (request) => {
+        const context = request.context;
+        return handler({
+          ...request,
+          context: {
+            ...context,
+            tryAcquireAgentWorkMutation: context?.tryAcquireAgentWorkMutation ?? (() => () => {}),
+            hasPendingAgentWork:
+              context?.hasPendingAgentWork ??
+              ((agentId) =>
+                [
+                  ...(context?.chatAbortControllers?.values() ?? []),
+                  ...(context?.chatQueuedTurns?.values() ?? []),
+                ].some((entry) => entry.agentId === agentId)),
+          },
+        });
+      });
     }),
   };
   const targetMutations = new PlatformClawTargetMutationCoordinator();
+  const invalidateAcpProcesses = vi.fn();
   registerPlatformClawExecutionGateway(
     api as never,
     readiness.then(() => runtime as never),
     targetMutations,
-    vi.fn(),
+    invalidateAcpProcesses,
   );
-  return { beforeRun: () => beforeRun!, methods, targetMutations };
+  return { beforeRun: () => beforeRun!, methods, targetMutations, invalidateAcpProcesses };
 }
 
 describe("SafeConnect authentication failure classification", () => {
@@ -59,6 +79,246 @@ describe("SafeConnect authentication failure classification", () => {
 });
 
 describe("PlatformClaw execution Gateway methods", () => {
+  describe.each([
+    "testConnection",
+    "testCandidateConnection",
+    "changeTarget",
+    "detectCodingAgent",
+    "checkCodingAgent",
+  ] as const)("%s host admission fence", (method) => {
+    const params = {
+      agentId: "person_one",
+      target: method === "changeTarget" ? "platform_server" : { agentId: "person_one" },
+      expectedRevision: 1,
+      agent: "codex",
+      configuration: { agent: "codex", enabled: true, executablePath: "/usr/bin/codex" },
+      credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
+      credentialGrantToken: "grant-token",
+    };
+
+    it("rejects non-chat work before awaiting or contacting the runtime", async () => {
+      const runtime = {
+        testConnection: vi.fn(),
+        testCandidateConnection: vi.fn(),
+        changeTarget: vi.fn(),
+        detectCodingAgent: vi.fn(),
+        checkCodingAgent: vi.fn(),
+      };
+      const harness = createHarness(runtime);
+      const respond = vi.fn();
+      const acquire = vi.fn(() => null);
+      await harness.methods.get(`platformclaw-execution.${method}`)!({
+        params,
+        context: {
+          chatAbortControllers: new Map(),
+          chatQueuedTurns: new Map(),
+          tryAcquireAgentWorkMutation: acquire,
+        },
+        respond,
+      } as never);
+      expect(acquire).toHaveBeenCalledExactlyOnceWith("person_one");
+      expect(runtime[method]).not.toHaveBeenCalled();
+      expect(respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({ code: "CONFLICT" }),
+      );
+      expect(harness.targetMutations.isHeld("person_one")).toBe(false);
+    });
+
+    it("holds host admission through remote work and releases it on failure", async () => {
+      let reject!: (error: Error) => void;
+      const pending = new Promise<never>((_resolve, fail) => {
+        reject = fail;
+      });
+      const runtime = {
+        testConnection: vi.fn(() => pending),
+        testCandidateConnection: vi.fn(() => pending),
+        changeTarget: vi.fn(() => pending),
+        detectCodingAgent: vi.fn(() => pending),
+        checkCodingAgent: vi.fn(() => pending),
+      };
+      const harness = createHarness(runtime);
+      const release = vi.fn();
+      const changing = harness.methods.get(`platformclaw-execution.${method}`)!({
+        params,
+        context: {
+          chatAbortControllers: new Map(),
+          chatQueuedTurns: new Map(),
+          tryAcquireAgentWorkMutation: () => release,
+        },
+        respond: vi.fn(),
+      } as never);
+      await vi.waitFor(() => expect(runtime[method]).toHaveBeenCalledOnce());
+      expect(release).not.toHaveBeenCalled();
+      reject(new Error("remote failure"));
+      await changing;
+      expect(release).toHaveBeenCalledOnce();
+      expect(harness.targetMutations.isHeld("person_one")).toBe(false);
+    });
+  });
+
+  describe.each(["testConnection", "testCandidateConnection"] as const)(
+    "%s preparation",
+    (method) => {
+      const params = {
+        ...(method === "testConnection"
+          ? { agentId: "person_one" }
+          : { target: { agentId: "person_one" } }),
+        credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
+        credentialGrantToken: "grant-token",
+      };
+
+      it.each([
+        "active",
+        "queued",
+        "skill-install",
+        "skill-export",
+        "skill-workshop",
+        "terminal-open",
+      ] as const)("rejects %s work before creating the candidate workspace", async (busy) => {
+        const runtime = {
+          testConnection: vi.fn(),
+          testCandidateConnection: vi.fn(),
+          changeTarget: vi.fn(),
+        };
+        const harness = createHarness(runtime);
+        const release =
+          busy === "active" || busy === "queued"
+            ? undefined
+            : harness.targetMutations.tryAcquire("person_one", busy);
+        const respond = vi.fn();
+        const pending = new Map([["run", { agentId: "person_one" }]]);
+        await harness.methods.get(`platformclaw-execution.${method}`)!({
+          params,
+          context: {
+            chatAbortControllers: busy === "active" ? pending : new Map(),
+            chatQueuedTurns: busy === "queued" ? pending : new Map(),
+          },
+          respond,
+        } as never);
+        expect(runtime[method]).not.toHaveBeenCalled();
+        expect(respond).toHaveBeenCalledWith(
+          false,
+          undefined,
+          expect.objectContaining({ code: "CONFLICT" }),
+        );
+        release?.();
+        expect(harness.targetMutations.isHeld("person_one")).toBe(false);
+      });
+
+      it("blocks new runs during preparation and releases the guard after failure", async () => {
+        let reject!: (error: Error) => void;
+        const pending = new Promise<never>((_resolve, fail) => {
+          reject = fail;
+        });
+        const runtime = {
+          testConnection: vi.fn(() => pending),
+          testCandidateConnection: vi.fn(() => pending),
+          changeTarget: vi.fn(),
+        };
+        const harness = createHarness(runtime);
+        const respond = vi.fn();
+        const probing = harness.methods.get(`platformclaw-execution.${method}`)!({
+          params,
+          context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
+          respond,
+        } as never);
+        await vi.waitFor(() => expect(runtime[method]).toHaveBeenCalledOnce());
+        expect(harness.beforeRun()({} as never, { agentId: "person_one" } as never)).toMatchObject({
+          outcome: "block",
+        });
+        reject(new PlatformClawVmAuthenticationError());
+        await probing;
+        expect(harness.targetMutations.isHeld("person_one")).toBe(false);
+        expect(harness.invalidateAcpProcesses).not.toHaveBeenCalled();
+      });
+    },
+  );
+
+  it.each([
+    { target: "assigned_vm", connectionId: "" },
+    { target: "assigned_vm", connectionId: "   " },
+    { target: "assigned_vm", connectionId: "x".repeat(129) },
+    { target: "assigned_vm", connectionId: 3 },
+    { target: "platform_server", connectionId: "connection-two" },
+    { target: "assigned_vm", connectionId: "connection-two" },
+    { target: "assigned_vm", connectionId: "connection-two", expectedConnectionRevision: 0 },
+    { target: "assigned_vm", expectedConnectionRevision: 1 },
+  ])("rejects an invalid saved VM target $target/$connectionId", async (selection) => {
+    const runtime = {
+      testConnection: vi.fn(),
+      testCandidateConnection: vi.fn(),
+      changeTarget: vi.fn(),
+    };
+    const harness = createHarness(runtime);
+    const respond = vi.fn();
+    await harness.methods.get("platformclaw-execution.changeTarget")!({
+      params: { agentId: "person_one", expectedRevision: 1, ...selection },
+      respond,
+    } as never);
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "INVALID_REQUEST" }),
+    );
+    expect(runtime.changeTarget).not.toHaveBeenCalled();
+    expect(harness.invalidateAcpProcesses).not.toHaveBeenCalled();
+  });
+
+  it("activates a saved VM through the guarded switch and invalidates old ACP authority", async () => {
+    const changed = { kind: "assigned_vm", allocationId: "allocation-two", revision: 2 };
+    const runtime = {
+      testConnection: vi.fn(),
+      testCandidateConnection: vi.fn(),
+      changeTarget: vi.fn().mockResolvedValue(changed),
+    };
+    const harness = createHarness(runtime);
+    const respond = vi.fn();
+    const params = {
+      agentId: "person_one",
+      target: "assigned_vm",
+      expectedRevision: 1,
+      connectionId: "connection-two",
+      expectedConnectionRevision: 3,
+    };
+    await harness.methods.get("platformclaw-execution.changeTarget")!({
+      params,
+      context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
+      respond,
+    } as never);
+    expect(runtime.changeTarget).toHaveBeenCalledExactlyOnceWith(params);
+    expect(harness.invalidateAcpProcesses).toHaveBeenCalledExactlyOnceWith("person_one");
+    expect(respond).toHaveBeenCalledWith(true, changed);
+    expect(harness.targetMutations.isHeld("person_one")).toBe(false);
+  });
+
+  it("invalidates old ACP authority after a lost response confirms a committed target change", async () => {
+    const runtime = {
+      testConnection: vi.fn(),
+      testCandidateConnection: vi.fn(),
+      changeTarget: vi
+        .fn()
+        .mockRejectedValue(
+          new PlatformClawTargetChangeError(new Error("execution target response was aborted")),
+        ),
+    };
+    const harness = createHarness(runtime);
+    const respond = vi.fn();
+    await harness.methods.get("platformclaw-execution.changeTarget")!({
+      params: { agentId: "person_one", target: "assigned_vm", expectedRevision: 1 },
+      context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
+      respond,
+    } as never);
+    expect(harness.invalidateAcpProcesses).toHaveBeenCalledExactlyOnceWith("person_one");
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ code: "UNAVAILABLE" }),
+    );
+    expect(harness.targetMutations.isHeld("person_one")).toBe(false);
+  });
+
   it("routes only supported coding agent checks and redacts remote failures", async () => {
     const runtime = {
       testConnection: vi.fn(),
@@ -111,6 +371,7 @@ describe("PlatformClaw execution Gateway methods", () => {
         credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
         credentialGrantToken: "grant-token",
       },
+      context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
       respond,
     } as never);
 
@@ -145,6 +406,7 @@ describe("PlatformClaw execution Gateway methods", () => {
         credentialBrokerAddress: "/run/platformclaw-credential-broker/runtime.sock",
         credentialGrantToken: "grant-token",
       },
+      context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
       respond,
     } as never);
 
@@ -305,33 +567,42 @@ describe("PlatformClaw execution Gateway methods", () => {
     });
   });
 
-  it("rejects a target change during skill commit without blocking agent runs", async () => {
-    const runtime = {
-      testConnection: vi.fn(),
-      testCandidateConnection: vi.fn(),
-      changeTarget: vi.fn(),
-    };
-    const harness = createHarness(runtime);
-    const release = harness.targetMutations.tryAcquire("person_one", "skill-install");
-    const respond = vi.fn();
+  it.each(["skill-install", "skill-export", "skill-workshop", "terminal-open"] as const)(
+    "rejects a saved VM switch during %s without blocking agent runs",
+    async (kind) => {
+      const runtime = {
+        testConnection: vi.fn(),
+        testCandidateConnection: vi.fn(),
+        changeTarget: vi.fn(),
+      };
+      const harness = createHarness(runtime);
+      const release = harness.targetMutations.tryAcquire("person_one", kind);
+      const respond = vi.fn();
 
-    await harness.methods.get("platformclaw-execution.changeTarget")!({
-      params: { agentId: "person_one", target: "assigned_vm", expectedRevision: 1 },
-      context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
-      respond,
-    } as never);
+      await harness.methods.get("platformclaw-execution.changeTarget")!({
+        params: {
+          agentId: "person_one",
+          target: "assigned_vm",
+          expectedRevision: 1,
+          connectionId: "connection-two",
+          expectedConnectionRevision: 3,
+        },
+        context: { chatAbortControllers: new Map(), chatQueuedTurns: new Map() },
+        respond,
+      } as never);
 
-    expect(runtime.changeTarget).not.toHaveBeenCalled();
-    expect(respond).toHaveBeenCalledWith(
-      false,
-      undefined,
-      expect.objectContaining({ code: "CONFLICT" }),
-    );
-    expect(harness.beforeRun()({} as never, { agentId: "person_one" } as never)).toMatchObject({
-      outcome: "pass",
-    });
-    release?.();
-  });
+      expect(runtime.changeTarget).not.toHaveBeenCalled();
+      expect(respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({ code: "CONFLICT" }),
+      );
+      expect(harness.beforeRun()({} as never, { agentId: "person_one" } as never)).toMatchObject({
+        outcome: "pass",
+      });
+      release?.();
+    },
+  );
 
   it("preserves an optimistic-revision conflict from the control plane", async () => {
     const runtime = {
@@ -354,5 +625,6 @@ describe("PlatformClaw execution Gateway methods", () => {
       code: "CONFLICT",
       message: "work location changed before the requested update",
     });
+    expect(harness.invalidateAcpProcesses).not.toHaveBeenCalled();
   });
 });

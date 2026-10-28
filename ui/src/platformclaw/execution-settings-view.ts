@@ -9,12 +9,26 @@ import {
 import { platformClawT as t } from "./i18n.ts";
 
 export type ExecutionTarget = "platform_server" | "assigned_vm";
+type SavedVmConnection = {
+  id: string;
+  vmHostId: string;
+  vmLabel: string;
+  safeConnectLabel: string;
+  linuxAccount: string;
+  status: "ready" | "connection_required" | "unavailable";
+  active: boolean;
+  remoteWorkspaceDir?: string;
+  lastConnectionSucceededAt?: number;
+};
+type ExecutionLocation = { target: ExecutionTarget; label?: string; connectionId?: string };
+export type ExecutionTransition = { from: ExecutionLocation; to: ExecutionLocation };
 export type ExecutionSettings = {
   activeTarget: ExecutionTarget;
   targetRevision: number;
   credentialStatus: "missing" | "current" | "update_required";
   accountId: string;
   availableVms: Array<{ id: string; label: string }>;
+  savedVms: SavedVmConnection[];
   assignment?: {
     id: string;
     vmHostId: string;
@@ -120,7 +134,7 @@ function hasLiteralSurroundingQuotes(value: string): boolean {
 
 export type ExecutionAction = "selection" | "credential" | "test" | "release";
 // Keep outcome facts until rendering so an in-flight or completed action follows locale changes.
-export type ExecutionActivity =
+export type ExecutionActivity = (
   | { kind: "idle" }
   | { kind: "connecting" }
   | { kind: "switching"; target: ExecutionTarget; connected: boolean }
@@ -139,7 +153,8 @@ export type ExecutionActivity =
       locationUnknown: boolean;
       target: ExecutionTarget | null;
       connection: "complete" | "failed" | null;
-    };
+    }
+) & { transition?: ExecutionTransition };
 
 // A successful credential request is the receipt. Reconciled ready/current state alone
 // cannot prove that the submitted password was accepted or authorize a location change.
@@ -203,9 +218,13 @@ export function canRetryExecutionProgress(
     activity.kind === "error" &&
     activity.target !== null &&
     activity.connection !== "failed" &&
-    Boolean(settings) &&
+    settings !== null &&
     (activity.target === "platform_server" ||
-      (settings?.assignment?.status === "ready" && settings.credentialStatus === "current"))
+      (activity.transition?.to.connectionId
+        ? settings.savedVms.some(
+            (vm) => vm.id === activity.transition?.to.connectionId && vm.status === "ready",
+          )
+        : settings?.assignment?.status === "ready" && settings.credentialStatus === "current"))
   );
 }
 
@@ -283,7 +302,9 @@ function executionBusyMessage(activity: ExecutionActivity): string {
   return activity.kind === "connecting"
     ? t("platformClaw.execution.connecting")
     : activity.kind === "switching"
-      ? t("platformClaw.execution.switching", { target: executionTargetLabel(activity.target) })
+      ? t("platformClaw.execution.switching", {
+          target: activity.transition?.to.label ?? executionTargetLabel(activity.target),
+        })
       : activity.kind === "working"
         ? t(
             activity.action === "release"
@@ -329,14 +350,16 @@ export function executionStatusView(
 ) {
   const badgeLabel = settings
     ? settings.activeTarget === "assigned_vm"
-      ? t("platformClaw.execution.vm")
+      ? (settings.assignment?.vmLabel ?? t("platformClaw.execution.vm"))
       : t("platformClaw.execution.basic")
     : t("platformClaw.execution.workLocation");
   const busyMessage = executionBusyMessage(activity);
   let message = busyMessage || fallbackMessage;
   if (activity.kind === "success") {
     message = activity.target
-      ? t("platformClaw.execution.usingTarget", { target: executionTargetLabel(activity.target) })
+      ? t("platformClaw.execution.usingTarget", {
+          target: activity.transition?.to.label ?? executionTargetLabel(activity.target),
+        })
       : t(
           activity.action === "credential"
             ? "platformClaw.execution.credentialSaved"
@@ -353,6 +376,9 @@ export function executionStatusView(
     }
     if (activity.connection === "complete") {
       message = t("platformClaw.execution.activationFailed", { error: message });
+    }
+    if (!activity.locationUnknown && activity.transition) {
+      message += ` ${t("platformClaw.execution.previousLocationKept", { target: settings?.activeTarget === "assigned_vm" ? (settings.assignment?.vmLabel ?? t("platformClaw.execution.vm")) : t("platformClaw.execution.basic") })}`;
     }
   }
   const messageKind =

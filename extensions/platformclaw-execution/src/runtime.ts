@@ -1,5 +1,4 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { request } from "node:http";
 import path from "node:path";
 import type {
   CodingAgentConfiguration,
@@ -30,6 +29,7 @@ import {
   PlatformClawVmAuthenticationError,
 } from "./connection-errors.js";
 import { parseCredentialMetadata, type PlatformClawCredentialRuntime } from "./credential-tool.js";
+import { callExecutionHandoff, executionHandoffAddress } from "./execution-handoff-client.js";
 import { parseTarget } from "./execution-target-parser.js";
 import { requireSingleLine, requireString } from "./execution-target-validation.js";
 export { parseTarget } from "./execution-target-parser.js";
@@ -39,6 +39,10 @@ import { VmRemoteSkillWorkshopService } from "./remote-skill-workshop.js";
 import { VmRemoteSkillCatalogService } from "./remote-skills.js";
 import type { PlatformClawSkillExportRuntime } from "./skill-export-gateway.js";
 import { SafeConnectSshLeaseManager } from "./ssh-lease-manager.js";
+import {
+  PlatformClawTargetChangeError,
+  type PlatformClawTargetMutationCoordinator,
+} from "./target-mutation-coordinator.js";
 import { createTmuxSshTransport, VmTmuxTerminalManager } from "./tmux-terminal-manager.js";
 
 const KNOWN_HOSTS_PLACEHOLDER = "/platformclaw/known-hosts-placeholder";
@@ -47,7 +51,6 @@ const EXECUTION_CONNECTION_TARGET_PATH = "/platformclaw/internal/execution/conne
 const EXECUTION_CHANGE_TARGET_PATH = "/platformclaw/internal/execution/change-target";
 const EXECUTION_CREDENTIALS_PATH = "/platformclaw/internal/execution/credentials";
 const EXECUTION_CREDENTIAL_METADATA_PATH = "/platformclaw/internal/execution/credential-metadata";
-const MAX_HANDOFF_RESPONSE_BYTES = 512 * 1024;
 const VM_CONNECTION_TEST_TIMEOUT_MS = 15_000;
 function requireSshToken(value: unknown, label: string): string {
   const token = requireString(value, label);
@@ -63,78 +66,6 @@ export function quoteOpenSshConfigPath(value: string): string {
     throw new Error("SSH configuration path contains unsupported expansion syntax");
   }
   return `"${pathValue.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%")}"`;
-}
-
-function executionHandoffAddress(credentialBrokerAddress: string): string {
-  return process.platform === "win32"
-    ? `${credentialBrokerAddress}-execution`
-    : path.join(path.dirname(credentialBrokerAddress), "execution.sock");
-}
-
-async function callExecutionHandoff(params: {
-  socketPath: string;
-  serviceToken: string;
-  path: string;
-  body: unknown;
-}): Promise<unknown> {
-  const payload = Buffer.from(JSON.stringify(params.body));
-  return await new Promise<unknown>((resolve, reject) => {
-    let settled = false;
-    const fail = (error: Error): void => {
-      if (!settled) {
-        settled = true;
-        reject(error);
-      }
-    };
-    const req = request(
-      {
-        socketPath: params.socketPath,
-        path: params.path,
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${params.serviceToken}`,
-          "content-type": "application/json",
-          "content-length": payload.length,
-        },
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        let size = 0;
-        res.on("data", (chunk: Buffer) => {
-          size += chunk.length;
-          if (size > MAX_HANDOFF_RESPONSE_BYTES) {
-            const error = new Error("execution target response exceeded the limit");
-            fail(error);
-            req.destroy(error);
-            return;
-          }
-          chunks.push(chunk);
-        });
-        res.once("end", () => {
-          if (settled) {
-            return;
-          }
-          const status = res.statusCode ?? 500;
-          if (status < 200 || status >= 300) {
-            fail(new Error(`execution target request failed (${status})`));
-            return;
-          }
-          try {
-            const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-            settled = true;
-            resolve(parsed);
-          } catch {
-            fail(new Error("execution target response is invalid"));
-          }
-        });
-        res.once("aborted", () => fail(new Error("execution target response was aborted")));
-        res.once("error", fail);
-      },
-    );
-    req.setTimeout(5_000, () => req.destroy(new Error("execution target request timed out")));
-    req.once("error", fail);
-    req.end(payload);
-  });
 }
 
 function safeConnectConfig(
@@ -349,8 +280,11 @@ async function testAssignedVmConnection(params: {
 }
 
 export async function createExecutionDependenciesFromEnvironment(
-  env: NodeJS.ProcessEnv = process.env,
-  timing: { logTiming?: (message: string) => void } = {},
+  env: NodeJS.ProcessEnv,
+  options: {
+    targetMutations: PlatformClawTargetMutationCoordinator;
+    logTiming?: (message: string) => void;
+  },
 ): Promise<
   PlatformClawExecutionDependencies &
     PlatformClawCredentialRuntime &
@@ -379,6 +313,8 @@ export async function createExecutionDependenciesFromEnvironment(
         agentId: string;
         target: "platform_server" | "assigned_vm";
         expectedRevision: number;
+        connectionId?: string;
+        expectedConnectionRevision?: number;
       }): Promise<PlatformClawExecutionTargetSnapshot>;
       detectCodingAgent(params: {
         agentId: string;
@@ -409,7 +345,7 @@ export async function createExecutionDependenciesFromEnvironment(
     createAuthenticatedSession: async (target) => await createSafeConnectSession(target),
     createMultiplexedSession: createMultiplexedSafeConnectSession,
     disposeSession: disposeSshSandboxSession,
-    logTiming: timing.logTiming,
+    logTiming: options.logTiming,
   });
   const terminals = new VmTmuxTerminalManager(
     createTmuxSshTransport(async (target) => await sshLeases.createSession(target)),
@@ -422,10 +358,12 @@ export async function createExecutionDependenciesFromEnvironment(
       runCommand: runSshSandboxCommand,
     },
     {
-      logTiming: timing.logTiming,
+      logTiming: options.logTiming,
     },
   );
   const remoteSkillWorkshop = new VmRemoteSkillWorkshopService({
+    mutations: options.targetMutations,
+    resolveTarget: async (agentId) => await resolveTarget({ agentId }),
     createSession: async (target) => await sshLeases.createSession(target),
     disposeSession: disposeSshSandboxSession,
     runCommand: runSshSandboxCommand,
@@ -610,7 +548,7 @@ export async function createExecutionDependenciesFromEnvironment(
         target,
         credentialBrokerAddress,
         credentialGrantToken,
-        logTiming: timing.logTiming,
+        logTiming: options.logTiming,
       });
     },
     testCandidateConnection: async ({
@@ -626,20 +564,73 @@ export async function createExecutionDependenciesFromEnvironment(
         target,
         credentialBrokerAddress,
         credentialGrantToken,
-        logTiming: timing.logTiming,
+        logTiming: options.logTiming,
       });
     },
-    changeTarget: async ({ agentId, target, expectedRevision }) => {
-      const changed = parseTarget(
-        await callExecutionHandoff({
-          socketPath: executionHandoffAddress(brokerAddress),
-          serviceToken,
-          path: EXECUTION_CHANGE_TARGET_PATH,
-          body: { agentId, target, expectedRevision },
-        }),
-      );
-      await terminals.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
-      sshLeases.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
+    changeTarget: async ({
+      agentId,
+      target,
+      expectedRevision,
+      connectionId,
+      expectedConnectionRevision,
+    }) => {
+      let changed: PlatformClawExecutionTargetSnapshot;
+      try {
+        changed = parseTarget(
+          await callExecutionHandoff({
+            socketPath: executionHandoffAddress(brokerAddress),
+            serviceToken,
+            path: EXECUTION_CHANGE_TARGET_PATH,
+            body: {
+              agentId,
+              target,
+              expectedRevision,
+              ...(connectionId ? { connectionId, expectedConnectionRevision } : {}),
+            },
+          }),
+        );
+      } catch (error) {
+        let targetChanged = false;
+        try {
+          // A lost response can follow a committed switch. Reconcile authority,
+          // but never turn an uncertain request into a reported success.
+          const current = parseTarget(
+            await callExecutionHandoff({
+              socketPath: executionHandoffAddress(brokerAddress),
+              serviceToken,
+              path: EXECUTION_TARGET_PATH,
+              body: { agentId },
+            }),
+          );
+          if (current.revision !== expectedRevision) {
+            targetChanged = true;
+            try {
+              await terminals.observeTarget(
+                agentId,
+                current.kind === "assigned_vm" ? current : undefined,
+              );
+            } finally {
+              sshLeases.observeTarget(
+                agentId,
+                current.kind === "assigned_vm" ? current : undefined,
+              );
+            }
+          }
+        } catch {
+          // Future operations still revalidate current authority if reconciliation is unavailable.
+        }
+        throw targetChanged ? new PlatformClawTargetChangeError(error) : error;
+      }
+      try {
+        await terminals.observeTarget(
+          agentId,
+          changed.kind === "assigned_vm" ? changed : undefined,
+        );
+      } catch (error) {
+        throw new PlatformClawTargetChangeError(error);
+      } finally {
+        sshLeases.observeTarget(agentId, changed.kind === "assigned_vm" ? changed : undefined);
+      }
       return changed;
     },
     exportWorkspaceSkill: async ({

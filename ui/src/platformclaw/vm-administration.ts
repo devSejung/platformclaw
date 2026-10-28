@@ -245,7 +245,9 @@ class PlatformClawVmAdministrationElement extends OpenClawLitElement {
       return;
     }
     const control = event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
-    if (this.dialog.kind === "endpoint") {
+    if (this.dialog.kind === "rename-endpoint") {
+      this.dialog = { ...this.dialog, draft: { label: control.value } };
+    } else if (this.dialog.kind === "endpoint") {
       this.dialog = {
         ...this.dialog,
         draft: {
@@ -277,7 +279,14 @@ class PlatformClawVmAdministrationElement extends OpenClawLitElement {
       pathPrepend: vmFormString(data, "pathPrepend"),
       environmentVariables: vmFormString(data, "environmentVariables"),
     };
-    if (dialog.kind === "endpoint") {
+    if (dialog.kind === "rename-endpoint") {
+      const label = vmFormString(data, "label");
+      this.dialog = { ...dialog, draft: { label } };
+      void this.mutate(
+        { action: "rename-endpoint", endpointId: dialog.endpointId, label },
+        "rename-endpoint",
+      );
+    } else if (dialog.kind === "endpoint") {
       const draft = {
         ...dialog.draft,
         label: vmFormString(data, "label"),
@@ -517,6 +526,12 @@ class PlatformClawVmAdministrationElement extends OpenClawLitElement {
       onRefresh: () => void this.refresh(),
       onHost: (host) => this.openHost(host),
       onEndpoint: (endpoint) => this.openEndpoint(endpoint),
+      onRenameEndpoint: (endpoint) =>
+        this.openDialog({
+          kind: "rename-endpoint",
+          endpointId: endpoint.id,
+          draft: { label: endpoint.label },
+        }),
       onEnvironment: (host) =>
         this.openDialog({ kind: "environment", host, draft: vmEnvironmentDraft(host) }),
       onMutation: (mutation) => this.openMutation(mutation),

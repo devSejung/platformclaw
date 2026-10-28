@@ -27,6 +27,8 @@ import {
 import { resolveBlockMessage } from "../plugins/hook-decision-types.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { resolveAgentIdFromSessionKey } from "../routing/session-key.js";
+import { resolveSessionAgentId } from "./agent-scope.js";
+import { withAgentWorkAdmission } from "./agent-work-admission.js";
 import { isHeartbeatLifecycleRunKind } from "./bootstrap-mode.js";
 import {
   resolveCliRuntimeArtifactFingerprint,
@@ -481,14 +483,21 @@ export function runCliAgent(paramsInput: RunCliAgentParams): Promise<EmbeddedAge
   };
   // Observability services register before turns and keep subscriptions process-stable.
   // Snapshot listener presence here so disabled installs pay no synthetic trace cost.
-  return withAgentRunLifecycleGeneration(lifecycleGeneration, () =>
-    isClaudeCliProvider(params.provider) &&
-    areDiagnosticsEnabledForProcess() &&
-    hasInternalDiagnosticEventListeners()
-      ? runClaudeCliAgentTurnWithDiagnostics(params, (diagnosticLifecycle) =>
-          runCliAgentInternal(params, diagnosticLifecycle),
-        )
-      : runCliAgentInternal(params),
+  const ownerAgentId = resolveSessionAgentId({
+    ...params,
+    agentId: params.sessionTarget?.agentId ?? params.agentId,
+    sessionKey: params.sessionTarget?.sessionKey ?? params.sessionKey,
+  });
+  return withAgentWorkAdmission(ownerAgentId, () =>
+    withAgentRunLifecycleGeneration(lifecycleGeneration, () =>
+      isClaudeCliProvider(params.provider) &&
+      areDiagnosticsEnabledForProcess() &&
+      hasInternalDiagnosticEventListeners()
+        ? runClaudeCliAgentTurnWithDiagnostics(params, (diagnosticLifecycle) =>
+            runCliAgentInternal(params, diagnosticLifecycle),
+          )
+        : runCliAgentInternal(params),
+    ),
   );
 }
 

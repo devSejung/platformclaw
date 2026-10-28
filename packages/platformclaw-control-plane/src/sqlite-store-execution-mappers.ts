@@ -12,6 +12,7 @@ import type { SafeConnectEndpointRow, VmAllocationRow, VmHostRow } from "./sqlit
 
 type AssignedVmExecutionTargetRow = {
   allocation_id: string;
+  connection_id: string;
   credential_revision: number;
   vm_label: string;
   safeconnect_label: string;
@@ -42,7 +43,9 @@ export function rowToAssignedVmExecutionTarget(params: {
     kind: "assigned_vm",
     agentId: params.agentId,
     userId: params.userId,
-    targetId: row.allocation_id,
+    // Durable workspace features bind to the registration; runtime authority
+    // still pins the fresh allocation and revision for each activation.
+    targetId: row.connection_id,
     revision: params.targetRevision,
     allocationId: row.allocation_id,
     credentialRevision: row.credential_revision,

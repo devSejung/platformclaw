@@ -2,6 +2,7 @@ import type { ReplyPayload } from "../auto-reply/reply-payload.js";
 import type { RestartRecoveryTerminalDeliveryEvidenceResult } from "../config/sessions/restart-recovery-types.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { DeliveryContext } from "../utils/delivery-context.shared.js";
+import type { AgentCommandOpts } from "./command/types.js";
 import {
   collectDeliveredMediaUrls,
   collectMessagingToolDeliveredMediaUrls,
@@ -12,6 +13,45 @@ import {
   type AgentDeliveryEvidence,
 } from "./embedded-agent-runner/delivery-evidence.js";
 import { mergeAttemptToolMediaPayloads } from "./embedded-agent-runner/run/tool-media-payloads.js";
+
+/** Restore the claimed run's exact media policy before preparing delivery. */
+export function resolveAgentCommandRecoveryDeliveryOptions(params: {
+  opts: AgentCommandOpts;
+  sessionEntry?: SessionEntry;
+  runId: string;
+}): AgentCommandOpts {
+  const { opts, sessionEntry, runId } = params;
+  const storedDeliveryMediaUrls =
+    sessionEntry?.restartRecoveryDeliveryRunId === runId &&
+    Array.isArray(sessionEntry.restartRecoveryDeliveryMediaUrls)
+      ? sessionEntry.restartRecoveryDeliveryMediaUrls
+      : undefined;
+  const preparedOpts =
+    storedDeliveryMediaUrls !== undefined
+      ? {
+          ...opts,
+          internalDeliveryMediaUrls: [...storedDeliveryMediaUrls],
+          internalDeliverySuppressText: sessionEntry?.restartRecoverySuppressTextDelivery,
+          sourceReplyDeliveryMode: sessionEntry?.restartRecoverySourceReplyDeliveryMode,
+          disableMessageTool: sessionEntry?.restartRecoveryDisableMessageTool,
+          forceRestartSafeTools: sessionEntry?.restartRecoveryForceSafeTools,
+        }
+      : opts;
+  if (
+    (preparedOpts.internalDeliverySuppressText === true &&
+      preparedOpts.internalDeliveryMediaUrls === undefined) ||
+    ((preparedOpts.internalDeliveryMediaUrls !== undefined ||
+      preparedOpts.internalDeliverySuppressText === true) &&
+      (preparedOpts.forceRestartSafeTools !== true ||
+        preparedOpts.disableMessageTool !== true ||
+        preparedOpts.sourceReplyDeliveryMode !== "automatic"))
+  ) {
+    throw new Error(
+      "internal delivery media constraints require automatic delivery with restart-safe tools and no message tool",
+    );
+  }
+  return preparedOpts;
+}
 
 function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;

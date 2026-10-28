@@ -65,6 +65,42 @@ function executionStore(
 }
 
 describe("ExecutionHandoffService", () => {
+  it("activates the exact saved registration through the atomic store owner", async () => {
+    const changePersonalExecutionTarget = vi.fn();
+    const store = {
+      ...executionStore(async () => assignedVm()),
+      changePersonalExecutionTarget,
+      activatePersonalVmConnection: vi.fn(async () => assignedVm(5)),
+    };
+    const service = new ExecutionHandoffService(store, {
+      address: "/run/platformclaw/runtime.sock",
+      issueForUser: vi.fn(),
+    });
+    const params = {
+      agentId: "person_one",
+      target: "assigned_vm" as const,
+      connectionId: "saved-two",
+      expectedConnectionRevision: 3,
+      expectedRevision: 4,
+      changedAt: 1234,
+    };
+    await expect(service.changeTarget(params)).resolves.toMatchObject({ revision: 5 });
+    expect(store.activatePersonalVmConnection).toHaveBeenCalledWith({
+      agentId: "person_one",
+      connectionId: "saved-two",
+      expectedConnectionRevision: 3,
+      expectedRevision: 4,
+      changedAt: 1234,
+    });
+    expect(changePersonalExecutionTarget).not.toHaveBeenCalled();
+    await expect(service.changeTarget({ ...params, target: "platform_server" })).rejects.toThrow(
+      "invalid",
+    );
+    await expect(
+      service.changeTarget({ ...params, expectedConnectionRevision: undefined }),
+    ).rejects.toThrow("invalid");
+    expect(store.activatePersonalVmConnection).toHaveBeenCalledOnce();
+  });
   it("projects a credential-free server target", async () => {
     const store = executionStore(async () => ({
       kind: "platform_server",

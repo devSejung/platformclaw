@@ -262,13 +262,26 @@ admin_vm_mutation "$(jq -cn \
   '{action:"hosts", endpointId:$endpointId, label:"Development VM", targetAddress:"10.0.0.10"}')"
 vm_host_id="$(jq -er '.hosts[] | select(.targetAddress == "10.0.0.10") | .id' \
   "$vm_admin_response")"
+for vm_number in 2 3; do
+  admin_vm_mutation "$(jq -cn --arg endpointId "$endpoint_id" \
+    --arg hostLabel "Development VM $vm_number" --arg address "10.0.0.$((vm_number * 10))" \
+    '{action:"hosts", endpointId:$endpointId, label:$hostLabel, targetAddress:$address}')"
+done
+vm_host_two_id="$(jq -er '.hosts[] | select(.targetAddress == "10.0.0.20") | .id' "$vm_admin_response")"
+vm_host_three_id="$(jq -er '.hosts[] | select(.targetAddress == "10.0.0.30") | .id' "$vm_admin_response")"
+refresh_execution_settings() {
+  curl --fail --silent --show-error --cookie "$cookie_jar" \
+    "$origin/platformclaw/api/execution" >"$execution_response"
+}
+refresh_execution_settings
+target_revision="$(jq -er .targetRevision "$execution_response")"
 bad_credential_status="$(curl --silent --show-error --output "$execution_response" \
   --write-out '%{http_code}' \
   --cookie "$cookie_jar" \
   --header "Origin: $origin" \
   --header "Content-Type: application/json" \
-  --data-binary "$(jq -cn --arg vmHostId "$vm_host_id" \
-    '{vmHostId:$vmHostId, linuxAccount:"person_one", password:"wrong-fixture-password"}')" \
+  --data-binary "$(jq -cn --arg vmHostId "$vm_host_id" --argjson expectedRevision "$target_revision" \
+    '{vmHostId:$vmHostId, linuxAccount:"person_one", password:"wrong-fixture-password", expectedRevision:$expectedRevision}')" \
   "$origin/platformclaw/api/execution/selection")"
 if [[ "$bad_credential_status" != "422" ]]; then
   echo "Expected rejected SafeConnect credential to return 422, got $bad_credential_status" >&2
@@ -282,8 +295,8 @@ selection_status="$(curl --silent --show-error --output "$execution_response" \
   --cookie "$cookie_jar" \
   --header "Origin: $origin" \
   --header "Content-Type: application/json" \
-  --data-binary "$(jq -cn --arg vmHostId "$vm_host_id" \
-    '{vmHostId:$vmHostId, linuxAccount:"person_one", password:"platformclaw-safeconnect-fixture-password"}')" \
+  --data-binary "$(jq -cn --arg vmHostId "$vm_host_id" --argjson expectedRevision "$target_revision" \
+    '{vmHostId:$vmHostId, linuxAccount:"person_one", password:"platformclaw-safeconnect-fixture-password", expectedRevision:$expectedRevision}')" \
   "$origin/platformclaw/api/execution/selection")"
 if [[ "$selection_status" != "200" ]]; then
   echo "Expected accepted SafeConnect selection to return 200, got $selection_status" >&2
@@ -295,14 +308,144 @@ jq -e \
   "$execution_response" >/dev/null
 
 target_revision="$(jq -er .targetRevision "$execution_response")"
+connection_one_id="$(jq -er --arg vmHostId "$vm_host_id" '.savedVms[] | select(.vmHostId == $vmHostId) | .id' "$execution_response")"
 curl --fail --silent --show-error \
   --cookie "$cookie_jar" \
   --header "Origin: $origin" \
   --header "Content-Type: application/json" \
-  --data-binary "$(jq -cn --argjson expectedRevision "$target_revision" \
-    '{target:"assigned_vm", expectedRevision:$expectedRevision}')" \
+  --data-binary "$(jq -cn --argjson expectedRevision "$target_revision" --arg connectionId "$connection_one_id" \
+    '{target:"assigned_vm", connectionId:$connectionId, expectedRevision:$expectedRevision}')" \
   "$origin/platformclaw/api/execution/target" >"$execution_response"
 jq -e '.activeTarget == "assigned_vm"' "$execution_response" >/dev/null
+
+echo "==> Renaming an active SafeConnect endpoint without changing its authority"
+endpoint_before="$(jq -c --arg id "$endpoint_id" '.endpoints[] | select(.id == $id) | del(.label, .updatedAt)' "$vm_admin_response")"
+selection_before_rename="$(jq -c '{activeTarget,targetRevision,credentialStatus,assignment:(.assignment | del(.safeConnectLabel))}' "$execution_response")"
+admin_vm_mutation "$(jq -cn --arg endpointId "$endpoint_id" \
+  '{action:"rename-endpoint", endpointId:$endpointId, label:"Renamed active SafeConnect"}')"
+jq -e --arg id "$endpoint_id" --argjson before "$endpoint_before" '
+  (.endpoints[] | select(.id == $id)) as $endpoint |
+  $endpoint.status == "active" and $endpoint.label == "Renamed active SafeConnect" and
+  ($endpoint | del(.label, .updatedAt)) == $before and
+  any(.auditEvents[]; .eventType == "safeconnect.endpoint.renamed" and .targetId == $id)
+' "$vm_admin_response" >/dev/null
+refresh_execution_settings
+jq -e --argjson before "$selection_before_rename" '
+  {activeTarget,targetRevision,credentialStatus,assignment:(.assignment | del(.safeConnectLabel))} == $before and
+  .assignment.safeConnectLabel == "Renamed active SafeConnect" and
+  all(.savedVms[]; .safeConnectLabel == "Renamed active SafeConnect")
+' "$execution_response" >/dev/null
+denied_rename_status="$(curl --silent --show-error --output "$work_dir/denied-rename.json" \
+  --write-out '%{http_code}' --cookie "$cookie_jar" --header "Origin: $origin" \
+  --header "Content-Type: application/json" \
+  --data-binary "$(jq -cn --arg endpointId "$endpoint_id" '{action:"rename-endpoint",endpointId:$endpointId,label:"Denied rename"}')" \
+  "$origin/platformclaw/api/admin/vm")"
+[[ "$denied_rename_status" == "403" ]]
+
+register_vm() {
+  local vm_host="$1" linux_account="$2" password="$3"
+  refresh_execution_settings
+  curl --fail --silent --show-error --cookie "$cookie_jar" \
+    --header "Origin: $origin" --header "Content-Type: application/json" \
+    --data-binary "$(jq -cn --arg vmHostId "$vm_host" --arg linuxAccount "$linux_account" \
+      --arg password "$password" --argjson expectedRevision "$(jq -er .targetRevision "$execution_response")" \
+      '{vmHostId:$vmHostId,linuxAccount:$linuxAccount,password:$password,expectedRevision:$expectedRevision}')" \
+    "$origin/platformclaw/api/execution/selection" >"$execution_response"
+  jq -e --arg account "$linux_account" '
+    .activeTarget == "assigned_vm" and .assignment.linuxAccount == $account and
+    .assignment.status == "ready" and .assignment.remoteHomeDir == ("/users/" + $account)
+  ' "$execution_response" >/dev/null
+}
+save_coding_agent() {
+  local executable="$1"
+  curl --fail --silent --show-error --cookie "$cookie_jar" \
+    --header "Origin: $origin" --header "Content-Type: application/json" \
+    --data-binary "$(jq -cn --arg executablePath "$executable" \
+      --argjson expectedRevision "$(jq -er .targetRevision "$execution_response")" \
+      '{action:"save",expectedRevision:$expectedRevision,configuration:{agent:"codex",enabled:false,executablePath:$executablePath}}')" \
+    "$origin/platformclaw/api/execution/coding-agent" >"$execution_response"
+}
+switch_work_location() {
+  local target="$1" connection_id="${2:-}" account="${3:-}"
+  refresh_execution_settings
+  local previous_revision
+  previous_revision="$(jq -er .targetRevision "$execution_response")"
+  curl --fail --silent --show-error --cookie "$cookie_jar" \
+    --header "Origin: $origin" --header "Content-Type: application/json" \
+    --data-binary "$(jq -cn --arg target "$target" --arg connectionId "$connection_id" \
+      --argjson expectedRevision "$previous_revision" \
+      '{target:$target,expectedRevision:$expectedRevision} + (if $connectionId == "" then {} else {connectionId:$connectionId} end)')" \
+    "$origin/platformclaw/api/execution/target" >"$execution_response"
+  jq -e --arg target "$target" --arg account "$account" --argjson previous "$previous_revision" '
+    .activeTarget == $target and .targetRevision > $previous and
+    (if $target == "assigned_vm" then .assignment.linuxAccount == $account and .assignment.status == "ready" else true end)
+  ' "$execution_response" >/dev/null
+}
+assert_coding_agent() {
+  jq -e --arg executable "$1" '
+    any(.codingAgents[]; .configuration.agent == "codex" and .configuration.executablePath == $executable)
+  ' "$execution_response" >/dev/null
+}
+
+echo "==> Registering three isolated VM accounts with distinct credentials"
+save_coding_agent /usr/local/bin/codex-vm1-fixture
+register_vm "$vm_host_two_id" person_one_vm2 platformclaw-safeconnect-fixture-vm2-password
+connection_two_id="$(jq -er --arg vmHostId "$vm_host_two_id" '.savedVms[] | select(.vmHostId == $vmHostId) | .id' "$execution_response")"
+save_coding_agent /usr/local/bin/codex-vm2-fixture
+register_vm "$vm_host_three_id" person_one_vm3 platformclaw-safeconnect-fixture-vm3-password
+connection_three_id="$(jq -er --arg vmHostId "$vm_host_three_id" '.savedVms[] | select(.vmHostId == $vmHostId) | .id' "$execution_response")"
+save_coding_agent /usr/local/bin/codex-vm3-fixture
+jq -e '(.savedVms | length) == 3 and all(.savedVms[]; .status == "ready")' "$execution_response" >/dev/null
+
+echo "==> Switching VM1 -> VM2 -> VM3 -> VM1 without Basic or supplied passwords"
+for cycle in 1 2; do
+  switch_work_location assigned_vm "$connection_one_id" person_one
+  assert_coding_agent /usr/local/bin/codex-vm1-fixture
+  switch_work_location assigned_vm "$connection_two_id" person_one_vm2
+  assert_coding_agent /usr/local/bin/codex-vm2-fixture
+  switch_work_location assigned_vm "$connection_three_id" person_one_vm3
+  assert_coding_agent /usr/local/bin/codex-vm3-fixture
+done
+switch_work_location assigned_vm "$connection_one_id" person_one
+switch_work_location platform_server
+switch_work_location assigned_vm "$connection_two_id" person_one_vm2
+switch_work_location assigned_vm "$connection_one_id" person_one
+assert_coding_agent /usr/local/bin/codex-vm1-fixture
+
+selection_before_failure="$(jq -c '{activeTarget,targetRevision,credentialStatus,assignment}' "$execution_response")"
+reauth_status="$(curl --silent --show-error --output "$work_dir/failed-reauth.json" \
+  --write-out '%{http_code}' --cookie "$cookie_jar" --header "Origin: $origin" \
+  --header "Content-Type: application/json" \
+  --data-binary "$(jq -cn --arg vmHostId "$vm_host_two_id" \
+    --argjson expectedRevision "$(jq -er .targetRevision "$execution_response")" \
+    '{vmHostId:$vmHostId,linuxAccount:"person_one_vm2",password:"wrong-fixture-password",expectedRevision:$expectedRevision}')" \
+  "$origin/platformclaw/api/execution/selection")"
+[[ "$reauth_status" == "422" ]]
+refresh_execution_settings
+jq -e --argjson before "$selection_before_failure" '
+  {activeTarget,targetRevision,credentialStatus,assignment} == $before and (.savedVms | length) == 3
+' "$execution_response" >/dev/null
+
+echo "==> Restarting control plane and retaining saved VMs, current target, and host-key approval"
+"${compose[@]}" restart platformclaw-control >/dev/null
+for _ in $(seq 1 60); do
+  if curl --fail --silent --show-error "$origin/platformclaw/health" 2>/dev/null | jq -e '.ready == true' >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+refresh_execution_settings
+jq -e --argjson before "$selection_before_failure" '
+  {activeTarget,targetRevision,credentialStatus,assignment} == $before and
+  (.savedVms | length) == 3 and all(.savedVms[]; .safeConnectLabel == "Renamed active SafeConnect")
+' "$execution_response" >/dev/null
+assert_coding_agent /usr/local/bin/codex-vm1-fixture
+curl --fail --silent --show-error --cookie "$admin_cookie_jar" \
+  "$origin/platformclaw/api/admin/vm" >"$vm_admin_response"
+jq -e --arg id "$endpoint_id" --argjson before "$endpoint_before" '
+  (.endpoints[] | select(.id == $id)) as $endpoint |
+  $endpoint.label == "Renamed active SafeConnect" and ($endpoint | del(.label,.updatedAt)) == $before
+' "$vm_admin_response" >/dev/null
 
 curl --fail --silent --show-error \
   --cookie "$cookie_jar" \
@@ -361,9 +504,11 @@ jq -se '
   (map(select(.event == "authentication_finished" and .accepted == false)) | length) >= 1 and
   (map(select(.event == "authentication_finished" and .accepted == true)) | length) >= 4 and
   (map(select(.event == "command_finished" and .linuxAccount == "person_one" and .exitStatus == 0)) | length) >= 4 and
-  (map(select(.event == "login_shell_started" and .linuxAccount == "person_one")) | length) >= 1
+  (map(select(.event == "login_shell_started" and .linuxAccount == "person_one")) | length) >= 1 and
+  (map(select(.event == "command_finished" and .linuxAccount == "person_one_vm2" and .exitStatus == 0)) | length) >= 3 and
+  (map(select(.event == "command_finished" and .linuxAccount == "person_one_vm3" and .exitStatus == 0)) | length) >= 3
 ' "$safeconnect_boundary_log" >/dev/null
-if grep -Fq "platformclaw-safeconnect-fixture-password" "$safeconnect_boundary_log"; then
+if grep -Eq 'platformclaw-safeconnect-fixture(-vm[23])?-password' "$safeconnect_boundary_log"; then
   echo "SafeConnect password leaked into fixture boundary logs" >&2
   exit 1
 fi
@@ -460,6 +605,18 @@ curl --fail --silent --show-error --cookie "$cookie_jar" \
   "$origin/platformclaw/api/auth/session" |
   jq -e '.authenticated == false' >/dev/null
 
+echo "==> Relogging in with all three saved VM registrations preserved"
+curl --fail --silent --show-error --cookie-jar "$cookie_jar" \
+  --header "Origin: $origin" --header "Content-Type: application/json" \
+  --data-binary "@$repo_root/scripts/e2e/fixtures/platformclaw-login.json" \
+  "$origin/platformclaw/api/auth/login" >"$login_response"
+refresh_execution_settings
+jq -e '(.savedVms | length) == 3 and .activeTarget == "assigned_vm" and .assignment.linuxAccount == "person_one"' \
+  "$execution_response" >/dev/null
+assert_coding_agent /usr/local/bin/codex-vm1-fixture
+curl --fail --silent --show-error --cookie "$cookie_jar" \
+  --header "Origin: $origin" --request POST "$origin/platformclaw/api/auth/logout" | jq -e '.ok == true' >/dev/null
+
 runtime_logs="$("${compose[@]}" logs --no-color)"
 if grep -Fq "$ephemeral_probe" <<<"$runtime_logs"; then
   echo "Gateway token leaked into container logs" >&2
@@ -485,7 +642,7 @@ if grep -Fq "$execution_service_probe" "$app_document"; then
   echo "Execution service token leaked into browser document" >&2
   exit 1
 fi
-if grep -Fq "platformclaw-safeconnect-fixture-password" <<<"$runtime_logs"; then
+if grep -Eq 'platformclaw-safeconnect-fixture(-vm[23])?-password' <<<"$runtime_logs"; then
   echo "SafeConnect password leaked into runtime logs" >&2
   exit 1
 fi

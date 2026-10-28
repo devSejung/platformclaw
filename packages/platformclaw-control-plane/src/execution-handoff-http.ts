@@ -596,9 +596,19 @@ export class PlatformClawExecutionHandoffServer {
       if (pathname === PLATFORMCLAW_EXECUTION_CHANGE_TARGET_PATH) {
         const target = body.target;
         const expectedRevision = body.expectedRevision;
+        const connectionId = body.connectionId;
+        const expectedConnectionRevision = body.expectedConnectionRevision;
         if (
           (target !== "platform_server" && target !== "assigned_vm") ||
-          typeof expectedRevision !== "number"
+          typeof expectedRevision !== "number" ||
+          (connectionId !== undefined &&
+            (typeof connectionId !== "string" ||
+              !connectionId.trim() ||
+              connectionId.length > 256 ||
+              target !== "assigned_vm" ||
+              !Number.isSafeInteger(expectedConnectionRevision) ||
+              (expectedConnectionRevision as number) < 1)) ||
+          (connectionId === undefined && expectedConnectionRevision !== undefined)
         ) {
           throw new Error("invalid execution target change");
         }
@@ -610,6 +620,9 @@ export class PlatformClawExecutionHandoffServer {
             target,
             expectedRevision,
             changedAt: Date.now(),
+            ...(typeof connectionId === "string"
+              ? { connectionId, expectedConnectionRevision: expectedConnectionRevision as number }
+              : {}),
           }),
         );
         return;

@@ -1,4 +1,11 @@
 export const vmAdminTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.vmAdmin.renameEndpoint": "연결 이름 변경",
+  "platformClaw.vmAdmin.renameEndpointHelp":
+    "표시 이름만 변경합니다. 승인한 호스트 키, VM 접근 권한, 인증정보와 실행 중인 작업은 유지됩니다.",
+  "platformClaw.vmAdmin.stageRenameEndpoint": "SafeConnect 표시 이름을 저장하고 있습니다…",
+  "platformClaw.vmAdmin.endpointRenamed": "SafeConnect 표시 이름을 저장했습니다.",
+  "platformClaw.vmAdmin.confirmRevokeSaved":
+    "{label}의 저장된 연결을 회수할까요? 현재 작업 위치와 파일은 유지됩니다. 다시 연결하려면 인증이 필요합니다.",
   "platformClaw.vmAdmin.title": "VM 관리",
   "platformClaw.vmAdmin.intro": "신뢰할 연결, 개발 VM, 사용자 할당을 관리합니다.",
   "platformClaw.vmAdmin.overview": "VM 관리 현황",

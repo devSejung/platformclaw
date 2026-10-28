@@ -13,7 +13,7 @@ import {
 } from "./exec-credential-contracts.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
 import { ensureExecCredentialSnapshotSchema } from "./sqlite-schema.js";
-import { SqliteControlPlaneCredentialStore } from "./sqlite-store-credentials.js";
+import { SqliteControlPlaneSavedVmConnectionStore } from "./sqlite-store-saved-vm-connections.js";
 import type { EncryptedUserExecCredentialRow } from "./sqlite-store-types.js";
 
 function stored(row: EncryptedUserExecCredentialRow): StoredExecCredential {
@@ -34,7 +34,7 @@ function stored(row: EncryptedUserExecCredentialRow): StoredExecCredential {
   };
 }
 
-export abstract class SqliteControlPlaneExecCredentialStore extends SqliteControlPlaneCredentialStore {
+export abstract class SqliteControlPlaneExecCredentialStore extends SqliteControlPlaneSavedVmConnectionStore {
   private execCredentialSnapshotsReady = false;
 
   private ensureExecCredentialSnapshots(): void {

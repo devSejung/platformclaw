@@ -51,34 +51,86 @@ type LocationOptions = {
 };
 
 function renderCurrentLocation(settings: ExecutionSettings, busy: boolean) {
-  const canUseVm =
-    settings.assignment?.status === "ready" && settings.credentialStatus === "current";
   return html`<section class="current-location-card" data-current-location>
     <h3>${t("platformClaw.execution.current")}</h3>
     <span class="sr-only" data-current-target role="status" aria-live="polite" aria-atomic="true"
-      >${targetLabel(settings.activeTarget)}</span
+      >${settings.activeTarget === "assigned_vm"
+        ? settings.assignment?.vmLabel
+        : targetLabel(settings.activeTarget)}</span
     >
     <div class="location-targets">
-      ${(["platform_server", "assigned_vm"] as const).map((target) => {
-        const selected = settings.activeTarget === target;
-        return html`<button
-          class="location-tile"
-          data-target=${target}
-          aria-label=${t(
-            target === "platform_server"
-              ? "platformClaw.execution.useBasic"
-              : "platformClaw.execution.useVm",
-          )}
-          aria-pressed=${String(selected)}
-          ?disabled=${busy || selected || (target === "assigned_vm" && !canUseVm)}
+      <button
+        class="location-tile"
+        data-target="platform_server"
+        aria-label=${t("platformClaw.execution.useBasic")}
+        aria-pressed=${String(settings.activeTarget === "platform_server")}
+        ?disabled=${busy || settings.activeTarget === "platform_server"}
+      >
+        ${executionServerIcon("platform_server")}<strong>${targetLabel("platform_server")}</strong>
+        <span class="location-selected" aria-hidden="true"
+          >${settings.activeTarget === "platform_server" ? "✓" : ""}</span
         >
-          ${executionServerIcon(target)}<strong>${targetLabel(target)}</strong>
-          <span class="location-selected" aria-hidden="true">${selected ? "✓" : ""}</span>
-          ${selected
-            ? html`<span class="sr-only">${t("platformClaw.execution.currentlyActive")}</span>`
-            : nothing}
-        </button>`;
+      </button>
+      ${settings.savedVms.map((vm) => {
+        const active =
+          settings.activeTarget === "assigned_vm" &&
+          settings.assignment?.vmHostId === vm.vmHostId &&
+          settings.assignment.linuxAccount === vm.linuxAccount;
+        // Both captions reserve their wrapped size so changing the active VM
+        // cannot resize the tile; only the current caption is visible and accessible.
+        return html`<article class="saved-vm" data-saved-vm=${vm.id}>
+          <button
+            class="location-tile"
+            data-target="assigned_vm"
+            data-connection-id=${vm.id}
+            aria-label=${t("platformClaw.execution.useNamedVm", { name: vm.vmLabel })}
+            aria-pressed=${String(active)}
+            ?disabled=${busy || active || vm.status !== "ready"}
+          >
+            ${vmIcon}<span class="location-copy"
+              ><strong>${vm.vmLabel}</strong>
+              <small class="location-state"
+                ><span aria-hidden=${String(!active)}
+                  >${t("platformClaw.execution.currentlyActive")}</span
+                ><span aria-hidden=${String(active)}
+                  >${t(
+                    vm.status === "ready"
+                      ? "platformClaw.execution.connectionReady"
+                      : vm.status === "unavailable"
+                        ? "platformClaw.execution.connectionUnavailable"
+                        : "platformClaw.execution.reauthenticationRequired",
+                  )}</span
+                ></small
+              ></span
+            >
+            <span class="location-selected" aria-hidden="true">${active ? "✓" : ""}</span>
+          </button>
+          <div class="saved-vm-details">
+            <span>${vm.linuxAccount} · ${vm.safeConnectLabel}</span>
+            <button
+              class="button"
+              data-configure-vm=${vm.id}
+              ?disabled=${busy || vm.status === "unavailable"}
+            >
+              ${t("platformClaw.execution.connectionSettings")}
+            </button>
+            <button class="button" data-forget-vm=${vm.id} ?disabled=${busy || active}>
+              ${t("platformClaw.execution.forgetVm")}
+            </button>
+          </div>
+        </article>`;
       })}
+    </div>
+    <div class="available-vms">
+      <h4>${t("platformClaw.execution.availableVms")}</h4>
+      ${settings.availableVms
+        .filter((vm) => !settings.savedVms.some((saved) => saved.vmHostId === vm.id))
+        .map(
+          (vm) =>
+            html`<button class="button available-vm" data-connect-vm=${vm.id} ?disabled=${busy}>
+              ${vmIcon}<span>${vm.label}</span><span>${t("platformClaw.execution.addVm")}</span>
+            </button>`,
+        )}
     </div>
     <p class="muted location-boundary">${t("platformClaw.execution.boundary")}</p>
   </section>`;
@@ -124,7 +176,7 @@ function renderSelection(options: LocationOptions) {
       <button class="button primary" type="submit" ?disabled=${busy}>
         ${t("platformClaw.execution.connectVm")}
       </button>
-      ${settings.assignment
+      ${settings.assignment || options.editingVm
         ? html`<button class="button" type="button" data-action="cancel-edit-vm" ?disabled=${busy}>
             ${t("platformClaw.execution.cancel")}
           </button>`
@@ -203,7 +255,7 @@ export function renderExecutionLocation(options: LocationOptions) {
   const { settings, busy, editingVm } = options;
   const assignment = settings.assignment;
   const ready = assignment?.status === "ready" && settings.credentialStatus === "current";
-  const choosing = !assignment || (editingVm && settings.activeTarget === "platform_server");
+  const choosing = !assignment || editingVm;
   return html`<section
     class="tab-panel"
     id="execution-panel-location"
@@ -219,18 +271,12 @@ export function renderExecutionLocation(options: LocationOptions) {
               class="button vm-edit"
               type="button"
               data-action="edit-vm"
-              ?disabled=${busy || settings.activeTarget !== "platform_server"}
-              title=${settings.activeTarget !== "platform_server"
-                ? t("platformClaw.execution.switchBasicToChange")
-                : ""}
+              ?disabled=${busy}
             >
               ${changeVmIcon}${t("platformClaw.execution.editVm")}
             </button>`
           : nothing}
       </div>
-      ${assignment && settings.activeTarget !== "platform_server"
-        ? html`<p class="muted vm-form-help">${t("platformClaw.execution.switchBasicToChange")}</p>`
-        : nothing}
       ${assignment && !choosing
         ? html`<div class="vm-summary">
             <div>
@@ -274,6 +320,8 @@ export function renderExecutionLocation(options: LocationOptions) {
 }
 
 export const executionLocationStyles = `
+  .saved-vm{min-width:0;display:grid;gap:7px;border:1px solid var(--border);border-radius:var(--radius-md);padding:8px}.saved-vm .location-tile{width:100%;height:auto;min-height:62px}.location-copy{display:grid;gap:4px;min-width:0}.location-copy strong{overflow-wrap:anywhere}.location-copy small{font-size:11px;color:var(--muted)}.saved-vm-details{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.saved-vm-details>span{flex:1 1 100%;font-size:11px;overflow-wrap:anywhere;color:var(--muted)}.saved-vm-details .button{font-size:11px;padding:5px 8px}.available-vms{display:flex;flex-wrap:wrap;gap:8px}.available-vms h4{flex:1 1 100%;margin:6px 0 0;font-size:12px;color:var(--muted)}.available-vm{display:flex;align-items:center;gap:7px;max-width:100%;text-align:start}.available-vm>svg{width:18px;height:18px;flex:none}.available-vm>span{overflow-wrap:anywhere}.available-vm>span:last-child{font-size:11px;color:var(--muted)}
+  .location-state{display:grid}.location-state>span{grid-area:1/1;min-width:0}.location-state>[aria-hidden="true"]{visibility:hidden}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .current-location-card{display:grid;gap:10px}.location-targets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .location-tile{display:grid;grid-template-columns:28px minmax(0,1fr) 16px;align-items:center;gap:9px;height:62px;min-width:0;padding:10px 12px;text-align:start;border:1px solid var(--border-strong);border-radius:var(--radius-md);background:var(--card);color:var(--text);cursor:pointer}

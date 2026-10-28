@@ -1,3 +1,4 @@
+import { beginAgentWorkAdmission } from "../../agents/agent-work-admission.js";
 import { scheduleMainSessionRecoveryPendingTarget } from "../../agents/main-session-recovery-owner-release.js";
 import { isMainRestartRecoveryCandidate } from "../../agents/main-session-recovery-state.js";
 import {
@@ -21,6 +22,7 @@ import {
   resolveRunStaleThresholdMs,
 } from "../../logging/diagnostic-run-activity.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { parseAgentSessionKey } from "../../routing/session-key.js";
 import {
   beginSessionWorkAdmission,
   type SessionWorkAdmissionLease,
@@ -159,6 +161,9 @@ type WaitForReplyAdmission = <T>(wait: () => Promise<T>) => Promise<T>;
 export async function admitReplyTurn(
   params: ReplyTurnAdmissionParams,
 ): Promise<ReplyTurnAdmission> {
+  const owner = parseAgentSessionKey(params.sessionKey)?.agentId;
+  const releaseOwner = owner ? beginAgentWorkAdmission(owner) : undefined;
+  let ownerTransferred = false;
   let admissionWaitReported = false;
   const waitForAdmission = async <T>(wait: () => Promise<T>): Promise<T> => {
     if (!admissionWaitReported) {
@@ -168,8 +173,22 @@ export async function admitReplyTurn(
     return await wait();
   };
   try {
-    return await admitReplyTurnWithWaitSignal(params, waitForAdmission);
+    const result = await admitReplyTurnWithWaitSignal(params, waitForAdmission);
+    if (releaseOwner && result.status === "owned") {
+      // The reply operation owns final attachment delivery too. Keep its owner
+      // claim across admission waits and until the publication owner clears it.
+      retainReplyOperationUntilComplete(result.operation);
+      runAfterReplyOperationClear(result.operation, releaseOwner);
+      ownerTransferred = true;
+    } else if (releaseOwner && result.status === "skipped" && result.lifecycleAdmission) {
+      void result.lifecycleAdmission.released.then(releaseOwner);
+      ownerTransferred = true;
+    }
+    return result;
   } finally {
+    if (!ownerTransferred) {
+      releaseOwner?.();
+    }
     if (admissionWaitReported) {
       params.onReplyAdmissionWaitChange?.(false);
     }

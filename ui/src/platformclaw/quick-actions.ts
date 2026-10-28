@@ -225,11 +225,9 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
         ? t("common.loading")
         : !this.executionTarget
           ? t("platformClaw.execution.locationUnknown")
-          : t(
-              this.executionTarget === "assigned_vm"
-                ? "platformClaw.execution.vm"
-                : "platformClaw.execution.basic",
-            );
+          : this.executionTarget === "assigned_vm"
+            ? (settings?.assignment?.vmLabel ?? t("platformClaw.execution.vm"))
+            : t("platformClaw.execution.basic");
       const label = t("platformClaw.execution.selectedLocation", { target });
       const detail = vmNeedsConnection
         ? `${label} · ${t("platformClaw.execution.connectionRequired")}`

@@ -95,6 +95,7 @@ async function installWorkspaceRoutes(page: Page) {
         activeTarget: "assigned_vm",
         assignment: { vmHostId: "vm-one", status: "ready" },
         availableVms: [],
+        savedVms: [],
         credentialStatus: "ready",
         targetRevision: 1,
       },

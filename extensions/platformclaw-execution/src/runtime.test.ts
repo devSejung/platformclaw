@@ -13,6 +13,10 @@ import {
   parseTarget,
   quoteOpenSshConfigPath,
 } from "./runtime.js";
+import {
+  PlatformClawTargetChangeError,
+  PlatformClawTargetMutationCoordinator,
+} from "./target-mutation-coordinator.js";
 import { VmTmuxTerminalManager } from "./tmux-terminal-manager.js";
 
 const leaseIo = vi.hoisted(() => ({
@@ -80,111 +84,182 @@ const TARGET: AssignedVmTargetSnapshot = {
 };
 
 describe("PlatformClaw SafeConnect session", () => {
-  it("preserves VM channels across Basic reads and retires them on a committed target change", async () => {
-    leaseIo.startMaster.mockClear();
-    const directory = await mkdtemp(path.join(tmpdir(), "platformclaw-runtime-target-"));
-    const tokenFile = path.join(directory, "execution-token");
-    await writeFile(tokenFile, "test-runtime-token");
-    const brokerAddress =
-      process.platform === "win32"
-        ? String.raw`\\.\pipe\platformclaw-target-${randomUUID()}`
-        : path.join(directory, "broker.sock");
-    const socketPath =
-      process.platform === "win32"
-        ? `${brokerAddress}-execution`
-        : path.join(directory, "execution.sock");
-    const basic = {
-      kind: "platform_server",
-      agentId: TARGET.agentId,
-      targetId: "platform-server",
-      revision: TARGET.revision,
-    };
-    let active = "platform_server";
-    const requests: Array<{ agentId: string; target?: string }> = [];
-    const server = createServer((req, res) => {
-      void (async () => {
-        const chunks: Buffer[] = [];
-        for await (const chunk of req) {
-          chunks.push(Buffer.from(chunk));
-        }
-        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
-          agentId: string;
-          target?: string;
-        };
-        requests.push(body);
-        res.setHeader("Content-Type", "application/json");
-        if (req.url?.endsWith("/change-target")) {
-          active = body.target!;
-          res.end(JSON.stringify({ ...basic, revision: TARGET.revision + 1 }));
-          return;
-        }
-        res.end(JSON.stringify((body.target ?? active) === "assigned_vm" ? TARGET : basic));
-      })().catch((error: unknown) => {
-        res.destroy(error instanceof Error ? error : new Error(String(error)));
+  it.each([
+    { destination: "platform_server", lostResponse: false },
+    { destination: "assigned_vm", lostResponse: false },
+    { destination: "platform_server", lostResponse: true },
+    { destination: "assigned_vm", lostResponse: true },
+  ] as const)(
+    "preserves failed selection and retires committed authority: $destination lostResponse=$lostResponse",
+    async ({ destination, lostResponse }) => {
+      leaseIo.startMaster.mockClear();
+      const directory = await mkdtemp(path.join(tmpdir(), "platformclaw-runtime-target-"));
+      const tokenFile = path.join(directory, "execution-token");
+      await writeFile(tokenFile, "test-runtime-token");
+      const brokerAddress =
+        process.platform === "win32"
+          ? String.raw`\\.\pipe\platformclaw-target-${randomUUID()}`
+          : path.join(directory, "broker.sock");
+      const socketPath =
+        process.platform === "win32"
+          ? `${brokerAddress}-execution`
+          : path.join(directory, "execution.sock");
+      const basic = {
+        kind: "platform_server",
+        agentId: TARGET.agentId,
+        targetId: "platform-server",
+        revision: TARGET.revision,
+      };
+      const changed =
+        destination === "platform_server"
+          ? { ...basic, revision: TARGET.revision + 1 }
+          : {
+              ...TARGET,
+              targetId: "vm-two",
+              allocationId: "allocation-two",
+              targetAddress: "192.0.2.11",
+              revision: TARGET.revision + 1,
+            };
+      let rejectChange = true;
+      let committed = false;
+      let active = "platform_server";
+      const requests: Array<{
+        agentId: string;
+        target?: string;
+        connectionId?: string;
+        expectedConnectionRevision?: number;
+      }> = [];
+      const server = createServer((req, res) => {
+        void (async () => {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(Buffer.from(chunk));
+          }
+          const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+            agentId: string;
+            target?: string;
+            connectionId?: string;
+            expectedConnectionRevision?: number;
+          };
+          requests.push(body);
+          res.setHeader("Content-Type", "application/json");
+          if (req.url?.endsWith("/change-target")) {
+            if (rejectChange) {
+              res.statusCode = 409;
+              res.end(JSON.stringify({ error: "target changed" }));
+              return;
+            }
+            active = body.target!;
+            committed = true;
+            if (lostResponse) {
+              res.statusCode = 503;
+              res.end(JSON.stringify({ error: "response lost after commit" }));
+              return;
+            }
+            res.end(JSON.stringify(changed));
+            return;
+          }
+          res.end(
+            JSON.stringify(
+              committed ? changed : (body.target ?? active) === "assigned_vm" ? TARGET : basic,
+            ),
+          );
+        })().catch((error: unknown) => {
+          res.destroy(error instanceof Error ? error : new Error(String(error)));
+        });
       });
-    });
-    const terminalTarget = vi.spyOn(VmTmuxTerminalManager.prototype, "observeTarget");
-    const channels: SshSandboxSession[] = [];
-    let dependencies:
-      | Awaited<ReturnType<typeof createExecutionDependenciesFromEnvironment>>
-      | undefined;
-    try {
-      await new Promise<void>((resolve) => {
-        server.listen(socketPath, resolve);
-      });
-      dependencies = await createExecutionDependenciesFromEnvironment({
-        PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: brokerAddress,
-        PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: tokenFile,
-      });
-      await expect(dependencies.resolveTarget({ agentId: TARGET.agentId })).resolves.toEqual(basic);
-      await expect(
-        dependencies.resolveTarget({ agentId: TARGET.agentId, target: "platform_server" }),
-      ).resolves.toEqual(basic);
-      await expect(
-        dependencies.resolveTarget({ agentId: TARGET.agentId, target: "assigned_vm" }),
-      ).resolves.toMatchObject(TARGET);
-      expect(terminalTarget).toHaveBeenCalledExactlyOnceWith(TARGET.agentId, undefined);
-      const manager = leaseIo.manager!;
-      channels.push(await manager.createSession(TARGET));
-      const master = await leaseIo.startMaster.mock.results[0]!.value;
-      await expect(
-        dependencies.resolveTarget({ agentId: TARGET.agentId, target: "assigned_vm" }),
-      ).resolves.toMatchObject(TARGET);
-      expect(terminalTarget).toHaveBeenCalledTimes(1);
-      await expect(dependencies.resolveTarget({ agentId: TARGET.agentId })).resolves.toEqual(basic);
-      expect(terminalTarget).toHaveBeenLastCalledWith(TARGET.agentId, undefined);
-      channels.push(await manager.createSession(TARGET));
-      expect(leaseIo.startMaster).toHaveBeenCalledTimes(1);
-      expect(master.isRunning()).toBe(true);
-      expect(master.stop).not.toHaveBeenCalled();
-      await expect(
-        dependencies.changeTarget({
+      const terminalTarget = vi.spyOn(VmTmuxTerminalManager.prototype, "observeTarget");
+      const channels: SshSandboxSession[] = [];
+      let dependencies:
+        | Awaited<ReturnType<typeof createExecutionDependenciesFromEnvironment>>
+        | undefined;
+      try {
+        await new Promise<void>((resolve) => {
+          server.listen(socketPath, resolve);
+        });
+        dependencies = await createExecutionDependenciesFromEnvironment(
+          {
+            PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS: brokerAddress,
+            PLATFORMCLAW_EXECUTION_SERVICE_TOKEN_FILE: tokenFile,
+          },
+          { targetMutations: new PlatformClawTargetMutationCoordinator() },
+        );
+        await expect(dependencies.resolveTarget({ agentId: TARGET.agentId })).resolves.toEqual(
+          basic,
+        );
+        await expect(
+          dependencies.resolveTarget({ agentId: TARGET.agentId, target: "platform_server" }),
+        ).resolves.toEqual(basic);
+        await expect(
+          dependencies.resolveTarget({ agentId: TARGET.agentId, target: "assigned_vm" }),
+        ).resolves.toMatchObject(TARGET);
+        expect(terminalTarget).toHaveBeenCalledExactlyOnceWith(TARGET.agentId, undefined);
+        const manager = leaseIo.manager!;
+        channels.push(await manager.createSession(TARGET));
+        const master = await leaseIo.startMaster.mock.results[0]!.value;
+        await expect(
+          dependencies.resolveTarget({ agentId: TARGET.agentId, target: "assigned_vm" }),
+        ).resolves.toMatchObject(TARGET);
+        expect(terminalTarget).toHaveBeenCalledTimes(1);
+        await expect(dependencies.resolveTarget({ agentId: TARGET.agentId })).resolves.toEqual(
+          basic,
+        );
+        expect(terminalTarget).toHaveBeenLastCalledWith(TARGET.agentId, undefined);
+        channels.push(await manager.createSession(TARGET));
+        expect(leaseIo.startMaster).toHaveBeenCalledTimes(1);
+        expect(master.isRunning()).toBe(true);
+        expect(master.stop).not.toHaveBeenCalled();
+        const selection = {
           agentId: TARGET.agentId,
-          target: "platform_server",
+          target: destination,
           expectedRevision: TARGET.revision,
-        }),
-      ).resolves.toEqual({ ...basic, revision: TARGET.revision + 1 });
-      await vi.waitFor(() => expect(master.stop).toHaveBeenCalledOnce());
-      expect(master.isRunning()).toBe(false);
-      expect(requests.map((request) => request.target)).toEqual([
-        undefined,
-        "platform_server",
-        "assigned_vm",
-        "assigned_vm",
-        undefined,
-        "platform_server",
-      ]);
-    } finally {
-      await Promise.all(channels.map((channel) => disposeSshSandboxSession(channel)));
-      await dependencies?.dispose();
-      terminalTarget.mockRestore();
-      leaseIo.manager = undefined;
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      });
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
+          ...(destination === "assigned_vm"
+            ? { connectionId: "connection-two", expectedConnectionRevision: 3 }
+            : {}),
+        };
+        const observedBeforeFailure = terminalTarget.mock.calls.length;
+        await expect(dependencies.changeTarget(selection)).rejects.toThrow("(409)");
+        expect(master.isRunning()).toBe(true);
+        expect(master.stop).not.toHaveBeenCalled();
+        expect(terminalTarget).toHaveBeenCalledTimes(observedBeforeFailure);
+        rejectChange = false;
+        if (lostResponse) {
+          await expect(dependencies.changeTarget(selection)).rejects.toBeInstanceOf(
+            PlatformClawTargetChangeError,
+          );
+        } else {
+          await expect(dependencies.changeTarget(selection)).resolves.toEqual(changed);
+        }
+        await vi.waitFor(() => expect(master.stop).toHaveBeenCalledOnce());
+        expect(master.isRunning()).toBe(false);
+        expect(terminalTarget).toHaveBeenLastCalledWith(
+          TARGET.agentId,
+          destination === "assigned_vm" ? changed : undefined,
+        );
+        expect(requests.findLast((request) => request.target === destination)).toEqual(selection);
+        expect(requests.map((request) => request.target)).toEqual([
+          undefined,
+          "platform_server",
+          "assigned_vm",
+          "assigned_vm",
+          undefined,
+          destination,
+          undefined,
+          destination,
+          ...(lostResponse ? [undefined] : []),
+        ]);
+      } finally {
+        await Promise.all(channels.map((channel) => disposeSshSandboxSession(channel)));
+        await dependencies?.dispose();
+        terminalTarget.mockRestore();
+        leaseIo.manager = undefined;
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("requires the assigned VM workspace to stay inside its canonical home", () => {
     expect(parseTarget(TARGET)).toMatchObject({

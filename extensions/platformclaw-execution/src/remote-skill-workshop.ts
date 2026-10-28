@@ -12,7 +12,13 @@ import {
   type SkillWorkshopTargetFile,
   type SshSandboxSession,
 } from "openclaw/plugin-sdk/sandbox";
-import { PLATFORMCLAW_EXECUTION_BACKEND_ID, type AssignedVmTargetSnapshot } from "./backend.js";
+import {
+  PLATFORMCLAW_EXECUTION_BACKEND_ID,
+  type AssignedVmTargetSnapshot,
+  type PlatformClawExecutionTargetSnapshot,
+} from "./backend.js";
+import { leaseIdentity } from "./ssh-lease-identity.js";
+import type { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
 
 const MAX_FILES = 2_000;
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -189,6 +195,8 @@ trap cleanup EXIT HUP INT TERM
 `;
 
 type RemoteSkillWorkshopIo = {
+  mutations: PlatformClawTargetMutationCoordinator;
+  resolveTarget(agentId: string): Promise<PlatformClawExecutionTargetSnapshot>;
   createSession(target: AssignedVmTargetSnapshot): Promise<SshSandboxSession>;
   disposeSession: typeof disposeSshSandboxSession;
   runCommand: typeof runSshSandboxCommand;
@@ -276,29 +284,65 @@ export class VmRemoteSkillWorkshopService {
     const target = params.target;
     let catalog = params.catalog;
     const skillsDir = path.posix.join(target.remoteWorkspaceDir, "skills");
-    const runRemoteShellScript = async (
-      command: SandboxBackendCommandParams,
-    ): Promise<SandboxBackendCommandResult> => {
-      const session = await this.io.createSession(target);
-      try {
-        return await this.io.runCommand({
-          session,
-          remoteCommand: buildRemoteCommand([
-            "/bin/bash",
-            "-c",
-            command.script,
-            "platformclaw-skill-workshop",
-            ...(command.args ?? []),
-          ]),
-          stdin: command.stdin,
-          allowFailure: command.allowFailure,
-          signal: command.signal ?? AbortSignal.timeout(COMMAND_TIMEOUT_MS),
-          maxBufferBytes: MAX_OUTPUT_BYTES,
-        });
-      } finally {
-        await this.io.disposeSession(session);
+    const assertCurrentTarget = async () => {
+      const current = await this.io.resolveTarget(target.agentId);
+      if (
+        current.kind !== "assigned_vm" ||
+        current.targetId !== target.targetId ||
+        leaseIdentity(current) !== leaseIdentity(target) ||
+        current.remoteHomeDir !== target.remoteHomeDir ||
+        current.remoteWorkspaceDir !== target.remoteWorkspaceDir
+      ) {
+        throw new Error("VM Skill Workshop target changed; reload and retry");
       }
     };
+    const withCurrentTarget = async <T>(run: () => Promise<T>): Promise<T> => {
+      // Even reads create SSH sessions that can retire the canonical lease.
+      // Guard the shared shell boundary so UI, run, and filesystem paths agree.
+      const release = this.io.mutations.tryAcquire(target.agentId, "skill-workshop");
+      if (!release) {
+        throw new Error("PlatformClaw work location or workspace mutation is already in progress.");
+      }
+      try {
+        await assertCurrentTarget();
+        return await run();
+      } finally {
+        release();
+      }
+    };
+    const refreshCatalog = async () =>
+      await withCurrentTarget(async () => {
+        const next = await params.refreshCatalog();
+        await assertCurrentTarget();
+        return next;
+      });
+    const runRemoteShellScript = async (
+      command: SandboxBackendCommandParams,
+    ): Promise<SandboxBackendCommandResult> =>
+      await withCurrentTarget(async () => {
+        const session = await this.io.createSession(target);
+        try {
+          // Authentication can yield across an administrator authority change.
+          // Recheck before sending any command to the pinned VM account.
+          await assertCurrentTarget();
+          return await this.io.runCommand({
+            session,
+            remoteCommand: buildRemoteCommand([
+              "/bin/bash",
+              "-c",
+              command.script,
+              "platformclaw-skill-workshop",
+              ...(command.args ?? []),
+            ]),
+            stdin: command.stdin,
+            allowFailure: command.allowFailure,
+            signal: command.signal ?? AbortSignal.timeout(COMMAND_TIMEOUT_MS),
+            maxBufferBytes: MAX_OUTPUT_BYTES,
+          });
+        } finally {
+          await this.io.disposeSession(session);
+        }
+      });
     const fsBridge = createRemoteShellSandboxFsBridge({
       sandbox: {
         workspaceDir: target.remoteWorkspaceDir,
@@ -318,15 +362,16 @@ export class VmRemoteSkillWorkshopService {
     });
     return {
       backendId: PLATFORMCLAW_EXECUTION_BACKEND_ID,
-      // Allocation identity stays stable across credential/selection revisions.
-      targetId: target.allocationId,
+      // Proposals belong to the saved VM registration across fresh activations.
+      // SSH authority still uses the pinned allocation and credential revisions above.
+      targetId: target.targetId,
       targetLabel: target.vmLabel,
       workspaceDir: target.remoteWorkspaceDir,
       skillsDir,
       source: "platformclaw-vm-workspace",
       fsBridge,
       listSkills: async () => {
-        catalog ??= await params.refreshCatalog();
+        catalog ??= await refreshCatalog();
         return catalog.files.flatMap((file) => {
           if (
             file.source !== "platformclaw-vm-workspace" ||
@@ -408,7 +453,7 @@ export class VmRemoteSkillWorkshopService {
         }
       },
       notifyChanged: async () => {
-        catalog = await params.refreshCatalog();
+        catalog = await refreshCatalog();
       },
     };
   }

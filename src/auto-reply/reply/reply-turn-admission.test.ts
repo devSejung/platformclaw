@@ -3,6 +3,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
 import {
+  hasPendingAgentWork,
+  tryAcquireAgentWorkMutation,
+} from "../../agents/agent-work-admission.js";
+import {
   deleteSessionEntryLifecycle,
   loadSessionEntry,
   replaceSessionEntry,
@@ -93,6 +97,26 @@ async function readSessionEntry(
 }
 
 describe("reply turn admission", () => {
+  it("keeps a storeless reply owner through terminal publication until complete", async () => {
+    const owner = "publication-owner";
+    const result = await admitTestReplyTurn({
+      sessionKey: `agent:${owner}:chat`,
+      sessionId: "publish",
+    });
+    expect(result.status).toBe("owned");
+    if (result.status !== "owned") {
+      return;
+    }
+    try {
+      result.operation.fail("run_failed");
+      expect(hasPendingAgentWork(owner)).toBe(true);
+      expect(tryAcquireAgentWorkMutation(owner)).toBeNull();
+    } finally {
+      result.operation.complete();
+    }
+    expect(hasPendingAgentWork(owner)).toBe(false);
+  });
+
   afterEach(() => {
     testing.resetReplyRunRegistry();
     resetDiagnosticRunActivityForTest();

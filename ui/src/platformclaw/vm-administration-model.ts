@@ -19,6 +19,7 @@ export type VmAdminSnapshot = {
   endpoints: VmAdminEndpoint[];
   hosts: VmAdminHost[];
   allocations: VmAdminAllocation[];
+  savedConnections?: AdministrationSnapshot["savedConnections"];
   auditEvents: {
     id: string;
     eventType: string;
@@ -49,17 +50,20 @@ export type VmAdminMutation = {
     | "enable-endpoint"
     | "disable-host"
     | "enable-host"
+    | "revoke-saved-connection"
     | "revoke-allocation";
-  fieldName: "endpointId" | "vmHostId" | "allocationId";
+  fieldName: "endpointId" | "vmHostId" | "allocationId" | "connectionId";
   id: string;
   label: string;
 };
 export type VmAdminDialog =
+  | { kind: "rename-endpoint"; endpointId: string; draft: { label: string } }
   | { kind: "host"; hostId: string | null; draft: VmHostDraft }
   | { kind: "environment"; host: VmAdminHost; draft: VmEnvironmentDraft }
   | { kind: "endpoint"; draft: VmEndpointDraft; probe: VmAdminProbe | null }
   | { kind: "confirmation"; mutation: VmAdminMutation };
 export type VmAdminStage =
+  | "rename-endpoint"
   | "probe"
   | "save-endpoint"
   | "recover-endpoint"

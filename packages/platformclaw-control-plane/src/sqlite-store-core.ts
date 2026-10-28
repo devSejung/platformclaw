@@ -31,6 +31,7 @@ import {
 import { retireOrganizationKnowledge } from "./sqlite-retire-organization-knowledge.js";
 import { migrateVmAllocationCodingAgentSchema } from "./sqlite-schema-coding-agents.js";
 import { ensureDirectoryOrganizationSchema } from "./sqlite-schema-directory-organizations.js";
+import { migrateSavedVmConnections } from "./sqlite-schema-saved-vms.js";
 import {
   ensureVmHostExecutionEnvironmentSchema,
   initializeControlPlaneSchema,
@@ -193,6 +194,7 @@ export abstract class SqliteControlPlaneStoreCore {
     ensureDirectoryOrganizationSchema(this.db);
     retireOrganizationKnowledge(this.db);
     migrateVmAllocationCodingAgentSchema(this.db);
+    migrateSavedVmConnections(this.db);
     if (process.platform !== "win32") {
       for (const path of [
         options.databasePath,

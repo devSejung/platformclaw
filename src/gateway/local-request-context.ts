@@ -1,5 +1,9 @@
 import { isAgentDeletionBlocked } from "../agents/agent-lifecycle-registry.js";
 import { listAgentIds, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import {
+  hasPendingAgentWork,
+  tryAcquireAgentWorkMutation,
+} from "../agents/agent-work-admission.js";
 // Local embedded Gateway request context.
 // Lets local agent paths reuse Gateway server methods without starting a server.
 import {
@@ -98,6 +102,8 @@ function createLocalGatewayRequestContext(
   };
   const sessionEvents = new Set<string>();
   const chatRunState = createChatRunState();
+  const chatAbortControllers: GatewayRequestContext["chatAbortControllers"] = new Map();
+  const chatQueuedTurns: GatewayRequestContext["chatQueuedTurns"] = new Map();
   const loadModelCatalogOwner = async ({
     agentId,
     agentDir,
@@ -116,6 +122,16 @@ function createLocalGatewayRequestContext(
     cron,
     cronStorePath: "",
     getRuntimeConfig: params.getRuntimeConfig,
+    hasPendingAgentWork: (agentId) => {
+      const owner = normalizeAgentId(agentId);
+      return (
+        hasPendingAgentWork(owner) ||
+        [...chatAbortControllers.values(), ...chatQueuedTurns.values()].some(
+          (entry) => entry.agentId && normalizeAgentId(entry.agentId) === owner,
+        )
+      );
+    },
+    tryAcquireAgentWorkMutation,
     notifyPluginMetadataChanged: () => {},
     resolveTerminalLaunchPolicy: () => ({ ok: false, block: { kind: "disabled" } }),
     isTerminalEnabled: () => false,
@@ -157,8 +173,8 @@ function createLocalGatewayRequestContext(
     hasConnectedTalkNode: async () => false,
     nodeRegistry: new NodeRegistry(),
     agentRunSeq: new Map(),
-    chatAbortControllers: new Map(),
-    chatQueuedTurns: new Map(),
+    chatAbortControllers,
+    chatQueuedTurns,
     chatRunState,
     addChatRun: chatRunState.registry.add,
     removeChatRun: chatRunState.registry.remove,

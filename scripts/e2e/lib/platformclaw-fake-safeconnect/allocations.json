@@ -9,6 +9,20 @@
     },
     {
       "adDomain": "samsungds.net",
+      "adAccount": "person.one",
+      "linuxAccount": "person_one_vm2",
+      "targetAddress": "10.0.0.20",
+      "password": "platformclaw-safeconnect-fixture-vm2-password"
+    },
+    {
+      "adDomain": "samsungds.net",
+      "adAccount": "person.one",
+      "linuxAccount": "person_one_vm3",
+      "targetAddress": "10.0.0.30",
+      "password": "platformclaw-safeconnect-fixture-vm3-password"
+    },
+    {
+      "adDomain": "samsungds.net",
       "adAccount": "person.two",
       "linuxAccount": "person_two",
       "targetAddress": "10.0.0.20",

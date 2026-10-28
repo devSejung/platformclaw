@@ -66,6 +66,11 @@ export abstract class SqliteControlPlaneExecutionStore
           "agent_bindings.id",
         )
         .innerJoin("vm_allocations", "vm_allocations.agent_binding_id", "agent_bindings.id")
+        .innerJoin(
+          "saved_vm_connections",
+          "saved_vm_connections.allocation_id",
+          "vm_allocations.id",
+        )
         .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
         .leftJoin(
           "vm_host_execution_environments",
@@ -81,6 +86,7 @@ export abstract class SqliteControlPlaneExecutionStore
           "platform_users.status as user_status",
           "personal_execution_profiles.target_revision as target_revision",
           "vm_allocations.id as allocation_id",
+          "saved_vm_connections.id as connection_id",
           "vm_allocations.status as allocation_status",
           "vm_allocations.linux_account as linux_account",
           "vm_allocations.remote_home_dir as remote_home_dir",
@@ -119,7 +125,7 @@ export abstract class SqliteControlPlaneExecutionStore
       kind: "assigned_vm",
       agentId: row.agent_id,
       userId: row.user_id,
-      targetId: row.allocation_id,
+      targetId: row.connection_id,
       revision: row.target_revision,
       allocationId: row.allocation_id,
       allocationStatus: row.allocation_status,
@@ -282,6 +288,7 @@ export abstract class SqliteControlPlaneExecutionStore
     this.ensureVmHostExecutionEnvironmentSchema();
     let vmQuery = this.query
       .selectFrom("vm_allocations")
+      .innerJoin("saved_vm_connections", "saved_vm_connections.allocation_id", "vm_allocations.id")
       .innerJoin("vm_hosts", "vm_hosts.id", "vm_allocations.vm_host_id")
       .leftJoin(
         "vm_host_execution_environments",
@@ -294,6 +301,7 @@ export abstract class SqliteControlPlaneExecutionStore
       )
       .select([
         "vm_allocations.id as allocation_id",
+        "saved_vm_connections.id as connection_id",
         "vm_allocations.agent_binding_id as agent_binding_id",
         "vm_allocations.status as allocation_status",
         "vm_allocations.linux_account as linux_account",

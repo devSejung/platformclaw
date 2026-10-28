@@ -204,13 +204,6 @@ export async function prepareCronRunContext(params: {
   const hookExternalContentSource =
     payloadHookExternalContentSource ?? resolveHookExternalContentSource(baseSessionKey);
 
-  const workspace = await ensureAgentWorkspace({
-    dir: modelOwner.workspaceDir,
-    ensureBootstrapFiles: !agentCfg?.skipBootstrap && !params.isFastTestEnv,
-    skipOptionalBootstrapFiles: agentCfg?.skipOptionalBootstrapFiles,
-  });
-  const workspaceDir = workspace.dir;
-
   const isGmailHook = hookExternalContentSource === "gmail";
   const now = Date.now();
   const cronSession = resolveCronSession({
@@ -242,6 +235,7 @@ export async function prepareCronRunContext(params: {
   const initialSessionEntry = cronSession.initialSessionEntry;
   // Claim before async model prep so maintenance cannot delete this session generation.
   const sessionWorkAdmission = await beginSessionWorkAdmission({
+    agentId,
     scope: cronSession.storePath,
     identities: [
       agentSessionKey,
@@ -272,6 +266,12 @@ export async function prepareCronRunContext(params: {
   });
 
   try {
+    const workspace = await ensureAgentWorkspace({
+      dir: modelOwner.workspaceDir,
+      ensureBootstrapFiles: !agentCfg?.skipBootstrap && !params.isFastTestEnv,
+      skipOptionalBootstrapFiles: agentCfg?.skipOptionalBootstrapFiles,
+    });
+    const workspaceDir = workspace.dir;
     const persistCronSessionRow = async ({
       storePath,
       sessionKey,

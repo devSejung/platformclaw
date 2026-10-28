@@ -7,6 +7,7 @@ import {
   GATEWAY_CLIENT_IDS,
   GATEWAY_CLIENT_MODES,
 } from "../../packages/gateway-protocol/src/client-info.js";
+import { beginAgentWorkAdmission } from "../agents/agent-work-admission.js";
 import { createChatRunState } from "./server-chat-state.js";
 import type { GatewayServerLiveState } from "./server-live-state.js";
 import { createGatewayRequestContext } from "./server-request-context.js";
@@ -130,6 +131,35 @@ function makeGatewayClient(params: {
 }
 
 describe("createGatewayRequestContext", () => {
+  it("keeps non-chat owner admissions, active chat and transferred queued turns in its pending query", () => {
+    const params = makeContextParams();
+    const context = createGatewayRequestContext(params);
+    const owner = "context-work-owner";
+    const release = beginAgentWorkAdmission(owner);
+    try {
+      expect(context.hasPendingAgentWork(owner)).toBe(true);
+      expect(context.tryAcquireAgentWorkMutation(owner)).toBeNull();
+    } finally {
+      release();
+    }
+    const controller = new AbortController();
+    controller.abort();
+    const entry = {
+      controller,
+      sessionId: "session",
+      sessionKey: `agent:${owner}:chat`,
+      agentId: owner,
+    };
+    params.chatAbortControllers.set("active", { ...entry, startedAtMs: 1, expiresAtMs: 2 });
+    expect(context.hasPendingAgentWork(owner)).toBe(true);
+    params.chatAbortControllers.clear();
+    params.chatQueuedTurns.set("queued", { ...entry, abortable: false });
+    expect(context.hasPendingAgentWork(owner)).toBe(true);
+    expect(context.hasPendingAgentWork("other-context-owner")).toBe(false);
+    params.chatQueuedTurns.clear();
+    expect(context.hasPendingAgentWork(owner)).toBe(false);
+  });
+
   it("cleans connection-scoped replace-sets with the other session subscriptions", () => {
     const unsubscribeAllSessionEvents = vi.fn();
     const unsubscribePullRequests = vi.fn();

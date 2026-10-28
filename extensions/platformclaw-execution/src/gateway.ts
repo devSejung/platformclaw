@@ -12,7 +12,10 @@ import {
   registerPlatformClawSkillExportGateway,
   type PlatformClawSkillExportRuntime,
 } from "./skill-export-gateway.js";
-import type { PlatformClawTargetMutationCoordinator } from "./target-mutation-coordinator.js";
+import {
+  PlatformClawTargetChangeError,
+  type PlatformClawTargetMutationCoordinator,
+} from "./target-mutation-coordinator.js";
 
 type PlatformClawExecutionGatewayRuntime = PlatformClawSkillExportRuntime & {
   testConnection(params: {
@@ -39,6 +42,8 @@ type PlatformClawExecutionGatewayRuntime = PlatformClawSkillExportRuntime & {
     agentId: string;
     target: "platform_server" | "assigned_vm";
     expectedRevision: number;
+    connectionId?: string;
+    expectedConnectionRevision?: number;
   }): Promise<PlatformClawExecutionTargetSnapshot>;
   detectCodingAgent(params: {
     agentId: string;
@@ -59,6 +64,26 @@ export function registerPlatformClawExecutionGateway(
   targetMutations: PlatformClawTargetMutationCoordinator,
   invalidateAcpProcesses: (agentId: string) => void,
 ): () => Promise<void> {
+  const tryAcquireTargetChange = (
+    agentId: string,
+    context: { tryAcquireAgentWorkMutation(agentId: string): (() => void) | null },
+  ) => {
+    const releaseWorkspace = targetMutations.tryAcquire(agentId, "target-change");
+    if (!releaseWorkspace) {
+      return null;
+    }
+    // The host admission fence covers cron, queued preparation and warm ACP turns;
+    // the plugin coordinator also owns foreground workspace mutations.
+    const releaseAgentWork = context.tryAcquireAgentWorkMutation(agentId);
+    if (!releaseAgentWork) {
+      releaseWorkspace();
+      return null;
+    }
+    return () => {
+      releaseAgentWork();
+      releaseWorkspace();
+    };
+  };
   const disposeSkillExports = registerPlatformClawSkillExportGateway(
     api,
     runtimePromise,
@@ -74,92 +99,79 @@ export function registerPlatformClawExecutionGateway(
         }
       : { outcome: "pass" };
   });
-  api.registerGatewayMethod(
-    "platformclaw-execution.testConnection",
-    async ({ params, respond }) => {
-      const input = params as Record<string, unknown>;
-      const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
-      const credentialBrokerAddress =
-        typeof input.credentialBrokerAddress === "string"
-          ? input.credentialBrokerAddress.trim()
-          : "";
-      const credentialGrantToken =
-        typeof input.credentialGrantToken === "string" ? input.credentialGrantToken.trim() : "";
-      if (!agentId || !credentialBrokerAddress || !credentialGrantToken) {
-        respond(false, undefined, {
-          code: "INVALID_REQUEST",
-          message: "connection test request is invalid",
-        });
-        return;
-      }
-      try {
-        const runtime = await runtimePromise;
-        respond(
-          true,
-          await runtime.testConnection({
-            agentId,
-            credentialBrokerAddress,
-            credentialGrantToken,
-          }),
-        );
-      } catch (error) {
-        const failure = classifyVmConnectionFailure(error);
-        api.logger.warn?.(
-          `[platformclaw-execution] VM connection test failed agent=${agentId} kind=${failure.kind} cause=${failure.diagnostic}`,
-        );
-        respond(false, undefined, {
-          code: failure.code,
-          message: failure.message,
-          details: { kind: failure.kind },
-        });
-      }
-    },
-    { scope: "operator.admin" },
-  );
-  api.registerGatewayMethod(
-    "platformclaw-execution.testCandidateConnection",
-    async ({ params, respond }) => {
-      const input = params as Record<string, unknown>;
-      const credentialBrokerAddress =
-        typeof input.credentialBrokerAddress === "string"
-          ? input.credentialBrokerAddress.trim()
-          : "";
-      const credentialGrantToken =
-        typeof input.credentialGrantToken === "string" ? input.credentialGrantToken.trim() : "";
-      if (!input.target || !credentialBrokerAddress || !credentialGrantToken) {
-        respond(false, undefined, {
-          code: "INVALID_REQUEST",
-          message: "candidate connection test request is invalid",
-        });
-        return;
-      }
-      try {
-        const runtime = await runtimePromise;
-        respond(
-          true,
-          await runtime.testCandidateConnection({
-            target: input.target,
-            credentialBrokerAddress,
-            credentialGrantToken,
-          }),
-        );
-      } catch (error) {
-        const failure = classifyVmConnectionFailure(error);
-        api.logger.warn?.(
-          `[platformclaw-execution] candidate VM connection test failed kind=${failure.kind} cause=${failure.diagnostic}`,
-        );
-        respond(false, undefined, {
-          code: failure.code,
-          message: failure.message,
-          details: { kind: failure.kind },
-        });
-      }
-    },
-    { scope: "operator.admin" },
-  );
+  for (const candidate of [false, true]) {
+    const method = candidate ? "testCandidateConnection" : "testConnection";
+    api.registerGatewayMethod(
+      `platformclaw-execution.${method}`,
+      async ({ params, context, respond }) => {
+        const input = params as Record<string, unknown>;
+        const target = input.target;
+        const owner = candidate
+          ? target && typeof target === "object" && !Array.isArray(target)
+            ? (target as Record<string, unknown>).agentId
+            : undefined
+          : input.agentId;
+        const agentId = typeof owner === "string" ? owner.trim() : "";
+        const credentialBrokerAddress =
+          typeof input.credentialBrokerAddress === "string"
+            ? input.credentialBrokerAddress.trim()
+            : "";
+        const credentialGrantToken =
+          typeof input.credentialGrantToken === "string" ? input.credentialGrantToken.trim() : "";
+        if (!agentId || !credentialBrokerAddress || !credentialGrantToken) {
+          respond(false, undefined, {
+            code: "INVALID_REQUEST",
+            message: "connection test request is invalid",
+          });
+          return;
+        }
+        // Probes ensure the remote workspace exists. Share the target guard so
+        // setup cannot race an Agent run, publication, or workspace mutation.
+        const release = tryAcquireTargetChange(agentId, context);
+        if (!release) {
+          respond(false, undefined, {
+            code: "CONFLICT",
+            message:
+              "finish active tasks and workspace operations before checking the VM connection",
+          });
+          return;
+        }
+        try {
+          const runtime = await runtimePromise;
+          if (context.hasPendingAgentWork(agentId)) {
+            respond(false, undefined, {
+              code: "CONFLICT",
+              message: "finish or cancel active and queued tasks before checking the VM connection",
+            });
+            return;
+          }
+          const credentials = { credentialBrokerAddress, credentialGrantToken };
+          respond(
+            true,
+            candidate
+              ? await runtime.testCandidateConnection({ target, ...credentials })
+              : await runtime.testConnection({ agentId, ...credentials }),
+          );
+        } catch (error) {
+          const failure = classifyVmConnectionFailure(error);
+          api.logger.warn?.(
+            `[platformclaw-execution] VM connection test failed agent=${agentId} kind=${failure.kind} cause=${failure.diagnostic}`,
+          );
+          respond(false, undefined, {
+            code: failure.code,
+            message: failure.message,
+            details: { kind: failure.kind },
+          });
+        } finally {
+          release();
+        }
+      },
+      { scope: "operator.admin" },
+    );
+  }
   api.registerGatewayMethod(
     "platformclaw-execution.detectCodingAgent",
-    async ({ params, respond }) => {
+    async ({ params, context, respond }) => {
       const input = params as Record<string, unknown>;
       const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
       const expectedRevision = input.expectedRevision;
@@ -175,12 +187,26 @@ export function registerPlatformClawExecutionGateway(
         });
         return;
       }
+      const release = tryAcquireTargetChange(agentId, context);
+      if (!release) {
+        respond(false, undefined, {
+          code: "CONFLICT",
+          message: "finish active work before checking the coding agent",
+        });
+        return;
+      }
       try {
+        const runtime = await runtimePromise;
+        if (context.hasPendingAgentWork(agentId)) {
+          respond(false, undefined, {
+            code: "CONFLICT",
+            message: "finish active and queued tasks before checking the coding agent",
+          });
+          return;
+        }
         respond(
           true,
-          await (
-            await runtimePromise
-          ).detectCodingAgent({
+          await runtime.detectCodingAgent({
             agentId,
             agent: input.agent,
             expectedRevision: expectedRevision as number,
@@ -192,13 +218,15 @@ export function registerPlatformClawExecutionGateway(
           message:
             "Coding agent detection failed. Reload the settings and verify the VM connection.",
         });
+      } finally {
+        release();
       }
     },
     { scope: "operator.admin" },
   );
   api.registerGatewayMethod(
     "platformclaw-execution.checkCodingAgent",
-    async ({ params, respond }) => {
+    async ({ params, context, respond }) => {
       const input = params as Record<string, unknown>;
       const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
       const expectedRevision = input.expectedRevision;
@@ -219,12 +247,26 @@ export function registerPlatformClawExecutionGateway(
         });
         return;
       }
+      const release = tryAcquireTargetChange(agentId, context);
+      if (!release) {
+        respond(false, undefined, {
+          code: "CONFLICT",
+          message: "finish active work before checking the coding agent",
+        });
+        return;
+      }
       try {
+        const runtime = await runtimePromise;
+        if (context.hasPendingAgentWork(agentId)) {
+          respond(false, undefined, {
+            code: "CONFLICT",
+            message: "finish active and queued tasks before checking the coding agent",
+          });
+          return;
+        }
         respond(
           true,
-          await (
-            await runtimePromise
-          ).checkCodingAgent({
+          await runtime.checkCodingAgent({
             agentId,
             configuration,
             expectedRevision: expectedRevision as number,
@@ -237,6 +279,8 @@ export function registerPlatformClawExecutionGateway(
           message:
             "Coding agent check failed. Ask your administrator to check its installation and VM connection.",
         });
+      } finally {
+        release();
       }
     },
     { scope: "operator.admin" },
@@ -248,12 +292,23 @@ export function registerPlatformClawExecutionGateway(
       const agentId = typeof input.agentId === "string" ? input.agentId.trim() : "";
       const target = input.target;
       const expectedRevision = input.expectedRevision;
+      const connectionId = input.connectionId;
+      const expectedConnectionRevision = input.expectedConnectionRevision;
       if (
         !agentId ||
         (target !== "platform_server" && target !== "assigned_vm") ||
         typeof expectedRevision !== "number" ||
         !Number.isSafeInteger(expectedRevision) ||
-        expectedRevision < 0
+        expectedRevision < 0 ||
+        (connectionId === undefined && expectedConnectionRevision !== undefined) ||
+        (connectionId !== undefined &&
+          (target !== "assigned_vm" ||
+            typeof connectionId !== "string" ||
+            !connectionId.trim() ||
+            connectionId.length > 128 ||
+            typeof expectedConnectionRevision !== "number" ||
+            !Number.isSafeInteger(expectedConnectionRevision) ||
+            expectedConnectionRevision < 1))
       ) {
         respond(false, undefined, {
           code: "INVALID_REQUEST",
@@ -261,11 +316,11 @@ export function registerPlatformClawExecutionGateway(
         });
         return;
       }
-      const releaseMutation = targetMutations.tryAcquire(agentId, "target-change");
+      const releaseMutation = tryAcquireTargetChange(agentId, context);
       if (!releaseMutation) {
         respond(false, undefined, {
           code: "CONFLICT",
-          message: "work location or workspace skill mutation is already in progress",
+          message: "finish active tasks and workspace operations before changing work location",
         });
         return;
       }
@@ -273,21 +328,27 @@ export function registerPlatformClawExecutionGateway(
         const runtime = await runtimePromise;
         // Deferred turns retain their old execution intent after the active run
         // settles. Check both owners after readiness, immediately before mutation.
-        const pending = [
-          ...context.chatAbortControllers.values(),
-          ...context.chatQueuedTurns.values(),
-        ].some((entry) => entry.agentId?.trim() === agentId);
-        if (pending) {
+        if (context.hasPendingAgentWork(agentId)) {
           respond(false, undefined, {
             code: "CONFLICT",
             message: "finish or cancel active and queued tasks before changing work location",
           });
           return;
         }
-        const changed = await runtime.changeTarget({ agentId, target, expectedRevision });
+        const changed = await runtime.changeTarget({
+          agentId,
+          target,
+          expectedRevision,
+          ...(typeof connectionId === "string" && typeof expectedConnectionRevision === "number"
+            ? { connectionId: connectionId.trim(), expectedConnectionRevision }
+            : {}),
+        });
         invalidateAcpProcesses(agentId);
         respond(true, changed);
       } catch (error) {
+        if (error instanceof PlatformClawTargetChangeError && error.targetChanged) {
+          invalidateAcpProcesses(agentId);
+        }
         const conflict = error instanceof Error && error.message.includes("(409)");
         respond(false, undefined, {
           code: conflict ? "CONFLICT" : "UNAVAILABLE",

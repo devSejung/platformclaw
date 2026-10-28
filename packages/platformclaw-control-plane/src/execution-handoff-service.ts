@@ -4,6 +4,7 @@ import type { CredentialBrokerGrant } from "./credential-broker-grants.js";
 import type {
   AssignedVmExecutionTarget,
   ControlPlaneExecutionTargetStore,
+  ControlPlaneSavedVmConnectionStore,
   ExecutionTarget,
   PersonalExecutionTarget,
 } from "./execution-contracts.js";
@@ -96,7 +97,8 @@ function assertSameVmTarget(
 
 export class ExecutionHandoffService {
   constructor(
-    private readonly store: ControlPlaneExecutionTargetStore,
+    private readonly store: ControlPlaneExecutionTargetStore &
+      Partial<ControlPlaneSavedVmConnectionStore>,
     private readonly credentialBroker: ExecutionCredentialGrantIssuer,
   ) {}
 
@@ -129,6 +131,8 @@ export class ExecutionHandoffService {
     target: "platform_server" | "assigned_vm";
     expectedRevision: number;
     changedAt: number;
+    connectionId?: string;
+    expectedConnectionRevision?: number;
   }): Promise<ExecutionTargetSnapshot> {
     if (
       !Number.isSafeInteger(params.expectedRevision) ||
@@ -137,6 +141,26 @@ export class ExecutionHandoffService {
       params.changedAt < 1
     ) {
       throw new ControlPlaneStateError("execution target change is invalid");
+    }
+    if (params.connectionId !== undefined) {
+      if (
+        params.target !== "assigned_vm" ||
+        !params.connectionId.trim() ||
+        !Number.isSafeInteger(params.expectedConnectionRevision) ||
+        (params.expectedConnectionRevision as number) < 1 ||
+        !this.store.activatePersonalVmConnection
+      ) {
+        throw new ControlPlaneStateError("saved VM target change is invalid");
+      }
+      return publicSnapshot(
+        await this.store.activatePersonalVmConnection({
+          agentId: requireAgentId(params.agentId),
+          connectionId: params.connectionId,
+          expectedConnectionRevision: params.expectedConnectionRevision as number,
+          expectedRevision: params.expectedRevision,
+          changedAt: params.changedAt,
+        }),
+      );
     }
     return publicSnapshot(
       await this.store.changePersonalExecutionTarget({

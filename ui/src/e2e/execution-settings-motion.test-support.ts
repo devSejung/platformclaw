@@ -3,9 +3,8 @@ import { expect } from "vitest";
 
 export async function assertExecutionTransfer(
   component: Locator,
-  target: "assigned_vm" | "platform_server",
   reducedMotion: boolean,
-  labels: { basic: string; vm: string },
+  labels: { from: string; to: string },
 ) {
   const panel = component.locator("[data-progress-panel][data-phase='switching']");
   await panel.waitFor();
@@ -73,12 +72,12 @@ export async function assertExecutionTransfer(
       running,
     };
   });
-  expect(proof.ids).toEqual(["platform_server", "assigned_vm"]);
-  expect(proof.labels).toEqual([labels.basic, labels.vm]);
+  expect(proof.ids).toHaveLength(2);
+  expect(proof.labels).toEqual([labels.from, labels.to]);
   expect(proof.fixedOrder).toBe(true);
   expect(proof.stable).toBe(true);
-  expect(proof.direction).toBe(target);
-  expect(proof.destination).toBe(target);
+  expect(proof.direction).toBe("forward");
+  expect(proof.destination).toBe(proof.ids[1]);
   expect(proof.destinationAnimating).toBe(!reducedMotion);
   expect(proof.visible).toBe(true);
   if (reducedMotion) {
@@ -89,6 +88,6 @@ export async function assertExecutionTransfer(
     expect(proof.running).toBe(true);
     expect(proof.positions).toHaveLength(2);
     const distance = proof.positions[1]! - proof.positions[0]!;
-    expect(target === "assigned_vm" ? distance : -distance).toBeGreaterThan(4);
+    expect(distance).toBeGreaterThan(4);
   }
 }

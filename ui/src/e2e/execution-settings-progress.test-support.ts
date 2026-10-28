@@ -21,69 +21,22 @@ type DialogProof = {
 };
 type ProofHost = HTMLElement & {
   executionDialogProof?: Partial<Record<"settings" | "progress", DialogProof>>;
-  executionSuccessProof?: {
-    heading: string;
-    text: string;
-    visible: boolean;
-    nativeOpen: boolean;
-    messageHeight: number;
-    stepGap: number;
-    settingsBox: { x: number; y: number; width: number; height: number };
-    progressBox: { x: number; y: number; width: number; height: number };
-  };
 };
 
-async function observeProgressSuccess(component: Locator) {
-  await component.evaluate((element) => {
-    const host = element as ProofHost;
-    const root = host.shadowRoot!;
-    const observer = new MutationObserver(() => {
-      const upper = root.querySelector("[data-progress-modal]");
-      const panel = upper?.querySelector<HTMLElement>("[data-progress-panel]");
-      const settings = root.querySelector<HTMLElement>("[data-settings-panel]");
-      if (panel?.dataset.phase !== "success" || !settings) {
-        return;
-      }
-      const native = upper?.shadowRoot
-        ?.querySelector("wa-dialog")
-        ?.shadowRoot?.querySelector("dialog");
-      const box = panel.getBoundingClientRect();
-      const message = panel.querySelector(".progress-message")!.getBoundingClientRect();
-      const steps = panel.querySelector("[data-connection-progress]")!.getBoundingClientRect();
-      const settingsBox = settings.getBoundingClientRect();
-      // Observe the actual short-lived browser state before runner round trips can miss it.
-      host.executionSuccessProof = {
-        heading: panel.querySelector("h2")?.textContent?.trim() ?? "",
-        text: panel.textContent ?? "",
-        visible:
-          box.width > 0 && box.height > 0 && getComputedStyle(panel).visibility === "visible",
-        nativeOpen: native?.open === true,
-        messageHeight: message.height,
-        stepGap: steps.top - message.bottom,
-        settingsBox: {
-          x: settingsBox.x,
-          y: settingsBox.y,
-          width: settingsBox.width,
-          height: settingsBox.height,
-        },
-        progressBox: { x: box.x, y: box.y, width: box.width, height: box.height },
-      };
-      observer.disconnect();
-    });
-    observer.observe(root, {
-      subtree: true,
-      childList: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["data-phase"],
-    });
-  });
-}
-
 async function captureDialogIdentity(component: Locator, kind: "settings" | "progress") {
-  const dialog = component.locator(`[data-${kind}-modal] dialog`);
+  const modalHost = component.locator(`[data-${kind}-modal]`);
+  const dialog = modalHost.locator("dialog");
   await expect
     .poll(() => dialog.evaluate((element) => (element as HTMLDialogElement).open))
+    .toBe(true);
+  // Native opening precedes the adapter's next-frame content and focus admission.
+  await expect
+    .poll(() =>
+      modalHost.evaluate((element) => {
+        const slot = element.shadowRoot?.querySelector("slot");
+        return Boolean(slot && !slot.inert && !slot.hasAttribute("data-focus-pending"));
+      }),
+    )
     .toBe(true);
   await component.evaluate((element, dialogKind) => {
     const host = element as ProofHost;
@@ -134,8 +87,6 @@ async function assertDialogIdentity(
           ) === proof?.content,
         open: native?.open,
         modal: native?.matches(":modal"),
-        shows: Number(native?.dataset.executionShowCalls),
-        closes: Number(native?.dataset.executionCloseCalls ?? 0),
         mutations: proof?.mutations,
       };
     },
@@ -147,8 +98,6 @@ async function assertDialogIdentity(
     contentSame: true,
     open,
     modal: open,
-    shows: 1,
-    closes: open ? 0 : 1,
     mutations: open ? 0 : 1,
   });
 }
@@ -206,20 +155,6 @@ async function settledPanelBox(component: Locator, kind: "settings" | "progress"
   return box;
 }
 
-async function assertPanelBox(
-  component: Locator,
-  kind: "settings" | "progress",
-  expected: NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>,
-) {
-  const actual = await settledPanelBox(component, kind);
-  for (const coordinate of ["x", "y", "width", "height"] as const) {
-    expect(
-      Math.abs(actual[coordinate] - expected[coordinate]),
-      `${kind} panel ${coordinate}`,
-    ).toBeLessThan(1);
-  }
-}
-
 export async function assertExecutionProgressLayout(
   component: Locator,
   expected?: Awaited<ReturnType<typeof settledPanelBox>>,
@@ -264,7 +199,7 @@ function currentLocationLayoutBox(card: Locator) {
       throw new Error("Current location card must belong to the settings scroll area");
     }
     const { x, y, width, height } = element.getBoundingClientRect();
-    // Native field focus may scroll the form; banner insertion still shifts this flow position.
+    // Field focus can scroll the form; compare its flow position rather than the viewport offset.
     return { x, y: y + main.scrollTop, width, height };
   });
 }
@@ -279,439 +214,303 @@ export async function runExecutionProgressCase({
 }: CaseOptions): Promise<void> {
   const locale = mode === "light" ? "en" : "ko";
   const reducedMotion = family === "custom";
-  const failActivation = family === "platformclaw";
   const copy =
     locale === "en"
       ? {
           basic: "Basic server",
-          vm: "Development VM",
           workLocation: "Work location",
           settings: "Work environment settings",
-          connect: "Connect and use VM",
-          connection: "Connect and prepare workspace",
-          activation: "Use this VM as the work location",
+          connecting: "Connecting to your VM",
+          switching: "Switching work location",
+          success: "Ready to work",
+          failure: "Work location needs attention",
           retry: "Retry work location change",
-          progressLabel: "Changing work location",
-          connectingTitle: "Connecting to your VM",
-          switchingTitle: "Switching work location",
-          successTitle: "Ready to work",
-          failureTitle: "Work location needs attention",
         }
       : {
           basic: "기본 서버",
-          vm: "개발 VM",
           workLocation: "작업 위치",
           settings: "작업 환경 설정",
-          connect: "연결하고 사용",
-          connection: "VM 연결 및 작업 공간 준비",
-          activation: "이 VM을 작업 위치로 사용",
+          connecting: "VM 연결 중",
+          switching: "작업 위치 전환 중",
+          success: "작업 준비 완료",
+          failure: "작업 위치를 확인해 주세요",
           retry: "작업 위치 전환 다시 시도",
-          progressLabel: "작업 위치 전환",
-          connectingTitle: "VM 연결 중",
-          switchingTitle: "작업 위치 전환 중",
-          successTitle: "작업 준비 완료",
-          failureTitle: "작업 위치를 확인해 주세요",
         };
   const context = await browser.newContext({
     colorScheme: mode,
-    // App language must also win when the browser's date locale differs.
+    // App language must win even when the browser's date locale differs.
     locale: family === "platformclaw" || locale === "ko" ? "ko-KR" : "en-US",
     reducedMotion: reducedMotion ? "reduce" : "no-preference",
     serviceWorkers: "block",
-    viewport: { width: 390, height: 844 },
-  });
-  await context.addInitScript(() => {
-    const showModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal")
-      ?.value as HTMLDialogElement["showModal"];
-    const close = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "close")
-      ?.value as HTMLDialogElement["close"];
-    HTMLDialogElement.prototype.showModal = function () {
-      this.dataset.executionShowCalls = String(Number(this.dataset.executionShowCalls ?? 0) + 1);
-      showModal.call(this);
-    };
-    HTMLDialogElement.prototype.close = function (returnValue) {
-      this.dataset.executionCloseCalls = String(Number(this.dataset.executionCloseCalls ?? 0) + 1);
-      close.call(this, returnValue);
-    };
+    viewport: { width: 1440, height: 1000 },
   });
   const page = await context.newPage();
-  let releaseSelection = () => {};
-  let releaseActivation = () => {};
-  let releaseRetry = () => {};
-  let releaseReverse = () => {};
-  const selectionGate = new Promise<void>((resolve) => {
-    releaseSelection = resolve;
-  });
-  const activationGate = new Promise<void>((resolve) => {
-    releaseActivation = resolve;
-  });
-  const retryGate = new Promise<void>((resolve) => {
-    releaseRetry = resolve;
-  });
-  const reverseGate = new Promise<void>((resolve) => {
-    releaseReverse = resolve;
-  });
-  let activationAttempts = 0;
-  const requests: Array<{ path: string; body: unknown }> = [];
-  const initialSettings = {
-    activeTarget: "platform_server",
-    targetRevision: 3,
-    credentialStatus: "missing",
+  const labels = [
+    "VM one",
+    "VM two with a deliberately long development environment name",
+    "VM three",
+  ];
+  const available = labels.map((label, index) => ({ id: `vm-${index + 1}`, label }));
+  type Connection = {
+    id: string;
+    vmHostId: string;
+    vmLabel: string;
+    safeConnectLabel: string;
+    linuxAccount: string;
+    status: string;
+    active: boolean;
+  };
+  const saved: Connection[] = [];
+  let assignment:
+    | undefined
+    | {
+        id: string;
+        vmHostId: string;
+        status: string;
+        vmLabel: string;
+        safeConnectLabel: string;
+        linuxAccount: string;
+      };
+  let activeTarget = "platform_server";
+  let revision = 1;
+  const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+  let release: (() => void) | undefined;
+  let failNextSwitch = false;
+  let retryObserved = false;
+  const releasePendingRequest = () => {
+    const resolve = release;
+    if (!resolve) {
+      throw new Error("Expected a pending execution request");
+    }
+    release = undefined;
+    resolve();
+  };
+  const settings = () => ({
+    activeTarget,
+    targetRevision: revision,
+    credentialStatus: saved.length ? "current" : "missing",
     accountId: "person.one",
-    availableVms: [{ id: "development", label: "Development VM" }],
+    availableVms: available,
+    savedVms: saved.map((vm) => ({
+      ...vm,
+      active: activeTarget === "assigned_vm" && vm.vmHostId === assignment?.vmHostId,
+    })),
+    assignment,
     codingAgents: [],
-  };
-  const selectedSettings = {
-    ...initialSettings,
-    targetRevision: 4,
-    credentialStatus: "current",
-    assignment: {
-      id: "allocation-development",
-      vmHostId: "development",
-      status: "ready",
-      vmLabel: "Development VM",
-      safeConnectLabel: "Corporate access",
-      linuxAccount: "person.one",
-      remoteWorkspaceDir: "/users/person.one/.platformclaw/workspace",
-      lastConnectionSucceededAt: 1_787_642_400_000,
-    },
-  };
-  const activeSettings = {
-    ...selectedSettings,
-    activeTarget: "assigned_vm",
-    targetRevision: 5,
-  };
-  let currentSettings: typeof initialSettings | typeof selectedSettings = initialSettings;
-
+  });
   await page.route("**/platformclaw/api/execution**", async (route) => {
     const request = route.request();
-    const pathname = new URL(request.url()).pathname;
     if (request.method() === "POST") {
-      requests.push({ path: pathname, body: request.postDataJSON() });
+      const body = request.postDataJSON() as Record<string, unknown>;
+      const pathname = new URL(request.url()).pathname;
+      requests.push({ path: pathname, body });
+      expect(body.expectedRevision).toBe(revision);
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
       if (pathname.endsWith("/selection")) {
-        await selectionGate;
-        currentSettings = selectedSettings;
-      } else if (
-        pathname.endsWith("/target") &&
-        request.postDataJSON().target === "platform_server"
-      ) {
-        await reverseGate;
-        currentSettings = { ...selectedSettings, targetRevision: 6 };
-      } else if (pathname.endsWith("/target")) {
-        activationAttempts += 1;
-        await (activationAttempts === 1 ? activationGate : retryGate);
-        if (failActivation && activationAttempts === 1) {
+        expect(body.password).toBe("fixture-password");
+        const vm = available.find((item) => item.id === body.vmHostId)!;
+        const connection = {
+          id: `connection-${vm.id}`,
+          vmHostId: vm.id,
+          vmLabel: vm.label,
+          safeConnectLabel: "Corporate access",
+          linuxAccount: "person.one",
+          status: "ready",
+          active: false,
+        };
+        saved.push(connection);
+        assignment = { ...connection, id: `allocation-${revision}`, status: "ready" };
+        activeTarget = "assigned_vm";
+      } else {
+        expect(pathname.endsWith("/target")).toBe(true);
+        if (failNextSwitch && body.target === "assigned_vm") {
+          failNextSwitch = false;
           await route.fulfill({ status: 503, json: { error: "Fixture activation failed" } });
           return;
         }
-        currentSettings = activeSettings;
-      } else {
-        throw new Error(`Unexpected execution mutation: ${pathname}`);
+        activeTarget = String(body.target);
+        if (activeTarget === "assigned_vm") {
+          const connection = saved.find((vm) => vm.id === body.connectionId)!;
+          expect(connection).toBeDefined();
+          assignment = { ...connection, id: `allocation-${revision}`, status: "ready" };
+        }
       }
+      revision++;
     }
-    await route.fulfill({ json: currentSettings });
+    await route.fulfill({ json: settings() });
   });
-
   try {
     await mount(page, locale);
     if (family === "custom") {
-      // Browser-owned module source avoids Vitest rewriting imports inside evaluate callbacks.
       await page.addScriptTag({
         type: "module",
-        content: `
-              import { importCustomThemeFromUrl, syncCustomThemeStyleTag } from ${JSON.stringify(`${server.baseUrl}src/app/custom-theme.ts`)};
-              const theme = await importCustomThemeFromUrl(
-                "https://tweakcn.com/themes/connection-proof",
-                async () => new Response(JSON.stringify(${JSON.stringify(createTweakcnThemePayload())}), {
-                  headers: { "Content-Type": "application/json" },
-                }),
-              );
-              syncCustomThemeStyleTag(theme);
-            `,
+        content: `import { importCustomThemeFromUrl, syncCustomThemeStyleTag } from ${JSON.stringify(`${server.baseUrl}src/app/custom-theme.ts`)}; const theme = await importCustomThemeFromUrl("https://tweakcn.com/themes/connection-proof", async () => new Response(JSON.stringify(${JSON.stringify(createTweakcnThemePayload())}), { headers: { "Content-Type": "application/json" } })); syncCustomThemeStyleTag(theme);`,
       });
       await page.locator("#openclaw-custom-theme").waitFor({ state: "attached" });
     }
     await page.evaluate(
-      ({ family: themeFamily, mode: themeMode }) => {
-        const resolvedFamily =
-          themeFamily === "claw" ? "" : themeFamily === "knot" ? "openknot" : themeFamily;
-        const resolvedTheme = resolvedFamily
-          ? `${resolvedFamily}${themeMode === "light" ? "-light" : ""}`
-          : themeMode;
-        document.documentElement.dataset.theme = resolvedTheme;
-        document.documentElement.dataset.themeMode = themeMode;
+      ({ family: f, mode: m }) => {
+        const key = f === "claw" ? "" : f === "knot" ? "openknot" : f;
+        document.documentElement.dataset.theme = key ? `${key}${m === "light" ? "-light" : ""}` : m;
+        document.documentElement.dataset.themeMode = m;
       },
       { family, mode },
     );
     const component = page.locator("platformclaw-execution-settings");
+    const basic = copy.basic;
     const badge = component.locator("[data-action='open']");
     const currentLocation = component.locator("[data-current-location]");
     const currentTarget = currentLocation.locator("[data-current-target]");
-    await expect.poll(() => currentTarget.textContent()).toContain(copy.basic);
+    await expect.poll(() => currentTarget.textContent()).toContain(basic);
     expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
     await badge.click();
     await expect
       .poll(() => component.getByRole("dialog", { name: copy.settings, exact: true }).isVisible())
       .toBe(true);
     await captureDialogIdentity(component, "settings");
-    const settingsPanelBox = await settledPanelBox(component, "settings");
-    const currentLocationBox = await currentLocationLayoutBox(currentLocation);
-    expect(await currentTarget.textContent()).toContain(copy.basic);
-    expect(await currentLocation.locator("[data-target] svg").count()).toBe(2);
     expect(
       await currentLocation.locator("[data-target='platform_server']").getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(
-      await currentLocation.locator("[data-target='assigned_vm']").getAttribute("aria-pressed"),
-    ).toBe("false");
     if (locale === "en") {
       expect(await component.locator("[data-settings-modal]").textContent()).not.toMatch(
         /[가-힣]/u,
       );
     }
-    const form = component.locator("form[data-action='select-vm']");
-    expect(await component.locator("[data-vm-connection]").count()).toBe(1);
-    expect(
-      await component.locator("[data-vm-connection] form[data-action='select-vm']").isVisible(),
-    ).toBe(true);
-    await form.locator("select[name='vmHostId']").selectOption("development");
-    await form.locator("input[name='linuxAccount']").fill("person.one");
-    await form.locator("input[name='password']").fill("test-password");
-    await component.getByRole("button", { name: copy.connect, exact: true }).click();
-
-    const progress = component.locator("[data-connection-progress]");
-    await expect.poll(() => requests.length).toBe(1);
-    expect(requests[0]).toEqual({
-      path: "/platformclaw/api/execution/selection",
-      body: {
-        vmHostId: "development",
-        linuxAccount: "person.one",
-        password: "test-password",
-      },
-    });
-    await expect.poll(() => progress.getAttribute("role")).toBe("status");
-    await captureDialogIdentity(component, "progress");
-    await assertDialogIdentity(component, "settings");
-    await assertDialogIdentity(component, "progress");
-    await assertLayeredDialogs(component);
-    await assertPanelBox(component, "settings", settingsPanelBox);
-    const progressPanelBox = await assertExecutionProgressLayout(component);
-    expect((await progress.locator("[data-step='connection']").textContent())?.trim()).toBe(
-      copy.connection,
-    );
-    expect((await progress.locator("[data-step='activation']").textContent())?.trim()).toBe(
-      copy.activation,
-    );
-    const upper = component.locator("[data-progress-modal]");
-    expect(
-      await component.getByRole("dialog", { name: copy.progressLabel, exact: true }).isVisible(),
-    ).toBe(true);
-    expect(
-      await upper.getByRole("heading", { name: copy.connectingTitle, exact: true }).isVisible(),
-    ).toBe(true);
-    if (locale === "en") {
-      expect(await upper.textContent()).not.toMatch(/[가-힣]/u);
-    }
-    await expect
-      .poll(() => progress.locator("[data-step='connection']").getAttribute("data-state"))
-      .toBe("active");
-    expect(await progress.locator("[data-step='activation']").getAttribute("data-state")).toBe(
-      "pending",
-    );
-    expect((await progress.locator("[data-state='active']").textContent())?.trim()).toBeTruthy();
-    expect(await progress.locator("[data-state='active']").isVisible()).toBe(true);
-    expect(await component.locator("input:not(:disabled), select:not(:disabled)").count()).toBe(0);
-    expect(await component.locator("[data-action='close']").isEnabled()).toBe(true);
-    expect(await badge.getAttribute("aria-busy")).toBe("true");
-    const animation = await progress
-      .locator("[data-state='active'] .step-dot")
-      .evaluate((element) => getComputedStyle(element).animationName);
-    expect(animation === "none").toBe(reducedMotion);
-    const progressBox = await progress.boundingBox();
-    expect(progressBox).not.toBeNull();
-    expect(progressBox!.x).toBeGreaterThanOrEqual(0);
-    expect(progressBox!.x + progressBox!.width).toBeLessThanOrEqual(390);
-    expect(progressBox!.y + progressBox!.height).toBeLessThanOrEqual(844);
-    expect(progressPanelBox.y).toBeGreaterThanOrEqual(0);
-    expect(progressPanelBox.y + progressPanelBox.height).toBeLessThanOrEqual(844);
-    const colors = await progress.evaluate((element) => {
-      const root = getComputedStyle(document.documentElement);
-      const probe = document.createElement("span");
-      probe.style.color = "var(--text)";
-      element.append(probe);
-      const expectedText = getComputedStyle(probe).color;
-      probe.remove();
-      return {
-        text: getComputedStyle(element).color,
-        expectedText,
-        run: root.getPropertyValue("--run").trim(),
-        theme: document.documentElement.dataset.theme,
-      };
-    });
-    expect(colors.text).toBe(colors.expectedText);
-    expect(colors.run).not.toBe("");
-    expect(colors.theme).toContain(
-      family === "claw" ? mode : family === "knot" ? "openknot" : family,
-    );
-    await screenshot(page, `connect-${family}-${mode}-01-connection.png`);
-
-    releaseSelection();
-    await expect.poll(() => requests.length).toBe(2);
-    expect(requests[1]).toEqual({
-      path: "/platformclaw/api/execution/target",
-      body: { target: "assigned_vm", expectedRevision: 4 },
-    });
-    await expect
-      .poll(() => progress.locator("[data-step='connection']").getAttribute("data-state"))
-      .toBe("complete");
-    expect(await progress.locator("[data-step='activation']").getAttribute("data-state")).toBe(
-      "active",
-    );
-    expect((await progress.locator("[data-state='active']").textContent())?.trim()).toBeTruthy();
-    expect(await badge.getAttribute("aria-busy")).toBe("true");
-    await assertExecutionTransfer(component, "assigned_vm", reducedMotion, copy);
-    await assertDialogIdentity(component, "settings");
-    await assertDialogIdentity(component, "progress");
-    await assertPanelBox(component, "settings", settingsPanelBox);
-    await assertExecutionProgressLayout(component, progressPanelBox);
-    expect(
-      await upper.getByRole("heading", { name: copy.switchingTitle, exact: true }).isVisible(),
-    ).toBe(true);
-    if (locale === "en") {
-      expect(await upper.textContent()).not.toMatch(/[가-힣]/u);
-    }
-    await screenshot(page, `connect-${family}-${mode}-02-activation.png`);
-
-    await observeProgressSuccess(component);
-    releaseActivation();
-    if (failActivation) {
-      await expect
-        .poll(() => progress.locator("[data-step='activation']").getAttribute("data-state"))
-        .toBe("failed");
-      expect(await progress.locator("[data-step='connection']").getAttribute("data-state")).toBe(
-        "complete",
-      );
-      expect(await upper.getByRole("button", { name: copy.retry, exact: true }).isEnabled()).toBe(
-        true,
-      );
+    async function complete(to: string, from: string, registration = false) {
+      const expectFailure = failNextSwitch && !registration;
+      await expect.poll(() => typeof release).toBe("function");
+      await captureDialogIdentity(component, "progress");
       await assertDialogIdentity(component, "settings");
-      await assertDialogIdentity(component, "progress");
-      await assertPanelBox(component, "settings", settingsPanelBox);
-      await assertPanelBox(component, "progress", progressPanelBox);
+      await assertLayeredDialogs(component);
+      const settingsBox = await settledPanelBox(component, "settings");
+      const progressBox = await assertExecutionProgressLayout(component);
+      const locationBox = await currentLocationLayoutBox(currentLocation);
+      const viewport = page.viewportSize()!;
+      expect(progressBox.x).toBeGreaterThanOrEqual(0);
+      expect(progressBox.y).toBeGreaterThanOrEqual(0);
+      expect(progressBox.x + progressBox.width).toBeLessThanOrEqual(viewport.width);
+      expect(progressBox.y + progressBox.height).toBeLessThanOrEqual(viewport.height);
+      expect(settingsBox.y).toBeGreaterThanOrEqual(0);
+      expect(settingsBox.y + settingsBox.height).toBeLessThanOrEqual(viewport.height);
+      expect(await currentTarget.textContent()).toContain(from);
+      expect(await badge.getAttribute("aria-busy")).toBe("true");
+      const upper = component.locator("[data-progress-modal]");
       expect(
-        await upper.getByRole("heading", { name: copy.failureTitle, exact: true }).isVisible(),
+        await upper
+          .getByRole("heading", {
+            name: registration ? copy.connecting : copy.switching,
+            exact: true,
+          })
+          .isVisible(),
       ).toBe(true);
       if (locale === "en") {
         expect(await upper.textContent()).not.toMatch(/[가-힣]/u);
       }
-      await screenshot(page, `connect-${family}-${mode}-03-failed.png`);
-      await upper.getByRole("button", { name: copy.retry, exact: true }).click();
-      await expect.poll(() => requests.length).toBe(3);
-      expect(requests[2]).toEqual({
-        path: "/platformclaw/api/execution/target",
-        body: { target: "assigned_vm", expectedRevision: 4 },
-      });
-      expect(requests.filter((item) => item.path.endsWith("/selection"))).toHaveLength(1);
+      if (!registration) {
+        await assertExecutionTransfer(component, reducedMotion, { from, to });
+      }
+      const attempt = requests.at(-1)!;
+      releasePendingRequest();
+      if (expectFailure) {
+        await expect
+          .poll(() => upper.locator("[data-progress-panel]").getAttribute("data-phase"))
+          .toBe("error");
+        expect(await currentTarget.textContent()).toContain(from);
+        expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
+        expect(
+          await upper.getByRole("heading", { name: copy.failure, exact: true }).isVisible(),
+        ).toBe(true);
+        const retry = upper.getByRole("button", { name: copy.retry, exact: true });
+        expect(await retry.isEnabled()).toBe(true);
+        await screenshot(page, `multi-vm-${family}-${mode}-failed.png`);
+        await retry.click();
+        await expect.poll(() => typeof release).toBe("function");
+        expect(requests.at(-1)).toEqual(attempt);
+        await assertDialogIdentity(component, "progress");
+        await assertExecutionTransfer(component, reducedMotion, { from, to });
+        retryObserved = true;
+        releasePendingRequest();
+      }
+      await expect.poll(() => currentTarget.textContent()).toContain(to);
       await expect
-        .poll(() => progress.locator("[data-step='activation']").getAttribute("data-state"))
-        .toBe("active");
-      await assertDialogIdentity(component, "progress");
-      releaseRetry();
-    }
-    await expect.poll(() => currentTarget.textContent()).toContain(copy.vm);
-    await expect
-      .poll(() =>
-        component.evaluate((element) => (element as ProofHost).executionSuccessProof?.heading),
-      )
-      .toBe(copy.successTitle);
-    const success = await component.evaluate(
-      (element) => (element as ProofHost).executionSuccessProof,
-    );
-    expect(success?.visible).toBe(true);
-    expect(success?.nativeOpen).toBe(true);
-    expect(success?.messageHeight).toBeLessThanOrEqual(48);
-    expect(success?.stepGap).toBeGreaterThanOrEqual(0);
-    expect(success?.stepGap).toBeLessThanOrEqual(16);
-    expect(success?.progressBox.height).toBeLessThanOrEqual(324);
-    for (const coordinate of ["x", "y", "width", "height"] as const) {
+        .poll(() => upper.locator("[data-progress-panel]").getAttribute("data-phase"))
+        .toBe("success");
       expect(
-        Math.abs(success!.settingsBox[coordinate] - settingsPanelBox[coordinate]),
-        `Success settings panel ${coordinate}`,
-      ).toBeLessThan(1);
-      expect(
-        Math.abs(success!.progressBox[coordinate] - progressPanelBox[coordinate]),
-        `Success progress panel ${coordinate}`,
-      ).toBeLessThan(1);
-    }
-    if (locale === "en") {
-      expect(success?.text).not.toMatch(/[가-힣]/u);
-    }
-    expect(requests).toHaveLength(failActivation ? 3 : 2);
-    expect(await component.locator("[data-action='confirm-switch']").count()).toBe(0);
-    await expect.poll(() => badge.getAttribute("aria-busy")).not.toBe("true");
-    expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
-    await expect
-      .poll(() =>
-        upper.locator("dialog").evaluate((element) => (element as HTMLDialogElement).open),
-      )
-      .toBe(false);
-    await assertDialogIdentity(component, "settings");
-    await assertDialogIdentity(component, "progress", false);
-    expect(
-      await component.getByRole("dialog", { name: copy.settings, exact: true }).isVisible(),
-    ).toBe(true);
-    expect(
-      await component
-        .locator("[data-settings-modal] main")
-        .evaluate((element) => element.scrollTop),
-    ).toBe(0);
-    const completedLocationBox = await currentLocationLayoutBox(currentLocation);
-    for (const coordinate of ["x", "y", "width", "height"] as const) {
-      expect(
-        Math.abs(completedLocationBox[coordinate] - currentLocationBox[coordinate]),
-        `Current location card ${coordinate}`,
-      ).toBeLessThan(1);
-    }
-    expect(await component.locator("[data-settings-modal] .message--success").count()).toBe(0);
-    expect(
-      await currentLocation.locator("[data-target='platform_server']").getAttribute("aria-pressed"),
-    ).toBe("false");
-    const selectedTile = currentLocation.locator("[data-target='assigned_vm']");
-    expect(await selectedTile.getAttribute("aria-pressed")).toBe("true");
-    expect(await selectedTile.textContent()).toContain(copy.vm);
-    expect(await currentTarget.textContent()).toContain(copy.vm);
-    expect(await currentTarget.getAttribute("role")).toBe("status");
-    expect(await currentTarget.getAttribute("aria-live")).toBe("polite");
-    expect(await component.locator("[data-vm-connection]").count()).toBe(1);
-    expect(
-      await component
-        .locator("[data-vm-connection] form[data-action='update-credential'] [data-password]")
-        .isVisible(),
-    ).toBe(true);
-    expect(await component.locator(".credentials-details").count()).toBe(0);
-    if (locale === "en") {
-      expect(await component.locator("[data-settings-modal]").textContent()).not.toMatch(
-        /[가-힣]/u,
-      );
-    }
-    await screenshot(page, `connect-${family}-${mode}-03-active.png`);
-    if (family === "platformclaw" && mode === "light") {
-      await component.locator("[data-target='platform_server']").click();
-      await assertExecutionTransfer(component, "platform_server", false, copy);
-      await expect
-        .poll(() => requests.at(-1)?.body)
-        .toEqual({ target: "platform_server", expectedRevision: 5 });
-      releaseReverse();
+        await upper.getByRole("heading", { name: copy.success, exact: true }).isVisible(),
+      ).toBe(true);
+      await assertExecutionProgressLayout(component);
+      expect(await badge.getAttribute("aria-busy")).toBe("false");
+      expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
+      await screenshot(page, `multi-vm-${family}-${mode}-${requests.length}.png`);
       await expect
         .poll(() => upper.locator("dialog").evaluate((node) => (node as HTMLDialogElement).open))
         .toBe(false);
-      expect(await currentTarget.textContent()).toContain(copy.basic);
+      await assertDialogIdentity(component, "settings");
+      await assertDialogIdentity(component, "progress", false);
+      expect(
+        await component.locator("[data-settings-modal] main").evaluate((node) => node.scrollTop),
+      ).toBe(0);
+      expect(await component.locator("[data-settings-modal] .message--success").count()).toBe(0);
+      expect(await currentTarget.getAttribute("role")).toBe("status");
+      expect(await currentTarget.getAttribute("aria-live")).toBe("polite");
+      if (!registration) {
+        const completedBox = await currentLocationLayoutBox(currentLocation);
+        for (const coordinate of ["x", "y", "width", "height"] as const) {
+          expect(
+            Math.abs(completedBox[coordinate] - locationBox[coordinate]),
+            `Current location card ${coordinate}`,
+          ).toBeLessThan(1);
+        }
+      }
+      expect(
+        await component
+          .locator("[data-settings-panel]")
+          .evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+      ).toBe(true);
     }
+    let current = basic;
+    for (const vm of available) {
+      if (saved.length) {
+        await component.locator(`[data-connect-vm='${vm.id}']`).click();
+      }
+      const form = component.locator("form[data-action='select-vm']");
+      await form.locator("select[name='vmHostId']").selectOption(vm.id);
+      await form.locator("input[name='linuxAccount']").fill("person.one");
+      await form.locator("input[name='password']").fill("fixture-password");
+      await form.locator("button[type='submit']").click();
+      await complete(vm.label, current, true);
+      current = vm.label;
+    }
+    expect(await component.locator("[data-saved-vm]").count()).toBe(3);
+    expect(await currentLocation.locator("[data-target] svg").count()).toBe(4);
+    async function switchTo(destination: number) {
+      const label = destination < 0 ? basic : labels[destination]!;
+      const selector =
+        destination < 0
+          ? "[data-target='platform_server']"
+          : `[data-connection-id='connection-vm-${destination + 1}']`;
+      await component.locator(selector).click();
+      await complete(label, current);
+      current = label;
+    }
+    for (const destination of [0, 1, 2, 0, -1, 1]) {
+      await switchTo(destination);
+    }
+    // Preserve desktop matrix proof and narrow-screen switching without repeating the full matrix.
+    await page.setViewportSize({ width: 390, height: 844 });
+    failNextSwitch = family === "platformclaw";
+    for (const destination of [0, -1]) {
+      await switchTo(destination);
+    }
+    expect(requests.filter((request) => request.path.endsWith("/selection"))).toHaveLength(3);
+    expect(requests.filter((request) => request.path.endsWith("/target"))).toHaveLength(
+      family === "platformclaw" ? 9 : 8,
+    );
+    expect(retryObserved).toBe(family === "platformclaw");
   } finally {
-    releaseSelection();
-    releaseActivation();
-    releaseRetry();
-    releaseReverse();
+    release?.();
     await context.close();
   }
 }
