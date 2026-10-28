@@ -103,6 +103,7 @@ async function startCredentialFixture() {
       resolveConnectionTarget: unsupported,
       changeTarget: unsupported,
       issueCredentialGrant: unsupported,
+      reportAuthenticationFailure: unsupported,
       execCredentialMetadata: async (owner, key) => {
         metadataCalls++;
         return service.metadataForAgent(owner, key);
