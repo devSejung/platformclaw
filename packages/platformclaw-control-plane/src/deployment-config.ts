@@ -11,7 +11,7 @@ import { SshCredentialCipher } from "./ssh-credential-crypto.js";
 const DEFAULT_LISTEN_HOST = "127.0.0.1";
 const DEFAULT_LISTEN_PORT = 19_001;
 const MAX_SECRET_FILE_BYTES = 16 * 1024;
-const DEFAULT_SKILL_HUB_MAX_PACKAGE_BYTES = 10 * 1024 * 1024;
+const DEFAULT_SKILL_HUB_MAX_PACKAGE_BYTES = 500 * 1024 * 1024;
 const DEFAULT_GUIDE_VIDEO_S3_REGION = "us-east-1";
 
 export const PLATFORMCLAW_DEPLOYMENT_ENV = {
@@ -71,8 +71,6 @@ export type PlatformClawDeploymentConfig = {
   knoxServiceToken: string;
   skillHub?: {
     url: string;
-    token: string;
-    namespaces: readonly string[];
     maxPackageBytes: number;
     bootstrapPassword: string;
   };
@@ -298,17 +296,20 @@ function parsePositiveInteger(raw: string | undefined, name: string, fallback: n
 }
 
 function loadSkillHubConfig(env: NodeJS.ProcessEnv): PlatformClawDeploymentConfig["skillHub"] {
+  if (env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces]?.trim()) {
+    throw new Error(
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces} is retired; remove it. Skill sharing is managed per skill in PlatformClaw.`,
+    );
+  }
   const url = env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl]?.trim();
-  const tokenFile = env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile]?.trim();
-  const namespaceList = env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces]?.trim();
   const bootstrapPasswordFile =
     env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile]?.trim();
-  if (!url && !tokenFile && !namespaceList && !bootstrapPasswordFile) {
+  if (!url && !bootstrapPasswordFile) {
     return undefined;
   }
-  if (!url || !tokenFile || !bootstrapPasswordFile) {
+  if (!url || !bootstrapPasswordFile) {
     throw new Error(
-      `${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl}, ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile}, and ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile} must be set together`,
+      `${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl} and ${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile} must be set together`,
     );
   }
   const parsed = new URL(url);
@@ -321,28 +322,8 @@ function loadSkillHubConfig(env: NodeJS.ProcessEnv): PlatformClawDeploymentConfi
   ) {
     throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl} must be an HTTP(S) URL`);
   }
-  const namespaces = [
-    ...new Map(
-      (namespaceList ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean)
-        .map((value) => {
-          const separator = value.indexOf("=");
-          const namespace = (separator === -1 ? value : value.slice(0, separator))
-            .trim()
-            .toLowerCase();
-          if (!namespace || (separator !== -1 && !value.slice(separator + 1).trim())) {
-            throw new Error(`${PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces} is invalid`);
-          }
-          return [namespace, true] as const;
-        }),
-    ),
-  ].map(([namespace]) => namespace);
   return {
     url: parsed.toString(),
-    token: readDeploymentSecret(tokenFile, PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile),
-    namespaces,
     maxPackageBytes: parsePositiveInteger(
       env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes],
       PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes,

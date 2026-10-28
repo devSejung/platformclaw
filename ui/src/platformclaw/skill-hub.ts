@@ -1,53 +1,97 @@
+import { t } from "../i18n/index.ts";
 import { PLATFORMCLAW_SKILL_HUB_API_PATH } from "./web-contract.ts";
 
+export type PlatformClawSkillHubWorkspaceTarget = "platform_server" | "assigned_vm";
+export type PlatformClawSkillHubSharingMode = "PUBLIC" | "SELECTED" | "PRIVATE";
+export type PlatformClawSkillHubUser = { id: string; accountId: string; displayName?: string };
+export type PlatformClawManagedScope = {
+  id: string;
+  kind: "team" | "group" | "part";
+  name: string;
+  parentScopeId?: string;
+};
+export type PlatformClawSkillHubSharing = {
+  mode: PlatformClawSkillHubSharingMode;
+  userIds: string[];
+  scopeIds: string[];
+};
+export type PlatformClawSkillHubSharingDetail = PlatformClawSkillHubSharing & {
+  users: PlatformClawSkillHubUser[];
+  scopes: PlatformClawManagedScope[];
+};
+type PlatformClawSkillHubOwner = {
+  assigned: boolean;
+  isMine: boolean;
+  unassigned: boolean;
+  revision: number;
+  user?: PlatformClawSkillHubUser;
+};
+type PlatformClawSkillHubSkill = {
+  id: string;
+  slug: string;
+  displayName: string;
+  summary: string;
+  tags: string[];
+  iconUrl: string | null;
+  sharing: { mode: PlatformClawSkillHubSharingMode };
+  revision: number;
+  latestVersion?: string;
+};
+export type PlatformClawSkillHubSearchItem = PlatformClawSkillHubSkill & {
+  owner: PlatformClawSkillHubOwner;
+};
 export type PlatformClawSkillHubConfig = {
-  namespaces: string[];
-  defaultNamespace: string | null;
-  namespaceOptions: Array<{
-    namespace: string;
-    scopeKind: "global" | "team" | "group" | "part";
-    scopeName?: string;
-  }>;
+  defaultSharing: "PUBLIC";
+  scopes: PlatformClawManagedScope[];
+  ownedSkills: Array<Pick<PlatformClawSkillHubSkill, "id" | "slug" | "displayName" | "revision">>;
+  limits: { iconBytes: number; tags: number; tagChars: number };
   maxPackageBytes: number;
   maxUploadBytes?: number;
   activeTarget?: PlatformClawSkillHubWorkspaceTarget;
-  capabilities?: {
-    scanner: boolean;
-    forcePublish: boolean;
-    ownerTransfer: boolean;
-    accessControl: boolean;
-    notifications: boolean;
-    zipUpload: boolean;
-    namespaceCreate: boolean;
-  };
   installTargets?: Array<{
     target: PlatformClawSkillHubWorkspaceTarget;
     available: boolean;
     status: string;
     disabledReason?: string;
   }>;
+  capabilities?: Record<string, boolean>;
   admin?: boolean;
   notifications?: { unreadCount: number };
   unassignedOwnerCount?: number;
+  maintenanceError?: string;
+  pendingPublications?: Array<{
+    isMine: boolean;
+    displayName?: string;
+    slug?: string;
+    operationId: string;
+    skillId: string;
+    actorUserId: string;
+    version: string;
+    expectedRevision: number;
+    state: "pending";
+    createdAt: number;
+    updatedAt: number;
+    fingerprint: string;
+  }>;
 };
-
-export type PlatformClawSkillHubWorkspaceTarget = "platform_server" | "assigned_vm";
-
 export type PlatformClawSkillHubWorkspaceSkill = {
   skillKey: string;
   name?: string;
   description?: string;
   version?: string;
   revision?: string;
+  hubSkillId?: string;
+  hubVersion?: string;
 };
-
-export type PlatformClawSkillHubSearchItem = {
-  namespace: string;
-  slug: string;
-  latestVersion: string;
-  summary: string;
+export type PlatformClawSkillHubWorkspaceInventory = {
+  source: PlatformClawSkillHubWorkspaceTarget;
+  items: PlatformClawSkillHubWorkspaceSkill[];
+  // Additive rollout: older responses contain only source/items; the bundled CP
+  // supplies this snapshot so mutations can pin the workspace that was displayed.
+  targetId?: string;
+  targetRevision?: number;
+  targetLabel?: string;
 };
-
 type PlatformClawSkillHubVersion = {
   version: string;
   status: string;
@@ -56,385 +100,386 @@ type PlatformClawSkillHubVersion = {
   totalSize?: number;
   publishedAt?: string;
   downloadAvailable: boolean;
-};
-
-export type PlatformClawSkillHubDetail = {
-  skill: {
-    namespace: string;
-    slug: string;
-    displayName: string;
-    summary: string;
-    visibility: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
-    status: string;
-    revision?: string;
-    downloadCount?: number;
-    starCount?: number;
-    ratingAvg?: number;
-    ratingCount?: number;
+  scanner?: {
+    status: NonNullable<PlatformClawSkillHubDetail["scanner"]>["status"];
+    badge: string;
+    blocked?: boolean;
   };
+};
+export type PlatformClawSkillHubDetail = {
+  skill: PlatformClawSkillHubSkill;
   versions: PlatformClawSkillHubVersion[];
-  owner?: {
-    assigned: boolean;
-    isMine: boolean;
-    unassigned: boolean;
-    revision?: number;
-    user?: { id: string; accountId: string; displayName?: string };
-  } | null;
+  owner: PlatformClawSkillHubOwner;
   scanner?: {
     version?: string;
-    status: "not_available" | "pending" | "passed" | "failed";
+    status:
+      | "not_available"
+      | "pending"
+      | "passed"
+      | "failed"
+      | "warning"
+      | "unverified"
+      | "blocked";
     badge: string;
     current: true;
   };
-  canManage?: boolean;
-  access?: PlatformClawSkillHubAccessGrant[];
+  canManage: boolean;
+  sharing?: PlatformClawSkillHubSharingDetail;
 };
-
-type PlatformClawSkillHubAccessGrant = {
-  userId: string;
-  expiresAt: number | null;
-  inheritVersions: boolean;
-  grantedVersion: string | null;
-};
-
 export type PlatformClawSkillHubNotification = {
   id: string;
   kind: string;
-  namespace: string | null;
-  slug: string | null;
   message: string;
   createdAt: number;
   readAt: number | null;
 };
-
-export type PlatformClawSkillHubNamespaceBinding = {
-  namespace: string;
-  scopeKind: "global" | "team" | "group" | "part";
-  accessState: "active" | "restricted";
-  scopeId?: string;
-  visibilityCeiling: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
+export type PlatformClawSkillHubHistoryItem = {
+  id: string;
+  action: string;
+  actor: { id: string; accountId?: string; displayName?: string } | null;
+  version?: string;
   createdAt: number;
-  updatedAt: number;
+  details: Record<string, unknown>;
 };
-
-export type PlatformClawSkillHubNamespaceScope = {
-  scopeKind: "global" | "team" | "group" | "part";
-  scopeId?: string;
-  scopeName?: string;
+export type PlatformClawSkillHubTrashItem = PlatformClawSkillHubSearchItem & {
+  deletedAt: number;
+  purgeAt: number;
 };
-
-export type PlatformClawSkillHubNamespaceCreation = PlatformClawSkillHubNamespaceScope & {
-  namespace: string;
-  state: "pending" | "registry-created" | "uncertain" | "failed";
-  updatedAt: number;
-};
-
-export type PlatformClawManagedScope = {
+export type PlatformClawSkillHubTransfer = {
   id: string;
-  kind: "team" | "group" | "part";
-  name: string;
-  parentScopeId?: string;
+  displayName: string;
+  from: PlatformClawSkillHubUser | null;
+  revision: number;
 };
-
-export type PlatformClawSkillHubUnassignedSkill = {
-  namespace: string;
+export type PlatformClawSkillHubMessage = { kind: "success" | "error" | "warning"; text: string };
+type PlatformClawSkillHubPublication = {
+  id: string;
   slug: string;
-  visibility: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
-  currentVersion: string;
-  changedAt: number;
+  version: string;
 };
-
-export type PlatformClawSkillHubManagementUser = {
-  id: string;
-  accountId: string;
-  displayName?: string;
-};
-
-export type PlatformClawSkillHubMessage = {
-  kind: "success" | "warning" | "error";
-  text: string;
-};
-
 export class PlatformClawSkillHubRequestError extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly details?: Record<string, unknown>,
+    readonly serverMessage: string = message,
   ) {
     super(message);
     this.name = "PlatformClawSkillHubRequestError";
   }
 }
 
+const requestErrorKeys = new Map<string, string>([
+  ["skill-hub-invalid-version", "invalidVersion"],
+  ["skill-hub-invalid-manifest", "invalidManifest"],
+  ["skill-hub-invalid-archive", "invalidArchive"],
+  ["skill-hub-version-mismatch", "versionMismatch"],
+  ["skill-hub-version-exists", "versionExists"],
+  ["skill-hub-vm-unassigned", "vmUnassigned"],
+  ["skill-hub-vm-not-ready", "vmNotReady"],
+  ["skill-hub-vm-unavailable", "vmUnavailable"],
+  ["skill-hub-version-blocked", "versionBlocked"],
+  ["skill-hub-version-unavailable", "versionUnavailable"],
+  ["skill-hub-publication-pending", "publicationPending"],
+  ["skill-hub-publication-changed", "publicationChanged"],
+  ["skill-hub-publication-cancelled", "publicationCancelled"],
+  ["skill-hub-publication-completed", "publicationCompleted"],
+  ["skill-hub-native-identity-changed", "identityChanged"],
+  ["skill-hub-changed", "changed"],
+  ["skill-hub-installation-changed", "installationChanged"],
+  ["existing-skill-replacement-required", "replacementRequired"],
+  ["installed-version-unavailable", "installedVersionUnavailable"],
+]);
+
+function requestErrorMessage(status: number, original: string, details?: Record<string, unknown>) {
+  const code = typeof details?.code === "string" ? details.code : "";
+  const key =
+    requestErrorKeys.get(code) ??
+    (status === 0
+      ? "connection"
+      : status === 401
+        ? "signIn"
+        : status === 403
+          ? "forbidden"
+          : status === 404
+            ? "notFound"
+            : status === 409
+              ? "changed"
+              : status === 413
+                ? "tooLarge"
+                : status === 415
+                  ? "unsupportedFile"
+                  : status === 400
+                    ? "invalidRequest"
+                    : "unavailable");
+  const guidance = t(`skillHubPage.errors.${key}`);
+  return original && original !== guidance
+    ? `${guidance} ${t("skillHubPage.errors.details", { message: original })}`
+    : guidance;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (init?.body && typeof init.body === "string") {
+  if (typeof init?.body === "string") {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(`${PLATFORMCLAW_SKILL_HUB_API_PATH}${path}`, {
-    ...init,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${PLATFORMCLAW_SKILL_HUB_API_PATH}${path}`, { ...init, headers });
+  } catch (error) {
+    const original = error instanceof Error ? error.message : String(error);
+    throw new PlatformClawSkillHubRequestError(
+      requestErrorMessage(0, original),
+      0,
+      undefined,
+      original,
+    );
+  }
   const body = (await response.json().catch(() => null)) as {
     error?: unknown;
     details?: unknown;
   } | null;
   if (!response.ok) {
-    throw new PlatformClawSkillHubRequestError(
-      typeof body?.error === "string"
-        ? body.error
-        : `Skill Hub request failed (${response.status})`,
-      response.status,
+    const original = typeof body?.error === "string" ? body.error : "";
+    const details =
       body?.details && typeof body.details === "object"
         ? (body.details as Record<string, unknown>)
-        : undefined,
+        : undefined;
+    throw new PlatformClawSkillHubRequestError(
+      requestErrorMessage(response.status, original, details),
+      response.status,
+      details,
+      original,
     );
   }
   return body as T;
 }
-
+function entryPath(id: string): string {
+  return `/skills/by-id/${encodeURIComponent(id)}`;
+}
 export function loadPlatformClawSkillHubConfig(): Promise<PlatformClawSkillHubConfig> {
   return request("/config");
 }
-
-export function loadPlatformClawSkillHubNamespaceScopes(): Promise<{
-  scopes: PlatformClawSkillHubNamespaceScope[];
-  creations: PlatformClawSkillHubNamespaceCreation[];
-}> {
-  return request("/namespaces");
-}
-
-export function createPlatformClawSkillHubNamespace(
-  params: { namespace: string } & Pick<PlatformClawSkillHubNamespaceScope, "scopeKind" | "scopeId">,
-): Promise<PlatformClawSkillHubNamespaceBinding> {
-  return request("/namespaces", { method: "POST", body: JSON.stringify(params) });
-}
-
 export function loadPlatformClawWorkspaceSkills(
   source: PlatformClawSkillHubWorkspaceTarget,
-): Promise<{
-  source: PlatformClawSkillHubWorkspaceTarget;
-  items: PlatformClawSkillHubWorkspaceSkill[];
-}> {
+): Promise<PlatformClawSkillHubWorkspaceInventory> {
   return request(`/workspace-skills?source=${encodeURIComponent(source)}`);
 }
-
 export function searchPlatformClawSkillHub(
   query: string,
 ): Promise<{ items: PlatformClawSkillHubSearchItem[]; total: number }> {
   return request(`/search?q=${encodeURIComponent(query)}&limit=20`);
 }
-
-export function loadPlatformClawSkillHubDetail(
+export function loadPlatformClawSkillHubDetail(id: string): Promise<PlatformClawSkillHubDetail> {
+  return request(entryPath(id));
+}
+export function resolvePlatformClawSkillHubLegacyDetail(
   namespace: string,
   slug: string,
 ): Promise<PlatformClawSkillHubDetail> {
   return request(`/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`);
 }
-
 export function publishPlatformClawWorkspaceSkill(params: {
+  operationId: string;
   skill: string;
   source: PlatformClawSkillHubWorkspaceTarget;
-  namespace: string;
+  expectedTargetId?: string;
   version: string;
-  visibility: string;
-}): Promise<{
-  namespace: string;
-  slug: string;
-  version: string;
-  ownershipReviewRequired?: true;
-}> {
+  id?: string;
+  expectedRevision?: number;
+  sharing?: PlatformClawSkillHubSharing;
+  reason?: string;
+}): Promise<PlatformClawSkillHubPublication> {
   return request("/publish", { method: "POST", body: JSON.stringify(params) });
 }
-
+export function publishPlatformClawSkillArchive(
+  file: File,
+  params: {
+    operationId: string;
+    slug: string;
+    version: string;
+    id?: string;
+    expectedRevision?: number;
+    sharing?: PlatformClawSkillHubSharing;
+    reason?: string;
+  },
+): Promise<PlatformClawSkillHubPublication> {
+  const query = new URLSearchParams({
+    operationId: params.operationId,
+    slug: params.slug,
+    version: params.version,
+  });
+  if (params.id) {
+    query.set("id", params.id);
+    query.set("expectedRevision", String(params.expectedRevision));
+  }
+  if (params.reason) {
+    query.set("reason", params.reason);
+  }
+  if (params.sharing) {
+    query.set("sharing", JSON.stringify(params.sharing));
+  }
+  return request(`/publish/upload?${query}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/zip" },
+    body: file,
+  });
+}
 export function installPlatformClawHubSkill(params: {
-  namespace: string;
-  slug: string;
+  id: string;
   version: string;
-  destination: "platform_server" | "assigned_vm";
+  destination: PlatformClawSkillHubWorkspaceTarget;
+  expectedTargetId?: string;
+  expectedTargetRevision?: number;
   acknowledgedReplacement?: true;
   currentRevision?: string;
 }): Promise<{
   ok: true;
   slug: string;
   version: string;
-  target: "platform_server" | "assigned_vm";
+  target: PlatformClawSkillHubWorkspaceTarget;
 }> {
-  return request("/install", { method: "POST", body: JSON.stringify(params) });
+  const {
+    id,
+    version,
+    destination,
+    expectedTargetId,
+    expectedTargetRevision,
+    acknowledgedReplacement,
+    currentRevision,
+  } = params;
+  const body = {
+    version,
+    destination,
+    ...(expectedTargetId !== undefined ? { expectedTargetId } : {}),
+    ...(expectedTargetRevision !== undefined ? { expectedTargetRevision } : {}),
+    ...(acknowledgedReplacement ? { acknowledgedReplacement } : {}),
+    ...(currentRevision ? { currentRevision } : {}),
+  };
+  return request(`${entryPath(id)}/install`, { method: "POST", body: JSON.stringify(body) });
 }
-
-export function publishPlatformClawSkillArchive(
-  file: File,
-  params: { slug: string; namespace: string; version: string; visibility: string },
-): Promise<{
-  namespace: string;
-  slug: string;
-  version: string;
-  ownershipReviewRequired?: true;
-}> {
-  const query = new URLSearchParams(params);
-  return request(`/publish/upload?${query.toString()}`, {
+export function platformClawSkillHubDownloadUrl(id: string, version: string): string {
+  return `${PLATFORMCLAW_SKILL_HUB_API_PATH}${entryPath(id)}/download?version=${encodeURIComponent(version)}`;
+}
+export function editPlatformClawSkillHubSkill(
+  id: string,
+  params: {
+    expectedRevision: number;
+    displayName?: string;
+    summary?: string;
+    tags?: string[];
+    sharing?: PlatformClawSkillHubSharing;
+    reason?: string;
+  },
+): Promise<{ ok: true }> {
+  return request(entryPath(id), { method: "PATCH", body: JSON.stringify(params) });
+}
+export function searchPlatformClawSkillHubUsers(
+  query: string,
+): Promise<{ users: PlatformClawSkillHubUser[] }> {
+  return request(`/users?q=${encodeURIComponent(query)}`);
+}
+export function deletePlatformClawSkillHubSkill(
+  id: string,
+  expectedRevision: number,
+  reason?: string,
+): Promise<{ ok: true }> {
+  return request(`${entryPath(id)}/delete`, {
     method: "POST",
-    headers: { "Content-Type": "application/zip" },
+    body: JSON.stringify({ expectedRevision, ...(reason ? { reason } : {}) }),
+  });
+}
+export function restorePlatformClawSkillHubSkill(
+  id: string,
+  expectedRevision: number,
+  reason?: string,
+): Promise<{ ok: true }> {
+  return request(`${entryPath(id)}/restore`, {
+    method: "POST",
+    body: JSON.stringify({ expectedRevision, ...(reason ? { reason } : {}) }),
+  });
+}
+export function loadPlatformClawSkillHubTrash(): Promise<{
+  items: PlatformClawSkillHubTrashItem[];
+}> {
+  return request("/trash");
+}
+export function loadPlatformClawSkillHubHistory(
+  id: string,
+): Promise<{ items: PlatformClawSkillHubHistoryItem[] }> {
+  return request(`${entryPath(id)}/history`);
+}
+export function uploadPlatformClawSkillHubIcon(
+  id: string,
+  expectedRevision: number,
+  file: File,
+  reason?: string,
+): Promise<{ ok: true }> {
+  return request(`${entryPath(id)}/icon?expectedRevision=${expectedRevision}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": file.type,
+      ...(reason ? { "X-Skill-Hub-Reason": encodeURIComponent(reason) } : {}),
+    },
     body: file,
   });
 }
-
+export function removePlatformClawSkillHubIcon(
+  id: string,
+  expectedRevision: number,
+  reason?: string,
+): Promise<{ ok: true }> {
+  return request(`${entryPath(id)}/icon?expectedRevision=${expectedRevision}`, {
+    method: "DELETE",
+    ...(reason ? { headers: { "X-Skill-Hub-Reason": encodeURIComponent(reason) } } : {}),
+  });
+}
+export function loadPlatformClawSkillHubTransfers(): Promise<{
+  items: PlatformClawSkillHubTransfer[];
+}> {
+  return request("/transfers");
+}
+export function transferPlatformClawSkillHubOwner(
+  id: string,
+  userId: string,
+  expectedRevision: number,
+  reason?: string,
+): Promise<{ ok: true }> {
+  return request(`${entryPath(id)}/transfer`, {
+    method: "POST",
+    body: JSON.stringify({ userId, expectedRevision, ...(reason ? { reason } : {}) }),
+  });
+}
+export function acceptPlatformClawSkillHubTransfer(
+  id: string,
+  expectedRevision: number,
+): Promise<{ ok: true }> {
+  return request(`${entryPath(id)}/transfer/accept`, {
+    method: "POST",
+    body: JSON.stringify({ expectedRevision }),
+  });
+}
 export function loadPlatformClawSkillHubNotifications(): Promise<{
   items: PlatformClawSkillHubNotification[];
   unreadCount: number;
 }> {
   return request("/notifications");
 }
-
-export function markPlatformClawSkillHubNotificationsRead(ids?: string[]): Promise<{
-  ok: true;
-  updated: number;
-}> {
+export function markPlatformClawSkillHubNotificationsRead(
+  ids?: string[],
+): Promise<{ ok: true; updated: number }> {
   return request("/notifications/read", {
     method: "POST",
     body: JSON.stringify(ids ? { ids } : {}),
   });
 }
 
-export function transferPlatformClawSkillHubOwner(
-  namespace: string,
-  slug: string,
-  ownerUserId: string,
-  expectedOwnerUpdatedAt: number,
-): Promise<{ ownerUserId: string }> {
-  return request(`/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/owner`, {
+export function cancelPlatformClawSkillHubPublication(
+  operationId: string,
+  reason?: string,
+): Promise<{ ok: true }> {
+  return request(`/publications/${encodeURIComponent(operationId)}/cancel`, {
     method: "POST",
-    body: JSON.stringify({ ownerUserId, expectedOwnerUpdatedAt }),
+    body: JSON.stringify(reason ? { reason } : {}),
   });
-}
-
-export function searchPlatformClawSkillHubManagementUsers(
-  namespace: string,
-  slug: string,
-  query: string,
-  purpose: "owner" | "access",
-): Promise<{ items: PlatformClawSkillHubManagementUser[] }> {
-  const params = new URLSearchParams({ q: query, purpose, limit: "20" });
-  return request(
-    `/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/management-users?${params.toString()}`,
-  );
-}
-
-export function grantPlatformClawSkillHubAccess(
-  namespace: string,
-  slug: string,
-  params: { userId: string; expiresAt?: number; inheritVersions: boolean; version?: string },
-): Promise<PlatformClawSkillHubAccessGrant> {
-  return request(`/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/access`, {
-    method: "POST",
-    body: JSON.stringify(params),
-  });
-}
-
-export function removePlatformClawSkillHubAccess(
-  namespace: string,
-  slug: string,
-  userId: string,
-): Promise<{ ok: true; removed: boolean }> {
-  return request(
-    `/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/access/${encodeURIComponent(userId)}`,
-    { method: "DELETE" },
-  );
-}
-
-export function deletePlatformClawSkillHubSkill(
-  namespace: string,
-  slug: string,
-  expectedOwnerUpdatedAt: number,
-): Promise<{ ok: true; deleted: true; namespace: string; slug: string }> {
-  return request(`/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`, {
-    method: "DELETE",
-    body: JSON.stringify({ expectedOwnerUpdatedAt }),
-  });
-}
-
-export function editPlatformClawSkillHubSkill(
-  namespace: string,
-  slug: string,
-  params: {
-    operationId: string;
-    namespace: string;
-    displayName: string;
-    summary: string;
-    visibility: PlatformClawSkillHubDetail["skill"]["visibility"];
-    expectedOwnerUpdatedAt: number;
-    expectedRegistryRevision: string;
-  },
-): Promise<{
-  ok: true;
-  namespace: string;
-  slug: string;
-  ownershipReviewRequired?: true;
-  publicationPending?: true;
-}> {
-  return request(`/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/edit`, {
-    method: "POST",
-    body: JSON.stringify(params),
-  });
-}
-
-export function forcePublishPlatformClawHubSkill(
-  namespace: string,
-  slug: string,
-  params: { version: string; acknowledged: true; reason: string },
-): Promise<{
-  acknowledged: true;
-  version: string;
-  upstreamOverridePerformed: boolean;
-  ownershipReviewRequired?: true;
-}> {
-  return request(`/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}/force`, {
-    method: "POST",
-    body: JSON.stringify(params),
-  });
-}
-
-export function loadPlatformClawSkillHubNamespaceBindings(): Promise<{
-  bindings: PlatformClawSkillHubNamespaceBinding[];
-  scopes: PlatformClawManagedScope[];
-}> {
-  return request("/admin/namespaces");
-}
-
-export function setPlatformClawSkillHubNamespaceBinding(params: {
-  namespace: string;
-  scopeKind: "global" | "team" | "group" | "part";
-  scopeId?: string;
-  visibilityCeiling: "PUBLIC" | "NAMESPACE_ONLY" | "PRIVATE";
-  expectedUpdatedAt: number | null;
-  reason: string;
-}): Promise<PlatformClawSkillHubNamespaceBinding> {
-  return request("/admin/namespaces", { method: "POST", body: JSON.stringify(params) });
-}
-
-export function removePlatformClawSkillHubNamespaceBinding(
-  namespace: string,
-  params: { expectedUpdatedAt: number; reason: string },
-): Promise<{ ok: true; removed: boolean }> {
-  return request(`/admin/namespaces/${encodeURIComponent(namespace)}`, {
-    method: "DELETE",
-    body: JSON.stringify(params),
-  });
-}
-
-export function setPlatformClawSkillHubNamespaceAccessState(
-  namespace: string,
-  params: { accessState: "active" | "restricted"; expectedUpdatedAt: number; reason: string },
-): Promise<PlatformClawSkillHubNamespaceBinding> {
-  return request(`/admin/namespaces/${encodeURIComponent(namespace)}/access-state`, {
-    method: "POST",
-    body: JSON.stringify(params),
-  });
-}
-
-export function loadPlatformClawSkillHubUnassignedSkills(): Promise<{
-  items: PlatformClawSkillHubUnassignedSkill[];
-}> {
-  return request("/admin/unassigned");
 }

@@ -40,6 +40,7 @@ export * from "./skill-hub-adapter.js";
 export * from "./skill-hub-service.js";
 export * from "./skill-hub-governance-client.js";
 export * from "./skill-hub-state.js";
+export * from "./skill-hub-catalog-state.js";
 export * from "./ids.js";
 export * from "./memory-store.js";
 export * from "./organization-service.js";

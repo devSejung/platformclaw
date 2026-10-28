@@ -1,5 +1,6 @@
 // Embedded run entry helpers serialize runtime skill metadata for agent run records.
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { hasGlobalHooks } from "../../plugins/hook-runner-global.js";
 import { resolveSkillRuntimeConfig } from "../loading/runtime-config.js";
 import { loadWorkspaceSkillEntries } from "../loading/workspace.js";
 import type { SkillEligibilityContext, SkillEntry, SkillSnapshot } from "../types.js";
@@ -16,7 +17,11 @@ export function resolveEmbeddedRunSkillEntries(params: {
   shouldLoadSkillEntries: boolean;
   skillEntries: SkillEntry[];
 } {
-  const shouldLoadSkillEntries = !params.skillsSnapshot || !params.skillsSnapshot.resolvedSkills;
+  const shouldLoadSkillEntries =
+    !params.skillsSnapshot ||
+    !params.skillsSnapshot.resolvedSkills ||
+    (hasGlobalHooks("before_skill_context") &&
+      params.skillsSnapshot.skills.some((skill) => !skill.filePath || !skill.sourceFilePath));
   const config = resolveSkillRuntimeConfig(params.config);
   return {
     shouldLoadSkillEntries,

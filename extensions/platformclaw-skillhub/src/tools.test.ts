@@ -2,7 +2,7 @@ import type {
   OpenClawPluginApi,
   OpenClawPluginToolContext,
 } from "openclaw/plugin-sdk/plugin-entry";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import plugin from "../index.js";
 import type { PlatformClawSkillHubClient } from "./client.js";
 import { registerPlatformClawSkillHubTools } from "./tools.js";
@@ -16,6 +16,8 @@ const context: OpenClawPluginToolContext = {
   nativeChannelId: "group-1",
   deliveryContext: { channel: "knox", accountId: "default", to: "room:group-1" },
 };
+
+afterEach(() => vi.unstubAllEnvs());
 
 function setup() {
   const registerTool = vi.fn();
@@ -32,6 +34,21 @@ function setup() {
 }
 
 describe("SkillHub natural language tools", () => {
+  it.each([undefined, "", "/configured/service-token"])(
+    "registers mandatory policy only for a configured company deployment (%s)",
+    (tokenFile) => {
+      vi.stubEnv("PLATFORMCLAW_KNOX_SERVICE_TOKEN_FILE", tokenFile);
+      const on = vi.fn();
+      plugin.register({
+        registrationMode: "full",
+        registerTool: vi.fn(),
+        registerCommand: vi.fn(),
+        on,
+      } as unknown as OpenClawPluginApi);
+      // Registration checks configuration only: this fixture path does not exist.
+      expect(on).toHaveBeenCalledTimes(tokenFile ? 1 : 0);
+    },
+  );
   it.each(["full", "discovery", "tool-discovery"])(
     "discovers search, status, install and installed-copy deletion in %s",
     (registrationMode) => {
@@ -41,6 +58,7 @@ describe("SkillHub natural language tools", () => {
         registrationMode,
         registerTool,
         registerCommand,
+        on: vi.fn(),
       } as unknown as OpenClawPluginApi);
       expect(registerTool.mock.calls.map((call) => call[1].name)).toEqual([
         "skillhub_search",
@@ -61,11 +79,11 @@ describe("SkillHub natural language tools", () => {
   it("uses the authenticated sender and current room, without model target arguments", async () => {
     const { tool, request } = setup();
     await tool(0).execute("search", { query: "spreadsheet" });
-    await tool(2).execute("install", { namespace: "finance", slug: "sheets", version: "1.2.3" });
+    await tool(2).execute("install", { id: "skill-sheets", version: "1.2.3" });
     expect(request).toHaveBeenLastCalledWith({
       accountId: "person.one",
       action: "install",
-      input: { namespace: "finance", slug: "sheets", version: "1.2.3" },
+      input: { id: "skill-sheets", version: "1.2.3" },
       context: {
         accountId: "default",
         conversationType: "room",
@@ -108,6 +126,7 @@ describe("SkillHub natural language tools", () => {
 
   it.each([
     { accountId: "victim" },
+    { namespace: "finance" },
     { context: { conversationId: "other-room" } },
     { args: "delete sheets --confirm" },
     { force: true },
@@ -117,8 +136,7 @@ describe("SkillHub natural language tools", () => {
     const { tool, request } = setup();
     expect(
       await tool(2).execute("install", {
-        namespace: "finance",
-        slug: "sheets",
+        id: "skill-sheets",
         version: "1.2.3",
         ...extra,
       }),
@@ -130,12 +148,11 @@ describe("SkillHub natural language tools", () => {
     const { tool, request } = setup();
     request.mockResolvedValueOnce({ status: 409, body: { error: "search again" } } as never);
     expect(
-      await tool(2).execute("install", { namespace: "finance", slug: "sheets", version: "1.2.3" }),
+      await tool(2).execute("install", { id: "skill-sheets", version: "1.2.3" }),
     ).toMatchObject({ isError: true, details: { error: "search again" } });
     request.mockRejectedValueOnce(new Error("response lost"));
     const result = await tool(2).execute("install", {
-      namespace: "finance",
-      slug: "sheets",
+      id: "skill-sheets",
       version: "1.2.3",
     });
     expect(result.isError).toBe(true);

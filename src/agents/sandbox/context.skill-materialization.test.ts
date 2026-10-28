@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
 import { withTempWorkspace } from "../../infra/private-temp-workspace.js";
 import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-openclaw-dir.js";
+import * as globalHooks from "../../plugins/hook-runner-global.js";
 import type { SkillUsagePath } from "../../skills/types.js";
 import type { SandboxBackendHandle } from "./backend-handle.types.js";
 import { registerSandboxBackend } from "./backend.js";
@@ -17,8 +18,18 @@ const mocks = vi.hoisted(() => ({
   logInfo: vi.fn(),
   readRegisteredSandboxRuntimeIds: vi.fn(async () => [] as string[]),
   syncSkillsToWorkspace: vi.fn<
-    (params: { targetWorkspaceDir: string }) => Promise<SkillUsagePath[]>
-  >(async () => []),
+    (params: { targetWorkspaceDir: string }) => Promise<{
+      skillUsagePaths: SkillUsagePath[];
+      excludedSkillFiles: string[];
+      excludedSourceDirectories: string[];
+      policyApplied: boolean;
+    }>
+  >(async () => ({
+    skillUsagePaths: [],
+    excludedSkillFiles: [],
+    excludedSourceDirectories: [],
+    policyApplied: false,
+  })),
   updateRegistry: vi.fn(async () => undefined),
 }));
 
@@ -172,15 +183,20 @@ describe("sandbox backend skill materialization", () => {
             "---\nname: confluence-read\ndescription: Read Confluence\n---\nUse .env.atlassian\n",
           );
           await fs.writeFile(path.join(path.dirname(readPath), ".env.atlassian"), "TOKEN=test\n");
-          return [
-            {
-              readPath,
-              skillFile: path.join(dir, "managed", "confluence-read", "SKILL.md"),
-              skillName: "confluence-read",
-              skillSource: "workspace" as const,
-              skillSourceId: "openclaw-managed",
-            },
-          ];
+          return {
+            skillUsagePaths: [
+              {
+                readPath,
+                skillFile: path.join(dir, "managed", "confluence-read", "SKILL.md"),
+                skillName: "confluence-read",
+                skillSource: "workspace" as const,
+                skillSourceId: "openclaw-managed",
+              },
+            ],
+            excludedSkillFiles: [],
+            excludedSourceDirectories: [],
+            policyApplied: false,
+          };
         });
         const backendId = `test-canonical-${Date.now()}`;
         let materialized: Awaited<
@@ -256,15 +272,20 @@ describe("sandbox backend skill materialization", () => {
               `---\nname: confluence-read\ndescription: Revision ${revision}\n---\n`,
             );
             await fs.writeFile(path.join(skillDir, ".env.atlassian"), `TOKEN=${revision}\n`);
-            return [
-              {
-                readPath,
-                skillFile: path.join(dir, "managed", "confluence-read", "SKILL.md"),
-                skillName: "confluence-read",
-                skillSource: "workspace" as const,
-                skillSourceId: "openclaw-managed",
-              },
-            ];
+            return {
+              skillUsagePaths: [
+                {
+                  readPath,
+                  skillFile: path.join(dir, "managed", "confluence-read", "SKILL.md"),
+                  skillName: "confluence-read",
+                  skillSource: "workspace" as const,
+                  skillSourceId: "openclaw-managed",
+                },
+              ],
+              excludedSkillFiles: [],
+              excludedSourceDirectories: [],
+              policyApplied: false,
+            };
           });
           const backendId = `test-canonical-refresh-${Date.now()}`;
           let hostRoot = "";
@@ -340,4 +361,117 @@ describe("sandbox backend skill materialization", () => {
       },
     );
   });
+
+  it("fails closed when filesystem materialization fails after a policy decision", async () => {
+    await withTempWorkspace(
+      { rootDir: resolvePreferredOpenClawTmpDir(), prefix: "openclaw-policy-fs-fault-" },
+      async ({ dir }) => {
+        const workspaceDir = path.join(dir, "workspace");
+        const excludedDirectory = path.join(workspaceDir, "skills", "private");
+        await fs.mkdir(excludedDirectory, { recursive: true });
+        await fs.writeFile(path.join(excludedDirectory, "SKILL.md"), "private source bytes");
+        mocks.syncSkillsToWorkspace.mockImplementationOnce(async ({ targetWorkspaceDir }) => {
+          await fs.mkdir(targetWorkspaceDir, { recursive: true });
+          await fs.writeFile(path.join(targetWorkspaceDir, ".source-mounts"), "not a directory");
+          return {
+            skillUsagePaths: [],
+            excludedSkillFiles: [path.join(excludedDirectory, "SKILL.md")],
+            excludedSourceDirectories: [excludedDirectory],
+            policyApplied: true,
+          };
+        });
+        const backendId = `test-policy-fault-${Date.now()}`;
+        const createLocalHandle = vi.fn(() =>
+          createHandle({ catalog: false, runtimeId: "must-not-start" }),
+        );
+        const restore = registerSandboxBackend(backendId, {
+          skillMaterialization: "backend-deferred",
+          factory: async ({ materializeSkills }) => {
+            await materializeSkills?.();
+            return createLocalHandle();
+          },
+        });
+        try {
+          await expect(
+            resolveSandboxContext({
+              config: createConfig({
+                backend: backendId,
+                workspaceRoot: path.join(dir, "sandboxes"),
+              }),
+              agentId: "main",
+              sessionKey: "agent:main:main",
+              workspaceDir,
+            }),
+          ).rejects.toMatchObject({
+            name: "SandboxProvisioningError",
+            code: "sandbox_provisioning",
+            backendId,
+            cause: expect.objectContaining({
+              name: "SkillContextPolicyError",
+              cause: expect.objectContaining({ code: "EEXIST" }),
+            }),
+          });
+          expect(createLocalHandle).not.toHaveBeenCalled();
+          expect(await fs.readFile(path.join(excludedDirectory, "SKILL.md"), "utf8")).toBe(
+            "private source bytes",
+          );
+        } finally {
+          restore();
+        }
+      },
+    );
+  });
+
+  it.each([
+    { registered: false, applied: false, requested: undefined, expected: undefined },
+    { registered: false, applied: false, requested: false, expected: false },
+    { registered: false, applied: false, requested: true, expected: true },
+    { registered: true, applied: true, requested: false, expected: true },
+    { registered: false, applied: true, requested: false, expected: true },
+  ])(
+    "requires current config only for an applied skill policy %j",
+    async ({ registered, applied, requested, expected }) => {
+      const hook = vi
+        .spyOn(globalHooks, "hasGlobalHooks")
+        .mockImplementation((name) => registered && name === "before_skill_context");
+      try {
+        await withTempWorkspace(
+          { rootDir: resolvePreferredOpenClawTmpDir(), prefix: "openclaw-policy-current-" },
+          async ({ dir }) => {
+            mocks.syncSkillsToWorkspace.mockResolvedValueOnce({
+              skillUsagePaths: [],
+              excludedSkillFiles: [],
+              excludedSourceDirectories: [],
+              policyApplied: applied,
+            });
+            const backendId = `test-policy-current-${Date.now()}`;
+            const seen: Array<boolean | undefined> = [];
+            const restore = registerSandboxBackend(backendId, {
+              factory: async (params) => {
+                seen.push(params.requireCurrentConfig);
+                return createHandle({ catalog: false, runtimeId: "current-config" });
+              },
+            });
+            try {
+              await resolveSandboxContext({
+                config: createConfig({
+                  backend: backendId,
+                  workspaceRoot: path.join(dir, "sandboxes"),
+                }),
+                agentId: "main",
+                sessionKey: "agent:main:main",
+                workspaceDir: path.join(dir, "workspace"),
+                requireCurrentConfig: requested,
+              });
+              expect(seen).toEqual([expected]);
+            } finally {
+              restore();
+            }
+          },
+        );
+      } finally {
+        hook.mockRestore();
+      }
+    },
+  );
 });

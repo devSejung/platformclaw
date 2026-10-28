@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createSkillHubServiceFixture as fixture } from "./skill-hub-service.test-fixtures.js";
 
 async function skillArchive(): Promise<Buffer> {
@@ -13,155 +13,110 @@ async function skillArchive(): Promise<Buffer> {
 
 describe("SkillHubService install retry", () => {
   it("resumes a partially received upload from the Gateway-owned offset", async () => {
-    const { service, actor, adapterMocks, adminRpcCall } = await fixture();
+    const { service, actor, entry, adapterMocks, adminRpcCall, gatewayCall, uploads, store } =
+      await fixture();
     const archive = await skillArchive();
     const receivedBytes = Math.floor(archive.byteLength / 2);
+    uploads.set("upload-partial", archive.subarray(0, receivedBytes));
     adapterMocks.download.mockResolvedValue(archive);
-    adminRpcCall.mockImplementation(async (method) => {
-      if (method === "skills.upload.begin") {
-        return { uploadId: "upload-partial", receivedBytes };
-      }
-      if (method === "skills.install") {
-        return { ok: true, slug: "demo-skill" };
-      }
-      return { ok: true };
-    });
-
+    adminRpcCall.mockImplementation(async (method, params) =>
+      method === "skills.upload.begin"
+        ? { uploadId: "upload-partial", receivedBytes }
+        : await gatewayCall(method, params),
+    );
     await expect(
-      service.install(actor, {
-        namespace: "engineering",
-        slug: "demo-skill",
-        version: "1.0.0",
-        destination: "platform_server",
-      }),
+      service.install(actor, { id: entry!.id, version: "1.0.0", destination: "platform_server" }),
     ).resolves.toMatchObject({ ok: true, noOp: false });
     expect(adminRpcCall).toHaveBeenCalledWith("skills.upload.chunk", {
       uploadId: "upload-partial",
       offset: receivedBytes,
       dataBase64: archive.subarray(receivedBytes).toString("base64"),
     });
+    expect(await store.skillHubCatalog.listInstallations(actor.agentId, "platform-server")).toEqual(
+      [
+        expect.objectContaining({
+          skillId: entry!.id,
+          operationId: "upload-partial",
+          state: "completed",
+          installedRevision: expect.stringMatching(/^sha256:/u),
+        }),
+      ],
+    );
   });
 
   it("reuses an already committed upload without sending another chunk", async () => {
-    const { service, actor, adapterMocks, adminRpcCall } = await fixture();
+    const { service, actor, entry, adapterMocks, adminRpcCall, gatewayCall, uploads } =
+      await fixture();
     const archive = await skillArchive();
+    uploads.set("upload-committed", archive);
     adapterMocks.download.mockResolvedValue(archive);
-    adminRpcCall.mockImplementation(async (method) => {
-      if (method === "skills.upload.begin") {
-        return { uploadId: "upload-committed", receivedBytes: archive.byteLength };
-      }
-      if (method === "skills.install") {
-        return { ok: true, slug: "demo-skill" };
-      }
-      return { ok: true };
-    });
-
+    adminRpcCall.mockImplementation(async (method, params) =>
+      method === "skills.upload.begin"
+        ? { uploadId: "upload-committed", receivedBytes: archive.byteLength }
+        : await gatewayCall(method, params),
+    );
     await expect(
-      service.install(actor, {
-        namespace: "engineering",
-        slug: "demo-skill",
-        version: "1.0.0",
-        destination: "platform_server",
-      }),
+      service.install(actor, { id: entry!.id, version: "1.0.0", destination: "platform_server" }),
     ).resolves.toMatchObject({ ok: true, noOp: false });
     expect(adminRpcCall.mock.calls.map(([method]) => method)).toEqual([
       "skills.status",
       "skills.upload.begin",
       "skills.upload.commit",
       "skills.install",
+      "skills.status",
     ]);
   });
 
-  it("isolates concurrent upload retries by Agent and destination", async () => {
+  it("isolates concurrent upload retries by real Agent binding and destination", async () => {
     const {
       service,
-      store,
       actor,
+      entry,
+      createActor,
       adapterMocks,
       adminRpcCall,
-      getPersonalExecutionProfile,
-      getVmAllocationForAgent,
+      gatewayCall,
+      saveVm,
+      activateVm,
+      store,
     } = await fixture();
-    const firstBinding = await store.getPersonalAgentBinding(actor.user.id);
-    if (!firstBinding) {
-      throw new Error("fixture personal binding missing");
-    }
-    vi.spyOn(store, "getPersonalAgentBinding").mockImplementation(async (userId) => ({
-      ...firstBinding,
-      userId,
-      agentId: userId === actor.user.id ? actor.agentId : "agent-2",
-    }));
-    const archive = await skillArchive();
-    adapterMocks.download.mockResolvedValue(archive);
-    getPersonalExecutionProfile.mockResolvedValue({
-      agentBindingId: "binding-1",
-      activeTarget: "assigned_vm",
-      activeAllocationId: "allocation-1",
-      targetRevision: 3,
-      updatedAt: 1,
-    });
-    getVmAllocationForAgent.mockResolvedValue({
-      id: "allocation-1",
-      agentBindingId: "binding-1",
-      vmHostId: "host-1",
-      linuxAccount: "person-one",
-      status: "ready",
-      remoteHomeDir: "/home/person-one",
-      remoteWorkspaceDir: "/home/person-one/workspace",
-      createdByUserId: "admin-1",
-      createdAt: 1,
-      updatedAt: 1,
-    });
+    const other = await createActor("person.two");
+    const vm = await activateVm((await saveVm()).id);
+    adapterMocks.download.mockResolvedValue(await skillArchive());
     const beginKeys: string[] = [];
     adminRpcCall.mockImplementation(async (method, params) => {
       if (method === "skills.upload.begin") {
-        const key = (params as { idempotencyKey: string }).idempotencyKey;
-        beginKeys.push(key);
-        return { uploadId: `upload-${beginKeys.length}`, receivedBytes: 0 };
+        beginKeys.push(String(params.idempotencyKey));
       }
-      if (method === "skills.install") {
-        return { ok: true, slug: "demo-skill" };
-      }
-      return { skills: [] };
+      return await gatewayCall(method, params);
     });
-
     await Promise.all([
-      service.install(actor, {
-        namespace: "engineering",
-        slug: "demo-skill",
-        version: "1.0.0",
-        destination: "platform_server",
-      }),
-      service.install(actor, {
-        namespace: "engineering",
-        slug: "demo-skill",
-        version: "1.0.0",
-        destination: "assigned_vm",
-      }),
-      service.install(
-        { ...actor, user: { ...actor.user, id: "user-2" }, agentId: "agent-2" },
-        {
-          namespace: "engineering",
-          slug: "demo-skill",
-          version: "1.0.0",
-          destination: "platform_server",
-        },
-      ),
+      service.install(actor, { id: entry!.id, version: "1.0.0", destination: "platform_server" }),
+      service.install(actor, { id: entry!.id, version: "1.0.0", destination: "assigned_vm" }),
+      service.install(other, { id: entry!.id, version: "1.0.0", destination: "platform_server" }),
     ]);
     expect(new Set(beginKeys).size).toBe(3);
-    expect(beginKeys).toEqual(
+    expect(beginKeys.map((key) => JSON.parse(key).slice(0, 4))).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('["skill-hub","agent-1","platform_server","install"'),
-        expect.stringContaining('["skill-hub","agent-1","assigned_vm","install"'),
-        expect.stringContaining('["skill-hub","agent-2","platform_server","install"'),
+        ["skill-hub", actor.agentId, "platform_server", "install"],
+        ["skill-hub", actor.agentId, "assigned_vm", "install"],
+        ["skill-hub", other.agentId, "platform_server", "install"],
       ]),
     );
+    expect(
+      await store.skillHubCatalog.listInstallations(actor.agentId, "platform-server"),
+    ).toHaveLength(1);
+    expect(await store.skillHubCatalog.listInstallations(actor.agentId, vm.targetId)).toHaveLength(
+      1,
+    );
+    expect(
+      await store.skillHubCatalog.listInstallations(other.agentId, "platform-server"),
+    ).toHaveLength(1);
   });
 
-  it("serializes duplicate installs for the same Agent destination", async () => {
-    const { service, actor, adapterMocks, adminRpcCall } = await fixture();
+  it("coalesces duplicate installs for the same Agent destination", async () => {
+    const { service, actor, entry, adapterMocks, adminRpcCall, gatewayCall } = await fixture();
     adapterMocks.download.mockResolvedValue(await skillArchive());
-    let installed = false;
     let releaseInstall!: () => void;
     const installGate = new Promise<void>((resolve) => {
       releaseInstall = resolve;
@@ -170,39 +125,14 @@ describe("SkillHubService install retry", () => {
     const installStartedGate = new Promise<void>((resolve) => {
       installStarted = resolve;
     });
-    adminRpcCall.mockImplementation(async (method) => {
-      if (method === "skills.status") {
-        return installed
-          ? {
-              skills: [
-                {
-                  skillKey: "demo-skill",
-                  source: "openclaw-workspace",
-                  baseDir: "/workspace/skills/demo-skill",
-                  version: "1.0.0",
-                },
-              ],
-            }
-          : { skills: [] };
-      }
-      if (method === "skills.upload.begin") {
-        return { uploadId: "upload-serialized", receivedBytes: 0 };
-      }
+    adminRpcCall.mockImplementation(async (method, params) => {
       if (method === "skills.install") {
         installStarted();
         await installGate;
-        installed = true;
-        return { ok: true, slug: "demo-skill" };
       }
-      return { ok: true };
+      return await gatewayCall(method, params);
     });
-    const params = {
-      namespace: "engineering",
-      slug: "demo-skill",
-      version: "1.0.0",
-      destination: "platform_server" as const,
-    };
-
+    const params = { id: entry!.id, version: "1.0.0", destination: "platform_server" as const };
     const first = service.install(actor, params);
     await installStartedGate;
     const second = service.install(actor, params);
@@ -211,7 +141,6 @@ describe("SkillHubService install retry", () => {
       1,
     );
     releaseInstall();
-
     await expect(Promise.all([first, second])).resolves.toEqual([
       expect.objectContaining({ noOp: false }),
       expect.objectContaining({ noOp: false }),

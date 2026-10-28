@@ -48,6 +48,8 @@ export type SandboxBackendCommandResult = {
 export type SandboxBackendSkillFile = {
   content: string;
   filePath: string;
+  /** Gateway source identity for a materialized copy; never inferred from its directory name. */
+  sourceFilePath?: string;
   locationNote?: string;
   source: string;
 };
@@ -70,6 +72,8 @@ export type SandboxFsBridgeContext = {
   agentWorkspaceDir: string;
   skillsWorkspaceDir?: string;
   workspaceAccess: "none" | "ro" | "rw";
+  /** The same additional read-only overlays prepared for the executing backend. */
+  readOnlySkillMounts?: readonly { hostPath: string; containerPath: string }[];
   containerName: string;
   containerWorkdir: string;
   /** Runtime-only roots whose entries must belong to the executing OS account. */

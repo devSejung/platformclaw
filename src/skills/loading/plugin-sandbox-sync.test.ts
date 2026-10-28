@@ -66,7 +66,7 @@ describe("syncSkillsToWorkspace for plugin skills", () => {
 
     mockResolvePluginSkillDirs.mockReturnValueOnce([realPluginSkillDir]);
 
-    const skillUsagePaths = await syncSkillsToWorkspace({
+    const { skillUsagePaths } = await syncSkillsToWorkspace({
       sourceWorkspaceDir: sourceWorkspace,
       targetWorkspaceDir: targetWorkspace,
       pluginSkillsDir,

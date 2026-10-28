@@ -42,13 +42,6 @@ function decodeSegment(value: string): string {
   }
 }
 
-function booleanField(body: Record<string, unknown>, name: string): boolean {
-  if (typeof body[name] !== "boolean") {
-    throw new SkillHubServiceError(`${name} must be a boolean`, 400);
-  }
-  return body[name];
-}
-
 function optionalBoolean(body: Record<string, unknown>, name: string): boolean | undefined {
   const value = body[name];
   if (value === undefined) {
@@ -147,6 +140,80 @@ async function readZipBody(
   };
 }
 
+function stringArray(value: unknown, name: string): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((item) => typeof item !== "string") ||
+    value.length > 100
+  ) {
+    throw new SkillHubServiceError(`${name} must be an array of strings`, 400);
+  }
+  return value as string[];
+}
+
+function sharingValue(
+  value: unknown,
+): import("./skill-hub-catalog-state.js").SkillHubSharing | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const sharing = objectBody(value);
+  if (sharing.mode !== "PUBLIC" && sharing.mode !== "SELECTED" && sharing.mode !== "PRIVATE") {
+    throw new SkillHubServiceError("Invalid sharing mode", 400);
+  }
+  return {
+    mode: sharing.mode,
+    userIds: sharing.userIds === undefined ? [] : stringArray(sharing.userIds, "userIds"),
+    scopeIds: sharing.scopeIds === undefined ? [] : stringArray(sharing.scopeIds, "scopeIds"),
+  };
+}
+
+async function readIconBody(
+  req: IncomingMessage,
+): Promise<import("./skill-hub-catalog-state.js").SkillHubCatalogIcon> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const raw of req) {
+    const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+    size += chunk.byteLength;
+    if (size > 2 * 1024 * 1024) {
+      req.resume();
+      throw new SkillHubServiceError("Icon must be 2 MB or smaller", 413);
+    }
+    chunks.push(chunk);
+  }
+  const bytes = Buffer.concat(chunks, size);
+  const type = (req.headers["content-type"] ?? "").split(";", 1)[0];
+  const png =
+    bytes.length >= 33 &&
+    bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+    bytes.subarray(12, 16).toString("ascii") === "IHDR";
+  const jpeg =
+    bytes.length >= 4 &&
+    bytes[0] === 255 &&
+    bytes[1] === 216 &&
+    bytes[2] === 255 &&
+    bytes.at(-2) === 255 &&
+    bytes.at(-1) === 217;
+  const webp =
+    bytes.length >= 16 &&
+    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+    bytes.subarray(8, 12).toString("ascii") === "WEBP" &&
+    bytes.readUInt32LE(4) === bytes.length - 8;
+  const contentType =
+    type === "image/png" && png
+      ? "image/png"
+      : type === "image/jpeg" && jpeg
+        ? "image/jpeg"
+        : type === "image/webp" && webp
+          ? "image/webp"
+          : null;
+  if (contentType) {
+    return { contentType, bytes };
+  }
+  throw new SkillHubServiceError("Choose a PNG, JPEG, or WebP image", 415);
+}
+
 export async function handlePlatformClawSkillHubRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -163,443 +230,312 @@ export async function handlePlatformClawSkillHubRequest(
   ) {
     return false;
   }
-  const token = readPlatformClawSessionCookie(req);
-  let actor;
   try {
-    actor = token ? await options.service.authenticate(token) : null;
-  } catch (error) {
-    sendSkillHubError(res, error);
-    return true;
-  }
-  if (!actor) {
-    sendBrowserJson(res, 401, { error: "authentication required" });
-    return true;
-  }
-  const method = (req.method ?? "GET").toUpperCase();
-  try {
+    const token = readPlatformClawSessionCookie(req);
+    const actor = token ? await options.service.authenticate(token) : null;
+    if (!actor) {
+      sendBrowserJson(res, 401, { error: "authentication required" });
+      return true;
+    }
+    const method = (req.method ?? "GET").toUpperCase();
+    const parts = url.pathname
+      .slice(PLATFORMCLAW_SKILL_HUB_PATH.length)
+      .split("/")
+      .filter(Boolean)
+      .map(decodeSegment);
+    const route = parts.join("/");
+    if (method !== "GET" && !options.isMutationOriginAllowed(req)) {
+      sendBrowserJson(res, 403, { error: "request origin is not allowed" });
+      return true;
+    }
+    const json = async () => {
+      const read = await options.readJsonBody(req, BODY_LIMIT_BYTES);
+      if (!read.ok) {
+        throw new SkillHubServiceError(read.error, 400);
+      }
+      return objectBody(read.value);
+    };
     if (method === "GET") {
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/namespaces`) {
-        sendBrowserJson(res, 200, await options.service.namespaceCreationOptions(actor.user));
-        return true;
-      }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/config`) {
+      if (route === "config") {
         sendBrowserJson(res, 200, await options.service.config(actor));
-        return true;
-      }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/workspace-skills`) {
-        const source = url.searchParams.get("source");
-        if (source !== "platform_server" && source !== "assigned_vm") {
-          throw new SkillHubServiceError("invalid workspace skill source", 400);
-        }
-        sendBrowserJson(res, 200, await options.service.workspaceSkills(actor, source));
-        return true;
-      }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/notifications`) {
-        const rawLimit = url.searchParams.get("limit");
+      } else if (route === "search") {
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.search(
+            actor.user,
+            url.searchParams.get("q") ?? "",
+            Number(url.searchParams.get("limit") ?? 50),
+          ),
+        );
+      } else if (route === "users") {
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.users(actor.user, url.searchParams.get("q") ?? ""),
+        );
+      } else if (route === "trash") {
+        sendBrowserJson(res, 200, await options.service.trash(actor.user));
+      } else if (route === "transfers") {
+        sendBrowserJson(res, 200, await options.service.transfers(actor.user));
+      } else if (route === "notifications") {
         sendBrowserJson(
           res,
           200,
           await options.service.notifications(
             actor.user,
-            rawLimit === null ? 50 : Number(rawLimit),
+            Number(url.searchParams.get("limit") ?? 50),
           ),
         );
-        return true;
-      }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/admin/unassigned`) {
-        sendBrowserJson(res, 200, await options.service.unassignedSkills(actor.user));
-        return true;
-      }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/admin/namespaces`) {
-        sendBrowserJson(res, 200, await options.service.namespaceBindings(actor.user));
-        return true;
-      }
-      const accessMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/access$`,
-        "u",
-      ).exec(url.pathname);
-      if (accessMatch) {
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.listAccess(
-            actor.user,
-            decodeSegment(accessMatch[1]!),
-            decodeSegment(accessMatch[2]!),
-          ),
-        );
-        return true;
-      }
-      const managementUsersMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/management-users$`,
-        "u",
-      ).exec(url.pathname);
-      if (managementUsersMatch) {
-        const purpose = url.searchParams.get("purpose");
-        if (purpose !== "owner" && purpose !== "access") {
-          throw new SkillHubServiceError("invalid management user search purpose", 400);
+      } else if (route === "workspace-skills") {
+        const source = url.searchParams.get("source");
+        if (source !== "platform_server" && source !== "assigned_vm") {
+          throw new SkillHubServiceError("Invalid workspace source", 400);
         }
-        const rawLimit = url.searchParams.get("limit");
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.searchManagementUsers(
+        sendBrowserJson(res, 200, await options.service.workspaceSkills(actor, source));
+      } else if (parts[0] === "skills" && parts[1] === "by-id" && parts[2]) {
+        const id = parts[2];
+        if (parts.length === 3) {
+          sendBrowserJson(res, 200, await options.service.detailById(actor.user, id));
+        } else if (parts.length === 4 && parts[3] === "history") {
+          sendBrowserJson(res, 200, await options.service.history(actor.user, id));
+        } else if (parts.length === 4 && parts[3] === "icon") {
+          const icon = await options.service.icon(actor.user, id);
+          res.writeHead(200, {
+            "Content-Type": icon.contentType,
+            "Content-Length": icon.bytes.byteLength,
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+          });
+          res.end(icon.bytes);
+        } else if (parts.length === 4 && parts[3] === "download") {
+          const download = await options.service.download(
             actor.user,
-            decodeSegment(managementUsersMatch[1]!),
-            decodeSegment(managementUsersMatch[2]!),
-            url.searchParams.get("q") ?? "",
-            purpose,
-            rawLimit === null ? 20 : Number(rawLimit),
-          ),
-        );
-        return true;
+            id,
+            url.searchParams.get("version") ?? "",
+          );
+          res.writeHead(200, {
+            "Content-Type": "application/zip",
+            "Content-Length": download.archive.byteLength,
+            "Content-Disposition": `attachment; filename="${download.filename}"`,
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+          });
+          res.end(download.archive);
+        } else {
+          sendBrowserJson(res, 404, { error: "not found" });
+        }
+      } else if (parts[0] === "skills" && parts.length === 3) {
+        // Preserve existing published links; coordinate inputs resolve the same canonical ID.
+        sendBrowserJson(res, 200, await options.service.detail(actor.user, parts[1]!, parts[2]!));
+      } else {
+        sendBrowserJson(res, 404, { error: "not found" });
       }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/search`) {
-        const rawLimit = url.searchParams.get("limit");
-        const limit = rawLimit === null ? 20 : Number(rawLimit);
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.search(actor.user, url.searchParams.get("q") ?? "", limit),
-        );
-        return true;
-      }
-      const match = new RegExp(`^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)$`, "u").exec(
-        url.pathname,
-      );
-      if (match) {
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.detail(
-            actor.user,
-            decodeSegment(match[1]!),
-            decodeSegment(match[2]!),
-          ),
-        );
-        return true;
-      }
+      return true;
     }
-    if (method === "POST") {
-      if (!options.isMutationOriginAllowed(req)) {
-        sendBrowserJson(res, 403, { error: "origin not allowed" });
-        return true;
+    if (method === "POST" && route === "publish/upload") {
+      let sharing;
+      try {
+        sharing = sharingValue(
+          url.searchParams.has("sharing")
+            ? JSON.parse(url.searchParams.get("sharing")!)
+            : undefined,
+        );
+      } catch {
+        throw new SkillHubServiceError("Invalid upload sharing settings", 400);
       }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/publish/upload`) {
-        const archive = await readZipBody(req);
-        try {
-          const result = await options.service.publishArchive(
+      const archive = await readZipBody(req);
+      try {
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.publishArchive(
             actor,
             {
+              operationId: url.searchParams.get("operationId") ?? "",
               slug: url.searchParams.get("slug") ?? "",
-              namespace: url.searchParams.get("namespace") ?? "",
               version: url.searchParams.get("version") ?? "",
-              visibility: url.searchParams.get("visibility") ?? "",
+              id: url.searchParams.get("id") ?? undefined,
+              expectedRevision: url.searchParams.has("expectedRevision")
+                ? Number(url.searchParams.get("expectedRevision"))
+                : undefined,
+              sharing,
+              reason: url.searchParams.get("reason") ?? undefined,
             },
             archive,
-          );
-          sendBrowserJson(res, 200, result);
-        } finally {
-          await archive.cleanup();
-        }
-        return true;
-      }
-      const read = await options.readJsonBody(req, BODY_LIMIT_BYTES);
-      if (!read.ok) {
-        sendBrowserJson(res, 400, { error: read.error });
-        return true;
-      }
-      const body = objectBody(read.value);
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/namespaces`) {
-        const scopeKind = stringField(body, "scopeKind");
-        if (!["global", "team", "group", "part"].includes(scopeKind)) {
-          throw new SkillHubServiceError("invalid namespace scope kind", 400);
-        }
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.createNamespace(actor.user, {
-            namespace: stringField(body, "namespace"),
-            scopeKind: scopeKind as "global" | "team" | "group" | "part",
-            ...(body.scopeId === undefined ? {} : { scopeId: stringField(body, "scopeId") }),
-          }),
-        );
-        return true;
-      }
-      const editMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/edit$`,
-        "u",
-      ).exec(url.pathname);
-      if (editMatch) {
-        if (typeof body.summary !== "string") {
-          throw new SkillHubServiceError("summary must be a string", 400);
-        }
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.editPublishedSkill(
-            actor.user,
-            decodeSegment(editMatch[1]!),
-            decodeSegment(editMatch[2]!),
-            {
-              operationId: stringField(body, "operationId"),
-              namespace: stringField(body, "namespace"),
-              displayName: stringField(body, "displayName"),
-              summary: body.summary,
-              visibility: stringField(body, "visibility"),
-              expectedOwnerUpdatedAt: integerField(body, "expectedOwnerUpdatedAt"),
-              expectedRegistryRevision: stringField(body, "expectedRegistryRevision"),
-            },
           ),
         );
-        return true;
+      } finally {
+        await archive.cleanup();
       }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/publish`) {
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.publish(actor, {
-            skill: stringField(body, "skill"),
-            ...(body.source === undefined ? {} : { source: executionTargetField(body, "source") }),
-            namespace: stringField(body, "namespace"),
-            version: stringField(body, "version"),
-            visibility: stringField(body, "visibility"),
-          }),
-        );
-        return true;
-      }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/install`) {
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.install(actor, {
-            namespace: stringField(body, "namespace"),
-            slug: stringField(body, "slug"),
-            version: stringField(body, "version"),
-            destination: executionTargetField(body, "destination"),
-            acknowledgedReplacement: optionalBoolean(body, "acknowledgedReplacement"),
-            currentRevision: optionalString(body, "currentRevision"),
-          }),
-        );
-        return true;
-      }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/notifications/read`) {
-        const ids = body.ids;
-        if (
-          ids !== undefined &&
-          (!Array.isArray(ids) || ids.some((id) => typeof id !== "string"))
-        ) {
-          throw new SkillHubServiceError("ids must be an array of strings", 400);
-        }
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.markNotificationsRead(actor.user, ids as string[] | undefined),
-        );
-        return true;
-      }
-      const ownerMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/owner$`,
-        "u",
-      ).exec(url.pathname);
-      if (ownerMatch) {
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.transferOwner(
-            actor.user,
-            decodeSegment(ownerMatch[1]!),
-            decodeSegment(ownerMatch[2]!),
-            stringField(body, "ownerUserId"),
-            optionalInteger(body, "expectedOwnerUpdatedAt") ?? 0,
-          ),
-        );
-        return true;
-      }
-      const accessMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/access$`,
-        "u",
-      ).exec(url.pathname);
-      if (accessMatch) {
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.setAccess(
-            actor.user,
-            decodeSegment(accessMatch[1]!),
-            decodeSegment(accessMatch[2]!),
-            {
-              userId: stringField(body, "userId"),
-              ...(optionalInteger(body, "expiresAt") === undefined
-                ? {}
-                : { expiresAt: optionalInteger(body, "expiresAt") }),
-              inheritVersions: booleanField(body, "inheritVersions"),
-              ...(typeof body.version === "string" ? { version: body.version } : {}),
-            },
-          ),
-        );
-        return true;
-      }
-      const forceMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/force$`,
-        "u",
-      ).exec(url.pathname);
-      if (forceMatch) {
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.acknowledgeForcePublish(
-            actor.user,
-            decodeSegment(forceMatch[1]!),
-            decodeSegment(forceMatch[2]!),
-            {
-              version: stringField(body, "version"),
-              acknowledged: booleanField(body, "acknowledged"),
-              reason: stringField(body, "reason"),
-            },
-          ),
-        );
-        return true;
-      }
-      if (url.pathname === `${PLATFORMCLAW_SKILL_HUB_PATH}/admin/namespaces`) {
-        const scopeKind = stringField(body, "scopeKind");
-        if (
-          scopeKind !== "global" &&
-          scopeKind !== "team" &&
-          scopeKind !== "group" &&
-          scopeKind !== "part"
-        ) {
-          throw new SkillHubServiceError("invalid namespace scope kind", 400);
-        }
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.setNamespaceBinding(actor.user, {
-            namespace: stringField(body, "namespace"),
-            scopeKind,
-            ...(typeof body.scopeId === "string" ? { scopeId: body.scopeId } : {}),
-            visibilityCeiling: stringField(body, "visibilityCeiling"),
-            expectedUpdatedAt:
-              body.expectedUpdatedAt === null
-                ? null
-                : (optionalInteger(body, "expectedUpdatedAt") ?? null),
-            reason: stringField(body, "reason"),
-          }),
-        );
-        return true;
-      }
-      const namespaceAccessStateMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/admin/namespaces/([^/]+)/access-state$`,
-        "u",
-      ).exec(url.pathname);
-      if (namespaceAccessStateMatch) {
-        const accessState = stringField(body, "accessState");
-        if (accessState !== "active" && accessState !== "restricted") {
-          throw new SkillHubServiceError("invalid namespace access state", 400);
-        }
-        sendBrowserJson(
-          res,
-          200,
-          await options.service.setNamespaceAccessState(
-            actor.user,
-            decodeSegment(namespaceAccessStateMatch[1]!),
-            {
-              accessState,
-              expectedUpdatedAt: optionalInteger(body, "expectedUpdatedAt") ?? 0,
-              reason: stringField(body, "reason"),
-            },
-          ),
-        );
-        return true;
-      }
+      return true;
     }
-    if (method === "DELETE") {
-      if (!options.isMutationOriginAllowed(req)) {
-        sendBrowserJson(res, 403, { error: "origin not allowed" });
-        return true;
+    if (
+      parts[0] === "skills" &&
+      parts[1] === "by-id" &&
+      parts[2] &&
+      parts[3] === "icon" &&
+      parts.length === 4 &&
+      (method === "PUT" || method === "DELETE")
+    ) {
+      const expectedRevision = Number(url.searchParams.get("expectedRevision"));
+      const icon = method === "DELETE" ? null : await readIconBody(req);
+      sendBrowserJson(
+        res,
+        200,
+        await options.service.updateIcon(
+          actor.user,
+          parts[2],
+          expectedRevision,
+          icon,
+          typeof req.headers["x-skill-hub-reason"] === "string"
+            ? decodeSegment(req.headers["x-skill-hub-reason"])
+            : undefined,
+        ),
+      );
+      return true;
+    }
+    const body = await json();
+    if (method === "POST" && route === "publish") {
+      const source = optionalString(body, "source");
+      if (source !== undefined && source !== "platform_server" && source !== "assigned_vm") {
+        throw new SkillHubServiceError("Invalid publication source", 400);
       }
-      const skillMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)$`,
-        "u",
-      ).exec(url.pathname);
-      if (skillMatch) {
-        const read = await options.readJsonBody(req, BODY_LIMIT_BYTES);
-        if (!read.ok) {
-          sendBrowserJson(res, 400, { error: read.error });
-          return true;
+      sendBrowserJson(
+        res,
+        200,
+        await options.service.publish(actor, {
+          operationId: stringField(body, "operationId"),
+          skill: stringField(body, "skill"),
+          version: stringField(body, "version"),
+          source,
+          expectedTargetId: optionalString(body, "expectedTargetId"),
+          id: optionalString(body, "id"),
+          expectedRevision: optionalInteger(body, "expectedRevision"),
+          sharing: sharingValue(body.sharing),
+          reason: optionalString(body, "reason"),
+        }),
+      );
+    } else if (method === "POST" && route === "notifications/read") {
+      sendBrowserJson(
+        res,
+        200,
+        await options.service.markNotificationsRead(
+          actor.user,
+          body.ids === undefined ? undefined : stringArray(body.ids, "ids"),
+        ),
+      );
+    } else if (
+      method === "POST" &&
+      parts[0] === "publications" &&
+      parts[1] &&
+      parts[2] === "cancel" &&
+      parts.length === 3
+    ) {
+      sendBrowserJson(
+        res,
+        200,
+        await options.service.cancelPublication(
+          actor.user,
+          parts[1],
+          optionalString(body, "reason"),
+        ),
+      );
+    } else if (parts[0] === "skills" && parts[1] === "by-id" && parts[2]) {
+      const id = parts[2];
+      if (method === "PATCH" && parts.length === 3) {
+        if (body.summary !== undefined && typeof body.summary !== "string") {
+          throw new SkillHubServiceError("Description must be a string", 400);
         }
-        const body = objectBody(read.value);
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.updateMetadata(actor.user, id, {
+            expectedRevision: integerField(body, "expectedRevision"),
+            displayName: optionalString(body, "displayName"),
+            summary: body.summary as string | undefined,
+            tags: body.tags === undefined ? undefined : stringArray(body.tags, "tags"),
+            sharing: sharingValue(body.sharing),
+            reason: optionalString(body, "reason"),
+          }),
+        );
+      } else if (method === "POST" && parts[3] === "delete" && parts.length === 4) {
         sendBrowserJson(
           res,
           200,
           await options.service.deletePublishedSkill(
             actor.user,
-            decodeSegment(skillMatch[1]!),
-            decodeSegment(skillMatch[2]!),
-            integerField(body, "expectedOwnerUpdatedAt"),
+            id,
+            integerField(body, "expectedRevision"),
+            optionalString(body, "reason"),
           ),
         );
-        return true;
-      }
-      const accessMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/skills/([^/]+)/([^/]+)/access/([^/]+)$`,
-        "u",
-      ).exec(url.pathname);
-      if (accessMatch) {
+      } else if (method === "POST" && parts[3] === "restore" && parts.length === 4) {
         sendBrowserJson(
           res,
           200,
-          await options.service.removeAccess(
+          await options.service.restore(
             actor.user,
-            decodeSegment(accessMatch[1]!),
-            decodeSegment(accessMatch[2]!),
-            decodeSegment(accessMatch[3]!),
+            id,
+            integerField(body, "expectedRevision"),
+            optionalString(body, "reason"),
           ),
         );
-        return true;
-      }
-      const namespaceMatch = new RegExp(
-        `^${PLATFORMCLAW_SKILL_HUB_PATH}/admin/namespaces/([^/]+)$`,
-        "u",
-      ).exec(url.pathname);
-      if (namespaceMatch) {
-        const read = await options.readJsonBody(req, BODY_LIMIT_BYTES);
-        if (!read.ok) {
-          sendBrowserJson(res, 400, { error: read.error });
-          return true;
+      } else if (method === "POST" && parts[3] === "transfer" && parts.length === 4) {
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.requestTransfer(
+            actor.user,
+            id,
+            integerField(body, "expectedRevision"),
+            stringField(body, "userId"),
+            optionalString(body, "reason"),
+          ),
+        );
+      } else if (
+        method === "POST" &&
+        parts[3] === "transfer" &&
+        parts[4] === "accept" &&
+        parts.length === 5
+      ) {
+        sendBrowserJson(
+          res,
+          200,
+          await options.service.acceptTransfer(
+            actor.user,
+            id,
+            integerField(body, "expectedRevision"),
+            optionalString(body, "reason"),
+          ),
+        );
+      } else if (method === "POST" && parts[3] === "install" && parts.length === 4) {
+        const destination = stringField(body, "destination");
+        if (destination !== "platform_server" && destination !== "assigned_vm") {
+          throw new SkillHubServiceError("Invalid installation destination", 400);
         }
-        const body = objectBody(read.value);
         sendBrowserJson(
           res,
           200,
-          await options.service.removeNamespaceBinding(
-            actor.user,
-            decodeSegment(namespaceMatch[1]!),
-            {
-              expectedUpdatedAt: optionalInteger(body, "expectedUpdatedAt") ?? 0,
-              reason: stringField(body, "reason"),
-            },
-          ),
+          await options.service.install(actor, {
+            id,
+            version: stringField(body, "version"),
+            destination,
+            expectedTargetId: optionalString(body, "expectedTargetId"),
+            acknowledgedReplacement: optionalBoolean(body, "acknowledgedReplacement"),
+            currentRevision: optionalString(body, "currentRevision"),
+            expectedTargetRevision: optionalInteger(body, "expectedTargetRevision"),
+          }),
         );
-        return true;
+      } else {
+        sendBrowserJson(res, 404, { error: "not found" });
       }
+    } else {
+      sendBrowserJson(res, 404, { error: "This Skill Hub action is retired; reload the page" });
     }
-    res.statusCode = 405;
-    res.setHeader("Allow", "GET, POST, DELETE");
-    res.end("Method Not Allowed");
   } catch (error) {
     sendSkillHubError(res, error);
   }
   return true;
-}
-
-function executionTargetField(
-  body: Record<string, unknown>,
-  key: string,
-): "platform_server" | "assigned_vm" {
-  const value = stringField(body, key);
-  if (value !== "platform_server" && value !== "assigned_vm") {
-    throw new SkillHubServiceError("invalid install destination", 400);
-  }
-  return value;
 }

@@ -2,19 +2,41 @@ import { html, nothing, type ReactiveControllerHost } from "lit";
 import { t } from "../../i18n/index.ts";
 import {
   editPlatformClawSkillHubSkill,
+  loadPlatformClawSkillHubConfig,
+  loadPlatformClawSkillHubDetail,
   PlatformClawSkillHubRequestError,
+  type PlatformClawSkillHubConfig,
   type PlatformClawSkillHubDetail,
   type PlatformClawSkillHubMessage,
+  type PlatformClawSkillHubSharingDetail,
 } from "../../platformclaw/skill-hub.ts";
-import type { SkillHubRef } from "./page-support.ts";
-
-type SkillEditDraft = Parameters<typeof editPlatformClawSkillHubSkill>[2];
+import { skillHubVisibilityLabel } from "./labels.ts";
+import { renderSkillHubAdminReason, validSkillHubAdminReason } from "./management.ts";
+import { refreshSkillHubAfterMutation, type SkillHubRef } from "./page-support.ts";
+import {
+  renderSkillHubSharing,
+  skillHubSharingInvalid,
+  skillHubSharingRequest,
+} from "./sharing.ts";
 
 export class SkillHubEditController {
-  private pending: { ref: SkillHubRef; draft: SkillEditDraft; namespaces: string[] } | null = null;
+  private pending: {
+    ref: SkillHubRef;
+    revision: number;
+    reason?: string;
+    requiresReason: boolean;
+    displayName: string;
+    summary: string;
+    tags: string;
+    sharing: PlatformClawSkillHubSharingDetail;
+    sharingChanged: boolean;
+    config: PlatformClawSkillHubConfig;
+  } | null = null;
   private saving = false;
-  private submitted = false;
+  private reloading = false;
   private reloadRequired = false;
+  private latest: PlatformClawSkillHubDetail | null = null;
+  private canManage = true;
   private error: string | null = null;
 
   constructor(
@@ -32,34 +54,35 @@ export class SkillHubEditController {
   request(
     ref: SkillHubRef | null,
     detail: PlatformClawSkillHubDetail | null,
-    namespaces: string[],
+    config: PlatformClawSkillHubConfig | null,
+    reason?: string,
   ) {
-    const ownerRevision = detail?.owner?.revision;
-    if (
-      !ref ||
-      !detail?.canManage ||
-      typeof ownerRevision !== "number" ||
-      !detail.skill.revision ||
-      this.saving
-    ) {
+    if (!ref || !detail?.canManage || !detail.sharing || !config || this.saving) {
       return;
     }
     this.pending = {
       ref: { ...ref },
-      namespaces: [...new Set([ref.namespace, ...namespaces])],
-      draft: {
-        operationId: crypto.randomUUID(),
-        namespace: ref.namespace,
-        displayName: detail.skill.displayName,
-        summary: detail.skill.summary,
-        visibility: detail.skill.visibility,
-        expectedOwnerUpdatedAt: ownerRevision,
-        expectedRegistryRevision: detail.skill.revision,
+      ...(reason ? { reason } : {}),
+      requiresReason: !detail.owner.isMine,
+      revision: detail.skill.revision,
+      displayName: detail.skill.displayName,
+      summary: detail.skill.summary,
+      tags: detail.skill.tags.join(", "),
+      sharing: {
+        ...detail.sharing,
+        userIds: [...detail.sharing.userIds],
+        scopeIds: [...detail.sharing.scopeIds],
+        users: [...detail.sharing.users],
+        scopes: [...detail.sharing.scopes],
       },
+      sharingChanged: false,
+      config,
     };
     this.error = null;
-    this.submitted = false;
+    this.reloading = false;
     this.reloadRequired = false;
+    this.latest = null;
+    this.canManage = true;
     this.options.setMessage(null);
     this.host.requestUpdate();
   }
@@ -70,206 +93,248 @@ export class SkillHubEditController {
     }
     this.pending = null;
     this.error = null;
-    this.host.requestUpdate();
-  }
-
-  private update(draft: Partial<SkillEditDraft>) {
-    if (!this.pending || this.saving) {
-      return;
-    }
-    const changed = Object.entries(draft).some(
-      ([key, value]) => this.pending!.draft[key as keyof SkillEditDraft] !== value,
-    );
-    if (!changed) {
-      return;
-    }
-    // Retrying an unchanged submission must recover its durable receipt, even
-    // after a namespace move. A changed payload starts a distinct operation.
-    const operationId = this.submitted ? crypto.randomUUID() : this.pending.draft.operationId;
-    this.pending = { ...this.pending, draft: { ...this.pending.draft, ...draft, operationId } };
-    this.submitted = false;
+    this.reloading = false;
+    this.reloadRequired = false;
+    this.latest = null;
     this.host.requestUpdate();
   }
 
   renderDialog() {
-    if (!this.pending) {
+    const draft = this.pending;
+    if (!draft) {
       return nothing;
     }
-    const { draft, ref, namespaces } = this.pending;
-    const invalidDraft = !draft.displayName.trim() || !draft.namespace;
+    const tags = draft.tags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    const invalid =
+      this.reloadRequired ||
+      !this.canManage ||
+      (draft.requiresReason && !validSkillHubAdminReason(draft.reason ?? "")) ||
+      !draft.displayName.trim() ||
+      tags.length > draft.config.limits.tags ||
+      tags.some((tag) => Array.from(tag).length > draft.config.limits.tagChars) ||
+      (draft.sharingChanged && skillHubSharingInvalid(draft.sharing));
+    const controlsBusy = this.saving || this.reloading;
     return html`<openclaw-modal-dialog
       label=${t("skillHubPage.editSkill")}
-      @modal-cancel=${(event: Event) => {
-        if (this.saving) {
-          event.preventDefault();
-        } else {
-          this.clear();
-        }
-      }}
+      @modal-cancel=${(event: Event) => (this.saving ? event.preventDefault() : this.clear())}
     >
       <form
         class="skill-hub-dialog skill-hub-edit"
         @submit=${(event: SubmitEvent) => {
           event.preventDefault();
-          void (this.reloadRequired ? this.reload() : this.save());
+          if (!invalid) {
+            void this.save();
+          }
         }}
       >
         <header class="skill-hub-dialog__header">
           <div>
             <h2>${t("skillHubPage.editSkill")}</h2>
-            <p>${t("skillHubPage.packageIdentity", { slug: ref.slug })}</p>
+            <p>${t("skillHubPage.metadataHelp")}</p>
           </div>
+          <button
+            type="button"
+            class="btn btn--sm"
+            ?disabled=${this.saving}
+            @click=${() => this.clear()}
+          >
+            ${t("skillsPage.close")}
+          </button>
         </header>
-        <div class="skill-hub-upload__fields">
-          <label class="field"
-            ><span>${t("skillHubPage.displayName")}</span>
-            <input
-              name="displayName"
-              autofocus
-              required
-              maxlength="200"
-              .value=${draft.displayName}
-              ?disabled=${this.saving}
-              @input=${(event: Event) =>
-                this.update({ displayName: (event.target as HTMLInputElement).value })}
-            />
-          </label>
-          <label class="field"
-            ><span>${t("skillsPage.skillHub.namespace")}</span>
-            <select
-              name="namespace"
-              .value=${draft.namespace}
-              ?disabled=${this.saving}
-              @change=${(event: Event) =>
-                this.update({ namespace: (event.target as HTMLSelectElement).value })}
-            >
-              ${namespaces.map(
-                (namespace) =>
-                  html`<option value=${namespace} ?selected=${namespace === draft.namespace}>
-                    ${namespace}
-                  </option>`,
-              )}
-            </select>
-          </label>
-          <label class="field"
-            ><span>${t("skillHubPage.summary")}</span>
-            <textarea
-              name="summary"
-              maxlength="4000"
-              .value=${draft.summary}
-              ?disabled=${this.saving}
-              @input=${(event: Event) =>
-                this.update({ summary: (event.target as HTMLTextAreaElement).value })}
-            ></textarea>
-          </label>
-          <label class="field"
-            ><span>${t("skillsPage.skillHub.visibility")}</span>
-            <select
-              name="visibility"
-              .value=${draft.visibility}
-              ?disabled=${this.saving}
-              @change=${(event: Event) =>
-                this.update({
-                  visibility: (event.target as HTMLSelectElement)
-                    .value as SkillEditDraft["visibility"],
-                })}
-            >
-              <option value="PUBLIC" ?selected=${draft.visibility === "PUBLIC"}>
-                ${t("skillsPage.skillHub.public")}
-              </option>
-              <option value="NAMESPACE_ONLY" ?selected=${draft.visibility === "NAMESPACE_ONLY"}>
-                ${t("skillsPage.skillHub.namespaceOnly")}
-              </option>
-              <option value="PRIVATE" ?selected=${draft.visibility === "PRIVATE"}>
-                ${t("skillsPage.skillHub.private")}
-              </option>
-            </select>
-          </label>
-        </div>
-        <p>${t("skillHubPage.editNamespaceHelp")}</p>
+        <label class="field"
+          ><span>${t("skillHubPage.displayName")}</span>
+          <input
+            name="displayName"
+            required
+            maxlength="200"
+            .value=${draft.displayName}
+            ?disabled=${controlsBusy}
+            ?readonly=${!this.canManage}
+            @input=${(event: Event) => {
+              draft.displayName = (event.target as HTMLInputElement).value;
+              this.host.requestUpdate();
+            }}
+        /></label>
+        <label class="field"
+          ><span>${t("skillHubPage.summary")}</span>
+          <textarea
+            name="summary"
+            maxlength="4000"
+            .value=${draft.summary}
+            ?disabled=${controlsBusy}
+            ?readonly=${!this.canManage}
+            @input=${(event: Event) => {
+              draft.summary = (event.target as HTMLTextAreaElement).value;
+            }}
+          ></textarea>
+        </label>
+        <label class="field"
+          ><span>${t("skillHubPage.tags")}</span>
+          <input
+            name="tags"
+            .value=${draft.tags}
+            ?disabled=${controlsBusy}
+            ?readonly=${!this.canManage}
+            @input=${(event: Event) => {
+              draft.tags = (event.target as HTMLInputElement).value;
+              this.host.requestUpdate();
+            }}
+          />
+          <small>${t("skillHubPage.tagsHelp")}</small></label
+        >
+        ${renderSkillHubSharing({
+          draft: draft.sharing,
+          config: draft.config,
+          disabled: controlsBusy || !this.canManage,
+          onChange: (sharing) => {
+            draft.sharing = sharing;
+            draft.sharingChanged = true;
+            this.host.requestUpdate();
+          },
+        })}
+        ${draft.requiresReason
+          ? renderSkillHubAdminReason(
+              draft.reason ?? "",
+              (reason) => {
+                draft.reason = reason;
+                this.host.requestUpdate();
+              },
+              controlsBusy || !this.canManage,
+            )
+          : nothing}
+        ${this.latest
+          ? html`<details class="callout skill-hub-edit-latest" open>
+              <summary>${t("skillHubPage.latestSavedValues")}</summary>
+              <p role="status">${t("skillHubPage.reviewLatestWithDraft")}</p>
+              <dl>
+                <dt>${t("skillHubPage.displayName")}</dt>
+                <dd>${this.latest.skill.displayName}</dd>
+                <dt>${t("skillHubPage.summary")}</dt>
+                <dd>${this.latest.skill.summary}</dd>
+                <dt>${t("skillHubPage.tags")}</dt>
+                <dd>${this.latest.skill.tags.join(", ")}</dd>
+                <dt>${t("skillHubPage.sharing")}</dt>
+                <dd>
+                  ${skillHubVisibilityLabel(this.latest.skill.sharing.mode)}
+                  ${this.latest.sharing?.users
+                    .map((user) => user.displayName ?? user.accountId)
+                    .join(", ")}
+                  ${this.latest.sharing?.scopes.map((scope) => scope.name).join(", ")}
+                </dd>
+              </dl>
+            </details>`
+          : nothing}
         ${this.error ? html`<div class="callout danger" role="alert">${this.error}</div>` : nothing}
+        ${this.error
+          ? html`<button
+              type="button"
+              class="btn"
+              ?disabled=${controlsBusy}
+              @click=${() => void this.reloadLatest()}
+            >
+              ${t(this.reloading ? "skillHubPage.reloadingSkill" : "skillHubPage.reloadLatest")}
+            </button>`
+          : nothing}
         <div class="skill-hub-install-actions">
           <button type="button" class="btn" ?disabled=${this.saving} @click=${() => this.clear()}>
             ${t("common.cancel")}
           </button>
-          <button
-            type=${this.reloadRequired ? "button" : "submit"}
-            class="btn primary"
-            ?disabled=${this.saving || (!this.reloadRequired && invalidDraft)}
-            @click=${() => {
-              if (this.reloadRequired) {
-                void this.reload();
-              }
-            }}
-          >
-            ${this.saving
-              ? t(this.reloadRequired ? "common.loading" : "skillHubPage.savingSkill")
-              : this.reloadRequired
-                ? t("common.reload")
-                : t("skillHubPage.saveSkill")}
+          <button type="submit" class="btn primary" ?disabled=${controlsBusy || invalid}>
+            ${t(this.saving ? "skillHubPage.savingSkill" : "skillHubPage.saveSkill")}
           </button>
         </div>
       </form>
     </openclaw-modal-dialog>`;
   }
 
-  private async save() {
-    if (
-      !this.pending ||
-      this.saving ||
-      this.reloadRequired ||
-      !this.pending.draft.displayName.trim()
-    ) {
+  private async reloadLatest() {
+    const draft = this.pending;
+    if (!draft || this.saving || this.reloading) {
       return;
     }
-    const { ref, draft } = this.pending;
-    this.saving = true;
-    this.submitted = true;
-    this.error = null;
+    this.reloading = true;
     this.host.requestUpdate();
     try {
-      const result = await editPlatformClawSkillHubSkill(ref.namespace, ref.slug, draft);
-      this.pending = null;
-      await this.options.refresh(result);
-      this.options.setMessage({
-        kind: result.ownershipReviewRequired || result.publicationPending ? "warning" : "success",
-        text: t(
-          result.ownershipReviewRequired
-            ? "skillHubPage.editedNeedsOwnershipReview"
-            : result.publicationPending
-              ? "skillHubPage.editedPublicationPending"
-              : "skillHubPage.editedSkill",
-          {
-            skill: `${result.namespace}/${result.slug}`,
-          },
-        ),
-      });
+      const [detail, config] = await Promise.all([
+        loadPlatformClawSkillHubDetail(draft.ref.id),
+        loadPlatformClawSkillHubConfig(),
+      ]);
+      if (this.pending !== draft) {
+        return;
+      }
+      if (detail.skill.id !== draft.ref.id) {
+        throw new Error(t("skillHubPage.editIdentityChanged"));
+      }
+      this.latest = detail;
+      draft.revision = detail.skill.revision;
+      draft.config = config;
+      draft.requiresReason = !detail.owner.isMine;
+      this.canManage = detail.canManage && Boolean(detail.sharing);
+      // No metadata merge: show current values alongside the retained draft.
+      // Untouched sharing always follows the server; reloading must not reopen a
+      // newly Private skill just because this editor originally showed Public.
+      if (!draft.sharingChanged && detail.sharing) {
+        draft.sharing = {
+          ...detail.sharing,
+          userIds: [...detail.sharing.userIds],
+          scopeIds: [...detail.sharing.scopeIds],
+          users: [...detail.sharing.users],
+          scopes: [...detail.sharing.scopes],
+        };
+      }
+      this.reloadRequired = false;
+      this.error = this.canManage ? null : t("skillHubPage.editAccessLost");
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
-      // Definitive rejection cancels the durable operation. Read fresh revisions
-      // before creating another edit; uncertain results retain the retry receipt.
-      this.reloadRequired =
-        error instanceof PlatformClawSkillHubRequestError &&
-        [400, 404, 409, 422].includes(error.status) &&
-        error.details?.code !== "skill-hub-edit-pending";
+      if (this.pending === draft) {
+        this.error = error instanceof Error ? error.message : String(error);
+      }
     } finally {
-      this.saving = false;
-      this.host.requestUpdate();
+      if (this.pending === draft) {
+        this.reloading = false;
+        this.host.requestUpdate();
+      }
     }
   }
 
-  private async reload() {
-    if (!this.pending || this.saving) {
+  private async save() {
+    const draft = this.pending;
+    if (!draft || this.saving || this.reloading || this.reloadRequired || !this.canManage) {
       return;
     }
-    const ref = this.pending.ref;
     this.saving = true;
+    this.error = null;
     this.host.requestUpdate();
     try {
-      await this.options.refresh(ref);
+      await editPlatformClawSkillHubSkill(draft.ref.id, {
+        expectedRevision: draft.revision,
+        ...(draft.reason ? { reason: draft.reason } : {}),
+        displayName: draft.displayName,
+        summary: draft.summary,
+        tags: draft.tags
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+        ...(draft.sharingChanged ? { sharing: skillHubSharingRequest(draft.sharing) } : {}),
+      });
       this.pending = null;
+      this.host.requestUpdate();
+      await refreshSkillHubAfterMutation(
+        t("skillHubPage.editedSkill", { skill: draft.displayName }),
+        () => this.options.refresh(draft.ref),
+        this.options.setMessage,
+      );
     } catch (error) {
-      this.error = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
+      if (this.pending) {
+        this.error = message;
+        this.reloadRequired =
+          error instanceof PlatformClawSkillHubRequestError && error.status === 409;
+      } else {
+        this.options.setMessage({ kind: "error", text: message });
+      }
     } finally {
       this.saving = false;
       this.host.requestUpdate();

@@ -1,0 +1,289 @@
+--- a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillStorageDeletionCompensationServiceTest.java
++++ b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillStorageDeletionCompensationServiceTest.java
+@@ -39,2 +39,2 @@
+-    void recordFailure_persistsPendingKeysAndError() {
+-        service.recordFailure(11L, "global", "demo-skill", List.of("skills/11/101/SKILL.md"), "boom");
++    void reserveDeletion_persistsPendingKeysBeforeAnyExternalEffect() {
++        service.reserveDeletion(11L, List.of("skills/11/101/SKILL.md"));
+@@ -47,2 +47,3 @@
+-        assertThat(saved.getNamespace()).isEqualTo("global");
+-        assertThat(saved.getSlug()).isEqualTo("demo-skill");
++        assertThat(saved.isWholeSkill()).isTrue();
++        assertThat(saved.getNamespace()).isEmpty();
++        assertThat(saved.getSlug()).isEmpty();
+@@ -50 +51 @@
+-        assertThat(saved.getLastError()).isEqualTo("boom");
++        assertThat(saved.getLastError()).isNull();
+@@ -73,0 +75,41 @@
++    void retryPendingCleanup_doesNotCompleteWhileStorageStillReportsAnObject() {
++        SkillStorageDeletionCompensation record = new SkillStorageDeletionCompensation(11L, "global", "demo", "[\"object-key\"]", null);
++        given(repository.findTop100ByStatusOrderByCreatedAtAsc(SkillStorageDeletionCompensationStatus.PENDING)).willReturn(List.of(record));
++        given(objectStorageService.exists("object-key")).willReturn(true);
++        service.retryPendingCleanup();
++        assertThat(record.getStatus()).isEqualTo(SkillStorageDeletionCompensationStatus.PENDING);
++        assertThat(record.getStorageKeysJson()).contains("object-key");
++        assertThat(record.getLastError()).contains("not yet complete");
++    }
++
++    @Test
++    void confirmDeletion_erasesContentAndRetainsOnlyTheCompletedReceipt() {
++        SkillStorageDeletionCompensation record = new SkillStorageDeletionCompensation(11L, "global", "demo", "[\"object-key\"]", "previous error");
++        given(repository.findBySkillId(11L)).willReturn(List.of(record));
++        service.confirmDeletion(11L);
++        assertThat(record.getStatus()).isEqualTo(SkillStorageDeletionCompensationStatus.COMPLETED);
++        assertThat(record.getStorageKeysJson()).isEqualTo("[]");
++        assertThat(record.getNamespace()).isEmpty(); assertThat(record.getSlug()).isEmpty();
++        assertThat(record.getLastError()).isNull(); assertThat(record.getUpdatedAt()).isNotNull();
++    }
++
++    @Test
++    void partialCleanupNeverEstablishesWholeArtifactDeletion() {
++        SkillStorageDeletionCompensation partial = new SkillStorageDeletionCompensation(11L, "global", "demo", "[]", null);
++        partial.markCompleted();
++        given(repository.findBySkillId(11L)).willReturn(List.of(partial));
++        assertThat(service.deletionReceipts(11L)).isEmpty();
++    }
++
++    @Test
++    void wholeDeletionIncludesOlderPendingVersionObjects() {
++        SkillStorageDeletionCompensation partial = new SkillStorageDeletionCompensation(11L, "global", "demo", "[\"old-version-object\"]", null);
++        given(repository.findBySkillId(11L)).willReturn(List.of(partial));
++        service.reserveDeletion(11L, List.of("current-version-object"));
++        ArgumentCaptor<SkillStorageDeletionCompensation> captor = ArgumentCaptor.forClass(SkillStorageDeletionCompensation.class);
++        verify(repository).save(captor.capture());
++        assertThat(captor.getValue().getStorageKeysJson()).contains("old-version-object", "current-version-object");
++        assertThat(captor.getValue().isWholeSkill()).isTrue();
++    }
++
++    @Test
+@@ -93,0 +136,33 @@
++    @Test
++    void cleansLegacyUnindexedObjectsWithoutTouchingOtherSkillIdentities() throws Exception {
++        java.nio.file.Path directory = java.nio.file.Files.createTempDirectory("artifact-delete-proof-");
++        try {
++            com.iflytek.skillhub.storage.StorageProperties properties = new com.iflytek.skillhub.storage.StorageProperties();
++            properties.getLocal().setBasePath(directory.toString());
++            com.iflytek.skillhub.storage.LocalFileStorageService actual = new com.iflytek.skillhub.storage.LocalFileStorageService(properties);
++            for (String key : List.of("skills/11/old/orphan", "packages/11/old/bundle.zip", "skills/110/keep")) actual.putObject(key, new java.io.ByteArrayInputStream(new byte[]{1}), 1, "application/octet-stream");
++            SkillStorageDeletionCompensation record = SkillStorageDeletionCompensation.wholeSkill(11L, "[]");
++            given(repository.findTop100ByStatusOrderByCreatedAtAsc(SkillStorageDeletionCompensationStatus.PENDING)).willReturn(List.of(record));
++            new SkillStorageDeletionCompensationService(repository, actual, new ObjectMapper()).retryPendingCleanup();
++            assertThat(record.getStatus()).isEqualTo(SkillStorageDeletionCompensationStatus.COMPLETED);
++            assertThat(actual.listObjects("skills/11/", 1000)).isEmpty();
++            assertThat(actual.listObjects("packages/11/", 1000)).isEmpty();
++            assertThat(actual.exists("skills/110/keep")).isTrue();
++        } finally {
++            try (var paths = java.nio.file.Files.walk(directory)) {
++                for (var path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) java.nio.file.Files.delete(path);
++            }
++        }
++    }
++
++    @Test
++    void keepsAWholeDeletionPendingWhenBoundedInventoryWorkCannotFinish() {
++        SkillStorageDeletionCompensation record = SkillStorageDeletionCompensation.wholeSkill(11L, "[]");
++        given(repository.findTop100ByStatusOrderByCreatedAtAsc(SkillStorageDeletionCompensationStatus.PENDING)).willReturn(List.of(record));
++        given(objectStorageService.listObjects("skills/11/", 1000)).willReturn(List.of("skills/11/still-present"));
++        service.retryPendingCleanup();
++        assertThat(record.getStatus()).isEqualTo(SkillStorageDeletionCompensationStatus.PENDING);
++        assertThat(record.getLastError()).contains("not yet complete");
++        org.mockito.Mockito.verify(objectStorageService, org.mockito.Mockito.times(20)).deleteObjects(List.of("skills/11/still-present"));
++    }
++
+--- a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillHardDeleteServiceTest.java
++++ b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillHardDeleteServiceTest.java
+@@ -123 +123,2 @@
+-        InOrder inOrder = inOrder(skillRepository, skillVersionRepository);
++        InOrder inOrder = inOrder(compensationService, skillRepository, skillVersionRepository);
++        inOrder.verify(compensationService).reserveDeletion(org.mockito.ArgumentMatchers.eq(7L), anyList());
+@@ -207,7 +208,2 @@
+-        verify(compensationService).recordFailure(
+-                org.mockito.ArgumentMatchers.eq(7L),
+-                org.mockito.ArgumentMatchers.eq("global"),
+-                org.mockito.ArgumentMatchers.eq("demo-skill"),
+-                argThat(keys -> keys.contains("skills/7/22/README.md") && keys.contains("packages/7/22/bundle.zip")),
+-                org.mockito.ArgumentMatchers.contains("s3 down")
+-        );
++        verify(compensationService).recordAttempt(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.contains("s3 down"));
++        verify(compensationService, never()).confirmDeletion(7L);
+--- a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillGovernanceServiceTest.java
++++ b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillGovernanceServiceTest.java
+@@ -323 +323 @@
+-        verify(compensationService).recordFailure(
++        verify(compensationService).reservePartialDeletion(
+@@ -331,2 +331 @@
+-                                && keys.contains("packages/1/2/bundle.zip")),
+-                org.mockito.ArgumentMatchers.contains("s3 down")
++                                && keys.contains("packages/1/2/bundle.zip"))
+@@ -333,0 +333 @@
++        verify(compensationService).recordAttempt(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.contains("s3 down"));
+--- a/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillPublishServiceTest.java
++++ b/server/skillhub-domain/src/test/java/com/iflytek/skillhub/domain/skill/service/SkillPublishServiceTest.java
+@@ -483 +483 @@
+-        verify(compensationService).recordFailure(
++        verify(compensationService).reservePartialDeletion(
+@@ -487,3 +487,3 @@
+-                eq(List.of("skills/1/8/SKILL.md", "packages/1/8/bundle.zip")),
+-                contains("s3 down")
+-        );
++                eq(List.of("skills/1/8/SKILL.md", "packages/1/8/bundle.zip"))
++        );
++        verify(compensationService).recordAttempt(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.contains("s3 down"));
+--- a/server/skillhub-storage/src/test/java/com/iflytek/skillhub/storage/S3StorageServiceTest.java
++++ b/server/skillhub-storage/src/test/java/com/iflytek/skillhub/storage/S3StorageServiceTest.java
+@@ -245,0 +246,110 @@
++    @Test
++    void deleteObjectsBatchesAllKeysWithoutDroppingOrDuplicatingObjects() {
++        S3Client client = mock(S3Client.class);
++        TestableS3StorageService service = new TestableS3StorageService(properties(false), client, mock(S3Presigner.class));
++        service.init();
++        List<software.amazon.awssdk.services.s3.model.DeleteObjectsRequest> requests = new ArrayList<>();
++        when(client.deleteObjects(any(software.amazon.awssdk.services.s3.model.DeleteObjectsRequest.class)))
++                .thenAnswer(invocation -> {
++                    requests.add(invocation.getArgument(0));
++                    return software.amazon.awssdk.services.s3.model.DeleteObjectsResponse.builder().build();
++                });
++        List<String> keys = java.util.stream.IntStream.range(0, 2001).mapToObj(index -> "artifact-" + index).toList();
++        service.deleteObjects(keys);
++        assertThat(requests.stream().map(request -> request.delete().objects().size()).toList()).containsExactly(1000,1000,1);
++        assertThat(requests.stream().flatMap(request -> request.delete().objects().stream()).map(object -> object.key()).toList()).containsExactlyElementsOf(keys);
++    }
++
++    @Test
++    void deleteObjectsRejectsPerKeyErrorsEvenWhenTheRequestSucceeded() {
++        S3Client client = mock(S3Client.class);
++        TestableS3StorageService service = new TestableS3StorageService(properties(false), client, mock(S3Presigner.class));
++        service.init();
++        when(client.deleteObjects(any(software.amazon.awssdk.services.s3.model.DeleteObjectsRequest.class)))
++                .thenReturn(software.amazon.awssdk.services.s3.model.DeleteObjectsResponse.builder()
++                        .errors(software.amazon.awssdk.services.s3.model.S3Error.builder().key("blocked").code("AccessDenied").build()).build());
++        assertThatThrownBy(() -> service.deleteObjects(List.of("blocked")))
++                .isInstanceOf(StorageAccessException.class).hasCauseInstanceOf(IllegalStateException.class);
++    }
++
++    @Test
++    void deleteObjectsKeepsMissingKeysIdempotentAndEmptyRequestsLocal() {
++        S3Client client = mock(S3Client.class);
++        TestableS3StorageService service = new TestableS3StorageService(properties(false), client, mock(S3Presigner.class));
++        service.init();
++        service.deleteObjects(List.of());
++        verifyNoInteractions(client);
++        when(client.deleteObjects(any(software.amazon.awssdk.services.s3.model.DeleteObjectsRequest.class)))
++                .thenReturn(software.amazon.awssdk.services.s3.model.DeleteObjectsResponse.builder()
++                        .deleted(software.amazon.awssdk.services.s3.model.DeletedObject.builder().key("already-gone").build()).build());
++        service.deleteObjects(List.of("already-gone"));
++        verify(client).deleteObjects(any(software.amazon.awssdk.services.s3.model.DeleteObjectsRequest.class));
++    }
++
++
++    @Test
++    void inventoriesAnExactOwnedPrefixWithBoundedS3Request() {
++        S3Client client = mock(S3Client.class);
++        TestableS3StorageService service = new TestableS3StorageService(properties(false), client, mock(S3Presigner.class));
++        service.init();
++        when(client.getBucketVersioning(any(software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest.class)))
++                .thenReturn(software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse.builder().build());
++        when(client.listObjectsV2(any(software.amazon.awssdk.services.s3.model.ListObjectsV2Request.class))).thenReturn(
++                software.amazon.awssdk.services.s3.model.ListObjectsV2Response.builder().contents(software.amazon.awssdk.services.s3.model.S3Object.builder().key("skills/11/old/file").build()).build());
++        assertThat(service.listObjects("skills/11/", 1000)).containsExactly("skills/11/old/file");
++        org.mockito.ArgumentCaptor<software.amazon.awssdk.services.s3.model.ListObjectsV2Request> request = org.mockito.ArgumentCaptor.forClass(software.amazon.awssdk.services.s3.model.ListObjectsV2Request.class);
++        verify(client).listObjectsV2(request.capture());
++        assertThat(request.getValue().bucket()).isEqualTo("skillhub");
++        assertThat(request.getValue().prefix()).isEqualTo("skills/11/");
++        assertThat(request.getValue().maxKeys()).isEqualTo(1000);
++        when(client.listObjectsV2(any(software.amazon.awssdk.services.s3.model.ListObjectsV2Request.class))).thenReturn(
++                software.amazon.awssdk.services.s3.model.ListObjectsV2Response.builder().contents(software.amazon.awssdk.services.s3.model.S3Object.builder().key("skills/110/other").build()).build());
++        assertThatThrownBy(() -> service.listObjects("skills/11/", 1000)).isInstanceOf(StorageAccessException.class);
++    }
++
++    @Test
++    void refusesBroadOrInvalidInventoryWithoutAnS3Call() {
++        S3Client client = mock(S3Client.class);
++        TestableS3StorageService service = new TestableS3StorageService(properties(false), client, mock(S3Presigner.class));
++        service.init();
++        assertThatThrownBy(() -> service.listObjects("skills/", 1000)).isInstanceOf(IllegalArgumentException.class);
++        assertThatThrownBy(() -> service.listObjects("skills/11/", 0)).isInstanceOf(IllegalArgumentException.class);
++        verifyNoInteractions(client);
++    }
++
++    @Test
++    void versionedOrSuspendedBucketsCannotEstablishPhysicalErasure() {
++        for (String status : List.of("Enabled", "Suspended", "FutureUnknownStatus")) {
++            S3Client client = mock(S3Client.class);
++            TestableS3StorageService service = new TestableS3StorageService(properties(false), client, mock(S3Presigner.class));
++            service.init();
++            when(client.getBucketVersioning(any(software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest.class)))
++                    .thenReturn(software.amazon.awssdk.services.s3.model.GetBucketVersioningResponse.builder().status(status).build());
++            assertThatThrownBy(() -> service.listObjects("skills/11/", 1000))
++                    .isInstanceOf(StorageAccessException.class).hasCauseInstanceOf(IllegalStateException.class);
++            verify(client, never()).listObjectsV2(any(software.amazon.awssdk.services.s3.model.ListObjectsV2Request.class));
++        }
++    }
++
++    @Test
++    void missingVersioningResponseCannotEstablishPhysicalErasure() {
++        S3Client client = mock(S3Client.class);
++        TestableS3StorageService service = new TestableS3StorageService(properties(false), client, mock(S3Presigner.class));
++        service.init();
++        assertThatThrownBy(() -> service.listObjects("skills/11/", 1000))
++                .isInstanceOf(StorageAccessException.class).hasCauseInstanceOf(IllegalStateException.class);
++        verify(client, never()).listObjectsV2(any(software.amazon.awssdk.services.s3.model.ListObjectsV2Request.class));
++    }
++
++    @Test
++    void deniedVersioningAuthorityCannotEstablishPhysicalErasure() {
++        S3Client client = mock(S3Client.class);
++        TestableS3StorageService service = new TestableS3StorageService(properties(false), client, mock(S3Presigner.class));
++        service.init();
++        when(client.getBucketVersioning(any(software.amazon.awssdk.services.s3.model.GetBucketVersioningRequest.class)))
++                .thenThrow(new IllegalStateException("Synthetic access denied"));
++        assertThatThrownBy(() -> service.listObjects("skills/11/", 1000))
++                .isInstanceOf(StorageAccessException.class).hasCauseInstanceOf(IllegalStateException.class);
++        verify(client, never()).listObjectsV2(any(software.amazon.awssdk.services.s3.model.ListObjectsV2Request.class));
++    }
++
+--- a/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerLoggingTest.java
++++ b/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerLoggingTest.java
+@@ -360,0 +361,6 @@
++        public List<String> listObjects(String prefix, int limit) {
++            ObjectStorageService.requireArtifactPrefix(prefix, limit);
++            return objects.keySet().stream().filter(key -> key.startsWith(prefix)).sorted().limit(limit).toList();
++        }
++
++        @Override
+--- a/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerTest.java
++++ b/server/skillhub-app/src/test/java/com/iflytek/skillhub/stream/ScanTaskConsumerTest.java
+@@ -699,0 +700,6 @@
++        public List<String> listObjects(String prefix, int limit) {
++            ObjectStorageService.requireArtifactPrefix(prefix, limit);
++            return objects.keySet().stream().filter(key -> key.startsWith(prefix)).sorted().limit(limit).toList();
++        }
++
++        @Override
+--- a/server/skillhub-storage/src/test/java/com/iflytek/skillhub/storage/LocalFileStorageServiceTest.java
++++ b/server/skillhub-storage/src/test/java/com/iflytek/skillhub/storage/LocalFileStorageServiceTest.java
+@@ -109,0 +110,24 @@
++    @Test
++    void inventoriesOnlyExactArtifactIdentityAndDrainsBoundedPages() {
++        for (int index = 0; index < 1001; index++) storageService.putObject("skills/11/legacy/" + index, new ByteArrayInputStream(new byte[]{1}), 1, "application/octet-stream");
++        storageService.putObject("skills/110/keep", new ByteArrayInputStream(new byte[]{2}), 1, "application/octet-stream");
++        assertEquals(1000, storageService.listObjects("skills/11/", 1000).size());
++        storageService.deleteObjects(storageService.listObjects("skills/11/", 1000));
++        assertEquals(1, storageService.listObjects("skills/11/", 1000).size());
++        storageService.deleteObjects(storageService.listObjects("skills/11/", 1000));
++        assertTrue(storageService.listObjects("skills/11/", 1000).isEmpty());
++        assertTrue(storageService.exists("skills/110/keep"));
++        assertThrows(IllegalArgumentException.class, () -> storageService.listObjects("skills/", 1000));
++        assertThrows(IllegalArgumentException.class, () -> storageService.listObjects("skills/11/", 1001));
++    }
++
++    @Test
++    void rejectsSymbolicLinksWithoutFollowingAnEscapedArtifactDirectory() throws Exception {
++        Path outside = Files.createDirectory(tempDir.resolve("outside"));
++        Files.write(outside.resolve("keep"), new byte[]{7});
++        Files.createDirectories(tempDir.resolve("skills/11"));
++        Files.createSymbolicLink(tempDir.resolve("skills/11/link"), outside);
++        assertThrows(StorageAccessException.class, () -> storageService.listObjects("skills/11/", 1000));
++        assertArrayEquals(new byte[]{7}, Files.readAllBytes(outside.resolve("keep")));
++    }
++

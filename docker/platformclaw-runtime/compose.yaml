@@ -110,7 +110,6 @@ services:
       PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE: ${PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE:-}
       # Retired value is passed through only so the loader can emit its migration error.
       PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID: ${PLATFORMCLAW_SKILL_HUB_PRIMARY_ADMIN_ID:-}
-      PLATFORMCLAW_SKILL_HUB_NAMESPACES: ${PLATFORMCLAW_SKILL_HUB_NAMESPACES:-}
       PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES: ${PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES:-524288000}
       PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL}
       PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL: ${PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL:?set PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL}
@@ -227,7 +226,7 @@ services:
 
   skillhub-storage-init:
     profiles: [skillhub]
-    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e49cb1217a0ba75}
+    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e496f54a14d0510}
     pull_policy: never
     user: "0:0"
     network_mode: none
@@ -259,7 +258,7 @@ services:
 
   skillhub-server:
     profiles: [skillhub]
-    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e49cb1217a0ba75}
+    image: ${PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE:-platformclaw-skillhub-server:6e133c006e496f54a14d0510}
     pull_policy: never
     depends_on:
       skillhub-postgres:

@@ -100,7 +100,15 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
     signal?: AbortSignal;
     maxBytes?: number;
   }): Promise<Buffer> {
-    const target = this.resolveResolvedPath(params);
+    let target = this.resolveResolvedPath(params);
+    if (this.sandbox.readOnlySkillMounts?.length) {
+      // Preserve the existing symlink/hardlink boundary check, then interpret
+      // aliases through the same overlays as the container. Never read bytes
+      // from this first descriptor: a swapped alias must not retain a raw-source FD.
+      const checked = await this.pathGuard.openReadableFile(target);
+      fs.closeSync(checked.fd);
+      target = this.resolveResolvedPath({ filePath: fs.realpathSync(target.hostPath) });
+    }
     return this.readPinnedFile(target, params.maxBytes);
   }
 

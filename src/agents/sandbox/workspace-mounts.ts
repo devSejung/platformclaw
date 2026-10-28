@@ -63,6 +63,166 @@ export function isExistingWorkspaceSkillMountSource(params: {
   return isPathInside(agentRoot, canonicalSource);
 }
 
+/** Hide only explicitly excluded source directories; preserve every other workspace byte. */
+export async function prepareExcludedWorkspaceSkillMounts(params: {
+  workspaceDir: string;
+  agentWorkspaceDir: string;
+  materializationDir: string;
+  workdir: string;
+  workspaceAccess: SandboxWorkspaceAccess;
+  excludedSkillFiles: readonly string[];
+  excludedSourceDirectories?: readonly string[];
+  binds?: readonly string[];
+}): Promise<{
+  mounts: ReadOnlyWorkspaceSkillMount[];
+  excludedSourceDirectories: string[];
+  missingSourceDirectories: string[];
+}> {
+  const agentRoot = path.resolve(params.agentWorkspaceDir);
+  const sourceRoots = [path.join(agentRoot, "skills"), path.join(agentRoot, ".agents", "skills")];
+  const directories = [
+    ...new Set([
+      ...params.excludedSkillFiles.flatMap((file) => {
+        if (!path.isAbsolute(file) || path.basename(file) !== "SKILL.md") {
+          return [];
+        }
+        const directory = path.dirname(path.resolve(file));
+        if (!sourceRoots.some((root) => isPathInside(root, directory))) {
+          return [];
+        }
+        return [directory];
+      }),
+      ...(params.excludedSourceDirectories ?? []).map((directory) => {
+        const resolved = path.resolve(directory);
+        if (
+          !path.isAbsolute(directory) ||
+          !sourceRoots.some((root) => isPathInside(root, resolved))
+        ) {
+          throw new Error("Excluded skill directory is outside the prepared agent's skill roots.");
+        }
+        return resolved;
+      }),
+    ]),
+  ].toSorted();
+  const missingSourceDirectories: string[] = [];
+  const canonicalAgentRoot = resolveSandboxHostPathViaExistingAncestor(agentRoot);
+  const sources = directories.map((directory) => ({
+    directory,
+    canonical: resolveSandboxHostPathViaExistingAncestor(directory),
+  }));
+  // Capture these identities with the mount targets, before any awaited work.
+  // Re-resolving this receipt later would follow a retargeted ancestor alias.
+  const excludedSourceDirectories = [...new Set(sources.map((source) => source.canonical))];
+  const existingDirectories = sources.filter(({ directory, canonical }) => {
+    if (!isPathInside(canonicalAgentRoot, canonical)) {
+      throw new Error("Excluded skill directory escapes the prepared agent workspace.");
+    }
+    try {
+      const stat = fs.lstatSync(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new Error("Excluded skill directory is not a regular source directory.");
+      }
+      return true;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        missingSourceDirectories.push(canonical);
+        return false;
+      }
+      throw error;
+    }
+  });
+  const aliases = [
+    {
+      hostPath: resolveSandboxHostPathViaExistingAncestor(path.resolve(params.workspaceDir)),
+      containerPath: params.workdir,
+    },
+  ];
+  if (params.workspaceAccess !== "none" && path.resolve(params.workspaceDir) !== agentRoot) {
+    aliases.push({ hostPath: canonicalAgentRoot, containerPath: SANDBOX_AGENT_WORKSPACE_MOUNT });
+  }
+  const targets = [
+    ...new Set(
+      existingDirectories.flatMap(({ canonical: directory }) =>
+        aliases.flatMap((alias) =>
+          isPathInside(alias.hostPath, directory)
+            ? [
+                containerJoin(
+                  alias.containerPath,
+                  ...path.relative(alias.hostPath, directory).split(path.sep),
+                ),
+              ]
+            : [],
+        ),
+      ),
+    ),
+  ].toSorted();
+  if (directories.length === 0) {
+    return { mounts: [], excludedSourceDirectories, missingSourceDirectories };
+  }
+
+  for (const bind of params.binds ?? []) {
+    const parsed = splitSandboxBindSpec(bind);
+    if (!parsed) {
+      throw new Error("Invalid sandbox bind while preparing skill permissions.");
+    }
+    const hostPath = resolveSandboxHostPathViaExistingAncestor(path.resolve(parsed.host));
+    const containerPath = normalizeMountContainerPath(parsed.container);
+    if (
+      sources.some(
+        ({ canonical: directory }) =>
+          isPathInside(hostPath, directory) || isPathInside(directory, hostPath),
+      ) ||
+      aliases.some((alias) => {
+        if (!isPathInsideContainerPath(alias.containerPath, containerPath)) {
+          return false;
+        }
+        const relative = path.posix.relative(alias.containerPath, containerPath);
+        const destination = resolveSandboxHostPathViaExistingAncestor(
+          path.join(alias.hostPath, ...relative.split("/")),
+        );
+        return sources.some(({ canonical }) => isPathInside(canonical, destination));
+      })
+    ) {
+      throw new Error(
+        "A custom sandbox bind exposes an excluded skill directory; remove that bind before retrying.",
+      );
+    }
+  }
+  if (targets.length === 0) {
+    return { mounts: [], excludedSourceDirectories, missingSourceDirectories };
+  }
+  // This sibling is never part of the refreshed skills/.source-mounts trees.
+  // Keep its inode stable so an existing read-only bind can never reveal old bytes.
+  const emptyDirectory = path.join(params.materializationDir, ".excluded-skill-empty");
+  await fs.promises.mkdir(emptyDirectory, { recursive: true, mode: 0o700 });
+  const stat = await fs.promises.lstat(emptyDirectory);
+  if (
+    !stat.isDirectory() ||
+    stat.isSymbolicLink() ||
+    (await fs.promises.readdir(emptyDirectory)).length > 0
+  ) {
+    throw new Error(
+      "The excluded skill materialization directory is not an empty owned directory.",
+    );
+  }
+  return {
+    mounts: targets.map((containerPath) => ({ hostPath: emptyDirectory, containerPath })),
+    excludedSourceDirectories,
+    missingSourceDirectories,
+  };
+}
+
+function isPathInsideContainerPath(root: string, target: string): boolean {
+  const relative = path.posix.relative(
+    normalizeMountContainerPath(root),
+    normalizeMountContainerPath(target),
+  );
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith("../") && !path.posix.isAbsolute(relative))
+  );
+}
+
 /** Finds agent-workspace skill directories that should be mounted read-only in rw workspaces. */
 export function resolveReadOnlyWorkspaceSkillMounts(params: {
   workspaceDir: string;
@@ -70,46 +230,73 @@ export function resolveReadOnlyWorkspaceSkillMounts(params: {
   skillsWorkspaceDir?: string;
   workdir: string;
   workspaceAccess: SandboxWorkspaceAccess;
+  readOnlySkillMounts?: readonly ReadOnlyWorkspaceSkillMount[];
 }): ReadOnlyWorkspaceSkillMount[] {
-  if (params.workspaceAccess !== "rw") {
-    return [];
-  }
-
   // RW workspaces mount the project as writable, but skill sources remain read-only so agent
   // instructions are visible without letting sandbox commands mutate them.
   const materializedSkillsWorkspaceDir =
     params.skillsWorkspaceDir ??
     resolveMaterializedSandboxSkillsWorkspaceDir(params.agentWorkspaceDir);
-  const mounts = [
-    {
-      hostPath: path.join(params.agentWorkspaceDir, "skills"),
-      containerPath: containerJoin(params.workdir, "skills"),
-      rootDir: params.agentWorkspaceDir,
-    },
-    {
-      hostPath: path.join(params.agentWorkspaceDir, ".agents", "skills"),
-      containerPath: containerJoin(params.workdir, ".agents", "skills"),
-      rootDir: params.agentWorkspaceDir,
-    },
-    {
-      hostPath: path.join(materializedSkillsWorkspaceDir, "skills"),
-      containerPath: containerJoin(
-        params.workdir,
-        ...MATERIALIZED_SANDBOX_SKILLS_WORKSPACE_PARTS,
-        "skills",
-      ),
-      rootDir: materializedSkillsWorkspaceDir,
-    },
-  ];
+  const mounts =
+    params.workspaceAccess === "rw"
+      ? [
+          {
+            hostPath: path.join(params.agentWorkspaceDir, "skills"),
+            containerPath: containerJoin(params.workdir, "skills"),
+            rootDir: params.agentWorkspaceDir,
+            workspaceSource: true,
+          },
+          {
+            hostPath: path.join(params.agentWorkspaceDir, ".agents", "skills"),
+            containerPath: containerJoin(params.workdir, ".agents", "skills"),
+            rootDir: params.agentWorkspaceDir,
+            workspaceSource: true,
+          },
+          {
+            hostPath: path.join(materializedSkillsWorkspaceDir, "skills"),
+            containerPath: containerJoin(
+              params.workdir,
+              ...MATERIALIZED_SANDBOX_SKILLS_WORKSPACE_PARTS,
+              "skills",
+            ),
+            rootDir: materializedSkillsWorkspaceDir,
+            workspaceSource: false,
+          },
+        ]
+      : [];
 
-  return mounts
+  const defaults = mounts
     .filter((mount) =>
       isExistingWorkspaceSkillMountSource({
         rootDir: mount.rootDir,
         hostPath: mount.hostPath,
       }),
     )
-    .map(({ hostPath, containerPath }) => ({ hostPath, containerPath }));
+    .map(({ hostPath, containerPath, rootDir, workspaceSource }) => {
+      const canonicalHost = resolveSandboxHostPathViaExistingAncestor(hostPath);
+      // Docker resolves workspace source aliases in the mounted tree. Use that
+      // same destination for its hash, nested masks, and host filesystem reads.
+      const canonicalTarget = workspaceSource
+        ? containerJoin(
+            params.workdir,
+            ...path
+              .relative(
+                resolveSandboxHostPathViaExistingAncestor(path.resolve(rootDir)),
+                canonicalHost,
+              )
+              .split(path.sep),
+          )
+        : containerPath;
+      return { hostPath: canonicalHost, containerPath: canonicalTarget };
+    });
+  // One authoritative plan is shared by Docker and the filesystem bridge.
+  const byTarget = new Map(
+    defaults.map((mount) => [normalizeMountContainerPath(mount.containerPath), mount]),
+  );
+  for (const mount of params.readOnlySkillMounts ?? []) {
+    byTarget.set(normalizeMountContainerPath(mount.containerPath), mount);
+  }
+  return [...byTarget.values()];
 }
 
 /** Returns stable mount state for sandbox config hashes. */

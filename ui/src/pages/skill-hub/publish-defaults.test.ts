@@ -1,184 +1,228 @@
 /* @vitest-environment jsdom */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
+import { skillHubRequestBody, skillHubRequestUrl } from "./skill-hub.test-fixtures.ts";
+import { skillHubConfig, skillHubJson } from "./skill-hub.test-fixtures.ts";
 import "./skill-hub-page.ts";
 
-function jsonResponse(value: unknown, status = 200): Response {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
+const findButton = (root: ParentNode, label: string) =>
+  [...root.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent?.trim() === label,
+  )!;
 
-describe("Skill Hub publishing defaults", () => {
+describe("Skill Hub publication defaults", () => {
+  it("publishes a new version only to the explicitly selected ID and preserves its sharing", async () => {
+    const id = "33333333-3333-4333-8333-333333333333";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = skillHubRequestUrl(input);
+      if (url.endsWith("/config")) {
+        return skillHubJson(
+          skillHubConfig({
+            ownedSkills: [{ id, slug: "demo", displayName: "My existing skill", revision: 42 }],
+          }),
+        );
+      }
+      if (url.includes("/workspace-skills")) {
+        return skillHubJson({ source: "platform_server", items: [{ skillKey: "demo" }] });
+      }
+      if (url.endsWith("/publish")) {
+        return skillHubJson({ id, slug: "demo", version: "2.0.0" });
+      }
+      return skillHubJson({ items: [], total: 0 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+    await waitForFast(() =>
+      expect(findButton(page, "Publish workspace skill").disabled).toBe(false),
+    );
+    findButton(page, "Publish workspace skill").click();
+    await waitForFast(() =>
+      expect(page.querySelector<HTMLSelectElement>('[name="skill"]')?.value).toBe("demo"),
+    );
+    const existing = page.querySelector<HTMLSelectElement>('[name="existingId"]')!;
+    existing.value = id;
+    existing.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitForFast(() => expect(page.querySelector('[name="sharing"]')).toBeNull());
+    const version = page.querySelector<HTMLInputElement>('[name="version"]')!;
+    version.value = "2.0.0";
+    version.dispatchEvent(new Event("input", { bubbles: true }));
+    findButton(page.querySelector(".skill-hub-workspace-publish")!, "Publish").click();
+    await waitForFast(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => skillHubRequestUrl(url).endsWith("/publish")),
+      ).toBe(true),
+    );
+    const call = fetchMock.mock.calls.find(([url]) =>
+      skillHubRequestUrl(url).endsWith("/publish"),
+    )!;
+    const body = JSON.parse(skillHubRequestBody(call[1]?.body));
+    expect(body).toMatchObject({
+      id,
+      expectedRevision: 42,
+      version: "2.0.0",
+      source: "platform_server",
+    });
+    expect(body).not.toHaveProperty("sharing");
+  });
   beforeEach(async () => {
     await i18n.setLocale("en");
   });
-
   afterEach(() => {
     vi.unstubAllGlobals();
     document.body.replaceChildren();
+    window.history.replaceState({}, "", window.location.pathname);
   });
 
-  it("defaults workspace publishing to the active assigned VM", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = input instanceof Request ? input.url : String(input);
-      if (url.endsWith("/config")) {
-        return jsonResponse({
-          namespaces: ["engineering"],
-          defaultNamespace: "engineering",
-          namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
-          maxPackageBytes: 1024,
-          activeTarget: "assigned_vm",
-          installTargets: [
-            { target: "platform_server", available: true, status: "ready" },
-            { target: "assigned_vm", available: true, status: "ready" },
-          ],
-        });
-      }
-      if (url.includes("/workspace-skills")) {
-        return jsonResponse({ source: "assigned_vm", items: [{ skillKey: "vm-only" }] });
-      }
-      return jsonResponse({ total: 0, items: [] });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const page = document.createElement("openclaw-skill-hub-page");
-    document.body.append(page);
-    await waitForFast(() => expect(page.textContent).toContain("Publish workspace skill"));
-
-    [...page.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Publish workspace skill"))
-      ?.click();
-    await waitForFast(() => expect(page.textContent).toContain("vm-only"));
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/workspace-skills?source=assigned_vm"),
-      expect.any(Object),
-    );
-    expect(
-      page.querySelector<HTMLSelectElement>(".skill-hub-workspace-publish select")?.value,
-    ).toBe("assigned_vm");
-  });
-
-  it("defaults each member workspace publish to Global and allows an explicit team choice", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = input instanceof Request ? input.url : String(input);
-      if (url.endsWith("/config")) {
-        return jsonResponse({
-          namespaces: ["engineering", "global"],
-          defaultNamespace: "global",
-          namespaceOptions: [
-            { namespace: "engineering", scopeKind: "team", scopeName: "Engineering" },
-            { namespace: "global", scopeKind: "global" },
-          ],
-          maxPackageBytes: 1024,
-          admin: false,
-        });
-      }
-      if (url.includes("/workspace-skills")) {
-        return jsonResponse({ source: "platform_server", items: [{ skillKey: "demo" }] });
-      }
-      if (url.endsWith("/publish")) {
-        if (typeof init?.body !== "string") {
-          throw new Error("Expected a JSON publish request body");
+  it.each(["platform_server", "assigned_vm"] as const)(
+    "publishes from %s as company-wide without requiring organization setup",
+    async (source) => {
+      const config = skillHubConfig({ activeTarget: source });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = skillHubRequestUrl(input);
+        if (url.endsWith("/config")) {
+          return skillHubJson(config);
         }
-        const body = JSON.parse(init.body) as { namespace: string };
-        return jsonResponse({ namespace: body.namespace, slug: "demo", version: "1.0.0" });
-      }
-      return jsonResponse({ total: 0, items: [] });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const page = document.createElement("openclaw-skill-hub-page");
-    document.body.append(page);
-    await waitForFast(() => expect(page.textContent).toContain("No Skill Hub results"));
-    const action = () =>
-      [...page.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
-        button.textContent?.includes("Publish workspace skill"),
-      )!;
-    const open = async () => {
-      expect(action().disabled).toBe(false);
-      action().click();
+        if (url.includes("/workspace-skills")) {
+          return skillHubJson({
+            source: new URL(url, "http://localhost").searchParams.get("source"),
+            items: [{ skillKey: "demo" }],
+          });
+        }
+        if (url.endsWith("/publish")) {
+          return skillHubJson({ id: "entry-one", slug: "demo", version: "1.0.0" });
+        }
+        return skillHubJson({ items: [], total: 0 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const page = document.createElement("openclaw-skill-hub-page");
+      document.body.append(page);
+      await waitForFast(() =>
+        expect(findButton(page, "Publish workspace skill").disabled).toBe(false),
+      );
+      findButton(page, "Publish workspace skill").click();
+      await waitForFast(() =>
+        expect(page.querySelector<HTMLSelectElement>('[name="skill"]')?.value).toBe("demo"),
+      );
+      expect(page.querySelector<HTMLSelectElement>('[name="source"]')?.value).toBe(source);
+      expect(page.querySelector<HTMLSelectElement>('[name="sharing"]')?.value).toBe("PUBLIC");
+      expect(page.querySelector('[name="namespace"]')).toBeNull();
+      findButton(page.querySelector(".skill-hub-workspace-publish")!, "Publish").click();
       await waitForFast(() =>
         expect(
-          page.querySelectorAll<HTMLSelectElement>(".skill-hub-workspace-publish select")[1]?.value,
-        ).toBe("demo"),
+          fetchMock.mock.calls.some(([url]) => skillHubRequestUrl(url).endsWith("/publish")),
+        ).toBe(true),
       );
-      return page.querySelectorAll<HTMLSelectElement>(".skill-hub-workspace-publish select")[2]!;
-    };
-    const publish = () =>
-      page.querySelector<HTMLButtonElement>(".skill-hub-workspace-publish button.primary")!.click();
-
-    const destination = await open();
-    expect(destination.value).toBe("global");
-    expect(destination.textContent).toContain("Company-wide (global)");
-    expect(destination.textContent).toContain("Team: Engineering (engineering)");
-    publish();
-    await waitForFast(() => expect(page.textContent).toContain("Published global/demo@1.0.0"));
-
-    const teamDestination = await open();
-    teamDestination.value = "engineering";
-    teamDestination.dispatchEvent(new Event("change", { bubbles: true }));
-    await waitForFast(() => expect(teamDestination.value).toBe("engineering"));
-    publish();
-    await waitForFast(() => expect(page.textContent).toContain("Published engineering/demo@1.0.0"));
-    expect((await open()).value).toBe("global");
-
-    const published = fetchMock.mock.calls
-      .filter(([input]) =>
-        (input instanceof Request ? input.url : input.toString()).endsWith("/publish"),
-      )
-      .map(([, init]) => {
-        if (typeof init?.body !== "string") {
-          throw new Error("Expected a JSON publish request body");
-        }
-        return JSON.parse(init.body) as { namespace: string };
+      const call = fetchMock.mock.calls.find(([url]) =>
+        skillHubRequestUrl(url).endsWith("/publish"),
+      )!;
+      expect(JSON.parse(skillHubRequestBody(call[1]?.body))).toMatchObject({
+        source,
+        skill: "demo",
+        sharing: { mode: "PUBLIC", userIds: [], scopeIds: [] },
       });
-    expect(published.map((body) => body.namespace)).toEqual(["global", "engineering"]);
-    expect(page.textContent).not.toContain("Skill Hub admin");
-  });
+      expect(JSON.parse(skillHubRequestBody(call[1]?.body))).not.toHaveProperty("namespace");
+    },
+  );
 
-  it("resets ZIP publishing to Global when reopened after choosing a team", async () => {
+  it("preserves an unchanged retry ID and creates a new one after selecting another skill", async () => {
+    const bodies: Array<{ operationId: string; skill: string; version: string }> = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) =>
-        jsonResponse(
-          (input instanceof Request ? input.url : input.toString()).endsWith("/config")
-            ? {
-                namespaces: ["engineering", "global"],
-                defaultNamespace: "global",
-                namespaceOptions: [
-                  { namespace: "engineering", scopeKind: "team", scopeName: "Engineering" },
-                  { namespace: "global", scopeKind: "global" },
-                ],
-                maxPackageBytes: 1024,
-                admin: false,
-              }
-            : { total: 0, items: [] },
-        ),
-      ),
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = skillHubRequestUrl(input);
+        if (url.endsWith("/config")) {
+          return skillHubJson(skillHubConfig());
+        }
+        if (url.includes("/workspace-skills")) {
+          return skillHubJson({
+            source: "platform_server",
+            items: [
+              { skillKey: "first", version: "1.0.0" },
+              { skillKey: "second", version: "2.0.0" },
+            ],
+          });
+        }
+        if (url.endsWith("/publish")) {
+          bodies.push(JSON.parse(skillHubRequestBody(init?.body)));
+          return skillHubJson({ error: "Publication pending" }, 503);
+        }
+        return skillHubJson({ items: [], total: 0 });
+      }),
     );
     const page = document.createElement("openclaw-skill-hub-page");
     document.body.append(page);
-    await waitForFast(() => expect(page.textContent).toContain("No Skill Hub results"));
-    const open = () =>
-      [...page.querySelectorAll<HTMLButtonElement>("button")]
-        .find((button) => button.textContent?.trim() === "Upload ZIP")!
-        .click();
-    open();
-    await waitForFast(() => expect(page.querySelector(".skill-hub-upload")).not.toBeNull());
-    const destination = page.querySelector<HTMLSelectElement>(".skill-hub-upload select")!;
-    expect(destination.value).toBe("global");
-    destination.value = "engineering";
-    destination.dispatchEvent(new Event("change", { bubbles: true }));
-    page.querySelector<HTMLButtonElement>(".skill-hub-upload header button")!.click();
-    await waitForFast(() => expect(page.querySelector(".skill-hub-upload")).toBeNull());
-    open();
     await waitForFast(() =>
-      expect(page.querySelector<HTMLSelectElement>(".skill-hub-upload select")?.value).toBe(
-        "global",
-      ),
+      expect(findButton(page, "Publish workspace skill").disabled).toBe(false),
     );
+    findButton(page, "Publish workspace skill").click();
+    await waitForFast(() =>
+      expect(
+        page.querySelector<HTMLSelectElement>('[name="skill"]')?.options.length,
+      ).toBeGreaterThan(2),
+    );
+    const select = page.querySelector<HTMLSelectElement>('[name="skill"]')!;
+    select.value = "first";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    const publish = () =>
+      findButton(page.querySelector(".skill-hub-workspace-publish")!, "Publish");
+    await waitForFast(() => expect(publish().disabled).toBe(false));
+    publish().click();
+    await waitForFast(() => expect(bodies).toHaveLength(1));
+    await waitForFast(() => expect(publish().disabled).toBe(false));
+    publish().click();
+    await waitForFast(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]!.operationId).toBe(bodies[0]!.operationId);
+    await waitForFast(() => expect(publish().disabled).toBe(false));
+    select.value = "second";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitForFast(() =>
+      expect(page.querySelector<HTMLInputElement>('[name="version"]')?.value).toBe("2.0.0"),
+    );
+    publish().click();
+    await waitForFast(() => expect(bodies).toHaveLength(3));
+    expect(bodies[2]).toMatchObject({ skill: "second", version: "2.0.0" });
+    expect(bodies[2]!.operationId).not.toBe(bodies[0]!.operationId);
+  });
+
+  it("allows another organization's Part and prevents empty selected sharing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = skillHubRequestUrl(input);
+        if (url.endsWith("/config")) {
+          return skillHubJson(
+            skillHubConfig({ scopes: [{ id: "other-part", kind: "part", name: "Another Part" }] }),
+          );
+        }
+        if (url.includes("/workspace-skills")) {
+          return skillHubJson({ source: "platform_server", items: [{ skillKey: "demo" }] });
+        }
+        return skillHubJson({ items: [], total: 0 });
+      }),
+    );
+    const page = document.createElement("openclaw-skill-hub-page");
+    document.body.append(page);
+    await waitForFast(() =>
+      expect(findButton(page, "Publish workspace skill").disabled).toBe(false),
+    );
+    findButton(page, "Publish workspace skill").click();
+    await waitForFast(() =>
+      expect(page.querySelector<HTMLSelectElement>('[name="skill"]')?.value).toBe("demo"),
+    );
+    const sharing = page.querySelector<HTMLSelectElement>('[name="sharing"]')!;
+    sharing.value = "SELECTED";
+    sharing.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitForFast(() => expect(page.textContent).toContain("Another Part"));
+    const publish = () =>
+      findButton(page.querySelector(".skill-hub-workspace-publish")!, "Publish");
+    expect(publish().disabled).toBe(true);
+    const part = page.querySelector<HTMLInputElement>('input[value="other-part"]')!;
+    part.click();
+    await waitForFast(() => expect(publish().disabled).toBe(false));
+    part.click();
+    await waitForFast(() => expect(publish().disabled).toBe(true));
+    expect(sharing.value).toBe("SELECTED");
   });
 });

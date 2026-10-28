@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi, OpenClawPluginToolFactory } from "../../../src/plugins/types.js";
 import { resolveRelativeBundledPluginPublicModuleId } from "../../../src/test-utils/bundled-plugin-public-surface.js";
 import { readBrowserJsonBody } from "./browser-http-shared.js";
-import type { KnoxRoutingService } from "./knox-routing-service.js";
+import { KnoxRoutingService } from "./knox-routing-service.js";
 import { handlePlatformClawKnoxInternalRequest } from "./knox-skill-hub-http.js";
 import type { KnoxSkillHubCommandContext } from "./skill-hub-command-workspace.js";
 import { createSkillHubServiceFixture } from "./skill-hub-service.test-fixtures.js";
@@ -37,45 +37,20 @@ afterEach(async () => {
 async function setup(room = true, manager?: "admin" | "owner") {
   const fixture = await createSkillHubServiceFixture();
   if (manager === "admin") {
-    fixture.actor.user.globalRole = "admin";
+    fixture.actor.user = (
+      await fixture.store.addDeploymentAdministrator({
+        accountId: fixture.actor.user.accountId,
+        changedAt: 4,
+      })
+    ).user;
   }
-  if (manager === "owner") {
-    await fixture.store.recordSkillHubPublication({
-      namespace: "engineering",
-      slug: "demo-skill",
-      ownerUserId: fixture.actor.user.id,
-      expectedOwnerUserId: null,
-      expectedOwnerUpdatedAt: null,
-      expectedBindingUpdatedAt: 1,
-      visibility: "PUBLIC",
-      version: "1.0.0",
-      changedAt: 1,
-    });
-  }
-  if (manager) {
-    const route = await fixture.store.resolveAuthenticatedKnoxDmRoute({ accountId: "person.one" });
-    if (route.status !== "resolved") {
-      throw new Error("fixture DM route unavailable");
-    }
-    vi.spyOn(fixture.store, "resolveAuthenticatedKnoxDmRoute").mockResolvedValue({
-      ...route,
-      user: fixture.actor.user,
-    });
-  }
-  const roomBinding = {
-    id: "room-binding",
-    kind: "knox-room" as const,
+  const reservation = await fixture.store.reserveKnoxRoomAgent({
     accountId: "default",
     roomId: "group-one",
-    agentId: "room-agent",
-    state: "active" as const,
-    createdAt: 1,
-    updatedAt: 1,
-  };
-  fixture.store.getUserByAccountId = vi.fn(async (accountId) =>
-    accountId === "person.one" ? fixture.actor.user : null,
-  );
-  fixture.store.listAgentBindingsByState = vi.fn(async () => [roomBinding]);
+    reservedAt: 5,
+  });
+  const roomBinding = reservation.binding;
+  await fixture.store.transitionAgent({ bindingId: roomBinding.id, state: "active", changedAt: 6 });
   const agentId = room ? roomBinding.agentId : fixture.actor.agentId;
   const context: KnoxSkillHubCommandContext = {
     accountId: "default",
@@ -84,14 +59,14 @@ async function setup(room = true, manager?: "admin" | "owner") {
     agentId,
     sessionKey: `agent:${agentId}:main`,
   };
-  const candidate = {
-    namespace: "engineering",
-    slug: "demo-skill",
-    latestVersion: "1.0.0",
+  if (!fixture.entry) {
+    throw new Error("Missing default catalog entry");
+  }
+  await fixture.service.updateMetadata(fixture.actor.user, fixture.entry.id, {
+    expectedRevision: fixture.entry.revision,
     summary: "Synthetic task helper",
-    visibility: "PUBLIC" as const,
-  };
-  fixture.adapterMocks.search.mockResolvedValue({ items: [candidate], total: 1 });
+  });
+  const candidate = (await fixture.service.search(fixture.actor.user, "task helper")).items[0]!;
   fixture.adapterMocks.listVersions.mockResolvedValue([
     { id: 1, version: "1.0.0", status: "PUBLISHED", downloadAvailable: true },
   ]);
@@ -135,7 +110,11 @@ async function setup(room = true, manager?: "admin" | "owner") {
   const serviceToken = "synthetic-service-token-".repeat(3);
   const server = createServer((req, res) => {
     void handlePlatformClawKnoxInternalRequest(req, res, {
-      service: {} as KnoxRoutingService,
+      service: new KnoxRoutingService({
+        store: fixture.store,
+        roomProvisioner: { provision: async () => undefined },
+        buildAgentMainSessionKey: ({ agentId: bindingAgentId }) => `agent:${bindingAgentId}:main`,
+      }),
       skillHubService: fixture.service,
       serviceToken,
       readJsonBody: readBrowserJsonBody,
@@ -206,30 +185,44 @@ async function setup(room = true, manager?: "admin" | "owner") {
     });
     return { status: response.status, body: (await response.json()) as Record<string, unknown> };
   };
-  const installInput = { namespace: "engineering", slug: "demo-skill", version: "1.0.0" };
-  return { ...fixture, context, candidate, ready, call, tool, installInput };
+  const markOrigin = async (
+    destination: "platform_server" | "assigned_vm" = "platform_server",
+    skillId = candidate.id,
+  ) => {
+    const origin = {
+      operationId: "preexisting-" + destination,
+      agentId,
+      destination,
+      targetId:
+        destination === "assigned_vm"
+          ? (await fixture.store.resolvePersonalExecutionTarget(agentId, "assigned_vm")).targetId
+          : "platform-server",
+      slug: "demo-skill",
+      skillId,
+      version: "1.0.0",
+      archiveSha256: "a".repeat(64),
+      installedRevision: ready.revision,
+      installedAt: 20,
+    };
+    await fixture.store.skillHubCatalog.recordInstallation({ ...origin, state: "pending" });
+    await fixture.store.skillHubCatalog.completeInstallation({ ...origin, now: 21 });
+  };
+  const installInput = { id: fixture.entry.id, version: "1.0.0" };
+  return {
+    ...fixture,
+    context,
+    candidate,
+    ready,
+    call,
+    tool,
+    installInput,
+    roomBinding,
+    markOrigin,
+  };
 }
 
-function activateVm(fixture: Awaited<ReturnType<typeof createSkillHubServiceFixture>>): void {
-  fixture.getPersonalExecutionProfile.mockResolvedValue({
-    agentBindingId: "binding-1",
-    activeTarget: "assigned_vm",
-    activeAllocationId: "allocation-1",
-    targetRevision: 7,
-    updatedAt: 1,
-  });
-  fixture.getVmAllocationForAgent.mockResolvedValue({
-    id: "allocation-1",
-    agentBindingId: "binding-1",
-    vmHostId: "host-1",
-    linuxAccount: "synthetic-person",
-    status: "ready",
-    remoteHomeDir: "/home/synthetic-person",
-    remoteWorkspaceDir: "/home/synthetic-person/workspace",
-    createdByUserId: "synthetic-admin",
-    createdAt: 1,
-    updatedAt: 1,
-  });
+async function activateVm(fixture: Awaited<ReturnType<typeof createSkillHubServiceFixture>>) {
+  return await fixture.activateVm((await fixture.saveVm()).id);
 }
 
 describe("Knox Skill Hub natural-language tool transport", () => {
@@ -240,26 +233,31 @@ describe("Knox Skill Hub natural-language tool transport", () => {
         status,
       })),
     ),
-  )("blocks $manager preview of $status releases in a room", async ({ manager, status }) => {
-    const f = await setup(true, manager);
-    f.adapterMocks.listVersions.mockResolvedValue([
-      { id: 20, version: "1.0.0", status, downloadAvailable: true },
-    ]);
-    f.adapterMocks.getVersionState.mockResolvedValue({ id: 20, version: "1.0.0", status });
-    expect((await f.call("install", f.installInput)).status).toBe(409);
-    expect(await f.tool("install").execute("blocked-room-install", f.installInput)).toMatchObject({
-      isError: true,
-    });
-    expect(f.adapterMocks.download).not.toHaveBeenCalled();
-    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.upload.begin", expect.anything());
-    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.install", expect.anything());
-  });
+  )(
+    "installs intact unverified $status artifacts for $manager in a public room",
+    async ({ manager, status }) => {
+      const f = await setup(true, manager);
+      f.adapterMocks.listVersions.mockResolvedValue([
+        { id: 20, version: "1.0.0", status, downloadAvailable: true },
+      ]);
+      f.adapterMocks.getVersionState.mockResolvedValue({ id: 20, version: "1.0.0", status });
+      expect((await f.call("install", f.installInput)).status).toBe(200);
+      expect(
+        await f.tool("install").execute("unverified-room-install", f.installInput),
+      ).toMatchObject({ details: { ok: true, noOp: true } });
+      expect(f.adapterMocks.download).toHaveBeenCalled();
+      expect(f.adminRpcCall).toHaveBeenCalledWith(
+        "skills.install",
+        expect.objectContaining({ agentId: f.context.agentId }),
+      );
+    },
+  );
 
   it.each(
     (["admin", "owner"] as const).flatMap((manager) =>
       [
         { room: true, status: "PUBLISHED" },
-        { room: false, status: "PENDING_REVIEW" },
+        { room: false, status: "PUBLISHED" },
       ].map((scenario) => ({ manager, room: scenario.room, status: scenario.status })),
     ),
   )("allows $manager $status installation (room=$room)", async ({ manager, room, status }) => {
@@ -271,7 +269,7 @@ describe("Knox Skill Hub natural-language tool transport", () => {
     expect(await f.tool("install").execute("permitted-install", f.installInput)).toMatchObject({
       details: { ok: true, noOp: false, version: "1.0.0" },
     });
-    expect(f.adapterMocks.download).toHaveBeenCalledWith("engineering", "demo-skill", "1.0.0");
+    expect(f.adapterMocks.download).toHaveBeenCalledWith(f.entry!.namespace, "demo-skill", "1.0.0");
     expect(f.adminRpcCall).toHaveBeenCalledWith(
       "skills.install",
       expect.objectContaining({ agentId: f.context.agentId }),
@@ -295,7 +293,11 @@ describe("Knox Skill Hub natural-language tool transport", () => {
       expect(await f.tool("install").execute("approval-turn", f.installInput)).toMatchObject({
         details: { ok: true, noOp: false, version: "1.0.0" },
       });
-      expect(f.adapterMocks.download).toHaveBeenCalledWith("engineering", "demo-skill", "1.0.0");
+      expect(f.adapterMocks.download).toHaveBeenCalledWith(
+        f.entry!.namespace,
+        "demo-skill",
+        "1.0.0",
+      );
       expect(f.adminRpcCall).toHaveBeenCalledWith("skills.install", {
         agentId: f.context.agentId,
         source: "upload",
@@ -325,17 +327,15 @@ describe("Knox Skill Hub natural-language tool transport", () => {
 
   it("returns only room-public candidates even when the sender has private grants", async () => {
     const f = await setup();
-    vi.spyOn(f.store, "hasSkillHubAccess").mockResolvedValue(true);
-    f.adapterMocks.search.mockResolvedValue({
-      items: [
-        f.candidate,
-        { ...f.candidate, slug: "private-helper", visibility: "PRIVATE" },
-        { ...f.candidate, slug: "team-helper", visibility: "NAMESPACE_ONLY" },
-        { ...f.candidate, namespace: "unallowed" },
-      ],
-      total: 4,
+    await f.seedEntry({
+      slug: "private-helper",
+      sharing: { mode: "PRIVATE", userIds: [], scopeIds: [] },
     });
-    expect(await f.call("search", { query: "task helper" })).toMatchObject({
+    await f.seedEntry({
+      slug: "selected-helper",
+      sharing: { mode: "SELECTED", userIds: [f.actor.user.id], scopeIds: [] },
+    });
+    expect(await f.call("search", { query: "" })).toMatchObject({
       status: 200,
       body: { items: [f.candidate], total: 1 },
     });
@@ -343,14 +343,13 @@ describe("Knox Skill Hub natural-language tool transport", () => {
 
   it("bounds search output even when the registry exceeds its requested limit", async () => {
     const f = await setup();
-    f.adapterMocks.search.mockResolvedValue({
-      items: Array.from({ length: 7 }, (_, index) => ({
-        ...f.candidate,
-        slug: `helper-${index}`,
+    for (let index = 0; index < 7; index++) {
+      const entry = await f.seedEntry({ slug: "helper-" + index });
+      await f.service.updateMetadata(f.actor.user, entry.id, {
+        expectedRevision: entry.revision,
         summary: "s".repeat(500),
-      })),
-      total: 7,
-    });
+      });
+    }
     const result = await f.call("search", { query: "helper" });
     expect(result.status).toBe(200);
     expect(result.body.items).toHaveLength(5);
@@ -392,7 +391,7 @@ describe("Knox Skill Hub natural-language tool transport", () => {
 
   it("deletes only the active VM copy and preserves the Basic copy of the same slug", async () => {
     const f = await setup(false);
-    activateVm(f);
+    const target = await activateVm(f);
     const vmSkill = {
       ...f.ready,
       source: "platformclaw-vm-workspace",
@@ -415,22 +414,22 @@ describe("Knox Skill Hub natural-language tool transport", () => {
       details: { ok: true, target: "assigned_vm" },
     });
     expect(f.adminRpcCall).toHaveBeenCalledWith("skills.uninstall", {
-      agentId: "agent-1",
+      agentId: f.actor.agentId,
       slug: "demo-skill",
       destination: "sandbox-backend",
       backendTarget: "assigned_vm",
-      expectedTargetRevision: 7,
+      expectedTargetRevision: target.revision,
       expectedSkillRevision: vmSkill.revision,
     });
     expect(await f.call("status", { slug: "demo-skill" })).toMatchObject({
       status: 200,
       body: { target: "assigned_vm", items: [], total: 0 },
     });
-    f.getPersonalExecutionProfile.mockResolvedValue({
-      agentBindingId: "binding-1",
-      activeTarget: "platform_server",
-      targetRevision: 8,
-      updatedAt: 1,
+    await f.store.changePersonalExecutionTarget({
+      agentId: f.actor.agentId,
+      target: "platform_server",
+      expectedRevision: target.revision,
+      changedAt: 10,
     });
     expect(await f.call("status", { slug: "demo-skill" })).toMatchObject({
       status: 200,
@@ -484,6 +483,7 @@ describe("Knox Skill Hub natural-language tool transport", () => {
     },
   ])("reports an existing skill's readiness without reinstalling %j", async (readiness) => {
     const f = await setup();
+    await f.markOrigin();
     f.adminRpcCall.mockResolvedValue({ skills: [{ ...f.ready, ...readiness }] });
     expect(await f.call("install", f.installInput)).toMatchObject({
       status: 200,
@@ -510,9 +510,12 @@ describe("Knox Skill Hub natural-language tool transport", () => {
   it("rejects unlinked and disabled senders before reading the registry", async () => {
     const f = await setup();
     expect((await f.call("install", f.installInput, {}, "unlinked.person")).status).toBe(401);
-    vi.spyOn(f.store, "getUserByAccountId").mockResolvedValue({
-      ...f.actor.user,
+    const admin = await f.createActor("admin.user");
+    await f.store.setManagedUserStatus({
+      actorUserId: admin.user.id,
+      targetUserId: f.actor.user.id,
       status: "disabled",
+      changedAt: 50,
     });
     expect((await f.call("search", { query: "helper" })).status).toBe(401);
     expect(f.adapterMocks.search).not.toHaveBeenCalled();
@@ -520,7 +523,11 @@ describe("Knox Skill Hub natural-language tool transport", () => {
 
   it("rejects an inactive room binding before registry access", async () => {
     const f = await setup();
-    vi.spyOn(f.store, "listAgentBindingsByState").mockResolvedValue([]);
+    await f.store.transitionAgent({
+      bindingId: f.roomBinding.id,
+      state: "disabled",
+      changedAt: 50,
+    });
     expect((await f.call("install", f.installInput)).status).toBe(409);
     expect(f.adapterMocks.search).not.toHaveBeenCalled();
     expect(f.adminRpcCall).not.toHaveBeenCalled();
@@ -528,24 +535,47 @@ describe("Knox Skill Hub natural-language tool transport", () => {
 
   it("uses the personal active VM and its skill source for status and existing installs", async () => {
     const f = await setup(false);
-    activateVm(f);
+    await activateVm(f);
+    await f.markOrigin("assigned_vm");
     f.adminRpcCall.mockResolvedValue({
       skills: [{ ...f.ready, source: "platformclaw-vm-workspace" }],
     });
     expect(await f.call("search", { query: "helper" })).toMatchObject({
       status: 200,
-      body: { target: "assigned_vm", audience: "employee", agentId: "agent-1" },
+      body: { target: "assigned_vm", audience: "employee", agentId: f.actor.agentId },
     });
     expect(await f.call("install", f.installInput)).toMatchObject({
       status: 200,
       body: { target: "assigned_vm", noOp: true, readiness: { eligible: true } },
     });
     expect(f.adminRpcCall).toHaveBeenCalledWith("skills.status", {
-      agentId: "agent-1",
+      agentId: f.actor.agentId,
       refresh: true,
       backendTarget: "assigned_vm",
     });
     expect(f.adapterMocks.download).not.toHaveBeenCalled();
+  });
+
+  it("does not report another VM's same-name copy as installed after an awaited catalog lookup", async () => {
+    const f = await setup(false);
+    const first = await f.saveVm();
+    const second = await f.saveVm();
+    await f.activateVm(first.id);
+    await f.markOrigin("assigned_vm");
+    f.adminRpcCall.mockResolvedValue({
+      skills: [{ ...f.ready, source: "platformclaw-vm-workspace" }],
+    });
+    f.adapterMocks.listVersions.mockImplementationOnce(async () => {
+      await f.activateVm(second.id);
+      return [{ id: 1, version: "1.0.0", status: "PUBLISHED", downloadAvailable: true }];
+    });
+    expect(await f.call("install", f.installInput)).toMatchObject({
+      status: 409,
+      body: { error: "Skill Hub execution target changed; check status and retry." },
+    });
+    expect(f.adapterMocks.download).not.toHaveBeenCalled();
+    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.install", expect.anything());
+    expect(await f.store.skillHubCatalog.listInstallations(f.actor.agentId, second.id)).toEqual([]);
   });
 
   it("rejects a Basic-to-VM switch after status and before upload", async () => {
@@ -576,10 +606,12 @@ describe("Knox Skill Hub natural-language tool transport", () => {
       targetRevision: 9,
       updatedAt: 1,
     });
+    let installed = false;
     f.adminRpcCall.mockImplementation(async (method: string) => {
       if (method === "skills.status") {
         return {
           skills: [
+            ...(installed ? [f.ready] : []),
             { ...f.ready, source: "platformclaw-vm-workspace" },
             {
               ...f.ready,
@@ -592,6 +624,9 @@ describe("Knox Skill Hub natural-language tool transport", () => {
       if (method === "skills.upload.begin") {
         return { uploadId: "synthetic-upload", receivedBytes: 0 };
       }
+      if (method === "skills.install") {
+        installed = true;
+      }
       return { ok: true, slug: "demo-skill" };
     });
     expect(await f.call("install", f.installInput)).toMatchObject({
@@ -601,7 +636,7 @@ describe("Knox Skill Hub natural-language tool transport", () => {
     expect(f.adminRpcCall).toHaveBeenCalledWith(
       "skills.install",
       expect.objectContaining({
-        agentId: "agent-1",
+        agentId: f.actor.agentId,
         backendTarget: "platform_server",
         expectedTargetRevision: 9,
         force: false,
@@ -614,13 +649,20 @@ describe("Knox Skill Hub natural-language tool transport", () => {
     async (state) => {
       const f = await setup();
       if (state === "absent") {
-        f.adapterMocks.search.mockResolvedValue({ items: [], total: 0 });
+        await f.store.skillHubCatalog.trash({
+          skillId: f.candidate.id,
+          actorUserId: f.actor.user.id,
+          expectedRevision: f.candidate.revision,
+          now: 50,
+        });
       } else {
-        f.adapterMocks.listVersions.mockResolvedValue([
-          { id: 1, version: "1.0.0", status: "PUBLISHED", downloadAvailable: false },
-        ]);
+        f.governanceMocks.getArtifactSecurity.mockResolvedValue({
+          audits: [],
+          artifactAvailable: false,
+          blocked: false,
+        });
       }
-      expect((await f.call("install", f.installInput)).status).toBe(409);
+      expect((await f.call("install", f.installInput)).status).toBe(state === "absent" ? 404 : 409);
       expect(f.adapterMocks.download).not.toHaveBeenCalled();
       expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.upload.begin", expect.anything());
     },
@@ -651,13 +693,13 @@ describe("Knox Skill Hub natural-language tool transport", () => {
 
   it("rejects a changed recommended version and does not select the new latest version", async () => {
     const f = await setup();
-    f.adapterMocks.search.mockResolvedValue({
-      items: [{ ...f.candidate, latestVersion: "2.0.0" }],
-      total: 1,
-    });
+    f.adapterMocks.listVersions.mockResolvedValue([
+      { id: 21, version: "2.0.0", status: "PUBLISHED", downloadAvailable: true },
+    ]);
     expect((await f.call("install", f.installInput)).status).toBe(409);
     expect(f.adapterMocks.download).not.toHaveBeenCalled();
-    expect(f.adminRpcCall).not.toHaveBeenCalled();
+    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.upload.begin", expect.anything());
+    expect(f.adminRpcCall).not.toHaveBeenCalledWith("skills.install", expect.anything());
   });
 
   it("does not expose force/replacement parameters to the natural-language tool", async () => {
@@ -671,8 +713,8 @@ describe("Knox Skill Hub natural-language tool transport", () => {
     ["status", { query: "helper" }],
     ["search", { query: "q".repeat(1001) }],
     ["install", { namespace: "engineering", slug: "demo-skill" }],
-    ["install", { namespace: " ", slug: "demo-skill", version: "1.0.0" }],
-    ["install", { namespace: "n".repeat(129), slug: "demo-skill", version: "1.0.0" }],
+    ["install", { id: " ", version: "1.0.0" }],
+    ["install", { id: "n".repeat(129), version: "1.0.0" }],
   ])(
     "rejects invalid %s action fields %j before registry or Gateway calls",
     async (action, input) => {
@@ -699,13 +741,49 @@ describe("Knox Skill Hub natural-language tool transport", () => {
     ).toHaveLength(1);
   });
 
-  it("recovers a lost completion through status without force reinstall", async () => {
+  it("keeps an uncertain installation visible and requires explicit replacement before retrying", async () => {
     const f = await setup();
-    f.recordAuditEvent.mockRejectedValue(new Error("synthetic response loss after install"));
+    vi.spyOn(f.store.skillHubCatalog, "completeInstallation").mockRejectedValueOnce(
+      new Error("synthetic response loss after install"),
+    );
     expect((await f.call("install", f.installInput)).status).toBe(500);
-    expect(await f.call("install", f.installInput)).toMatchObject({
-      status: 200,
-      body: { noOp: true },
+    expect(await f.call("install", f.installInput)).toMatchObject({ status: 409 });
+    expect(
+      f.adminRpcCall.mock.calls.filter(([method]) => method === "skills.install"),
+    ).toHaveLength(1);
+    expect(
+      await f.store.skillHubCatalog.listInstallations(f.context.agentId, "platform-server"),
+    ).toEqual([expect.objectContaining({ state: "pending", skillId: f.candidate.id })]);
+    const actor = {
+      ...f.actor,
+      agentId: f.context.agentId,
+      workspaceDir: path.join(f.workspaceRoot, f.context.agentId),
+      roomBinding: f.roomBinding,
+    };
+    await expect(
+      f.service.install(actor, {
+        ...f.installInput,
+        destination: "platform_server",
+        acknowledgedReplacement: true,
+        currentRevision: f.ready.revision,
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(
+      f.adminRpcCall.mock.calls.filter(([method]) => method === "skills.install"),
+    ).toHaveLength(2);
+    expect(
+      await f.store.skillHubCatalog.listInstallations(f.context.agentId, "platform-server"),
+    ).toEqual([expect.objectContaining({ state: "completed", skillId: f.candidate.id })]);
+  });
+
+  it("does not claim that another Hub ID with the same package name is installed", async () => {
+    const f = await setup();
+    await f.tool("install").execute("install-original", f.installInput);
+    const other = await f.seedEntry();
+    const result = await f.call("install", { id: other.id, version: "1.0.0" });
+    expect(result).toMatchObject({
+      status: 409,
+      body: { details: { code: "existing-skill-replacement-required" } },
     });
     expect(
       f.adminRpcCall.mock.calls.filter(([method]) => method === "skills.install"),

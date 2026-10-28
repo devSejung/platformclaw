@@ -14,6 +14,7 @@ import {
 import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import { createWarnLogCapture } from "../logging/test-helpers/warn-log-capture.js";
 import { GatewayDrainingError } from "../process/gateway-work-admission.js";
+import { SkillContextPolicyError } from "../skills/runtime/context-policy.js";
 import { AgentRunTerminalOutcomeError } from "./agent-run-terminal-error.js";
 import { AUTH_STORE_VERSION } from "./auth-profiles/constants.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
@@ -1974,6 +1975,48 @@ describe("runWithModelFallback", () => {
     expect(onError).not.toHaveBeenCalled();
     expect(onFallbackStep).not.toHaveBeenCalled();
   });
+
+  it.each(["direct", "cause", "aggregate", "provider-wrapper"] as const)(
+    "aborts model fallback for a %s skill admission failure",
+    async (wrapper) => {
+      const policyError = new SkillContextPolicyError(
+        new Error("HTTP 502 timeout from skill authority"),
+      );
+      const failure =
+        wrapper === "direct"
+          ? policyError
+          : wrapper === "cause"
+            ? new Error("cleanup wrapper", { cause: policyError })
+            : wrapper === "aggregate"
+              ? new AggregateError([new Error("cleanup"), policyError])
+              : new FailoverError("HTTP 502 provider timeout", {
+                  reason: "timeout",
+                  cause: policyError,
+                });
+      const run = vi.fn().mockRejectedValue(failure);
+      const onFallbackStep = vi.fn();
+      await expect(
+        runWithModelFallback({
+          cfg: makeCfg({
+            agents: {
+              defaults: {
+                model: {
+                  primary: "openai/gpt-5.4",
+                  fallbacks: ["anthropic/claude-sonnet-4-6"],
+                },
+              },
+            },
+          }),
+          provider: "openai",
+          model: "gpt-5.4",
+          run,
+          onFallbackStep,
+        }),
+      ).rejects.toBe(failure);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(onFallbackStep).not.toHaveBeenCalled();
+    },
+  );
 
   it("aborts fallback when a provider prompt error carries cleanup session takeover", async () => {
     const cfg = makeCfg({

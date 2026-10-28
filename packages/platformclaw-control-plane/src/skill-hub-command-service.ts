@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import type { PlatformUser } from "./contracts.js";
+import { localizeSkillHubCommandError } from "./skill-hub-command-errors.js";
 import {
   resolveKnoxSkillHubWorkspace,
   type KnoxSkillHubCommandContext,
@@ -9,7 +11,6 @@ import {
   safeName,
   SKILL_KEY_PATTERN,
   SkillHubServiceError,
-  validVersion,
   type AuthenticatedWorkspace,
   type SkillHubAudience,
 } from "./skill-hub-service-support.js";
@@ -18,13 +19,7 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
   async knoxTool(
     senderAccountId: string,
     action: "search" | "status" | "install" | "delete",
-    input: {
-      query?: string;
-      namespace?: string;
-      slug?: string;
-      version?: string;
-      confirm?: boolean;
-    },
+    input: { query?: string; id?: string; slug?: string; version?: string; confirm?: boolean },
     context: KnoxSkillHubCommandContext,
   ) {
     const actor = await resolveKnoxSkillHubWorkspace({
@@ -34,82 +29,96 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
       context,
       buildAgentMainSessionKey: this.options.buildAgentMainSessionKey,
     });
-    await this.initializeNamespaces(actor.user);
+    await this.initializeCatalog();
     const audience = actor.roomBinding ? "room" : "employee";
     if (action === "delete") {
       if (input.confirm !== true) {
-        throw new SkillHubServiceError(
-          "Confirm deletion of the installed skill before retrying.",
-          400,
-        );
+        throw new SkillHubServiceError("Confirm removal of the installed skill", 400);
       }
       return await this.uninstall(actor, input.slug ?? "");
     }
     if (action === "search") {
       const result = await this.search(actor.user, input.query ?? "", 5, audience);
-      const execution = await this.resolveExecutionTarget(actor.agentId);
+      const items = [];
+      for (const item of result.items) {
+        try {
+          const selected = await this.resolveCommandSkill(actor.user, item.id, audience);
+          items.push({
+            ...item,
+            latestVersion: selected.version,
+            summary: item.summary.slice(0, 160),
+          });
+        } catch (error) {
+          if (
+            !(error instanceof SkillHubServiceError) ||
+            (error.statusCode !== 404 && error.statusCode !== 409)
+          ) {
+            throw error;
+          }
+        }
+      }
       return {
         ...result,
+        items,
+        target: (await this.resolveExecutionTarget(actor.agentId)).activeTarget,
         agentId: actor.agentId,
         audience,
-        target: execution.activeTarget,
-        items: result.items
-          .slice(0, 5)
-          .map((item) => Object.assign({}, item, { summary: item.summary.slice(0, 160) })),
       };
     }
+    const installed = await this.commandInstalled(actor);
     if (action === "status") {
-      const installed = await this.commandInstalled(actor);
-      const slug = input.slug ? safeName(input.slug, "skill slug", SKILL_KEY_PATTERN) : undefined;
-      const items = slug
-        ? installed.items.filter((item) => item.skillKey === slug)
+      const items = input.slug
+        ? installed.items.filter((item) => item.skillKey === input.slug)
         : installed.items;
       return {
         target: installed.target,
         items: items
           .slice(0, 10)
-          .map((item) => Object.assign({}, item, { description: item.description?.slice(0, 160) })),
+          .map((item) =>
+            Object.assign(
+              {},
+              item,
+              item.description ? { description: item.description.slice(0, 160) } : {},
+            ),
+          ),
         total: items.length,
         truncated: items.length > 10,
       };
     }
-    const namespace = this.authorizeNamespace(input.namespace ?? "");
-    const slug = safeName(input.slug ?? "", "skill slug", SKILL_KEY_PATTERN);
-    const version = validVersion(input.version ?? "");
-    const candidates = await this.search(actor.user, slug, 50, audience);
-    const candidate = candidates.items.find(
-      (item) => item.namespace === namespace && item.slug === slug,
+    const selected = await this.resolveCommandSkill(
+      actor.user,
+      input.id ?? input.slug ?? "",
+      audience,
     );
-    if (!candidate || candidate.latestVersion !== version) {
-      throw new SkillHubServiceError("Skill Hub recommendation changed; search again.", 409);
+    const currentTarget = await this.authorizeInstallTarget(actor.agentId, installed.target);
+    if (
+      currentTarget.targetId !== installed.targetId ||
+      currentTarget.targetRevision !== installed.targetRevision
+    ) {
+      throw new SkillHubServiceError(
+        "Skill Hub execution target changed; check status and retry.",
+        409,
+      );
     }
-    const installed = await this.commandInstalled(actor);
-    const current = installed.items.find((item) => item.skillKey === slug);
-    // A retried conversational install observes the existing skill instead of forcing replacement.
-    if (current) {
+    if (input.version && input.version !== selected.version) {
+      throw new SkillHubServiceError("Recommendation changed; search again", 409);
+    }
+    const current = installed.items.find((item) => item.skillKey === selected.slug);
+    if (current?.hubSkillId === selected.id && current.hubVersion === selected.version) {
       return {
         ok: true,
         noOp: true,
-        slug,
+        slug: selected.slug,
         version: current.version ?? null,
         target: installed.target,
         readiness: current,
       };
     }
-    const versions = await this.adapterCall(() =>
-      this.options.adapter.listVersions(namespace, slug),
-    );
-    if (!versions.some((item) => item.version === version && item.downloadAvailable)) {
-      throw new SkillHubServiceError(
-        "The recommended skill version is unavailable; search again.",
-        409,
-      );
-    }
     return await this.install(actor, {
-      namespace,
-      slug,
-      version,
+      id: selected.id,
+      version: selected.version,
       destination: installed.target,
+      expectedTargetId: installed.targetId,
       expectedTargetRevision: installed.targetRevision,
     });
   }
@@ -120,101 +129,174 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
     locale: "en" | "ko",
     context: KnoxSkillHubCommandContext,
   ) {
-    const actor = await resolveKnoxSkillHubWorkspace({
-      store: this.options.store,
-      workspaceRoot: this.workspaceRoot,
-      senderAccountId,
-      context,
-      buildAgentMainSessionKey: this.options.buildAgentMainSessionKey,
-    });
-    return await this.commandForWorkspace(actor, args, locale);
-  }
-
-  async command(
-    accountId: string,
-    rawArgs: string | undefined,
-    locale?: "en" | "ko",
-  ): Promise<{ text: string; isError?: boolean }> {
-    const actor = await this.authenticateAccount(accountId);
-    if (!actor) {
-      throw new SkillHubServiceError("linked active employee account required", 401);
+    try {
+      const actor = await resolveKnoxSkillHubWorkspace({
+        store: this.options.store,
+        workspaceRoot: this.workspaceRoot,
+        senderAccountId,
+        context,
+        buildAgentMainSessionKey: this.options.buildAgentMainSessionKey,
+      });
+      return await this.commandForWorkspace(actor, args, locale);
+    } catch (error) {
+      throw error instanceof SkillHubServiceError
+        ? localizeSkillHubCommandError(error, locale)
+        : error;
     }
-    return locale
-      ? await this.commandForWorkspace(actor, rawArgs ?? "", locale)
-      : await this.executeCommand(actor, rawArgs);
   }
 
-  async commandForWorkspace(
-    actor: AuthenticatedWorkspace,
-    rawArgs: string,
-    locale: "en" | "ko",
-  ): Promise<{ text: string; isError?: boolean }> {
+  async command(accountId: string, rawArgs: string | undefined, locale: "en" | "ko" = "en") {
+    try {
+      const actor = await this.authenticateAccount(accountId);
+      if (!actor) {
+        throw new SkillHubServiceError("Linked active employee account required", 401);
+      }
+      return await this.commandForWorkspace(actor, rawArgs ?? "", locale);
+    } catch (error) {
+      throw error instanceof SkillHubServiceError
+        ? localizeSkillHubCommandError(error, locale)
+        : error;
+    }
+  }
+
+  async commandForWorkspace(actor: AuthenticatedWorkspace, rawArgs: string, locale: "en" | "ko") {
+    await this.initializeCatalog();
+    const ko = locale === "ko";
     const [action = "help", ...tail] = rawArgs.trim().split(/\s+/u).filter(Boolean);
     if (action === "help") {
-      const korean = tail[0] === "ko" || (tail[0] !== "en" && locale === "ko");
-      return { text: korean ? skillHubHelpKo() : skillHubHelpEn() };
+      return { text: help(tail[0] === "ko" || (tail[0] !== "en" && ko)) };
     }
     try {
-      if ((action === "list" && tail.length > 1) || (action === "installed" && tail.length > 0)) {
-        throw new SkillHubServiceError("invalid command arguments", 400);
+      if (action === "list") {
+        const page = tail[0] === undefined || tail[0] === "all" ? 1 : Number(tail[0]);
+        const result = await this.commandCatalog(
+          actor.user,
+          page,
+          actor.roomBinding ? "room" : "employee",
+        );
+        return {
+          text: [
+            ko ? "스킬 목록" : "Skill Hub skills",
+            ...result.items.map(
+              (item) => `${item.displayName} · ${item.latestVersion} · ${item.id}`,
+            ),
+            ...(result.hasNext ? [`/skillhub ${ko ? "" : "--lang=en "}list ${page + 1}`] : []),
+          ].join("\n"),
+        };
       }
-      return await this.executeCommand(actor, rawArgs, locale);
+      if (action === "installed") {
+        const result = await this.commandInstalled(actor);
+        return {
+          text: [
+            ko ? "설치된 스킬" : "Installed skills",
+            ...result.items.map(
+              (item) => `${item.skillKey} · ${item.version ?? (ko ? "버전 정보 없음" : "unknown")}`,
+            ),
+          ].join("\n"),
+        };
+      }
+      if (action === "publish") {
+        if (actor.roomBinding) {
+          throw new SkillHubServiceError("Publish from your personal Skill Hub workspace", 403, {
+            code: "skill-hub-command-room-publish",
+          });
+        }
+        if (tail.length !== 1) {
+          throw new SkillHubServiceError("Usage: /skillhub publish <workspace-skill>", 400, {
+            code: "skill-hub-command-usage",
+          });
+        }
+        const slug = safeName(tail[0]!, "skill", SKILL_KEY_PATTERN);
+        const pending = (
+          await this.options.store.skillHubCatalog.listRecoverablePublications(actor.user.id)
+        ).find(
+          (publication) =>
+            publication.ownerUserId === actor.user.id &&
+            publication.actorUserId === actor.user.id &&
+            publication.slug === slug,
+        );
+        if (pending) {
+          throw new SkillHubServiceError(
+            `Publication of ${slug}@${pending.version} is unconfirmed (${pending.operationId}). Recover or cancel the original request in the web Skill Hub pending publications before publishing again.`,
+            409,
+            { code: "skill-hub-publication-pending" },
+          );
+        }
+        const workspace = await this.commandInstalled(actor);
+        const skill = workspace.items.find((item) => item.skillKey === slug);
+        if (!skill) {
+          throw new SkillHubServiceError("Workspace skill not found", 404, {
+            code: "skill-hub-workspace-skill-not-found",
+          });
+        }
+        const result = await this.publish(actor, {
+          operationId: randomUUID(),
+          skill: slug,
+          source: workspace.target,
+          expectedTargetId: workspace.targetId,
+          version: skill.version ?? "1.0.0",
+        });
+        return {
+          text: `${ko ? "전체공개 게시 완료" : "Published for everyone"}: ${result.slug}@${result.version} (${result.id})`,
+        };
+      }
+      if (action === "install" || action === "update") {
+        if (tail.length !== 1) {
+          throw new SkillHubServiceError(`Usage: /skillhub ${action} <skill-id|name>`, 400, {
+            code: "skill-hub-command-usage",
+          });
+        }
+        const skill = await this.resolveCommandSkill(
+          actor.user,
+          tail[0]!,
+          actor.roomBinding ? "room" : "employee",
+        );
+        const installed = await this.commandInstalled(actor);
+        const current = installed.items.find((item) => item.skillKey === skill.slug);
+        if (
+          action === "update" &&
+          (!current?.version ||
+            !current.revision ||
+            compareSemVer(skill.version, current.version) < 0)
+        ) {
+          throw new SkillHubServiceError(
+            "Check the installed version in Skill Hub before updating",
+            409,
+            { code: "skill-hub-command-update" },
+          );
+        }
+        await this.install(actor, {
+          id: skill.id,
+          version: skill.version,
+          destination: installed.target,
+          expectedTargetId: installed.targetId,
+          expectedTargetRevision: installed.targetRevision,
+          ...(action === "update" && current?.revision
+            ? { acknowledgedReplacement: true, currentRevision: current.revision }
+            : {}),
+        });
+        return { text: `${ko ? "설치 완료" : "Installed"}: ${skill.slug}@${skill.version}` };
+      }
+      if (action === "delete") {
+        if (tail.length !== 2 || tail[1] !== "--confirm") {
+          throw new SkillHubServiceError(
+            "Usage: /skillhub delete <installed-skill> --confirm",
+            400,
+            { code: "skill-hub-command-usage" },
+          );
+        }
+        const result = await this.uninstall(actor, tail[0]!);
+        return { text: `${ko ? "설치 제거 완료" : "Removed"}: ${result.slug}` };
+      }
+      throw new SkillHubServiceError("Unknown command; use /skillhub help", 400, {
+        code: "skill-hub-command-unknown",
+      });
     } catch (error) {
       if (!(error instanceof SkillHubServiceError)) {
         throw error;
       }
-      if (error.details?.code === "skill-hub-untracked-skill") {
-        return {
-          text:
-            locale === "ko"
-              ? "이미 레지스트리에 있는 스킬입니다. 새 스킬 이름을 사용하거나 관리자에게 기존 스킬 게시 후 소유권 이전을 요청해 주세요."
-              : error.message,
-          isError: true,
-        };
-      }
-      if (error.details?.code === "legacy-list-category") {
-        return {
-          text:
-            locale === "ko"
-              ? "이전 카테고리(knowledge/automation/utility/other)는 현재 Skill Hub에서 제공하지 않습니다. /skillhub list [페이지] 또는 /skillhub list all로 권한이 있는 스킬을 확인해 주세요."
-              : "Legacy categories (knowledge/automation/utility/other) are unavailable in the current Skill Hub. Use /skillhub list [page] or /skillhub list all to browse accessible skills.",
-          isError: true,
-        };
-      }
-      if (error.details?.code === "incomplete-search") {
-        return {
-          text:
-            locale === "ko"
-              ? "검색 결과가 많아 스킬을 확정할 수 없습니다. namespace/slug로 지정해 주세요."
-              : "The search is incomplete. Specify the skill using namespace/slug.",
-          isError: true,
-        };
-      }
-      const candidates = error.details?.candidates;
-      if (Array.isArray(candidates)) {
-        return {
-          text: [
-            locale === "ko"
-              ? "같은 이름의 스킬이 있습니다. namespace/slug로 지정해 주세요:"
-              : "Choose a skill using namespace/slug:",
-            ...candidates.map((candidate) => `- ${String(candidate)}`),
-          ].join("\n"),
-          isError: true,
-        };
-      }
-      const messages: Record<number, string> = {
-        400: "명령어 인자를 확인해 주세요. /skillhub help로 사용법을 볼 수 있습니다.",
-        401: "직원 계정을 확인할 수 없습니다. 다시 로그인한 뒤 시도해 주세요.",
-        403: "이 스킬을 조회하거나 설치할 권한이 없습니다.",
-        404: "설치할 수 있는 스킬을 찾지 못했습니다. /skillhub list로 확인해 주세요.",
-        409: "현재 설치 상태 또는 실행 대상을 확인해야 합니다. Skill Hub 화면에서 확인 후 설치해 주세요.",
-      };
       return {
-        text:
-          locale === "ko"
-            ? (messages[error.statusCode] ??
-              "Skill Hub 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.")
-            : `${error.message} Use the Skill Hub page for details.`,
+        text: `${localizeSkillHubCommandError(error, locale).message}${Array.isArray(error.details?.candidates) ? `\n${error.details.candidates.join("\n")}` : ""}`,
         isError: true,
       };
     }
@@ -227,37 +309,16 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
     pageSize = 20,
   ) {
     if (!Number.isSafeInteger(page) || page < 1 || page > 25) {
-      throw new SkillHubServiceError("page must be between 1 and 25", 400);
+      throw new SkillHubServiceError("Page must be 1 to 25", 400, {
+        code: "skill-hub-command-page",
+      });
     }
-    const fetchLimit = page * pageSize;
-    const result = await this.adapterCall(() => this.options.adapter.search("", fetchLimit));
-    // Page offsets belong to the registry result, not the filtered projection.
-    // Applying them after ACL filtering can skip every visible item on later pages.
-    const pageItems = result.items.slice((page - 1) * pageSize, page * pageSize);
-    const visible = (
-      await Promise.all(
-        pageItems.map(async (item) => ({
-          item,
-          allowed:
-            this.namespaces.has(item.namespace.toLowerCase()) &&
-            (await this.canAccessSkill(
-              user,
-              item.namespace.toLowerCase(),
-              item.slug,
-              item.visibility,
-              item.latestVersion,
-              audience,
-            )),
-        })),
-      )
-    )
-      .filter((entry) => entry.allowed)
-      .map((entry) => entry.item);
+    const result = await this.search(user, "", 500, audience);
     return {
-      items: visible,
+      items: result.items.slice((page - 1) * pageSize, page * pageSize),
       page,
       pageSize,
-      hasNext: result.total > fetchLimit,
+      hasNext: result.total > page * pageSize,
       registryTotal: result.total,
     };
   }
@@ -267,251 +328,74 @@ export abstract class SkillHubCommandService extends SkillHubPublicationService 
     raw: string,
     audience: SkillHubAudience = "employee",
   ) {
-    const value = raw.trim().toLowerCase();
-    if (!value) {
-      throw new SkillHubServiceError("skill slug is required", 400);
+    const value = raw.trim();
+    const direct = await this.options.store.skillHubCatalog.get(value);
+    let id = direct?.id;
+    if (!id && value.includes("/")) {
+      const [namespace, slug] = value.split("/");
+      id = (await this.options.store.skillHubCatalog.getByCoordinate(namespace!, slug!))?.id;
     }
-    const separator = value.indexOf("/");
-    if (separator >= 0) {
-      const namespace = this.authorizeNamespace(value.slice(0, separator));
-      const slug = safeName(value.slice(separator + 1), "skill slug", SKILL_KEY_PATTERN);
-      const detail = await this.detail(user, namespace, slug, audience);
-      const version = detail.versions.find((candidate) => candidate.downloadAvailable)?.version;
-      if (!version) {
-        throw new SkillHubServiceError("skill has no downloadable version", 409);
+    if (!id) {
+      const result = await this.search(user, value, 500, audience);
+      const matches = result.items.filter(
+        (item) => item.slug === value || item.displayName === value,
+      );
+      const ambiguous = result.total > result.items.length || matches.length > 1;
+      if (ambiguous || matches.length === 0) {
+        throw new SkillHubServiceError(
+          ambiguous ? "Choose a skill ID" : "Skill not found",
+          ambiguous ? 409 : 404,
+          {
+            ...(ambiguous ? { code: "skill-hub-command-ambiguous" } : {}),
+            candidates: matches.map((item) => `${item.displayName} · ${item.id}`),
+          },
+        );
       }
-      return { namespace, slug, version };
+      id = matches[0]!.id;
     }
-    const slug = safeName(value, "skill slug", SKILL_KEY_PATTERN);
-    const result = await this.search(user, slug, 50, audience, { requireComplete: true });
-    const matches = result.items.filter((item) => item.slug.toLowerCase() === slug);
-    if (matches.length === 0) {
-      throw new SkillHubServiceError(`skill not found: ${slug}`, 404);
-    }
-    if (matches.length > 1) {
-      throw new SkillHubServiceError("skill slug is ambiguous", 409, {
-        candidates: matches.map((item) => `${item.namespace}/${item.slug}`),
+    const detail = await this.detailById(user, id, audience);
+    const version = detail.versions.find((candidate) => candidate.downloadAvailable)?.version;
+    if (!version) {
+      throw new SkillHubServiceError("No downloadable version", 409, {
+        code: "skill-hub-command-no-download",
       });
     }
-    const match = matches[0]!;
-    return { namespace: match.namespace, slug: match.slug, version: match.latestVersion };
+    return { id, slug: detail.skill.slug, version };
   }
 
   async commandInstalled(actor: AuthenticatedWorkspace) {
     const execution = await this.resolveExecutionTarget(actor.agentId);
     const workspace = await this.workspaceSkills(actor, execution.activeTarget);
+    if (workspace.targetRevision !== execution.targetRevision) {
+      throw new SkillHubServiceError(
+        "Skill Hub execution target changed; check status and retry.",
+        409,
+      );
+    }
     return {
       target: workspace.source,
-      targetRevision: execution.targetRevision,
+      targetId: workspace.targetId,
+      targetRevision: workspace.targetRevision,
       items: workspace.items,
     };
   }
-
-  private async executeCommand(
-    actor: AuthenticatedWorkspace,
-    rawArgs: string | undefined,
-    locale: "en" | "ko" = "en",
-  ): Promise<{ text: string }> {
-    await this.initializeNamespaces(actor.user);
-    const ko = locale === "ko";
-    const [action = "help", ...tail] = (rawArgs ?? "").trim().split(/\s+/u).filter(Boolean);
-    if (action === "help") {
-      return { text: tail[0]?.toLowerCase() === "ko" ? skillHubHelpKo() : skillHubHelpEn() };
-    }
-    if (action === "list") {
-      if (["knowledge", "automation", "utility", "other"].includes(tail[0] ?? "")) {
-        throw new SkillHubServiceError(
-          "Legacy categories are unavailable. Use /skillhub list [page] or /skillhub list all.",
-          400,
-          { code: "legacy-list-category" },
-        );
-      }
-      const page = tail[0] === undefined || tail[0] === "all" ? 1 : Number(tail[0]);
-      const result = await this.commandCatalog(
-        actor.user,
-        page,
-        actor.roomBinding ? "room" : "employee",
-      );
-      const lines = [
-        ko
-          ? `## 다운로드 가능한 스킬 · ${result.page}페이지`
-          : `## Downloadable skills — page ${result.page}`,
-        "",
-        ko ? "| 스킬 | 네임스페이스 | 최신 버전 |" : "| Skill | Namespace | Latest |",
-        "|---|---|---|",
-        ...result.items.map(
-          (item) => `| \`${item.slug}\` | \`${item.namespace}\` | \`${item.latestVersion}\` |`,
-        ),
-      ];
-      if (result.items.length === 0) {
-        lines.splice(
-          2,
-          lines.length - 2,
-          ko
-            ? "이 페이지에는 다운로드 가능한 스킬이 없습니다."
-            : "No downloadable skills on this page.",
-        );
-      }
-      if (result.hasNext) {
-        lines.push("", `${ko ? "다음" : "Next"}: \`/skillhub list ${result.page + 1}\``);
-      }
-      return { text: lines.join("\n") };
-    }
-    if (action === "installed") {
-      const result = await this.commandInstalled(actor);
-      const target = actor.roomBinding
-        ? ko
-          ? "그룹방 작업공간"
-          : "Group room workspace"
-        : result.target === "assigned_vm"
-          ? ko
-            ? "내 VM 작업공간"
-            : "My VM workspace"
-          : ko
-            ? "기본 작업공간"
-            : "Basic workspace";
-      const title = ko ? "설치된 스킬" : "Installed skills";
-      const targetLabel = ko ? "설치 대상" : "Target";
-      if (result.items.length === 0) {
-        return {
-          text: `## ${title}\n\n${targetLabel}: **${target}**\n\n${ko ? "설치된 스킬이 없습니다." : "No skills installed."}`,
-        };
-      }
-      return {
-        text: [
-          `## ${title}`,
-          "",
-          `${targetLabel}: **${target}**`,
-          "",
-          ko ? "| 스킬 | 버전 |" : "| Skill | Version |",
-          "|---|---|",
-          ...result.items.map(
-            (item) => `| \`${item.skillKey ?? "unknown"}\` | \`${item.version ?? "unknown"}\` |`,
-          ),
-        ].join("\n"),
-      };
-    }
-    if (action === "publish") {
-      if (tail.length !== 1) {
-        throw new SkillHubServiceError("usage: /skillhub publish <slug|namespace/slug>", 400);
-      }
-      const reference = tail[0]!;
-      const separator = reference.indexOf("/");
-      const slug = safeName(
-        separator < 0 ? reference : reference.slice(separator + 1),
-        "skill slug",
-        SKILL_KEY_PATTERN,
-      );
-      const namespace =
-        separator < 0
-          ? (await this.config(actor)).defaultNamespace
-          : this.authorizeNamespace(reference.slice(0, separator));
-      const execution = await this.resolveExecutionTarget(actor.agentId);
-      const workspace = await this.workspaceSkills(actor, execution.activeTarget);
-      const skill = workspace.items.find((item) => item.skillKey === slug);
-      if (!skill) {
-        throw new SkillHubServiceError(`skill is not installed on the active target: ${slug}`, 404);
-      }
-      const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
-      const visibility = binding?.visibilityCeiling === "PRIVATE" ? "PRIVATE" : "NAMESPACE_ONLY";
-      const version = skill.version ?? "0.1.0";
-      const result = await this.publish(actor, {
-        skill: slug,
-        source: execution.activeTarget,
-        namespace,
-        version,
-        visibility,
-      });
-      return {
-        text: `## ${ko ? "게시 완료" : "Published"}\n\n- ${ko ? "스킬" : "Skill"}: \`${result.namespace}/${result.slug}\`\n- ${ko ? "버전" : "Version"}: \`${result.version}\`\n- ${ko ? "출처" : "Source"}: \`${execution.activeTarget}\`\n- ${ko ? "공개 범위" : "Visibility"}: \`${visibility}\``,
-      };
-    }
-    if (action === "install" || action === "update") {
-      if (tail.length !== 1) {
-        throw new SkillHubServiceError(`usage: /skillhub ${action} <slug|namespace/slug>`, 400);
-      }
-      const skill = await this.resolveCommandSkill(
-        actor.user,
-        tail[0]!,
-        actor.roomBinding ? "room" : "employee",
-      );
-      const execution = await this.resolveExecutionTarget(actor.agentId);
-      let currentVersion: string | undefined;
-      let currentRevision: string | undefined;
-      if (action === "update") {
-        const installed = await this.commandInstalled(actor);
-        const current = installed.items.find((item) => item.skillKey === skill.slug);
-        currentVersion = current?.version;
-        currentRevision = current?.revision;
-        if (!currentVersion || !currentRevision) {
-          throw new SkillHubServiceError(
-            `installed skill identity is unavailable on the active target: ${skill.slug}`,
-            409,
-          );
-        }
-        if (compareSemVer(skill.version, currentVersion) < 0) {
-          throw new SkillHubServiceError(
-            `latest registry version ${skill.version} is older than installed version ${currentVersion}`,
-            409,
-          );
-        }
-      }
-      await this.install(actor, {
-        ...skill,
-        destination: execution.activeTarget,
-        ...(currentRevision ? { acknowledgedReplacement: true, currentRevision } : {}),
-      });
-      const verb =
-        action === "update" ? (ko ? "업데이트 완료" : "Updated") : ko ? "설치 완료" : "Installed";
-      return {
-        text: `## ${verb}\n\n- ${ko ? "스킬" : "Skill"}: \`${skill.namespace}/${skill.slug}\`\n- ${ko ? "버전" : "Version"}: \`${skill.version}\`\n- ${ko ? "설치 대상" : "Target"}: ${actor.roomBinding ? (ko ? "그룹방 작업공간" : "Group room workspace") : ko ? (execution.activeTarget === "assigned_vm" ? "내 VM 작업공간" : "기본 작업공간") : execution.activeTarget}`,
-      };
-    }
-    if (action === "delete") {
-      const refs = tail.filter((value) => value !== "--confirm");
-      if (!tail.includes("--confirm") || refs.length !== 1 || refs.length === tail.length) {
-        throw new SkillHubServiceError("usage: /skillhub delete <slug> --confirm", 400);
-      }
-      const reference = refs[0]!.trim().toLowerCase();
-      if (reference.includes("/")) {
-        throw new SkillHubServiceError("delete accepts an installed skill slug only", 400);
-      }
-      const slug = safeName(reference, "skill slug", SKILL_KEY_PATTERN);
-      const result = await this.uninstall(actor, slug);
-      return {
-        text: `## ${ko ? "설치 제거 완료" : "Deleted"}\n\n- ${ko ? "스킬" : "Skill"}: \`${slug}\`\n- ${ko ? "버전" : "Version"}: \`${result.version ?? "unknown"}\`\n- ${ko ? "설치 대상" : "Target"}: \`${result.target}\``,
-      };
-    }
-    throw new SkillHubServiceError(`unknown SkillHub command: ${action}`, 400);
-  }
 }
 
-function skillHubHelpEn(): string {
+function help(ko: boolean) {
   return [
-    "## SkillHub commands",
-    "",
-    "DM commands target your personal workspace; room commands target that room and browse/install only public skills.",
-    "- `/skillhub help [ko|en]`",
-    "- `/skillhub list [page|all]`: browse accessible skills (legacy categories are unavailable)",
-    "- `/skillhub installed`",
-    "- `/skillhub publish <slug|namespace/slug>`: publish to Global by default or select a namespace",
-    "- `/skillhub install <slug|namespace/slug>`",
-    "- `/skillhub update <slug|namespace/slug>`",
-    "- `/skillhub delete <slug> --confirm`",
-  ].join("\n");
-}
-
-function skillHubHelpKo(): string {
-  return [
-    "## SkillHub 명령어",
-    "",
-    "개인 대화는 내 작업공간, 그룹방은 해당 방 작업공간을 사용합니다. 그룹방 조회·설치는 공개 스킬만 지원합니다.",
-    "- `/skillhub help [ko|en]`: 도움말",
-    "- `/skillhub list [페이지|all]`: 다운로드 가능한 스킬 (이전 카테고리 분류는 제공하지 않음)",
-    "- `/skillhub installed`: 현재 설치된 스킬",
-    "- `/skillhub publish <slug|namespace/slug>`: 전사 공용에 게시하거나 게시 대상 지정 (내 게시 권한 적용)",
-    "- `/skillhub install <slug|namespace/slug>`: 설치",
-    "- `/skillhub update <slug|namespace/slug>`: 업데이트",
-    "- `/skillhub delete <slug> --confirm`: 현재 실행 대상에서 제거",
+    ko ? "## SkillHub 명령어" : "## SkillHub commands",
+    ko
+      ? "개인 대화는 내 작업 공간, 공유방은 해당 방 작업 공간을 사용합니다. 공유방은 전체공개 스킬만 사용합니다."
+      : "DM commands use your workspace. Room commands use the room workspace and public skills only.",
+    "/skillhub help [ko|en]",
+    ko
+      ? "영어로 실행: /skillhub --lang=en <명령어> (한국어: --lang=ko)"
+      : "Choose a reply language: /skillhub --lang=en <command> (Korean: --lang=ko)",
+    "/skillhub list [page|all]",
+    "/skillhub installed",
+    "/skillhub publish <workspace-skill>",
+    "/skillhub install <skill-id|name>",
+    "/skillhub update <skill-id|name>",
+    "/skillhub delete <installed-skill> --confirm",
   ].join("\n");
 }

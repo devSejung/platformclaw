@@ -99,14 +99,13 @@ export PLATFORMCLAW_GATEWAY_SERVICE_IDENTITY_SECRET_FILE="$work_dir/gateway-serv
 export PLATFORMCLAW_INITIAL_ADMIN_IDS_SECRET_FILE="$work_dir/initial-admin-ids"
 export PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_SECRET_FILE="$work_dir/ssh-credential-master-key"
 export PLATFORMCLAW_SKILL_HUB_ENABLED=true
-export PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e49cb1217a0ba75
+export PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE=platformclaw-skillhub-server:6e133c006e496f54a14d0510
 export PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE=platformclaw-skillhub-scanner:6e133c006e49
 export PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE=platformclaw-skillhub-postgres:44c4ee9810ef
 export PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE=platformclaw-skillhub-redis:e7723ff73d96
 export PLATFORMCLAW_SKILL_HUB_URL=http://skillhub.platformclaw.local:8080
 export PLATFORMCLAW_SKILL_HUB_TOKEN_FILE=/run/secrets/platformclaw_skill_hub_token
 export PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/platformclaw_skill_hub_bootstrap_password
-export PLATFORMCLAW_SKILL_HUB_NAMESPACES=global=all
 export PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES=524288000
 skillhub_token_file="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-token"
 skillhub_postgres_password_file="$PLATFORMCLAW_DEPLOY_ROOT/secrets/skillhub-postgres-password"
@@ -158,7 +157,6 @@ docker run --rm --network "${project_name}_platformclaw-skillhub" --read-only \
   --user "$PLATFORMCLAW_RUNTIME_UID:$PLATFORMCLAW_RUNTIME_GID" \
   --cap-drop ALL --security-opt no-new-privileges:true \
   --env SKILLHUB_BASE_URL=http://skillhub.platformclaw.local:8080 \
-  --env "SKILLHUB_NAMESPACES=$PLATFORMCLAW_SKILL_HUB_NAMESPACES" \
   --env SKILLHUB_CREATE_TOKEN=true \
   --env SKILLHUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/bootstrap-password \
   --env SKILLHUB_TOKEN_OUTPUT_FILE=/run/secrets/control-token \

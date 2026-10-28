@@ -510,6 +510,13 @@ export type ControlPlaneConflictCode =
   | "skill_hub_namespace_binding_changed"
   | "skill_hub_namespace_populated"
   | "skill-hub-namespace-conflict"
+  | "skill-hub-changed"
+  | "skill-hub-publication-pending"
+  | "skill-hub-publication-changed"
+  | "skill-hub-publication-cancelled"
+  | "skill-hub-publication-completed"
+  | "skill-hub-native-identity-changed"
+  | "skill-hub-installation-changed"
   | "organization_join_request_terminal_conflict"
   | "session_token_conflict";
 
@@ -531,7 +538,9 @@ export class ControlPlaneNotFoundError extends Error {
       | "knowledge-vault-attachment"
       | "agent-binding"
       | "managed-scope"
-      | "organization-join-request",
+      | "organization-join-request"
+      | "skill-hub-skill"
+      | "skill-hub-publication",
     id: string,
   ) {
     super(`${resource} not found: ${id}`);

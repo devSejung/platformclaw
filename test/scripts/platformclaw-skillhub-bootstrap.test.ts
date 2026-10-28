@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("PlatformClaw SkillHub bootstrap", () => {
-  it("uses the exact direct-auth, namespace, and token contracts without leaking credentials", async () => {
+  it("verifies the session and retains a CLI token for old-release rollback without provisioning namespaces", async () => {
     const requests: Array<{ body: string; cookie?: string; csrf?: string; path: string }> = [];
     const server = createServer(async (request, response) => {
       const body = await new Promise<string>((resolve) => {
@@ -37,10 +37,6 @@ describe("PlatformClaw SkillHub bootstrap", () => {
       } else if (request.url === "/api/v1/auth/direct/login") {
         response.setHeader("set-cookie", "SESSION=session-value; Path=/; HttpOnly");
         response.end('{"code":0,"data":{}}');
-      } else if (request.url === "/api/v1/namespaces?size=200") {
-        response.end('{"code":0,"data":{"items":[{"slug":"global"}]}}');
-      } else if (request.url === "/api/v1/namespaces") {
-        response.end('{"code":0,"data":{"slug":"engineering"}}');
       } else if (request.url === "/api/v1/tokens") {
         response.end('{"code":0,"data":{"token":"sk_bootstrap-result"}}');
       } else {
@@ -56,7 +52,6 @@ describe("PlatformClaw SkillHub bootstrap", () => {
     const passwordFile = join(root, "password");
     const tokenFile = join(root, "token");
     writeFileSync(passwordFile, "never-log-this-password\n", { mode: 0o400 });
-    writeFileSync(tokenFile, "", { mode: 0o600 });
     const script = new URL(
       "../../docker/platformclaw-runtime/bootstrap-skillhub.mjs",
       import.meta.url,
@@ -69,7 +64,6 @@ describe("PlatformClaw SkillHub bootstrap", () => {
             SKILLHUB_BASE_URL: `http://127.0.0.1:${address.port}`,
             SKILLHUB_BOOTSTRAP_PASSWORD_FILE: passwordFile,
             SKILLHUB_CREATE_TOKEN: "true",
-            SKILLHUB_NAMESPACES: "global=all,engineering=developers",
             SKILLHUB_TOKEN_OUTPUT_FILE: tokenFile,
           },
         });
@@ -85,6 +79,11 @@ describe("PlatformClaw SkillHub bootstrap", () => {
     );
 
     expect(result).toEqual({ code: 0, stderr: "", stdout: "" });
+    expect(requests.map((request) => request.path)).toEqual([
+      "/api/v1/auth/methods",
+      "/api/v1/auth/direct/login",
+      "/api/v1/tokens",
+    ]);
     expect(readFileSync(tokenFile, "utf8")).toBe("sk_bootstrap-result\n");
     const login = requests.find((request) => request.path.endsWith("/auth/direct/login"));
     expect(JSON.parse(login?.body ?? "{}")).toEqual({
@@ -93,10 +92,10 @@ describe("PlatformClaw SkillHub bootstrap", () => {
       password: "never-log-this-password",
     });
     expect(login?.csrf).toBe("csrf-value");
-    const namespace = requests.find((request) => request.path === "/api/v1/namespaces");
-    expect(JSON.parse(namespace?.body ?? "{}")).toMatchObject({ slug: "engineering" });
-    expect(namespace?.cookie).toContain("SESSION=session-value");
+    expect(login?.cookie).toContain("XSRF-TOKEN=csrf-value");
     const token = requests.find((request) => request.path === "/api/v1/tokens");
+    expect(token?.cookie).toContain("SESSION=session-value");
+    expect(token?.csrf).toBe("csrf-value");
     expect(JSON.parse(token?.body ?? "{}")).toEqual({
       name: "platformclaw-control",
       scopes: ["skill:read", "skill:publish", "skill:delete"],

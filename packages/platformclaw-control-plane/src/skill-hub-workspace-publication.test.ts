@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import JSZip from "jszip";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createSkillHubServiceFixture as fixture } from "./skill-hub-service.test-fixtures.js";
 
 async function archive(version: string): Promise<Buffer> {
@@ -15,35 +16,9 @@ describe("Skill Hub workspace publication", () => {
   it.each([false, true])(
     "revalidates assigned-VM publication after export (revoked=%s)",
     async (revoked) => {
-      const {
-        service,
-        store,
-        actor,
-        adapterMocks,
-        adminRpcCall,
-        getPersonalExecutionProfile,
-        getVmAllocationForAgent,
-        recordAuditEvent,
-      } = await fixture(undefined, undefined, { registrySkill: "absent" });
-      getPersonalExecutionProfile.mockResolvedValue({
-        agentBindingId: "binding-1",
-        activeTarget: "assigned_vm",
-        activeAllocationId: "allocation-1",
-        targetRevision: 8,
-        updatedAt: 1,
-      });
-      getVmAllocationForAgent.mockResolvedValue({
-        id: "allocation-1",
-        agentBindingId: "binding-1",
-        vmHostId: "host-1",
-        linuxAccount: "person-one",
-        status: "ready",
-        remoteHomeDir: "/home/person-one",
-        remoteWorkspaceDir: "/home/person-one/workspace",
-        createdByUserId: "admin-1",
-        createdAt: 1,
-        updatedAt: 1,
-      });
+      const { service, store, actor, governanceMocks, adminRpcCall, saveVm, activateVm } =
+        await fixture(undefined, undefined, { registrySkill: "absent" });
+      const target = await activateVm((await saveVm()).id);
       const bytes = await archive("1.2.3");
       adminRpcCall.mockImplementation(async (method, request) => {
         if (method === "platformclaw-execution.skillExport.begin") {
@@ -54,45 +29,55 @@ describe("Skill Hub workspace publication", () => {
         }
         if (method === "platformclaw-execution.skillExport.read") {
           if (revoked) {
-            vi.spyOn(store, "getPersonalAgentBinding").mockResolvedValue(null);
+            const binding = await store.getPersonalAgentBinding(actor.user.id);
+            if (!binding) {
+              throw new Error("Missing fixture binding");
+            }
+            await store.transitionAgent({
+              bindingId: binding.id,
+              state: "disabled",
+              changedAt: 50,
+            });
           }
           return { offset: request.offset, data: bytes.toString("base64"), done: true };
         }
         return { ok: true };
       });
       const publication = service.publish(actor, {
+        operationId: randomUUID(),
         skill: "demo-skill",
         source: "assigned_vm",
-        namespace: "engineering",
         version: "1.2.3",
-        visibility: "NAMESPACE_ONLY",
       });
       if (revoked) {
         await expect(publication).rejects.toMatchObject({ statusCode: 409 });
-        expect(adapterMocks.publish).not.toHaveBeenCalled();
+        expect(governanceMocks.publishArtifact).not.toHaveBeenCalled();
         return;
       }
       await expect(publication).resolves.toMatchObject({ slug: "demo-skill", version: "1.2.3" });
       expect(adminRpcCall).toHaveBeenCalledWith(
         "platformclaw-execution.skillExport.begin",
         expect.objectContaining({
-          agentId: "agent-1",
-          expectedTargetRevision: 8,
-          expectedAllocationId: "allocation-1",
+          agentId: actor.agentId,
+          expectedTargetRevision: target.revision,
+          expectedAllocationId: target.allocationId,
         }),
       );
       expect(adminRpcCall).toHaveBeenLastCalledWith(
         "platformclaw-execution.skillExport.close",
-        expect.objectContaining({ agentId: "agent-1", exportId: "export-one" }),
+        expect.objectContaining({ agentId: actor.agentId, exportId: "export-one" }),
       );
-      expect(adapterMocks.publish).toHaveBeenCalledWith(
+      expect(governanceMocks.publishArtifact).toHaveBeenCalledWith(
         expect.objectContaining({ archive: expect.objectContaining({ size: bytes.length }) }),
       );
-      expect(recordAuditEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: "skill-hub.publish",
-          details: expect.objectContaining({ source: "assigned_vm" }),
-        }),
+      const entry = (await store.skillHubCatalog.list())[0]!;
+      expect(entry.sharing.mode).toBe("PUBLIC");
+      expect(
+        await store.skillHubCatalog.listHistory({ skillId: entry.id, actorUserId: actor.user.id }),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ action: "version-published", actorUserId: actor.user.id }),
+        ]),
       );
     },
   );
@@ -112,80 +97,28 @@ describe("Skill Hub workspace publication", () => {
     });
     await expect(
       service.publish(actor, {
+        operationId: randomUUID(),
         skill: "demo-skill",
         source: "platform_server",
-        namespace: "engineering",
         version: "1.2.3",
-        visibility: "NAMESPACE_ONLY",
       }),
     ).resolves.toMatchObject({ slug: "demo-skill" });
     expect(adminRpcCall).not.toHaveBeenCalled();
   });
 
   it("rejects unavailable VM publication without Basic workspace fallback", async () => {
-    const { service, actor, adapterMocks } = await fixture(undefined, undefined, {
+    const { service, actor, governanceMocks } = await fixture(undefined, undefined, {
       registrySkill: "absent",
     });
     await expect(
       service.publish(actor, {
+        operationId: randomUUID(),
         skill: "demo-skill",
         source: "assigned_vm",
-        namespace: "engineering",
         version: "1.2.3",
-        visibility: "NAMESPACE_ONLY",
       }),
     ).rejects.toMatchObject({ statusCode: 409 });
-    expect(adapterMocks.publish).not.toHaveBeenCalled();
-  });
-
-  it("publishes the active workspace skill from a Knox slash command", async () => {
-    const { service, adminRpcCall, adapterMocks } = await fixture(undefined, undefined, {
-      registrySkill: "absent",
-    });
-    adminRpcCall.mockResolvedValue({
-      skills: [
-        {
-          skillKey: "demo-skill",
-          source: "openclaw-workspace",
-          baseDir: "/workspace/skills/demo-skill",
-          version: "1.2.3",
-        },
-      ],
-    });
-    await expect(service.command("person.one", "publish demo-skill")).resolves.toMatchObject({
-      text: expect.stringContaining("## Published"),
-    });
-    expect(adapterMocks.publish).toHaveBeenCalledOnce();
-    expect(adapterMocks.publish).toHaveBeenCalledWith(
-      expect.objectContaining({ namespace: "global" }),
-    );
-  });
-
-  it("includes Global for a member without organization groups and keeps organizational publication explicit", async () => {
-    const { service, actor, adminRpcCall, adapterMocks, ensureDefaultSkillHubNamespace } =
-      await fixture([], undefined, {
-        registrySkill: "absent",
-      });
-    await expect(service.config(actor)).resolves.toMatchObject({
-      admin: false,
-      namespaces: ["global", "engineering"],
-      defaultNamespace: "global",
-    });
-    expect(ensureDefaultSkillHubNamespace).toHaveBeenCalledWith({
-      actorUserId: actor.user.id,
-      changedAt: 100,
-    });
-    adminRpcCall.mockResolvedValue({
-      skills: [
-        { source: "openclaw-workspace", baseDir: "/workspace/skills/demo-skill", version: "1.2.3" },
-      ],
-    });
-    await expect(
-      service.command("person.one", "publish engineering/demo-skill"),
-    ).resolves.toMatchObject({ text: expect.stringContaining("`engineering/demo-skill`") });
-    expect(adapterMocks.publish).toHaveBeenCalledWith(
-      expect.objectContaining({ namespace: "engineering" }),
-    );
+    expect(governanceMocks.publishArtifact).not.toHaveBeenCalled();
   });
 
   it("lists only owner workspace skills for the explicitly selected source", async () => {
@@ -206,6 +139,8 @@ describe("Skill Hub workspace publication", () => {
     });
     await expect(service.workspaceSkills(actor, "platform_server")).resolves.toEqual({
       source: "platform_server",
+      targetId: "platform-server",
+      targetRevision: 0,
       items: [{ skillKey: "demo-skill", version: "1.2.3" }],
     });
   });

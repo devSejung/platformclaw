@@ -1,28 +1,21 @@
-import { constants as fsConstants } from "node:fs";
-import { lstat, open, readdir, realpath } from "node:fs/promises";
+import { constants as fsConstants, createWriteStream, type Stats } from "node:fs";
+import { lstat, mkdtemp, open, readdir, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { Readable, Transform } from "node:stream";
+import { finished, pipeline } from "node:stream/promises";
 import JSZip from "jszip";
-import type { PlatformUser } from "./contracts.js";
+import { ControlPlaneStateError, type PlatformUser } from "./contracts.js";
 import { GatewayAdminRpcError } from "./gateway-admin-rpc-client.js";
-import {
-  SkillHubAdapterError,
-  type SkillHubAdapter,
-  type SkillHubVersion,
-  type SkillHubVisibility,
-} from "./skill-hub-adapter.js";
+import { SkillHubAdapterError } from "./skill-hub-adapter.js";
 import { isExcludedSkillArchivePath } from "./skill-hub-archive-policy.js";
-import {
-  DEFAULT_SKILL_HUB_NAMESPACE,
-  resolveSkillHubNamespaceCapabilities,
-  type SkillHubNamespaceCapabilities,
-} from "./skill-hub-organization-policy.js";
+import type { SkillHubCatalogEntry } from "./skill-hub-catalog-state.js";
+import { SkillHubGovernanceError } from "./skill-hub-governance-client.js";
 import {
   isInside,
   MAX_SKILL_FILES,
   MAX_SKILL_MD_BYTES,
-  NAMESPACE_PATTERN,
   parseSkillMarkdown,
-  safeName,
   SKILL_KEY_PATTERN,
   SkillHubServiceError,
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
@@ -30,35 +23,50 @@ import {
   SKILL_HUB_UPLOAD_EXPANDED_BYTES,
   type SkillHubServiceOptions,
   type SkillInstallTarget,
+  type SkillHubTargetSnapshot,
   type SkillHubAudience,
 } from "./skill-hub-service-support.js";
-import type { SkillHubGovernanceJob } from "./skill-hub-state.js";
-import type { SkillHubNamespaceBinding } from "./skill-hub-state.js";
 
 const MAX_SKILL_DIRECTORY_DEPTH = 16;
 
-type ResolvedSkillHubNamespaceCapabilities = SkillHubNamespaceCapabilities & {
-  binding: SkillHubNamespaceBinding | null;
-};
-
 export abstract class SkillHubServiceBase {
   protected readonly workspaceRoot: string;
-  protected readonly namespaces: Set<string>;
+  private readonly installLocks = new Map<string, Promise<void>>();
   protected governanceProcessing = false;
   protected governanceTimer?: NodeJS.Timeout;
   protected governanceClosed = false;
+  protected maintenanceError: string | null = null;
 
   protected abstract processGovernanceQueue(): Promise<{ processed: number }>;
 
   constructor(protected readonly options: SkillHubServiceOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
-    // Every active employee belongs to Global; configuration only adds destinations.
-    this.namespaces = new Set([
-      DEFAULT_SKILL_HUB_NAMESPACE,
-      ...options.allowedNamespaces.map((value) => safeName(value, "namespace", NAMESPACE_PATTERN)),
-    ]);
     if (!Number.isSafeInteger(options.maxPackageBytes) || options.maxPackageBytes <= 0) {
       throw new Error("Skill Hub package limit must be a positive integer");
+    }
+  }
+
+  protected async withWorkspaceMutationLock<T>(
+    agentId: string,
+    destination: SkillInstallTarget,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const key = `${agentId}\0${destination}`;
+    const previous = this.installLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    this.installLocks.set(key, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.installLocks.get(key) === tail) {
+        this.installLocks.delete(key);
+      }
     }
   }
 
@@ -73,22 +81,63 @@ export abstract class SkillHubServiceBase {
   protected async authorizeInstallTarget(
     agentId: string,
     destination: SkillInstallTarget,
-  ): Promise<{ targetRevision: number; allocationId?: string }> {
+  ): Promise<SkillHubTargetSnapshot> {
     const profile = await this.options.store.getPersonalExecutionProfile(agentId);
     if (!profile) {
       if (destination === "platform_server") {
-        return { targetRevision: 0 };
+        return { targetId: "platform-server", targetRevision: 0 };
       }
-      throw new SkillHubServiceError("My VM workspace is not assigned.", 409);
+      throw new SkillHubServiceError("My VM workspace is not assigned.", 409, {
+        code: "skill-hub-vm-unassigned",
+      });
     }
     if (destination === "assigned_vm") {
       const allocation = await this.options.store.getVmAllocationForAgent(agentId);
       if (allocation?.status !== "ready" || !allocation.remoteWorkspaceDir) {
-        throw new SkillHubServiceError("My VM workspace is not ready.", 409);
+        throw new SkillHubServiceError("My VM workspace is not ready.", 409, {
+          code: "skill-hub-vm-not-ready",
+        });
       }
-      return { targetRevision: profile.targetRevision, allocationId: allocation.id };
+      try {
+        const target = await this.options.store.resolvePersonalExecutionTarget(
+          agentId,
+          destination,
+        );
+        if (target.kind !== "assigned_vm") {
+          throw new ControlPlaneStateError("Assigned VM execution target is unavailable");
+        }
+        return {
+          targetId: target.targetId,
+          targetRevision: target.revision,
+          allocationId: target.allocationId,
+          targetLabel: target.vmLabel,
+        };
+      } catch (error) {
+        if (error instanceof ControlPlaneStateError) {
+          throw new SkillHubServiceError(error.message, 409, { code: "skill-hub-vm-unavailable" });
+        }
+        throw error;
+      }
     }
-    return { targetRevision: profile.targetRevision };
+    return { targetId: "platform-server", targetRevision: profile.targetRevision };
+  }
+
+  protected async revalidateInstallTarget(
+    agentId: string,
+    destination: SkillInstallTarget,
+    expected: SkillHubTargetSnapshot,
+  ): Promise<void> {
+    const current = await this.authorizeInstallTarget(agentId, destination);
+    if (
+      current.targetId !== expected.targetId ||
+      current.targetRevision !== expected.targetRevision ||
+      current.allocationId !== expected.allocationId
+    ) {
+      throw new SkillHubServiceError(
+        "Skill Hub execution target changed; check status and retry.",
+        409,
+      );
+    }
   }
 
   protected async resolveExecutionTarget(agentId: string): Promise<{
@@ -100,7 +149,9 @@ export abstract class SkillHubServiceBase {
       return { activeTarget: "platform_server", targetRevision: 0 };
     }
     if (profile.activeTarget === "assigned_vm" && !profile.activeAllocationId) {
-      throw new SkillHubServiceError("Assigned VM target is unavailable; reload and retry.", 409);
+      throw new SkillHubServiceError("Assigned VM target is unavailable; reload and retry.", 409, {
+        code: "skill-hub-vm-unavailable",
+      });
     }
     return { activeTarget: profile.activeTarget, targetRevision: profile.targetRevision };
   }
@@ -119,243 +170,47 @@ export abstract class SkillHubServiceBase {
     return SKILL_KEY_PATTERN.test(slug) ? slug : undefined;
   }
 
-  protected authorizeNamespace(raw: string): string {
-    const namespace = safeName(raw, "namespace", NAMESPACE_PATTERN);
-    if (!this.namespaces.has(namespace)) {
-      throw new SkillHubServiceError(
-        "publishing or installing from this namespace is not allowed",
-        403,
-      );
+  protected async activeUser(userId: string): Promise<PlatformUser> {
+    const user = await this.options.store.getUserById(userId);
+    if (!user || user.status !== "active") {
+      throw new SkillHubServiceError("Active employee account required", 401);
     }
-    return namespace;
+    return user;
   }
 
-  protected async authorizePublishNamespace(user: PlatformUser, raw: string): Promise<string> {
-    const namespace = this.authorizeNamespace(raw);
-    if (!(await this.canPublish(user, namespace))) {
-      throw new SkillHubServiceError("publishing to this namespace is not allowed", 403);
-    }
-    return namespace;
-  }
-
-  protected async canPublish(user: PlatformUser, namespace: string): Promise<boolean> {
-    return (await this.resolveNamespaceCapabilities(user, namespace)).canPublish;
-  }
-
-  protected async resolveNamespaceCapabilities(
+  protected async requireEntry(
     user: PlatformUser,
-    namespace: string,
-  ): Promise<ResolvedSkillHubNamespaceCapabilities> {
-    const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
-    const organizationAuthorization =
-      binding?.scopeKind !== "global" && binding?.scopeId
-        ? await this.options.organization.authorization.authorizeManagedScope(
-            user.id,
-            binding.scopeId,
-          )
-        : undefined;
-    return {
-      binding,
-      ...resolveSkillHubNamespaceCapabilities({
-        user,
-        binding,
-        ...(organizationAuthorization ? { organizationAuthorization } : {}),
-      }),
-    };
-  }
-
-  protected async canAccessSkill(
-    user: PlatformUser,
-    namespace: string,
-    slug: string,
-    visibility: SkillHubVisibility,
-    version?: string,
+    id: string,
     audience: SkillHubAudience = "employee",
-  ): Promise<boolean> {
-    if (await this.options.store.getSkillHubPendingEdit(namespace, slug)) {
-      return false;
-    }
-    const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
-    const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
-    const visibilityRank: Record<SkillHubVisibility, number> = {
-      PRIVATE: 0,
-      NAMESPACE_ONLY: 1,
-      PUBLIC: 2,
-    };
-    const effectiveVisibility = [
-      visibility,
-      ...(ownership ? [ownership.visibility] : []),
-      ...(binding ? [binding.visibilityCeiling] : []),
-    ].reduce((mostRestrictive, candidate) =>
-      visibilityRank[candidate] < visibilityRank[mostRestrictive] ? candidate : mostRestrictive,
-    );
-    // A shared room cannot inherit one employee's private/organization grants,
-    // including an administrator's view. Respect the same effective visibility ceiling.
-    if (audience === "room") {
-      return effectiveVisibility === "PUBLIC";
-    }
-    if (effectiveVisibility === "PUBLIC" || user.globalRole === "admin") {
-      return true;
-    }
-    if (ownership?.ownerUserId === user.id) {
-      return true;
-    }
+  ): Promise<SkillHubCatalogEntry> {
+    const entry = await this.options.store.skillHubCatalog.get(id);
     if (
-      effectiveVisibility === "NAMESPACE_ONLY" &&
-      (await this.resolveNamespaceCapabilities(user, namespace)).canReadInstall
+      !entry ||
+      !(await this.options.store.skillHubCatalog.canAccess({
+        skillId: id,
+        userId: user.id,
+        audience,
+      }))
     ) {
-      return true;
-    }
-    return await this.options.store.hasSkillHubAccess({
-      namespace,
-      slug,
-      userId: user.id,
-      ...(version ? { version } : {}),
-      now: this.now(),
-    });
-  }
-
-  protected async authorizeSkillAccess(
-    user: PlatformUser,
-    namespace: string,
-    slug: string,
-    visibility: SkillHubVisibility,
-    version?: string,
-    audience: SkillHubAudience = "employee",
-  ): Promise<void> {
-    if (!(await this.canAccessSkill(user, namespace, slug, visibility, version, audience))) {
       throw new SkillHubServiceError("Skill Hub skill not found", 404);
     }
+    return entry;
   }
 
-  protected async authorizeExistingSkillMutation(
-    user: PlatformUser,
-    namespace: string,
-    slug: string,
-  ) {
-    await this.assertNoPendingSkillEdit(namespace, slug);
-    await this.reconcileOwners();
-    const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
-    if (!ownership && user.globalRole !== "admin") {
-      try {
-        const existing = await this.adapterCall(() =>
-          this.options.adapter.getSkill(namespace, slug),
-        );
-        this.validateSkillIdentity(existing.namespace, existing.slug, namespace, slug);
-      } catch (error) {
-        if (error instanceof SkillHubServiceError && error.statusCode === 404) {
-          return null;
-        }
-        throw error;
-      }
-      // The registry sees one service publisher for every employee. An untracked
-      // native skill therefore needs administrator ownership assignment before reuse.
-      throw new SkillHubServiceError(
-        "Existing registry skill has no PlatformClaw owner; choose a new skill name or ask an administrator to publish it and transfer ownership",
-        403,
-        { code: "skill-hub-untracked-skill" },
-      );
+  protected async requireManager(user: PlatformUser, id: string): Promise<SkillHubCatalogEntry> {
+    const current = await this.activeUser(user.id);
+    const entry = await this.options.store.skillHubCatalog.get(id);
+    if (!entry || entry.purgedAt !== null || entry.purgePending) {
+      throw new SkillHubServiceError("Skill Hub skill not found", 404);
     }
-    if (ownership && user.globalRole !== "admin" && ownership.ownerUserId !== user.id) {
-      throw new SkillHubServiceError("Skill Hub skill owner or administrator required", 403);
+    if (current.globalRole !== "admin" && entry.ownerUserId !== current.id) {
+      throw new SkillHubServiceError("Skill owner or administrator required", 403);
     }
-    if (
-      ownership &&
-      user.globalRole !== "admin" &&
-      !(await this.resolveNamespaceCapabilities(user, namespace)).canOwn
-    ) {
-      throw new SkillHubServiceError("Skill Hub namespace membership required", 403);
-    }
-    return ownership;
-  }
-
-  protected async authorizeVisibilityCeiling(
-    namespace: string,
-    visibility: SkillHubVisibility,
-  ): Promise<void> {
-    const binding = await this.options.store.getSkillHubNamespaceBinding(namespace);
-    if (!binding) {
-      return;
-    }
-    const rank: Record<SkillHubVisibility, number> = {
-      PRIVATE: 0,
-      NAMESPACE_ONLY: 1,
-      PUBLIC: 2,
-    };
-    if (rank[visibility] > rank[binding.visibilityCeiling]) {
-      throw new SkillHubServiceError(
-        `visibility exceeds the ${binding.visibilityCeiling} namespace ceiling`,
-        403,
-      );
-    }
-  }
-
-  protected async requireManagedSkill(actor: PlatformUser, namespaceRaw: string, slugRaw: string) {
-    const namespace = this.authorizeNamespace(namespaceRaw);
-    const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
-    await this.assertNoPendingSkillEdit(namespace, slug);
-    await this.reconcileOwners();
-    const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
-    if (!ownership) {
-      throw new SkillHubServiceError("Skill Hub ownership is not registered", 404);
-    }
-    if (actor.globalRole !== "admin" && ownership.ownerUserId !== actor.id) {
-      throw new SkillHubServiceError("Skill Hub skill owner or administrator required", 403);
-    }
-    if (
-      actor.globalRole !== "admin" &&
-      !(await this.resolveNamespaceCapabilities(actor, namespace)).canOwn
-    ) {
-      throw new SkillHubServiceError("Skill Hub namespace membership required", 403);
-    }
-    return { namespace, slug, ownership };
-  }
-
-  protected async assertNoPendingSkillEdit(namespace: string, slug: string): Promise<void> {
-    if (await this.options.store.getSkillHubPendingEdit(namespace, slug)) {
-      throw new SkillHubServiceError(
-        "Skill Hub edit is still being reconciled; retry shortly.",
-        409,
-        {
-          code: "skill-hub-edit-pending",
-        },
-      );
-    }
-  }
-
-  protected async reconcileOwners(): Promise<void> {
-    await this.options.store.reconcileInactiveSkillHubOwners(this.now());
-  }
-
-  protected async enqueueGovernance(
-    ownerUserId: string | null,
-    namespace: string,
-    slug: string,
-    version: string,
-    visibility: SkillHubVisibility,
-  ): Promise<void> {
-    if (!this.options.governance || visibility === "PRIVATE") {
-      return;
-    }
-    await this.options.store.enqueueSkillHubGovernanceJob({
-      namespace,
-      slug,
-      version,
-      ownerUserId,
-      createdAt: this.now(),
-    });
-    this.triggerGovernanceProcessing();
+    return entry;
   }
 
   protected triggerGovernanceProcessing(delayMs = 1_000): void {
-    // The active queue owns its next pass. Recovery errors must not replace
-    // that cadence with the initial user-action timer throughout an outage.
-    if (
-      !this.options.governance ||
-      this.governanceClosed ||
-      this.governanceProcessing ||
-      this.governanceTimer
-    ) {
+    if (this.governanceClosed || this.governanceProcessing || this.governanceTimer) {
       return;
     }
     this.governanceTimer = setTimeout(() => {
@@ -365,76 +220,8 @@ export abstract class SkillHubServiceBase {
     this.governanceTimer.unref();
   }
 
-  protected async retryGovernanceJob(
-    job: SkillHubGovernanceJob,
-    attempts: number,
-    lastError: string,
-  ): Promise<void> {
-    // An edit can reserve the coordinate during a native read. Preserve the scan
-    // retry budget until that persisted operation finishes, including read errors.
-    if (await this.options.store.getSkillHubPendingEdit(job.namespace, job.slug)) {
-      return;
-    }
-    const terminal = attempts >= 20;
-    await this.options.store.updateSkillHubGovernanceJob({
-      namespace: job.namespace,
-      slug: job.slug,
-      version: job.version,
-      state: terminal ? "failed" : "pending",
-      attempts,
-      nextAttemptAt: this.now() + Math.min(60_000, 1_000 * 2 ** Math.min(attempts, 6)),
-      lastError,
-      updatedAt: this.now(),
-    });
-  }
-
-  protected async finishGovernanceJob(
-    job: SkillHubGovernanceJob,
-    state: "approved" | "blocked",
-    attempts: number,
-    lastError?: string,
-  ): Promise<void> {
-    await this.options.store.updateSkillHubGovernanceJob({
-      namespace: job.namespace,
-      slug: job.slug,
-      version: job.version,
-      state,
-      attempts,
-      nextAttemptAt: this.now(),
-      ...(lastError ? { lastError } : {}),
-      updatedAt: this.now(),
-    });
-  }
-
   protected now(): number {
     return (this.options.now ?? Date.now)();
-  }
-
-  protected projectScanner(
-    currentVersion: Pick<SkillHubVersion, "version" | "status"> | undefined,
-    audits: Awaited<ReturnType<SkillHubAdapter["listSecurityAudits"]>>,
-  ) {
-    if (!currentVersion) {
-      return { status: "not_available", badge: "Not scanned", current: true } as const;
-    }
-    const { version } = currentVersion;
-    if (currentVersion.status === "SCAN_FAILED" || audits.some((audit) => audit.failedAt)) {
-      return { version, status: "failed", badge: "Scan failed", current: true, audits } as const;
-    }
-    // Native audits start SUSPICIOUS/unsafe before work begins. Only scannedAt
-    // records completion; an older completed audit cannot finish an active rescan.
-    const pending =
-      currentVersion.status === "SCANNING" ||
-      audits.length === 0 ||
-      audits.some((audit) => !audit.scannedAt);
-    const unsafe = !pending && audits.some((audit) => audit.isSafe !== true);
-    return {
-      version,
-      status: pending ? "pending" : unsafe ? "failed" : "passed",
-      badge: pending ? "Scan pending" : unsafe ? "Issues found" : "Scan passed",
-      current: true,
-      audits,
-    };
   }
 
   protected validateSkillIdentity(
@@ -448,11 +235,55 @@ export abstract class SkillHubServiceBase {
     }
   }
 
+  protected async artifactSkill(entry: {
+    id?: string;
+    namespace: string;
+    slug: string;
+    registryId: number | null;
+  }) {
+    const governance = this.options.governance;
+    if (!governance) {
+      throw new SkillHubServiceError("Managed artifact access is unavailable", 503);
+    }
+    return await this.adapterCall(() =>
+      governance.getArtifactSkill({
+        namespace: entry.namespace,
+        slug: entry.slug,
+        ...(entry.registryId === null ? {} : { expectedSkillId: entry.registryId }),
+        ...(entry.registryId === null && entry.id ? { expectedPublicationId: entry.id } : {}),
+      }),
+    );
+  }
+
+  protected async artifactVersions(
+    identity: { id: number; namespace: string; slug: string },
+    currentVersion?: string | null,
+  ) {
+    const governance = this.options.governance;
+    if (!governance) {
+      throw new SkillHubServiceError("Managed artifact access is unavailable", 503);
+    }
+    const versions = await this.adapterCall(() =>
+      governance.listArtifactVersions({
+        skillId: identity.id,
+        namespace: identity.namespace,
+        slug: identity.slug,
+      }),
+    );
+    // Registry pagination order is transport data. Catalog publication identity
+    // owns the current version; remaining history has a stable newest-ID order.
+    return versions.toSorted(
+      (left, right) =>
+        Number(right.version === currentVersion) - Number(left.version === currentVersion) ||
+        right.id - left.id,
+    );
+  }
+
   protected async packageWorkspaceSkill(
     workspaceDir: string,
     skill: string,
     version: string,
-  ): Promise<Buffer> {
+  ): Promise<{ path: string; size: number; summary: string; cleanup(): Promise<void> }> {
     const skillDir = path.resolve(workspaceDir, "skills", skill);
     const skillsDir = path.resolve(workspaceDir, "skills");
     if (!isInside(skillsDir, skillDir) || skillDir === skillsDir) {
@@ -466,11 +297,8 @@ export abstract class SkillHubServiceBase {
     if (!isInside(await realpath(skillsDir), realRoot)) {
       throw new SkillHubServiceError("workspace skill escapes the skills directory", 400);
     }
-    const zip = new JSZip();
+    const files: Array<{ absolute: string; relative: string; stat: Stats }> = [];
     const pending = [{ directory: skillDir, depth: 0 }];
-    let fileCount = 0;
-    let totalBytes = 0;
-    let sawSkillMarkdown = false;
     while (pending.length > 0) {
       const { directory: current, depth } = pending.pop()!;
       const entries = (await readdir(current, { withFileTypes: true })).toSorted((a, b) =>
@@ -482,8 +310,7 @@ export abstract class SkillHubServiceBase {
         if (stat.isSymbolicLink()) {
           throw new SkillHubServiceError("workspace skill contains a symbolic link", 400);
         }
-        const canonical = await realpath(absolute);
-        if (!isInside(realRoot, canonical)) {
+        if (!isInside(realRoot, await realpath(absolute))) {
           throw new SkillHubServiceError("workspace skill contains an escaping path", 400);
         }
         if (isExcludedSkillArchivePath(entry.name, stat.isDirectory())) {
@@ -502,71 +329,169 @@ export abstract class SkillHubServiceBase {
         if (!stat.isFile() || stat.nlink !== 1) {
           throw new SkillHubServiceError("workspace skill contains an unsupported file", 400);
         }
-        fileCount += 1;
-        if (fileCount > MAX_SKILL_FILES || stat.size > SKILL_HUB_UPLOAD_ENTRY_BYTES) {
+        files.push({
+          absolute,
+          relative: path.relative(skillDir, absolute).split(path.sep).join("/"),
+          stat,
+        });
+        if (files.length > MAX_SKILL_FILES || stat.size > SKILL_HUB_UPLOAD_ENTRY_BYTES) {
           throw new SkillHubServiceError(
             "workspace skill exceeds the configured package limit",
             400,
           );
         }
-        const relative = path.relative(skillDir, absolute).split(path.sep).join("/");
-        const flags =
-          process.platform === "win32"
-            ? fsConstants.O_RDONLY
-            : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
-        const handle = await open(absolute, flags);
-        let bytes: Buffer;
-        try {
-          const openedStat = await handle.stat();
-          if (
-            !openedStat.isFile() ||
-            openedStat.nlink !== 1 ||
-            openedStat.dev !== stat.dev ||
-            openedStat.ino !== stat.ino
-          ) {
-            throw new SkillHubServiceError("workspace skill changed during packaging", 409);
-          }
-          bytes = await handle.readFile();
-        } finally {
-          await handle.close();
+      }
+    }
+    if (!files.some((file) => file.relative === "SKILL.md")) {
+      throw new SkillHubServiceError("workspace skill is missing SKILL.md", 400);
+    }
+
+    let totalBytes = 0;
+    let summary: string | undefined;
+    const countBytes = (bytes: number) => {
+      totalBytes += bytes;
+      if (totalBytes > SKILL_HUB_UPLOAD_EXPANDED_BYTES) {
+        throw new SkillHubServiceError("workspace skill exceeds the configured package limit", 400);
+      }
+    };
+    const readSource = async function* (file: (typeof files)[number]) {
+      const flags =
+        process.platform === "win32"
+          ? fsConstants.O_RDONLY
+          : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+      const handle = await open(file.absolute, flags);
+      try {
+        const opened = await handle.stat();
+        if (
+          !opened.isFile() ||
+          opened.nlink !== 1 ||
+          opened.dev !== file.stat.dev ||
+          opened.ino !== file.stat.ino ||
+          opened.size !== file.stat.size ||
+          opened.mtimeMs !== file.stat.mtimeMs
+        ) {
+          throw new SkillHubServiceError("workspace skill changed during packaging", 409);
         }
-        if (relative === "SKILL.md") {
+        const markdown: Buffer[] = [];
+        let fileBytes = 0;
+        while (true) {
+          const buffer = Buffer.allocUnsafe(64 * 1024);
+          const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null);
+          if (bytesRead === 0) {
+            break;
+          }
+          const chunk = buffer.subarray(0, bytesRead);
+          fileBytes += bytesRead;
+          if (fileBytes > SKILL_HUB_UPLOAD_ENTRY_BYTES) {
+            throw new SkillHubServiceError(
+              "workspace skill exceeds the configured package limit",
+              400,
+            );
+          }
+          if (file.relative === "SKILL.md") {
+            if (fileBytes > MAX_SKILL_MD_BYTES) {
+              throw new SkillHubServiceError("SKILL.md exceeds the size limit", 400);
+            }
+            markdown.push(chunk);
+          } else {
+            countBytes(bytesRead);
+            yield chunk;
+          }
+        }
+        const after = await handle.stat();
+        if (
+          fileBytes !== opened.size ||
+          after.size !== opened.size ||
+          after.mtimeMs !== opened.mtimeMs ||
+          after.nlink !== 1
+        ) {
+          throw new SkillHubServiceError("workspace skill changed during packaging", 409);
+        }
+        if (file.relative === "SKILL.md") {
+          const metadata = parseSkillMarkdown(
+            Buffer.concat(markdown, fileBytes).toString("utf8"),
+            skill,
+            version,
+          );
+          const bytes = Buffer.from(metadata.source, "utf8");
           if (bytes.byteLength > MAX_SKILL_MD_BYTES) {
             throw new SkillHubServiceError("SKILL.md exceeds the size limit", 400);
           }
-          bytes = Buffer.from(
-            parseSkillMarkdown(bytes.toString("utf8"), skill, version).source,
-            "utf8",
-          );
-          sawSkillMarkdown = true;
+          summary = metadata.description;
+          countBytes(bytes.byteLength);
+          yield bytes;
         }
-        totalBytes += bytes.byteLength;
-        if (totalBytes > SKILL_HUB_UPLOAD_EXPANDED_BYTES) {
-          throw new SkillHubServiceError(
-            "workspace skill exceeds the configured package limit",
-            400,
-          );
-        }
-        zip.file(relative, bytes, {
+      } finally {
+        await handle.close();
+      }
+    };
+    const directory = await mkdtemp(path.join(tmpdir(), `platformclaw-skill-hub-${skill}-`));
+    const archivePath = path.join(directory, "archive.zip");
+    const sources: Readable[] = [];
+    let size = 0;
+    try {
+      const zip = new JSZip();
+      for (const file of files) {
+        // JSZip pauses each input until its turn. Lazy generators keep source
+        // descriptors and memory bounded, including when output exceeds its cap.
+        const source = Readable.from(readSource(file), {
+          objectMode: false,
+          highWaterMark: 64 * 1024,
+        });
+        sources.push(source);
+        zip.file(file.relative, source, {
           binary: true,
           createFolders: false,
-          unixPermissions: stat.mode & 0o777,
+          date: new Date("1980-01-01T00:00:00.000Z"),
+          unixPermissions: file.stat.mode & 0o777,
         });
       }
-    }
-    if (!sawSkillMarkdown) {
-      throw new SkillHubServiceError("workspace skill is missing SKILL.md", 400);
-    }
-    const archive = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
-    if (
-      archive.byteLength > Math.min(this.options.maxPackageBytes, SKILL_HUB_UPLOAD_ARCHIVE_BYTES)
-    ) {
-      throw new SkillHubServiceError(
-        "workspace skill ZIP exceeds the configured package limit",
-        400,
+      const archiveLimit = Math.min(this.options.maxPackageBytes, SKILL_HUB_UPLOAD_ARCHIVE_BYTES);
+      const limiter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          size += chunk.byteLength;
+          callback(
+            size > archiveLimit
+              ? new SkillHubServiceError(
+                  "workspace skill ZIP exceeds the configured package limit",
+                  400,
+                )
+              : null,
+            chunk,
+          );
+        },
+      });
+      // JSZip's paused input adapter can retain a source error without forwarding
+      // it. Destroying the native limiter makes read failures terminate the pipeline.
+      for (const source of sources) {
+        source.once("error", (error) => limiter.destroy(error));
+      }
+      await pipeline(
+        zip.generateNodeStream({ streamFiles: true, compression: "DEFLATE", platform: "UNIX" }),
+        limiter,
+        createWriteStream(archivePath, { flags: "wx", mode: 0o600 }),
+      );
+      if (summary === undefined) {
+        throw new SkillHubServiceError("workspace skill is missing SKILL.md", 400);
+      }
+      return {
+        path: archivePath,
+        size,
+        summary,
+        cleanup: async () => await rm(directory, { recursive: true, force: true }),
+      };
+    } catch (error) {
+      await rm(directory, { recursive: true, force: true });
+      throw error;
+    } finally {
+      // JSZip's legacy output stream does not own its input descriptors.
+      await Promise.all(
+        sources.map(async (source) => {
+          source.destroy();
+          await finished(source).catch(() => undefined);
+        }),
       );
     }
-    return archive;
   }
 
   protected async adapterCall<T>(operation: () => Promise<T>): Promise<T> {
@@ -576,8 +501,15 @@ export abstract class SkillHubServiceBase {
       if (error instanceof SkillHubServiceError) {
         throw error;
       }
-      if (error instanceof SkillHubAdapterError) {
-        const status = error.statusCode === 403 ? 403 : error.statusCode === 404 ? 404 : 502;
+      if (error instanceof SkillHubAdapterError || error instanceof SkillHubGovernanceError) {
+        const status =
+          error.statusCode === 403
+            ? 403
+            : error.statusCode === 404
+              ? 404
+              : error.statusCode === 409
+                ? 409
+                : 502;
         throw new SkillHubServiceError(error.message, status);
       }
       throw new SkillHubServiceError("Skill Hub operation failed", 502);

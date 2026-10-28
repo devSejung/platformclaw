@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { SkillHubInstallController } from "./install-controller.ts";
+import { skillHubConfig } from "./skill-hub.test-fixtures.ts";
 
 function response(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -13,7 +14,7 @@ function response(value: unknown, status = 200): Response {
   });
 }
 
-async function installationFixture(installedVersion?: string) {
+async function installationFixture(installedVersion?: string, installedHubId = "entry-one") {
   let finish!: (value: Response) => void;
   const pending = new Promise<Response>((resolve) => {
     finish = resolve;
@@ -26,7 +27,16 @@ async function installationFixture(installedVersion?: string) {
     const source = new URL(url, "http://localhost").searchParams.get("source");
     return response({
       source,
-      items: installedVersion ? [{ skillKey: "notes", version: installedVersion }] : [],
+      items: installedVersion
+        ? [
+            {
+              skillKey: "notes",
+              version: installedVersion,
+              hubSkillId: installedHubId,
+              hubVersion: installedVersion,
+            },
+          ]
+        : [],
     });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -48,17 +58,13 @@ async function installationFixture(installedVersion?: string) {
   }
   const open = (slug = "notes") =>
     controller.open(
-      { namespace: "engineering", slug },
-      {
-        namespaces: ["engineering"],
-        defaultNamespace: "engineering",
-        namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
-        maxPackageBytes: 1024,
+      { id: "entry-one", slug },
+      skillHubConfig({
         installTargets: [
           { target: "platform_server", available: true, status: "ready" },
           { target: "assigned_vm", available: true, status: "ready" },
         ],
-      },
+      }),
     );
   open();
   const basic = () => container.querySelector('[data-install-target="platform_server"]')!;
@@ -66,7 +72,11 @@ async function installationFixture(installedVersion?: string) {
   const button = () => basic().querySelector("button")!;
   await waitForFast(() =>
     expect(basic().querySelector('[role="status"]')?.textContent).toContain(
-      installedVersion ? `v${installedVersion}` : "Not downloaded",
+      installedVersion
+        ? installedHubId === "entry-one"
+          ? `v${installedVersion}`
+          : "same package name"
+        : "Not downloaded",
     ),
   );
   return {
@@ -93,6 +103,32 @@ const completion = ".skill-hub-destination__completion";
 const success = { ok: true, slug: "notes", version: "2.0.0", target: "platform_server" };
 
 describe("Skill Hub install completion feedback", () => {
+  it("requires replacement confirmation for another Hub skill with the same name and version", async () => {
+    const fixture = await installationFixture("2.0.0", "different-entry");
+    expect(fixture.button().disabled).toBe(false);
+    expect(fixture.basic().textContent).toContain("same package name");
+    fixture.button().click();
+    fixture.finish(
+      response(
+        {
+          error: "Confirm replacement",
+          details: {
+            code: "existing-skill-replacement-required",
+            currentVersion: "2.0.0",
+            requestedVersion: "2.0.0",
+            currentRevision: "sha256:0123456789abcdef",
+            direction: "reinstall",
+          },
+        },
+        409,
+      ),
+    );
+    await waitForFast(() =>
+      expect(fixture.container.querySelector(".skill-hub-version-change")).not.toBeNull(),
+    );
+    expect(fixture.container.textContent).toContain("Replace installed version");
+    expect(fixture.message).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "success" }));
+  });
   beforeEach(async () => {
     await i18n.setLocale("en");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
@@ -142,7 +178,7 @@ describe("Skill Hub install completion feedback", () => {
     await waitForFast(() => expect(fixture.controller.busy).toBe(false));
     expect(fixture.message).toHaveBeenCalledWith({
       kind: "error",
-      text: "Installation unavailable. Retry.",
+      text: "Skill Hub could not complete this request. Check its current state before retrying. Error details: Installation unavailable. Retry.",
     });
     expect(fixture.container.querySelector(completion)).toBeNull();
   });

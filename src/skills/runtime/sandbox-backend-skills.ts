@@ -62,6 +62,7 @@ export function prepareSandboxBackendSkillEntries(
           ...(file.locationNote ? { locationNote: file.locationNote } : {}),
           readContent: file.content,
           filePath: file.filePath,
+          ...(file.sourceFilePath ? { sourceFilePath: file.sourceFilePath } : {}),
           baseDir,
           promptVersion: computeSkillPromptVersion(file.content),
           source: file.source,

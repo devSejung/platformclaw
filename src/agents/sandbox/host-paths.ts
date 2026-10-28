@@ -3,7 +3,7 @@
  *
  * Handles POSIX, Windows drive, and namespace-prefixed paths before policy-key comparison.
  */
-import { posix } from "node:path";
+import path, { posix } from "node:path";
 import { resolvePathViaExistingAncestorSync } from "../../infra/boundary-path.js";
 
 function stripWindowsNamespacePrefix(input: string): string {
@@ -74,4 +74,13 @@ export function resolveSandboxHostPathViaExistingAncestor(sourcePath: string): s
     return normalizeSandboxHostPath(sourcePath);
   }
   return normalizeSandboxHostPath(resolvePathViaExistingAncestorSync(sourcePath));
+}
+
+/** Canonicalize parent aliases without erasing a leaf that the entry guard must inspect. */
+export function resolveSandboxHostPathPreservingLeaf(sourcePath: string): string {
+  const resolved = path.resolve(sourcePath);
+  return path.join(
+    resolveSandboxHostPathViaExistingAncestor(path.dirname(resolved)),
+    path.basename(resolved),
+  );
 }

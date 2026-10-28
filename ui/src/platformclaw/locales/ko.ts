@@ -8,6 +8,7 @@ import { fishingTranslations } from "./ko-fishing.ts";
 import { mcpTranslations } from "./ko-mcp.ts";
 import { memoryWikiTranslations } from "./ko-memory-wiki.ts";
 import { racingTranslations } from "./ko-racing.ts";
+import { skillHubNativeTranslations } from "./ko-skill-hub.ts";
 import { spaceTranslations } from "./ko-spaces.ts";
 import { vaultTranslations } from "./ko-vaults.ts";
 import { vmAdminTranslations } from "./ko-vm-admin.ts";
@@ -28,30 +29,7 @@ export const nativeTranslations = {
     clearFilters: "필터 지우기",
     browseSkillHub: "Skill Hub에서 스킬 찾기",
   },
-  skillHubPage: {
-    downloadLocation: "스킬을 어디에 다운로드할까요?",
-    downloadLocationHelp:
-      "기본 서버와 VM의 스킬은 각각 따로 관리됩니다. 위에서 버전을 고른 뒤 사용할 위치에 다운로드하세요.",
-    basicServer: "기본 서버",
-    basicServerHelp: "PlatformClaw 서버의 내 작업 공간에서 사용하는 스킬입니다.",
-    developmentVm: "내 개발 VM",
-    developmentVmHelp: "내게 할당된 VM의 작업 공간에서 사용하는 스킬입니다.",
-    checkingInstallation: "연결 상태와 설치된 버전을 확인하고 있습니다…",
-    installedVersion: "다운로드됨 · {version}",
-    installedVersionUnknown:
-      "이미 다운로드되어 있지만 버전을 확인할 수 없습니다. 작업 공간에서 스킬을 확인하세요.",
-    notInstalled: "이 위치에는 아직 다운로드하지 않았습니다.",
-    alreadyInstalled: "선택한 버전이 이미 다운로드됨",
-    changeToVersion: "{version}으로 변경",
-    vmUnassigned:
-      "할당된 VM이 없습니다. 작업 위치 설정에서 VM을 선택하고 연결하거나 관리자에게 도움을 요청하세요.",
-    vmNotReady:
-      "VM 연결 준비가 필요합니다. 작업 위치 설정에서 연결 설정을 완료한 뒤 다시 확인하세요.",
-    vmUnreachable:
-      "현재 VM의 스킬을 확인할 수 없습니다. 작업 위치 설정에서 연결 상태를 점검한 뒤 다시 확인하세요.",
-    basicUnreachable: "기본 서버의 상태를 확인할 수 없습니다. 다운로드 전에 다시 확인하세요.",
-    checkAgain: "다시 확인",
-  },
+  skillHubPage: skillHubNativeTranslations,
   execApproval: {
     expiresIn: "{time} 후 만료",
     expired: "만료됨",
@@ -141,33 +119,6 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.composerPredictions.unavailable":
     "서버 관리자가 기능을 먼저 활성화해야 사용할 수 있습니다.",
   "platformClaw.composerPredictions.saveError": "설정을 저장하지 못했습니다. 다시 시도해 주세요.",
-  "platformClaw.skillHub.namespace.create": "네임스페이스 만들기",
-  "platformClaw.skillHub.namespace.description":
-    "전사 공용 또는 소속 팀·그룹·파트에서 스킬을 공유할 공간을 만듭니다.",
-  "platformClaw.skillHub.namespace.nameHelp":
-    "영문 소문자(a–z), 숫자, 하이픈으로 2~64자를 입력하세요. 영문 소문자나 숫자로 시작하고 끝내며 하이픈을 연속해서 사용할 수 없습니다.",
-  "platformClaw.skillHub.namespace.scope": "공유 범위",
-  "platformClaw.skillHub.namespace.noScopes":
-    "선택할 수 있는 공유 범위가 없습니다. 조직 소속을 확인하거나 관리자에게 문의하세요.",
-  "platformClaw.skillHub.namespace.creating": "네임스페이스 생성 중…",
-  "platformClaw.skillHub.namespace.created":
-    "네임스페이스 {namespace}을(를) 만들었습니다. 게시할 때 선택할 수 있습니다.",
-  "platformClaw.skillHub.namespace.createdReloadFailed":
-    "네임스페이스 {namespace}을(를) 만들었지만 게시 위치를 새로 불러오지 못했습니다. 페이지를 새로고침한 뒤 게시하세요.",
-  "platformClaw.skillHub.namespace.conflict":
-    "이미 있거나 예약된 네임스페이스입니다. 다른 이름을 입력하세요.",
-  "platformClaw.skillHub.namespace.invalidName":
-    "사용할 수 없거나 예약된 이름입니다. 영문 소문자(a–z), 숫자, 하이픈으로 2~64자의 다른 이름을 입력하세요. 영문 소문자나 숫자로 시작하고 끝내며 하이픈을 연속해서 사용할 수 없습니다.",
-  "platformClaw.skillHub.namespace.forbidden":
-    "이 범위에 대한 권한이 변경되었습니다. 창을 다시 열어 선택 가능한 범위를 확인하세요.",
-  "platformClaw.skillHub.namespace.unavailable":
-    "생성을 완료하지 못했습니다. 같은 이름과 공유 범위로 다시 시도하면 상태를 확인하고 이어서 완료합니다.",
-  "platformClaw.skillHub.namespace.incomplete": "생성이 완료되지 않은 네임스페이스",
-  "platformClaw.skillHub.namespace.failed": "생성 상태를 확인해야 합니다.",
-  "platformClaw.skillHub.namespace.pending": "설정이 완료되지 않았습니다.",
-  "platformClaw.skillHub.namespace.inProgress":
-    "이미 생성 중입니다. 잠시 기다린 뒤 같은 이름과 공유 범위로 다시 시도하세요.",
-  "platformClaw.skillHub.namespace.resume": "이 값으로 다시 시도",
   "platformClaw.waitingTips.request": "독심술은 아직이에요. 원하는 결과 형식도 함께 알려주세요.",
   "platformClaw.waitingTips.newChat": "주제가 바뀌면 새 대화로. 맥락도 환기가 필요해요.",
   "platformClaw.waitingTips.history": "지난 대화는 퇴근하지 않아요. 다시 열어 이어가세요.",
@@ -201,21 +152,20 @@ export const translations: Readonly<Record<string, string>> = {
   "configView.appearance.terminalTextSize": "터미널 텍스트 크기",
   "platformClaw.skillHub.publish.action": "작업 공간 스킬 게시",
   "platformClaw.skillHub.publish.title": "작업 공간의 스킬 게시",
-  "platformClaw.skillHub.publish.description":
-    "기본 작업 공간이나 내 VM에서 스킬을 선택합니다. 현재 작업 위치는 변경되지 않습니다.",
   "platformClaw.skillHub.publish.source": "스킬 위치",
-  "platformClaw.skillHub.publish.destination": "게시 위치",
-  "platformClaw.skillHub.publish.chooseDestination": "게시 위치 선택",
-  "platformClaw.skillHub.publish.global": "전사 공용",
-  "platformClaw.skillHub.scopeTeam": "팀",
   "platformClaw.skillHub.publish.sourceBasic": "기본 작업 공간",
   "platformClaw.skillHub.publish.sourceVm": "내 VM 작업 공간",
   "platformClaw.skillHub.publish.skill": "작업 공간 스킬",
   "platformClaw.skillHub.publish.chooseSkill": "게시할 스킬 선택",
   "platformClaw.skillHub.publish.loading": "작업 공간의 스킬을 불러오는 중…",
   "platformClaw.skillHub.publish.empty": "이 작업 공간에는 게시할 수 있는 스킬이 없습니다.",
-  "platformClaw.skillHub.publish.submit": "검사 후 스킬 게시",
   "platformClaw.skillHub.publish.published": "{source}의 {skill} 스킬을 게시했습니다.",
+  "platformClaw.skillHub.changedReloadFailed":
+    "{outcome} 스킬허브의 최신 정보를 불러오지 못했습니다. 다른 변경을 하기 전에 이 페이지를 새로고침하세요. {error}",
+  "platformClaw.skillHub.configLoadFailed":
+    "스킬허브 설정을 불러오지 못해 게시할 수 없습니다. 새로고침을 눌러 다시 시도하세요. {error}",
+  "platformClaw.skillHub.restored": "{skill} 스킬을 복구했습니다.",
+  "platformClaw.skillHub.transferAccepted": "{skill} 스킬의 소유권을 수락했습니다.",
   "platformClaw.organization.title": "조직",
   "platformClaw.organization.automatic": "자동 관리",
   "platformClaw.organization.automatic.description":
@@ -388,7 +338,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.organization.action.rename": "범위 이름 변경 확인",
   "platformClaw.organization.action.archive": "범위 보관 확인",
   "platformClaw.organization.action.archiveWarning":
-    "보관하면 모든 하위 범위가 비활성화되고, 대기 중인 가입·승격 요청은 거절되며, 활성 Memory claim은 retired 상태가 되고, 관련 기본 범위가 해제됩니다. Skill Hub 연결은 먼저 이전하거나 retired 처리해야 합니다.",
+    "보관하면 모든 하위 범위가 비활성화되고, 대기 중인 가입·승격 요청은 거절되며, 활성 Memory claim은 retired 상태가 되고, 관련 기본 범위가 해제됩니다.",
   "platformClaw.organization.action.reason": "변경 사유",
   "platformClaw.organization.action.confirm": "확인",
   "platformClaw.organization.action.cancel": "취소",
@@ -404,7 +354,7 @@ export const translations: Readonly<Record<string, string>> = {
     "선택한 상위 범위에 같은 이름이 있습니다. 다른 이름을 입력하세요.",
   "platformClaw.organization.errors.invalid": "조직 입력 항목을 확인하고 다시 시도하세요.",
   "platformClaw.organization.errors.archiveBlocked":
-    "보관이 차단되었습니다. 관련 Skill Hub namespace 연결을 이전하거나 retired 처리한 뒤 다시 시도하세요.",
+    "조직 정보와 변경 사유를 확인한 뒤 다시 보관을 시도하세요.",
   "platformClaw.organization.errors.searchLength": "사용자를 검색하려면 2자 이상 입력하세요.",
   "platformClaw.organization.errors.noMembershipRemoved":
     "제거된 소속이 없습니다. 최신 roster를 불러왔으니 현재 상태를 확인하세요.",

@@ -243,14 +243,14 @@ membership, scope status, and parent chain inside the authoritative operation.
 
 Consumers keep domain ownership:
 
-| Service   | Shared organization capability                                      | Domain state that remains with the service                                          |
-| --------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Wiki Hub  | Exact direct organization membership and employee/scope status      | Personal/Shared documents, explicit Wiki grants, access requests, indexes and links |
-| Skill Hub | Namespace visibility, curation, ownership eligibility, and transfer | Packages, versions, hashes, scans, publication gates, and installs                  |
-| Agent     | Organization-aware assignment and administration                    | Agent identity, workspace, sessions, and runtime state                              |
-| VM        | Future scope-based allocation or administration checks              | Hosts, credentials, execution profiles, and target state                            |
-| MCP       | Future scope visibility and credential-policy checks                | Server registry, tool policy, OAuth, and credential material                        |
-| Knox      | Future organization-aware product permissions                       | Channel identity, room bindings, delivery, and room Agent state                     |
+| Service   | Shared organization capability                                 | Domain state that remains with the service                                          |
+| --------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Wiki Hub  | Exact direct organization membership and employee/scope status | Personal/Shared documents, explicit Wiki grants, access requests, indexes and links |
+| Skill Hub | Current selected-audience membership and active lineage        | Stable entries, sharing, ownership, versions, scan evidence, and installations      |
+| Agent     | Organization-aware assignment and administration               | Agent identity, workspace, sessions, and runtime state                              |
+| VM        | Future scope-based allocation or administration checks         | Hosts, credentials, execution profiles, and target state                            |
+| MCP       | Future scope visibility and credential-policy checks           | Server registry, tool policy, OAuth, and credential material                        |
+| Knox      | Future organization-aware product permissions                  | Channel identity, room bindings, delivery, and room Agent state                     |
 
 This consumer table is illustrative, not exhaustive. Board, approval history,
 operations, and every later PlatformClaw service that needs organization policy
@@ -258,15 +258,20 @@ must use the same owner boundary instead of adding a service-local membership
 model.
 
 Organization scope never collapses every service operation into one permission.
-For Skill Hub, Global-scoped read/install may be available to every active
-employee when the skill's visibility permits. Active employees may publish and
-own skills in an active Global namespace, which is the default Skill Hub
-publication destination. Global namespace administration remains
-administrator-only; existing skill mutations require owner or administrator
-authority. Team/Group/Part read, install, publish, and curation
-are separate capabilities derived from current membership, leadership, owner,
-explicit per-user ACL, and immutable package policy. A consumer must request
-the exact capability; general scope access is not a publication grant.
+Skill Hub defaults new entries to Public for every active company user, including
+users without an organization. Publishers may choose any active Team, Group, or
+Part, including another organization, as a Selected audience. Selected users and
+covered organization members form a union. A selected Team includes its Groups
+and Parts; a selected Group includes its Parts. Current active membership and
+lineage determine later reads and downloads.
+
+Skill Hub has no employee-facing namespaces or organization eligibility rule for
+ownership. Sharing never grants editing: the single owner manages the entry;
+administrators use a reasoned, audited operating exception. A reader may inspect
+ordinary version history, while management events remain owner/administrator-only.
+A primary organization does not replace the Public default. Room use remains
+Public-only even when the sender has Selected, owner, or administrator access.
+See [Skill Hub product policy](/platformclaw/skill-hub-policy).
 
 The Knox transport term `group` or a Knox group chat is not a managed
 PlatformClaw Group. No room, channel, directory group, or mutable display name
@@ -305,8 +310,9 @@ Normal deletion is lifecycle-based:
 - pending join requests for an archived target or descendant are rejected with
   a recorded reason;
 - a primary scope that becomes ineffective is cleared; and
-- domain-specific archival rules still apply, such as Skill Hub namespace transfer.
-  Wiki grants are revoked with membership; an ownerless Wiki uses explicit admin recovery.
+- Skill Hub Selected audiences recheck active scope lineage immediately. Recorded
+  sharing stays attached to the skill; archival never makes it Public. Wiki
+  grants are revoked with membership; an ownerless Wiki uses explicit admin recovery.
 
 Scopes and organization records are not hard-deleted during normal operation.
 Privacy or security purge is administrator-only and must preserve a redacted
@@ -358,17 +364,14 @@ PR2 performs one atomic migration:
    or filesystem sidecars.
 7. Extend organization Memory scope and source constraints to include Team.
    Preserve existing claims, decisions, pages, and immutable request history.
-8. Rebuild Skill Hub namespace bindings so `global | team | group | part` are
-   distinct. Convert every current `team` binding with no scope ID to
-   `global` with no scope ID. A real Team binding must use `team` plus a valid
-   managed Team ID. Current non-administrator namespace access to `team` with no
-   scope ID is denied, so migrated Global bindings start in a restricted,
-   administrator-only review state. An administrator must explicitly activate
-   organization-wide read/install after reviewing visibility; migration never
-   turns a previous denial into access. On first Skill Hub use, the canonical
-   `global` namespace is restored to its fixed policy of including every active
-   employee; other Global-scoped namespaces retain administrator review.
-   Public catalog visibility remains the existing Skill Hub domain rule.
+8. Historically, rebuild Skill Hub namespace bindings to distinguish Global,
+   Team, Group, and Part, preserving existing domain state. This was the v3
+   organization migration contract. The later canonical Skill Hub catalog retires
+   those bindings and ceilings as runtime authority. Its separate one-time
+   migration makes eligible existing skills Public, preserves native versions
+   and links, and leaves later user restrictions intact. It does not rerun the
+   historical namespace activation rules. See
+   [Skill Hub migration](/platformclaw/skill-hub-architecture#storage-and-retention).
 9. Set schema version 3 only after validation succeeds and commit the migration
    transaction.
 
@@ -394,16 +397,16 @@ and database backup together.
 
 ## Delivery sequence
 
-| PR  | Scope                                                                                  |
-| --- | -------------------------------------------------------------------------------------- |
-| 1   | This architecture, policy reconciliation, migration contract, and rollout boundaries   |
-| 2   | Schema v3, `OrganizationService`, `AuthorizationService`, and service-level unit tests |
-| 3   | Authenticated organization BFF/API, join-request endpoints, and response projection    |
-| 4   | Skill Hub conversion from legacy Team-as-Global to Global/Team/Group/Part              |
-| 5   | Memory search, promotion, review, and lifecycle conversion with Team scopes            |
-| 6A  | Settings organization tree, membership, leader, and structure management with EN/KO UX |
-| 6B  | First-login join request and review inbox UX                                           |
-| 6C  | Organization audit explorer and remaining operational UX                               |
+| PR  | Scope                                                                                       |
+| --- | ------------------------------------------------------------------------------------------- |
+| 1   | This architecture, policy reconciliation, migration contract, and rollout boundaries        |
+| 2   | Schema v3, `OrganizationService`, `AuthorizationService`, and service-level unit tests      |
+| 3   | Authenticated organization BFF/API, join-request endpoints, and response projection         |
+| 4   | Historical Skill Hub organization conversion, later replaced by canonical per-skill sharing |
+| 5   | Memory search, promotion, review, and lifecycle conversion with Team scopes                 |
+| 6A  | Settings organization tree, membership, leader, and structure management with EN/KO UX      |
+| 6B  | First-login join request and review inbox UX                                                |
+| 6C  | Organization audit explorer and remaining operational UX                                    |
 
 PR1 through PR6C are implemented.
 
@@ -461,8 +464,8 @@ outside the actor's review subtree behave like absent resources, so the API
 does not reveal foreign request state.
 
 Manual scope move and restore remain deferred. Moving an active subtree changes
-effective Memory and Skill Hub lineage, reviewer authority, and ownership
-reach; those operations will ship only with cross-consumer lifecycle proof.
+effective Memory lineage, Skill Hub Selected audiences, and reviewer
+authority; those operations will ship only with cross-consumer lifecycle proof.
 
 PR6A through PR6C localize their product prose, statuses, errors, and accessible labels in
 Korean and English while keeping stable technical terms such as Team, Group,

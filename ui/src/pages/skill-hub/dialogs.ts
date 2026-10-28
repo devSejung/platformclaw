@@ -1,14 +1,50 @@
 import { html, nothing } from "lit";
+import { repeat } from "lit/directives/repeat.js";
 import "../../components/modal-dialog.ts";
+import "../../styles/skill-hub.css";
 import { t } from "../../i18n/index.ts";
 import { platformClawT } from "../../platformclaw/i18n.ts";
 import type {
   PlatformClawSkillHubConfig,
   PlatformClawSkillHubNotification,
+  PlatformClawSkillHubSharingDetail,
   PlatformClawSkillHubWorkspaceSkill,
   PlatformClawSkillHubWorkspaceTarget,
 } from "../../platformclaw/skill-hub.ts";
-import { skillHubPublishNamespaceLabel } from "./labels.ts";
+import { renderSkillHubSharing, skillHubSharingInvalid } from "./sharing.ts";
+
+type PublicationRecovery = {
+  operationId: string;
+  label: string;
+  onRestore: () => void;
+};
+
+function renderPublicationRecovery(items: PublicationRecovery[] | undefined, busy: boolean) {
+  if (!items?.length) {
+    return nothing;
+  }
+  return html`<section class="callout skill-hub-publication-recovery">
+    <strong>${t("skillHubPage.earlierPublicationRequests")}</strong>
+    <p>${t("skillHubPage.publicationRecoveryHelp")}</p>
+    ${items.map(
+      (item, index) => html`<div>
+        <span>
+          ${t("skillHubPage.publicationRequestNumber", { number: String(index + 1) })} ·
+          ${item.label}
+        </span>
+        <button
+          class="btn btn--sm"
+          data-operation-id=${item.operationId}
+          aria-label=${`${t("skillHubPage.restorePublicationRequest")}: ${t("skillHubPage.publicationRequestNumber", { number: String(index + 1) })} · ${item.label}`}
+          ?disabled=${busy}
+          @click=${item.onRestore}
+        >
+          ${t("skillHubPage.restorePublicationRequest")}
+        </button>
+      </div>`,
+    )}
+  </section>`;
+}
 
 export function renderSkillHubNotifications(props: {
   open: boolean;
@@ -37,18 +73,21 @@ export function renderSkillHubNotifications(props: {
       </header>
       ${props.error ? html`<div class="callout danger" role="alert">${props.error}</div>` : nothing}
       ${props.loading
-        ? html`<div class="skill-hub-state">${t("skillsPage.skillHub.loading")}</div>`
-        : props.items.length === 0
-          ? html`<div class="skill-hub-state">${t("skillHubPage.noNotifications")}</div>`
-          : html`<div class="skill-hub-notification-list">
+        ? html`<p role="status">${t("common.loading")}</p>`
+        : !props.items.length
+          ? html`<p>${t("skillHubPage.noNotifications")}</p>`
+          : html` <div class="skill-hub-notification-list">
               ${props.items.map(
                 (item) => html`<article
                   class="skill-hub-notification ${item.readAt === null ? "is-unread" : ""}"
                 >
                   <span class="skill-hub-notification__dot" aria-hidden="true"></span>
                   <div>
-                    <strong>${item.kind.replaceAll("-", " ")}</strong>
-                    <p>${item.message}</p>
+                    <p>
+                      ${item.kind === "malware-blocked"
+                        ? t("skillHubPage.malwareBlockedNotification")
+                        : item.message}
+                    </p>
                     <small>${new Date(item.createdAt).toLocaleString()}</small>
                   </div>
                 </article>`,
@@ -62,162 +101,155 @@ export function renderSkillHubWorkspacePublish(props: {
   open: boolean;
   config: PlatformClawSkillHubConfig | null;
   source: PlatformClawSkillHubWorkspaceTarget;
+  targetLabel?: string;
   skills: PlatformClawSkillHubWorkspaceSkill[];
   skill: string;
-  namespace: string;
+  existingId: string;
+  existingName?: string;
   version: string;
-  visibility: string;
+  sharing: PlatformClawSkillHubSharingDetail;
   loading: boolean;
   busy: boolean;
   error: string | null;
+  recovery?: PublicationRecovery[];
   onClose: () => void;
   onSource: (source: PlatformClawSkillHubWorkspaceTarget) => void;
+  onReload: () => void;
   onSkill: (skill: string) => void;
-  onNamespace: (namespace: string) => void;
+  onExisting: (id: string) => void;
   onVersion: (version: string) => void;
-  onVisibility: (visibility: string) => void;
+  onSharing: (sharing: PlatformClawSkillHubSharingDetail) => void;
   onPublish: () => void;
 }) {
   if (!props.open) {
     return nothing;
   }
-  const vmAvailable =
-    props.config?.installTargets?.find((target) => target.target === "assigned_vm")?.available ===
-    true;
+  const vmAvailable = props.config?.installTargets?.some(
+    (target) => target.target === "assigned_vm" && target.available,
+  );
   return html`<openclaw-modal-dialog
     label=${platformClawT("platformClaw.skillHub.publish.title")}
-    @modal-cancel=${(event: Event) => {
-      if (props.busy) {
-        event.preventDefault();
-      } else {
-        props.onClose();
-      }
-    }}
+    @modal-cancel=${(event: Event) => (props.busy ? event.preventDefault() : props.onClose())}
   >
     <section class="skill-hub-dialog skill-hub-workspace-publish">
       <header class="skill-hub-dialog__header">
         <div>
           <h2>${platformClawT("platformClaw.skillHub.publish.title")}</h2>
-          <p>${platformClawT("platformClaw.skillHub.publish.description")}</p>
+          <p>${t("skillHubPage.publishHelp")}</p>
         </div>
         <button class="btn btn--sm" ?disabled=${props.busy} @click=${props.onClose}>
           ${t("skillsPage.close")}
         </button>
       </header>
+      ${renderPublicationRecovery(props.recovery, props.busy)}
       <div class="skill-hub-upload__fields">
-        <label class="field">
-          <span>${platformClawT("platformClaw.skillHub.publish.source")}</span>
-          <select
-            .value=${props.source}
-            ?disabled=${props.busy}
-            @change=${(event: Event) =>
-              props.onSource(
-                (event.target as HTMLSelectElement).value as PlatformClawSkillHubWorkspaceTarget,
-              )}
+        <div class="field">
+          <label class="field"
+            ><span>${platformClawT("platformClaw.skillHub.publish.source")}</span>
+            <select
+              name="source"
+              .value=${props.source}
+              ?disabled=${props.busy}
+              @change=${(event: Event) =>
+                props.onSource(
+                  (event.target as HTMLSelectElement).value as PlatformClawSkillHubWorkspaceTarget,
+                )}
+            >
+              <option value="platform_server">
+                ${platformClawT("platformClaw.skillHub.publish.sourceBasic")}
+              </option>
+              <option value="assigned_vm" ?disabled=${!vmAvailable}>
+                ${platformClawT("platformClaw.skillHub.publish.sourceVm")}
+              </option>
+            </select>
+          </label>
+          ${props.source === "assigned_vm" && props.targetLabel
+            ? html`<small class="skill-hub-target-label">${props.targetLabel}</small>`
+            : nothing}
+          <button
+            class="btn btn--sm"
+            ?disabled=${props.busy || props.loading}
+            @click=${props.onReload}
           >
-            <option value="platform_server">
-              ${platformClawT("platformClaw.skillHub.publish.sourceBasic")}
-            </option>
-            <option value="assigned_vm" ?disabled=${!vmAvailable}>
-              ${platformClawT("platformClaw.skillHub.publish.sourceVm")}
-            </option>
-          </select>
-        </label>
-        <label class="field">
-          <span>${platformClawT("platformClaw.skillHub.publish.skill")}</span>
+            ${t("skillHubPage.reloadWorkspaceSkills")}
+          </button>
+        </div>
+        <label class="field"
+          ><span>${platformClawT("platformClaw.skillHub.publish.skill")}</span>
           <select
+            name="skill"
             .value=${props.skill}
-            ?disabled=${props.loading || props.busy || props.skills.length === 0}
+            ?disabled=${props.loading || props.busy || !props.skills.length}
             @change=${(event: Event) => props.onSkill((event.target as HTMLSelectElement).value)}
           >
-            <option value="" ?selected=${props.skill === ""}>
+            <option value="" ?selected=${!props.skill}>
               ${platformClawT("platformClaw.skillHub.publish.chooseSkill")}
             </option>
-            ${props.skills.map(
-              (skill) => html`<option
-                value=${skill.skillKey}
-                ?selected=${props.skill === skill.skillKey}
-              >
-                ${skill.name && skill.name !== skill.skillKey
-                  ? `${skill.name} (${skill.skillKey})`
-                  : skill.skillKey}
-              </option>`,
+            ${repeat(
+              props.skills,
+              (skill) => `${props.source}:${skill.skillKey}`,
+              (skill) =>
+                html`<option value=${skill.skillKey} ?selected=${props.skill === skill.skillKey}>
+                  ${skill.name ?? skill.skillKey}
+                </option>`,
             )}
           </select>
         </label>
-        <label class="field">
-          <span>${platformClawT("platformClaw.skillHub.publish.destination")}</span>
+        <label class="field"
+          ><span>${t("skillHubPage.publishAs")}</span>
           <select
-            .value=${props.namespace}
-            ?disabled=${props.busy}
-            @change=${(event: Event) =>
-              props.onNamespace((event.target as HTMLSelectElement).value)}
+            name="existingId"
+            .value=${props.existingId}
+            ?disabled=${props.busy || Boolean(props.existingName)}
+            @change=${(event: Event) => props.onExisting((event.target as HTMLSelectElement).value)}
           >
-            <option value="" disabled ?selected=${props.namespace === ""}>
-              ${platformClawT("platformClaw.skillHub.publish.chooseDestination")}
-            </option>
-            ${props.config?.namespaceOptions.map(
-              (option) => html`<option
-                value=${option.namespace}
-                ?selected=${props.namespace === option.namespace}
-              >
-                ${skillHubPublishNamespaceLabel(option)}
-              </option>`,
-            )}
+            <option value="" ?selected=${!props.existingId}>${t("skillHubPage.newSkill")}</option>
+            ${props.existingName
+              ? html`<option value=${props.existingId} selected>${props.existingName}</option>`
+              : props.config?.ownedSkills.map(
+                  (skill) =>
+                    html`<option value=${skill.id} ?selected=${props.existingId === skill.id}>
+                      ${t("skillHubPage.newVersionOf", { skill: skill.displayName })}
+                    </option>`,
+                )}
           </select>
         </label>
-        <label class="field">
-          <span>${t("skillsPage.skillHub.version")}</span>
+        <label class="field"
+          ><span>${t("skillsPage.skillHub.version")}</span>
           <input
+            name="version"
             .value=${props.version}
             ?disabled=${props.busy}
             placeholder="1.0.0"
             @input=${(event: Event) => props.onVersion((event.target as HTMLInputElement).value)}
           />
         </label>
-        <label class="field">
-          <span>${t("skillsPage.skillHub.visibility")}</span>
-          <select
-            .value=${props.visibility}
-            ?disabled=${props.busy}
-            @change=${(event: Event) =>
-              props.onVisibility((event.target as HTMLSelectElement).value)}
-          >
-            <option value="PUBLIC" ?selected=${props.visibility === "PUBLIC"}>
-              ${t("skillsPage.skillHub.public")}
-            </option>
-            <option value="NAMESPACE_ONLY" ?selected=${props.visibility === "NAMESPACE_ONLY"}>
-              ${t("skillsPage.skillHub.namespaceOnly")}
-            </option>
-            <option value="PRIVATE" ?selected=${props.visibility === "PRIVATE"}>
-              ${t("skillsPage.skillHub.private")}
-            </option>
-          </select>
-        </label>
       </div>
+      ${props.existingId
+        ? html`<p>${t("skillHubPage.sharingPreserved")}</p>`
+        : renderSkillHubSharing({
+            draft: props.sharing,
+            config: props.config,
+            disabled: props.busy,
+            onChange: props.onSharing,
+          })}
       ${props.loading
-        ? html`<div class="skill-hub-state" role="status">
-            ${platformClawT("platformClaw.skillHub.publish.loading")}
-          </div>`
+        ? html`<p role="status">${platformClawT("platformClaw.skillHub.publish.loading")}</p>`
         : props.error
           ? html`<div class="callout danger" role="alert">${props.error}</div>`
-          : props.skills.length === 0
-            ? html`<div class="skill-hub-state">
-                ${platformClawT("platformClaw.skillHub.publish.empty")}
-              </div>`
+          : !props.skills.length
+            ? html`<p>${platformClawT("platformClaw.skillHub.publish.empty")}</p>`
             : nothing}
       <button
         class="btn primary"
         ?disabled=${props.loading ||
         props.busy ||
         !props.skill ||
-        !props.namespace ||
-        !props.version}
+        !props.version ||
+        (!props.existingId && skillHubSharingInvalid(props.sharing))}
         @click=${props.onPublish}
       >
-        ${props.busy
-          ? t("skillsPage.skillHub.publishing")
-          : platformClawT("platformClaw.skillHub.publish.submit")}
+        ${props.busy ? t("skillsPage.skillHub.publishing") : t("skillsPage.skillHub.publish")}
       </button>
     </section>
   </openclaw-modal-dialog>`;
@@ -229,52 +261,43 @@ export function renderSkillHubUpload(props: {
   file: File | null;
   error?: string | null;
   slug: string;
-  namespace: string;
   version: string;
-  visibility: string;
-  existing?: { namespace: string; slug: string } | null;
+  sharing: PlatformClawSkillHubSharingDetail;
+  existing: { id: string; displayName: string } | null;
   busy: boolean;
+  recovery?: PublicationRecovery[];
   onClose: () => void;
   onFile: (file: File | null) => void;
   onSlug: (value: string) => void;
-  onNamespace: (value: string) => void;
   onVersion: (value: string) => void;
-  onVisibility: (value: string) => void;
+  onSharing: (value: PlatformClawSkillHubSharingDetail) => void;
   onPublish: () => void;
 }) {
   if (!props.open) {
     return nothing;
   }
-  const maxBytes = props.config?.maxUploadBytes ?? 500 * 1024 * 1024;
-  const invalidFile = props.file ? props.file.size > maxBytes : false;
+  const invalidFile = Boolean(
+    props.file && props.file.size > (props.config?.maxUploadBytes ?? 500 * 1024 * 1024),
+  );
   return html`<openclaw-modal-dialog
     label=${t(props.existing ? "skillHubPage.publishVersion" : "skillHubPage.uploadZip")}
-    @modal-cancel=${(event: Event) => {
-      if (props.busy) {
-        event.preventDefault();
-      } else {
-        props.onClose();
-      }
-    }}
+    @modal-cancel=${(event: Event) => (props.busy ? event.preventDefault() : props.onClose())}
   >
     <section class="skill-hub-dialog skill-hub-upload">
       <header class="skill-hub-dialog__header">
         <div>
           <h2>${t(props.existing ? "skillHubPage.publishVersion" : "skillHubPage.uploadZip")}</h2>
-          <p>
-            ${t(
-              props.existing ? "skillHubPage.publishVersionHelp" : "skillHubPage.uploadDescription",
-            )}
-          </p>
+          <p>${props.existing?.displayName ?? t("skillHubPage.publishHelp")}</p>
         </div>
         <button class="btn btn--sm" ?disabled=${props.busy} @click=${props.onClose}>
           ${t("skillsPage.close")}
         </button>
       </header>
+      ${renderPublicationRecovery(props.recovery, props.busy)}
       ${props.error ? html`<div class="callout danger" role="alert">${props.error}</div>` : nothing}
-      <label class="skill-hub-upload__drop">
-        <strong>${props.file?.name ?? t("skillHubPage.chooseZip")}</strong>
-        <span>${t("skillHubPage.uploadLimit")}</span>
+      <label class="skill-hub-upload__drop"
+        ><strong>${props.file?.name ?? t("skillHubPage.chooseZip")}</strong
+        ><span>${t("skillHubPage.uploadLimit")}</span>
         <input
           type="file"
           accept=".zip,application/zip"
@@ -287,81 +310,43 @@ export function renderSkillHubUpload(props: {
         ? html`<div class="callout danger">${t("skillHubPage.fileTooLarge")}</div>`
         : nothing}
       <div class="skill-hub-upload__fields">
-        <label class="field">
-          <span>${t("skillHubPage.slug")}</span>
-          <input
+        <label class="field"
+          ><span>${t("skillHubPage.slug")}</span
+          ><input
+            name="slug"
             .value=${props.slug}
             ?disabled=${props.busy || Boolean(props.existing)}
             @input=${(event: Event) => props.onSlug((event.target as HTMLInputElement).value)}
-          />
-        </label>
-        <label class="field">
-          <span>${platformClawT("platformClaw.skillHub.publish.destination")}</span>
-          <select
-            .value=${props.namespace}
-            ?disabled=${props.busy || Boolean(props.existing)}
-            @change=${(event: Event) =>
-              props.onNamespace((event.target as HTMLSelectElement).value)}
-          >
-            ${props.existing
-              ? html`<option value=${props.existing.namespace} selected>
-                  ${props.existing.namespace}
-                </option>`
-              : html`
-                  <option value="" disabled ?selected=${props.namespace === ""}>
-                    ${platformClawT("platformClaw.skillHub.publish.chooseDestination")}
-                  </option>
-                  ${props.config?.namespaceOptions.map(
-                    (option) => html`<option
-                      value=${option.namespace}
-                      ?selected=${props.namespace === option.namespace}
-                    >
-                      ${skillHubPublishNamespaceLabel(option)}
-                    </option>`,
-                  )}
-                `}
-          </select>
-        </label>
-        <label class="field">
-          <span>${t("skillsPage.skillHub.version")}</span>
-          <input
+        /></label>
+        <label class="field"
+          ><span>${t("skillsPage.skillHub.version")}</span
+          ><input
+            name="version"
             .value=${props.version}
             ?disabled=${props.busy}
             placeholder="1.0.0"
             @input=${(event: Event) => props.onVersion((event.target as HTMLInputElement).value)}
-          />
-        </label>
-        <label class="field">
-          <span>${t("skillsPage.skillHub.visibility")}</span>
-          <select
-            .value=${props.visibility}
-            ?disabled=${props.busy || Boolean(props.existing)}
-            @change=${(event: Event) =>
-              props.onVisibility((event.target as HTMLSelectElement).value)}
-          >
-            <option value="PUBLIC" ?selected=${props.visibility === "PUBLIC"}>
-              ${t("skillsPage.skillHub.public")}
-            </option>
-            <option value="NAMESPACE_ONLY" ?selected=${props.visibility === "NAMESPACE_ONLY"}>
-              ${t("skillsPage.skillHub.namespaceOnly")}
-            </option>
-            <option value="PRIVATE" ?selected=${props.visibility === "PRIVATE"}>
-              ${t("skillsPage.skillHub.private")}
-            </option>
-          </select>
-        </label>
+        /></label>
       </div>
+      ${props.existing
+        ? html`<p>${t("skillHubPage.sharingPreserved")}</p>`
+        : renderSkillHubSharing({
+            draft: props.sharing,
+            config: props.config,
+            disabled: props.busy,
+            onChange: props.onSharing,
+          })}
       <button
         class="btn primary"
         ?disabled=${props.busy ||
         invalidFile ||
         !props.file ||
         !props.slug ||
-        !props.namespace ||
-        !props.version}
+        !props.version ||
+        (!props.existing && skillHubSharingInvalid(props.sharing))}
         @click=${props.onPublish}
       >
-        ${props.busy ? t("skillsPage.skillHub.publishing") : t("skillHubPage.publishZip")}
+        ${t(props.busy ? "skillsPage.skillHub.publishing" : "skillsPage.skillHub.publish")}
       </button>
     </section>
   </openclaw-modal-dialog>`;
@@ -382,13 +367,7 @@ export function renderSkillHubVersionChange(props: {
   }
   return html`<openclaw-modal-dialog
     label=${t("skillHubPage.versionChangeTitle")}
-    @modal-cancel=${(event: Event) => {
-      if (props.busy) {
-        event.preventDefault();
-      } else {
-        props.onClose();
-      }
-    }}
+    @modal-cancel=${(event: Event) => (props.busy ? event.preventDefault() : props.onClose())}
   >
     <section class="skill-hub-dialog skill-hub-version-change">
       <header class="skill-hub-dialog__header">
@@ -411,9 +390,7 @@ export function renderSkillHubVersionChange(props: {
           ${t("skillsPage.close")}
         </button>
         <button class="btn danger" ?disabled=${props.busy} @click=${props.onConfirm}>
-          ${props.busy
-            ? t("skillsPage.skillHub.installing")
-            : t("skillHubPage.confirmVersionChange")}
+          ${t(props.busy ? "skillsPage.skillHub.installing" : "skillHubPage.confirmVersionChange")}
         </button>
       </div>
     </section>
@@ -433,20 +410,12 @@ export function renderSkillHubDelete(props: {
   }
   return html`<openclaw-modal-dialog
     label=${t("skillHubPage.deleteSkillTitle", { skill: props.skill })}
-    @modal-cancel=${(event: Event) => {
-      if (props.busy) {
-        event.preventDefault();
-      } else {
-        props.onClose();
-      }
-    }}
+    @modal-cancel=${(event: Event) => (props.busy ? event.preventDefault() : props.onClose())}
   >
     <section class="skill-hub-dialog">
-      <header class="skill-hub-dialog__header">
-        <div>
-          <h2>${t("skillHubPage.deleteSkillTitle", { skill: props.skill })}</h2>
-          <p>${t("skillHubPage.deleteSkillDescription")}</p>
-        </div>
+      <header>
+        <h2>${t("skillHubPage.deleteSkillTitle", { skill: props.skill })}</h2>
+        <p>${t("skillHubPage.trashHelp")}</p>
       </header>
       ${props.error ? html`<div class="callout danger" role="alert">${props.error}</div>` : nothing}
       <div class="skill-hub-install-actions">
@@ -454,7 +423,7 @@ export function renderSkillHubDelete(props: {
           ${t("common.cancel")}
         </button>
         <button class="btn danger" ?disabled=${props.busy} @click=${props.onConfirm}>
-          ${props.busy ? t("skillHubPage.deletingSkill") : t("skillHubPage.confirmDeleteSkill")}
+          ${t(props.busy ? "skillHubPage.deletingSkill" : "skillHubPage.moveToTrash")}
         </button>
       </div>
     </section>

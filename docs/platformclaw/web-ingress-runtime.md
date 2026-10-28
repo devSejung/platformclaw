@@ -319,18 +319,18 @@ limit alone would create roughly 133 MB frames and bypass the upstream ceiling.
 
 ## HTTP and WebSocket surfaces
 
-| Path                                                  | Method        | Purpose                                                      |
-| ----------------------------------------------------- | ------------- | ------------------------------------------------------------ |
-| `/platformclaw/api/auth/login`                        | `POST`        | Authenticate an employee and issue the opaque session cookie |
-| `/platformclaw/api/auth/logout`                       | `POST`        | Revoke the active browser session and clear its cookie       |
-| `/platformclaw/api/auth/session`                      | `GET`, `HEAD` | Return the current browser authentication state              |
-| `/platformclaw/api/skill-hub/*`                       | `GET`, `POST` | Search, publish, and install registry skills                 |
-| `/platformclaw/api/talk/offer/*`                      | `POST`        | Exchange a leased WebRTC SDP offer                           |
-| `/platformclaw/app/__openclaw__/assistant-media`      | `GET`, `HEAD` | Download transcript-owned user or assistant attachments      |
-| `/api/chat/media/outgoing/*`                          | `GET`, `HEAD` | Download an owned artifact with its Gateway media ticket     |
-| `/__openclaw__/cap/*/__openclaw__/canvas/documents/*` | `GET`, `HEAD` | Render an Agent-owned Canvas document through a BFF lease    |
-| `/platformclaw/gateway`                               | WebSocket     | Expose the policy-filtered OpenClaw Gateway protocol         |
-| `/platformclaw/health`                                | `GET`, `HEAD` | Report whether the private Gateway connection is ready       |
+| Path                                                  | Method                                  | Purpose                                                           |
+| ----------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
+| `/platformclaw/api/auth/login`                        | `POST`                                  | Authenticate an employee and issue the opaque session cookie      |
+| `/platformclaw/api/auth/logout`                       | `POST`                                  | Revoke the active browser session and clear its cookie            |
+| `/platformclaw/api/auth/session`                      | `GET`, `HEAD`                           | Return the current browser authentication state                   |
+| `/platformclaw/api/skill-hub/*`                       | `GET`, `POST`, `PATCH`, `PUT`, `DELETE` | Catalog, sharing, publication, icons, installation, and lifecycle |
+| `/platformclaw/api/talk/offer/*`                      | `POST`                                  | Exchange a leased WebRTC SDP offer                                |
+| `/platformclaw/app/__openclaw__/assistant-media`      | `GET`, `HEAD`                           | Download transcript-owned user or assistant attachments           |
+| `/api/chat/media/outgoing/*`                          | `GET`, `HEAD`                           | Download an owned artifact with its Gateway media ticket          |
+| `/__openclaw__/cap/*/__openclaw__/canvas/documents/*` | `GET`, `HEAD`                           | Render an Agent-owned Canvas document through a BFF lease         |
+| `/platformclaw/gateway`                               | WebSocket                               | Expose the policy-filtered OpenClaw Gateway protocol              |
+| `/platformclaw/health`                                | `GET`, `HEAD`                           | Report whether the private Gateway connection is ready            |
 
 Login, logout, and WebSocket upgrade requests require the exact configured
 public origin. The listener does not trust forwarded headers when calculating
@@ -455,35 +455,44 @@ pnpm platformclaw:control
 
 The process requires these deployment-owned values:
 
-| Environment variable                           | Purpose                                    |
-| ---------------------------------------------- | ------------------------------------------ |
-| `PLATFORMCLAW_PUBLIC_ORIGIN`                   | Exact browser HTTP(S) origin               |
-| `PLATFORMCLAW_GUIDE_VIDEO_URL`                 | Optional server-reachable guide MP4/S3 URL |
-| `PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT`         | Optional private S3-compatible endpoint    |
-| `PLATFORMCLAW_GUIDE_VIDEO_S3_REGION`           | S3 signing region; defaults to `us-east-1` |
-| `PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET`           | Private guide-video bucket                 |
-| `PLATFORMCLAW_GUIDE_VIDEO_S3_KEY`              | Private guide-video object key             |
-| `PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE` | Mounted atomic S3 credential-pair file     |
-| `PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE` | Path-style addressing; defaults to `true`  |
-| `PLATFORMCLAW_LISTEN_HOST`                     | Listener host; defaults to `127.0.0.1`     |
-| `PLATFORMCLAW_LISTEN_PORT`                     | Listener port; defaults to `19001`         |
-| `PLATFORMCLAW_DATABASE_PATH`                   | Persistent control-plane SQLite path       |
-| `PLATFORMCLAW_CONTROL_UI_ROOT`                 | Built Control UI asset directory           |
-| `PLATFORMCLAW_JIRA_VOC_CONFIG_FILE`            | Optional Jira VOC JSON secret file         |
-| `PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT`         | Parent directory for personal workspaces   |
-| `PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE`  | Initial administrator IDs secret file      |
-| `PLATFORMCLAW_GATEWAY_URL`                     | Private Gateway WS(S) origin               |
-| `PLATFORMCLAW_GATEWAY_TOKEN_FILE`              | Private Gateway operator-token secret file |
-| `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE`  | 32-byte Base64 SSH credential key file     |
-| `PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS`       | Unix socket or Windows named-pipe address  |
-| `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`         | Employee-auth login endpoint               |
-| `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`      | Optional employee-auth service bearer      |
-| `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL`         | External ADSSO base or login endpoint      |
-| `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE` | ADSSO handoff signing-secret file          |
-| `PLATFORMCLAW_SKILL_HUB_URL`                   | Optional pinned SkillHub service URL       |
-| `PLATFORMCLAW_SKILL_HUB_TOKEN_FILE`            | SkillHub server API-token secret file      |
-| `PLATFORMCLAW_SKILL_HUB_NAMESPACES`            | Comma-separated authorized namespaces      |
-| `PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES`     | Optional archive and expansion byte limit  |
+| Environment variable                             | Purpose                                                         |
+| ------------------------------------------------ | --------------------------------------------------------------- |
+| `PLATFORMCLAW_PUBLIC_ORIGIN`                     | Exact browser HTTP(S) origin                                    |
+| `PLATFORMCLAW_GUIDE_VIDEO_URL`                   | Optional server-reachable guide MP4/S3 URL                      |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_ENDPOINT`           | Optional private S3-compatible endpoint                         |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_REGION`             | S3 signing region; defaults to `us-east-1`                      |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_BUCKET`             | Private guide-video bucket                                      |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_KEY`                | Private guide-video object key                                  |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_CREDENTIALS_FILE`   | Mounted atomic S3 credential-pair file                          |
+| `PLATFORMCLAW_GUIDE_VIDEO_S3_FORCE_PATH_STYLE`   | Path-style addressing; defaults to `true`                       |
+| `PLATFORMCLAW_LISTEN_HOST`                       | Listener host; defaults to `127.0.0.1`                          |
+| `PLATFORMCLAW_LISTEN_PORT`                       | Listener port; defaults to `19001`                              |
+| `PLATFORMCLAW_DATABASE_PATH`                     | Persistent control-plane SQLite path                            |
+| `PLATFORMCLAW_CONTROL_UI_ROOT`                   | Built Control UI asset directory                                |
+| `PLATFORMCLAW_JIRA_VOC_CONFIG_FILE`              | Optional Jira VOC JSON secret file                              |
+| `PLATFORMCLAW_PERSONAL_WORKSPACE_ROOT`           | Parent directory for personal workspaces                        |
+| `PLATFORMCLAW_INITIAL_ADMIN_ACCOUNT_IDS_FILE`    | Initial administrator IDs secret file                           |
+| `PLATFORMCLAW_GATEWAY_URL`                       | Private Gateway WS(S) origin                                    |
+| `PLATFORMCLAW_GATEWAY_TOKEN_FILE`                | Private Gateway operator-token secret file                      |
+| `PLATFORMCLAW_SSH_CREDENTIAL_MASTER_KEY_FILE`    | 32-byte Base64 SSH credential key file                          |
+| `PLATFORMCLAW_CREDENTIAL_BROKER_ADDRESS`         | Unix socket or Windows named-pipe address                       |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_LOGIN_URL`           | Employee-auth login endpoint                                    |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_BEARER_TOKEN`        | Optional employee-auth service bearer                           |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_URL`           | External ADSSO base or login endpoint                           |
+| `PLATFORMCLAW_EMPLOYEE_AUTH_ADSSO_SECRET_FILE`   | ADSSO handoff signing-secret file                               |
+| `PLATFORMCLAW_SKILL_HUB_URL`                     | Optional pinned SkillHub service URL                            |
+| `PLATFORMCLAW_SKILL_HUB_TOKEN_FILE`              | Legacy CLI token for image rollback; current Control ignores it |
+| `PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE` | Managed registry session secret file                            |
+| `PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES`       | Workspace package byte cap, bounded by canonical archive limits |
+
+Skill Hub uses stable catalog IDs and per-skill Public, Selected, or Private
+sharing. Public is the default for every active user, including users without
+organization membership. Native registry coordinates remain private artifact
+identifiers. Remove the retired `PLATFORMCLAW_SKILL_HUB_NAMESPACES` setting from
+older deployments; startup rejects it with an actionable message. No namespace
+allowlist replaces per-skill sharing. Configure the URL, token file, and managed
+registry password file together. See [Skill Hub integration](/platformclaw/skill-hub)
+for deployment, private credentials, Basic/VM paths, and retention.
 
 The Gateway token is shared with the private `admin-http-rpc` endpoint used for
 personal-agent provisioning. The control process derives that HTTP endpoint

@@ -1,18 +1,9 @@
-import type { PlatformUser } from "./contracts.js";
-import type { SkillHubAdapter } from "./skill-hub-adapter.js";
-import { SkillHubGovernanceError } from "./skill-hub-governance-client.js";
-import {
-  SkillHubNamespaceService,
-  projectSkillHubNamespaceBinding,
-} from "./skill-hub-namespace-service.js";
-import {
-  projectSkillHubAccessGrant,
-  safeName,
-  SKILL_KEY_PATTERN,
-  SkillHubServiceError,
-  validVersion,
-  validVisibility,
-} from "./skill-hub-service-support.js";
+import path from "node:path";
+import { ControlPlaneAuthorizationError, type PlatformUser } from "./contracts.js";
+import type { SkillHubSharing, SkillHubCatalogIcon } from "./skill-hub-catalog-state.js";
+import { SkillHubCommandService } from "./skill-hub-command-service.js";
+import { workspaceForAgent } from "./skill-hub-command-workspace.js";
+import { SkillHubServiceError } from "./skill-hub-service-support.js";
 
 export {
   SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
@@ -24,10 +15,284 @@ export {
 } from "./skill-hub-service-support.js";
 export type { AuthenticatedWorkspace, SkillInstallTarget } from "./skill-hub-service-support.js";
 
-export class SkillHubService extends SkillHubNamespaceService {
+export class SkillHubService extends SkillHubCommandService {
+  async roomSkills(
+    agentId: string,
+    candidates: Array<{ name: string; filePath: string; sourceFilePath?: string }>,
+  ) {
+    const bindings = await this.options.store.listAgentBindingsByState("active");
+    const binding = bindings.find((item) => item.agentId === agentId);
+    if (!binding) {
+      throw new SkillHubServiceError("Active Agent binding is unavailable", 409);
+    }
+    if (binding.kind !== "knox-room") {
+      return { excludedPaths: [] as string[] };
+    }
+    await this.initializeCatalog();
+    const origins = await this.options.store.skillHubCatalog.listInstallations(
+      agentId,
+      "platform-server",
+    );
+    const workspaceDir = workspaceForAgent(this.options.workspaceRoot, agentId);
+    const originsByPath = new Map(
+      origins
+        .filter((origin) => origin.destination === "platform_server")
+        .map((origin) => [path.join(workspaceDir, "skills", origin.slug, "SKILL.md"), origin]),
+    );
+    // A folder basename is not provenance: local, bundled, and node skills can
+    // share it, and materialization can rename it. Match the original installed
+    // file in this admitted room's canonical workspace instead of its run path.
+    const matched = candidates.flatMap((candidate) => {
+      const sourceFilePath = candidate.sourceFilePath ?? candidate.filePath;
+      const origin = path.isAbsolute(sourceFilePath)
+        ? originsByPath.get(path.normalize(sourceFilePath))
+        : undefined;
+      return origin ? [{ candidate, origin }] : [];
+    });
+    // Provenance outlives discovery: disabled, malformed, or shadowed packages
+    // must retain the same room access boundary as visible candidates.
+    const relevant = origins.filter((origin) => origin.destination === "platform_server");
+    for (const origin of relevant) {
+      const entry = await this.options.store.skillHubCatalog.get(origin.skillId);
+      if (
+        entry &&
+        entry.deletedAt === null &&
+        entry.purgedAt === null &&
+        entry.sharing.mode === "PUBLIC"
+      ) {
+        const blocked = await this.options.store.skillHubCatalog.getBlockedVersions(entry.id);
+        if (!blocked.includes(origin.version)) {
+          // A failed scanner round is unverified evidence. Loss of the artifact
+          // authority itself must fail closed instead of reusing an older decision.
+          await this.versionScans(entry);
+        }
+      }
+    }
+    let excluded: Set<string>;
+    try {
+      excluded = new Set(await this.options.store.skillHubCatalog.roomExcludedSlugs(agentId));
+    } catch (error) {
+      if (error instanceof ControlPlaneAuthorizationError) {
+        throw new SkillHubServiceError("Active Agent binding is unavailable", 409);
+      }
+      throw error;
+    }
+    return {
+      excludedPaths: matched
+        .filter(({ origin }) => excluded.has(origin.slug))
+        .map(({ candidate }) => candidate.filePath),
+      excludedSourceDirectories: [...excluded].map((slug) => {
+        const directory = path.join(workspaceDir, "skills", slug);
+        if (path.dirname(directory) !== path.join(workspaceDir, "skills")) {
+          throw new SkillHubServiceError("Installed skill provenance is invalid", 503);
+        }
+        return directory;
+      }),
+    };
+  }
+
+  async updateMetadata(
+    user: PlatformUser,
+    id: string,
+    params: {
+      expectedRevision: number;
+      reason?: string;
+      displayName?: string;
+      summary?: string;
+      tags?: string[];
+      sharing?: SkillHubSharing;
+    },
+  ) {
+    const entry = await this.options.store.skillHubCatalog.updateMetadata({
+      ...params,
+      skillId: id,
+      actorUserId: user.id,
+      now: this.now(),
+    });
+    return { ok: true, id: entry.id, revision: entry.revision };
+  }
+
+  async updateIcon(
+    user: PlatformUser,
+    id: string,
+    expectedRevision: number,
+    icon: SkillHubCatalogIcon | null,
+    reason?: string,
+  ) {
+    const entry = await this.options.store.skillHubCatalog.updateMetadata({
+      skillId: id,
+      actorUserId: user.id,
+      expectedRevision,
+      now: this.now(),
+      icon,
+      reason,
+    });
+    return { ok: true, id: entry.id, revision: entry.revision };
+  }
+
+  async icon(user: PlatformUser, id: string) {
+    await this.requireEntry(user, id);
+    const icon = await this.options.store.skillHubCatalog.getIcon(id);
+    if (!icon) {
+      throw new SkillHubServiceError("Skill icon not found", 404);
+    }
+    await this.requireEntry(user, id);
+    return icon;
+  }
+
+  async users(user: PlatformUser, query: string) {
+    return {
+      users: await this.options.store.skillHubCatalog.searchUsers({
+        actorUserId: user.id,
+        query,
+        limit: 50,
+      }),
+    };
+  }
+
+  async history(user: PlatformUser, id: string) {
+    const rows = await this.options.store.skillHubCatalog.listHistory({
+      skillId: id,
+      actorUserId: user.id,
+    });
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        action: row.action,
+        version: row.version ?? undefined,
+        actor: row.actorUserId
+          ? { id: row.actorUserId, ...(row.actorName ? { displayName: row.actorName } : {}) }
+          : null,
+        createdAt: row.createdAt,
+        details: row.details,
+      })),
+    };
+  }
+
+  async trash(user: PlatformUser) {
+    const current = await this.activeUser(user.id);
+    const entries = (await this.options.store.skillHubCatalog.list()).filter(
+      (entry) =>
+        entry.deletedAt !== null &&
+        entry.purgedAt === null &&
+        (current.globalRole === "admin" || entry.ownerUserId === current.id),
+    );
+    return {
+      items: await Promise.all(
+        entries.map(async (entry) =>
+          Object.assign(await this.projectEntry(entry, current), {
+            deletedAt: entry.deletedAt,
+            purgeAt: entry.deletedAt! + 30 * 24 * 60 * 60_000,
+            purgePending: entry.purgePending,
+          }),
+        ),
+      ),
+    };
+  }
+
+  async deletePublishedSkill(
+    user: PlatformUser,
+    id: string,
+    expectedRevision: number,
+    reason?: string,
+  ) {
+    const entry = await this.options.store.skillHubCatalog.trash({
+      skillId: id,
+      actorUserId: user.id,
+      expectedRevision,
+      reason,
+      now: this.now(),
+    });
+    this.triggerGovernanceProcessing();
+    return { ok: true, id, revision: entry.revision };
+  }
+
+  async restore(user: PlatformUser, id: string, expectedRevision: number, reason?: string) {
+    const entry = await this.options.store.skillHubCatalog.restore({
+      skillId: id,
+      actorUserId: user.id,
+      expectedRevision,
+      reason,
+      now: this.now(),
+    });
+    return { ok: true, id, revision: entry.revision };
+  }
+
+  async requestTransfer(
+    user: PlatformUser,
+    id: string,
+    expectedRevision: number,
+    userId: string,
+    reason?: string,
+  ) {
+    const entry = await this.options.store.skillHubCatalog.requestTransfer({
+      skillId: id,
+      actorUserId: user.id,
+      expectedRevision,
+      recipientUserId: userId,
+      reason,
+      now: this.now(),
+    });
+    return { ok: true, id, revision: entry.revision };
+  }
+
+  async transfers(user: PlatformUser) {
+    const entries = await this.options.store.skillHubCatalog.listTransfers(user.id);
+    return {
+      items: await Promise.all(
+        entries.map(async (entry) => {
+          const owner = entry.ownerUserId
+            ? await this.options.store.getUserById(entry.ownerUserId)
+            : null;
+          return {
+            id: entry.id,
+            displayName: entry.displayName,
+            revision: entry.revision,
+            from: owner
+              ? {
+                  id: owner.id,
+                  accountId: owner.accountId,
+                  ...(owner.displayName ? { displayName: owner.displayName } : {}),
+                }
+              : null,
+          };
+        }),
+      ),
+    };
+  }
+
+  async acceptTransfer(user: PlatformUser, id: string, expectedRevision: number, reason?: string) {
+    const entry = await this.options.store.skillHubCatalog.acceptTransfer({
+      skillId: id,
+      actorUserId: user.id,
+      expectedRevision,
+      reason,
+      now: this.now(),
+    });
+    return { ok: true, id, revision: entry.revision };
+  }
+
+  async cancelPublication(user: PlatformUser, operationId: string, reason?: string) {
+    const catalog = this.options.store.skillHubCatalog;
+    const params = { operationId, actorUserId: user.id, reason };
+    const receipt = await catalog.authorizePublicationCancellation(params);
+    const entry = await this.requireManager(user, receipt.skillId);
+    return await this.withRegistryMutationLock(entry.namespace, entry.slug, async () => {
+      await catalog.authorizePublicationCancellation(params);
+      if (await this.reconcilePublication(operationId)) {
+        throw new SkillHubServiceError(
+          "This publication already completed; refresh Skill Hub",
+          409,
+        );
+      }
+      await catalog.cancelPublication({ ...params, now: this.now() });
+      return { ok: true };
+    });
+  }
+
   async notifications(user: PlatformUser, limit = 50) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-      throw new SkillHubServiceError("notification limit must be between 1 and 100", 400);
+      throw new SkillHubServiceError("Notification limit must be 1 to 100", 400);
     }
     return {
       items: await this.options.store.listSkillHubNotifications(user.id, limit),
@@ -35,542 +300,121 @@ export class SkillHubService extends SkillHubNamespaceService {
     };
   }
 
-  async unassignedSkills(user: PlatformUser) {
-    if (user.globalRole !== "admin") {
-      throw new SkillHubServiceError("PlatformClaw administrator required", 403);
-    }
-    await this.reconcileOwners();
-    const items = await this.options.store.listUnassignedSkillHubSkills();
-    return {
-      items: items.map((skill) => ({
-        namespace: skill.namespace,
-        slug: skill.slug,
-        currentVersion: skill.currentVersion,
-        visibility: skill.visibility,
-        changedAt: skill.updatedAt,
-      })),
-    };
-  }
-
-  async namespaceBindings(user: PlatformUser) {
-    if (user.globalRole !== "admin") {
-      throw new SkillHubServiceError("PlatformClaw administrator required", 403);
-    }
-    return {
-      bindings: (await this.options.store.listSkillHubNamespaceBindings()).map(
-        projectSkillHubNamespaceBinding,
-      ),
-      scopes: (await this.options.organization.listScopes())
-        .filter((scope) => scope.status === "active")
-        .map((scope) =>
-          Object.assign(
-            { id: scope.id, kind: scope.kind, name: scope.name },
-            scope.parentScopeId ? { parentScopeId: scope.parentScopeId } : {},
-          ),
-        ),
-    };
-  }
-
-  async setNamespaceBinding(
-    user: PlatformUser,
-    params: {
-      namespace: string;
-      scopeKind: "global" | "team" | "group" | "part";
-      scopeId?: string;
-      visibilityCeiling: string;
-      expectedUpdatedAt: number | null;
-      reason: string;
-    },
-  ) {
-    if (user.globalRole !== "admin") {
-      throw new SkillHubServiceError("PlatformClaw administrator required", 403);
-    }
-    const namespace = this.authorizeNamespace(params.namespace);
-    const current = await this.options.store.getSkillHubNamespaceBinding(namespace);
-    const binding = await this.options.store.setSkillHubNamespaceBinding({
-      namespace,
-      scopeKind: params.scopeKind,
-      ...(params.scopeId ? { scopeId: params.scopeId.trim() } : {}),
-      accessState:
-        params.scopeKind === "global" && current?.scopeKind === "global"
-          ? current.accessState
-          : "active",
-      visibilityCeiling: validVisibility(params.visibilityCeiling),
-      expectedUpdatedAt: params.expectedUpdatedAt,
-      reason: params.reason,
-      actorUserId: user.id,
-      changedAt: this.now(),
-    });
-    return projectSkillHubNamespaceBinding(binding);
-  }
-
-  async setNamespaceAccessState(
-    user: PlatformUser,
-    namespaceRaw: string,
-    params: { accessState: "active" | "restricted"; expectedUpdatedAt: number; reason: string },
-  ) {
-    if (user.globalRole !== "admin") {
-      throw new SkillHubServiceError("PlatformClaw administrator required", 403);
-    }
-    const namespace = this.authorizeNamespace(namespaceRaw);
-    return projectSkillHubNamespaceBinding(
-      await this.options.store.setSkillHubNamespaceAccessState({
-        namespace,
-        ...params,
-        actorUserId: user.id,
-        changedAt: this.now(),
-      }),
-    );
-  }
-
-  async removeNamespaceBinding(
-    user: PlatformUser,
-    namespaceRaw: string,
-    params: { expectedUpdatedAt: number; reason: string },
-  ) {
-    if (user.globalRole !== "admin") {
-      throw new SkillHubServiceError("PlatformClaw administrator required", 403);
-    }
-    const namespace = this.authorizeNamespace(namespaceRaw);
-    const removed = await this.options.store.removeSkillHubNamespaceBinding({
-      namespace,
-      ...params,
-      actorUserId: user.id,
-      changedAt: this.now(),
-    });
-    return { ok: true, removed };
-  }
-
   async markNotificationsRead(user: PlatformUser, ids?: readonly string[]) {
-    if (ids && (ids.length > 100 || ids.some((id) => !id.trim() || id.length > 128))) {
-      throw new SkillHubServiceError("invalid notification ids", 400);
+    if (
+      ids &&
+      (ids.length > 100 || ids.some((id) => typeof id !== "string" || !id || id.length > 128))
+    ) {
+      throw new SkillHubServiceError("Invalid notification IDs", 400);
     }
-    const updated = await this.options.store.markSkillHubNotificationsRead({
-      userId: user.id,
-      ...(ids ? { ids: ids.map((id) => id.trim()) } : {}),
-      readAt: this.now(),
-    });
-    return { ok: true, updated };
-  }
-
-  async transferOwner(
-    actor: PlatformUser,
-    namespaceRaw: string,
-    slugRaw: string,
-    ownerUserId: string,
-    expectedOwnerUpdatedAt: number,
-  ) {
-    const namespace = this.authorizeNamespace(namespaceRaw);
-    const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
-    return await this.withRegistryMutationLock(namespace, slug, async () => {
-      const { ownership: current } = await this.requireManagedSkill(actor, namespace, slug);
-      const nextOwner = await this.options.store.getUserById(ownerUserId.trim());
-      if (!nextOwner || nextOwner.status !== "active") {
-        throw new SkillHubServiceError("new owner must be an active PlatformClaw user", 400);
-      }
-      if (!(await this.resolveNamespaceCapabilities(nextOwner, namespace)).canOwn) {
-        throw new SkillHubServiceError("new owner is not eligible for this namespace", 400);
-      }
-      const registrySkill = await this.adapterCall(() =>
-        this.options.adapter.getSkill(namespace, slug),
-      );
-      this.validateSkillIdentity(registrySkill.namespace, registrySkill.slug, namespace, slug);
-      const changedAt = this.now();
-      const ownership = await this.options.store.transferSkillHubOwner({
-        namespace,
-        slug,
-        expectedOwnerUserId: current.ownerUserId,
-        expectedOwnerUpdatedAt,
-        ownerUserId: nextOwner.id,
-        registryVisibility: registrySkill.visibility,
-        actorUserId: actor.id,
-        changedAt,
-      });
-      return { ownerUserId: ownership.ownerUserId };
-    });
-  }
-
-  async deletePublishedSkill(
-    actor: PlatformUser,
-    namespaceRaw: string,
-    slugRaw: string,
-    expectedOwnerUpdatedAt: number,
-  ) {
-    const namespace = this.authorizeNamespace(namespaceRaw);
-    const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
-    return await this.withRegistryMutationLock(namespace, slug, async () => {
-      const { ownership } = await this.requireManagedSkill(actor, namespace, slug);
-      if (ownership.updatedAt !== expectedOwnerUpdatedAt) {
-        throw new SkillHubServiceError("Skill Hub skill changed; reload and retry", 409, {
-          code: "skill-hub-skill-changed",
-        });
-      }
-
-      let remoteAbsent = false;
-      try {
-        const result = await this.adapterCall(() =>
-          this.options.adapter.deleteSkill(namespace, slug),
-        );
-        if (!result.ok) {
-          try {
-            await this.adapterCall(() => this.options.adapter.getSkill(namespace, slug));
-          } catch (error) {
-            if (error instanceof SkillHubServiceError && error.statusCode === 404) {
-              remoteAbsent = true;
-            } else {
-              throw error;
-            }
-          }
-          if (!remoteAbsent) {
-            throw new SkillHubServiceError("Skill Hub could not uniquely delete this skill", 409);
-          }
-        }
-      } catch (error) {
-        if (!(error instanceof SkillHubServiceError && error.statusCode === 404)) {
-          throw error;
-        }
-      }
-
-      await this.options.store.removeSkillHubSkillState({
-        namespace,
-        slug,
-        actorUserId: actor.id,
-        changedAt: this.now(),
-      });
-      return { ok: true as const, deleted: true as const, namespace, slug };
-    });
-  }
-
-  async listAccess(actor: PlatformUser, namespaceRaw: string, slugRaw: string) {
-    const { namespace, slug } = await this.requireManagedSkill(actor, namespaceRaw, slugRaw);
     return {
-      items: (await this.options.store.listSkillHubAccess(namespace, slug, this.now())).map(
-        projectSkillHubAccessGrant,
-      ),
-    };
-  }
-
-  async searchManagementUsers(
-    actor: PlatformUser,
-    namespaceRaw: string,
-    slugRaw: string,
-    query: string,
-    purpose: "owner" | "access",
-    limit = 20,
-  ) {
-    const namespace = this.authorizeNamespace(namespaceRaw);
-    const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
-    const boundedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 20)) : 20;
-    return {
-      items: await this.options.store.searchSkillHubManagementUsers({
-        namespace,
-        slug,
-        actorUserId: actor.id,
-        query,
-        purpose,
-        limit: boundedLimit,
+      ok: true,
+      updated: await this.options.store.markSkillHubNotificationsRead({
+        userId: user.id,
+        ids,
+        readAt: this.now(),
       }),
     };
-  }
-
-  async setAccess(
-    actor: PlatformUser,
-    namespaceRaw: string,
-    slugRaw: string,
-    params: {
-      userId: string;
-      expiresAt?: number;
-      inheritVersions: boolean;
-      version?: string;
-    },
-  ) {
-    const namespace = this.authorizeNamespace(namespaceRaw);
-    const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
-    return await this.withRegistryMutationLock(namespace, slug, async () => {
-      const { ownership } = await this.requireManagedSkill(actor, namespace, slug);
-      const now = this.now();
-      if (
-        params.expiresAt !== undefined &&
-        (!Number.isSafeInteger(params.expiresAt) || params.expiresAt <= now)
-      ) {
-        throw new SkillHubServiceError("access expiry must be in the future", 400);
-      }
-      const version = params.inheritVersions
-        ? undefined
-        : validVersion(params.version ?? ownership.currentVersion);
-      const grant = await this.options.store.setSkillHubAccess({
-        namespace,
-        slug,
-        userId: params.userId.trim(),
-        grantedByUserId: actor.id,
-        ...(params.expiresAt === undefined ? {} : { expiresAt: params.expiresAt }),
-        inheritVersions: params.inheritVersions,
-        ...(version ? { grantedVersion: version } : {}),
-        changedAt: now,
-      });
-      return projectSkillHubAccessGrant(grant);
-    });
-  }
-
-  async removeAccess(actor: PlatformUser, namespaceRaw: string, slugRaw: string, userId: string) {
-    const namespace = this.authorizeNamespace(namespaceRaw);
-    const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
-    return await this.withRegistryMutationLock(namespace, slug, async () => {
-      await this.requireManagedSkill(actor, namespace, slug);
-      const removed = await this.options.store.removeSkillHubAccess({
-        namespace,
-        slug,
-        userId: userId.trim(),
-        actorUserId: actor.id,
-        changedAt: this.now(),
-      });
-      return { ok: true, removed };
-    });
-  }
-
-  async acknowledgeForcePublish(
-    actor: PlatformUser,
-    namespaceRaw: string,
-    slugRaw: string,
-    params: { version: string; acknowledged: boolean; reason: string },
-  ) {
-    const namespace = this.authorizeNamespace(namespaceRaw);
-    const slug = safeName(slugRaw, "skill slug", SKILL_KEY_PATTERN);
-    const version = validVersion(params.version);
-    const reason = params.reason.trim();
-    if (!params.acknowledged || reason.length < 10 || reason.length > 1_000) {
-      throw new SkillHubServiceError(
-        "force publish requires acknowledgement and a reason between 10 and 1000 characters",
-        400,
-      );
-    }
-    if (!this.options.governance) {
-      throw new SkillHubServiceError("Skill Hub force publish is not configured", 503);
-    }
-    return await this.withRegistryMutationLock(namespace, slug, async () => {
-      const { ownership: expectedOwnership } = await this.requireManagedSkill(
-        actor,
-        namespace,
-        slug,
-      );
-      await this.adapterCall(() => this.options.adapter.getVersionState(namespace, slug, version));
-      let approval: { reviewId: number; status: string };
-      try {
-        approval = await this.options.governance!.approvePendingReview({
-          namespace,
-          slug,
-          version,
-          comment: reason,
-        });
-      } catch (error) {
-        if (error instanceof SkillHubGovernanceError) {
-          throw new SkillHubServiceError(error.message, error.statusCode === 409 ? 409 : 502);
-        }
-        throw new SkillHubServiceError("Skill Hub force publish failed", 502);
-      }
-      await this.reconcileOwners();
-      const currentOwnership = await this.options.store.getSkillHubOwnership(namespace, slug);
-      const ownershipReviewRequired =
-        !currentOwnership?.ownerUserId ||
-        currentOwnership.ownerUserId !== expectedOwnership.ownerUserId ||
-        currentOwnership.updatedAt !== expectedOwnership.updatedAt;
-      await this.options.store.updateSkillHubGovernanceJob({
-        namespace,
-        slug,
-        version,
-        state: ownershipReviewRequired ? "blocked" : "approved",
-        attempts: 0,
-        nextAttemptAt: this.now(),
-        lastError: ownershipReviewRequired ? "owner-review-required" : "force-approved",
-        updatedAt: this.now(),
-      });
-      await this.audit(
-        actor.id,
-        "skill-hub.force-publish.acknowledged",
-        `${namespace}/${slug}@${version}`,
-        {
-          acknowledged: true,
-          reason,
-          upstreamOverridePerformed: true,
-          reviewId: approval.reviewId,
-          reviewStatus: approval.status,
-          ownershipReviewRequired,
-        },
-      );
-      return {
-        acknowledged: true,
-        version,
-        upstreamOverridePerformed: true,
-        reviewId: approval.reviewId,
-        reviewStatus: approval.status,
-        ...(ownershipReviewRequired ? { ownershipReviewRequired: true as const } : {}),
-      };
-    });
   }
 
   override async processGovernanceQueue(): Promise<{ processed: number }> {
-    if (!this.options.governance || this.governanceClosed || this.governanceProcessing) {
+    if (this.governanceClosed || this.governanceProcessing) {
       return { processed: 0 };
     }
     this.governanceProcessing = true;
     let processed = 0;
+    this.maintenanceError = null;
     try {
-      processed += await this.recoverPendingSkillEdits();
-      const now = this.now();
-      const jobs = await this.options.store.listDueSkillHubGovernanceJobs(now, 10);
-      for (const job of jobs) {
-        // A reserved coordinate may already have moved in the registry. Waiting
-        // for its durable edit is intentional, not a failed scan attempt.
-        if (await this.options.store.getSkillHubPendingEdit(job.namespace, job.slug)) {
+      const catalog = this.options.store.skillHubCatalog;
+      for (const receipt of await catalog.claimPendingPublications(20)) {
+        const entry = await catalog.get(receipt.skillId);
+        if (!entry) {
           continue;
         }
-        processed += 1;
-        const attempts = job.attempts + 1;
-        try {
-          await this.reconcileOwners();
-          const currentOwnership = await this.options.store.getSkillHubOwnership(
-            job.namespace,
-            job.slug,
-          );
-          if (!job.ownerUserId || currentOwnership?.ownerUserId !== job.ownerUserId) {
-            await this.finishGovernanceJob(job, "blocked", attempts, "owner-review-required");
-            continue;
-          }
-          const skill = await this.adapterCall(() =>
-            this.options.adapter.getSkill(job.namespace, job.slug),
-          );
-          let version: Awaited<ReturnType<SkillHubAdapter["getVersionState"]>>;
+        await this.withRegistryMutationLock(entry.namespace, entry.slug, async () => {
           try {
-            version = await this.adapterCall(() =>
-              this.options.adapter.getVersionState(job.namespace, job.slug, job.version),
-            );
+            if (await this.reconcilePublication(receipt.operationId)) {
+              processed += 1;
+            }
           } catch (error) {
-            if (error instanceof SkillHubServiceError && error.statusCode === 404) {
-              await this.retryGovernanceJob(job, attempts, "version-not-visible");
-              continue;
+            if (!(error instanceof SkillHubServiceError && error.statusCode === 404)) {
+              this.maintenanceError =
+                "A publication needs reconciliation; retry it or ask an administrator to cancel it.";
             }
-            throw error;
           }
-          const audits = await this.adapterCall(() =>
-            this.options.adapter.listSecurityAudits(skill.id, version.id),
-          );
-          const terminal =
-            version.status !== "SCANNING" &&
-            audits.length > 0 &&
-            audits.every((audit) => Boolean(audit.scannedAt));
-          const scanFailed =
-            version.status === "SCAN_FAILED" || audits.some((audit) => Boolean(audit.failedAt));
-          if (!terminal && !scanFailed) {
-            await this.retryGovernanceJob(job, attempts, "scan-pending");
-            continue;
-          }
-          await this.withRegistryMutationLock(job.namespace, job.slug, async () => {
-            if (await this.options.store.getSkillHubPendingEdit(job.namespace, job.slug)) {
-              return;
-            }
-            await this.reconcileOwners();
-            const lockedOwnership = await this.options.store.getSkillHubOwnership(
-              job.namespace,
-              job.slug,
-            );
-            if (!job.ownerUserId || lockedOwnership?.ownerUserId !== job.ownerUserId) {
-              await this.finishGovernanceJob(job, "blocked", attempts, "owner-review-required");
-              return;
-            }
-            if (lockedOwnership.visibility === "PRIVATE") {
-              await this.finishGovernanceJob(job, "blocked", attempts, "visibility-private");
-              return;
-            }
-            const lockedSkill = await this.adapterCall(() =>
-              this.options.adapter.getSkill(job.namespace, job.slug),
-            );
-            const lockedVersion = await this.adapterCall(() =>
-              this.options.adapter.getVersionState(job.namespace, job.slug, job.version),
-            );
-            if (lockedSkill.id !== skill.id || lockedVersion.id !== version.id) {
-              await this.retryGovernanceJob(job, attempts, "version-changed");
-              return;
-            }
-            // An edit can replace a failed round before this lock is acquired.
-            // Read current audit facts here rather than blocking its new SAFE round.
-            const lockedAudits = await this.adapterCall(() =>
-              this.options.adapter.listSecurityAudits(lockedSkill.id, lockedVersion.id),
-            );
-            const lockedScanFailed =
-              lockedVersion.status === "SCAN_FAILED" ||
-              lockedAudits.some((audit) => Boolean(audit.failedAt));
-            if (
-              !lockedScanFailed &&
-              (lockedVersion.status === "SCANNING" ||
-                lockedAudits.length === 0 ||
-                lockedAudits.some((audit) => !audit.scannedAt))
-            ) {
-              await this.retryGovernanceJob(job, attempts, "scan-pending");
-              return;
-            }
-            if (lockedScanFailed || lockedAudits.some((audit) => audit.isSafe !== true)) {
-              await this.finishGovernanceJob(
-                job,
-                "blocked",
-                attempts,
-                lockedScanFailed ? "scan-failed" : "scan-unsafe",
-              );
-              await this.options.store.createSkillHubNotification({
-                userId: job.ownerUserId,
-                kind: "scan-blocked",
-                namespace: job.namespace,
-                slug: job.slug,
-                message: `${job.namespace}/${job.slug}@${job.version} did not pass security scanning.`,
-                createdAt: now,
-              });
-              return;
-            }
-            const approval = await this.options.governance!.approvePendingReview({
-              namespace: job.namespace,
-              slug: job.slug,
-              version: job.version,
-              comment: "PlatformClaw automatic approval after a clean security scan.",
-              requireSafeScan: true,
+        });
+      }
+      for (const due of await catalog.claimPurgeDue(this.now(), 20)) {
+        try {
+          await this.withRegistryMutationLock(due.namespace, due.slug, async () => {
+            const entry = await catalog.beginPurge({
+              skillId: due.id,
+              expectedRevision: due.revision,
+              now: this.now(),
             });
-            await this.finishGovernanceJob(job, "approved", attempts);
-            // Approval is an external irreversible side effect. Persist it before
-            // ancillary delivery so a notification failure never repeats approval.
-            const sideEffects = await Promise.allSettled([
-              this.audit(
-                undefined,
-                "skill-hub.review.auto-approved",
-                `${job.namespace}/${job.slug}@${job.version}`,
-                {
-                  reviewId: approval.reviewId,
-                  reviewStatus: approval.status,
-                },
-              ),
-              this.options.store.createSkillHubNotification({
-                userId: job.ownerUserId,
-                kind: "scan-approved",
-                namespace: job.namespace,
-                slug: job.slug,
-                message: `${job.namespace}/${job.slug}@${job.version} passed scanning and was published.`,
-                createdAt: now,
-              }),
-            ]);
-            if (sideEffects.some((result) => result.status === "rejected")) {
-              await this.options.store.updateSkillHubGovernanceJob({
-                namespace: job.namespace,
-                slug: job.slug,
-                version: job.version,
-                state: "approved",
-                attempts,
-                nextAttemptAt: now,
-                lastError: "approval-side-effect-failed",
-                updatedAt: now,
+            const governance = this.options.governance;
+            if (!governance) {
+              throw new SkillHubServiceError("Managed artifact cleanup is unavailable", 503);
+            }
+            let registryId = entry.registryId;
+            if (registryId === null) {
+              // A cancelled first publication may have failed before native
+              // reservation. Establish the same durable identity before the
+              // existing verified whole-skill cleanup, even for an empty skill.
+              const native = await this.ensureArtifactIdentity(entry, async () => {
+                const current = await catalog.get(entry.id);
+                if (
+                  !current ||
+                  !current.purgePending ||
+                  current.purgedAt !== null ||
+                  current.registryId !== null ||
+                  current.namespace !== entry.namespace ||
+                  current.slug !== entry.slug
+                ) {
+                  throw new SkillHubServiceError("Skill Hub cleanup state changed", 409);
+                }
+              });
+              registryId = native.id;
+            }
+            let deletion = await governance.getArtifactDeletion(registryId);
+            if (!deletion || deletion.state === "pending") {
+              deletion = await governance.deleteArtifact({
+                skillId: registryId,
+                namespace: entry.namespace,
+                slug: entry.slug,
               });
             }
+            if (deletion.state !== "completed" || !deletion.completedAt) {
+              this.maintenanceError =
+                "Skill Hub cleanup is pending. Existing trash stays unavailable; an administrator can retry cleanup.";
+              return;
+            }
+            await catalog.finishPurge({
+              skillId: entry.id,
+              now: Math.max(this.now(), Date.parse(deletion.completedAt)),
+            });
+            processed += 1;
           });
         } catch {
-          await this.retryGovernanceJob(job, attempts, "governance-unavailable");
+          this.maintenanceError =
+            "Skill Hub cleanup is pending. Existing trash stays unavailable; an administrator can retry cleanup.";
         }
       }
+      await catalog.pruneHistory(this.now());
+      for (const entry of await catalog.list()) {
+        if (entry.deletedAt !== null || entry.purgedAt !== null || entry.currentVersion === null) {
+          continue;
+        }
+        try {
+          await this.versionScans(entry);
+        } catch {
+          this.maintenanceError ??=
+            "Some skill versions could not be checked. Refresh or ask an administrator to reconcile the registry.";
+        }
+      }
+    } catch {
+      this.maintenanceError =
+        "Skill Hub cleanup is pending. Existing trash stays unavailable; an administrator can retry cleanup.";
     } finally {
       this.governanceProcessing = false;
       this.triggerGovernanceProcessing(30_000);

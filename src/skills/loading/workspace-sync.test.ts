@@ -121,7 +121,7 @@ describe("buildWorkspaceSkillsPrompt", () => {
       "export {}",
     );
 
-    const skillUsagePaths = await syncSkillsToWorkspace({
+    const { skillUsagePaths } = await syncSkillsToWorkspace({
       sourceWorkspaceDir: sourceWorkspace,
       targetWorkspaceDir: targetWorkspace,
       config: { skills: { load: { extraDirs: [extraDir] } } },

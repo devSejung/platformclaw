@@ -91,13 +91,13 @@ type SkillHubClientRequest = {
   accountId: string;
   context: SkillHubConversation;
 } & (
-  | { args: string; locale: "ko" }
+  | { args: string; locale: "en" | "ko" }
   | {
       action: "search" | "status" | "install" | "delete";
       input: {
         query?: string;
         slug?: string;
-        namespace?: string;
+        id?: string;
         version?: string;
         confirm?: boolean;
       };
@@ -106,34 +106,39 @@ type SkillHubClientRequest = {
 
 export function createPlatformClawSkillHubClient() {
   let endpoint: { token: string; url: string } | undefined;
-  return {
-    async request(request: SkillHubClientRequest) {
-      // Deployment credentials stay process-stable across commands and tool turns.
-      endpoint ??= {
-        token: readServiceToken(process.env),
-        url: resolveControlPlaneUrl(process.env),
-      };
-      const guarded = await fetchWithSsrFGuard({
-        url: endpoint.url,
-        init: {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${endpoint.token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(request),
+  const post = async (body: unknown, pathname?: string) => {
+    // Deployment credentials stay process-stable across commands and tool turns.
+    endpoint ??= {
+      token: readServiceToken(process.env),
+      url: resolveControlPlaneUrl(process.env),
+    };
+    const guarded = await fetchWithSsrFGuard({
+      url: pathname ? new URL(pathname, endpoint.url).toString() : endpoint.url,
+      init: {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${endpoint.token}`,
+          "Content-Type": "application/json",
         },
-        maxRedirects: 0,
-        timeoutMs: 120_000,
-        policy: ssrfPolicyFromHttpBaseUrlAllowedOrigin(endpoint.url),
-        auditContext: "platformclaw.skillhub",
-      });
-      try {
-        return { status: guarded.response.status, body: await readResponse(guarded.response) };
-      } finally {
-        await guarded.release();
-      }
-    },
+        body: JSON.stringify(body),
+      },
+      maxRedirects: 0,
+      timeoutMs: pathname ? 10_000 : 120_000,
+      policy: ssrfPolicyFromHttpBaseUrlAllowedOrigin(endpoint.url),
+      auditContext: "platformclaw.skillhub",
+    });
+    try {
+      return { status: guarded.response.status, body: await readResponse(guarded.response) };
+    } finally {
+      await guarded.release();
+    }
+  };
+  return {
+    request: (request: SkillHubClientRequest) => post(request),
+    roomSkills: (request: {
+      agentId: string;
+      candidates: Array<{ name: string; filePath: string; sourceFilePath?: string }>;
+    }) => post(request, "/platformclaw/api/internal/skill-hub/room-skills"),
   };
 }
 

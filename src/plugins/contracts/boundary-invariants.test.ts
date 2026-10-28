@@ -30,6 +30,7 @@ const BUNDLED_TYPED_HOOK_REGISTRATION_FILES = [
   "extensions/platformclaw-execution/src/gateway.ts",
   "extensions/platformclaw-org-memory/index.ts",
   "extensions/platformclaw-org-memory/src/space-tools.ts",
+  "extensions/platformclaw-skillhub/src/run-policy.ts",
   "extensions/thread-ownership/index.ts",
   "extensions/workboard/index.ts",
 ] as const;
@@ -64,6 +65,7 @@ const BUNDLED_TYPED_HOOK_REGISTRATION_GUARDS = {
     "before_prompt_build",
     "before_tool_call",
   ],
+  "extensions/platformclaw-skillhub/src/run-policy.ts": ["before_skill_context"],
   "extensions/thread-ownership/index.ts": ["message_received", "message_sending"],
   "extensions/workboard/index.ts": ["subagent_ended"],
 } as const satisfies Record<

@@ -1992,6 +1992,7 @@ async function runSerializedClaudeLiveSessionTurn(
     }
   }
   let cleanupTurnArtifacts = Boolean(session);
+  let createdSessionForTurn = false;
   let notifiedMcpCaptureKey: string | undefined;
   const notifyMcpCaptureReady = (captureKey: string | undefined) => {
     if (!captureKey || notifiedMcpCaptureKey === captureKey) {
@@ -2108,6 +2109,7 @@ async function runSerializedClaudeLiveSessionTurn(
       liveSessionCreates.set(key, { generation, promise: createSession });
       try {
         session = await createSession;
+        createdSessionForTurn = true;
       } catch (error) {
         await cleanup();
         throw error;
@@ -2136,6 +2138,28 @@ async function runSerializedClaudeLiveSessionTurn(
   }
   if (session.currentTurn) {
     throw new Error("Claude CLI live session is already handling a turn");
+  }
+  // The owner queue, prompt refresh, and child preparation can outlive the
+  // executor's admission check. Revalidate before assigning or sending a turn.
+  try {
+    await params.context.preparedBackend.revalidateSkillContext?.();
+  } catch (error) {
+    if (createdSessionForTurn) {
+      closeLiveSession(session, "abort", error);
+    } else if (!session.closing) {
+      scheduleIdleClose(session);
+    }
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      const failure = new AggregateError(
+        [error, cleanupError],
+        "Claude live skill admission failed and turn cleanup also failed",
+        { cause: cleanupError },
+      );
+      throw failure;
+    }
+    throw error;
   }
   const liveSession = session;
   if (liveSession.sessionId) {

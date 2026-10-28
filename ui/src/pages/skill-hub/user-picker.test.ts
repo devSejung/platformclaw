@@ -7,12 +7,10 @@ const employees = [
   { id: "directory-id-one", accountId: "alex.one", displayName: "Alex" },
   { id: "directory-id-two", accountId: "alex.two", displayName: "Alex" },
 ];
-const response = (items = employees) => new Response(JSON.stringify({ items }));
+const response = (items = employees) => new Response(JSON.stringify({ users: items }));
 
 async function fixture(purpose: "owner" | "access" = "owner") {
   const picker = document.createElement("openclaw-skill-hub-user-picker");
-  picker.namespace = "engineering";
-  picker.slug = "demo";
   picker.purpose = purpose;
   picker.onSelect = vi.fn();
   document.body.append(picker);
@@ -58,14 +56,16 @@ describe("Skill Hub employee autocomplete", () => {
       expect(fetch).not.toHaveBeenCalled();
       await load();
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining(`q=al&purpose=${purpose}&limit=20`),
+        expect.stringContaining(`/users?q=al`),
         expect.any(Object),
       );
       expect(input.getAttribute("aria-expanded")).toBe("true");
       expect(picker.querySelectorAll('[role="option"]')).toHaveLength(2);
       await key("ArrowDown");
       await key("ArrowDown");
-      expect(input.getAttribute("aria-activedescendant")).toBe(`skill-hub-${purpose}-users-1`);
+      expect(input.getAttribute("aria-activedescendant")).toBe(
+        `${input.getAttribute("aria-controls")}-1`,
+      );
       await key("Enter");
       expect(picker.onSelect).toHaveBeenLastCalledWith(employees[1]);
       expect(input.value).toBe("Alex (alex.two)");
@@ -83,7 +83,7 @@ describe("Skill Hub employee autocomplete", () => {
     },
   );
 
-  it("invalidates candidates immediately, including A-B-A queries and a changed skill", async () => {
+  it("invalidates candidates immediately, including A-B-A queries and a changed picker purpose", async () => {
     const pending: Array<(value: Response) => void> = [];
     vi.stubGlobal(
       "fetch",
@@ -112,7 +112,7 @@ describe("Skill Hub employee autocomplete", () => {
     expect(picker.querySelectorAll('[role="option"]')).toHaveLength(0);
     await type("bob");
     await load();
-    picker.slug = "other-skill";
+    picker.purpose = "access";
     await picker.updateComplete;
     pending[3]!(response());
     await vi.advanceTimersByTimeAsync(0);
@@ -158,7 +158,9 @@ describe("Skill Hub employee autocomplete", () => {
       input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
       await load();
       await key("ArrowUp");
-      expect(input.getAttribute("aria-activedescendant")).toBe("skill-hub-owner-users-1");
+      expect(input.getAttribute("aria-activedescendant")).toBe(
+        `${input.getAttribute("aria-controls")}-1`,
+      );
       parentKeydown.mockClear();
       await key("Escape");
       expect(parentKeydown).not.toHaveBeenCalled();

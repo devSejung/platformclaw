@@ -1,164 +1,106 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { SkillHubSecurityAudit } from "./skill-hub-adapter.js";
-import { createSkillHubServiceFixture } from "./skill-hub-service.test-fixtures.js";
-import type { SkillHubGovernanceJob } from "./skill-hub-state.js";
+import { createSkillHubServiceFixture as fixture } from "./skill-hub-service.test-fixtures.js";
 
-async function scanningFixture() {
-  const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-  const fixture = await createSkillHubServiceFixture(
-    ["engineering"],
-    { approvePendingReview },
-    { registrySkill: "absent" },
-  );
-  await fixture.service.publish(fixture.actor, {
-    skill: "demo-skill",
-    namespace: "engineering",
-    version: "1.2.3",
-    visibility: "PUBLIC",
-  });
-  let status = "SCANNING";
-  let audits: SkillHubSecurityAudit[] = [
-    { scannerType: "SKILL_SCANNER", verdict: "SUSPICIOUS", isSafe: false },
-  ];
-  let job: SkillHubGovernanceJob = {
-    namespace: "engineering",
-    slug: "demo-skill",
-    version: "1.2.3",
-    ownerUserId: fixture.actor.user.id,
-    state: "pending",
-    attempts: 0,
-    nextAttemptAt: 1,
-    updatedAt: 1,
-  };
-  vi.spyOn(fixture.store, "listDueSkillHubGovernanceJobs").mockImplementation(async () =>
-    job.state === "pending" ? [{ ...job }] : [],
-  );
-  vi.spyOn(fixture.store, "updateSkillHubGovernanceJob").mockImplementation(async (update) => {
-    job = { ...job, ...update };
-  });
-  fixture.adapterMocks.getVersionState.mockImplementation(async () => ({
-    id: 20,
-    version: "1.2.3",
-    status,
-  }));
-  fixture.adapterMocks.listVersions.mockImplementation(async () => [
-    { id: 20, version: "1.2.3", status, downloadAvailable: true },
-  ]);
-  fixture.adapterMocks.listSecurityAudits.mockImplementation(async () => audits);
-  return {
-    ...fixture,
-    approvePendingReview,
-    get job() {
-      return job;
-    },
-    setStatus(value: string) {
-      status = value;
-    },
-    completeAudit() {
-      audits = [
-        {
-          scannerType: "SKILL_SCANNER",
-          verdict: "SAFE",
-          isSafe: true,
-          scannedAt: "2026-10-16T00:00:00Z",
-        },
-      ];
-    },
-    failAudit() {
-      audits = [
-        {
-          scannerType: "SKILL_SCANNER",
-          verdict: "SUSPICIOUS",
-          isSafe: false,
-          failedAt: "2026-10-16T00:00:00Z",
-        },
-      ];
-    },
-  };
-}
-
-describe("Skill Hub recorded scan lifecycle", () => {
-  it("waits for native placeholder audits and an active rescan before approving completed SAFE evidence", async () => {
-    const f = await scanningFixture();
-    try {
-      await f.service.processGovernanceQueue();
-      expect(f.job).toMatchObject({ state: "pending", lastError: "scan-pending" });
-      expect(f.approvePendingReview).not.toHaveBeenCalled();
-      await expect(
-        f.service.detail(f.actor.user, "engineering", "demo-skill"),
-      ).resolves.toMatchObject({ scanner: { status: "pending", badge: "Scan pending" } });
-
-      f.setStatus("PENDING_REVIEW");
-      await f.service.processGovernanceQueue();
-      expect(f.job).toMatchObject({ state: "pending", lastError: "scan-pending" });
-      expect(f.approvePendingReview).not.toHaveBeenCalled();
-
-      f.completeAudit();
-      f.setStatus("SCANNING");
-      await f.service.processGovernanceQueue();
-      expect(f.approvePendingReview).not.toHaveBeenCalled();
-      await expect(
-        f.service.detail(f.actor.user, "engineering", "demo-skill"),
-      ).resolves.toMatchObject({ scanner: { status: "pending" } });
-
-      f.setStatus("PENDING_REVIEW");
-      await f.service.processGovernanceQueue();
-      expect(f.approvePendingReview).toHaveBeenCalledTimes(1);
-      expect(f.job).toMatchObject({ state: "approved" });
-      await expect(
-        f.service.detail(f.actor.user, "engineering", "demo-skill"),
-      ).resolves.toMatchObject({ scanner: { status: "passed", badge: "Scan passed" } });
-    } finally {
-      f.service.close();
-    }
+const completed = "2026-10-28T00:00:00Z";
+describe("Skill Hub per-version scan lifecycle", () => {
+  it("keeps heuristic warnings downloadable without approving or overriding a registry review", async () => {
+    const f = await fixture();
+    f.adapterMocks.listSecurityAudits.mockResolvedValue([
+      {
+        scannerType: "SKILL_SCANNER",
+        verdict: "BLOCKED",
+        isSafe: false,
+        scannedAt: completed,
+        findingsCount: 1,
+        findings: [{ ruleId: "OBFUSCATION_BINARY_FILE", analyzer: "static", category: "malware" }],
+      },
+    ]);
+    const detail = await f.service.detailById(f.actor.user, f.entry!.id);
+    expect(detail.versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          version: "1.0.0",
+          downloadAvailable: true,
+          scanner: { status: "warning", badge: "Warnings", blocked: false },
+        }),
+      ]),
+    );
   });
 
-  it.each(["SCAN_FAILED", "PUBLISHED"])(
-    "reports terminal scan failure while the release remains %s",
-    async (status) => {
-      const f = await scanningFixture();
-      try {
-        f.setStatus(status);
-        if (status === "PUBLISHED") {
-          f.failAudit();
-        }
-        await f.service.processGovernanceQueue();
-        expect(f.job).toMatchObject({ state: "blocked", lastError: "scan-failed" });
-        expect(f.approvePendingReview).not.toHaveBeenCalled();
-        await expect(
-          f.service.detail(f.actor.user, "engineering", "demo-skill"),
-        ).resolves.toMatchObject({ scanner: { status: "failed", badge: "Scan failed" } });
-      } finally {
-        f.service.close();
-      }
-    },
-  );
+  it("keeps released files visibly unverified when scanner evidence is unavailable", async () => {
+    const f = await fixture();
+    f.adapterMocks.listSecurityAudits.mockResolvedValue([
+      { scannerType: "SKILL_SCANNER", verdict: "SUSPICIOUS", isSafe: false, failedAt: completed },
+    ]);
+    const detail = await f.service.detailById(f.actor.user, f.entry!.id);
+    expect(
+      detail.versions.every(
+        (version) => version.downloadAvailable && version.scanner.status === "unverified",
+      ),
+    ).toBe(true);
+  });
 
-  it.each([
-    {
+  it("durably blocks only the confirmed version, not another version or a later scan outage", async () => {
+    const f = await fixture();
+    const confirmed: SkillHubSecurityAudit = {
       scannerType: "SKILL_SCANNER",
-      verdict: "SUSPICIOUS",
+      verdict: "BLOCKED",
       isSafe: false,
-      failedAt: "2026-10-16T00:00:00Z",
-    },
-    {
-      scannerType: "SKILL_SCANNER",
-      verdict: "SUSPICIOUS",
-      isSafe: false,
-      scannedAt: "2026-10-16T00:00:00Z",
-    },
-  ])("rechecks a replaced $verdict round before recording its decision", async (oldAudit) => {
-    const f = await scanningFixture();
-    try {
-      f.completeAudit();
-      f.setStatus("PENDING_REVIEW");
-      f.adapterMocks.listSecurityAudits.mockResolvedValueOnce([oldAudit]);
-      await f.service.processGovernanceQueue();
-      expect(f.adapterMocks.listSecurityAudits).toHaveBeenCalledTimes(2);
-      expect(f.approvePendingReview).toHaveBeenCalledTimes(1);
-      expect(f.job).toMatchObject({ state: "approved" });
-    } finally {
-      f.service.close();
-    }
+      scannedAt: completed,
+      findings: [
+        {
+          ruleId: "VIRUSTOTAL_MALICIOUS_FILE",
+          analyzer: "virustotal",
+          category: "malware",
+          fileHash: "a".repeat(64),
+        },
+      ],
+    };
+    f.adapterMocks.listSecurityAudits.mockImplementation(async (_skillId, versionId) =>
+      versionId === 20 ? [confirmed] : [],
+    );
+    const detail = await f.service.detailById(f.actor.user, f.entry!.id);
+    expect(detail.versions.find((version) => version.version === "1.0.0")).toMatchObject({
+      downloadAvailable: false,
+      scanner: { status: "blocked" },
+    });
+    expect(detail.versions.find((version) => version.version === "2.0.0")).toMatchObject({
+      downloadAvailable: true,
+    });
+    f.adapterMocks.listSecurityAudits.mockResolvedValue([
+      { scannerType: "SKILL_SCANNER", verdict: "SUSPICIOUS", failedAt: completed },
+    ]);
+    await expect(f.service.download(f.actor.user, f.entry!.id, "1.0.0")).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    expect(f.adapterMocks.download).not.toHaveBeenCalled();
+    await f.service.detailById(f.actor.user, f.entry!.id);
+    expect(
+      (await f.service.notifications(f.actor.user)).items.filter(
+        (item) => item.kind === "malware-blocked",
+      ),
+    ).toHaveLength(1);
+  });
+  it("never serves or installs a replacement native identity at a known coordinate", async () => {
+    const f = await fixture();
+    const entry = f.entry!;
+    const native = f.native.get(`${entry.namespace}/${entry.slug}`)!;
+    f.native.set(`${entry.namespace}/${entry.slug}`, { ...native, id: native.id + 100 });
+    await expect(f.service.detailById(f.actor.user, entry.id)).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    await expect(f.service.download(f.actor.user, entry.id, "1.0.0")).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    await expect(
+      f.service.install(f.actor, {
+        id: entry.id,
+        version: "1.0.0",
+        destination: "platform_server",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(f.adapterMocks.download).not.toHaveBeenCalled();
+    expect(f.adminRpcCall).not.toHaveBeenCalled();
   });
 });

@@ -673,7 +673,6 @@ bootstrap_skillhub() {
     --read-only --user "$runtime_uid:$runtime_gid" --cap-drop ALL \
     --security-opt no-new-privileges:true \
     --env SKILLHUB_BASE_URL=http://skillhub.platformclaw.local:8080 \
-    --env "SKILLHUB_NAMESPACES=$(read_env_value PLATFORMCLAW_SKILL_HUB_NAMESPACES)" \
     --env "SKILLHUB_CREATE_TOKEN=$create_token" \
     --env SKILLHUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/bootstrap-password \
     --env SKILLHUB_TOKEN_OUTPUT_FILE=/run/secrets/control-token \
@@ -686,7 +685,7 @@ bootstrap_skillhub() {
       : >"$token_file"
       chmod 0600 "$token_file"
     fi
-    echo "SkillHub token/namespace bootstrap failed; Hub remains internal and Control was not started." >&2
+    echo "SkillHub token bootstrap failed; Hub remains internal and Control was not started." >&2
     exit 1
   fi
   if [[ "$create_token" == "true" ]]; then
@@ -779,9 +778,9 @@ reconcile_skillhub_environment() {
   local key
   local temporary
   local value
-  if grep -Eq '^PLATFORMCLAW_SKILL_HUB_(TOKEN|POSTGRES_PASSWORD|COOKIE|BOOTSTRAP_PASSWORD)_SECRET_FILE=' "$env_file"; then
+  if grep -Eq '^PLATFORMCLAW_SKILL_HUB_((TOKEN|POSTGRES_PASSWORD|COOKIE|BOOTSTRAP_PASSWORD)_SECRET_FILE|NAMESPACES)=' "$env_file"; then
     temporary="$(mktemp "$deploy_root/.deployment.env.XXXXXX")"
-    grep -Ev '^PLATFORMCLAW_SKILL_HUB_(TOKEN|POSTGRES_PASSWORD|COOKIE|BOOTSTRAP_PASSWORD)_SECRET_FILE=' \
+    grep -Ev '^PLATFORMCLAW_SKILL_HUB_((TOKEN|POSTGRES_PASSWORD|COOKIE|BOOTSTRAP_PASSWORD)_SECRET_FILE|NAMESPACES)=' \
       "$env_file" >"$temporary"
     chmod 0600 "$temporary"
     mv -f "$temporary" "$env_file"
@@ -799,7 +798,7 @@ reconcile_skillhub_environment() {
   for key in PLATFORMCLAW_SKILL_HUB_SERVER_IMAGE PLATFORMCLAW_SKILL_HUB_SCANNER_IMAGE \
     PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE \
     PLATFORMCLAW_SKILL_HUB_URL PLATFORMCLAW_SKILL_HUB_TOKEN_FILE \
-    PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE PLATFORMCLAW_SKILL_HUB_NAMESPACES \
+    PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE \
     PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES; do
     [[ -n "$(read_env_value "$key")" ]] && continue
     value="$(read_env_value "$key" "$script_dir/deployment.env.example")"
@@ -904,7 +903,7 @@ validate_deployment_env() {
       PLATFORMCLAW_SKILL_HUB_POSTGRES_IMAGE PLATFORMCLAW_SKILL_HUB_REDIS_IMAGE \
       PLATFORMCLAW_SKILL_HUB_URL PLATFORMCLAW_SKILL_HUB_TOKEN_FILE \
       PLATFORMCLAW_SKILL_HUB_BOOTSTRAP_PASSWORD_FILE \
-      PLATFORMCLAW_SKILL_HUB_NAMESPACES PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES; do
+      PLATFORMCLAW_SKILL_HUB_MAX_PACKAGE_BYTES; do
       value="$(read_env_value "$key")"
       [[ -n "$value" && "$value" != *'<'* && "$value" != *'>'* ]] || invalid+=("$key")
     done

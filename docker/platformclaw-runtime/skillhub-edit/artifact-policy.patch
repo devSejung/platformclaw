@@ -1,0 +1,518 @@
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillGovernanceService.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillGovernanceService.java
+@@ -187,0 +188 @@
++        compensationService.reservePartialDeletion(skill.getId(), namespaceSlug, skill.getSlug(), storageKeys);
+@@ -230,0 +232 @@
++            compensationService.confirmDeletion(skill.getId());
+@@ -232,7 +234 @@
+-            compensationService.recordFailure(
+-                    skill.getId(),
+-                    namespaceSlug,
+-                    skill.getSlug(),
+-                    storageKeys,
+-                    ex.getMessage()
+-            );
++            compensationService.recordAttempt(skill.getId(), ex.getMessage());
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillHardDeleteService.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillHardDeleteService.java
+@@ -102,0 +103 @@
++        compensationService.reserveDeletion(skill.getId(), storageKeys);
+@@ -140,3 +140,0 @@
+-        if (storageKeys.isEmpty()) {
+-            return;
+-        }
+@@ -157,0 +156 @@
++            compensationService.confirmDeletion(skill.getId());
+@@ -159,7 +158 @@
+-            compensationService.recordFailure(
+-                    skill.getId(),
+-                    namespaceSlug,
+-                    skill.getSlug(),
+-                    storageKeys,
+-                    ex.getMessage()
+-            );
++            compensationService.recordAttempt(skill.getId(), ex.getMessage());
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillPublishService.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillPublishService.java
+@@ -290 +290,72 @@
+-        return publishFromEntriesInternal(namespaceSlug, entries, publisherId, visibility, platformRoles, confirmWarnings, false, false);
++        return publishFromEntriesInternal(namespaceSlug, entries, publisherId, visibility, platformRoles, confirmWarnings, false, false, null);
++    }
++
++    private record ManagedPublication(Long expectedSkillId, InputStream bundle, long bundleSize) {}
++
++    /** Server-only immutable artifact publication; employee authority is owned by PlatformClaw. */
++    @Transactional
++    public PublishResult publishManagedFromEntries(
++            String namespaceSlug, List<PackageEntry> entries, String publisherId,
++            Set<String> platformRoles, Long expectedSkillId, InputStream bundle, long bundleSize) {
++        assertManagedPublisher(platformRoles);
++        if (bundleSize < 1 || bundleSize > 500L * 1024 * 1024) {
++            throw new DomainBadRequestException("error.skill.publish.package.invalid", "Invalid managed archive size");
++        }
++        if (bundle == null || expectedSkillId == null || expectedSkillId < 1) {
++            throw new PlatformclawPublicationConflict("Reserve the managed registry identity before uploading");
++        }
++        return publishFromEntriesInternal(namespaceSlug, entries, publisherId, SkillVisibility.PRIVATE,
++                platformRoles, true, false, false, new ManagedPublication(expectedSkillId, bundle, bundleSize));
++    }
++
++    /** Commit the immutable identity before the caller can send its first archive POST. */
++    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
++    public Long reserveManagedIdentity(String namespaceSlug, String slug, String operation,
++            String publisherId, Set<String> platformRoles) {
++        assertManagedPublisher(platformRoles);
++        SlugValidator.validate(slug);
++        Namespace namespace = publicationNamespace(namespaceSlug);
++        if (operation == null || !operation.matches("[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}")
++                || !("pc-" + operation).equals(namespace.getSlug())
++                || !("PlatformClaw namespace operation:" + operation).equals(namespace.getDescription())) {
++            throw new PlatformclawPublicationConflict("The namespace is not owned by this managed publication");
++        }
++        List<Skill> origins = platformclawEntityManager.createQuery(
++                "select s from Skill s where s.platformclawManagedPublicationId = :origin", Skill.class)
++                .setParameter("origin", operation).setMaxResults(2).getResultList();
++        if (origins.size() > 1 || (!origins.isEmpty()
++                && (!namespace.getId().equals(origins.getFirst().getNamespaceId())
++                    || !slug.equals(origins.getFirst().getSlug())))) {
++            throw new PlatformclawPublicationConflict("The managed publication identity belongs to another coordinate");
++        }
++        List<Skill> existing = skillRepository.findByNamespaceIdAndSlug(namespace.getId(), slug);
++        if (!existing.isEmpty()) {
++            if (existing.size() != 1 || !operation.equals(existing.getFirst().getPlatformclawManagedPublicationId())) {
++                throw new PlatformclawPublicationConflict("A new publication cannot adopt an existing registry coordinate");
++            }
++            Skill reserved = existing.getFirst();
++            if (reserved.getStatus() != SkillStatus.ACTIVE) {
++                throw new DomainBadRequestException("error.skill.publish.archived", slug);
++            }
++            // A committed origin survives service-principal rotation; an empty
++            // namespace still requires its original creator before first claim.
++            return reserved.getId();
++        }
++        assertNamespaceWritable(namespace);
++        if (!publisherId.equals(namespace.getCreatedBy())) {
++            throw new PlatformclawPublicationConflict("The namespace is not owned by this managed publication");
++        }
++        Skill reserved = new Skill(namespace.getId(), slug, publisherId, SkillVisibility.PRIVATE);
++        reserved.setCreatedBy(publisherId);
++        reserved.setDisplayName(slug);
++        reserved.setSummary("");
++        reserved.setPlatformclawManagedPublicationId(operation);
++        reserved = skillRepository.save(reserved);
++        skillRepository.flush();
++        return reserved.getId();
++    }
++
++    private void assertManagedPublisher(Set<String> platformRoles) {
++        if (!platformRoles.contains("SUPER_ADMIN")) {
++            throw new DomainForbiddenException("error.skill.lifecycle.noPermission");
++        }
+@@ -331 +402,2 @@
+-                true
++                true,
++                null
+@@ -343 +415,2 @@
+-            boolean bypassMembershipCheck) {
++            boolean bypassMembershipCheck,
++            ManagedPublication managed) {
+@@ -346,8 +419,4 @@
+-        Namespace namespace = namespaceRepository.findBySlug(namespaceSlug)
+-                .orElseThrow(() -> new DomainBadRequestException("error.namespace.slug.notFound", namespaceSlug));
+-        // Namespace locking serializes publication against aggregate relocation. Direct
+-        // nontransactional validation callers do not own a database commit section.
+-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+-            platformclawEntityManager.refresh(namespace, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+-        }
+-        assertNamespaceWritable(namespace);
++        Namespace namespace = publicationNamespace(namespaceSlug);
++        // Native namespace lifecycle is retired for exact-ID managed updates.
++        // Fresh reservations and every ordinary native publisher retain their gate.
++        if (managed == null) assertNamespaceWritable(namespace);
+@@ -363,40 +432,7 @@
+-        // 3. Validate package
+-        ValidationResult packageValidation = skillPackageValidator.validate(entries);
+-        if (!packageValidation.passed()) {
+-            throw new DomainBadRequestException(
+-                    "error.skill.publish.package.invalid",
+-                    String.join(", ", packageValidation.errors()));
+-        }
+-
+-        // 4. Parse SKILL.md
+-        PackageEntry skillMd = entries.stream()
+-                .filter(e -> e.path().equals("SKILL.md"))
+-                .findFirst()
+-                .orElseThrow(() -> new DomainBadRequestException("error.skill.publish.skillMd.notFound"));
+-
+-        String skillMdContent = new String(skillMd.content());
+-        SkillMetadata metadata = skillMetadataParser.parse(skillMdContent);
+-        if (metadata.version() == null || metadata.version().isBlank()) {
+-            String autoVersion = AUTO_VERSION_FORMATTER.format(currentTime());
+-            metadata = new SkillMetadata(metadata.name(), metadata.description(), autoVersion, metadata.body(), metadata.frontmatter());
+-        }
+-        String skillSlug = SlugValidator.slugify(metadata.name());
+-
+-        // 5. Run PrePublishValidator
+-        PrePublishValidator.SkillPackageContext context = new PrePublishValidator.SkillPackageContext(
+-                entries, metadata, publisherId, namespace.getId());
+-        ValidationResult prePublishValidation = prePublishValidator.validate(context);
+-        if (!prePublishValidation.passed()) {
+-            throw new DomainBadRequestException(
+-                    "error.skill.publish.precheck.failed",
+-                    String.join(", ", prePublishValidation.errors()));
+-        }
+-        List<String> publishWarnings = new ArrayList<>(packageValidation.warnings());
+-        publishWarnings.addAll(prePublishValidation.warnings());
+-        if (!confirmWarnings && !publishWarnings.isEmpty()) {
+-            throw new DomainBadRequestException(
+-                    "error.skill.publish.precheck.confirmRequired",
+-                    formatValidationMessages(publishWarnings));
+-        }
+-        var ownedSkill = skillRepository.findByNamespaceIdAndSlugAndOwnerId(namespace.getId(), skillSlug, publisherId);
+-        if (ownedSkill.isPresent()
++        PreparedPackage prepared = preparePackage(namespace, entries, publisherId, confirmWarnings);
++        SkillMetadata metadata = prepared.metadata();
++        String skillSlug = prepared.slug();
++        var ownedSkill = managed == null
++                ? skillRepository.findByNamespaceIdAndSlugAndOwnerId(namespace.getId(), skillSlug, publisherId)
++                : java.util.Optional.ofNullable(managedSkill(namespace, skillSlug, managed.expectedSkillId()));
++        if (managed == null && ownedSkill.isPresent()
+@@ -412 +448,2 @@
+-        List<Skill> existingSkills = skillRepository.findByNamespaceIdAndSlug(namespace.getId(), skillSlug);
++        List<Skill> existingSkills = managed == null
++                ? skillRepository.findByNamespaceIdAndSlug(namespace.getId(), skillSlug) : List.of();
+@@ -444,2 +481,3 @@
+-        List<SkillVersion> pendingVersions = skillVersionRepository
+-                .findBySkillIdAndStatus(skill.getId(), SkillVersionStatus.PENDING_REVIEW);
++        // Managed publication never changes historical review/visibility decisions.
++        List<SkillVersion> pendingVersions = managed == null ? skillVersionRepository
++                .findBySkillIdAndStatus(skill.getId(), SkillVersionStatus.PENDING_REVIEW) : List.of();
+@@ -460 +498 @@
+-            if (wasPublished(matchedVersion)) {
++            if (managed != null || wasPublished(matchedVersion)) {
+@@ -539 +576,0 @@
+-        byte[] bundleZip = buildBundle(entries);
+@@ -541,6 +578,8 @@
+-        objectStorageService.putObject(
+-                bundleKey,
+-                new ByteArrayInputStream(bundleZip),
+-                bundleZip.length,
+-                "application/zip"
+-        );
++        if (managed != null) {
++            // The administrative artifact API promises byte-identical downloads.
++            // Rebuilding entries here would change the supplied immutable ZIP.
++            objectStorageService.putObject(bundleKey, managed.bundle(), managed.bundleSize(), "application/zip");
++        } else {
++            byte[] bundleZip = buildBundle(entries);
++            objectStorageService.putObject(bundleKey, new ByteArrayInputStream(bundleZip), bundleZip.length, "application/zip");
++        }
+@@ -576 +615 @@
+-        if (!skill.isPlatformclawManagedMetadata()) {
++        if (managed == null && !skill.isPlatformclawManagedMetadata()) {
+@@ -583 +622 @@
+-            skill.setVisibility(visibility);
++            if (managed == null) skill.setVisibility(visibility);
+@@ -593,0 +633,67 @@
++    }
++
++    private record PreparedPackage(SkillMetadata metadata, String slug) {}
++
++    private PreparedPackage preparePackage(Namespace namespace, List<PackageEntry> entries,
++            String publisherId, boolean confirmWarnings) {
++        // 3. Validate package
++        ValidationResult packageValidation = skillPackageValidator.validate(entries);
++        if (!packageValidation.passed()) {
++            throw new DomainBadRequestException(
++                    "error.skill.publish.package.invalid",
++                    String.join(", ", packageValidation.errors()));
++        }
++
++        // 4. Parse SKILL.md
++        PackageEntry skillMd = entries.stream()
++                .filter(e -> e.path().equals("SKILL.md"))
++                .findFirst()
++                .orElseThrow(() -> new DomainBadRequestException("error.skill.publish.skillMd.notFound"));
++
++        String skillMdContent = new String(skillMd.content());
++        SkillMetadata metadata = skillMetadataParser.parse(skillMdContent);
++        if (metadata.version() == null || metadata.version().isBlank()) {
++            String autoVersion = AUTO_VERSION_FORMATTER.format(currentTime());
++            metadata = new SkillMetadata(metadata.name(), metadata.description(), autoVersion, metadata.body(), metadata.frontmatter());
++        }
++        String skillSlug = SlugValidator.slugify(metadata.name());
++
++        // 5. Run PrePublishValidator
++        PrePublishValidator.SkillPackageContext context = new PrePublishValidator.SkillPackageContext(
++                entries, metadata, publisherId, namespace.getId());
++        ValidationResult prePublishValidation = prePublishValidator.validate(context);
++        if (!prePublishValidation.passed()) {
++            throw new DomainBadRequestException(
++                    "error.skill.publish.precheck.failed",
++                    String.join(", ", prePublishValidation.errors()));
++        }
++        List<String> publishWarnings = new ArrayList<>(packageValidation.warnings());
++        publishWarnings.addAll(prePublishValidation.warnings());
++        if (!confirmWarnings && !publishWarnings.isEmpty()) {
++            throw new DomainBadRequestException(
++                    "error.skill.publish.precheck.confirmRequired",
++                    formatValidationMessages(publishWarnings));
++        }
++        return new PreparedPackage(metadata, skillSlug);
++    }
++
++    private Namespace publicationNamespace(String namespaceSlug) {
++        Namespace namespace = namespaceRepository.findBySlug(namespaceSlug)
++                .orElseThrow(() -> new DomainBadRequestException("error.namespace.slug.notFound", namespaceSlug));
++        // Every publication and deletion acquires namespace before aggregate locks.
++        if (TransactionSynchronizationManager.isActualTransactionActive()) {
++            platformclawEntityManager.refresh(namespace, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
++        }
++        return namespace;
++    }
++
++    private Skill managedSkill(Namespace namespace, String slug, Long expectedSkillId) {
++        Skill skill = skillRepository.findById(expectedSkillId).orElseThrow(() ->
++                new PlatformclawPublicationConflict("The expected registry skill was not found"));
++        if (TransactionSynchronizationManager.isActualTransactionActive()) {
++            platformclawEntityManager.refresh(skill, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
++        }
++        if (!namespace.getId().equals(skill.getNamespaceId()) || !slug.equals(skill.getSlug())) {
++            throw new PlatformclawPublicationConflict("The registry skill identity does not match this package");
++        }
++        return skill;
+@@ -619,0 +726 @@
++        compensationService.reservePartialDeletion(skill.getId(), namespaceSlug, skill.getSlug(), storageKeys);
+@@ -667,0 +775 @@
++            compensationService.confirmDeletion(skill.getId());
+@@ -669,7 +777 @@
+-            compensationService.recordFailure(
+-                    skill.getId(),
+-                    namespaceSlug,
+-                    skill.getSlug(),
+-                    storageKeys,
+-                    ex.getMessage()
+-            );
++            compensationService.recordAttempt(skill.getId(), ex.getMessage());
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillStorageDeletionCompensationService.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/service/SkillStorageDeletionCompensationService.java
+@@ -12,0 +13,3 @@
++import org.springframework.transaction.annotation.Propagation;
++import java.time.Instant;
++import java.time.temporal.ChronoUnit;
+@@ -16,0 +20,2 @@
++    private static final int STORAGE_PAGE_SIZE = 1000;
++    private static final int MAX_PREFIX_DELETE_BATCHES = 20;
+@@ -32,12 +37,55 @@
+-    public void recordFailure(Long skillId,
+-                              String namespace,
+-                              String slug,
+-                              List<String> storageKeys,
+-                              String lastError) {
+-        repository.save(new SkillStorageDeletionCompensation(
+-                skillId,
+-                namespace,
+-                slug,
+-                serialize(storageKeys),
+-                lastError
+-        ));
++    public void reserveDeletion(Long skillId, List<String> storageKeys) {
++        // The receipt commits with metadata removal, before any object deletion.
++        java.util.Set<String> allKeys = new java.util.LinkedHashSet<>(storageKeys);
++        for (SkillStorageDeletionCompensation record : repository.findBySkillId(skillId)) {
++            if (record.getStatus() == SkillStorageDeletionCompensationStatus.PENDING) allKeys.addAll(deserialize(record.getStorageKeysJson()));
++        }
++        repository.save(SkillStorageDeletionCompensation.wholeSkill(skillId, serialize(List.copyOf(allKeys))));
++    }
++
++    @Transactional
++    public void reservePartialDeletion(Long skillId, String namespace, String slug, List<String> storageKeys) {
++        repository.save(new SkillStorageDeletionCompensation(skillId, namespace, slug, serialize(storageKeys), null));
++    }
++
++    @Transactional(propagation = Propagation.REQUIRES_NEW)
++    public void confirmDeletion(Long skillId) {
++        for (SkillStorageDeletionCompensation record : repository.findBySkillId(skillId)) {
++            if (record.getStatus() == SkillStorageDeletionCompensationStatus.PENDING) confirmAbsent(record);
++        }
++    }
++
++    @Transactional(propagation = Propagation.REQUIRES_NEW)
++    public void recordAttempt(Long skillId, String error) {
++        for (SkillStorageDeletionCompensation record : repository.findBySkillId(skillId)) {
++            if (record.getStatus() == SkillStorageDeletionCompensationStatus.PENDING) record.markAttempt(error);
++        }
++    }
++
++    @Transactional(readOnly = true)
++    public List<SkillStorageDeletionCompensation> deletionReceipts(Long skillId) {
++        return repository.findBySkillId(skillId).stream().filter(SkillStorageDeletionCompensation::isWholeSkill).toList();
++    }
++
++    private boolean clearOwnedPrefixes(Long skillId) {
++        boolean absent = true;
++        for (String prefix : List.of("skills/" + skillId + "/", "packages/" + skillId + "/")) {
++            // Legacy crashes could leave objects with no metadata or compensation row.
++            // Drain only this immutable ID's prefixes; bounded work continues next tick.
++            for (int batch = 0; batch < MAX_PREFIX_DELETE_BATCHES; batch++) {
++                List<String> keys = objectStorageService.listObjects(prefix, STORAGE_PAGE_SIZE);
++                if (keys.isEmpty()) break;
++                objectStorageService.deleteObjects(keys);
++            }
++            if (!objectStorageService.listObjects(prefix, STORAGE_PAGE_SIZE).isEmpty()) absent = false;
++        }
++        return absent;
++    }
++
++    private void confirmAbsent(SkillStorageDeletionCompensation record) {
++        boolean prefixesAbsent = !record.isWholeSkill() || clearOwnedPrefixes(record.getSkillId());
++        if (!prefixesAbsent || deserialize(record.getStorageKeysJson()).stream().anyMatch(objectStorageService::exists)) {
++            record.markAttempt("Storage deletion is not yet complete");
++        } else {
++            record.markCompleted();
++        }
+@@ -53 +101 @@
+-                record.markCompleted();
++                confirmAbsent(record);
+@@ -57,0 +106,2 @@
++        repository.deleteByStatusAndUpdatedAtBefore(SkillStorageDeletionCompensationStatus.COMPLETED,
++                Instant.now().minus(365, ChronoUnit.DAYS));
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/SkillStorageDeletionCompensation.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/SkillStorageDeletionCompensation.java
+@@ -21,0 +22,3 @@
++
++    @Column(name = "platformclaw_whole_skill", nullable = false)
++    private boolean wholeSkill;
+@@ -67,0 +71,8 @@
++
++    public static SkillStorageDeletionCompensation wholeSkill(Long skillId, String storageKeysJson) {
++        SkillStorageDeletionCompensation record = new SkillStorageDeletionCompensation(skillId, "", "", storageKeysJson, null);
++        record.wholeSkill = true;
++        return record;
++    }
++
++    public boolean isWholeSkill() { return wholeSkill; }
+@@ -127,0 +139,5 @@
++        // Only immutable ID and timestamps survive physical deletion.
++        namespace = "";
++        slug = "";
++        storageKeysJson = "[]";
++        lastError = null;
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/SkillStorageDeletionCompensationRepository.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/SkillStorageDeletionCompensationRepository.java
+@@ -5,0 +6,2 @@
++    List<SkillStorageDeletionCompensation> findBySkillId(Long skillId);
++    long deleteByStatusAndUpdatedAtBefore(SkillStorageDeletionCompensationStatus status, java.time.Instant cutoff);
+--- a/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/JpaSkillStorageDeletionCompensationRepositoryAdapter.java
++++ b/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/JpaSkillStorageDeletionCompensationRepositoryAdapter.java
+@@ -22,0 +23,10 @@
++    public List<SkillStorageDeletionCompensation> findBySkillId(Long skillId) {
++        return delegate.findBySkillId(skillId);
++    }
++
++    @Override
++    public long deleteByStatusAndUpdatedAtBefore(SkillStorageDeletionCompensationStatus status, java.time.Instant cutoff) {
++        return delegate.deleteByStatusAndUpdatedAtBefore(status, cutoff);
++    }
++
++    @Override
+--- a/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SkillStorageDeletionCompensationJpaRepository.java
++++ b/server/skillhub-infra/src/main/java/com/iflytek/skillhub/infra/jpa/SkillStorageDeletionCompensationJpaRepository.java
+@@ -10,0 +11,3 @@
++    List<SkillStorageDeletionCompensation> findBySkillId(Long skillId);
++    long deleteByStatusAndUpdatedAtBefore(SkillStorageDeletionCompensationStatus status, java.time.Instant cutoff);
++
+--- a/server/skillhub-storage/src/main/java/com/iflytek/skillhub/storage/LocalFileStorageService.java
++++ b/server/skillhub-storage/src/main/java/com/iflytek/skillhub/storage/LocalFileStorageService.java
+@@ -65,0 +66,34 @@
++    public List<String> listObjects(String prefix, int limit) {
++        ObjectStorageService.requireArtifactPrefix(prefix, limit);
++        Path root = resolve(prefix);
++        try {
++            Path current = basePath;
++            for (Path segment : basePath.relativize(root)) {
++                current = current.resolve(segment);
++                BasicFileAttributes attributes;
++                try { attributes = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS); }
++                catch (NoSuchFileException missing) { return List.of(); }
++                if (attributes.isSymbolicLink() || !attributes.isDirectory()) {
++                    throw new IOException("Artifact prefix contains an unsupported path");
++                }
++            }
++            List<String> keys = new java.util.ArrayList<>();
++            Files.walkFileTree(root, new SimpleFileVisitor<>() {
++                @Override
++                public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
++                    if (attributes.isSymbolicLink() || !attributes.isRegularFile()) {
++                        throw new IOException("Artifact inventory contains an unsupported file");
++                    }
++                    String key = basePath.relativize(file).toString().replace('\\', '/');
++                    if (!key.startsWith(prefix)) throw new IOException("Artifact inventory escaped its prefix");
++                    keys.add(key);
++                    return keys.size() >= limit ? FileVisitResult.TERMINATE : FileVisitResult.CONTINUE;
++                }
++            });
++            return List.copyOf(keys);
++        } catch (IOException failure) {
++            throw new StorageAccessException("listObjects", prefix, failure);
++        }
++    }
++
++    @Override
+--- a/server/skillhub-storage/src/main/java/com/iflytek/skillhub/storage/ObjectStorageService.java
++++ b/server/skillhub-storage/src/main/java/com/iflytek/skillhub/storage/ObjectStorageService.java
+@@ -14,0 +15,7 @@
++    /** First bounded page under one immutable skill's artifact prefix; callers delete before reading the next page. */
++    List<String> listObjects(String prefix, int limit);
++    static void requireArtifactPrefix(String prefix, int limit) {
++        if (prefix == null || !prefix.matches("(?:skills|packages)/[1-9][0-9]*/") || limit < 1 || limit > 1000) {
++            throw new IllegalArgumentException("An exact skill artifact prefix and limit of 1–1000 are required");
++        }
++    }
+--- a/server/skillhub-storage/src/main/java/com/iflytek/skillhub/storage/S3StorageService.java
++++ b/server/skillhub-storage/src/main/java/com/iflytek/skillhub/storage/S3StorageService.java
+@@ -210,2 +210,10 @@
+-            List<ObjectIdentifier> ids = keys.stream().map(k -> ObjectIdentifier.builder().key(k).build()).toList();
+-            s3Client.deleteObjects(DeleteObjectsRequest.builder().bucket(properties.getBucket()).delete(Delete.builder().objects(ids).build()).build());
++            // S3 accepts at most 1,000 keys and can return per-key errors with HTTP 200.
++            for (int offset = 0; offset < keys.size(); offset += 1000) {
++                List<ObjectIdentifier> ids = keys.subList(offset, Math.min(offset + 1000, keys.size()))
++                        .stream().map(key -> ObjectIdentifier.builder().key(key).build()).toList();
++                DeleteObjectsResponse response = s3Client.deleteObjects(DeleteObjectsRequest.builder()
++                        .bucket(properties.getBucket()).delete(Delete.builder().objects(ids).build()).build());
++                if (!response.errors().isEmpty()) {
++                    throw new IllegalStateException("S3 rejected deletion of " + response.errors().size() + " objects");
++                }
++            }
+@@ -213,0 +222,22 @@
++        }
++    }
++
++    @Override public List<String> listObjects(String prefix, int limit) {
++        ObjectStorageService.requireArtifactPrefix(prefix, limit);
++        try {
++            // A delete marker hides old S3 versions without physically erasing them.
++            // Whole-artifact absence is provable only for a never-versioned bucket.
++            GetBucketVersioningResponse versioning = s3Client.getBucketVersioning(
++                    GetBucketVersioningRequest.builder().bucket(properties.getBucket()).build());
++            if (versioning == null || versioning.statusAsString() != null) {
++                throw new IllegalStateException("Physical artifact cleanup requires a never-versioned S3 bucket");
++            }
++            ListObjectsV2Response page = s3Client.listObjectsV2(ListObjectsV2Request.builder()
++                    .bucket(properties.getBucket()).prefix(prefix).maxKeys(limit).build());
++            List<String> keys = page.contents().stream().map(S3Object::key).toList();
++            if (keys.size() > limit || keys.stream().anyMatch(key -> key == null || !key.startsWith(prefix))) {
++                throw new IllegalStateException("S3 returned an invalid artifact inventory");
++            }
++            return keys;
++        } catch (RuntimeException failure) {
++            throw new StorageAccessException("listObjects", prefix, failure);
+--- a/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/Skill.java
++++ b/server/skillhub-domain/src/main/java/com/iflytek/skillhub/domain/skill/Skill.java
+@@ -203,0 +204,6 @@
++    @Column(name = "platformclaw_managed_publication_id", length = 36)
++    private String platformclawManagedPublicationId;
++
++    public String getPlatformclawManagedPublicationId() { return platformclawManagedPublicationId; }
++    public void setPlatformclawManagedPublicationId(String value) { platformclawManagedPublicationId = value; }
++

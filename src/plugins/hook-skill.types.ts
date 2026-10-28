@@ -1,3 +1,20 @@
+/** Canonical candidates selected for a run, before prompt/tool materialization. */
+export type PluginHookBeforeSkillContextEvent = {
+  candidates: Array<{
+    name: string;
+    filePath: string;
+    /** Original source identity, preserved when a backend remaps the readable path. */
+    sourceFilePath?: string;
+  }>;
+};
+
+/** Exclusions only narrow this run; they never mutate installed files or saved history. */
+export type PluginHookBeforeSkillContextResult = {
+  excludedPaths: string[];
+  /** Managed source directories to hide even when their SKILL.md is not discoverable. */
+  excludedSourceDirectories?: string[];
+};
+
 export type PluginHookSkillProposalKind = "create" | "update";
 
 export type PluginHookSkillBundleFile = {

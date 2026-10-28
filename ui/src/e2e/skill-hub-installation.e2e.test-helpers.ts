@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { Page, Route } from "playwright";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
+import { skillHubConfig, skillHubEntry } from "../pages/skill-hub/skill-hub.test-fixtures.ts";
 import type {
   PlatformClawSkillHubConfig,
   PlatformClawSkillHubWorkspaceSkill,
@@ -16,15 +17,24 @@ const installationProofDir = path.join(
   "control-ui-e2e",
   "skill-hub-installation",
 );
-
-export async function screenshotInstallation(page: Page, name: string) {
-  await mkdir(installationProofDir, { recursive: true });
-  await page.screenshot({
-    animations: "disabled",
-    path: path.join(installationProofDir, name),
+export function fixtureSkillId(slug: string): string {
+  return slug === "release-checklist"
+    ? "11111111-1111-4111-8111-111111111111"
+    : "22222222-2222-4222-8222-222222222222";
+}
+function entry(slug: string) {
+  return skillHubEntry({
+    id: fixtureSkillId(slug),
+    slug,
+    displayName: slug === "release-checklist" ? "Release checklist" : "Incident guide",
+    latestVersion: "2.3.0",
+    summary: "Choose where to install this skill. Each workspace has its own copy.",
   });
 }
-
+export async function screenshotInstallation(page: Page, name: string) {
+  await mkdir(installationProofDir, { recursive: true });
+  await page.screenshot({ animations: "disabled", path: path.join(installationProofDir, name) });
+}
 export async function installSkillHubFixture(page: Page, baseUrl: string) {
   const response = await page.request.get(baseUrl);
   const source = await response.text();
@@ -49,27 +59,25 @@ export async function installSkillHubFixture(page: Page, baseUrl: string) {
           globalRole: "member",
         },
         agent: { agentId: "person_one", state: "active" },
-        session: { idleExpiresAt: Date.now() + 60_000, absoluteExpiresAt: Date.now() + 120_000 },
+        session: { idleExpiresAt: Date.now() + 60000, absoluteExpiresAt: Date.now() + 120000 },
       },
     }),
   );
-  const config: PlatformClawSkillHubConfig = {
-    namespaces: ["engineering"],
-    defaultNamespace: "engineering",
-    namespaceOptions: [{ namespace: "engineering", scopeKind: "global" }],
-    maxPackageBytes: 1024 * 1024,
-    activeTarget: "assigned_vm",
-    installTargets: [
-      { target: "platform_server", available: true, status: "ready" },
-      { target: "assigned_vm", available: true, status: "ready" },
-    ],
-  };
+  const config = skillHubConfig({ activeTarget: "assigned_vm" });
   const inventories: Record<
     PlatformClawSkillHubWorkspaceTarget,
     PlatformClawSkillHubWorkspaceSkill[]
   > = {
     platform_server: [],
-    assigned_vm: [{ skillKey: "release-checklist", version: "2.3.0", revision: "vm-r1" }],
+    assigned_vm: [
+      {
+        skillKey: "release-checklist",
+        version: "2.3.0",
+        revision: "vm-r1",
+        hubSkillId: fixtureSkillId("release-checklist"),
+        hubVersion: "2.3.0",
+      },
+    ],
   };
   const reads: string[] = [];
   const installs: Array<Record<string, unknown>> = [];
@@ -92,8 +100,9 @@ export async function installSkillHubFixture(page: Page, baseUrl: string) {
         accountId: "person.one",
         activeTarget: "assigned_vm",
         assignment: { vmHostId: "vm-one", status: "ready" },
-        credentialStatus: "ready",
+        credentialStatus: "current",
         availableVms: [],
+        savedVms: [],
         targetRevision: 1,
       },
     });
@@ -105,18 +114,7 @@ export async function installSkillHubFixture(page: Page, baseUrl: string) {
     }
     if (url.pathname.endsWith("/search")) {
       return route.fulfill({
-        json: {
-          total: 2,
-          items: ["release-checklist", "incident-guide"].map((slug) => ({
-            namespace: "engineering",
-            slug,
-            latestVersion: "2.3.0",
-            summary:
-              slug === "release-checklist"
-                ? "Prepare a reliable release with a clear checklist."
-                : "Investigate incidents and record the next steps.",
-          })),
-        },
+        json: { total: 2, items: [entry("release-checklist"), entry("incident-guide")] },
       });
     }
     if (url.pathname.endsWith("/workspace-skills")) {
@@ -131,9 +129,12 @@ export async function installSkillHubFixture(page: Page, baseUrl: string) {
     }
     if (url.pathname.endsWith("/install")) {
       const body = route.request().postDataJSON() as Record<string, unknown>;
-      installs.push(body);
+      const id = url.pathname.split("/").at(-2)!;
+      const slug =
+        id === fixtureSkillId("release-checklist") ? "release-checklist" : "incident-guide";
+      installs.push({ ...body, id });
       const target = body.destination as PlatformClawSkillHubWorkspaceTarget;
-      const current = inventories[target].find((skill) => skill.skillKey === body.slug);
+      const current = inventories[target].find((skill) => skill.skillKey === slug);
       if (current && !body.acknowledgedReplacement) {
         return route.fulfill({
           status: 409,
@@ -150,37 +151,30 @@ export async function installSkillHubFixture(page: Page, baseUrl: string) {
         });
       }
       inventories[target] = [
-        { skillKey: String(body.slug), version: String(body.version), revision: `${target}-r2` },
+        {
+          skillKey: slug,
+          version: String(body.version),
+          revision: `${target}-r2`,
+          hubSkillId: id,
+          hubVersion: String(body.version),
+        },
       ];
-      return route.fulfill({ json: { ok: true, slug: body.slug, version: body.version, target } });
+      return route.fulfill({ json: { ok: true, slug, version: body.version, target } });
     }
-    const slug = url.pathname.split("/").at(-1)!;
+    const id = url.pathname.split("/").at(-1)!;
+    const slug =
+      id === fixtureSkillId("release-checklist") ? "release-checklist" : "incident-guide";
     if (await controls.detailHook?.(route, slug)) {
       return;
     }
     return route.fulfill({
       json: {
-        skill: {
-          namespace: "engineering",
-          slug,
-          displayName: slug === "release-checklist" ? "Release checklist" : "Incident guide",
-          summary: "Choose where to install this skill. Each workspace has its own copy.",
-          visibility: "NAMESPACE_ONLY",
-          status: "ACTIVE",
-        },
+        skill: entry(slug),
+        owner: entry(slug).owner,
+        canManage: false,
         versions: [
-          {
-            version: "2.3.0",
-            changelog: "Latest release checklist",
-            status: "PUBLISHED",
-            downloadAvailable: true,
-          },
-          {
-            version: "1.4.0",
-            changelog: "Previous stable version",
-            status: "PUBLISHED",
-            downloadAvailable: true,
-          },
+          { version: "2.3.0", status: "PUBLISHED", downloadAvailable: true },
+          { version: "1.4.0", status: "PUBLISHED", downloadAvailable: true },
         ],
       },
     });

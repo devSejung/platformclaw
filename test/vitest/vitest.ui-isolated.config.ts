@@ -1,7 +1,5 @@
-// Vitest ui-isolated config runs jsdom ui tests that need a fresh module graph.
-// The shared ui shard runs non-isolated for speed, but tests that spy on module
-// internals and assert the component uses that spy must not share a module cache
-// with stateful predecessor files (see uiIsolatedTestFiles).
+// Vitest ui-isolated config preserves the dedicated UI project partition.
+// Both UI projects use native per-file DOM and module isolation.
 import { controlUiLocaleModulesPlugin } from "../../ui/config/control-ui-locales.ts";
 import { nativeNodeTestBuiltinsPlugin } from "./vitest.native-node-builtins.ts";
 import { createScopedVitestConfig } from "./vitest.scoped-config.ts";

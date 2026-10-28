@@ -70,6 +70,7 @@ describe("sandbox backend skills", () => {
         {
           source: "openclaw-managed",
           filePath: "/opt/platformclaw/skills/demo/SKILL.md",
+          sourceFilePath: "/gateway/skills/demo/SKILL.md",
           content:
             '---\nname: demo\ndescription: Managed demo\nmetadata: {"openclaw":{"install":[{"id":"demo","kind":"node","package":"demo"}]}}\n---\n',
         },
@@ -77,6 +78,7 @@ describe("sandbox backend skills", () => {
     });
 
     expect(entries[0]?.disableCommandDispatch).toBe(false);
+    expect(entries[0]?.skill.sourceFilePath).toBe("/gateway/skills/demo/SKILL.md");
     expect(entries[0]?.metadata?.install?.[0]?.package).toBe("demo");
   });
 });

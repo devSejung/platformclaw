@@ -45,6 +45,7 @@ import {
 import { annotateInterSessionPromptText } from "../../sessions/input-provenance.js";
 import { resolveSkillsPromptForRun } from "../../skills/loading/workspace.js";
 import { resolveEmbeddedRunSkillEntries } from "../../skills/runtime/embedded-run-entries.js";
+import { prepareRunSkillContext } from "../../skills/runtime/run-context.js";
 import { resolveUserPath } from "../../utils.js";
 import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import { hasAgentRosterProperty, resolveAgentWorkspaceDir } from "../agent-scope-config.js";
@@ -244,25 +245,46 @@ async function resolveCliSkillsPrompt(params: {
   sessionKey: string;
   skillsSnapshot: RunCliAgentParams["skillsSnapshot"];
   workspaceDir: string;
-}): Promise<string> {
+}): Promise<{ prompt: string; revalidate?: () => Promise<void> }> {
   const sandboxWorkspace = await ensureSandboxWorkspaceForSession({
     config: params.config,
     sessionKey: params.sessionKey,
     workspaceDir: params.workspaceDir,
   });
   if (!sandboxWorkspace) {
-    return resolveSkillsPromptForRun({
-      skillsSnapshot: params.skillsSnapshot,
+    const { skillEntries: initialSkillEntries } = resolveEmbeddedRunSkillEntries({
       workspaceDir: params.workspaceDir,
       config: params.config,
       agentId: params.agentId,
+      skillsSnapshot: params.skillsSnapshot,
     });
+    const filtered = await prepareRunSkillContext({
+      workspaceDir: params.workspaceDir,
+      config: params.config,
+      context: {
+        agentId: params.agentId,
+        sessionKey: params.sessionKey,
+        workspaceDir: params.workspaceDir,
+      },
+      skillsSnapshot: params.skillsSnapshot,
+      skillEntries: initialSkillEntries,
+    });
+    return {
+      prompt: resolveSkillsPromptForRun({
+        skillsSnapshot: filtered.skillsSnapshot,
+        entries: filtered.skillEntries,
+        workspaceDir: params.workspaceDir,
+        config: params.config,
+        agentId: params.agentId,
+      }),
+      revalidate: filtered.revalidate,
+    };
   }
 
   const {
     skillsEligibility,
     skillsPromptWorkspaceDir,
-    skillsSnapshot: skillsSnapshotForRun,
+    skillsSnapshot: initialSkillsSnapshot,
     skillsWorkspaceDir,
     workspaceOnly,
   } = resolveSandboxSkillRuntimeInputs({
@@ -286,27 +308,51 @@ async function resolveCliSkillsPrompt(params: {
     effectiveWorkspace: sandboxWorkspace.workspaceDir,
     skillsSnapshot: params.skillsSnapshot,
   });
-  const { shouldLoadSkillEntries, skillEntries } = resolveEmbeddedRunSkillEntries({
+  const { shouldLoadSkillEntries, skillEntries: initialSkillEntries } =
+    resolveEmbeddedRunSkillEntries({
+      workspaceDir: skillsWorkspaceDir,
+      config: params.config,
+      agentId: params.agentId,
+      eligibility: skillsEligibility,
+      skillsSnapshot: initialSkillsSnapshot,
+      workspaceOnly,
+    });
+  const {
+    skillsSnapshot: skillsSnapshotForRun,
+    skillEntries,
+    revalidate,
+  } = await prepareRunSkillContext({
     workspaceDir: skillsWorkspaceDir,
     config: params.config,
-    agentId: params.agentId,
+    context: {
+      agentId: params.agentId,
+      sessionKey: params.sessionKey,
+      workspaceDir: params.workspaceDir,
+    },
     eligibility: skillsEligibility,
-    skillsSnapshot: skillsSnapshotForRun,
-    workspaceOnly,
+    skillsSnapshot: initialSkillsSnapshot,
+    skillEntries: initialSkillEntries,
+    skillUsagePaths: sandboxWorkspace.skillUsagePaths,
+    excludedSkillFiles: sandboxWorkspace.excludedSkillFiles,
+    excludedSourceDirectories: sandboxWorkspace.excludedSourceDirectories,
+    missingSourceDirectories: sandboxWorkspace.missingSourceDirectories,
   });
   const promptSkillEntries = mapSandboxSkillEntriesForPrompt({
     entries: shouldLoadSkillEntries ? skillEntries : undefined,
     skillsWorkspaceDir,
     skillsPromptWorkspaceDir,
   });
-  return resolveSkillsPromptForRun({
-    skillsSnapshot: skillsSnapshotForRun,
-    entries: promptSkillEntries,
-    workspaceDir: skillsPromptWorkspaceDir,
-    config: params.config,
-    agentId: params.agentId,
-    eligibility: skillsEligibility,
-  });
+  return {
+    prompt: resolveSkillsPromptForRun({
+      skillsSnapshot: skillsSnapshotForRun,
+      entries: promptSkillEntries,
+      workspaceDir: skillsPromptWorkspaceDir,
+      config: params.config,
+      agentId: params.agentId,
+      eligibility: skillsEligibility,
+    }),
+    revalidate,
+  };
 }
 
 /** Overrides preparation dependencies for CLI runner tests. */
@@ -1234,13 +1280,39 @@ export async function prepareCliRunContext(
       preparedExecution?.env && Object.keys(preparedExecution.env).length > 0
         ? { ...preparedBackend.env, ...preparedExecution.env }
         : preparedBackend.env;
+    let revalidateSkillContext: (() => Promise<void>) | undefined;
     const preparedBackendBeforeExecution =
-      preparedBackend.beforeExecution || preparedExecution?.beforeExecution
+      preparedBackend.beforeExecution || preparedExecution?.beforeExecution || !isSideQuestion
         ? async () => {
             await preparedBackend.beforeExecution?.();
             await preparedExecution?.beforeExecution?.();
+            await revalidateSkillContext?.();
           }
         : undefined;
+    // Native CLI skill plugins consume the snapshot directly, before prompt construction.
+    // Narrow that same snapshot first so a reused session cannot bypass the authority hook.
+    if (params.skillsSnapshot && !isSideQuestion) {
+      const { skillEntries } = resolveEmbeddedRunSkillEntries({
+        workspaceDir,
+        config: params.config,
+        agentId: sessionAgentId,
+        skillsSnapshot: params.skillsSnapshot,
+      });
+      const filtered = await prepareRunSkillContext({
+        workspaceDir,
+        config: params.config,
+        context: {
+          agentId: sessionAgentId,
+          sessionKey: params.sessionKey,
+          sessionId: params.sessionId,
+          workspaceDir,
+        },
+        skillsSnapshot: params.skillsSnapshot,
+        skillEntries,
+      });
+      params = { ...params, skillsSnapshot: filtered.skillsSnapshot };
+      revalidateSkillContext = filtered.revalidate;
+    }
     const claudeSkillsPlugin =
       isSideQuestion || nodeClaudePlacement
         ? { args: [], cleanup: async () => {} }
@@ -1289,6 +1361,9 @@ export async function prepareCliRunContext(
       ...(preparedBackendEnv ? { env: preparedBackendEnv } : {}),
       ...(preparedBackendBeforeExecution
         ? { beforeExecution: preparedBackendBeforeExecution }
+        : {}),
+      ...(!isSideQuestion
+        ? { revalidateSkillContext: async () => await revalidateSkillContext?.() }
         : {}),
       ...(preparedExecution?.secretInput ? { secretInput: preparedExecution.secretInput } : {}),
       ...(mcpClientGrantCapture ? { mcpClientGrantCapture } : {}),
@@ -1392,9 +1467,9 @@ export async function prepareCliRunContext(
           cwd,
           moduleUrl: import.meta.url,
         });
-    const systemPromptSkillsPrompt =
+    const preparedPromptSkills: Awaited<ReturnType<typeof resolveCliSkillsPrompt>> =
       isSideQuestion || nodeClaudePlacement || claudeSkillsPlugin.args.length > 0
-        ? ""
+        ? { prompt: "" }
         : await resolveCliSkillsPrompt({
             skillsSnapshot: params.skillsSnapshot,
             workspaceDir,
@@ -1402,6 +1477,10 @@ export async function prepareCliRunContext(
             agentId: sessionAgentId,
             sessionKey: params.sessionKey?.trim() || params.sessionId,
           });
+    const systemPromptSkillsPrompt = preparedPromptSkills.prompt;
+    if (preparedPromptSkills.revalidate) {
+      revalidateSkillContext = preparedPromptSkills.revalidate;
+    }
     const runtimeChannel = isSideQuestion
       ? undefined
       : normalizeMessageChannel(params.messageChannel ?? params.messageProvider);

@@ -337,7 +337,6 @@ export async function executePreparedCliRun(
     }
   };
   const executeAttempt = async (): Promise<CliOutput> => {
-    await context.preparedBackend.beforeExecution?.();
     if (params.abortSignal?.aborted) {
       throw createCliAbortError();
     }
@@ -527,6 +526,12 @@ export async function executePreparedCliRun(
         useResume,
         trigger: params.trigger,
       });
+      // The queue and all asynchronous execution setup may outlive permissions.
+      // Backend staging runs first; its composed skill authority check is last.
+      await context.preparedBackend.beforeExecution?.();
+      if (params.abortSignal?.aborted) {
+        throw createCliAbortError();
+      }
       toolTracking.beginGatewayCapture(initialGatewayCaptureKey);
       runOutput = await executeCliProcess({
         context,
@@ -636,7 +641,15 @@ export async function executePreparedCliRun(
       );
     }
     if (forkResumeClaimed && !forkSuccessorObserved) {
-      await params.restoreCliSessionFork?.();
+      try {
+        await params.restoreCliSessionFork?.();
+      } catch (restoreError) {
+        failure = new AggregateError(
+          [failure, restoreError],
+          "CLI turn failed and its fork marker could not be restored",
+          { cause: restoreError },
+        );
+      }
     }
     throw failure;
   } finally {

@@ -6,6 +6,8 @@ import { isExcludedSkillArchivePath } from "./skill-hub-archive-policy.js";
 const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_SIGNATURE = 0x02014b50;
 const LOCAL_SIGNATURE = 0x04034b50;
+const DATA_DESCRIPTOR_SIGNATURE = 0x08074b50;
+const DATA_DESCRIPTOR_FLAG = 0x0008;
 const MAX_EOCD_BYTES = 65_557;
 const MAX_CENTRAL_DIRECTORY_BYTES = 2 * 1024 * 1024;
 const UTF8 = new TextDecoder("utf-8", { fatal: true });
@@ -89,6 +91,24 @@ async function readAt(path: string, offset: number, length: number): Promise<Buf
   }
 }
 
+function validateExtraFields(bytes: Buffer): void {
+  let offset = 0;
+  while (offset < bytes.length) {
+    if (offset + 4 > bytes.length) {
+      invalid("ZIP extra field is truncated");
+    }
+    const id = bytes.readUInt16LE(offset);
+    const length = bytes.readUInt16LE(offset + 2);
+    if (id === 0x0001) {
+      invalid("multi-disk and ZIP64 archives are not supported");
+    }
+    offset += 4 + length;
+    if (offset > bytes.length) {
+      invalid("ZIP extra field is truncated");
+    }
+  }
+}
+
 async function readCentralDirectory(
   path: string,
   archiveBytes: number,
@@ -160,7 +180,8 @@ async function readCentralDirectory(
       directory: name.endsWith("/"),
     };
     if (
-      (entry.flags & ~0x800) !== 0 ||
+      (entry.flags & ~0x0808) !== 0 ||
+      central.readUInt16LE(offset + 34) !== 0 ||
       entry.compressedSize === 0xffffffff ||
       entry.uncompressedSize === 0xffffffff ||
       entry.localOffset === 0xffffffff ||
@@ -168,6 +189,9 @@ async function readCentralDirectory(
     ) {
       invalid("ZIP archive uses an unsupported feature");
     }
+    validateExtraFields(
+      central.subarray(offset + 46 + nameLength, offset + 46 + nameLength + extraLength),
+    );
     validatePath(entry.name, entry.directory);
     validateUnixType(entry);
     entries.push(entry);
@@ -198,9 +222,12 @@ function updateCrc(crc: number, bytes: Buffer): number {
 async function inspectEntry(
   path: string,
   entry: Entry,
-  centralOffset: number,
+  boundary: number,
   limits: ZipArchiveLimits,
-): Promise<{ rangeStart: number; rangeEnd: number; retained?: Buffer }> {
+): Promise<{ retained?: Buffer }> {
+  if (entry.localOffset + 30 > boundary) {
+    invalid("ZIP archive contains overlapping entries");
+  }
   const local = await readAt(path, entry.localOffset, 30);
   if (local.readUInt32LE(0) !== LOCAL_SIGNATURE) {
     invalid("ZIP local entry header is invalid");
@@ -212,36 +239,48 @@ async function inspectEntry(
   if (localFlags !== entry.flags || localMethod !== entry.method) {
     invalid("ZIP local entry does not match its central record");
   }
-  const localName = decodeName(await readAt(path, entry.localOffset + 30, nameLength));
-  if (localName !== entry.name) {
-    invalid("ZIP local entry path does not match its central record");
+  const descriptor = (entry.flags & DATA_DESCRIPTOR_FLAG) !== 0;
+  if (
+    local.readUInt32LE(14) !== (descriptor ? 0 : entry.crc32) ||
+    local.readUInt32LE(18) !== (descriptor ? 0 : entry.compressedSize) ||
+    local.readUInt32LE(22) !== (descriptor ? 0 : entry.uncompressedSize)
+  ) {
+    invalid("ZIP local entry size or checksum does not match its central record");
   }
   const dataStart = entry.localOffset + 30 + nameLength + extraLength;
   const dataEnd = dataStart + entry.compressedSize;
-  if (dataEnd > centralOffset) {
-    invalid("ZIP entry data overlaps its central directory");
+  if (dataEnd > boundary) {
+    invalid("ZIP entry data overlaps another entry or its central directory");
+  }
+  const variable = await readAt(path, entry.localOffset + 30, nameLength + extraLength);
+  if (decodeName(variable.subarray(0, nameLength)) !== entry.name) {
+    invalid("ZIP local entry path does not match its central record");
+  }
+  validateExtraFields(variable.subarray(nameLength));
+  if (descriptor) {
+    await inspectDescriptor(path, entry, dataEnd, boundary);
   }
   if (entry.directory) {
-    if (entry.compressedSize !== 0 || entry.uncompressedSize !== 0) {
+    if (entry.compressedSize !== 0 || entry.uncompressedSize !== 0 || entry.crc32 !== 0) {
       invalid("ZIP directory entry contains data");
     }
-    return { rangeStart: entry.localOffset, rangeEnd: dataEnd };
+    return {};
   }
   if (entry.compressedSize === 0) {
     if (entry.uncompressedSize !== 0 || entry.crc32 !== 0) {
       invalid("ZIP empty entry size or checksum is invalid");
     }
-    return {
-      rangeStart: entry.localOffset,
-      rangeEnd: dataEnd,
-      ...(entry.name === "SKILL.md" ? { retained: Buffer.alloc(0) } : {}),
-    };
+    return entry.name === "SKILL.md" ? { retained: Buffer.alloc(0) } : {};
   }
   const source = createReadStream(path, {
     start: dataStart,
     end: dataEnd - 1,
   });
-  const output = entry.method === 8 ? source.pipe(createInflateRaw()) : source;
+  const inflater = entry.method === 8 ? createInflateRaw() : undefined;
+  const output = inflater ? source.pipe(inflater) : source;
+  if (inflater) {
+    source.once("error", (error) => inflater.destroy(error));
+  }
   const retained = entry.name === "SKILL.md" ? ([] as Buffer[]) : undefined;
   let bytes = 0;
   let crc = 0xffffffff;
@@ -256,6 +295,9 @@ async function inspectEntry(
             : "ZIP archive contains an oversized entry",
         );
       }
+      if (bytes > entry.uncompressedSize) {
+        invalid("ZIP entry size or checksum is invalid");
+      }
       crc = updateCrc(crc, chunk);
       retained?.push(chunk);
     }
@@ -266,15 +308,35 @@ async function inspectEntry(
     invalid("ZIP entry compression stream is invalid");
   } finally {
     source.destroy();
+    inflater?.destroy();
   }
-  if (bytes !== entry.uncompressedSize || (crc ^ 0xffffffff) >>> 0 !== entry.crc32) {
+  if (
+    bytes !== entry.uncompressedSize ||
+    (crc ^ 0xffffffff) >>> 0 !== entry.crc32 ||
+    (inflater && inflater.bytesWritten !== entry.compressedSize)
+  ) {
     invalid("ZIP entry size or checksum is invalid");
   }
-  return {
-    rangeStart: entry.localOffset,
-    rangeEnd: dataEnd,
-    ...(retained ? { retained: Buffer.concat(retained, bytes) } : {}),
-  };
+  return retained ? { retained: Buffer.concat(retained, bytes) } : {};
+}
+
+async function inspectDescriptor(path: string, entry: Entry, dataEnd: number, boundary: number) {
+  // Physical entry boundaries disambiguate an unsigned CRC equal to the optional
+  // signature, and prohibit ZIP64 widths, hidden trailing bytes, and overlaps.
+  const length = boundary - dataEnd;
+  if (length !== 12 && length !== 16) {
+    invalid("ZIP data descriptor is truncated or overlaps another record");
+  }
+  const bytes = await readAt(path, dataEnd, length);
+  const offset = length === 16 ? 4 : 0;
+  if (
+    (offset === 4 && bytes.readUInt32LE(0) !== DATA_DESCRIPTOR_SIGNATURE) ||
+    bytes.readUInt32LE(offset) !== entry.crc32 ||
+    bytes.readUInt32LE(offset + 4) !== entry.compressedSize ||
+    bytes.readUInt32LE(offset + 8) !== entry.uncompressedSize
+  ) {
+    invalid("ZIP data descriptor size or checksum does not match its central record");
+  }
 }
 
 export async function validateZipArchiveFile(
@@ -303,16 +365,12 @@ export async function validateZipArchiveFile(
       invalid("ZIP archive expands past the configured size limit");
     }
   }
-  const ranges: Array<{ start: number; end: number }> = [];
   let skillMarkdown: Buffer | undefined;
-  for (const entry of entries) {
-    const inspected = await inspectEntry(path, entry, centralOffset, limits);
-    if (
-      ranges.some((range) => inspected.rangeStart < range.end && inspected.rangeEnd > range.start)
-    ) {
-      invalid("ZIP archive contains overlapping entries");
-    }
-    ranges.push({ start: inspected.rangeStart, end: inspected.rangeEnd });
+  const physical = entries.toSorted((left, right) => left.localOffset - right.localOffset);
+  for (let index = 0; index < physical.length; index += 1) {
+    const entry = physical[index]!;
+    const boundary = physical[index + 1]?.localOffset ?? centralOffset;
+    const inspected = await inspectEntry(path, entry, boundary, limits);
     if (inspected.retained) {
       if (skillMarkdown) {
         invalid("ZIP archive contains duplicate SKILL.md entries");

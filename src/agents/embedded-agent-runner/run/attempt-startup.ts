@@ -18,6 +18,7 @@ import {
   applySkillEnvOverrides,
   applySkillEnvOverridesFromSnapshot,
 } from "../../../skills/runtime/env-overrides.js";
+import { prepareRunSkillContext } from "../../../skills/runtime/run-context.js";
 import { resolveCodeModeSkills, type CodeModeSkillReader } from "../../code-mode-skills.js";
 import {
   mapSandboxSkillEntriesForPrompt,
@@ -29,7 +30,7 @@ import type { EmbeddedRunAttemptParams } from "./types.js";
 
 type AttemptSetup = Awaited<ReturnType<typeof prepareEmbeddedAttemptSetup>>;
 
-export function prepareEmbeddedAttemptSkills(params: {
+export async function prepareEmbeddedAttemptSkills(params: {
   attempt: EmbeddedRunAttemptParams;
   effectiveWorkspace: string;
   sandbox: AttemptSetup["sandbox"];
@@ -47,7 +48,7 @@ export function prepareEmbeddedAttemptSkills(params: {
   const {
     skillsEligibility,
     skillsPromptWorkspaceDir,
-    skillsSnapshot,
+    skillsSnapshot: initialSkillsSnapshot,
     skillsWorkspaceDir,
     workspaceOnly,
   } = resolveSandboxSkillRuntimeInputs({
@@ -57,13 +58,31 @@ export function prepareEmbeddedAttemptSkills(params: {
     effectiveWorkspace: params.effectiveWorkspace,
     skillsSnapshot: params.attempt.skillsSnapshot,
   });
-  const { shouldLoadSkillEntries, skillEntries } = resolveEmbeddedRunSkillEntries({
+  const { shouldLoadSkillEntries, skillEntries: initialSkillEntries } =
+    resolveEmbeddedRunSkillEntries({
+      workspaceDir: skillsWorkspaceDir,
+      config: params.attempt.config,
+      agentId: params.sessionAgentId,
+      eligibility: skillsEligibility,
+      skillsSnapshot: initialSkillsSnapshot,
+      workspaceOnly,
+    });
+  const { skillsSnapshot, skillEntries } = await prepareRunSkillContext({
     workspaceDir: skillsWorkspaceDir,
     config: params.attempt.config,
-    agentId: params.sessionAgentId,
+    context: {
+      agentId: params.sessionAgentId,
+      sessionKey: params.attempt.sessionKey,
+      sessionId: params.attempt.sessionId,
+      runId: params.attempt.runId,
+      workspaceDir: params.effectiveWorkspace,
+    },
     eligibility: skillsEligibility,
-    skillsSnapshot,
-    workspaceOnly,
+    skillsSnapshot: initialSkillsSnapshot,
+    skillEntries: initialSkillEntries,
+    excludedSkillFiles: params.sandbox?.excludedSkillFiles,
+    excludedSourceDirectories: params.sandbox?.excludedSourceDirectories,
+    missingSourceDirectories: params.sandbox?.missingSourceDirectories,
   });
   const restoreSkillEnv = skillsSnapshot
     ? applySkillEnvOverridesFromSnapshot({

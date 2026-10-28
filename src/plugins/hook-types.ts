@@ -29,6 +29,8 @@ import type {
   PluginHookMessageSentEvent,
 } from "./hook-message.types.js";
 import type {
+  PluginHookBeforeSkillContextEvent,
+  PluginHookBeforeSkillContextResult,
   PluginHookSkillChangedEvent,
   PluginHookSkillContext,
   PluginHookSkillProposalChangedEvent,
@@ -78,6 +80,8 @@ export {
   type PluginHookBeforeToolCallResult,
 } from "./hook-before-tool-call-result.js";
 export type {
+  PluginHookBeforeSkillContextEvent,
+  PluginHookBeforeSkillContextResult,
   PluginHookSkillArtifact,
   PluginHookSkillBundleFile,
   PluginHookSkillBundleSnapshot,
@@ -92,6 +96,7 @@ export type {
 } from "./hook-skill.types.js";
 
 export type PluginHookName =
+  | "before_skill_context"
   | "before_model_resolve"
   | "agent_turn_prepare"
   | "before_prompt_build"
@@ -136,6 +141,7 @@ export type PluginHookName =
   | "resolve_exec_env";
 
 const PLUGIN_HOOK_NAMES = [
+  "before_skill_context",
   "before_model_resolve",
   "agent_turn_prepare",
   "before_prompt_build",
@@ -1153,6 +1159,13 @@ export type PluginHookResolveExecEnvEvent = {
 export type PluginHookResolveExecEnvContext = PluginHookAgentContext;
 
 export type PluginHookHandlerMap = {
+  before_skill_context: (
+    event: PluginHookBeforeSkillContextEvent,
+    ctx: PluginHookAgentContext,
+  ) =>
+    | Promise<PluginHookBeforeSkillContextResult | void>
+    | PluginHookBeforeSkillContextResult
+    | void;
   agent_turn_prepare: (
     event: PluginAgentTurnPrepareEvent,
     ctx: PluginHookAgentContext,

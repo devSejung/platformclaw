@@ -2202,7 +2202,9 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
   it.each(["overflow", "budget", "timeout_recovery"] as const)(
     "uses caller-owned automatic recovery once for default-mode %s compaction",
     async (trigger) => {
-      hookRunner.hasHooks.mockReturnValue(true);
+      hookRunner.hasHooks.mockImplementation(
+        (hookName) => hookName === "before_compaction" || hookName === "after_compaction",
+      );
       resolveEffectiveCompactionModeMock.mockReturnValue("default");
 
       const result = await compactEmbeddedAgentSessionDirect(

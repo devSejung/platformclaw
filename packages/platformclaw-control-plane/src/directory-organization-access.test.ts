@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -229,7 +230,7 @@ describe("directory synchronization access lifecycle", () => {
     ]);
   });
 
-  it("reconciles Skill Hub owners after both ancestor reparenting and automatic departure", async () => {
+  it("preserves Skill Hub ownership while current directory membership changes its audience", async () => {
     const { store, admin, member, part, group } = await fixture();
     const leader = await createUser(store, "leader");
     await store.setManagedScopeMembership({
@@ -240,36 +241,28 @@ describe("directory synchronization access lifecycle", () => {
       reason: "Manage the original group",
       changedAt: sourceAt + 101_000,
     });
-    const binding = await store.setSkillHubNamespaceBinding({
-      namespace: "runtime",
-      scopeKind: "part",
-      scopeId: part.id,
-      accessState: "active",
-      visibilityCeiling: "PUBLIC",
-      expectedUpdatedAt: null,
-      reason: "Part catalog",
-      actorUserId: admin.id,
-      changedAt: sourceAt + 102_000,
-    });
-    for (const [slug, owner] of [
-      ["leader-skill", leader],
-      ["member-skill", member],
-    ] as const) {
-      expect(
-        await store.recordSkillHubPublication({
-          namespace: "runtime",
-          slug,
-          ownerUserId: owner.id,
-          expectedOwnerUserId: null,
-          expectedOwnerUpdatedAt: null,
-          expectedBindingUpdatedAt: binding.updatedAt,
-          visibility: "PUBLIC",
-          version: "1.0.0",
-          changedAt: sourceAt + 103_000,
+    const catalog = store.skillHubCatalog;
+    const entries = [];
+    for (const [index, owner] of [leader, member].entries()) {
+      const operationId = randomUUID();
+      const reserved = await catalog.reservePublication({
+        operationId,
+        actorUserId: owner.id,
+        slug: `directory-skill-${index}`,
+        version: "1.0.0",
+        fingerprint: operationId,
+        sharing: { mode: "SELECTED", userIds: [], scopeIds: [part.id] },
+        now: sourceAt + 102_000,
+      });
+      entries.push(
+        await catalog.completePublication({
+          operationId: reserved.receipt.operationId,
+          registryId: 100 + index,
+          now: sourceAt + 103_000,
         }),
-      ).toMatchObject({ ownerUserId: owner.id });
+      );
     }
-
+    expect(await catalog.canAccess({ skillId: entries[0]!.id, userId: member.id })).toBe(true);
     await synchronize(store, member.id, {
       group: { id: "services", name: "Services" },
       team: "Technology",
@@ -278,34 +271,18 @@ describe("directory synchronization access lifecycle", () => {
     expect(
       (await store.resolveManagedScopeAuthorization(leader.id, part.id)).canManageMembers,
     ).toBe(false);
-    expect(await store.reconcileInactiveSkillHubOwners(sourceAt + 104_000)).toEqual({
-      reassigned: 0,
-      unassigned: 1,
-    });
-    expect(await store.getSkillHubOwnership("runtime", "leader-skill")).toMatchObject({
-      ownerUserId: null,
-      previousOwnerUserId: leader.id,
-      visibility: "PRIVATE",
-    });
-    expect(await store.getSkillHubOwnership("runtime", "member-skill")).toMatchObject({
-      ownerUserId: member.id,
-    });
-
+    expect((await catalog.get(entries[0]!.id))?.ownerUserId).toBe(leader.id);
+    expect((await catalog.get(entries[1]!.id))?.ownerUserId).toBe(member.id);
+    expect(await catalog.canAccess({ skillId: entries[0]!.id, userId: member.id })).toBe(true);
     await synchronize(store, member.id, {
       part: { id: "tools", name: "Tools" },
       group: { id: "services", name: "Services" },
       team: "Technology",
       sourceOffset: 2_000,
     });
-    expect(await store.reconcileInactiveSkillHubOwners(sourceAt + 105_000)).toEqual({
-      reassigned: 0,
-      unassigned: 1,
-    });
-    expect(await store.getSkillHubOwnership("runtime", "member-skill")).toMatchObject({
-      ownerUserId: null,
-      previousOwnerUserId: member.id,
-      visibility: "PRIVATE",
-    });
-    expect(await store.countUnreadSkillHubNotifications(admin.id)).toBe(2);
+    expect(await catalog.canAccess({ skillId: entries[0]!.id, userId: member.id })).toBe(false);
+    expect(await catalog.canAccess({ skillId: entries[1]!.id, userId: member.id })).toBe(true);
+    expect((await catalog.get(entries[1]!.id))?.ownerUserId).toBe(member.id);
+    expect(await store.countUnreadSkillHubNotifications(admin.id)).toBe(0);
   });
 });

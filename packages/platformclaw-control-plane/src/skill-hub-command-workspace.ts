@@ -24,7 +24,7 @@ type CommandWorkspaceStore = Pick<
   | "resolveAuthenticatedKnoxDmRoute"
 >;
 
-function workspaceForAgent(workspaceRoot: string, agentId: string): string {
+export function workspaceForAgent(workspaceRoot: string, agentId: string): string {
   const root = path.resolve(workspaceRoot);
   const workspaceDir = path.resolve(root, agentId);
   if (

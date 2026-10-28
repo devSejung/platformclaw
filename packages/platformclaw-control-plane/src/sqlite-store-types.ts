@@ -272,7 +272,7 @@ type McpOAuthStateRow = {
   created_at: number;
 };
 
-export type SkillHubOwnershipRow = {
+type SkillHubOwnershipRow = {
   namespace: string;
   slug: string;
   owner_user_id: string | null;
@@ -282,7 +282,7 @@ export type SkillHubOwnershipRow = {
   updated_at: number;
 };
 
-export type SkillHubEditIntentRow = {
+type SkillHubEditIntentRow = {
   id: string;
   namespace: string;
   slug: string;
@@ -294,7 +294,7 @@ export type SkillHubEditIntentRow = {
   updated_at: number;
 };
 
-export type SkillHubAccessRow = {
+type SkillHubAccessRow = {
   namespace: string;
   slug: string;
   user_id: string;
@@ -329,7 +329,7 @@ type SkillHubGovernanceJobRow = {
   updated_at: number;
 };
 
-export type SkillHubNamespaceBindingRow = {
+type SkillHubNamespaceBindingRow = {
   namespace: string;
   scope_kind: "global" | "team" | "group" | "part";
   scope_id: string | null;
@@ -340,7 +340,7 @@ export type SkillHubNamespaceBindingRow = {
   updated_at: number;
 };
 
-export type SkillHubNamespaceCreationRow = {
+type SkillHubNamespaceCreationRow = {
   namespace: string;
   operation_id: string;
   actor_user_id: string;

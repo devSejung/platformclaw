@@ -35,6 +35,11 @@ export type SandboxBackendReadOnlySkillMount = {
 export type SandboxBackendMaterializedSkills = {
   catalog: SandboxBackendSkillCatalog;
   mounts: readonly SandboxBackendReadOnlySkillMount[];
+  /** Exact source exclusions applied to the prepared filesystem view. */
+  excludedSkillFiles?: readonly string[];
+  excludedSourceDirectories?: readonly string[];
+  missingSourceDirectories?: readonly string[];
+  policyApplied?: boolean;
 };
 
 /** Optional lifecycle manager for an existing registered sandbox runtime. */

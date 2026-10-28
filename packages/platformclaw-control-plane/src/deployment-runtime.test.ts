@@ -109,7 +109,7 @@ describe("createPlatformClawDeploymentRuntime", () => {
     expect(options?.resolveAgentIdFromSessionKey("agent:Person.One:main")).toBeNull();
   });
 
-  it("wires Skill Hub through a server-only adapter", () => {
+  it("wires Skill Hub through its server-only administrative session", () => {
     const runtime = {} as PlatformClawWebIngressRuntime;
     const createRuntime = vi.fn((_options: PlatformClawWebIngressRuntimeOptions) => runtime);
     createPlatformClawDeploymentRuntime(
@@ -117,8 +117,6 @@ describe("createPlatformClawDeploymentRuntime", () => {
         ...config,
         skillHub: {
           url: "https://skillhub.example.test",
-          token: "server-only-token",
-          namespaces: ["engineering"],
           maxPackageBytes: 1024,
           bootstrapPassword: "server-only-bootstrap-password",
         },
@@ -128,12 +126,11 @@ describe("createPlatformClawDeploymentRuntime", () => {
 
     expect(createRuntime.mock.calls[0]?.[0].skillHub).toMatchObject({
       workspaceRoot: config.workspaceRoot,
-      allowedNamespaces: ["engineering"],
       maxPackageBytes: 1024,
-      adapter: expect.any(Object),
       governance: expect.any(Object),
     });
     expect(createRuntime.mock.calls[0]?.[0].skillHub).not.toHaveProperty("token");
+    expect(createRuntime.mock.calls[0]?.[0].skillHub).not.toHaveProperty("adapter");
     expect(createRuntime.mock.calls[0]?.[0].skillHub).not.toHaveProperty("bootstrapPassword");
   });
 
