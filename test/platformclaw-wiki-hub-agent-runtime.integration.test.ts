@@ -67,6 +67,7 @@ describe("Wiki Hub composed tool contract", () => {
           resolveConnectionTarget: vi.fn(),
           changeTarget: vi.fn(),
           issueCredentialGrant: vi.fn(),
+          reportAuthenticationFailure: vi.fn(),
         },
         deriveExecutionHandoffAddress(broker),
       );

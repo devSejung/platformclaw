@@ -112,6 +112,20 @@ export async function handlePlatformClawEmployeeExecutionRequest(
       return true;
     }
     if (pathname === PLATFORMCLAW_EXECUTION_CREDENTIAL_PATH) {
+      if (
+        typeof body.expectedRevision !== "number" ||
+        !Number.isSafeInteger(body.expectedRevision) ||
+        body.expectedRevision < 0 ||
+        typeof body.expectedCredentialRevision !== "number" ||
+        !Number.isSafeInteger(body.expectedCredentialRevision) ||
+        body.expectedCredentialRevision < 0 ||
+        typeof body.expectedAllocationId !== "string" ||
+        !body.expectedAllocationId.trim() ||
+        body.expectedAllocationId.length > 256
+      ) {
+        sendJson(res, 400, { error: "current VM credential and work location are required" });
+        return true;
+      }
       const password = typeof body.password === "string" ? body.password : "";
       sendJson(
         res,
@@ -120,6 +134,10 @@ export async function handlePlatformClawEmployeeExecutionRequest(
           userId: auth.user.id,
           agentId: auth.binding.agentId,
           password,
+          sessionToken: token ?? "",
+          expectedRevision: body.expectedRevision,
+          expectedCredentialRevision: body.expectedCredentialRevision,
+          expectedAllocationId: body.expectedAllocationId,
         }),
       );
       return true;

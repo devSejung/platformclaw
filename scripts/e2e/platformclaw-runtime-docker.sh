@@ -454,6 +454,8 @@ jq -e \
   '.activeTarget == "assigned_vm" and .credentialStatus == "current" and .assignment.status == "ready"' \
   "$execution_response" >/dev/null
 
+source "$repo_root/scripts/e2e/lib/platformclaw-vm-reauth/scenario.sh"
+
 safeconnect_algorithm="$(jq -r .algorithm "$safeconnect_host_key")"
 safeconnect_public_key="$(jq -r .publicKey "$safeconnect_host_key")"
 MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T \

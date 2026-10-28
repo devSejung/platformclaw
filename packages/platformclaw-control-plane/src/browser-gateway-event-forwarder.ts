@@ -1,5 +1,9 @@
 import type { EventFrame } from "@openclaw/gateway-protocol";
 import type { BrowserGatewayAccess, BrowserGatewayEvent } from "./browser-gateway-proxy.js";
+import {
+  PLATFORMCLAW_EXECUTION_CHANGED,
+  type VmCredentialStateChange,
+} from "./execution-contracts.js";
 
 type BrowserGatewayEventProxy = {
   resolveAccess(token: string, touch?: boolean): Promise<BrowserGatewayAccess>;
@@ -63,5 +67,42 @@ export function createBrowserGatewayEventForwarder(params: {
     if (filtered) {
       params.sendEvent(filtered);
     }
+  };
+}
+
+/** Control-owned recovery notices never cross the upstream Gateway or another user's connection. */
+export function createBrowserExecutionChangeForwarder(params: {
+  token: string;
+  proxy: Pick<BrowserGatewayEventProxy, "resolveAccess">;
+  isConnected: () => boolean;
+  sendEvent: (event: BrowserGatewayEvent) => void;
+  closeUnauthorized: () => void;
+}): (change: VmCredentialStateChange) => Promise<void> {
+  return async (change) => {
+    if (!params.isConnected()) {
+      return;
+    }
+    let access: BrowserGatewayAccess;
+    try {
+      access = await params.proxy.resolveAccess(params.token, false);
+    } catch {
+      params.closeUnauthorized();
+      return;
+    }
+    // Resolve current authority after the notification was queued. A handshake's
+    // agent identity cannot authorize delivery after logout or binding replacement.
+    if (!params.isConnected() || access.binding.agentId !== change.agentId) {
+      return;
+    }
+    params.sendEvent({
+      event: PLATFORMCLAW_EXECUTION_CHANGED,
+      payload: {
+        agentId: change.agentId,
+        allocationId: change.allocationId,
+        targetRevision: change.targetRevision,
+        credentialRevision: change.credentialRevision,
+        status: change.status,
+      },
+    });
   };
 }

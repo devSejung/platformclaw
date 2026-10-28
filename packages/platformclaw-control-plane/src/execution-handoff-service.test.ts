@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   AssignedVmExecutionTarget,
   ControlPlaneExecutionTargetStore,
+  ControlPlaneVmAuthenticationFailureStore,
   PersonalExecutionTarget,
 } from "./execution-contracts.js";
 import {
@@ -55,16 +56,48 @@ function assignedVm(revision = 4): AssignedVmExecutionTarget {
 
 function executionStore(
   resolvePersonalExecutionTarget: () => Promise<PersonalExecutionTarget>,
-): ControlPlaneExecutionTargetStore {
+): ControlPlaneExecutionTargetStore & ControlPlaneVmAuthenticationFailureStore {
   return {
     resolveExecutionTarget: resolvePersonalExecutionTarget,
     resolvePersonalExecutionTarget,
     resolveAssignedVmConnectionTarget: vi.fn(),
     changePersonalExecutionTarget: vi.fn(),
+    recordVmAuthenticationFailure: vi.fn(async () => ({ recorded: true })),
   };
 }
 
 describe("ExecutionHandoffService", () => {
+  it("notifies only after the store records a current authentication failure", async () => {
+    const store = executionStore(async () => assignedVm());
+    const record = vi
+      .spyOn(store, "recordVmAuthenticationFailure")
+      .mockResolvedValueOnce({ recorded: true })
+      .mockResolvedValueOnce({ recorded: false });
+    const changed = vi.fn(async () => undefined);
+    const service = new ExecutionHandoffService(
+      store,
+      {
+        address: "/run/platformclaw/runtime.sock",
+        issueForUser: vi.fn(),
+      },
+      { onVmCredentialStateChanged: changed, now: () => 12_000 },
+    );
+    const input = {
+      agentId: "person_one",
+      allocationId: "allocation-one",
+      targetRevision: 4,
+      credentialRevision: 3,
+    };
+    await expect(service.reportAuthenticationFailure(input)).resolves.toEqual({ recorded: true });
+    expect(record).toHaveBeenCalledWith({ ...input, failedAt: 12_000 });
+    expect(changed).toHaveBeenCalledWith({ ...input, status: "update_required" });
+    await expect(service.reportAuthenticationFailure(input)).resolves.toEqual({ recorded: false });
+    expect(changed).toHaveBeenCalledOnce();
+    await expect(
+      service.reportAuthenticationFailure({ ...input, credentialRevision: 0 }),
+    ).rejects.toThrow("invalid");
+    expect(record).toHaveBeenCalledTimes(2);
+  });
   it("activates the exact saved registration through the atomic store owner", async () => {
     const changePersonalExecutionTarget = vi.fn();
     const store = {

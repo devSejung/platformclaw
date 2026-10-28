@@ -289,6 +289,7 @@ export async function runExecutionProgressCase({
     activeTarget,
     targetRevision: revision,
     credentialStatus: saved.length ? "current" : "missing",
+    credentialRevision: saved.length ? 1 : 0,
     accountId: "person.one",
     availableVms: available,
     savedVms: saved.map((vm) => ({

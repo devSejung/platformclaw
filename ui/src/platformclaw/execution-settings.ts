@@ -14,8 +14,10 @@ import {
   EXECUTION_SETTINGS_ELEMENT_NAME,
   createExecutionTransition,
   executionMutationTarget,
+  executionCredentialUpdateBody,
   reconcileExecutionMutation,
   requestExecutionSettings,
+  resolveActiveExecutionConnectionId,
   resolveExecutionConnectionId,
   verifyExecutionTarget,
 } from "./execution-settings-actions.ts";
@@ -633,17 +635,16 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         void this.mutate("test");
         break;
       case "credential":
-        void this.mutate("credential", {
-          password: action.password,
-        });
+        if (this.settings) {
+          void this.mutate(
+            "credential",
+            executionCredentialUpdateBody(this.settings, action.password),
+          );
+        }
         break;
       case "release":
       case "cancel-release":
-        this.releaseConnectionId = this.settings?.savedVms.find(
-          (vm) =>
-            vm.vmHostId === this.settings?.assignment?.vmHostId &&
-            vm.linuxAccount === this.settings?.assignment?.linuxAccount,
-        )?.id;
+        this.releaseConnectionId = resolveActiveExecutionConnectionId(this.settings);
         this.pendingRelease = action.kind === "release";
         this.render();
         this.root

@@ -102,6 +102,7 @@ suite("PlatformClaw coding agent settings", () => {
       activeTarget: "assigned_vm",
       targetRevision: 8,
       credentialStatus: "current",
+      credentialRevision: 1,
       accountId: "person.one",
       availableVms: [{ id: "vm-one", label: "Development VM" }],
       savedVms: [
@@ -369,6 +370,7 @@ suite("PlatformClaw coding agent settings", () => {
       activeTarget: "assigned_vm",
       targetRevision: 3,
       credentialStatus: "current",
+      credentialRevision: 1,
       accountId: "person.one",
       availableVms: [{ id: "vm-one", label: "Development VM" }],
       savedVms: [
@@ -478,6 +480,9 @@ suite("PlatformClaw coding agent settings", () => {
       .poll(() => requests.find((item) => item.path.endsWith("/credential"))?.body)
       .toEqual({
         password: "fixture-only",
+        expectedRevision: 4,
+        expectedCredentialRevision: 1,
+        expectedAllocationId: "allocation-one",
       });
     const offer = component.locator("[data-activation-offer]");
     await offer.getByRole("button", { name: "Later", exact: true }).click();
@@ -548,6 +553,7 @@ suite("PlatformClaw coding agent settings", () => {
       activeTarget: "platform_server",
       targetRevision: 1,
       credentialStatus: "missing",
+      credentialRevision: 0,
       accountId: "person.one",
       availableVms: [],
       savedVms: [
@@ -597,6 +603,7 @@ suite("PlatformClaw coding agent settings", () => {
           settings = {
             ...settings,
             credentialStatus: "current",
+            credentialRevision: settings.credentialRevision + 1,
             savedVms: settings.savedVms.map((vm) => ({ ...vm, status: "ready" })),
             targetRevision: settings.targetRevision + 1,
             assignment: { ...settings.assignment, status: "ready" },
@@ -700,10 +707,23 @@ suite("PlatformClaw coding agent settings", () => {
       "Basic server",
     );
     expect(mutations).toEqual([
-      { path: "/platformclaw/api/execution/credential", body: { password: "wrong-test-password" } },
       {
         path: "/platformclaw/api/execution/credential",
-        body: { password: "corrected-test-password" },
+        body: {
+          password: "wrong-test-password",
+          expectedRevision: 1,
+          expectedCredentialRevision: 0,
+          expectedAllocationId: "allocation-one",
+        },
+      },
+      {
+        path: "/platformclaw/api/execution/credential",
+        body: {
+          password: "corrected-test-password",
+          expectedRevision: 1,
+          expectedCredentialRevision: 0,
+          expectedAllocationId: "allocation-one",
+        },
       },
     ]);
     await savePassword("verified-again");

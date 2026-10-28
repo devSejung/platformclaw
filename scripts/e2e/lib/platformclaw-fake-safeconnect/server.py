@@ -23,6 +23,7 @@ ALLOCATIONS_PATH = Path(
 HOST_KEY_PATH = STATE_DIR / "ssh_host_ed25519_key"
 HOST_KEY_METADATA_PATH = STATE_DIR / "host-key.json"
 BOUNDARY_LOG_PATH = STATE_DIR / "boundary.jsonl"
+AUTH_BEHAVIOR_PATH = STATE_DIR / "auth-behavior.json"
 
 
 def append_event(event: str, **details: Any) -> None:
@@ -65,6 +66,17 @@ def load_allocations() -> dict[str, dict[str, str]]:
 ALLOCATIONS = load_allocations()
 
 
+def authentication_behavior(username: str) -> dict[str, Any]:
+    """Mutable synthetic fixture input, never a production authentication surface."""
+    if not AUTH_BEHAVIOR_PATH.exists():
+        return {}
+    value = json.loads(AUTH_BEHAVIOR_PATH.read_text(encoding="utf-8"))
+    behavior = value.get(username, {}) if isinstance(value, dict) else None
+    if not isinstance(behavior, dict):
+        raise RuntimeError("fixture authentication behavior must be an object")
+    return behavior
+
+
 class FakeSafeConnectServer(asyncssh.SSHServer):
     def begin_auth(self, username: str) -> bool:
         self._rejected_responses = 0
@@ -92,15 +104,18 @@ class FakeSafeConnectServer(asyncssh.SSHServer):
         self, username: str, responses: list[str]
     ) -> bool | tuple[str, str, str, list[tuple[str, bool]]]:
         allocation = ALLOCATIONS.get(username)
+        behavior = authentication_behavior(username)
         accepted = (
             allocation is not None
             and len(responses) == 1
-            and hmac.compare_digest(responses[0], allocation["password"])
+            and hmac.compare_digest(responses[0], behavior.get("password", allocation["password"]))
         )
         append_event("authentication_finished", username=username, accepted=accepted)
         if accepted:
             return True
         self._rejected_responses += 1
+        if behavior.get("finalRejection") is True:
+            return False
         return self._password_challenge() if self._rejected_responses == 1 else False
 
 
@@ -125,6 +140,14 @@ async def handle_process(process: asyncssh.SSHServerProcess[bytes]) -> None:
             commandBytes=len(encoded_command),
             commandSha256=hashlib.sha256(encoded_command).hexdigest(),
         )
+        forced_exit = authentication_behavior(username).get("commandExit")
+        if forced_exit is not None:
+            if not isinstance(forced_exit, int) or not 0 <= forced_exit <= 255:
+                raise RuntimeError("fixture command exit must be an integer from 0 to 255")
+            process.stderr.write(b"fixture@remote: Permission denied (keyboard-interactive).\n")
+            append_event("command_finished", username=username, linuxAccount=linux_account, exitStatus=forced_exit)
+            process.exit(forced_exit)
+            return
         argv = ["/bin/bash", "-c", command]
     else:
         # Real sshd starts the account login shell when no command is supplied.

@@ -18,6 +18,7 @@ const settings: ExecutionSettings = {
   activeTarget: "platform_server",
   targetRevision: 8,
   credentialStatus: "current",
+  credentialRevision: 1,
   accountId: "person.one",
   availableVms: [
     { id: "synthetic-vm-one", label: "Build VM" },

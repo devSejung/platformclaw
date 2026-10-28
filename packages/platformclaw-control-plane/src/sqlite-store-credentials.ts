@@ -3,7 +3,10 @@ import {
   ControlPlaneConflictError,
   ControlPlaneStateError,
 } from "./contracts.js";
-import type { ControlPlaneAtomicVmCredentialStore } from "./execution-contracts.js";
+import type {
+  ControlPlaneAtomicVmCredentialStore,
+  ControlPlaneVmAuthenticationFailureStore,
+} from "./execution-contracts.js";
 import { nextExecutionResourceId } from "./ids.js";
 import { executeSync, runImmediateTransaction, takeFirstSync } from "./kysely-sync.js";
 import { rowToAllocation } from "./sqlite-store-execution-mappers.js";
@@ -45,7 +48,10 @@ function rowToMetadata(row: EncryptedUserSshCredentialRow): UserSshCredentialMet
 
 export abstract class SqliteControlPlaneCredentialStore
   extends SqliteControlPlaneExecutionStore
-  implements ControlPlaneSshCredentialEnvelopeStore, ControlPlaneAtomicVmCredentialStore
+  implements
+    ControlPlaneSshCredentialEnvelopeStore,
+    ControlPlaneAtomicVmCredentialStore,
+    ControlPlaneVmAuthenticationFailureStore
 {
   async commitPersonalVmCredential(
     params: Parameters<ControlPlaneAtomicVmCredentialStore["commitPersonalVmCredential"]>[0],
@@ -56,17 +62,31 @@ export abstract class SqliteControlPlaneCredentialStore
         this.query
           .selectFrom("vm_allocations as a")
           .innerJoin("agent_bindings as b", "b.id", "a.agent_binding_id")
+          .innerJoin("platform_users as u", "u.id", "b.user_id")
           .innerJoin("personal_execution_profiles as p", "p.agent_binding_id", "b.id")
+          .innerJoin("vm_hosts as h", "h.id", "a.vm_host_id")
+          .innerJoin("safeconnect_endpoints as e", "e.id", "h.endpoint_id")
+          .innerJoin("browser_sessions as s", "s.user_id", "u.id")
+          .leftJoin("encrypted_user_ssh_credentials as c", "c.user_id", "u.id")
           .selectAll("a")
+          .select("c.revision as credential_revision")
           .where("a.id", "=", params.expectedAllocationId)
           .where("a.status", "!=", "revoked")
           .where("b.agent_id", "=", params.agentId)
           .where("b.kind", "=", "personal")
           .where("b.state", "=", "active")
           .where("b.user_id", "=", params.actorUserId)
+          .where("b.id", "=", params.expectedBindingId)
+          .where("u.status", "=", "active")
+          .where("h.status", "=", "active")
+          .where("e.status", "=", "active")
+          .where("s.id", "=", params.expectedSessionId)
+          .where("s.revoked_at", "is", null)
+          .where("s.idle_expires_at", ">", params.checkedAt)
+          .where("s.absolute_expires_at", ">", params.checkedAt)
           .where("p.target_revision", "=", params.expectedTargetRevision),
       );
-      if (!allocation) {
+      if (!allocation || allocation.credential_revision !== params.expectedCredentialRevision) {
         throw new ControlPlaneConflictError(
           "execution_target_conflict",
           "execution target changed before credential verification was committed",
@@ -87,8 +107,9 @@ export abstract class SqliteControlPlaneCredentialStore
         envelope: params.credentialEnvelope,
         replacedAt: params.checkedAt,
       });
+      const { credential_revision: _credentialRevision, ...allocationRow } = allocation;
       const updated = {
-        ...allocation,
+        ...allocationRow,
         status: "ready" as const,
         remote_home_dir: params.remoteHomeDir,
         remote_workspace_dir: params.remoteWorkspaceDir,
@@ -109,6 +130,85 @@ export abstract class SqliteControlPlaneCredentialStore
         params.checkedAt,
       );
       return rowToAllocation(updated);
+    });
+  }
+
+  async recordVmAuthenticationFailure(
+    params: Parameters<
+      ControlPlaneVmAuthenticationFailureStore["recordVmAuthenticationFailure"]
+    >[0],
+  ): Promise<{ recorded: boolean }> {
+    return runImmediateTransaction(this.db, () => {
+      const current = takeFirstSync(
+        this.db,
+        this.query
+          .selectFrom("vm_allocations as a")
+          .innerJoin("agent_bindings as b", "b.id", "a.agent_binding_id")
+          .innerJoin("platform_users as u", "u.id", "b.user_id")
+          .innerJoin("personal_execution_profiles as p", "p.agent_binding_id", "b.id")
+          .innerJoin("encrypted_user_ssh_credentials as c", "c.user_id", "u.id")
+          .innerJoin("vm_hosts as h", "h.id", "a.vm_host_id")
+          .innerJoin("safeconnect_endpoints as e", "e.id", "h.endpoint_id")
+          .select(["u.id as user_id", "c.id as credential_id"])
+          .where("a.id", "=", params.allocationId)
+          .where("a.status", "!=", "revoked")
+          .where("b.agent_id", "=", params.agentId)
+          .where("b.kind", "=", "personal")
+          .where("b.state", "=", "active")
+          .where("u.status", "=", "active")
+          .where("h.status", "=", "active")
+          .where("e.status", "=", "active")
+          .where("p.active_target", "=", "assigned_vm")
+          .where("p.active_allocation_id", "=", params.allocationId)
+          .where("p.target_revision", "=", params.targetRevision)
+          .where("c.revision", "=", params.credentialRevision)
+          .where("c.status", "=", "current"),
+      );
+      if (!current) {
+        return { recorded: false };
+      }
+      // Existing saved-VM triggers project both writes inside this same commit.
+      // A delayed failure must never poison a newer credential or a different VM.
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("encrypted_user_ssh_credentials")
+          .set({
+            status: "update_required",
+            last_auth_failure_at: params.failedAt,
+            updated_at: params.failedAt,
+          })
+          .where("id", "=", current.credential_id),
+      );
+      executeSync(
+        this.db,
+        this.query
+          .updateTable("vm_allocations")
+          .set({
+            status: "connection_required",
+            failure_code: "vm_authentication_failed",
+            last_connection_check_at: params.failedAt,
+            updated_at: params.failedAt,
+          })
+          .where("id", "=", params.allocationId),
+      );
+      this.insertAudit(
+        null,
+        "ssh-credential.update-required",
+        "ssh-credential",
+        current.credential_id,
+        params.failedAt,
+        { revision: params.credentialRevision },
+      );
+      this.insertAudit(
+        null,
+        "vm.connection.failed",
+        "vm-allocation",
+        params.allocationId,
+        params.failedAt,
+        { failureCode: "vm_authentication_failed" },
+      );
+      return { recorded: true };
     });
   }
 

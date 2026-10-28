@@ -7,6 +7,7 @@ import type { ApplicationBootstrapOptions, ApplicationShellSession } from "../ap
 import { normalizeGatewayTokenScope } from "../app/gateway-scope.ts";
 import type { UsageRouteData } from "../pages/usage/usage-page.ts";
 import { PlatformClawCredentialFlow } from "./credential-flow.ts";
+import { loadExecutionCredentialRecovery } from "./execution-credential-recovery-mount.ts";
 import { loadAllPlatformClawLocales, loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import { loadPlatformClawChatRoute } from "./space-conversation-route.ts";
 import {
@@ -189,6 +190,10 @@ export class PlatformClawControlUiAdapter {
         ></platformclaw-organization-join-prompt>`,
       )
       .catch(() => nothing);
+    const vmRecovery = loadExecutionCredentialRecovery({
+      fetchImpl: this.fetchImpl,
+      onUnauthenticated,
+    });
     // Keep the viewer owner mounted across routes so deferral changes preserve manual viewing.
     void import("./announcements.ts").catch(() => undefined);
     void Promise.all([import("./page-help.ts"), loadPlatformClawLocale()]).catch(() => undefined);
@@ -231,7 +236,7 @@ export class PlatformClawControlUiAdapter {
           .onUnauthenticated=${onUnauthenticated}
           .deferAutomatic=${routeId === "announcements" || routeId === "vm-administration"}
         ></platformclaw-announcements
-        >${until(joinPrompt, nothing)}
+        >${until(joinPrompt, nothing)}${until(vmRecovery, nothing)}
       `,
       renderPageHeaderAccessory: (routeId, routeLocation) => html`
         ${renderPageHelpTrigger(routeId, routeLocation)}

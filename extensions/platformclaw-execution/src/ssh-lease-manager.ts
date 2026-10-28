@@ -3,7 +3,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { sanitizeEnvVars, type SshSandboxSession } from "openclaw/plugin-sdk/sandbox";
 import type { AssignedVmTargetSnapshot } from "./backend.js";
-import { PlatformClawVmAuthenticationError } from "./connection-errors.js";
+import {
+  isSshpassAuthenticationFailure,
+  PlatformClawVmAuthenticationError,
+} from "./connection-errors.js";
+import type { PlatformClawExecutionTargetSnapshot } from "./execution-target.types.js";
 import { leaseIdentity } from "./ssh-lease-identity.js";
 
 // Five long-lived ACP processes must leave one channel for normal execution/terminal work.
@@ -27,6 +31,10 @@ type SafeConnectMasterHandle = {
 };
 
 type SafeConnectSshLeaseManagerOptions = {
+  resolveCurrentTarget: (
+    agentId: string,
+    requestedTarget?: "assigned_vm",
+  ) => Promise<PlatformClawExecutionTargetSnapshot>;
   createAuthenticatedSession: (target: AssignedVmTargetSnapshot) => Promise<SshSandboxSession>;
   createMultiplexedSession: (
     target: AssignedVmTargetSnapshot,
@@ -37,6 +45,7 @@ type SafeConnectSshLeaseManagerOptions = {
     controlPath: string;
   }) => Promise<SafeConnectMasterHandle>;
   disposeSession: (session: SshSandboxSession) => Promise<void>;
+  onAuthenticationFailure?: (target: AssignedVmTargetSnapshot) => Promise<void>;
   logTiming?: (message: string) => void;
   now?: () => number;
   maxChannels?: number;
@@ -55,10 +64,10 @@ function timingMs(now: () => number, startedAt: number): number {
 }
 
 function boundedOutput(current: string, chunk: Buffer): string {
-  if (current.length >= MAX_DIAGNOSTIC_BYTES) {
-    return current;
-  }
-  return (current + chunk.toString("utf8")).slice(0, MAX_DIAGNOSTIC_BYTES);
+  // Preserve terminal client diagnostics even after a long SSH server banner.
+  return Buffer.concat([Buffer.from(current, "utf8"), chunk])
+    .subarray(-MAX_DIAGNOSTIC_BYTES)
+    .toString("utf8");
 }
 
 function waitForExit(child: ChildProcess): Promise<MasterExit> {
@@ -67,7 +76,7 @@ function waitForExit(child: ChildProcess): Promise<MasterExit> {
   }
   return new Promise((resolve) => {
     child.once("error", (error) => resolve({ code: null, signal: null, error }));
-    child.once("exit", (code, signal) => resolve({ code, signal }));
+    child.once("close", (code, signal) => resolve({ code, signal }));
   });
 }
 
@@ -89,9 +98,10 @@ async function runControlCheck(configPath: string, controlPath: string, host: st
   return { ...exit, stderr };
 }
 
-async function startSafeConnectMaster(params: {
+export async function startSafeConnectMaster(params: {
   session: SshSandboxSession;
   controlPath: string;
+  signal?: AbortSignal;
 }): Promise<SafeConnectMasterHandle> {
   await fs.rm(params.controlPath, { force: true });
   const child = spawn(
@@ -129,12 +139,13 @@ async function startSafeConnectMaster(params: {
   const deadline = Date.now() + MASTER_READY_TIMEOUT_MS;
   try {
     while (Date.now() < deadline) {
+      params.signal?.throwIfAborted();
       if (childError) {
         throw childError;
       }
       if (child.exitCode !== null || child.signalCode !== null) {
         const exit = await exitPromise;
-        if (exit.code === 5) {
+        if (isSshpassAuthenticationFailure({ code: exit.code, stderr: diagnostic })) {
           throw new PlatformClawVmAuthenticationError();
         }
         throw new Error(
@@ -147,6 +158,7 @@ async function startSafeConnectMaster(params: {
         params.session.host,
       );
       if (check.code === 0) {
+        params.signal?.throwIfAborted();
         const listeners = new Set<(exit: MasterExit) => void>();
         let settledExit: MasterExit | undefined;
         void exitPromise.then((exit) => {
@@ -198,6 +210,7 @@ class SafeConnectSshLease {
   private master?: SafeConnectMasterHandle;
   private masterSession?: SshSandboxSession;
   private connectPromise?: Promise<void>;
+  private authenticationFailure?: PlatformClawVmAuthenticationError;
   private idleTimer?: NodeJS.Timeout;
   private activeChannels = 0;
   private readonly waiters: ChannelWaiter[] = [];
@@ -217,7 +230,11 @@ class SafeConnectSshLease {
     > &
       Pick<
         SafeConnectSshLeaseManagerOptions,
-        "createAuthenticatedSession" | "createMultiplexedSession" | "disposeSession" | "logTiming"
+        | "createAuthenticatedSession"
+        | "createMultiplexedSession"
+        | "disposeSession"
+        | "logTiming"
+        | "onAuthenticationFailure"
       >,
   ) {}
 
@@ -374,6 +391,9 @@ class SafeConnectSshLease {
   }
 
   private async ensureMaster(): Promise<void> {
+    if (this.authenticationFailure) {
+      throw this.authenticationFailure;
+    }
     if (this.master?.isRunning()) {
       return;
     }
@@ -424,6 +444,21 @@ class SafeConnectSshLease {
       });
     } catch (error) {
       await this.disposeMasterSession(session);
+      if (error instanceof PlatformClawVmAuthenticationError) {
+        // Record once for this coalesced authentication and immutable revision.
+        // Old prepared callers must not restart rejected credentials or repeat the popup.
+        this.authenticationFailure = error;
+        try {
+          await this.options.onAuthenticationFailure?.(this.target);
+        } catch (reportError) {
+          this.authenticationFailure = new PlatformClawVmAuthenticationError({
+            recoveryReportFailed: true,
+            cause: reportError,
+          });
+          this.options.logTiming?.("event=platformclaw_vm_recovery status=report_failed");
+          throw this.authenticationFailure;
+        }
+      }
       throw error;
     }
   }
@@ -467,8 +502,10 @@ class SafeConnectSshLease {
 export class SafeConnectSshLeaseManager {
   private readonly leases = new Map<string, SafeConnectSshLease>();
   private readonly options: ConstructorParameters<typeof SafeConnectSshLease>[2];
+  private readonly resolveCurrentTarget: SafeConnectSshLeaseManagerOptions["resolveCurrentTarget"];
 
   constructor(options: SafeConnectSshLeaseManagerOptions) {
+    this.resolveCurrentTarget = options.resolveCurrentTarget;
     const maxChannels = options.maxChannels ?? DEFAULT_MAX_CHANNELS;
     const maxQueuedChannels = options.maxQueuedChannels ?? DEFAULT_MAX_QUEUED_CHANNELS;
     const idleTtlMs = options.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
@@ -495,19 +532,61 @@ export class SafeConnectSshLeaseManager {
     };
   }
 
-  observeTarget(agentId: string, target: AssignedVmTargetSnapshot | undefined): void {
-    if (!target) {
-      const current = this.leases.get(agentId);
-      if (current) {
-        this.leases.delete(agentId);
-        current.retire("target_changed");
-      }
+  async observeTarget(agentId: string, target: PlatformClawExecutionTargetSnapshot): Promise<void> {
+    const observed = this.leases.get(agentId);
+    if (target.agentId !== agentId || !(await this.isCurrentTarget(target))) {
       return;
     }
-    const current = this.leases.get(target.agentId);
-    if (current && current.identity !== leaseIdentity(target)) {
-      this.leases.delete(target.agentId);
+    const current = this.leases.get(agentId);
+    // A newer acquisition validates its own authority while this lookup awaits.
+    if (current !== observed) {
+      return;
+    }
+    if (current && (target.kind !== "assigned_vm" || current.identity !== leaseIdentity(target))) {
+      this.leases.delete(agentId);
       current.retire("target_changed");
+    }
+  }
+
+  private async isCurrentTarget(target: PlatformClawExecutionTargetSnapshot): Promise<boolean> {
+    let current = await this.resolveCurrentTarget(target.agentId);
+    if (target.kind === "platform_server") {
+      return (
+        current.kind === target.kind &&
+        current.agentId === target.agentId &&
+        current.targetId === target.targetId &&
+        current.revision === target.revision
+      );
+    }
+    if (current.kind === "platform_server") {
+      // Explicit VM workspace operations remain supported while Basic is selected,
+      // but a snapshot prepared before that switch has already lost authority.
+      if (current.agentId !== target.agentId || current.revision !== target.revision) {
+        return false;
+      }
+      current = await this.resolveCurrentTarget(target.agentId, "assigned_vm");
+    }
+    return current.kind === "assigned_vm" && leaseIdentity(current) === leaseIdentity(target);
+  }
+
+  private retireMatchingTarget(target: AssignedVmTargetSnapshot): void {
+    const current = this.leases.get(target.agentId);
+    if (current?.identity === leaseIdentity(target)) {
+      this.leases.delete(target.agentId);
+      current.retire("authority_changed");
+    }
+  }
+
+  private async assertCurrentTarget(target: AssignedVmTargetSnapshot): Promise<void> {
+    try {
+      if (await this.isCurrentTarget(target)) {
+        return;
+      }
+      throw new Error("SafeConnect SSH authority changed; retry on the current work location");
+    } catch (error) {
+      // A late prepared caller may close its own obsolete lease, never a newer one.
+      this.retireMatchingTarget(target);
+      throw error;
     }
   }
 
@@ -519,14 +598,32 @@ export class SafeConnectSshLeaseManager {
     if (!Number.isSafeInteger(target.credentialRevision) || target.credentialRevision < 1) {
       throw new Error("assigned VM credential revision is unavailable");
     }
+    const observed = this.leases.get(target.agentId);
+    await this.assertCurrentTarget(target);
+    signal?.throwIfAborted();
     const identity = leaseIdentity(target);
     let lease = this.leases.get(target.agentId);
+    if (lease && lease !== observed && lease.identity !== identity) {
+      throw new Error("SafeConnect SSH authority changed; retry on the current work location");
+    }
     if (!lease || lease.identity !== identity || !lease.isAvailable()) {
       lease?.retire("target_changed");
       lease = new SafeConnectSshLease(identity, target, this.options);
       this.leases.set(target.agentId, lease);
     }
-    return await lease.createSession(signal);
+    const session = await lease.createSession(signal);
+    try {
+      await this.assertCurrentTarget(target);
+      signal?.throwIfAborted();
+      return session;
+    } catch (error) {
+      try {
+        await this.options.disposeSession(session);
+      } finally {
+        await session.onDispose?.();
+      }
+      throw error;
+    }
   }
 
   async dispose(): Promise<void> {

@@ -170,6 +170,15 @@ export class BrowserGatewayProxy {
     const gateway: BrowserGatewayRpc = {
       request: async (rpcMethod, rpcParams) => {
         const current = await revalidate();
+        if (
+          rpcMethod === "terminal.open" &&
+          this.options.isVmConnectionMutationActive?.(current.binding.agentId)
+        ) {
+          throw new BrowserGatewayProxyError(
+            "method-not-allowed",
+            "VM connection update is in progress. Try opening the terminal again afterward.",
+          );
+        }
         if (rpcMethod === "chat.abort") {
           const abort = asObject(rpcParams, "chat.abort params");
           if (

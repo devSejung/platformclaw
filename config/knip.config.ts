@@ -46,6 +46,8 @@ const repositoryScriptEntries = [
   "scripts/e2e/lib/openai-chat-tools/client.mjs!",
   "scripts/e2e/lib/openai-chat-tools/write-config.mjs!",
   "scripts/e2e/lib/package-git-fixture.mjs!",
+  // The runtime Docker smoke invokes this through a read-only container mount.
+  "scripts/e2e/lib/platformclaw-vm-reauth/client.mjs!",
   "scripts/e2e/lib/plugin-lifecycle-matrix/measure.mjs!",
   "scripts/e2e/lib/plugin-update/registry-server.mjs!",
   "scripts/e2e/lib/plugins/npm-registry-server.mjs!",

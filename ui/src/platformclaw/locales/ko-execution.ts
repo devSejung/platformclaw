@@ -1,4 +1,22 @@
 export const executionTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.execution.recoveryTitle": "VM에 다시 연결",
+  "platformClaw.execution.recoveryDescription":
+    "저장된 비밀번호로 인증하지 못했어요. 현재 AD 비밀번호를 입력해 주세요.",
+  "platformClaw.execution.recoverySaveHelp": "연결이 확인되면 저장된 비밀번호를 업데이트해요.",
+  "platformClaw.execution.recoverySave": "저장하고 다시 연결",
+  "platformClaw.execution.recoveryLoadFailed":
+    "VM 연결 설정을 열지 못했어요. 페이지를 새로고침한 후 다시 시도해 주세요.",
+  "platformClaw.execution.recoveryChecking": "연결 확인 중…",
+  "platformClaw.execution.recoveryPasswordRequired": "AD 비밀번호를 입력해 주세요.",
+  "platformClaw.execution.recoveryDeferred": "VM 재인증이 필요해요. 준비되면 다시 연결해 주세요.",
+  "platformClaw.execution.recoveryReconnect": "VM 다시 연결",
+  "platformClaw.execution.recoverySucceeded":
+    "VM에 다시 연결하고 비밀번호를 저장했어요. 이전 요청은 다시 실행하지 않았어요.",
+  "platformClaw.execution.recoveryConfirmed":
+    "현재 VM 연결이 준비된 것을 확인했어요. 이전 요청은 다시 실행하지 않았어요.",
+  "platformClaw.execution.recoveryStateUnavailable":
+    "VM 연결 상태를 확인하지 못했어요. 다시 확인해 주세요.",
+  "platformClaw.execution.recoveryRetry": "연결 상태 다시 확인",
   "platformClaw.execution.useNamedVm": "{name} 사용",
   "platformClaw.execution.reauthenticationRequired": "재인증 필요",
   "platformClaw.execution.connectionSettings": "연결 설정",

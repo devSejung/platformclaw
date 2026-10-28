@@ -273,6 +273,29 @@ SSH cannot always distinguish an expired password from an incorrect password.
 User-facing copy therefore says `Authentication failed - update your password`
 instead of asserting expiration.
 
+When the active VM rejects authentication, PlatformClaw records the failure
+against the exact allocation, target revision, and credential revision used.
+The owning user's browser opens a password-reentry dialog without changing the
+work location. **Later** closes that dialog and leaves a reconnect action;
+duplicate notifications do not reopen the same dismissed failure. Reloading or
+reconnecting reads the authoritative recovery state again.
+
+Enter the current AD password in that dialog, never in chat. PlatformClaw tests
+it before saving. A rejected password leaves the stored credential unchanged.
+A successful test commits the credential and connection readiness together,
+including the active saved VM registration. A changed target, credential,
+browser session, or user authority rejects the stale update. Recovery preserves
+the registered VM and its Coding Agent settings and never resends previous work
+automatically.
+
+After upgrading a running deployment, refresh open browser tabs before updating
+the password so the form uses the current VM and credential revision checks.
+
+An existing authenticated SSH master may continue working after an external AD
+password change. Detection happens at the next real authentication, not at the
+moment the password changes. DNS, network, and host-key failures retain their
+own errors and do not automatically request a new password.
+
 ## Workspace and Core Files
 
 The basic and VM workspaces are independent. PlatformClaw does not copy,

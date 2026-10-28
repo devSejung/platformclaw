@@ -67,6 +67,7 @@ services:
       fake-safeconnect:
         condition: service_healthy
     volumes:
+      - ${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}/scripts/e2e/lib/platformclaw-vm-reauth:/smoke/vm-reauth:ro
       - platformclaw-smoke-gateway-state:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/gateway-home/.openclaw
       - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/workspaces
       - platformclaw-smoke-docker-run:/run/platformclaw-sandbox-docker:ro
@@ -80,6 +81,7 @@ services:
     tmpfs:
       - /tmp
     volumes:
+      - ${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}/scripts/e2e/lib/platformclaw-vm-reauth:/fixture/reauth:ro
       - platformclaw-smoke-safeconnect-state:/state
       - platformclaw-smoke-safeconnect-users:/users
       - platformclaw-smoke-safeconnect-appdata:/appdata
@@ -144,6 +146,7 @@ services:
     ports:
       - "127.0.0.1:${PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT:?set PLATFORMCLAW_EMPLOYEE_AUTH_MOCK_PORT}:18080"
     volumes:
+      - ${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}/scripts/e2e/lib/platformclaw-vm-reauth:/smoke/vm-reauth:ro
       - platformclaw-smoke-control-state:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/control
       - ${PLATFORMCLAW_SMOKE_WORKSPACE_DIR:?set PLATFORMCLAW_SMOKE_WORKSPACE_DIR}:${PLATFORMCLAW_DEPLOY_ROOT:?set PLATFORMCLAW_DEPLOY_ROOT}/data/workspaces
 

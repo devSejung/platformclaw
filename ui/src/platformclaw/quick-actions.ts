@@ -4,7 +4,10 @@ import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import { icons } from "../components/icons.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 import type { ExecutionSettings } from "./execution-settings-view.ts";
-import { subscribeToPlatformClawExecutionTargetChanges } from "./execution-target-events.ts";
+import {
+  subscribeToPlatformClawExecutionSettingsChanges,
+  subscribeToPlatformClawExecutionTargetChanges,
+} from "./execution-target-events.ts";
 import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import messengerIcon from "./messenger-icon.svg?raw";
 import { PLATFORMCLAW_EXECUTION_API_PATH } from "./web-contract.ts";
@@ -23,6 +26,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   private executionSettingsSnapshot: ExecutionSettings | undefined;
   private executionRequest = 0;
   private unsubscribeExecutionTarget = () => {};
+  private unsubscribeExecutionSettings = () => {};
   private readonly clearExecutionTarget = () => {
     this.executionTarget = null;
     this.executionSettingsSnapshot = undefined;
@@ -143,6 +147,10 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       this.clearExecutionTarget,
       () => void this.loadExecutionTarget(),
     );
+    this.unsubscribeExecutionSettings = subscribeToPlatformClawExecutionSettingsChanges(
+      window,
+      this.refreshExecutionTarget,
+    );
     // Another tab can change the same personal profile without a local Window event.
     window.addEventListener("focus", this.refreshExecutionTarget);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -152,6 +160,7 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   override disconnectedCallback(): void {
     this.executionRequest++;
     this.unsubscribeExecutionTarget();
+    this.unsubscribeExecutionSettings();
     window.removeEventListener("focus", this.refreshExecutionTarget);
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.clearExecutionTarget();

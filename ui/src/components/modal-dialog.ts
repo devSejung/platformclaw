@@ -240,7 +240,9 @@ export class OpenClawModalDialog extends OpenClawLitElement {
       if (dialog?.open) {
         return;
       }
-      this.returnFocus =
+      // A reopen requested during hide keeps the original trigger until the
+      // eventual close; the dependency may still have a focus-restore task queued.
+      this.returnFocus ??=
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
       webAwesomeDialog.open = true;
       return;
@@ -340,10 +342,16 @@ export class OpenClawModalDialog extends OpenClawLitElement {
     this.hiding = false;
     this.setContentReady(false);
     OpenClawModalDialog.#openDialogs.delete(this);
+    // Web Awesome completes requestClose after awaiting its hide animation. An
+    // owner may already have requested another open while native dialog.open was
+    // still true. Reconcile that request instead of overwriting it with this hide.
+    if (this.open) {
+      void this.syncDialogOpen();
+      return;
+    }
     const returnFocus = this.returnFocusOverride;
     const originalReturnFocus = this.returnFocus;
     this.returnFocusOverride = undefined;
-    this.open = false;
     this.returnFocus = null;
     if (returnFocus === undefined) {
       return;
@@ -385,6 +393,9 @@ export class OpenClawModalDialog extends OpenClawLitElement {
       event.preventDefault();
       return;
     }
+    // Record accepted dismissal now so a later owner reopen is distinguishable
+    // from the old dialog's open state when wa-after-hide eventually arrives.
+    this.open = false;
     this.focusGeneration += 1;
     this.hiding = true;
   };

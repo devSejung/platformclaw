@@ -7,6 +7,9 @@ import type {
   ControlPlaneSavedVmConnectionStore,
   ExecutionTarget,
   PersonalExecutionTarget,
+  ControlPlaneVmAuthenticationFailureStore,
+  VmAuthenticationFailure,
+  VmCredentialStateChange,
 } from "./execution-contracts.js";
 
 export type ExecutionTargetSnapshot =
@@ -98,9 +101,42 @@ function assertSameVmTarget(
 export class ExecutionHandoffService {
   constructor(
     private readonly store: ControlPlaneExecutionTargetStore &
+      ControlPlaneVmAuthenticationFailureStore &
       Partial<ControlPlaneSavedVmConnectionStore>,
     private readonly credentialBroker: ExecutionCredentialGrantIssuer,
+    private readonly options: {
+      onVmCredentialStateChanged?: (change: VmCredentialStateChange) => Promise<void>;
+      now?: () => number;
+    } = {},
   ) {}
+
+  async reportAuthenticationFailure(
+    params: VmAuthenticationFailure,
+  ): Promise<{ recorded: boolean }> {
+    const agentId = requireAgentId(params.agentId);
+    if (
+      !params.allocationId.trim() ||
+      !Number.isSafeInteger(params.targetRevision) ||
+      params.targetRevision < 0 ||
+      !Number.isSafeInteger(params.credentialRevision) ||
+      params.credentialRevision < 1
+    ) {
+      throw new ControlPlaneStateError("VM authentication failure report is invalid");
+    }
+    const result = await this.store.recordVmAuthenticationFailure({
+      ...params,
+      agentId,
+      failedAt: (this.options.now ?? Date.now)(),
+    });
+    if (result.recorded) {
+      await this.options.onVmCredentialStateChanged?.({
+        ...params,
+        agentId,
+        status: "update_required",
+      });
+    }
+    return result;
+  }
 
   async resolveTarget(
     agentId: string,

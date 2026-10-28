@@ -2174,6 +2174,7 @@ grep -qx 'profile-secret-2' "$secret_root/guide-video-s3-secret-key"
     expect(fake?.cap_add).toEqual(["SETGID", "SETUID"]);
     expect(fake?.security_opt).toEqual(["no-new-privileges:true"]);
     expect(fake?.volumes).toEqual([
+      "${PLATFORMCLAW_REPO_ROOT:?set PLATFORMCLAW_REPO_ROOT}/scripts/e2e/lib/platformclaw-vm-reauth:/fixture/reauth:ro",
       "platformclaw-smoke-safeconnect-state:/state",
       "platformclaw-smoke-safeconnect-users:/users",
       "platformclaw-smoke-safeconnect-appdata:/appdata",

@@ -1,4 +1,24 @@
 export const executionTranslations: Readonly<Record<string, string>> = {
+  "platformClaw.execution.recoveryTitle": "Reconnect to your VM",
+  "platformClaw.execution.recoveryDescription":
+    "The saved password was not accepted. Enter your current AD password to reconnect.",
+  "platformClaw.execution.recoverySaveHelp":
+    "Your saved password is updated only after the connection succeeds.",
+  "platformClaw.execution.recoverySave": "Save and reconnect",
+  "platformClaw.execution.recoveryLoadFailed":
+    "Could not open VM connection settings. Reload the page and try again.",
+  "platformClaw.execution.recoveryChecking": "Checking connection…",
+  "platformClaw.execution.recoveryPasswordRequired": "Enter your AD password.",
+  "platformClaw.execution.recoveryDeferred":
+    "Your VM needs authentication. Reconnect when you are ready.",
+  "platformClaw.execution.recoveryReconnect": "Reconnect VM",
+  "platformClaw.execution.recoverySucceeded":
+    "VM reconnected and password saved. Previous requests were not run again.",
+  "platformClaw.execution.recoveryConfirmed":
+    "The current VM connection is confirmed ready. Previous requests were not run again.",
+  "platformClaw.execution.recoveryStateUnavailable":
+    "Could not check your VM connection. Try again to get its current status.",
+  "platformClaw.execution.recoveryRetry": "Retry connection check",
   "platformClaw.execution.useNamedVm": "Use {name}",
   "platformClaw.execution.reauthenticationRequired": "Sign in again to connect",
   "platformClaw.execution.connectionSettings": "Connection settings",

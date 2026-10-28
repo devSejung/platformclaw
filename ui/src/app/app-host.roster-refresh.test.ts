@@ -2,8 +2,9 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentsListResult, GatewayAgentRow } from "../api/types.ts";
-import { resetAppHostTestGlobals } from "./app-host.test-support.ts";
+import { subscribeToPlatformClawExecutionSettingsChanges } from "../platformclaw/execution-target-events.ts";
 import "./app-host.ts";
+import { resetAppHostTestGlobals } from "./app-host.test-support.ts";
 import type { ApplicationContext } from "./context.ts";
 
 type ShellRosterRefreshState = {
@@ -54,6 +55,32 @@ function createRosterRefreshContext(params: {
 
 describe("OpenClaw shell roster refresh", () => {
   afterEach(resetAppHostTestGlobals);
+
+  it.each(["operator", "personal-agent"] as const)(
+    "invalidates VM recovery only for a personal browser (%s)",
+    (accessMode) => {
+      const harness = createRosterRefreshContext({
+        previous: roster("main", []),
+        next: roster("main", []),
+        selectedId: "main",
+      });
+      const shell = document.createElement(
+        "openclaw-app-shell",
+      ) as unknown as ShellRosterRefreshState;
+      shell.runtime = { context: { ...harness.context, accessMode } };
+      const refresh = vi.fn();
+      const unsubscribe = subscribeToPlatformClawExecutionSettingsChanges(window, refresh);
+      try {
+        shell.handleGatewayEvent({
+          event: "platformclaw.execution.changed",
+          payload: { agentId: "main", credentialRevision: 4, status: "update_required" },
+        });
+        expect(refresh).toHaveBeenCalledTimes(accessMode === "personal-agent" ? 1 : 0);
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
 
   it("refreshes the roster on config.changed and invalidates removed or changed agents", async () => {
     vi.useFakeTimers();

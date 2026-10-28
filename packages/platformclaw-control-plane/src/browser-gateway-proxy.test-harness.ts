@@ -44,6 +44,7 @@ export async function setupBrowserGatewayProxyTest(
     racingNow?: () => number;
     now?: () => number;
     talkOfferRelayAvailable?: boolean;
+    isVmConnectionMutationActive?: (agentId: string) => boolean;
   } = {},
 ) {
   let sequence = 0;
@@ -114,6 +115,7 @@ export async function setupBrowserGatewayProxyTest(
     auditWriter,
     gateway: { request },
     talkOfferRelayAvailable: options.talkOfferRelayAvailable ?? true,
+    isVmConnectionMutationActive: options.isVmConnectionMutationActive,
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
     resolveAgentIdFromSessionKey: sessionAgentId,
     now: options.now ?? (() => NOW),

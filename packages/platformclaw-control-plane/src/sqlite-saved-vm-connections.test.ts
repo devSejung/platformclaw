@@ -21,6 +21,18 @@ describe("saved personal VM connections", () => {
     const store = createSqliteStore();
     const { admin, endpoint, host } = await prepareVm(store);
     const employee = await createActivePersonalAgent(store, "saved.user");
+    const session = await store.createBrowserSession({
+      userId: employee.user.id,
+      tokenHash: "synthetic-credential-recovery-session",
+      createdAt: 7_000,
+    });
+    if (session.status !== "created") {
+      throw new Error("fixture browser session missing");
+    }
+    const credentialAuthority = {
+      expectedBindingId: employee.binding.id,
+      expectedSessionId: session.session.id,
+    };
     const hosts = [host];
     for (const index of [2, 3]) {
       hosts.push(
@@ -75,7 +87,18 @@ describe("saved personal VM connections", () => {
         changedAt: 8_000 + settings.targetRevision,
       });
     };
-    return { store, admin, endpoint, employee, hosts, identity, save, activate };
+    return {
+      store,
+      admin,
+      endpoint,
+      employee,
+      hosts,
+      identity,
+      save,
+      activate,
+      credentialAuthority,
+      session: session.session,
+    };
   }
 
   it("switches three saved VMs atomically and preserves per-VM credentials and coding settings", async () => {
@@ -320,7 +343,7 @@ describe("saved personal VM connections", () => {
   });
 
   it("rejects a stale credential verification before changing the current VM credential", async () => {
-    const { store, identity, save, activate } = await fixture();
+    const { store, identity, save, activate, credentialAuthority } = await fixture();
     const first = await save(0, 0);
     const second = await save(1, 0);
     await activate(first.id);
@@ -334,6 +357,8 @@ describe("saved personal VM connections", () => {
     await expect(
       store.commitPersonalVmCredential({
         ...identity,
+        ...credentialAuthority,
+        expectedCredentialRevision: credentialBefore?.revision ?? null,
         expectedAllocationId: old.allocation.id,
         expectedTargetRevision: old.targetRevision,
         remoteHomeDir: "/home/old",
@@ -416,7 +441,7 @@ describe("saved personal VM connections", () => {
   });
 
   it("never retargets a saved registration to another account or verified filesystem root", async () => {
-    const { store, hosts, identity, save, activate } = await fixture();
+    const { store, hosts, identity, save, activate, credentialAuthority } = await fixture();
     const first = await save(0, 0);
     const saved = await store.getSavedVmConnectionCredential({
       ...identity,
@@ -468,6 +493,8 @@ describe("saved personal VM connections", () => {
     await expect(
       store.commitPersonalVmCredential({
         ...identity,
+        ...credentialAuthority,
+        expectedCredentialRevision: credential?.revision ?? null,
         expectedAllocationId: settings.allocation.id,
         expectedTargetRevision: settings.targetRevision,
         remoteHomeDir: "/home/moved",

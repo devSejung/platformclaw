@@ -10,6 +10,7 @@ import {
   UI_COMMAND_EVENT,
 } from "../components/panel-toggle-contract.ts";
 import { i18n, isSupportedLocale } from "../i18n/index.ts";
+import { notifyPlatformClawExecutionSettingsChanged } from "../platformclaw/execution-target-events.ts";
 import type { ShellRouteState } from "./app-host-route-state.ts";
 import type { ApplicationContext } from "./context.ts";
 import {
@@ -138,6 +139,13 @@ export class ShellGatewayOwner {
 
   handleGatewayEvent(event: GatewayEventFrame): void {
     this.host.sidebarWorkboardRuntime?.handleGatewayEvent(event.event);
+    if (event.event === "platformclaw.execution.changed") {
+      if (this.host.context?.accessMode === "personal-agent") {
+        // The owner-filtered event is only an invalidation; GET supplies current authority.
+        notifyPlatformClawExecutionSettingsChanged();
+      }
+      return;
+    }
     if (event.event === "sessions.changed") {
       const context = this.host.context;
       if (context) {
@@ -269,6 +277,9 @@ export class ShellGatewayOwner {
     this.ensureRuntimeConfig(snapshot);
     if (previousPhase !== "connected" && snapshot.phase === "connected") {
       i18n.retryPendingLocale();
+      if (this.host.context?.accessMode === "personal-agent") {
+        notifyPlatformClawExecutionSettingsChanged();
+      }
     }
     this.host.syncSidebarWorkboard();
     // Gateway-served chunks retry on reconnect after an earlier idle import failed.

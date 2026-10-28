@@ -11,6 +11,7 @@ import type { VmAdministrationService } from "./browser-vm-admin-http.js";
 import type { JiraVocService } from "./browser-voc-http.js";
 import type { EmployeeSsoService } from "./employee-sso.js";
 import type { ExecCredentialService } from "./exec-credential-service.js";
+import type { VmCredentialStateChange } from "./execution-contracts.js";
 import type { PlatformClawGatewayBackend } from "./gateway-runtime-client.js";
 import type { KnoxRoutingService } from "./knox-routing-service.js";
 import type { SkillHubService } from "./skill-hub-service.js";
@@ -65,6 +66,7 @@ export type PlatformClawWebIngressOptions = {
   gatewayProxy: PlatformClawBrowserGatewayPolicy;
   gateway: PlatformClawGatewayBackend;
   executionService?: EmployeeExecutionService;
+  subscribeExecutionChanges?: (listener: (change: VmCredentialStateChange) => void) => () => void;
   vmAdministrationService?: VmAdministrationService;
   announcementService?: BrowserAnnouncementService;
   mcpAdministrationService?: McpAdministrationService;

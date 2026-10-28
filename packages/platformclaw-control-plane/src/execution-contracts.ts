@@ -280,6 +280,7 @@ export interface ControlPlaneEmployeeExecutionStore {
     agentId: string;
     expectedAllocationId: string;
     expectedTargetRevision: number;
+    expectedCredentialRevision?: number;
     checkedAt: number;
     result:
       | { status: "ready"; remoteHomeDir: string; remoteWorkspaceDir: string }
@@ -411,6 +412,9 @@ export interface ControlPlaneAtomicVmCredentialStore {
   commitPersonalVmCredential(params: {
     actorUserId: string;
     agentId: string;
+    expectedBindingId: string;
+    expectedCredentialRevision: number | null;
+    expectedSessionId: string;
     expectedAllocationId: string;
     expectedTargetRevision: number;
     remoteHomeDir: string;
@@ -433,5 +437,24 @@ export interface ControlPlaneAtomicVmCredentialStore {
     agentId: string;
     releasedAt: number;
   }): Promise<VmAllocation | null>;
+}
+
+export type VmAuthenticationFailure = {
+  agentId: string;
+  allocationId: string;
+  targetRevision: number;
+  credentialRevision: number;
+};
+
+export const PLATFORMCLAW_EXECUTION_CHANGED = "platformclaw.execution.changed" as const;
+
+export type VmCredentialStateChange = VmAuthenticationFailure & {
+  status: "current" | "update_required";
+};
+
+export interface ControlPlaneVmAuthenticationFailureStore {
+  recordVmAuthenticationFailure(
+    params: VmAuthenticationFailure & { failedAt: number },
+  ): Promise<{ recorded: boolean }>;
 }
 import type { SshCredentialEnvelope } from "./ssh-credential-contracts.js";
