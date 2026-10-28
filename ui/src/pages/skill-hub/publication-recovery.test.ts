@@ -122,6 +122,79 @@ describe("Skill Hub publication request recovery", () => {
     },
   );
 
+  it.each(["platform_server", "assigned_vm"] as const)(
+    "restarts the unchanged %s draft after another tab confirms cancellation",
+    async (source) => {
+      const requests: Array<Record<string, unknown>> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = skillHubRequestUrl(input);
+          if (url.endsWith("/config")) {
+            return skillHubJson(skillHubConfig({ activeTarget: source }));
+          }
+          if (url.includes("/workspace-skills")) {
+            return skillHubJson({
+              source,
+              targetId: "original-target",
+              targetRevision: 1,
+              items: [{ skillKey: "demo", revision: "original" }],
+            });
+          }
+          if (url.endsWith("/publish")) {
+            const request: Record<string, unknown> = JSON.parse(skillHubRequestBody(init?.body));
+            requests.push(request);
+            if (requests.length === 1) {
+              return skillHubJson({ error: "Receipt unavailable" }, 503);
+            }
+            return request.operationId === requests[0]!.operationId
+              ? skillHubJson(
+                  {
+                    error: "Cancelled in another tab",
+                    details: { code: "skill-hub-publication-cancelled" },
+                  },
+                  409,
+                )
+              : skillHubJson({ id: "new-entry", slug: "demo", version: "2.3.4" });
+          }
+          return skillHubJson({ items: [], total: 0 });
+        }),
+      );
+      const page = await mount();
+      button(page, "Publish workspace skill").click();
+      const dialog = () => page.querySelector(".skill-hub-workspace-publish")!;
+      await waitForFast(() => expect(button(dialog(), "Publish").disabled).toBe(false));
+      field(dialog(), "version", "2.3.4");
+      field(dialog(), "sharing", "PRIVATE", "change");
+      button(dialog(), "Publish").click();
+      await waitForFast(() =>
+        expect(button(dialog(), "Restore original request").disabled).toBe(false),
+      );
+      button(dialog(), "Publish").click();
+      await waitForFast(() =>
+        expect(dialog().textContent).toContain("This publication request was cancelled."),
+      );
+      await waitForFast(() => expect(button(dialog(), "Publish").disabled).toBe(false));
+      expect(requests[1]).toEqual(requests[0]);
+      button(dialog(), "Publish").click();
+      await waitForFast(() => expect(requests).toHaveLength(3));
+      expect(requests[2]!.operationId).not.toBe(requests[0]!.operationId);
+      expect(requests[2]).toEqual({ ...requests[0], operationId: requests[2]!.operationId });
+      expect(requests[2]).toMatchObject({
+        source,
+        expectedTargetId: "original-target",
+        version: "2.3.4",
+        sharing: { mode: "PRIVATE", userIds: [], scopeIds: [] },
+      });
+      await waitForFast(() =>
+        expect(page.querySelector(".skill-hub-workspace-publish")).toBeNull(),
+      );
+      button(page, "Publish workspace skill").click();
+      await waitForFast(() => expect(button(dialog(), "Publish").disabled).toBe(false));
+      expect(dialog().querySelector(".skill-hub-publication-recovery")).toBeNull();
+    },
+  );
+
   it("retains the original ZIP File without reading bytes and never adopts its ID for a different file", async () => {
     const requests: Array<{ url: URL; file: RequestInit["body"] }> = [];
     let committed = false;

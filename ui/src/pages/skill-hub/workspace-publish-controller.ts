@@ -3,6 +3,7 @@ import { loadPlatformClawLocale, platformClawT } from "../../platformclaw/i18n.t
 import {
   loadPlatformClawWorkspaceSkills,
   publishPlatformClawWorkspaceSkill,
+  PlatformClawSkillHubRequestError,
   type PlatformClawSkillHubConfig,
   type PlatformClawSkillHubMessage,
   type PlatformClawSkillHubDetail,
@@ -299,7 +300,14 @@ export class SkillHubWorkspacePublishController implements ReactiveController {
         this.options.setMessage,
       );
     } catch (error) {
-      this.attempts.remember(attempt);
+      if (
+        error instanceof PlatformClawSkillHubRequestError &&
+        error.details?.code === "skill-hub-publication-cancelled"
+      ) {
+        this.forgetPublication(attempt.operationId);
+      } else {
+        this.attempts.remember(attempt);
+      }
       this.error = error instanceof Error ? error.message : String(error);
       // A lost response may have left a canonical pending request. Refresh its cancel affordance.
       // Keep the dialog usable while this optional read is slow or unavailable.

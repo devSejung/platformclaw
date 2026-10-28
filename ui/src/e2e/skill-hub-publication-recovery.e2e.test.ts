@@ -21,6 +21,7 @@ const copy = {
     connection: "The connection was interrupted.",
     diagnostics: "Error details:",
     unconfirmedUpload: "An earlier upload with these settings is unconfirmed.",
+    cancelledRequest: "This publication request was cancelled. Start a new publication.",
   },
   "ko-KR": {
     publish: "작업 공간 스킬 게시",
@@ -34,6 +35,7 @@ const copy = {
     connection: "연결이 끊겼습니다.",
     diagnostics: "오류 정보:",
     unconfirmedUpload: "같은 설정의 이전 업로드 결과를 확인하지 못했습니다.",
+    cancelledRequest: "취소된 게시 요청입니다. 새 게시를 시작하세요.",
   },
 };
 const suite = createControlUiE2eSuite({
@@ -85,6 +87,78 @@ async function captureUsableDialog(page: Page, dialog: Locator, name: string) {
 }
 
 suite.define(() => {
+  it.each([
+    { locale: "en-US", source: "platform_server" },
+    { locale: "ko-KR", source: "assigned_vm" },
+  ] as const)(
+    "restarts the unchanged $source draft after another-tab cancellation in $locale",
+    async ({ locale, source }) => {
+      const { page, executionMutations, controls, inventories } = await newPage(390, locale);
+      controls.inventoryHook = async (route, target) => {
+        const inventorySource = target === "assigned_vm" ? "assigned_vm" : "platform_server";
+        await route.fulfill({
+          json: {
+            source: inventorySource,
+            targetId: inventorySource === "assigned_vm" ? "proof-vm" : "platform-server",
+            targetRevision: 1,
+            items: inventories[inventorySource],
+          },
+        });
+        return true;
+      };
+      const labels = copy[locale];
+      const requests: Array<Record<string, unknown>> = [];
+      await page.route("**/platformclaw/api/skill-hub/publish", (route) => {
+        const request = route.request().postDataJSON() as Record<string, unknown>;
+        requests.push(request);
+        if (requests.length === 1) {
+          return route.fulfill({ status: 503, json: { error: "Receipt unavailable" } });
+        }
+        return request.operationId === requests[0]!.operationId
+          ? route.fulfill({
+              status: 409,
+              json: {
+                error: "Cancelled in another tab",
+                details: { code: "skill-hub-publication-cancelled" },
+              },
+            })
+          : route.fulfill({ json: { id: "new-entry", slug: request.skill, version: "2.3.4" } });
+      });
+      await page.goto(`${suite.server.baseUrl}platformclaw/app/skills/hub`);
+      await page.getByRole("button", { name: labels.publish, exact: true }).click();
+      const dialog = page.locator(".skill-hub-workspace-publish");
+      await dialog.locator('[name="source"]').selectOption(source);
+      await expect.poll(() => dialog.locator("button.primary").isEnabled()).toBe(true);
+      await dialog.locator('[name="version"]').fill("2.3.4");
+      await dialog.locator('[name="sharing"]').selectOption("PRIVATE");
+      await dialog.locator("button.primary").click();
+      await expect
+        .poll(() => dialog.locator(".skill-hub-publication-recovery button").count())
+        .toBe(1);
+      await dialog.locator("button.primary").click();
+      await expect
+        .poll(() => dialog.getByRole("alert").textContent())
+        .toContain(labels.cancelledRequest);
+      await expect.poll(() => dialog.locator("button.primary").isEnabled()).toBe(true);
+      expect(requests[1]).toEqual(requests[0]);
+      expect(await dialog.locator('[name="source"]').inputValue()).toBe(source);
+      expect(await dialog.locator('[name="version"]').inputValue()).toBe("2.3.4");
+      expect(await dialog.locator('[name="sharing"]').inputValue()).toBe("PRIVATE");
+      await dialog.locator("button.primary").click();
+      await expect.poll(() => requests.length).toBe(3);
+      expect(requests[2]!.operationId).not.toBe(requests[0]!.operationId);
+      expect(requests[2]).toEqual({ ...requests[0], operationId: requests[2]!.operationId });
+      expect(requests[2]!.expectedTargetId).toBe(
+        source === "assigned_vm" ? "proof-vm" : "platform-server",
+      );
+      await expect.poll(() => dialog.count()).toBe(0);
+      await page.getByRole("button", { name: labels.publish, exact: true }).click();
+      await expect.poll(() => dialog.locator("button.primary").isEnabled()).toBe(true);
+      expect(await dialog.locator(".skill-hub-publication-recovery").count()).toBe(0);
+      expect(executionMutations).toEqual([]);
+    },
+  );
+
   it.each(
     locales.flatMap((locale) =>
       (["completed", "pending", "invalid"] as const).map((outcome) => ({ locale, outcome })),
