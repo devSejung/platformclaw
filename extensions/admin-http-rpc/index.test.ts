@@ -18,6 +18,7 @@ vi.mock("openclaw/plugin-sdk/ssrf-runtime", async (importOriginal) => ({
 
 afterEach(() => {
   vi.resetAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("admin-http-rpc plugin entry", () => {
@@ -146,6 +147,7 @@ describe("admin-http-rpc plugin entry", () => {
   });
 
   it("routes ordinary model lifecycle hooks to HTTP prediction admission", async () => {
+    vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", "codemate/codellm-fast");
     const routes: Array<Parameters<PluginApi["registerHttpRoute"]>[0]> = [];
     const hooks = new Map<string, (event: { callId: string }) => unknown>();
     const stores = new Map<string, Map<string, unknown>>();

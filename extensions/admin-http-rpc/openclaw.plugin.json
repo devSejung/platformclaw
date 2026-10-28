@@ -16,7 +16,7 @@
       "composerPredictionsEnabled": {
         "type": "boolean",
         "default": false,
-        "description": "Enable Web-only, account-opt-in predictions using codemate/codellm-fast."
+        "description": "Enable Web-only, account-opt-in predictions using the model selected by PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL."
       }
     }
   }
