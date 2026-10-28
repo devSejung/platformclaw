@@ -15,10 +15,16 @@ describe("Web composer predictions", () => {
     idle: true,
     eligible: true,
   };
+  const requestBody = (options?: RequestInit) => {
+    if (typeof options?.body !== "string") {
+      throw new Error("Expected a JSON string request body");
+    }
+    return JSON.parse(options.body) as { action: string; enabled?: boolean };
+  };
   beforeEach(async () => {
     vi.useFakeTimers();
     fetchMock.mockImplementation(async (_url, options) => {
-      const body = JSON.parse(String(options?.body));
+      const body = requestBody(options);
       return Response.json(
         body.action === "preferences"
           ? { available: true, enabled: body.enabled ?? true }
@@ -36,9 +42,7 @@ describe("Web composer predictions", () => {
     vi.useRealTimers();
   });
   const predictCalls = () =>
-    fetchMock.mock.calls.filter(
-      ([, options]) => JSON.parse(String(options?.body)).action === "predict",
-    );
+    fetchMock.mock.calls.filter(([, options]) => requestBody(options).action === "predict");
   it("waits one second, predicts once per completion, and only takes explicit text", async () => {
     prediction.sync(source);
     await vi.advanceTimersByTimeAsync(999);
