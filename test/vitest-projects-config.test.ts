@@ -253,12 +253,12 @@ describe("projects vitest config", () => {
     ]);
   });
 
-  it("keeps the root ui lane on the shared non-isolated runner", () => {
+  it("isolates the UI DOM registry together with its module graph", () => {
     const config = createUiVitestConfig();
     const testConfig = requireTestConfig(config);
     expect(testConfig.environment).toBe("jsdom");
-    expect(testConfig.isolate).toBe(false);
-    expect(normalizeConfigPath(testConfig.runner)).toBe("test/non-isolated-runner.ts");
+    expect(testConfig.isolate).toBe(true);
+    expect(testConfig.runner).toBeUndefined();
     const setupFiles = normalizeConfigPaths(testConfig.setupFiles);
     expect(setupFiles).not.toContain("test/setup-openclaw-runtime.ts");
     expect(setupFiles).toContain("ui/src/test-helpers/lit-warnings.setup.ts");

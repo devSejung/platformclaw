@@ -22,33 +22,6 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.quickActions.openMessenger": "Knox",
   "platformClaw.quickActions.messengerHelp":
     "Open sopa.ai in Knox. If it does not open, check that Knox is installed and signed in, and allow the browser to open the app.",
-  "platformClaw.skillHub.namespace.create": "Create namespace",
-  "platformClaw.skillHub.namespace.description":
-    "Create a place to share skills company-wide or with one of your teams, groups, or parts.",
-  "platformClaw.skillHub.namespace.nameHelp":
-    "Use 2–64 lowercase ASCII letters, numbers, or hyphens. Start and end with a letter or number; consecutive hyphens are not allowed.",
-  "platformClaw.skillHub.namespace.scope": "Sharing scope",
-  "platformClaw.skillHub.namespace.noScopes":
-    "No sharing scope is available. Check your organization membership or contact an administrator.",
-  "platformClaw.skillHub.namespace.creating": "Creating namespace…",
-  "platformClaw.skillHub.namespace.created":
-    "Created namespace {namespace}. You can now select it when publishing.",
-  "platformClaw.skillHub.namespace.createdReloadFailed":
-    "Created namespace {namespace}, but publishing options could not be refreshed. Reload the page before publishing.",
-  "platformClaw.skillHub.namespace.conflict":
-    "That namespace already exists or is reserved. Choose another name.",
-  "platformClaw.skillHub.namespace.invalidName":
-    "That namespace name is invalid or reserved. Choose another name with 2–64 lowercase ASCII letters, numbers, or hyphens; start and end with a letter or number and avoid consecutive hyphens.",
-  "platformClaw.skillHub.namespace.forbidden":
-    "You no longer have permission for this scope. Reopen this dialog to refresh your available scopes.",
-  "platformClaw.skillHub.namespace.unavailable":
-    "Creation could not be completed. Retry with the same namespace and scope to check and finish it.",
-  "platformClaw.skillHub.namespace.incomplete": "Unfinished namespaces",
-  "platformClaw.skillHub.namespace.failed": "Creation needs attention.",
-  "platformClaw.skillHub.namespace.pending": "Setup is incomplete.",
-  "platformClaw.skillHub.namespace.inProgress":
-    "Creation is already in progress. Wait briefly, then retry with the same namespace and scope.",
-  "platformClaw.skillHub.namespace.resume": "Use these values to retry",
   "platformClaw.organization.automatic": "Automatically managed",
   "platformClaw.organization.automatic.description":
     "Organization names and hierarchy are synchronized at login. Automatic membership changes preserve manual grants.",
@@ -180,21 +153,20 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.execution.agentInstalled": "Installed: {version}",
   "platformClaw.skillHub.publish.action": "Publish workspace skill",
   "platformClaw.skillHub.publish.title": "Publish a workspace skill",
-  "platformClaw.skillHub.publish.description":
-    "Choose a skill from your Basic workspace or assigned VM. Your current work location will not change.",
   "platformClaw.skillHub.publish.source": "Workspace source",
-  "platformClaw.skillHub.publish.destination": "Publish to",
-  "platformClaw.skillHub.publish.chooseDestination": "Choose a publish destination",
-  "platformClaw.skillHub.publish.global": "Company-wide",
-  "platformClaw.skillHub.scopeTeam": "Team",
   "platformClaw.skillHub.publish.sourceBasic": "Basic workspace",
   "platformClaw.skillHub.publish.sourceVm": "My VM workspace",
   "platformClaw.skillHub.publish.skill": "Workspace skill",
   "platformClaw.skillHub.publish.chooseSkill": "Choose a workspace skill",
   "platformClaw.skillHub.publish.loading": "Loading workspace skills…",
   "platformClaw.skillHub.publish.empty": "No publishable skills were found in this workspace.",
-  "platformClaw.skillHub.publish.submit": "Scan and publish skill",
   "platformClaw.skillHub.publish.published": "Published {skill} from {source}.",
+  "platformClaw.skillHub.changedReloadFailed":
+    "{outcome} Latest Skill Hub data could not be loaded. Reload this page before another change. {error}",
+  "platformClaw.skillHub.configLoadFailed":
+    "Skill Hub publishing is unavailable because its settings could not be loaded. Select Refresh to try again. {error}",
+  "platformClaw.skillHub.restored": "Restored {skill}.",
+  "platformClaw.skillHub.transferAccepted": "Accepted ownership of {skill}.",
   "platformClaw.organization.title": "Organization",
   "platformClaw.organization.navLabel": "Organization",
   "platformClaw.organization.subtitle":
@@ -363,7 +335,7 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.organization.action.rename": "Confirm scope rename",
   "platformClaw.organization.action.archive": "Confirm scope archive",
   "platformClaw.organization.action.archiveWarning":
-    "Archiving also makes every descendant inactive, rejects pending joins and promotions, retires active Memory claims, and clears affected primary scopes. Skill Hub bindings must be transferred or retired first.",
+    "Archiving also makes every descendant inactive, rejects pending joins and promotions, retires active Memory claims, and clears affected primary scopes.",
   "platformClaw.organization.action.reason": "Reason",
   "platformClaw.organization.action.confirm": "Confirm",
   "platformClaw.organization.action.cancel": "Cancel",
@@ -380,7 +352,7 @@ export const translations: Readonly<Record<string, string>> = {
     "That name already exists under the selected parent. Choose another name.",
   "platformClaw.organization.errors.invalid": "Check the organization fields and try again.",
   "platformClaw.organization.errors.archiveBlocked":
-    "Archive is blocked. Transfer or retire affected Skill Hub namespace bindings, then try again.",
+    "Check the organization details and reason, then try archiving again.",
   "platformClaw.organization.errors.searchLength": "Enter at least 2 characters to search users.",
   "platformClaw.organization.errors.noMembershipRemoved":
     "No membership was removed. The roster was refreshed; review its current state.",

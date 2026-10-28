@@ -1,6 +1,5 @@
-// The shared UI runner reuses its module graph across fresh jsdom registries.
-// Tests in this list depend on module singletons or custom-element registration
-// matching the current registry, so they need a fresh graph in the isolated lane.
+// Preserve the dedicated UI project's ownership for scoped and full scheduling.
+// Both UI projects isolate their DOM registry and module graph together per file.
 export const uiIsolatedTestFiles = [
   "ui/src/app/app-host.server-prefs.test.ts",
   "ui/src/app/bootstrap.test.ts",

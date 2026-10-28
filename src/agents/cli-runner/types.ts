@@ -257,6 +257,8 @@ export type CliSecretInput = SpawnSecretInput & {
 type CliPreparedBackend = {
   backend: CliBackendConfig;
   beforeExecution?: () => Promise<void>;
+  /** Run-local skill authority, checked again after a live transport finishes preparation. */
+  revalidateSkillContext?: () => Promise<void>;
   cleanup?: () => Promise<void>;
   /** Private child-only credential transport; never serialized into env or public plugin state. */
   secretInput?: CliSecretInput;

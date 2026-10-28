@@ -29,6 +29,12 @@ export class KnoxRoutingService {
     },
   ) {}
 
+  async isActivePersonalAgent(agentId: string): Promise<boolean> {
+    return (await this.options.store.listAgentBindingsByState("active")).some(
+      (binding) => binding.agentId === agentId && binding.kind === "personal",
+    );
+  }
+
   async resolve(params: {
     accountId: string;
     conversationType: "dm" | "room";

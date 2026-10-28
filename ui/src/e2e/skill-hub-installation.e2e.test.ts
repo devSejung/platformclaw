@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
 import {
+  fixtureSkillId,
   installSkillHubFixture,
   screenshotInstallation,
 } from "./skill-hub-installation.e2e.test-helpers.ts";
@@ -26,7 +27,7 @@ suite.define(() => {
   it("reads each target independently, blocks the installed version and confirms version changes", async () => {
     const { page, reads, installs, executionMutations, gateway } = await newPage();
     await page.goto(`${suite.server.baseUrl}platformclaw/app/skills/hub`);
-    await page.locator(".skill-hub-card", { hasText: "release-checklist" }).click();
+    await page.locator(".skill-hub-card", { hasText: "Release checklist" }).click();
     const detail = page.locator(".skill-hub-detail");
     const basic = detail.locator('[data-install-target="platform_server"]');
     const vm = detail.locator('[data-install-target="assigned_vm"]');
@@ -41,8 +42,7 @@ suite.define(() => {
     expect(await basic.locator("button").first().isDisabled()).toBe(true);
     expect(installs).toEqual([
       {
-        namespace: "engineering",
-        slug: "release-checklist",
+        id: fixtureSkillId("release-checklist"),
         version: "2.3.0",
         destination: "platform_server",
       },
@@ -64,8 +64,7 @@ suite.define(() => {
     expect(await vm.locator("button").first().isDisabled()).toBe(true);
     expect(await basic.locator("button").first().isEnabled()).toBe(true);
     expect(installs.at(-1)).toEqual({
-      namespace: "engineering",
-      slug: "release-checklist",
+      id: fixtureSkillId("release-checklist"),
       version: "1.4.0",
       destination: "assigned_vm",
       acknowledgedReplacement: true,
@@ -96,7 +95,7 @@ suite.define(() => {
       disabledReason: "No development VM is assigned. Set up a VM in execution settings first.",
     };
     await page.goto(`${suite.server.baseUrl}platformclaw/app/skills/hub`);
-    await page.locator(".skill-hub-card", { hasText: "release-checklist" }).click();
+    await page.locator(".skill-hub-card", { hasText: "Release checklist" }).click();
     const basic = page.locator('[data-install-target="platform_server"]');
     const vm = page.locator('[data-install-target="assigned_vm"]');
     await expect.poll(() => basic.locator("button").first().isEnabled()).toBe(true);
@@ -123,7 +122,7 @@ suite.define(() => {
       return true;
     };
     await page.goto(`${suite.server.baseUrl}platformclaw/app/skills/hub`);
-    await page.locator(".skill-hub-card", { hasText: "release-checklist" }).click();
+    await page.locator(".skill-hub-card", { hasText: "Release checklist" }).click();
     const basic = page.locator('[data-install-target="platform_server"]');
     const vm = page.locator('[data-install-target="assigned_vm"]');
     await expect.poll(() => basic.locator("button").first().isEnabled()).toBe(true);
@@ -161,14 +160,14 @@ suite.define(() => {
       return true;
     };
     await page.goto(`${suite.server.baseUrl}platformclaw/app/skills/hub`);
-    await page.locator(".skill-hub-card", { hasText: "release-checklist" }).click();
+    await page.locator(".skill-hub-card", { hasText: "Release checklist" }).click();
     const detail = page.locator(".skill-hub-detail");
     const basic = detail.locator('[data-install-target="platform_server"]');
     await expect.poll(() => basic.isVisible()).toBe(true);
     expect(await basic.locator("button").first().isDisabled()).toBe(true);
     await screenshotInstallation(page, "07-checking-workspace.png");
     await detail.getByRole("button", { name: "Close", exact: true }).click();
-    await page.locator(".skill-hub-card", { hasText: "incident-guide" }).click();
+    await page.locator(".skill-hub-card", { hasText: "Incident guide" }).click();
     await expect.poll(() => basic.locator("button").first().isEnabled()).toBe(true);
     const oldResponse = page.waitForResponse((response) =>
       response.url().includes("workspace-skills?source=platform_server"),
@@ -189,11 +188,17 @@ suite.define(() => {
   it("explains the installed version and missing VM in Korean", async () => {
     const { page, config, inventories } = await newPage("ko-KR");
     inventories.platform_server = [
-      { skillKey: "release-checklist", version: "2.3.0", revision: "basic-r1" },
+      {
+        skillKey: "release-checklist",
+        version: "2.3.0",
+        revision: "basic-r1",
+        hubSkillId: fixtureSkillId("release-checklist"),
+        hubVersion: "2.3.0",
+      },
     ];
     config.installTargets![1] = { target: "assigned_vm", available: false, status: "unassigned" };
     await page.goto(`${suite.server.baseUrl}platformclaw/app/skills/hub`);
-    await page.locator(".skill-hub-card", { hasText: "release-checklist" }).click();
+    await page.locator(".skill-hub-card", { hasText: "Release checklist" }).click();
     const basic = page.locator('[data-install-target="platform_server"]');
     const vm = page.locator('[data-install-target="assigned_vm"]');
     await expect.poll(() => basic.textContent()).toContain("2.3.0");

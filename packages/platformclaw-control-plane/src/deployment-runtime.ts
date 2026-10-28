@@ -7,7 +7,6 @@ import { loadGatewayServiceIdentity } from "./gateway-service-identity.js";
 import { createPlatformClawGuideVideoS3Source } from "./guide-video-s3.js";
 import { GatewayKnoxRoomAgentProvisioner } from "./knox-room-agent-provisioner.js";
 import { GatewayPersonalAgentProvisioner } from "./personal-agent-provisioner.js";
-import { IflytekSkillHubAdapter } from "./skill-hub-adapter.js";
 import { IflytekSkillHubGovernanceClient } from "./skill-hub-governance-client.js";
 import {
   createPlatformClawWebIngressRuntime,
@@ -119,18 +118,12 @@ export function createPlatformClawDeploymentRuntime(
     ...(config.skillHub
       ? {
           skillHub: {
-            adapter: new IflytekSkillHubAdapter({
-              baseUrl: config.skillHub.url,
-              token: config.skillHub.token,
-              maxArchiveBytes: config.skillHub.maxPackageBytes,
-            }),
             governance: new IflytekSkillHubGovernanceClient({
               baseUrl: config.skillHub.url,
               username: "platformclaw-bootstrap",
               password: config.skillHub.bootstrapPassword,
             }),
             workspaceRoot: config.workspaceRoot,
-            allowedNamespaces: config.skillHub.namespaces,
             maxPackageBytes: config.skillHub.maxPackageBytes,
           },
         }

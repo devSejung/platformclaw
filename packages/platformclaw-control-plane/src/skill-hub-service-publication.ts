@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
-import type { PlatformUser } from "./contracts.js";
-import type { SkillHubVisibility } from "./skill-hub-adapter.js";
-import { SkillHubCatalogService } from "./skill-hub-catalog-service.js";
+import { createReadStream } from "node:fs";
+import type { SkillHubPublishArchive } from "./skill-hub-adapter.js";
+import type { SkillHubCatalogEntry, SkillHubSharing } from "./skill-hub-catalog-state.js";
 import { assertSkillHubWorkspace } from "./skill-hub-command-workspace.js";
+import { SkillHubInstallationService } from "./skill-hub-service-installation.js";
 import {
-  compareSemVer,
-  isValidSkillHubVersion,
   MAX_SKILL_FILES,
   MAX_SKILL_MD_BYTES,
   parseSkillMarkdown,
@@ -16,483 +15,383 @@ import {
   SKILL_HUB_UPLOAD_ENTRIES,
   SKILL_KEY_PATTERN,
   SkillHubServiceError,
-  UPLOAD_CHUNK_BYTES,
   validVersion,
-  validVisibility,
-  validateDownloadedArchive,
   type AuthenticatedWorkspace,
-  type SkillHubAudience,
   type SkillInstallTarget,
+  type SkillHubTargetSnapshot,
 } from "./skill-hub-service-support.js";
 import { downloadVmWorkspaceArchive } from "./skill-hub-workspace-export.js";
 import { validateZipArchiveFile, ZipArchiveValidationError } from "./zip-archive-validator.js";
 
-type SkillHubInstallResult = {
-  ok: true;
-  noOp: false;
+type SkillHubPublicationRequest = {
+  operationId: string;
   slug: string;
   version: string;
-  target: SkillInstallTarget;
+  id?: string;
+  expectedRevision?: number;
+  sharing?: SkillHubSharing;
+  reason?: string;
 };
+type SkillHubPublicationSource =
+  | { kind: "zip" }
+  | { kind: SkillInstallTarget; target: SkillHubTargetSnapshot };
 
-export abstract class SkillHubPublicationService extends SkillHubCatalogService {
-  private readonly installLocks = new Map<string, Promise<void>>();
-  private readonly installsInFlight = new Map<string, Promise<SkillHubInstallResult>>();
-
-  private async withInstallLock<T>(
-    agentId: string,
-    destination: SkillInstallTarget,
-    task: () => Promise<T>,
-  ): Promise<T> {
-    const key = `${agentId}\0${destination}`;
-    const previous = this.installLocks.get(key) ?? Promise.resolve();
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const tail = previous.catch(() => undefined).then(() => gate);
-    this.installLocks.set(key, tail);
-    await previous.catch(() => undefined);
-    try {
-      return await task();
-    } finally {
-      release();
-      if (this.installLocks.get(key) === tail) {
-        this.installLocks.delete(key);
+export abstract class SkillHubPublicationService extends SkillHubInstallationService {
+  /** Caller holds the coordinate lock; persist identity before archive or deletion I/O. */
+  protected async ensureArtifactIdentity(
+    entry: SkillHubCatalogEntry,
+    revalidateAuthority: () => Promise<void>,
+  ) {
+    if (entry.registryId !== null) {
+      try {
+        return await this.artifactSkill(entry);
+      } catch (error) {
+        if (error instanceof SkillHubServiceError && error.statusCode === 404) {
+          throw new SkillHubServiceError(
+            "Registry skill identity changed; publication stopped",
+            409,
+          );
+        }
+        throw error;
       }
     }
+    const governance = this.options.governance;
+    if (!governance?.createNamespace) {
+      throw new SkillHubServiceError("Managed registry publication is unavailable", 503);
+    }
+    await revalidateAuthority();
+    await this.adapterCall(() =>
+      governance.createNamespace!({ namespace: entry.namespace, operationId: entry.id }),
+    );
+    const native = await this.adapterCall(() =>
+      governance.reserveArtifactIdentity({
+        namespace: entry.namespace,
+        slug: entry.slug,
+        publicationId: entry.id,
+        revalidateAuthority,
+      }),
+    );
+    this.validateSkillIdentity(native.namespace, native.slug, entry.namespace, entry.slug);
+    // Await the SQLite transaction's commit. A lost archive response must never
+    // leave package bytes whose immutable cleanup identity exists only in memory.
+    await this.options.store.skillHubCatalog.bindRegistryIdentity({
+      skillId: entry.id,
+      registryId: native.id,
+      expectedNamespace: entry.namespace,
+      expectedSlug: entry.slug,
+    });
+    return native;
   }
 
   async publish(
     actor: AuthenticatedWorkspace,
     params: {
+      operationId: string;
       skill: string;
       source?: SkillInstallTarget;
-      namespace: string;
+      expectedTargetId?: string;
       version: string;
-      visibility: string;
+      id?: string;
+      expectedRevision?: number;
+      sharing?: SkillHubSharing;
+      reason?: string;
     },
   ) {
-    const skill = safeName(params.skill, "skill", SKILL_KEY_PATTERN);
-    const namespace = await this.authorizePublishNamespace(actor.user, params.namespace);
+    const slug = safeName(params.skill, "skill", SKILL_KEY_PATTERN);
     const version = validVersion(params.version);
-    const visibility = validVisibility(params.visibility);
-    await this.authorizeVisibilityCeiling(namespace, visibility);
-    await this.authorizeExistingSkillMutation(actor.user, namespace, skill);
+    if (params.id) {
+      await this.requireManager(actor.user, params.id);
+    }
     const source = params.source ?? (await this.resolveExecutionTarget(actor.agentId)).activeTarget;
     const execution = await this.authorizeInstallTarget(actor.agentId, source);
+    if (params.expectedTargetId !== undefined && params.expectedTargetId !== execution.targetId) {
+      throw new SkillHubServiceError(
+        "Skill Hub execution target changed; check status and retry.",
+        409,
+        {
+          code: "skill-hub-changed",
+        },
+      );
+    }
+    await assertSkillHubWorkspace(this.options.store, actor);
     if (source === "assigned_vm") {
       const archive = await downloadVmWorkspaceArchive(this.gatewayCall.bind(this), {
         agentId: actor.agentId,
-        slug: skill,
+        slug,
         version,
         expectedTargetRevision: execution.targetRevision,
         expectedAllocationId: execution.allocationId!,
       });
       try {
-        return await this.publishArchive(
-          actor,
-          { slug: skill, namespace, version, visibility },
-          archive,
-          { source },
-        );
+        return await this.publishArchiveFromSource(actor, { ...params, slug }, archive, {
+          kind: source,
+          target: execution,
+        });
       } finally {
         await archive.cleanup();
       }
     }
-    const archive = await this.packageWorkspaceSkill(actor.workspaceDir, skill, version);
-    return await this.withRegistryMutationLock(namespace, skill, async () => {
-      await this.authorizePublishNamespace(actor.user, namespace);
-      const finalCapabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
-      const currentOwnership = await this.authorizeExistingSkillMutation(
-        actor.user,
-        namespace,
-        skill,
+    const archive = await this.packageWorkspaceSkill(actor.workspaceDir, slug, version);
+    try {
+      return await this.publishValidated(
+        actor,
+        { ...params, slug, version },
+        archive,
+        archive.summary,
+        { kind: source, target: execution },
       );
-      await assertSkillHubWorkspace(this.options.store, actor);
-      const result = await this.adapterCall(() =>
-        this.options.adapter.publish({
-          namespace,
-          archive,
-          filename: `${skill}-${version}.zip`,
-          visibility,
-        }),
-      );
-      if (
-        result.namespace !== namespace ||
-        result.slug !== skill ||
-        result.version !== version ||
-        result.visibility !== visibility
-      ) {
-        throw new SkillHubServiceError("Skill Hub returned a mismatched publish result", 502);
-      }
-      const recorded = await this.options.store.recordSkillHubPublication({
-        namespace,
-        slug: skill,
-        ownerUserId: actor.user.id,
-        expectedOwnerUserId: currentOwnership?.ownerUserId ?? null,
-        expectedOwnerUpdatedAt: currentOwnership?.updatedAt ?? null,
-        expectedBindingUpdatedAt: finalCapabilities.binding!.updatedAt,
-        visibility,
-        version,
-        changedAt: this.now(),
-      });
-      await this.reconcileOwners();
-      await this.enqueueGovernance(recorded.ownerUserId, namespace, skill, version, visibility);
-      await this.audit(actor.user.id, "skill-hub.publish", `${namespace}/${skill}@${version}`, {
-        visibility,
-        archiveBytes: archive.byteLength,
-        source,
-      });
-      return recorded.reconciliationRequired
-        ? { ...result, ownershipReviewRequired: true as const }
-        : result;
-    });
+    } finally {
+      await archive.cleanup();
+    }
   }
 
   async publishArchive(
     actor: AuthenticatedWorkspace,
-    params: { slug: string; namespace: string; version: string; visibility: string },
+    params: SkillHubPublicationRequest,
     archive: { path: string; size: number },
-    options: { source?: SkillInstallTarget } = {},
+  ) {
+    return await this.publishArchiveFromSource(actor, params, archive, { kind: "zip" });
+  }
+
+  private async publishArchiveFromSource(
+    actor: AuthenticatedWorkspace,
+    params: SkillHubPublicationRequest,
+    archive: { path: string; size: number },
+    source: SkillHubPublicationSource,
   ) {
     const slug = safeName(params.slug, "skill slug", SKILL_KEY_PATTERN);
-    const namespace = await this.authorizePublishNamespace(actor.user, params.namespace);
     const version = validVersion(params.version);
-    const visibility = validVisibility(params.visibility);
-    await this.authorizeVisibilityCeiling(namespace, visibility);
-    await this.authorizeExistingSkillMutation(actor.user, namespace, slug);
-    let skillMarkdown: Buffer;
+    let summary: string;
     try {
-      ({ skillMarkdown } = await validateZipArchiveFile(archive.path, archive.size, {
+      const { skillMarkdown } = await validateZipArchiveFile(archive.path, archive.size, {
         archiveBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
         expandedBytes: SKILL_HUB_UPLOAD_EXPANDED_BYTES,
         entryBytes: SKILL_HUB_UPLOAD_ENTRY_BYTES,
         files: MAX_SKILL_FILES,
         entries: SKILL_HUB_UPLOAD_ENTRIES,
         retainedEntryBytes: MAX_SKILL_MD_BYTES,
-      }));
+      });
+      const metadata = parseSkillMarkdown(skillMarkdown.toString("utf8"), slug);
+      summary = metadata.description;
+      if (metadata.version !== version) {
+        throw new SkillHubServiceError(
+          "SKILL.md version does not match the requested version",
+          400,
+          { code: "skill-hub-version-mismatch" },
+        );
+      }
     } catch (error) {
       if (error instanceof ZipArchiveValidationError) {
-        throw new SkillHubServiceError(error.message, 400);
+        throw new SkillHubServiceError(error.message, 400, { code: "skill-hub-invalid-archive" });
       }
       throw error;
     }
-    const metadata = parseSkillMarkdown(skillMarkdown.toString("utf8"), slug);
-    if (metadata.version !== version) {
-      throw new SkillHubServiceError("SKILL.md version does not match the requested version", 400);
+    return await this.publishValidated(
+      actor,
+      { ...params, slug, version },
+      archive,
+      summary,
+      source,
+    );
+  }
+
+  private async publishValidated(
+    actor: AuthenticatedWorkspace,
+    params: SkillHubPublicationRequest,
+    archive: SkillHubPublishArchive,
+    summary: string,
+    source: SkillHubPublicationSource,
+  ) {
+    if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/iu.test(params.operationId)) {
+      throw new SkillHubServiceError("Publication operation ID is required", 400);
     }
-    return await this.withRegistryMutationLock(namespace, slug, async () => {
-      await this.authorizePublishNamespace(actor.user, namespace);
-      const finalCapabilities = await this.resolveNamespaceCapabilities(actor.user, namespace);
-      const currentOwnership = await this.authorizeExistingSkillMutation(
-        actor.user,
-        namespace,
-        slug,
-      );
-      await assertSkillHubWorkspace(this.options.store, actor);
-      const result = await this.adapterCall(() =>
-        this.options.adapter.publish({
-          namespace,
-          archive,
-          filename: `${slug}-${version}.zip`,
-          visibility,
+    const governance = this.options.governance;
+    if (!governance?.createNamespace) {
+      throw new SkillHubServiceError("Managed registry publication is unavailable", 503);
+    }
+    const catalog = this.options.store.skillHubCatalog;
+    if (params.id) {
+      const entry = await this.requireManager(actor.user, params.id);
+      if (params.sharing !== undefined) {
+        throw new SkillHubServiceError(
+          "Change sharing in the skill details before publishing a new version",
+          400,
+        );
+      }
+      if (!(await catalog.getPublication(params.operationId))) {
+        const versions = await this.artifactVersions(await this.artifactSkill(entry));
+        if (versions.some((version) => version.version === params.version)) {
+          throw new SkillHubServiceError(
+            "This version already exists. Increase the version before publishing changed files.",
+            409,
+            { code: "skill-hub-version-exists" },
+          );
+        }
+      }
+    }
+    const hash = createHash("sha256");
+    if (Buffer.isBuffer(archive)) {
+      hash.update(archive);
+    } else {
+      for await (const chunk of createReadStream(archive.path)) {
+        hash.update(chunk);
+      }
+    }
+    const fingerprint = createHash("sha256")
+      .update(
+        JSON.stringify({
+          archive: hash.digest("hex"),
+          source:
+            source.kind === "zip"
+              ? source
+              : { kind: source.kind, targetId: source.target.targetId },
+          slug: params.slug,
+          version: params.version,
+          id: params.id ?? null,
+          expectedRevision: params.expectedRevision ?? null,
+          sharing: params.sharing ?? null,
+          reason: params.reason ?? null,
         }),
-      );
-      if (
-        result.namespace !== namespace ||
-        result.slug !== slug ||
-        result.version !== version ||
-        result.visibility !== visibility
-      ) {
-        throw new SkillHubServiceError("Skill Hub returned a mismatched publish result", 502);
-      }
-      const recorded = await this.options.store.recordSkillHubPublication({
-        namespace,
-        slug,
-        ownerUserId: actor.user.id,
-        expectedOwnerUserId: currentOwnership?.ownerUserId ?? null,
-        expectedOwnerUpdatedAt: currentOwnership?.updatedAt ?? null,
-        expectedBindingUpdatedAt: finalCapabilities.binding!.updatedAt,
-        visibility,
-        version,
-        changedAt: this.now(),
-      });
-      await this.reconcileOwners();
-      await this.enqueueGovernance(recorded.ownerUserId, namespace, slug, version, visibility);
-      await this.audit(
-        actor.user.id,
-        options.source ? "skill-hub.publish" : "skill-hub.publish-upload",
-        `${namespace}/${slug}@${version}`,
-        {
-          visibility,
-          archiveBytes: archive.size,
-          ...(options.source ? { source: options.source } : {}),
-        },
-      );
-      return recorded.reconciliationRequired
-        ? { ...result, ownershipReviewRequired: true as const }
-        : result;
-    });
-  }
-
-  async install(
-    actor: AuthenticatedWorkspace,
-    params: {
-      namespace: string;
-      slug: string;
-      version: string;
-      destination: SkillInstallTarget;
-      acknowledgedReplacement?: boolean;
-      currentRevision?: string;
-      expectedTargetRevision?: number;
-    },
-  ) {
-    const requestKey = JSON.stringify([
-      actor.agentId,
-      actor.user.id,
-      params.destination,
-      params.namespace,
-      params.slug,
-      params.version,
-      params.acknowledgedReplacement === true,
-      params.currentRevision ?? null,
-      params.expectedTargetRevision ?? null,
-    ]);
-    const existing = this.installsInFlight.get(requestKey);
-    if (existing) {
-      return await existing;
-    }
-    const operation = this.withInstallLock(actor.agentId, params.destination, async () =>
-      this.withRegistryMutationLock(params.namespace, params.slug, () =>
-        this.installUnlocked(actor, params),
-      ),
-    );
-    this.installsInFlight.set(requestKey, operation);
-    try {
-      return await operation;
-    } finally {
-      if (this.installsInFlight.get(requestKey) === operation) {
-        this.installsInFlight.delete(requestKey);
-      }
-    }
-  }
-
-  private async installUnlocked(
-    actor: AuthenticatedWorkspace,
-    params: {
-      namespace: string;
-      slug: string;
-      version: string;
-      destination: SkillInstallTarget;
-      acknowledgedReplacement?: boolean;
-      currentRevision?: string;
-      expectedTargetRevision?: number;
-    },
-  ): Promise<SkillHubInstallResult> {
-    const execution = await this.authorizeInstallTarget(actor.agentId, params.destination);
-    if (
-      params.expectedTargetRevision !== undefined &&
-      params.expectedTargetRevision !== execution.targetRevision
-    ) {
-      throw new SkillHubServiceError(
-        "Skill Hub execution target changed; check status and retry.",
-        409,
-      );
-    }
-    const namespace = this.authorizeNamespace(params.namespace);
-    const slug = safeName(params.slug, "skill slug", SKILL_KEY_PATTERN);
-    const version = validVersion(params.version);
-    const detail = await this.adapterCall(() => this.options.adapter.getSkill(namespace, slug));
-    this.validateSkillIdentity(detail.namespace, detail.slug, namespace, slug);
-    await this.authorizeSkillAccess(
-      actor.user,
-      namespace,
-      slug,
-      detail.visibility,
-      version,
-      actor.roomBinding ? "room" : "employee",
-    );
-    await this.authorizeVersionInstallation(
-      actor.user,
-      namespace,
-      slug,
-      version,
-      detail.visibility,
-      actor.roomBinding ? "room" : "employee",
-    );
-    const status = await this.gatewayCall<{
-      skills?: Array<{ baseDir?: string; source?: string; version?: string; revision?: string }>;
-    }>("skills.status", {
-      agentId: actor.agentId,
-      refresh: true,
-      ...(actor.roomBinding ? {} : { backendTarget: params.destination }),
-    });
-    const installed = status?.skills?.find(
-      (candidate) => this.workspaceSkillSlug(candidate, params.destination) === slug,
-    );
-    const installedVersion = installed?.version;
-    const installedRevision = installed?.revision;
-    if (installed && (!installedVersion || !isValidSkillHubVersion(installedVersion))) {
-      throw new SkillHubServiceError("installed skill does not declare a valid version", 409, {
-        code: "installed-version-unavailable",
-      });
-    }
-    const replacing = installedVersion !== undefined;
-    if (replacing && !/^sha256:[a-f0-9]{16}$/u.test(installedRevision ?? "")) {
-      throw new SkillHubServiceError("installed skill revision is unavailable", 409, {
-        code: "installed-version-unavailable",
-      });
-    }
-    if (
-      replacing &&
-      (!params.acknowledgedReplacement || params.currentRevision !== installedRevision)
-    ) {
-      const comparison = compareSemVer(version, installedVersion);
-      const direction = comparison > 0 ? "upgrade" : comparison < 0 ? "downgrade" : "reinstall";
-      throw new SkillHubServiceError(
-        `confirm replacement of installed ${slug}@${installedVersion}`,
-        409,
-        {
-          code: "existing-skill-replacement-required",
-          currentVersion: installedVersion,
-          currentRevision: installedRevision,
-          requestedVersion: version,
-          direction,
-        },
-      );
-    }
-    const archive = await this.adapterCall(() =>
-      this.options.adapter.download(namespace, slug, version),
-    );
-    await validateDownloadedArchive(archive, slug, version, {
-      archiveBytes: SKILL_HUB_UPLOAD_ARCHIVE_BYTES,
-      expandedBytes: SKILL_HUB_UPLOAD_EXPANDED_BYTES,
-      entryBytes: SKILL_HUB_UPLOAD_ENTRY_BYTES,
-      files: MAX_SKILL_FILES,
-      entries: SKILL_HUB_UPLOAD_ENTRIES,
-    });
-    const sha256 = createHash("sha256").update(archive).digest("hex");
-    const begin = await this.gatewayCall<{ uploadId?: string; receivedBytes?: number }>(
-      "skills.upload.begin",
-      {
-        kind: "skill-archive",
-        slug,
-        sizeBytes: archive.byteLength,
-        sha256,
-        force: replacing,
-        idempotencyKey: JSON.stringify([
-          "skill-hub",
-          actor.agentId,
-          params.destination,
-          replacing ? "update" : "install",
-          namespace,
-          slug,
-          version,
-          sha256,
-        ]),
-      },
-    );
-    const receivedBytes = begin?.receivedBytes;
-    if (
-      !begin?.uploadId ||
-      typeof receivedBytes !== "number" ||
-      !Number.isSafeInteger(receivedBytes) ||
-      receivedBytes < 0 ||
-      receivedBytes > archive.byteLength
-    ) {
-      throw new SkillHubServiceError("Gateway returned an invalid upload session", 503);
-    }
-    // Begin is the resume authority: retries continue a partial upload and skip chunks after commit.
-    for (let offset = receivedBytes; offset < archive.byteLength; offset += UPLOAD_CHUNK_BYTES) {
-      const chunk = archive.subarray(
-        offset,
-        Math.min(offset + UPLOAD_CHUNK_BYTES, archive.byteLength),
-      );
-      await this.gatewayCall("skills.upload.chunk", {
-        uploadId: begin.uploadId,
-        offset,
-        dataBase64: chunk.toString("base64"),
-      });
-    }
-    await this.gatewayCall("skills.upload.commit", { uploadId: begin.uploadId, sha256 });
-    const currentDetail = await this.adapterCall(() =>
-      this.options.adapter.getSkill(namespace, slug),
-    );
-    this.validateSkillIdentity(currentDetail.namespace, currentDetail.slug, namespace, slug);
-    await this.authorizeSkillAccess(
-      actor.user,
-      namespace,
-      slug,
-      currentDetail.visibility,
-      version,
-      actor.roomBinding ? "room" : "employee",
-    );
-    await this.authorizeVersionInstallation(
-      actor.user,
-      namespace,
-      slug,
-      version,
-      currentDetail.visibility,
-      actor.roomBinding ? "room" : "employee",
-    );
+      )
+      .digest("hex");
     await assertSkillHubWorkspace(this.options.store, actor);
-    const result = await this.gatewayCall<Record<string, unknown>>("skills.install", {
-      agentId: actor.agentId,
-      source: "upload",
-      uploadId: begin.uploadId,
-      slug,
-      force: replacing,
-      sha256,
-      destination: "sandbox-backend",
-      ...(actor.roomBinding ? {} : { backendTarget: params.destination }),
-      expectedTargetRevision: execution.targetRevision,
-      ...(installedRevision ? { expectedSkillRevision: installedRevision } : {}),
-    });
-    if (result.ok !== true || result.slug !== slug) {
-      throw new SkillHubServiceError("Gateway returned an invalid install result", 503);
+    if (source.kind !== "zip") {
+      await this.revalidateInstallTarget(actor.agentId, source.kind, source.target);
     }
-    await this.audit(actor.user.id, "skill-hub.install", `${namespace}/${slug}@${version}`, {
-      agentId: actor.agentId,
-      sha256,
-      destination: params.destination,
+    // The reservation transaction owns reuse: concurrent identical requests can
+    // both observe no receipt before one of them commits the first reservation.
+    const { entry, reused: recovering } = await catalog.reservePublication({
+      operationId: params.operationId,
+      ...(params.id ? { skillId: params.id } : {}),
+      actorUserId: actor.user.id,
+      slug: params.slug,
+      version: params.version,
+      fingerprint,
+      expectedRevision: params.expectedRevision,
+      sharing: params.sharing,
+      summary,
+      reason: params.reason,
+      now: this.now(),
     });
-    return {
-      ok: true,
-      noOp: false,
-      slug,
-      version,
-      target: params.destination,
-    };
+    return await this.withRegistryMutationLock(entry.namespace, entry.slug, async () => {
+      const receipt = await catalog.getPublication(params.operationId);
+      if (receipt?.state === "completed") {
+        await this.requireManager(actor.user, entry.id);
+        return { id: entry.id, slug: entry.slug, version: params.version };
+      }
+      await catalog.validatePublication(params.operationId);
+      await assertSkillHubWorkspace(this.options.store, actor);
+      await catalog.validatePublication(params.operationId);
+      const revalidateAuthority = async () => {
+        await assertSkillHubWorkspace(this.options.store, actor);
+        await catalog.validatePublication(params.operationId);
+        if (source.kind !== "zip") {
+          await this.revalidateInstallTarget(actor.agentId, source.kind, source.target);
+        }
+      };
+      let native = await this.ensureArtifactIdentity(entry, revalidateAuthority);
+      const registryId = native.id;
+      const exists = (await this.artifactVersions(native)).some(
+        (version) => version.version === params.version,
+      );
+      if (exists && !recovering) {
+        await catalog.cancelPublication({
+          operationId: params.operationId,
+          actorUserId: actor.user.id,
+          reason: params.reason,
+          now: this.now(),
+        });
+        throw new SkillHubServiceError(
+          "This version already exists. Increase the version before publishing changed files.",
+          409,
+          { code: "skill-hub-version-exists" },
+        );
+      }
+      if (!exists) {
+        await assertSkillHubWorkspace(this.options.store, actor);
+        await catalog.validatePublication(params.operationId);
+        // Registry identity is a private artifact publisher. Employee audience is
+        // authoritative in the catalog, independent of native review/namespace policy.
+        const result = await this.adapterCall(() =>
+          governance.publishArtifact({
+            namespace: entry.namespace,
+            expectedSkillId: registryId,
+            archive,
+            filename: `${entry.slug}-${params.version}.zip`,
+            revalidateAuthority,
+          }),
+        );
+        if (
+          result.namespace !== entry.namespace ||
+          result.slug !== entry.slug ||
+          result.version !== params.version ||
+          result.skillId !== registryId
+        ) {
+          throw new SkillHubServiceError("Registry returned a mismatched publication", 502);
+        }
+        try {
+          native = await this.artifactSkill({ ...entry, registryId: result.skillId });
+        } catch (error) {
+          if (error instanceof SkillHubServiceError && error.statusCode === 409) {
+            // After native success, this contradicts the returned immutable ID;
+            // it is an invalid upstream result, not a caller revision conflict.
+            throw new SkillHubServiceError(
+              "Registry returned a mismatched publication identity",
+              502,
+            );
+          }
+          throw error;
+        }
+        if (native.id !== result.skillId) {
+          throw new SkillHubServiceError(
+            "Registry returned a mismatched publication identity",
+            502,
+          );
+        }
+      }
+      this.validateSkillIdentity(native.namespace, native.slug, entry.namespace, entry.slug);
+      const recorded = await catalog.completePublication({
+        operationId: params.operationId,
+        registryId: native.id,
+        now: this.now(),
+      });
+      this.triggerGovernanceProcessing();
+      return { id: recorded.id, slug: recorded.slug, version: params.version };
+    });
   }
 
-  private async authorizeVersionInstallation(
-    user: PlatformUser,
-    namespace: string,
-    slug: string,
-    version: string,
-    visibility: SkillHubVisibility,
-    audience: SkillHubAudience,
-  ) {
-    const ownership = await this.options.store.getSkillHubOwnership(namespace, slug);
-    // Personal preview rights cannot authorize an unpublished release for a room.
+  /** Caller holds the native coordinate mutation lock through reconciliation. */
+  protected async reconcilePublication(operationId: string): Promise<boolean> {
+    const catalog = this.options.store.skillHubCatalog;
+    const receipt = await catalog.getPublication(operationId);
+    if (!receipt || receipt.state !== "pending") {
+      return receipt?.state === "completed";
+    }
+    const entry = await catalog.get(receipt.skillId);
+    if (!entry) {
+      throw new SkillHubServiceError("Publication skill is unavailable", 409);
+    }
+    let native;
+    try {
+      native = await this.artifactSkill(entry);
+    } catch (error) {
+      if (error instanceof SkillHubServiceError && error.statusCode === 404) {
+        return false;
+      }
+      throw error;
+    }
+    await catalog.bindRegistryIdentity({
+      skillId: entry.id,
+      registryId: native.id,
+      expectedNamespace: entry.namespace,
+      expectedSlug: entry.slug,
+    });
     if (
-      audience === "employee" &&
-      (visibility === "PRIVATE" ||
-        user.globalRole === "admin" ||
-        ownership?.ownerUserId === user.id)
+      !(await this.artifactVersions(native)).some((version) => version.version === receipt.version)
     ) {
-      return;
+      return false;
     }
-    const state = await this.adapterCall(() =>
-      this.options.adapter.getVersionState(namespace, slug, version),
-    );
-    if (state.version !== version || state.status !== "PUBLISHED") {
-      throw new SkillHubServiceError(
-        "This version is awaiting publication; choose a published version or retry after approval.",
-        409,
-        { code: "version-not-published" },
-      );
-    }
+    await catalog.completePublication({ operationId, registryId: native.id, now: this.now() });
+    return true;
   }
 }

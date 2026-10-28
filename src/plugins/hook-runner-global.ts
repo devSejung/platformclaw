@@ -43,6 +43,7 @@ export function initializeGlobalHookRunner(registry: GlobalHookRunnerRegistry): 
       },
       catchErrors: true,
       failurePolicyByHook: {
+        before_skill_context: "fail-closed",
         before_agent_run: "fail-closed",
         before_install: "fail-closed",
         before_tool_call: "fail-closed",

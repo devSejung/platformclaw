@@ -6,6 +6,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import path from "node:path";
 import { clampPositiveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { isToolAllowedByPolicyName } from "../agents/tool-policy-match.js";
 import {
@@ -27,6 +28,8 @@ import {
 import { cloneHookIsolationValue, HookIsolationError } from "./hook-isolation.js";
 import type { GlobalHookRunnerRegistry, HookRunnerRegistry } from "./hook-registry.types.js";
 import type {
+  PluginHookBeforeSkillContextEvent,
+  PluginHookBeforeSkillContextResult,
   PluginHookAfterCompactionEvent,
   PluginHookAfterToolCallEvent,
   PluginHookAgentContext,
@@ -178,6 +181,7 @@ const DEFAULT_VOID_HOOK_TIMEOUT_MS_BY_HOOK: Partial<Record<PluginHookName, numbe
   gateway_stop: 5_000,
 };
 const DEFAULT_MODIFYING_HOOK_TIMEOUT_MS_BY_HOOK: Partial<Record<PluginHookName, number>> = {
+  before_skill_context: 15_000,
   before_agent_run: 15_000,
   // Policy hooks fail closed in the global runner. A bounded timeout turns a
   // stalled policy process into a denial instead of freezing the operation.
@@ -306,6 +310,7 @@ export function createHookRunner(
   const logger = options.logger;
   const catchErrors = options.catchErrors ?? true;
   const failurePolicyByHook = {
+    before_skill_context: "fail-closed",
     before_agent_run: "fail-closed",
     ...options.failurePolicyByHook,
   } satisfies Partial<Record<PluginHookName, HookFailurePolicy>>;
@@ -923,9 +928,65 @@ export function createHookRunner(
   }
 
   /**
-   * Run before_prompt_build hook.
-   * Allows plugins to inject context and system prompt before prompt submission.
+   * Narrow run-local skill candidates before any prompt or tool materialization.
    */
+  async function runBeforeSkillContext(
+    event: PluginHookBeforeSkillContextEvent,
+    ctx: PluginHookAgentContext,
+  ): Promise<PluginHookBeforeSkillContextResult | undefined> {
+    const candidates = new Set(event.candidates.map((candidate) => candidate.filePath));
+    return await runModifyingHook<"before_skill_context", PluginHookBeforeSkillContextResult>(
+      "before_skill_context",
+      event,
+      ctx,
+      {
+        isolateEventPerHandler: true,
+        mergeNullResults: true,
+        mergeResults: (previous, next) => {
+          if (
+            !next ||
+            !Array.isArray(next.excludedPaths) ||
+            next.excludedPaths.some((value) => typeof value !== "string" || !candidates.has(value))
+          ) {
+            throw new Error("before_skill_context returned invalid candidate exclusions");
+          }
+          if (
+            next.excludedSourceDirectories !== undefined &&
+            (!Array.isArray(next.excludedSourceDirectories) ||
+              next.excludedSourceDirectories.length > 2000 ||
+              next.excludedSourceDirectories.some(
+                (value) =>
+                  typeof value !== "string" ||
+                  value.length > 4096 ||
+                  value.includes("\0") ||
+                  !path.isAbsolute(value) ||
+                  value.split(/[/\\]/u).some((part) => part === ".." || part === "."),
+              ))
+          ) {
+            throw new Error("before_skill_context returned invalid source directory exclusions");
+          }
+          return {
+            excludedPaths: [
+              ...new Set([...(previous?.excludedPaths ?? []), ...next.excludedPaths]),
+            ],
+            ...(previous?.excludedSourceDirectories !== undefined ||
+            next.excludedSourceDirectories !== undefined
+              ? {
+                  excludedSourceDirectories: [
+                    ...new Set([
+                      ...(previous?.excludedSourceDirectories ?? []),
+                      ...(next.excludedSourceDirectories ?? []),
+                    ]),
+                  ],
+                }
+              : {}),
+          };
+        },
+      },
+    );
+  }
+
+  /** Allows plugins to inject context and system prompt before prompt submission. */
   async function runBeforePromptBuild(
     event: PluginHookBeforePromptBuildEvent,
     ctx: PluginHookAgentContext,
@@ -1591,6 +1652,7 @@ export function createHookRunner(
     runBeforeModelResolve,
     runAgentTurnPrepare,
     runBeforePromptBuild,
+    runBeforeSkillContext,
     runBeforeAgentReply,
     runModelCallStarted: async (
       event: PluginHookModelCallStartedEvent,

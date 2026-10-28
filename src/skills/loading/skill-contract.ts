@@ -9,6 +9,8 @@ export interface Skill {
   /** Runtime-only content for non-filesystem skill locators such as node://. */
   readContent?: string;
   filePath: string;
+  /** Original source SKILL.md identity before backend materialization or path remapping. */
+  sourceFilePath?: string;
   baseDir: string;
   /** Deterministic marker for the SKILL.md content rendered as <version>. */
   promptVersion?: string;

@@ -1,9 +1,9 @@
 # Bundled SkillHub object images
 
 PlatformClaw builds its SkillHub server from `iflytek/skillhub` tag `v0.2.16`, commit
-`6e133c006e492dc3f468d91b21960aff1d577150`, with the approved private metadata-edit
-patch in `skillhub-edit/`. The image tag is
-`platformclaw-skillhub-server:6e133c006e49cb1217a0ba75`. Source archive verification,
+`6e133c006e492dc3f468d91b21960aff1d577150`, with the approved private metadata and artifact-policy
+patches in `skillhub-edit/`. The image tag is
+`platformclaw-skillhub-server:6e133c006e496f54a14d0510`. Source archive verification,
 the reviewed patch, and license provenance are recorded in that directory.
 The server runtime base and unchanged bundled dependencies are pinned below:
 

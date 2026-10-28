@@ -79,7 +79,7 @@ async function openInstallation(reducedMotion: "reduce" | "no-preference" = "no-
   const page = await context.newPage();
   const fixture = await installSkillHubFixture(page, suite.server.baseUrl);
   await page.goto(`${suite.server.baseUrl}platformclaw/app/skills/hub`);
-  await page.locator(".skill-hub-card", { hasText: "release-checklist" }).click();
+  await page.locator(".skill-hub-card", { hasText: "Release checklist" }).click();
   const basic = page.locator('[data-install-target="platform_server"]');
   const vm = page.locator('[data-install-target="assigned_vm"]');
   await expect.poll(() => basic.locator("button").first().isEnabled()).toBe(true);
@@ -99,7 +99,7 @@ suite.define(() => {
     const requested = new Promise<void>((resolve) => {
       seen = resolve;
     });
-    await page.route("**/platformclaw/api/skill-hub/install", async (route) => {
+    await page.route("**/platformclaw/api/skill-hub/skills/by-id/*/install", async (route) => {
       const body = route.request().postDataJSON() as {
         destination: string;
         slug: string;
@@ -111,7 +111,12 @@ suite.define(() => {
       seen();
       await pending;
       return route.fulfill({
-        json: { ok: true, target: body.destination, slug: body.slug, version: body.version },
+        json: {
+          ok: true,
+          target: body.destination,
+          slug: "release-checklist",
+          version: body.version,
+        },
       });
     });
     const status = await basic.locator('[role="status"]').elementHandle();
@@ -193,7 +198,7 @@ suite.define(() => {
       .locator(".skill-hub-detail")
       .getByRole("button", { name: "Close", exact: true })
       .click();
-    await page.locator(".skill-hub-card", { hasText: "incident-guide" }).click();
+    await page.locator(".skill-hub-card", { hasText: "Incident guide" }).click();
     await expect.poll(() => basic.locator("button").first().isEnabled()).toBe(true);
     expect(await page.locator(".skill-hub-destination__completion").count()).toBe(0);
     expect(await page.evaluate(() => window.skillHubCompletionTransitions.length)).toBe(4);

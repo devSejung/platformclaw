@@ -125,6 +125,10 @@ export type SkillSnapshot = {
   prompt: string;
   skills: Array<{
     name: string;
+    /** Canonical candidate identity, including skills hidden from the model's catalog. */
+    filePath?: string;
+    /** Original source identity retained across runtime path remapping. */
+    sourceFilePath?: string;
     /** Config key can differ from the prompt-facing skill name. */
     skillKey?: string;
     primaryEnv?: string;

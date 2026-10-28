@@ -1,238 +1,226 @@
 ---
-summary: "Product, ownership, access, scanning, and package policy for the internal PlatformClaw Skill Hub"
+summary: "Approved sharing, ownership, package, and retention rules for PlatformClaw Skill Hub"
 read_when:
-  - Implementing Skill Hub ownership, authorization, scanning, or notifications
-  - Reviewing who may publish, install, force publish, or transfer a company skill
-  - Choosing archive limits or scanner behavior for the internal skill catalog
+  - Publishing, sharing, updating, transferring, or deleting a company skill
+  - Implementing or reviewing Skill Hub access and lifecycle behavior
+  - Reviewing package validation, scan warnings, or migration policy
 title: "Skill Hub product policy"
 ---
 
 # Skill Hub product policy
 
-PlatformClaw Skill Hub is the internal, company-wide catalog for reusable Agent
-skills. It is not a public marketplace. PlatformClaw identity, organization, and
-authorization remain authoritative; the registry does not add a second employee
-login or expose an administrator token to browsers.
+Skill Hub lets active company users share reusable Agent skills. A new skill is
+**Public** unless its publisher chooses another audience. Public means every
+active, signed-in company user, including a user with no organization membership.
+It does not expose skills anonymously on the internet.
 
-This page freezes the product policy enforced by PlatformClaw and its pinned
-registry runtime.
+This is the approved product contract. See
+[Release validation](/platformclaw/skill-hub-architecture#release-validation)
+for the required runtime and upgrade proof.
 
-## Delivery status
+## Choose who can use a skill
 
-| Capability                                                                    | Status  |
-| ----------------------------------------------------------------------------- | ------- |
-| Search, version detail, direct workspace publish, and exact-version install   | Current |
-| Basic and assigned-VM installs as separate destinations                       | Current |
-| Shared Global, Team, Group, and Part namespace authorization                  | Current |
-| Per-user skill access grants                                                  | Current |
-| Scanner-gated automatic publication and current risk badges                   | Current |
-| Owner and administrator force publication with reason and audit               | Current |
-| Eligible ownership transfer and inactive/ineligible-owner review queue        | Current |
-| Revision-checked metadata edits and namespace moves by owner or administrator | Current |
-| Owner and administrator hard-delete of PlatformClaw-managed registry skills   | Current |
-| Persistent in-app lifecycle notifications                                     | Current |
-| 500 MiB compressed package ceiling with independent expanded-content limits   | Current |
+| Sharing choice                    | Who can find, read, and download the skill                                  |
+| --------------------------------- | --------------------------------------------------------------------------- |
+| Public                            | Every active company user                                                   |
+| Selected people and organizations | Any selected user, or a current member covered by any selected organization |
+| Private                           | The owner, with the administrator operating exception below                 |
 
-## Organization and ownership
+A publisher may select **any active Team, Group, or Part**, including one they do
+not belong to. Selecting a Team includes its Groups and Parts; selecting a Group
+includes its Parts. User and organization selections form a union. A selected
+organization follows its current active membership and lineage. The owner always
+retains access. An empty Selected audience must be corrected or changed to Private.
 
-Every skill has one owning organizational unit and one accountable owner.
-Registry namespaces bind to distinct **Global**, **Team**, **Group**, and
-**Part** scopes. A real Team has an
-immutable managed-scope ID, a Group belongs to one Team, and a Part belongs to
-one Group. See
-[PlatformClaw organization architecture](/platformclaw/organization-architecture).
+A primary organization does not change the Public default. Being a reader,
+organization member, or organization leader does not make someone a skill editor.
+Organization sharing does not create a new membership or leadership role.
 
-The owner can transfer ownership immediately to another eligible active employee.
-Transfer does not wait for a registry review, but it must be recorded in the audit
-log and notify the old and new owners.
+Sharing applies to every retained version of that skill. Narrowing the audience
+immediately affects later Hub searches, reads, downloads, and room runs. Existing
+personal downloads and their local edits are not recalled or deleted.
 
-Owners and administrators can edit the display name, description, and visibility
-or move the skill to an allowed namespace. A move requires destination
-publication rights and an eligible owner. It preserves the registry skill ID,
-immutable versions, package bytes, scan results, and explicit grants. Namespace
-membership is reevaluated at the new coordinate. The package slug remains fixed;
-instruction and file changes publish as a new version.
+## One owner manages the skill
 
-Edits reserve both coordinates in persistent SQLite state before changing the
-registry. A repeated operation ID recovers the same result. Concurrent edits,
-publications, deletions, transfers, grants, and installs cannot bypass the
-reservation. A policy or ownership change during the external mutation keeps the
-edit pending until the canonical registry confirms Private visibility. Recovery
-persists independently of the original edit and cannot release the reservation
-before that confirmation. Completion produces an unassigned Private skill and a
-visible administrator-review result.
+Every skill has one accountable owner. The owner may:
 
-The owner or a PlatformClaw administrator can permanently delete a skill only while
-PlatformClaw still has the accountable ownership record for that exact
-`namespace/slug`. Deletion is revision-pinned and removes the registry entry plus
-its PlatformClaw ACL and pending governance state. It does not uninstall copies
-already present in employee workspaces. An untracked registry coordinate is not an
-administrator escape hatch and fails closed.
+- edit its display name, description, icon, tags, and sharing;
+- publish a new immutable version;
+- move it to Trash or restore it within the recovery period; and
+- offer ownership to another active user.
 
-Inactive or newly scope-ineligible owners enter an **unassigned owner queue** for explicit
-administrator resolution. The skill remains visible according to its ACL, but
-ownership-required mutations are blocked until reassignment. The system must
-not silently choose one of multiple scope leaders or another arbitrary employee.
-The retired primary-administrator environment setting causes a visible startup
-validation error and must be removed from old deployments.
+There are no coauthors, shared editing roles, automatic merges, or editable
+package versions. People can exchange files outside Hub; whoever publishes an
+update is recorded as its publisher. Hub does not infer who authored files before
+upload.
 
-## Access control
+Ownership changes only when the selected recipient accepts. The existing owner
+keeps editing rights until acceptance; afterward the recipient owns the skill and
+the former owner has only the access granted by its sharing settings. Pending
+requests carry a revision so another edit or transfer cannot be silently overwritten.
 
-Access is evaluated from the authenticated PlatformClaw actor on every server
-request. Browser-supplied user IDs, organization IDs, paths, or registry roles are
-never authority.
+Disabling an owner blocks that account from managing skills. Existing published
+skills keep their current audience and remain usable. An administrator explicitly
+assigns a replacement owner; the system does not silently choose a leader or an
+arbitrary employee. Leaving an organization alone does not remove ownership.
 
-The target authorization model combines:
+Administrators may inspect skills for operations. Using administrator authority
+to change another owner's or an unassigned skill requires a nonempty reason,
+recorded with the actual administrator and action. An administrator accepting an
+ownership offer as its named recipient follows the same rules as any other
+recipient. Administrator access does not make a Private or Selected skill eligible
+for a shared room.
 
-1. the owning Global, Team, Group, or Part scope;
-2. the skill visibility;
-3. explicit per-user ACL entries; and
-4. owner and PlatformClaw administrator privileges.
+## Publish and update
 
-An explicit per-user grant permits reading and installing the named skill, for
-all versions or one exact version. It cannot be reshared, confer administrator
-status, publish, force publication, transfer ownership, or bypass package
-validation. Denials and missing grants fail closed and produce a visible result.
-Managed namespace bindings use immutable scope IDs rather than mutable display
-names. Global has no scope ID. Effective access follows the shared upward-only
-membership policy; ancestor leader administration is resolved by the shared
-authorization service rather than duplicated in Skill Hub.
+New publication creates a stable skill ID. Equal names are allowed; the display
+name and owner help users distinguish entries. A matching package name never
+claims or overwrites another entry. To release another version, explicitly select
+the existing owned entry or use its management section.
 
-Scope access is capability-specific:
+A new version preserves the existing ID, owner, icon, description, tags, and
+sharing. Released package bytes and version numbers are immutable. To revert
+content, publish the desired files under a new version. Installed personal copies
+update only when their user chooses to replace them.
 
-- Global catalog read/install is available to active employees only when the
-  selected skill visibility permits it;
-- Global is the default publication destination for every active employee,
-  including employees without a Team, Group, or Part membership. The publisher
-  becomes the accountable owner; other employees cannot overwrite that skill.
-  Changing existing Global namespace policy remains PlatformClaw-administrator-only;
-- Team, Group, and Part read/install uses effective upward access. Publishing
-  requires an exact direct membership, leadership of the target or an ancestor,
-  or administrator authority. Curation remains owner/administrator controlled;
-  and
-- no read or install capability implies publish, force, transfer, or curation.
+Metadata and sharing changes do not create package versions. They use the current
+revision; a stale edit fails visibly and retains the draft for review. Reload the
+latest entry before retrying. No automatic merge is attempted.
 
-An employee's first publication requires an unused registry coordinate. An
-existing registry skill without a PlatformClaw ownership record cannot be claimed
-through ordinary publication. An administrator may establish its accountable
-owner through publication and then use the existing ownership-transfer flow.
+A publication has an operation ID. Retrying an unchanged request recovers the same
+publication rather than creating another entry. An uncertain result remains
+visible as pending; retry the original request or cancel it before starting over.
+Cancelling pending bookkeeping cannot recall a package already transmitted to the
+private registry.
 
-Every active employee is implicitly included in the canonical `global` namespace.
-It is always available and is the default publication destination, even when
-the configured additional namespace list is empty or omits `global`. No employee
-membership assignment, administrator login, or manual namespace creation is needed.
-First authenticated use persists its canonical Global binding and repairs older
-restricted, organization-bound, or Private-ceiling rows before owner reconciliation.
-The canonical namespace cannot be restricted, rebound to an organization, removed,
-or limited to Private. Custom Global namespaces retain revision-checked
-administrator restriction and activation. Individual Private skills and skill
-ownership remain protected.
+## Describe the skill
 
-Publication dialogs select an authorized Global destination by default. Team,
-Group, and Part destinations are explicit alternatives; opening a new publication
-does not reuse an earlier organizational destination.
+| Field        | Rule                                                                                    |
+| ------------ | --------------------------------------------------------------------------------------- |
+| Icon         | Default icon, or PNG, JPEG, or WebP up to 2 MiB                                         |
+| Display name | Editable catalog title; the package name remains fixed                                  |
+| Description  | Initially taken from `SKILL.md`; later catalog edits are independent of package content |
+| Tags         | Optional, up to five tags, with up to 32 characters per tag                             |
 
-## Namespace creation
+Icons and other metadata obey the same read and management permissions as the
+skill. Uploading a new version does not reset an edited description or tag list.
 
-Active employees may create namespaces from the Skill Hub page. Global creation
-is available without organization membership. Team, Group, and Part creation
-uses the same direct-membership, leadership, or administrator publication
-authority as an existing destination. Creation never rebinds an existing
-namespace and does not grant namespace-administration or cross-owner skill rights.
+## Scans explain risk
 
-The control plane reserves each creation in SQLite before calling the existing
-registry API. An opaque recorded operation marker identifies the remote namespace
-for exact-request recovery after an uncertain response or restart. Only completed
-self-service creations extend the configured namespace snapshot; existing
-administrator bindings outside the bootstrap allowlist do not gain access from
-this feature. Failed or incomplete operations remain visible to their caller,
-and activation revalidates the current employee and organization authority.
+Show the scan result for each exact version:
 
-## Scan and publication policy
+- **Scan passed**: the available completed scan reports no findings.
+- **Warnings**: heuristic findings, suspicious commands, or file extensions need
+  attention; valid packages remain publishable and downloadable.
+- **Not verified**: scanning has not completed or is unavailable; a valid package
+  remains usable, with that state visible.
+- **Malware blocked**: a confirmed malicious-file finding blocks the affected
+  version. There is no owner or administrator override.
 
-Normal publication is automatic after the configured scanner completes without
-a blocking result. There is no routine human approval queue.
+Malformed packages, unsafe paths, invalid manifests, and content that cannot be
+installed are rejected regardless of scan status. Native severity labels alone do
+not establish confirmed malware. A later confirmed malicious result remains
+blocked even if the scanner subsequently becomes unavailable. Other clean
+versions are evaluated separately.
 
-The product must show the current scan status and risk badge for the selected
-version. At minimum, the state model must distinguish pending, passed, findings,
-forced, failed, and unavailable scans. A badge reflects the latest completed scan
-for that exact immutable version; it must not imply that a different version was
-scanned.
+LLM and VirusTotal integrations remain off unless separately approved. Scanner
+failure does not silently enable an external service or expose package contents.
+The permissive warning policy does not bypass authentication or archive safety.
 
-Owners and PlatformClaw administrators may force publication for findings of any
-severity. Force publication requires a non-empty reason and creates an audit
-record containing the actor, skill, exact version, scanner result, reason, and
-timestamp. The forced status remains visible on the version. Force publication
-does not bypass archive validation, authentication, ACL enforcement, or path and
-filesystem safety checks.
+## Basic and VM workspaces stay separate
 
-LLM-based scanning and VirusTotal are off. Enabling either is a separate product,
-privacy, data-egress, credential, and operating-cost decision; neither may be
-silently activated as a fallback.
+The Basic server and assigned VM are independent sources and destinations. Users
+choose the source for workspace publication and the destination for installation.
+Neither operation switches the active work location, mirrors files, or falls back
+from an unavailable VM to Basic. ZIP upload and exact-version ZIP download are
+also available.
 
-## Package policy
+With multiple saved VMs, the VM source and destination refer to the VM currently
+connected to the Agent. Choose another saved VM in Work location settings before
+accessing its skills. Each VM keeps its own installed files. Returning to a VM
+shows that VM's downloads, even when another VM uses the same package name.
+The UI names the VM being used and checks the selected workspace before a
+publication or installation proceeds.
 
-The compressed ZIP ceiling is **500 MiB**. Compressed size alone is not a safe
-extraction policy, so publication enforces **1 GiB expanded cumulative bytes**,
-**250 MiB per file**, and **2,000 total ZIP entries** while streaming and
-validating every entry. No lower regular-file cap applies. Installation repeats
-the canonical Gateway archive policy before either workspace is mutated.
+An existing physical package name requires a revision-bound replacement
+confirmation, including when its version text matches. Durable Hub ID and version
+provenance distinguish an installed Hub entry from another entry with the same
+name. An unknown installation outcome requires review and explicit replacement;
+the system must not automatically force another install over local edits.
 
-All paths continue to reject traversal, absolute and drive-qualified names,
-symbolic-link or junction escape, hard-link escape, malformed `SKILL.md`, and
-destination collision. Size metadata from the ZIP central directory is not
-trusted.
+VM export and installation use the existing server-owned SSH and Gateway paths.
+Skill Hub requests carry workspace choices and opaque target IDs, rather than SSH
+credentials, private export paths, or VM leases. Work location settings keep their
+existing authorized connection details.
 
-`.env` and `.env.*` remain valid package files because some skills use them for
-non-secret runtime defaults. They are scanned and governed like all other
-content; deploy-time credentials must use PlatformClaw credential surfaces.
-Private keys, certificates, credential files, VCS state, runtime metadata, and
-dependency trees remain excluded or rejected.
+## Shared rooms use Public Hub skills
 
-The registry multipart ceiling is 500 MiB and its expanded package policy is
-1 GiB. Browser ingress writes an owner-only temporary file with a running byte
-cap; it does not assemble a 500 MiB browser upload in process memory. Scanner
-execution is bounded to ten minutes. At least 20 GiB of free disk is required for
-a fresh embedded deployment and 5 GiB for later restarts.
+For this release, room searches, installation, and later use admit only Public Hub
+skills. Private and Selected sharing cannot be used in rooms, even by their owner
+or an administrator. Publishing is a personal-workspace action.
 
-## Workspace destinations
+Saved room copies are checked again before each run. Narrowed sharing, Trash, or
+a confirmed malicious installed version excludes that Hub skill from subsequent
+room use. Work already running, existing results, and personal downloaded files
+are not recalled. Local room skills without Hub provenance keep their existing
+room policy; this rule does not invent a Hub identity for them.
 
-Basic and assigned-VM workspaces are separate destinations. A publish or install
-operation never copies, mirrors, or falls back between them. The server resolves
-the explicitly selected source or destination without changing the active work
-location. VM export and workspace mutation are serialized with target changes;
-an unavailable allocation or stale target revision fails visibly.
+## Trash and recovery
 
-Publishing is available for real personal skills in either the Basic workspace
-or the employee's assigned VM. The Skills tab publishes from its displayed work
-location; the Skill Hub tab selects Basic or My development VM explicitly.
-Knox `/skillhub publish <slug>` uses the current work location, the authorized
-Global default, the installed version (or `0.1.0` when absent), and
-Namespace-only visibility unless that namespace requires Private.
-An explicit `/skillhub publish <namespace/slug>` selects another authorized
-destination without changing the default for subsequent publications.
-VM archives travel only over server-owned SSH and bounded private Gateway RPC chunks; no
-browser attachment, shared cross-container mount, target switch, or Basic
-workspace fallback is involved.
+Moving a skill to Trash hides it immediately from readers and prevents further
+Hub downloads and room use. Existing personal copies remain independent.
 
-## Notifications and audit
+The owner or an administrator can restore it for **30 days**. Restore preserves
+its stable ID, links, versions, metadata, owner, and sharing choices. Only current
+valid users and organizations contribute access. An archived organization never
+causes the skill to become Public automatically.
 
-The persistent in-app notification model covers:
+After 30 days, cleanup must permanently remove package blobs, versions, icons,
+and description content. Deletion remains unavailable and marked pending until
+the registry confirms cleanup. A failed cleanup is visible and retryable; it is
+not reported as successful physical erasure.
 
-- scan completion, findings, failure, and forced publication;
-- successful publication and installation, plus failures;
-- ownership transfer and inactive-owner reassignment;
-- per-user ACL grant and revocation; and
-- items entering or leaving the unassigned owner queue.
+Backups have a separate operator retention policy. Restoring an old backup must
+reapply expiry and purge policy before making content available again. The
+30-day policy does not assert that independent historical backups have been erased.
 
-The header badge opens the inbox and users can mark all items read. External
-email or chat delivery is intentionally not part of this release. Audit records
-remain authoritative even if notification creation fails. Notifications and
-audit records must not contain package content, credentials, tokens, internal
-filesystem paths, or SSH material.
+## History and notices
 
-## See also
+Authorized readers can inspect ordinary version history, including who published
+a version and when. Owners and administrators can also inspect management
+history. Retain actor, action,
+time, exact version when relevant, and administrator reason throughout the active
+skill lifetime and its Trash recovery period. Readers do not receive management
+history or the identities of other Selected recipients.
 
-- [Skill Hub architecture](/platformclaw/skill-hub-architecture)
-- [Operate Skill Hub](/platformclaw/skill-hub)
-- [VM execution policy](/platformclaw/vm-execution-policy)
+After permanent deletion, retain only minimal audit facts such as actor, time,
+action, and version identifier for **one year**, then delete them. Do not retain
+package contents, descriptions, or icon bytes in history or notification records.
+Notifications use generic lifecycle text rather than retaining deleted skill
+content. External email and chat delivery are outside this release.
+
+## Existing skills
+
+At cutover, convert existing nondeleted skills to Public once. Preserve their
+stable IDs, links, owners, immutable versions, and package bytes. Do not restore
+previously deleted skills or unblock confirmed malicious versions. After cutover,
+a user's later Private or Selected choice must survive restart; conversion is not
+a recurring default repair.
+
+Namespaces, namespace ceilings, separate per-version user grants, force-publish
+controls, and organization eligibility for ownership are retired product policy.
+Native registry coordinates remain private adapter details and old-link resolution
+inputs, not choices presented to users.
+
+## Package limits
+
+The package ceiling is 500 MiB compressed, 1 GiB expanded in total, 250 MiB per
+entry, and 2,000 ZIP entries. `SKILL.md` must be valid and match the physical
+package name; its retained manifest is limited to 256 KiB. Do not trust ZIP size
+metadata. Reject traversal, absolute and drive-qualified paths, symlink or
+junction escapes, hard links, and reserved runtime or credential content.
+
+`.env` and `.env.*` are allowed for nonsecret runtime defaults. Deploy-time secrets
+belong in the existing credential surfaces. Publication and installation retain
+the canonical Gateway archive checks. See
+[Operate Skill Hub](/platformclaw/skill-hub) for setup and troubleshooting.

@@ -43,12 +43,10 @@ import {
   type SkillMessageMap,
 } from "../../lib/skills/index.ts";
 import { normalizeLowercaseStringOrEmpty } from "../../lib/string-coerce.ts";
-import { platformClawT } from "../../platformclaw/i18n.ts";
 import type {
   PlatformClawSkillHubConfig,
   PlatformClawSkillHubMessage,
 } from "../../platformclaw/skill-hub.ts";
-import { skillHubPublishNamespaceLabel } from "../skill-hub/labels.ts";
 
 function safeExternalHref(raw?: string): string | null {
   if (!raw) {
@@ -99,11 +97,6 @@ type SkillsProps = {
     acknowledgeLabel?: string;
   } | null;
   skillHubConfig: PlatformClawSkillHubConfig | null;
-  skillHubPublishSkill: string | null;
-  skillHubPublishNamespace: string;
-  skillHubPublishVersion: string;
-  skillHubPublishVisibility: string;
-  skillHubOperation: "publish" | "install" | null;
   skillHubMessage: PlatformClawSkillHubMessage | null;
   onFilterChange: (next: string) => void;
   onAgentChange: (agentId: string) => void;
@@ -122,11 +115,6 @@ type SkillsProps = {
   onClawHubDetailClose: () => void;
   onClawHubInstall: (slug: string, acknowledgeClawHubRisk?: boolean, version?: string) => void;
   onSkillHubPublishOpen: (skill: string) => void;
-  onSkillHubPublishClose: () => void;
-  onSkillHubPublishNamespaceChange: (namespace: string) => void;
-  onSkillHubPublishVersionChange: (version: string) => void;
-  onSkillHubPublishVisibilityChange: (visibility: string) => void;
-  onSkillHubPublish: () => void;
 };
 
 type StatusTabDef = { id: SkillsStatusFilter; labelKey: string };
@@ -320,9 +308,9 @@ export function renderSkills(props: SkillsProps) {
     )}
     ${detailSkill ? renderSkillDetail(detailSkill, props) : nothing}
     ${props.clawhubDetailSlug && !personalVm ? renderClawHubDetailDialog(props) : nothing}
-    ${props.skillHubPublishSkill ? renderPlatformClawSkillHubPublish(props) : nothing}
     ${props.skillHubMessage
       ? html`<div
+          role=${props.skillHubMessage.kind === "error" ? "alert" : "status"}
           class="callout ${props.skillHubMessage.kind === "error"
             ? "danger"
             : props.skillHubMessage.kind === "warning"
@@ -332,6 +320,28 @@ export function renderSkills(props: SkillsProps) {
           ${props.skillHubMessage.text}
         </div>`
       : nothing}
+  `;
+}
+
+/** Collapsible skill group: settings-section look, but a <details>/<summary>
+ * shell so each group keeps the pre-migration expand/collapse interaction. */
+function renderSkillGroup(group: SkillGroup, props: SkillsProps) {
+  return html`
+    <details class="settings-section skills-group" open>
+      <summary class="settings-section__header skills-group__summary">
+        <h2 class="settings-section__heading">
+          ${group.label} <span class="settings-count">${group.skills.length}</span>
+        </h2>
+        <span class="skills-group__chevron" aria-hidden="true">${icons.chevronDown}</span>
+      </summary>
+      <div class="settings-group">
+        ${repeat(
+          group.skills,
+          (skill) => skill.skillKey,
+          (skill) => renderSkill(skill, props),
+        )}
+      </div>
+    </details>
   `;
 }
 
@@ -364,118 +374,6 @@ function renderSkillsEmpty(props: SkillsProps, total: number) {
           </button>`
         : nothing}
   `);
-}
-
-function renderPlatformClawSkillHubPublish(props: SkillsProps) {
-  return html`
-    <openclaw-modal-dialog
-      label=${t("skillsPage.skillHub.publishToHub")}
-      @modal-cancel=${(event: Event) => {
-        if (props.skillHubOperation !== null) {
-          event.preventDefault();
-        } else {
-          props.onSkillHubPublishClose();
-        }
-      }}
-    >
-      <div class="md-preview-dialog__panel">
-        <div class="md-preview-dialog__header">
-          <div class="md-preview-dialog__title">
-            ${t("skillsPage.skillHub.publishTitle", { skill: props.skillHubPublishSkill ?? "" })}
-          </div>
-          <button
-            class="btn btn--sm"
-            ?disabled=${props.skillHubOperation !== null}
-            @click=${props.onSkillHubPublishClose}
-          >
-            ${t("skillsPage.close")}
-          </button>
-        </div>
-        <div class="md-preview-dialog__body" style="display: grid; gap: 16px;">
-          ${props.skillHubMessage?.kind === "error"
-            ? html`<div class="callout danger" role="alert">${props.skillHubMessage.text}</div>`
-            : nothing}
-          <label class="field">
-            <span>${platformClawT("platformClaw.skillHub.publish.destination")}</span>
-            <select
-              .value=${props.skillHubPublishNamespace}
-              ?disabled=${props.skillHubOperation !== null}
-              @change=${(event: Event) =>
-                props.onSkillHubPublishNamespaceChange((event.target as HTMLSelectElement).value)}
-            >
-              <option value="" disabled ?selected=${props.skillHubPublishNamespace === ""}>
-                ${platformClawT("platformClaw.skillHub.publish.chooseDestination")}
-              </option>
-              ${props.skillHubConfig?.namespaceOptions.map(
-                (option) => html`<option
-                  value=${option.namespace}
-                  ?selected=${props.skillHubPublishNamespace === option.namespace}
-                >
-                  ${skillHubPublishNamespaceLabel(option)}
-                </option>`,
-              )}
-            </select>
-          </label>
-          <label class="field">
-            <span>${t("skillsPage.skillHub.version")}</span>
-            <input
-              .value=${props.skillHubPublishVersion}
-              ?disabled=${props.skillHubOperation !== null}
-              @input=${(event: Event) =>
-                props.onSkillHubPublishVersionChange((event.target as HTMLInputElement).value)}
-              placeholder="1.0.0"
-            />
-          </label>
-          <label class="field">
-            <span>${t("skillsPage.skillHub.visibility")}</span>
-            <select
-              .value=${props.skillHubPublishVisibility}
-              ?disabled=${props.skillHubOperation !== null}
-              @change=${(event: Event) =>
-                props.onSkillHubPublishVisibilityChange((event.target as HTMLSelectElement).value)}
-            >
-              <option value="PUBLIC">${t("skillsPage.skillHub.public")}</option>
-              <option value="NAMESPACE_ONLY">${t("skillsPage.skillHub.namespaceOnly")}</option>
-              <option value="PRIVATE">${t("skillsPage.skillHub.private")}</option>
-            </select>
-          </label>
-          <button
-            class="btn primary"
-            ?disabled=${props.skillHubOperation !== null ||
-            !props.skillHubPublishNamespace ||
-            !props.skillHubPublishVersion}
-            @click=${props.onSkillHubPublish}
-          >
-            ${props.skillHubOperation === "publish"
-              ? t("skillsPage.skillHub.publishing")
-              : t("skillsPage.skillHub.publish")}
-          </button>
-        </div>
-      </div>
-    </openclaw-modal-dialog>
-  `;
-}
-
-/** Collapsible skill group: settings-section look, but a <details>/<summary>
- * shell so each group keeps the pre-migration expand/collapse interaction. */
-function renderSkillGroup(group: SkillGroup, props: SkillsProps) {
-  return html`
-    <details class="settings-section skills-group" open>
-      <summary class="settings-section__header skills-group__summary">
-        <h2 class="settings-section__heading">
-          ${group.label} <span class="settings-count">${group.skills.length}</span>
-        </h2>
-        <span class="skills-group__chevron" aria-hidden="true">${icons.chevronDown}</span>
-      </summary>
-      <div class="settings-group">
-        ${repeat(
-          group.skills,
-          (skill) => skill.skillKey,
-          (skill) => renderSkill(skill, props),
-        )}
-      </div>
-    </details>
-  `;
 }
 
 function renderSkillsToolbar(
@@ -774,7 +672,7 @@ function renderSkill(skill: SkillStatusEntry, props: SkillsProps) {
         props.skillHubConfig
           ? html`<button
               class="btn btn--sm"
-              ?disabled=${skillControlsLocked(props) || props.skillHubOperation !== null}
+              ?disabled=${skillControlsLocked(props)}
               @click=${() => props.onSkillHubPublishOpen(skill.skillKey)}
             >
               ${t("skillsPage.skillHub.publishToHub")}

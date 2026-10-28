@@ -348,7 +348,9 @@ export function createPlatformClawExecutionBackendFactory(
           readOnlySkillMounts: materializedSkills.mounts,
           // Never advertise canonical paths against a hot pre-upgrade container
           // that still has the previous mount layout.
-          requireCurrentConfig: createParams.requireCurrentConfig ?? true,
+          requireCurrentConfig: materializedSkills.policyApplied
+            ? true
+            : (createParams.requireCurrentConfig ?? true),
         }
       : createParams;
     const effectiveSkillCatalog = skillCatalog ?? materializedSkills?.catalog;

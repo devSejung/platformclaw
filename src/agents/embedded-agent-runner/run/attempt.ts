@@ -157,7 +157,7 @@ export async function runEmbeddedAttempt(
     state: abortState,
   });
   try {
-    const preparedSkills = measureEmbeddedAgentPreparationSync(
+    const preparedSkills = await measureEmbeddedAgentPreparation(
       "attempt.skills",
       () =>
         prepareEmbeddedAttemptSkills({

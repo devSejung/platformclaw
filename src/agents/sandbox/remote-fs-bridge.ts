@@ -16,6 +16,7 @@ import {
 import { createWritableRenameTargetResolver } from "./fs-bridge-rename-targets.js";
 import { parseSandboxStatMtimeMs, parseSandboxStatSize } from "./fs-bridge-stat-parse.js";
 import type { SandboxFsBridge, SandboxFsStat, SandboxResolvedPath } from "./fs-bridge.types.js";
+import { resolveSandboxHostPathPreservingLeaf } from "./host-paths.js";
 import { isPathInsideContainerRoot, relativePathEscapesContainerRoot } from "./path-utils.js";
 import {
   assertRemoteFileHasNoHardlinks,
@@ -517,18 +518,19 @@ class RemoteShellSandboxFsBridge implements SandboxFsBridge {
     }
 
     const hostCwd = params.cwd ? path.resolve(params.cwd) : workspaceRoot;
-    const hostCandidate = path.isAbsolute(input)
-      ? path.resolve(input)
-      : path.resolve(hostCwd, input);
+    const hostCandidate = resolveSandboxHostPathPreservingLeaf(
+      path.isAbsolute(input) ? path.resolve(input) : path.resolve(hostCwd, input),
+    );
     const hostMount = resolveRemoteMountByLocalPath(mounts, hostCandidate);
     if (hostMount) {
       const relative = toPosixRelative(hostMount.localRoot, hostCandidate);
+      const containerPath = relative
+        ? path.posix.join(hostMount.containerRoot, relative)
+        : hostMount.containerRoot;
       return resolveRemoteMountedPath({
         workspaceRoot: this.runtime.remoteWorkspaceDir,
-        mount: hostMount,
-        containerPath: relative
-          ? path.posix.join(hostMount.containerRoot, relative)
-          : hostMount.containerRoot,
+        mount: resolveRemoteMountByContainerPath(mounts, containerPath) ?? hostMount,
+        containerPath,
       });
     }
 

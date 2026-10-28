@@ -616,7 +616,8 @@ async function ensureSandboxContainerLifecycle(
     skillsWorkspaceDir: params.skillsWorkspaceDir,
     workdir: params.cfg.docker.workdir,
     workspaceAccess: params.cfg.workspaceAccess,
-  }).concat(params.readOnlySkillMounts ?? []);
+    readOnlySkillMounts: params.readOnlySkillMounts,
+  });
   const genericConfigHash = computeSandboxConfigHash({
     docker: params.cfg.docker,
     dockerEnvPolicyEpoch: resolveDockerEnvPolicyEpoch(params.cfg.docker.env),

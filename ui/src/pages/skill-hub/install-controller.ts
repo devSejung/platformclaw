@@ -10,6 +10,7 @@ import {
   type PlatformClawSkillHubConfig,
   type PlatformClawSkillHubMessage,
   type PlatformClawSkillHubWorkspaceSkill,
+  type PlatformClawSkillHubWorkspaceInventory,
 } from "../../platformclaw/skill-hub.ts";
 import { renderSkillHubVersionChange } from "./dialogs.ts";
 import {
@@ -19,11 +20,18 @@ import {
   type SkillHubRef,
 } from "./page-support.ts";
 
+type InstallTargetSnapshot = Pick<
+  PlatformClawSkillHubWorkspaceInventory,
+  "targetId" | "targetRevision" | "targetLabel"
+>;
+type InstallConfirmation = PendingVersionChange & SkillHubRef & { context: InstallTargetSnapshot };
+
 type InstallState =
   | { status: "checking" }
   | { status: "unavailable"; reason: string }
   | {
       status: "ready";
+      context: InstallTargetSnapshot;
       installed?: PlatformClawSkillHubWorkspaceSkill;
       animateCompletion?: true;
     };
@@ -38,7 +46,7 @@ export class SkillHubInstallController implements ReactiveController {
     assigned_vm: { status: "checking" },
   };
   private installing: InstallTarget | null = null;
-  private pending: (PendingVersionChange & SkillHubRef) | null = null;
+  private pending: InstallConfirmation | null = null;
 
   constructor(
     private readonly host: ReactiveControllerHost,
@@ -57,7 +65,7 @@ export class SkillHubInstallController implements ReactiveController {
 
   open(ref: SkillHubRef, config: PlatformClawSkillHubConfig | null): void {
     this.clear();
-    this.ref = { namespace: ref.namespace, slug: ref.slug };
+    this.ref = { id: ref.id, slug: ref.slug };
     for (const target of targets) {
       void this.loadTarget(target, config);
     }
@@ -78,10 +86,11 @@ export class SkillHubInstallController implements ReactiveController {
     }
   }
 
-  private label(target: InstallTarget): string {
-    return t(
+  private label(target: InstallTarget, targetLabel?: string): string {
+    const name = t(
       target === "platform_server" ? "skillHubPage.basicServer" : "skillHubPage.developmentVm",
     );
+    return target === "assigned_vm" && targetLabel ? `${name} · ${targetLabel}` : name;
   }
 
   private async loadTarget(
@@ -115,6 +124,11 @@ export class SkillHubInstallController implements ReactiveController {
         }
         state = {
           status: "ready",
+          context: {
+            targetId: result.targetId,
+            targetRevision: result.targetRevision,
+            targetLabel: result.targetLabel,
+          },
           installed: result.items.find((item) => item.skillKey === ref.slug),
         };
       }
@@ -151,7 +165,8 @@ export class SkillHubInstallController implements ReactiveController {
   private renderTarget(target: InstallTarget, version: string) {
     const state = this.states[target];
     const installed = state.status === "ready" ? state.installed : undefined;
-    const sameVersion = Boolean(installed?.version && installed.version === version);
+    const sameSkill = installed?.hubSkillId === this.ref?.id;
+    const sameVersion = Boolean(sameSkill && installed?.version && installed.version === version);
     const unknownVersion = Boolean(installed && !installed.version);
     const blocked =
       state.status !== "ready" ||
@@ -164,32 +179,38 @@ export class SkillHubInstallController implements ReactiveController {
         ? t("skillHubPage.checkingInstallation")
         : state.status === "unavailable"
           ? state.reason
-          : installed?.version
-            ? t("skillHubPage.installedVersion", {
-                version: skillHubVersionLabel(installed.version),
-              })
-            : installed
-              ? t("skillHubPage.installedVersionUnknown")
-              : t("skillHubPage.notInstalled");
+          : installed && !sameSkill
+            ? t("skillHubPage.workspaceCollision")
+            : installed?.version
+              ? t("skillHubPage.installedVersion", {
+                  version: skillHubVersionLabel(installed.version),
+                })
+              : installed
+                ? t("skillHubPage.installedVersionUnknown")
+                : t("skillHubPage.notInstalled");
     const action =
       this.installing === target
         ? t("skillsPage.skillHub.installing")
         : sameVersion
           ? t("skillHubPage.alreadyInstalled")
-          : installed
-            ? t("skillHubPage.changeToVersion", { version: skillHubVersionLabel(version) })
-            : t(
-                target === "platform_server"
-                  ? "skillHubPage.installBasic"
-                  : "skillHubPage.installVm",
-              );
+          : installed && !sameSkill
+            ? t("skillHubPage.replaceLocalCopy")
+            : installed
+              ? t("skillHubPage.changeToVersion", { version: skillHubVersionLabel(version) })
+              : t(
+                  target === "platform_server"
+                    ? "skillHubPage.installBasic"
+                    : "skillHubPage.installVm",
+                );
     // Key only status text so completion enters without replacing controls or the live region.
     return html`<article
       class="skill-hub-destination"
       data-install-target=${target}
       aria-busy=${state.status === "checking"}
     >
-      <h4>${this.label(target)}</h4>
+      <h4>
+        ${this.label(target, state.status === "ready" ? state.context.targetLabel : undefined)}
+      </h4>
       <p class="skill-hub-destination__description">
         ${t(
           target === "platform_server"
@@ -215,11 +236,15 @@ export class SkillHubInstallController implements ReactiveController {
       >
         ${action}
       </button>
-      ${state.status === "unavailable"
+      ${state.status === "unavailable" || (target === "assigned_vm" && state.status === "ready")
         ? html`<button
             class="btn btn--sm"
             ?disabled=${Boolean(this.installing)}
-            @click=${() => void this.loadTarget(target)}
+            @click=${() => {
+              if (!this.installing && this.states[target].status !== "checking") {
+                void this.loadTarget(target);
+              }
+            }}
           >
             ${t("skillHubPage.checkAgain")}
           </button>`
@@ -234,7 +259,7 @@ export class SkillHubInstallController implements ReactiveController {
       currentVersion: pending?.currentVersion ?? "",
       requestedVersion: pending?.requestedVersion ?? "",
       direction: pending?.direction ?? "upgrade",
-      targetLabel: pending ? this.label(pending.target) : undefined,
+      targetLabel: pending ? this.label(pending.target, pending.context.targetLabel) : undefined,
       busy: this.installing !== null,
       onClose: () => this.cancelConfirmation(),
       onConfirm: () =>
@@ -245,7 +270,7 @@ export class SkillHubInstallController implements ReactiveController {
   private async install(
     target: InstallTarget,
     version: string,
-    confirmation?: PendingVersionChange & SkillHubRef,
+    confirmation?: InstallConfirmation,
   ): Promise<void> {
     const ref = this.ref;
     const state = this.states[target];
@@ -254,7 +279,7 @@ export class SkillHubInstallController implements ReactiveController {
       !version ||
       this.installing ||
       state.status !== "ready" ||
-      state.installed?.version === version
+      (state.installed?.hubSkillId === ref.id && state.installed?.version === version)
     ) {
       return;
     }
@@ -264,11 +289,16 @@ export class SkillHubInstallController implements ReactiveController {
     this.installing = target;
     this.setMessage(null);
     this.host.requestUpdate();
+    const context = confirmation ? confirmation.context : state.context;
     try {
       const result = await installPlatformClawHubSkill({
-        ...ref,
+        id: ref.id,
         version,
         destination: target,
+        ...(context.targetId ? { expectedTargetId: context.targetId } : {}),
+        ...(target === "assigned_vm" && context.targetRevision !== undefined
+          ? { expectedTargetRevision: context.targetRevision }
+          : {}),
         ...(confirmation
           ? {
               acknowledgedReplacement: true as const,
@@ -282,14 +312,20 @@ export class SkillHubInstallController implements ReactiveController {
       this.pending = null;
       this.states[target] = {
         status: "ready",
-        installed: { skillKey: result.slug, version: result.version },
+        context,
+        installed: {
+          skillKey: result.slug,
+          version: result.version,
+          hubSkillId: ref.id,
+          hubVersion: result.version,
+        },
         ...(animateCompletion ? { animateCompletion: true as const } : {}),
       };
       this.setMessage({
         kind: "success",
         text: t("skillHubPage.installed", {
           skill: `${result.slug}@${result.version}`,
-          target: this.label(target),
+          target: this.label(target, context.targetLabel),
         }),
       });
     } catch (error) {
@@ -308,6 +344,7 @@ export class SkillHubInstallController implements ReactiveController {
       ) {
         this.states[target] = {
           status: "ready",
+          context,
           installed: {
             skillKey: ref.slug,
             version: details.currentVersion,
@@ -315,17 +352,16 @@ export class SkillHubInstallController implements ReactiveController {
           },
         };
         // Another tab may have installed this version after our inventory read.
-        this.pending =
-          details.currentVersion === version
-            ? null
-            : {
-                ...ref,
-                target,
-                currentVersion: details.currentVersion,
-                currentRevision: details.currentRevision,
-                requestedVersion: details.requestedVersion,
-                direction: details.direction,
-              };
+        // Equal version text does not identify a Hub skill or authorize replacement.
+        this.pending = {
+          ...ref,
+          target,
+          context,
+          currentVersion: details.currentVersion,
+          currentRevision: details.currentRevision,
+          requestedVersion: details.requestedVersion,
+          direction: details.direction,
+        };
       } else {
         this.pending = null;
         this.setMessage({

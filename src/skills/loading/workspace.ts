@@ -24,6 +24,10 @@ import {
 } from "../discovery/agent-filter.js";
 import { normalizeSkillFilter } from "../discovery/filter.js";
 import { filterPromptVisibleSkillEntries } from "../discovery/skill-index.js";
+import {
+  resolveSkillContextExclusions,
+  SkillContextPolicyError,
+} from "../runtime/context-policy.js";
 import { mergeRemoteNodeSkillEntries } from "../runtime/remote-skills.js";
 import type {
   OpenClawSkillMetadata,
@@ -1573,6 +1577,8 @@ export function buildWorkspaceSkillSnapshot(
     prompt,
     skills: eligible.map((entry) => ({
       name: entry.skill.name,
+      filePath: entry.skill.filePath,
+      sourceFilePath: entry.skill.sourceFilePath ?? entry.skill.filePath,
       skillKey: resolveSkillKey(entry.skill, entry),
       primaryEnv: entry.metadata?.primaryEnv,
       requiredEnv: entry.metadata?.requires?.env?.slice(),
@@ -1593,6 +1599,33 @@ export function buildWorkspaceSkillsPrompt(
   opts?: WorkspaceSkillBuildOptions,
 ): string {
   return resolveWorkspaceSkillPromptState(workspaceDir, opts).prompt;
+}
+
+/** Rebuild every run-local snapshot projection after an authority check narrows its candidates. */
+export function excludeSkillSnapshotPaths(
+  snapshot: SkillSnapshot,
+  excludedPaths: ReadonlySet<string>,
+  options: { config?: OpenClawConfig; agentId?: string; eligibility?: SkillEligibilityContext },
+): SkillSnapshot {
+  const resolvedSkills =
+    snapshot.resolvedSkills?.filter((skill) => !excludedPaths.has(skill.filePath)) ?? [];
+  return {
+    ...snapshot,
+    skills: snapshot.skills.filter(
+      (skill) => !skill.filePath || !excludedPaths.has(skill.filePath),
+    ),
+    resolvedSkills,
+    prompt: snapshot.prompt.trim()
+      ? applySkillsPromptLimits({
+          skills: compactSkillPaths(resolvedSkills).toSorted((left, right) =>
+            left.name.localeCompare(right.name, "en"),
+          ),
+          config: options.config,
+          agentId: options.agentId,
+          remoteNote: options.eligibility?.remote?.note?.trim(),
+        })
+      : "",
+  };
 }
 
 export const testing = {
@@ -1861,80 +1894,123 @@ export async function syncSkillsToWorkspace(params: {
   config?: OpenClawConfig;
   skillFilter?: string[];
   agentId?: string;
+  sessionKey?: string;
   eligibility?: SkillEligibilityContext;
   managedSkillsDir?: string;
   bundledSkillsDir?: string;
   pluginSkillsDir?: string;
-}): Promise<SkillUsagePath[]> {
+}): Promise<{
+  skillUsagePaths: SkillUsagePath[];
+  excludedSkillFiles: string[];
+  excludedSourceDirectories: string[];
+  policyApplied: boolean;
+}> {
   const sourceDir = resolveUserPath(params.sourceWorkspaceDir);
   const targetDir = resolveUserPath(params.targetWorkspaceDir);
   if (sourceDir === targetDir) {
-    return [];
+    return {
+      skillUsagePaths: [],
+      excludedSkillFiles: [],
+      excludedSourceDirectories: [],
+      policyApplied: false,
+    };
   }
 
-  return await serializeByKey(`syncSkills:${targetDir}`, async () => {
-    const targetSkillsDir = path.join(targetDir, "skills");
-
-    const entries = loadWorkspaceSkillEntries(sourceDir, {
-      config: params.config,
-      skillFilter: params.skillFilter,
-      agentId: params.agentId,
-      eligibility: params.eligibility,
-      managedSkillsDir: params.managedSkillsDir,
-      bundledSkillsDir: params.bundledSkillsDir,
-      pluginSkillsDir: params.pluginSkillsDir,
-    });
-
-    await prepareSkillMaterializationDirectory(targetSkillsDir);
-
-    const usedDirNames = new Set<string>();
-    const skillUsagePaths: SkillUsagePath[] = [];
-    for (const entry of entries) {
-      let dest: string | null;
-      try {
-        dest = resolveSyncedSkillDestinationPath({
-          targetSkillsDir,
-          entry,
-          usedDirNames,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : JSON.stringify(error);
-        skillsLogger.warn(`Failed to resolve safe destination for ${entry.skill.name}: ${message}`);
-        continue;
-      }
-      if (!dest) {
-        skillsLogger.warn(
-          `Failed to resolve safe destination for ${entry.skill.name}: invalid source directory name`,
-        );
-        continue;
-      }
-      try {
-        const syncSourceDir = entry.syncSourceDir ?? entry.skill.baseDir;
-        await fsp.cp(syncSourceDir, dest, {
-          recursive: true,
-          force: true,
-          filter: (src) => {
-            const name = path.basename(src);
-            return !(name === ".git" || name === "node_modules");
-          },
-        });
-        // The cache must stay mutable even when the authoritative source is mounted 0555.
-        // Files keep their source modes; only copied directories gain owner access.
-        await normalizeSkillMaterializationDirectory(dest);
-        skillUsagePaths.push({
-          readPath: path.join(dest, path.relative(entry.skill.baseDir, entry.skill.filePath)),
-          skillFile: canonicalizePath(entry.skill.filePath),
-          skillName: entry.skill.name,
-          skillSource: resolveSkillTelemetrySource(entry.skill),
-          skillSourceId: resolveSkillSource(entry.skill),
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : JSON.stringify(error);
-        skillsLogger.warn(`Failed to copy ${entry.skill.name} to sandbox: ${message}`);
-      }
-    }
-    return skillUsagePaths;
+  const candidates = loadWorkspaceSkillEntries(sourceDir, {
+    config: params.config,
+    skillFilter: params.skillFilter,
+    agentId: params.agentId,
+    eligibility: params.eligibility,
+    managedSkillsDir: params.managedSkillsDir,
+    bundledSkillsDir: params.bundledSkillsDir,
+    pluginSkillsDir: params.pluginSkillsDir,
   });
+  // Check before refreshing the cache so revoked candidates never leave behind
+  // a newly materialized copy or enter this run's immutable backend catalog.
+  const { excludedPaths, excludedSourceDirectories, policyApplied } =
+    await resolveSkillContextExclusions(
+      candidates.map(({ skill }) => ({
+        name: skill.name,
+        filePath: skill.filePath,
+        sourceFilePath: skill.sourceFilePath ?? skill.filePath,
+      })),
+      { agentId: params.agentId, sessionKey: params.sessionKey, workspaceDir: sourceDir },
+    );
+  const entries = candidates.filter((entry) => !excludedPaths.has(entry.skill.filePath));
+  const excludedSkillFiles = candidates
+    .filter((entry) => excludedPaths.has(entry.skill.filePath))
+    .map(({ skill }) => skill.sourceFilePath ?? skill.filePath);
+
+  try {
+    return await serializeByKey(`syncSkills:${targetDir}`, async () => {
+      const targetSkillsDir = path.join(targetDir, "skills");
+
+      await prepareSkillMaterializationDirectory(targetSkillsDir);
+
+      const usedDirNames = new Set<string>();
+      const skillUsagePaths: SkillUsagePath[] = [];
+      for (const entry of entries) {
+        let dest: string | null;
+        try {
+          dest = resolveSyncedSkillDestinationPath({
+            targetSkillsDir,
+            entry,
+            usedDirNames,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : JSON.stringify(error);
+          skillsLogger.warn(
+            `Failed to resolve safe destination for ${entry.skill.name}: ${message}`,
+          );
+          continue;
+        }
+        if (!dest) {
+          skillsLogger.warn(
+            `Failed to resolve safe destination for ${entry.skill.name}: invalid source directory name`,
+          );
+          continue;
+        }
+        try {
+          const syncSourceDir = entry.syncSourceDir ?? entry.skill.baseDir;
+          await fsp.cp(syncSourceDir, dest, {
+            recursive: true,
+            force: true,
+            filter: (src) => {
+              const name = path.basename(src);
+              return !(name === ".git" || name === "node_modules");
+            },
+          });
+          // The cache must stay mutable even when the authoritative source is mounted 0555.
+          // Files keep their source modes; only copied directories gain owner access.
+          await normalizeSkillMaterializationDirectory(dest);
+          skillUsagePaths.push({
+            readPath: path.join(dest, path.relative(entry.skill.baseDir, entry.skill.filePath)),
+            skillFile: canonicalizePath(entry.skill.filePath),
+            skillName: entry.skill.name,
+            skillSource: resolveSkillTelemetrySource(entry.skill),
+            skillSourceId: resolveSkillSource(entry.skill),
+          });
+        } catch (error) {
+          if (policyApplied) {
+            throw new SkillContextPolicyError(error);
+          }
+          const message = error instanceof Error ? error.message : JSON.stringify(error);
+          skillsLogger.warn(`Failed to copy ${entry.skill.name} to sandbox: ${message}`);
+        }
+      }
+      return {
+        skillUsagePaths,
+        excludedSkillFiles,
+        excludedSourceDirectories: [...excludedSourceDirectories],
+        policyApplied,
+      };
+    });
+  } catch (error) {
+    if (policyApplied && !(error instanceof SkillContextPolicyError)) {
+      throw new SkillContextPolicyError(error);
+    }
+    throw error;
+  }
 }
 
 export function filterWorkspaceSkillEntriesWithOptions(

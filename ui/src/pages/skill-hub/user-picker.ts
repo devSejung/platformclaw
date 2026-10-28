@@ -3,30 +3,27 @@ import { property, state } from "lit/decorators.js";
 import { t } from "../../i18n/index.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import {
-  searchPlatformClawSkillHubManagementUsers,
-  type PlatformClawSkillHubManagementUser,
+  searchPlatformClawSkillHubUsers,
+  type PlatformClawSkillHubUser,
 } from "../../platformclaw/skill-hub.ts";
 
-/** Directory suggestions are scoped to one managed skill and one query generation. */
+/** A query generation prevents stale directory results from replacing a new selection. */
 class SkillHubUserPicker extends OpenClawLightDomElement {
-  @property() namespace = "";
-  @property() slug = "";
   @property() purpose: "owner" | "access" = "owner";
   @property({ type: Boolean }) disabled = false;
-  @property({ attribute: false }) onSelect?: (
-    user: PlatformClawSkillHubManagementUser | null,
-  ) => void;
+  @property({ attribute: false }) onSelect?: (user: PlatformClawSkillHubUser | null) => void;
   @state() private query = "";
-  @state() private candidates: PlatformClawSkillHubManagementUser[] = [];
+  @state() private candidates: PlatformClawSkillHubUser[] = [];
   @state() private activeIndex = -1;
   @state() private loading = false;
   @state() private searched = false;
   @state() private error = "";
   private epoch = 0;
+  private readonly controlId = crypto.randomUUID();
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   protected override willUpdate(changed: PropertyValues<this>) {
-    if (changed.has("namespace") || changed.has("slug") || changed.has("purpose")) {
+    if (changed.has("purpose")) {
       this.dismiss();
       this.query = "";
       this.onSelect?.(null);
@@ -62,14 +59,9 @@ class SkillHubUserPicker extends OpenClawLightDomElement {
 
   private async search(query: string, epoch: number) {
     try {
-      const result = await searchPlatformClawSkillHubManagementUsers(
-        this.namespace,
-        this.slug,
-        query,
-        this.purpose,
-      );
+      const result = await searchPlatformClawSkillHubUsers(query);
       if (epoch === this.epoch) {
-        this.candidates = result.items;
+        this.candidates = result.users;
         this.searched = true;
       }
     } catch (error) {
@@ -83,7 +75,7 @@ class SkillHubUserPicker extends OpenClawLightDomElement {
     }
   }
 
-  private choose(user: PlatformClawSkillHubManagementUser) {
+  private choose(user: PlatformClawSkillHubUser) {
     if (this.disabled) {
       return;
     }
@@ -122,7 +114,7 @@ class SkillHubUserPicker extends OpenClawLightDomElement {
   }
 
   override render() {
-    const id = `skill-hub-${this.purpose}-users`;
+    const id = `skill-hub-${this.purpose}-${this.controlId}`;
     const label = `${t(this.purpose === "owner" ? "skillHubPage.owner" : "skillHubPage.individualAccess")}: ${t("skillHubPage.searchUsers")}`;
     const open = this.candidates.length > 0;
     return html`<div

@@ -22,6 +22,7 @@ import {
   applySkillEnvOverrides,
   applySkillEnvOverridesFromSnapshot,
 } from "../../skills/runtime/env-overrides.js";
+import { prepareRunSkillContext } from "../../skills/runtime/run-context.js";
 import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { createBundleLspToolRuntime } from "../agent-bundle-lsp-runtime.js";
@@ -135,7 +136,7 @@ export async function buildPreparedCompactionRuntime(prepared: DirectCompactionP
     const {
       skillsEligibility,
       skillsPromptWorkspaceDir: effectiveSkillsPromptWorkspace,
-      skillsSnapshot: skillsSnapshotForRun,
+      skillsSnapshot: initialSkillsSnapshot,
       skillsWorkspaceDir: effectiveSkillsWorkspace,
       workspaceOnly: loadSkillsWorkspaceOnly,
     } = resolveSandboxSkillRuntimeInputs({
@@ -145,13 +146,30 @@ export async function buildPreparedCompactionRuntime(prepared: DirectCompactionP
       config: params.config,
       skillsSnapshot: params.skillsSnapshot,
     });
-    const { shouldLoadSkillEntries, skillEntries } = resolveEmbeddedRunSkillEntries({
+    const { shouldLoadSkillEntries, skillEntries: initialSkillEntries } =
+      resolveEmbeddedRunSkillEntries({
+        workspaceDir: effectiveSkillsWorkspace,
+        config: params.config,
+        agentId: effectiveSkillAgentId,
+        eligibility: skillsEligibility,
+        skillsSnapshot: initialSkillsSnapshot,
+        workspaceOnly: loadSkillsWorkspaceOnly,
+      });
+    const { skillsSnapshot: skillsSnapshotForRun, skillEntries } = await prepareRunSkillContext({
       workspaceDir: effectiveSkillsWorkspace,
       config: params.config,
-      agentId: effectiveSkillAgentId,
+      context: {
+        agentId: effectiveSkillAgentId,
+        sessionKey: params.sessionKey,
+        sessionId: params.sessionId,
+        workspaceDir: effectiveWorkspace,
+      },
       eligibility: skillsEligibility,
-      skillsSnapshot: skillsSnapshotForRun,
-      workspaceOnly: loadSkillsWorkspaceOnly,
+      skillsSnapshot: initialSkillsSnapshot,
+      skillEntries: initialSkillEntries,
+      excludedSkillFiles: sandbox?.excludedSkillFiles,
+      excludedSourceDirectories: sandbox?.excludedSourceDirectories,
+      missingSourceDirectories: sandbox?.missingSourceDirectories,
     });
     restoreSkillEnv = skillsSnapshotForRun
       ? applySkillEnvOverridesFromSnapshot({

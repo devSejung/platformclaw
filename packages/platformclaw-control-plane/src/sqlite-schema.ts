@@ -7,6 +7,7 @@ import {
   ORGANIZATION_MEMORY_SCHEMA,
   ORGANIZATION_MEMORY_LIFECYCLE_SCHEMA,
   SKILL_HUB_STATE_SCHEMA,
+  SKILL_HUB_NOTIFICATION_SCHEMA,
 } from "./sqlite-schema-feature-state.js";
 import { SCHEMA_V2 } from "./sqlite-schema-v2.js";
 export { ensureMcpCredentialSchema, ensureMcpUserSettingsSchema } from "./sqlite-schema-mcp.js";
@@ -271,6 +272,10 @@ export function ensureOrganizationMemorySchema(db: DatabaseSync): void {
 /** Additive Skill Hub state; safe for older schema-v2 readers to ignore. */
 export function ensureSkillHubStateSchema(db: DatabaseSync): void {
   db.exec(SKILL_HUB_STATE_SCHEMA);
+}
+
+export function ensureSkillHubNotificationSchema(db: DatabaseSync): void {
+  db.exec(SKILL_HUB_NOTIFICATION_SCHEMA);
 }
 
 function hasTable(db: DatabaseSync, name: string): boolean {

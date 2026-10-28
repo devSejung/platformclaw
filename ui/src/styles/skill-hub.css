@@ -41,6 +41,7 @@
   max-height: min(760px, calc(100vh - 40px));
   padding: 22px;
   overflow: auto;
+  overflow-wrap: anywhere;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-xl);
   background: var(--popover);
@@ -92,6 +93,8 @@
 
 .skill-hub-upload__drop {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 6px;
   padding: 26px;
   text-align: center;
@@ -115,54 +118,6 @@
   gap: 12px;
 }
 
-.skill-hub-admin {
-  width: min(820px, calc(100vw - 32px));
-}
-
-.skill-hub-admin__section,
-.skill-hub-admin__list {
-  display: grid;
-  gap: 10px;
-}
-
-.skill-hub-admin__section h3,
-.skill-hub-admin__section p {
-  margin: 0;
-}
-
-.skill-hub-admin__section > p,
-.skill-hub-admin__list small {
-  color: var(--muted);
-}
-
-.skill-hub-admin__form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-}
-
-.skill-hub-admin__form .btn {
-  align-self: end;
-}
-
-.skill-hub-admin__list article {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-}
-
-.skill-hub-admin__list article > div {
-  display: grid;
-  gap: 3px;
-}
-
 .skill-hub-toolbar {
   display: grid;
   gap: var(--space-2);
@@ -177,18 +132,6 @@
 .skill-hub-detail p {
   margin: 0;
   color: var(--muted);
-}
-
-.skill-hub-toolbar .skill-hub-registry-status {
-  font-size: 0.8rem;
-}
-
-.skill-hub-card__namespace {
-  color: var(--accent);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .skill-hub-search {
@@ -244,6 +187,86 @@
 .skill-hub-card__name {
   margin-top: 8px;
   font-size: 1.05rem;
+}
+
+.skill-hub-icon {
+  display: block;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.skill-hub-icon--default {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  background: var(--bg-elevated);
+  font-size: 28px;
+}
+
+.skill-hub-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.skill-hub-sharing,
+.skill-hub-sharing__scopes {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.skill-hub-sharing__scopes {
+  max-height: 240px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.skill-hub-sharing__scopes label {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.skill-hub-tag {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  font-size: 0.8rem;
+}
+
+.skill-hub-library-list {
+  display: grid;
+  gap: 12px;
+}
+
+.skill-hub-library-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.skill-hub-history {
+  display: grid;
+  gap: 12px;
+  padding-inline-start: 22px;
+}
+
+.skill-hub-history li > * {
+  display: block;
+  overflow-wrap: anywhere;
 }
 
 .skill-hub-card__summary {
@@ -471,11 +494,6 @@ openclaw-skill-hub-user-picker {
   border-radius: 999px;
 }
 
-.skill-hub-force textarea {
-  min-height: 84px;
-  resize: vertical;
-}
-
 .skill-hub-version {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -505,10 +523,6 @@ openclaw-skill-hub-user-picker {
 @media (max-width: 600px) {
   .skill-hub-grid,
   .skill-hub-upload__fields,
-  .skill-hub-admin__form {
-    grid-template-columns: 1fr;
-  }
-
   .skill-hub-destinations .skill-hub-install-actions {
     grid-template-columns: 1fr;
   }

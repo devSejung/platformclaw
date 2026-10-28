@@ -19,10 +19,11 @@ export function createUiVitestConfig(
     exclude,
     excludeUnitFastTests: false,
     includeOpenClawRuntimeSetup: false,
-    isolate: false,
+    // Custom-element constructors and their module graph must belong to the same DOM realm.
+    isolate: true,
     name: options?.name ?? "ui",
     setupFiles: ["ui/src/test-helpers/lit-warnings.setup.ts"],
-    useNonIsolatedRunner: true,
+    useNonIsolatedRunner: false,
   });
   return {
     ...config,

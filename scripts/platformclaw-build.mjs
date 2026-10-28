@@ -329,7 +329,7 @@ const sandboxShaTag = `platformclaw-sandbox:${shortSha}`;
 const bundledImages = [
   {
     context: "docker/platformclaw-runtime/skillhub-edit",
-    target: "platformclaw-skillhub-server:6e133c006e49cb1217a0ba75",
+    target: "platformclaw-skillhub-server:6e133c006e496f54a14d0510",
   },
   {
     source:

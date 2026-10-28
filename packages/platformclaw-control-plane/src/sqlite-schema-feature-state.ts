@@ -173,6 +173,22 @@ CREATE INDEX IF NOT EXISTS organization_memory_reference_target
   ON organization_memory_claim_references(target_claim_id);
 `;
 
+export const SKILL_HUB_NOTIFICATION_SCHEMA = `
+CREATE TABLE IF NOT EXISTS skill_hub_notifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  namespace TEXT,
+  slug TEXT,
+  message TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  read_at INTEGER
+) STRICT;
+CREATE INDEX IF NOT EXISTS skill_hub_notifications_inbox
+  ON skill_hub_notifications(user_id, read_at, created_at);
+
+`;
+
 export const SKILL_HUB_STATE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS skill_hub_edit_intents (
   id TEXT PRIMARY KEY,
@@ -224,19 +240,7 @@ CREATE TABLE IF NOT EXISTS skill_hub_skill_access (
 CREATE INDEX IF NOT EXISTS skill_hub_skill_access_user
   ON skill_hub_skill_access(user_id, expires_at);
 
-CREATE TABLE IF NOT EXISTS skill_hub_notifications (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,
-  namespace TEXT,
-  slug TEXT,
-  message TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  read_at INTEGER
-) STRICT;
-CREATE INDEX IF NOT EXISTS skill_hub_notifications_inbox
-  ON skill_hub_notifications(user_id, read_at, created_at);
-
+${SKILL_HUB_NOTIFICATION_SCHEMA}
 CREATE TABLE IF NOT EXISTS skill_hub_governance_jobs (
   namespace TEXT NOT NULL,
   slug TEXT NOT NULL,

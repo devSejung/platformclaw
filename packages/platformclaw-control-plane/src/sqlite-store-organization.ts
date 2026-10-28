@@ -151,7 +151,6 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteDirector
     reason: string;
     archivedAt: number;
   }): Promise<ManagedScope> {
-    this.ensureSkillHubStateSchema();
     return this.runOrganizationMutation(
       {
         actorUserId: params.actorUserId,
@@ -193,19 +192,6 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteDirector
               .filter((candidate) => archivedScopeIds.includes(candidate.id))
               .map((candidate) => candidate.updated_at + 1),
           );
-          const boundNamespace = takeFirstSync(
-            this.db,
-            this.query
-              .selectFrom("skill_hub_namespace_bindings")
-              .select("namespace")
-              .where("scope_id", "in", archivedScopeIds)
-              .limit(1),
-          );
-          if (boundNamespace) {
-            throw new ControlPlaneStateError(
-              `archive blocked: Skill Hub namespace ${boundNamespace.namespace} must be transferred or retired`,
-            );
-          }
           executeSync(
             this.db,
             this.query

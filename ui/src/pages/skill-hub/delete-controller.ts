@@ -6,12 +6,13 @@ import {
   type PlatformClawSkillHubMessage,
 } from "../../platformclaw/skill-hub.ts";
 import { renderSkillHubDelete } from "./dialogs.ts";
-import type { SkillHubRef } from "./page-support.ts";
+import { refreshSkillHubAfterMutation, type SkillHubRef } from "./page-support.ts";
 
 type PendingSkillDelete = {
-  namespace: string;
+  id: string;
   slug: string;
-  expectedOwnerUpdatedAt: number;
+  expectedRevision: number;
+  reason?: string;
   error?: string;
 };
 
@@ -32,15 +33,20 @@ export class SkillHubDeleteController {
     return this.deleting;
   }
 
-  request(ref: SkillHubRef | null, detail: PlatformClawSkillHubDetail | null): void {
-    const revision = detail?.owner?.revision;
+  request(
+    ref: SkillHubRef | null,
+    detail: PlatformClawSkillHubDetail | null,
+    reason?: string,
+  ): void {
+    const revision = detail?.skill.revision;
     if (!ref || !detail?.canManage || typeof revision !== "number" || this.deleting) {
       return;
     }
     this.options.setMessage(null);
     this.pending = {
       ...ref,
-      expectedOwnerUpdatedAt: revision,
+      ...(reason ? { reason } : {}),
+      expectedRevision: revision,
     };
     this.host.requestUpdate();
   }
@@ -56,7 +62,7 @@ export class SkillHubDeleteController {
   renderDialog() {
     return renderSkillHubDelete({
       open: this.pending !== null,
-      skill: this.pending ? `${this.pending.namespace}/${this.pending.slug}` : "",
+      skill: this.pending?.slug ?? "",
       busy: this.deleting,
       error: this.pending?.error ?? null,
       onClose: () => this.clear(),
@@ -69,26 +75,24 @@ export class SkillHubDeleteController {
       return;
     }
     const target = {
-      namespace: this.pending.namespace,
+      id: this.pending.id,
+      reason: this.pending.reason,
       slug: this.pending.slug,
-      expectedOwnerUpdatedAt: this.pending.expectedOwnerUpdatedAt,
+      expectedRevision: this.pending.expectedRevision,
     };
     this.deleting = true;
     this.pending = target;
     this.host.requestUpdate();
     try {
-      await deletePlatformClawSkillHubSkill(
-        target.namespace,
-        target.slug,
-        target.expectedOwnerUpdatedAt,
-      );
+      await deletePlatformClawSkillHubSkill(target.id, target.expectedRevision, target.reason);
       this.pending = null;
       this.options.closeDetail();
-      await this.options.refresh();
-      this.options.setMessage({
-        kind: "success",
-        text: t("skillHubPage.deletedSkill", { skill: `${target.namespace}/${target.slug}` }),
-      });
+      this.host.requestUpdate();
+      await refreshSkillHubAfterMutation(
+        t("skillHubPage.deletedSkill", { skill: target.slug }),
+        this.options.refresh,
+        this.options.setMessage,
+      );
     } catch (error) {
       this.pending = {
         ...target,

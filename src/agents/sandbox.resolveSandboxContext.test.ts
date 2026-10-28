@@ -12,7 +12,19 @@ import { isSandboxProvisioningError } from "./sandbox/provisioning-error.js";
 const updateRegistryMock = vi.hoisted(() => vi.fn());
 const readRegisteredSandboxRuntimeIdsMock = vi.hoisted(() => vi.fn(async () => [] as string[]));
 const syncSkillsToWorkspaceMock = vi.hoisted(() =>
-  vi.fn<(params: { targetWorkspaceDir: string }) => Promise<SkillUsagePath[]>>(async () => []),
+  vi.fn<
+    (params: { targetWorkspaceDir: string }) => Promise<{
+      skillUsagePaths: SkillUsagePath[];
+      excludedSkillFiles: string[];
+      excludedSourceDirectories: string[];
+      policyApplied: boolean;
+    }>
+  >(async () => ({
+    skillUsagePaths: [],
+    excludedSkillFiles: [],
+    excludedSourceDirectories: [],
+    policyApplied: false,
+  })),
 );
 const ensureSandboxBrowserMock = vi.hoisted(() => vi.fn(async () => null));
 const resolveNodeExecEligibilityMock = vi.hoisted(() => vi.fn(() => ({ canExec: false })));
@@ -792,7 +804,12 @@ describe("resolveSandboxContext", () => {
     const skillUsagePaths = [skillUsagePath];
     await fs.mkdir(path.dirname(skillUsagePath.readPath), { recursive: true });
     await fs.writeFile(skillUsagePath.readPath, "---\nname: demo\ndescription: Demo skill\n---\n");
-    syncSkillsToWorkspaceMock.mockResolvedValueOnce(skillUsagePaths);
+    syncSkillsToWorkspaceMock.mockResolvedValueOnce({
+      skillUsagePaths,
+      excludedSkillFiles: [],
+      excludedSourceDirectories: [],
+      policyApplied: false,
+    });
 
     const cfg: OpenClawConfig = {
       agents: {

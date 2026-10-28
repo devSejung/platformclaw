@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SkillsChangedRefreshQueue } from "./skills-page.ts";
+import { SkillsChangedRefreshQueue } from "./skills-changed-refresh-queue.ts";
 
 describe("SkillsChangedRefreshQueue", () => {
   it("ignores invalidation before the initial status load", () => {

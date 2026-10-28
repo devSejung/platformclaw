@@ -9,16 +9,18 @@ import type {
   MainSessionKeyBuilder,
   PlatformUser,
 } from "./contracts.js";
-import type { ControlPlaneExecutionManagementStore } from "./execution-contracts.js";
+import type {
+  ControlPlaneExecutionManagementStore,
+  ControlPlaneExecutionRuntimeStore,
+} from "./execution-contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type { OrganizationService } from "./organization-service.js";
-import type { SkillHubAdapter, SkillHubVisibility } from "./skill-hub-adapter.js";
 import { isExcludedSkillArchivePath } from "./skill-hub-archive-policy.js";
+import type { SkillHubCatalogStore } from "./skill-hub-catalog-state.js";
 import type { SkillHubGovernanceClient } from "./skill-hub-governance-client.js";
-import type { SkillHubAccessGrant, SkillHubStateStore } from "./skill-hub-state.js";
+import type { SkillHubNotificationStore } from "./skill-hub-state.js";
 
 export const SKILL_KEY_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u;
-export const NAMESPACE_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/u;
 const VERSION_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 export const SKILL_HUB_UPLOAD_ENTRIES = 2_000;
@@ -33,8 +35,10 @@ export const SKILL_HUB_UPLOAD_ENTRY_BYTES = 250 * 1024 * 1024;
 
 export type SkillHubStore = ControlPlaneStore &
   ControlPlaneAuditWriter &
-  SkillHubStateStore &
-  Pick<ControlPlaneExecutionManagementStore, "getVmAllocationForAgent">;
+  SkillHubNotificationStore &
+  Pick<ControlPlaneExecutionManagementStore, "getVmAllocationForAgent"> & {
+    skillHubCatalog: SkillHubCatalogStore;
+  } & Pick<ControlPlaneExecutionRuntimeStore, "resolvePersonalExecutionTarget">;
 
 export class SkillHubServiceError extends Error {
   constructor(
@@ -45,16 +49,6 @@ export class SkillHubServiceError extends Error {
     super(message);
     this.name = "SkillHubServiceError";
   }
-}
-
-export function projectSkillHubAccessGrant(grant: SkillHubAccessGrant) {
-  return {
-    userId: grant.userId,
-    expiresAt: grant.expiresAt ?? null,
-    inheritVersions: grant.inheritVersions,
-    grantedVersion: grant.grantedVersion ?? null,
-    canReshare: false as const,
-  };
 }
 
 export function isValidSkillHubVersion(value: string): boolean {
@@ -132,12 +126,10 @@ export function compareSemVer(left: string, right: string): number {
 export type SkillHubServiceOptions = {
   authService: BrowserAuthService;
   store: SkillHubStore;
-  adapter: SkillHubAdapter;
   governance?: SkillHubGovernanceClient;
   adminRpc: GatewayAdminRpc;
   workspaceRoot: string;
   buildAgentMainSessionKey: MainSessionKeyBuilder;
-  allowedNamespaces: readonly string[];
   organization: OrganizationService;
   maxPackageBytes: number;
   now?: () => number;
@@ -151,6 +143,12 @@ export type AuthenticatedWorkspace = {
 };
 export type SkillHubAudience = "employee" | "room";
 export type SkillInstallTarget = "platform_server" | "assigned_vm";
+export type SkillHubTargetSnapshot = {
+  targetId: string;
+  targetRevision: number;
+  allocationId?: string;
+  targetLabel?: string;
+};
 
 export function safeName(raw: string, label: string, pattern: RegExp): string {
   const value = raw.trim().toLowerCase();
@@ -163,15 +161,9 @@ export function safeName(raw: string, label: string, pattern: RegExp): string {
 export function validVersion(raw: string): string {
   const value = raw.trim();
   if (!isValidSkillHubVersion(value)) {
-    throw new SkillHubServiceError("version must be valid SemVer", 400);
-  }
-  return value;
-}
-
-export function validVisibility(raw: string): SkillHubVisibility {
-  const value = raw.trim().toUpperCase();
-  if (value !== "PUBLIC" && value !== "NAMESPACE_ONLY" && value !== "PRIVATE") {
-    throw new SkillHubServiceError("invalid visibility", 400);
+    throw new SkillHubServiceError("version must be valid SemVer", 400, {
+      code: "skill-hub-invalid-version",
+    });
   }
   return value;
 }
@@ -185,32 +177,43 @@ export function parseSkillMarkdown(
   source: string,
   expectedName: string,
   version?: string,
-): { source: string; version?: string } {
+): { source: string; description: string; version?: string } {
   const match = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)([\s\S]*)$/u.exec(source);
   if (!match) {
-    throw new SkillHubServiceError("SKILL.md must contain YAML frontmatter", 400);
+    throw new SkillHubServiceError("SKILL.md must contain YAML frontmatter", 400, {
+      code: "skill-hub-invalid-manifest",
+    });
   }
   const document = parseDocument(match[1]!);
   if (document.errors.length > 0 || !isMap(document.contents)) {
-    throw new SkillHubServiceError("SKILL.md contains invalid YAML frontmatter", 400);
+    throw new SkillHubServiceError("SKILL.md contains invalid YAML frontmatter", 400, {
+      code: "skill-hub-invalid-manifest",
+    });
   }
   const name = document.get("name");
   const description = document.get("description");
   if (typeof name !== "string" || name.trim().toLowerCase() !== expectedName) {
-    throw new SkillHubServiceError("SKILL.md name must match the workspace skill directory", 400);
+    throw new SkillHubServiceError("SKILL.md name must match the workspace skill directory", 400, {
+      code: "skill-hub-invalid-manifest",
+    });
   }
   if (typeof description !== "string" || !description.trim()) {
-    throw new SkillHubServiceError("SKILL.md description is required", 400);
+    throw new SkillHubServiceError("SKILL.md description is required", 400, {
+      code: "skill-hub-invalid-manifest",
+    });
   }
   const declaredVersion = document.get("version");
   if (declaredVersion !== undefined && typeof declaredVersion !== "string") {
-    throw new SkillHubServiceError("SKILL.md version must be a string", 400);
+    throw new SkillHubServiceError("SKILL.md version must be a string", 400, {
+      code: "skill-hub-invalid-manifest",
+    });
   }
   if (version) {
     document.set("version", version);
   }
   return {
     source: `---\n${document.toString().trimEnd()}\n---\n${match[2]}`,
+    description: description.trim(),
     ...(version === undefined && declaredVersion !== undefined
       ? { version: declaredVersion.trim() }
       : {}),
@@ -353,6 +356,8 @@ export async function validateDownloadedArchive(
   }
   const metadata = parseSkillMarkdown(skillMarkdown.toString("utf8"), expectedSlug);
   if (metadata.version !== expectedVersion) {
-    throw new SkillHubServiceError("SKILL.md version does not match the requested version", 400);
+    throw new SkillHubServiceError("SKILL.md version does not match the requested version", 400, {
+      code: "skill-hub-version-mismatch",
+    });
   }
 }

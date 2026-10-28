@@ -1,43 +1,80 @@
-import type { SkillHubVisibility } from "./skill-hub-adapter.js";
+import {
+  parseSkillHubSecurityAudit,
+  type SkillHubSecurityAudit,
+  type SkillHubSkillDetail,
+  type SkillHubVersion,
+} from "./skill-hub-adapter.js";
+import {
+  readSkillHubArtifactMetadata,
+  readSkillHubArtifactDeletion,
+  type SkillHubIdentityReservation,
+} from "./skill-hub-artifact-identity.js";
+import {
+  prepareSkillHubArtifactUpload,
+  type SkillHubArtifactUpload,
+} from "./skill-hub-publication-upload.js";
 
-export type SkillHubEditableMetadata = {
-  id: number;
+export type SkillHubArtifactIdentity = {
+  skillId: number;
+  versionId: number;
   namespace: string;
   slug: string;
-  revision: string;
-  displayName: string;
-  summary: string;
-  visibility: SkillHubVisibility;
-  effectiveVisibility: SkillHubVisibility;
-  reviewVersions: string[];
+};
+export type SkillHubArtifactDeletion = {
+  skillId: number;
+  state: "pending" | "completed";
+  completedAt?: string;
 };
 
-export type SkillHubRegistryEdit = {
-  operationId: string;
-  skillId: number;
-  namespace: string;
-  slug: string;
-  expectedRevision: string;
-  targetNamespace: string;
-  displayName: string;
-  summary: string;
-  visibility: SkillHubVisibility;
+type ArtifactPublicationRequest = SkillHubArtifactUpload & {
+  revalidateAuthority(): Promise<void>;
 };
 
 export interface SkillHubGovernanceClient {
+  reserveArtifactIdentity(params: SkillHubIdentityReservation): Promise<SkillHubSkillDetail>;
+  getArtifactSkill(params: {
+    namespace: string;
+    slug: string;
+    expectedSkillId?: number;
+    expectedPublicationId?: string;
+  }): Promise<SkillHubSkillDetail>;
+  listArtifactVersions(
+    params: Omit<SkillHubArtifactIdentity, "versionId">,
+  ): Promise<Array<Omit<SkillHubVersion, "downloadAvailable">>>;
+  publishArtifact(params: ArtifactPublicationRequest): Promise<{
+    skillId: number;
+    namespace: string;
+    slug: string;
+    version: string;
+  }>;
+  listOwnedSkills?(
+    page: number,
+    size: number,
+  ): Promise<{
+    items: Array<{
+      id: number;
+      namespace: string;
+      slug: string;
+      displayName: string;
+      summary: string;
+      currentVersion: string | null;
+    }>;
+    total: number;
+  }>;
   createNamespace?(params: {
     namespace: string;
     operationId: string;
   }): Promise<{ id: number; namespace: string }>;
-  getEditableSkill?(namespace: string, slug: string): Promise<SkillHubEditableMetadata>;
-  editSkill?(params: SkillHubRegistryEdit): Promise<SkillHubEditableMetadata>;
-  approvePendingReview(params: {
+  getArtifactSecurity(
+    params: SkillHubArtifactIdentity,
+  ): Promise<{ audits: SkillHubSecurityAudit[]; artifactAvailable: boolean; blocked: boolean }>;
+  downloadArtifact(params: SkillHubArtifactIdentity): Promise<Buffer>;
+  deleteArtifact(params: {
+    skillId: number;
     namespace: string;
     slug: string;
-    version: string;
-    comment: string;
-    requireSafeScan?: boolean;
-  }): Promise<{ reviewId: number; status: string }>;
+  }): Promise<SkillHubArtifactDeletion>;
+  getArtifactDeletion(skillId: number): Promise<SkillHubArtifactDeletion | null>;
 }
 
 export class SkillHubGovernanceError extends Error {
@@ -59,38 +96,13 @@ type GovernanceClientOptions = {
 };
 
 const MAX_JSON_BYTES = 1024 * 1024;
+const ARCHIVE_TRANSFER_TIMEOUT_MS = 10 * 60_000;
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new SkillHubGovernanceError(`Skill Hub returned invalid ${label}`);
   }
   return value as Record<string, unknown>;
-}
-
-function editableMetadata(value: unknown): SkillHubEditableMetadata {
-  const data = record(value, "editable skill");
-  if (
-    !Number.isSafeInteger(data.id) ||
-    Number(data.id) < 1 ||
-    typeof data.namespace !== "string" ||
-    !data.namespace ||
-    typeof data.slug !== "string" ||
-    !data.slug ||
-    typeof data.revision !== "string" ||
-    !data.revision ||
-    typeof data.displayName !== "string" ||
-    !data.displayName.trim() ||
-    typeof data.summary !== "string" ||
-    !["PUBLIC", "NAMESPACE_ONLY", "PRIVATE"].includes(String(data.visibility)) ||
-    !["PUBLIC", "NAMESPACE_ONLY", "PRIVATE"].includes(String(data.effectiveVisibility)) ||
-    !Array.isArray(data.reviewVersions) ||
-    data.reviewVersions.some(
-      (version) => typeof version !== "string" || !version || version.length > 100,
-    )
-  ) {
-    throw new SkillHubGovernanceError("Skill Hub returned invalid editable skill metadata");
-  }
-  return data as SkillHubEditableMetadata;
 }
 
 function normalizeBaseUrl(raw: string): URL {
@@ -126,6 +138,225 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
     }
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? 30_000;
+  }
+
+  async getArtifactSkill(params: {
+    namespace: string;
+    slug: string;
+    expectedSkillId?: number;
+    expectedPublicationId?: string;
+  }) {
+    if (
+      params.expectedSkillId !== undefined &&
+      (!Number.isSafeInteger(params.expectedSkillId) || params.expectedSkillId < 1)
+    ) {
+      throw new SkillHubGovernanceError("Invalid immutable artifact identity");
+    }
+    if (
+      params.expectedPublicationId !== undefined &&
+      !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/u.test(params.expectedPublicationId)
+    ) {
+      throw new SkillHubGovernanceError("Invalid managed publication identity");
+    }
+    await this.ensureLogin();
+    const query = new URLSearchParams();
+    if (params.expectedSkillId !== undefined) {
+      query.set("expectedSkillId", String(params.expectedSkillId));
+    }
+    if (params.expectedPublicationId !== undefined) {
+      query.set("expectedPublicationId", params.expectedPublicationId);
+    }
+    const result = await this.jsonRequest(
+      `api/v1/admin/platformclaw/skills/coordinates/${encodeURIComponent(params.namespace)}/${encodeURIComponent(params.slug)}?${query}`,
+      { method: "GET" },
+      true,
+    );
+    return this.artifactMetadata(result.data, params);
+  }
+
+  async reserveArtifactIdentity(params: SkillHubIdentityReservation) {
+    if (
+      !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/u.test(params.publicationId) ||
+      params.namespace !== `pc-${params.publicationId}` ||
+      !params.slug
+    ) {
+      throw new SkillHubGovernanceError("Invalid managed publication identity");
+    }
+    await this.ensureLogin();
+    // Persisted employee authority can change while the private session logs in.
+    // The caller must still own this reservation immediately before its effect.
+    await params.revalidateAuthority();
+    const result = await this.jsonRequest(
+      "api/v1/admin/platformclaw/skills/identities",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          namespace: params.namespace,
+          slug: params.slug,
+          publicationId: params.publicationId,
+        }),
+      },
+      true,
+    );
+    return this.artifactMetadata(result.data, params);
+  }
+
+  private artifactMetadata(
+    value: unknown,
+    params: { namespace: string; slug: string; expectedSkillId?: number },
+  ) {
+    const metadata = readSkillHubArtifactMetadata(value, params);
+    if (!metadata) {
+      throw new SkillHubGovernanceError("Invalid artifact metadata identity");
+    }
+    return metadata;
+  }
+
+  async listArtifactVersions(params: Omit<SkillHubArtifactIdentity, "versionId">) {
+    if (!Number.isSafeInteger(params.skillId) || params.skillId < 1) {
+      throw new SkillHubGovernanceError("Invalid immutable artifact identity");
+    }
+    await this.ensureLogin();
+    const versions: Array<Omit<SkillHubVersion, "downloadAvailable">> = [];
+    const seen = new Set<number>();
+    let expectedTotal: number | undefined;
+    const query = new URLSearchParams({
+      namespace: params.namespace,
+      slug: params.slug,
+      size: "100",
+    });
+    for (let page = 0; ; page += 1) {
+      query.set("page", String(page));
+      const result = await this.jsonRequest(
+        `api/v1/admin/platformclaw/skills/${params.skillId}/artifact/versions?${query}`,
+        { method: "GET" },
+        true,
+      );
+      const data = record(result.data, "artifact versions");
+      if (
+        !Array.isArray(data.items) ||
+        !Number.isSafeInteger(data.total) ||
+        Number(data.total) < 0 ||
+        data.items.length > 100 ||
+        (expectedTotal !== undefined && expectedTotal !== data.total) ||
+        seen.size + data.items.length > Number(data.total)
+      ) {
+        throw new SkillHubGovernanceError("Artifact version history changed; refresh and retry");
+      }
+      expectedTotal = Number(data.total);
+      for (const item of data.items) {
+        const value = record(item, "artifact version");
+        if (
+          !Number.isSafeInteger(value.id) ||
+          Number(value.id) < 1 ||
+          seen.has(Number(value.id)) ||
+          typeof value.version !== "string" ||
+          !value.version ||
+          typeof value.status !== "string" ||
+          !value.status
+        ) {
+          throw new SkillHubGovernanceError("Invalid artifact version identity");
+        }
+        seen.add(Number(value.id));
+        versions.push({
+          id: Number(value.id),
+          version: value.version,
+          status: value.status,
+          ...(typeof value.changelog === "string" ? { changelog: value.changelog } : {}),
+          ...(typeof value.fileCount === "number" ? { fileCount: value.fileCount } : {}),
+          ...(typeof value.totalSize === "number" ? { totalSize: value.totalSize } : {}),
+          ...(typeof value.publishedAt === "string" ? { publishedAt: value.publishedAt } : {}),
+        });
+      }
+      if (seen.size === expectedTotal) {
+        return versions;
+      }
+      if (data.items.length === 0) {
+        throw new SkillHubGovernanceError("Artifact version history is incomplete");
+      }
+    }
+  }
+
+  async publishArtifact(params: ArtifactPublicationRequest) {
+    let upload: () => RequestInit;
+    try {
+      upload = prepareSkillHubArtifactUpload(params);
+    } catch {
+      throw new SkillHubGovernanceError("Invalid managed publication request");
+    }
+    await this.ensureLogin();
+    // Login may await several network requests. Employee publication authority
+    // belongs to the catalog owner and must still hold at the upload effect.
+    await params.revalidateAuthority();
+    const init = upload();
+    const response = await this.request(
+      "api/v1/admin/platformclaw/skills/publish",
+      init,
+      true,
+      false,
+      ARCHIVE_TRANSFER_TIMEOUT_MS,
+    );
+    const result = await this.decodeJson(response);
+    if (result.code !== 0 && result.code !== 200) {
+      throw new SkillHubGovernanceError("Skill Hub rejected the managed publication");
+    }
+    const data = record(result.data, "managed publication");
+    if (
+      !Number.isSafeInteger(data.skillId) ||
+      Number(data.skillId) < 1 ||
+      (params.expectedSkillId !== undefined && data.skillId !== params.expectedSkillId) ||
+      data.namespace !== params.namespace ||
+      typeof data.slug !== "string" ||
+      !data.slug.trim() ||
+      typeof data.version !== "string" ||
+      !data.version.trim()
+    ) {
+      throw new SkillHubGovernanceError("Invalid managed publication identity");
+    }
+    return {
+      skillId: Number(data.skillId),
+      namespace: params.namespace,
+      slug: data.slug,
+      version: data.version,
+    };
+  }
+
+  async listOwnedSkills(page: number, size: number) {
+    await this.ensureLogin();
+    const response = await this.jsonRequest(
+      `api/v1/me/skills?filter=ALL&page=${page}&size=${size}`,
+      { method: "GET" },
+      true,
+    );
+    const data = record(response.data, "owned skills page");
+    if (!Array.isArray(data.items) || !Number.isSafeInteger(data.total) || Number(data.total) < 0) {
+      throw new SkillHubGovernanceError("Skill Hub returned invalid owned skills");
+    }
+    const items = data.items.map((item) => {
+      const value = record(item, "owned skill");
+      if (
+        !Number.isSafeInteger(value.id) ||
+        Number(value.id) < 1 ||
+        typeof value.namespace !== "string" ||
+        !value.namespace ||
+        typeof value.slug !== "string" ||
+        !value.slug
+      ) {
+        throw new SkillHubGovernanceError("Skill Hub returned invalid owned skill identity");
+      }
+      const headline = value.headlineVersion
+        ? record(value.headlineVersion, "headline version")
+        : null;
+      return {
+        id: Number(value.id),
+        namespace: value.namespace,
+        slug: value.slug,
+        displayName: typeof value.displayName === "string" ? value.displayName : value.slug,
+        summary: typeof value.summary === "string" ? value.summary : "",
+        currentVersion: headline && typeof headline.version === "string" ? headline.version : null,
+      };
+    });
+    return { items, total: Number(data.total) };
   }
 
   async createNamespace(params: {
@@ -210,82 +441,119 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
     throw new SkillHubGovernanceError("Skill Hub rejected the namespace request", response.status);
   }
 
-  async getEditableSkill(namespace: string, slug: string): Promise<SkillHubEditableMetadata> {
-    await this.ensureLogin();
-    const response = await this.jsonRequest(
-      `api/v1/admin/platformclaw/skills/${encodeURIComponent(namespace)}/${encodeURIComponent(slug)}`,
-      { method: "GET" },
-      true,
-    );
-    const metadata = editableMetadata(response.data);
-    if (metadata.namespace !== namespace || metadata.slug !== slug) {
-      throw new SkillHubGovernanceError("Skill Hub returned mismatched editable skill metadata");
+  private artifactPath(params: SkillHubArtifactIdentity, suffix: string) {
+    if (
+      !Number.isSafeInteger(params.skillId) ||
+      params.skillId < 1 ||
+      !Number.isSafeInteger(params.versionId) ||
+      params.versionId < 1
+    ) {
+      throw new SkillHubGovernanceError("Invalid immutable artifact identity");
     }
-    return metadata;
+    const query = new URLSearchParams({ namespace: params.namespace, slug: params.slug });
+    return `api/v1/admin/platformclaw/skills/${params.skillId}/versions/${params.versionId}/${suffix}?${query}`;
   }
 
-  async editSkill(params: SkillHubRegistryEdit): Promise<SkillHubEditableMetadata> {
+  async getArtifactSecurity(params: SkillHubArtifactIdentity) {
     await this.ensureLogin();
-    const response = await this.jsonRequest(
-      `api/v1/admin/platformclaw/skills/${encodeURIComponent(String(params.skillId))}`,
-      { method: "PATCH", body: JSON.stringify(params) },
-      true,
-    );
-    const metadata = editableMetadata(response.data);
-    if (
-      metadata.id !== params.skillId ||
-      metadata.namespace !== params.targetNamespace ||
-      metadata.slug !== params.slug ||
-      metadata.displayName !== params.displayName ||
-      metadata.summary !== params.summary ||
-      metadata.visibility !== params.visibility
-    ) {
-      throw new SkillHubGovernanceError("Skill Hub returned a mismatched edit result");
+    const audits: SkillHubSecurityAudit[] = [];
+    const seen = new Set<number>();
+    let artifactAvailable = true;
+    let blocked = false;
+    let expectedTotal: number | undefined;
+    for (let page = 0; ; page += 1) {
+      const result = await this.jsonRequest(
+        `${this.artifactPath(params, "security-audits")}&page=${page}&size=100`,
+        { method: "GET" },
+        true,
+      );
+      const data = record(result.data, "artifact security");
+      if (
+        !Array.isArray(data.items) ||
+        !Number.isSafeInteger(data.total) ||
+        Number(data.total) < 0 ||
+        typeof data.artifactAvailable !== "boolean" ||
+        typeof data.blocked !== "boolean"
+      ) {
+        throw new SkillHubGovernanceError("Invalid artifact security response");
+      }
+      const total = Number(data.total);
+      if (
+        data.items.length > 100 ||
+        (expectedTotal !== undefined && expectedTotal !== total) ||
+        seen.size + data.items.length > total
+      ) {
+        throw new SkillHubGovernanceError("Artifact audit history changed; refresh and retry");
+      }
+      expectedTotal = total;
+      artifactAvailable &&= data.artifactAvailable;
+      blocked ||= data.blocked;
+      for (const item of data.items) {
+        const raw = record(item, "artifact audit");
+        if (!Number.isSafeInteger(raw.id) || Number(raw.id) < 1 || seen.has(Number(raw.id))) {
+          throw new SkillHubGovernanceError(
+            "Registry repeated an artifact audit; refresh and retry",
+          );
+        }
+        seen.add(Number(raw.id));
+        audits.push(parseSkillHubSecurityAudit(raw));
+      }
+      if (seen.size >= Number(data.total)) {
+        break;
+      }
+      if (!data.items.length) {
+        throw new SkillHubGovernanceError("Artifact audit history is incomplete");
+      }
     }
-    return metadata;
+    return { audits, artifactAvailable: artifactAvailable && !blocked, blocked };
   }
 
-  async approvePendingReview(params: {
-    namespace: string;
-    slug: string;
-    version: string;
-    comment: string;
-    requireSafeScan?: boolean;
-  }): Promise<{ reviewId: number; status: string }> {
+  async downloadArtifact(params: SkillHubArtifactIdentity) {
     await this.ensureLogin();
-    const response = await this.jsonRequest(
-      `api/v1/admin/platformclaw/skills/${encodeURIComponent(params.namespace)}/${encodeURIComponent(params.slug)}/versions/${encodeURIComponent(params.version)}/review`,
-      { method: "GET" },
+    const response = await this.request(
+      this.artifactPath(params, "artifact"),
+      { method: "GET", headers: { Accept: "application/zip" } },
+      true,
+      false,
+      10 * 60_000,
+    );
+    return await this.readBytes(response, 500 * 1024 * 1024);
+  }
+
+  private deletion(value: unknown, skillId: number): SkillHubArtifactDeletion {
+    const receipt = readSkillHubArtifactDeletion(value, skillId);
+    if (!receipt) {
+      throw new SkillHubGovernanceError("Invalid artifact deletion receipt");
+    }
+    return receipt;
+  }
+
+  async deleteArtifact(params: { skillId: number; namespace: string; slug: string }) {
+    await this.ensureLogin();
+    const query = new URLSearchParams({ namespace: params.namespace, slug: params.slug });
+    const result = await this.jsonRequest(
+      `api/v1/admin/platformclaw/skills/${params.skillId}/artifact?${query}`,
+      { method: "DELETE" },
       true,
     );
-    const review = record(response.data, "exact version review");
-    if (
-      review.namespace !== params.namespace ||
-      review.skillSlug !== params.slug ||
-      review.version !== params.version ||
-      !["PENDING", "APPROVED"].includes(String(review.status))
-    ) {
-      throw new SkillHubGovernanceError("Skill Hub returned a mismatched exact version review");
+    return this.deletion(result.data, params.skillId);
+  }
+
+  async getArtifactDeletion(skillId: number) {
+    await this.ensureLogin();
+    try {
+      const result = await this.jsonRequest(
+        `api/v1/admin/platformclaw/skills/${skillId}/artifact-deletion`,
+        { method: "GET" },
+        true,
+      );
+      return this.deletion(result.data, skillId);
+    } catch (error) {
+      if (error instanceof SkillHubGovernanceError && error.statusCode === 404) {
+        return null;
+      }
+      throw error;
     }
-    const id = review.id;
-    if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 1) {
-      throw new SkillHubGovernanceError("Skill Hub returned an invalid review id");
-    }
-    if (review.status === "APPROVED" && !params.requireSafeScan) {
-      return { reviewId: id, status: "APPROVED" };
-    }
-    const approvalResponse = await this.jsonRequest(
-      params.requireSafeScan
-        ? `api/v1/admin/platformclaw/skills/${encodeURIComponent(params.namespace)}/${encodeURIComponent(params.slug)}/versions/${encodeURIComponent(params.version)}/approve-safe`
-        : `api/v1/reviews/${encodeURIComponent(String(id))}/approve`,
-      { method: "POST", body: JSON.stringify({ comment: params.comment }) },
-      true,
-    );
-    const result = record(approvalResponse.data, "review approval");
-    if (result.id !== id || result.status !== "APPROVED") {
-      throw new SkillHubGovernanceError("Skill Hub returned a mismatched review approval");
-    }
-    return { reviewId: id, status: result.status };
   }
 
   private async ensureLogin(): Promise<void> {
@@ -327,9 +595,9 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
     return body;
   }
 
-  private async decodeJson(response: Response) {
+  private async readBytes(response: Response, limit: number): Promise<Buffer> {
     const declared = response.headers.get("content-length");
-    if (declared && Number(declared) > MAX_JSON_BYTES) {
+    if (declared && Number(declared) > limit) {
       void response.body?.cancel().catch(() => undefined);
       throw new SkillHubGovernanceError("Skill Hub governance response is oversized");
     }
@@ -345,13 +613,17 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
         break;
       }
       size += chunk.value.byteLength;
-      if (size > MAX_JSON_BYTES) {
+      if (size > limit) {
         void reader.cancel().catch(() => undefined);
         throw new SkillHubGovernanceError("Skill Hub governance response is oversized");
       }
       chunks.push(chunk.value);
     }
-    const bytes = Buffer.concat(chunks, size);
+    return Buffer.concat(chunks, size);
+  }
+
+  private async decodeJson(response: Response) {
+    const bytes = await this.readBytes(response, MAX_JSON_BYTES);
     try {
       return record(JSON.parse(bytes.toString("utf8")), "governance JSON");
     } catch (error) {
@@ -367,10 +639,13 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
     init: RequestInit,
     authenticated: boolean,
     allowBadRequest = false,
+    timeoutMs = this.timeoutMs,
   ): Promise<Response> {
     const headers = new Headers(init.headers);
-    headers.set("Accept", "application/json");
-    if (init.body) {
+    if (!headers.has("Accept")) {
+      headers.set("Accept", "application/json");
+    }
+    if (typeof init.body === "string" && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
     }
     const cookie = [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
@@ -389,7 +664,7 @@ export class IflytekSkillHubGovernanceClient implements SkillHubGovernanceClient
         ...init,
         headers,
         redirect: "error",
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
       throw new SkillHubGovernanceError("Skill Hub governance service is unavailable");

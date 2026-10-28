@@ -1,385 +1,254 @@
-import { describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
 import { SkillHubAdapterError } from "./skill-hub-adapter.js";
 import { createSkillHubServiceFixture as fixture } from "./skill-hub-service.test-fixtures.js";
 
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
+const THIRTY_DAYS = 30 * 24 * 60 * 60_000;
+const YEAR = 365 * 24 * 60 * 60_000;
+
+async function dueFixture() {
+  const result = await fixture([], undefined, { registrySkill: "absent" });
+  const entry = await result.seedEntry();
+  await result.store.skillHubCatalog.trash({
+    skillId: entry.id,
+    actorUserId: result.actor.user.id,
+    expectedRevision: entry.revision,
+    now: 100 - THIRTY_DAYS,
   });
-  return { promise, resolve };
+  return { ...result, entry };
 }
 
-describe("SkillHubService registry deletion", () => {
-  it("deletes only the registry copy for its owner and cleans PlatformClaw management state", async () => {
-    const { service, actor, adapterMocks, store, adminRpcCall } = await fixture(
-      undefined,
+describe("SkillHubService trash and permanent deletion", () => {
+  it("trashes only the catalog copy, keeps installed/workspace bytes, and restores the exact sharing", async () => {
+    const { service, actor, adapterMocks, store, adminRpcCall, seedEntry, skillDir } =
+      await fixture([], undefined, { registrySkill: "absent" });
+    const entry = await seedEntry({ sharing: { mode: "PRIVATE", userIds: [], scopeIds: [] } });
+    const origin = await store.skillHubCatalog.recordInstallation({
+      agentId: actor.agentId,
+      destination: "platform_server",
+      targetId: "platform-server",
+      slug: entry.slug,
+      skillId: entry.id,
+      version: "1.0.0",
+      archiveSha256: "a".repeat(64),
+      installedRevision: "sha256:0123456789abcdef",
+      installedAt: 20,
+      state: "completed",
+    });
+    adminRpcCall.mockClear();
+    await expect(
+      service.deletePublishedSkill(actor.user, entry.id, entry.revision),
+    ).resolves.toMatchObject({ ok: true, id: entry.id, revision: entry.revision + 1 });
+    expect(adapterMocks.deleteSkill).not.toHaveBeenCalled();
+    expect(adminRpcCall).not.toHaveBeenCalled();
+    expect(await readFile(path.join(skillDir, "helper.txt"), "utf8")).toBe("hello");
+    expect(await store.skillHubCatalog.listInstallations(actor.agentId, "platform-server")).toEqual(
+      [origin],
+    );
+    await expect(service.detailById(actor.user, entry.id)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    expect((await service.trash(actor.user)).items).toMatchObject([
+      { id: entry.id, purgeAt: 100 + THIRTY_DAYS },
+    ]);
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 0 });
+    await expect(service.restore(actor.user, entry.id, entry.revision + 1)).resolves.toMatchObject({
+      ok: true,
+      revision: entry.revision + 2,
+    });
+    expect(await store.skillHubCatalog.get(entry.id)).toMatchObject({
+      sharing: entry.sharing,
+      currentVersion: entry.currentVersion,
+      deletedAt: null,
+    });
+  });
+
+  it("requires the current owner and revision, and requires administrator reasons for intervention", async () => {
+    const { service, actor, store, seedEntry, createActor, adapterMocks } = await fixture(
+      [],
       undefined,
       { registrySkill: "absent" },
     );
-    await service.publish(actor, {
-      skill: "demo-skill",
-      namespace: "engineering",
-      version: "1.2.3",
-      visibility: "PRIVATE",
-    });
-    const ownership = await store.getSkillHubOwnership("engineering", "demo-skill");
-    const removeState = vi.spyOn(store, "removeSkillHubSkillState");
-    adminRpcCall.mockClear();
-
+    const entry = await seedEntry();
+    const outsider = await createActor("outsider.user");
+    const admin = await createActor("admin.user");
     await expect(
-      service.deletePublishedSkill(actor.user, "engineering", "demo-skill", ownership!.updatedAt),
-    ).resolves.toEqual({
-      ok: true,
-      deleted: true,
-      namespace: "engineering",
-      slug: "demo-skill",
-    });
-    expect(adapterMocks.deleteSkill).toHaveBeenCalledWith("engineering", "demo-skill");
-    expect(removeState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        namespace: "engineering",
-        slug: "demo-skill",
-        actorUserId: actor.user.id,
-      }),
+      service.deletePublishedSkill(outsider.user, entry.id, entry.revision),
+    ).rejects.toThrow("owner or administrator");
+    await expect(
+      service.deletePublishedSkill(actor.user, entry.id, entry.revision - 1),
+    ).rejects.toMatchObject({ code: "skill-hub-changed" });
+    await expect(
+      service.deletePublishedSkill(admin.user, entry.id, entry.revision),
+    ).rejects.toThrow("require a reason");
+    await expect(
+      service.deletePublishedSkill(admin.user, randomUUID(), 1, "Remove unknown entry"),
+    ).rejects.toMatchObject({ resource: "skill-hub-skill" });
+    expect((await store.skillHubCatalog.get(entry.id))?.deletedAt).toBeNull();
+    expect(adapterMocks.deleteSkill).not.toHaveBeenCalled();
+    await service.deletePublishedSkill(
+      admin.user,
+      entry.id,
+      entry.revision,
+      "Owner requested removal",
     );
-    expect(adminRpcCall).not.toHaveBeenCalled();
+    expect(
+      await store.skillHubCatalog.listHistory({ skillId: entry.id, actorUserId: admin.user.id }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "deleted",
+          management: true,
+          actorUserId: admin.user.id,
+          details: { reason: "Owner requested removal" },
+        }),
+      ]),
+    );
   });
 
-  it("rejects stale registry deletion before calling the upstream hard-delete", async () => {
-    const { service, actor, adapterMocks, store } = await fixture(undefined, undefined, {
-      registrySkill: "absent",
+  it("purges only after 30 days and retains content-free history for one year after actual purge", async () => {
+    const { service, actor, store, adapterMocks, entry } = await dueFixture();
+    expect(await store.skillHubCatalog.listPurgeDue(99)).toEqual([]);
+    await expect(service.restore(actor.user, entry.id, entry.revision + 1)).rejects.toThrow(
+      "no longer",
+    );
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 1 });
+    expect(adapterMocks.deleteSkill).toHaveBeenCalledWith(entry.namespace, entry.slug);
+    expect(await store.skillHubCatalog.get(entry.id)).toMatchObject({
+      purgedAt: 100,
+      currentVersion: null,
+      displayName: "",
+      summary: "",
+      tags: [],
+      sharing: { mode: "PRIVATE", userIds: [], scopeIds: [] },
     });
-    await service.publish(actor, {
-      skill: "demo-skill",
-      namespace: "engineering",
-      version: "1.2.3",
-      visibility: "PRIVATE",
+    const history = await store.skillHubCatalog.listHistory({
+      skillId: entry.id,
+      actorUserId: actor.user.id,
     });
-
-    await expect(
-      service.deletePublishedSkill(actor.user, "engineering", "demo-skill", 99),
-    ).rejects.toMatchObject({ statusCode: 409 });
-    expect(adapterMocks.deleteSkill).not.toHaveBeenCalled();
-    await expect(store.getSkillHubOwnership("engineering", "demo-skill")).resolves.not.toBeNull();
+    expect(history.length).toBeGreaterThan(0);
+    expect(
+      history.every((event) => event.management && Object.keys(event.details).length === 0),
+    ).toBe(true);
+    expect(await store.skillHubCatalog.pruneHistory(100 + YEAR - 1)).toBe(0);
+    expect(await store.skillHubCatalog.pruneHistory(100 + YEAR)).toBe(1);
+    expect(await store.skillHubCatalog.get(entry.id)).toBeNull();
   });
 
-  it("does not let an administrator delete an upstream coordinate without PlatformClaw ownership", async () => {
-    const { service, actor, adapterMocks } = await fixture();
-    const admin = { ...actor.user, globalRole: "admin" as const };
-
-    await expect(
-      service.deletePublishedSkill(admin, "engineering", "demo-skill", 1),
-    ).rejects.toMatchObject({ statusCode: 404 });
-    expect(adapterMocks.deleteSkill).not.toHaveBeenCalled();
-  });
-
-  it("recovers local management state when a prior remote delete already removed the registry copy", async () => {
-    const { service, actor, adapterMocks, store } = await fixture(undefined, undefined, {
-      registrySkill: "absent",
-    });
-    await service.publish(actor, {
-      skill: "demo-skill",
-      namespace: "engineering",
-      version: "1.2.3",
-      visibility: "PRIVATE",
-    });
-    const ownership = await store.getSkillHubOwnership("engineering", "demo-skill");
-    adapterMocks.deleteSkill.mockResolvedValue({
-      ok: false,
-      namespace: "engineering",
-      slug: "demo-skill",
-    });
-    adapterMocks.getSkill.mockRejectedValueOnce(new SkillHubAdapterError("not found", 404));
-
-    await expect(
-      service.deletePublishedSkill(actor.user, "engineering", "demo-skill", ownership!.updatedAt),
-    ).resolves.toMatchObject({ deleted: true });
-    await expect(store.getSkillHubOwnership("engineering", "demo-skill")).resolves.toBeNull();
-  });
-
-  it("retains local management state when remote delete is ambiguous and the skill still resolves", async () => {
-    const { service, actor, adapterMocks, store } = await fixture(undefined, undefined, {
-      registrySkill: "absent",
-    });
-    await service.publish(actor, {
-      skill: "demo-skill",
-      namespace: "engineering",
-      version: "1.2.3",
-      visibility: "PRIVATE",
-    });
-    const ownership = await store.getSkillHubOwnership("engineering", "demo-skill");
-    adapterMocks.deleteSkill.mockResolvedValue({
-      ok: false,
-      namespace: "engineering",
-      slug: "demo-skill",
-    });
-
-    await expect(
-      service.deletePublishedSkill(actor.user, "engineering", "demo-skill", ownership!.updatedAt),
-    ).rejects.toMatchObject({ statusCode: 409 });
-    await expect(store.getSkillHubOwnership("engineering", "demo-skill")).resolves.not.toBeNull();
-  });
-
-  it("retains local management state when the upstream delete fails", async () => {
-    const { service, actor, adapterMocks, store } = await fixture(undefined, undefined, {
-      registrySkill: "absent",
-    });
-    await service.publish(actor, {
-      skill: "demo-skill",
-      namespace: "engineering",
-      version: "1.2.3",
-      visibility: "PRIVATE",
-    });
-    const ownership = await store.getSkillHubOwnership("engineering", "demo-skill");
-    adapterMocks.deleteSkill.mockRejectedValue(
+  it("retains unavailable trash and visible cleanup failure when native deletion fails, then retries", async () => {
+    const { service, actor, store, adapterMocks, entry } = await dueFixture();
+    adapterMocks.deleteSkill.mockRejectedValueOnce(
       new SkillHubAdapterError("registry unavailable", 503),
     );
-
-    await expect(
-      service.deletePublishedSkill(actor.user, "engineering", "demo-skill", ownership!.updatedAt),
-    ).rejects.toMatchObject({ statusCode: 502 });
-    await expect(store.getSkillHubOwnership("engineering", "demo-skill")).resolves.not.toBeNull();
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 0 });
+    expect(await store.skillHubCatalog.get(entry.id)).toMatchObject({
+      purgedAt: null,
+      purgePending: true,
+      summary: "Demo",
+    });
+    expect((await service.config(actor)).maintenanceError).toContain("cleanup is pending");
+    await expect(service.detailById(actor.user, entry.id)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 1 });
+    expect((await store.skillHubCatalog.get(entry.id))?.purgedAt).toBe(100);
+    expect(adapterMocks.deleteSkill).toHaveBeenCalledTimes(2);
   });
 
-  it("lets an in-flight force approval finish before a queued registry delete", async () => {
-    const approvalStarted = deferred();
-    const releaseApproval = deferred();
-    const approvePendingReview = vi.fn(async () => {
-      approvalStarted.resolve();
-      await releaseApproval.promise;
-      return { reviewId: 42, status: "APPROVED" };
+  it("does not declare an ambiguous native deletion complete while the artifact still resolves", async () => {
+    const { service, store, adapterMocks, entry } = await dueFixture();
+    adapterMocks.deleteSkill.mockResolvedValue({
+      ok: false,
+      namespace: entry.namespace,
+      slug: entry.slug,
     });
-    const { service, actor, adapterMocks, store } = await fixture(
-      ["engineering"],
-      { approvePendingReview },
-      { registrySkill: "absent" },
-    );
-    await service.publish(actor, {
-      skill: "demo-skill",
-      namespace: "engineering",
-      version: "1.2.3",
-      visibility: "PRIVATE",
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 0 });
+    expect(await store.skillHubCatalog.get(entry.id)).toMatchObject({
+      purgedAt: null,
+      purgePending: true,
+      summary: "Demo",
     });
-    const ownership = await store.getSkillHubOwnership("engineering", "demo-skill");
+  });
 
-    const force = service.acknowledgeForcePublish(actor.user, "engineering", "demo-skill", {
-      version: "1.2.3",
-      acknowledged: true,
-      reason: "reviewed scanner exception",
+  it("continues later due deletions when the first native deletion fails", async () => {
+    const { service, actor, store, adapterMocks, seedEntry } = await fixture([], undefined, {
+      registrySkill: "absent",
     });
-    await approvalStarted.promise;
-    const deletion = service.deletePublishedSkill(
-      actor.user,
-      "engineering",
-      "demo-skill",
-      ownership!.updatedAt,
-    );
-    await Promise.resolve();
+    const entry = await seedEntry();
+    const second = await seedEntry({ slug: "second-due-skill" });
+    await store.skillHubCatalog.trash({
+      skillId: entry.id,
+      actorUserId: actor.user.id,
+      expectedRevision: entry.revision,
+      now: 99 - THIRTY_DAYS,
+    });
+    await store.skillHubCatalog.trash({
+      skillId: second.id,
+      actorUserId: actor.user.id,
+      expectedRevision: second.revision,
+      now: 100 - THIRTY_DAYS,
+    });
+    // The first row is older; both are due at the fixture clock's current time.
+    const deleteNative = adapterMocks.deleteSkill.getMockImplementation();
+    if (!deleteNative) {
+      throw new Error("Native delete fixture is unavailable");
+    }
+    adapterMocks.deleteSkill.mockImplementation(async (namespace, slug) => {
+      if (namespace === entry.namespace && slug === entry.slug) {
+        throw new SkillHubAdapterError("first registry artifact unavailable", 503);
+      }
+      return await deleteNative(namespace, slug);
+    });
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 1 });
+    expect(await store.skillHubCatalog.get(entry.id)).toMatchObject({
+      purgedAt: null,
+      purgePending: true,
+    });
+    expect((await store.skillHubCatalog.get(second.id))?.purgedAt).toBe(100);
+    expect(adapterMocks.deleteSkill).toHaveBeenCalledWith(second.namespace, second.slug);
+  });
+
+  it("keeps deletion pending when a native artifact disappears without a physical cleanup receipt", async () => {
+    const { service, store, native, adapterMocks, entry } = await dueFixture();
+    native.delete(`${entry.namespace}/${entry.slug}`);
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 0 });
     expect(adapterMocks.deleteSkill).not.toHaveBeenCalled();
-
-    releaseApproval.resolve();
-    await expect(force).resolves.toMatchObject({ upstreamOverridePerformed: true });
-    await expect(deletion).resolves.toMatchObject({ deleted: true });
+    expect((await store.skillHubCatalog.get(entry.id))?.purgedAt).toBeNull();
   });
 
-  it.each([true, false])(
-    "checks the exact force-publish version outside the catalog page (exists: %s)",
-    async (exists) => {
-      const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-      const { service, actor, adapterMocks } = await fixture(
-        ["engineering"],
-        { approvePendingReview },
-        { registrySkill: "absent" },
-      );
-      await service.publish(actor, {
-        skill: "demo-skill",
-        namespace: "engineering",
-        version: "1.2.3",
-        visibility: "PRIVATE",
-      });
-      adapterMocks.listVersions.mockRejectedValue(
-        new Error("Old release is outside the first catalog page"),
-      );
-      if (exists) {
-        adapterMocks.getVersionState.mockResolvedValue({
-          id: 19,
-          version: "0.1.0",
-          status: "PENDING_REVIEW",
-        });
-      } else {
-        adapterMocks.getVersionState.mockRejectedValue(
-          new SkillHubAdapterError("Version not found", 404),
-        );
-      }
-      const force = service.acknowledgeForcePublish(actor.user, "engineering", "demo-skill", {
-        version: "0.1.0",
-        acknowledged: true,
-        reason: "reviewed original release exception",
-      });
-      if (exists) {
-        await expect(force).resolves.toMatchObject({
-          upstreamOverridePerformed: true,
-          version: "0.1.0",
-        });
-        expect(approvePendingReview).toHaveBeenCalledWith(
-          expect.objectContaining({ version: "0.1.0" }),
-        );
-      } else {
-        await expect(force).rejects.toMatchObject({ statusCode: 404 });
-        expect(approvePendingReview).not.toHaveBeenCalled();
-      }
-      expect(adapterMocks.getVersionState).toHaveBeenCalledWith(
-        "engineering",
-        "demo-skill",
-        "0.1.0",
-      );
-      expect(adapterMocks.listVersions).not.toHaveBeenCalled();
-    },
-  );
-
-  it("rechecks exact version identity after scanning before automatic approval", async () => {
-    const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-    const { service, actor, adapterMocks, store } = await fixture(
-      ["engineering"],
-      { approvePendingReview },
-      { registrySkill: "absent" },
-    );
-    await service.publish(actor, {
-      skill: "demo-skill",
-      namespace: "engineering",
-      version: "1.2.3",
-      visibility: "PUBLIC",
+  it("stops permanent deletion when a native coordinate has been replaced by another identity", async () => {
+    const { service, store, native, adapterMocks, entry } = await dueFixture();
+    const actual = native.get(`${entry.namespace}/${entry.slug}`);
+    if (!actual) {
+      throw new Error("Native fixture entry missing");
+    }
+    native.set(`${entry.namespace}/${entry.slug}`, { ...actual, id: actual.id + 10 });
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 0 });
+    expect(adapterMocks.deleteSkill).not.toHaveBeenCalled();
+    expect(await store.skillHubCatalog.get(entry.id)).toMatchObject({
+      purgedAt: null,
+      purgePending: true,
     });
-    vi.spyOn(store, "listDueSkillHubGovernanceJobs").mockResolvedValue([
-      {
-        namespace: "engineering",
-        slug: "demo-skill",
-        version: "0.1.0",
-        ownerUserId: actor.user.id,
-        state: "pending",
-        attempts: 1,
-        nextAttemptAt: 1,
-        updatedAt: 1,
-      },
-    ]);
-    adapterMocks.getVersionState
-      .mockResolvedValueOnce({ id: 19, version: "0.1.0", status: "PENDING_REVIEW" })
-      .mockResolvedValueOnce({ id: 20, version: "0.1.0", status: "PENDING_REVIEW" });
-    adapterMocks.listSecurityAudits.mockResolvedValue([
-      {
-        scannerType: "skill-scanner",
-        verdict: "SAFE",
-        isSafe: true,
-        scannedAt: "2026-10-16T00:00:00Z",
-      },
-    ]);
-    const updateJob = vi.spyOn(store, "updateSkillHubGovernanceJob");
-    await service.processGovernanceQueue();
-    expect(approvePendingReview).not.toHaveBeenCalled();
-    expect(updateJob).toHaveBeenCalledWith(
-      expect.objectContaining({ version: "0.1.0", state: "pending", lastError: "version-changed" }),
-    );
-    expect(adapterMocks.listSecurityAudits).toHaveBeenCalledWith(10, 19);
-    expect(adapterMocks.listVersions).not.toHaveBeenCalled();
   });
-
-  it("blocks force approval behind deletion and fails closed after the ownership root is removed", async () => {
-    const deleteStarted = deferred();
-    const releaseDelete = deferred();
-    const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-    const { service, actor, adapterMocks, store } = await fixture(
-      ["engineering"],
-      { approvePendingReview },
-      { registrySkill: "absent" },
-    );
-    await service.publish(actor, {
-      skill: "demo-skill",
-      namespace: "engineering",
-      version: "1.2.3",
-      visibility: "PRIVATE",
+  it("waits for physical cleanup and recovers a durable completed receipt", async () => {
+    const { service, store, native, governanceMocks, deletions, entry } = await dueFixture();
+    governanceMocks.deleteArtifact.mockImplementation(async ({ skillId }) => {
+      native.delete(`${entry.namespace}/${entry.slug}`);
+      const pending = { skillId, state: "pending" as const };
+      deletions.set(skillId, pending);
+      return pending;
     });
-    const ownership = await store.getSkillHubOwnership("engineering", "demo-skill");
-    adapterMocks.deleteSkill.mockImplementationOnce(async (namespace: string, slug: string) => {
-      deleteStarted.resolve();
-      await releaseDelete.promise;
-      return { ok: true, namespace, slug };
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 0 });
+    expect((await store.skillHubCatalog.get(entry.id))?.purgedAt).toBeNull();
+    deletions.set(entry.registryId!, {
+      skillId: entry.registryId!,
+      state: "completed",
+      completedAt: new Date(90).toISOString(),
     });
-
-    const deletion = service.deletePublishedSkill(
-      actor.user,
-      "engineering",
-      "demo-skill",
-      ownership!.updatedAt,
-    );
-    await deleteStarted.promise;
-    const force = service.acknowledgeForcePublish(actor.user, "engineering", "demo-skill", {
-      version: "1.2.3",
-      acknowledged: true,
-      reason: "reviewed scanner exception",
-    });
-    await Promise.resolve();
-    expect(approvePendingReview).not.toHaveBeenCalled();
-
-    releaseDelete.resolve();
-    await expect(deletion).resolves.toMatchObject({ deleted: true });
-    await expect(force).rejects.toMatchObject({ statusCode: 404 });
-    expect(approvePendingReview).not.toHaveBeenCalled();
-  });
-
-  it("does not auto-approve a clean scan if registry deletion completes while scan polling is in flight", async () => {
-    const scanStarted = deferred();
-    const releaseScan = deferred();
-    const approvePendingReview = vi.fn(async () => ({ reviewId: 42, status: "APPROVED" }));
-    const { service, actor, adapterMocks, store } = await fixture(
-      ["engineering"],
-      { approvePendingReview },
-      { registrySkill: "absent" },
-    );
-    await service.publish(actor, {
-      skill: "demo-skill",
-      namespace: "engineering",
-      version: "1.2.3",
-      visibility: "PRIVATE",
-    });
-    const ownership = await store.getSkillHubOwnership("engineering", "demo-skill");
-    vi.spyOn(store, "listDueSkillHubGovernanceJobs").mockResolvedValue([
-      {
-        namespace: "engineering",
-        slug: "demo-skill",
-        version: "1.2.3",
-        ownerUserId: actor.user.id,
-        state: "pending",
-        attempts: 0,
-        nextAttemptAt: 1,
-        updatedAt: 1,
-      },
-    ]);
-    adapterMocks.getVersionState.mockResolvedValue({
-      id: 20,
-      version: "1.2.3",
-      status: "PENDING_REVIEW",
-    });
-    adapterMocks.listSecurityAudits.mockImplementationOnce(async () => {
-      scanStarted.resolve();
-      await releaseScan.promise;
-      return [
-        {
-          scannerType: "skill-scanner",
-          verdict: "SAFE",
-          isSafe: true,
-          scannedAt: "2026-10-16T00:00:00Z",
-        },
-      ];
-    });
-
-    const processing = service.processGovernanceQueue();
-    await scanStarted.promise;
-    await expect(
-      service.deletePublishedSkill(actor.user, "engineering", "demo-skill", ownership!.updatedAt),
-    ).resolves.toMatchObject({ deleted: true });
-    releaseScan.resolve();
-    await expect(processing).resolves.toEqual({ processed: 1 });
-    expect(approvePendingReview).not.toHaveBeenCalled();
+    await expect(service.processGovernanceQueue()).resolves.toEqual({ processed: 1 });
+    expect((await store.skillHubCatalog.get(entry.id))?.purgedAt).toBe(100);
+    expect(governanceMocks.deleteArtifact).toHaveBeenCalledTimes(1);
   });
 });

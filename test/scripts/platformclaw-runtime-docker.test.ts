@@ -338,6 +338,7 @@ describe("PlatformClaw Docker runtime", () => {
     const inputs = [
       "Dockerfile",
       "upstream.patch",
+      "artifact-policy.patch",
       ...readdirSync(path.join(patchRoot, "overlay"), { recursive: true, withFileTypes: true })
         .filter((entry) => entry.isFile())
         .map((entry) =>

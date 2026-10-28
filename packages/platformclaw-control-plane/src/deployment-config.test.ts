@@ -155,40 +155,44 @@ describe("loadPlatformClawDeploymentConfig", () => {
     expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("must contain 32 to 512 bytes");
   });
 
-  it.each([
-    { namespaceList: undefined, namespaces: [] },
-    { namespaceList: "", namespaces: [] },
-    { namespaceList: " , ", namespaces: [] },
-    {
-      namespaceList: "Engineering=ENG-Skill-Publishers, shared=*,engineering=eng-skill-publishers",
-      namespaces: ["engineering", "shared"],
-    },
-  ])(
-    "loads Skill Hub with optional additional namespaces: $namespaceList",
-    ({ namespaceList, namespaces }) => {
+  it.each(["unset", "missing", "invalid"] as const)(
+    "loads Skill Hub using only its URL and administrative password with %s rollback CLI token configuration",
+    (rollbackToken) => {
       const env = fixtureEnv();
-      const tokenPath = join(
+      const bootstrapPasswordPath = join(
         resolve(env[PLATFORMCLAW_DEPLOYMENT_ENV.databasePath] ?? "", "..", ".."),
-        "skill-hub-token",
+        "skill-hub-bootstrap-password",
       );
-      writeFileSync(tokenPath, "skill-hub-service-token", { mode: 0o600 });
-      const bootstrapPasswordPath = `${tokenPath}-bootstrap`;
       writeFileSync(bootstrapPasswordPath, "skill-hub-bootstrap-password", { mode: 0o600 });
       env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubUrl] = "https://skillhub.example.test/registry";
-      env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile] = tokenPath;
-      env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces] = namespaceList;
       env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubMaxPackageBytes] = "2097152";
       env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubBootstrapPasswordFile] = bootstrapPasswordPath;
-
+      if (rollbackToken !== "unset") {
+        const tokenPath = join(dirname(bootstrapPasswordPath), "rollback-only-token");
+        if (rollbackToken === "invalid") {
+          writeFileSync(tokenPath, "", { mode: 0o600 });
+        }
+        env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile] = tokenPath;
+      }
       expect(loadPlatformClawDeploymentConfig(env).skillHub).toEqual({
         url: "https://skillhub.example.test/registry",
-        token: "skill-hub-service-token",
-        namespaces,
         maxPackageBytes: 2 * 1024 * 1024,
         bootstrapPassword: "skill-hub-bootstrap-password",
       });
     },
   );
+
+  it("rejects retired namespace settings with a removal instruction", () => {
+    const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubNamespaces] = "engineering=publishers";
+    expect(() => loadPlatformClawDeploymentConfig(env)).toThrow("is retired; remove it");
+  });
+
+  it("does not enable Skill Hub or read a rollback-only CLI token setting without managed configuration", () => {
+    const env = fixtureEnv();
+    env[PLATFORMCLAW_DEPLOYMENT_ENV.skillHubTokenFile] = "/must-not-read/rollback-token";
+    expect(loadPlatformClawDeploymentConfig(env).skillHub).toBeUndefined();
+  });
 
   it("rejects the retired Skill Hub primary-admin fallback", () => {
     const env = fixtureEnv();

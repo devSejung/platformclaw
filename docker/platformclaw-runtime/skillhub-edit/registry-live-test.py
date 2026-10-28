@@ -1,5 +1,7 @@
 """Exercise the real patched Java registry in isolated Linux Docker services."""
+import argparse
 import concurrent.futures
+import hashlib
 import http.cookiejar
 import http.client
 import io
@@ -15,7 +17,13 @@ import uuid
 import zipfile
 from pathlib import Path
 
-IMAGE = sys.argv[1] if len(sys.argv) > 1 else "platformclaw-skillhub-server:6e133c006e49cb1217a0ba75"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("image", nargs="?", default="platformclaw-skillhub-server:6e133c006e496f54a14d0510")
+parser.add_argument("--managed-only", action="store_true")
+parser.add_argument("--node-import", default="tsx", help="Installed tsx loader specifier for the production Node HTTP client proof")
+arguments = parser.parse_args()
+IMAGE = arguments.image
+MANAGED_ONLY = arguments.managed_only
 PREFIX = "pc-skill-edit-registry-" + secrets.token_hex(4)
 containers = []
 volumes = []
@@ -87,6 +95,188 @@ class Client:
         assert response.status == expected, (response.status, data)
         return data.get("data")
 
+    def reserve_managed(self, namespace, slug="managed-rollback-proof", expected=200):
+        return self.request("/api/v1/admin/platformclaw/skills/identities", "POST", {
+            "namespace": namespace, "slug": slug, "publicationId": namespace[3:]}, expected=expected)
+
+    def publish_managed(self, namespace, version="1.0.0", skill_id=None, expected=200, slug="managed-rollback-proof"):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as out:
+            out.writestr("SKILL.md", f"---\nname: {slug}\ndescription: Managed rollback proof\nversion: {version}\n---\nFollow these instructions.\n")
+            out.writestr("notes.txt", "token=synthetic_identifier_0123456789\n")
+        original = archive.getvalue()
+        boundary = "proof-" + secrets.token_hex(8)
+        # The caller receives the committed identity before any archive request.
+        # A lost reservation response can be reconciled by the original UUID.
+        if skill_id is None:
+            skill_id = self.reserve_managed(namespace, slug)["id"]
+        fields = {"namespace": namespace, "expectedSkillId": str(skill_id)}
+        body = b"".join((f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n').encode()
+                        for key, value in fields.items())
+        body += (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="proof.zip"\r\nContent-Type: application/zip\r\n\r\n').encode()
+        body += original + f"\r\n--{boundary}--\r\n".encode()
+        headers = {"Content-Type": "multipart/form-data; boundary=" + boundary}
+        headers.update({"X-XSRF-TOKEN": urllib.parse.unquote(c.value) for c in self.cookies if c.name == "XSRF-TOKEN"})
+        request = urllib.request.Request(self.base + "/api/v1/admin/platformclaw/skills/publish", data=body, headers=headers)
+        try:
+            response = self.opener.open(request, timeout=45)
+        except urllib.error.HTTPError as error:
+            response = error
+        result = json.loads(response.read())
+        assert response.status == expected, (response.status, result)
+        return result.get("data"), original
+
+
+def managed_publication_proof(admin, base, password, sql, server):
+    registered_client = Client(base)
+    registered_client.request("/api/v1/auth/methods")
+    registration = registered_client.request("/api/v1/auth/local/register", "POST", {
+        "username": "managedrotation", "password": password + "Aa1!", "email": "managedrotation@example.invalid"})
+
+    def namespace():
+        operation = str(uuid.uuid4())
+        name = "pc-" + operation
+        admin.request("/api/v1/namespaces", "POST", {"slug": name, "displayName": name,
+            "description": "PlatformClaw namespace operation:" + operation})
+        return name, operation
+
+    name, operation = namespace()
+    registered_client.reserve_managed(name, expected=403)
+    assert sql(f"select count(*) from skill s join namespace n on n.id=s.namespace_id where n.slug='{name}'") == "0"
+    admin.request(f"/api/v1/admin/users/{registration['userId']}/role", "PUT", {"role": "SUPER_ADMIN"})
+    rotated = Client(base)
+    rotated.request("/api/v1/auth/methods")
+    rotated.request("/api/v1/auth/direct/login", "POST", {"provider": "local", "username": "managedrotation", "password": password + "Aa1!"})
+
+    def fail_after_file_puts():
+        # This actual PostgreSQL commit-path fault is reached after both per-file
+        # and original-ZIP PUTs. The separate reserved Skill transaction must survive.
+        sql("CREATE FUNCTION pc_managed_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+            "IF EXISTS(SELECT 1 FROM skill_version v JOIN skill s ON s.id=v.skill_id "
+            "WHERE v.id=NEW.version_id AND s.slug='managed-rollback-proof') THEN "
+            "RAISE EXCEPTION 'synthetic managed outbox fault'; END IF; RETURN NEW; END $$; "
+            "CREATE TRIGGER pc_managed_fail BEFORE INSERT ON scan_task_outbox FOR EACH ROW EXECUTE FUNCTION pc_managed_fail();")
+
+    def clear_fault():
+        sql("DROP TRIGGER pc_managed_fail ON scan_task_outbox; DROP FUNCTION pc_managed_fail();")
+
+    def stored_files(skill_id):
+        return docker("exec", server, "find", f"/var/lib/skillhub/storage/skills/{skill_id}",
+                      f"/var/lib/skillhub/storage/packages/{skill_id}", "-type", "f", check=False).splitlines()
+
+    def coordinate(namespace, slug="managed-rollback-proof", skill_id=None, client=admin):
+        suffix = "?expectedPublicationId=" + namespace[3:] if skill_id is None else "?expectedSkillId=" + str(skill_id)
+        return client.request(f"/api/v1/admin/platformclaw/skills/coordinates/{namespace}/{slug}" + suffix)
+
+    # Fresh namespace ownership cannot be claimed merely by rotating principals.
+    fresh_claim, _ = namespace()
+    rotated.reserve_managed(fresh_claim, expected=409)
+    assert sql(f"select count(*) from skill s join namespace n on n.id=s.namespace_id where n.slug='{fresh_claim}'") == "0"
+
+    # This entry failed before the Native identity/archive effect. The separate
+    # reservation supplies a durable ID without manufacturing a package/version.
+    empty_name, empty_operation = namespace()
+    admin.request(f"/api/v1/admin/platformclaw/skills/coordinates/{empty_name}/managed-rollback-proof?expectedPublicationId={empty_operation}", expected=404)
+    empty_id = admin.reserve_managed(empty_name)["id"]
+    assert sql(f"select count(*) from skill_version where skill_id={empty_id}") == "0"
+    assert not stored_files(empty_id)
+    assert coordinate(empty_name, client=rotated)["id"] == empty_id
+    empty_deleted = rotated.request(f"/api/v1/admin/platformclaw/skills/{empty_id}/artifact?namespace={empty_name}&slug=managed-rollback-proof", "DELETE")
+    assert empty_deleted["state"] == "completed" and not stored_files(empty_id)
+    assert rotated.request(f"/api/v1/admin/platformclaw/skills/{empty_id}/artifact-deletion")["state"] == "completed"
+
+    fail_after_file_puts()
+    admin.publish_managed(name, expected=500)
+    reserved = coordinate(name)
+    native_id = reserved["id"]
+    assert sql(f"select platformclaw_managed_publication_id from skill where id={native_id}") == operation
+    assert sql(f"select count(*) from skill_version where skill_id={native_id}") == "0"
+    orphan_files = stored_files(native_id)
+    assert len(orphan_files) >= 3, orphan_files
+    clear_fault()
+    # The immutable origin, rather than a mutable service owner, permits replay.
+    assert coordinate(name, client=rotated)["id"] == native_id
+    replay, original = rotated.publish_managed(name)
+    assert replay["skillId"] == native_id
+    version_id = int(sql(f"select id from skill_version where skill_id={native_id} and version='1.0.0'"))
+    artifact = f"/api/v1/admin/platformclaw/skills/{native_id}/versions/{version_id}/artifact?namespace={name}&slug=managed-rollback-proof"
+    assert rotated.request(artifact, raw=True) == original
+    assert len(stored_files(native_id)) > 3  # Failed version's object keys still exist outside metadata.
+    rotated.publish_managed(name, expected=400)
+    # A marker does not authorize another package name in the reserved namespace.
+    rotated.reserve_managed(name, slug="another-managed-skill", expected=409)
+    assert sql(f"select count(*) from skill s join namespace n on n.id=s.namespace_id where n.slug='{name}'") == "1"
+
+    # Exact-ID update remains usable in retired native namespace states; portal
+    # permissions remain unchanged. A native archived Skill is never revived.
+    for index, state in enumerate(("FROZEN", "ARCHIVED"), start=1):
+        sql(f"update namespace set status='{state}' where slug='{name}'")
+        update, update_zip = rotated.publish_managed(name, f"1.{index}.0", native_id)
+        assert update["skillId"] == native_id
+        assert coordinate(name, skill_id=native_id, client=rotated)["status"] == "ACTIVE"
+        page = rotated.request(f"/api/v1/admin/platformclaw/skills/{native_id}/artifact/versions?namespace={name}&slug=managed-rollback-proof&page=0&size=100")
+        assert page["total"] == index + 1
+        current = next(v for v in page["items"] if v["version"] == f"1.{index}.0")
+        assert rotated.request(f"/api/v1/admin/platformclaw/skills/{native_id}/versions/{current['id']}/artifact?namespace={name}&slug=managed-rollback-proof", raw=True) == update_zip
+    rotated.request(f"/api/v1/skills/{name}/managed-rollback-proof", expected=403)
+    sql(f"update skill set status='ARCHIVED' where id={native_id}")
+    rotated.publish_managed(name, "2.0.0", native_id, expected=400)
+    # Stock completed compensation retained content-like names/errors. Whole
+    # completion must scrub those records without restarting their expiry clock.
+    keeper_name, _ = namespace()
+    keeper_id = admin.reserve_managed(keeper_name)["id"]
+    sql(f"INSERT INTO skill_storage_delete_compensation(skill_id,namespace,slug,storage_keys_json,status,last_error,updated_at) VALUES ({native_id},'legacy-space','private-title','[\"skills/{native_id}/old/private-file.txt\"]','COMPLETED','private-file.txt failed',CURRENT_TIMESTAMP-INTERVAL '35 days'),({keeper_id},'keep-space','keep-title','[\"skills/{keeper_id}/keep.txt\"]','COMPLETED','keep error',CURRENT_TIMESTAMP-INTERVAL '35 days')")
+    legacy_completed_at = sql(f"select updated_at::text from skill_storage_delete_compensation where skill_id={native_id} and not platformclaw_whole_skill and status='COMPLETED'")
+    deletion = rotated.request(f"/api/v1/admin/platformclaw/skills/{native_id}/artifact?namespace={name}&slug=managed-rollback-proof", "DELETE")
+    assert deletion["state"] == "completed", deletion
+    assert not stored_files(native_id)
+    assert rotated.request(f"/api/v1/admin/platformclaw/skills/{native_id}/artifact-deletion")["state"] == "completed"
+    assert sql(f"select count(*) from skill_storage_delete_compensation where skill_id={native_id} and status='COMPLETED' and (namespace<>'' or slug<>'' or storage_keys_json<>'[]' or last_error is not null)") == "0"
+    assert sql(f"select updated_at::text from skill_storage_delete_compensation where skill_id={native_id} and not platformclaw_whole_skill and status='COMPLETED'") == legacy_completed_at
+    assert sql(f"select namespace from skill_storage_delete_compensation where skill_id={keeper_id} and status='COMPLETED'") == "keep-space"
+    completed_at = sql(f"select updated_at::text from skill_storage_delete_compensation where skill_id={native_id} and platformclaw_whole_skill")
+    sql(f"INSERT INTO skill_storage_delete_compensation(skill_id,namespace,slug,storage_keys_json,status,last_error,updated_at) VALUES ({native_id},'legacy-backfill','private-title','[\"old-private-file.txt\"]','COMPLETED','old payload',CURRENT_TIMESTAMP-INTERVAL '10 days')")
+    backfill_at = sql(f"select updated_at::text from skill_storage_delete_compensation where skill_id={native_id} and namespace='legacy-backfill'")
+    migration = (Path(__file__).parent / "overlay/server/skillhub-app/src/main/resources/db/migration/R__platformclaw_skill_retention.sql").read_text()
+    for _ in range(2):
+        applied = subprocess.run(["docker", "exec", "-i", pg, "psql", "-U", "skillhub", "-d", "skillhub", "-v", "ON_ERROR_STOP=1"], input=migration, capture_output=True, text=True)
+        assert applied.returncode == 0, applied.stderr
+    assert sql(f"select count(*) from skill_storage_delete_compensation where skill_id={native_id} and status='COMPLETED' and (namespace<>'' or slug<>'' or storage_keys_json<>'[]' or last_error is not null)") == "0"
+    assert sql(f"select updated_at::text from skill_storage_delete_compensation where skill_id={native_id} and platformclaw_whole_skill") == completed_at
+    assert sql(f"select count(*) from skill_storage_delete_compensation where skill_id={native_id} and not platformclaw_whole_skill and updated_at::text='{backfill_at}'") == "1"
+    assert sql(f"select namespace from skill_storage_delete_compensation where skill_id={keeper_id} and status='COMPLETED'") == "keep-space"
+
+
+    # Never-completed first publication has no retained version metadata, but its
+    # committed identity still owns every orphan byte and permits verified erasure.
+    never_name, never_operation = namespace()
+    fail_after_file_puts()
+    admin.publish_managed(never_name, expected=500)
+    never = coordinate(never_name)
+    never_id = never["id"]
+    assert sql(f"select count(*) from skill_version where skill_id={never_id}") == "0"
+    assert sql(f"select platformclaw_managed_publication_id from skill where id={never_id}") == never_operation
+    assert len(stored_files(never_id)) >= 3
+    clear_fault()
+    deletion = rotated.request(f"/api/v1/admin/platformclaw/skills/{never_id}/artifact?namespace={never_name}&slug=managed-rollback-proof", "DELETE")
+    assert deletion["state"] == "completed" and not stored_files(never_id)
+
+    for state in ("FROZEN", "ARCHIVED"):
+        fresh, _ = namespace()
+        sql(f"update namespace set status='{state}' where slug='{fresh}'")
+        admin.reserve_managed(fresh, expected=400)
+        assert sql(f"select count(*) from skill s join namespace n on n.id=s.namespace_id where n.slug='{fresh}'") == "0"
+
+    return {"ok": True, "proof": ["real PostgreSQL/Spring pre-effect committed identity",
+        "post-file-put outbox rollback leaves discoverable origin and no version rows",
+        "rotated service replay preserves exact native ID", "byte-identical original ZIP",
+        "warnings accepted", "unmarked/different coordinate cannot be adopted", "duplicate version rejected",
+        "FROZEN/ARCHIVED namespace exact-ID updates and private read/version/export",
+        "portal ACL preserved", "archived Skill publication rejected without revival",
+        "archived Skill exact-ID deletion", "prefix cleanup erases rolled-back orphan versions",
+        "never-completed first publication receives verified physical deletion receipt",
+        "fresh reservations retain active-namespace gate", "lightweight pre-archive identity reservation and empty-artifact verified purge", "fresh creator anti-adoption after principal rotation", "legacy completed cleanup payloads erased at whole completion", "repeatable retention backfill preserves completion clocks and sibling records"]}
+
 
 try:
     docker("network", "create", PREFIX)
@@ -108,6 +298,7 @@ try:
                    "-e", "SKILLHUB_AUTH_DIRECT_ENABLED=true", "-e", "SKILLHUB_SECURITY_SCANNER_ENABLED=true",
                    "-e", "SKILLHUB_SECURITY_SCANNER_MODE=upload", "-e", "SKILLHUB_SECURITY_SCANNER_URL=http://" + scanner + ":8000",
                    "-e", "SKILLHUB_SCANNER_USE_BEHAVIORAL=false",
+                   "-e", "STORAGE_BASE_PATH=/var/lib/skillhub/storage",
                    "-e", "SKILLHUB_BUILTIN_SKILLS_ENABLED=false", "-e", "SKILLHUB_SEARCH_SEMANTIC_ENABLED=false")
     port = docker("port", server, "8080/tcp").split(":")[-1]
     base = "http://127.0.0.1:" + port
@@ -128,6 +319,9 @@ try:
     admin = Client(base)
     admin.request("/api/v1/auth/methods")
     admin.request("/api/v1/auth/direct/login", "POST", {"provider": "local", "username": "proofadmin", "password": password})
+    if MANAGED_ONLY:
+        print(json.dumps(managed_publication_proof(admin, base, password, sql, server)))
+        raise SystemExit(0)
     for namespace in ("proof-source", "proof-target", "proof-collision"):
         admin.request("/api/v1/namespaces", "POST", {"slug": namespace, "displayName": namespace, "description": "Registry edit proof"})
     published = admin.publish("proof-source")
@@ -335,29 +529,55 @@ try:
         raise AssertionError("First bearer shared publication bypassed review or failed scanning")
     admin.request("/api/v1/admin/platformclaw/skills/first-shared-proof/edit-proof/versions/1.0.0/approve-safe", "POST", {"comment": "First bearer shared publication SAFE proof"})
     assert sql(f"select status from skill_version where skill_id={first_id}") == "PUBLISHED"
+    # Native edit/approval remain explicit native API contracts. The employee
+    # catalog no longer exposes governance wrappers for these operations.
+    native_before = admin.request("/api/v1/admin/platformclaw/skills/proof-target/edit-proof")
+    native_request = {"operationId": str(uuid.uuid4()), "skillId": native_before["id"], "namespace": native_before["namespace"],
+        "slug": native_before["slug"], "expectedRevision": native_before["revision"], "targetNamespace": native_before["namespace"],
+        "displayName": native_before["displayName"], "summary": native_before["summary"], "visibility": native_before["visibility"]}
+    native_edited = admin.request(path, "PATCH", native_request)
+    assert admin.request(path, "PATCH", native_request) == native_edited
     root = Path(__file__).resolve().parents[3]
     config = {"baseUrl": base, "username": "proofadmin", "password": password}
-    node_script = "import assert from 'node:assert/strict';\n"
+    node_script = "import assert from 'node:assert/strict';\nimport {createHash} from 'node:crypto';\n"
     node_script += "import {IflytekSkillHubGovernanceClient} from " + json.dumps((root / "packages/platformclaw-control-plane/src/skill-hub-governance-client.ts").as_uri()) + ";\n"
     node_script += "import {IflytekSkillHubAdapter} from " + json.dumps((root / "packages/platformclaw-control-plane/src/skill-hub-adapter.ts").as_uri()) + ";\n"
     node_script += "const client = new IflytekSkillHubGovernanceClient(" + json.dumps(config) + ");\n"
     node_script += "const adapter = new IflytekSkillHubAdapter(" + json.dumps({"baseUrl": base, "token": token, "maxArchiveBytes": 10485760}) + ");\n"
+    node_script += "const expected = " + json.dumps({"skillId": skill_id, "versionId": int(sql(f"select id from skill_version where skill_id={skill_id} and version='3.0.0'")),
+        "originalVersionId": int(version_before), "summary": native_before["summary"], "archiveSha256": hashlib.sha256(archive_before).hexdigest()}) + ";\n"
     node_script += """
-const before = await client.getEditableSkill('proof-target','edit-proof');
-const request = {operationId:crypto.randomUUID(),skillId:before.id,namespace:before.namespace,slug:before.slug,
- expectedRevision:before.revision,targetNamespace:before.namespace,displayName:before.displayName,summary:before.summary,visibility:before.visibility};
-const edited = await client.editSkill(request);
-assert.deepEqual(await client.editSkill(request),edited);
-assert.equal((await adapter.getVersionState('proof-target','edit-proof','3.0.0')).status,'PENDING_REVIEW');
-const approved = await client.approvePendingReview({namespace:'proof-target',slug:'edit-proof',version:'3.0.0',comment:'Real Node client SAFE approval',requireSafeScan:true});
-assert.equal(approved.status,'APPROVED');
-assert.equal((await adapter.getVersionState('proof-target','edit-proof','3.0.0')).status,'PUBLISHED');
-assert.equal((await client.getEditableSkill('proof-target','edit-proof')).summary,before.summary);
-console.log('production Node HTTP contract passed');
+const coordinate = {namespace:'proof-target',slug:'edit-proof'};
+const before = await client.getArtifactSkill({...coordinate,expectedSkillId:expected.skillId});
+assert.equal(before.id,expected.skillId);
+assert.equal(before.summary,expected.summary);
+const versions = await client.listArtifactVersions({...coordinate,skillId:before.id});
+const current = versions.find(version => version.version === '3.0.0');
+assert.equal(current?.id,expected.versionId);
+assert.equal(current.status,expectedStatus);
+const security = await client.getArtifactSecurity({...coordinate,skillId:before.id,versionId:current.id});
+assert.equal(security.blocked,false);
+assert.equal(security.artifactAvailable,true);
+assert.ok(security.audits.some(audit => audit.verdict === 'SAFE' && audit.scannedAt));
+const original = await client.downloadArtifact({...coordinate,skillId:before.id,versionId:expected.originalVersionId});
+assert.equal(createHash('sha256').update(original).digest('hex'),expected.archiveSha256);
+assert.equal(await client.getArtifactDeletion(before.id),null);
+// This raw native adapter status is a separate retained upstream API contract.
+assert.equal((await adapter.getVersionState(coordinate.namespace,coordinate.slug,'3.0.0')).status,expectedStatus);
+assert.equal((await client.getArtifactSkill({...coordinate,expectedSkillId:before.id})).summary,before.summary);
+console.log('production Node private artifact/native adapter HTTP contract passed');
 """
-    bridge = subprocess.run(["node", "--experimental-transform-types", "--input-type=module"], input=node_script, capture_output=True, text=True)
-    assert bridge.returncode == 0, bridge.stderr
-    assert bridge.stdout.strip() == "production Node HTTP contract passed"
+    def node_bridge(expected_status):
+        script = "const expectedStatus = " + json.dumps(expected_status) + ";\n" + node_script
+        bridge = subprocess.run(["node", "--import", arguments.node_import, "--input-type=module"], input=script, capture_output=True, text=True, cwd=root)
+        assert bridge.returncode == 0, bridge.stderr
+        assert bridge.stdout.strip() == "production Node private artifact/native adapter HTTP contract passed"
+
+    node_bridge("PENDING_REVIEW")
+    approved = admin.request("/api/v1/admin/platformclaw/skills/proof-target/edit-proof/versions/3.0.0/approve-safe", "POST", {"comment": "Native SAFE approval with production private-reader proof"})
+    assert approved["status"] == "APPROVED"
+    node_bridge("PUBLISHED")
+    assert admin.request("/api/v1/admin/platformclaw/skills/proof-target/edit-proof")["summary"] == native_before["summary"]
     # Privacy compensation remains possible after native namespace lifecycle drift,
     # without turning frozen/archived namespaces into general edit capabilities.
     for lifecycle, version in (("FROZEN", "4.0.0"), ("ARCHIVED", "4.1.0")):

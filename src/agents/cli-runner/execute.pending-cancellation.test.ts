@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as globalHooks from "../../plugins/hook-runner-global.js";
+import { createHookRunner } from "../../plugins/hooks.js";
+import { createMockPluginRegistry } from "../../plugins/hooks.test-helpers.js";
 import { createProcessSupervisor } from "../../process/supervisor/supervisor.js";
+import { createSyntheticSourceInfo } from "../../skills/loading/skill-contract.js";
+import { prepareRunSkillContext } from "../../skills/runtime/run-context.js";
 import { createDeferred } from "../../test-utils/deferred.js";
 import { executeDeps } from "./execute-deps.js";
 import { executePreparedCliRun } from "./execute.js";
@@ -110,6 +115,65 @@ describe("local CLI pending process cancellation", () => {
   afterEach(() => {
     setCliRunnerExecuteTestDeps({ getProcessSupervisor: restoreProcessSupervisor });
     vi.restoreAllMocks();
+  });
+
+  it("rechecks skill authority after waiting behind another CLI turn", async () => {
+    let revoked = false;
+    const runner = createHookRunner(
+      createMockPluginRegistry([
+        {
+          hookName: "before_skill_context",
+          handler: () => ({ excludedPaths: revoked ? ["/tmp/skills/private/SKILL.md"] : [] }),
+        },
+      ]),
+    );
+    vi.spyOn(globalHooks, "getGlobalHookRunner").mockReturnValue(runner);
+    const skillFile = "/tmp/skills/private/SKILL.md";
+    const prepared = await prepareRunSkillContext({
+      workspaceDir: "/tmp",
+      context: { agentId: "main", sessionKey: "agent:main:main", workspaceDir: "/tmp" },
+      skillEntries: [
+        {
+          skill: {
+            name: "private",
+            description: "private skill",
+            filePath: skillFile,
+            baseDir: "/tmp/skills/private",
+            source: "openclaw-workspace",
+            sourceInfo: createSyntheticSourceInfo(skillFile, { source: "openclaw-workspace" }),
+            disableModelInvocation: false,
+          },
+          frontmatter: { name: "private", description: "private skill" },
+        },
+      ],
+    });
+    const ready = createDeferred();
+    const firstStage = vi.fn(async () => await ready.promise);
+    const secondStage = vi.fn(async () => await prepared.revalidate?.());
+    const firstAdapter = createTestAdapter();
+    createChildAdapterMock.mockResolvedValueOnce(firstAdapter);
+    const first = executePreparedCliRun(
+      createRunContext({ runId: "skill-queue-first", beforeExecution: firstStage }),
+    );
+    await vi.waitFor(() => expect(firstStage).toHaveBeenCalledOnce());
+    const second = expect(
+      executePreparedCliRun(
+        createRunContext({
+          runId: "skill-queue-second",
+          beforeExecution: secondStage,
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "SkillContextPolicyError" });
+    expect(secondStage).not.toHaveBeenCalled();
+    revoked = true;
+    ready.resolve();
+    await vi.waitFor(() => expect(createChildAdapterMock).toHaveBeenCalledOnce());
+    firstAdapter.emitStdout("completed first turn");
+    firstAdapter.settle(0);
+    await expect(first).resolves.toMatchObject({ text: "completed first turn" });
+    await second;
+    expect(secondStage).toHaveBeenCalledOnce();
+    expect(createChildAdapterMock).toHaveBeenCalledOnce();
   });
 
   it("preserves the caller run id and cleans up cancellation after normal completion", async () => {

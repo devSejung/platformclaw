@@ -42,7 +42,6 @@ import {
   type PersonalAgentRestartRecoveryProbe,
   type RestartReconciliationSummary,
 } from "./restart-reconciler.js";
-import type { SkillHubAdapter } from "./skill-hub-adapter.js";
 import type { SkillHubGovernanceClient } from "./skill-hub-governance-client.js";
 import { SkillHubService } from "./skill-hub-service.js";
 import { SpaceService } from "./space-service.js";
@@ -96,9 +95,7 @@ export type PlatformClawWebIngressRuntimeOptions = {
   };
   knoxIngressProxyUrl?: string;
   skillHub?: {
-    adapter: SkillHubAdapter;
     workspaceRoot: string;
-    allowedNamespaces: readonly string[];
     maxPackageBytes: number;
     governance: SkillHubGovernanceClient;
   };
@@ -274,10 +271,8 @@ export function createPlatformClawWebIngressRuntime(
         buildAgentMainSessionKey: options.buildAgentMainSessionKey,
         authService: auth.service,
         store: auth.store,
-        adapter: options.skillHub.adapter,
         adminRpc: options.adminRpc,
         workspaceRoot: options.skillHub.workspaceRoot,
-        allowedNamespaces: options.skillHub.allowedNamespaces,
         organization: organizationService,
         maxPackageBytes: options.skillHub.maxPackageBytes,
         governance: options.skillHub.governance,

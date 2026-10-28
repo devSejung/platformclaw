@@ -11,7 +11,7 @@ function markdown(name: string, key: string, version?: string, body = "Instructi
 
 describe("Skill Hub workspace package identity", () => {
   it("matches, confirms, and removes the physical package despite logical key collisions", async () => {
-    const { service, actor, skillDir, adminRpcCall, adapterMocks } = await fixture();
+    const { service, actor, entry, skillDir, adminRpcCall, adapterMocks } = await fixture();
     const skillFile = path.join(skillDir, "SKILL.md");
     await writeFile(skillFile, markdown("demo-skill", "logical-alias", "1.0.0"));
     const siblingDir = path.join(actor.workspaceDir, "skills", "other-skill");
@@ -36,7 +36,11 @@ describe("Skill Hub workspace package identity", () => {
       }
       if (method === "skills.uninstall") {
         return {
-          ...(await removeWorkspaceSkill({ workspaceDir: actor.workspaceDir, ...params })),
+          ...(await removeWorkspaceSkill({
+            workspaceDir: actor.workspaceDir,
+            slug: String(params.slug),
+            expectedSkillRevision: String(params.expectedSkillRevision),
+          })),
           slug: params.slug,
         };
       }
@@ -53,8 +57,7 @@ describe("Skill Hub workspace package identity", () => {
       (item) => item.skillKey === "demo-skill",
     )!.revision;
     const request = {
-      namespace: "engineering",
-      slug: "demo-skill",
+      id: entry!.id,
       version: "2.0.0",
       destination: "platform_server" as const,
     };
@@ -91,7 +94,7 @@ describe("Skill Hub workspace package identity", () => {
   it.each([undefined, "not-semver"])(
     "keeps an installed package with version %s visible and rejects replacement before download",
     async (version) => {
-      const { service, actor, skillDir, adminRpcCall, adapterMocks } = await fixture();
+      const { service, actor, entry, skillDir, adminRpcCall, adapterMocks } = await fixture();
       await writeFile(path.join(skillDir, "SKILL.md"), markdown("demo-skill", "alias", version));
       adminRpcCall.mockImplementation(async (method) => {
         if (method !== "skills.status") {
@@ -107,8 +110,7 @@ describe("Skill Hub workspace package identity", () => {
       for (const acknowledgedReplacement of [false, true]) {
         await expect(
           service.install(actor, {
-            namespace: "engineering",
-            slug: "demo-skill",
+            id: entry!.id,
             version: "2.0.0",
             destination: "platform_server",
             acknowledgedReplacement,

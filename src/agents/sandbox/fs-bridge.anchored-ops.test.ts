@@ -272,7 +272,7 @@ describe("sandbox fs bridge anchored ops", () => {
 
         const canonicalCalls = findCallsByScriptFragment('readlink -f -- "$cursor"');
         expect(
-          canonicalCalls.some(([callArgs]) => getDockerArg(callArgs, 1) === "/workspace/alias"),
+          canonicalCalls.some(([callArgs]) => getDockerArg(callArgs, 1) === "/workspace/real"),
         ).toBe(true);
       });
     },

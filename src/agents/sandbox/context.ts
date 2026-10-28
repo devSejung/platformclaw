@@ -15,8 +15,10 @@ import {
   DEFAULT_BROWSER_EVALUATE_ENABLED,
   resolveBrowserConfig,
 } from "../../plugin-sdk/browser-profiles.js";
+import { hasGlobalHooks } from "../../plugins/hook-runner-global.js";
 import { defaultRuntime } from "../../runtime.js";
 import { prepareSkillMaterializationDirectory } from "../../skills/loading/materialization-directory.js";
+import { SkillContextPolicyError } from "../../skills/runtime/context-policy.js";
 import type { SkillEligibilityContext, SkillUsagePath } from "../../skills/types.js";
 import type { ExecPolicyOverrides } from "../exec-defaults.js";
 import { resolveEffectiveToolFsWorkspaceOnly } from "../tool-fs-policy.js";
@@ -40,6 +42,7 @@ import { resolveSandboxRuntimeStatus } from "./runtime-status.js";
 import { assertSshSandboxSecretOwnerAvailable } from "./secret-owner.js";
 import { resolveSandboxWorkspaceLayoutPaths } from "./shared.js";
 import type { SandboxContext, SandboxWorkspaceInfo } from "./types.js";
+import { prepareExcludedWorkspaceSkillMounts } from "./workspace-mounts.js";
 import { ensureSandboxWorkspace } from "./workspace.js";
 
 const timingLog = createSubsystemLogger("sandbox-context");
@@ -58,11 +61,22 @@ async function syncSandboxSkillsToWorkspace(params: {
   sourceMounts?: readonly SandboxBackendSkillSourceMount[];
   workdir: string;
   workspaceAccess: "none" | "ro" | "rw";
+  binds?: readonly string[];
 }): Promise<{
   eligibility?: SkillEligibilityContext;
   materialized?: SandboxBackendMaterializedSkills;
   skillUsagePaths?: SkillUsagePath[];
+  excludedSkillFiles?: readonly string[];
+  excludedSourceDirectories?: readonly string[];
+  missingSourceDirectories?: readonly string[];
+  policyApplied?: boolean;
 }> {
+  const policyContext = {
+    agentId: params.agentId,
+    sessionKey: params.rawSessionKey,
+    workspaceDir: params.sourceWorkspaceDir,
+  };
+  let policyRequired = hasGlobalHooks("before_skill_context", policyContext);
   try {
     const [
       { syncSkillsToWorkspace },
@@ -85,13 +99,32 @@ async function syncSandboxSkillsToWorkspace(params: {
         advertiseExecNode: nodeSkills.canExec,
       }),
     };
-    let skillUsagePaths = await syncSkillsToWorkspace({
+    const synced = await syncSkillsToWorkspace({
       sourceWorkspaceDir: params.sourceWorkspaceDir,
       targetWorkspaceDir: params.targetWorkspaceDir,
       config: params.config,
       agentId: params.agentId,
+      sessionKey: params.rawSessionKey,
       eligibility,
     });
+    policyRequired ||= synced.policyApplied;
+    let skillUsagePaths = synced.skillUsagePaths;
+    let exclusionView: Awaited<ReturnType<typeof prepareExcludedWorkspaceSkillMounts>>;
+    try {
+      exclusionView = await prepareExcludedWorkspaceSkillMounts({
+        workspaceDir:
+          params.workspaceAccess === "rw" ? params.sourceWorkspaceDir : params.targetWorkspaceDir,
+        agentWorkspaceDir: params.sourceWorkspaceDir,
+        materializationDir: params.targetWorkspaceDir,
+        workdir: params.workdir,
+        workspaceAccess: params.workspaceAccess,
+        excludedSkillFiles: synced.excludedSkillFiles,
+        excludedSourceDirectories: synced.excludedSourceDirectories,
+        binds: params.binds,
+      });
+    } catch (error) {
+      throw new SkillContextPolicyError(error);
+    }
     const sourceMounts = params.sourceMounts ?? [];
     const defaultContainerRoot =
       params.workspaceAccess === "rw"
@@ -101,7 +134,7 @@ async function syncSandboxSkillsToWorkspace(params: {
     const sourceMountRoot = path.join(params.targetWorkspaceDir, ".source-mounts");
     await fs.mkdir(sourceMountRoot, { recursive: true });
 
-    const mounts: SandboxBackendMaterializedSkills["mounts"][number][] = [];
+    const mounts: SandboxBackendMaterializedSkills["mounts"][number][] = [...exclusionView.mounts];
     const catalogFiles: SandboxBackendMaterializedSkills["catalog"]["files"][number][] = [];
     const relocatedPaths = new Map<string, { hostPath: string; runtimePath: string }>();
     for (const [index, sourceMount] of sourceMounts.entries()) {
@@ -158,6 +191,7 @@ async function syncSandboxSkillsToWorkspace(params: {
           catalogFile: {
             content: await fs.readFile(hostPath, "utf8"),
             filePath: runtimePath,
+            sourceFilePath: usagePath.skillFile,
             ...(sourceMount?.locationNote ? { locationNote: sourceMount.locationNote } : {}),
             source: usagePath.skillSourceId ?? usagePath.skillSource,
           },
@@ -176,10 +210,24 @@ async function syncSandboxSkillsToWorkspace(params: {
           owner: "gateway",
         },
         mounts,
+        excludedSkillFiles: synced.excludedSkillFiles,
+        excludedSourceDirectories: exclusionView.excludedSourceDirectories,
+        missingSourceDirectories: exclusionView.missingSourceDirectories,
+        policyApplied: synced.policyApplied,
       },
       skillUsagePaths,
+      excludedSkillFiles: synced.excludedSkillFiles,
+      excludedSourceDirectories: exclusionView.excludedSourceDirectories,
+      missingSourceDirectories: exclusionView.missingSourceDirectories,
+      policyApplied: synced.policyApplied,
     };
   } catch (error) {
+    if (error instanceof SkillContextPolicyError) {
+      throw error;
+    }
+    if (policyRequired || hasGlobalHooks("before_skill_context", policyContext)) {
+      throw new SkillContextPolicyError(error);
+    }
     const message = error instanceof Error ? error.message : JSON.stringify(error);
     defaultRuntime.error?.(`Sandbox skill sync failed: ${message}`);
     return {};
@@ -240,6 +288,7 @@ async function materializeSandboxSkills(params: {
   sourceMounts?: readonly SandboxBackendSkillSourceMount[];
   workdir: string;
   workspaceAccess: "none" | "ro" | "rw";
+  binds?: readonly string[];
 }) {
   return await syncSandboxSkillsToWorkspace({
     sourceWorkspaceDir: params.layout.agentWorkspaceDir,
@@ -251,6 +300,7 @@ async function materializeSandboxSkills(params: {
     sourceMounts: params.sourceMounts,
     workdir: params.workdir,
     workspaceAccess: params.workspaceAccess,
+    binds: params.binds,
   });
 }
 
@@ -358,6 +408,7 @@ async function resolveProvisionedSandboxContext(
         sourceMounts: request?.sourceMounts,
         workdir: resolvedCfg.docker.workdir,
         workspaceAccess: resolvedCfg.workspaceAccess,
+        binds: resolvedCfg.docker.binds,
       }).finally(() => {
         gatewaySkillsMs = elapsedMs(skillsStartedAt);
       });
@@ -392,6 +443,13 @@ async function resolveProvisionedSandboxContext(
   });
   const registryReadMs = elapsedMs(phaseStartedAt);
   phaseStartedAt = performance.now();
+  const requiresPolicyConfig =
+    syncedSkills.policyApplied === true ||
+    hasGlobalHooks("before_skill_context", {
+      agentId: runtime.agentId,
+      sessionKey: rawSessionKey,
+      workspaceDir: agentWorkspaceDir,
+    });
   const backend = await backendFactory({
     agentId: runtime.agentId,
     sessionKey: rawSessionKey,
@@ -400,11 +458,14 @@ async function resolveProvisionedSandboxContext(
     workspaceDir,
     agentWorkspaceDir,
     skillsWorkspaceDir,
+    ...(syncedSkills.materialized ? { readOnlySkillMounts: syncedSkills.materialized.mounts } : {}),
     ...(backendDeferredSkills ? { materializeSkills } : {}),
     cfg: resolvedCfg,
-    ...(params.requireCurrentConfig !== undefined
-      ? { requireCurrentConfig: params.requireCurrentConfig }
-      : {}),
+    ...(requiresPolicyConfig
+      ? { requireCurrentConfig: true }
+      : params.requireCurrentConfig !== undefined
+        ? { requireCurrentConfig: params.requireCurrentConfig }
+        : {}),
   });
   const backendInclusiveMs = elapsedMs(phaseStartedAt);
   if (backendDeferredSkills && !backend.skillCatalog && !skillsMaterialized) {
@@ -476,6 +537,16 @@ async function resolveProvisionedSandboxContext(
     skillsWorkspaceDir,
     ...(syncedSkills.eligibility ? { skillsEligibility: syncedSkills.eligibility } : {}),
     ...(syncedSkills.skillUsagePaths ? { skillUsagePaths: syncedSkills.skillUsagePaths } : {}),
+    ...(syncedSkills.materialized ? { readOnlySkillMounts: syncedSkills.materialized.mounts } : {}),
+    ...(syncedSkills.excludedSkillFiles
+      ? { excludedSkillFiles: syncedSkills.excludedSkillFiles }
+      : {}),
+    ...(syncedSkills.excludedSourceDirectories
+      ? { excludedSourceDirectories: syncedSkills.excludedSourceDirectories }
+      : {}),
+    ...(syncedSkills.missingSourceDirectories
+      ? { missingSourceDirectories: syncedSkills.missingSourceDirectories }
+      : {}),
     workspaceAccess: resolvedCfg.workspaceAccess,
     runtimeId: backend.runtimeId,
     runtimeLabel: backend.runtimeLabel,
@@ -582,6 +653,7 @@ export async function ensureSandboxWorkspaceForSession(params: {
     rawSessionKey,
     workdir: cfg.docker.workdir,
     workspaceAccess: cfg.workspaceAccess,
+    binds: cfg.docker.binds,
   });
 
   const containerWorkdir = resolveSandboxWorkspaceInfoWorkdir({
@@ -599,6 +671,15 @@ export async function ensureSandboxWorkspaceForSession(params: {
     skillsWorkspaceDir,
     ...(syncedSkills.eligibility ? { skillsEligibility: syncedSkills.eligibility } : {}),
     ...(syncedSkills.skillUsagePaths ? { skillUsagePaths: syncedSkills.skillUsagePaths } : {}),
+    ...(syncedSkills.excludedSkillFiles
+      ? { excludedSkillFiles: syncedSkills.excludedSkillFiles }
+      : {}),
+    ...(syncedSkills.excludedSourceDirectories
+      ? { excludedSourceDirectories: syncedSkills.excludedSourceDirectories }
+      : {}),
+    ...(syncedSkills.missingSourceDirectories
+      ? { missingSourceDirectories: syncedSkills.missingSourceDirectories }
+      : {}),
     workspaceAccess: cfg.workspaceAccess,
   };
 }

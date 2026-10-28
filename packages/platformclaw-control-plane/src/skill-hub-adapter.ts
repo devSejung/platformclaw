@@ -34,6 +34,7 @@ export type SkillHubVersion = {
 };
 
 export type SkillHubSecurityAudit = {
+  id?: number;
   scannerType: string;
   verdict: string;
   isSafe?: boolean;
@@ -41,6 +42,7 @@ export type SkillHubSecurityAudit = {
   findingsCount?: number;
   scannedAt?: string;
   failedAt?: string;
+  findings?: Array<{ ruleId: string; analyzer: string; category: string; fileHash?: string }>;
 };
 
 export type SkillHubPublishArchive = Buffer | { path: string; size: number };
@@ -50,12 +52,6 @@ export type SkillHubDeleteResult = {
   namespace: string;
   slug: string;
 };
-
-function isSkillHubArchiveFile(
-  archive: SkillHubPublishArchive,
-): archive is Exclude<SkillHubPublishArchive, Buffer> {
-  return !Buffer.isBuffer(archive);
-}
 
 export interface SkillHubAdapter {
   search(query: string, limit: number): Promise<{ items: SkillHubSearchItem[]; total: number }>;
@@ -67,12 +63,6 @@ export interface SkillHubAdapter {
   ): Promise<{ id: number; version: string; status: string }>;
   listVersions(namespace: string, slug: string): Promise<SkillHubVersion[]>;
   listSecurityAudits(skillId: number, versionId: number): Promise<SkillHubSecurityAudit[]>;
-  publish(params: {
-    namespace: string;
-    archive: SkillHubPublishArchive;
-    filename: string;
-    visibility: SkillHubVisibility;
-  }): Promise<{ namespace: string; slug: string; version: string; visibility: SkillHubVisibility }>;
   deleteSkill(namespace: string, slug: string): Promise<SkillHubDeleteResult>;
   download(namespace: string, slug: string, version: string): Promise<Buffer>;
 }
@@ -98,22 +88,6 @@ type AdapterOptions = {
 const MAX_JSON_BYTES = 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const ARCHIVE_TRANSFER_TIMEOUT_MS = 10 * 60_000;
-const DISALLOWED_EXTENSION_WARNING_PREFIX = "Disallowed file extension: ";
-
-function isExtensionOnlyPublishWarning(error: unknown): error is SkillHubAdapterError {
-  if (!(error instanceof SkillHubAdapterError) || error.statusCode !== 400) {
-    return false;
-  }
-  const lines = error.message
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const warnings = lines.slice(1);
-  return (
-    warnings.length > 0 &&
-    warnings.every((warning) => warning.startsWith(`- ${DISALLOWED_EXTENSION_WARNING_PREFIX}`))
-  );
-}
 
 function normalizeBaseUrl(raw: string): URL {
   const url = new URL(raw);
@@ -212,6 +186,47 @@ function apiData(body: Record<string, unknown>): unknown {
 
 function encodePath(value: string): string {
   return encodeURIComponent(value);
+}
+
+export function parseSkillHubSecurityAudit(raw: unknown): SkillHubSecurityAudit {
+  const value = record(raw, "security audit");
+  const isSafe = typeof value.isSafe === "boolean" ? value.isSafe : undefined;
+  const findingsCount = optionalNumber(value.findingsCount);
+  return Object.assign(
+    {
+      scannerType: stringValue(value.scannerType, "scanner type"),
+      verdict: stringValue(value.verdict, "scanner verdict"),
+    },
+    typeof value.id === "number" && Number.isSafeInteger(value.id) && value.id > 0
+      ? { id: value.id }
+      : {},
+    isSafe === undefined ? {} : { isSafe },
+    typeof value.maxSeverity === "string" ? { maxSeverity: value.maxSeverity } : {},
+    findingsCount === undefined ? {} : { findingsCount },
+    typeof value.scannedAt === "string" ? { scannedAt: value.scannedAt } : {},
+    typeof value.failedAt === "string" ? { failedAt: value.failedAt } : {},
+    {
+      findings: Array.isArray(value.findings)
+        ? value.findings.map((item) => {
+            const finding = record(item, "security finding");
+            const metadata =
+              finding.metadata &&
+              typeof finding.metadata === "object" &&
+              !Array.isArray(finding.metadata)
+                ? (finding.metadata as Record<string, unknown>)
+                : {};
+            return Object.assign(
+              {
+                ruleId: typeof finding.ruleId === "string" ? finding.ruleId : "",
+                analyzer: typeof finding.analyzer === "string" ? finding.analyzer : "",
+                category: typeof finding.category === "string" ? finding.category : "",
+              },
+              typeof metadata.file_hash === "string" ? { fileHash: metadata.file_hash } : {},
+            );
+          })
+        : [],
+    },
+  );
 }
 
 export class IflytekSkillHubAdapter implements SkillHubAdapter {
@@ -335,25 +350,36 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
 
   async listVersions(namespace: string, slug: string): Promise<SkillHubVersion[]> {
     const url = this.url(`api/v1/skills/${encodePath(namespace)}/${encodePath(slug)}/versions`);
-    url.searchParams.set("page", "0");
     url.searchParams.set("size", "100");
-    const data = record(apiData(await this.jsonRequest(url)), "version page");
-    if (!Array.isArray(data.items)) {
-      throw new SkillHubAdapterError("Skill Hub returned invalid versions");
-    }
     const versions: SkillHubVersion[] = [];
-    for (const item of data.items) {
-      const value = record(item, "version");
-      versions.push({
-        id: positiveInteger(value.id, "version id"),
-        version: stringValue(value.version, "version number"),
-        status: stringValue(value.status, "version status"),
-        ...(typeof value.changelog === "string" ? { changelog: value.changelog } : {}),
-        ...(typeof value.fileCount === "number" ? { fileCount: value.fileCount } : {}),
-        ...(typeof value.totalSize === "number" ? { totalSize: value.totalSize } : {}),
-        ...(typeof value.publishedAt === "string" ? { publishedAt: value.publishedAt } : {}),
-        downloadAvailable: value.downloadAvailable === true,
-      });
+    const seen = new Set<number>();
+    for (let page = 0; ; page += 1) {
+      url.searchParams.set("page", String(page));
+      const data = record(apiData(await this.jsonRequest(url)), "version page");
+      if (!Array.isArray(data.items)) {
+        throw new SkillHubAdapterError("Skill Hub returned invalid versions");
+      }
+      for (const item of data.items) {
+        const value = record(item, "version");
+        const id = positiveInteger(value.id, "version id");
+        if (seen.has(id)) {
+          throw new SkillHubAdapterError("Skill Hub repeated a version page");
+        }
+        seen.add(id);
+        versions.push({
+          id,
+          version: stringValue(value.version, "version number"),
+          status: stringValue(value.status, "version status"),
+          ...(typeof value.changelog === "string" ? { changelog: value.changelog } : {}),
+          ...(typeof value.fileCount === "number" ? { fileCount: value.fileCount } : {}),
+          ...(typeof value.totalSize === "number" ? { totalSize: value.totalSize } : {}),
+          ...(typeof value.publishedAt === "string" ? { publishedAt: value.publishedAt } : {}),
+          downloadAvailable: value.downloadAvailable === true,
+        });
+      }
+      if (data.items.length < 100) {
+        break;
+      }
     }
     return versions;
   }
@@ -369,69 +395,7 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     if (!Array.isArray(data)) {
       throw new SkillHubAdapterError("Skill Hub returned invalid security audits");
     }
-    return data.map((item) => {
-      const value = record(item, "security audit");
-      const isSafe = typeof value.isSafe === "boolean" ? value.isSafe : undefined;
-      const findingsCount = optionalNumber(value.findingsCount);
-      return Object.assign(
-        {
-          scannerType: stringValue(value.scannerType, "scanner type"),
-          verdict: stringValue(value.verdict, "scanner verdict"),
-        },
-        isSafe === undefined ? {} : { isSafe },
-        typeof value.maxSeverity === "string" ? { maxSeverity: value.maxSeverity } : {},
-        findingsCount === undefined ? {} : { findingsCount },
-        typeof value.scannedAt === "string" ? { scannedAt: value.scannedAt } : {},
-        typeof value.failedAt === "string" ? { failedAt: value.failedAt } : {},
-      );
-    });
-  }
-
-  async publish(params: {
-    namespace: string;
-    archive: SkillHubPublishArchive;
-    filename: string;
-    visibility: SkillHubVisibility;
-  }) {
-    let data: Record<string, unknown>;
-    let confirmedExtensionWarnings = false;
-    try {
-      data = record(
-        apiData(
-          await this.jsonRequest(
-            this.url(`api/cli/v1/skills/${encodePath(params.namespace)}/publish`),
-            this.createPublishRequestInit(params.archive, params.filename, params.visibility),
-            ARCHIVE_TRANSFER_TIMEOUT_MS,
-          ),
-        ),
-        "publish result",
-      );
-    } catch (error) {
-      if (!isExtensionOnlyPublishWarning(error)) {
-        throw error;
-      }
-      confirmedExtensionWarnings = true;
-      const confirmUrl = this.url(`api/v1/skills/${encodePath(params.namespace)}/publish`);
-      confirmUrl.searchParams.set("confirmWarnings", "true");
-      data = record(
-        apiData(
-          await this.jsonRequest(
-            confirmUrl,
-            this.createPublishRequestInit(params.archive, params.filename, params.visibility),
-            ARCHIVE_TRANSFER_TIMEOUT_MS,
-          ),
-        ),
-        "publish result",
-      );
-    }
-    return {
-      namespace: stringValue(data.namespace, "published namespace"),
-      slug: stringValue(data.slug, "published slug"),
-      version: stringValue(data.version, "published version"),
-      visibility: confirmedExtensionWarnings
-        ? params.visibility
-        : visibilityValue(data.visibility, "published visibility"),
-    };
+    return data.map(parseSkillHubSecurityAudit);
   }
 
   async deleteSkill(namespace: string, slug: string): Promise<SkillHubDeleteResult> {
@@ -493,46 +457,6 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     }
     await this.ensureOk(response);
     return await readBounded(response, this.maxArchiveBytes);
-  }
-
-  private createPublishRequestInit(
-    archive: SkillHubPublishArchive,
-    filename: string,
-    visibility: SkillHubVisibility,
-  ): RequestInit {
-    if (!isSkillHubArchiveFile(archive)) {
-      const form = new FormData();
-      const archiveBytes = new Uint8Array(archive.byteLength);
-      archiveBytes.set(archive);
-      form.set("file", new Blob([archiveBytes]), filename);
-      form.set("visibility", visibility);
-      return { method: "POST", body: form };
-    }
-
-    const boundary = `platformclaw-${randomBytes(18).toString("hex")}`;
-    const prefix = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="visibility"\r\n\r\n${visibility}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: application/zip\r\n\r\n`,
-      "utf8",
-    );
-    const suffix = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
-    const body = Readable.toWeb(
-      Readable.from(
-        (async function* () {
-          yield prefix;
-          yield* createReadStream(archive.path);
-          yield suffix;
-        })(),
-      ),
-    );
-    return {
-      method: "POST",
-      body,
-      headers: {
-        "Content-Type": `multipart/form-data; boundary=${boundary}`,
-        "Content-Length": String(prefix.byteLength + archive.size + suffix.byteLength),
-      },
-      duplex: "half",
-    } as RequestInit;
   }
 
   private url(pathname: string): URL {
@@ -603,6 +527,3 @@ export class IflytekSkillHubAdapter implements SkillHubAdapter {
     }
   }
 }
-import { randomBytes } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { Readable } from "node:stream";

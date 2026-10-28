@@ -31,6 +31,8 @@ const ALLOWED_PATCH_FILES = new Set([
   // These paths do not authorize any pnpm patchedDependencies declaration.
   "docker/platformclaw-runtime/skillhub-edit/upstream.patch",
   "docker/platformclaw-runtime/skillhub-edit/upstream-tests.patch",
+  "docker/platformclaw-runtime/skillhub-edit/artifact-policy.patch",
+  "docker/platformclaw-runtime/skillhub-edit/artifact-tests.patch",
 ]);
 
 function listTrackedFiles(cwd, patterns) {

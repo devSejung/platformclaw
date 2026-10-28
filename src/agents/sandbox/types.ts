@@ -103,6 +103,10 @@ export type SandboxContext = {
   skillsWorkspaceDir?: string;
   skillsEligibility?: SkillEligibilityContext;
   skillUsagePaths?: SkillUsagePath[];
+  readOnlySkillMounts?: readonly { hostPath: string; containerPath: string }[];
+  excludedSkillFiles?: readonly string[];
+  excludedSourceDirectories?: readonly string[];
+  missingSourceDirectories?: readonly string[];
   workspaceAccess: SandboxWorkspaceAccess;
   runtimeId: string;
   runtimeLabel: string;
@@ -124,5 +128,8 @@ export type SandboxWorkspaceInfo = {
   skillsWorkspaceDir?: string;
   skillsEligibility?: SkillEligibilityContext;
   skillUsagePaths?: SkillUsagePath[];
+  excludedSkillFiles?: readonly string[];
+  excludedSourceDirectories?: readonly string[];
+  missingSourceDirectories?: readonly string[];
   workspaceAccess?: SandboxWorkspaceAccess;
 };

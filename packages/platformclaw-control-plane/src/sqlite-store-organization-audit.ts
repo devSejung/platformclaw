@@ -7,7 +7,7 @@ import type {
   OrganizationUserSummary,
 } from "./contracts.js";
 import { executeSync, runReadTransaction } from "./kysely-sync.js";
-import { SqliteControlPlaneSkillHubEditStore } from "./sqlite-store-skill-hub-edit.js";
+import { SqliteControlPlaneSkillHubNotificationStore } from "./sqlite-store-skill-hub-operations.js";
 
 function auditCategory(action: string): OrganizationAuditRecord["category"] {
   if (/^scope\.(create|rename|move|archive)/u.test(action)) {
@@ -77,7 +77,7 @@ function stringDetail(details: Record<string, unknown> | undefined, key: string)
   return typeof details?.[key] === "string" ? details[key] : undefined;
 }
 
-export abstract class SqliteControlPlaneOrganizationAuditStore extends SqliteControlPlaneSkillHubEditStore {
+export abstract class SqliteControlPlaneOrganizationAuditStore extends SqliteControlPlaneSkillHubNotificationStore {
   async listAuthorizedOrganizationAuditEvents(params: {
     actorUserId: string;
     limit?: number;

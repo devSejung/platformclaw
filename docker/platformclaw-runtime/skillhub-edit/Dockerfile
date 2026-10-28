@@ -4,8 +4,8 @@ FROM maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eb
 WORKDIR /source
 ADD --checksum=sha256:de66167863d258888316cc54875e31a96150410afa7dbfa7782ccd7fe0e3beab https://codeload.github.com/iflytek/skillhub/tar.gz/6e133c006e492dc3f468d91b21960aff1d577150 /tmp/upstream.tar.gz
 RUN tar -xzf /tmp/upstream.tar.gz --strip-components=1
-COPY upstream.patch upstream-tests.patch /tmp/
-RUN git apply --unidiff-zero --check /tmp/upstream.patch && git apply --unidiff-zero /tmp/upstream.patch && git apply --unidiff-zero /tmp/upstream-tests.patch
+COPY upstream.patch upstream-tests.patch artifact-policy.patch artifact-tests.patch /tmp/
+RUN git apply --unidiff-zero --check /tmp/upstream.patch && git apply --unidiff-zero /tmp/upstream.patch && git apply --unidiff-zero /tmp/upstream-tests.patch && git apply --unidiff-zero --check /tmp/artifact-policy.patch && git apply --unidiff-zero /tmp/artifact-policy.patch && git apply --unidiff-zero /tmp/artifact-tests.patch
 COPY overlay/ /source/
 WORKDIR /source/server
 RUN --mount=type=cache,target=/root/.m2 mvn -B -pl skillhub-app -am package -DskipTests
@@ -33,4 +33,4 @@ LABEL org.opencontainers.image.base.name="docker.io/library/eclipse-temurin:21.0
       org.opencontainers.image.url="https://github.com/iflytek/skillhub" \
       org.opencontainers.image.version="0.2.16" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      ai.platformclaw.skillhub.patch="metadata-edit-v1"
+      ai.platformclaw.skillhub.patch="artifact-policy-v1"

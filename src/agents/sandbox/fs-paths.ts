@@ -12,7 +12,10 @@ import { resolveSandboxInputPath, resolveSandboxPath } from "../sandbox-paths.js
 import type { SandboxFsBridgeContext } from "./backend-handle.types.js";
 import { splitSandboxBindSpec } from "./bind-spec.js";
 import { SANDBOX_AGENT_WORKSPACE_MOUNT } from "./constants.js";
-import { resolveSandboxHostPathViaExistingAncestor } from "./host-paths.js";
+import {
+  resolveSandboxHostPathPreservingLeaf,
+  resolveSandboxHostPathViaExistingAncestor,
+} from "./host-paths.js";
 import {
   isPathInsideContainerRoot,
   normalizeContainerPath,
@@ -63,7 +66,7 @@ function parseSandboxBindMount(spec: string): ParsedBindMount | null {
   const optionParts = optionsToken ? normalizeStringEntries(optionsToken.split(",")) : [];
   const writable = !optionParts.includes("ro");
   return {
-    hostRoot: path.resolve(hostToken),
+    hostRoot: resolveSandboxHostPathViaExistingAncestor(path.resolve(hostToken)),
     containerRoot: normalizeContainerPath(containerToken),
     writable,
   };
@@ -72,7 +75,7 @@ function parseSandboxBindMount(spec: string): ParsedBindMount | null {
 export function buildSandboxFsMounts(sandbox: SandboxFsBridgeContext): SandboxFsMount[] {
   const mounts: SandboxFsMount[] = [
     {
-      hostRoot: path.resolve(sandbox.workspaceDir),
+      hostRoot: resolveSandboxHostPathViaExistingAncestor(path.resolve(sandbox.workspaceDir)),
       containerRoot: normalizeContainerPath(sandbox.containerWorkdir),
       writable: sandbox.workspaceAccess === "rw",
       source: "workspace",
@@ -84,7 +87,7 @@ export function buildSandboxFsMounts(sandbox: SandboxFsBridgeContext): SandboxFs
     path.resolve(sandbox.agentWorkspaceDir) !== path.resolve(sandbox.workspaceDir)
   ) {
     mounts.push({
-      hostRoot: path.resolve(sandbox.agentWorkspaceDir),
+      hostRoot: resolveSandboxHostPathViaExistingAncestor(path.resolve(sandbox.agentWorkspaceDir)),
       containerRoot: SANDBOX_AGENT_WORKSPACE_MOUNT,
       writable: sandbox.workspaceAccess === "rw",
       source: "agent",
@@ -97,11 +100,12 @@ export function buildSandboxFsMounts(sandbox: SandboxFsBridgeContext): SandboxFs
     skillsWorkspaceDir: sandbox.skillsWorkspaceDir,
     workdir: sandbox.containerWorkdir,
     workspaceAccess: sandbox.workspaceAccess,
+    readOnlySkillMounts: sandbox.readOnlySkillMounts,
   });
 
   for (const mount of protectedSkillMounts) {
     mounts.push({
-      hostRoot: path.resolve(mount.hostPath),
+      hostRoot: resolveSandboxHostPathViaExistingAncestor(path.resolve(mount.hostPath)),
       containerRoot: normalizeContainerPath(mount.containerPath),
       writable: false,
       source: "protectedSkill",
@@ -223,7 +227,9 @@ export function resolveSandboxFsPathWithMounts(params: {
     }
   }
 
-  const hostResolved = resolveSandboxInputPath(input, params.cwd);
+  const hostResolved = resolveSandboxHostPathPreservingLeaf(
+    resolveSandboxInputPath(input, params.cwd),
+  );
   const hostMount = findMountByHostPath(mountsByHost, hostResolved);
   if (hostMount) {
     const relHost = path.relative(hostMount.hostRoot, hostResolved);
@@ -231,6 +237,16 @@ export function resolveSandboxFsPathWithMounts(params: {
     const containerPath = relPosix
       ? path.posix.join(hostMount.containerRoot, relPosix)
       : hostMount.containerRoot;
+    // A host-absolute alias can enter through the broad workspace mapping but
+    // must read the same most-specific overlay visible inside the container.
+    const effectiveMount = findMountByContainerPath(mountsByContainer, containerPath);
+    if (effectiveMount) {
+      return resolveMountedContainerPath({
+        mount: effectiveMount,
+        containerPath,
+        defaultContainerRoot: params.defaultContainerRoot,
+      });
+    }
     return {
       hostPath: hostResolved,
       containerPath,
@@ -288,9 +304,10 @@ function resolveRelativeContainerCandidate(params: {
   defaultContainerRoot: string;
   mountsByHost: SandboxFsMount[];
 }): string {
-  const cwdMount = findMountByHostPath(params.mountsByHost, path.resolve(params.cwd));
+  const hostCwd = resolveSandboxHostPathViaExistingAncestor(path.resolve(params.cwd));
+  const cwdMount = findMountByHostPath(params.mountsByHost, hostCwd);
   if (cwdMount) {
-    const relHost = path.relative(cwdMount.hostRoot, path.resolve(params.cwd));
+    const relHost = path.relative(cwdMount.hostRoot, hostCwd);
     const relPosix = relHost ? relHost.split(path.sep).join(path.posix.sep) : "";
     const containerCwd = relPosix
       ? path.posix.join(cwdMount.containerRoot, relPosix)
@@ -388,13 +405,7 @@ function findMountByHostPath(mounts: SandboxFsMount[], target: string): SandboxF
 
 function isPathInsideHost(root: string, target: string): boolean {
   const canonicalRoot = resolveSandboxHostPathViaExistingAncestor(path.resolve(root));
-  const resolvedTarget = path.resolve(target);
-  // Preserve the final path segment so pre-existing symlink leaves are validated
-  // by the dedicated symlink guard later in the bridge flow.
-  const canonicalTargetParent = resolveSandboxHostPathViaExistingAncestor(
-    path.dirname(resolvedTarget),
-  );
-  const canonicalTarget = path.resolve(canonicalTargetParent, path.basename(resolvedTarget));
+  const canonicalTarget = resolveSandboxHostPathPreservingLeaf(target);
   return isPathInside(canonicalRoot, canonicalTarget);
 }
 

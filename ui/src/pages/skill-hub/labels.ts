@@ -1,86 +1,55 @@
 import { t } from "../../i18n/index.ts";
-import { platformClawT } from "../../platformclaw/i18n.ts";
-import type { PlatformClawSkillHubConfig } from "../../platformclaw/skill-hub.ts";
+import type {
+  PlatformClawSkillHubDetail,
+  PlatformClawSkillHubSharingMode,
+} from "../../platformclaw/skill-hub.ts";
 
-export function skillHubPublishNamespaceLabel(
-  option: PlatformClawSkillHubConfig["namespaceOptions"][number],
+export function skillHubVisibilityLabel(
+  value: PlatformClawSkillHubSharingMode | undefined,
 ): string {
-  if (option.scopeKind === "global") {
-    return `${platformClawT("platformClaw.skillHub.publish.global")} (${option.namespace})`;
-  }
-  const scope = skillHubScopeKindLabel(option.scopeKind);
-  return option.scopeName && option.scopeName !== option.namespace
-    ? `${scope}: ${option.scopeName} (${option.namespace})`
-    : `${scope}: ${option.namespace}`;
-}
-
-export function skillHubVisibilityLabel(value: string | undefined): string {
   switch (value) {
     case "PUBLIC":
-      return t("skillsPage.skillHub.public");
-    case "NAMESPACE_ONLY":
-      return t("skillsPage.skillHub.namespaceOnly");
+      return t("skillHubPage.sharingPublic");
+    case "SELECTED":
+      return t("skillHubPage.sharingSelected");
     case "PRIVATE":
-      return t("skillsPage.skillHub.private");
+      return t("skillHubPage.sharingPrivate");
     default:
-      return value ?? "";
-  }
-}
-
-export function skillHubScopeKindLabel(value: "global" | "team" | "group" | "part"): string {
-  switch (value) {
-    case "global":
-      return "Global";
-    case "team":
-      return platformClawT("platformClaw.skillHub.scopeTeam");
-    case "group":
-      return t("skillHubPage.scopeGroup");
-    case "part":
-      return t("skillHubPage.scopePart");
-  }
-  return value;
-}
-
-export function skillHubSkillStatusLabel(value: string | undefined): string {
-  switch (value) {
-    case "ACTIVE":
-      return t("skillHubPage.statusActive");
-    case "HIDDEN":
-      return t("skillHubPage.statusHidden");
-    case "ARCHIVED":
-      return t("skillHubPage.statusArchived");
-    default:
-      return value ?? "";
+      return "";
   }
 }
 
 export function skillHubScannerStatusLabel(
-  value: "not_available" | "pending" | "passed" | "failed",
+  value: NonNullable<PlatformClawSkillHubDetail["scanner"]>["status"],
 ): string {
   switch (value) {
     case "not_available":
-      return t("skillHubPage.scannerNotAvailable");
+    case "unverified":
+      return t("skillHubPage.scannerUnverified");
     case "pending":
       return t("skillHubPage.scannerPending");
     case "passed":
       return t("skillHubPage.scannerPassed");
+    case "warning":
+      return t("skillHubPage.scannerWarning");
     case "failed":
-      return t("skillHubPage.scannerFailed");
+    case "blocked":
+      return t("skillHubPage.scannerBlocked");
+    default:
+      return t("skillHubPage.scannerUnverified");
   }
-  return value;
 }
 
 export function skillHubVersionStatusLabel(value: string): string {
-  const key =
-    {
-      DRAFT: "skillHubPage.versionDraft",
-      SCANNING: "skillHubPage.versionScanning",
-      SCAN_FAILED: "skillHubPage.versionScanFailed",
-      UPLOADED: "skillHubPage.versionUploaded",
-      PENDING_REVIEW: "skillHubPage.versionPendingReview",
-      PUBLISHED: "skillHubPage.versionPublished",
-      REJECTED: "skillHubPage.versionRejected",
-      YANKED: "skillHubPage.versionYanked",
-    }[value] ?? null;
+  const key = {
+    DRAFT: "skillHubPage.versionDraft",
+    SCANNING: "skillHubPage.versionScanning",
+    SCAN_FAILED: "skillHubPage.scannerUnverified",
+    UPLOADED: "skillHubPage.versionUploaded",
+    PENDING_REVIEW: "skillHubPage.versionPendingReview",
+    PUBLISHED: "skillHubPage.versionPublished",
+    REJECTED: "skillHubPage.versionRejected",
+    YANKED: "skillHubPage.versionYanked",
+  }[value];
   return key ? t(key) : value;
 }

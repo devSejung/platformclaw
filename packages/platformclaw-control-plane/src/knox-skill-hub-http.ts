@@ -8,6 +8,7 @@ import type { SkillHubService } from "./skill-hub-service.js";
 import { SkillHubServiceError } from "./skill-hub-service.js";
 
 const PLATFORMCLAW_KNOX_SKILL_HUB_PATH = "/platformclaw/internal/knox/skillhub";
+const PLATFORMCLAW_ROOM_SKILL_POLICY_PATH = "/platformclaw/api/internal/skill-hub/room-skills";
 const MAX_BODY_BYTES = 16 * 1024;
 
 function authorized(req: IncomingMessage, expectedToken: string): boolean {
@@ -30,10 +31,18 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 async function handlePlatformClawKnoxSkillHubRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  options: { service?: SkillHubService; serviceToken: string; readJsonBody: JsonBodyReader },
+  options: {
+    service?: SkillHubService;
+    routingService: KnoxRoutingService;
+    serviceToken: string;
+    readJsonBody: JsonBodyReader;
+  },
 ): Promise<boolean> {
   const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
-  if (pathname !== PLATFORMCLAW_KNOX_SKILL_HUB_PATH) {
+  if (
+    pathname !== PLATFORMCLAW_KNOX_SKILL_HUB_PATH &&
+    pathname !== PLATFORMCLAW_ROOM_SKILL_POLICY_PATH
+  ) {
     return false;
   }
   if (req.method !== "POST") {
@@ -45,16 +54,87 @@ async function handlePlatformClawKnoxSkillHubRequest(
     send(res, 401, { error: "unauthorized" });
     return true;
   }
-  if (!options.service) {
-    send(res, 503, { error: "Skill Hub이 활성화되어 있지 않습니다. 관리자에게 문의해 주세요." });
+  const read = await options.readJsonBody(
+    req,
+    pathname === PLATFORMCLAW_ROOM_SKILL_POLICY_PATH ? 1024 * 1024 : MAX_BODY_BYTES,
+  );
+  if (!options.service && pathname !== PLATFORMCLAW_ROOM_SKILL_POLICY_PATH) {
+    const english =
+      read.ok &&
+      read.value &&
+      typeof read.value === "object" &&
+      !Array.isArray(read.value) &&
+      (read.value as Record<string, unknown>).locale === "en";
+    send(res, 503, {
+      error: english
+        ? "Skill Hub is not enabled. Contact an administrator."
+        : "Skill Hub이 활성화되어 있지 않습니다. 관리자에게 문의해 주세요.",
+    });
     return true;
   }
-  const read = await options.readJsonBody(req, MAX_BODY_BYTES);
   if (!read.ok || !read.value || typeof read.value !== "object" || Array.isArray(read.value)) {
     send(res, 400, { error: "invalid_request" });
     return true;
   }
   const body = read.value as Record<string, unknown>;
+  if (pathname === PLATFORMCLAW_ROOM_SKILL_POLICY_PATH) {
+    if (
+      typeof body.agentId !== "string" ||
+      !body.agentId ||
+      body.agentId.length > 128 ||
+      !Array.isArray(body.candidates) ||
+      body.candidates.length > 2000 ||
+      body.candidates.some((candidate) => {
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+          return true;
+        }
+        const value = candidate as Record<string, unknown>;
+        return (
+          typeof value.name !== "string" ||
+          value.name.length > 512 ||
+          typeof value.filePath !== "string" ||
+          !value.filePath ||
+          value.filePath.length > 4096 ||
+          value.filePath.includes("\0") ||
+          (value.sourceFilePath !== undefined &&
+            (typeof value.sourceFilePath !== "string" ||
+              !value.sourceFilePath ||
+              value.sourceFilePath.length > 4096 ||
+              value.sourceFilePath.includes("\0")))
+        );
+      })
+    ) {
+      send(res, 400, { error: "invalid_skill_policy_request" });
+      return true;
+    }
+    if (!options.service) {
+      if (await options.routingService.isActivePersonalAgent(body.agentId)) {
+        send(res, 200, { excludedPaths: [] });
+      } else {
+        send(res, 503, { error: "Skill access could not be verified for this run" });
+      }
+      return true;
+    }
+    try {
+      send(
+        res,
+        200,
+        await options.service.roomSkills(
+          body.agentId,
+          body.candidates as Array<{
+            name: string;
+            filePath: string;
+            sourceFilePath?: string;
+          }>,
+        ),
+      );
+    } catch (error) {
+      send(res, error instanceof SkillHubServiceError ? error.statusCode : 503, {
+        error: "Skill access could not be verified for this run",
+      });
+    }
+    return true;
+  }
   if (
     typeof body.accountId !== "string" ||
     (body.action === undefined && typeof body.args !== "string") ||
@@ -76,6 +156,10 @@ async function handlePlatformClawKnoxSkillHubRequest(
     send(res, 400, { error: "invalid_command_context" });
     return true;
   }
+  if (!options.service) {
+    send(res, 503, { error: "Skill Hub is unavailable" });
+    return true;
+  }
   const action = body.action;
   const input = body.input as Record<string, unknown> | undefined;
   const allowedFields =
@@ -85,7 +169,7 @@ async function handlePlatformClawKnoxSkillHubRequest(
         ? ["slug"]
         : action === "delete"
           ? ["slug", "confirm"]
-          : ["namespace", "slug", "version"];
+          : ["id", "version"];
   if (
     action !== undefined &&
     (typeof action !== "string" ||
@@ -138,7 +222,7 @@ async function handlePlatformClawKnoxSkillHubRequest(
             action as "search" | "status" | "install" | "delete",
             input as {
               query?: string;
-              namespace?: string;
+              id?: string;
               slug?: string;
               version?: string;
               confirm?: boolean;
@@ -180,6 +264,7 @@ export async function handlePlatformClawKnoxInternalRequest(
   }
   return await handlePlatformClawKnoxSkillHubRequest(req, res, {
     service: options.skillHubService,
+    routingService: options.service,
     serviceToken: options.serviceToken,
     readJsonBody: options.readJsonBody,
   });

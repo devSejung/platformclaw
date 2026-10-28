@@ -116,6 +116,7 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
           skillsWorkspaceDir: sandbox.skillsWorkspaceDir,
           workdir: sandbox.containerWorkdir,
           workspaceAccess: sandbox.workspaceAccess,
+          readOnlySkillMounts: sandbox.readOnlySkillMounts,
         })
       : [];
 

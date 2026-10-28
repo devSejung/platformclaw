@@ -296,18 +296,17 @@ describeControlUiE2e("PlatformClaw Control UI adapter mocked Gateway E2E", () =>
     await page.route("**/platformclaw/api/skill-hub/config", (route) =>
       route.fulfill({
         json: {
-          namespaces: ["platform"],
-          defaultNamespace: "platform",
-          namespaceOptions: [{ namespace: "platform", scopeKind: "global" }],
+          defaultSharing: "PUBLIC",
+          scopes: [],
+          ownedSkills: [],
+          limits: { iconBytes: 2097152, tags: 5, tagChars: 32 },
           maxPackageBytes: 10_000_000,
           capabilities: {
             scanner: true,
-            forcePublish: false,
             ownerTransfer: false,
             accessControl: false,
             notifications: true,
             zipUpload: true,
-            namespaceCreate: true,
           },
           installTargets: [
             { target: "platform_server", available: true, status: "ready" },

@@ -79,11 +79,6 @@ export function createProps(overrides: Partial<SkillsProps> = {}): SkillsProps {
     clawhubDetailError: null,
     clawhubInstallMessage: null,
     skillHubConfig: null,
-    skillHubPublishSkill: null,
-    skillHubPublishNamespace: "",
-    skillHubPublishVersion: "0.1.0",
-    skillHubPublishVisibility: "PUBLIC",
-    skillHubOperation: null,
     skillHubMessage: null,
     onAgentChange: () => undefined,
     onFilterChange: () => undefined,
@@ -101,11 +96,6 @@ export function createProps(overrides: Partial<SkillsProps> = {}): SkillsProps {
     onClawHubDetailClose: () => undefined,
     onClawHubInstall: () => undefined,
     onSkillHubPublishOpen: () => undefined,
-    onSkillHubPublishClose: () => undefined,
-    onSkillHubPublishNamespaceChange: () => undefined,
-    onSkillHubPublishVersionChange: () => undefined,
-    onSkillHubPublishVisibilityChange: () => undefined,
-    onSkillHubPublish: () => undefined,
     ...overrides,
   };
 }

@@ -1,5 +1,6 @@
 import { consume } from "@lit/context";
 import { initialState, Task, TaskStatus } from "@lit/task";
+import { err, ok, type Result } from "@openclaw/normalization-core/result";
 import { html, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
 import type { AgentsListResult, SkillStatusReport } from "../../api/types.ts";
@@ -10,7 +11,6 @@ import {
   type ApplicationGatewaySnapshot,
 } from "../../app/context.ts";
 import { renderSettingsWorkspace } from "../../components/settings-workspace.ts";
-import { t } from "../../i18n/index.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
 import { searchClawHub, type ClawHubSearchResult } from "../../lib/skills/clawhub-search.ts";
 import {
@@ -35,14 +35,15 @@ import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
 import { SubscriptionsController } from "../../lit/subscriptions-controller.ts";
 import { subscribeToPlatformClawExecutionTargetChanges } from "../../platformclaw/execution-target-events.ts";
-import { loadPlatformClawLocale } from "../../platformclaw/i18n.ts";
+import { loadPlatformClawLocale, platformClawT } from "../../platformclaw/i18n.ts";
 import {
   loadPlatformClawSkillHubConfig,
-  publishPlatformClawWorkspaceSkill,
   type PlatformClawSkillHubConfig,
   type PlatformClawSkillHubMessage,
 } from "../../platformclaw/skill-hub.ts";
 import { renderPluginsHubShell } from "../plugins/plugins-hub-shell.ts";
+import { SkillHubWorkspacePublishController } from "../skill-hub/workspace-publish-controller.ts";
+import { SkillsChangedRefreshQueue } from "./skills-changed-refresh-queue.ts";
 import { renderSkills, type SkillDetailTab, type SkillsStatusFilter } from "./view.ts";
 
 export type SkillsRouteData = {
@@ -54,47 +55,6 @@ export type SkillsRouteData = {
   report: SkillStatusReport | null;
   error: string | null;
 };
-
-export class SkillsChangedRefreshQueue {
-  private pending = false;
-  private running: Promise<void> | null = null;
-  private generation = 0;
-
-  constructor(
-    private readonly canRefresh: () => boolean,
-    private readonly refresh: () => Promise<void>,
-  ) {}
-
-  invalidate(active: boolean): void {
-    if (!active) {
-      return;
-    }
-    this.pending = true;
-    this.drain();
-  }
-
-  drain(): void {
-    if (!this.pending || this.running || !this.canRefresh()) {
-      return;
-    }
-    this.pending = false;
-    const generation = this.generation;
-    const running = this.refresh().finally(() => {
-      if (this.generation !== generation || this.running !== running) {
-        return;
-      }
-      this.running = null;
-      this.drain();
-    });
-    this.running = running;
-  }
-
-  reset(): void {
-    this.generation += 1;
-    this.pending = false;
-    this.running = null;
-  }
-}
 
 class SkillsPage extends OpenClawLightDomElement {
   @consume({ context: applicationContext, subscribe: true })
@@ -136,11 +96,6 @@ class SkillsPage extends OpenClawLightDomElement {
   @state() skillHubConfig: PlatformClawSkillHubConfig | null = null;
   @state() skillHubConfigLoading = false;
   @state() skillHubError: string | null = null;
-  @state() skillHubPublishSkill: string | null = null;
-  @state() skillHubPublishNamespace = "";
-  @state() skillHubPublishVersion = "0.1.0";
-  @state() skillHubPublishVisibility = "PUBLIC";
-  @state() skillHubOperation: "publish" | "install" | null = null;
   @state() skillHubMessage: PlatformClawSkillHubMessage | null = null;
 
   get runtimeConfig(): ApplicationContext["runtimeConfig"] {
@@ -291,8 +246,6 @@ class SkillsPage extends OpenClawLightDomElement {
     this.skillHubConfig = null;
     this.skillHubConfigLoading = false;
     this.skillHubError = null;
-    this.skillHubPublishSkill = null;
-    this.skillHubOperation = null;
     this.skillHubMessage = null;
   }
 
@@ -320,6 +273,15 @@ class SkillsPage extends OpenClawLightDomElement {
     if (!this.gateway.connected || !this.gateway.client) {
       return;
     }
+    // Route preloading supplies workspace status, but not product-owned Hub settings.
+    if (
+      this.canUseSkillHub() &&
+      !this.skillHubConfig &&
+      !this.skillHubConfigLoading &&
+      !this.skillHubError
+    ) {
+      void this.loadSkillHubConfig();
+    }
     if (
       this.routeDataEnabled &&
       (this.routeData?.agentsList || this.routeData?.report || this.routeData?.error)
@@ -332,14 +294,6 @@ class SkillsPage extends OpenClawLightDomElement {
     }
     if (!this.skillsReport && !this.skillsLoading) {
       void loadSkills(this);
-    }
-    if (
-      this.context.accessMode === "personal-agent" &&
-      !this.skillHubConfig &&
-      !this.skillHubConfigLoading &&
-      !this.skillHubError
-    ) {
-      void this.loadSkillHubConfig();
     }
     if (
       this.clawhubSearchQuery.trim() &&
@@ -366,6 +320,9 @@ class SkillsPage extends OpenClawLightDomElement {
 
   private async refreshPage() {
     await refreshSkills(this, () => this.loadAgents());
+    if (this.canUseSkillHub()) {
+      await this.loadSkillHubConfig();
+    }
   }
 
   private changeAgent(agentId: string) {
@@ -446,59 +403,44 @@ class SkillsPage extends OpenClawLightDomElement {
     );
   }
 
-  private async loadSkillHubConfig() {
+  private canUseSkillHub(): boolean {
+    return (
+      this.context.accessMode === "personal-agent" &&
+      this.context.isRouteEnabled?.("skill-hub") !== false
+    );
+  }
+
+  private async loadSkillHubConfig(): Promise<Result<undefined, string>> {
     this.skillHubConfigLoading = true;
+    this.skillHubError = null;
     try {
       this.skillHubConfig = await loadPlatformClawSkillHubConfig();
     } catch (error) {
       this.skillHubError = error instanceof Error ? error.message : String(error);
+      return err(this.skillHubError);
     } finally {
       this.skillHubConfigLoading = false;
     }
+    return ok(undefined);
   }
+
+  private readonly skillHubPublish = new SkillHubWorkspacePublishController(this, {
+    refresh: async () => {
+      const result = await this.loadSkillHubConfig();
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+    },
+    setMessage: (message) => (this.skillHubMessage = message),
+  });
 
   private openSkillHubPublish(skill: string) {
-    this.skillHubPublishSkill = skill;
-    this.skillHubPublishVersion = "0.1.0";
-    this.skillHubPublishNamespace = this.skillHubConfig?.defaultNamespace ?? "";
-    this.skillHubMessage = null;
-  }
-
-  private async publishSkillHub() {
-    const skill = this.skillHubPublishSkill;
-    if (!skill || this.skillHubOperation) {
+    if (!this.canUseSkillHub() || !this.skillHubConfig) {
       return;
     }
-    this.skillHubOperation = "publish";
-    this.skillHubMessage = null;
-    try {
-      const result = await publishPlatformClawWorkspaceSkill({
-        skill,
-        source:
-          this.skillsReport?.executionTarget === "assigned_vm" ? "assigned_vm" : "platform_server",
-        namespace: this.skillHubPublishNamespace,
-        version: this.skillHubPublishVersion,
-        visibility: this.skillHubPublishVisibility,
-      });
-      this.skillHubMessage = {
-        kind: result.ownershipReviewRequired ? "warning" : "success",
-        text: result.ownershipReviewRequired
-          ? t("skillsPage.skillHub.publishedNeedsOwnershipReview", {
-              skill: `${result.namespace}/${result.slug}@${result.version}`,
-            })
-          : t("skillsPage.skillHub.published", {
-              skill: `${result.namespace}/${result.slug}@${result.version}`,
-            }),
-      };
-      this.skillHubPublishSkill = null;
-    } catch (error) {
-      this.skillHubMessage = {
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      this.skillHubOperation = null;
-    }
+    const source =
+      this.skillsReport?.executionTarget === "assigned_vm" ? "assigned_vm" : "platform_server";
+    void this.skillHubPublish.openDialog(this.skillHubConfig, undefined, { skill, source });
   }
 
   override render() {
@@ -544,22 +486,24 @@ class SkillsPage extends OpenClawLightDomElement {
           clawhubDetailLoading: this.clawhubDetailLoading,
           clawhubDetailError: this.clawhubDetailError,
           clawhubInstallMessage: this.clawhubInstallMessage,
-          skillHubConfig: this.skillHubConfig,
-          skillHubPublishSkill: this.skillHubPublishSkill,
-          skillHubPublishNamespace: this.skillHubPublishNamespace,
-          skillHubPublishVersion: this.skillHubPublishVersion,
-          skillHubPublishVisibility: this.skillHubPublishVisibility,
-          skillHubOperation: this.skillHubOperation,
-          skillHubMessage: this.skillHubMessage,
+          skillHubConfig: this.canUseSkillHub() ? this.skillHubConfig : null,
+          skillHubMessage:
+            this.skillHubMessage ??
+            (this.canUseSkillHub() && this.skillHubError
+              ? {
+                  kind: "error",
+                  text: platformClawT("platformClaw.skillHub.configLoadFailed", {
+                    error: this.skillHubError,
+                  }),
+                }
+              : null),
           onAgentChange: (agentId) => this.changeAgent(agentId),
           onFilterChange: (next) => (this.skillsFilter = next),
           onStatusFilterChange: (next) => (this.skillsStatusFilter = next),
           onRefresh: () => void this.refreshPage(),
-          onBrowseSkillHub:
-            this.context.accessMode === "personal-agent" &&
-            this.context.isRouteEnabled?.("skill-hub") !== false
-              ? () => this.context.navigate("skill-hub")
-              : undefined,
+          onBrowseSkillHub: this.canUseSkillHub()
+            ? () => this.context.navigate("skill-hub")
+            : undefined,
           onToggle: (key, enabled) => {
             if (this.canUpdateSkills()) {
               void updateSkillEnabled(this, key, enabled, () => this.canUpdateSkills());
@@ -595,14 +539,8 @@ class SkillsPage extends OpenClawLightDomElement {
             }
           },
           onSkillHubPublishOpen: (skill) => this.openSkillHubPublish(skill),
-          onSkillHubPublishClose: () => (this.skillHubPublishSkill = null),
-          onSkillHubPublishNamespaceChange: (namespace) =>
-            (this.skillHubPublishNamespace = namespace),
-          onSkillHubPublishVersionChange: (version) => (this.skillHubPublishVersion = version),
-          onSkillHubPublishVisibilityChange: (visibility) =>
-            (this.skillHubPublishVisibility = visibility),
-          onSkillHubPublish: () => void this.publishSkillHub(),
         })}
+        ${this.skillHubPublish.renderDialog(this.skillHubConfig)}
       `),
     });
   }

@@ -1,6 +1,7 @@
 /** Pure mount and path helpers for the remote sandbox filesystem bridge. */
 import path from "node:path";
 import { isPathInside } from "../../infra/path-guards.js";
+import { resolveSandboxHostPathViaExistingAncestor } from "./host-paths.js";
 import { isPathInsideContainerRoot, relativePathEscapesContainerRoot } from "./path-utils.js";
 import { normalizeContainerPath as normalizeSandboxContainerPath } from "./path-utils.js";
 import type { RemoteMountSource, ResolvedRemotePath } from "./remote-fs-bridge.types.js";
@@ -193,7 +194,14 @@ export function resolveRemoteMountByLocalPath(
   mounts: RemoteMountInfo[],
   localPath: string,
 ): (RemoteMountInfo & { localRoot: string }) | null {
-  const ordered = [...mounts].toSorted(compareRemoteMountsByLocalPath);
+  const ordered = mounts
+    .map((mount) => ({
+      ...mount,
+      localRoot: mount.localRoot
+        ? resolveSandboxHostPathViaExistingAncestor(path.resolve(mount.localRoot))
+        : null,
+    }))
+    .toSorted(compareRemoteMountsByLocalPath);
   for (const mount of ordered) {
     if (mount.localRoot && isPathInside(mount.localRoot, localPath)) {
       return { ...mount, localRoot: mount.localRoot };

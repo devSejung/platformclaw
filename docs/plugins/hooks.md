@@ -138,6 +138,7 @@ observation-only.
 
 | Hook                            | Purpose                                                                                  |
 | ------------------------------- | ---------------------------------------------------------------------------------------- |
+| `before_skill_context`          | Exclude exact skill candidates before run-local prompt, tool, and cache materialization  |
 | `before_model_resolve`          | Override provider or model before session messages load                                  |
 | `agent_turn_prepare`            | Consume queued plugin turn injections and add same-turn context before prompt hooks      |
 | `before_prompt_build`           | Add prompt context or narrow the current turn's submitted tool surface                   |
@@ -555,6 +556,28 @@ not prompt content:
 
 Use the phase-specific hooks for new plugins:
 
+- `before_skill_context`: receives canonical skill candidates as
+  `{ candidates: [{ name, filePath, sourceFilePath? }] }` and the prepared
+  agent/session identity. `filePath` is the run's readable location;
+  `sourceFilePath` retains the original source identity when sandbox or CLI
+  materialization remaps that location. Match managed provenance against that
+  source path, never a display name or directory basename.
+  Owners may also return `excludedSourceDirectories` containing absolute source
+  directories with no parent traversal. This preserves managed access boundaries
+  when a skill is disabled, malformed, or shadowed and has no discoverable
+  candidate. Source directories are hidden by read-only empty-directory overlays;
+  unrelated workspace files and original source bytes remain intact. The final
+  run check rejects permissions that need a mask missing from the prepared view.
+  Workspace masks are confined to the executing Agent's `skills/` and
+  `.agents/skills/` source roots. They do not delete or rewrite installed content.
+  Return `{ excludedPaths: [...] }` to exclude exact candidate paths from this
+  run's skill prompt, environment requirements, Code Mode readers, and native
+  CLI skill materialization. Multiple handlers' exclusions are combined; a
+  handler cannot add candidates or rewrite skill content. The check also runs
+  when a session reuses a skill snapshot. Exceptions, invalid exclusions, and
+  timeouts fail closed before model submission. This hook does not delete
+  installed files or rewrite saved session history; an owner plugin must also
+  enforce its managed-copy filesystem policy when direct file access matters.
 - `before_model_resolve`: receives only the current prompt and attachment
   metadata. Return `providerOverride` or `modelOverride`.
 - `agent_turn_prepare`: receives the current prompt, prepared session

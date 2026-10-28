@@ -20,6 +20,7 @@ import { ensureKnowledgeVaultSchema } from "./sqlite-schema-knowledge-vault.js";
 import { SqliteSpaceStore } from "./sqlite-spaces.js";
 import { SqliteControlPlaneBaseballStore } from "./sqlite-store-baseball.js";
 import { normalizeAccountId } from "./sqlite-store-core.js";
+import { SqliteSkillHubCatalogStore } from "./sqlite-store-skill-hub-catalog.js";
 
 export class SqliteControlPlaneStore
   extends SqliteControlPlaneBaseballStore
@@ -30,6 +31,9 @@ export class SqliteControlPlaneStore
     ControlPlaneExecutionManagementStore
 {
   readonly vaults = new SqliteKnowledgeVaultStore(this.db);
+  readonly skillHubCatalog = new SqliteSkillHubCatalogStore(this.db, (userId, scopeId) =>
+    this.resolveOrganizationAuthorizationSnapshot(userId, scopeId),
+  );
   readonly announcements = new SqliteAnnouncementStore(this.db);
   async listDashboardAccounts() {
     return executeSync(

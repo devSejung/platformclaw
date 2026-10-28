@@ -27,6 +27,7 @@ import {
 import { resolveBlockMessage } from "../plugins/hook-decision-types.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { resolveAgentIdFromSessionKey } from "../routing/session-key.js";
+import { isSkillContextPolicyError } from "../skills/runtime/context-policy.js";
 import { resolveSessionAgentId } from "./agent-scope.js";
 import { withAgentWorkAdmission } from "./agent-work-admission.js";
 import { isHeartbeatLifecycleRunKind } from "./bootstrap-mode.js";
@@ -966,6 +967,9 @@ export async function runPreparedCliAgent(
   };
 
   const toCliRunFailure = (error: unknown): never => {
+    if (isSkillContextPolicyError(error)) {
+      throw error;
+    }
     if (isFailoverError(error)) {
       throw error;
     }
@@ -1628,6 +1632,14 @@ export async function runPreparedCliAgent(
     await context.preparedBackend.cleanup?.();
   } catch (cleanupError) {
     if (!deliveredMessagingSideEffect) {
+      if (runFailed && isSkillContextPolicyError(runError)) {
+        const failure = new AggregateError(
+          [runError, cleanupError],
+          "CLI skill admission failed and prepared-resource cleanup also failed.",
+          { cause: cleanupError },
+        );
+        throw failure;
+      }
       if (runFailed) {
         cliBackendLog.warn(
           `CLI run also failed before backend cleanup: ${formatErrorMessage(runError)}`,

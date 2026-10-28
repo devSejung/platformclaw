@@ -14,6 +14,9 @@ import { registerContextEngineForOwner } from "../../context-engine/registry.js"
 import type { ContextEngine } from "../../context-engine/types.js";
 import type { CliBackendPlugin } from "../../plugins/cli-backend.types.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
+import type { PluginHookBeforeSkillContextEvent } from "../../plugins/hook-types.js";
+import { createHookRunner } from "../../plugins/hooks.js";
+import { createMockPluginRegistry } from "../../plugins/hooks.test-helpers.js";
 import {
   clearMemoryPluginState,
   registerTestMemoryPromptBuilder,
@@ -44,16 +47,24 @@ import {
   createTestMcpLoopbackServer,
   createTestMcpLoopbackServerConfig,
   createWeatherSkillFixture,
+  mockClaudeLiveRun,
   wrappedPluginSystemContext,
   type TestCliBackendParams,
 } from "../cli-runner.test-helpers.js";
 import { hashCliSessionText } from "../cli-session.js";
 import { resetContextWindowCacheForTest } from "../context.js";
 import { buildActiveImageGenerationTaskPromptContextForSession } from "../image-generation-task-status.js";
+import { runWithModelFallback } from "../model-fallback-runner.js";
 import { buildActiveMusicGenerationTaskPromptContextForSession } from "../music-generation-task-status.js";
 import type { SandboxWorkspaceInfo } from "../sandbox/types.js";
 import type { SystemAgentToolOptions } from "../tools/system-agent-tool.js";
 import { buildActiveVideoGenerationTaskPromptContextForSession } from "../video-generation-task-status.js";
+import { getClaudeLiveSessionGenerationForOwner } from "./claude-live-session.js";
+import { resetClaudeLiveSessionsForTest } from "./claude-live-session.test-support.js";
+import { prepareClaudeCliSkillsPlugin as actualPrepareClaudeCliSkillsPlugin } from "./claude-skills-plugin.js";
+import { executeDeps } from "./execute-deps.js";
+import { executePreparedCliRun } from "./execute.js";
+import { supervisorSpawnMock } from "./execute.test-support.js";
 import { prepareCliRunContext } from "./prepare.js";
 import { setCliRunnerPrepareTestDeps } from "./prepare.test-support.js";
 import type { RunCliAgentParams } from "./types.js";
@@ -94,9 +105,15 @@ vi.mock("../sandbox.js", () => ({
   ensureSandboxWorkspaceForSession: ensureSandboxWorkspaceForSessionMock,
 }));
 
-vi.mock("../../plugins/hook-runner-global.js", () => ({
-  getGlobalHookRunner: vi.fn(() => null),
-}));
+vi.mock("../../plugins/hook-runner-global.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../plugins/hook-runner-global.js")>();
+  return {
+    ...actual,
+    getGlobalHookRunner: vi.fn(() => null),
+    hasGlobalHooks: (...args: Parameters<typeof actual.hasGlobalHooks>) =>
+      getGlobalHookRunner()?.hasHooks(...args) ?? false,
+  };
+});
 
 vi.mock("../../tts/tts-settings.js", () => ({
   buildTtsSystemPromptHint: vi.fn(() => undefined),
@@ -1907,7 +1924,7 @@ describe("prepareCliRunContext", () => {
 
   it("applies before_prompt_build hook context for CLI preparation", async () => {
     const hookRunner = {
-      hasHooks: vi.fn((_hookName: string) => true),
+      hasHooks: vi.fn((hookName: string) => hookName === "before_prompt_build"),
       runBeforePromptBuild: vi.fn(async () => ({
         prependContext: "prompt prepend",
         systemPrompt: "prompt system",
@@ -4359,6 +4376,411 @@ describe("prepareCliRunContext", () => {
       { name: "gog", blockChars: expect.any(Number) },
     ]);
   });
+
+  it("rechecks a reused skill snapshot before native CLI plugin materialization", async () => {
+    const { dir } = fixture.session;
+    const skill = createWeatherSkillFixture(dir, true);
+    const snapshot = { ...skill.snapshot, skillFilter: ["weather"] };
+    let revoked = false;
+    const hookRunner = createHookRunner(
+      createMockPluginRegistry([
+        {
+          hookName: "before_skill_context",
+          handler: (event) => {
+            const { candidates } = event as PluginHookBeforeSkillContextEvent;
+            return {
+              excludedPaths: candidates
+                .filter((candidate) => revoked && candidate.sourceFilePath === skill.skillFilePath)
+                .map((candidate) => candidate.filePath),
+            };
+          },
+        },
+      ]),
+    );
+    mockGetGlobalHookRunner.mockReturnValue(hookRunner);
+    setCliBackendForPrepareTest({ id: "claude-cli", pluginId: "anthropic" });
+    setCliRunnerPrepareTestDeps({
+      prepareClaudeCliSkillsPlugin: actualPrepareClaudeCliSkillsPlugin,
+    });
+    const params = {
+      provider: "claude-cli",
+      model: "opus",
+      sessionKey: "agent:main:knox:room:room-one",
+      skillsSnapshot: snapshot,
+    };
+    const allowed = await fixture.prepare(params);
+    try {
+      expect(allowed.claudeSkillsPluginArgs?.[0]).toBe("--plugin-dir");
+      const pluginDir = expectDefined(
+        allowed.claudeSkillsPluginArgs?.[1],
+        "native skill plugin directory",
+      );
+      expect(
+        fs.readFileSync(path.join(pluginDir, "skills", "weather", "SKILL.md"), "utf8"),
+      ).toContain("Read forecast data before replying.");
+    } finally {
+      await allowed.preparedBackend.cleanup?.();
+    }
+    revoked = true;
+    const blocked = await fixture.prepare(params);
+    try {
+      expect(blocked.params.skillsSnapshot?.skills).toEqual([]);
+      expect(blocked.params.skillsSnapshot?.resolvedSkills).toEqual([]);
+      expect(blocked.claudeSkillsPluginArgs).toEqual([]);
+      expect(blocked.systemPrompt).not.toContain("<name>weather</name>");
+      expect(snapshot.skills).toEqual([{ name: "weather" }]);
+      expect(fs.readFileSync(skill.skillFilePath, "utf8")).toContain(
+        "Read forecast data before replying.",
+      );
+    } finally {
+      await blocked.preparedBackend.cleanup?.();
+    }
+  });
+
+  it("stops CLI preparation before native skill materialization when current authority is unavailable", async () => {
+    const skill = createWeatherSkillFixture(fixture.session.dir, true);
+    mockGetGlobalHookRunner.mockReturnValue(
+      createHookRunner(
+        createMockPluginRegistry([
+          {
+            hookName: "before_skill_context",
+            handler: () => {
+              throw new Error("Room skill authority is unavailable");
+            },
+          },
+        ]),
+      ),
+    );
+    const materializeSkills = vi.fn(actualPrepareClaudeCliSkillsPlugin);
+    setCliBackendForPrepareTest({ id: "claude-cli", pluginId: "anthropic" });
+    setCliRunnerPrepareTestDeps({ prepareClaudeCliSkillsPlugin: materializeSkills });
+    await expect(
+      fixture.prepare({
+        provider: "claude-cli",
+        model: "opus",
+        skillsSnapshot: { ...skill.snapshot, skillFilter: ["weather"] },
+      }),
+    ).rejects.toThrow("Skill permissions could not be verified");
+    expect(materializeSkills).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "materialization",
+    "backend-staging",
+    "directory-policy",
+    "cleanup-failure",
+    "fork-restore",
+  ] as const)(
+    "rejects a native CLI skill revoked during %s before launch and cleans its projection",
+    async (phase) => {
+      const skill = createWeatherSkillFixture(fixture.session.dir, true);
+      let revoked = false;
+      mockGetGlobalHookRunner.mockReturnValue(
+        createHookRunner(
+          createMockPluginRegistry([
+            {
+              hookName: "before_skill_context",
+              handler: (input) => {
+                const event = input as PluginHookBeforeSkillContextEvent;
+                return {
+                  excludedPaths:
+                    phase !== "directory-policy" && revoked
+                      ? event.candidates
+                          .filter((candidate) => candidate.sourceFilePath === skill.skillFilePath)
+                          .map((candidate) => candidate.filePath)
+                      : [],
+                  excludedSourceDirectories:
+                    phase === "directory-policy" && revoked
+                      ? [path.dirname(skill.skillFilePath)]
+                      : [],
+                };
+              },
+            },
+          ]),
+        ),
+      );
+      const beforeExecution = vi.fn(async () => {
+        if (phase === "backend-staging") {
+          revoked = true;
+        }
+      });
+      setCliBackendForPrepareTest({
+        id: "claude-cli",
+        pluginId: "anthropic",
+        prepareExecution: async () => ({ beforeExecution }),
+      });
+      setCliRunnerPrepareTestDeps({
+        prepareClaudeCliSkillsPlugin: async (
+          params: Parameters<typeof actualPrepareClaudeCliSkillsPlugin>[0],
+        ) => {
+          const plugin = await actualPrepareClaudeCliSkillsPlugin(params);
+          if (phase !== "backend-staging") {
+            revoked = true;
+          }
+          return plugin;
+        },
+      });
+      const context = await fixture.prepare({
+        provider: "claude-cli",
+        model: "opus",
+        sessionKey: "agent:main:knox:room:room-one",
+        skillsSnapshot: { ...skill.snapshot, skillFilter: ["weather"] },
+      });
+      const pluginDir = expectDefined(
+        context.claudeSkillsPluginArgs?.[1],
+        "prepared native plugin",
+      );
+      const cleanup = context.preparedBackend.cleanup;
+      const cleanupFailure = new Error("HTTP 502 timeout during cleanup");
+      const restoreFork = vi.fn(async () => {
+        throw cleanupFailure;
+      });
+      if (phase === "cleanup-failure") {
+        context.preparedBackend.cleanup = async () => {
+          await cleanup?.();
+          throw cleanupFailure;
+        };
+      }
+      if (phase === "fork-restore") {
+        context.preparedBackend.backend.forkArg = "--fork-session";
+        context.reusableCliSession = { mode: "reuse", sessionId: "source-session" };
+        context.params.forkCliSessionOnResume = true;
+        context.params.claimCliSessionFork = vi.fn(async () => true);
+        context.params.persistCliSessionForkSuccessor = vi.fn(async () => {});
+        context.params.restoreCliSessionFork = restoreFork;
+      }
+      expect(
+        fs.readFileSync(path.join(pluginDir, "skills", "weather", "SKILL.md"), "utf8"),
+      ).toContain("Read forecast data before replying.");
+      const supervisor = vi.spyOn(executeDeps, "getProcessSupervisor");
+      supervisor.mockImplementation(() => {
+        throw new Error("An unauthorized CLI must not spawn");
+      });
+      const freshRetry = vi.fn(async () => true);
+      const forkRetry = vi.fn(async () => true);
+      context.params.onBeforeFreshCliSessionRetry = freshRetry;
+      context.params.onBeforeForkedCliSessionRetry = forkRetry;
+      try {
+        const { runPreparedCliAgent } = await import("../cli-runner.js");
+        const run = vi.fn(async () => await runPreparedCliAgent(context));
+        const onFallbackStep = vi.fn();
+        await expect(
+          runWithModelFallback({
+            cfg: context.params.config,
+            provider: "openai",
+            model: "gpt-5.4",
+            fallbacksOverride: ["anthropic/claude-sonnet-4-6"],
+            manifestPlugins: [],
+            skipAuthProfileRuntime: true,
+            run,
+            onFallbackStep,
+          }),
+        ).rejects.toMatchObject(
+          phase === "cleanup-failure" || phase === "fork-restore"
+            ? {
+                name: "AggregateError",
+                cause: cleanupFailure,
+                errors: [
+                  expect.objectContaining({ name: "SkillContextPolicyError" }),
+                  cleanupFailure,
+                ],
+              }
+            : { name: "SkillContextPolicyError" },
+        );
+        expect(beforeExecution).toHaveBeenCalledOnce();
+        expect(supervisor).not.toHaveBeenCalled();
+        expect(freshRetry).not.toHaveBeenCalled();
+        expect(forkRetry).not.toHaveBeenCalled();
+        expect(run).toHaveBeenCalledOnce();
+        expect(onFallbackStep).not.toHaveBeenCalled();
+        expect(restoreFork).toHaveBeenCalledTimes(phase === "fork-restore" ? 1 : 0);
+        expect(fs.existsSync(pluginDir)).toBe(false);
+        expect(fs.readFileSync(skill.skillFilePath, "utf8")).toContain(
+          "Read forecast data before replying.",
+        );
+      } finally {
+        supervisor.mockRestore();
+        await cleanup?.();
+      }
+    },
+  );
+
+  it.each(["child-startup", "prompt-refresh"] as const)(
+    "rechecks native CLI skill authority after live %s without replaying or disturbing another session",
+    async (phase) => {
+      const skill = createWeatherSkillFixture(fixture.session.dir, true);
+      let revoked = false;
+      mockGetGlobalHookRunner.mockReturnValue(
+        createHookRunner(
+          createMockPluginRegistry([
+            {
+              hookName: "before_skill_context",
+              handler: (input) => {
+                const event = input as PluginHookBeforeSkillContextEvent;
+                return {
+                  excludedPaths: event.candidates
+                    .filter(
+                      (candidate) => revoked && candidate.sourceFilePath === skill.skillFilePath,
+                    )
+                    .map((candidate) => candidate.filePath),
+                };
+              },
+            },
+          ]),
+        ),
+      );
+      const staging = vi.fn(async () => {});
+      setRawCliBackendForPrepareTest({
+        id: "claude-cli",
+        pluginId: "anthropic",
+        bundleMcp: false,
+        prepareExecution: async () => ({ beforeExecution: staging }),
+        config: {
+          command: "claude",
+          args: ["--print"],
+          resumeArgs: ["--print", "--resume", "{sessionId}"],
+          output: "jsonl",
+          input: "stdin",
+          sessionMode: "existing",
+          systemPromptArg: "--append-system-prompt",
+          systemPromptWhen: "always",
+          liveSession: "claude-stdio",
+        },
+      });
+      setCliRunnerPrepareTestDeps({
+        prepareClaudeCliSkillsPlugin: actualPrepareClaudeCliSkillsPlugin,
+        getClaudeLiveSessionGenerationForOwner,
+        claudeCliSessionTranscriptHasContent: async () => false,
+      });
+      supervisorSpawnMock.mockReset();
+      let releaseRefresh: (() => void) | undefined;
+      const live = mockClaudeLiveRun(supervisorSpawnMock, {
+        cancelable: true,
+        beforeSpawn: async () => {
+          if (phase === "child-startup") {
+            revoked = true;
+          }
+        },
+        onWrite: ({ data, emit }) => {
+          const request: {
+            type: string;
+            request_id?: string;
+            request?: { system_prompt?: string };
+          } = JSON.parse(data);
+          if (request.type === "control_request") {
+            const respond = () =>
+              emit([
+                {
+                  type: "control_response",
+                  response: {
+                    subtype: request.request?.system_prompt === "" ? "error" : "success",
+                    request_id: request.request_id,
+                    ...(request.request?.system_prompt === ""
+                      ? {
+                          error: "set_model: system_prompt must be a non-empty string when present",
+                        }
+                      : {}),
+                  },
+                },
+              ]);
+            if (request.request?.system_prompt === "") {
+              releaseRefresh = respond;
+            } else {
+              respond();
+            }
+            return;
+          }
+          emit([
+            { type: "system", subtype: "init", session_id: "live-skill-session" },
+            { type: "result", session_id: "live-skill-session", result: "first turn completed" },
+          ]);
+        },
+      });
+      const common = {
+        provider: "claude-cli",
+        model: "sonnet",
+        sessionKey: "agent:main:knox:room:room-one",
+        extraSystemPromptStatic: "Stable",
+        skillsSnapshot: { ...skill.snapshot, skillFilter: ["weather"] },
+      };
+      try {
+        let originalGeneration: string | undefined;
+        if (phase === "prompt-refresh") {
+          const first = await fixture.prepare({
+            ...common,
+            extraSystemPrompt: `Stable${SYSTEM_PROMPT_CACHE_BOUNDARY}First metadata`,
+          });
+          await expect(executePreparedCliRun(first)).resolves.toMatchObject({
+            text: "first turn completed",
+          });
+          await first.preparedBackend.cleanup?.();
+          originalGeneration = getClaudeLiveSessionGenerationForOwner({
+            backendId: "claude-cli",
+            sessionId: first.params.sessionId,
+            sessionKey: common.sessionKey,
+          });
+          expect(originalGeneration).toBeTypeOf("string");
+        }
+        const context = await fixture.prepare({
+          ...common,
+          extraSystemPrompt: `Stable${SYSTEM_PROMPT_CACHE_BOUNDARY}Second metadata`,
+          ...(phase === "prompt-refresh" ? { cliSessionId: "live-skill-session" } : {}),
+        });
+        const pluginDir = expectDefined(
+          context.claudeSkillsPluginArgs?.[1],
+          "native skill projection",
+        );
+        const freshRetry = vi.fn(async () => true);
+        const forkRetry = vi.fn(async () => true);
+        context.params.onBeforeFreshCliSessionRetry = freshRetry;
+        context.params.onBeforeForkedCliSessionRetry = forkRetry;
+        const { runPreparedCliAgent } = await import("../cli-runner.js");
+        const run = vi.fn(async () => await runPreparedCliAgent(context));
+        const onFallbackStep = vi.fn();
+        const rejected = expect(
+          runWithModelFallback({
+            cfg: context.params.config,
+            provider: "openai",
+            model: "gpt-5.4",
+            fallbacksOverride: ["anthropic/claude-sonnet-4-6"],
+            manifestPlugins: [],
+            skipAuthProfileRuntime: true,
+            run,
+            onFallbackStep,
+          }),
+        ).rejects.toMatchObject({ name: "SkillContextPolicyError" });
+        if (phase === "prompt-refresh") {
+          await vi.waitFor(() => expect(releaseRefresh).toBeTypeOf("function"));
+          revoked = true;
+          releaseRefresh?.();
+        }
+        await rejected;
+        expect(run).toHaveBeenCalledOnce();
+        expect(onFallbackStep).not.toHaveBeenCalled();
+        expect(freshRetry).not.toHaveBeenCalled();
+        expect(forkRetry).not.toHaveBeenCalled();
+        expect(staging).toHaveBeenCalledTimes(phase === "prompt-refresh" ? 2 : 1);
+        expect(supervisorSpawnMock).toHaveBeenCalledOnce();
+        expect(live.writes.filter((data) => JSON.parse(data).type === "user")).toHaveLength(
+          phase === "prompt-refresh" ? 1 : 0,
+        );
+        expect(live.lifecycle.cancel).toHaveBeenCalledTimes(phase === "child-startup" ? 1 : 0);
+        expect(
+          getClaudeLiveSessionGenerationForOwner({
+            backendId: "claude-cli",
+            sessionId: context.params.sessionId,
+            sessionKey: common.sessionKey,
+          }),
+        ).toBe(originalGeneration);
+        expect(fs.existsSync(pluginDir)).toBe(false);
+        expect(fs.readFileSync(skill.skillFilePath, "utf8")).toContain(
+          "Read forecast data before replying.",
+        );
+      } finally {
+        resetClaudeLiveSessionsForTest();
+      }
+    },
+  );
 
   it.each([
     {
