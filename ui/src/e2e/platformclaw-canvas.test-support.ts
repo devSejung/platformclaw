@@ -97,8 +97,9 @@ export async function exerciseCanvasPromptDelivery(params: {
         clicks: Number(element.getAttribute("data-proof-clicks") ?? 0),
         ack: element.getAttribute("data-proof-click-ack"),
       }));
-    // Composer access changes can move the outer frame while its inner button
-    // remains stable. Wait for both pointing surfaces before the one real click.
+    // Reveal the frame before waiting on its child's animation frames; Chromium
+    // throttles offscreen frames. Access changes can also move the outer frame.
+    await preview.locator("iframe").scrollIntoViewIfNeeded();
     await button.scrollIntoViewIfNeeded();
     const outerFrame = await preview.locator("iframe").elementHandle();
     if (!outerFrame) {
