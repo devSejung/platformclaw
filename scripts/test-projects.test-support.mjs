@@ -1998,6 +1998,7 @@ const EXACT_TOOLING_TARGETS = new Map([
 ]);
 
 const SEMANTIC_TOOLING_TARGET_PATTERNS = [
+  [/^(?:tools\/platformclaw-help\/|ui\/public\/help-video\/)/u, ["platformclaw-help"]],
   [/^scripts\/pr$/u, ["pr-merge", "pr-operation-lock", "pr-wrappers"]],
   [/^scripts\/lib\/windows-taskkill\.mjs$/u, ["managed-child-process", "run-with-env"]],
   [

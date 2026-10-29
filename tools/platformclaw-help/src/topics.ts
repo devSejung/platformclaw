@@ -134,6 +134,10 @@ export type TopicId = (typeof topics)[number]["id"];
 export type Topic = (typeof topics)[number];
 export function sceneAt(topic: Topic, frame: number, fps = 30) {
   let index = 0;
-  for (let i = 0; i < topic.scenes.length; i++) if (frame >= topic.scenes[i].at * fps) index = i;
+  for (const [sceneIndex, scene] of topic.scenes.entries()) {
+    if (frame >= scene.at * fps) {
+      index = sceneIndex;
+    }
+  }
   return { index, scene: topic.scenes[index] };
 }

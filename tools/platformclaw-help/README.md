@@ -27,9 +27,14 @@ pnpm check
 pnpm studio
 ```
 
-From the repository root, run the repository type checker against this project:
+The five motion regression checks run in the repository's standard Vitest tooling
+shard. `pnpm check` runs the asset check and those tests without loading React or
+Remotion into the test runner. The full CI suite also discovers them automatically.
+
+From the repository root, run the focused tests and type checker:
 
 ```sh
+node scripts/run-vitest.mjs test/scripts/platformclaw-help.test.ts
 node scripts/run-tsgo.mjs -p tools/platformclaw-help/tsconfig.json
 ```
 

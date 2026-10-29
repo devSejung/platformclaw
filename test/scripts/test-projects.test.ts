@@ -1301,6 +1301,23 @@ describe("scripts/test-projects changed-target routing", () => {
     );
   });
 
+  it.each([
+    "tools/platformclaw-help/src/i18n.ts",
+    "tools/platformclaw-help/src/typing.ts",
+    "tools/platformclaw-help/src/ChatFilm.tsx",
+    "tools/platformclaw-help/scripts/build-player.mjs",
+    "tools/platformclaw-help/package.json",
+    "ui/public/help-video/build/player.js",
+    "ui/public/help-video/player.html",
+    "ui/public/help-video/build-manifest.json",
+  ])("keeps help motion edit %s on the tooling regression tests", (file) => {
+    expectChangedTargets([file], ["test/scripts/platformclaw-help.test.ts"]);
+    expectSingleVitestRunPlan(buildVitestRunPlans([file]), {
+      config: "test/vitest/vitest.tooling.config.ts",
+      includePatterns: ["test/scripts/platformclaw-help.test.ts"],
+    });
+  });
+
   it("keeps CI, dependency, and docs tooling edits on owner tests", () => {
     expectChangedTargets(
       ["scripts/ci-changed-scope.mjs"],
