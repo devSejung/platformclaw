@@ -17,6 +17,13 @@
         "type": "boolean",
         "default": false,
         "description": "Enable Web-only, account-opt-in predictions using the model selected by PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL."
+      },
+      "composerPredictionsTimeoutMs": {
+        "type": "integer",
+        "default": 30000,
+        "minimum": 1000,
+        "maximum": 300000,
+        "description": "Maximum duration in milliseconds for composer prediction inference. Normal chat retains priority."
       }
     }
   }

@@ -6,9 +6,17 @@ import {
   normalizeAgentId,
   resolveUiSelectedSessionAgentId,
 } from "../../lib/sessions/session-key.ts";
+import {
+  recordWebComposerDispatch,
+  recordWebComposerRun,
+} from "../../platformclaw/composer-predictions.ts";
 import { buildChatApiAttachments } from "./attachment-api.ts";
 import type { ChatState } from "./chat-history.ts";
-import { normalizeChatSendAck, type ChatSendAck } from "./chat-send-ack.ts";
+import {
+  isTerminalFailureChatSendAck,
+  normalizeChatSendAck,
+  type ChatSendAck,
+} from "./chat-send-ack.ts";
 
 export async function requestChatSend(
   state: ChatState,
@@ -30,32 +38,45 @@ export async function requestChatSend(
   const controlUiReconnectResume = Boolean(
     !params.requireExactLeaf && sessionId && state.reconnectResumeSessionId === sessionId,
   );
-  const payload = await state.client!.request("chat.send", {
-    sessionKey: routing.sessionKey,
-    ...(isUiGlobalSessionKey(routing.sessionKey) && routing.selectedAgentId
-      ? { agentId: routing.selectedAgentId }
-      : {}),
-    ...(sessionId ? { sessionId } : {}),
-    ...(controlUiReconnectResume ? { __controlUiReconnectResume: true } : {}),
-    message: params.message,
-    deliver: false,
-    ...(params.replyToId ? { replyToId: params.replyToId } : {}),
-    ...(params.requireExactLeaf
-      ? { queueMode: "followup" }
-      : params.queueMode
-        ? { queueMode: params.queueMode }
+  const client = state.client!;
+  const pending = client.request(
+    "chat.send",
+    {
+      sessionKey: routing.sessionKey,
+      ...(isUiGlobalSessionKey(routing.sessionKey) && routing.selectedAgentId
+        ? { agentId: routing.selectedAgentId }
         : {}),
-    ...(params.expectedLeafEntryId !== undefined
-      ? { expectedLeafEntryId: params.expectedLeafEntryId }
-      : {}),
-    ...(params.requireExactLeaf ? { requireExactLeaf: true } : {}),
-    idempotencyKey: params.runId,
-    attachments: buildChatApiAttachments(params.attachments),
-  });
+      ...(sessionId ? { sessionId } : {}),
+      ...(controlUiReconnectResume ? { __controlUiReconnectResume: true } : {}),
+      message: params.message,
+      deliver: false,
+      ...(params.replyToId ? { replyToId: params.replyToId } : {}),
+      ...(params.requireExactLeaf
+        ? { queueMode: "followup" }
+        : params.queueMode
+          ? { queueMode: params.queueMode }
+          : {}),
+      ...(params.expectedLeafEntryId !== undefined
+        ? { expectedLeafEntryId: params.expectedLeafEntryId }
+        : {}),
+      ...(params.requireExactLeaf ? { requireExactLeaf: true } : {}),
+      idempotencyKey: params.runId,
+      attachments: buildChatApiAttachments(params.attachments),
+    },
+    {
+      onSent: () => recordWebComposerDispatch(client, routing.sessionKey, params.runId),
+    },
+  );
+  const payload = await pending;
   if (controlUiReconnectResume) {
     state.reconnectResumeSessionId = null;
   }
-  return normalizeChatSendAck(payload, params.runId);
+  const ack = normalizeChatSendAck(payload, params.runId);
+  // ACKs can arrive after the run completes: adopt its ID without dispatching again.
+  if (ack.runId !== params.runId && !isTerminalFailureChatSendAck(ack)) {
+    recordWebComposerRun(client, routing.sessionKey, ack.runId);
+  }
+  return ack;
 }
 
 export function resolveDisplayedLeafEntryId(
@@ -124,14 +145,25 @@ export async function requestSkillWorkshopRevisionChatSend(
     sessionKey: params.sessionKey,
     agentId: params.targetAgentId,
   });
-  const payload = await state.client!.request("skills.proposals.requestRevision", {
-    ...(params.agentId ? { agentId: normalizeAgentId(params.agentId) } : {}),
-    ...(routing.selectedAgentId ? { targetAgentId: routing.selectedAgentId } : {}),
-    proposalId: params.proposalId,
-    instructions: params.instructions,
-    sessionKey: routing.sessionKey,
-    ...(routing.sessionId ? { sessionId: routing.sessionId } : {}),
-    idempotencyKey: params.runId,
-  });
-  return normalizeChatSendAck(payload, params.runId);
+  const client = state.client!;
+  const pending = client.request(
+    "skills.proposals.requestRevision",
+    {
+      ...(params.agentId ? { agentId: normalizeAgentId(params.agentId) } : {}),
+      ...(routing.selectedAgentId ? { targetAgentId: routing.selectedAgentId } : {}),
+      proposalId: params.proposalId,
+      instructions: params.instructions,
+      sessionKey: routing.sessionKey,
+      ...(routing.sessionId ? { sessionId: routing.sessionId } : {}),
+      idempotencyKey: params.runId,
+    },
+    {
+      onSent: () => recordWebComposerDispatch(client, routing.sessionKey, params.runId),
+    },
+  );
+  const ack = normalizeChatSendAck(await pending, params.runId);
+  if (ack.runId !== params.runId && !isTerminalFailureChatSendAck(ack)) {
+    recordWebComposerRun(client, routing.sessionKey, ack.runId);
+  }
+  return ack;
 }

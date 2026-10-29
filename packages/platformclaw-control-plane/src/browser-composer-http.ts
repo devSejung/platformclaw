@@ -66,10 +66,13 @@ export function createBrowserComposerHandler(options: {
     }
     const controller = new AbortController();
     const cancel = () => controller.abort();
-    const timer = setTimeout(() => {
+    const startedAt = performance.now();
+    const expire = () => {
       cancel();
       sendBrowserJson(res, 200, { text: null });
-    }, 10_000);
+    };
+    // Settings lookup stays bounded until the Gateway supplies its prediction budget.
+    let timer = setTimeout(expire, 10_000);
     req.once("aborted", cancel);
     res.once("close", cancel);
     try {
@@ -117,15 +120,24 @@ export function createBrowserComposerHandler(options: {
         sendBrowserJson(res, 400, { error: "invalid prediction request" });
         return true;
       }
-      const preference = await options.adminRpc.call<{ available: boolean; enabled: boolean }>(
-        "platformclaw.composer",
-        { action: "preferences", userId },
-        signal,
-      );
+      const preference = await options.adminRpc.call<{
+        available: boolean;
+        enabled: boolean;
+        timeoutMs: number;
+      }>("platformclaw.composer", { action: "preferences", userId }, signal);
       if (!preference.available || !preference.enabled) {
         sendBrowserJson(res, 200, { text: null });
         return true;
       }
+      signal.throwIfAborted();
+      clearTimeout(timer);
+      // Include authentication/settings time; nested transports must not restart the budget.
+      const remainingMs = preference.timeoutMs - (performance.now() - startedAt);
+      if (remainingMs <= 0) {
+        expire();
+        return true;
+      }
+      timer = setTimeout(expire, remainingMs);
       const sessionKey = params.sessionKey;
       const load = async () =>
         conversationText(
@@ -148,6 +160,7 @@ export function createBrowserComposerHandler(options: {
         "platformclaw.composer",
         { action: "predict", userId, messages },
         signal,
+        { timeoutMs: preference.timeoutMs },
       );
       // Recheck ACL and the authoritative transcript after inference, including Space membership.
       const current = await load();

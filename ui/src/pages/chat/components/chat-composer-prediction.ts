@@ -28,6 +28,7 @@ export function syncComposerPrediction(
     areUiSessionKeysEquivalent(submittedSession, props.sessionKey),
   );
   state.prediction.sync({
+    client: props.gatewayClient ?? null,
     sessionKey: props.sessionKey,
     completedRunId: completedWebRun ? (runId ?? null) : null,
     idle,

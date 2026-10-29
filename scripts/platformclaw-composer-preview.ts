@@ -142,7 +142,7 @@ const demoPlugin: Plugin = {
             if (typeof input.enabled === "boolean") {
               enabled = input.enabled;
             }
-            json({ available: true, enabled });
+            json({ available: true, enabled, timeoutMs: 10_000 });
             return;
           }
           const currentMode = mode;

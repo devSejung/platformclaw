@@ -99,6 +99,21 @@ describe("HttpGatewayAdminRpcClient", () => {
     expect(timeout.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([240_000, 240_000]);
   });
 
+  it("uses the caller's operation budget without changing the default for sibling calls", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const { client } = createClient((request) => ({
+      body: { id: request.id, ok: true, payload: {} },
+    }));
+    await client.call("platformclaw.composer", { action: "predict" }, undefined, {
+      timeoutMs: 60_000,
+    });
+    await client.call("agents.list", {});
+    expect(timeout.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([60_000, 15_000]);
+    await expect(client.call("agents.list", {}, undefined, { timeoutMs: 0.5 })).rejects.toThrow(
+      "Gateway Admin RPC timeout must be an integer from 1 to 4294967295",
+    );
+  });
+
   it("returns bounded Gateway errors without exposing response bodies", async () => {
     const { client } = createClient((request) => ({
       status: 400,

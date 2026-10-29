@@ -5,7 +5,6 @@ import { t } from "../../i18n/index.ts";
 import type { ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { scopedAgentIdForSession, visibleSessionMatches } from "../../lib/sessions/index.ts";
 import { generateUUID } from "../../lib/uuid.ts";
-import { recordWebComposerRun } from "../../platformclaw/composer-predictions.ts";
 import {
   discardChatAttachmentDataUrls,
   snapshotChatAttachmentsWithDataUrls,
@@ -292,7 +291,6 @@ async function sendQueuedChatMessage(
   }
 
   try {
-    recordWebComposerRun(host.client, sessionKey, runId);
     const ack = prepared.skillWorkshopRevision
       ? await requestSkillWorkshopRevisionChatSend(host as unknown as ChatState, {
           proposalId: prepared.skillWorkshopRevision.proposalId,

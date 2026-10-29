@@ -40,7 +40,7 @@ export async function openComposerPredictionFixture(params: {
       if (typeof body.enabled === "boolean") {
         enabled = body.enabled;
       }
-      await route.fulfill({ json: { available: true, enabled } });
+      await route.fulfill({ json: { available: true, enabled, timeoutMs: 10_000 } });
       return;
     }
     predictionCalls++;
