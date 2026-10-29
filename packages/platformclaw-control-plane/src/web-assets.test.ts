@@ -249,12 +249,12 @@ describe("createPlatformClawWebAssetHandler", () => {
     "allows only the mounted help Player document in same-origin frames (%s)",
     async (method) => {
       const root = fixtureRoot();
-      mkdirSync(join(root, "help-video"));
+      mkdirSync(join(root, "help-video", "build"), { recursive: true });
       mkdirSync(join(root, "other", "help-video"), { recursive: true });
       const player = '<!doctype html><html><body><div id="player"></div></body></html>';
       writeFileSync(join(root, "help-video", "player.html"), player);
       writeFileSync(join(root, "help-video", "index.html"), player);
-      writeFileSync(join(root, "help-video", "player.js"), "export const player = true;");
+      writeFileSync(join(root, "help-video", "build", "player.js"), "export const player = true;");
       writeFileSync(join(root, "other", "help-video", "player.html"), player);
       const fixture = await serveFixture(root);
       try {
@@ -273,7 +273,7 @@ describe("createPlatformClawWebAssetHandler", () => {
         for (const pathname of [
           PLATFORMCLAW_WEB_LOGIN_PATH,
           `${PLATFORMCLAW_WEB_APP_PATH}/help-video/index.html`,
-          `${PLATFORMCLAW_WEB_APP_PATH}/help-video/player.js`,
+          `${PLATFORMCLAW_WEB_APP_PATH}/help-video/build/player.js`,
           `${PLATFORMCLAW_WEB_APP_PATH}/other/help-video/player.html`,
           `${PLATFORMCLAW_WEB_ASSET_PREFIX}app-ABC123.js`,
         ]) {

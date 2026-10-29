@@ -17,23 +17,29 @@ try {
     "scripts/extract-brand.mjs",
     "public/brand/platformclaw-mascot.svg",
     "public/brand/manifest.json",
-  ].sort();
+  ].toSorted((left, right) => left.localeCompare(right));
   assert.deepEqual(
-    Object.keys(manifest.sourceSha256).sort(),
+    Object.keys(manifest.sourceSha256).toSorted((left, right) => left.localeCompare(right)),
     sources,
     "Motion source inventory changed; rebuild the help assets",
   );
-  for (const file of ["player.js", "player.css", "gallery.js", "gallery.css"])
+  for (const file of [
+    "build/player.js",
+    "build/player.css",
+    "build/gallery.js",
+    "build/gallery.css",
+  ]) {
     assert.ok(Object.hasOwn(manifest.outputs, file), `Missing help entry: ${file}`);
+  }
   assert.deepEqual(
-    Object.keys(manifest.outputSha256).sort(),
+    Object.keys(manifest.outputSha256).toSorted((left, right) => left.localeCompare(right)),
     [
       ...Object.keys(manifest.outputs),
       "player.html",
       "index.html",
       "brand/platformclaw-mascot.svg",
       "brand/manifest.json",
-    ].sort(),
+    ].toSorted((left, right) => left.localeCompare(right)),
     "Help output inventory changed",
   );
   for (const [directory, hashes] of [
@@ -55,14 +61,19 @@ try {
   const collect = async (directory, prefix = "") => {
     for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
       const relative = prefix + entry.name;
-      if (entry.isDirectory()) await collect(path.join(directory, entry.name), relative + "/");
-      else files.push(relative);
+      if (entry.isDirectory()) {
+        await collect(path.join(directory, entry.name), relative + "/");
+      } else {
+        files.push(relative);
+      }
     }
   };
   await collect(target);
   assert.deepEqual(
-    files.sort(),
-    [...Object.keys(manifest.outputSha256), "build-manifest.json"].sort(),
+    files.toSorted((left, right) => left.localeCompare(right)),
+    [...Object.keys(manifest.outputSha256), "build-manifest.json"].toSorted((left, right) =>
+      left.localeCompare(right),
+    ),
     "Unexpected files in generated help assets",
   );
   console.log("Help motion sources and browser assets match; no obsolete chunks.");

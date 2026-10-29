@@ -40,6 +40,7 @@ the last character before the next action, and check English wrapping.
 
 `pnpm build` extracts the canonical mascot and light theme from this checkout,
 records the product revision and source hashes, and bundles browser JS/CSS into
+`ui/public/help-video/build`. The HTML entry points and brand assets stay in
 `ui/public/help-video`. It does not render a video. The generated manifest binds
 the authoring sources and dependency lock to the served files. `pnpm check` and
 the product UI production build reject stale output and unexpected old chunks.

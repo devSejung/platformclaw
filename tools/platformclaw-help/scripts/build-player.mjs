@@ -5,13 +5,14 @@ import path from "node:path";
 import { build } from "esbuild";
 const root = path.resolve(import.meta.dirname, "..");
 const target = path.resolve(root, "../../ui/public/help-video");
+const bundleTarget = path.join(target, "build");
 await fs.mkdir(target, { recursive: true });
 const result = await build({
   entryPoints: {
     player: path.join(root, "src/player.tsx"),
     gallery: path.join(root, "src/gallery.tsx"),
   },
-  outdir: target,
+  outdir: bundleTarget,
   entryNames: "[name]",
   chunkNames: "chunks/[name]-[hash]",
   bundle: true,
@@ -24,16 +25,18 @@ const result = await build({
   define: { "process.env.NODE_ENV": '"production"' },
 });
 const generated = new Set(Object.keys(result.metafile.outputs).map((file) => path.resolve(file)));
-const chunkDirectory = path.join(target, "chunks");
+const chunkDirectory = path.join(bundleTarget, "chunks");
 for (const name of await fs.readdir(chunkDirectory)) {
   const file = path.resolve(chunkDirectory, name);
-  if (/^chunk-[A-Z0-9]+\.js$/.test(name) && !generated.has(file)) await fs.unlink(file);
+  if (/^chunk-[A-Z0-9]+\.js$/.test(name) && !generated.has(file)) {
+    await fs.unlink(file);
+  }
 }
 await fs.cp(path.join(root, "public/brand"), path.join(target, "brand"), {
   recursive: true,
 });
 const html = (entry, mount, title) =>
-  `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="icon" type="image/svg+xml" href="./brand/platformclaw-mascot.svg"><link rel="stylesheet" href="./${entry}.css"><style>html,body{margin:0}#player{width:100%}</style></head><body><div id="${mount}"></div><script type="module" src="./${entry}.js"></script></body></html>`;
+  `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="icon" type="image/svg+xml" href="./brand/platformclaw-mascot.svg"><link rel="stylesheet" href="./build/${entry}.css"><style>html,body{margin:0}#player{width:100%}</style></head><body><div id="${mount}"></div><script type="module" src="./build/${entry}.js"></script></body></html>`;
 await fs.writeFile(
   path.join(target, "player.html"),
   html("player", "player", "PlatformClaw motion"),
@@ -59,7 +62,7 @@ const sourceFiles = [
   "scripts/extract-brand.mjs",
   "public/brand/platformclaw-mascot.svg",
   "public/brand/manifest.json",
-].sort();
+].toSorted((left, right) => left.localeCompare(right));
 const outputFiles = [
   ...Object.keys(result.metafile.outputs).map((file) =>
     path.relative(target, path.resolve(file)).replaceAll("\\", "/"),
@@ -68,7 +71,7 @@ const outputFiles = [
   "index.html",
   "brand/platformclaw-mascot.svg",
   "brand/manifest.json",
-].sort();
+].toSorted((left, right) => left.localeCompare(right));
 // Normalize text line endings so Windows checkouts validate the same source.
 const digestFiles = async (directory, files) =>
   Object.fromEntries(
