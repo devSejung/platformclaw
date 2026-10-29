@@ -245,6 +245,65 @@ describe("createPlatformClawWebAssetHandler", () => {
     }
   });
 
+  it.each(["GET", "HEAD"])(
+    "allows only the mounted help Player document in same-origin frames (%s)",
+    async (method) => {
+      const root = fixtureRoot();
+      mkdirSync(join(root, "help-video"));
+      mkdirSync(join(root, "other", "help-video"), { recursive: true });
+      const player = '<!doctype html><html><body><div id="player"></div></body></html>';
+      writeFileSync(join(root, "help-video", "player.html"), player);
+      writeFileSync(join(root, "help-video", "index.html"), player);
+      writeFileSync(join(root, "help-video", "player.js"), "export const player = true;");
+      writeFileSync(join(root, "other", "help-video", "player.html"), player);
+      const fixture = await serveFixture(root);
+      try {
+        const response = await fetch(
+          `${fixture.origin}${PLATFORMCLAW_WEB_APP_PATH}/help-video/player.html?topic=chat`,
+          { method },
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+        expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+        expect(response.headers.get("content-security-policy")).toBe("frame-ancestors 'self'");
+        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(response.headers.get("cache-control")).toBe("no-cache");
+        expect(await response.text()).toBe(method === "HEAD" ? "" : player);
+
+        for (const pathname of [
+          PLATFORMCLAW_WEB_LOGIN_PATH,
+          `${PLATFORMCLAW_WEB_APP_PATH}/help-video/index.html`,
+          `${PLATFORMCLAW_WEB_APP_PATH}/help-video/player.js`,
+          `${PLATFORMCLAW_WEB_APP_PATH}/other/help-video/player.html`,
+          `${PLATFORMCLAW_WEB_ASSET_PREFIX}app-ABC123.js`,
+        ]) {
+          const asset = await fetch(`${fixture.origin}${pathname}`, { method });
+          expect(asset.status).toBe(200);
+          expect(asset.headers.get("x-frame-options")).toBe("DENY");
+          expect(asset.headers.get("content-security-policy") ?? "").not.toContain(
+            "frame-ancestors 'self'",
+          );
+          await asset.text();
+        }
+      } finally {
+        await fixture.close();
+      }
+
+      const application = await serveApplicationFixture(root);
+      try {
+        const response = await fetch(`${application.origin}${PLATFORMCLAW_WEB_APP_PATH}/chat`, {
+          method,
+        });
+        expect(response.status).toBe(200);
+        expect(response.headers.get("x-frame-options")).toBe("DENY");
+        expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+        await response.text();
+      } finally {
+        await application.close();
+      }
+    },
+  );
+
   it("keeps the upstream URL server-side and exposes only a same-origin login media path", async () => {
     const upstream = createServer((req, res) => {
       expect(req.headers.range).toBe("bytes=10-19");

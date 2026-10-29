@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build && vite build --config vite.platformclaw-login.config.ts",
+    "build": "node ../tools/platformclaw-help/scripts/check-assets.mjs && vite build && vite build --config vite.platformclaw-login.config.ts",
     "dev": "vite",
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.ts"

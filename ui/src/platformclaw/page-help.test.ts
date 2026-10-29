@@ -5,6 +5,7 @@ import { pageHelpForRoute, PlatformClawPageHelpElement } from "./page-help.ts";
 
 describe("PlatformClaw page help", () => {
   afterEach(async () => {
+    document.documentElement.removeAttribute("data-openclaw-control-ui-base-path");
     await i18n.setLocale("en");
   });
   beforeEach(async () => {
@@ -41,6 +42,7 @@ describe("PlatformClaw page help", () => {
     );
     expect(element.shadowRoot?.querySelector(".tour-progress")).toBeNull();
     expect(element.shadowRoot?.querySelector(".tour-highlight")).toBeNull();
+    expect(element.shadowRoot?.querySelector("iframe")).toBeNull();
     element.shadowRoot?.querySelector<HTMLButtonElement>(".help-close")?.click();
     await element.updateComplete;
     expect(element.shadowRoot?.querySelector("openclaw-modal-dialog")).toBeNull();
@@ -68,6 +70,94 @@ describe("PlatformClaw page help", () => {
     expect(trigger.shadowRoot?.querySelector("button")?.ariaLabel).not.toContain(
       "platformClaw.guide",
     );
+  });
+
+  it.each([
+    ["chat", "chat"],
+    ["spaces", "spaces"],
+    ["cron", "cron"],
+    ["skills", "skills"],
+    ["skill-workshop", "skill-workshop"],
+    ["skill-hub", "skill-hub"],
+    ["memory", "memory"],
+    ["credentials", "credentials"],
+  ] as const)(
+    "loads the %s motion and updates its language without closing",
+    async (routeId, topic) => {
+      document.documentElement.setAttribute(
+        "data-openclaw-control-ui-base-path",
+        "/platformclaw/app",
+      );
+      const trigger = document.createElement("platformclaw-page-help-trigger");
+      trigger.routeId = routeId;
+      const element = document.createElement("platformclaw-page-help");
+      element.routeId = routeId;
+      document.body.append(trigger, element);
+      await trigger.updateComplete;
+      await element.updateComplete;
+      expect(element.shadowRoot?.querySelector("iframe")).toBeNull();
+      trigger.shadowRoot?.querySelector<HTMLButtonElement>("button")?.click();
+      await element.updateComplete;
+      const frame = element.shadowRoot?.querySelector("iframe");
+      expect(frame?.dataset.helpVideo).toBe(topic);
+      expect(frame?.title).toBe(pageHelpForRoute(routeId).title);
+      expect(new URL(frame!.src).searchParams.get("topic")).toBe(topic);
+      expect(new URL(frame!.src).searchParams.get("lang")).toBe("en");
+      expect(new URL(frame!.src).pathname).toBe("/platformclaw/app/help-video/player.html");
+      for (const locale of ["ko", "en", "ko"] as const) {
+        await i18n.setLocale(locale);
+        await loadPlatformClawLocale();
+        await trigger.updateComplete;
+        await element.updateComplete;
+        const localizedFrame = element.shadowRoot?.querySelector("iframe");
+        expect(localizedFrame).toBe(frame);
+        expect(localizedFrame?.title).toBe(pageHelpForRoute(routeId).title);
+        const playerUrl = new URL(localizedFrame!.src);
+        expect(playerUrl.searchParams.get("topic")).toBe(topic);
+        expect(playerUrl.searchParams.get("lang")).toBe(locale);
+      }
+      element.shadowRoot?.querySelector<HTMLButtonElement>(".help-close")?.click();
+      await element.updateComplete;
+      expect(element.shadowRoot?.querySelector("iframe")).toBeNull();
+      trigger.shadowRoot?.querySelector<HTMLButtonElement>("button")?.click();
+      await element.updateComplete;
+      element.routeId = "usage";
+      await element.updateComplete;
+      expect(element.shadowRoot?.querySelector("iframe")).toBeNull();
+      element.remove();
+      trigger.remove();
+    },
+  );
+
+  it("closes on an Escape message only from the current same-origin Player", async () => {
+    const trigger = document.createElement("platformclaw-page-help-trigger");
+    const element = document.createElement("platformclaw-page-help");
+    document.body.append(trigger, element);
+    await trigger.updateComplete;
+    await element.updateComplete;
+    trigger.shadowRoot?.querySelector<HTMLButtonElement>("button")?.click();
+    await element.updateComplete;
+    const frame = element.shadowRoot!.querySelector("iframe")!;
+    const data = { type: "platformclaw-help-close" };
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data,
+        origin: "https://other.example",
+        source: frame.contentWindow,
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", { data, origin: location.origin, source: window }),
+    );
+    await element.updateComplete;
+    expect(element.shadowRoot?.querySelector("iframe")).toBe(frame);
+    window.dispatchEvent(
+      new MessageEvent("message", { data, origin: location.origin, source: frame.contentWindow }),
+    );
+    await element.updateComplete;
+    expect(element.shadowRoot?.querySelector("iframe")).toBeNull();
+    element.remove();
+    trigger.remove();
   });
 
   it.each([
