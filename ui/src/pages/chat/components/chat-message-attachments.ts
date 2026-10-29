@@ -4,6 +4,7 @@ import { t } from "../../../i18n/index.ts";
 import "./chat-audio-player.ts";
 import "./chat-video-player.ts";
 import { safeAttachmentHref } from "./chat-attachment-href.ts";
+import { isHtmlAttachment } from "./chat-html-attachment.ts";
 import {
   ASSISTANT_ATTACHMENT_MEDIA_TICKET_MAX_REFRESH_RETRIES,
   ASSISTANT_ATTACHMENT_MEDIA_TICKET_REFRESH_SKEW_MS,
@@ -679,6 +680,18 @@ export function renderAssistantAttachments(
                 : t("chat.attachments.unavailable"),
             reason: availability.status === "unavailable" ? availability.reason : undefined,
           });
+        }
+        if (
+          isManagedOutgoingMediaSource(attachment.url) &&
+          isHtmlAttachment(attachment.mimeType, attachment.label)
+        ) {
+          return html`<openclaw-chat-html-attachment
+            .src=${attachmentUrl}
+            .sourceIdentity=${attachment.url}
+            .label=${attachment.label}
+            .embedSandboxMode=${opts?.embedSandboxMode ?? "scripts"}
+            .onMediaLoaded=${opts?.onAssistantAttachmentLoaded}
+          ></openclaw-chat-html-attachment>`;
         }
         const downloadHref = safeAttachmentHref(attachmentUrl);
         return html`

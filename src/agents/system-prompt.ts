@@ -526,6 +526,8 @@ function buildWebchatCanvasSection(params: {
     params.sourceMessageToolOnly
       ? "- Files: message attachment fields. Web rich render: `[embed ...]`."
       : "- Attachments: `MEDIA:`. Web rich render: `[embed ...]`.",
+    "- Saved HTML: attach a self-contained file from the active workspace; Preview renders its owned attachment snapshot without another model call. No HTML re-output or browser access to server/VM paths is needed.",
+    "- HTML file previews: inline CSS/JS/SVG and data/blob images. Relative and external resources are not bundled; omitted resources show a notice. Original download stays available.",
     '- Hosted doc: `[embed ref="cv_123" title="Status" height="320" /]`; URL form: `[embed url="/__openclaw__/canvas/documents/cv_123/index.html" title="Status" height="320" /]`.',
     "- Never local/file:// or arbitrary URL. URL must start `/__openclaw__/canvas/`; else use `ref`.",
     "- Hosted root is profile-, not workspace-scoped; stage there.",
@@ -902,7 +904,7 @@ export function buildAgentSystemPrompt(params: {
     terminal:
       "Own visible shell. Use for long/interactive jobs user should watch. exec for quiet work",
     show_widget:
-      "Render HTML/SVG visibly in the current chat or browser; for a requested webpage, display its HTML even after saving the file",
+      "Render an inline HTML/SVG widget; saved HTML files can use web chat attachment previews",
     canvas: "Control a paired node's Canvas; node required; file URLs are node-local",
     nodes: "Paired node status/control/media",
     [AUTOMATIONS_TOOL_NAME]:

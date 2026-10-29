@@ -3,6 +3,11 @@ import path from "node:path";
 import { sniffInlineImageMime } from "@openclaw/media-core/inline-image-data-url";
 import type { SandboxFsBridge } from "../agents/sandbox/fs-bridge.types.js";
 import { root as fsRoot } from "../infra/fs-safe.js";
+import {
+  serializeHtmlDocument,
+  type HtmlSerializableDocument,
+  type HtmlSerializableElement,
+} from "../infra/html-document-serialization.js";
 import { MAX_IMAGE_INPUT_PIXELS, readImageMetadataFromHeader } from "../media/image-ops.js";
 import { WidgetHtmlInputError } from "../plugin-sdk/widget-html.js";
 
@@ -19,17 +24,16 @@ type WidgetWorkspace = {
   bridge?: SandboxFsBridge;
 };
 
-type ParsedElement = {
+type ParsedElement = HtmlSerializableElement & {
   localName: string;
   textContent: string | null;
   getAttribute(name: string): string | null;
   setAttribute(name: string, value: string): void;
 };
 
-type ParsedDocument = {
+type ParsedDocument = HtmlSerializableDocument & {
   querySelector(selector: string): ParsedElement | null;
   querySelectorAll(selector: string): Iterable<ParsedElement>;
-  toString(): string;
 };
 
 type ImageReference = {
@@ -252,5 +256,5 @@ export async function embedWidgetWorkspaceImages(params: {
     }
     reference.element.setAttribute(reference.attribute, dataUrl);
   }
-  return document.toString();
+  return serializeHtmlDocument(document);
 }

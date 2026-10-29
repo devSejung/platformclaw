@@ -719,6 +719,47 @@ describe("PlatformClaw browser media relay", () => {
     expect(vi.mocked(policy.resolveAccess)).not.toHaveBeenCalled();
   });
 
+  it("preserves an owned HTML preview's isolation policy and request identity", async () => {
+    const policy = createPolicy({ messages: [] });
+    const csp = "sandbox allow-scripts; default-src 'none'; script-src 'nonce-bootstrap'";
+    const upstreamFetch = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+      );
+      expect(url.searchParams.get("mediaTicket")).toBe("signed-upstream");
+      expect(url.searchParams.get("preview")).toBe("1");
+      expect(url.searchParams.get("previewNonce")).toBe("request-1234567890");
+      expect(url.searchParams.get("previewMode")).toBe("strict");
+      return new Response("<!doctype html><h1>Report</h1>", {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Disposition": "inline",
+          "Content-Security-Policy": csp,
+          "Set-Cookie": "private=must-not-escape",
+        },
+      });
+    });
+    const relay = new PlatformClawBrowserMediaRelay({
+      gatewayOrigin: "http://private-gateway.invalid",
+      gatewayAuth: "service-secret",
+      gatewayProxy: policy,
+      resolveAgentIdFromSessionKey,
+      fetchImpl: upstreamFetch,
+    });
+    const runtime = await listen(relay);
+    servers.push(runtime.server);
+    const pathName = `/api/chat/media/outgoing/${encodeURIComponent(OWN_SESSION)}/attachment-1/full?mediaTicket=signed-upstream&preview=1&previewNonce=request-1234567890&previewMode=strict`;
+    const response = await fetch(`${runtime.origin}${pathName}`, {
+      headers: { Cookie: SESSION_COOKIE },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toBe(csp);
+    expect(response.headers.get("content-disposition")).toBe("inline");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(await response.text()).toContain("Report");
+  });
+
   it.each([
     { method: "HEAD", upstreamStatus: 200 },
     { method: "GET", upstreamStatus: 304 },

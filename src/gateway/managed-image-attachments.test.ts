@@ -428,6 +428,92 @@ describe("handleManagedOutgoingImageHttpRequest", () => {
     expect(result.body.toString("utf-8")).toBe("original-image");
   });
 
+  it("previews an owned HTML snapshot while keeping its original download unchanged", async () => {
+    const body = Buffer.from(
+      '<!doctype html><h1>Report</h1><img src="chart.png"><script>window.report=true</script>',
+    );
+    const { attachmentId, sessionKey } = await createFixture(stateDir, {
+      filename: "report.html",
+      contentType: "text/html",
+      body,
+    });
+    const pathName = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${attachmentId}/full`;
+    const transcriptMessages = [
+      {
+        role: "assistant",
+        content: [{ type: "attachment", attachment: { kind: "document", url: pathName } }],
+        __openclaw: { id: "msg-1" },
+      },
+    ];
+    const request = { stateDir, authResponse: { authMethod: "token" }, transcriptMessages };
+    const preview = await requestManagedImage({
+      ...request,
+      pathName: `${pathName}?preview=1&previewNonce=request-1234567890`,
+    });
+    expect(preview.result.statusCode).toBe(200);
+    expect(preview.result.headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(preview.result.headers["content-security-policy"]).toContain("sandbox allow-scripts");
+    expect(preview.result.headers["cache-control"]).toBe("no-store");
+    expect(preview.result.body.toString()).toContain("openclaw:html-attachment-preview");
+    expect(preview.result.body.toString()).toContain("Image unavailable");
+    const download = await requestManagedImage({ ...request, pathName });
+    expect(download.result.headers["content-disposition"]).toContain("attachment");
+    expect(download.result.body).toEqual(body);
+    getRuntimeConfigMock.mockReturnValue({
+      ...getRuntimeConfigMock(),
+      gateway: { controlUi: { embedSandbox: "strict" } },
+    });
+    const strictPreview = await requestManagedImage({
+      ...request,
+      pathName: `${pathName}?preview=1&previewMode=scripts`,
+    });
+    expect(strictPreview.result.statusCode).toBe(200);
+    expect(strictPreview.result.headers["content-security-policy"]).toMatch(
+      /script-src 'nonce-[^']+'/u,
+    );
+    expect(strictPreview.result.headers["content-security-policy"]).not.toContain(
+      "script-src 'unsafe-inline'",
+    );
+    const foreign = await requestManagedImage({
+      ...request,
+      pathName:
+        pathName.replace(encodeURIComponent(sessionKey), encodeURIComponent("agent:main:other")) +
+        "?preview=1",
+    });
+    expect(foreign.result.statusCode).toBe(404);
+    expect(foreign.result.body.toString()).not.toContain("Report");
+  });
+
+  it("does not preview an attachment removed from the transcript during preparation", async () => {
+    const { attachmentId, sessionKey } = await createFixture(stateDir, {
+      filename: "private.html",
+      contentType: "text/html",
+      body: Buffer.from("<h1>Private report</h1>"),
+    });
+    const pathName = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${attachmentId}/full`;
+    const transcriptMessages = [
+      {
+        role: "assistant",
+        content: [{ type: "attachment", attachment: { kind: "document", url: pathName } }],
+        __openclaw: { id: "msg-1" },
+      },
+    ];
+    let transcriptReads = 0;
+    const preview = await requestManagedImage({
+      stateDir,
+      pathName: `${pathName}?preview=1`,
+      authResponse: { authMethod: "token" },
+      transcriptMessages,
+      onReadTranscriptMessages: () => {
+        if (++transcriptReads === 2) {
+          transcriptMessages.splice(0);
+        }
+      },
+    });
+    expect(preview.result.statusCode).toBe(404);
+    expect(preview.result.body.toString()).not.toContain("Private report");
+  });
+
   it("mints global-session download tickets only for the record's Agent owner", async () => {
     const storePath = path.join(stateDir, "agents", "work", "sessions", "sessions.json");
     getRuntimeConfigMock.mockReturnValue({

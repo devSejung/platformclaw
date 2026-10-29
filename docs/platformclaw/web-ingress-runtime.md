@@ -323,6 +323,20 @@ Gateway validates each file against the owning Agent's allowed media roots.
 Plain-text file claims do not grant access. Browser cookies, Gateway
 credentials, redirects, and unapproved response headers never cross the bridge.
 
+HTML attachments from Basic server execution and assigned VMs offer **Preview**
+alongside the original download. Both use the existing authorized, immutable
+attachment snapshot; previewing does not reread the VM path or ask the model to
+repeat the HTML. The preview is isolated from the application and receives no
+widget prompt or dashboard APIs. No additional Canvas setting is required.
+
+Agents should save self-contained HTML in the active workspace and attach it
+through the current source reply contract: a standalone final `MEDIA:` line in
+automatic mode, or structured `media`/`attachments` fields in message-tool-only
+mode. Use inline CSS/JavaScript/SVG and `data:`/`blob:` images. Relative or external
+resources are not bundled; the preview omits unsupported static references and
+reports them visibly. The original downloadable bytes remain unchanged. Existing
+file-read, attachment validation, and session ownership checks still apply.
+
 Inline Canvas widgets use an independent BFF capability. The browser hello
 contains only a short-lived, employee-bound PlatformClaw surface URL; the
 private Gateway capability is never projected. Canvas documents record their
@@ -334,10 +348,12 @@ only the employee's BFF capability.
 Inline `show_widget` rendering remains available when the employee selects an
 assigned VM. The agent loop and widget document owner stay on the Gateway; only
 project shell and file tools move through the assigned-VM sandbox backend. A
-widget may show results computed on that VM, but HTML must be passed as
-`widget_code` even when the same document was saved as a downloadable file.
-Images must use inline SVG, `data:` URLs, or `blob:` URLs; local paths, relative
-paths, remote URLs, `file://` URLs, and VM paths do not become browser URLs.
+widget may show results computed on that VM. For a separate inline widget, HTML
+must be passed as `widget_code`; `widget_path` can also embed supported static
+workspace images from the saved HTML file's directory. Without `widget_path`, use
+inline SVG, `data:` URLs, or `blob:` URLs for images. Filesystem paths, `file://`
+URLs, and VM paths never become browser URLs. Saved HTML attachments use the
+file preview described above and do not require `show_widget`.
 
 PlatformClaw disables the separate paired-node Canvas plugin and the
 `group:nodes` agent tool family (`nodes`, `computer`, and `mobile_ui`). Assigned

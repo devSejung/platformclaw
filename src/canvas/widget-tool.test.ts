@@ -113,11 +113,16 @@ async function executeWidget(params: {
 }
 
 describe("show_widget", () => {
-  it("requires a visible preview and explains the self-contained image boundary", () => {
+  it("distinguishes saved attachment previews from inline widgets and their image boundary", () => {
     const tool = createShowWidgetTool();
 
-    expect(tool.description).toContain("MUST call show_widget(widget_code)");
-    expect(tool.description).toContain("downloadable HTML file, create the file");
+    expect(tool.description).toContain(
+      "For a saved HTML deliverable, create a self-contained file",
+    );
+    expect(tool.description).toContain("attach it through the current reply contract");
+    expect(tool.description).toContain("Preview without passing the file contents here");
+    expect(tool.description).toContain("relative and external resources are not bundled");
+    expect(tool.description).not.toContain("MUST call show_widget");
     expect(tool.description).toContain("read its actual unchanged contents");
     expect(tool.description).toContain("inline SVG, data:image/... URLs");
     expect(tool.description).toContain("document-created blob: URLs");

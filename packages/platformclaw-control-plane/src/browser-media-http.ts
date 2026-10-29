@@ -25,6 +25,7 @@ const REQUEST_HEADER_ALLOWLIST = [
 ] as const;
 const RESPONSE_HEADER_ALLOWLIST = [
   "accept-ranges",
+  "content-security-policy",
   "content-disposition",
   "content-length",
   "content-range",

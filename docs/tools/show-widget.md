@@ -11,6 +11,24 @@ read_when:
 
 `show_widget` is a core tool that shows a self-contained HTML widget on the user's current surface. OpenClaw renders it inline in the Control UI and in iOS, Android, macOS, and Linux Quick Chat transcripts; the Linux dashboard uses the browser Control UI. In a Discord session with [Activities](/channels/discord-activities) enabled, the Discord plugin posts an **Open widget** button that launches it as an Activity.
 
+## Preview a saved HTML file
+
+For a saved HTML report or page in web chat, create a self-contained file and attach
+it using the current [reply contract](/reference/rich-output-protocol). The user can
+choose **Preview** on the HTML attachment or download the original file. The preview
+uses the authorized attachment snapshot; the agent does not need to read the HTML
+back into the model or repeat it in `widget_code`.
+
+Keep CSS and JavaScript inside the HTML, and use inline SVG or `data:`/`blob:` images.
+Relative and external CSS, scripts, images, and other resources are not bundled.
+The preview omits unsupported static references and shows a notice; the original
+download remains unchanged. Files still pass the current file-read and delivery
+policy before they become attachments.
+
+Use `show_widget` when the requested result is an inline widget or a session
+dashboard widget. Saving an HTML deliverable does not also require an inline
+widget. Attachment previews do not receive widget prompt or dashboard APIs.
+
 ## How widgets work
 
 When the agent calls `show_widget`, OpenClaw core wraps `widget_code` in a minimal HTML document, stores it as a Canvas document, and returns a preview handle. The Control UI renders that handle in a sandboxed iframe, while iOS, Android, macOS, and Linux Quick Chat use isolated web views. Full chat clients restore the widget after history reload; Quick Chat keeps the widget for its active reply.
@@ -89,9 +107,9 @@ Both implementations use the same required fields:
 
 Discord also accepts optional `button_label` text for the Activity launch button. The Canvas schema intentionally omits this Discord-only field.
 
-For Canvas, pass `widget_path` when rendering a saved HTML file. Its contents must exactly match `widget_code`. Relative image URLs are embedded from the HTML file's directory through the active workspace's file access. Assigned-VM source paths also accept `~/` for the VM account's home directory; `~` inside an HTML image URL remains a literal relative path.
+For a separate Canvas widget from a saved HTML file, pass `widget_path` together with `widget_code`. Its contents must exactly match `widget_code`. Relative image URLs are embedded from the HTML file's directory through the active workspace's file access. Assigned-VM source paths also accept `~/` for the VM account's home directory; `~` inside an HTML image URL remains a literal relative path. This image embedding belongs to the widget tool; HTML attachments do not automatically bundle workspace assets.
 
-Preserve all leading and trailing whitespace in `widget_code`. Command output may trim it; retain the exact string saved to the file, or JSON-encode the complete file text when reading and decode it with `JSON.parse` before passing it. Creating the file alone does not display a widget; correct any tool error and retry `show_widget`.
+Preserve all leading and trailing whitespace in `widget_code`. Command output may trim it; retain the exact string saved to the file, or JSON-encode the complete file text when reading and decode it with `JSON.parse` before passing it. Creating the file alone does not display an inline widget; correct any tool error and retry `show_widget`. A saved-file attachment preview does not require this call.
 
 The core Canvas tool accepts these optional dashboard placement fields:
 

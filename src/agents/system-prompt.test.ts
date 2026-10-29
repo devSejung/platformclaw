@@ -19,7 +19,7 @@ describe("buildAgentSystemPrompt", () => {
     });
 
     expect(prompt).toContain(
-      "- show_widget: Render HTML/SVG visibly in the current chat or browser; for a requested webpage, display its HTML even after saving the file",
+      "- show_widget: Render an inline HTML/SVG widget; saved HTML files can use web chat attachment previews",
     );
     expect(prompt).toContain(
       "- canvas: Control a paired node's Canvas; node required; file URLs are node-local",
@@ -500,6 +500,12 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("Never local/file:// or arbitrary URL");
     expect(prompt).toContain("URL must start `/__openclaw__/canvas/`; else use `ref`");
     expect(prompt).toContain("Hosted root is profile-, not workspace-scoped");
+    expect(prompt).toContain(
+      "Preview renders its owned attachment snapshot without another model call",
+    );
+    expect(prompt).toContain("No HTML re-output or browser access to server/VM paths is needed");
+    expect(prompt).toContain("Relative and external resources are not bundled");
+    expect(prompt).toContain("Original download stays available");
     expect(prompt).not.toContain('[embed content_type="html" title="Status"]...[/embed]');
   });
 
