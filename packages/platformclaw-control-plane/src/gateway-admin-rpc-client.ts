@@ -15,7 +15,18 @@ export type GatewayAdminRpcClientConfig = {
 };
 
 export interface GatewayAdminRpc {
-  call<T>(method: string, params: unknown, signal?: AbortSignal): Promise<T>;
+  call<T>(
+    method: string,
+    params: unknown,
+    signal?: AbortSignal,
+    options?: { timeoutMs?: number },
+  ): Promise<T>;
+}
+
+function validateRpcTimeoutMs(timeoutMs: number): void {
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_ABORT_SIGNAL_TIMEOUT_MS) {
+    throw new Error("Gateway Admin RPC timeout must be an integer from 1 to 4294967295");
+  }
 }
 
 type RpcErrorBody = {
@@ -164,19 +175,24 @@ export class HttpGatewayAdminRpcClient implements GatewayAdminRpc {
       throw new Error("Gateway Admin RPC bearer token is required");
     }
     const timeoutMs = config.timeoutMs ?? DEFAULT_GATEWAY_ADMIN_RPC_TIMEOUT_MS;
-    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_ABORT_SIGNAL_TIMEOUT_MS) {
-      throw new Error("Gateway Admin RPC timeout must be an integer from 1 to 4294967295");
-    }
+    validateRpcTimeoutMs(timeoutMs);
     this.config = { rpcUrl: normalizeRpcUrl(config.rpcUrl), bearerToken, timeoutMs };
   }
 
-  async call<T>(method: string, params: unknown, signal?: AbortSignal): Promise<T> {
+  async call<T>(
+    method: string,
+    params: unknown,
+    signal?: AbortSignal,
+    options?: { timeoutMs?: number },
+  ): Promise<T> {
     const normalizedMethod = method.trim();
     if (!normalizedMethod) {
       throw new Error("Gateway Admin RPC method is required");
     }
     const id = randomUUID();
-    const timeoutMs = resolveCallTimeoutMs(normalizedMethod, params, this.config.timeoutMs);
+    const configuredTimeoutMs = options?.timeoutMs ?? this.config.timeoutMs;
+    validateRpcTimeoutMs(configuredTimeoutMs);
+    const timeoutMs = resolveCallTimeoutMs(normalizedMethod, params, configuredTimeoutMs);
     let response: Response;
     try {
       response = await this.fetchImpl(this.config.rpcUrl, {

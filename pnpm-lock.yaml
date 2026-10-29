@@ -9,6 +9,7 @@ overrides:
   '@anthropic-ai/sdk': 0.115.0
   '@opentelemetry/core': 2.10.0
   '@opentelemetry/propagator-jaeger': 2.10.0
+  '@openclaw/crabline>re2js': 2.8.7
   '@aws-sdk/core': 3.977.1
   '@aws-sdk/credential-provider-node': 3.972.72
   '@aws-sdk/xml-builder': 3.972.37
@@ -8510,9 +8511,9 @@ packages:
     resolution: {integrity: sha512-y3bGgqKj3QBdxLbLkomlohkvsA8gdAiUQlSBJnBhfn+BPxg4bc62d8TcBW15wavDfgexCgccckhcZvywyQYPOw==}
     hasBin: true
 
-  re2js@2.8.6:
-    resolution: {integrity: sha512-xLgQil4kIUCrAzVk9fRSkxkFNwmygLFjVxXrLc65aE1F0+Zsb8rxumFBy4XKyvgMCTL6kilDq3EZ0piE2dP/Dg==}
-    engines: {node: '>=18.0.0'}
+  re2js@2.8.7:
+    resolution: {integrity: sha512-bRSL/vn3KAmlGfGNoVpcsBXLaVvl6AbuvMMWbz0m3vBj60nj+p2/biozfBUOSBP+5XTduF6mr6IO/ZVjmqqkVQ==}
+    engines: {node: '>=20.0.0'}
 
   react-dom@19.2.4:
     resolution: {integrity: sha512-AXJdLo8kgMbimY95O2aKQqsz2iWi9jMgKJhRBAxECE4IFxfcazB2LmzloIoibJI3C12IlY20+KFaLv+71bUJeQ==}
@@ -11590,7 +11591,7 @@ snapshots:
       libsignal: 6.0.0
       picocolors: 1.1.1
       proper-lockfile: 4.1.2
-      re2js: 2.8.6
+      re2js: 2.8.7
       ws: 8.21.1
       yaml: 2.9.0
       zod: 4.6.6(patch_hash=5b448a1a3aafd543cd67bc4520817f995b85324b886be37256af9b4cb15401aa)
@@ -16077,7 +16078,7 @@ snapshots:
       strip-json-comments: 2.0.1
     optional: true
 
-  re2js@2.8.6: {}
+  re2js@2.8.7: {}
 
   react-dom@19.2.4(react@19.2.4):
     dependencies:

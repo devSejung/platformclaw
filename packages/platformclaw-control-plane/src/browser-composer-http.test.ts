@@ -36,7 +36,7 @@ async function setup(
   const call = vi.fn(async (_method: string, params: unknown) => {
     const request = params as { action: string };
     return request.action === "preferences"
-      ? { available: true, enabled: true }
+      ? { available: true, enabled: true, timeoutMs: 30_000 }
       : { text: "다음 질문" };
   });
   const handler = createBrowserComposerHandler({
@@ -66,7 +66,7 @@ async function setup(
   if (!address || typeof address === "string") {
     throw new Error("missing HTTP address");
   }
-  const post = (body: unknown, headers: Record<string, string> = {}) =>
+  const post = (body: unknown, headers: Record<string, string> = {}, signal?: AbortSignal) =>
     fetch(`http://127.0.0.1:${address.port}/platformclaw/api/composer-predictions`, {
       method: "POST",
       headers: {
@@ -76,6 +76,7 @@ async function setup(
         ...headers,
       },
       body: JSON.stringify(body),
+      signal,
     });
   return { ...fixture, call, post };
 }
@@ -96,6 +97,7 @@ describe("authenticated Web-only prediction ingress", () => {
         ],
       },
       expect.any(AbortSignal),
+      { timeoutMs: 30_000 },
     );
   });
   it("blocks non-browser callers, foreign sessions, and client-supplied identity/context", async () => {
@@ -156,12 +158,13 @@ describe("authenticated Web-only prediction ingress", () => {
         f.store.spaces.setMember(f.bob.user.id, f.space.id, f.alice.user.id, null, 2);
         return { text: "must not leak" };
       }
-      return { available: true, enabled: true };
+      return { available: true, enabled: true, timeoutMs: 30_000 };
     });
     expect(await (await post(body)).json()).toEqual({ text: null });
   });
-  it("caps the whole request at ten seconds even when Gateway history is waiting", async () => {
+  it("caps the whole request at the configured deadline while Gateway history is waiting", async () => {
     const { post, request, call, binding } = await setup();
+    call.mockResolvedValueOnce({ available: true, enabled: true, timeoutMs: 1000 } as never);
     let release!: (value: unknown) => void;
     request.mockImplementationOnce(
       () =>
@@ -169,14 +172,65 @@ describe("authenticated Web-only prediction ingress", () => {
           release = resolve;
         }),
     );
-    const started = performance.now();
     expect(
       await (await post({ action: "predict", sessionKey: `agent:${binding.agentId}:main` })).json(),
     ).toEqual({ text: null });
-    expect(performance.now() - started).toBeLessThan(11_000);
     release({ messages: [] });
     expect(
       call.mock.calls.some(([, value]) => (value as { action: string }).action === "predict"),
     ).toBe(false);
+  });
+  it("allows authorized history to finish after the old ten-second deadline", async () => {
+    const { post, request, call, binding } = await setup();
+    request.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                messages: [
+                  { role: "user", content: "질문" },
+                  { role: "assistant", content: "답변" },
+                ],
+              }),
+            10_100,
+          );
+        }),
+    );
+    expect(
+      await (await post({ action: "predict", sessionKey: `agent:${binding.agentId}:main` })).json(),
+    ).toEqual({
+      text: "다음 질문",
+    });
+    expect(call).toHaveBeenCalledWith(
+      "platformclaw.composer",
+      expect.objectContaining({ action: "predict" }),
+      expect.any(AbortSignal),
+      { timeoutMs: 30_000 },
+    );
   }, 15_000);
+  it("aborts model work when the browser cancels its prediction request", async () => {
+    const { post, call, binding } = await setup();
+    let inferenceSignal: AbortSignal | undefined;
+    call.mockImplementation(async (_method, value, ...args: unknown[]) => {
+      if ((value as { action: string }).action === "preferences") {
+        return { available: true, enabled: true, timeoutMs: 30_000 };
+      }
+      const signal = args[0] as AbortSignal;
+      inferenceSignal = signal;
+      return new Promise<never>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+      });
+    });
+    const controller = new AbortController();
+    const pending = post(
+      { action: "predict", sessionKey: `agent:${binding.agentId}:main` },
+      {},
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(inferenceSignal).toBeDefined());
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(inferenceSignal?.aborted).toBe(true));
+  });
 });

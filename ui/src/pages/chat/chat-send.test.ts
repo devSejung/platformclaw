@@ -76,8 +76,17 @@ function makeRequestMock(handlers: RequestHandlers = {}) {
 
 type RequestMock = ReturnType<typeof makeRequestMock>;
 
-function clientWithRequest(request: unknown): ChatHost["client"] {
-  return { request } as unknown as ChatHost["client"];
+function clientWithRequest(
+  request: (method: string, params?: unknown) => unknown,
+): ChatHost["client"] {
+  return {
+    request(method: string, params?: unknown, options?: { onSent?: () => void }) {
+      const pending = request(method, params);
+      // The transport reports dispatch synchronously, before its RPC response resolves.
+      options?.onSent?.();
+      return pending;
+    },
+  } as unknown as ChatHost["client"];
 }
 
 type TestChatHost = Omit<ChatHost, "settings"> & {

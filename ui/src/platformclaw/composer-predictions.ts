@@ -1,5 +1,8 @@
+import { areUiSessionKeysEquivalent } from "../lib/sessions/session-key.ts";
+
 const PATH = "/platformclaw/api/composer-predictions";
 const webRuns = new WeakMap<object, Map<string, string>>();
+const dispatchListeners = new Set<(client: object, sessionKey: string) => void>();
 
 // Record provenance at browser dispatch, rather than inferring it from a shared final event.
 // A Cron/Knox/background final can otherwise adopt the visible chat's run status.
@@ -18,10 +21,19 @@ export function recordWebComposerRun(client: object, sessionKey: string, runId: 
   }
 }
 
+export function recordWebComposerDispatch(client: object, sessionKey: string, runId: string): void {
+  recordWebComposerRun(client, sessionKey, runId);
+  for (const listener of dispatchListeners) {
+    listener(client, sessionKey);
+  }
+}
+
 export function webComposerRunSession(client: object, runId: string): string | undefined {
   return webRuns.get(client)?.get(runId);
 }
-type PredictionPreferences = { available: boolean; enabled: boolean };
+type PredictionPreferences =
+  | { available: false; enabled: false }
+  | { available: true; enabled: boolean; timeoutMs: number };
 const listeners = new Set<() => void>();
 let preferences: PredictionPreferences = { available: false, enabled: false };
 
@@ -48,8 +60,13 @@ export async function updateComposerPreferences(enabled?: boolean): Promise<void
       typeof result === "object" &&
       "available" in result &&
       result.available === true &&
-      "enabled" in result
-        ? { available: true, enabled: result.enabled === true }
+      "enabled" in result &&
+      "timeoutMs" in result &&
+      typeof result.timeoutMs === "number" &&
+      Number.isInteger(result.timeoutMs) &&
+      result.timeoutMs >= 1000 &&
+      result.timeoutMs <= 300_000
+        ? { available: true, enabled: result.enabled === true, timeoutMs: result.timeoutMs }
         : { available: false, enabled: false };
   } catch {
     preferences = { available: false, enabled: false };
@@ -65,6 +82,7 @@ export function subscribeComposerPreferences(listener: () => void): () => void {
 }
 
 type PredictionSource = {
+  client: object | null;
   sessionKey: string;
   completedRunId: string | null;
   idle: boolean;
@@ -79,8 +97,21 @@ export class ComposerPredictionController {
   private request: AbortController | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly unsubscribe: () => void;
+  private readonly onDispatch = (client: object, sessionKey: string) => {
+    if (
+      this.source?.client === client &&
+      areUiSessionKeysEquivalent(this.source.sessionKey, sessionKey)
+    ) {
+      // Dispatch retires this completion before an ACK or busy render arrives.
+      // Retire even a completion still awaiting idle, so stale renders cannot re-arm it.
+      this.lastRunId = this.source.completedRunId;
+      this.dismiss();
+      this.requestUpdate();
+    }
+  };
 
   constructor(private readonly requestUpdate: () => void) {
+    dispatchListeners.add(this.onDispatch);
     this.unsubscribe = subscribeComposerPreferences(() => {
       if (!preferences.available || !preferences.enabled) {
         this.dismiss();
@@ -91,7 +122,8 @@ export class ComposerPredictionController {
   }
 
   sync(next: PredictionSource): void {
-    const scopeChanged = this.source?.sessionKey !== next.sessionKey;
+    const scopeChanged =
+      this.source?.client !== next.client || this.source?.sessionKey !== next.sessionKey;
     if (scopeChanged) {
       this.dismiss();
       this.lastRunId = null;
@@ -137,12 +169,16 @@ export class ComposerPredictionController {
   dispose(): void {
     this.dismiss();
     this.unsubscribe();
+    dispatchListeners.delete(this.onDispatch);
   }
 
   private async predict(origin: PredictionSource): Promise<void> {
+    if (!preferences.available || !preferences.enabled) {
+      return;
+    }
     const pending = new AbortController();
     this.request = pending;
-    const signal = AbortSignal.any([pending.signal, AbortSignal.timeout(10_000)]);
+    const signal = AbortSignal.any([pending.signal, AbortSignal.timeout(preferences.timeoutMs)]);
     try {
       const response = await fetch(PATH, {
         method: "POST",
@@ -155,6 +191,7 @@ export class ComposerPredictionController {
       if (
         this.request !== pending ||
         signal.aborted ||
+        this.source?.client !== origin.client ||
         this.source?.sessionKey !== origin.sessionKey ||
         !this.source.idle ||
         !this.source.eligible ||

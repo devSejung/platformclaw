@@ -81,7 +81,7 @@ describe("chat pane session creation lifecycle", () => {
 
     expect(state.chatMessage).toBe("take notes");
     expect(state.chatError).toContain("not sent");
-    expect(request).not.toHaveBeenCalledWith("chat.send", expect.anything());
+    expect(request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
   });
 
   it("does not send a board /new prompt after reset changes the selected session", async () => {
@@ -106,7 +106,7 @@ describe("chat pane session creation lifecycle", () => {
 
     expect(state.chatMessage).toBe("take notes");
     expect(state.chatError).toContain("not sent");
-    expect(request).not.toHaveBeenCalledWith("chat.send", expect.anything());
+    expect(request.mock.calls.filter(([method]) => method === "chat.send")).toHaveLength(0);
   });
 
   it("drops a created session after a same-client reconnect", async () => {

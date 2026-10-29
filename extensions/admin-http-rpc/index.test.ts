@@ -1,5 +1,6 @@
 // Admin Http Rpc tests cover index plugin behavior.
 import { createServer } from "node:http";
+import { validateJsonSchemaValue } from "openclaw/plugin-sdk/json-schema-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import plugin from "./index.js";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
@@ -22,6 +23,36 @@ afterEach(() => {
 });
 
 describe("admin-http-rpc plugin entry", () => {
+  const validateConfig = (value: unknown) =>
+    validateJsonSchemaValue({
+      schema: manifest.configSchema,
+      cacheKey: "admin-http-rpc.timeout-contract",
+      value,
+      applyDefaults: true,
+    });
+
+  it("defaults the inference timeout while retaining explicit server opt-in", () => {
+    expect(validateConfig({})).toEqual({
+      ok: true,
+      value: { composerPredictionsEnabled: false, composerPredictionsTimeoutMs: 30_000 },
+    });
+    expect(validateConfig({ composerPredictionsEnabled: true })).toEqual({
+      ok: true,
+      value: { composerPredictionsEnabled: true, composerPredictionsTimeoutMs: 30_000 },
+    });
+  });
+
+  it.each([1_000, 300_000])("accepts the configured timeout boundary %i", (timeoutMs) => {
+    expect(validateConfig({ composerPredictionsTimeoutMs: timeoutMs })).toEqual({
+      ok: true,
+      value: { composerPredictionsEnabled: false, composerPredictionsTimeoutMs: timeoutMs },
+    });
+  });
+
+  it.each([999, 300_001, 1_000.5, "30000"])("rejects an invalid timeout %j", (timeoutMs) => {
+    expect(validateConfig({ composerPredictionsTimeoutMs: timeoutMs }).ok).toBe(false);
+  });
+
   it("stays startup-off until the plugin entry is explicitly enabled", () => {
     expect(manifest.activation).toEqual({
       onStartup: false,
@@ -156,7 +187,14 @@ describe("admin-http-rpc plugin entry", () => {
         config: {
           current: () => ({
             plugins: {
-              entries: { "admin-http-rpc": { config: { composerPredictionsEnabled: true } } },
+              entries: {
+                "admin-http-rpc": {
+                  config: {
+                    composerPredictionsEnabled: true,
+                    composerPredictionsTimeoutMs: 45_000,
+                  },
+                },
+              },
             },
             models: {
               providers: {
@@ -210,7 +248,11 @@ describe("admin-http-rpc plugin entry", () => {
         expect(response.ok).toBe(true);
         return response.json();
       };
-      await post({ action: "preferences", userId: "user-1", enabled: true });
+      expect(await post({ action: "preferences", userId: "user-1", enabled: true })).toEqual({
+        id: expect.any(String),
+        ok: true,
+        payload: { available: true, enabled: true, timeoutMs: 45_000 },
+      });
       expect(stores.get("platformclaw.composer-preferences")?.get("user-1")).toBe(true);
       expect(stores.get("platformclaw.employee-profiles")?.has("user-1")).toBe(false);
       mocks.lookup.mockResolvedValue([{ address: "10.1.2.3", family: 4 }]);

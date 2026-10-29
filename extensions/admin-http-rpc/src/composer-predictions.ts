@@ -6,6 +6,7 @@ import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
 export const COMPOSER_RPC = "platformclaw.composer";
 const DEFAULT_MODEL_REF = "codemate/codellm-fast";
+const DEFAULT_TIMEOUT_MS = 30_000;
 const SYSTEM_PROMPT = [
   "Predict one short, useful next message the USER might type in this conversation.",
   "Write in the user's voice and language (Korean when appropriate). Return only one concise question.",
@@ -38,6 +39,12 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
   const enabled = () =>
     api.runtime.config.current().plugins?.entries?.["admin-http-rpc"]?.config
       ?.composerPredictionsEnabled === true;
+  const timeoutMs = () => {
+    // The manifest validates configured values; omitted keys keep the deployment default.
+    const configured = api.runtime.config.current().plugins?.entries?.["admin-http-rpc"]?.config
+      ?.composerPredictionsTimeoutMs as number | undefined;
+    return configured ?? DEFAULT_TIMEOUT_MS;
+  };
   const handleRequest = async (params: unknown, signal: AbortSignal): Promise<unknown> => {
     if (!isRecord(params) || typeof params.userId !== "string" || !params.userId) {
       throw new Error("Invalid composer request");
@@ -47,7 +54,11 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
       if (typeof params.enabled === "boolean") {
         await preferences.register(userId, params.enabled);
       }
-      return { available: enabled(), enabled: (await preferences.lookup(userId)) === true };
+      return {
+        available: enabled(),
+        enabled: (await preferences.lookup(userId)) === true,
+        timeoutMs: timeoutMs(),
+      };
     }
     if (action !== "predict" || !enabled() || (await preferences.lookup(userId)) !== true) {
       return { text: null };
@@ -73,7 +84,7 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
     }
     const controller = new AbortController();
     active = controller;
-    const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(10_000)]);
+    const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(timeoutMs())]);
     try {
       if (!modelRef) {
         return { text: null };

@@ -24,6 +24,26 @@ in `plugins.entries.admin-http-rpc.config.composerPredictionsEnabled`, then rest
 the development Gateway. Each employee can enable or disable their own preference;
 it persists in the plugin's SQLite keyed store without a schema-version change.
 
+Set `composerPredictionsTimeoutMs` in the same plugin config to control how long a
+prediction may wait. The default is 30,000 ms; supported values are integers from
+1,000 to 300,000 ms. For example, merge these values into the existing
+`plugins.entries.admin-http-rpc.config` object:
+
+```json
+{
+  "composerPredictionsEnabled": true,
+  "composerPredictionsTimeoutMs": 60000
+}
+```
+
+The server gate and each employee's preference still control whether predictions
+run. The timeout does not enable the feature or change saved account preferences.
+The Gateway advertises its configured deadline to the Web UI and BFF; inference
+and its internal HTTP transport use that budget instead of separate short limits.
+Settings lookups retain a separate ten-second control-request deadline.
+Refresh the Web page after updating the Gateway config so it reads the new budget.
+An external reverse proxy must also allow responses to wait for that budget.
+
 The browser waits one second after a completed response while the composer is
 empty. It requests `/platformclaw/api/composer-predictions` using the employee
 cookie and same-origin policy. The BFF reads history through the existing personal
@@ -55,15 +75,17 @@ Normal conversation defaults and fallback settings remain unchanged.
 Inference receives only the last six user/assistant text messages, each capped
 at 300 Unicode characters. This bounded context supports two or three exchanges
 without copying attachments, reasoning, tool output, or an unbounded transcript.
-Output is capped at 64 tokens and 300 characters. The whole browser/BFF request
-has a ten-second deadline, including Gateway history access. There is one active
+Output is capped at 64 tokens and 300 characters. The browser/BFF prediction deadline
+includes Gateway history access. There is one active
 prediction per Gateway process and no prediction queue. Ordinary model calls
 preempt predictions. No vLLM load metrics are assumed; the single-slot policy is
 the conservative admission control. A multi-Gateway deployment needs a shared
 admission owner before enabling this feature across instances.
 
 Tab inserts Ghost Text without sending. Escape, typing, IME composition, session
-changes, and a new response invalidate it. Enter retains its existing behavior.
+changes, and a new response invalidate it. Sending a new browser message cancels
+pending prediction work immediately, before waiting for the send acknowledgment
+or the next model call. Enter retains its existing behavior.
 Cancellation closes the HTTP request to the model; actual GPU cancellation
 depends on the company's serving stack and must be measured there. A server
 that continues inference after disconnect can still consume up to the 64-token
