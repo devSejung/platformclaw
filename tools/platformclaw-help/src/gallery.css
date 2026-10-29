@@ -1,0 +1,195 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: #f6f6f3;
+  color: #141413;
+  font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+}
+.gallery-brand {
+  max-width: 1240px;
+  margin: auto;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 36px 30px;
+  font-size: 20px;
+  letter-spacing: -0.7px;
+}
+.gallery-brand img {
+  width: 40px;
+  height: 40px;
+  image-rendering: pixelated;
+}
+main {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 10px 30px 80px;
+}
+.gallery-intro {
+  padding: 30px 0 48px;
+}
+.gallery-intro h1 {
+  font-size: clamp(34px, 4vw, 58px);
+  letter-spacing: -2.5px;
+  line-height: 1.15;
+  margin: 0 0 18px;
+  font-weight: 650;
+}
+.gallery-intro p {
+  font-size: 17px;
+  color: #6c6a64;
+  margin: 0;
+}
+.motion-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+}
+.motion-card {
+  border: 0;
+  text-align: left;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+}
+.motion-thumbnail {
+  position: relative;
+  height: 190px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at 50% 35%, white, #eaece7);
+  overflow: hidden;
+}
+.thumbnail-mark {
+  position: relative;
+  z-index: 1;
+  color: #0f7c72;
+  border: 1px solid #e0e6dd;
+  background: #f8faf5;
+  padding: 20px;
+  border-radius: 30px;
+  box-shadow: 0 20px 50px -28px #16433442;
+}
+.motion-card-title {
+  font-size: 24px;
+  letter-spacing: -0.7px;
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.motion-card-subtitle {
+  display: block;
+  font-size: 13px;
+  color: #6c6a64;
+  margin-top: 8px;
+}
+.play-mark {
+  color: #0f7c72;
+  font-size: 24px;
+}
+.thumbnail-links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: #0f7c7270;
+}
+.motion-card:focus-visible {
+  outline: 3px solid #0f7c72;
+  outline-offset: 8px;
+  border-radius: 20px;
+}
+.motion-dialog {
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  width: min(1200px, calc(100vw - 32px), calc((100dvh - 144px) * 1.7777778));
+  max-height: calc(100dvh - 32px);
+  background: #f6f6f3;
+  color: #141413;
+  box-shadow: 0 30px 100px #001e2038;
+}
+.motion-dialog::backdrop {
+  background: #0b1b19a6;
+  backdrop-filter: blur(12px);
+}
+.motion-dialog > header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 28px;
+  background: #f6f6f3;
+}
+.motion-dialog > header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.motion-dialog > header strong {
+  font-size: 23px;
+  letter-spacing: -0.8px;
+}
+.motion-dialog > header span {
+  font-size: 13px;
+  color: #6c6a64;
+}
+.motion-dialog > header button {
+  border: 0;
+  background: transparent;
+  color: #141413;
+  width: 40px;
+  height: 40px;
+  font-size: 28px;
+  cursor: pointer;
+}
+.motion-dialog:not([open]) {
+  display: none;
+}
+@media (max-width: 900px) {
+  .motion-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  main {
+    padding: 0 20px 50px;
+  }
+  .gallery-brand {
+    padding: 24px 20px;
+  }
+  .motion-grid {
+    gap: 22px 14px;
+  }
+  .motion-thumbnail {
+    height: 155px;
+  }
+  .motion-card-title {
+    font-size: 21px;
+  }
+  .motion-card-subtitle {
+    font-size: 11px;
+  }
+  .motion-dialog > header {
+    padding: 16px;
+  }
+  .motion-dialog > header span {
+    max-width: 220px;
+  }
+  .gallery-intro {
+    padding: 20px 0 35px;
+  }
+}
+
+body:has(dialog[open]) {
+  overflow: hidden;
+}

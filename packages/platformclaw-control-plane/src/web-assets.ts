@@ -497,6 +497,13 @@ export function createPlatformClawWebAssetHandler(
       }
 
       setSecurityHeaders(res);
+      // Only the public help Player is embedded by the authenticated application.
+      // Keep app/login documents and every other asset outside this framing contract.
+      const isHelpPlayer = pathname === `${PLATFORMCLAW_WEB_APP_PATH}/help-video/player.html`;
+      if (isHelpPlayer) {
+        res.setHeader("X-Frame-Options", "SAMEORIGIN");
+        res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
+      }
       if (isLogin) {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-store");
@@ -505,7 +512,10 @@ export function createPlatformClawWebAssetHandler(
           documentSecurityPolicy([], true, undefined, false, ["'self'"]),
         );
       } else if (asset) {
-        res.setHeader("Content-Type", asset.contentType);
+        res.setHeader(
+          "Content-Type",
+          isHelpPlayer ? "text/html; charset=utf-8" : asset.contentType,
+        );
         res.setHeader(
           "Cache-Control",
           pathname.startsWith(PLATFORMCLAW_WEB_ASSET_PREFIX)

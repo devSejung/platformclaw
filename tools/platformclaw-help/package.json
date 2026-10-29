@@ -1,0 +1,29 @@
+{
+  "name": "platformclaw-help",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.15.1",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts --no-open",
+    "player:build": "node scripts/build-player.mjs",
+    "check": "node scripts/check-assets.mjs && cd ../.. && node scripts/run-vitest.mjs test/scripts/platformclaw-help.test.ts",
+    "brand:extract": "node scripts/extract-brand.mjs",
+    "build": "node scripts/extract-brand.mjs && node scripts/build-player.mjs && node scripts/check-assets.mjs"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.537",
+    "@remotion/media": "4.0.537",
+    "@remotion/player": "4.0.537",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.537"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "esbuild": "0.28.1",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3"
+  }
+}

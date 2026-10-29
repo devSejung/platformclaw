@@ -115,7 +115,8 @@ async function newPage(
 async function openAdmin(page: Page) {
   await page.goto(`${ui.baseUrl}platformclaw/app/settings/announcements`);
   const admin = page.locator("platformclaw-announcement-administration");
-  await admin.locator('[name="title"]').waitFor();
+  // The visible form stays disabled until its server snapshot has populated the fields.
+  await admin.locator('[name="title"]:enabled').waitFor();
   return admin;
 }
 

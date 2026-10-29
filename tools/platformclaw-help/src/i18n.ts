@@ -1,0 +1,118 @@
+export type MotionLocale = "ko" | "en";
+
+// Korean source copy is the message ID; names, ticket IDs, and commands stay shared.
+export const englishCopy: Record<string, string> = {
+  "PlatformClaw 마스코트": "PlatformClaw mascot",
+  챗: "Chat",
+  "기본 서버": "Default server",
+  터미널: "Terminal",
+  "VM 연결 중": "Connecting to VM",
+  "작업 위치 전환 중": "Switching workspace",
+  "작업 준비 완료": "Workspace ready",
+  "VM 연결": "VM connection",
+  "작업 위치": "Workspace",
+  "세부 정보 보기 ↗": "View details ↗",
+  "Ulysses 설계": "Ulysses design",
+  "Thetis 인터페이스": "Thetis interface",
+  "Vanguard 배포 기준": "Vanguard release criteria",
+  "멤버 A": "Member A",
+  "멤버 B": "Member B",
+  "멤버 C": "Member C",
+  "Jira ULY-142 변경 범위는?": "What changed in ULY-142?",
+  "변경 범위 정리": "Change scope",
+  "Confluence 설계 영향은?": "Design impact in Confluence?",
+  "설계 영향 정리": "Design impact",
+  설계: "Design",
+  "두 검토를 이어서 Ulysses 릴리스 점검해줘": "Use both reviews to check the Ulysses release",
+  "Ulysses 릴리스 점검": "Ulysses release check",
+  "Thetis 이슈 검토": "Thetis issue review",
+  "이슈 조회": "Read issues",
+  "변경 분류": "Classify changes",
+  "Thetis 설계 확인": "Check Thetis design",
+  "설계 대조": "Compare designs",
+  "검토 정리": "Summarize findings",
+  "Jira · Confluence 검토 흐름": "Jira · Confluence review flow",
+  "이 점검을 스킬로 만들까요?": "Turn this check into a skill?",
+  "Confluence · Ulysses 설계": "Confluence · Ulysses design",
+  "릴리스 기준 정리": "Review release criteria",
+  "Confluence · 설계": "Confluence · Design",
+  "릴리스 기준": "Release criteria",
+  "변경 이력": "Change history",
+  "멤버 초대": "Invite members",
+  "Space 공용 맥락": "Shared Space context",
+  "내 에이전트": "My agent",
+  "질문 · 최종 답변": "Questions · Final answers",
+  "멤버 C · 내 대화": "Member C · My chat",
+  프롬프트: "Prompt",
+  "Vanguard Jira 점검": "Vanguard Jira check",
+  "Jira 이슈와 Confluence 설계 변경점 점검": "Check Jira issues and Confluence design changes",
+  "매일 · 09:00": "Daily · 09:00",
+  "실행 기록": "Run history",
+  "Vanguard 점검": "Vanguard check",
+  "Thetis 설계 변경 검토": "Review Thetis design changes",
+  "Thetis 과제 검토": "Thetis project review",
+  점검: "Check",
+  "Agent 제안": "Agent proposal",
+  "설계 점검": "Design review",
+  검토: "Review",
+  보류: "Defer",
+  사용자: "User",
+  "사용자 B": "User B",
+  "사용자 C": "User C",
+  "제안 검토": "Review proposal",
+  "작성자 A": "Author A",
+  "공유 범위 · Vanguard 팀": "Shared with · Vanguard team",
+  "공유 ↗": "Share ↗",
+  "내 스킬": "My skills",
+  가져오기: "Import",
+  "개인 Wiki · Ulysses": "Personal Wiki · Ulysses",
+  카드: "Cards",
+  그래프: "Graph",
+  "Wiki · 연결 문서": "Wiki · Linked documents",
+  "Jira 이슈와 설계 연결": "Jira issues linked to design",
+  "Confluence 변경 이력": "Confluence change history",
+  "챗 · Jira": "Chat · Jira",
+  "ULY-142 조회": "Look up ULY-142",
+  "키 등록하기": "Add credential",
+  "챗으로 돌아가기 ↗": "Back to chat ↗",
+  "설정 · 내 인증정보": "Settings · My credentials",
+  저장: "Save",
+  등록됨: "Saved",
+  "챗 · Ulysses": "Chat · Ulysses",
+  "이어서 점검해줘": "Continue the review",
+  "챗 · VM · 터미널": "Chat · VM · Terminal",
+  "대화로 작업하고, 플코 안의 VM 터미널에서 이어갑니다.":
+    "Start in chat and continue in the built-in VM terminal.",
+  "같은 과제의 멤버를 초대하고 프롬프트와 Q&A를 공유합니다. 각자의 에이전트가 공용 맥락을 참고해 작업을 이어갑니다.":
+    "Invite project teammates and share prompts and Q&A. Each agent continues with the shared context.",
+  자동화: "Automations",
+  "정해 둔 프롬프트를 예약하고 반복 작업을 맡깁니다.":
+    "Schedule prompts and delegate recurring work.",
+  "에이전트가 스킬 지침을 읽고 작업에 활용합니다.":
+    "Your agent reads skill instructions and applies them to the task.",
+  "작업 경험에서 에이전트가 스킬을 제안하고 사용자가 검토합니다.":
+    "Your agent proposes skills from work experience for you to review.",
+  "직접 만든 스킬을 팀에 공유하고 서로 가져다 씁니다.":
+    "Share skills you created and import skills from teammates.",
+  "메모리 · Wiki · 그래프": "Memory · Wiki · Graph",
+  "Wiki의 연결을 따라 필요한 지식을 다시 찾습니다.":
+    "Follow Wiki links to rediscover the knowledge you need.",
+  "설정 · 크리덴셜": "Settings · Credentials",
+  "필요한 키를 내 인증정보에 등록하고 대화로 돌아옵니다.":
+    "Add the required key to your credentials and return to chat.",
+  "지원하지 않는 가이드입니다.": "This guide is unavailable.",
+  "작업이 이어지는 순간.": "Keep your work moving.",
+  "Jira·Confluence 과제 예제 · PlatformClaw 모션 가이드":
+    "Jira · Confluence project examples · PlatformClaw motion guides",
+  "모션 보기": "Watch motion",
+  "PlatformClaw 모션 가이드": "PlatformClaw motion guides",
+  닫기: "Close",
+};
+
+export function resolveMotionLocale(value?: string | null): MotionLocale {
+  return !value || value.toLowerCase().startsWith("ko") ? "ko" : "en";
+}
+
+export function motionText(text: string, locale: MotionLocale): string {
+  return locale === "en" ? (englishCopy[text] ?? text) : text;
+}

@@ -11,6 +11,7 @@ import {
   platformClawGuideT as guideT,
   platformClawT as t,
 } from "./i18n.ts";
+import { helpVideoTopic, renderPageHelpVideo } from "./page-help-video.ts";
 
 type PageHelp = {
   title: string;
@@ -173,6 +174,21 @@ export class PlatformClawPageHelpElement extends PlatformClawPageHelpLocaleEleme
   private readonly openHelp = () => {
     this.open = true;
   };
+  private readonly closeVideoHelp = (event: MessageEvent<unknown>) => {
+    const frame = this.shadowRoot?.querySelector<HTMLIFrameElement>("iframe[data-help-video]");
+    const message = event.data;
+    if (
+      frame &&
+      event.source === frame.contentWindow &&
+      event.origin === location.origin &&
+      message !== null &&
+      typeof message === "object" &&
+      "type" in message &&
+      message.type === "platformclaw-help-close"
+    ) {
+      this.open = false;
+    }
+  };
 
   static override styles = css`
     :host {
@@ -184,6 +200,9 @@ export class PlatformClawPageHelpElement extends PlatformClawPageHelpLocaleEleme
       padding: 22px;
       background: var(--bg-elevated);
       color: var(--text);
+      box-sizing: border-box;
+      max-height: min(90dvh, calc(100dvh - 48px));
+      overflow: auto;
     }
     .help-panel h2,
     .help-panel p,
@@ -223,10 +242,12 @@ export class PlatformClawPageHelpElement extends PlatformClawPageHelpLocaleEleme
   override connectedCallback(): void {
     super.connectedCallback();
     document.addEventListener("platformclaw-page-help-open", this.openHelp);
+    window.addEventListener("message", this.closeVideoHelp);
   }
 
   override disconnectedCallback(): void {
     document.removeEventListener("platformclaw-page-help-open", this.openHelp);
+    window.removeEventListener("message", this.closeVideoHelp);
     super.disconnectedCallback();
   }
 
@@ -243,6 +264,7 @@ export class PlatformClawPageHelpElement extends PlatformClawPageHelpLocaleEleme
     }
     return html`
       <openclaw-modal-dialog
+        style=${helpVideoTopic(this.routeId) ? "--openclaw-modal-width:1040px" : nothing}
         .open=${this.open}
         .label=${help.title}
         @modal-cancel=${() => (this.open = false)}
@@ -258,6 +280,7 @@ export class PlatformClawPageHelpElement extends PlatformClawPageHelpLocaleEleme
           </button>
           <h2>${help.title}</h2>
           <p>${help.body}</p>
+          ${renderPageHelpVideo(this.routeId, help.title)}
           ${help.details.length
             ? html`<ul>
                 ${help.details.map((detail) => html`<li>${detail}</li>`)}
