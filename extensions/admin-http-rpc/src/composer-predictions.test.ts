@@ -62,7 +62,7 @@ function setup(providerId = "codemate", modelId = "codellm-fast", apiType = "ope
 function useDeadlineClock() {
   vi.useFakeTimers();
   // Node's native AbortSignal.timeout bypasses the global timers replaced by Vitest.
-  vi.spyOn(AbortSignal, "timeout").mockImplementation((milliseconds) => {
+  return vi.spyOn(AbortSignal, "timeout").mockImplementation((milliseconds) => {
     const deadline = new AbortController();
     setTimeout(
       () => deadline.abort(new DOMException("Prediction timed out", "TimeoutError")),
@@ -150,7 +150,7 @@ describe("Explicit isolated prediction inference", () => {
     },
   );
   it("allows a configured inference to finish beyond the former ten-second deadline", async () => {
-    useDeadlineClock();
+    const timeout = useDeadlineClock();
     const { predict, values, pluginConfig } = setup();
     pluginConfig.composerPredictionsTimeoutMs = 45_000;
     values.set("user-1", true);
@@ -171,7 +171,7 @@ describe("Explicit isolated prediction inference", () => {
             "abort",
             () => {
               clearTimeout(timer);
-              reject(signal.reason);
+              reject(new Error("aborted"));
             },
             { once: true },
           );
@@ -181,7 +181,7 @@ describe("Explicit isolated prediction inference", () => {
     await vi.advanceTimersByTimeAsync(15_000);
     expect(await pending).toEqual({ text: "다음 단계는 무엇인가요?" });
     expect(upstreamSignal?.aborted).toBe(false);
-    expect(AbortSignal.timeout).toHaveBeenCalledWith(45_000);
+    expect(timeout).toHaveBeenCalledWith(45_000);
   });
   it("aborts at the configured deadline and releases prediction admission", async () => {
     useDeadlineClock();
@@ -193,7 +193,7 @@ describe("Explicit isolated prediction inference", () => {
       ({ signal }: { signal: AbortSignal }) =>
         new Promise((_resolve, reject) => {
           upstreamSignal = signal;
-          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
         }),
     );
     const pending = predict();

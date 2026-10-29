@@ -124,6 +124,8 @@ overrides:
   "@anthropic-ai/sdk": 0.115.0
   "@opentelemetry/core": 2.10.0
   "@opentelemetry/propagator-jaeger": 2.10.0
+  # Remove when crabline adopts the lookbehind DoS fix (GHSA-gg6h-894w-4m9c).
+  "@openclaw/crabline>re2js": 2.8.7
   "@aws-sdk/core": 3.977.1
   "@aws-sdk/credential-provider-node": 3.972.72
   "@aws-sdk/xml-builder": 3.972.37
