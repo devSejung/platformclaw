@@ -140,8 +140,12 @@ const draft = () => ({
 
 async function history(limit?: number, cursor?: AnnouncementHistoryCursor) {
   const query = new URLSearchParams();
-  if (limit !== undefined) query.set("limit", String(limit));
-  if (cursor) query.set("cursor", JSON.stringify(cursor));
+  if (limit !== undefined) {
+    query.set("limit", String(limit));
+  }
+  if (cursor) {
+    query.set("cursor", JSON.stringify(cursor));
+  }
   const response = await request("admin.test", `${ANNOUNCEMENTS_HISTORY_PATH}?${query}`);
   expect(response.status).toBe(200);
   expect(response.headers.get("Cache-Control")).toBe("no-store");
@@ -283,7 +287,9 @@ describe("web announcements through the authenticated BFF", () => {
     ]);
     expect(page.items[1]!.announcement).toEqual(second.current);
     expect(page.nextCursor).toBeNull();
-    for (const server of servers.splice(0)) await server.close();
+    for (const server of servers.splice(0)) {
+      await server.close();
+    }
     stores.splice(0).forEach((value) => value.close());
     store = openStore();
     auth = authService(store);
@@ -416,8 +422,9 @@ describe("web announcements through the authenticated BFF", () => {
     }
     const administrator = await auth.authenticateToken(tokens.get("admin.test")!, false);
     const member = await auth.authenticateToken(tokens.get("member.one")!, false);
-    if (administrator.status !== "active" || member.status !== "active")
+    if (administrator.status !== "active" || member.status !== "active") {
       throw new Error("missing fixture users");
+    }
     expect(() => store.announcements.history(member.user.id)).toThrow(
       ControlPlaneAuthorizationError,
     );

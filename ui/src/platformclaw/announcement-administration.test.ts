@@ -67,7 +67,7 @@ function mockServer(
   } = {},
 ) {
   return vi.fn<typeof fetch>(async (input, init) => {
-    const url = new URL(String(input), "https://example.test");
+    const url = new URL(input instanceof Request ? input.url : input, "https://example.test");
     if (url.pathname === ANNOUNCEMENTS_HISTORY_PATH) {
       return options.history?.(url) ?? jsonResponse(EMPTY_HISTORY);
     }
@@ -134,7 +134,9 @@ async function ready(element: HTMLElement): Promise<ShadowRoot> {
 }
 
 async function settle() {
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 beforeEach(async () => {
