@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
@@ -335,6 +336,9 @@ describeControlUiE2e("Control UI chat attachment read lifecycle", () => {
         ]);
         await page.getByRole("button", { name: isNew ? "Start thread" : "Send message" }).click();
         const request = await gateway.waitForRequest(isNew ? "sessions.create" : "chat.send");
+        if (!isRecord(request.params)) {
+          throw new Error("Expected chat request parameters");
+        }
         expect(request.params).toMatchObject({
           message: "Keep the original PNG bytes",
           attachments: [
