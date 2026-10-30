@@ -4,6 +4,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { maxBytesForKind, mediaKindFromMime, type MediaKind } from "@openclaw/media-core/constants";
 import { mimeTypeFromFilePath } from "@openclaw/media-core/mime";
 import { expectDefined } from "@openclaw/normalization-core";
@@ -14,6 +15,7 @@ import {
 } from "@openclaw/normalization-core/number-coercion";
 import { resolveDefaultAgentId } from "../agents/agent-scope-config.js";
 import type { ReplyMediaAttachment } from "../auto-reply/reply-payload.js";
+import { isCoreCanvasHostEnabled } from "../canvas/config.js";
 import { getRuntimeConfig } from "../config/config.js";
 import { resolveStateDir } from "../config/paths.js";
 import { loadExactSessionEntryReadOnlyResult } from "../config/sessions/session-accessor.sqlite-entry-availability.js";
@@ -62,6 +64,7 @@ import {
   resolveOpenAiCompatibleHttpOperatorScopes,
   resolveOpenAiCompatibleHttpSenderIsOwner,
 } from "./http-utils.js";
+import { serveManagedHtmlPreview } from "./managed-html-preview.js";
 import {
   attachManagedImageRecordToMessage,
   claimManagedImageRecordCleanupIfCurrent,
@@ -1734,6 +1737,45 @@ export async function handleManagedOutgoingMediaHttpRequest(
     });
   } catch {
     sendStatus(res, 404, "not found");
+    return true;
+  }
+  if (requestUrl.searchParams.get("preview") === "1") {
+    await serveManagedHtmlPreview({
+      response: res,
+      method: req.method,
+      url: requestUrl,
+      file: opened,
+      contentType: record.original.contentType ?? "application/octet-stream",
+      isEnabled: () => isCoreCanvasHostEnabled(getRuntimeConfig()),
+      isStrict: () => getRuntimeConfig().gateway?.controlUi?.embedSandbox === "strict",
+      revalidate: async () => {
+        const current = readManagedImageRecord(attachmentId, opts.stateDir);
+        const matches =
+          current &&
+          isDeepStrictEqual(current, record) &&
+          (await recordMatchesTranscriptMessage(
+            current,
+            undefined,
+            undefined,
+            undefined,
+            opts.stateDir,
+          )) === "match";
+        if (
+          !matches ||
+          !isDeepStrictEqual(readManagedImageRecord(attachmentId, opts.stateDir), record) ||
+          (hasValidMediaTicket &&
+            !verifyManagedOutgoingImageTicket({
+              ticket: requestUrl.searchParams.get("mediaTicket"),
+              sessionKey,
+              attachmentId,
+            }))
+        ) {
+          sendStatus(res, 404, "not found");
+          return false;
+        }
+        return true;
+      },
+    });
     return true;
   }
   const respondNotFound = () => sendStatus(res, 404, "not found");

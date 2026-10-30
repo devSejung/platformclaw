@@ -2,6 +2,7 @@ import type { ImageLightboxItem } from "../../../components/image-lightbox.ts";
 import { t } from "../../../i18n/index.ts";
 import type { MessageContentItem } from "../../../lib/chat/chat-types.ts";
 import { readTranscriptMediaEntries } from "../../../lib/chat/message-extract.ts";
+import type { EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
 import {
   getMediaFileExtension,
   hasVideoMediaFileExtension,
@@ -27,6 +28,7 @@ export type ArtifactDownloadResolver = (params: {
 }) => Promise<{ url: string; expiresAt?: string } | null>;
 
 export type ImageRenderOptions = {
+  embedSandboxMode?: EmbedSandboxMode;
   localMediaPreviewRoots?: readonly string[];
   basePath?: string;
   sessionKey?: string;

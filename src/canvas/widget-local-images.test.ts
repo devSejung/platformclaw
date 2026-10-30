@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { link, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { parseHTML } from "linkedom";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSandboxFsBridge } from "../agents/sandbox/fs-bridge.js";
 import {
@@ -46,6 +47,37 @@ async function writeNestedWidget(root: string) {
 }
 
 describe("widget images through the Basic workspace filesystem bridge", () => {
+  it("preserves attribute and SVG data URL entities while embedding a workspace PNG", async () => {
+    const { root, sandbox } = await createWorkspace();
+    const svgUrl =
+      'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><text>A&amp;B</text></svg>';
+    const widgetCode = [
+      '<main data-chart="&amp;copy;" data-number="&amp;#169;">',
+      '<img data-local src="pixel.png">',
+      `<img data-svg src="${svgUrl.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}">`,
+      '<script>const label = "&copy;";</script>',
+      "</main>",
+    ].join("");
+    const source = path.join(root, "report.html");
+    await writeFile(source, widgetCode);
+    await writeFile(path.join(root, "pixel.png"), PNG);
+    const result = await embedWidgetWorkspaceImages({
+      widgetCode,
+      widgetPath: "/workspace/report.html",
+      workspace: { root, bridge: createSandboxFsBridge({ sandbox }) },
+    });
+
+    // Parsing the hosted bytes repeats the browser's attribute decoding boundary.
+    // The PNG rewrite must not make unrelated literal entities decode a second time.
+    const { document } = parseHTML(result);
+    expect(document.querySelector("[data-local]")?.getAttribute("src")).toBe(DATA_URL);
+    expect(document.querySelector("[data-svg]")?.getAttribute("src")).toBe(svgUrl);
+    expect(document.querySelector("main")?.getAttribute("data-chart")).toBe("&copy;");
+    expect(document.querySelector("main")?.getAttribute("data-number")).toBe("&#169;");
+    expect(document.querySelector("script")?.textContent).toBe('const label = "&copy;";');
+    expect(await readFile(source, "utf8")).toBe(widgetCode);
+  });
+
   it.each(["host", "container", "relative"] as const)(
     "embeds nested image URLs from a %s source path",
     async (kind) => {

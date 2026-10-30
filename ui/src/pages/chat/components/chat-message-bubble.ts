@@ -212,6 +212,7 @@ export function renderGroupedMessage(
   const toolCards = (opts.showToolCalls ?? true) ? extractToolCardsCached(message, messageKey) : [];
   const hasToolCards = toolCards.length > 0;
   const imageRenderOptions = {
+    embedSandboxMode: opts.embedSandboxMode,
     localMediaPreviewRoots: opts.localMediaPreviewRoots ?? [],
     basePath: opts.basePath,
     sessionKey: opts.sessionKey,

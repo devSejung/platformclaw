@@ -1,9 +1,8 @@
 import { html, nothing } from "lit";
-import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
 import "./chat-audio-player.ts";
 import "./chat-video-player.ts";
-import { safeAttachmentHref } from "./chat-attachment-href.ts";
+import { isHtmlAttachment } from "./chat-html-attachment.ts";
 import {
   ASSISTANT_ATTACHMENT_MEDIA_TICKET_MAX_REFRESH_RETRIES,
   ASSISTANT_ATTACHMENT_MEDIA_TICKET_REFRESH_SKEW_MS,
@@ -22,6 +21,7 @@ import {
   type AssistantAttachmentAvailability,
   type ManagedAttachmentAvailability,
 } from "./chat-message-attachment-availability.ts";
+import { renderAssistantAttachmentCard } from "./chat-message-attachment-card.ts";
 import { renderAssistantAttachmentStatusCard } from "./chat-message-attachment-status.ts";
 import { openResolvedImage } from "./chat-message-image-open.ts";
 import {
@@ -680,23 +680,19 @@ export function renderAssistantAttachments(
             reason: availability.status === "unavailable" ? availability.reason : undefined,
           });
         }
-        const downloadHref = safeAttachmentHref(attachmentUrl);
-        return html`
-          <div class="chat-assistant-attachment-card">
-            <span class="chat-assistant-attachment-card__icon">${icons.paperclip}</span>
-            ${downloadHref
-              ? html`<a
-                  class="chat-assistant-attachment-card__link"
-                  href=${downloadHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  >${attachment.label}</a
-                >`
-              : html`<span class="chat-assistant-attachment-card__title"
-                  >${attachment.label}</span
-                >`}
-          </div>
-        `;
+        if (
+          isManagedOutgoingMediaSource(attachment.url) &&
+          isHtmlAttachment(attachment.mimeType, attachment.label)
+        ) {
+          return html`<openclaw-chat-html-attachment
+            .src=${attachmentUrl}
+            .sourceIdentity=${attachment.url}
+            .label=${attachment.label}
+            .embedSandboxMode=${opts?.embedSandboxMode ?? "scripts"}
+            .onMediaLoaded=${opts?.onAssistantAttachmentLoaded}
+          ></openclaw-chat-html-attachment>`;
+        }
+        return renderAssistantAttachmentCard({ url: attachmentUrl, label: attachment.label });
       })}
     </div>
   `;

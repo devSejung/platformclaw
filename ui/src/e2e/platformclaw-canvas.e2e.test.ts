@@ -8,9 +8,10 @@ import { PlatformClawBrowserCanvasRelay } from "../../../packages/platformclaw-c
 import { PlatformClawBrowserMediaRelay } from "../../../packages/platformclaw-control-plane/src/browser-media-http.js";
 import { filterToolsByPolicy } from "../../../src/agents/agent-tools.policy.js";
 import { createOpenClawTools } from "../../../src/agents/openclaw-tools.js";
-import { createSandboxFsBridge } from "../../../src/agents/sandbox/fs-bridge.js";
-import { createSandboxFsBridgeFromResolver } from "../../../src/agents/test-helpers/host-sandbox-fs-bridge.js";
 import { expandToolGroups } from "../../../src/agents/tool-policy-shared.js";
+import { getReplyPayloadMetadata } from "../../../src/auto-reply/reply-payload.js";
+import { buildReplyPayloads } from "../../../src/auto-reply/reply/agent-runner-payloads.js";
+import { createReplyMediaPathNormalizer } from "../../../src/auto-reply/reply/reply-media-paths.js";
 import { resolveCanvasNodeCapability } from "../../../src/canvas/constants.js";
 import { replaceSessionEntry } from "../../../src/config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../../../src/config/types.openclaw.js";
@@ -25,6 +26,7 @@ import { normalizeWebchatReplyMediaPathsForDisplay } from "../../../src/gateway/
 import { appendAssistantTranscriptMessage } from "../../../src/gateway/server-methods/chat-transcript-persistence.js";
 import type { GatewayWsClient } from "../../../src/gateway/server/ws-types.js";
 import { withAgentMediaContext } from "../../../src/media/agent-media-context.js";
+import { getAgentScopedMediaLocalRoots } from "../../../src/media/local-roots.js";
 import { withEnvAsync } from "../../../src/test-utils/env.js";
 import { createOpenClawTestState } from "../../../src/test-utils/openclaw-test-state.js";
 import {
@@ -36,7 +38,9 @@ import {
 } from "../test-helpers/control-ui-e2e.ts";
 import {
   canvasPromptProbeMarkup,
+  createCanvasExecutionBridge,
   exerciseCanvasPromptDelivery,
+  exerciseHtmlAttachmentPreview,
 } from "./platformclaw-canvas.test-support.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
@@ -101,7 +105,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
     { label: "Basic", target: "platform_server", locale: "en-US" },
     { label: "Assigned VM", target: "assigned_vm", locale: "ko-KR" },
   ] as const)(
-    "renders show_widget through the BFF on $label",
+    "renders inline widgets and saved HTML attachment previews through the BFF on $label",
     async ({ label, target, locale }) => {
       const state = await createOpenClawTestState({ prefix: "platformclaw-canvas-e2e-" });
       const stateDir = state.stateDir;
@@ -109,31 +113,36 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
       await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, async () => {
         const generatedWorkspace = path.join(stateDir, "workspace");
         const generatedDocumentSource = path.join(generatedWorkspace, generatedDocumentName);
-        await mkdir(generatedWorkspace, { recursive: true });
-        const basicBridge = createSandboxFsBridge({
-          sandbox: {
-            workspaceDir: generatedWorkspace,
-            agentWorkspaceDir: generatedWorkspace,
-            workspaceAccess: "rw",
-            containerName: "canvas-e2e-unused",
-            containerWorkdir: "/workspace",
-            docker: {},
-          },
+        const runtimeWorkspace = path.join(stateDir, `${target}-runtime`);
+        const runtimeDocumentSource = path.join(runtimeWorkspace, generatedDocumentName);
+        const runtimeDocumentPath = `/workspace/${generatedDocumentName}`;
+        const navigationRequests: string[] = [];
+        const navigationProbe = createServer((request, response) => {
+          navigationRequests.push(request.url ?? "/");
+          response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          response.end("<h1>Navigation tripwire</h1>");
         });
-        // Local mapping covers the assigned-VM bridge contract. A separate
-        // real SSH fixture proves remote execution without an operator VM.
-        const assignedVmBridge = createSandboxFsBridgeFromResolver((filePath, cwd) => {
-          const remoteCwd = cwd?.startsWith("/workspace") ? cwd : "/workspace";
-          const containerPath = path.posix.resolve(remoteCwd, filePath);
-          if (containerPath !== "/workspace" && !containerPath.startsWith("/workspace/")) {
-            throw new Error("escapes assigned VM workspace");
-          }
-          const relativePath = path.posix.relative("/workspace", containerPath);
-          return {
-            hostPath: path.join(generatedWorkspace, ...relativePath.split("/").filter(Boolean)),
-            relativePath,
-            containerPath,
-          };
+        const navigationOrigin = await listen(navigationProbe);
+        onTestFinished(() => close(navigationProbe));
+        const navigationUrl = `${navigationOrigin}/blocked-navigation`;
+        const probeResponse = await fetch(navigationUrl);
+        expect(probeResponse.status).toBe(200);
+        expect(await probeResponse.text()).toContain("Navigation tripwire");
+        expect(navigationRequests).toEqual(["/blocked-navigation"]);
+        const navigationRequestBaseline = navigationRequests.length;
+        await Promise.all([
+          mkdir(generatedWorkspace, { recursive: true }),
+          mkdir(runtimeWorkspace, { recursive: true }),
+        ]);
+        const widgetBridge = createCanvasExecutionBridge({
+          target,
+          workspaceDir: generatedWorkspace,
+          agentWorkspaceDir: generatedWorkspace,
+        });
+        const runtimeBridge = createCanvasExecutionBridge({
+          target,
+          workspaceDir: runtimeWorkspace,
+          agentWorkspaceDir: generatedWorkspace,
         });
         const config: OpenClawConfig = {
           agents: { entries: { [agentId]: { default: true, workspace: generatedWorkspace } } },
@@ -155,7 +164,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             wrapBeforeToolCallHook: false,
             workspaceDir: generatedWorkspace,
             sandboxRoot: target === "assigned_vm" ? "/workspace" : generatedWorkspace,
-            sandboxFsBridge: target === "assigned_vm" ? assignedVmBridge : basicBridge,
+            sandboxFsBridge: widgetBridge,
           }),
           { deny: expandToolGroups(config.tools?.deny) },
         );
@@ -182,7 +191,13 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           '<img data-proof-relative-image src="pixel.png" alt="Workspace image">',
           `<img data-proof-image src="data:image/png;base64,${inlineImageBase64}" alt="Inline image">`,
           '<img data-proof-blob-image alt="Blob image">',
-          `<script>document.querySelector("[data-proof-blob-image]").src=URL.createObjectURL(new Blob([Uint8Array.from(atob("${inlineImageBase64}"),character=>character.charCodeAt(0))],{type:"image/png"}))</script>`,
+          '<svg data-proof-svg width="24" height="24" viewBox="0 0 24 24" aria-label="Inline SVG"><defs><circle id="preview-dot" cx="12" cy="12" r="10" fill="currentColor"/></defs><use data-proof-svg-use href="#preview-dot"/></svg>',
+          '<a data-proof-fragment href="#preview-details">Report details</a><section id="preview-details" data-proof-details>Saved report details</section>',
+          '<canvas data-proof-chart height="32" aria-label="Viewport sized chart"></canvas>',
+          "<button data-proof-navigation>Test isolated navigation</button><output data-proof-navigation-result>idle</output>",
+          `<script>window.addEventListener("load",()=>{window.htmlPreviewAuthoredScriptRan=true;const chart=document.querySelector("[data-proof-chart]");chart.width=document.documentElement.clientWidth;chart.dataset.proofInitWidth=String(chart.width);const context=chart.getContext("2d");context.fillStyle="teal";context.fillRect(0,0,chart.width,24);document.querySelector("[data-proof-blob-image]").src=URL.createObjectURL(new Blob([Uint8Array.from(atob("${inlineImageBase64}"),character=>character.charCodeAt(0))],{type:"image/png"}))})</script>`,
+          `<script>document.querySelector("[data-proof-navigation]").onclick=()=>{document.querySelector("[data-proof-navigation-result]").textContent="attempted";location.assign(${JSON.stringify(navigationUrl)})}</script>`,
+          '<img data-proof-entity-image src="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221%22%20height=%221%22%3E%3Ctext%3EA&amp;amp;B%3C/text%3E%3C/svg%3E" alt="Entity SVG"><div data-proof-entity-data data-chart="&amp;copy;">Encoded chart data</div>',
           "</main>",
         ].join("");
         await writeFile(generatedDocumentSource, widgetCode);
@@ -208,24 +223,64 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         if (!documentPath) {
           throw new Error("show_widget did not return a document URL");
         }
+        // The saved report belongs to the selected execution target. A matching
+        // Gateway workspace file must never substitute for its runtime bytes.
+        await writeFile(runtimeDocumentSource, widgetCode);
+        await writeFile(
+          generatedDocumentSource,
+          "<!doctype html><h1>Gateway bytes must not win</h1>",
+        );
+        const runtimeReads: Array<{ target: string; filePath: string }> = [];
+        const { replyPayloads } = await buildReplyPayloads({
+          config,
+          payloads: [{ text: `Generated HTML document\nMEDIA:${runtimeDocumentPath}` }],
+          isHeartbeat: false,
+          didLogHeartbeatStrip: false,
+          blockStreamingEnabled: false,
+          blockReplyPipeline: null,
+          replyToMode: "off",
+          normalizeMediaPaths: createReplyMediaPathNormalizer({
+            cfg: config,
+            agentId,
+            sessionKey,
+            workspaceDir: generatedWorkspace,
+            ownerScoped: true,
+            runtimeSandbox: {
+              outboundFileAccess: {
+                tempDir: `/tmp/platformclaw-canvas-e2e-${target}`,
+                readFile: async (request) => {
+                  const bytes = await runtimeBridge.readFile(request);
+                  runtimeReads.push({ target, filePath: request.filePath });
+                  return bytes;
+                },
+              },
+            },
+          }),
+        });
+        const runtimePayload = replyPayloads[0];
+        if (!runtimePayload?.mediaUrl) {
+          throw new Error("runtime HTML MEDIA did not produce a staged attachment");
+        }
+        expect(runtimeReads).toEqual([{ target, filePath: runtimeDocumentPath }]);
+        expect(runtimePayload.text).toBe("Generated HTML document");
+        expect(runtimePayload.trustedLocalMedia).toBeUndefined();
+        expect(runtimePayload.mediaUrl).not.toBe(runtimeDocumentPath);
+        expect(getReplyPayloadMetadata(runtimePayload)?.stagedLocalMediaUrls).toEqual([
+          runtimePayload.mediaUrl,
+        ]);
+        expect(await readFile(runtimePayload.mediaUrl, "utf8")).toBe(widgetCode);
         const normalized = await normalizeWebchatReplyMediaPathsForDisplay({
           cfg: config,
           agentId,
           sessionKey,
-          payloads: [
-            {
-              text: "Generated HTML document",
-              mediaUrl: generatedDocumentSource,
-              trustedLocalMedia: true,
-            },
-          ],
+          payloads: replyPayloads,
         });
         const persistedAssistantContent = await withAgentMediaContext(agentId, () =>
           buildAssistantDisplayContentFromReplyPayloads({
             agentId,
             sessionKey,
             payloads: normalized,
-            managedMediaLocalRoots: [generatedWorkspace],
+            managedMediaLocalRoots: getAgentScopedMediaLocalRoots(config, agentId),
           }),
         );
         const attachmentBlock = persistedAssistantContent?.find(
@@ -263,7 +318,8 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         if (!managedDownload) {
           throw new Error("generated HTML artifact has no authenticated download");
         }
-        await unlink(generatedDocumentSource);
+        await Promise.all([unlink(generatedDocumentSource), unlink(runtimeDocumentSource)]);
+        await expect(readFile(runtimeDocumentSource)).rejects.toMatchObject({ code: "ENOENT" });
 
         const gateway = createGatewayHttpServer({
           clients: new Set<GatewayWsClient>(),
@@ -404,6 +460,16 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             });
             await route.fulfill({ response });
           });
+          // Production serves these responses on the Control UI origin. Preserve the
+          // actual Gateway/BFF CSP so frame-ancestors 'self' checks that same boundary.
+          await context.route("**/api/chat/media/outgoing/**", async (route) => {
+            const requestUrl = new URL(route.request().url());
+            expect(requestUrl.origin).toBe(new URL(controlUi.baseUrl).origin);
+            const response = await route.fetch({
+              url: `${bffOrigin}${requestUrl.pathname}${requestUrl.search}`,
+            });
+            await route.fulfill({ response });
+          });
           const gatewayMock = await installMockGateway(page, {
             assistantAgentId: agentId,
             defaultAgentId: agentId,
@@ -427,7 +493,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
                   mimeType: managedDownload.mimeType,
                   download: { mode: "url" },
                 },
-                url: `${bffOrigin}${managedDownload.url}`,
+                url: new URL(managedDownload.url, controlUi.baseUrl).toString(),
                 expiresAt: managedDownload.expiresAt,
               },
             },
@@ -470,39 +536,38 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           await expect
             .poll(() => frame.locator(`[data-proof-target="${target}"]`).textContent())
             .toContain(label);
-          await expect
-            .poll(() =>
-              frame
-                .locator("[data-proof-relative-image]")
-                .evaluate((element) =>
-                  element instanceof HTMLImageElement && element.complete
-                    ? element.naturalWidth
-                    : 0,
-                ),
-            )
-            .toBe(1);
-          await expect
-            .poll(() =>
-              frame
-                .locator("[data-proof-image]")
-                .evaluate((element) =>
-                  element instanceof HTMLImageElement && element.complete
-                    ? element.naturalWidth
-                    : 0,
-                ),
-            )
-            .toBe(1);
-          await expect
-            .poll(() =>
-              frame
-                .locator("[data-proof-blob-image]")
-                .evaluate((element) =>
-                  element instanceof HTMLImageElement && element.complete
-                    ? element.naturalWidth
-                    : 0,
-                ),
-            )
-            .toBe(1);
+          for (const selector of [
+            "[data-proof-relative-image]",
+            "[data-proof-image]",
+            "[data-proof-blob-image]",
+            "[data-proof-entity-image]",
+          ]) {
+            await expect
+              .poll(() =>
+                frame
+                  .locator(selector)
+                  .evaluate((element) =>
+                    element instanceof HTMLImageElement && element.complete
+                      ? element.naturalWidth
+                      : 0,
+                  ),
+              )
+              .toBe(1);
+          }
+          expect(await frame.locator("[data-proof-entity-data]").getAttribute("data-chart")).toBe(
+            "&copy;",
+          );
+          await exerciseHtmlAttachmentPreview({
+            page,
+            gateway: gatewayMock,
+            target,
+            label,
+            phase: "initial",
+            proofDir,
+            navigationUrl,
+            navigationRequestBaseline,
+            getNavigationRequestCount: () => navigationRequests.length,
+          });
           await page.reload();
           await expect
             .poll(async () => (await gatewayMock.getRequests("plugin.surface.refresh")).length)
@@ -515,6 +580,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             "[data-proof-relative-image]",
             "[data-proof-image]",
             "[data-proof-blob-image]",
+            "[data-proof-entity-image]",
           ]) {
             await expect
               .poll(() =>
@@ -529,10 +595,24 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
               .toBe(1);
           }
           expect(
+            await reloadedFrame.locator("[data-proof-entity-data]").getAttribute("data-chart"),
+          ).toBe("&copy;");
+          expect(
             await page
               .locator('.chat-tool-card__preview[data-kind="canvas"] iframe')
               .getAttribute("src"),
           ).toBe(`${refreshedSurface.pluginSurfaceUrls.canvas}${documentPath}`);
+          await exerciseHtmlAttachmentPreview({
+            page,
+            gateway: gatewayMock,
+            target,
+            label,
+            phase: "reloaded",
+            proofDir,
+            navigationUrl,
+            navigationRequestBaseline,
+            getNavigationRequestCount: () => navigationRequests.length,
+          });
 
           const uploadedDocument = page.getByRole("link", { name: attachmentName, exact: true });
           const assistantDocument = page.getByRole("link", {

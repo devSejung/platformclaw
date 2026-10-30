@@ -1210,7 +1210,8 @@ openclaw-chat-page {
 }
 
 openclaw-chat-audio-player,
-openclaw-chat-video-player {
+openclaw-chat-video-player,
+openclaw-chat-html-attachment {
   display: block;
 }
 
@@ -1234,6 +1235,26 @@ openclaw-chat-video-player {
 
 .chat-assistant-attachment-card--audio {
   gap: 8px;
+}
+
+.chat-html-attachment {
+  display: block;
+  width: min(100%, 760px);
+}
+
+.chat-html-attachment__frame {
+  display: block;
+  width: 100%;
+  height: 440px;
+  max-height: 65vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+
+.chat-html-attachment__frame--loading {
+  /* Authored charts measure this viewport before readiness; keep its final dimensions. */
+  visibility: hidden;
 }
 
 .chat-assistant-attachment-card--video {

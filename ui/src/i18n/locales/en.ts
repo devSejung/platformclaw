@@ -5861,6 +5861,10 @@ export const en: TranslationMap = {
     },
     attachments: {
       attachedFile: "Attached file",
+      previewHtml: "Preview HTML",
+      closeHtmlPreview: "Close preview",
+      htmlPreviewUnavailable:
+        "HTML preview could not load. Reconnect and reopen the preview, or download the original file.",
       outsideAllowedFolders: "Outside allowed folders",
       unavailable: "Unavailable",
       checking: "Checking...",

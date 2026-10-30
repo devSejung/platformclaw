@@ -31,9 +31,41 @@ Do not emit text commands for attachments from tools, plugins, streaming blocks,
 Legacy final-reply text may still be normalized for compatibility, but this is not a general plugin/tool protocol.
 </Warning>
 
+### Saved HTML previews
+
+In web chat, an authorized HTML attachment offers **Preview** while preserving its
+original download. Preview renders the saved attachment snapshot in an isolated
+frame. It does not turn a server or VM path into a browser URL, start another model
+turn, or grant widget prompt and dashboard APIs.
+
+Create a self-contained HTML file in the active workspace. Use inline CSS,
+JavaScript, and SVG, and `data:`/`blob:` images. Relative and external resources are
+not bundled; unsupported static references are omitted from the preview with a
+visible notice. The original attachment is unchanged.
+
+Navigation outside the preview is blocked. If a page tries to leave the preview,
+it reports an error. Close and reopen Preview to restore the saved report, or
+download the original file.
+
+In automatic visible-reply mode, attach the file with a standalone final-reply line:
+
+```text
+Here is the report. Choose Preview to view it.
+
+MEDIA:/workspace/report.html
+```
+
+In message-tool-only mode, use the current source reply's structured `media` or
+`attachments` fields instead of a `MEDIA:` line. Tools and plugins continue to use
+structured attachment payloads. File-read, format, and delivery checks still apply;
+neither form grants access merely because the path ends in `.html`.
+
+Use [show widget](/tools/show-widget) for a separate inline visualization or dashboard
+widget. A file preview does not require the model to repeat the HTML in a tool call.
+
 ## Legacy `MEDIA:` lines
 
-Legacy final assistant replies can still attach local media with a plain
+In automatic visible-reply mode, legacy final assistant replies can still attach local media with a plain
 standalone `MEDIA:` line. The parser only recognizes lines whose trimmed text
 starts with `MEDIA:` outside Markdown wrappers and code fences.
 
