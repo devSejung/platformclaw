@@ -157,7 +157,7 @@ async function buildHtmlPreviewDocument(params: {
       }
       element.removeAttribute(attribute);
       if (element.localName === "img") {
-        const placeholder = document.createElement("span");
+        const placeholder = document.createElement("span", undefined);
         placeholder.textContent = "[Image unavailable in this isolated preview]";
         placeholder.setAttribute("role", "img");
         element.replaceWith(placeholder);
@@ -175,7 +175,7 @@ async function buildHtmlPreviewDocument(params: {
     }
   }
   for (const element of document.querySelectorAll("audio, video")) {
-    const placeholder = document.createElement("span");
+    const placeholder = document.createElement("span", undefined);
     placeholder.textContent = "[Media unavailable in this isolated preview]";
     element.replaceWith(placeholder);
     omittedAssets = true;
@@ -187,7 +187,7 @@ async function buildHtmlPreviewDocument(params: {
   if (params.strict) {
     for (const image of document.querySelectorAll("img")) {
       if (!image.getAttribute("src")?.trim()) {
-        const placeholder = document.createElement("span");
+        const placeholder = document.createElement("span", undefined);
         placeholder.textContent = "[Image unavailable in this isolated preview]";
         placeholder.setAttribute("role", "img");
         image.replaceWith(placeholder);
@@ -217,16 +217,16 @@ async function buildHtmlPreviewDocument(params: {
     omittedAssets = true;
   }
   if (omittedAssets) {
-    const notice = document.createElement("p");
+    const notice = document.createElement("p", undefined);
     notice.setAttribute("role", "status");
     notice.setAttribute("data-openclaw-html-preview-notice", "");
     notice.textContent = ASSET_NOTICE;
     document.body.prepend(notice);
   }
-  const bootstrap = document.createElement("script");
+  const bootstrap = document.createElement("script", undefined);
   bootstrap.setAttribute("nonce", params.scriptNonce);
   bootstrap.textContent = buildPreviewBootstrap(params.previewNonce, "ready");
-  const policy = document.createElement("meta");
+  const policy = document.createElement("meta", undefined);
   policy.setAttribute("http-equiv", "Content-Security-Policy");
   policy.setAttribute(
     "content",
