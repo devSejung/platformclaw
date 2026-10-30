@@ -236,6 +236,9 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
       expect(response.headers.get("content-security-policy")).toContain("base-uri 'self'");
+      expect(response.headers.get("content-security-policy")).toMatch(
+        /(?:^|;\s*)img-src 'self' data: blob:(?:;|$)/u,
+      );
       expect(response.headers.get("content-security-policy")).toContain("media-src 'self'");
       expect(body).not.toContain(PLATFORMCLAW_GUIDE_VIDEO_META_NAME);
       expect(response.headers.get("x-content-type-options")).toBe("nosniff");
@@ -469,6 +472,7 @@ describe("createPlatformClawWebAssetHandler", () => {
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(contentSecurityPolicy).toContain(`'sha256-${brandedInlineScriptHash}'`);
       expect(contentSecurityPolicy).toContain("base-uri 'self'");
+      expect(contentSecurityPolicy).toMatch(/(?:^|;\s*)img-src 'self' data: blob:(?:;|$)/u);
       expect(contentSecurityPolicy).toContain(
         "connect-src 'self' data: wss://platformclaw.example",
       );

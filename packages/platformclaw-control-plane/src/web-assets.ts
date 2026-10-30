@@ -87,7 +87,7 @@ const DOCUMENT_SECURITY_POLICY_BASE = [
   "default-src 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  "img-src 'self' data:",
+  "img-src 'self' data: blob:",
   "style-src 'self' 'unsafe-inline'",
 ];
 
