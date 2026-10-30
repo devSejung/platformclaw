@@ -2,6 +2,10 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  ANNOUNCEMENTS_HISTORY_PATH,
+  type AnnouncementHistoryPage,
+} from "../../../packages/platformclaw-control-plane/src/announcement-contracts.ts";
 import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
 import {
   canRunPlaywrightChromium,
@@ -74,6 +78,10 @@ async function newPage(role: "admin" | "member", locale = "en") {
     if (pathname.endsWith("/auth/session")) {
       await route.fulfill({
         json: { authenticated: true, user, agent: { agentId: "person_one", state: "active" } },
+      });
+    } else if (pathname === ANNOUNCEMENTS_HISTORY_PATH) {
+      await route.fulfill({
+        json: { items: [], nextCursor: null } satisfies AnnouncementHistoryPage,
       });
     } else if (pathname.includes("announcements")) {
       await route.fulfill({ json: emptyNotice() });
@@ -185,6 +193,10 @@ suite("PlatformClaw administration settings navigation", () => {
           ).toBe(false);
         } else {
           expect(await page.locator(`${entry.tag} openclaw-modal-dialog`).count()).toBe(0);
+          const history = page.locator(`${entry.tag} .history`);
+          await expect.poll(() => history.getAttribute("aria-busy")).toBe("false");
+          expect(await history.locator("[role='alert'], details").count()).toBe(0);
+          expect(adminRequests).toContainEqual({ path: ANNOUNCEMENTS_HISTORY_PATH, method: "GET" });
         }
         expect(await link.locator("svg").evaluate((svg) => svg.namespaceURI)).toBe(
           "http://www.w3.org/2000/svg",
