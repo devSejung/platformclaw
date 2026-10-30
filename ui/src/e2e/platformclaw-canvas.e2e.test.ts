@@ -116,6 +116,20 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
         const runtimeWorkspace = path.join(stateDir, `${target}-runtime`);
         const runtimeDocumentSource = path.join(runtimeWorkspace, generatedDocumentName);
         const runtimeDocumentPath = `/workspace/${generatedDocumentName}`;
+        const navigationRequests: string[] = [];
+        const navigationProbe = createServer((request, response) => {
+          navigationRequests.push(request.url ?? "/");
+          response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          response.end("<h1>Navigation tripwire</h1>");
+        });
+        const navigationOrigin = await listen(navigationProbe);
+        onTestFinished(() => close(navigationProbe));
+        const navigationUrl = `${navigationOrigin}/blocked-navigation`;
+        const probeResponse = await fetch(navigationUrl);
+        expect(probeResponse.status).toBe(200);
+        expect(await probeResponse.text()).toContain("Navigation tripwire");
+        expect(navigationRequests).toEqual(["/blocked-navigation"]);
+        const navigationRequestBaseline = navigationRequests.length;
         await Promise.all([
           mkdir(generatedWorkspace, { recursive: true }),
           mkdir(runtimeWorkspace, { recursive: true }),
@@ -182,7 +196,7 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
           '<canvas data-proof-chart height="32" aria-label="Viewport sized chart"></canvas>',
           "<button data-proof-navigation>Test isolated navigation</button><output data-proof-navigation-result>idle</output>",
           `<script>window.addEventListener("load",()=>{window.htmlPreviewAuthoredScriptRan=true;const chart=document.querySelector("[data-proof-chart]");chart.width=document.documentElement.clientWidth;chart.dataset.proofInitWidth=String(chart.width);const context=chart.getContext("2d");context.fillStyle="teal";context.fillRect(0,0,chart.width,24);document.querySelector("[data-proof-blob-image]").src=URL.createObjectURL(new Blob([Uint8Array.from(atob("${inlineImageBase64}"),character=>character.charCodeAt(0))],{type:"image/png"}))})</script>`,
-          '<script>document.querySelector("[data-proof-navigation]").onclick=()=>{document.querySelector("[data-proof-navigation-result]").textContent="attempted";location.assign("https://html-preview-navigation.invalid/leak")}</script>',
+          `<script>document.querySelector("[data-proof-navigation]").onclick=()=>{document.querySelector("[data-proof-navigation-result]").textContent="attempted";location.assign(${JSON.stringify(navigationUrl)})}</script>`,
           '<img data-proof-entity-image src="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221%22%20height=%221%22%3E%3Ctext%3EA&amp;amp;B%3C/text%3E%3C/svg%3E" alt="Entity SVG"><div data-proof-entity-data data-chart="&amp;copy;">Encoded chart data</div>',
           "</main>",
         ].join("");
@@ -550,6 +564,9 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             label,
             phase: "initial",
             proofDir,
+            navigationUrl,
+            navigationRequestBaseline,
+            getNavigationRequestCount: () => navigationRequests.length,
           });
           await page.reload();
           await expect
@@ -592,6 +609,9 @@ describeControlUiE2e("PlatformClaw browser Canvas delivery", () => {
             label,
             phase: "reloaded",
             proofDir,
+            navigationUrl,
+            navigationRequestBaseline,
+            getNavigationRequestCount: () => navigationRequests.length,
           });
 
           const uploadedDocument = page.getByRole("link", { name: attachmentName, exact: true });

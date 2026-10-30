@@ -43,6 +43,10 @@ JavaScript, and SVG, and `data:`/`blob:` images. Relative and external resources
 not bundled; unsupported static references are omitted from the preview with a
 visible notice. The original attachment is unchanged.
 
+Navigation outside the preview is blocked. If a page tries to leave the preview,
+it reports an error. Close and reopen Preview to restore the saved report, or
+download the original file.
+
 In automatic visible-reply mode, attach the file with a standalone final-reply line:
 
 ```text

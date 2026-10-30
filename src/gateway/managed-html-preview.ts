@@ -82,7 +82,16 @@ function buildHtmlPreviewShell(
     .replaceAll("\u2029", "\\u2029");
   const encodedNonce = JSON.stringify(previewNonce);
   const encodedMessageType = JSON.stringify(PREVIEW_MESSAGE_TYPE);
-  const bootstrap = `(()=>{const childHtml=${encodedHtml};const frame=document.createElement("iframe");frame.setAttribute("sandbox","allow-scripts");frame.setAttribute("title","HTML attachment preview");window.addEventListener("message",event=>{for(const port of event.ports||[])port.close();const data=event.data;if(event.source!==frame.contentWindow||!data||data.type!==${encodedMessageType}||data.nonce!==${encodedNonce}||(data.status!=="ready"&&data.status!=="error"))return;parent.postMessage({type:${encodedMessageType},nonce:${encodedNonce},status:data.status,...(typeof data.message==="string"?{message:data.message.slice(0,500)}:{})},"*")});frame.srcdoc=childHtml;document.body.append(frame)})();`;
+  const navigationError = JSON.stringify({
+    type: PREVIEW_MESSAGE_TYPE,
+    nonce: previewNonce,
+    status: "error",
+    message:
+      "Navigation is unavailable in this isolated preview. Close and reopen the preview, or download the original HTML.",
+  });
+  // Browsers may replace a CSP-blocked child navigation with an error document.
+  // Latch the visible failure so delayed child readiness cannot hide recovery.
+  const bootstrap = `(()=>{const childHtml=${encodedHtml};let failed=false;const frame=document.createElement("iframe");frame.setAttribute("sandbox","allow-scripts");frame.setAttribute("title","HTML attachment preview");window.addEventListener("securitypolicyviolation",event=>{if(event.effectiveDirective!=="frame-src"||failed)return;failed=true;parent.postMessage(${navigationError},"*")});window.addEventListener("message",event=>{for(const port of event.ports||[])port.close();const data=event.data;if(failed||event.source!==frame.contentWindow||!data||data.type!==${encodedMessageType}||data.nonce!==${encodedNonce}||(data.status!=="ready"&&data.status!=="error"))return;failed=data.status==="error";parent.postMessage({type:${encodedMessageType},nonce:${encodedNonce},status:data.status,...(typeof data.message==="string"?{message:data.message.slice(0,500)}:{})},"*")});frame.srcdoc=childHtml;document.body.append(frame)})();`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{width:100%;height:100%;margin:0}iframe{display:block;width:100%;height:100%;border:0}</style></head><body><script nonce="${scriptNonce}">${bootstrap}</script></body></html>`;
 }
 
@@ -93,12 +102,14 @@ async function buildHtmlPreviewDocument(params: {
   previewNonce: string;
   strict: boolean;
 }): Promise<string> {
-  const { parseHTML } = await import("linkedom");
-  let { document } = parseHTML(params.source);
+  const { DOMParser } = await import("linkedom");
+  const parser = new DOMParser();
+  let document = parser.parseFromString(params.source, "text/html");
   if (document.documentElement?.localName !== "html") {
-    ({ document } = parseHTML(
+    document = parser.parseFromString(
       `<!doctype html><html><head></head><body>${params.source}</body></html>`,
-    ));
+      "text/html",
+    );
   }
   let omittedAssets = false;
   for (const element of document.querySelectorAll(

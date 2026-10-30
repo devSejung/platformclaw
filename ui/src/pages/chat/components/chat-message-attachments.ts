@@ -1,9 +1,7 @@
 import { html, nothing } from "lit";
-import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
 import "./chat-audio-player.ts";
 import "./chat-video-player.ts";
-import { safeAttachmentHref } from "./chat-attachment-href.ts";
 import { isHtmlAttachment } from "./chat-html-attachment.ts";
 import {
   ASSISTANT_ATTACHMENT_MEDIA_TICKET_MAX_REFRESH_RETRIES,
@@ -23,6 +21,7 @@ import {
   type AssistantAttachmentAvailability,
   type ManagedAttachmentAvailability,
 } from "./chat-message-attachment-availability.ts";
+import { renderAssistantAttachmentCard } from "./chat-message-attachment-card.ts";
 import { renderAssistantAttachmentStatusCard } from "./chat-message-attachment-status.ts";
 import { openResolvedImage } from "./chat-message-image-open.ts";
 import {
@@ -693,23 +692,7 @@ export function renderAssistantAttachments(
             .onMediaLoaded=${opts?.onAssistantAttachmentLoaded}
           ></openclaw-chat-html-attachment>`;
         }
-        const downloadHref = safeAttachmentHref(attachmentUrl);
-        return html`
-          <div class="chat-assistant-attachment-card">
-            <span class="chat-assistant-attachment-card__icon">${icons.paperclip}</span>
-            ${downloadHref
-              ? html`<a
-                  class="chat-assistant-attachment-card__link"
-                  href=${downloadHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  >${attachment.label}</a
-                >`
-              : html`<span class="chat-assistant-attachment-card__title"
-                  >${attachment.label}</span
-                >`}
-          </div>
-        `;
+        return renderAssistantAttachmentCard({ url: attachmentUrl, label: attachment.label });
       })}
     </div>
   `;

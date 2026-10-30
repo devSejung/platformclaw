@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { Page, Request } from "playwright";
+import type { Page } from "playwright";
 import { expect } from "vitest";
 import { createSandboxFsBridge } from "../../../src/agents/sandbox/fs-bridge.js";
 import { createSandboxFsBridgeFromResolver } from "../../../src/agents/test-helpers/host-sandbox-fs-bridge.js";
@@ -93,6 +93,9 @@ export async function exerciseHtmlAttachmentPreview(params: {
   label: string;
   phase: "initial" | "reloaded";
   proofDir: string;
+  navigationUrl: string;
+  navigationRequestBaseline: number;
+  getNavigationRequestCount: () => number;
 }): Promise<void> {
   const { page, gateway, target, label, phase, proofDir } = params;
   const sendsBeforePreview = (await gateway.getRequests("chat.send")).length;
@@ -218,38 +221,54 @@ export async function exerciseHtmlAttachmentPreview(params: {
     authoredScriptRan: true,
     brokenImages: 0,
   });
-  const navigationRequests: string[] = [];
-  const onRequest = (request: Request) => {
-    if (new URL(request.url()).hostname === "html-preview-navigation.invalid") {
-      navigationRequests.push(request.url());
-    }
-  };
-  await outer.locator("body").evaluate(() => {
-    window.addEventListener("securitypolicyviolation", (event) => {
-      if (event.effectiveDirective === "frame-src") {
-        window.document.body.setAttribute("data-proof-navigation-blocked", event.blockedURI);
-      }
-    });
-  });
-  page.on("request", onRequest);
-  try {
-    await document.locator("[data-proof-navigation]").click();
-    await expect
-      .poll(() => outer.locator("body").getAttribute("data-proof-navigation-blocked"))
-      .toContain("https://html-preview-navigation.invalid");
-    expect(await document.locator("[data-proof-navigation-result]").textContent()).toBe(
-      "attempted",
-    );
-    expect(await document.locator(`[data-proof-target="${target}"]`).textContent()).toContain(
-      label,
-    );
-    expect(navigationRequests).toEqual([]);
-  } finally {
-    page.off("request", onRequest);
-  }
   await iframe.scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(proofDir, `${target}-html-preview-${phase}.png`),
+    fullPage: true,
+  });
+
+  // Chromium may replace a CSP-blocked child with an error document. The trusted
+  // outer shell must turn that non-outcome into a visible error, never a blank frame.
+  expect(new URL(params.navigationUrl).pathname).toBe("/blocked-navigation");
+  await document.locator("[data-proof-navigation]").click();
+  await expect
+    .poll(() => attachment.locator('[role="status"]').textContent())
+    .toContain("Navigation is unavailable in this isolated preview");
+  await iframe.waitFor({ state: "detached" });
+  expect(params.getNavigationRequestCount()).toBe(params.navigationRequestBaseline);
+  expect(await attachment.locator("a").first().getAttribute("href")).not.toContain("preview=1");
+  expect(await attachment.locator("a").first().getAttribute("href")).toContain(source.pathname);
+  await page.screenshot({
+    path: path.join(proofDir, `${target}-html-preview-${phase}-navigation-blocked.png`),
+    fullPage: true,
+  });
+  await attachment.getByRole("button", { name: "Close preview", exact: true }).click();
+  const [recoveredResponse] = await Promise.all([
+    page.waitForResponse((candidate) => {
+      const url = new URL(candidate.url());
+      return url.pathname === source.pathname && url.searchParams.get("preview") === "1";
+    }),
+    attachment.getByRole("button", { name: "Preview HTML", exact: true }).click(),
+  ]);
+  expect(recoveredResponse.status()).toBe(200);
+  await iframe.waitFor({ state: "visible" });
+  const recoveredSource = new URL((await iframe.getAttribute("src")) ?? "", page.url());
+  expect(recoveredSource.searchParams.get("previewNonce")).not.toBe(
+    source.searchParams.get("previewNonce"),
+  );
+  await document.getByRole("heading", { name: label, exact: true }).waitFor();
+  await expect
+    .poll(() =>
+      document
+        .locator("[data-proof-entity-image]")
+        .evaluate((element) =>
+          element instanceof HTMLImageElement && element.complete ? element.naturalWidth : 0,
+        ),
+    )
+    .toBe(1);
+  expect(params.getNavigationRequestCount()).toBe(params.navigationRequestBaseline);
+  await page.screenshot({
+    path: path.join(proofDir, `${target}-html-preview-${phase}-recovered.png`),
     fullPage: true,
   });
   const [strictResponse] = await Promise.all([

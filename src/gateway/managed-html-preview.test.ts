@@ -10,17 +10,24 @@ import { serveManagedHtmlPreview } from "./managed-html-preview.js";
 
 const NONCE = "preview-request-123456";
 
+type PreviewShellEvent = {
+  source?: unknown;
+  data?: unknown;
+  ports?: { close: () => void }[];
+  effectiveDirective?: string;
+};
+
 function inspectPreviewShell(source: string) {
   const { document } = parseHTML(source);
   const scripts = [...document.querySelectorAll("script")];
   expect(scripts).toHaveLength(1);
-  let listener: ((event: MessageEvent) => void) | undefined;
+  const listeners = new Map<string, (event: PreviewShellEvent) => void>();
   const postMessage = vi.fn();
   runInNewContext(scripts[0]!.textContent ?? "", {
     document,
     window: {
-      addEventListener: (_type: string, callback: (event: MessageEvent) => void) => {
-        listener = callback;
+      addEventListener: (type: string, callback: (event: PreviewShellEvent) => void) => {
+        listeners.set(type, callback);
       },
     },
     parent: { postMessage },
@@ -29,7 +36,7 @@ function inspectPreviewShell(source: string) {
   if (!frame) {
     throw new Error("Preview shell did not create its isolated child");
   }
-  return { document, frame, childText: frame.srcdoc, listener, postMessage };
+  return { document, frame, childText: frame.srcdoc, listeners, postMessage };
 }
 
 describe("managed HTML preview", () => {
@@ -38,9 +45,12 @@ describe("managed HTML preview", () => {
 
   afterEach(async () => {
     await Promise.all(
-      servers
-        .splice(0)
-        .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+      servers.splice(0).map(
+        (server) =>
+          new Promise<void>((resolve) => {
+            server.close(() => resolve());
+          }),
+      ),
     );
     await Promise.all(
       directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
@@ -83,10 +93,14 @@ describe("managed HTML preview", () => {
             return authorized;
           },
         });
-      })().catch((error) => response.destroy(error));
+      })().catch((error: unknown) => {
+        response.destroy(error instanceof Error ? error : new Error(String(error)));
+      });
     });
     servers.push(server);
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
     const response = await fetch(
       `http://127.0.0.1:${(server.address() as AddressInfo).port}/?previewNonce=${NONCE}${options.query ?? ""}`,
       { method: options.method ?? "GET" },
@@ -328,14 +342,20 @@ describe("managed HTML preview", () => {
     expect(shell.frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(shell.childText).toContain("<h1>Report</h1>");
     const close = vi.fn();
-    shell.listener?.({
+    shell.listeners.get("message")?.({
       source: {},
       data: { type: "openclaw:html-attachment-preview", nonce: NONCE, status: "ready" },
       ports: [{ close }],
-    } as unknown as MessageEvent);
+    });
     expect(close).toHaveBeenCalledOnce();
     expect(shell.postMessage).not.toHaveBeenCalled();
-    shell.listener?.({
+    shell.listeners.get("message")?.({
+      source: shell.frame.contentWindow,
+      data: { type: "openclaw:html-attachment-preview", nonce: "another-preview", status: "ready" },
+      ports: [],
+    });
+    expect(shell.postMessage).not.toHaveBeenCalled();
+    shell.listeners.get("message")?.({
       source: shell.frame.contentWindow,
       data: {
         type: "openclaw:html-attachment-preview",
@@ -344,7 +364,7 @@ describe("managed HTML preview", () => {
         unexpected: "must not cross",
       },
       ports: [],
-    } as unknown as MessageEvent);
+    });
     expect(shell.postMessage).toHaveBeenCalledOnce();
     expect(shell.postMessage.mock.calls[0]?.[0]).toMatchObject({
       type: "openclaw:html-attachment-preview",
@@ -352,5 +372,32 @@ describe("managed HTML preview", () => {
       status: "ready",
     });
     expect(shell.postMessage.mock.calls[0]?.[0]).not.toHaveProperty("unexpected");
+  });
+
+  it("reports blocked child navigation once and does not let later readiness hide recovery", async () => {
+    const result = await preview("<h1>Report</h1>");
+    const shell = inspectPreviewShell(result.text);
+    shell.listeners.get("securitypolicyviolation")?.({ effectiveDirective: "img-src" });
+    expect(shell.postMessage).not.toHaveBeenCalled();
+    shell.listeners.get("securitypolicyviolation")?.({ effectiveDirective: "frame-src" });
+    expect(shell.postMessage).toHaveBeenCalledExactlyOnceWith(
+      {
+        type: "openclaw:html-attachment-preview",
+        nonce: NONCE,
+        status: "error",
+        message:
+          "Navigation is unavailable in this isolated preview. Close and reopen the preview, or download the original HTML.",
+      },
+      "*",
+    );
+    const close = vi.fn();
+    shell.listeners.get("message")?.({
+      source: shell.frame.contentWindow,
+      data: { type: "openclaw:html-attachment-preview", nonce: NONCE, status: "ready" },
+      ports: [{ close }],
+    });
+    shell.listeners.get("securitypolicyviolation")?.({ effectiveDirective: "frame-src" });
+    expect(close).toHaveBeenCalledOnce();
+    expect(shell.postMessage).toHaveBeenCalledOnce();
   });
 });
