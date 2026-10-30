@@ -266,20 +266,19 @@ describeControlUiE2e("Control UI chat attachment read lifecycle", () => {
       const { context, page } = await newPage();
       const isNew = composerKind === "new";
       const sessionKey = "agent:main:employee-image-preview";
-      const gateway = await installMockGateway(page, {
-        ...(isNew
-          ? {
-              methodResponses: {
-                "sessions.create": {
-                  key: sessionKey,
-                  runId: "image-preview-run",
-                  runStarted: true,
-                  messageSeq: 1,
-                },
+      const gatewayScenario: ControlUiMockGatewayScenario = isNew
+        ? {
+            methodResponses: {
+              "sessions.create": {
+                key: sessionKey,
+                runId: "image-preview-run",
+                runStarted: true,
+                messageSeq: 1,
               },
-            }
-          : {}),
-      });
+            },
+          }
+        : {};
+      const gateway = await installMockGateway(page, gatewayScenario);
 
       try {
         await page.goto(`${server.baseUrl}${isNew ? "new" : "chat"}`);
