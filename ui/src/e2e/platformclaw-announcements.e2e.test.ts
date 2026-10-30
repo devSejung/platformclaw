@@ -66,9 +66,10 @@ async function newPage(
   const page = await context.newPage();
   await installPlatformClawDocument(page, ui.baseUrl);
   await page.route("**/platformclaw/api/**", async (route) => {
-    const pathname = new URL(route.request().url()).pathname;
+    const url = new URL(route.request().url());
+    const pathname = url.pathname;
     if (pathname.includes("/announcements")) {
-      const response = await fetch(`${base}${pathname}`, {
+      const response = await fetch(`${base}${pathname}${url.search}`, {
         method: route.request().method(),
         headers: {
           Origin: ORIGIN,
@@ -193,6 +194,185 @@ afterAll(async () => {
 });
 
 describe("global web announcements", () => {
+  it("publishes directly and keeps desktop announcement history read-only across reloads", async () => {
+    const { page } = await newPage("admin.test");
+    const claims: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.endsWith("/announcements/seen")) {
+        claims.push(request.url());
+      }
+    });
+    const admin = await openAdmin(page);
+    await admin.locator('[name="title"]').fill("Discard this preview");
+    await admin.locator('[name="body"]').fill("An unfinished maintenance draft");
+    await admin.locator('[name="kind"]').selectOption("maintenance");
+    await admin.locator('[data-action="preview"]').click();
+    await admin.locator(".preview").waitFor();
+    now += 5 * 60_000;
+    await page.clock.setFixedTime(now);
+    await admin.locator('[data-action="new"]').click();
+    await expect.poll(() => admin.locator(".preview").count()).toBe(0);
+    expect(await admin.locator('[name="title"]').inputValue()).toBe("");
+    expect(await admin.locator('[name="body"]').inputValue()).toBe("");
+    expect(await admin.locator('[name="kind"]').inputValue()).toBe("general");
+    expect(await admin.locator('[name="expiresAt"]').inputValue()).toBe(
+      localTime(now + 24 * 60 * 60_000),
+    );
+    await admin.locator('[name="kind"]').selectOption("maintenance");
+    expect(await admin.locator('[name="maintenanceAt"]').inputValue()).toBe(localTime(now));
+    await admin.locator('[name="kind"]').selectOption("general");
+    await admin.locator("form").scrollIntoViewIfNeeded();
+    await shot(page, "desktop-history-01-fresh-draft.png");
+    for (const viewport of [
+      { width: 1280, height: 720 },
+      { width: 1440, height: 900 },
+      { width: 1920, height: 1080 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await admin.locator('[data-action="publish"]').scrollIntoViewIfNeeded();
+      expect(await admin.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+      const publish = await admin.locator('[data-action="publish"]').boundingBox();
+      expect(publish!.y).toBeGreaterThanOrEqual(0);
+      expect(publish!.y + publish!.height).toBeLessThanOrEqual(viewport.height);
+      await shot(page, `desktop-compose-${viewport.width}x${viewport.height}.png`);
+    }
+    await page.setViewportSize({ width: 1440, height: 960 });
+
+    const firstBody = `<script>window.historyXss = true</script>\n${Array.from(
+      { length: 35 },
+      (_, index) => `Original announcement line ${index + 1}`,
+    ).join("\n")}\nOriginal full-text ending`;
+    await admin.locator('[name="title"]').fill("Directly published notice");
+    await admin.locator('[name="body"]').fill(firstBody);
+    await admin.locator('[data-action="publish"]').click();
+    await expect.poll(() => store.announcements.snapshot(now).revision).toBe(1);
+    await expect
+      .poll(() => admin.locator(".current strong").textContent())
+      .toBe("Directly published notice");
+    await expect.poll(() => admin.locator(".history details").count()).toBe(1);
+    expect(await admin.locator(".preview").count()).toBe(0);
+    expect(await admin.locator('[name="title"]').inputValue()).toBe("");
+    expect(store.announcements.snapshot(now).announcement?.body).toBe(firstBody);
+    await admin.locator(".current").scrollIntoViewIfNeeded();
+    await shot(page, "desktop-history-02-direct-publish.png");
+
+    await admin.locator('[data-action="edit-current"]').click();
+    expect(await admin.locator('[name="body"]').inputValue()).toBe(firstBody);
+    const editedBody = "Updated announcement body\nThe original revision remains readable.";
+    await admin.locator('[name="title"]').fill("Explicitly edited notice");
+    await admin.locator('[name="body"]').fill(editedBody);
+    now += 60_000;
+    await page.clock.setFixedTime(now);
+    await admin.locator('[name="kind"]').selectOption("maintenance");
+    await admin.locator('[name="maintenanceAt"]').fill(localTime(now + 600_000));
+    await admin.locator('[data-action="update"]').click();
+    await expect.poll(() => store.announcements.snapshot(now).revision).toBe(2);
+    await expect
+      .poll(() => admin.locator(".current strong").textContent())
+      .toBe("Explicitly edited notice");
+    expect(await admin.locator(".preview").count()).toBe(0);
+
+    now += 60_000;
+    await page.clock.setFixedTime(now);
+    await admin.locator('[data-action="new"]').click();
+    await admin.locator('[name="title"]').fill("Replacement notice");
+    await admin.locator('[name="body"]').fill("Replacement body");
+    await admin.locator('[data-action="publish"]').click();
+    await expect
+      .poll(() => admin.locator(".current strong").textContent())
+      .toBe("Replacement notice");
+    now += 60_000;
+    await page.clock.setFixedTime(now);
+    await admin.locator('[data-action="cancel"]').click();
+    await admin.locator('[data-action="cancel-confirm"]').click();
+    await expect.poll(() => store.announcements.snapshot(now).revision).toBe(4);
+    await expect.poll(() => admin.locator(".history details").count()).toBe(4);
+    expect(store.announcements.snapshot(now).announcement).toBeNull();
+    await admin.locator('[name="title"]').fill("Unpublished next draft");
+    const maintenance = admin.locator(".history details").nth(2);
+    await maintenance.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => maintenance.getAttribute("open")).toBe("");
+    expect(await maintenance.locator(".body").textContent()).toBe(editedBody);
+    expect(await maintenance.textContent()).toContain("Scheduled maintenance");
+    const original = admin.locator(".history details").last();
+    const summary = original.locator("summary");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => original.getAttribute("open")).toBe("");
+    expect(await original.locator(".body").textContent()).toBe(firstBody);
+    await page.keyboard.press("Space");
+    await expect.poll(() => original.getAttribute("open")).toBeNull();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => original.getAttribute("open")).toBe("");
+    expect(
+      await admin
+        .locator(".history input, .history textarea, .history select, .history button")
+        .count(),
+    ).toBe(0);
+    expect(await admin.locator("script").count()).toBe(0);
+    expect(await admin.locator('[name="title"]').inputValue()).toBe("Unpublished next draft");
+    await original.scrollIntoViewIfNeeded();
+    await shot(page, "desktop-history-03-original-revision.png");
+
+    await page.reload();
+    await admin.locator('[name="title"]:enabled').waitFor();
+    await expect.poll(() => admin.locator(".history details").count()).toBe(4);
+    expect(await admin.locator('[name="title"]').inputValue()).toBe("");
+    expect(await admin.locator(".history summary").allTextContents()).toEqual([
+      expect.stringContaining("Replacement notice ·"),
+      expect.stringContaining("Replacement notice ·"),
+      expect.stringContaining("Explicitly edited notice ·"),
+      expect.stringContaining("Directly published notice ·"),
+    ]);
+    expect(await admin.locator(".history details .body").allTextContents()).toEqual([
+      "Replacement body",
+      "Replacement body",
+      editedBody,
+      firstBody,
+    ]);
+    const persisted = admin.locator(".history details").last();
+    await persisted.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(() => persisted.getAttribute("open")).toBe("");
+    await persisted.locator(".body").focus();
+    await page.keyboard.press("End");
+    await shot(page, "desktop-history-04-persisted-full-text.png");
+    expect(claims).toEqual([]);
+    expect(await page.locator("platformclaw-announcements openclaw-modal-dialog").count()).toBe(0);
+  }, 90_000);
+
+  it("pages desktop announcement history through the real BFF without repeating the first page", async () => {
+    for (let revision = 0; revision < 25; revision++) {
+      store.announcements.mutate(
+        users.get("admin.test")!.id,
+        {
+          action: "publish",
+          expectedRevision: revision,
+          kind: "general",
+          title: `Historical notice ${revision + 1}`,
+          body: `Historical body ${revision + 1}`,
+          expiresAt: now + 3_600_000,
+        },
+        now++,
+      );
+    }
+    const { page } = await newPage("admin.test");
+    const admin = await openAdmin(page);
+    await expect.poll(() => admin.locator(".history details").count()).toBe(20);
+    await admin.locator('[name="title"]').fill("Keep this unsaved draft");
+    await admin.locator('[data-action="history-more"]').click();
+    await expect.poll(() => admin.locator(".history details").count()).toBe(25);
+    expect(await admin.locator(".history details .body").allTextContents()).toEqual(
+      Array.from({ length: 25 }, (_, index) => `Historical body ${25 - index}`),
+    );
+    expect(await admin.locator('[data-action="history-more"]').count()).toBe(0);
+    expect(await admin.locator('[name="title"]').inputValue()).toBe("Keep this unsaved draft");
+    expect(store.announcements.snapshot(now).revision).toBe(25);
+  }, 90_000);
+
   it("records Korean preview, general notice, maintenance popup and scheduled state", async () => {
     const adminUser = await newPage("admin.test", {}, "ko-KR");
     const admin = await openAdmin(adminUser.page);
@@ -229,6 +409,8 @@ describe("global web announcements", () => {
     await expect.poll(() => notice.locator("aside").textContent()).toContain("서비스 이용 안내");
     await shot(member.page, "ko-02-general-banner.png");
     await openAdmin(adminUser.page);
+    expect(await admin.locator('[name="title"]').inputValue()).toBe("");
+    await admin.locator('[data-action="edit-current"]').click();
     expect(await admin.locator('[name="title"]').inputValue()).toBe("서비스 이용 안내");
     await admin.locator('[name="title"]').fill("서버 점검 안내");
     await admin
@@ -512,6 +694,8 @@ describe("global web announcements", () => {
         .toBe(true);
       expect(await two.page.locator("platformclaw-organization-join-prompt").count()).toBe(1);
       await openAdmin(adminUser.page);
+      expect(await admin.locator('[name="title"]').inputValue()).toBe("");
+      await admin.locator('[data-action="edit-current"]').click();
       expect(await admin.locator('[name="title"]').inputValue()).toBe("Synthetic global notice");
       await admin.locator('[name="title"]').fill("Planned synthetic maintenance");
       await admin.locator('[name="kind"]').selectOption("maintenance");

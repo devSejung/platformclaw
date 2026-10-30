@@ -2,7 +2,11 @@ import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import {
   ANNOUNCEMENTS_ADMIN_PATH,
+  ANNOUNCEMENTS_HISTORY_PATH,
   type AnnouncementAdministrationSnapshot,
+  type AnnouncementHistoryCursor,
+  type AnnouncementHistoryEntry,
+  type AnnouncementHistoryPage,
 } from "../../../packages/platformclaw-control-plane/src/announcement-contracts.js";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
 import { platformClawT as t } from "./i18n.ts";
@@ -26,15 +30,22 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
   @state() private expiresAt = "";
   @state() private editing = false;
   @state() private preview: "publish" | "update" | "cancel" | null = null;
+  @state() private history: AnnouncementHistoryEntry[] = [];
+  @state() private historyCursor: AnnouncementHistoryCursor | null = null;
+  @state() private historyBusy = false;
+  @state() private historyError = "";
   private generation = 0;
+  private historyGeneration = 0;
 
   override connectedCallback() {
     super.connectedCallback();
     void this.load();
+    void this.loadHistory();
   }
 
   override disconnectedCallback() {
     this.generation++;
+    this.historyGeneration++;
     super.disconnectedCallback();
   }
 
@@ -108,6 +119,31 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
     .body {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+      max-height: 20rem;
+      overflow: auto;
+    }
+    .current,
+    .history {
+      margin-bottom: 20px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow-wrap: anywhere;
+    }
+    .history {
+      margin-top: 20px;
+      margin-bottom: 0;
+    }
+    details {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    summary {
+      cursor: pointer;
+    }
+    summary:focus-visible {
+      outline: 2px solid var(--accent, #4385ed);
+      outline-offset: 2px;
     }
     .hint {
       font-size: 13px;
@@ -155,13 +191,7 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
         return;
       }
       this.snapshot = snapshot;
-      const current = this.snapshot.current;
-      this.editing = Boolean(current && !current.cancelled);
-      this.draftTitle = current?.title ?? "";
-      this.body = current?.body ?? "";
-      this.kind = current?.kind ?? "general";
-      this.maintenanceAt = current?.maintenanceAt ? localTime(current.maintenanceAt) : "";
-      this.expiresAt = current ? localTime(current.expiresAt) : "";
+      this.newDraft();
     } catch (error) {
       if (generation === this.generation) {
         this.error =
@@ -170,6 +200,82 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
     } finally {
       if (generation === this.generation) {
         this.busy = false;
+      }
+    }
+  }
+
+  private newDraft() {
+    const now = Date.now();
+    this.editing = false;
+    this.draftTitle = "";
+    this.body = "";
+    this.kind = "general";
+    this.maintenanceAt = localTime(now);
+    this.expiresAt = localTime(now + 24 * 60 * 60_000);
+    this.preview = null;
+    this.error = "";
+    this.message = "";
+  }
+
+  private editCurrent() {
+    const current = this.snapshot?.current;
+    if (!current || current.cancelled) {
+      return;
+    }
+    this.editing = true;
+    this.draftTitle = current.title;
+    this.body = current.body;
+    this.kind = current.kind;
+    this.maintenanceAt = localTime(current.maintenanceAt ?? Date.now());
+    this.expiresAt = localTime(current.expiresAt);
+    this.preview = null;
+    this.error = "";
+    this.message = "";
+  }
+
+  private async loadHistory(append = false) {
+    if (append && (this.historyBusy || !this.historyCursor)) {
+      return;
+    }
+    const generation = ++this.historyGeneration;
+    this.historyBusy = true;
+    this.historyError = "";
+    const params = new URLSearchParams({ limit: "20" });
+    if (append && this.historyCursor) {
+      params.set("cursor", JSON.stringify(this.historyCursor));
+    } else {
+      this.history = [];
+      this.historyCursor = null;
+    }
+    try {
+      const response = await this.fetchImpl(`${ANNOUNCEMENTS_HISTORY_PATH}?${params}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      // History has its own lifecycle so paging cannot reset an in-progress draft or save.
+      if (!this.isConnected || generation !== this.historyGeneration) {
+        return;
+      }
+      if (response.status === 401) {
+        this.onUnauthenticated();
+      }
+      if (!response.ok) {
+        throw new Error(t("platformClaw.announcements.historyFailed"));
+      }
+      const page = (await response.json()) as AnnouncementHistoryPage;
+      if (!this.isConnected || generation !== this.historyGeneration) {
+        return;
+      }
+      this.history = append ? [...this.history, ...page.items] : page.items;
+      this.historyCursor = page.nextCursor;
+    } catch (error) {
+      if (generation === this.historyGeneration) {
+        this.historyError =
+          error instanceof Error ? error.message : t("platformClaw.announcements.historyFailed");
+      }
+    } finally {
+      if (generation === this.historyGeneration) {
+        this.historyBusy = false;
       }
     }
   }
@@ -184,25 +290,39 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
     };
   }
 
-  private prepare(event: SubmitEvent) {
-    event.preventDefault();
+  private validDraft(): boolean {
     const draft = this.draft();
     if (
       !draft.title.trim() ||
+      draft.title.length > 160 ||
       !draft.body.trim() ||
+      draft.body.length > 8_000 ||
       !Number.isFinite(draft.expiresAt) ||
+      draft.expiresAt <= Date.now() ||
       (draft.kind === "maintenance" &&
         (!Number.isFinite(draft.maintenanceAt) || draft.expiresAt <= (draft.maintenanceAt ?? 0)))
     ) {
       this.error = t("platformClaw.announcements.invalid");
-      return;
+      return false;
     }
     this.error = "";
-    this.preview = this.editing ? "update" : "publish";
+    return true;
   }
 
-  private async save() {
-    if (!this.preview || !this.snapshot || this.busy) {
+  private prepare(event: SubmitEvent) {
+    event.preventDefault();
+    const action = this.editing ? "update" : "publish";
+    if ((event.submitter as HTMLButtonElement | null)?.value === "preview") {
+      if (this.validDraft()) {
+        this.preview = action;
+      }
+    } else {
+      void this.save(action);
+    }
+  }
+
+  private async save(action: "publish" | "update" | "cancel") {
+    if (!this.snapshot || this.busy || (action !== "cancel" && !this.validDraft())) {
       return;
     }
     const generation = ++this.generation;
@@ -211,18 +331,22 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
     this.message = "";
     try {
       const snapshot = await this.request({
-        action: this.preview,
+        action,
         expectedRevision: this.snapshot.revision,
-        ...this.draft(),
+        ...(action === "cancel" ? {} : this.draft()),
       });
       window.dispatchEvent(new Event("platformclaw-announcements-refresh"));
       if (generation !== this.generation) {
         return;
       }
       this.snapshot = snapshot;
-      this.editing = Boolean(this.snapshot.current && !this.snapshot.current.cancelled);
-      this.preview = null;
+      if (action === "update") {
+        this.editCurrent();
+      } else {
+        this.newDraft();
+      }
       this.message = t("platformClaw.announcements.saved");
+      void this.loadHistory();
     } catch (error) {
       if (generation === this.generation) {
         this.error =
@@ -240,16 +364,41 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
     return html`
       <section class="panel">
         ${current
-          ? html`<p class="hint">
-              ${t(
-                current.cancelled
-                  ? "platformClaw.announcements.cancelled"
-                  : this.snapshot?.announcement
-                    ? "platformClaw.announcements.active"
-                    : "platformClaw.announcements.expired",
-              )}
-              · revision ${current.revision}
-            </p>`
+          ? html`<section class="current" aria-label=${t("platformClaw.announcements.current")}>
+              <strong>${current.title}</strong>
+              <p class="hint">
+                ${t(
+                  current.cancelled
+                    ? "platformClaw.announcements.cancelled"
+                    : this.snapshot?.announcement
+                      ? "platformClaw.announcements.active"
+                      : "platformClaw.announcements.expired",
+                )}
+                · ${t("platformClaw.announcements.revision")} ${current.revision}
+              </p>
+              <p class="body" tabindex="0">${current.body}</p>
+              ${!current.cancelled && !this.preview
+                ? html`<div class="actions">
+                    <button
+                      data-action="edit-current"
+                      ?disabled=${this.busy}
+                      @click=${() => this.editCurrent()}
+                    >
+                      ${t("platformClaw.announcements.editCurrent")}
+                    </button>
+                    <button
+                      data-action="cancel"
+                      ?disabled=${this.busy}
+                      @click=${() => {
+                        this.preview = "cancel";
+                        this.error = "";
+                      }}
+                    >
+                      ${t("platformClaw.announcements.cancel")}
+                    </button>
+                  </div>`
+                : nothing}
+            </section>`
           : nothing}
         ${this.error ? html`<p role="alert">${this.error}</p>` : nothing}
         ${this.message ? html`<p role="status">${this.message}</p>` : nothing}
@@ -263,7 +412,9 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
                 )}
               </h3>
               <strong>${this.preview === "cancel" ? current?.title : this.draftTitle}</strong>
-              <p class="body">${this.preview === "cancel" ? current?.body : this.body}</p>
+              <p class="body" tabindex="0">
+                ${this.preview === "cancel" ? current?.body : this.body}
+              </p>
               ${this.preview !== "cancel"
                 ? html`<p>
                       ${t(
@@ -284,7 +435,15 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
                     </p>`
                 : nothing}
               <div class="actions">
-                <button ?disabled=${this.busy} @click=${() => void this.save()}>
+                <button
+                  data-action=${this.preview === "cancel" ? "cancel-confirm" : this.preview}
+                  ?disabled=${this.busy}
+                  @click=${() => {
+                    if (this.preview) {
+                      void this.save(this.preview);
+                    }
+                  }}
+                >
                   ${t(
                     this.preview === "cancel"
                       ? "platformClaw.announcements.cancel"
@@ -371,39 +530,108 @@ class PlatformClawAnnouncementAdministration extends OpenClawLitElement {
                 ${t("platformClaw.announcements.localTime")}
                 (${Intl.DateTimeFormat().resolvedOptions().timeZone})
               </p>
-              <button type="submit" ?disabled=${this.busy || !this.snapshot}>
-                ${t("platformClaw.announcements.preview")}
-              </button>
+              <div class="actions">
+                <button
+                  type="submit"
+                  data-action=${this.editing ? "update" : "publish"}
+                  ?disabled=${this.busy || !this.snapshot}
+                >
+                  ${t(
+                    this.editing
+                      ? "platformClaw.announcements.update"
+                      : "platformClaw.announcements.publish",
+                  )}
+                </button>
+                <button
+                  type="submit"
+                  value="preview"
+                  data-action="preview"
+                  ?disabled=${this.busy || !this.snapshot}
+                >
+                  ${t("platformClaw.announcements.preview")}
+                </button>
+              </div>
             </form>`}
         <div class="actions">
-          ${current && !current.cancelled && !this.preview
-            ? html`<button
-                ?disabled=${this.busy}
-                @click=${() => {
-                  this.preview = "cancel";
-                }}
-              >
-                ${t("platformClaw.announcements.cancel")}
-              </button>`
-            : nothing}
-          <button ?disabled=${this.busy} @click=${() => void this.load()}>
-            ${t("platformClaw.announcements.reload")}
-          </button>
           <button
+            data-action="reload"
             ?disabled=${this.busy}
             @click=${() => {
-              this.editing = false;
-              this.draftTitle = "";
-              this.body = "";
-              this.maintenanceAt = "";
-              this.expiresAt = "";
-              this.preview = null;
-              this.message = "";
+              void this.load();
+              void this.loadHistory();
             }}
           >
+            ${t("platformClaw.announcements.reload")}
+          </button>
+          <button data-action="new" ?disabled=${this.busy} @click=${() => this.newDraft()}>
             ${t("platformClaw.announcements.new")}
           </button>
         </div>
+        <section
+          class="history"
+          aria-label=${t("platformClaw.announcements.history")}
+          aria-busy=${String(this.historyBusy)}
+        >
+          <h3>${t("platformClaw.announcements.history")}</h3>
+          ${this.history.map(
+            (entry) => html`<details>
+              <summary>
+                ${entry.announcement?.title ?? t("platformClaw.announcements.notice")} ·
+                ${t(`platformClaw.announcements.historyAction.${entry.action}`)} ·
+                <time datetime=${new Date(entry.occurredAt).toISOString()}
+                  >${new Date(entry.occurredAt).toLocaleString()}</time
+                >
+                · ${t("platformClaw.announcements.revision")} ${entry.revision}
+              </summary>
+              ${entry.announcement
+                ? html`
+                    <p>
+                      ${t(
+                        entry.announcement.kind === "maintenance"
+                          ? "platformClaw.announcements.maintenance"
+                          : "platformClaw.announcements.general",
+                      )}
+                    </p>
+                    <p class="body" tabindex="0">${entry.announcement.body}</p>
+                    ${entry.announcement.maintenanceAt !== null
+                      ? html`<p>
+                          ${t("platformClaw.announcements.maintenanceAt")}:
+                          ${new Date(entry.announcement.maintenanceAt).toLocaleString()}
+                        </p>`
+                      : nothing}
+                    <p>
+                      ${t("platformClaw.announcements.expiresAt")}:
+                      ${new Date(entry.announcement.expiresAt).toLocaleString()}
+                    </p>
+                  `
+                : html`<p>${t("platformClaw.announcements.historyContentUnavailable")}</p>`}
+            </details>`,
+          )}
+          ${this.historyError
+            ? html`<p role="alert">${this.historyError}</p>
+                <button
+                  data-action="history-retry"
+                  ?disabled=${this.historyBusy}
+                  @click=${() => void this.loadHistory(this.historyCursor !== null)}
+                >
+                  ${t("platformClaw.announcements.retry")}
+                </button>`
+            : nothing}
+          ${this.historyBusy
+            ? html`<p aria-live="polite">${t("platformClaw.announcements.historyLoading")}</p>`
+            : !this.history.length && !this.historyError
+              ? html`<p>${t("platformClaw.announcements.historyEmpty")}</p>`
+              : nothing}
+          ${this.historyCursor && !this.historyError
+            ? html`<button
+                data-action="history-more"
+                ?disabled=${this.historyBusy}
+                @click=${() => void this.loadHistory(true)}
+              >
+                ${t("platformClaw.announcements.loadMore")}
+              </button>`
+            : nothing}
+        </section>
       </section>
     `;
   }

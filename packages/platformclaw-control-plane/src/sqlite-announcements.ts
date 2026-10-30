@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type {
   AnnouncementAdministrationSnapshot,
+  AnnouncementHistoryCursor,
+  AnnouncementHistoryEntry,
+  AnnouncementHistoryPage,
   AnnouncementSnapshot,
   WebAnnouncement,
 } from "./announcement-contracts.js";
@@ -14,6 +18,7 @@ import {
   createSyncKysely,
   executeSync,
   runImmediateTransaction,
+  runReadTransaction,
   takeFirstSync,
 } from "./kysely-sync.js";
 import { ensureWebAnnouncementSchema } from "./sqlite-schema.js";
@@ -67,11 +72,15 @@ export class SqliteAnnouncementStore {
   private ready = false;
   constructor(private readonly db: DatabaseSync) {}
 
-  private current() {
+  private ensureSchema() {
     if (!this.ready) {
       ensureWebAnnouncementSchema(this.db);
       this.ready = true;
     }
+  }
+
+  private current() {
+    this.ensureSchema();
     return takeFirstSync(
       this.db,
       this.query.selectFrom("web_announcement").selectAll().where("slot", "=", 1),
@@ -98,8 +107,99 @@ export class SqliteAnnouncementStore {
     };
   }
 
+  history(
+    actorUserId: string,
+    params: { limit?: number; cursor?: AnnouncementHistoryCursor } = {},
+  ): AnnouncementHistoryPage {
+    this.ensureSchema();
+    return runReadTransaction(this.db, () => {
+      this.requireAdmin(actorUserId);
+      const limit = params.limit === undefined ? 20 : params.limit;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) {
+        throw new ControlPlaneStateError("Invalid announcement history limit (1–50)");
+      }
+      const cursor = params.cursor;
+      if (
+        cursor !== undefined &&
+        (!isRecord(cursor) ||
+          Object.keys(cursor).length !== 2 ||
+          !Number.isSafeInteger(cursor.occurredAt) ||
+          cursor.occurredAt <= 0 ||
+          cursor.occurredAt > 8.64e15 ||
+          typeof cursor.id !== "string" ||
+          !cursor.id ||
+          cursor.id.length > 128)
+      ) {
+        throw new ControlPlaneStateError("Invalid announcement history cursor");
+      }
+      let query = this.query
+        .selectFrom("control_audit_events")
+        .select(["id", "target_id", "event_type", "created_at", "details_json"])
+        .where("target_type", "=", "web-announcement")
+        .where("event_type", "in", [
+          "announcement.publish",
+          "announcement.update",
+          "announcement.cancel",
+        ]);
+      if (cursor) {
+        query = query.where((expression) =>
+          expression.or([
+            expression("created_at", "<", cursor.occurredAt),
+            expression.and([
+              expression("created_at", "=", cursor.occurredAt),
+              expression("id", "<", cursor.id),
+            ]),
+          ]),
+        );
+      }
+      const rows = executeSync(
+        this.db,
+        query
+          .orderBy("created_at", "desc")
+          .orderBy("id", "desc")
+          .limit(limit + 1),
+      ).rows;
+      const items = rows.slice(0, limit).map((row): AnnouncementHistoryEntry => {
+        const details = JSON.parse(row.details_json!) as {
+          revision: number;
+          announcement?: WebAnnouncement & { cancelled: boolean };
+        };
+        // Shipped audit records retained only revision/kind. Their overwritten
+        // content cannot be reconstructed from the current announcement.
+        const saved = details.announcement;
+        return {
+          id: row.id,
+          announcementId: row.target_id,
+          revision: details.revision,
+          action: row.event_type.slice(
+            "announcement.".length,
+          ) as AnnouncementHistoryEntry["action"],
+          occurredAt: row.created_at,
+          announcement: saved
+            ? {
+                id: saved.id,
+                revision: saved.revision,
+                title: saved.title,
+                body: saved.body,
+                kind: saved.kind,
+                maintenanceAt: saved.maintenanceAt,
+                expiresAt: saved.expiresAt,
+                cancelled: saved.cancelled,
+              }
+            : null,
+        };
+      });
+      const last = items.at(-1);
+      return {
+        items,
+        nextCursor:
+          rows.length > limit && last ? { occurredAt: last.occurredAt, id: last.id } : null,
+      };
+    });
+  }
+
   claimPresentation(userId: string, id: unknown, revision: unknown, now: number): boolean {
-    this.current();
+    this.ensureSchema();
     return runImmediateTransaction(this.db, () => {
       const user = takeFirstSync(
         this.db,
@@ -155,7 +255,7 @@ export class SqliteAnnouncementStore {
     now: number,
   ): AnnouncementAdministrationSnapshot {
     // Ensure DDL before opening the synchronous commit section.
-    this.current();
+    this.ensureSchema();
     return runImmediateTransaction(this.db, () => {
       this.requireAdmin(actorUserId);
       const previous = this.current();
@@ -212,7 +312,11 @@ export class SqliteAnnouncementStore {
           target_type: "web-announcement",
           target_id: row.id,
           created_at: now,
-          details_json: JSON.stringify({ revision: row.revision, kind: row.kind }),
+          details_json: JSON.stringify({
+            revision: row.revision,
+            kind: row.kind,
+            announcement: { ...announcement(row), cancelled: Boolean(row.cancelled) },
+          }),
         }),
       );
       return this.administration(actorUserId, now);

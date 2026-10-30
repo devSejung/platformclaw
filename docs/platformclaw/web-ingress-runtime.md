@@ -618,13 +618,25 @@ flag and never receives the Jira URL or credential.
 
 ## Publish a web announcement
 
-Open **Settings > Administration > Web announcements**. Enter a title, plain text
-message, type, and exposure end time, then select **Preview** and **Publish**.
-Maintenance notices also require a scheduled maintenance time. Times are entered
-in the browser's displayed local time zone and stored as UTC timestamps. There
-is one current announcement; publishing a new one replaces it. Reopen the same
-page to preview an edit or confirm cancellation. Reload after a revision conflict
-before editing again.
+Open **Settings > Administration > Web announcements** to start a blank notice.
+Enter a title, plain text message, and type, then select **Publish**. **Preview**
+is optional. **New announcement** clears the draft and sets its maintenance time
+to the time you click, with exposure ending 24 hours later. These defaults also
+apply when opening the page. Maintenance notices require a scheduled maintenance
+time; adjust either time before publishing when needed. Times use the browser's
+displayed local time zone and are stored as UTC timestamps.
+
+There is one current announcement; publishing a new one replaces it. Select
+**Edit current announcement** to change it, then **Update announcement** to save.
+Cancellation requires confirmation. Reload after a revision conflict before
+editing again.
+
+**Announcement history** lists publication, update, and cancellation events,
+newest first. Expand an entry to read its saved text and times; **Load more**
+loads older entries. History is read-only and visible only to administrators.
+New events retain the full notice as it was at that revision. Older events that
+retained only metadata show that their content was not saved; overwritten text
+cannot be recovered.
 
 General notices appear above every signed-in web page. Maintenance notices also
 open an accessible dialog once per account and announcement revision. Closing
@@ -634,16 +646,20 @@ not stop the server, cancel work, or send Knox/CDEP messages. Exposure ends at
 the configured end time, including when the browser cannot reach the BFF.
 
 The BFF owns authenticated `GET /platformclaw/api/announcements` and
-administrator-only `GET`/`POST /platformclaw/api/admin/announcements`. Writes
+administrator-only `GET`/`POST /platformclaw/api/admin/announcements`. History uses
+administrator-only `GET /platformclaw/api/admin/announcements/history`, with a
+default page size of 20 and a maximum of 50. Writes
 require the configured public Origin and an active administrator checked again
 inside the SQLite transaction. Public snapshots contain only the notice,
-revision, and server time. Audit actor/details remain server-side. The countdown
+revision, and server time; they exclude history and audit actors. The countdown
 uses a server clock sample, half the request round-trip time, and monotonic
 elapsed browser time; client wall-clock changes do not change that sample.
 
 Additive `web_announcement` and `web_announcement_seen` tables live in the
 existing control-plane database without changing schema version 3. Notice
-revisions, cancellation, and popup claims survive restarts. Popup claims use
+revisions, cancellation, history snapshots in the existing audit log, and popup
+claims survive restarts. The history index is additive and keeps schema version 3.
+Popup claims use
 authenticated, Origin-checked `POST /platformclaw/api/announcements/seen` and
 serialize competing tabs/devices through SQLite. Claims prioritize at-most-once
 automatic display: if the response is lost or the tab closes before rendering,
