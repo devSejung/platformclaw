@@ -49,7 +49,9 @@ export function ensureWebAnnouncementSchema(db: DatabaseSync): void {
   CREATE TABLE IF NOT EXISTS web_announcement_seen (
     user_id TEXT PRIMARY KEY REFERENCES platform_users(id) ON DELETE CASCADE,
     revision INTEGER NOT NULL
-  ) STRICT;`);
+  ) STRICT;
+  CREATE INDEX IF NOT EXISTS control_audit_events_announcement_history
+    ON control_audit_events(target_type, created_at DESC, id DESC);`);
 }
 
 const SCHEMA_V1 = `

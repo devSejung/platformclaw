@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { ANNOUNCEMENTS_ADMIN_PATH, ANNOUNCEMENTS_PATH } from "./announcement-contracts.js";
+import {
+  ANNOUNCEMENTS_ADMIN_PATH,
+  ANNOUNCEMENTS_HISTORY_PATH,
+  ANNOUNCEMENTS_PATH,
+  type AnnouncementHistoryCursor,
+} from "./announcement-contracts.js";
 import { readPlatformClawSessionCookie, type JsonBodyReader } from "./browser-auth-http.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
 import {
@@ -38,9 +43,11 @@ export async function handlePlatformClawAnnouncementRequest(
     isMutationOriginAllowed(req: IncomingMessage): boolean;
   },
 ): Promise<boolean> {
-  const path = new URL(req.url ?? "/", "http://localhost").pathname;
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const path = url.pathname;
   const seen = path === `${ANNOUNCEMENTS_PATH}/seen`;
-  if (path !== ANNOUNCEMENTS_PATH && path !== ANNOUNCEMENTS_ADMIN_PATH && !seen) {
+  const history = path === ANNOUNCEMENTS_HISTORY_PATH;
+  if (path !== ANNOUNCEMENTS_PATH && path !== ANNOUNCEMENTS_ADMIN_PATH && !seen && !history) {
     return false;
   }
   const send = (status: number, body: unknown) => {
@@ -57,20 +64,44 @@ export async function handlePlatformClawAnnouncementRequest(
       send(401, { error: "authentication required" });
       return true;
     }
-    const admin = path === ANNOUNCEMENTS_ADMIN_PATH;
+    const admin = path === ANNOUNCEMENTS_ADMIN_PATH || history;
     if (admin && auth.user.globalRole !== "admin") {
       send(403, { error: "administrator access required" });
       return true;
     }
     const method = req.method ?? "GET";
-    if (method === "GET" && !seen) {
+    if (method === "GET" && history) {
+      const rawLimit = url.searchParams.get("limit");
+      const rawCursor = url.searchParams.get("cursor");
+      let cursor: AnnouncementHistoryCursor | undefined;
+      if (rawCursor !== null) {
+        if (rawCursor.length > 256) {
+          throw new ControlPlaneStateError("Invalid announcement history cursor");
+        }
+        try {
+          cursor = JSON.parse(rawCursor) as AnnouncementHistoryCursor;
+        } catch {
+          throw new ControlPlaneStateError("Invalid announcement history cursor");
+        }
+      }
+      if (rawLimit !== null && !/^\d+$/u.test(rawLimit)) {
+        throw new ControlPlaneStateError("Invalid announcement history limit (1–50)");
+      }
+      send(
+        200,
+        options.service.store.history(auth.user.id, {
+          limit: rawLimit === null ? undefined : Number(rawLimit),
+          cursor,
+        }),
+      );
+    } else if (method === "GET" && !seen) {
       send(
         200,
         admin
           ? options.service.store.administration(auth.user.id, options.service.now())
           : options.service.store.snapshot(options.service.now()),
       );
-    } else if (method === "POST" && (admin || seen)) {
+    } else if (method === "POST" && ((admin && !history) || seen)) {
       if (!options.isMutationOriginAllowed(req)) {
         send(403, { error: "origin not allowed" });
         return true;
@@ -96,7 +127,7 @@ export async function handlePlatformClawAnnouncementRequest(
       options.service.changed();
       send(200, result);
     } else {
-      res.setHeader("Allow", seen ? "POST" : admin ? "GET, POST" : "GET");
+      res.setHeader("Allow", seen ? "POST" : admin && !history ? "GET, POST" : "GET");
       send(405, { error: "method not allowed" });
     }
   } catch (error) {

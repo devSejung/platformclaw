@@ -9,8 +9,11 @@ import { PROTOCOL_VERSION } from "../../gateway-protocol/src/version.js";
 import {
   ANNOUNCEMENTS_ADMIN_PATH,
   ANNOUNCEMENTS_CHANGED,
+  ANNOUNCEMENTS_HISTORY_PATH,
   ANNOUNCEMENTS_PATH,
   type AnnouncementAdministrationSnapshot,
+  type AnnouncementHistoryCursor,
+  type AnnouncementHistoryPage,
 } from "./announcement-contracts.js";
 import { BrowserAnnouncementService } from "./browser-announcements-http.js";
 import { BrowserAuthService } from "./browser-auth-service.js";
@@ -135,6 +138,16 @@ const draft = () => ({
   expiresAt: now + 120_000,
 });
 
+async function history(limit?: number, cursor?: AnnouncementHistoryCursor) {
+  const query = new URLSearchParams();
+  if (limit !== undefined) query.set("limit", String(limit));
+  if (cursor) query.set("cursor", JSON.stringify(cursor));
+  const response = await request("admin.test", `${ANNOUNCEMENTS_HISTORY_PATH}?${query}`);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+  return (await response.json()) as AnnouncementHistoryPage;
+}
+
 async function websocket(user: string) {
   const socket = new WebSocket(`${base.replace("http", "ws")}/platformclaw/gateway`, {
     origin: ORIGIN,
@@ -190,6 +203,279 @@ afterEach(async () => {
 });
 
 describe("web announcements through the authenticated BFF", () => {
+  it("retains exact revision content across edits, replacement, cancellation and restart", async () => {
+    const published = await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+      ...draft(),
+      body: "First body",
+    });
+    expect(published.status).toBe(200);
+    const first = (await published.json()) as AnnouncementAdministrationSnapshot;
+    now++;
+    expect(
+      (
+        await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+          ...draft(),
+          action: "update",
+          expectedRevision: 1,
+          body: "Edited body",
+        })
+      ).status,
+    ).toBe(200);
+    now++;
+    const replacement = await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+      ...draft(),
+      expectedRevision: 2,
+      title: "Replacement",
+      body: "New body",
+      kind: "maintenance",
+      maintenanceAt: now + 60_000,
+    });
+    expect(replacement.status).toBe(200);
+    const second = (await replacement.json()) as AnnouncementAdministrationSnapshot;
+    expect(second.current!.id).not.toBe(first.current!.id);
+    now++;
+    expect(
+      (
+        await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+          action: "cancel",
+          expectedRevision: 3,
+        })
+      ).status,
+    ).toBe(200);
+    const page = await history();
+    expect(
+      page.items.map((item) => ({
+        announcementId: item.announcementId,
+        revision: item.revision,
+        action: item.action,
+        body: item.announcement?.body,
+        cancelled: item.announcement?.cancelled,
+      })),
+    ).toEqual([
+      {
+        announcementId: second.current!.id,
+        revision: 4,
+        action: "cancel",
+        body: "New body",
+        cancelled: true,
+      },
+      {
+        announcementId: second.current!.id,
+        revision: 3,
+        action: "publish",
+        body: "New body",
+        cancelled: false,
+      },
+      {
+        announcementId: first.current!.id,
+        revision: 2,
+        action: "update",
+        body: "Edited body",
+        cancelled: false,
+      },
+      {
+        announcementId: first.current!.id,
+        revision: 1,
+        action: "publish",
+        body: "First body",
+        cancelled: false,
+      },
+    ]);
+    expect(page.items[1]!.announcement).toEqual(second.current);
+    expect(page.nextCursor).toBeNull();
+    for (const server of servers.splice(0)) await server.close();
+    stores.splice(0).forEach((value) => value.close());
+    store = openStore();
+    auth = authService(store);
+    base = (await start(store, auth)).base;
+    expect(await history()).toEqual(page);
+    const db = new DatabaseSync(databasePath);
+    expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(3);
+    db.close();
+  });
+
+  it("pages tied timestamps without duplicates or skipping older entries after a new publish", async () => {
+    for (let revision = 0; revision < 5; revision++) {
+      expect(
+        (
+          await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+            ...draft(),
+            expectedRevision: revision,
+            body: `Revision ${revision + 1}`,
+          })
+        ).status,
+      ).toBe(200);
+    }
+    const before = await history();
+    expect(before.items).toHaveLength(5);
+    expect(before.items.map((item) => item.id)).toEqual(
+      before.items
+        .map((item) => item.id)
+        .toSorted()
+        .toReversed(),
+    );
+    const first = await history(2);
+    expect(first.items).toEqual(before.items.slice(0, 2));
+    expect(first.nextCursor).not.toBeNull();
+    now++;
+    expect(
+      (
+        await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+          ...draft(),
+          expectedRevision: 5,
+          body: "New between pages",
+        })
+      ).status,
+    ).toBe(200);
+    const second = await history(2, first.nextCursor!);
+    const third = await history(2, second.nextCursor!);
+    expect([...first.items, ...second.items, ...third.items]).toEqual(before.items);
+    expect(third.nextCursor).toBeNull();
+    expect((await history()).items[0]!.announcement?.body).toBe("New between pages");
+  });
+
+  it("keeps metadata-only historical records explicit and does not append failed writes", async () => {
+    expect((await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, draft())).status).toBe(200);
+    const original = await history();
+    const db = new DatabaseSync(databasePath);
+    try {
+      db.prepare("UPDATE control_audit_events SET details_json = ? WHERE id = ?").run(
+        JSON.stringify({ revision: 1, kind: "general" }),
+        original.items[0]!.id,
+      );
+    } finally {
+      db.close();
+    }
+    const legacy = await history();
+    expect(legacy.items[0]).toEqual({ ...original.items[0], announcement: null });
+    expect(
+      (
+        await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+          ...draft(),
+          action: "update",
+          expectedRevision: 0,
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+          ...draft(),
+          expectedRevision: 1,
+          body: "",
+        })
+      ).status,
+    ).toBe(400);
+    expect(await history()).toEqual(legacy);
+    expect(
+      (
+        await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, {
+          ...draft(),
+          expectedRevision: 1,
+          body: "Later body",
+        })
+      ).status,
+    ).toBe(200);
+    expect((await history()).items.find((item) => item.revision === 1)?.announcement).toBeNull();
+  });
+
+  it("bounds history, rejects malformed cursors and keeps administrator history private", async () => {
+    expect((await request(null, ANNOUNCEMENTS_HISTORY_PATH)).status).toBe(401);
+    expect((await request("member.one", ANNOUNCEMENTS_HISTORY_PATH)).status).toBe(403);
+    const method = await request("admin.test", ANNOUNCEMENTS_HISTORY_PATH, {});
+    expect(method.status).toBe(405);
+    expect(method.headers.get("Allow")).toBe("GET");
+    for (const limit of ["", "0", "-1", "51", "1.5", "NaN", "Infinity", "1e2"]) {
+      expect(
+        (await request("admin.test", `${ANNOUNCEMENTS_HISTORY_PATH}?limit=${limit}`)).status,
+      ).toBe(400);
+    }
+    for (const cursor of [
+      "",
+      "invalid",
+      "null",
+      "[]",
+      "1",
+      JSON.stringify({ occurredAt: now }),
+      JSON.stringify({ occurredAt: now, id: "x", extra: true }),
+      JSON.stringify({ occurredAt: 0, id: "x" }),
+      JSON.stringify({ occurredAt: 1.5, id: "x" }),
+      JSON.stringify({ occurredAt: Number.MAX_SAFE_INTEGER + 1, id: "x" }),
+      JSON.stringify({ occurredAt: now, id: "" }),
+      JSON.stringify({ occurredAt: now, id: "x".repeat(129) }),
+      "x".repeat(257),
+    ]) {
+      expect(
+        (
+          await request(
+            "admin.test",
+            `${ANNOUNCEMENTS_HISTORY_PATH}?${new URLSearchParams({ cursor })}`,
+          )
+        ).status,
+      ).toBe(400);
+    }
+    const administrator = await auth.authenticateToken(tokens.get("admin.test")!, false);
+    const member = await auth.authenticateToken(tokens.get("member.one")!, false);
+    if (administrator.status !== "active" || member.status !== "active")
+      throw new Error("missing fixture users");
+    expect(() => store.announcements.history(member.user.id)).toThrow(
+      ControlPlaneAuthorizationError,
+    );
+    for (let revision = 0; revision < 52; revision++) {
+      store.announcements.mutate(
+        administrator.user.id,
+        { ...draft(), expectedRevision: revision },
+        now++,
+      );
+    }
+    expect((await history()).items).toHaveLength(20);
+    expect((await history(50)).items).toHaveLength(50);
+    expect(() => store.announcements.history(administrator.user.id, { limit: 51 })).toThrow(
+      "limit",
+    );
+    const publicSnapshot = await (await request("member.one")).json();
+    expect(Object.keys(publicSnapshot).toSorted()).toEqual([
+      "announcement",
+      "revision",
+      "serverNow",
+    ]);
+    expect(publicSnapshot.announcement.revision).toBe(52);
+    await store.setUserGlobalRole({
+      actorUserId: administrator.user.id,
+      targetUserId: member.user.id,
+      role: "admin",
+      changedAt: now,
+    });
+    expect((await history(50)).items).toHaveLength(50);
+    await store.setManagedUserStatus({
+      actorUserId: member.user.id,
+      targetUserId: administrator.user.id,
+      status: "disabled",
+      changedAt: now,
+    });
+    expect((await request("admin.test", ANNOUNCEMENTS_HISTORY_PATH)).status).toBe(401);
+    expect(() => store.announcements.history(administrator.user.id)).toThrow(
+      ControlPlaneAuthorizationError,
+    );
+  });
+
+  it("rolls back publication when its immutable history cannot be recorded", async () => {
+    const db = new DatabaseSync(databasePath);
+    try {
+      db.exec(`CREATE TRIGGER reject_announcement_audit BEFORE INSERT ON control_audit_events
+        WHEN NEW.target_type = 'web-announcement'
+        BEGIN SELECT RAISE(ABORT, 'synthetic audit failure'); END`);
+    } finally {
+      db.close();
+    }
+    expect((await request("admin.test", ANNOUNCEMENTS_ADMIN_PATH, draft())).status).toBe(503);
+    expect((await history()).items).toEqual([]);
+    expect(await (await request("member.one")).json()).toMatchObject({
+      revision: 0,
+      announcement: null,
+    });
+  });
+
   it("preserves dashboard accounts across announcement writes and a reopened SQLite store", async () => {
     const accounts = await store.listDashboardAccounts();
     expect(accounts.map((account) => account.accountId)).toEqual([
