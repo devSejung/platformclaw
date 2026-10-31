@@ -3,11 +3,11 @@ import { createEmployeeBrowserAuthRuntime } from "./browser-auth-runtime.js";
 import { EMPLOYEE_AUTH_LOGIN_URL_ENV } from "./employee-auth-client.js";
 
 describe("createEmployeeBrowserAuthRuntime", () => {
-  const runtimes: Array<{ close(): void }> = [];
+  const runtimes: Array<{ close(): Promise<void> }> = [];
 
-  afterEach(() => {
+  afterEach(async () => {
     for (const runtime of runtimes.splice(0)) {
-      runtime.close();
+      await runtime.close();
     }
   });
 

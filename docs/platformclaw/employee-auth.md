@@ -84,6 +84,49 @@ for contract compatibility but never establish authority in PlatformClaw 2.0.
 If ADSSO deployment configuration is absent, the button returns to the login
 page with an explicit unavailable message instead of failing silently.
 
+## Organization facts and existing sessions
+
+After a browser session succeeds, LDAP and verified SSO record the current
+organization decision against the canonical user and authentication time.
+Eligible version-1 AICM claims save only their bounded organization fields and
+source timestamp in SQLite. Passwords, bearer tokens, signed handoffs, and
+unrelated directory metadata are excluded. The source fact commits before the
+organization mutation, so a failed mutation can be retried without losing its
+authenticated input.
+
+Startup scans existing authenticated users in stable pages of 100, preparing
+four local recovery tasks at a time. It does not delay every login until the
+scan finishes. The first Organization context request awaits that user's task
+and returns current membership plus a `directorySync` outcome. Repeated context
+requests reuse the recorded outcome; they do not poll another service. Shutdown
+stops recovery before closing SQLite.
+
+A saved eligible fact can therefore repair organization membership while the
+same browser cookie remains signed in. A newer test-account, mapping, null,
+missing, malformed, or unsupported-version authentication decision prevents
+replay of an older eligible fact. Those cases retain the original no-change
+contract. New authentication or a restart retries failed recovery.
+
+Recovery requires an eligible decision matching the user's current `lastLoginAt`
+authentication stamp. This stamp increases on every principal upsert, including
+equal-clock logins and linked providers; it is not an exact wall-clock time.
+Session creation, expiration, and organization source timestamps keep their
+existing clock semantics. A missing current decision never authorizes replay
+of an older fact, including while provisioning is pending or a decision write
+has failed.
+
+Cookies issued before organization facts were stored contain no organization
+claim. When no trusted fact exists, the user remains signed in and Organization
+reports `requires-authenticated-org` without creating membership. A subsequent
+successful authentication carrying a valid claim supplies the missing fact;
+when ADSSO is configured, Organization offers an explicit company sign-in action
+that returns to Organization settings. Company SSO may prompt for authentication;
+the app never starts this round-trip automatically.
+Administrators can also use the existing manual membership flow. Knox employee
+directory results do not establish PlatformClaw organization authority. This
+runtime has no verified legacy-user organization lookup API and does not infer
+one from the login proxy URL, department labels, or legacy Part strings.
+
 ## Profile provisioning
 
 Successful authentication produces two different objects:

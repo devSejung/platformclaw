@@ -1,10 +1,15 @@
 import { BrowserAuthService, type PersonalAgentProvisioner } from "./browser-auth-service.js";
-import type { MainSessionKeyBuilder } from "./contracts.js";
+import type { MainSessionKeyBuilder, PlatformUser } from "./contracts.js";
 import {
   HttpEmployeeAuthenticator,
   loadEmployeeAuthClientConfig,
   type EmployeeAuthClientConfig,
 } from "./employee-auth-client.js";
+import type { EmployeeDirectoryBackfillOutcome } from "./employee-directory.js";
+import {
+  EmployeeOrganizationBackfill,
+  type EmployeeOrganizationBackfillSummary,
+} from "./employee-organization-backfill.js";
 import { ExecCredentialCipher } from "./exec-credential-crypto.js";
 import { McpCredentialCipher } from "./mcp-credential-crypto.js";
 import { McpCredentialVault } from "./mcp-credential-vault.js";
@@ -35,7 +40,9 @@ export type EmployeeBrowserAuthRuntime = {
   credentialVault?: SshCredentialVault;
   mcpCredentialVault?: McpCredentialVault;
   execCredentialCipher?: ExecCredentialCipher;
-  close(): void;
+  prepareOrganizationBackfill(): Promise<EmployeeOrganizationBackfillSummary>;
+  prepareUserOrganization(user: PlatformUser): Promise<EmployeeDirectoryBackfillOutcome>;
+  close(): Promise<void>;
 };
 
 /** Build the production LDAP-phase browser-auth runtime around the persistent store. */
@@ -59,7 +66,15 @@ export function createEmployeeBrowserAuthRuntime(
     store,
     authenticator,
     provisioner: options.provisioner,
-    syncOrganization: (params) => store.syncDirectoryOrganization(params),
+    syncOrganization: async (params) => {
+      const snapshot = await store.recordEmployeeDirectoryAuthentication({
+        ...params,
+        observedAt: params.syncedAt,
+      });
+      if (snapshot) {
+        await store.syncDirectoryOrganization({ ...params, ...snapshot });
+      }
+    },
     ...(options.now ? { now: options.now } : {}),
     ...(options.tokenFactory ? { tokenFactory: options.tokenFactory } : {}),
     ...(options.onLogoutAgent ? { onLogoutAgent: options.onLogoutAgent } : {}),
@@ -71,17 +86,25 @@ export function createEmployeeBrowserAuthRuntime(
     ? new McpCredentialVault(store, options.mcpCredentialCipher)
     : undefined;
   let closed = false;
+  const backfill = new EmployeeOrganizationBackfill({ store, now: options.now });
   return {
     store,
     service,
     ...(credentialVault ? { credentialVault } : {}),
     ...(mcpCredentialVault ? { mcpCredentialVault } : {}),
     ...(options.execCredentialCipher ? { execCredentialCipher: options.execCredentialCipher } : {}),
-    close() {
+    prepareOrganizationBackfill() {
+      return backfill.start();
+    },
+    prepareUserOrganization(user) {
+      return backfill.prepareUser(user);
+    },
+    async close() {
       if (closed) {
         return;
       }
       closed = true;
+      await backfill.stop();
       store.close();
     },
   };

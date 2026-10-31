@@ -170,6 +170,99 @@ describe("PlatformClawControlUiAdapter", () => {
     );
   });
 
+  it.each([
+    {
+      name: "missing department",
+      profile: { displayName: "Person One" },
+      displayName: "Person One",
+      department: "",
+    },
+    {
+      name: "missing display name",
+      profile: { department: "Platform" },
+      displayName: "person.one",
+      department: "Platform",
+    },
+    { name: "missing both labels", profile: {}, displayName: "person.one", department: "" },
+    {
+      name: "blank optional labels",
+      profile: { displayName: " \t ", department: " \t " },
+      displayName: "person.one",
+      department: "",
+    },
+  ])(
+    "boots the authenticated organization shell with optional profile metadata: $name",
+    async ({ profile, displayName, department }) => {
+      installDescriptor();
+      const navigate = vi.fn();
+      const adapter = createPlatformClawControlUiAdapter({
+        location: {
+          href: "https://platformclaw.example/platformclaw/app/settings/organization",
+          origin: "https://platformclaw.example",
+          protocol: "https:",
+        },
+        fetchImpl: async () =>
+          jsonResponse({
+            authenticated: true,
+            user: { accountId: "person.one", globalRole: "member", ...profile },
+            agent: { agentId: "person_one", state: "active" },
+          }),
+        navigate,
+      })!;
+      const identity = await adapter.loadSession();
+      expect(identity).toEqual({
+        accountId: "person.one",
+        agentId: "person_one",
+        globalRole: "member",
+        displayName,
+        department,
+      });
+      const options = adapter.applicationOptions(identity!, vi.fn());
+      expect(options.routeOverrides?.organization).toBeDefined();
+      expect(options.shellSession).toMatchObject({
+        primaryLabel: displayName,
+        secondaryLabel: department || "person.one",
+      });
+      expect(navigate).not.toHaveBeenCalled();
+      adapter.dispose();
+    },
+  );
+
+  it.each([
+    { user: { accountId: undefined } },
+    { user: { accountId: " " } },
+    { agent: { agentId: undefined } },
+    { user: { globalRole: "unknown" } },
+    { user: { displayName: 42 } },
+    { user: { displayName: null } },
+    { user: { department: 42 } },
+    { user: { department: null } },
+  ])(
+    "rejects malformed required identity and present wrong-type optional labels: %j",
+    async (invalid) => {
+      installDescriptor();
+      const navigate = vi.fn();
+      const adapter = createPlatformClawControlUiAdapter({
+        fetchImpl: async () =>
+          jsonResponse({
+            authenticated: true,
+            user: {
+              accountId: "person.one",
+              globalRole: "member",
+              displayName: "Person One",
+              department: "Platform",
+              ...invalid.user,
+            },
+            agent: { agentId: "person_one", state: "active", ...invalid.agent },
+          }),
+        navigate,
+      })!;
+      await expect(adapter.loadSession()).rejects.toThrow("session service is unavailable");
+      expect(navigate).not.toHaveBeenCalled();
+      adapter.dispose();
+    },
+  );
+
   it.each([1006, 1008])("rechecks session authority after close %i", async (code) => {
     installDescriptor();
     const navigate = vi.fn();

@@ -19,6 +19,7 @@ import { BrowserAnnouncementService } from "./browser-announcements-http.js";
 import { BrowserAuthService } from "./browser-auth-service.js";
 import { BrowserGatewayProxy } from "./browser-gateway-proxy.js";
 import { ControlPlaneAuthorizationError } from "./contracts.js";
+import { PLATFORMCLAW_CONTROL_SCHEMA_VERSION } from "./sqlite-schema.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 import { PlatformClawWebIngressServer } from "./web-ingress-server.js";
 import { createFrameQueue, FakeGateway, isRecord } from "./web-ingress-test-harness.js";
@@ -296,7 +297,9 @@ describe("web announcements through the authenticated BFF", () => {
     base = (await start(store, auth)).base;
     expect(await history()).toEqual(page);
     const db = new DatabaseSync(databasePath);
-    expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(3);
+    expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(
+      PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+    );
     db.close();
   });
 
@@ -634,7 +637,9 @@ describe("web announcements through the authenticated BFF", () => {
         .toSorted(),
     ).toEqual(["announcement.cancel", "announcement.publish", "announcement.update"]);
     const db = new DatabaseSync(databasePath);
-    expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(3);
+    expect(db.prepare("PRAGMA user_version").get()?.user_version).toBe(
+      PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+    );
     db.close();
   });
 

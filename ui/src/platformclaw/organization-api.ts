@@ -52,6 +52,11 @@ export type OrganizationContext = {
   canManageOrganization: boolean;
   canViewOrganizationAudit: boolean;
   joinPromptEligible: boolean;
+  directorySync?: {
+    status: "pending" | "synced" | "skipped" | "failed";
+    reason?: string;
+    refreshUrl?: string;
+  };
 };
 
 type OrganizationMember = {

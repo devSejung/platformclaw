@@ -10,6 +10,96 @@ import {
 afterEach(cleanupOrganizationHttpFixtures);
 
 describe("PlatformClaw directory organization browser API", () => {
+  it("projects the actual one-Part lineage before a directory parent mapping is available", async () => {
+    const fixture = createFixture();
+    try {
+      const admin = (await fixture.store.upsertPrincipal(principal("admin"), 1)).user;
+      const member = (await fixture.store.upsertPrincipal(principal("member"), 2)).user;
+      fixture.users.set("admin-token", admin);
+      fixture.users.set("member-token", member);
+      const result = await fixture.store.syncDirectoryOrganization({
+        userId: member.id,
+        org: {
+          version: 1,
+          source: "aicm",
+          team: null,
+          group: null,
+          part: { id: "unmapped", name: "Runtime" },
+          updatedAt: "2026-10-20T01:00:00Z",
+        },
+        isTestAccount: false,
+        syncedAt: 10,
+      });
+      expect(result.status).toBe("synced");
+      const scopes = await call(fixture.service, {
+        path: `${PLATFORMCLAW_ORGANIZATION_PATH}/scopes?q=Runtime&limit=10`,
+        token: "admin-token",
+      });
+      expect(scopes).toMatchObject({
+        status: 200,
+        body: {
+          items: [
+            {
+              kind: "part",
+              managedBy: "ldap-login",
+              externalKey: "aicm-part:unmapped",
+              lineage: [{ kind: "part", name: "Runtime" }],
+              capabilities: { canManageMembers: true, canManageStructure: false },
+            },
+          ],
+        },
+      });
+      expect(
+        await call(fixture.service, {
+          path: `${PLATFORMCLAW_ORGANIZATION_PATH}/context`,
+          token: "member-token",
+        }),
+      ).toMatchObject({
+        status: 200,
+        body: {
+          isUnaffiliated: false,
+          directScopeLineages: [{ lineage: [{ kind: "part", name: "Runtime" }] }],
+        },
+      });
+      expect(
+        (
+          await call(fixture.service, {
+            path: `${PLATFORMCLAW_ORGANIZATION_PATH}/context`,
+            token: "admin-token",
+          })
+        ).body,
+      ).toMatchObject({ isUnaffiliated: true });
+      await fixture.store.syncDirectoryOrganization({
+        userId: admin.id,
+        org: {
+          version: 1,
+          source: "aicm",
+          team: null,
+          group: null,
+          part: { id: "unmapped", name: "Runtime" },
+          updatedAt: "2026-10-20T01:00:00Z",
+        },
+        isTestAccount: false,
+        syncedAt: 11,
+      });
+      expect(
+        (
+          await call(fixture.service, {
+            path: `${PLATFORMCLAW_ORGANIZATION_PATH}/context`,
+            token: "admin-token",
+          })
+        ).body,
+      ).toMatchObject({
+        actor: { isAdministrator: true },
+        isUnaffiliated: false,
+        effectiveScopes: [{ source: "administrator" }],
+        directScopeLineages: [{ lineage: [{ kind: "part", name: "Runtime" }] }],
+      });
+    } finally {
+      fixture.store.close();
+    }
+  });
+
   it("projects directory identity and provenance while rejecting automatic scope edits", async () => {
     const fixture = createFixture();
     try {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n/index.ts";
-import type { OrganizationScopeResult } from "./organization-api.ts";
+import type { OrganizationContext, OrganizationScopeResult } from "./organization-api.ts";
 import "./organization-page.ts";
 
 type OrganizationElement = HTMLElement & {
@@ -50,6 +50,7 @@ function fixtureFetch(options?: {
   conflictRefresh?: Promise<void>;
   refreshFailsAfterMutation?: boolean;
   automatic?: boolean;
+  directorySync?: OrganizationContext["directorySync"];
 }) {
   let mutationCommitted = false;
   let membershipConflictObserved = false;
@@ -139,6 +140,7 @@ function fixtureFetch(options?: {
         canReviewJoinRequests: options?.manager === true || options?.administrator === true,
         canManageOrganization: options?.manager === true || options?.administrator === true,
         canViewOrganizationAudit: options?.administrator === true,
+        directorySync: options?.directorySync,
       });
     }
     if (url.includes("/scopes?")) {
@@ -229,6 +231,204 @@ describe("PlatformClaw Organization settings", () => {
     const element = await mount(fixtureFetch());
     expect(element.textContent).toContain("Platform / Runtime");
     expect(element.textContent).not.toContain("Create a scope");
+  });
+
+  it.each([
+    [{ status: "pending" }, "Your saved organization information is being checked"],
+    [
+      { status: "skipped", reason: "requires-authenticated-org" },
+      "No verified organization information was saved",
+    ],
+    [
+      { status: "failed", reason: "database-unavailable" },
+      "Automatic organization synchronization failed",
+    ],
+    [
+      { status: "skipped", reason: "no-organization" },
+      "Sign-in succeeded without organization information",
+    ],
+    [
+      { status: "skipped", reason: "untrusted-source" },
+      "The sign-in organization source is not eligible",
+    ],
+    [
+      { status: "skipped", reason: "unsupported-version" },
+      "The sign-in organization format version is not supported",
+    ],
+    [
+      { status: "skipped", reason: "test-account" },
+      "Automatic organization membership is disabled for test accounts",
+    ],
+    [
+      { status: "skipped", reason: "stale-organization" },
+      "The sign-in organization information is older than the saved verified information",
+    ],
+    [
+      { status: "skipped", reason: "conflicting-organization" },
+      "The sign-in organization information conflicts with saved verified information",
+    ],
+  ] as const)(
+    "shows the recorded automatic membership outcome without claiming an absent membership: %j",
+    async (directorySync, message) => {
+      const element = await mount(fixtureFetch({ empty: true, directorySync }));
+      expect(element.textContent).toContain(message);
+      expect(element.textContent).not.toContain("No organization membership");
+      if ("reason" in directorySync) {
+        expect(element.textContent).not.toContain(directorySync.reason);
+      }
+      expect(element.querySelector("#platformclaw-organization-tab-requests")).not.toBeNull();
+      expect(element.querySelector('a[href^="/employee/auth/adsso"]')).toBeNull();
+    },
+  );
+
+  it("keeps existing membership visible when automatic synchronization fails", async () => {
+    const element = await mount(fixtureFetch({ directorySync: { status: "failed" } }));
+    expect(element.textContent).toContain("Platform / Runtime");
+    expect(element.textContent).toContain("Automatic organization synchronization failed");
+  });
+
+  it.each([
+    ["requires-authenticated-org", "인증된 조직 정보가 저장되어 있지 않습니다"],
+    ["no-organization", "인증 응답에 조직 정보가 없습니다"],
+    ["untrusted-source", "조직 출처는 자동 가입에 사용할 수 없습니다"],
+    ["unsupported-version", "조직 정보 버전을 지원하지 않습니다"],
+    ["test-account", "테스트 계정에는 조직 자동 가입을 적용하지 않습니다"],
+    ["stale-organization", "조직 정보가 저장된 인증 정보보다 오래되었습니다"],
+    ["conflicting-organization", "인증 응답과 저장된 조직 정보가 서로 다릅니다"],
+  ])(
+    "explains the recorded automatic organization outcome in Korean: %s",
+    async (reason, message) => {
+      await i18n.setLocale("ko");
+      const element = await mount(
+        fixtureFetch({
+          empty: true,
+          directorySync: { status: "skipped", reason },
+        }),
+      );
+      expect(element.textContent).toContain(message);
+      expect(element.textContent).not.toContain("소속 조직 없음");
+    },
+  );
+
+  it.each([
+    ["en", "Continue to company sign-in", "Company sign-in may ask you to authenticate again"],
+    ["ko", "회사 로그인으로 이동", "회사 로그인에서 다시 인증을 요청할 수 있습니다"],
+  ] as const)(
+    "offers the configured company sign-in route for unavailable legacy facts: %s",
+    async (locale, label, prompt) => {
+      await i18n.setLocale(locale);
+      const refreshUrl =
+        "/employee/auth/adsso?returnTo=%2Fplatformclaw%2Fapp%2Fsettings%2Forganization";
+      const element = await mount(
+        fixtureFetch({
+          empty: true,
+          directorySync: { status: "skipped", reason: "requires-authenticated-org", refreshUrl },
+        }),
+      );
+      const action = element.querySelector<HTMLAnchorElement>('a[href^="/employee/auth/adsso"]');
+      expect(action?.getAttribute("href")).toBe(refreshUrl);
+      expect(action?.textContent).toContain(label);
+      expect(element.textContent).toContain(prompt);
+      expect(element.querySelector("#platformclaw-organization-tab-requests")).not.toBeNull();
+    },
+  );
+
+  it("keeps recorded fresh exclusions separate from the legacy company sign-in action", async () => {
+    const element = await mount(
+      fixtureFetch({
+        empty: true,
+        directorySync: {
+          status: "skipped",
+          reason: "unsupported-version",
+          refreshUrl: "/employee/auth/adsso",
+        },
+      }),
+    );
+    expect(element.querySelector('a[href^="/employee/auth/adsso"]')).toBeNull();
+    expect(element.textContent).toContain("format version is not supported");
+  });
+
+  it("shows a directory Part before its parents are known and keeps its automatic structure read-only", async () => {
+    const part = {
+      id: "part-unmapped",
+      kind: "part" as const,
+      name: "Runtime",
+      status: "active" as const,
+      managedBy: "ldap-login" as const,
+      externalKey: "aicm-part:runtime",
+    };
+    const capabilities = {
+      canManageMembers: true,
+      canManageLeaders: true,
+      canManageStructure: false,
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith("/context")) {
+        return json({
+          actor: { id: "user-1", displayName: "Person", isAdministrator: true },
+          directMemberships: [{ scopeId: part.id, role: "member", managedBy: "ldap-login" }],
+          directScopeLineages: [{ scopeId: part.id, lineage: [part] }],
+          effectiveScopes: [{ scope: part, source: "direct", directRole: "member" }],
+          directMembershipsHasMore: false,
+          effectiveScopesHasMore: false,
+          primaryScope: part,
+          primaryScopeLineage: [part],
+          isUnaffiliated: false,
+          hasPendingJoinRequest: false,
+          joinPromptEligible: false,
+          canReviewJoinRequests: true,
+          canManageOrganization: true,
+          canViewOrganizationAudit: true,
+        });
+      }
+      if (url.includes("/scopes?")) {
+        return json({
+          items: [
+            {
+              ...part,
+              revision: 10,
+              lineage: [part],
+              capabilities,
+              requestState: "member",
+              requestEligible: false,
+            },
+          ],
+          hasMore: false,
+        });
+      }
+      if (url.includes("/management/scopes/part-unmapped?")) {
+        return json({
+          scope: part,
+          members: [
+            {
+              user: { id: "user-1", accountId: "person.one", status: "active" },
+              role: "member",
+              managedBy: "ldap-login",
+            },
+          ],
+        });
+      }
+      return json({ error: "unexpected" }, 500);
+    });
+    const element = await mount(fetchImpl);
+    expect(element.textContent).toContain("Runtime (aicm-part:runtime)");
+    expect(element.textContent).toContain("Automatically managed");
+    const primary = element.querySelector<HTMLSelectElement>('select[aria-label="Primary scope"]')!;
+    expect(
+      [...primary.options]
+        .filter((option) => option.value)
+        .map((option) => option.textContent?.trim()),
+    ).toEqual(["Runtime (aicm-part:runtime)"]);
+
+    await selectTab(element, "management");
+
+    await vi.waitFor(() => expect(element.textContent).toContain("person.one"));
+    const actions = [...element.querySelectorAll("button")].map((button) =>
+      button.textContent?.trim(),
+    );
+    expect(actions).not.toContain("Rename");
+    expect(actions).not.toContain("Archive");
   });
 
   it("renders delegated roster controls from management capability", async () => {

@@ -16,6 +16,10 @@ import {
   type ManagedScopeKind,
   type ManagedScopeRole,
 } from "./contracts.js";
+import {
+  projectEmployeeDirectoryStatus,
+  type EmployeeDirectoryBackfillOutcome,
+} from "./employee-directory.js";
 import { OrganizationService } from "./organization-service.js";
 
 export const PLATFORMCLAW_ORGANIZATION_PATH = "/platformclaw/api/organization";
@@ -196,6 +200,8 @@ export class BrowserOrganizationService {
     private readonly options: {
       authService: BrowserAuthService;
       organization: OrganizationService;
+      prepareDirectoryOrganization?: (userId: string) => Promise<EmployeeDirectoryBackfillOutcome>;
+      ssoRefreshUrl?: string;
       now?: () => number;
     },
   ) {}
@@ -206,6 +212,7 @@ export class BrowserOrganizationService {
   }
 
   async context(actor: { id: string; globalRole: "member" | "admin"; displayName?: string }) {
+    const directoryOutcome = await this.options.prepareDirectoryOrganization?.(actor.id);
     const snapshot = await this.options.organization.getContext(actor.id, 20);
     return {
       actor: {
@@ -242,8 +249,11 @@ export class BrowserOrganizationService {
       canReviewJoinRequests: snapshot.canReviewJoinRequests,
       canManageOrganization: snapshot.canManageOrganization,
       canViewOrganizationAudit: snapshot.canViewOrganizationAudit,
-      joinPromptEligible:
+      ...projectEmployeeDirectoryStatus(
+        directoryOutcome,
         actor.globalRole !== "admin" && snapshot.isUnaffiliated && !snapshot.hasPendingJoinRequest,
+        this.options.ssoRefreshUrl,
+      ),
     };
   }
 

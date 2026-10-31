@@ -18,9 +18,9 @@ export type DirectoryOrganizationSyncResult =
         | "untrusted-source"
         | "no-part"
         | "invalid-organization"
-        | "missing-parent"
         | "inactive-organization"
         | "inactive-user"
+        | "stale-authentication"
         | "stale-organization"
         | "conflicting-organization";
     };

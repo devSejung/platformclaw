@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 
@@ -32,8 +33,8 @@ function synchronize(
   userId: string,
   overrides: {
     part?: { id: string; name: string };
-    group?: { id: string; name: string };
-    team?: string;
+    group?: { id: string; name: string } | null;
+    team?: string | null;
     sourceOffset?: number;
   } = {},
 ) {
@@ -43,8 +44,8 @@ function synchronize(
       version: 1,
       source: "aicm",
       part: overrides.part ?? { id: "runtime", name: "Runtime" },
-      group: overrides.group ?? { id: "platform", name: "Platform" },
-      team: overrides.team ?? "Engineering",
+      group: overrides.group === undefined ? { id: "platform", name: "Platform" } : overrides.group,
+      team: overrides.team === undefined ? "Engineering" : overrides.team,
       updatedAt: new Date(sourceAt + (overrides.sourceOffset ?? 0)).toISOString(),
     },
     isTestAccount: false,
@@ -61,8 +62,9 @@ async function externalScope(store: SqliteControlPlaneStore, key: string) {
 async function fixture() {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "platformclaw-directory-access-")));
   directories.push(directory);
+  const databasePath = join(directory, "control.sqlite");
   const store = new SqliteControlPlaneStore({
-    databasePath: join(directory, "control.sqlite"),
+    databasePath,
     initialAdminAccountIds: ["admin"],
     buildAgentMainSessionKey: ({ agentId }) => `agent:${agentId}:main`,
   });
@@ -73,10 +75,150 @@ async function fixture() {
   const part = await externalScope(store, "aicm-part:runtime");
   const group = await externalScope(store, "group:platform");
   const team = await externalScope(store, "team:Engineering");
-  return { store, admin, member, part, group, team };
+  return { store, databasePath, admin, member, part, group, team };
 }
 
 describe("directory synchronization access lifecycle", () => {
+  it("keeps a parentless Part usable for direct sharing and review before attaching its real ancestors", async () => {
+    const { store, admin, member, part: siblingPart, group, team } = await fixture();
+    const orphan = await createUser(store, "orphan");
+    const applicant = await createUser(store, "applicant");
+    await synchronize(store, orphan.id, {
+      part: { id: "unmapped", name: "Unmapped" },
+      group: null,
+      team: null,
+    });
+    const part = await externalScope(store, "aicm-part:unmapped");
+    await store.setManagedScopeMembership({
+      actorUserId: admin.id,
+      userId: orphan.id,
+      scopeId: part.id,
+      role: "leader",
+      reason: "Part leadership remains local until its parent is known",
+      changedAt: sourceAt + 101_000,
+    });
+    await store.submitOrganizationJoinRequest({
+      userId: applicant.id,
+      scopeId: part.id,
+      requestId: "join-unmapped",
+      reason: "Work with this Part",
+      submittedAt: sourceAt + 102_000,
+    });
+    expect(
+      await store.listReviewableOrganizationJoinRequests({ actorUserId: orphan.id }),
+    ).toMatchObject([{ id: "join-unmapped" }]);
+    expect(
+      await store.listReviewableOrganizationJoinRequests({ actorUserId: admin.id }),
+    ).toMatchObject([{ id: "join-unmapped" }]);
+    expect(await store.listReviewableOrganizationJoinRequests({ actorUserId: member.id })).toEqual(
+      [],
+    );
+    const vault = store.vaults.createVault({ userId: admin.id, name: "Unmapped Part Wiki" });
+    store.vaults.setOrganizationGrant({
+      userId: admin.id,
+      vaultId: vault.id,
+      scopeId: part.id,
+      role: "reader",
+    });
+    expect(store.vaults.snapshot({ userId: orphan.id, vaultId: vault.id }).selected).toBeDefined();
+    expect(() => store.vaults.snapshot({ userId: member.id, vaultId: vault.id })).toThrow(
+      "unavailable",
+    );
+    const operationId = randomUUID();
+    const publication = await store.skillHubCatalog.reservePublication({
+      operationId,
+      actorUserId: admin.id,
+      slug: "unmapped-part-skill",
+      version: "1.0.0",
+      fingerprint: operationId,
+      sharing: { mode: "SELECTED", userIds: [], scopeIds: [part.id] },
+      now: sourceAt + 103_000,
+    });
+    const skill = await store.skillHubCatalog.completePublication({
+      operationId: publication.receipt.operationId,
+      registryId: 101,
+      now: sourceAt + 104_000,
+    });
+    expect(await store.skillHubCatalog.canAccess({ skillId: skill.id, userId: orphan.id })).toBe(
+      true,
+    );
+    expect(await store.skillHubCatalog.canAccess({ skillId: skill.id, userId: member.id })).toBe(
+      false,
+    );
+    expect(
+      (await store.listEffectiveManagedScopeAccess(orphan.id)).map((entry) => entry.scope.id),
+    ).toEqual([part.id]);
+
+    await synchronize(store, orphan.id, {
+      part: { id: "unmapped", name: "Mapped" },
+      sourceOffset: 1_000,
+    });
+
+    expect(await externalScope(store, "aicm-part:unmapped")).toMatchObject({
+      id: part.id,
+      parentScopeId: group.id,
+    });
+    expect(
+      (await store.listEffectiveManagedScopeAccess(orphan.id))
+        .map((entry) => entry.scope.id)
+        .toSorted(),
+    ).toEqual([part.id, group.id, team.id].toSorted());
+    expect((await store.resolveManagedScopeAuthorization(orphan.id, siblingPart.id)).canRead).toBe(
+      false,
+    );
+    expect((await store.resolveManagedScopeAuthorization(member.id, part.id)).canRead).toBe(false);
+    expect(store.vaults.snapshot({ userId: orphan.id, vaultId: vault.id }).selected).toBeDefined();
+    expect(await store.skillHubCatalog.canAccess({ skillId: skill.id, userId: member.id })).toBe(
+      false,
+    );
+  });
+
+  it("never revives an archived parentless Part or grants its direct shared content", async () => {
+    const { store, databasePath, admin } = await fixture();
+    const orphan = await createUser(store, "orphan");
+    await synchronize(store, orphan.id, {
+      part: { id: "unmapped", name: "Unmapped" },
+      group: null,
+      team: null,
+    });
+    const part = await externalScope(store, "aicm-part:unmapped");
+    const vault = store.vaults.createVault({ userId: admin.id, name: "Archived Part Wiki" });
+    store.vaults.setOrganizationGrant({
+      userId: admin.id,
+      vaultId: vault.id,
+      scopeId: part.id,
+      role: "reader",
+    });
+    const database = new DatabaseSync(databasePath);
+    try {
+      database.prepare("UPDATE managed_scopes SET status = 'archived' WHERE id = ?").run(part.id);
+    } finally {
+      database.close();
+    }
+
+    await expect(
+      synchronize(store, orphan.id, {
+        part: { id: "unmapped", name: "Unmapped" },
+        group: null,
+        team: null,
+        sourceOffset: 1_000,
+      }),
+    ).resolves.toEqual({ status: "skipped", reason: "inactive-organization" });
+    expect((await store.resolveManagedScopeAuthorization(orphan.id, part.id)).canRead).toBe(false);
+    expect(await store.listEffectiveManagedScopeAccess(orphan.id)).toEqual([]);
+    expect(
+      await store.searchOrganizationScopesForUser({
+        userId: orphan.id,
+        query: "Unmapped",
+        limit: 10,
+      }),
+    ).toEqual([]);
+    expect(() => store.vaults.snapshot({ userId: orphan.id, vaultId: vault.id })).toThrow(
+      "unavailable",
+    );
+    expect(await store.getManagedScope(part.id)).toMatchObject({ status: "archived" });
+  });
+
   it.each([
     { manual: false, connected: true },
     { manual: true, connected: true },

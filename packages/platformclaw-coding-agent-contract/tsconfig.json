@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../.."
+  },
+  "include": [
+    "**/*",
+    "../../src/**/*.d.ts",
+    "../../ui/**/*.d.ts",
+    "../../packages/**/*.d.ts",
+    "../../extensions/**/*.d.ts"
+  ]
+}

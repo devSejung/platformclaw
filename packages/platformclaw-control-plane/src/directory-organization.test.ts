@@ -228,17 +228,261 @@ describe("directory organization synchronization", () => {
     ]);
   });
 
-  it.each([{ group: null }, { team: null }])(
-    "defers incomplete new hierarchy without partial organization writes: %j",
-    async (missing) => {
+  it.each([null, "Engineering"])(
+    "creates and joins a parentless directory Part, then attaches the same Part when its parents arrive (initial Team: %s)",
+    async (initialTeam) => {
       const { store, member } = await fixture();
-      await expect(sync(store, member.id, org(missing))).resolves.toMatchObject({
-        status: "skipped",
+      await expect(
+        sync(store, member.id, org({ group: null, team: initialTeam })),
+      ).resolves.toMatchObject({
+        status: "synced",
       });
-      expect(await state(store, member.id)).toEqual({ scopes: [], memberships: [] });
+      const part = await scope(store, "aicm-part:runtime");
+      expect(part).toMatchObject({ kind: "part", managedBy: "ldap-login" });
+      expect(part.parentScopeId).toBeUndefined();
+      expect(await store.listManagedScopes()).toHaveLength(1);
+      expect(await store.listUserManagedScopeMemberships(member.id)).toMatchObject([
+        { scopeId: part.id, managedBy: "ldap-login" },
+      ]);
+      expect(
+        (await store.listEffectiveManagedScopeAccess(member.id)).map((entry) => entry.scope.id),
+      ).toEqual([part.id]);
+      expect(
+        await store.searchOrganizationScopesForUser({
+          userId: member.id,
+          query: "Runtime",
+          limit: 10,
+        }),
+      ).toMatchObject([
+        { scope: { id: part.id }, lineage: [{ id: part.id }], requestState: "member" },
+      ]);
+
       await expect(sync(store, member.id)).resolves.toMatchObject({ status: "synced" });
+
+      const group = await scope(store, "group:platform");
+      const team = await scope(store, "team:Engineering");
+      expect(await scope(store, "aicm-part:runtime")).toMatchObject({
+        id: part.id,
+        parentScopeId: group.id,
+      });
+      expect(
+        (await store.listEffectiveManagedScopeAccess(member.id))
+          .map((entry) => entry.scope.id)
+          .toSorted(),
+      ).toEqual([part.id, group.id, team.id].toSorted());
+      expect(await store.listUserManagedScopeMemberships(member.id)).toHaveLength(1);
     },
   );
+
+  it.each([false, true])(
+    "refines a latest unknown parent without promoting the retained parent to the latest source revision (renamed Part: %s)",
+    async (renamed) => {
+      const { store, member, databasePath } = await fixture();
+      const colleague = await user(store, "colleague");
+      await sync(store, member.id);
+      await sync(store, colleague.id);
+      const original = await scope(store, "aicm-part:runtime");
+      const current = org({
+        updatedAt: new Date(sourceAt + 1_000).toISOString(),
+        part: { id: "runtime", name: renamed ? "Runtime Revised" : "Runtime" },
+      });
+      await expect(
+        sync(store, member.id, { ...current, group: null, team: null }),
+      ).resolves.toMatchObject({ status: "synced" });
+      expect(await scope(store, "aicm-part:runtime")).toMatchObject({
+        id: original.id,
+        name: current.part!.name,
+        parentScopeId: original.parentScopeId,
+      });
+      closeStore(store);
+      const reopened = openStore(databasePath);
+      const observed = new DatabaseSync(databasePath, { readOnly: true });
+      try {
+        expect(
+          observed
+            .prepare(
+              "SELECT directory_updated_at,directory_parent_key,parent_scope_id FROM managed_scopes WHERE id=?",
+            )
+            .get(original.id),
+        ).toEqual({
+          directory_updated_at: sourceAt + 1_000,
+          directory_parent_key: null,
+          parent_scope_id: original.parentScopeId,
+        });
+        expect(
+          observed
+            .prepare(
+              "SELECT event_type FROM control_audit_events WHERE target_id=? AND event_type='scope.moved'",
+            )
+            .all(original.id),
+        ).toEqual([]);
+      } finally {
+        observed.close();
+      }
+      const reopenedPart = await scope(reopened, "aicm-part:runtime");
+      if (renamed) {
+        expect(reopenedPart.updatedAt).toBeGreaterThan(original.updatedAt);
+      } else {
+        expect(reopenedPart.updatedAt).toBe(original.updatedAt);
+      }
+      const moved = { ...current, group: { id: "services", name: "Services" }, team: "Technology" };
+      await expect(sync(reopened, colleague.id, moved)).resolves.toMatchObject({
+        status: "synced",
+      });
+      const group = await scope(reopened, "group:services");
+      expect(await scope(reopened, "aicm-part:runtime")).toMatchObject({
+        id: original.id,
+        name: current.part!.name,
+        parentScopeId: group.id,
+      });
+      for (const target of [member, colleague]) {
+        const ids = (await reopened.listEffectiveManagedScopeAccess(target.id)).map(
+          (entry) => entry.scope.id,
+        );
+        expect(ids).toContain(group.id);
+        expect(ids).not.toContain(original.parentScopeId);
+      }
+      await expect(
+        sync(reopened, member.id, { ...current, group: null, team: null }),
+      ).resolves.toMatchObject({ status: "synced" });
+      await expect(
+        sync(reopened, member.id, { ...moved, group: { id: "conflict", name: "Conflict" } }),
+      ).resolves.toEqual({ status: "skipped", reason: "conflicting-organization" });
+      await expect(sync(reopened, member.id, org())).resolves.toEqual({
+        status: "skipped",
+        reason: "stale-organization",
+      });
+      expect((await scope(reopened, "aicm-part:runtime")).parentScopeId).toBe(group.id);
+    },
+  );
+
+  it("refines a latest unknown Team while preserving the Group's same-revision name and rejecting a second known Team", async () => {
+    const { store, member } = await fixture();
+    await sync(store, member.id);
+    const original = await scope(store, "group:platform");
+    const current = org({
+      updatedAt: new Date(sourceAt + 1_000).toISOString(),
+      group: { id: "platform", name: "Platform Revised" },
+    });
+    await expect(sync(store, member.id, { ...current, team: null })).resolves.toMatchObject({
+      status: "synced",
+    });
+    expect(await scope(store, "group:platform")).toMatchObject({
+      id: original.id,
+      name: "Platform Revised",
+      parentScopeId: original.parentScopeId,
+    });
+    await expect(sync(store, member.id, { ...current, team: "Technology" })).resolves.toMatchObject(
+      { status: "synced" },
+    );
+    const team = await scope(store, "team:Technology");
+    expect(await scope(store, "group:platform")).toMatchObject({
+      id: original.id,
+      name: "Platform Revised",
+      parentScopeId: team.id,
+    });
+    await expect(sync(store, member.id, { ...current, team: null })).resolves.toMatchObject({
+      status: "synced",
+    });
+    await expect(sync(store, member.id, { ...current, team: "Conflict" })).resolves.toEqual({
+      status: "skipped",
+      reason: "conflicting-organization",
+    });
+    await expect(
+      sync(store, member.id, {
+        ...current,
+        group: { id: "platform", name: "Platform" },
+        team: "Technology",
+      }),
+    ).resolves.toEqual({ status: "skipped", reason: "conflicting-organization" });
+  });
+
+  it("joins a Part without inventing its Group's unknown Team and preserves the pending external parent across users", async () => {
+    const { store, member } = await fixture();
+    const colleague = await user(store, "colleague");
+    await expect(sync(store, member.id, org({ team: null }))).resolves.toMatchObject({
+      status: "synced",
+    });
+    const part = await scope(store, "aicm-part:runtime");
+    expect(part.parentScopeId).toBeUndefined();
+    expect(await store.listManagedScopes()).toHaveLength(1);
+    await expect(
+      sync(store, colleague.id, org({ team: null, group: { id: "conflict", name: "Conflict" } })),
+    ).resolves.toEqual({
+      status: "skipped",
+      reason: "conflicting-organization",
+    });
+    await expect(
+      sync(store, colleague.id, org({ updatedAt: new Date(sourceAt - 1_000).toISOString() })),
+    ).resolves.toEqual({
+      status: "skipped",
+      reason: "stale-organization",
+    });
+    expect(await store.listManagedScopes()).toHaveLength(1);
+    expect(await store.listUserManagedScopeMemberships(colleague.id)).toEqual([]);
+    await expect(sync(store, member.id)).resolves.toMatchObject({ status: "synced" });
+    const group = await scope(store, "group:platform");
+    expect(await scope(store, "aicm-part:runtime")).toMatchObject({
+      id: part.id,
+      parentScopeId: group.id,
+    });
+  });
+
+  it("detaches a newer known move whose Team is unavailable, then resolves only that same pending Group at the same revision", async () => {
+    const { store, member } = await fixture();
+    const colleague = await user(store, "colleague");
+    await sync(store, member.id);
+    await sync(store, colleague.id);
+    const part = await scope(store, "aicm-part:runtime");
+    const moved = org({
+      updatedAt: new Date(sourceAt + 1_000).toISOString(),
+      team: null,
+      group: { id: "services", name: "Services" },
+    });
+    await expect(sync(store, member.id, moved)).resolves.toMatchObject({ status: "synced" });
+    for (const target of [member, colleague]) {
+      expect(
+        (await store.listEffectiveManagedScopeAccess(target.id)).map((entry) => entry.scope.id),
+      ).toEqual([part.id]);
+    }
+    await expect(
+      sync(store, colleague.id, { ...moved, group: { id: "other", name: "Other" } }),
+    ).resolves.toEqual({ status: "skipped", reason: "conflicting-organization" });
+    await expect(
+      sync(store, colleague.id, { ...moved, part: { id: "runtime", name: "Renamed" } }),
+    ).resolves.toEqual({ status: "skipped", reason: "conflicting-organization" });
+    await expect(sync(store, colleague.id, { ...moved, group: null })).resolves.toMatchObject({
+      status: "synced",
+    });
+    expect((await scope(store, "aicm-part:runtime")).parentScopeId).toBeUndefined();
+    await expect(
+      sync(store, colleague.id, {
+        ...moved,
+        group: { id: "after-unknown", name: "After Unknown" },
+      }),
+    ).resolves.toEqual({ status: "skipped", reason: "conflicting-organization" });
+    await expect(sync(store, member.id, { ...moved, team: "Technology" })).resolves.toMatchObject({
+      status: "synced",
+    });
+    const group = await scope(store, "group:services");
+    expect(await scope(store, "aicm-part:runtime")).toMatchObject({
+      id: part.id,
+      parentScopeId: group.id,
+    });
+    const before = await store.listManagedScopes();
+    await expect(sync(store, colleague.id, { ...moved, team: "Another Team" })).resolves.toEqual({
+      status: "skipped",
+      reason: "conflicting-organization",
+    });
+    await expect(
+      sync(store, colleague.id, {
+        ...moved,
+        team: "Technology",
+        group: { id: "services", name: "Changed" },
+      }),
+    ).resolves.toEqual({ status: "skipped", reason: "conflicting-organization" });
+    expect(await store.listManagedScopes()).toEqual(before);
+  });
 
   it.each([
     undefined,
@@ -322,6 +566,31 @@ describe("directory organization synchronization", () => {
     const moved = await state(store, member.id);
     await sync(store, member.id, org());
     expect(await state(store, member.id)).toEqual(moved);
+  });
+
+  it("rejects directory lookup snapshots taken before a newer authentication", async () => {
+    const { store, member } = await fixture();
+    const snapshot = await store.getUserById(member.id);
+    await store.upsertPrincipal(
+      {
+        provider: "ldap",
+        subject: member.accountId,
+        accountId: member.accountId,
+        employeeId: member.employeeId,
+      },
+      syncedAt + 1_000,
+    );
+
+    await expect(
+      store.syncDirectoryOrganization({
+        userId: member.id,
+        org: org(),
+        isTestAccount: false,
+        syncedAt: syncedAt + 2_000,
+        expectedLastLoginAt: snapshot!.lastLoginAt,
+      }),
+    ).resolves.toEqual({ status: "skipped", reason: "stale-authentication" });
+    expect(await state(store, member.id)).toEqual({ scopes: [], memberships: [] });
   });
 
   it.each(["before", "after"])(
@@ -561,7 +830,7 @@ describe("directory organization synchronization", () => {
         expect(await state(store, member.id)).toEqual(before);
       }
     } finally {
-      runtime.close();
+      await runtime.close();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });

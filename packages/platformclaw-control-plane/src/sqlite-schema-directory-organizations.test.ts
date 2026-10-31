@@ -1,10 +1,13 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ensureDirectoryOrganizationSchema } from "./sqlite-schema-directory-organizations.js";
-import { initializeControlPlaneSchema } from "./sqlite-schema.js";
+import {
+  initializeControlPlaneSchema,
+  PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+} from "./sqlite-schema.js";
 
 const databases: DatabaseSync[] = [];
 const directories: string[] = [];
@@ -34,7 +37,9 @@ function legacyDatabase(path?: string) {
       normalized_name TEXT NOT NULL, parent_scope_id TEXT REFERENCES managed_scopes(id),
       system_kind TEXT, system_provenance TEXT, status TEXT NOT NULL,
       created_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
-      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+      CHECK ((kind = 'team' AND parent_scope_id IS NULL) OR
+        (kind IN ('group', 'part') AND parent_scope_id IS NOT NULL))
     ) STRICT;
     CREATE UNIQUE INDEX managed_scopes_team_name
       ON managed_scopes(normalized_name) WHERE kind = 'team';
@@ -85,12 +90,15 @@ describe("directory organization schema", () => {
     initializeControlPlaneSchema(db);
     ensureDirectoryOrganizationSchema(db);
 
-    expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({
+      user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+    });
     expect(db.prepare("SELECT * FROM managed_scopes WHERE id = 'team'").get()).toEqual({
       ...scope,
       external_key: null,
       managed_by: null,
       directory_updated_at: null,
+      directory_parent_key: null,
     });
     expect(db.prepare("SELECT * FROM managed_scope_memberships").get()).toEqual({
       ...membership,
@@ -164,7 +172,9 @@ describe("directory organization schema", () => {
       managed_by: "ldap-login",
       manual_role: "leader",
     });
-    expect(reopened.prepare("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(reopened.prepare("PRAGMA user_version").get()).toEqual({
+      user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+    });
   });
 
   it("declares fresh schema canonically and participates in an existing transaction", () => {
@@ -175,6 +185,113 @@ describe("directory organization schema", () => {
     ensureDirectoryOrganizationSchema(db);
     expect(db.isTransaction).toBe(true);
     db.exec("ROLLBACK");
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({
+      user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+    });
+  });
+
+  it("backs up v3 and permits only externally managed Parts to await their parents", () => {
+    const directory = mkdtempSync(join(tmpdir(), "platformclaw-directory-v4-"));
+    directories.push(directory);
+    const databasePath = join(directory, "control.sqlite");
+    const db = legacyDatabase(databasePath);
+    ensureDirectoryOrganizationSchema(db);
+    insertScope(db, "directory-team", "Directory Team", "team:Directory Team");
+    insertScope(
+      db,
+      "directory-group",
+      "Directory Group",
+      "group:platform",
+      "group",
+      "directory-team",
+    );
+    insertScope(
+      db,
+      "directory-part",
+      "Directory Part",
+      "aicm-part:existing",
+      "part",
+      "directory-group",
+    );
+    expect(() => insertScope(db, "part", "Part", "aicm-part:part", "part")).toThrow();
+
+    initializeControlPlaneSchema(db, databasePath);
+
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 4 });
+    expect(
+      db
+        .prepare("SELECT directory_parent_key FROM managed_scopes WHERE id = 'directory-part'")
+        .get(),
+    ).toEqual({ directory_parent_key: "group:platform" });
+    insertScope(db, "part", "Part", "aicm-part:part", "part");
+    expect(() => insertScope(db, "manual-part", "Manual Part", null, "part")).toThrow();
+    expect(() =>
+      insertScope(db, "missing-part-id", "Invalid Part", "aicm-part:", "part"),
+    ).toThrow();
+    expect(() => insertScope(db, "group", "Group", "group:group", "group")).toThrow();
+    expect(() =>
+      db.exec("UPDATE managed_scopes SET managed_by = NULL WHERE id = 'part'"),
+    ).toThrow();
+    expect(() =>
+      db.exec("UPDATE managed_scopes SET external_key = NULL WHERE id = 'part'"),
+    ).toThrow();
+    expect(() =>
+      db.exec("UPDATE managed_scopes SET parent_scope_id = 'team' WHERE id = 'part'"),
+    ).toThrow();
+    expect(db.prepare("SELECT role FROM managed_scope_memberships").all()).toEqual([
+      { role: "leader" },
+    ]);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    const backups = readdirSync(directory).filter((name) => name.includes(".pre-v4-"));
+    expect(backups).toHaveLength(1);
+    const backup = openDatabase(join(directory, backups[0]!));
+    expect(backup.prepare("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(backup.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+    expect(backup.prepare("SELECT id FROM managed_scopes ORDER BY id").all()).toEqual([
+      { id: "directory-group" },
+      { id: "directory-part" },
+      { id: "directory-team" },
+      { id: "team" },
+    ]);
+  });
+
+  it("rolls back a failed v4 table replacement and retries without losing provenance or references", () => {
+    const db = legacyDatabase();
+    ensureDirectoryOrganizationSchema(db);
+    db.exec(`UPDATE managed_scope_memberships SET managed_by = 'ldap-login', manual_role = 'leader';
+      INSERT INTO directory_organization_sync VALUES ('user', 'team', 100)`);
+    const scopes = db.prepare("SELECT * FROM managed_scopes").all();
+    const memberships = db.prepare("SELECT * FROM managed_scope_memberships").all();
+    const run = db.exec.bind(db);
+    const fault = vi.spyOn(db, "exec").mockImplementation((sql) => {
+      if (sql.includes("ALTER TABLE managed_scopes_v4 RENAME TO managed_scopes")) {
+        throw new Error("injected v4 replacement failure");
+      }
+      run(sql);
+    });
+    try {
+      expect(() => initializeControlPlaneSchema(db)).toThrow("injected v4 replacement failure");
+    } finally {
+      fault.mockRestore();
+    }
     expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+    expect(db.prepare("SELECT * FROM managed_scopes").all()).toEqual(scopes);
+    expect(db.prepare("SELECT * FROM managed_scope_memberships").all()).toEqual(memberships);
+    expect(
+      db.prepare("SELECT name FROM sqlite_schema WHERE name = 'managed_scopes_v4'").get(),
+    ).toBeUndefined();
+
+    initializeControlPlaneSchema(db);
+
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 4 });
+    expect(db.prepare("SELECT * FROM managed_scopes").all()).toEqual([
+      { ...scopes[0], directory_parent_key: null },
+    ]);
+    expect(db.prepare("SELECT * FROM managed_scope_memberships").all()).toEqual(memberships);
+    expect(db.prepare("SELECT * FROM directory_organization_sync").all()).toEqual([
+      { user_id: "user", scope_id: "team", source_updated_at: 100 },
+    ]);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 });

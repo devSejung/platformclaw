@@ -155,6 +155,7 @@ describe("BrowserAuthService", () => {
       org: undefined,
       isTestAccount: false,
       syncedAt: 2_000,
+      expectedLastLoginAt: 2_000,
     });
   });
 
@@ -180,6 +181,7 @@ describe("BrowserAuthService", () => {
       org,
       isTestAccount: false,
       syncedAt: 1_000,
+      expectedLastLoginAt: 1_000,
     });
   });
 

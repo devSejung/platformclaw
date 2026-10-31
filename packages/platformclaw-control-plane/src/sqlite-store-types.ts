@@ -30,6 +30,29 @@ export type EnterpriseIdentityRow = {
   last_authenticated_at: number;
 };
 
+export type EmployeeDirectorySnapshotRow = {
+  user_id: string;
+  org_json: string;
+  source_updated_at: number;
+  observed_at: number;
+};
+
+type EmployeeDirectoryBackfillAttemptRow = {
+  user_id: string;
+  generation: string;
+  last_login_at: number;
+  status: "pending" | "synced" | "skipped" | "failed";
+  reason: string | null;
+  attempted_at: number;
+};
+
+type EmployeeDirectoryAuthDecisionRow = {
+  user_id: string;
+  authenticated_at: number;
+  decision: string;
+  observed_at: number;
+};
+
 type DirectoryGroupRow = { user_id: string; group_name: string };
 export type AgentBindingRow = {
   id: string;
@@ -68,6 +91,7 @@ export type ManagedScopeRow = {
   external_key: string | null;
   managed_by: "ldap-login" | null;
   directory_updated_at: number | null;
+  directory_parent_key: string | null;
 };
 type ManagedScopePrimaryMembershipRow = {
   user_id: string;
@@ -381,6 +405,9 @@ type BaseballIdempotencyRow = {
 };
 
 export type ControlPlaneDatabase = {
+  employee_directory_snapshots: EmployeeDirectorySnapshotRow;
+  employee_directory_backfill_attempts: EmployeeDirectoryBackfillAttemptRow;
+  employee_directory_auth_decisions: EmployeeDirectoryAuthDecisionRow;
   directory_organization_sync: {
     user_id: string;
     scope_id: string;

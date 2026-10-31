@@ -7,6 +7,16 @@ import {
   renderOrganizationManagedBadge,
 } from "./organization-scope-label.ts";
 
+const skippedSyncMessages: Readonly<Record<string, string>> = {
+  "requires-authenticated-org": "requiresAuthentication",
+  "test-account": "testAccount",
+  "no-organization": "missingOrganization",
+  "untrusted-source": "untrustedSource",
+  "unsupported-version": "unsupportedVersion",
+  "stale-organization": "staleOrganization",
+  "conflicting-organization": "conflictingOrganization",
+};
+
 function contextLineageLabel(scopeId: string, context: OrganizationContext): string | undefined {
   const explicit = context.directScopeLineages.find((entry) => entry.scopeId === scopeId)?.lineage;
   if (explicit?.length) {
@@ -59,12 +69,32 @@ export function renderOrganizationOverview(options: {
       ? [context.primaryScope]
       : []),
   ];
+  const sync = context.directorySync;
+  const syncMessage = sync
+    ? sync.status === "skipped"
+      ? (skippedSyncMessages[sync.reason ?? ""] ?? "skipped")
+      : sync.status
+    : undefined;
   const myOrganization = renderSettingsSection(
     {
       title: t("platformClaw.organization.my.title"),
       description: t("platformClaw.organization.my.description"),
     },
-    html`${directScopes.length === 0
+    html`${syncMessage
+      ? renderSettingsRow({
+          title: t("platformClaw.organization.sync.title"),
+          description: html`<span role="status"
+            >${t(`platformClaw.organization.sync.${syncMessage}`)}</span
+          >`,
+          control:
+            sync?.reason === "requires-authenticated-org" && sync.refreshUrl
+              ? html`<a class="btn" href=${sync.refreshUrl}
+                  >${t("platformClaw.organization.sync.refreshAuthentication")}</a
+                >`
+              : nothing,
+        })
+      : nothing}
+    ${directScopes.length === 0 && !sync
       ? renderSettingsRow({
           title: t("platformClaw.organization.my.unaffiliated"),
           description: t("platformClaw.organization.my.unaffiliatedDescription"),

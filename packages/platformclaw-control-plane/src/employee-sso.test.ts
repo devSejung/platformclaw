@@ -97,6 +97,7 @@ describe("EmployeeSsoService", () => {
       org,
       isTestAccount: false,
       syncedAt: nowMs,
+      expectedLastLoginAt: nowMs,
     });
   });
 
@@ -134,6 +135,7 @@ describe("EmployeeSsoService", () => {
       org: "invalid",
       isTestAccount: true,
       syncedAt: nowMs,
+      expectedLastLoginAt: nowMs,
     });
   });
 

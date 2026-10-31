@@ -151,33 +151,41 @@ export function resolveOrganizationAuthorization(params: {
   return prepareOrganizationAuthorizationContext(params).authorize(params.targetScope);
 }
 
-export function resolveEffectiveOrganizationAccess(params: {
+export function resolveOrganizationAccess(params: {
   user: PlatformUser | null;
   scopes: readonly ManagedScope[];
   memberships: readonly ManagedScopeMembership[];
-}): EffectiveManagedScopeAccess[] {
+}): {
+  effectiveAccess: EffectiveManagedScopeAccess[];
+  activeMemberships: ManagedScopeMembership[];
+} {
   if (!params.user || params.user.status !== "active") {
-    return [];
+    return { effectiveAccess: [], activeMemberships: [] };
   }
   const scopeById = new Map(params.scopes.map((scope) => [scope.id, scope]));
+  // Administrator access is not a membership source. Preserve direct facts
+  // separately so an enrolled administrator is not reported as unaffiliated.
+  const direct = params.memberships.flatMap((membership) => {
+    const scope = scopeById.get(membership.scopeId);
+    const lineage = scope ? lineageFor(scope, scopeById) : [];
+    return lineage.length > 0 && lineage.every((entry) => entry.status === "active")
+      ? [{ membership, lineage }]
+      : [];
+  });
+  const activeMemberships = direct.map(({ membership }) => membership);
   if (params.user.globalRole === "admin") {
-    return params.scopes
-      .filter((scope) => {
-        const lineage = lineageFor(scope, scopeById);
-        return lineage.length > 0 && lineage.every((entry) => entry.status === "active");
-      })
-      .map((scope) => ({ scope, source: "administrator" as const }));
+    return {
+      activeMemberships,
+      effectiveAccess: params.scopes
+        .filter((scope) => {
+          const lineage = lineageFor(scope, scopeById);
+          return lineage.length > 0 && lineage.every((entry) => entry.status === "active");
+        })
+        .map((scope) => ({ scope, source: "administrator" as const })),
+    };
   }
   const access = new Map<string, EffectiveManagedScopeAccess>();
-  for (const membership of params.memberships) {
-    const directScope = scopeById.get(membership.scopeId);
-    if (!directScope) {
-      continue;
-    }
-    const lineage = lineageFor(directScope, scopeById);
-    if (lineage.length === 0 || lineage.some((scope) => scope.status !== "active")) {
-      continue;
-    }
+  for (const { membership, lineage } of direct) {
     lineage.forEach((scope, index) => {
       const candidate: EffectiveManagedScopeAccess =
         index === 0
@@ -188,7 +196,10 @@ export function resolveEffectiveOrganizationAccess(params: {
       }
     });
   }
-  return [...access.values()].toSorted((left, right) =>
-    left.scope.id.localeCompare(right.scope.id),
-  );
+  return {
+    activeMemberships,
+    effectiveAccess: [...access.values()].toSorted((left, right) =>
+      left.scope.id.localeCompare(right.scope.id),
+    ),
+  };
 }
