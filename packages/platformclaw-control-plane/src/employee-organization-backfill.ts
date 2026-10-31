@@ -182,14 +182,3 @@ export class EmployeeOrganizationBackfill {
     return summary;
   }
 }
-
-export async function backfillEmployeeOrganizations(
-  options: Options,
-): Promise<EmployeeOrganizationBackfillSummary> {
-  const owner = new EmployeeOrganizationBackfill(options);
-  try {
-    return await owner.start();
-  } finally {
-    await owner.stop();
-  }
-}

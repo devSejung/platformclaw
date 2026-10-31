@@ -30,7 +30,7 @@ export type EnterpriseIdentityRow = {
   last_authenticated_at: number;
 };
 
-export type EmployeeDirectorySnapshotRow = {
+type EmployeeDirectorySnapshotRow = {
   user_id: string;
   org_json: string;
   source_updated_at: number;

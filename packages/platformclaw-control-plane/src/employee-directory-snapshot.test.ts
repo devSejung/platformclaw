@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { backfillEmployeeOrganizations } from "./employee-organization-backfill.js";
+import { EmployeeOrganizationBackfill } from "./employee-organization-backfill.js";
 import { InMemoryControlPlaneStore } from "./memory-store.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 
@@ -120,9 +120,10 @@ describe("authenticated employee directory snapshots", () => {
         return { status: "synced" as const, scopeId: "unused" };
       },
     };
-    let scan: ReturnType<typeof backfillEmployeeOrganizations> | undefined;
+    const owner = new EmployeeOrganizationBackfill({ store });
+    let scan: ReturnType<typeof owner.start> | undefined;
     const server = createServer((_request, response) => {
-      scan = backfillEmployeeOrganizations({ store });
+      scan = owner.start();
       // A check-phase response must not wait for every immediately resolved DB task.
       setImmediate(() => {
         response.setHeader("Content-Type", "application/json");
@@ -139,7 +140,7 @@ describe("authenticated employee directory snapshots", () => {
       expect(await response.json()).toEqual({ pagesRead: 1 });
       expect(await scan).toMatchObject({ found: 200, skipped: 200, failed: 0, limited: false });
     } finally {
-      await scan;
+      await owner.stop();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
@@ -330,32 +331,36 @@ describe("authenticated employee directory snapshots", () => {
       expectedLastLoginAt: 1_000,
     });
     // The scan captures the old user row synchronously before its first await.
-    const backfill = backfillEmployeeOrganizations({
-      store,
-      now: () => 3_000,
-    });
-    await store.upsertPrincipal(principal, 2_000);
-    await store.recordEmployeeDirectoryAuthentication({
-      userId: user.id,
-      org: organization(1_000, "New source"),
-      isTestAccount: false,
-      observedAt: 2_000,
-      expectedLastLoginAt: 2_000,
-    });
-    await store.syncDirectoryOrganization({
-      userId: user.id,
-      org: organization(1_000, "New source"),
-      isTestAccount: false,
-      syncedAt: 2_000,
-      expectedLastLoginAt: 2_000,
-    });
-    expect(await backfill).toMatchObject({ found: 1, skipped: 1, failed: 0 });
-    expect((await store.listManagedScopes()).find((scope) => scope.kind === "part")).toMatchObject({
-      name: "New source",
-    });
-    expect(await store.getEmployeeDirectorySnapshot(user.id)).toEqual({
-      org: organization(1_000, "New source"),
-      isTestAccount: false,
-    });
+    const owner = new EmployeeOrganizationBackfill({ store, now: () => 3_000 });
+    const scan = owner.start();
+    try {
+      await store.upsertPrincipal(principal, 2_000);
+      await store.recordEmployeeDirectoryAuthentication({
+        userId: user.id,
+        org: organization(1_000, "New source"),
+        isTestAccount: false,
+        observedAt: 2_000,
+        expectedLastLoginAt: 2_000,
+      });
+      await store.syncDirectoryOrganization({
+        userId: user.id,
+        org: organization(1_000, "New source"),
+        isTestAccount: false,
+        syncedAt: 2_000,
+        expectedLastLoginAt: 2_000,
+      });
+      expect(await scan).toMatchObject({ found: 1, skipped: 1, failed: 0 });
+      expect(
+        (await store.listManagedScopes()).find((scope) => scope.kind === "part"),
+      ).toMatchObject({
+        name: "New source",
+      });
+      expect(await store.getEmployeeDirectorySnapshot(user.id)).toEqual({
+        org: organization(1_000, "New source"),
+        isTestAccount: false,
+      });
+    } finally {
+      await owner.stop();
+    }
   });
 });
