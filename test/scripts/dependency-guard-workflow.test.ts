@@ -184,7 +184,9 @@ describe("dependency guard workflow", () => {
     const script = readFileSync("scripts/github/dependency-guard.mjs", "utf8");
 
     expect(runStep.env?.OPENCLAW_SECURITY_TEAM_SLUG).toBe("openclaw-secops");
-    expect(runStep.env?.OPENCLAW_SECURITY_APPROVERS).toBe("vincentkoc,steipete,joshavant");
+    expect(runStep.env?.OPENCLAW_SECURITY_APPROVERS).toBe(
+      "vincentkoc,steipete,joshavant,iililiiilili",
+    );
     expect(workflow).toContain("scripts/github/dependency-guard.mjs");
     expect(script).toContain('"dependencies-changed"');
     expect(script).not.toContain('"blocked: dependencies"');
