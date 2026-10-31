@@ -101,9 +101,7 @@ describe("security-sensitive guard workflow", () => {
     expect(detectSteps.at(-1)?.env?.OPENCLAW_SECURITY_SENSITIVE_GUARD_MODE).toBe("detect");
     expect(finalSteps.at(-1)?.env?.OPENCLAW_SECURITY_SENSITIVE_GUARD_MODE).toBe("enforce");
     expect(finalSteps.at(-1)?.env?.OPENCLAW_SECURITY_TEAM_SLUG).toBe("openclaw-secops");
-    expect(finalSteps.at(-1)?.env?.OPENCLAW_SECURITY_APPROVERS).toBe(
-      "vincentkoc,steipete,joshavant",
-    );
+    expect(finalSteps.at(-1)?.env?.OPENCLAW_SECURITY_APPROVERS).toBe("iililiiilili");
   });
 
   it("uses a dedicated checked-in script and detects the intended file surfaces", () => {
