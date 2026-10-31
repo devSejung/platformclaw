@@ -25,7 +25,7 @@ import { defaultControlPlaneIdFactory } from "./ids.js";
 import { createSyncKysely, executeSync, takeFirstSync } from "./kysely-sync.js";
 import {
   isDelegatedOrganizationLeader,
-  resolveEffectiveOrganizationAccess,
+  resolveOrganizationAccess,
   resolveOrganizationAuthorization,
 } from "./organization-policy.js";
 import { retireOrganizationKnowledge } from "./sqlite-retire-organization-knowledge.js";
@@ -332,6 +332,10 @@ export abstract class SqliteControlPlaneStoreCore {
     principal: EnterprisePrincipal,
     updatedAt: number,
   ): void {
+    const previous = this.requireUserRow(userId).last_login_at;
+    // Same-clock authentications need distinct stamps so old eligible facts cannot
+    // authorize a newer authentication whose decision has not been recorded.
+    const lastLoginAt = previous === null ? updatedAt : Math.max(updatedAt, previous + 1);
     executeSync(
       this.db,
       this.query
@@ -342,7 +346,7 @@ export abstract class SqliteControlPlaneStoreCore {
           email: optional(principal.email),
           department: optional(principal.department),
           updated_at: updatedAt,
-          last_login_at: updatedAt,
+          last_login_at: lastLoginAt,
         })
         .where("id", "=", userId),
     );
@@ -514,7 +518,7 @@ export abstract class SqliteControlPlaneStoreCore {
     });
   }
 
-  protected resolveEffectiveOrganizationAccessSnapshot(userId: string) {
+  protected resolveOrganizationAccessSnapshot(userId: string) {
     const user = this.selectUserById(userId);
     const scopes = executeSync(
       this.db,
@@ -529,7 +533,7 @@ export abstract class SqliteControlPlaneStoreCore {
             .where("user_id", "=", user.id),
         ).rows.map(rowToMembership)
       : [];
-    return resolveEffectiveOrganizationAccess({
+    return resolveOrganizationAccess({
       user: user ? this.rowToUser(user) : null,
       scopes,
       memberships,

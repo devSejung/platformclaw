@@ -20,7 +20,7 @@ Global
             └── User
 ```
 
-This page is the canonical contract. Schema v3, Team scopes, join requests,
+This page is the canonical contract. Schema v4, Team scopes, join requests,
 upward access inheritance, and the shared organization and authorization
 services are implemented. The authenticated browser API described below is
 also implemented. Skill Hub and Memory now consume this shared authorization
@@ -39,7 +39,8 @@ role, not a Global membership.
 
 - every Team belongs directly to Global;
 - every Group has exactly one parent Team;
-- every Part has exactly one parent Group; and
+- every Part has exactly one parent Group, except a trusted directory Part
+  whose parent information is not yet available; and
 - a user may be a direct member of any Team, Group, or Part without being a
   direct member of a lower scope.
 
@@ -69,13 +70,25 @@ Different external keys may have equal display names; Settings shows their
 full path and external key. Existing manually created scopes are not adopted
 by matching their names, and manual-only name uniqueness remains enforced.
 
-The hierarchy stays Team > Group > Part. Known existing parents complete
-partial claims. A missing Group preserves the existing Part parent. If a new
-scope's required parent cannot be resolved, the entire synchronization is
-deferred without creating partial scopes or changing membership. A later
-successful sign-in can complete it. Source timestamps are checked per user
-and per shared scope; older or conflicting same-timestamp changes do not
-overwrite newer names, parentage or assignments.
+The complete hierarchy stays Team > Group > Part. A missing Group preserves
+the existing Part parent. A new trusted Part is created and joined even when
+its parents are unknown; no placeholder Team or Group is invented. A supplied
+Group without a known Team waits for its real Team while the Part remains
+parentless. A newer explicit move to such a Group detaches the Part from its
+old lineage immediately. The Part records the desired external parent key, so
+another user's cached claim cannot replace that known pending assignment.
+An existing Group retains its Team when the Team claim is unknown.
+
+Source timestamps are checked per user and shared scope. Older or conflicting
+same-timestamp changes do not overwrite newer names, parentage or assignments.
+At the same source timestamp, an unchanged scope name permits refinement of
+the parent that was unknown at that revision, including a Group's unknown
+Team. An older physical parent may remain in place until that refinement;
+retaining it does not turn an unknown claim into a newly confirmed parent.
+A pending Part's recorded desired Group may also be physically attached.
+This does not permit same-timestamp renames or replacement of an explicit
+parent at that revision. A
+parentless Part grants no ancestor access until a real parent is attached.
 
 Only a direct Part membership is added. Group and Team access uses the existing
 ancestor policy. Moving employees removes only their ldap-login membership
@@ -93,17 +106,37 @@ automatically restored. Directory parent changes update effective ancestor and
 leader authority for every affected member; consumer authorization continues
 to use current scope IDs and lineage.
 
-Organization changes, membership movement and successful-sync timestamps commit
-atomically after browser-session success. Failures roll back organization
-changes, log a redacted diagnostic, and leave sign-in successful. Retry occurs
-on the next successful sign-in; there is no background queue or bulk backfill.
+Successful authentication records its organization eligibility decision and
+validated organization facts in SQLite before attempting membership changes.
+Organization changes, membership movement and successful-sync timestamps
+commit atomically. A synchronization failure rolls back organization changes,
+logs a redacted diagnostic, and leaves sign-in successful; the verified source
+fact remains available for recovery.
 
-This feature retains control schema v3. Nullable identity/provenance columns,
-a user sync-state table and manual-only name indexes preserve existing IDs,
-roles and hierarchy for older readers. Older applications do not enforce the
-new automatic-management protections or preserve directory provenance when
-performing writes; downgrading loses those feature guarantees. No legacy state
-files or parallel organization authority are introduced.
+Startup scans existing active enterprise users in bounded pages and replays
+their saved verified facts. The authenticated Organization context also
+prepares the current user's organization before projecting membership.
+Recovery rechecks the latest authentication revision inside the write
+transaction. A newer test-account, unknown, mapping or unsupported claim is a
+recorded no-change decision and cannot be bypassed by an older saved snapshot.
+No reauthentication is needed when usable verified facts were saved. Legacy
+sessions without those facts receive an explicit `requires-authenticated-org`
+status and remain unchanged; there is no authoritative external organization
+lookup integration. Legacy department strings and Knox transport data cannot
+substitute for authenticated `org` claims. Settings explains pending, failed
+and unavailable-fact outcomes while preserving the manual membership-request
+route.
+
+When company SSO is configured, the unavailable-fact status offers the existing
+company sign-in route with a return to Organization settings. It never starts
+navigation automatically and may require company authentication. Without
+configured SSO, the status directs the user to an administrator instead of
+inventing a recovery endpoint.
+
+The approved control schema v4 permits only externally identified
+ldap-login Parts to have no parent. Manual Parts and all Groups still require
+their normal parents. See the migration contract below. No legacy state files
+or parallel organization authority are introduced.
 
 ### Direct and effective membership
 
@@ -184,6 +217,10 @@ users whose only direct memberships belong to archived lineages. The same flow
 is available under **Settings > Organization**. Skipping or dismissing it does
 not block the application, and the dismissal is scoped to the current browser
 session and actor.
+
+Automatic membership recovery must first produce a usable outcome. Pending,
+failed and unavailable verified-fact states suppress the automatic join
+prompt; the manual Settings request route remains available.
 
 A user may:
 
@@ -337,7 +374,26 @@ bounded reason where required. Audit and notification payloads exclude personal
 memory content, package content, credentials, tokens, internal URLs, and host
 paths.
 
-## Implemented schema v3 migration
+## Implemented schema v4 migration
+
+The explicitly approved v3-to-v4 migration rebuilds `managed_scopes` to allow
+only an externally identified ldap-login Part to have a null parent. It adds
+the canonical desired external parent key and initializes it from each
+existing managed scope's real parent. Scope IDs, source timestamps, membership
+provenance, manual roles, primary scopes and dependent foreign keys are
+preserved. Additive authentication snapshots, eligibility decisions and
+recovery outcomes stay in the same control database.
+
+Before replacing the table, the migration checkpoints the WAL and verifies a
+SQLite-consistent `.pre-v4-*.sqlite` backup. The synchronous migration
+transaction rebuilds the table, indexes and parent-kind triggers, checks all
+foreign keys and database integrity, and stamps version 4 only after validation
+succeeds. Existing lazy feature tables remain intact. A failure rolls back to
+the authoritative v3 state and can be retried. After a successful commit,
+rollback requires restoring the verified pre-v4 database together with the
+matching v3 application; older applications must not open the v4 database.
+
+### Historical schema v3 migration
 
 The organization model uses the approved SQLite schema version change from v2
 to v3. This is not an additive lazy-table change: schema v2 constrains
@@ -390,7 +446,7 @@ The later Wiki Hub startup cleanup intentionally deletes that retired knowledge
 corpus; the following migration history does not preserve it in current runtime. Existing pending
 Group-to-Global requests remain visible and may receive one administrator
 decision under their immutable original contract; new ordinary-user requests
-after cutover follow Group-to-Team-to-Global. Runtime uses only the v3 shape
+after cutover follow Group-to-Team-to-Global. That migration uses only the v3 shape
 after migration: there is no dual write, fallback reader, or silent
 compatibility alias. Rollback requires restoring the pre-migration application
 and database backup together.

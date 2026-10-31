@@ -27,11 +27,11 @@ import {
   rowToBinding,
   rowToIdentity,
   rowToSession,
-  SqliteControlPlaneStoreCore,
 } from "./sqlite-store-core.js";
+import { SqliteEmployeeDirectoryStore } from "./sqlite-store-employee-directory.js";
 import type { AgentBindingRow, BrowserSessionRow } from "./sqlite-store-types.js";
 
-export abstract class SqliteControlPlaneAuthStore extends SqliteControlPlaneStoreCore {
+export abstract class SqliteControlPlaneAuthStore extends SqliteEmployeeDirectoryStore {
   async upsertPrincipal(
     principal: EnterprisePrincipal,
     authenticatedAt: number,

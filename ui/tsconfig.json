@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".."
+  },
+  "include": [
+    "src/platformclaw/**/*",
+    "vite.config.ts",
+    "vite.platformclaw-login.config.ts",
+    "src/**/*.d.ts",
+    "../src/**/*.d.ts",
+    "../packages/**/*.d.ts",
+    "../extensions/**/*.d.ts"
+  ]
+}

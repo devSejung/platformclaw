@@ -21,7 +21,11 @@ import { VmAdministrationService } from "./browser-vm-admin-http.js";
 import { JiraVocService, type JiraVocConfig } from "./browser-voc-http.js";
 import type { MainSessionKeyBuilder } from "./contracts.js";
 import { DashboardService } from "./dashboard-service.js";
-import { EmployeeSsoService, type EmployeeSsoConfig } from "./employee-sso.js";
+import {
+  EmployeeSsoService,
+  PLATFORMCLAW_ADSSO_PATH,
+  type EmployeeSsoConfig,
+} from "./employee-sso.js";
 import { ExecCredentialService } from "./exec-credential-service.js";
 import type { VmCredentialStateChange } from "./execution-contracts.js";
 import {
@@ -274,6 +278,17 @@ export function createPlatformClawWebIngressRuntime(
   const organization = new BrowserOrganizationService({
     authService: auth.service,
     organization: organizationService,
+    prepareDirectoryOrganization: async (userId) => {
+      const user = await auth.store.getUserById(userId);
+      return user
+        ? auth.prepareUserOrganization(user)
+        : { status: "skipped", reason: "inactive-user" };
+    },
+    ...(employeeSsoService
+      ? {
+          ssoRefreshUrl: `${PLATFORMCLAW_ADSSO_PATH}?returnTo=${encodeURIComponent("/platformclaw/app/settings/organization")}`,
+        }
+      : {}),
     ...(options.employeeAuth?.now ? { now: options.employeeAuth.now } : {}),
   });
   const vocService = options.jiraVoc
@@ -410,6 +425,10 @@ export function createPlatformClawWebIngressRuntime(
   let preparing: Promise<RestartReconciliationSummary> | undefined;
   const prepare = (): Promise<RestartReconciliationSummary> => {
     preparing ??= restartReconciler.reconcile().then(async (summary) => {
+      if (closed) {
+        return summary;
+      }
+      void auth.prepareOrganizationBackfill();
       await skillHub?.processGovernanceQueue();
       if (closed) {
         return summary;
@@ -479,7 +498,7 @@ export function createPlatformClawWebIngressRuntime(
             await credentialBroker?.close();
           } finally {
             skillHub?.close();
-            auth.close();
+            await auth.close();
           }
         }
       }

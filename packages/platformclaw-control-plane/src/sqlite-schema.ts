@@ -3,12 +3,18 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, unlinkSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { DIRECTORY_ORGANIZATION_SCHEMA } from "./sqlite-schema-directory-organizations.js";
+import { EMPLOYEE_DIRECTORY_SNAPSHOT_SCHEMA } from "./sqlite-schema-employee-directory.js";
 import {
   ORGANIZATION_MEMORY_SCHEMA,
   ORGANIZATION_MEMORY_LIFECYCLE_SCHEMA,
   SKILL_HUB_STATE_SCHEMA,
   SKILL_HUB_NOTIFICATION_SCHEMA,
 } from "./sqlite-schema-feature-state.js";
+import {
+  MANAGED_SCOPE_RELATION_SCHEMA,
+  MANAGED_SCOPE_TABLE_SCHEMA,
+  migrateDirectoryPartsToV4,
+} from "./sqlite-schema-managed-scopes.js";
 import { SCHEMA_V2 } from "./sqlite-schema-v2.js";
 export { ensureMcpCredentialSchema, ensureMcpUserSettingsSchema } from "./sqlite-schema-mcp.js";
 export {
@@ -16,6 +22,7 @@ export {
   ensureExecCredentialSnapshotSchema,
 } from "./sqlite-schema-exec-credentials.js";
 export { ensureDirectoryOrganizationSchema } from "./sqlite-schema-directory-organizations.js";
+export { ensureEmployeeDirectorySnapshotSchema } from "./sqlite-schema-employee-directory.js";
 export {
   ORGANIZATION_KNOWLEDGE_SCHEMA,
   ensureOrganizationKnowledgeSchema,
@@ -29,7 +36,7 @@ export {
   ensureKnowledgeVaultSchema,
 } from "./sqlite-schema-knowledge-vault.js";
 
-export const PLATFORMCLAW_CONTROL_SCHEMA_VERSION = 3;
+export const PLATFORMCLAW_CONTROL_SCHEMA_VERSION = 4;
 
 // Additive feature state: older builds can continue using schema v3 unchanged.
 export function ensureWebAnnouncementSchema(db: DatabaseSync): void {
@@ -120,57 +127,8 @@ CREATE TABLE browser_sessions (
 ) STRICT;
 CREATE INDEX browser_sessions_user ON browser_sessions(user_id);
 
-CREATE TABLE managed_scopes (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('team', 'group', 'part')),
-  name TEXT NOT NULL,
-  normalized_name TEXT NOT NULL,
-  external_key TEXT,
-  managed_by TEXT CHECK (managed_by IN ('ldap-login')),
-  directory_updated_at INTEGER,
-  parent_scope_id TEXT REFERENCES managed_scopes(id),
-  system_kind TEXT CHECK (system_kind IN ('unassigned-team')),
-  system_provenance TEXT CHECK (system_provenance IN ('migration-v2-v3')),
-  status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
-  created_by_user_id TEXT NOT NULL REFERENCES platform_users(id),
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  CHECK (
-    (kind = 'team' AND parent_scope_id IS NULL) OR
-    (kind IN ('group', 'part') AND parent_scope_id IS NOT NULL)
-  ),
-  CHECK (
-    (system_kind IS NULL AND system_provenance IS NULL) OR
-    (kind = 'team' AND system_kind = 'unassigned-team' AND system_provenance = 'migration-v2-v3')
-  )
-) STRICT;
-CREATE UNIQUE INDEX managed_scopes_team_name
-  ON managed_scopes(normalized_name) WHERE kind = 'team' AND external_key IS NULL;
-CREATE UNIQUE INDEX managed_scopes_child_name
-  ON managed_scopes(parent_scope_id, kind, normalized_name)
-  WHERE kind IN ('group', 'part') AND external_key IS NULL;
-CREATE UNIQUE INDEX managed_scopes_system_kind
-  ON managed_scopes(system_kind) WHERE system_kind IS NOT NULL;
-CREATE TRIGGER managed_scopes_parent_kind_insert
-BEFORE INSERT ON managed_scopes WHEN
-  (NEW.kind = 'team' AND NEW.parent_scope_id IS NOT NULL) OR
-  (NEW.kind = 'group' AND NOT EXISTS (
-    SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'team'
-  )) OR
-  (NEW.kind = 'part' AND NOT EXISTS (
-    SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'group'
-  ))
-BEGIN SELECT RAISE(ABORT, 'managed scope parent kind is invalid'); END;
-CREATE TRIGGER managed_scopes_parent_kind_update
-BEFORE UPDATE OF kind, parent_scope_id ON managed_scopes WHEN
-  (NEW.kind = 'team' AND NEW.parent_scope_id IS NOT NULL) OR
-  (NEW.kind = 'group' AND NOT EXISTS (
-    SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'team'
-  )) OR
-  (NEW.kind = 'part' AND NOT EXISTS (
-    SELECT 1 FROM managed_scopes WHERE id = NEW.parent_scope_id AND kind = 'group'
-  ))
-BEGIN SELECT RAISE(ABORT, 'managed scope parent kind is invalid'); END;
+${MANAGED_SCOPE_TABLE_SCHEMA}
+${MANAGED_SCOPE_RELATION_SCHEMA}
 
 CREATE TABLE managed_scope_memberships (
   scope_id TEXT NOT NULL REFERENCES managed_scopes(id) ON DELETE CASCADE,
@@ -185,6 +143,7 @@ CREATE TABLE managed_scope_memberships (
 CREATE INDEX managed_scope_memberships_user ON managed_scope_memberships(user_id);
 
 ${DIRECTORY_ORGANIZATION_SCHEMA}
+${EMPLOYEE_DIRECTORY_SNAPSHOT_SCHEMA}
 
 CREATE TABLE managed_scope_primary_memberships (
   user_id TEXT PRIMARY KEY REFERENCES platform_users(id) ON DELETE CASCADE,
@@ -308,7 +267,7 @@ function createMigrationBackup(
     throw new Error("PlatformClaw control database WAL checkpoint remained busy");
   }
   assertDatabaseIntegrity(db);
-  const backupPath = `${databasePath}.pre-v3-${Date.now()}-${randomUUID()}.sqlite`;
+  const backupPath = `${databasePath}.pre-v${expectedVersion + 1}-${Date.now()}-${randomUUID()}.sqlite`;
   db.exec(`VACUUM INTO '${backupPath.replaceAll("'", "''")}'`);
   if (process.platform !== "win32") {
     chmodSync(backupPath, 0o600);
@@ -327,8 +286,10 @@ function createMigrationBackup(
         }
       ).user_version;
       if (
-        version.user_version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION &&
-        liveVersion === PLATFORMCLAW_CONTROL_SCHEMA_VERSION
+        version.user_version > expectedVersion &&
+        version.user_version <= PLATFORMCLAW_CONTROL_SCHEMA_VERSION &&
+        liveVersion >= version.user_version &&
+        liveVersion <= PLATFORMCLAW_CONTROL_SCHEMA_VERSION
       ) {
         alreadyMigrated = true;
       } else {
@@ -341,12 +302,12 @@ function createMigrationBackup(
     db.exec("DETACH DATABASE migration_backup");
   }
   if (alreadyMigrated) {
-    // Another opener already committed v3. Redundant snapshot cleanup must not
+    // Another opener already advanced this migration. Redundant snapshot cleanup must not
     // turn a valid upgraded database into a startup failure on Windows AV races.
     try {
       unlinkSync(backupPath);
     } catch {
-      // Best-effort cleanup; the verified database is already canonical v3.
+      // Best-effort cleanup; the verified database already passed this migration.
     }
     return false;
   }
@@ -591,6 +552,44 @@ function migrateV2ToV3(db: DatabaseSync): void {
   `);
 }
 
+function migrateControlPlaneVersion(
+  db: DatabaseSync,
+  databasePath: string | undefined,
+  expectedVersion: number,
+  migrate: () => void,
+): void {
+  if (!createMigrationBackup(db, databasePath, expectedVersion)) {
+    return;
+  }
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    const version = (db.prepare("PRAGMA user_version").get() as { user_version: number })
+      .user_version;
+    if (version > expectedVersion && version <= PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
+      db.exec("COMMIT");
+      return;
+    }
+    if (version !== expectedVersion) {
+      throw new Error(`unsupported PlatformClaw control schema version: ${version}`);
+    }
+    migrate();
+    if (db.prepare("PRAGMA foreign_key_check").all().length > 0) {
+      throw new Error(`schema v${expectedVersion + 1} migration produced invalid foreign keys`);
+    }
+    assertDatabaseIntegrity(db);
+    db.exec(`PRAGMA user_version = ${expectedVersion + 1}`);
+    db.exec("COMMIT");
+  } catch (error) {
+    if (db.isTransaction) {
+      db.exec("ROLLBACK");
+    }
+    throw error;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
 export function initializeControlPlaneSchema(db: DatabaseSync, databasePath?: string): void {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
@@ -641,40 +640,18 @@ export function initializeControlPlaneSchema(db: DatabaseSync, databasePath?: st
     }
   }
   version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
-  if (version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
-    return;
+  if (version === 2) {
+    migrateControlPlaneVersion(db, databasePath, 2, () => migrateV2ToV3(db));
   }
-  if (version !== 2) {
-    throw new Error(`unsupported PlatformClaw control schema version: ${version}`);
-  }
-  const backupCreated = createMigrationBackup(db, databasePath, 2);
   version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
-  if (!backupCreated && version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
-    return;
+  if (version === 3) {
+    migrateControlPlaneVersion(db, databasePath, 3, () => {
+      migrateDirectoryPartsToV4(db);
+      db.exec(EMPLOYEE_DIRECTORY_SNAPSHOT_SCHEMA);
+    });
   }
-  db.exec("PRAGMA foreign_keys = OFF");
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
-    if (version === PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
-      db.exec("COMMIT");
-      return;
-    }
-    if (version !== 2) {
-      throw new Error(`unsupported PlatformClaw control schema version: ${version}`);
-    }
-    migrateV2ToV3(db);
-    const foreignKeyFailures = db.prepare("PRAGMA foreign_key_check").all();
-    if (foreignKeyFailures.length > 0) {
-      throw new Error("schema v3 migration produced invalid foreign keys");
-    }
-    assertDatabaseIntegrity(db);
-    db.exec(`PRAGMA user_version = ${PLATFORMCLAW_CONTROL_SCHEMA_VERSION}`);
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  } finally {
-    db.exec("PRAGMA foreign_keys = ON");
+  version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+  if (version !== PLATFORMCLAW_CONTROL_SCHEMA_VERSION) {
+    throw new Error(`unsupported PlatformClaw control schema version: ${version}`);
   }
 }

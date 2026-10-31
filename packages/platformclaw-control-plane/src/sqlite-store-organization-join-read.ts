@@ -139,8 +139,9 @@ export abstract class SqliteControlPlaneOrganizationJoinReadStore extends Sqlite
           lineage: this.scopeLineageRows(scopeRow).map(rowToScope).toReversed(),
         };
       });
-      const effectiveAccess = this.resolveEffectiveOrganizationAccessSnapshot(params.userId);
-      const activeDirectAccess = effectiveAccess.filter((access) => access.source === "direct");
+      const { effectiveAccess, activeMemberships } = this.resolveOrganizationAccessSnapshot(
+        params.userId,
+      );
       const hasPendingJoinRequest = Boolean(
         takeFirstSync(
           this.db,
@@ -168,14 +169,14 @@ export abstract class SqliteControlPlaneOrganizationJoinReadStore extends Sqlite
           ? this.scopeLineageRows(primary).map(rowToScope).toReversed()
           : [],
         joinRequestDetails,
-        isUnaffiliated: activeDirectAccess.length === 0,
+        isUnaffiliated: activeMemberships.length === 0,
         hasPendingJoinRequest,
         canReviewJoinRequests:
           actor.globalRole === "admin" ||
-          activeDirectAccess.some((access) => access.directRole === "leader"),
+          activeMemberships.some((membership) => membership.role === "leader"),
         canManageOrganization:
           actor.globalRole === "admin" ||
-          activeDirectAccess.some((access) => access.directRole === "leader"),
+          activeMemberships.some((membership) => membership.role === "leader"),
         canViewOrganizationAudit: actor.globalRole === "admin",
       };
     });
@@ -325,6 +326,10 @@ export abstract class SqliteControlPlaneOrganizationJoinReadStore extends Sqlite
             expression("parent.status", "=", "active"),
             expression("grandparent.kind", "=", "team"),
             expression("grandparent.status", "=", "active"),
+          ]),
+          expression.and([
+            expression("scope.kind", "=", "part"),
+            expression("scope.parent_scope_id", "is", null),
           ]),
         ]),
       );

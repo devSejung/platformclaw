@@ -14,10 +14,9 @@ type ScopePlan = {
   key: string;
   name: string;
   parentId: string | null;
+  parentKey: string | null;
   existing?: ManagedScopeRow;
 };
-
-type SkippedSync = Extract<DirectoryOrganizationSyncResult, { status: "skipped" }>;
 
 export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlaneOrganizationMutationStore {
   async syncDirectoryOrganization(params: {
@@ -25,6 +24,7 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
     org: unknown;
     isTestAccount: boolean;
     syncedAt: number;
+    expectedLastLoginAt?: number;
   }): Promise<DirectoryOrganizationSyncResult> {
     if (params.isTestAccount) {
       return { status: "skipped", reason: "test-account" };
@@ -34,7 +34,12 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
       parsed.status === "skipped"
         ? parsed
         : this.commitOrganizationMutation(() =>
-            this.applyDirectoryOrganization(params.userId, parsed.organization, params.syncedAt),
+            this.applyDirectoryOrganization(
+              params.userId,
+              parsed.organization,
+              params.syncedAt,
+              params.expectedLastLoginAt,
+            ),
           );
     if (
       result.status === "skipped" &&
@@ -63,6 +68,7 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
     key: string,
     name: string,
     parentId: string | null,
+    parentKey: string | null,
     existing = this.selectDirectoryScope(key),
   ): ScopePlan {
     return {
@@ -71,35 +77,50 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
       key,
       name,
       parentId,
+      parentKey,
       existing,
     };
   }
 
-  private planDirectoryOrganization(org: DirectoryOrganization): ScopePlan[] | SkippedSync {
+  private planDirectoryOrganization(org: DirectoryOrganization): ScopePlan[] {
     const partKey = `aicm-part:${org.part.id}`;
     const part = this.selectDirectoryScope(partKey);
+    // Claim certainty belongs to this source revision; physical ancestry may
+    // retain an older parent. Same-revision unknowns cannot erase an explicit key.
+    const unknownParentKey = (scope: ManagedScopeRow | undefined) =>
+      org.sourceUpdatedAt > (scope?.directory_updated_at ?? Number.NEGATIVE_INFINITY)
+        ? null
+        : (scope?.directory_parent_key ?? null);
+    const planPart = (parentId: string | null, parentKey: string | null) =>
+      this.directoryScopePlan("part", partKey, org.part.name, parentId, parentKey, part);
     if (!org.group) {
-      // Unknown does not detach a known part or guess a group from department text.
-      if (!part) {
-        return { status: "skipped", reason: "missing-parent" };
-      }
-      return [this.directoryScopePlan("part", partKey, org.part.name, part.parent_scope_id, part)];
+      // Unknown preserves an existing parent; a new directory Part has no invented ancestors.
+      return [planPart(part?.parent_scope_id ?? null, unknownParentKey(part))];
     }
     const groupKey = `group:${org.group.id}`;
     const group = this.selectDirectoryScope(groupKey);
     if (!org.team && !group) {
-      return { status: "skipped", reason: "missing-parent" };
+      // A known new Group without its Team cannot be linked yet. Record its key
+      // on the real Part so cached claims cannot replace the pending assignment.
+      return [planPart(null, groupKey)];
     }
     const plans: ScopePlan[] = [];
     let teamId = group?.parent_scope_id ?? null;
     if (org.team) {
-      const team = this.directoryScopePlan("team", `team:${org.team}`, org.team, null);
+      const team = this.directoryScopePlan("team", `team:${org.team}`, org.team, null, null);
       plans.push(team);
       teamId = team.id;
     }
-    const groupPlan = this.directoryScopePlan("group", groupKey, org.group.name, teamId, group);
+    const groupPlan = this.directoryScopePlan(
+      "group",
+      groupKey,
+      org.group.name,
+      teamId,
+      org.team ? `team:${org.team}` : unknownParentKey(group),
+      group,
+    );
     plans.push(groupPlan);
-    plans.push(this.directoryScopePlan("part", partKey, org.part.name, groupPlan.id, part));
+    plans.push(planPart(groupPlan.id, groupKey));
     return plans;
   }
 
@@ -107,9 +128,16 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
     userId: string,
     org: DirectoryOrganization,
     syncedAt: number,
+    expectedLastLoginAt?: number,
   ): DirectoryOrganizationSyncResult {
-    if (this.requireUserRow(userId).status !== "active") {
+    const user = this.requireUserRow(userId);
+    if (user.status !== "active") {
       return { status: "skipped", reason: "inactive-user" };
+    }
+    // Recovery reads saved facts before BEGIN. A newer authentication owns the
+    // user's current directory decision and must not be overwritten by that read.
+    if (expectedLastLoginAt !== undefined && user.last_login_at !== expectedLastLoginAt) {
+      return { status: "skipped", reason: "stale-authentication" };
     }
     const previous = takeFirstSync(
       this.db,
@@ -122,9 +150,6 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
       return { status: "skipped", reason: "stale-organization" };
     }
     const plans = this.planDirectoryOrganization(org);
-    if (!Array.isArray(plans)) {
-      return plans;
-    }
     const partPlan = plans.at(-1)!;
     if (
       previous &&
@@ -143,11 +168,25 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
       if (this.scopeLineageRows(current).some((scope) => scope.status !== "active")) {
         return { status: "skipped", reason: "inactive-organization" };
       }
-      const changed = current.name !== plan.name || current.parent_scope_id !== plan.parentId;
+      const changed =
+        current.name !== plan.name ||
+        current.parent_scope_id !== plan.parentId ||
+        current.directory_parent_key !== plan.parentKey;
+      // Equal-source names and explicit parents stay immutable. Unknown parent facts
+      // may refine while an older physical parent is retained; pending Parts may
+      // also materialize their already recorded external Group.
+      const refinesUnknownParent =
+        current.kind !== "team" &&
+        current.name === plan.name &&
+        (current.directory_parent_key === null ||
+          (current.kind === "part" &&
+            current.parent_scope_id === null &&
+            current.directory_parent_key === plan.parentKey));
       if (
         changed &&
         current.directory_updated_at !== null &&
-        org.sourceUpdatedAt <= current.directory_updated_at
+        (org.sourceUpdatedAt < current.directory_updated_at ||
+          (org.sourceUpdatedAt === current.directory_updated_at && !refinesUnknownParent))
       ) {
         return {
           status: "skipped",
@@ -273,8 +312,9 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
     syncedAt: number,
   ) {
     const current = plan.existing;
-    const nameOrParentChanged =
+    const scopeChanged =
       !current || current.name !== plan.name || current.parent_scope_id !== plan.parentId;
+    const claimChanged = current && current.directory_parent_key !== plan.parentKey;
     if (!current) {
       executeSync(
         this.db,
@@ -287,6 +327,7 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
           external_key: plan.key,
           managed_by: "ldap-login",
           directory_updated_at: sourceUpdatedAt,
+          directory_parent_key: plan.parentKey,
           status: "active",
           created_by_user_id: userId,
           system_kind: null,
@@ -295,7 +336,11 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
           updated_at: syncedAt,
         }),
       );
-    } else if (nameOrParentChanged || sourceUpdatedAt > (current.directory_updated_at ?? 0)) {
+    } else if (
+      scopeChanged ||
+      claimChanged ||
+      sourceUpdatedAt > (current.directory_updated_at ?? 0)
+    ) {
       executeSync(
         this.db,
         this.query
@@ -304,18 +349,19 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
             name: plan.name,
             normalized_name: normalizeScopeName(plan.name),
             parent_scope_id: plan.parentId,
+            directory_parent_key: plan.parentKey,
             directory_updated_at: Math.max(
               sourceUpdatedAt,
               current.directory_updated_at ?? sourceUpdatedAt,
             ),
-            updated_at: nameOrParentChanged
+            updated_at: scopeChanged
               ? Math.max(syncedAt, current.updated_at + 1)
               : current.updated_at,
           })
           .where("id", "=", plan.id),
       );
     }
-    if (nameOrParentChanged) {
+    if (scopeChanged) {
       const action = !current
         ? "scope.created"
         : current.parent_scope_id !== plan.parentId
@@ -323,11 +369,16 @@ export abstract class SqliteDirectoryOrganizationStore extends SqliteControlPlan
           : "scope.renamed";
       const change =
         action === "scope.moved"
-          ? { priorScopeId: current?.parent_scope_id, resultScopeId: plan.parentId }
+          ? {
+              priorScopeId: current?.parent_scope_id,
+              resultScopeId: plan.parentId,
+              priorParentKey: current?.directory_parent_key,
+              resultParentKey: plan.parentKey,
+            }
           : { ...(current ? { beforeName: current.name } : {}), resultName: plan.name };
       this.directoryAudit(action, plan.id, userId, syncedAt, change);
     }
-    return nameOrParentChanged;
+    return scopeChanged;
   }
 
   private completeDirectoryJoinRequests(userId: string, scopeId: string, at: number): void {

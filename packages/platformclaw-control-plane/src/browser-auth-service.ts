@@ -80,6 +80,7 @@ export class BrowserAuthService {
         org: unknown;
         isTestAccount: boolean;
         syncedAt: number;
+        expectedLastLoginAt: number;
       }) => Promise<unknown>;
     },
   ) {}
@@ -155,7 +156,12 @@ export class BrowserAuthService {
       currentSession?.status === "active" &&
       currentSession.user.id === upserted.user.id
     ) {
-      await this.syncDirectoryOrganization(auth, upserted.user.id, sessionAt);
+      await this.syncDirectoryOrganization(
+        auth,
+        upserted.user.id,
+        sessionAt,
+        upserted.user.lastLoginAt,
+      );
       return {
         status: "authenticated",
         token: currentSessionToken,
@@ -182,7 +188,12 @@ export class BrowserAuthService {
     if (currentSession?.status === "active") {
       await this.options.store.revokeBrowserSession(currentSession.session.id, sessionAt);
     }
-    await this.syncDirectoryOrganization(auth, upserted.user.id, sessionAt);
+    await this.syncDirectoryOrganization(
+      auth,
+      upserted.user.id,
+      sessionAt,
+      upserted.user.lastLoginAt,
+    );
     return {
       status: "authenticated",
       token,
@@ -198,14 +209,19 @@ export class BrowserAuthService {
     auth: EmployeeAuthenticationSuccess,
     userId: string,
     syncedAt: number,
+    expectedLastLoginAt: number | undefined,
   ): Promise<void> {
     try {
+      if (expectedLastLoginAt === undefined) {
+        throw new Error("principal store did not return an authentication stamp");
+      }
       // Sessions must succeed first; directory failures leave login and old access intact.
       await this.options.syncOrganization?.({
         userId,
         org: auth.org,
         isTestAccount: auth.isTestAccount === true,
         syncedAt,
+        expectedLastLoginAt,
       });
     } catch {
       console.warn("directory_organization_sync_failed", { userId });

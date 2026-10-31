@@ -7,6 +7,7 @@ import {
 } from "./fishing-economy.js";
 import { FISHING_FINISH_WINDOW_MS, replayFishingFight } from "./fishing-simulation.js";
 import { START, createFishingFixtures } from "./sqlite-fishing.test-harness.js";
+import { PLATFORMCLAW_CONTROL_SCHEMA_VERSION } from "./sqlite-schema.js";
 
 const {
   setup,
@@ -311,7 +312,9 @@ describe("direct fishing records and shared gold", () => {
           .prepare("UPDATE fishing_receipts SET receipt_json = '{}' WHERE user_id = ?")
           .run(alice.id),
       ).toThrow(/immutable/);
-      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({
+        user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+      });
     });
   });
 

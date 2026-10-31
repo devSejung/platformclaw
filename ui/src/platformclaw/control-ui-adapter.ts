@@ -59,9 +59,8 @@ function parseSessionPayload(value: unknown): PlatformClawSessionPayload | null 
     !accountId.trim() ||
     typeof agentId !== "string" ||
     !agentId.trim() ||
-    typeof displayName !== "string" ||
-    !displayName.trim() ||
-    typeof department !== "string" ||
+    (displayName !== undefined && typeof displayName !== "string") ||
+    (department !== undefined && typeof department !== "string") ||
     (globalRole !== "member" && globalRole !== "admin")
   ) {
     return null;
@@ -71,8 +70,10 @@ function parseSessionPayload(value: unknown): PlatformClawSessionPayload | null 
     user: {
       accountId: accountId.trim(),
       agentId: agentId.trim(),
-      displayName: displayName.trim(),
-      department: department.trim(),
+      // LDAP/SSO labels are optional. Missing directory metadata must not block
+      // an authenticated session or change its account, agent, or role authority.
+      displayName: displayName?.trim() || accountId.trim(),
+      department: department?.trim() ?? "",
       globalRole,
     },
   };

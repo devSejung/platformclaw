@@ -78,6 +78,10 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
               expression("grandparent.status", "=", "active"),
               expression("grandparent.parent_scope_id", "is", null),
             ]),
+            expression.and([
+              expression("scope.kind", "=", "part"),
+              expression("scope.parent_scope_id", "is", null),
+            ]),
           ]),
         );
       const rawNeedle = params.query.trim();
@@ -331,8 +335,9 @@ export abstract class SqliteControlPlaneOrganizationAccessStore extends SqliteCo
   }
 
   async listEffectiveManagedScopeAccess(userId: string) {
-    return runReadTransaction(this.db, () =>
-      this.resolveEffectiveOrganizationAccessSnapshot(userId),
+    return runReadTransaction(
+      this.db,
+      () => this.resolveOrganizationAccessSnapshot(userId).effectiveAccess,
     );
   }
 

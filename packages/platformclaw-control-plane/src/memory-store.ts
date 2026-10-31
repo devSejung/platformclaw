@@ -622,6 +622,7 @@ export class InMemoryControlPlaneStore
       groups: normalizeGroups(principal.groups),
       createdAt,
       updatedAt: createdAt,
+      lastLoginAt: createdAt,
       ...this.profileFields(principal),
     };
     this.users.set(user.id, user);
@@ -636,6 +637,8 @@ export class InMemoryControlPlaneStore
     updatedAt: number,
   ) {
     user.groups = normalizeGroups(principal.groups);
+    // Match SQLite's distinct authentication stamps even when the clock has not advanced.
+    user.lastLoginAt = Math.max(updatedAt, (user.lastLoginAt ?? updatedAt - 1) + 1);
     user.updatedAt = updatedAt;
     const profile = this.profileFields(principal);
     for (const field of ["displayName", "email", "department"] as const) {

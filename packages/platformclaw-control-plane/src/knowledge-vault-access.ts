@@ -19,6 +19,11 @@ export function activeWikiOrganizations(db: DatabaseSync) {
     if (scope.kind === "team") {
       return scope.parent_scope_id === null;
     }
+    // Canonical directory Parts may exist before their Group mapping arrives.
+    // Their direct grants remain valid without inventing ancestor access.
+    if (scope.kind === "part" && scope.parent_scope_id === null) {
+      return true;
+    }
     const parent = scopes.get(scope.parent_scope_id ?? "");
     if (parent?.status !== "active") {
       return false;

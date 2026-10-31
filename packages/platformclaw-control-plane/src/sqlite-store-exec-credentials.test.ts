@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ControlPlaneConflictError } from "./contracts.js";
 import { createExecCredentialTestContext } from "./exec-credential.test-support.js";
+import { PLATFORMCLAW_CONTROL_SCHEMA_VERSION } from "./sqlite-schema.js";
 import { SqliteControlPlaneStore } from "./sqlite-store.js";
 
 const contexts: Awaited<ReturnType<typeof createExecCredentialTestContext>>[] = [];
@@ -193,7 +194,9 @@ describe("SqliteControlPlaneExecCredentialStore", () => {
       const readded = await c.preconditions(c.member.user, "API_TOKEN");
       expect(readded.expectedDefinitionToken).not.toBe(before.expectedDefinitionToken);
       expect(readded.expectedCredentialToken).toBeNull();
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 3 });
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({
+        user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+      });
     } finally {
       db.close();
     }

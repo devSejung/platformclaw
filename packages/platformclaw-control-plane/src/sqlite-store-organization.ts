@@ -67,6 +67,7 @@ export abstract class SqliteControlPlaneOrganizationStore extends SqliteDirector
           external_key: null,
           managed_by: null,
           directory_updated_at: null,
+          directory_parent_key: null,
         };
         this.assertScopeNameAvailable(row);
         executeSync(this.db, this.query.insertInto("managed_scopes").values(row));

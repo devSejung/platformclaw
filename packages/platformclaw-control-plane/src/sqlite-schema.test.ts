@@ -163,7 +163,9 @@ describe("PlatformClaw control schema migrations", () => {
     initializeControlPlaneSchema(secondOpener, databasePath);
     secondOpener.close();
 
-    expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 3 });
+    expect(db.prepare("PRAGMA user_version").get()).toEqual({
+      user_version: PLATFORMCLAW_CONTROL_SCHEMA_VERSION,
+    });
     expect(
       db
         .prepare(

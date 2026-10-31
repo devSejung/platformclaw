@@ -271,6 +271,30 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.organization.my.title": "My organization",
   "platformClaw.organization.my.description":
     "Your direct memberships, inherited access, and primary scope.",
+  "platformClaw.organization.sync.title": "Automatic organization membership",
+  "platformClaw.organization.sync.pending":
+    "Your saved organization information is being checked. Refresh this page to see the result.",
+  "platformClaw.organization.sync.synced":
+    "Your verified organization information has been applied.",
+  "platformClaw.organization.sync.requiresAuthentication":
+    "No verified organization information was saved for this session. Automatic membership needs fresh verified organization information. Ask an administrator to confirm your membership or continue to company sign-in. Company sign-in may ask you to authenticate again.",
+  "platformClaw.organization.sync.refreshAuthentication": "Continue to company sign-in",
+  "platformClaw.organization.sync.failed":
+    "Automatic organization synchronization failed. Contact an administrator to check the result. You can still request membership manually.",
+  "platformClaw.organization.sync.testAccount":
+    "Automatic organization membership is disabled for test accounts.",
+  "platformClaw.organization.sync.missingOrganization":
+    "Sign-in succeeded without organization information. Existing memberships were left unchanged. Ask the sign-in service administrator to check the organization claim.",
+  "platformClaw.organization.sync.untrustedSource":
+    "The sign-in organization source is not eligible for automatic membership. Existing memberships were left unchanged. Ask the sign-in service administrator to check the organization source.",
+  "platformClaw.organization.sync.unsupportedVersion":
+    "The sign-in organization format version is not supported. Existing memberships were left unchanged. Ask an administrator to check the sign-in integration version.",
+  "platformClaw.organization.sync.staleOrganization":
+    "The sign-in organization information is older than the saved verified information. This sign-in did not change membership. Ask the sign-in service administrator to check the organization update time.",
+  "platformClaw.organization.sync.conflictingOrganization":
+    "The sign-in organization information conflicts with saved verified information at the same update time. This sign-in did not change membership. Ask the sign-in service administrator to check the organization assignment.",
+  "platformClaw.organization.sync.skipped":
+    "Authentication did not supply an eligible organization assignment. You can still request membership manually.",
   "platformClaw.organization.my.unaffiliated": "No organization membership",
   "platformClaw.organization.my.unaffiliatedDescription":
     "You can continue using PlatformClaw without joining a scope.",

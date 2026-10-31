@@ -274,6 +274,29 @@ export const translations: Readonly<Record<string, string>> = {
   "platformClaw.organization.my.title": "내 조직",
   "platformClaw.organization.my.description":
     "직접 소속, 상위 범위 접근 권한, 기본 범위를 확인합니다.",
+  "platformClaw.organization.sync.title": "조직 자동 가입",
+  "platformClaw.organization.sync.pending":
+    "저장된 조직 정보를 확인하고 있습니다. 페이지를 새로 고치면 결과를 확인할 수 있습니다.",
+  "platformClaw.organization.sync.synced": "인증된 조직 정보를 소속에 반영했습니다.",
+  "platformClaw.organization.sync.requiresAuthentication":
+    "이 세션에는 인증된 조직 정보가 저장되어 있지 않습니다. 자동 가입에는 새로 인증된 조직 정보가 필요합니다. 관리자에게 소속 확인을 요청하거나 회사 로그인으로 이동해 주세요. 회사 로그인에서 다시 인증을 요청할 수 있습니다.",
+  "platformClaw.organization.sync.refreshAuthentication": "회사 로그인으로 이동",
+  "platformClaw.organization.sync.failed":
+    "조직 자동 반영에 실패했습니다. 관리자에게 결과 확인을 요청해 주세요. 직접 가입 요청도 가능합니다.",
+  "platformClaw.organization.sync.testAccount":
+    "테스트 계정에는 조직 자동 가입을 적용하지 않습니다.",
+  "platformClaw.organization.sync.missingOrganization":
+    "로그인은 완료됐지만 인증 응답에 조직 정보가 없습니다. 기존 소속은 유지했습니다. 로그인 서비스 관리자에게 조직 정보 전달을 확인해 주세요.",
+  "platformClaw.organization.sync.untrustedSource":
+    "인증 응답의 조직 출처는 자동 가입에 사용할 수 없습니다. 기존 소속은 유지했습니다. 로그인 서비스 관리자에게 조직 정보 출처를 확인해 주세요.",
+  "platformClaw.organization.sync.unsupportedVersion":
+    "인증 응답의 조직 정보 버전을 지원하지 않습니다. 기존 소속은 유지했습니다. 관리자에게 로그인 연동 버전 확인을 요청해 주세요.",
+  "platformClaw.organization.sync.staleOrganization":
+    "인증 응답의 조직 정보가 저장된 인증 정보보다 오래되었습니다. 이번 로그인에서는 소속을 변경하지 않았습니다. 로그인 서비스 관리자에게 조직 정보 갱신 시각 확인을 요청해 주세요.",
+  "platformClaw.organization.sync.conflictingOrganization":
+    "같은 갱신 시각의 인증 응답과 저장된 조직 정보가 서로 다릅니다. 이번 로그인에서는 소속을 변경하지 않았습니다. 로그인 서비스 관리자에게 조직 배정 확인을 요청해 주세요.",
+  "platformClaw.organization.sync.skipped":
+    "인증 결과에 자동 가입에 사용할 조직 정보가 없습니다. 직접 가입 요청이 가능합니다.",
   "platformClaw.organization.my.unaffiliated": "소속 조직 없음",
   "platformClaw.organization.my.unaffiliatedDescription":
     "조직에 가입하지 않아도 PlatformClaw를 계속 사용할 수 있습니다.",
