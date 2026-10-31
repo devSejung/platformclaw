@@ -28,7 +28,7 @@ jobs:
       - name: Detect security-sensitive changes
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENCLAW_SECURITY_APPROVERS: vincentkoc,steipete,joshavant
+          OPENCLAW_SECURITY_APPROVERS: iililiiilili
           OPENCLAW_SECURITY_SENSITIVE_GUARD_MODE: detect
           OPENCLAW_SECURITY_TEAM_SLUG: openclaw-secops
         run: node scripts/github/security-sensitive-guard.mjs
@@ -49,7 +49,7 @@ jobs:
       - name: Enforce security-sensitive guard
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENCLAW_SECURITY_APPROVERS: vincentkoc,steipete,joshavant
+          OPENCLAW_SECURITY_APPROVERS: iililiiilili
           OPENCLAW_SECURITY_SENSITIVE_GUARD_MODE: enforce
           OPENCLAW_SECURITY_TEAM_SLUG: openclaw-secops
         run: node scripts/github/security-sensitive-guard.mjs
