@@ -2,7 +2,6 @@ import { html, nothing } from "lit";
 import { t } from "../../../i18n/index.ts";
 import "./chat-audio-player.ts";
 import "./chat-video-player.ts";
-import { isHtmlAttachment } from "./chat-html-attachment.ts";
 import {
   ASSISTANT_ATTACHMENT_MEDIA_TICKET_MAX_REFRESH_RETRIES,
   ASSISTANT_ATTACHMENT_MEDIA_TICKET_REFRESH_SKEW_MS,
@@ -21,7 +20,7 @@ import {
   type AssistantAttachmentAvailability,
   type ManagedAttachmentAvailability,
 } from "./chat-message-attachment-availability.ts";
-import { renderAssistantAttachmentCard } from "./chat-message-attachment-card.ts";
+import { renderAssistantDocumentAttachment } from "./chat-message-attachment-card.ts";
 import { renderAssistantAttachmentStatusCard } from "./chat-message-attachment-status.ts";
 import { openResolvedImage } from "./chat-message-image-open.ts";
 import {
@@ -680,19 +679,12 @@ export function renderAssistantAttachments(
             reason: availability.status === "unavailable" ? availability.reason : undefined,
           });
         }
-        if (
-          isManagedOutgoingMediaSource(attachment.url) &&
-          isHtmlAttachment(attachment.mimeType, attachment.label)
-        ) {
-          return html`<openclaw-chat-html-attachment
-            .src=${attachmentUrl}
-            .sourceIdentity=${attachment.url}
-            .label=${attachment.label}
-            .embedSandboxMode=${opts?.embedSandboxMode ?? "scripts"}
-            .onMediaLoaded=${opts?.onAssistantAttachmentLoaded}
-          ></openclaw-chat-html-attachment>`;
-        }
-        return renderAssistantAttachmentCard({ url: attachmentUrl, label: attachment.label });
+        return renderAssistantDocumentAttachment({
+          url: attachmentUrl,
+          attachment,
+          sizeBytes,
+          options: opts,
+        });
       })}
     </div>
   `;

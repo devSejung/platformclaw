@@ -162,6 +162,47 @@ describe("mime detection", () => {
     });
   });
 
+  it.each([
+    { extension: "doc", mime: "application/msword" },
+    { extension: "xls", mime: "application/vnd.ms-excel" },
+    { extension: "ppt", mime: "application/vnd.ms-powerpoint" },
+  ])(
+    "refines real CFB magic only with compatible $extension metadata",
+    async ({ extension, mime }) => {
+      const buffer = Buffer.concat([Buffer.from("d0cf11e0a1b11ae1", "hex"), Buffer.alloc(504)]);
+      await expectDetectedMime({
+        input: { buffer, filePath: `report.${extension}` },
+        expected: mime,
+      });
+      await expectDetectedMime({ input: { buffer, headerMime: mime }, expected: mime });
+    },
+  );
+
+  it.each([
+    {},
+    { filePath: "unknown.bin" },
+    { filePath: "fake.png", headerMime: "image/png" },
+    { filePath: "fake.pdf", headerMime: "application/pdf" },
+    {
+      filePath: "fake.pptx",
+      headerMime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    },
+  ])("retains generic CFB for unknown or incompatible metadata %#", async (metadata) => {
+    const buffer = Buffer.concat([Buffer.from("d0cf11e0a1b11ae1", "hex"), Buffer.alloc(504)]);
+    await expectDetectedMime({ input: { buffer, ...metadata }, expected: "application/x-cfb" });
+  });
+
+  it("does not let a PowerPoint filename override strongly identified PDF bytes", async () => {
+    await expectDetectedMime({
+      input: {
+        buffer: Buffer.from("%PDF-1.7\n%%EOF\n"),
+        filePath: "fake.ppt",
+        headerMime: "application/vnd.ms-powerpoint",
+      },
+      expected: "application/pdf",
+    });
+  });
+
   it("does not let unrelated document metadata override generic ZIP bytes", async () => {
     const zip = new JSZip();
     zip.file("hello.txt", "hi");

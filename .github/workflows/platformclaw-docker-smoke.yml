@@ -14,6 +14,7 @@ on:
       - packages/platformclaw-control-plane/**
       - scripts/e2e/fixtures/platformclaw-login.json
       - scripts/e2e/platformclaw-runtime-docker.sh
+      - scripts/e2e/lib/platformclaw-document-preview/**
       - scripts/mock_employee_auth.py
       - scripts/platformclaw-build.mjs
       - ui/**
@@ -30,6 +31,7 @@ on:
       - packages/platformclaw-control-plane/**
       - scripts/e2e/fixtures/platformclaw-login.json
       - scripts/e2e/platformclaw-runtime-docker.sh
+      - scripts/e2e/lib/platformclaw-document-preview/**
       - scripts/mock_employee_auth.py
       - scripts/platformclaw-build.mjs
       - ui/**

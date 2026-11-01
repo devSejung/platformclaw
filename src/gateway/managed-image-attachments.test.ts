@@ -48,6 +48,8 @@ const loadSessionEntryMock = vi.fn();
 const readSessionMessagesMock = vi.fn();
 const resolveSessionHistoryTranscriptPathMock = vi.fn();
 const getRuntimeConfigMock = vi.fn(() => ({}));
+const execContainerRawMock =
+  vi.fn<typeof import("../agents/sandbox/container-engine.js").execContainerRaw>();
 const probePlaybackMediaFileDescriptorMock = vi.fn(async () => ({ durationMs: 1000 }));
 const resolvePlaybackModeForSourceMock = vi.fn<PlaybackModeForSourceResolver>();
 const resolvePlaybackTranscodeMock = vi.fn(
@@ -57,6 +59,11 @@ const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 vi.mock("../config/config.js", () => ({
   getRuntimeConfig: getRuntimeConfigMock,
+}));
+
+vi.mock("../agents/sandbox/container-engine.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agents/sandbox/container-engine.js")>()),
+  execContainerRaw: execContainerRawMock,
 }));
 
 vi.mock("./http-utils.js", () => ({
@@ -394,6 +401,16 @@ describe("handleManagedOutgoingImageHttpRequest", () => {
   beforeEach(async () => {
     stateDir = tempDirs.make("managed-images-");
     vi.clearAllMocks();
+    execContainerRawMock.mockImplementation(async (_engine, args) => ({
+      stdout:
+        args[0] === "info"
+          ? Buffer.from('["name=rootless"]')
+          : args[0] === "start"
+            ? Buffer.from("%PDF-1.7\npreview\n%%EOF\n")
+            : Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      code: 0,
+    }));
     await prepareManagedSessionStore(stateDir);
   });
 
@@ -483,6 +500,80 @@ describe("handleManagedOutgoingImageHttpRequest", () => {
     expect(foreign.result.statusCode).toBe(404);
     expect(foreign.result.body.toString()).not.toContain("Report");
   });
+
+  it("previews only an owned PowerPoint snapshot while preserving the original download", async () => {
+    const body = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0xff, 0x80]);
+    const { attachmentId, sessionKey } = await createFixture(stateDir, {
+      filename: "report.pptx",
+      contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      body,
+    });
+    const pathName = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${attachmentId}/full`;
+    const transcriptMessages = [
+      {
+        role: "assistant",
+        content: [{ type: "attachment", attachment: { kind: "document", url: pathName } }],
+        __openclaw: { id: "msg-1" },
+      },
+    ];
+    const request = { stateDir, authResponse: { authMethod: "token" }, transcriptMessages };
+    const preview = await requestManagedImage({ ...request, pathName: `${pathName}?preview=1` });
+    expect(preview.result.statusCode).toBe(200);
+    expect(preview.result.headers["content-type"]).toBe("application/pdf");
+    expect(preview.result.headers["cache-control"]).toBe("no-store");
+    expect(preview.result.body.toString()).toBe("%PDF-1.7\npreview\n%%EOF\n");
+    const start = execContainerRawMock.mock.calls.find(([, args]) => args[0] === "start");
+    expect(start?.[2]?.input).toEqual(body);
+    const download = await requestManagedImage({ ...request, pathName });
+    expect(download.result.body).toEqual(body);
+    expect(download.result.headers["content-disposition"]).toContain("attachment");
+    const beforeDenied = execContainerRawMock.mock.calls.length;
+    const foreign = await requestManagedImage({
+      ...request,
+      pathName:
+        pathName.replace(encodeURIComponent(sessionKey), encodeURIComponent("agent:main:other")) +
+        "?preview=1",
+    });
+    expect(foreign.result.statusCode).toBe(404);
+    expect(execContainerRawMock).toHaveBeenCalledTimes(beforeDenied);
+  });
+
+  it.each([3, 4])(
+    "revalidates PowerPoint ownership before processing and publication (read %s)",
+    async (revokeAt) => {
+      const { attachmentId, sessionKey } = await createFixture(stateDir, {
+        filename: "private.ppt",
+        contentType: "application/vnd.ms-powerpoint",
+        body: Buffer.from("private presentation snapshot"),
+      });
+      const pathName = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${attachmentId}/full`;
+      const transcriptMessages = [
+        {
+          role: "assistant",
+          content: [{ type: "attachment", attachment: { kind: "document", url: pathName } }],
+          __openclaw: { id: "msg-1" },
+        },
+      ];
+      let reads = 0;
+      const preview = await requestManagedImage({
+        stateDir,
+        pathName: `${pathName}?preview=1`,
+        authResponse: { authMethod: "token" },
+        transcriptMessages,
+        onReadTranscriptMessages: () => {
+          if (++reads === revokeAt) {
+            transcriptMessages.splice(0);
+          }
+        },
+      });
+      expect(preview.result.statusCode).toBe(404);
+      expect(preview.result.body.toString()).not.toContain("%PDF");
+      expect(execContainerRawMock.mock.calls.some(([, args]) => args[0] === "start")).toBe(
+        revokeAt === 4,
+      );
+      expect(execContainerRawMock.mock.calls.at(-1)?.[1][0]).toBe("rm");
+    },
+  );
 
   it("does not preview an attachment removed from the transcript during preparation", async () => {
     const { attachmentId, sessionKey } = await createFixture(stateDir, {
@@ -1436,86 +1527,102 @@ describe("createManagedOutgoingImageBlocks", () => {
     },
   );
 
-  it("retains an owned document snapshot after its source disappears and serves it through a history ticket", async () => {
-    const sessionKey = "agent:main:main";
-    const sourcePath = path.join(stateDir, "workspace", "report.pdf");
-    const body = Buffer.from("%PDF-1.7\nowned document\n");
-    await fs.mkdir(path.dirname(sourcePath), { recursive: true });
-    await fs.writeFile(sourcePath, body);
-    const blocks = await withEnvAsync(
-      { OPENCLAW_STATE_DIR: stateDir },
-      async () =>
-        await withAgentMediaContext(
-          "main",
-          async () =>
-            await createManagedOutgoingImageBlocks({
-              sessionKey,
-              agentId: "main",
-              mediaUrls: [sourcePath],
-              stateDir,
-              localRoots: [path.dirname(sourcePath)],
-              allowLocalNonImage: true,
-            }),
-        ),
-    );
-    expect(blocks).toHaveLength(1);
-    const block = blocks[0];
-    if (!block || !block.attachment || typeof block.attachment !== "object") {
-      throw new Error("Expected a managed document attachment");
-    }
-    const attachment = block.attachment as Record<string, unknown>;
-    expect(attachment).toMatchObject({
-      kind: "document",
-      label: "report.pdf",
+  it.each([
+    {
+      filename: "report.pdf",
       mimeType: "application/pdf",
-      sizeBytes: body.length,
-    });
-    const attachmentId = requireAttachmentIdFromUrl(attachment.url);
-    expect(attachment.artifactId).toBe(
-      `${MANAGED_OUTGOING_MEDIA_ARTIFACT_ID_PREFIX}${attachmentId}`,
-    );
-    expect(readManagedImageRecord(attachmentId, stateDir)).toMatchObject({
-      agentId: "main",
-      original: { mediaRoot: path.join(stateDir, "media", "agents", "main") },
-    });
-    await attachManagedOutgoingImagesToMessage({ messageId: "msg-document", blocks, stateDir });
-    await fs.rm(sourcePath);
-    const transcriptMessages = [
-      { role: "assistant", content: blocks, __openclaw: { id: "msg-document" } },
-    ];
-    const first = await requestManagedImage({
-      stateDir,
-      pathName: String(attachment.url),
-      authResponse: { authMethod: "token" },
-      transcriptMessages,
-    });
-    expect(first.result.statusCode).toBe(200);
-    expect(first.result.body).toEqual(body);
-    expect(first.result.headers["content-disposition"]).toContain("attachment;");
-    const download = await resolveManagedOutgoingImageArtifactDownload({
-      sessionKey,
-      artifactId: String(attachment.artifactId),
-      stateDir,
-    });
-    expect(download).toMatchObject({
-      type: "file",
-      title: "report.pdf",
-      mimeType: "application/pdf",
-    });
-    if (!download) {
-      throw new Error("expected a document download ticket");
-    }
-    const ticketed = await requestManagedImage({
-      stateDir,
-      pathName: download.url,
-      denyAuth: true,
-      transcriptMessages,
-    });
-    expect(ticketed.result.statusCode).toBe(200);
-    expect(ticketed.result.body).toEqual(body);
-    await cleanupManagedOutgoingImageRecords({ stateDir, nowMs: Date.now() + 24 * 60 * 60 * 1000 });
-    expect(readManagedImageRecord(attachmentId, stateDir)?.retentionClass).toBe("history");
-  });
+      body: Buffer.from("%PDF-1.7\nowned document\n"),
+    },
+    {
+      filename: "report.ppt",
+      mimeType: "application/vnd.ms-powerpoint",
+      body: Buffer.concat([Buffer.from("d0cf11e0a1b11ae1", "hex"), Buffer.alloc(504)]),
+    },
+  ])(
+    "retains an owned $filename snapshot after source deletion and serves a history ticket",
+    async ({ filename, mimeType, body }) => {
+      const sessionKey = "agent:main:main";
+      const sourcePath = path.join(stateDir, "workspace", filename);
+      await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+      await fs.writeFile(sourcePath, body);
+      const blocks = await withEnvAsync(
+        { OPENCLAW_STATE_DIR: stateDir },
+        async () =>
+          await withAgentMediaContext(
+            "main",
+            async () =>
+              await createManagedOutgoingImageBlocks({
+                sessionKey,
+                agentId: "main",
+                mediaUrls: [sourcePath],
+                stateDir,
+                localRoots: [path.dirname(sourcePath)],
+                allowLocalNonImage: true,
+              }),
+          ),
+      );
+      expect(blocks).toHaveLength(1);
+      const block = blocks[0];
+      if (!block || !block.attachment || typeof block.attachment !== "object") {
+        throw new Error("Expected a managed document attachment");
+      }
+      const attachment = block.attachment as Record<string, unknown>;
+      expect(attachment).toMatchObject({
+        kind: "document",
+        label: filename,
+        mimeType,
+        sizeBytes: body.length,
+      });
+      const attachmentId = requireAttachmentIdFromUrl(attachment.url);
+      expect(attachment.artifactId).toBe(
+        `${MANAGED_OUTGOING_MEDIA_ARTIFACT_ID_PREFIX}${attachmentId}`,
+      );
+      expect(readManagedImageRecord(attachmentId, stateDir)).toMatchObject({
+        agentId: "main",
+        original: { mediaRoot: path.join(stateDir, "media", "agents", "main") },
+      });
+      await attachManagedOutgoingImagesToMessage({ messageId: "msg-document", blocks, stateDir });
+      await fs.rm(sourcePath);
+      const transcriptMessages = [
+        { role: "assistant", content: blocks, __openclaw: { id: "msg-document" } },
+      ];
+      const first = await requestManagedImage({
+        stateDir,
+        pathName: String(attachment.url),
+        authResponse: { authMethod: "token" },
+        transcriptMessages,
+      });
+      expect(first.result.statusCode).toBe(200);
+      expect(first.result.body).toEqual(body);
+      expect(first.result.headers["content-disposition"]).toContain("attachment;");
+      const download = await resolveManagedOutgoingImageArtifactDownload({
+        sessionKey,
+        artifactId: String(attachment.artifactId),
+        stateDir,
+      });
+      expect(download).toMatchObject({
+        type: "file",
+        title: filename,
+        mimeType,
+      });
+      if (!download) {
+        throw new Error("expected a document download ticket");
+      }
+      const ticketed = await requestManagedImage({
+        stateDir,
+        pathName: download.url,
+        denyAuth: true,
+        transcriptMessages,
+      });
+      expect(ticketed.result.statusCode).toBe(200);
+      expect(ticketed.result.body).toEqual(body);
+      await cleanupManagedOutgoingImageRecords({
+        stateDir,
+        nowMs: Date.now() + 24 * 60 * 60 * 1000,
+      });
+      expect(readManagedImageRecord(attachmentId, stateDir)?.retentionClass).toBe("history");
+    },
+  );
 
   it.each(["report.txt", "unknown"])(
     "requires explicit trust before publishing local document %s",

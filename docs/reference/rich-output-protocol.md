@@ -31,6 +31,25 @@ Do not emit text commands for attachments from tools, plugins, streaming blocks,
 Legacy final-reply text may still be normalized for compatibility, but this is not a general plugin/tool protocol.
 </Warning>
 
+### Image and document previews
+
+In web chat, select an attached image to open the image viewer. Authorized PDF,
+PPT, and PPTX attachments offer **Preview** alongside the original download.
+PDF files open in the browser's PDF reader. PowerPoint files are converted to PDF
+from the saved attachment snapshot; downloading still returns the original PPT
+or PPTX bytes. Previewing does not start another model turn.
+
+PDF and PowerPoint previews accept files up to 16 MiB. PowerPoint conversion also
+limits its PDF output to 16 MiB. It requires the rootless sandbox Docker service
+and the configured sandbox image with LibreOffice Impress. Conversion runs in a
+disposable container with networking disabled and resource and time limits. It
+does not require LibreOffice on an assigned VM. If conversion is unavailable or
+the file cannot be previewed, use the original download.
+
+The attachment must still pass the current file-read and delivery policy. Browser
+session and file ownership are checked when loading the preview, including after
+reopening a conversation. A preview URL does not grant another user access.
+
 ### Saved HTML previews
 
 In web chat, an authorized HTML attachment offers **Preview** while preserving its

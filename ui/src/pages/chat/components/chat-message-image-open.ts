@@ -1,4 +1,4 @@
-import type { ImageLightboxItem } from "../../../components/image-lightbox.ts";
+import type { ImageLightboxImage, ImageLightboxItem } from "../../../components/image-lightbox.ts";
 import { openExternalUrlSafe, resolveSafeExternalUrl } from "../../../lib/open-external-url.ts";
 
 export function openResolvedImage(
@@ -7,6 +7,7 @@ export function openResolvedImage(
   title: string,
   release?: () => void,
   requestVersion?: number,
+  gallery?: readonly ImageLightboxImage[],
 ) {
   const safeSrc = resolveSafeExternalUrl(src, window.location.href, { allowDataImage: true });
   if (!safeSrc) {
@@ -14,7 +15,18 @@ export function openResolvedImage(
     return;
   }
   if (onOpenImage) {
-    const item: ImageLightboxItem = { src: safeSrc, title, ...(release ? { release } : {}) };
+    const safeGallery = gallery?.flatMap((image) => {
+      const imageSrc = resolveSafeExternalUrl(image.src, window.location.href, {
+        allowDataImage: true,
+      });
+      return imageSrc ? [{ src: imageSrc, title: image.title }] : [];
+    });
+    const item: ImageLightboxItem = {
+      src: safeSrc,
+      title,
+      ...(release ? { release } : {}),
+      ...(safeGallery && safeGallery.length > 1 ? { gallery: safeGallery } : {}),
+    };
     if (requestVersion === undefined) {
       onOpenImage(item);
     } else {

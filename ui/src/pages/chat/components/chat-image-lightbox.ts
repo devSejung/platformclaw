@@ -1,8 +1,10 @@
 import { html, nothing } from "lit";
 import "../../../components/image-lightbox.ts";
-import type { ImageLightboxItem } from "../../../components/image-lightbox.ts";
+import type { ImageLightboxImage, ImageLightboxItem } from "../../../components/image-lightbox.ts";
 import { t } from "../../../i18n/index.ts";
 import { openExternalUrlSafe } from "../../../lib/open-external-url.ts";
+
+const EMPTY_GALLERY: readonly ImageLightboxImage[] = [];
 
 export function inlineChatImageFromEvent(event: Event): HTMLImageElement | null {
   const target = event
@@ -52,6 +54,7 @@ export function renderChatImageLightbox(
     <openclaw-image-lightbox
       src=${item.src}
       title=${item.title}
+      .gallery=${item.gallery ?? EMPTY_GALLERY}
       @image-lightbox-close=${onClose}
     ></openclaw-image-lightbox>
   `;

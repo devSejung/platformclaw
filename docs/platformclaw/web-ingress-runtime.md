@@ -323,6 +323,23 @@ Gateway validates each file against the owning Agent's allowed media roots.
 Plain-text file claims do not grant access. Browser cookies, Gateway
 credentials, redirects, and unapproved response headers never cross the bridge.
 
+Images from Basic server execution and assigned VMs open in the image viewer.
+PDF, PPT, and PPTX attachments offer **Preview** alongside their original
+download. PDF bytes are loaded through the owned media bridge and shown in the
+browser's PDF reader. PowerPoint previews convert the authorized attachment
+snapshot to PDF; the downloadable PPT or PPTX stays unchanged. Reopening the
+conversation uses the same saved snapshot and checks the current browser owner.
+
+PDF and PowerPoint previews are limited to 16 MiB, including the converted PDF.
+PowerPoint conversion requires the existing rootless sandbox Docker service and
+the configured sandbox image with LibreOffice Impress. The PlatformClaw Jammy
+sandbox image includes it; assigned VMs need no additional installation. The
+converter runs in an ephemeral container with networking disabled, a read-only
+root filesystem, and bounded resources and execution time. It receives the
+already authorized snapshot rather than a browser-supplied path or URL. Missing
+conversion support, invalid documents, and exceeded limits report a visible
+failure while preserving the original download.
+
 HTML attachments from Basic server execution and assigned VMs offer **Preview**
 alongside the original download. Both use the existing authorized, immutable
 attachment snapshot; previewing does not reread the VM path or ask the model to
