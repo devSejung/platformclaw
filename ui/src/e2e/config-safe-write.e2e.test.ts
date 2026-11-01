@@ -360,7 +360,7 @@ describeControlUiE2e("Control UI guarded config writes mocked Gateway E2E", () =
           pageErrors,
           reads: diagnostics.map((result, index) => ({
             source: ["document", "configRequests", "screenshot"][index],
-            ...result,
+            result,
           })),
         }),
       );
