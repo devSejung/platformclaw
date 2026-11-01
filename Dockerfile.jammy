@@ -13,8 +13,6 @@ ARG PLATFORMCLAW_NODE_SHA256_ARM64="58c9520501f6ae2b52d5b210444e24b9d0c029a58c50
 ARG PLATFORMCLAW_GH_VERSION="2.96.0"
 ARG PLATFORMCLAW_GH_SHA256_AMD64="11a731f4e0ca8c3db96ef6d2cc404dcab3d78247ce0e07c53e07117e7627d6a1"
 ARG PLATFORMCLAW_GH_SHA256_ARM64="334dd9c6704fc1656a48e475c5a3a9aa32bbadb87fa1777513bc626af4a99e89"
-ARG PLATFORMCLAW_CODEX_ACP_VERSION="1.1.4"
-ARG PLATFORMCLAW_CLAUDE_ACP_VERSION="0.59.0"
 ARG PLATFORMCLAW_CLAUDE_CODE_VERSION="2.1.212"
 ARG PLATFORMCLAW_NANO_PDF_VERSION="0.2.1"
 ARG PLATFORMCLAW_MARKDOWN_VERSION="3.10.2"
@@ -132,12 +130,16 @@ RUN test ! -e /app/node_modules/@platformclaw/coding-agent-contract && \
 
 # WORKDIR creates the app root before COPY --chown can set child ownership.
 # Fix only the parent directories; the final assertion below protects the full trees.
+# ACPX supplies the pinned adapters; reuse them for the offline CLI entry points
+# so the image does not carry another copy of each native coding-agent runtime.
 RUN set -eux; \
     npm install -g --omit=dev --no-fund --no-audit \
-      "@agentclientprotocol/codex-acp@${PLATFORMCLAW_CODEX_ACP_VERSION}" \
-      "@agentclientprotocol/claude-agent-acp@${PLATFORMCLAW_CLAUDE_ACP_VERSION}" \
       "@anthropic-ai/claude-code@${PLATFORMCLAW_CLAUDE_CODE_VERSION}"; \
     npm cache clean --force; \
+    test -x /app/node_modules/.bin/codex-acp; \
+    test -x /app/node_modules/.bin/claude-agent-acp; \
+    ln -s /app/node_modules/.bin/codex-acp /usr/local/bin/codex-acp; \
+    ln -s /app/node_modules/.bin/claude-agent-acp /usr/local/bin/claude-agent-acp; \
     pip_flags=""; \
     if python3 -m pip install --help | grep -q -- --break-system-packages; then pip_flags="--break-system-packages"; fi; \
     python3 -m pip install --no-cache-dir $pip_flags \
