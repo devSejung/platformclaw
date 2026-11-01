@@ -577,6 +577,7 @@ describe("gateway client capability tool filtering", () => {
   it.each([
     { name: "no gateway client caps exist", clientCaps: undefined },
     { name: "a required cap is absent", clientCaps: ["tool-events"] },
+    { name: "only dashboard support is declared", clientCaps: ["dashboard-widgets"] },
   ])("excludes capability-gated tools when $name", ({ clientCaps }) => {
     expect(hasTool(createOpenClawTools({ clientCaps }), "show_widget")).toBe(false);
   });
@@ -602,6 +603,32 @@ describe("gateway client capability tool filtering", () => {
       ),
     ).toBe(true);
   });
+
+  it.each([
+    { clientCaps: ["inline-widgets"], dashboard: false },
+    { clientCaps: ["inline-widgets", "dashboard-widgets"], dashboard: true },
+  ])(
+    "matches widget placement to the originating client $clientCaps",
+    ({ clientCaps, dashboard }) => {
+      const tool = createOpenClawTools({
+        clientCaps,
+        disableMessageTool: true,
+        disablePluginTools: true,
+        wrapBeforeToolCallHook: false,
+      }).find((candidate) => candidate.name === "show_widget");
+
+      expect(tool).toBeDefined();
+      if (dashboard) {
+        expect(tool?.parameters).toHaveProperty("properties.pin");
+        expect(tool?.parameters).toHaveProperty("properties.capabilities");
+      } else {
+        expect(tool?.parameters).not.toHaveProperty("properties.pin");
+        expect(tool?.parameters).not.toHaveProperty("properties.capabilities");
+        expect(tool?.description).not.toContain("pin=true");
+        expect(tool?.description).not.toContain("openclaw.data.read");
+      }
+    },
+  );
 
   it("keeps the core widget tool out of Discord sessions", () => {
     expect(

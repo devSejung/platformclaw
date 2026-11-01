@@ -99,6 +99,8 @@ describe("createPlatformClawDeploymentRuntime", () => {
       },
     });
     expect(options?.adminRpc).toBeDefined();
+    // The employee BFF relays inline Canvas documents but does not expose board RPCs.
+    expect(options?.gatewayClient?.client.caps).toEqual(["inline-widgets"]);
     expect(options?.restartRecoveryProbe).toBe(options?.provisioner);
     expect(options?.employeeAuth?.sshCredentialCipher).toBe(config.sshCredentialCipher);
     expect(options?.employeeAuth?.mcpCredentialCipher).toBe(config.mcpCredentialCipher);

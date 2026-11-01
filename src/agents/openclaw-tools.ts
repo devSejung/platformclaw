@@ -1,4 +1,5 @@
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { GATEWAY_CLIENT_CAPS } from "../../packages/gateway-protocol/src/client-info.js";
 import { isCoreCanvasHostEnabled } from "../canvas/config.js";
 import { createShowWidgetTool } from "../canvas/widget-tool.js";
 import { selectApplicableRuntimeConfig } from "../config/config.js";
@@ -397,6 +398,8 @@ export function createOpenClawTools(options?: CreateOpenClawToolsOptions): AnyAg
       ? []
       : [
           createShowWidgetTool({
+            supportsDashboard:
+              options?.clientCaps?.includes(GATEWAY_CLIENT_CAPS.DASHBOARD_WIDGETS) === true,
             sessionId: options?.sessionId,
             agentId: sessionAgentId,
             agentSessionKey: options?.runSessionKey ?? options?.agentSessionKey,

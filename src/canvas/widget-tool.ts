@@ -13,6 +13,7 @@ import { normalizeBoardWidgetDeclared } from "../boards/board-capabilities.js";
 import { assertWidgetHtmlSize, WidgetHtmlInputError } from "../plugin-sdk/widget-html.js";
 import { createCanvasDocument } from "./documents.js";
 import { embedWidgetWorkspaceImages } from "./widget-local-images.js";
+import { findWidgetScriptSyntaxError } from "./widget-script-syntax.js";
 import { buildWidgetDocument } from "./wrap.js";
 
 const SHOW_WIDGET_REQUIRED_CLIENT_CAPS = ["inline-widgets"];
@@ -74,6 +75,8 @@ const ShowWidgetToolSchema = Type.Object({
 });
 
 type ShowWidgetToolOptions = {
+  /** Presentation support only; current Gateway authority still gates dashboard effects. */
+  supportsDashboard?: boolean;
   sessionId?: string;
   agentId?: string;
   agentSessionKey?: string;
@@ -130,16 +133,39 @@ function assertPinnedWidgetDocumentSize(html: string): void {
 
 /** Creates a self-contained widget hosted by OpenClaw core. */
 export function createShowWidgetTool(options: ShowWidgetToolOptions = {}): AnyAgentTool {
+  const supportsDashboard = options.supportsDashboard === true;
   const gatewayCall = options.callGateway ?? callInProcessGatewayTool;
   return {
     label: "Show Widget",
     name: "show_widget",
-    description:
-      'Show an interactive self-contained HTML or SVG widget inline on the user\'s current surface. For a saved HTML deliverable, create a self-contained file and attach it through the current reply contract; supported web chat attachments offer Preview without passing the file contents here. File previews need inline CSS/JavaScript/SVG and data/blob images; relative and external resources are not bundled. For a separate inline widget from a saved file, read its actual unchanged contents, pass them as widget_code, and set widget_path to that file. widget_path safely embeds static relative <img>, image input, video poster, and SVG <image> files from the HTML file\'s workspace directory. srcset and local/HTTP CSS url() assets are unsupported; use those static elements instead. CSS data:, blob:, and fragment URLs remain supported. Runtime-created local or relative image URLs cannot be resolved; create runtime images from inline bytes with Blob instead. Without widget_path, images must be inline SVG, data:image/... URLs, or document-created blob: URLs. Local/relative images without widget_path and all HTTP(S) images are rejected with retry guidance. Set pin=true to also place it on this session\'s dashboard; use name for a stable widget id, tab for a tab slug, size sm|md|lg|xl|full, presentation card|full-bleed|frameless, and after for a sibling widget anchor. Dashboard widgets auto-fit their content height until the user resizes them. Pinned widgets may declare capabilities.netOrigins and capabilities.tools for operator approval; only approved pinned widgets may fetch from their exact declared HTTPS origins. Inline all other markup, styles, and scripts. Dashboard host APIs: openclaw.prompt.send(text), openclaw.state.emit(payload), openclaw.data.read(bindingId, params?), and openclaw.cron.trigger(jobId). Pre-themed: bare button, input, select, textarea, table, code, h1-h3 already styled — write minimal HTML. Helper classes: .card, .badge (.ok/.warn/.danger/.info), .metric, .muted, .row; button.primary = the one main action. Theme vars (auto light/dark, live host sync): --surface --card --elevated --text --text-strong --muted --border --border-strong --accent (links/focus/highlight) --accent-fill (primary bg) --accent-fg --ok --warn --danger --info (each with -subtle tint) --radius --font-body --font-mono. Colors ONLY via these vars — never hex/rgb/hsl, no own color palette; layout-only custom vars fine. Page background stays transparent. Pattern: <div class="card"><div class="muted">Uptime</div><div class="metric">18d</div></div> <span class="badge ok">connected</span>. Web chat: sendPrompt(text) sends text as the user\'s message — wire to buttons, suffix label with ↗; works only after a real click inside the widget (never call automatically; slash commands rejected).',
-    parameters: ShowWidgetToolSchema,
+    description: [
+      "Use for interactive comparisons, explanations, quizzes, and choices; a user-clicked button can ask the agent a follow-up. Prefer clear text or tables when sufficient.",
+      "Keep filtering, selection, and calculations local. In Control UI, use a clearly labeled button with await openclaw.prompt.send(text) for an agent follow-up, including the selected values and requested action. It returns true only when the chat queue accepts the message; later delivery failures appear in chat with Retry. The widget cannot read the agent reply.",
+      "Prompt buttons require a real click in the visible, focused widget. Never send prompts on load or every filter change; slash commands are rejected. Native renderers do not provide this conversation bridge.",
+      supportsDashboard
+        ? "Set pin=true for an explicitly requested session dashboard; reuse name to update it. Placement uses tab, size sm|md|lg|xl|full, presentation card|full-bleed|frameless, and after. Declare pinned capabilities.netOrigins or capabilities.tools for approval before data access. Dashboard-only APIs: openclaw.state.emit(payload), openclaw.data.read(bindingId, params?), and openclaw.cron.trigger(jobId)."
+        : "This surface supports inline widgets only; dashboard placement, network grants, and dashboard data/action APIs are unavailable.",
+      "Send self-contained HTML/SVG in widget_code. For a saved HTML deliverable, attach the file through the current reply contract instead; web chat offers Preview without repeating its contents here.",
+      "Use inline CSS and JavaScript, inline SVG, data:image URLs, or document-created blob images. For static relative workspace images, pass widget_path and its exact unchanged complete text as widget_code, preserving whitespace. Paths are resolved through the active Basic or VM workspace; never use a browser file:// URL. srcset, CSS local/HTTP url() assets, and HTTP(S) images are unsupported.",
+      "Use host theme variables --text --muted --card --border --accent --font-body --font-mono; transparent outer background and fluid widths. Bare controls and headings are styled; .card .row .metric .muted .badge and button.primary are available.",
+      "Inline JavaScript syntax errors return a line and column; fix and retry. Verify the delivered widget, important clicks, and narrow layout when the actual chat surface is accessible. Hosting success alone is not rendering proof; state any verification gap.",
+    ].join(" "),
+    parameters: supportsDashboard
+      ? ShowWidgetToolSchema
+      : Type.Pick(ShowWidgetToolSchema, ["title", "widget_code", "widget_path"]),
     requiredClientCaps: SHOW_WIDGET_REQUIRED_CLIENT_CAPS,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
+      if (
+        !supportsDashboard &&
+        ["pin", "name", "tab", "size", "presentation", "after", "capabilities"].some(
+          (name) => params[name] !== undefined,
+        )
+      ) {
+        throw new WidgetHtmlInputError(
+          "Dashboard widgets are unavailable on this surface. Omit pin, placement, and capabilities; show an inline widget instead.",
+        );
+      }
       const title = readStringParam(params, "title", { required: true });
       const rawWidgetCode = readStringParam(params, "widget_code", {
         required: true,
@@ -152,6 +178,12 @@ export function createShowWidgetTool(options: ShowWidgetToolOptions = {}): AnyAg
         inputName: "widget_code",
         unit: "characters",
       });
+      const scriptError = findWidgetScriptSyntaxError(rawWidgetCode);
+      if (scriptError) {
+        throw new WidgetHtmlInputError(
+          `widget_code has a JavaScript syntax error in inline script ${scriptError.scriptIndex} at line ${scriptError.line}, column ${scriptError.column}: ${scriptError.message}. Offending line: ${scriptError.snippet}. Fix the script and call show_widget again.`,
+        );
+      }
       const widgetPath = readStringParam(params, "widget_path");
       const shouldPin = params.pin === true;
       const capabilities = normalizeBoardWidgetDeclared(

@@ -61,9 +61,13 @@ export function canvasPromptProbeMarkup(): string {
         `<button data-proof-prompt="${name}">${name} ↗</button><output data-proof-result="${name}">pending</output>`,
     )
     .join("")}
+<button data-proof-error="throw">Test script failure</button>
+<button data-proof-error="promise">Test promise failure</button>
 <script>
 const prompts = ${JSON.stringify(prompts)};
 const proofDocumentId = Date.now() + "-" + Math.random();
+document.querySelector('[data-proof-error="throw"]').onclick = () => { throw new Error("Widget runtime proof failure"); };
+document.querySelector('[data-proof-error="promise"]').onclick = () => { void Promise.reject(new Error("Widget promise proof failure")); };
 for (const button of document.querySelectorAll("[data-proof-prompt]")) {
   button.dataset.proofDocumentId = proofDocumentId;
   button.onclick = async () => {
@@ -484,6 +488,8 @@ export async function exerciseCanvasPromptDelivery(params: {
       })
       .toBe(true);
     const before = (await gateway.getRequests("chat.send")).length;
+    const userMessages = page.locator(".chat-group.user", { hasText: prompts[name] });
+    const userMessagesBefore = await userMessages.count();
     await gateway.deferNext("chat.send");
     await clickPrompt(name);
     await expect.poll(async () => (await gateway.getRequests("chat.send")).length).toBe(before + 1);
@@ -492,7 +498,8 @@ export async function exerciseCanvasPromptDelivery(params: {
     await expect
       .poll(() => frame.locator(`[data-proof-result="${name}"]`).textContent())
       .toBe(name === "legacy" ? "requested" : "true");
-    await page.locator(".chat-group.user", { hasText: prompts[name] }).waitFor();
+    await expect.poll(() => userMessages.count()).toBe(userMessagesBefore + 1);
+    await userMessages.last().waitFor();
     expect(await composer.inputValue()).toBe(draft);
     await notice.waitFor({ state: "hidden" });
     record(name, { requestCount: 1, sessionKey: request.sessionKey, draftPreserved: true });
@@ -616,4 +623,30 @@ export async function exerciseCanvasPromptDelivery(params: {
   await gateway.resolveDeferred("chat.send");
   await complete(recovery, `${target}: writable conversation recovered.`);
   await snapshot("recovered");
+
+  const runtimeError = preview.locator("[data-widget-runtime-error]");
+  await runtimeError.waitFor({ state: "hidden" });
+  const sendsBeforeErrors = (await gateway.getRequests("chat.send")).length;
+  await frame.locator('[data-proof-error="throw"]').click();
+  await runtimeError.waitFor({ state: "visible" });
+  await expect.poll(() => runtimeError.textContent()).toContain("Widget runtime proof failure");
+  await expect.poll(() => runtimeError.textContent()).toContain("Ask the agent to repair");
+  await notice.waitFor({ state: "hidden" });
+  await snapshot("runtime-error");
+  await frame.locator('[data-proof-error="promise"]').click();
+  await expect.poll(() => runtimeError.textContent()).toContain("Widget promise proof failure");
+  expect(await composer.inputValue()).toBe(draft);
+  expect(await gateway.getRequests("chat.send")).toHaveLength(sendsBeforeErrors);
+  await snapshot("runtime-promise-error");
+  record("runtime-errors-visible", {
+    distinctErrors: 2,
+    automaticMessages: 0,
+    promptStatusPreserved: !(await notice.isVisible()),
+    draftPreserved: true,
+  });
+  const afterError = await clickAndAdmit("structured");
+  expect(await gateway.getRequests("chat.send")).toHaveLength(sendsBeforeErrors + 1);
+  await gateway.resolveDeferred("chat.send");
+  await complete(afterError, `${target}: follow-up accepted after widget errors.`);
+  await snapshot("runtime-error-follow-up");
 }

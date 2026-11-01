@@ -5905,6 +5905,8 @@ export const en: TranslationMap = {
       widgetMessageSending: "Adding the widget message to this conversation…",
       widgetMessageRejected:
         "This widget message could not be added to this conversation. Check that the conversation is writable, then try again.",
+      widgetRuntimeError:
+        "This widget encountered an error: {message}. Ask the agent to repair the widget.",
       canvasHostConnecting: "Connecting to the secure widget host…",
       canvasHostUnavailable:
         "Widget content is unavailable. Reconnect to the Gateway and try again.",
