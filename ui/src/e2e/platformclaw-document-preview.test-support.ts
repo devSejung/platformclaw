@@ -40,7 +40,7 @@ import {
   createDocumentPreviewFixtures,
   type DocumentPreviewFixture,
   type DocumentPreviewFormat,
-} from "./platformclaw-document-fixtures.ts";
+} from "./platformclaw-document-preview.test-fixtures.ts";
 
 const agentId = "document-preview-owner";
 const sessionKey = `agent:${agentId}:main`;
