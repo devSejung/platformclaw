@@ -68,6 +68,7 @@ async function executeWidget(params: {
   workspaceDir?: string;
 }) {
   const tool = createShowWidgetTool({
+    supportsDashboard: true,
     stateDir: params.stateDir,
     sessionId: params.sessionId ?? "widget-session",
     agentId: "main",
@@ -113,27 +114,19 @@ async function executeWidget(params: {
 }
 
 describe("show_widget", () => {
-  it("distinguishes saved attachment previews from inline widgets and their image boundary", () => {
-    const tool = createShowWidgetTool();
+  it("prioritizes interactive follow-ups and separates saved file delivery", () => {
+    const tool = createShowWidgetTool({ supportsDashboard: true });
 
-    expect(tool.description).toContain(
-      "For a saved HTML deliverable, create a self-contained file",
-    );
-    expect(tool.description).toContain("attach it through the current reply contract");
-    expect(tool.description).toContain("Preview without passing the file contents here");
-    expect(tool.description).toContain("relative and external resources are not bundled");
+    expect(tool.description.slice(0, 180)).toContain("follow-up");
+    expect(tool.description).toContain("await openclaw.prompt.send(text)");
+    expect(tool.description).toContain("chat queue accepts the message");
+    expect(tool.description).toContain("widget cannot read the agent reply");
+    expect(tool.description).toContain("For a saved HTML deliverable, attach the file");
+    expect(tool.description).toContain("active Basic or VM workspace");
+    expect(tool.description).toContain("preserving whitespace");
+    expect(tool.description).toContain("pin=true");
+    expect(tool.description).toContain("Hosting success alone is not rendering proof");
     expect(tool.description).not.toContain("MUST call show_widget");
-    expect(tool.description).toContain("read its actual unchanged contents");
-    expect(tool.description).toContain("inline SVG, data:image/... URLs");
-    expect(tool.description).toContain("document-created blob: URLs");
-    expect(tool.description).toContain("set widget_path to that file");
-    expect(tool.description).toContain("srcset and local/HTTP CSS url() assets are unsupported");
-    expect(tool.description).toContain("CSS data:, blob:, and fragment URLs remain supported");
-    expect(tool.description).toContain(
-      "Runtime-created local or relative image URLs cannot be resolved",
-    );
-    expect(tool.description).toContain("all HTTP(S) images are rejected with retry guidance");
-    expect(tool.description).toContain("only approved pinned widgets may fetch");
   });
 
   it("embeds saved relative images for both inline preview and pinned dashboard", async () => {
@@ -398,7 +391,7 @@ describe("show_widget", () => {
   });
 
   it("uses flat provider-safe enums for dashboard options", () => {
-    const tool = createShowWidgetTool();
+    const tool = createShowWidgetTool({ supportsDashboard: true });
     const properties = (
       tool.parameters as {
         properties?: Record<string, { anyOf?: unknown; enum?: string[] }>;
@@ -432,9 +425,9 @@ describe("show_widget", () => {
       '<SvG viewBox="0 0 10 10"><circle r="4" /></SvG>',
     );
 
-    expect(Buffer.byteLength(html)).toBe(13900);
+    expect(Buffer.byteLength(html)).toBe(14995);
     expect(createHash("sha256").update(html).digest("hex")).toBe(
-      "b45a29f44c48132e381041e7e9787fa09a8426ce5a468e53f9f861b6690bd81f",
+      "1b250e852cfdb8bd7ab34fc6e0684e67250d9c4002bdab15c87bce2b6cec5b7e",
     );
     expect(html).toContain("openclaw:widget-host-init-ack");
     expect(html).toContain("else push.call(waiting,{send,reject})");
@@ -461,7 +454,11 @@ describe("show_widget", () => {
 
   it("rejects pinning without a session before creating a Canvas document", async () => {
     const stateDir = await createStateDir();
-    const tool = createShowWidgetTool({ stateDir, sessionId: "missing-agent-session" });
+    const tool = createShowWidgetTool({
+      supportsDashboard: true,
+      stateDir,
+      sessionId: "missing-agent-session",
+    });
 
     await expect(
       tool.execute("pin", {
@@ -486,6 +483,7 @@ describe("show_widget", () => {
       PINNED_WIDGET_MAX_UTF8_BYTES,
     );
     const tool = createShowWidgetTool({
+      supportsDashboard: true,
       stateDir,
       sessionId: "wrapped-budget",
       agentSessionKey: "agent:main:wrapped-budget",
@@ -523,7 +521,11 @@ describe("show_widget", () => {
 
   it("requires dashboard pinning for declared capabilities", async () => {
     const stateDir = await createStateDir();
-    const tool = createShowWidgetTool({ stateDir, sessionId: "capabilities" });
+    const tool = createShowWidgetTool({
+      supportsDashboard: true,
+      stateDir,
+      sessionId: "capabilities",
+    });
 
     await expect(
       tool.execute("capabilities", {

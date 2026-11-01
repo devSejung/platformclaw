@@ -664,6 +664,14 @@ function renderWidgetCard(
             hidden
           ></p>`
         : nothing}
+      ${contentKind === "canvas-html"
+        ? html`<p
+            class="chat-tool-card__preview-status callout danger"
+            data-widget-runtime-error
+            role="alert"
+            hidden
+          ></p>`
+        : nothing}
     </div>
   `;
 }

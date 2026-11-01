@@ -11,6 +11,7 @@ type WidgetWindow = {
   };
   openclaw?: { prompt: { send: (text: string) => Promise<boolean> } };
   sendPrompt?: (text: string) => void;
+  addEventListener: (type: string, listener: (event: Record<string, unknown>) => void) => void;
 };
 
 const cleanups: Array<() => void> = [];
@@ -24,6 +25,7 @@ function createPromptBridge() {
     }
   });
   const offers = new Map<string, MessagePort>();
+  const listeners = new Map<string, (event: Record<string, unknown>) => void>();
   let hostInitTimeout: (() => void) | undefined;
   class WidgetMessageChannel extends MessageChannel {
     constructor() {
@@ -32,6 +34,7 @@ function createPromptBridge() {
     }
   }
   const window: WidgetWindow = {
+    addEventListener: (type, listener) => listeners.set(type, listener),
     parent: {
       postMessage: (message, _origin, ports) => {
         if (ports?.[0]) {
@@ -109,6 +112,16 @@ function createPromptBridge() {
     runAuthoredScript: (source: string) => {
       runInContext(source, context);
     },
+    reportRuntimeError: (message: string, filename = "", line = 0, column = 0) =>
+      listeners.get("error")?.({ target: window, message, filename, lineno: line, colno: column }),
+    reportPromiseError: (reason: unknown) => listeners.get("unhandledrejection")?.({ reason }),
+    async receiveDiagnostic(): Promise<unknown> {
+      return messages.length
+        ? messages.shift()
+        : await new Promise<unknown>((resolve) => {
+            receivers.push(resolve);
+          });
+    },
   };
 }
 
@@ -119,6 +132,47 @@ afterEach(() => {
 });
 
 describe("generated widget prompt bridge", () => {
+  it("reports bounded distinct runtime failures over the original private document port", async () => {
+    const bridge = createPromptBridge();
+    bridge.reportRuntimeError(
+      "First failure",
+      "https://host.invalid/private/plot.js?key=secret",
+      12,
+      3,
+    );
+    bridge.reportRuntimeError("First failure", "duplicate.js", 20, 1);
+    bridge.reportPromiseError(new Error("Promise failed"));
+    bridge.reportRuntimeError("x".repeat(700), "y".repeat(300), 2, 4);
+    bridge.reportRuntimeError("Over the document limit");
+
+    expect(await bridge.receiveDiagnostic()).toEqual({
+      type: "openclaw:widget-runtime-error",
+      message: "First failure",
+      source: "plot.js",
+      line: 12,
+      column: 3,
+    });
+    expect(await bridge.receiveDiagnostic()).toEqual({
+      type: "openclaw:widget-runtime-error",
+      message: "Promise failed",
+      source: "",
+    });
+    expect(await bridge.receiveDiagnostic()).toEqual({
+      type: "openclaw:widget-runtime-error",
+      message: "x".repeat(500),
+      source: "y".repeat(200),
+      line: 2,
+      column: 4,
+    });
+    // A normal prompt must follow the three diagnostics, proving overflow did
+    // not post another message or interfere with the independent action bridge.
+    bridge.ready();
+    const prompt = bridge.send("Continue after an error");
+    const request = await bridge.receive();
+    bridge.reply({ type: "openclaw:widget-prompt-response", id: request.id, accepted: true });
+    await expect(prompt).resolves.toBe(true);
+  });
+
   it("waits for boolean acceptance of the exact request and ignores malformed or duplicate replies", async () => {
     const bridge = createPromptBridge();
     bridge.ready();

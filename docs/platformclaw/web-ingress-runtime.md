@@ -345,6 +345,19 @@ every HTML or asset read. A valid browser cookie, matching employee capability,
 and matching document owner are all required. `plugin.surface.refresh` rotates
 only the employee's BFF capability.
 
+Employee web chat supports inline `show_widget` results on both Basic server and
+assigned-VM execution. Ask for an interactive comparison, quiz, or picker, and
+use a clearly labeled button to request follow-up work in that conversation.
+The existing composer permissions, queue acknowledgement, visible rejection, and
+failed-send Retry apply. Widget runtime errors show a separate repair notice;
+they do not send automatic messages or change a saved composer draft.
+
+The employee BFF advertises `inline-widgets`, not `dashboard-widgets`. Its
+`show_widget` schema therefore excludes dashboard placement and grant fields.
+Session dashboard pinning and dashboard data/action APIs are not available on
+this surface. This does not depend on whether execution uses Basic or a VM.
+The operator configuration does not need another widget setting.
+
 Inline `show_widget` rendering remains available when the employee selects an
 assigned VM. The agent loop and widget document owner stay on the Gateway; only
 project shell and file tools move through the assigned-VM sandbox backend. A

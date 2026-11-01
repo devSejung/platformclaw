@@ -4,6 +4,7 @@ import {
 } from "../../../components/mcp-app-security.ts";
 import { t } from "../../../i18n/index.ts";
 import { getCanvasWidgetFrameConnectionGeneration } from "../../../lib/chat/canvas-widget-frame-generation.ts";
+import { createWidgetRuntimeErrorReporter } from "./widget-runtime-error.ts";
 
 const OFFER = "openclaw:widget-prompt-offer";
 const PROMPT = "openclaw:widget-prompt";
@@ -159,6 +160,13 @@ async function receivePrompt(frame: HTMLIFrameElement, port: MessagePort, data: 
 function adoptPromptPort(frame: HTMLIFrameElement) {
   documentRevisions.set(frame, (documentRevisions.get(frame) ?? 0) + 1);
   pendingFocusHandoffs.get(frame)?.();
+  const status = frame
+    .closest(".chat-tool-card__preview")
+    ?.querySelector<HTMLElement>("[data-widget-runtime-error]");
+  if (status) {
+    status.hidden = true;
+    status.textContent = "";
+  }
   const source = frame.contentWindow;
   if (!source || adoptedFrames.has(frame)) {
     return;
@@ -170,7 +178,13 @@ function adoptPromptPort(frame: HTMLIFrameElement) {
   }
   adoptedFrames.add(frame);
   pendingPorts.delete(source);
+  const revision = documentRevisions.get(frame);
+  const reportRuntimeError = createWidgetRuntimeErrorReporter(
+    frame,
+    () => documentRevisions.get(frame) === revision,
+  );
   port.addEventListener("message", (event: MessageEvent) => {
+    reportRuntimeError(event.data);
     void receivePrompt(frame, port, event.data);
   });
   port.start();

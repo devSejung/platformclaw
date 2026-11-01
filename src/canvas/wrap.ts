@@ -116,6 +116,18 @@ export function buildWidgetDocument(
     "const later=setTimeout.bind(window);const cancel=clearTimeout.bind(window);" +
     "const c=new MessageChannel();" +
     "const promptPost=c.port1.postMessage.bind(c.port1);" +
+    // Errors use the same private document port as prompts, but carry no action
+    // authority. Capture the reporter before authored code can replace globals.
+    "const slice=String.prototype.slice;const replace=String.prototype.replace;" +
+    "const integer=Number.isInteger;const errorSeen=new Set();const errorHas=errorSeen.has.bind(errorSeen);const errorAdd=errorSeen.add.bind(errorSeen);let errorCount=0;" +
+    "const reportError=(message,filename,line,column)=>{try{if(errorCount>=3)return;" +
+    'const text=slice.call(stringify(message||"Widget script failed"),0,500);if(errorHas(text))return;' +
+    'const file=replace.call(replace.call(stringify(filename||""),/[?#].*$/,""),/^.*[\\\\/]/,"");' +
+    'const data={type:"openclaw:widget-runtime-error",message:text,source:slice.call(file,0,200)};' +
+    "if(integer(line)&&line>0)data.line=line;if(integer(column)&&column>0)data.column=column;" +
+    "errorAdd(text);errorCount++;promptPost(data);}catch{}};" +
+    'window.addEventListener("error",event=>{if(event.target===window)reportError(event.message,event.filename,event.lineno,event.colno);});' +
+    'window.addEventListener("unhandledrejection",event=>{try{const reason=event.reason;reportError(reason&&typeof reason.message==="string"?reason.message:reason);}catch{reportError("Unhandled widget promise rejection");}});' +
     "const b=new MessageChannel();const bridgePost=b.port1.postMessage.bind(b.port1);" +
     // Reserve before host readiness too: authored code must not grow an unbounded
     // queue while the frame loads or its conversation is waiting for admission.

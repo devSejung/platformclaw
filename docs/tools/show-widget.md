@@ -11,6 +11,25 @@ read_when:
 
 `show_widget` is a core tool that shows a self-contained HTML widget on the user's current surface. OpenClaw renders it inline in the Control UI and in iOS, Android, macOS, and Linux Quick Chat transcripts; the Linux dashboard uses the browser Control UI. In a Discord session with [Activities](/channels/discord-activities) enabled, the Discord plugin posts an **Open widget** button that launches it as an Activity.
 
+## Choose a widget for interaction
+
+Ask for a widget when controls help you compare, explore, or choose. For example:
+
+- "Compare these plans with filters, and add a button to ask you about the selected plan."
+- "Show a quiz, and let me ask for an explanation of my selected answer."
+- "Show the measured test results by category, with a button to investigate a category."
+
+Filters, calculations, and selections stay inside the widget. A clearly labeled
+follow-up button sends the selected values and requested action to the owning
+conversation. The answer appears in chat; widgets cannot read the agent reply.
+For a report you want to keep or download, attach the HTML file instead.
+Plain text and Markdown tables remain appropriate when controls do not help.
+
+The same inline workflow applies to Basic server and assigned-VM execution.
+The active workspace owns file and image reads; the user's chat client owns
+rendering and follow-up delivery. Choosing a VM does not require a separate
+Canvas node or a browser-accessible VM filesystem URL.
+
 ## Preview a saved HTML file
 
 For a saved HTML report or page in web chat, create a self-contained file and attach
@@ -33,7 +52,7 @@ widget. Attachment previews do not receive widget prompt or dashboard APIs.
 
 When the agent calls `show_widget`, OpenClaw core wraps `widget_code` in a minimal HTML document, stores it as a Canvas document, and returns a preview handle. The Control UI renders that handle in a sandboxed iframe, while iOS, Android, macOS, and Linux Quick Chat use isolated web views. Full chat clients restore the widget after history reload; Quick Chat keeps the widget for its active reply.
 
-In Control UI sessions, a Canvas widget can also be pinned to the session dashboard. Set `pin: true` in the tool call, or use **Pin to dashboard** on an existing transcript widget. Pinned HTML runs behind the same dedicated-origin, double-iframe sandbox host used by MCP Apps; the browser never resolves a widget data binding inside the untrusted frame.
+On clients that declare `dashboard-widgets`, a Canvas widget can also be pinned to the session dashboard. Set `pin: true` in the current tool schema, or use **Pin to dashboard** when the client offers it. Inline-only clients receive no dashboard placement or capability fields, and calls containing them fail before creating a document. Pinned HTML runs behind the same dedicated-origin, double-iframe sandbox host used by MCP Apps; the browser never resolves a widget data binding inside the untrusted frame.
 
 For browser embedding, the wrapper document injects four small host bridges around the widget code:
 
@@ -111,7 +130,7 @@ For a separate Canvas widget from a saved HTML file, pass `widget_path` together
 
 Preserve all leading and trailing whitespace in `widget_code`. Command output may trim it; retain the exact string saved to the file, or JSON-encode the complete file text when reading and decode it with `JSON.parse` before passing it. Creating the file alone does not display an inline widget; correct any tool error and retry `show_widget`. A saved-file attachment preview does not require this call.
 
-The core Canvas tool accepts these optional dashboard placement fields:
+Clients declaring `dashboard-widgets` also receive these optional dashboard placement fields. Follow the current tool schema; these fields are unavailable on inline-only clients:
 
 - `pin`: also place the widget on the session dashboard.
 - `name`: stable widget name; defaults to a slug of `title`.
@@ -127,6 +146,10 @@ The core result includes a Canvas preview handle, so the Control UI and supporte
 ## Interactive widgets
 
 In the Control UI, widget scripts can drive the conversation. The wrapper document defines a global `sendPrompt(text)` function; calling it submits `text` to the chat as if the user had typed and sent the message. Wire it to buttons or other controls to build interactive flows such as pickers, quizzes, or drill-down dashboards. Native apps render interactive widget code but do not expose this chat prompt bridge.
+
+Use `await openclaw.prompt.send(text)` for new controls that need acknowledgement.
+Keep local filters local, and send a prompt only after a user explicitly requests
+agent work. Do not send prompts on load or on every filter change.
 
 ```html
 <button onclick="sendPrompt('Show the failing tests in detail')">Failing tests</button>
@@ -144,6 +167,23 @@ Every prompt is validated on both sides of the frame boundary:
 Accepted prompts appear in the transcript as regular user messages in the session that owns the widget. `sendPrompt(text)` remains a fire-and-forget helper; the host displays a rejection if the message cannot be added. For a new inline widget that needs acknowledgement, `await openclaw.prompt.send(text)` returns `true` only after the chat queue accepts the message, or `false` if submission is rejected. Neither API exposes the agent's reply to the widget. Older saved widget documents keep their original helper behavior, while the current host also displays their submission failures.
 
 Queue acceptance is separate from delivery. If delivery later fails, the conversation shows the error and a **Retry** action. Retry that queued message instead of clicking the widget again. Archived and read-only conversations cannot accept widget messages; use a conversation where you can send messages, then try again.
+
+## Recover from a broken widget
+
+Before hosting, inline JavaScript is checked using its classic-script or module
+grammar. A syntax error returns the script index, original line and column, and
+the offending source line. Correct the code and call `show_widget` again. This
+check does not execute scripts or validate event-handler attributes.
+
+After rendering in web chat, an uncaught script error or rejected promise shows
+a notice below that widget. The notice includes bounded diagnostic text and asks
+you to request a repair from the agent. It does not automatically send messages
+or execute another turn. Reloading the widget clears the old notice; errors from
+a retired document cannot replace the current widget's status.
+
+Successful hosting does not prove that the browser interaction works. Verify the
+important controls in the actual chat surface when it is accessible, and state
+any visual verification gap.
 
 ## Dashboard capabilities
 

@@ -516,6 +516,7 @@ function buildWebchatCanvasSection(params: {
   isMinimal: boolean;
   runtimeChannel?: string;
   sourceMessageToolOnly: boolean;
+  widgetToolName?: string;
 }) {
   if (params.isMinimal || params.runtimeChannel !== "webchat") {
     return [];
@@ -528,6 +529,12 @@ function buildWebchatCanvasSection(params: {
       : "- Attachments: `MEDIA:`. Web rich render: `[embed ...]`.",
     "- Saved HTML: attach a self-contained file from the active workspace; Preview renders its owned attachment snapshot without another model call. No HTML re-output or browser access to server/VM paths is needed.",
     "- HTML file previews: inline CSS/JS/SVG and data/blob images. Relative and external resources are not bundled; omitted resources show a notice. Original download stays available.",
+    ...(params.widgetToolName
+      ? [
+          `- Interactive results: use ${params.widgetToolName} for comparisons, explanations, quizzes, or choices when controls help the user. Keep filters local; clearly labeled user-clicked buttons can request agent follow-ups in this conversation. Prefer text or tables when sufficient.`,
+          "- Follow the current widget schema for supported placement and access. Inspect the actual delivered interaction when possible; successful hosting alone is not rendering proof.",
+        ]
+      : []),
     '- Hosted doc: `[embed ref="cv_123" title="Status" height="320" /]`; URL form: `[embed url="/__openclaw__/canvas/documents/cv_123/index.html" title="Status" height="320" /]`.',
     "- Never local/file:// or arbitrary URL. URL must start `/__openclaw__/canvas/`; else use `ref`.",
     "- Hosted root is profile-, not workspace-scoped; stage there.",
@@ -904,7 +911,7 @@ export function buildAgentSystemPrompt(params: {
     terminal:
       "Own visible shell. Use for long/interactive jobs user should watch. exec for quiet work",
     show_widget:
-      "Render an inline HTML/SVG widget; saved HTML files can use web chat attachment previews",
+      "Show interactive comparisons, explanations, or choices with follow-up buttons; attach saved HTML files for Preview",
     canvas: "Control a paired node's Canvas; node required; file URLs are node-local",
     nodes: "Paired node status/control/media",
     [AUTOMATIONS_TOOL_NAME]:
@@ -1466,6 +1473,9 @@ export function buildAgentSystemPrompt(params: {
       isMinimal,
       runtimeChannel,
       sourceMessageToolOnly,
+      widgetToolName: availableTools.has("show_widget")
+        ? resolveToolName("show_widget")
+        : undefined,
     }),
     ...buildControlUiSessionCompanionSection({
       isMinimal,

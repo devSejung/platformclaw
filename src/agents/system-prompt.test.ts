@@ -19,11 +19,37 @@ describe("buildAgentSystemPrompt", () => {
     });
 
     expect(prompt).toContain(
-      "- show_widget: Render an inline HTML/SVG widget; saved HTML files can use web chat attachment previews",
+      "- show_widget: Show interactive comparisons, explanations, or choices with follow-up buttons; attach saved HTML files for Preview",
     );
     expect(prompt).toContain(
       "- canvas: Control a paired node's Canvas; node required; file URLs are node-local",
     );
+  });
+
+  it.each([
+    { toolNames: ["show_widget"], capabilityToolNames: [] },
+    { toolNames: ["tool_search"], capabilityToolNames: ["show_widget"] },
+  ])("guides interactive results for available direct or deferred widgets (%j)", (tools) => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      runtimeInfo: { channel: "webchat" },
+      ...tools,
+    });
+    expect(prompt).toContain("use show_widget for comparisons, explanations, quizzes, or choices");
+    expect(prompt).toContain("Keep filters local");
+    expect(prompt).toContain("Follow the current widget schema for supported placement and access");
+    expect(prompt).toContain("successful hosting alone is not rendering proof");
+  });
+
+  it("does not advertise widget authoring on a surface without the tool", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      runtimeInfo: { channel: "webchat" },
+      toolNames: ["read"],
+    });
+    expect(prompt).not.toContain("show_widget");
+    expect(prompt).not.toContain("Interactive results:");
+    expect(prompt).toContain("Saved HTML: attach a self-contained file");
   });
 
   it("resolves helper session keys to scoped prompt surfaces", () => {
