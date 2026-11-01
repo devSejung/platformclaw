@@ -274,6 +274,7 @@ describeControlUiE2e("Control UI session dashboard stitch", () => {
       const boardStore = createTestBoardStore({ stateDir: widgetStateDir });
       const boardHandlers = createBoardHandlers(boardStore);
       const showWidget = createShowWidgetTool({
+        supportsDashboard: true,
         stateDir: widgetStateDir,
         workspaceDir: widgetWorkspace,
         agentSessionKey: "agent:main:pinned-image-e2e",
