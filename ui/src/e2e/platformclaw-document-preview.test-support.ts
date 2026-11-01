@@ -218,6 +218,8 @@ async function exerciseDocumentPreview(params: {
     await page.setViewportSize(desktopViewport);
   }
   await card.getByRole("button", { name: "Close preview", exact: true }).click();
+  // Click completion does not wait for the component's closed-state render.
+  await card.getByRole("button", { name: "Preview", exact: true }).waitFor();
   expect(await card.locator("iframe").count()).toBe(0);
 }
 
