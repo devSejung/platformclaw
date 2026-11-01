@@ -71,6 +71,11 @@ describeControlUiE2e("Control UI image lightbox", () => {
               url: dataUrl,
               alt: "OpenClaw banner",
             },
+            {
+              type: "image",
+              url: dataUrl,
+              alt: "Second generated image",
+            },
           ],
           timestamp: Date.now(),
         },
@@ -152,6 +157,56 @@ describeControlUiE2e("Control UI image lightbox", () => {
       const desktopBox = await page.locator("openclaw-image-lightbox .lightbox").boundingBox();
       expect(desktopBox?.width ?? 0).toBeGreaterThan(1000);
       expect(desktopBox?.height ?? 0).toBeGreaterThan(700);
+      const stage = page.locator("openclaw-image-lightbox .stage");
+      const zoomLevel = page.locator("openclaw-image-lightbox .zoom-level");
+      const zoomIn = page.getByRole("button", { name: "Zoom in", exact: true });
+      await zoomIn.click();
+      await zoomIn.click();
+      await expect.poll(() => zoomLevel.textContent()).toBe("156%");
+      const transformBeforePan = await displayedImage.evaluate(
+        (image) => getComputedStyle(image).transform,
+      );
+      const stageBox = await stage.boundingBox();
+      if (!stageBox) {
+        throw new Error("missing image viewport bounds");
+      }
+      await page.mouse.move(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        stageBox.x + stageBox.width / 2 + 120,
+        stageBox.y + stageBox.height / 2 + 40,
+      );
+      await page.mouse.up();
+      await expect
+        .poll(() => displayedImage.evaluate((image) => getComputedStyle(image).transform))
+        .not.toBe(transformBeforePan);
+      if (captureUiProofEnabled) {
+        await mkdir(proofDir, { recursive: true });
+        await page.screenshot({
+          fullPage: true,
+          path: path.join(proofDir, "03-image-zoom-pan.png"),
+        });
+      }
+      await page.getByRole("button", { name: "Fit image", exact: true }).click();
+      await expect.poll(() => zoomLevel.textContent()).toBe("100%");
+      await page.getByRole("button", { name: "Next image", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Image preview: Second generated image" })
+        .waitFor({ state: "visible" });
+      await expect
+        .poll(() => page.locator("openclaw-image-lightbox .position").textContent())
+        .toBe("2 / 2");
+      if (captureUiProofEnabled) {
+        await page.screenshot({
+          fullPage: true,
+          path: path.join(proofDir, "04-image-gallery.png"),
+        });
+      }
+      await page.keyboard.press("PageUp");
+      await dialog.waitFor({ state: "visible" });
+      await expect
+        .poll(() => page.locator("openclaw-image-lightbox .position").textContent())
+        .toBe("1 / 2");
       const originalPopup = page.waitForEvent("popup");
       await openOriginal.click();
       const originalPage = await originalPopup;

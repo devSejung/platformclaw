@@ -154,16 +154,42 @@ export function renderMessageImages(images: RenderableImageBlock[], opts?: Image
     const title = img.alt?.trim() || t("chat.imageLightbox.untitled");
     const requestVersion = opts?.onRequestOpenImage?.();
     const managedSource = isManagedOutgoingImageSource(img.displayUrl);
-    const cacheKey = managedSource
-      ? resolveManagedOutgoingImageBlobUrlCacheKey(img.displayUrl, opts, img.artifactId)
-      : undefined;
+    const openGallery = (selectedUrl: string) => {
+      const releases: Array<() => void> = [];
+      const gallery = images.flatMap((image) => {
+        const managed = isManagedOutgoingImageSource(image.displayUrl);
+        const src =
+          image === img
+            ? selectedUrl
+            : managed
+              ? readManagedOutgoingImageBlobUrl(image.displayUrl, opts, image.artifactId)
+              : image.displayUrl;
+        if (!src) {
+          return [];
+        }
+        if (opts?.onOpenImage && managed) {
+          const key = resolveManagedOutgoingImageBlobUrlCacheKey(
+            image.displayUrl,
+            opts,
+            image.artifactId,
+          );
+          const release = retainManagedImageBlobUrl(key);
+          if (release) {
+            releases.push(release);
+          }
+        }
+        return [{ src, title: image.alt?.trim() || t("chat.imageLightbox.untitled") }];
+      });
+      // The modal owns the entire gallery lease. Keep each displayed Blob alive
+      // across navigation and let the existing close/session lifecycle release all.
+      const release = releases.length ? () => releases.forEach((dispose) => dispose()) : undefined;
+      openResolvedImage(opts?.onOpenImage, selectedUrl, title, release, requestVersion, gallery);
+    };
     const previewIsCurrent =
       !managedSource ||
       readManagedOutgoingImageBlobUrl(img.displayUrl, opts, img.artifactId) === previewUrl;
     if (previewIsCurrent) {
-      const release =
-        opts?.onOpenImage && cacheKey ? retainManagedImageBlobUrl(cacheKey) : undefined;
-      openResolvedImage(opts?.onOpenImage, previewUrl, title, release, requestVersion);
+      openGallery(previewUrl);
       return;
     }
 
@@ -192,8 +218,7 @@ export function renderMessageImages(images: RenderableImageBlock[], opts?: Image
         if (!freshUrl) {
           return;
         }
-        const release = cacheKey ? retainManagedImageBlobUrl(cacheKey) : undefined;
-        openResolvedImage(opts.onOpenImage, freshUrl, title, release, requestVersion);
+        openGallery(freshUrl);
       })
       .catch(() => {});
   };

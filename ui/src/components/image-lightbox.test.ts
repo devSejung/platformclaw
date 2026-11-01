@@ -2,7 +2,9 @@
 
 import { html, nothing, render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderChatImageLightbox } from "../pages/chat/components/chat-image-lightbox.ts";
 import { getRenderedModalDialog, installDialogPolyfill } from "../test-helpers/modal-dialog.ts";
+import type { ImageLightboxImage } from "./image-lightbox.ts";
 import "./image-lightbox.ts";
 
 let container: HTMLDivElement;
@@ -11,11 +13,12 @@ let createObjectUrl: ReturnType<typeof vi.fn<(object: Blob | MediaSource) => str
 let revokeObjectUrl: ReturnType<typeof vi.fn<(url: string) => void>>;
 let fetchImage: ReturnType<typeof vi.fn>;
 
-async function renderLightbox() {
+async function renderLightbox(gallery: readonly ImageLightboxImage[] = []) {
   render(
     html`<openclaw-image-lightbox
       src="data:image/png;base64,cG5n"
       title="Generated lobster"
+      .gallery=${gallery}
     ></openclaw-image-lightbox>`,
     container,
   );
@@ -140,16 +143,132 @@ describe("openclaw-image-lightbox", () => {
       expect(root?.querySelector<HTMLAnchorElement>(".open-original")).toBeTruthy(),
     );
     const openOriginal = root?.querySelector<HTMLAnchorElement>(".open-original");
-    const closeButton = root?.querySelector<HTMLButtonElement>(".close");
-    closeButton?.focus();
+    const stage = root?.querySelector<HTMLDivElement>(".stage");
+    stage?.focus();
 
-    closeButton?.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    stage?.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
     expect(root?.activeElement).toBe(openOriginal);
 
     openOriginal?.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }),
     );
-    expect(root?.activeElement).toBe(closeButton);
+    expect(root?.activeElement).toBe(stage);
+  });
+
+  it("bounds zoom and resets with controls, wheel, and keyboard", async () => {
+    const { modal } = await renderLightbox();
+    const root = modal.shadowRoot;
+    const zoomIn = root?.querySelector<HTMLButtonElement>(".zoom-in");
+    const zoomOut = root?.querySelector<HTMLButtonElement>(".zoom-out");
+    const stage = root?.querySelector<HTMLDivElement>(".stage");
+    expect(zoomOut?.disabled).toBe(true);
+    zoomIn?.click();
+    await modal.updateComplete;
+    expect(root?.querySelector(".zoom-level")?.textContent?.trim()).toBe("125%");
+    for (let index = 0; index < 20; index += 1) {
+      zoomIn?.click();
+      await modal.updateComplete;
+    }
+    expect(root?.querySelector(".zoom-level")?.textContent?.trim()).toBe("500%");
+    expect(zoomIn?.disabled).toBe(true);
+    stage?.dispatchEvent(new KeyboardEvent("keydown", { key: "0", bubbles: true }));
+    await modal.updateComplete;
+    expect(root?.querySelector(".zoom-level")?.textContent?.trim()).toBe("100%");
+    stage?.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
+    await modal.updateComplete;
+    expect(root?.querySelector(".zoom-level")?.textContent?.trim()).toBe("125%");
+    root?.querySelector<HTMLButtonElement>(".reset-zoom")?.click();
+    await modal.updateComplete;
+    expect(zoomOut?.disabled).toBe(true);
+  });
+
+  it("pans a zoomed image within its viewport and releases the pointer on reset", async () => {
+    const { modal } = await renderLightbox();
+    const root = modal.shadowRoot;
+    const stage = root?.querySelector<HTMLDivElement>(".stage");
+    const image = root?.querySelector<HTMLImageElement>(".image");
+    if (!stage || !image) {
+      throw new Error("missing image viewport");
+    }
+    const setPointerCapture = vi.fn();
+    const releasePointerCapture = vi.fn();
+    stage.style.padding = "0px";
+    Object.defineProperties(stage, {
+      clientWidth: { value: 400 },
+      clientHeight: { value: 300 },
+      setPointerCapture: { value: setPointerCapture },
+      hasPointerCapture: { value: () => true },
+      releasePointerCapture: { value: releasePointerCapture },
+    });
+    Object.defineProperties(image, {
+      clientWidth: { value: 400 },
+      clientHeight: { value: 300 },
+    });
+    stage.dispatchEvent(new Event("dblclick"));
+    await modal.updateComplete;
+    stage.dispatchEvent(
+      new PointerEvent("pointerdown", { pointerId: 7, clientX: 10, clientY: 20, button: 0 }),
+    );
+    stage.dispatchEvent(
+      new PointerEvent("pointermove", { pointerId: 7, clientX: 900, clientY: 900 }),
+    );
+    await modal.updateComplete;
+    expect(setPointerCapture).toHaveBeenCalledWith(7);
+    expect(image.style.transform).toBe("translate(200px, 150px) scale(2)");
+    stage.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    await modal.updateComplete;
+    expect(releasePointerCapture).toHaveBeenCalledWith(7);
+    expect(image.style.transform).toBe("translate(0px, 0px) scale(1)");
+    expect(stage.hasAttribute("data-dragging")).toBe(false);
+  });
+
+  it("navigates a gallery and resets zoom for each selected image", async () => {
+    const { modal } = await renderLightbox([
+      { src: "data:image/png;base64,cG5n", title: "Generated lobster" },
+      { src: "https://example.com/second.png", title: "Second image" },
+    ]);
+    const root = modal.shadowRoot;
+    root?.querySelector<HTMLButtonElement>(".zoom-in")?.click();
+    root?.querySelector<HTMLButtonElement>(".next")?.click();
+    await modal.updateComplete;
+    await modal.updateComplete;
+    expect(root?.querySelector<HTMLImageElement>(".image")?.alt).toBe("Second image");
+    expect(root?.querySelector(".position")?.textContent?.trim()).toBe("2 / 2");
+    expect(root?.querySelector(".zoom-level")?.textContent?.trim()).toBe("100%");
+    expect(root?.querySelector<HTMLAnchorElement>(".open-original")?.href).toBe(
+      "https://example.com/second.png",
+    );
+    expect(root?.querySelector<HTMLButtonElement>(".next")?.disabled).toBe(true);
+    root
+      ?.querySelector(".stage")
+      ?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    await modal.updateComplete;
+    expect(root?.querySelector<HTMLImageElement>(".image")?.alt).toBe("Generated lobster");
+    expect(root?.querySelector<HTMLButtonElement>(".previous")?.disabled).toBe(true);
+  });
+
+  it("preserves zoom when the chat rerenders an unchanged single-image modal", async () => {
+    const item = { src: "https://example.com/image.png", title: "Image" };
+    const close = vi.fn();
+    render(renderChatImageLightbox(item, close), container);
+    const modal = container.querySelector("openclaw-image-lightbox");
+    if (!modal) {
+      throw new Error("missing image lightbox");
+    }
+    await modal.updateComplete;
+    modal.shadowRoot?.querySelector<HTMLButtonElement>(".zoom-in")?.click();
+    await modal.updateComplete;
+    render(renderChatImageLightbox(item, close), container);
+    await modal.updateComplete;
+    expect(modal.shadowRoot?.querySelector(".zoom-level")?.textContent?.trim()).toBe("125%");
+  });
+
+  it("opens the clicked gallery item when multiple images share the same URL", async () => {
+    const { modal } = await renderLightbox([
+      { src: "data:image/png;base64,cG5n", title: "Another image" },
+      { src: "data:image/png;base64,cG5n", title: "Generated lobster" },
+    ]);
+    expect(modal.shadowRoot?.querySelector(".position")?.textContent?.trim()).toBe("2 / 2");
   });
 
   it("emits one close event for the close button and modal cancellation", async () => {

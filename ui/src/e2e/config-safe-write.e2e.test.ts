@@ -76,6 +76,31 @@ async function capture(page: Page, name: string): Promise<void> {
   });
 }
 
+async function readFailureDiagnostic<T>(read: () => Promise<T>) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<{ diagnosticError: string }>((resolve) => {
+    timer = setTimeout(() => resolve({ diagnosticError: "Diagnostic exceeded 1,000ms" }), 1_000);
+  });
+  try {
+    return await Promise.race([
+      // Handle late rejections too: evaluate has no per-call timeout and may
+      // reject only when the original failure closes the browser context.
+      Promise.resolve()
+        .then(read)
+        .then(
+          (value) => ({ value }),
+          (error: unknown) => ({
+            diagnosticError:
+              error instanceof Error ? error.message.slice(0, 512) : "Diagnostic read failed",
+          }),
+        ),
+      deadline,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 describeControlUiE2e("Control UI guarded config writes mocked Gateway E2E", () => {
   beforeAll(async () => {
     if (!chromiumAvailable) {
@@ -100,6 +125,12 @@ describeControlUiE2e("Control UI guarded config writes mocked Gateway E2E", () =
       viewport: { height: 1000, width: 1440 },
     });
     const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => {
+      if (pageErrors.length < 20) {
+        pageErrors.push(error.message.slice(0, 512));
+      }
+    });
     const initialConfig = {
       laboratory: { endpoint: "local-api", retryBudget: 2 },
       tools: { codeMode: { enabled: false } },
@@ -274,6 +305,66 @@ describeControlUiE2e("Control UI guarded config writes mocked Gateway E2E", () =
         .toBe(0);
       await expect.poll(() => rawEditor.inputValue()).toBe(rawDraft);
       await capture(page, "04-apply-complete.png");
+    } catch (error) {
+      const diagnostics = await Promise.all([
+        readFailureDiagnostic(() =>
+          page.evaluate(() => {
+            const endpoint = document.querySelector<HTMLInputElement>(
+              'input[aria-label="Endpoint"]',
+            );
+            return {
+              endpoint: endpoint
+                ? {
+                    value: endpoint.value.slice(0, 512),
+                    disabled: endpoint.disabled,
+                    readOnly: endpoint.readOnly,
+                    valid: endpoint.validity.valid,
+                    validationMessage: endpoint.validationMessage.slice(0, 512),
+                    ariaInvalid: endpoint.getAttribute("aria-invalid"),
+                  }
+                : null,
+              saveIndicator: document
+                .querySelector("openclaw-settings-save-indicator")
+                ?.textContent?.slice(0, 1_024),
+            };
+          }),
+        ),
+        readFailureDiagnostic(() =>
+          gateway.getRequests().then((requests) =>
+            Object.fromEntries(
+              ["config.get", "config.schema", "config.patch", "config.set", "config.apply"].map(
+                (method) => {
+                  const matching = requests.filter((request) => request.method === method);
+                  const params = matching.at(-1)?.params;
+                  const baseHash =
+                    params && typeof params === "object" && "baseHash" in params
+                      ? params.baseHash
+                      : null;
+                  return [
+                    method,
+                    {
+                      count: matching.length,
+                      lastBaseHash: typeof baseHash === "string" ? baseHash.slice(0, 256) : null,
+                    },
+                  ];
+                },
+              ),
+            ),
+          ),
+        ),
+        readFailureDiagnostic(() => capture(page, "00-failure.png")),
+      ]);
+      console.error(
+        "config-safe-write failure diagnostics",
+        JSON.stringify({
+          pageErrors,
+          reads: diagnostics.map((result, index) => ({
+            source: ["document", "configRequests", "screenshot"][index],
+            result,
+          })),
+        }),
+      );
+      throw error;
     } finally {
       await context.close();
     }

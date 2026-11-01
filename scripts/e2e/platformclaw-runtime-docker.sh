@@ -171,6 +171,8 @@ if ! "${compose[@]}" up --detach --wait --wait-timeout 180; then
   exit 1
 fi
 
+source "$repo_root/scripts/e2e/lib/platformclaw-document-preview/scenario.sh"
+
 echo "==> Checking SafeConnect streaming and disconnect cleanup"
 MSYS_NO_PATHCONV=1 "${compose[@]}" exec -T fake-safeconnect python /fixture/test_server.py
 

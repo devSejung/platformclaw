@@ -104,6 +104,14 @@ const AMBIGUOUS_VIDEO_MIME_BY_AUDIO_MIME: Readonly<Record<string, string>> = {
   "audio/webm": "video/webm",
 };
 
+// file-type identifies legacy Office documents as their shared CFB container.
+// Only known CFB-backed types may refine it; ZIP Office formats are incompatible.
+const CFB_CONTAINER_MIMES = new Set([
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+]);
+
 // file-type can return generic ZIP when package metadata is outside its sniff window.
 // Only ZIP-backed MIME families may refine that result; arbitrary headers cannot.
 const ZIP_CONTAINER_MIMES = new Set([
@@ -238,22 +246,21 @@ export async function detectMime(opts: {
     .filter((mime): mime is string => Boolean(mime));
   const headerMime = mimeHints[0];
   const sniffed = await sniffMime(opts.buffer);
-  const sniffedGenericContainer =
-    sniffed === "application/octet-stream" || sniffed === "application/zip";
 
   // Prefer sniffed types, but don't let generic container types override a more
   // specific extension or known container metadata (e.g. XLSX vs ZIP).
   const specificExtMime =
     extMime && extMime !== sniffed && !extMime.startsWith("image/") ? extMime : undefined;
-  const genericContainerMime =
-    sniffed === "application/zip"
-      ? [extMime, ...mimeHints].find((mime) => mime && isZipContainerMime(mime))
-      : sniffed === "application/octet-stream"
-        ? (specificExtMime ?? mimeHints.find((mime) => mime !== "application/octet-stream"))
-        : undefined;
-  const inferred = sniffedGenericContainer
-    ? (genericContainerMime ?? sniffed)
-    : (sniffed ?? extMime);
+  let inferred = sniffed ?? extMime;
+  if (sniffed === "application/zip") {
+    inferred = [extMime, ...mimeHints].find((mime) => mime && isZipContainerMime(mime)) ?? sniffed;
+  } else if (sniffed === "application/x-cfb") {
+    inferred =
+      [extMime, ...mimeHints].find((mime) => mime && CFB_CONTAINER_MIMES.has(mime)) ?? sniffed;
+  } else if (sniffed === "application/octet-stream") {
+    inferred =
+      specificExtMime ?? mimeHints.find((mime) => mime !== "application/octet-stream") ?? sniffed;
+  }
   // file-type defaults these containers to video without parsing their tracks.
   // Preserve a concrete audio hint only for those documented ambiguous results.
   const audioContainerHint =

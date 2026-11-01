@@ -5529,6 +5529,13 @@ export const en: TranslationMap = {
       openOriginal: "Open original",
       close: "Close image preview",
       untitled: "Image",
+      zoomIn: "Zoom in",
+      zoomOut: "Zoom out",
+      resetZoom: "Fit image",
+      previous: "Previous image",
+      next: "Next image",
+      position: "Image {current} of {total}",
+      zoomLevel: "Zoom: {percent}%",
     },
     messages: {
       activity: "Activity",
@@ -5862,6 +5869,14 @@ export const en: TranslationMap = {
     attachments: {
       attachedFile: "Attached file",
       previewHtml: "Preview HTML",
+      previewDocument: "Preview",
+      documentPreviewTooLarge: "Preview is limited to 16 MiB. Download the original file instead.",
+      documentPreviewUnavailable:
+        "Preview could not load. Close and reopen it after reconnecting, or download the original file.",
+      powerPointPreviewUnavailable:
+        "PowerPoint preview is unavailable. Ask an administrator to check the rootless Docker service and LibreOffice Impress in the sandbox image, or try again if another preview is running. You can still download the original file.",
+      powerPointStaticPreview:
+        "Static slide preview. Animations, video, external resources, and unavailable fonts may differ from PowerPoint.",
       closeHtmlPreview: "Close preview",
       htmlPreviewUnavailable:
         "HTML preview could not load. Reconnect and reopen the preview, or download the original file.",

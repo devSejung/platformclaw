@@ -582,6 +582,11 @@ img.chat-avatar {
   box-shadow: none;
 }
 
+/* Document readers need the message column, even when the filename is short. */
+.chat-group.assistant .chat-bubble:has(openclaw-chat-document-attachment) {
+  width: 100%;
+}
+
 /* Keep the working claw on the same left edge as the flat text column. */
 .chat-group.assistant .chat-bubble.chat-reading-indicator {
   padding: 10px 0;

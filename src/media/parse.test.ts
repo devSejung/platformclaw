@@ -88,6 +88,12 @@ describe("splitMediaFromOutput", () => {
       String.raw`MEDIA:/path/to/image.png\"}],\"details\":{\"provider\":\"openai\"}`,
     ],
     ["/tmp/render,final.png", "MEDIA:/tmp/render,final.png"],
+    ["/appdata/reports/preview-test.html", "MEDIA:</appdata/reports/preview-test.html>"],
+    ["/appdata/reports/report.pdf", "MEDIA:</appdata/reports/report.pdf>"],
+    ["/appdata/reports/slides.pptx", "MEDIA:</appdata/reports/slides.pptx>"],
+    ["/appdata/images/chart.png", "MEDIA:</appdata/images/chart.png>"],
+    ["/appdata/My  Reports/report final.pdf", "MEDIA:</appdata/My  Reports/report final.pdf>"],
+    ["/appdata/images/chart<final>.png", "MEDIA:/appdata/images/chart<final>.png"],
     ["/tmp/generated.png", "MEDIA:FILE:///tmp/generated.png"],
     ["/tmp/generated.png", "MEDIA:file:///tmp/generated.png"],
     ["/Users/pete/My File.png", "MEDIA:FILE:///Users/pete/My File.png"],
@@ -121,6 +127,11 @@ describe("splitMediaFromOutput", () => {
     ["explicit relative sibling", "MEDIA:./image.png", ["./image.png"]],
     ["absolute sibling", "MEDIA:/tmp/image.png", ["/tmp/image.png"]],
     [
+      "independent angle-wrapped directives",
+      "MEDIA:</appdata/report.pdf>\nMEDIA:</appdata/slides.pptx>",
+      ["/appdata/report.pdf", "/appdata/slides.pptx"],
+    ],
+    [
       "multiple paths on one directive",
       "MEDIA:/tmp/image.png /tmp/voice.ogg",
       ["/tmp/image.png", "/tmp/voice.ogg"],
@@ -139,6 +150,7 @@ describe("splitMediaFromOutput", () => {
 
   it.each([
     ["MEDIA:/tmp/a.png /tmp/b.png", ["/tmp/a.png", "/tmp/b.png"]],
+    ["MEDIA:</tmp/report.pdf> </tmp/slides.pptx>", ["/tmp/report.pdf", "/tmp/slides.pptx"]],
     ["MEDIA:media/a.png media/b.png", ["media/a.png", "media/b.png"]],
     ["MEDIA:/tmp/a.png media/b.png", ["/tmp/a.png", "media/b.png"]],
     ["MEDIA:./a.png ./b.png", ["./a.png", "./b.png"]],
@@ -173,6 +185,8 @@ describe("splitMediaFromOutput", () => {
     "MEDIA:./foo/../../../etc/shadow",
     "MEDIA:C:\\Users\\First Last\\..\\secret.png",
     "MEDIA:/tmp/project screenshots/../../.env",
+    "MEDIA:</appdata/reports/../../.env>",
+    "MEDIA:<../private/report.pdf>",
   ] as const)("rejects traversal and unsupported home-dir path: %s", (input) => {
     expectRejectedMediaPathCase(input);
   });
@@ -201,6 +215,8 @@ describe("splitMediaFromOutput", () => {
     "MEDIA:https://metadata.google.internal../a.png",
     "MEDIA:https://example..com/a.png",
     "MEDIA:https://media.local/a.png",
+    "MEDIA:<https://127.0.0.1/report.pdf>",
+    "MEDIA:<https://metadata.google.internal/slides.pptx>",
   ] as const)("rejects unsafe remote media URL: %s", (input) => {
     expectRejectedRemoteMediaUrlCase(input);
   });

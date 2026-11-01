@@ -32,6 +32,7 @@ RUN --mount=type=secret,id=platformclaw_apt_sources \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       bash build-essential ca-certificates curl git jq less libssl-dev locales \
+      libreoffice-impress fonts-liberation fonts-noto-cjk \
       make pkg-config python-is-python3 python3 python3-pip python3-venv ripgrep unzip vim xz-utils zip; \
     locale-gen ko_KR.UTF-8; \
     ln -snf /usr/share/zoneinfo/Asia/Seoul /etc/localtime; \

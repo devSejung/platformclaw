@@ -45,8 +45,11 @@ const TRAILING_SERIALIZED_JSON_AFTER_EXT_RE = /^(.*\.\w{1,10})\\?"(?=[\]},:]|$).
 
 function cleanCandidate(raw: string) {
   const stripped = raw.replace(/^[`"'[{(]+/, "").replace(/[`"'\\})\],]+$/, "");
-  const jsonSuffixMatch = TRAILING_SERIALIZED_JSON_AFTER_EXT_RE.exec(stripped);
-  return jsonSuffixMatch?.[1] ?? stripped;
+  // Models can wrap an entire MEDIA source like a Markdown destination. Unwrap
+  // one complete pair only; angle brackets inside filenames remain literal.
+  const source = /^<([^<>]+)>$/.exec(stripped)?.[1] ?? stripped;
+  const jsonSuffixMatch = TRAILING_SERIALIZED_JSON_AFTER_EXT_RE.exec(source);
+  return jsonSuffixMatch?.[1] ?? source;
 }
 
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
@@ -610,8 +613,8 @@ export function splitMediaFromOutput(
 
       const payload = expectDefined(match[1], "parse regex capture 1");
       const unwrapped = unwrapQuoted(payload);
-      const payloadValue = unwrapped ?? payload;
-      const parts = unwrapped ? [unwrapped] : splitUnquotedMediaDirectiveParts(payload);
+      const payloadValue = unwrapped ?? cleanCandidate(payload);
+      const parts = unwrapped ? [unwrapped] : splitUnquotedMediaDirectiveParts(payloadValue);
       const mediaStartIndex = media.length;
       let validCount = 0;
       const invalidParts: string[] = [];

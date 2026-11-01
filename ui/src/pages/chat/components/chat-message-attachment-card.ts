@@ -1,8 +1,39 @@
 import { html } from "lit";
 import { icons } from "../../../components/icons.ts";
 import { safeAttachmentHref } from "./chat-attachment-href.ts";
+import { documentPreviewKind } from "./chat-document-attachment.ts";
+import { isHtmlAttachment } from "./chat-html-attachment.ts";
+import { isManagedOutgoingMediaSource } from "./chat-message-attachment-availability.ts";
+import type { AttachmentItem, ImageRenderOptions } from "./chat-message-media.ts";
 
-export function renderAssistantAttachmentCard(params: { url: string; label: string }) {
+export function renderAssistantDocumentAttachment(params: {
+  url: string;
+  attachment: AttachmentItem["attachment"];
+  sizeBytes?: number;
+  options?: ImageRenderOptions;
+}) {
+  const { attachment, options } = params;
+  if (isManagedOutgoingMediaSource(attachment.url)) {
+    if (isHtmlAttachment(attachment.mimeType, attachment.label)) {
+      return html`<openclaw-chat-html-attachment
+        .src=${params.url}
+        .sourceIdentity=${attachment.url}
+        .label=${attachment.label}
+        .embedSandboxMode=${options?.embedSandboxMode ?? "scripts"}
+        .onMediaLoaded=${options?.onAssistantAttachmentLoaded}
+      ></openclaw-chat-html-attachment>`;
+    }
+    if (documentPreviewKind(attachment.mimeType, attachment.label)) {
+      return html`<openclaw-chat-document-attachment
+        .src=${params.url}
+        .sourceIdentity=${attachment.url}
+        .label=${attachment.label}
+        .mimeType=${attachment.mimeType ?? ""}
+        .sizeBytes=${params.sizeBytes}
+        .onMediaLoaded=${options?.onAssistantAttachmentLoaded}
+      ></openclaw-chat-document-attachment>`;
+    }
+  }
   const downloadHref = safeAttachmentHref(params.url);
   return html`
     <div class="chat-assistant-attachment-card">
@@ -13,9 +44,9 @@ export function renderAssistantAttachmentCard(params: { url: string; label: stri
             href=${downloadHref}
             target="_blank"
             rel="noreferrer"
-            >${params.label}</a
+            >${attachment.label}</a
           >`
-        : html`<span class="chat-assistant-attachment-card__title">${params.label}</span>`}
+        : html`<span class="chat-assistant-attachment-card__title">${attachment.label}</span>`}
     </div>
   `;
 }

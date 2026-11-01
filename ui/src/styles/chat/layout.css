@@ -1215,6 +1215,20 @@ openclaw-chat-html-attachment {
   display: block;
 }
 
+openclaw-chat-document-attachment {
+  display: block;
+  width: 100%;
+}
+
+.chat-document-attachment__frame {
+  display: block;
+  width: 100%;
+  height: min(70vh, 720px);
+  min-height: 320px;
+  border: 0;
+  border-radius: 8px;
+}
+
 .chat-assistant-attachment-card {
   display: flex;
   align-items: center;
@@ -1223,6 +1237,11 @@ openclaw-chat-html-attachment {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--card) 82%, var(--bg));
+}
+
+.chat-document-attachment {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .chat-assistant-attachment-card--audio,

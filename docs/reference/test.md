@@ -99,7 +99,7 @@ Test wrapper runs end with a short `[test] passed|failed|skipped ... in ...` sum
 
 ## Control UI, TUI, and extension lanes
 
-- **Control UI mocked E2E:** `pnpm test:ui:e2e` runs the Vitest + Playwright lane that starts the Vite Control UI and drives a real Chromium page against a mocked Gateway WebSocket. Tests live in `ui/src/**/*.e2e.test.ts`; shared mocks/controls live in `ui/src/test-helpers/control-ui-e2e.ts`. `pnpm test:e2e` includes this lane. Agent runs default to Testbox/Crabbox, including targeted proof; use `node scripts/run-vitest.mjs run --config test/vitest/vitest.ui-e2e.config.ts --configLoader runner ui/src/ui/e2e/chat-flow.e2e.test.ts` only for an explicit local fallback.
+- **Control UI mocked E2E:** `pnpm test:ui:e2e` runs the Vitest + Playwright lane that starts the Vite Control UI and drives a real Chromium page against a mocked Gateway WebSocket. Tests live in `ui/src/**/*.e2e.test.ts`; shared mocks/controls live in `ui/src/test-helpers/control-ui-e2e.ts`. `pnpm test:e2e` includes this lane. Agents select the execution environment through the repository's root Validation policy. For focused proof in the selected Linux checkout, use `node scripts/run-vitest.mjs run --config test/vitest/vitest.ui-e2e.config.ts --configLoader runner ui/src/e2e/chat-flow.messaging.e2e.test.ts`.
 - **TUI PTY tests:** `node scripts/run-vitest.mjs run --config test/vitest/vitest.tui-pty.config.ts` runs the fast fake-backend PTY lane. `OPENCLAW_TUI_PTY_INCLUDE_LOCAL=1` or `pnpm tui:pty:test:watch --mode local` runs the slower `tui --local` smoke, which mocks only the external model endpoint. CI also sets `OPENCLAW_TUI_PTY_USE_BUILT_CLI=1` after building `dist/`; use that flag only when exact-head built artifacts already exist. Assert stable visible text or fixture calls, not raw ANSI snapshots.
 - `pnpm test:extensions` and `pnpm test extensions` run all extension/plugin shards. Heavy channel plugins, the browser plugin, and OpenAI run as dedicated shards; other plugin groups stay batched. `pnpm test extensions/<id>` runs one bundled plugin lane.
 - Source files with sibling tests map to that sibling before falling back to wider directory globs. Helper edits under `src/channels/plugins/contracts/test-helpers`, `src/plugin-sdk/test-helpers`, and `src/plugins/contracts` use a local import graph to run importing tests instead of broad-running every shard when the dependency path is precise.
@@ -108,6 +108,68 @@ Test wrapper runs end with a short `[test] passed|failed|skipped ... in ...` sum
 - Selected `plugin-sdk` and `commands` test files route through dedicated light lanes that keep only `test/setup.ts`, leaving runtime-heavy cases on their existing lanes.
 - Base Vitest config defaults to `pool: "threads"` and `isolate: false`, with the shared non-isolated runner enabled across repo configs.
 - `pnpm test:channels` runs `vitest.channels.config.ts`.
+
+### Managed attachment browser proof
+
+`ui/src/e2e/platformclaw-document-preview.e2e.test.ts` covers image and PDF
+previews through the managed snapshot and BFF with mapped Basic and assigned-VM
+filesystem bridges. It runs in the regular Control UI lane without Docker.
+
+`test/e2e/platformclaw/presentation-preview.docker.e2e.test.ts` is an explicit
+Linux proof with actual Docker and SSH execution backends, image and PDF
+previews, and real PPTX-to-PDF conversion. It is outside the default UI glob.
+Both suites check source deletion, conversation reload, original downloads, and
+cross-user denial. The explicit suite also verifies execution-target revocation.
+These SSH fixture checks do not replace the packaged SafeConnect authentication
+and lease scenarios in the existing runtime Docker smoke.
+
+Before running the explicit suite, prepare Linux dependencies and Chromium,
+`ssh` and `sshpass`, and a task-owned rootless Docker daemon. Point `DOCKER_HOST`
+at that daemon; `docker info --format '{{json .SecurityOptions}}'` must include
+`name=rootless`. Build the candidate's canonical Jammy sandbox image with
+`Dockerfile.sandbox.jammy`, or load that exact candidate image from the normal
+PlatformClaw build. Tag it `platformclaw-document-preview:sandbox` in this daemon.
+The image must contain LibreOffice Impress; conversion is never mocked.
+
+Build and start the existing synthetic SSH fixture in the same task daemon:
+
+```bash
+mkdir -p .artifacts/document-preview-fixture
+docker build -f scripts/e2e/lib/platformclaw-fake-safeconnect/Dockerfile \
+  -t platformclaw-document-preview:ssh-fixture .
+docker run -d --name document-preview-ssh-proof \
+  -p 127.0.0.1:44422:44422 platformclaw-document-preview:ssh-fixture
+docker cp document-preview-ssh-proof:/state/host-key.json \
+  .artifacts/document-preview-fixture/host-key.json
+```
+
+Use a free loopback port. Wait until the fixture creates `host-key.json` before
+copying it. Create `.artifacts/document-preview-fixture/connection.json` with
+`host`, `port`, `publicKey`, and `password`. For a Linux host running the daemon,
+use `127.0.0.1`, the published port, the host metadata's `algorithm` and
+`publicKey` joined with one space, and the first allocation's synthetic password
+from `scripts/e2e/lib/platformclaw-fake-safeconnect/allocations.json`. In nested
+Docker validation, use the task sidecar's reachable hostname and published port.
+The connection file is local test state and must not be committed.
+
+```bash
+printf '%s\n' '["test/e2e/platformclaw/presentation-preview.docker.e2e.test.ts"]' \
+  > .artifacts/document-preview-fixture/include.json
+node scripts/ensure-playwright-chromium.mjs
+OPENCLAW_CAPTURE_UI_PROOF=1 \
+OPENCLAW_VITEST_INCLUDE_FILE=.artifacts/document-preview-fixture/include.json \
+  node scripts/run-vitest.mjs run \
+  --config test/vitest/vitest.ui-e2e.config.ts --configLoader runner
+```
+
+Inspect screenshots and videos under
+`.artifacts/control-ui-e2e/platformclaw-canvas/document-previews/`: `mapped-bridges/`
+contains the normal suite and `docker-ssh/` contains the actual execution proof.
+PDF readiness
+requires the full Chromium native reader to load real pages; a Blob URL or visible
+iframe alone is insufficient. After proof, remove only the SSH fixture and other
+resources created for that task. The test cleans up its execution backends and
+the converter cleans up each conversion container.
 
 ## Gateway and E2E
 

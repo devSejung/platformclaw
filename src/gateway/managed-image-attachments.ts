@@ -76,6 +76,10 @@ import {
   resolveManagedImageOriginalPath,
   type ManagedImageRecord,
 } from "./managed-image-record-store.js";
+import {
+  isManagedPresentationContentType,
+  serveManagedPresentationPreview,
+} from "./managed-presentation-preview.js";
 import { authorizeOperatorScopesForMethod } from "./method-scopes.js";
 import { readSessionMessagesWithSourceAsync } from "./session-transcript-readers.js";
 import {
@@ -1740,42 +1744,55 @@ export async function handleManagedOutgoingMediaHttpRequest(
     return true;
   }
   if (requestUrl.searchParams.get("preview") === "1") {
-    await serveManagedHtmlPreview({
-      response: res,
-      method: req.method,
-      url: requestUrl,
-      file: opened,
-      contentType: record.original.contentType ?? "application/octet-stream",
-      isEnabled: () => isCoreCanvasHostEnabled(getRuntimeConfig()),
-      isStrict: () => getRuntimeConfig().gateway?.controlUi?.embedSandbox === "strict",
-      revalidate: async () => {
-        const current = readManagedImageRecord(attachmentId, opts.stateDir);
-        const matches =
-          current &&
-          isDeepStrictEqual(current, record) &&
-          (await recordMatchesTranscriptMessage(
-            current,
-            undefined,
-            undefined,
-            undefined,
-            opts.stateDir,
-          )) === "match";
-        if (
-          !matches ||
-          !isDeepStrictEqual(readManagedImageRecord(attachmentId, opts.stateDir), record) ||
-          (hasValidMediaTicket &&
-            !verifyManagedOutgoingImageTicket({
-              ticket: requestUrl.searchParams.get("mediaTicket"),
-              sessionKey,
-              attachmentId,
-            }))
-        ) {
-          sendStatus(res, 404, "not found");
-          return false;
-        }
-        return true;
-      },
-    });
+    const revalidate = async () => {
+      const current = readManagedImageRecord(attachmentId, opts.stateDir);
+      const matches =
+        current &&
+        isDeepStrictEqual(current, record) &&
+        (await recordMatchesTranscriptMessage(
+          current,
+          undefined,
+          undefined,
+          undefined,
+          opts.stateDir,
+        )) === "match";
+      if (
+        !matches ||
+        !isDeepStrictEqual(readManagedImageRecord(attachmentId, opts.stateDir), record) ||
+        (hasValidMediaTicket &&
+          !verifyManagedOutgoingImageTicket({
+            ticket: requestUrl.searchParams.get("mediaTicket"),
+            sessionKey,
+            attachmentId,
+          }))
+      ) {
+        sendStatus(res, 404, "not found");
+        return false;
+      }
+      return true;
+    };
+    const contentType = record.original.contentType ?? "application/octet-stream";
+    if (isManagedPresentationContentType(contentType)) {
+      await serveManagedPresentationPreview({
+        response: res,
+        method: req.method,
+        file: opened,
+        contentType,
+        getConfig: getRuntimeConfig,
+        revalidate,
+      });
+    } else {
+      await serveManagedHtmlPreview({
+        response: res,
+        method: req.method,
+        url: requestUrl,
+        file: opened,
+        contentType,
+        isEnabled: () => isCoreCanvasHostEnabled(getRuntimeConfig()),
+        isStrict: () => getRuntimeConfig().gateway?.controlUi?.embedSandbox === "strict",
+        revalidate,
+      });
+    }
     return true;
   }
   const respondNotFound = () => sendStatus(res, 404, "not found");
