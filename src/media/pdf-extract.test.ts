@@ -40,6 +40,28 @@ describe("extractPdfContent", () => {
     });
   });
 
+  it("preserves forced rendering and original page provenance", async () => {
+    const images = [{ type: "image", data: "cG5n", mimeType: "image/png", pageNumber: 97 }];
+    extractDocumentContentMock.mockResolvedValue({ text: "diagram", images, extractor: "pdf" });
+
+    await expect(
+      extractPdfContent({
+        buffer: Buffer.from("pdf"),
+        maxPages: 2,
+        maxPixels: 100,
+        minTextChars: 200,
+        pageNumbers: [97],
+        renderImages: true,
+      }),
+    ).resolves.toEqual({ text: "diagram", images });
+    expect(extractDocumentContentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pageNumbers: [97],
+        renderImages: true,
+      }),
+    );
+  });
+
   it("passes PDF passwords through to document extractors", async () => {
     extractDocumentContentMock.mockResolvedValue({
       text: "encrypted pdf",

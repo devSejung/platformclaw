@@ -31,6 +31,7 @@ function toDocumentImage(image: PdfImage): DocumentExtractedImage {
     type: "image",
     data: Buffer.from(image.bytes).toString("base64"),
     mimeType: image.mimeType,
+    pageNumber: image.page,
   };
 }
 
@@ -65,11 +66,23 @@ async function extractPdfContent(
     ...(request.password ? { password: request.password } : {}),
   });
   try {
-    const pages = request.pageNumbers
-      ? request.pageNumbers
+    const requestedPages = request.pageNumbers ? [...new Set(request.pageNumbers)] : undefined;
+    const pages = requestedPages
+      ? requestedPages
           .filter((p) => Number.isInteger(p) && p >= 1 && p <= pdf.pageCount)
           .slice(0, request.maxPages)
       : undefined;
+    // Explicit inspection must account for the whole selection, including late
+    // pages. Filtering or truncating it would hide missing visual evidence.
+    if (
+      request.renderImages &&
+      requestedPages &&
+      (!pages?.length || pages.length !== requestedPages.length)
+    ) {
+      throw new Error(
+        `Requested PDF pages must exist in this ${pdf.pageCount}-page document and fit the ${request.maxPages}-page limit.`,
+      );
+    }
     if (request.pageNumbers?.length && pages?.length === 0) {
       throw new Error(`No requested PDF pages exist in this ${pdf.pageCount}-page document.`);
     }
@@ -82,7 +95,7 @@ async function extractPdfContent(
     });
     const text = textResult.text;
 
-    if (text.trim().length >= request.minTextChars) {
+    if (!request.renderImages && text.trim().length >= request.minTextChars) {
       return { text, images: [] };
     }
 
@@ -116,9 +129,26 @@ async function extractPdfContent(
           remainingPixels -= image.width * image.height;
         }
       }
+      if (
+        request.renderImages &&
+        (images.length !== imagePages.length ||
+          imagePages.some(
+            (page) => !images.some((image) => image.pageNumber === page && image.data.length > 0),
+          ))
+      ) {
+        throw new Error(
+          "PDF page images are incomplete. Retry with fewer pages or check the PDF renderer.",
+        );
+      }
       return { text, images };
     } catch (err) {
       request.onImageExtractionError?.(err);
+      if (request.renderImages) {
+        throw new Error(
+          "PDF page image rendering failed. Retry with fewer pages or check the PDF renderer.",
+          { cause: err },
+        );
+      }
       if (!text.trim()) {
         throw new Error("PDF image extraction failed with no extractable text.", { cause: err });
       }

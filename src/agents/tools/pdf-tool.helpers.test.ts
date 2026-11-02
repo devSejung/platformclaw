@@ -105,6 +105,20 @@ describe("parsePageRange", () => {
   it("handles empty parts gracefully", () => {
     expect(parsePageRange("1,,3", 20)).toEqual([1, 3]);
   });
+
+  it("counts distinct selected pages without clamping source numbers in visual mode", () => {
+    expect(parsePageRange("98,97-98,97", 2, "count")).toEqual([97, 98]);
+    expect(parsePageRange(String(Number.MAX_SAFE_INTEGER), 1, "count")).toEqual([
+      Number.MAX_SAFE_INTEGER,
+    ]);
+  });
+
+  it.each(["1-5", "97-101", "1-9007199254740991"])(
+    "rejects an oversized selection %s without expanding the full range",
+    (range) => {
+      expect(() => parsePageRange(range, 4, "count")).toThrow("maximum is 4 distinct pages");
+    },
+  );
 });
 
 describe("providerSupportsNativePdf", () => {

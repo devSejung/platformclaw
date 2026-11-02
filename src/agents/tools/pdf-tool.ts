@@ -68,6 +68,7 @@ const DEFAULT_PROMPT = "Analyze this PDF document.";
 const DEFAULT_MAX_PDFS = 10;
 const DEFAULT_MAX_BYTES_MB = 10;
 const DEFAULT_MAX_PAGES = 20;
+const MAX_VISUAL_PAGES = 4;
 
 const PDF_MIN_TEXT_CHARS = 200;
 const PDF_MAX_PIXELS = 4_000_000;
@@ -83,6 +84,12 @@ const PdfToolSchema = Type.Object({
   pages: Type.Optional(
     Type.String({
       description: 'Pages, e.g. "1-5", "1,3,5-7"; default all.',
+    }),
+  ),
+  visual: Type.Optional(
+    Type.Boolean({
+      description:
+        "Inspect original page images, even with sufficient text. Requires pages; max 4 distinct pages per PDF and an image-capable model.",
     }),
   ),
   password: Type.Optional(Type.String({ description: "Password for encrypted PDFs." })),
@@ -120,6 +127,9 @@ function buildPdfExtractionContext(
       content.push({ type: "text", text: label + extraction.text });
     }
     for (const img of extraction.images) {
+      if (img.pageNumber !== undefined) {
+        content.push({ type: "text", text: `[PDF ${i + 1} page ${img.pageNumber}]` });
+      }
       content.push({ type: "image", data: img.data, mimeType: img.mimeType });
     }
   }
@@ -157,6 +167,7 @@ async function runPdfPrompt(params: {
   pdfBuffers: Array<{ base64: string; filename: string }>;
   password?: string;
   pageNumbers?: number[];
+  visual: boolean;
   getExtractions: () => Promise<PdfExtractedContent[]>;
   signal?: AbortSignal;
 }): Promise<{
@@ -240,7 +251,13 @@ async function runPdfPrompt(params: {
           authStorage,
         });
 
-        if (providerSupportsNativePdf(provider)) {
+        if (params.visual && !model.input?.includes("image")) {
+          throw new Error(
+            `Model ${provider}/${modelId} does not support images. Visual PDF inspection requires an image-capable model.`,
+          );
+        }
+
+        if (!params.visual && providerSupportsNativePdf(provider)) {
           if (params.password) {
             throw new Error(
               `password is not supported with native PDF providers (${provider}/${modelId}). Remove password, or use a non-native model for encrypted PDFs.`,
@@ -422,7 +439,7 @@ export function createPdfTool(options?: {
       : DEFAULT_MAX_PAGES;
 
   const description =
-    'Analyze PDF(s): Anthropic/Google native when supported, else text/image extraction. pdf one; pdfs max 10; prompt says inspection. `pages` selects a page range ("1-5", "1,3,5-7"); `password` opens encrypted PDFs (both non-native only).';
+    "Analyze PDF(s): Anthropic/Google native when supported, else text/image extraction. pdf one; pdfs max 10. For diagrams or visual relationships, set `visual: true` and explicit `pages` (max 4 distinct pages per PDF; image-capable model required). Visual mode renders selected original pages on any provider. Otherwise `pages` and `password` are non-native only.";
   const remoteMediaSsrfPolicy = resolveRemoteMediaSsrfPolicy(options?.config);
 
   return {
@@ -463,7 +480,18 @@ export function createPdfTool(options?: {
 
       // Parse page range
       const pagesRaw = normalizeOptionalString(record.pages);
-      const pageNumbers = pagesRaw ? parsePageRange(pagesRaw, configuredMaxPages) : undefined;
+      const visual = record.visual === true;
+      if (visual && !pagesRaw) {
+        throw new ToolInputError(
+          'Visual PDF inspection requires explicit pages, e.g. pages: "97-98".',
+        );
+      }
+      const maxSelectedPages = visual
+        ? Math.min(MAX_VISUAL_PAGES, configuredMaxPages)
+        : configuredMaxPages;
+      const pageNumbers = pagesRaw
+        ? parsePageRange(pagesRaw, maxSelectedPages, visual ? "count" : "page-number")
+        : undefined;
       const password = typeof record.password === "string" ? record.password : undefined;
 
       const pdfModelConfig =
@@ -604,8 +632,26 @@ export function createPdfTool(options?: {
             minTextChars: PDF_MIN_TEXT_CHARS,
             ...(password ? { password } : {}),
             pageNumbers,
+            ...(visual ? { renderImages: true } : {}),
             config: options?.config,
           });
+          // Extractors may ignore optional SDK fields. Require page provenance
+          // and full coverage before a visual request can reach any model.
+          if (
+            visual &&
+            pageNumbers &&
+            (extracted.images.length !== pageNumbers.length ||
+              pageNumbers.some(
+                (page) =>
+                  !extracted.images.some(
+                    (image) => image.pageNumber === page && image.data.trim().length > 0,
+                  ),
+              ))
+          ) {
+            throw new Error(
+              "Visual PDF inspection requires an image for every requested page. Check the document extractor or select fewer pages.",
+            );
+          }
           extractedAll.push(extracted);
         }
         return extractedAll;
@@ -628,6 +674,7 @@ export function createPdfTool(options?: {
         pdfBuffers: loadedPdfs.map((p) => ({ base64: p.base64, filename: p.filename })),
         ...(password ? { password } : {}),
         pageNumbers,
+        visual,
         getExtractions,
       });
 
@@ -646,7 +693,11 @@ export function createPdfTool(options?: {
             ),
           };
 
-      return buildTextToolResult(result, { native: result.native, ...pdfDetails });
+      return buildTextToolResult(result, {
+        native: result.native,
+        ...(visual ? { visual: true, pages: pageNumbers } : {}),
+        ...pdfDetails,
+      });
     },
   };
 }

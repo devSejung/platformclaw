@@ -29,6 +29,7 @@ export async function extractDocumentContent(
     minTextChars: params.minTextChars,
     ...(params.password ? { password: params.password } : {}),
     ...(params.pageNumbers ? { pageNumbers: params.pageNumbers } : {}),
+    ...(params.renderImages ? { renderImages: true } : {}),
     ...(params.onImageExtractionError
       ? { onImageExtractionError: params.onImageExtractionError }
       : {}),

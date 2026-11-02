@@ -51,7 +51,6 @@ const ANTHROPIC_PDF_MODEL = "anthropic/claude-opus-4-6";
 const GOOGLE_PDF_MODEL = "google/gemini-2.5-pro";
 const OPENAI_PDF_MODEL = "openai/gpt-5.4-mini";
 const CODEX_PDF_MODEL = "openai/gpt-5.4";
-
 function requirePdfTool(
   tool: Awaited<ReturnType<typeof loadCreatePdfTool>> extends (...args: any[]) => infer R
     ? R
@@ -982,6 +981,7 @@ describe("createPdfTool", () => {
       expect(schema.properties).toHaveProperty("pdf");
       expect(schema.properties).toHaveProperty("pdfs");
       expect(schema.properties).toHaveProperty("pages");
+      expect(schema.properties?.visual).toMatchObject({ type: "boolean" });
       expect(schema.properties).toHaveProperty("password");
       expect(schema.properties).toHaveProperty("model");
       expect(schema.properties).toHaveProperty("maxBytesMb");

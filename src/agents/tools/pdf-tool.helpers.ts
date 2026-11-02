@@ -55,8 +55,22 @@ function readPageNumber(value: string, errorLabel: string): number {
   return parsed;
 }
 
-export function parsePageRange(range: string, maxPages: number): number[] {
+export function parsePageRange(
+  range: string,
+  maxPages: number,
+  limitMode: "page-number" | "count" = "page-number",
+): number[] {
   const pages = new Set<number>();
+  const addPage = (page: number) => {
+    if (limitMode === "count" || page <= maxPages) {
+      pages.add(page);
+    }
+    if (limitMode === "count" && pages.size > maxPages) {
+      throw new Error(
+        `Too many PDF pages selected: maximum is ${maxPages} distinct pages. Use a smaller selection.`,
+      );
+    }
+  };
   const parts = range.split(",").map((p) => p.trim());
   for (const part of parts) {
     if (!part) {
@@ -69,17 +83,18 @@ export function parsePageRange(range: string, maxPages: number): number[] {
       if (end < start) {
         throw new Error(`Invalid page range: "${part}"`);
       }
-      for (let i = start; i <= Math.min(end, maxPages); i++) {
-        pages.add(i);
+      // Normal mode preserves the documented clamp shipped in
+      // platformclaw-vm-preview-20260726; visual mode limits selected page count.
+      const last = limitMode === "count" ? end : Math.min(end, maxPages);
+      for (let i = start; i <= last; i++) {
+        addPage(i);
       }
     } else {
       if (!/^\d+$/.test(part)) {
         throw new Error(`Invalid page number: "${part}"`);
       }
       const num = readPageNumber(part, "Invalid page number");
-      if (num <= maxPages) {
-        pages.add(num);
-      }
+      addPage(num);
     }
   }
   const parsedPages = Array.from(pages).toSorted((a, b) => a - b);
