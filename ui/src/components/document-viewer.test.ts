@@ -378,6 +378,21 @@ describe("document viewer contents lifecycle", () => {
     expect(runtime.renderPdfPage).toHaveBeenCalledTimes(2);
   });
 
+  it("renders an inline page from its available width before it has a content height", async () => {
+    const loading = createHandle();
+    runtime.openPdfDocument.mockReturnValueOnce(loading.handle);
+    const { viewer, failed } = await mount();
+    const stage = viewer.shadowRoot?.querySelector<HTMLElement>(".stage");
+    if (!stage) {
+      throw new Error("Missing inline page stage");
+    }
+    Object.defineProperty(stage, "clientHeight", { configurable: true, value: 0 });
+    loading.loading.resolve(createPdf());
+    await ready(viewer);
+    expect(runtime.renderPdfPage).toHaveBeenCalledTimes(1);
+    expect(failed).not.toHaveBeenCalled();
+  });
+
   it("keeps slide position accessible while PageDown and PageUp navigate the inline preview", async () => {
     const { viewer } = await mountReady();
     viewer.pageUnit = "slide";

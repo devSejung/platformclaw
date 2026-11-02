@@ -4,6 +4,8 @@ import { keyed } from "lit/directives/keyed.js";
 import { ref } from "lit/directives/ref.js";
 import { t } from "../i18n/index.ts";
 import type { DocumentSelectionTarget } from "./document-viewer-selection.ts";
+import { toolIcons } from "./icons-tools.ts";
+import "./web-awesome.ts";
 
 export const DOCUMENT_CHANGE_TEXT_MAX = 1_024;
 export const DOCUMENT_CHANGE_INSTRUCTION_MAX = 4_096;
@@ -56,6 +58,15 @@ export class DocumentViewerRequestController {
   private popover: HTMLFormElement | undefined;
   private popoverObserver: ResizeObserver | undefined;
   private selectionVersion = 0;
+  private context:
+    | {
+        page: SelectionPage;
+        point: { x: number; y: number };
+        clientX: number;
+        clientY: number;
+      }
+    | undefined;
+  private menuListeners: AbortController | undefined;
 
   constructor(private readonly host: RequestHost) {}
 
@@ -71,6 +82,7 @@ export class DocumentViewerRequestController {
   }
 
   private retireSelection(): void {
+    this.closeContextMenu();
     this.selectionVersion++;
     this.submission?.abort();
     this.submission = undefined;
@@ -94,6 +106,7 @@ export class DocumentViewerRequestController {
   }
 
   changePage(pageNumber: number): void {
+    this.closeContextMenu();
     if (this.active && this.pageNumber !== pageNumber) {
       this.retireSelection();
       this.pageNumber = pageNumber;
@@ -106,7 +119,7 @@ export class DocumentViewerRequestController {
     return this.active && page?.number === this.pageNumber ? page : undefined;
   }
 
-  private point(event: PointerEvent, page: SelectionPage): { x: number; y: number } | undefined {
+  private point(event: MouseEvent, page: SelectionPage): { x: number; y: number } | undefined {
     const bounds = page.canvas.getBoundingClientRect();
     if (!page.canvas.isConnected || bounds.width <= 0 || bounds.height <= 0) {
       return undefined;
@@ -115,6 +128,162 @@ export class DocumentViewerRequestController {
       x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
       y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)),
     };
+  }
+
+  contextMenu = (event: MouseEvent): void => {
+    const page = this.host.currentPage();
+    if (!page || this.busy || !this.host.handler()) {
+      return;
+    }
+    const point = this.point(event, page);
+    if (!point) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.closeContextMenu();
+    this.context = { page, point, clientX: event.clientX, clientY: event.clientY };
+    this.host.requestUpdate();
+  };
+
+  closeContextMenu = (): void => {
+    this.menuListeners?.abort();
+    this.menuListeners = undefined;
+    if (this.context) {
+      this.context = undefined;
+      this.host.requestUpdate();
+    }
+  };
+
+  private bindContextMenu = (element?: Element): void => {
+    this.menuListeners?.abort();
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const listeners = new AbortController();
+    this.menuListeners = listeners;
+    const options = { capture: true, signal: listeners.signal };
+    const outside = (event: Event) => {
+      if (!event.composedPath().includes(element)) {
+        this.closeContextMenu();
+      }
+    };
+    document.addEventListener("pointerdown", outside, options);
+    document.addEventListener("contextmenu", outside, options);
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape" || event.key === "Tab") {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            this.context?.page.canvas
+              .closest<HTMLElement>(".stage")
+              ?.focus({ preventScroll: true });
+          }
+          this.closeContextMenu();
+        }
+      },
+      options,
+    );
+    window.addEventListener("resize", this.closeContextMenu, options);
+    window.addEventListener("scroll", this.closeContextMenu, options);
+  };
+
+  renderContextMenu() {
+    const context = this.context;
+    const page = this.host.currentPage();
+    if (
+      !context ||
+      !page ||
+      page.canvas !== context.page.canvas ||
+      page.number !== context.page.number
+    ) {
+      return nothing;
+    }
+    return keyed(
+      context,
+      html`<wa-dropdown
+        class="request-context-menu"
+        .open=${true}
+        placement="bottom-start"
+        .distance=${0}
+        size="s"
+        aria-label=${t("chat.documentViewer.requestChanges")}
+        @contextmenu=${(event: MouseEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        ${ref(this.bindContextMenu)}
+        @wa-after-hide=${() => {
+          if (this.context === context) {
+            this.closeContextMenu();
+          }
+        }}
+        @wa-select=${(event: CustomEvent<{ item: { value?: string } }>) => {
+          event.preventDefault();
+          if (this.context !== context || event.detail.item.value !== "request-changes") {
+            return;
+          }
+          const current = this.host.currentPage();
+          this.closeContextMenu();
+          if (
+            !current ||
+            current.canvas !== context.page.canvas ||
+            current.number !== context.page.number ||
+            this.busy ||
+            !this.host.handler()
+          ) {
+            return;
+          }
+          this.begin();
+          this.drag = undefined;
+          this.selectPoint(current, context.point);
+          this.selectionVersion++;
+          this.host.requestUpdate();
+        }}
+      >
+        <button
+          slot="trigger"
+          class="request-context-trigger"
+          type="button"
+          tabindex="-1"
+          aria-hidden="true"
+          aria-label=${t("chat.documentViewer.requestChanges")}
+          style=${`left:${context.clientX}px;top:${context.clientY}px`}
+        ></button>
+        <wa-dropdown-item value="request-changes">
+          <span slot="icon" class="request-icon" aria-hidden="true">${toolIcons.penLine}</span>
+          ${t("chat.documentViewer.requestChanges")}
+        </wa-dropdown-item>
+      </wa-dropdown>`,
+    );
+  }
+
+  private selectPoint(page: SelectionPage, point: { x: number; y: number }): void {
+    let target: DocumentSelectionTarget | undefined;
+    for (const candidate of page.targets ?? []) {
+      const region = candidate.region;
+      if (
+        point.x >= region.x &&
+        point.x <= region.x + region.width &&
+        point.y >= region.y &&
+        point.y <= region.y + region.height &&
+        (!target || region.width * region.height < target.region.width * target.region.height)
+      ) {
+        target = candidate;
+      }
+    }
+    this.selectedText = target ? truncateUtf16Safe(target.text, DOCUMENT_CHANGE_TEXT_MAX) : "";
+    this.region = target
+      ? { ...target.region }
+      : {
+          x: Math.max(0, Math.min(1 - POINT_REGION_WIDTH, point.x - POINT_REGION_WIDTH / 2)),
+          y: Math.max(0, Math.min(1 - POINT_REGION_HEIGHT, point.y - POINT_REGION_HEIGHT / 2)),
+          width: POINT_REGION_WIDTH,
+          height: POINT_REGION_HEIGHT,
+        };
+    this.error = "";
   }
 
   pointerDown = (event: PointerEvent): void => {
@@ -180,30 +349,7 @@ export class DocumentViewerRequestController {
       (point.y - drag.y) * bounds.height,
     );
     if (distance < 3) {
-      let target: DocumentSelectionTarget | undefined;
-      for (const candidate of page.targets ?? []) {
-        const region = candidate.region;
-        if (
-          point.x >= region.x &&
-          point.x <= region.x + region.width &&
-          point.y >= region.y &&
-          point.y <= region.y + region.height &&
-          (!target || region.width * region.height < target.region.width * target.region.height)
-        ) {
-          target = candidate;
-        }
-      }
-      if (target) {
-        this.region = { ...target.region };
-        this.selectedText = truncateUtf16Safe(target.text, DOCUMENT_CHANGE_TEXT_MAX);
-      } else {
-        this.region = {
-          x: Math.max(0, Math.min(1 - POINT_REGION_WIDTH, point.x - POINT_REGION_WIDTH / 2)),
-          y: Math.max(0, Math.min(1 - POINT_REGION_HEIGHT, point.y - POINT_REGION_HEIGHT / 2)),
-          width: POINT_REGION_WIDTH,
-          height: POINT_REGION_HEIGHT,
-        };
-      }
+      this.selectPoint(page, point);
     } else if (this.region) {
       // Preserve real drags, including a thin horizontal/vertical gesture, with
       // a one-CSS-pixel minimum so the crop always has a nonempty source area.

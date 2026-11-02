@@ -7,6 +7,7 @@ export const documentViewerStyles = css`
     width: 100%;
   }
   .viewer {
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -27,7 +28,7 @@ export const documentViewerStyles = css`
   }
   .toolbar {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     gap: 8px;
     padding: 8px 0;
@@ -41,7 +42,14 @@ export const documentViewerStyles = css`
     gap: 6px;
   }
   .pagination {
+    grid-column: 2;
     justify-content: center;
+    min-width: 0;
+  }
+  .toolbar > .controls {
+    grid-column: 3;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     min-width: 0;
   }
   .option-controls {
@@ -117,19 +125,15 @@ export const documentViewerStyles = css`
   }
   .page-layout {
     display: flex;
-    height: min(65dvh, 640px);
-    min-height: 240px;
     min-width: 0;
   }
   .stage {
     position: relative;
     box-sizing: border-box;
     flex: 1;
-    height: 100%;
     min-height: 0;
     min-width: 0;
     overflow: auto;
-    scrollbar-gutter: stable;
     padding: 16px;
     border-radius: 4px;
     background: #d5d7da;
@@ -146,6 +150,10 @@ export const documentViewerStyles = css`
   }
   openclaw-document-contents {
     flex: 0 0 132px;
+    height: auto;
+    min-height: 0;
+    /* The page determines inline height; thumbnails scroll within that height. */
+    contain: size;
     border-right: 1px solid var(--border, #ccc);
   }
   .page-surface {
@@ -190,6 +198,15 @@ export const documentViewerStyles = css`
     color: var(--text, #222);
     box-shadow: 0 6px 24px #0003;
     font-size: 12px;
+  }
+  .request-context-trigger {
+    position: fixed;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
   }
   .request-popover-header {
     display: flex;
@@ -319,11 +336,11 @@ export const documentViewerStyles = css`
   }
   .expanded .stage {
     height: auto;
+    scrollbar-gutter: stable;
   }
   @media (max-width: 600px) {
     .page-layout {
       flex-direction: column;
-      height: 60dvh;
     }
     openclaw-document-contents {
       flex: 0 0 120px;
@@ -357,17 +374,13 @@ export const documentViewerStyles = css`
       height: calc(100dvh - 16px);
     }
   }
-  @media (max-width: 420px) {
+  @container (max-width: 640px) {
     .toolbar {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
-    .pagination {
-      grid-row: 1;
-      grid-column: 1 / -1;
-    }
+    .pagination,
     .toolbar > .controls {
-      grid-column: 1 / -1;
-      justify-self: end;
+      grid-column: 1;
     }
   }
   @media (pointer: coarse) {

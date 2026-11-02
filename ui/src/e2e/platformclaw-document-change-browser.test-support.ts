@@ -13,10 +13,12 @@ import type { DocumentPreviewFixture } from "./platformclaw-document-preview.tes
 
 async function scrollDocumentToTop(viewer: Locator): Promise<void> {
   const stage = viewer.locator(".stage");
-  await stage.scrollIntoViewIfNeeded();
   await stage.evaluate((element) => {
     element.scrollTop = 0;
     element.scrollLeft = 0;
+    // An intrinsic-height PDF can exceed the chat viewport. Centering its whole
+    // stage can leave the title behind the sticky header or outside the pane.
+    element.scrollIntoView({ block: "start", inline: "nearest" });
   });
 }
 
@@ -35,12 +37,13 @@ async function dragDocumentRegion(page: Page, viewer: Locator): Promise<void> {
 }
 
 async function clickDocumentTitle(
-  page: Page,
   viewer: Locator,
   presentation: boolean,
+  button: "left" | "right" = "left",
 ): Promise<void> {
   await scrollDocumentToTop(viewer);
-  const point = await viewer.locator("canvas.current-page").evaluate((element, whiteInk) => {
+  const canvas = viewer.locator("canvas.current-page");
+  const point = await canvas.evaluate((element, whiteInk) => {
     if (!(element instanceof HTMLCanvasElement)) {
       throw new Error("document title has no canvas");
     }
@@ -64,15 +67,17 @@ async function clickDocumentTitle(
         if (alpha > 240 && ink) {
           const bounds = element.getBoundingClientRect();
           return {
-            x: bounds.x + ((x + 0.5) * bounds.width) / element.width,
-            y: bounds.y + ((y + 0.5) * bounds.height) / element.height,
+            x: ((x + 0.5) * bounds.width) / element.width,
+            y: ((y + 0.5) * bounds.height) / element.height,
           };
         }
       }
     }
     throw new Error("rendered title ink was not found");
   }, presentation);
-  await page.mouse.click(point.x, point.y);
+  // Let the native locator scroll and hit-test this painted glyph, rather than
+  // sending a viewport coordinate that may now fall on surrounding chat chrome.
+  await canvas.click({ position: point, button });
 }
 
 async function expectPopoverInsideStage(viewer: Locator): Promise<void> {
@@ -174,12 +179,24 @@ export async function exerciseDocumentChangeRequest(params: {
     expect(await instructionInput.inputValue()).toBe("");
   };
   await open();
-  await clickDocumentTitle(page, viewer, fixture.format === "powerpoint");
+  await clickDocumentTitle(viewer, fixture.format === "powerpoint");
   await dragDocumentRegion(page, viewer);
   await expectModeOff();
 
-  await begin();
-  await clickDocumentTitle(page, viewer, fixture.format === "powerpoint");
+  await clickDocumentTitle(viewer, fixture.format === "powerpoint", "right");
+  const contextAction = viewer.getByRole("menuitem", { name: "Request changes", exact: true });
+  await contextAction.waitFor({ state: "visible" });
+  await expectModeOff();
+  // The real client branch owns menu focus and keyboard activation. Node Lit
+  // takes Web Awesome's SSR path, so jsdom cannot prove this interaction.
+  await expect
+    .poll(() => contextAction.evaluate((element) => element.matches(":focus")))
+    .toBe(true);
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() => viewer.locator(".viewer").getAttribute("data-request-mode"))
+    .toBe("select");
+  await expectInline();
   await popover.waitFor({ state: "visible" });
   const selectedText = viewer.locator(".selected-text");
   await selectedText.waitFor({ state: "visible" });
@@ -381,6 +398,7 @@ export async function exerciseDocumentChangeRequest(params: {
       sourceReplyBound: true,
       explicitOptIn: true,
       pointClickText: true,
+      contextMenuRequest: true,
       inlineRequest: true,
       retiredDraftsSent: false,
       sends: 1,
