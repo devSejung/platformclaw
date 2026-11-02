@@ -38,6 +38,13 @@ Analysis prompt.
 Page filter like `1-5` or `1,3,7-9`. Not supported in native provider mode.
 </ParamField>
 
+<ParamField path="visual" type="boolean" default="false">
+Inspect original page images, including diagrams on pages with plenty of text.
+Requires explicit `pages` and an image-capable model. Processes at most 4 distinct
+pages per PDF, or fewer when `agents.defaults.pdfMaxPages` is lower. Visual mode
+uses extraction on every provider, including Anthropic and Google.
+</ParamField>
+
 <ParamField path="password" type="string">
 Password for encrypted PDFs. Applies to every PDF in the request; only used by extraction fallback mode.
 </ParamField>
@@ -53,7 +60,8 @@ Per-PDF size cap in MB. Defaults to `agents.defaults.pdfMaxMb`, or `10` if unset
 Notes:
 
 - `pdf` and `pdfs` are merged and deduplicated before loading; at least one is required.
-- `pages` is parsed as 1-based page numbers, deduped, sorted, and clamped to `agents.defaults.pdfMaxPages` (default `20`). A range that matches no in-bounds pages errors before the model call.
+- `pages` is parsed as 1-based page numbers, deduped, and sorted. Normal mode clamps source page numbers to `agents.defaults.pdfMaxPages` (default `20`); a range that matches no in-bounds pages errors before loading.
+- With `visual: true`, the limit counts selected pages, so `pages: "97-98"` inspects those two original pages. A selection exceeding the distinct-page limit errors before loading. Every requested page must exist and produce a nonempty image; missing images or rendering failures cannot succeed from text alone.
 
 ## Supported PDF references
 
@@ -66,9 +74,23 @@ Other URI schemes (for example `ftp://`) return `details.error = "unsupported_pd
 
 ## Execution modes
 
+### Visual inspection
+
+Set `visual: true` and select a small page range when a question depends on arrow
+direction, diagram layout, timing, or other visual relationships. OpenClaw renders
+the original selected pages even when text extraction exceeds 200 characters,
+labels each image with its original page number, and sends text and images to the
+configured image-capable model. The existing 4,000,000-pixel budget is shared
+across selected pages in each PDF. Small labels may remain unreadable; inspect
+fewer pages and identify uncertain details instead of guessing.
+
+This mode inspects known pages. It does not index a long PDF or automatically
+find every relevant figure. A text-only model is rejected for visual inspection;
+normal configured model fallback may try another image-capable candidate.
+
 ### Native provider mode
 
-Used for provider `anthropic` and `google` (the only providers that currently declare native PDF document support). Raw PDF bytes go directly to the provider API as a native document/inline-PDF part per file.
+Used when `visual` is false for provider `anthropic` and `google` (the only providers that currently declare native PDF document support). Raw PDF bytes go directly to the provider API as a native document/inline-PDF part per file.
 
 Limits:
 
@@ -100,7 +122,7 @@ Details:
         primary: "anthropic/claude-opus-4-6",
         fallbacks: ["openai/gpt-5.4-mini"],
       },
-      pdfMaxBytesMb: 10,
+      pdfMaxMb: 10,
       pdfMaxPages: 20,
     },
   },
@@ -124,6 +146,8 @@ Common `details` fields:
 - `model`: resolved model ref (`provider/model`)
 - `native`: `true` for native provider mode, `false` for fallback
 - `attempts`: fallback attempts that failed before success
+- `visual`: `true` when original page images were required
+- `pages`: original page numbers inspected in visual mode
 
 Path fields:
 
@@ -142,6 +166,17 @@ Path fields:
 | `password` with a native provider | Throws `password is not supported with native PDF providers`   |
 
 ## Examples
+
+Inspect a diagram on late pages:
+
+```json
+{
+  "pdf": "media://inbound/specification.pdf",
+  "visual": true,
+  "pages": "97-98",
+  "prompt": "Explain the timing relationship. Cite source pages and identify unreadable labels."
+}
+```
 
 Single PDF:
 
@@ -186,4 +221,4 @@ Encrypted PDF with extraction fallback:
 ## Related
 
 - [Tools Overview](/tools) - all available agent tools
-- [Configuration Reference](/gateway/config-agents#agent-defaults) - pdfMaxBytesMb and pdfMaxPages config
+- [Configuration Reference](/gateway/config-agents#agent-defaults) - pdfMaxMb and pdfMaxPages config

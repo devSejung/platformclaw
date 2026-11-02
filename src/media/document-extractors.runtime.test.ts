@@ -35,6 +35,8 @@ describe("extractDocumentContent", () => {
         maxPages: 1,
         maxPixels: 100,
         minTextChars: 10,
+        renderImages: true,
+        pageNumbers: [97],
         config: {
           env: {
             vars: {
@@ -51,6 +53,8 @@ describe("extractDocumentContent", () => {
       maxPages: 1,
       maxPixels: 100,
       minTextChars: 10,
+      renderImages: true,
+      pageNumbers: [97],
     });
   });
 

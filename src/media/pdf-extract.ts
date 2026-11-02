@@ -19,6 +19,7 @@ export async function extractPdfContent(params: {
   minTextChars: number;
   password?: string;
   pageNumbers?: number[];
+  renderImages?: boolean;
   config?: OpenClawConfig;
   onImageExtractionError?: (error: unknown) => void;
 }): Promise<PdfExtractedContent> {
@@ -30,6 +31,7 @@ export async function extractPdfContent(params: {
     minTextChars: params.minTextChars,
     ...(params.password ? { password: params.password } : {}),
     ...(params.pageNumbers ? { pageNumbers: params.pageNumbers } : {}),
+    ...(params.renderImages ? { renderImages: true } : {}),
     ...(params.config ? { config: params.config } : {}),
     ...(params.onImageExtractionError
       ? { onImageExtractionError: params.onImageExtractionError }

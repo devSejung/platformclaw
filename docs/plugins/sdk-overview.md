@@ -91,6 +91,13 @@ OpenClaw rejects a handle that does neither.
 
 ## Registration API
 
+Document extractors use `openclaw/plugin-sdk/document-extractor`. The optional
+`DocumentExtractionRequest.renderImages` flag requires an image for every selected
+page even when text is sufficient; report unavailable pages or rendering failures
+as errors. Set `DocumentExtractedImage.pageNumber` to the original 1-based page
+number. The [PDF tool](/tools/pdf#visual-inspection) requires complete page
+provenance for visual inspection and rejects extractors that return text alone.
+
 The `register(api)` callback receives an `OpenClawPluginApi` object with these
 methods:
 

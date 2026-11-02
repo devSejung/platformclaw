@@ -3,6 +3,8 @@ export type DocumentExtractedImage = {
   type: "image";
   data: string;
   mimeType: string;
+  /** Original 1-based source page, when the extractor renders a page. */
+  pageNumber?: number;
 };
 
 /** Request passed to plugin document extractors. */
@@ -14,6 +16,8 @@ export type DocumentExtractionRequest = {
   minTextChars: number;
   password?: string;
   pageNumbers?: number[];
+  /** Render every selected page even when text is sufficient; fail if any image is unavailable. */
+  renderImages?: boolean;
   onImageExtractionError?: (error: unknown) => void;
 };
 
