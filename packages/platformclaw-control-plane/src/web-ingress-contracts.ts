@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { AiUsageReportService } from "./ai-usage-report-service.js";
 import type { BrowserAnnouncementService } from "./browser-announcements-http.js";
 import type { BrowserLoginRateLimiter } from "./browser-auth-http.js";
 import type { BrowserAuthService } from "./browser-auth-service.js";
@@ -73,6 +74,7 @@ export type PlatformClawWebIngressOptions = {
   mcpService?: EmployeeMcpService;
   organizationService?: BrowserOrganizationService;
   dashboardService?: import("./dashboard-service.js").DashboardService;
+  aiUsageReportService?: AiUsageReportService;
   execCredentialService?: ExecCredentialService;
   vocService?: JiraVocService;
   skillHubService?: SkillHubService;

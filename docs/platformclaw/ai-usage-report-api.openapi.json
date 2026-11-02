@@ -1,0 +1,1535 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "PlatformClaw AI usage report API",
+    "version": "1",
+    "description": "Implemented on the standard Control Plane Web listener; deploy a build containing this API. No application token, API key, or browser login. Network edge permits approved intranet clients. Initial reporting scope: owned personal agents. Full semantic contract: docs/platformclaw/ai-usage-report-api.md. Display ai_service=PlatformClaw; identify underlying providers and models separately."
+  },
+  "servers": [
+    {
+      "url": "https://platformclaw.example.com",
+      "description": "Placeholder; replace with deployed intranet origin."
+    },
+    {
+      "url": "http://platformclaw.example.com:19002",
+      "description": "Placeholder for direct intranet access on the default existing Runtime Compose Web port. Network access is operator-controlled."
+    }
+  ],
+  "security": [],
+  "paths": {
+    "/platformclaw/api/v1/reports/ai-usage": {
+      "get": {
+        "operationId": "getPlatformClawAiUsageReport",
+        "summary": "Read monthly employee AI usage with optional model grouping",
+        "description": "Optional filters enable personal, multi-person, department, provider and model reporting. No dates defaults to this month in Asia/Seoul. Choose one of month, start_month/end_month pair, or period. Accept 1 to 12 inclusive months; reject future months, blank filters, unknown/repeated parameters, and request bodies. Normalize and verify all requested accounts; unknown accounts return 404. Apply filters before grouping, sorting and optional top-result limit. No report offset pagination. Totals describe the full filtered result before limit; returned_tokens describes returned rows. Never replace a full corporate month with filtered, partial, or truncated data. CSV requires complete retained-source data. Filtered views must be stored separately, keyed by normalized meta.filters in addition to source, grouping and row key; they must never overwrite the canonical unfiltered corporate dataset.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "description": "One calendar month. Conflicts with period or either range parameter.",
+            "schema": {
+              "$ref": "#/components/schemas/Month"
+            }
+          },
+          {
+            "name": "start_month",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive first month. Requires end_month and conflicts with month/period.",
+            "schema": {
+              "$ref": "#/components/schemas/Month"
+            }
+          },
+          {
+            "name": "end_month",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive last month. Requires start_month; no future months; range at most 12 months.",
+            "schema": {
+              "$ref": "#/components/schemas/Month"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "description": "Relative period resolved at request start in Asia/Seoul. Default this_month only when no date selector is supplied. Last 3 months includes current month.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "this_month",
+                "last_month",
+                "last_3_months",
+                "this_year"
+              ]
+            }
+          },
+          {
+            "name": "knox_id",
+            "in": "query",
+            "required": false,
+            "description": "One account or at most 100 submitted comma-separated entries. Trim, lowercase and deduplicate; reject empty entries. OR inside list; AND with other filters. All accounts must exist.",
+            "schema": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Verified lowercase corporate account."
+              }
+            },
+            "style": "form",
+            "explode": false,
+            "example": [
+              "person.one",
+              "person.two"
+            ]
+          },
+          {
+            "name": "team",
+            "in": "query",
+            "required": false,
+            "description": "Exact current department; URL-encode spaces. Unknown values yield empty results.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Exact current department, case-sensitive."
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "description": "Filter before aggregation, including service grouping. Unknown values yield empty results.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Exact recorded provider ID, case-sensitive."
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "description": "Filter before aggregation. Unknown values yield empty results.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Exact recorded model ID, case-sensitive."
+            }
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "description": "User/month/application totals or model detail. Do not add both views together.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "service",
+                "model"
+              ],
+              "default": "service"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "Sort field. Null last; ties use ascending month/account/application/provider/model, also null last.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "month",
+                "knox_id",
+                "call_count",
+                "token_usage"
+              ],
+              "default": "month"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "description": "Direction for the primary sort field.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "asc"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Optional top-result cap; omit for full output. meta.truncated indicates omitted matches. No report offset pagination.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "description": "CSV: UTF-8 BOM, CRLF, fixed eight-column header, formula-safe text, null as empty cells. Partial CSV returns 503 JSON.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "default": "json"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON report, including explicitly marked partial or limited output, or a complete retained-source CSV download. Historical coverage remains unverified.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Required for CSV: attachment filename ai-usage-<start>_<end>-<grouping>.csv."
+              },
+              "X-Report-Data-Status": {
+                "schema": {
+                  "type": "string",
+                  "const": "complete"
+                },
+                "description": "Required for CSV; partial reports return 503 JSON."
+              },
+              "X-Report-Truncated": {
+                "schema": {
+                  "type": "boolean"
+                },
+                "description": "Required for CSV; true for an explicitly limited ranking."
+              },
+              "X-Report-Total-Rows": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Full filtered row count."
+                },
+                "description": "Required for CSV; matching rows before limit."
+              },
+              "X-Report-Total-Tokens": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^([0-9]+|unknown)$"
+                },
+                "description": "Required for CSV; full filtered total, or unknown."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageReport"
+                },
+                "examples": {
+                  "service": {
+                    "summary": "Full service view",
+                    "value": {
+                      "raw_data": [
+                        {
+                          "team": "Example Engineering",
+                          "month": "2026-10",
+                          "knox_id": "person.one",
+                          "ai_service": "PlatformClaw",
+                          "call_count": 200,
+                          "token_usage": 500000,
+                          "provider": null,
+                          "model": null
+                        }
+                      ],
+                      "meta": {
+                        "schema_version": "1",
+                        "source": "platformclaw",
+                        "fetched_at": 1793574000,
+                        "row_count": 1,
+                        "active_row_count": 1,
+                        "team_size": 10,
+                        "active_user_count": 1,
+                        "months": [
+                          "2026-10"
+                        ],
+                        "total_tokens": 500000,
+                        "returned_tokens": 500000,
+                        "total_call_count": 200,
+                        "total_row_count": 1,
+                        "truncated": false,
+                        "filters": {
+                          "knox_id": [],
+                          "team": null,
+                          "provider": null,
+                          "model": null
+                        },
+                        "sort": "month",
+                        "order": "asc",
+                        "limit": null,
+                        "timezone": "Asia/Seoul",
+                        "group_by": "service",
+                        "scope": "personal_agents",
+                        "call_count_basis": "usage_records",
+                        "token_usage_basis": "provider_total_or_components",
+                        "coverage": "retained_records",
+                        "data_status": "complete",
+                        "warnings": [
+                          "HISTORICAL_COVERAGE_UNVERIFIED"
+                        ]
+                      }
+                    }
+                  },
+                  "model": {
+                    "summary": "Full model detail view",
+                    "value": {
+                      "raw_data": [
+                        {
+                          "team": "Example Engineering",
+                          "month": "2026-10",
+                          "knox_id": "person.one",
+                          "ai_service": "PlatformClaw",
+                          "call_count": 120,
+                          "token_usage": 300000,
+                          "provider": "example-provider",
+                          "model": "example-model-a"
+                        },
+                        {
+                          "team": "Example Engineering",
+                          "month": "2026-10",
+                          "knox_id": "person.one",
+                          "ai_service": "PlatformClaw",
+                          "call_count": 80,
+                          "token_usage": 200000,
+                          "provider": "example-provider",
+                          "model": "example-model-b"
+                        }
+                      ],
+                      "meta": {
+                        "schema_version": "1",
+                        "source": "platformclaw",
+                        "fetched_at": 1793574000,
+                        "row_count": 2,
+                        "active_row_count": 2,
+                        "team_size": 10,
+                        "active_user_count": 1,
+                        "months": [
+                          "2026-10"
+                        ],
+                        "total_tokens": 500000,
+                        "returned_tokens": 500000,
+                        "total_call_count": 200,
+                        "total_row_count": 2,
+                        "truncated": false,
+                        "filters": {
+                          "knox_id": [],
+                          "team": null,
+                          "provider": null,
+                          "model": null
+                        },
+                        "sort": "month",
+                        "order": "asc",
+                        "limit": null,
+                        "timezone": "Asia/Seoul",
+                        "group_by": "model",
+                        "scope": "personal_agents",
+                        "call_count_basis": "usage_records",
+                        "token_usage_basis": "provider_total_or_components",
+                        "coverage": "retained_records",
+                        "data_status": "complete",
+                        "warnings": [
+                          "HISTORICAL_COVERAGE_UNVERIFIED"
+                        ]
+                      }
+                    }
+                  },
+                  "personal": {
+                    "summary": "One verified account, no usage filters",
+                    "value": {
+                      "raw_data": [
+                        {
+                          "team": "Example Engineering",
+                          "month": "2026-10",
+                          "knox_id": "person.one",
+                          "ai_service": "PlatformClaw",
+                          "call_count": 200,
+                          "token_usage": 500000,
+                          "provider": null,
+                          "model": null
+                        }
+                      ],
+                      "meta": {
+                        "schema_version": "1",
+                        "source": "platformclaw",
+                        "fetched_at": 1793574000,
+                        "row_count": 1,
+                        "active_row_count": 1,
+                        "team_size": 1,
+                        "active_user_count": 1,
+                        "months": [
+                          "2026-10"
+                        ],
+                        "total_tokens": 500000,
+                        "returned_tokens": 500000,
+                        "total_call_count": 200,
+                        "total_row_count": 1,
+                        "truncated": false,
+                        "filters": {
+                          "knox_id": [
+                            "person.one"
+                          ],
+                          "team": null,
+                          "provider": null,
+                          "model": null
+                        },
+                        "sort": "month",
+                        "order": "asc",
+                        "limit": null,
+                        "timezone": "Asia/Seoul",
+                        "group_by": "service",
+                        "scope": "personal_agents",
+                        "call_count_basis": "usage_records",
+                        "token_usage_basis": "provider_total_or_components",
+                        "coverage": "retained_records",
+                        "data_status": "complete",
+                        "warnings": [
+                          "HISTORICAL_COVERAGE_UNVERIFIED"
+                        ]
+                      }
+                    }
+                  },
+                  "ranking": {
+                    "summary": "Top one model bucket; full and returned totals differ",
+                    "value": {
+                      "raw_data": [
+                        {
+                          "team": "Example Engineering",
+                          "month": "2026-10",
+                          "knox_id": "person.one",
+                          "ai_service": "PlatformClaw",
+                          "call_count": 120,
+                          "token_usage": 300000,
+                          "provider": "example-provider",
+                          "model": "example-model-a"
+                        }
+                      ],
+                      "meta": {
+                        "schema_version": "1",
+                        "source": "platformclaw",
+                        "fetched_at": 1793574000,
+                        "row_count": 1,
+                        "active_row_count": 1,
+                        "team_size": 10,
+                        "active_user_count": 1,
+                        "months": [
+                          "2026-10"
+                        ],
+                        "total_tokens": 500000,
+                        "returned_tokens": 300000,
+                        "total_call_count": 200,
+                        "total_row_count": 2,
+                        "truncated": true,
+                        "filters": {
+                          "knox_id": [],
+                          "team": null,
+                          "provider": null,
+                          "model": null
+                        },
+                        "sort": "token_usage",
+                        "order": "desc",
+                        "limit": 1,
+                        "timezone": "Asia/Seoul",
+                        "group_by": "model",
+                        "scope": "personal_agents",
+                        "call_count_basis": "usage_records",
+                        "token_usage_basis": "provider_total_or_components",
+                        "coverage": "retained_records",
+                        "data_status": "complete",
+                        "warnings": [
+                          "HISTORICAL_COVERAGE_UNVERIFIED"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "team,month,knox_id,ai_service,call_count,token_usage,provider,model\r\nExample Engineering,2026-10,person.one,PlatformClaw,200,500000,,\r\n"
+              }
+            }
+          },
+          "400": {
+            "description": "Correct conflicting/incomplete dates, future months, invalid filters, unknown/repeated parameters, or request bodies.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Correct missing, invalid, unknown, repeated, future, or oversized month-range parameters; remove request bodies."
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Check the approved network route. A firewall or proxy may instead return non-JSON or deny the connection.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "NETWORK_ACCESS_DENIED",
+                    "message": "Check the approved network route. A firewall or proxy may instead return non-JSON or deny the connection."
+                  }
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Use GET.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Allow": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "GET"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Use GET."
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "More than 100000 filtered rows without explicit limit. Retry by month, team, or selected accounts; an explicit limit produces a marked ranking.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "REPORT_TOO_LARGE",
+                    "message": "More than 100000 rows. Retry a smaller month range; never silently truncate."
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Retry after Retry-After seconds.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Retry-After": {
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Positive integer seconds until retry."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "RATE_LIMITED",
+                    "message": "Retry after Retry-After seconds."
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No reliable selected-scope snapshot, directory unavailable, or requested CSV would hide partial source data. Preserve accepted reports and retry after Retry-After.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Retry-After": {
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Positive integer seconds until retry."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "REPORT_UNAVAILABLE",
+                    "message": "No reliable report snapshot. Retry after Retry-After seconds; preserve the last accepted report."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Preserve the last accepted report and contact the operator.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Preserve the last accepted report and contact the operator."
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "At least one explicitly requested account is unknown or lacks a verified corporate login. Reject the whole request, not a partial account selection.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "USER_NOT_FOUND",
+                    "message": "One or more requested accounts were not found",
+                    "details": {
+                      "unknown_knox_ids": [
+                        "missing.person"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/platformclaw/api/v1/reports/ai-usage/users": {
+      "get": {
+        "operationId": "findPlatformClawReportUsers",
+        "summary": "Find registered people by corporate account or display name",
+        "description": "Intranet directory helper without application authentication. Only verified corporate accounts; includes people without usage. Combine filters with AND. Sort by account ascending before live offset pagination. Unknown/repeated query parameters and request bodies return 400. Directory failure returns 503, not a fabricated empty list. No chat, email, employee-number or credential fields.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Trim and normalize Unicode NFC; case-insensitive substring search over account and display name. Omit to list all; blank is invalid.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "team",
+            "in": "query",
+            "required": false,
+            "description": "Exact case-sensitive current department.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Exact current department."
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter account status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "disabled",
+                "all"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Skip this many matches; beyond last row returns an empty list.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "Live directory offset.",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching directory page, including an empty result.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportUserList"
+                },
+                "example": {
+                  "users": [
+                    {
+                      "knox_id": "person.one",
+                      "display_name": "Example Person",
+                      "team": "Example Engineering",
+                      "status": "active"
+                    }
+                  ],
+                  "meta": {
+                    "total": 1,
+                    "limit": 20,
+                    "offset": 0,
+                    "has_more": false,
+                    "next_offset": null
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Correct conflicting/incomplete dates, future months, invalid filters, unknown/repeated parameters, or request bodies.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Correct missing, invalid, unknown, repeated, future, or oversized month-range parameters; remove request bodies."
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Check the approved network route. A firewall or proxy may instead return non-JSON or deny the connection.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "NETWORK_ACCESS_DENIED",
+                    "message": "Check the approved network route. A firewall or proxy may instead return non-JSON or deny the connection."
+                  }
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Use GET.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Allow": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "GET"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "METHOD_NOT_ALLOWED",
+                    "message": "Use GET."
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Retry after Retry-After seconds.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Retry-After": {
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Positive integer seconds until retry."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "RATE_LIMITED",
+                    "message": "Retry after Retry-After seconds."
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Directory unavailable. Retry after Retry-After seconds; do not replace the cached directory with an empty list.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Retry-After": {
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Positive integer seconds until retry."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "REPORT_UNAVAILABLE",
+                    "message": "No reliable report snapshot. Retry after Retry-After seconds; preserve the last accepted report."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Preserve the last accepted report and contact the operator.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Preserve the last accepted report and contact the operator."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Month": {
+        "type": "string",
+        "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+        "description": "Calendar month in Asia/Seoul."
+      },
+      "UsageRow": {
+        "type": "object",
+        "required": [
+          "team",
+          "month",
+          "knox_id",
+          "ai_service",
+          "call_count",
+          "token_usage",
+          "provider",
+          "model"
+        ],
+        "properties": {
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Verified employee department at report time, not event-time department."
+          },
+          "month": {
+            "$ref": "#/components/schemas/Month"
+          },
+          "knox_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Verified corporate login account in lowercase. Employee-number fallback is prohibited."
+          },
+          "ai_service": {
+            "type": "string",
+            "const": "PlatformClaw",
+            "description": "Application identity, separate from its model provider."
+          },
+          "call_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Persisted model records with usage data, not all HTTP attempts, prompts, or tool calls."
+          },
+          "token_usage": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Recorded provider total or normalized input + output + cache-read + cache-write. Null if any counted record has unknown token coverage."
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Recorded provider ID; null for service grouping or an unknown provider."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Recorded model ID; null for service grouping or an unknown model."
+          }
+        }
+      },
+      "ReportMeta": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "source",
+          "fetched_at",
+          "row_count",
+          "active_row_count",
+          "team_size",
+          "active_user_count",
+          "months",
+          "total_tokens",
+          "timezone",
+          "group_by",
+          "scope",
+          "call_count_basis",
+          "token_usage_basis",
+          "coverage",
+          "data_status",
+          "warnings",
+          "returned_tokens",
+          "total_call_count",
+          "total_row_count",
+          "truncated",
+          "filters",
+          "sort",
+          "order",
+          "limit"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1",
+            "description": "Initial report contract."
+          },
+          "source": {
+            "type": "string",
+            "const": "platformclaw",
+            "description": "Stable collector source identifier."
+          },
+          "fetched_at": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Report assembly time in Unix seconds, possibly fractional. Not a source completeness watermark."
+          },
+          "row_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "description": "Exact raw_data length."
+          },
+          "active_row_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Rows where call_count > 0 or known token_usage > 0."
+          },
+          "team_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Registered users matching account/department filters, including disabled users, before usage/provider/model filters. Null if roster unavailable; not corporate headcount."
+          },
+          "active_user_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Distinct active accounts in the full filtered result before limit."
+          },
+          "months": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Month"
+            },
+            "description": "All requested calendar months, ascending, including empty months."
+          },
+          "total_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Sum of full filtered token usage before limit, null if any contributing row is unknown. Zero for verified empty results."
+          },
+          "timezone": {
+            "type": "string",
+            "const": "Asia/Seoul",
+            "description": "Month boundary timezone."
+          },
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "service",
+              "model"
+            ],
+            "description": "Grouping used for this response. Never add both grouping views together."
+          },
+          "scope": {
+            "type": "string",
+            "const": "personal_agents",
+            "description": "Owned personal agents only; excludes shared agents and independent AI programs."
+          },
+          "call_count_basis": {
+            "type": "string",
+            "const": "usage_records",
+            "description": "Count persisted model usage records, not provider HTTP attempts."
+          },
+          "token_usage_basis": {
+            "type": "string",
+            "const": "provider_total_or_components",
+            "description": "Provider total when recorded, otherwise normalized nonduplicated input/output/cache components. Without a total, both input and output must be recorded; absent cache buckets follow normalized zero defaults. Missing input or output makes the total unknown."
+          },
+          "coverage": {
+            "type": "string",
+            "const": "retained_records",
+            "description": "Retained transcript records, not guaranteed historical billing coverage."
+          },
+          "data_status": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "partial"
+            ],
+            "description": "Completeness of retained-source reads. Complete does not prove full historical coverage. Unknown tokens, unattributed personal usage, stale caches, or incomplete reads require partial."
+          },
+          "warnings": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "contains": {
+              "const": "HISTORICAL_COVERAGE_UNVERIFIED"
+            },
+            "description": "Always includes HISTORICAL_COVERAGE_UNVERIFIED. Other codes: DIRECTORY_SIZE_UNAVAILABLE, UNKNOWN_TEAM, UNKNOWN_MODEL, UNKNOWN_TOKEN_USAGE, UNATTRIBUTED_PERSONAL_USAGE, SOURCE_READ_INCOMPLETE, USAGE_CACHE_STALE. Future additive codes allowed."
+          },
+          "returned_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Sum of returned rows only; null if any returned token usage is unknown."
+          },
+          "total_call_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Call total across all filtered rows before limit."
+          },
+          "total_row_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Matching row count before limit."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True only if explicit limit omitted matching rows."
+          },
+          "filters": {
+            "$ref": "#/components/schemas/ReportFilters"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "month",
+              "knox_id",
+              "call_count",
+              "token_usage"
+            ]
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 100000,
+            "description": "Explicit top-result limit or null for full output."
+          }
+        }
+      },
+      "UsageReport": {
+        "type": "object",
+        "required": [
+          "raw_data",
+          "meta"
+        ],
+        "properties": {
+          "raw_data": {
+            "type": "array",
+            "maxItems": 100000,
+            "items": {
+              "$ref": "#/components/schemas/UsageRow"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ReportMeta"
+          }
+        },
+        "description": "One filtered report or explicitly limited ranking. Preserve unknown model buckets. No offset pagination. Reject implicit oversized exports with 413. Consumers tolerate additive fields.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "meta": {
+                  "properties": {
+                    "group_by": {
+                      "const": "service"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "raw_data": {
+                  "items": {
+                    "properties": {
+                      "provider": {
+                        "type": "null"
+                      },
+                      "model": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "raw_data": {
+                  "contains": {
+                    "properties": {
+                      "token_usage": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "meta": {
+                  "properties": {
+                    "total_tokens": {
+                      "type": "null"
+                    },
+                    "data_status": {
+                      "const": "partial"
+                    },
+                    "returned_tokens": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "INVALID_REQUEST",
+                  "NETWORK_ACCESS_DENIED",
+                  "METHOD_NOT_ALLOWED",
+                  "REPORT_TOO_LARGE",
+                  "RATE_LIMITED",
+                  "REPORT_UNAVAILABLE",
+                  "INTERNAL_ERROR",
+                  "USER_NOT_FOUND"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Safe actionable message without chat text, credentials, or host paths."
+              },
+              "details": {
+                "type": "object",
+                "required": [
+                  "unknown_knox_ids"
+                ],
+                "properties": {
+                  "unknown_knox_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Unknown normalized account."
+                    }
+                  }
+                },
+                "description": "Present only for USER_NOT_FOUND."
+              }
+            }
+          }
+        }
+      },
+      "ReportFilters": {
+        "type": "object",
+        "required": [
+          "knox_id",
+          "team",
+          "provider",
+          "model"
+        ],
+        "properties": {
+          "knox_id": {
+            "type": "array",
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Normalized account ID."
+            },
+            "description": "Sorted account list; empty means all accounts."
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Effective exact department filter; null means all."
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Effective exact provider filter; null means all."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Effective exact model filter; null means all."
+          }
+        }
+      },
+      "ReportUser": {
+        "type": "object",
+        "required": [
+          "knox_id",
+          "display_name",
+          "team",
+          "status"
+        ],
+        "properties": {
+          "knox_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Verified lowercase login account."
+          },
+          "display_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Current display name."
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Current department."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          }
+        }
+      },
+      "ReportUserList": {
+        "type": "object",
+        "required": [
+          "users",
+          "meta"
+        ],
+        "properties": {
+          "users": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/ReportUser"
+            }
+          },
+          "meta": {
+            "type": "object",
+            "required": [
+              "total",
+              "limit",
+              "offset",
+              "has_more",
+              "next_offset"
+            ],
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "All matching users before pagination."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Requested offset."
+              },
+              "has_more": {
+                "type": "boolean"
+              },
+              "next_offset": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Next offset if more matches exist; otherwise null."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

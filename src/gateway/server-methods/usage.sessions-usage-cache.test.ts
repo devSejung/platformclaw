@@ -1,6 +1,7 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { createEmptyCostUsageTotals } from "../../infra/session-cost-usage-totals.js";
 
 const mocks = vi.hoisted(() => ({
   discoverAllSessions: vi.fn(),
@@ -115,6 +116,99 @@ describe("sessions.usage result cache", () => {
     const repeated = await runSessionsUsage(baseParams);
 
     expect(JSON.stringify(repeated)).toBe(JSON.stringify(first));
+    expect(mocks.discoverAllSessions).toHaveBeenCalledTimes(1);
+    expect(mocks.loadSessionCostSummariesFromCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves model attribution and unknown-token counts when no session rows are requested", async () => {
+    mocks.discoverAllSessions.mockResolvedValueOnce([
+      { sessionId: "s-a", sessionFile: "/tmp/agents/main/sessions/s-a.jsonl", mtime: 300 },
+      { sessionId: "s-b", sessionFile: "/tmp/agents/main/sessions/s-b.jsonl", mtime: 200 },
+    ]);
+    mocks.loadSessionCostSummariesFromCache.mockImplementation(
+      async ({ sessions }: { sessions: Array<{ sessionId?: string }> }) => ({
+        summaries: sessions.map(({ sessionId }) => {
+          const unknownTokens = sessionId === "s-a" ? 12 : 13;
+          const unknownCount = sessionId === "s-a" ? 1 : 2;
+          const missingTokenEntries = sessionId === "s-a" ? undefined : 1;
+          const unknownTotals = {
+            ...createEmptyCostUsageTotals(),
+            totalTokens: unknownTokens,
+            ...(missingTokenEntries ? { missingTokenEntries } : {}),
+          };
+          const literalTotals = { ...createEmptyCostUsageTotals(), totalTokens: 7 };
+          return {
+            ...createEmptyCostUsageTotals(),
+            totalTokens: unknownTokens + 7,
+            ...(missingTokenEntries ? { missingTokenEntries } : {}),
+            modelUsage: [
+              { count: unknownCount, totals: unknownTotals },
+              { provider: "unknown", model: "unknown", count: 1, totals: literalTotals },
+            ],
+            dailyModelUsage: [
+              {
+                date: "2026-02-01",
+                tokens: unknownTokens,
+                count: unknownCount,
+                cost: 0,
+                ...(missingTokenEntries ? { missingTokenEntries } : {}),
+              },
+              {
+                date: "2026-02-01",
+                provider: "unknown",
+                model: "unknown",
+                tokens: 7,
+                count: 1,
+                cost: 0,
+              },
+            ],
+          };
+        }),
+        cacheStatus: {
+          status: "fresh",
+          cachedFiles: sessions.length,
+          pendingFiles: 0,
+          staleFiles: 0,
+        },
+      }),
+    );
+
+    const params = { ...baseParams, agentId: "main", limit: 0 };
+    const result = (await runSessionsUsage(params)) as {
+      sessions: unknown[];
+      totals: { totalTokens: number; missingTokenEntries?: number };
+      aggregates: {
+        modelDaily: Array<{
+          date: string;
+          provider?: string;
+          model?: string;
+          tokens: number;
+          count: number;
+          missingTokenEntries?: number;
+        }>;
+        byModel: unknown[];
+        byProvider: unknown[];
+      };
+    };
+    expect(result.sessions).toEqual([]);
+    expect(result.totals).toMatchObject({ totalTokens: 39, missingTokenEntries: 1 });
+    expect(result.aggregates.byModel).toHaveLength(2);
+    expect(result.aggregates.byProvider).toHaveLength(2);
+    expect(result.aggregates.modelDaily).toHaveLength(2);
+    expect(result.aggregates.modelDaily.find((row) => row.provider === undefined)).toMatchObject({
+      date: "2026-02-01",
+      tokens: 25,
+      count: 3,
+      missingTokenEntries: 1,
+    });
+    expect(result.aggregates.modelDaily.find((row) => row.provider === "unknown")).toMatchObject({
+      model: "unknown",
+      tokens: 14,
+      count: 2,
+    });
+
+    const repeated = await runSessionsUsage(params);
+    expect(JSON.stringify(repeated)).toBe(JSON.stringify(result));
     expect(mocks.discoverAllSessions).toHaveBeenCalledTimes(1);
     expect(mocks.loadSessionCostSummariesFromCache).toHaveBeenCalledTimes(1);
   });

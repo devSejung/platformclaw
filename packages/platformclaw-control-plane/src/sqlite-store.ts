@@ -1,3 +1,4 @@
+import type { AiUsageReportUser } from "./ai-usage-report-contracts.js";
 import {
   ControlPlaneNotFoundError,
   ControlPlaneStateError,
@@ -35,6 +36,24 @@ export class SqliteControlPlaneStore
     this.resolveOrganizationAuthorizationSnapshot(userId, scopeId),
   );
   readonly announcements = new SqliteAnnouncementStore(this.db);
+  async listAiUsageReportUsers(): Promise<AiUsageReportUser[]> {
+    return executeSync(
+      this.db,
+      this.query
+        .selectFrom("platform_users as u")
+        .leftJoin("agent_bindings as a", (join) =>
+          join.onRef("a.user_id", "=", "u.id").on("a.kind", "=", "personal"),
+        )
+        .select([
+          "u.account_id as accountId",
+          "u.display_name as displayName",
+          "u.department",
+          "u.status",
+          "a.agent_id as agentId",
+        ])
+        .orderBy("u.account_id"),
+    ).rows;
+  }
   async listDashboardAccounts() {
     return executeSync(
       this.db,

@@ -161,7 +161,7 @@ function mergeTools(
 }
 
 function modelKey(provider?: string, model?: string): string {
-  return `${provider ?? "unknown"}\0${model ?? "unknown"}`;
+  return JSON.stringify([provider ?? null, model ?? null]);
 }
 
 function addModelUsage(
@@ -170,9 +170,8 @@ function addModelUsage(
   model: string | undefined,
   totals: CostUsageTotals,
 ): void {
-  if (!provider && !model) {
-    return;
-  }
+  // Missing attribution still consumed tokens. Preserve its own bucket so
+  // model totals conserve usage without colliding with literal "unknown" IDs.
   const modelRef = modelKey(provider, model);
   let existing = models.find((entry) => modelKey(entry.provider, entry.model) === modelRef);
   if (!existing) {
@@ -434,6 +433,10 @@ export function buildSessionCostSummaryFromRollup(params: {
       existing.tokens += model.totals.totalTokens;
       existing.cost += model.totals.totalCost;
       existing.count += model.count;
+      if (model.totals.missingTokenEntries) {
+        existing.missingTokenEntries =
+          (existing.missingTokenEntries ?? 0) + model.totals.missingTokenEntries;
+      }
       dailyModels.set(modelBucketId, existing);
     }
 

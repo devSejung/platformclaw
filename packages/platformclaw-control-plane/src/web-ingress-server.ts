@@ -11,6 +11,7 @@ import {
   validateRequestFrame,
 } from "@openclaw/gateway-protocol";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
+import { handleAiUsageReportRequest } from "./ai-usage-report-http.js";
 import { ANNOUNCEMENTS_CHANGED } from "./announcement-contracts.js";
 import { handlePlatformClawAnnouncementRequest } from "./browser-announcements-http.js";
 import {
@@ -47,6 +48,7 @@ import type {
   PlatformClawWebIngressListenOptions,
   PlatformClawWebIngressOptions,
 } from "./web-ingress-contracts.js";
+import { normalizeWebIngressOrigin, rejectWebIngressUpgrade } from "./web-ingress-transport.js";
 
 export type {
   PlatformClawBrowserCanvasRelay,
@@ -67,33 +69,6 @@ const MAX_CONCURRENT_BROWSER_REQUESTS = 8;
 // The upstream Control UI opens a burst of independent RPCs after connect. Keep enough
 // headroom for that supported client while bounding work retained by an untrusted browser.
 const MAX_PENDING_BROWSER_REQUESTS = 64;
-function normalizePublicOrigin(value: string): string {
-  const parsed = new URL(value);
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("PlatformClaw public origin must use http or https");
-  }
-  if (
-    parsed.username ||
-    parsed.password ||
-    parsed.pathname !== "/" ||
-    parsed.search ||
-    parsed.hash
-  ) {
-    throw new Error(
-      "PlatformClaw public origin must not include credentials, path, query, or hash",
-    );
-  }
-  return parsed.origin;
-}
-
-function rejectUpgrade(socket: Duplex, statusCode: number, statusText: string): void {
-  if (!socket.destroyed) {
-    socket.end(
-      `HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
-    );
-  }
-}
-
 export class PlatformClawWebIngressServer {
   private readonly publicOrigin: string;
   private readonly gatewayPath: string;
@@ -114,7 +89,7 @@ export class PlatformClawWebIngressServer {
           isOriginAllowed: (req) => this.isOriginAllowed(req),
         })
       : undefined;
-    this.publicOrigin = normalizePublicOrigin(options.publicOrigin);
+    this.publicOrigin = normalizeWebIngressOrigin(options.publicOrigin);
     this.gatewayPath = options.gatewayPath ?? PLATFORMCLAW_GATEWAY_PATH;
     this.healthPath = options.healthPath ?? PLATFORMCLAW_HEALTH_PATH;
     this.websocketServer = new WebSocketServer({
@@ -123,7 +98,7 @@ export class PlatformClawWebIngressServer {
     });
     this.httpServer.on("upgrade", (req, socket, head) => {
       void this.handleUpgrade(req, socket, head).catch(() => {
-        rejectUpgrade(socket, 500, "Internal Server Error");
+        rejectWebIngressUpgrade(socket, 500, "Internal Server Error");
       });
     });
   }
@@ -198,6 +173,12 @@ export class PlatformClawWebIngressServer {
 
   private async handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
+      if (
+        this.options.aiUsageReportService &&
+        (await handleAiUsageReportRequest(req, res, this.options.aiUsageReportService))
+      ) {
+        return;
+      }
       if (await this.composerHandler?.(req, res)) {
         return;
       }
@@ -402,27 +383,27 @@ export class PlatformClawWebIngressServer {
   private async handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     const pathname = new URL(req.url ?? "/", this.publicOrigin).pathname;
     if (pathname !== this.gatewayPath) {
-      rejectUpgrade(socket, 404, "Not Found");
+      rejectWebIngressUpgrade(socket, 404, "Not Found");
       return;
     }
     if (!this.isOriginAllowed(req)) {
-      rejectUpgrade(socket, 403, "Forbidden");
+      rejectWebIngressUpgrade(socket, 403, "Forbidden");
       return;
     }
     const token = readPlatformClawSessionCookie(req);
     if (!token) {
-      rejectUpgrade(socket, 401, "Unauthorized");
+      rejectWebIngressUpgrade(socket, 401, "Unauthorized");
       return;
     }
     if (!this.options.gateway.getHello()) {
-      rejectUpgrade(socket, 503, "Service Unavailable");
+      rejectWebIngressUpgrade(socket, 503, "Service Unavailable");
       return;
     }
     let access: BrowserGatewayAccess;
     try {
       access = await this.options.gatewayProxy.resolveAccess(token, false);
     } catch {
-      rejectUpgrade(socket, 401, "Unauthorized");
+      rejectWebIngressUpgrade(socket, 401, "Unauthorized");
       return;
     }
     this.websocketServer.handleUpgrade(req, socket, head, (websocket) => {

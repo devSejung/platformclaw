@@ -1,3 +1,4 @@
+import { AiUsageReportService } from "./ai-usage-report-service.js";
 import { BrowserAnnouncementService } from "./browser-announcements-http.js";
 import {
   createEmployeeBrowserAuthRuntime,
@@ -401,6 +402,7 @@ export function createPlatformClawWebIngressRuntime(
     mcpAdministrationService: mcpAdministration,
     organizationService: organization,
     dashboardService: new DashboardService({ store: auth.store, gateway }),
+    aiUsageReportService: new AiUsageReportService({ store: auth.store, gateway }),
     ...(execCredentialService ? { execCredentialService } : {}),
     ...(vocService ? { vocService } : {}),
     ...(skillHub ? { skillHubService: skillHub } : {}),
