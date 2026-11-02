@@ -15,15 +15,22 @@ function setup(providerId = "codemate", modelId = "codellm-fast", apiType = "ope
     composerPredictionsEnabled?: boolean;
     composerPredictionsTimeoutMs?: number;
   } = { composerPredictionsEnabled: true };
+  const provider: {
+    baseUrl: string;
+    api: string;
+    apiKey?: unknown;
+    headers?: Record<string, unknown>;
+    models: { id: string }[];
+  } = {
+    baseUrl: "http://company.internal/v1",
+    api: apiType,
+    models: [{ id: modelId }],
+  };
   const config = {
     plugins: { entries: { "admin-http-rpc": { config: pluginConfig } } },
     models: {
       providers: {
-        [providerId]: {
-          baseUrl: "http://company.internal/v1",
-          api: apiType,
-          models: [{ id: modelId }],
-        },
+        [providerId]: provider,
       },
     },
   };
@@ -56,7 +63,7 @@ function setup(providerId = "codemate", modelId = "codellm-fast", apiType = "ope
     ],
   };
   const predict = (signal = new AbortController().signal) => call(params, signal);
-  return { call, predict, composer, values, params, pluginConfig };
+  return { call, predict, composer, values, params, pluginConfig, provider };
 }
 
 function useDeadlineClock() {
@@ -85,7 +92,7 @@ afterEach(() => {
 describe("Explicit isolated prediction inference", () => {
   it("defaults OFF, isolates account preferences, and never follows conversation models", async () => {
     const { call, predict, params } = setup();
-    expect(await predict()).toEqual({ text: null });
+    expect(await predict()).toEqual({ text: null, reason: "disabled" });
     const signal = new AbortController().signal;
     expect(await call({ action: "preferences", userId: "user-1" }, signal)).toEqual({
       available: true,
@@ -97,8 +104,11 @@ describe("Explicit isolated prediction inference", () => {
       enabled: true,
       timeoutMs: 30_000,
     });
-    expect(await call({ ...params, userId: "user-2" }, signal)).toEqual({ text: null });
-    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?" });
+    expect(await call({ ...params, userId: "user-2" }, signal)).toEqual({
+      text: null,
+      reason: "disabled",
+    });
+    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
     const request = mocks.fetch.mock.calls[0]?.[0];
     const body = JSON.parse(request.init.body);
     expect(body).toMatchObject({ model: "codellm-fast", max_tokens: 64, stream: false });
@@ -145,7 +155,7 @@ describe("Explicit isolated prediction inference", () => {
         enabled,
         timeoutMs: 45_000,
       });
-      expect(await predict()).toEqual({ text: null });
+      expect(await predict()).toEqual({ text: null, reason: "disabled" });
       expect(mocks.fetch).not.toHaveBeenCalled();
     },
   );
@@ -179,7 +189,7 @@ describe("Explicit isolated prediction inference", () => {
     );
     const pending = predict();
     await vi.advanceTimersByTimeAsync(15_000);
-    expect(await pending).toEqual({ text: "다음 단계는 무엇인가요?" });
+    expect(await pending).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
     expect(upstreamSignal?.aborted).toBe(false);
     expect(timeout).toHaveBeenCalledWith(45_000);
   });
@@ -201,14 +211,16 @@ describe("Explicit isolated prediction inference", () => {
     expect(upstreamSignal?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(upstreamSignal?.aborted).toBe(true);
-    expect(await pending).toEqual({ text: null });
-    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?" });
+    expect(await pending).toEqual({ text: null, reason: "timeout" });
+    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
   });
-  it("releases an interrupted response stream and admits the next prediction", async () => {
-    const { predict, values } = setup();
+  it("preserves request cancellation when normal chat starts during stream cleanup", async () => {
+    const { predict, composer, values } = setup();
     values.set("user-1", true);
-    const release = vi.fn(async () => {});
+    const release = vi.fn(async () => {
+      composer.modelCallStarted("normal-chat");
+    });
     let upstreamResponse: Response | undefined;
     mocks.fetch.mockImplementationOnce(async ({ signal }: { signal: AbortSignal }) => {
       upstreamResponse = new Response(
@@ -223,10 +235,12 @@ describe("Explicit isolated prediction inference", () => {
     const cancellation = new AbortController();
     const pending = predict(cancellation.signal);
     await vi.waitFor(() => expect(upstreamResponse?.body?.locked).toBe(true));
-    cancellation.abort();
-    expect(await pending).toEqual({ text: null });
+    cancellation.abort(new Error("private request cancellation reason"));
+    expect(await pending).toEqual({ text: null, reason: "cancelled" });
     expect(release).toHaveBeenCalledTimes(1);
-    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?" });
+    expect(await predict()).toEqual({ text: null, reason: "model_busy" });
+    composer.modelCallEnded("normal-chat");
+    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
   });
   it("uses the configured provider/model and pins it until plugin recreation", async () => {
@@ -234,7 +248,7 @@ describe("Explicit isolated prediction inference", () => {
     const { predict, values } = setup("company-fast", "org/followup-v2");
     values.set("user-1", true);
     vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", "codemate/codellm-fast");
-    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?" });
+    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
     const request = mocks.fetch.mock.calls[0]?.[0];
     expect(JSON.parse(request.init.body).model).toBe("org/followup-v2");
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
@@ -252,7 +266,7 @@ describe("Explicit isolated prediction inference", () => {
       vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", value);
       const { predict, values } = setup();
       values.set("user-1", true);
-      expect(await predict()).toEqual({ text: null });
+      expect(await predict()).toEqual({ text: null, reason: "model_unavailable" });
       expect(mocks.fetch).not.toHaveBeenCalled();
       expect(mocks.lookup).not.toHaveBeenCalled();
     },
@@ -261,8 +275,148 @@ describe("Explicit isolated prediction inference", () => {
     vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", "company-fast/followup-v2");
     const { predict, values } = setup("company-fast", "followup-v2", "anthropic-messages");
     values.set("user-1", true);
-    expect(await predict()).toEqual({ text: null });
+    expect(await predict()).toEqual({ text: null, reason: "unsupported_api" });
     expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["malformed URL", "not a URL"],
+    // A redacted fixture password still exercises the URL userinfo rejection.
+    ["embedded credentials", "http://example-user:***@provider.example.test/v1"],
+    ["query credentials", "http://company.internal/v1?key=private-key"],
+  ])(
+    "reports an invalid provider for %s without exposing its configuration",
+    async (_name, baseUrl) => {
+      const { predict, values, provider } = setup();
+      values.set("user-1", true);
+      provider.baseUrl = baseUrl;
+      expect(await predict()).toEqual({ text: null, reason: "invalid_provider" });
+      expect(mocks.fetch).not.toHaveBeenCalled();
+      expect(mocks.lookup).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["apiKey", "headers"] as const)(
+    "reports unresolved %s without exposing the credential reference",
+    async (field) => {
+      const { predict, values, provider } = setup();
+      values.set("user-1", true);
+      const credential = { source: "env", id: "PRIVATE_CREDENTIAL" };
+      if (field === "apiKey") {
+        provider.apiKey = credential;
+      } else {
+        provider.headers = { Authorization: credential };
+      }
+      expect(await predict()).toEqual({ text: null, reason: "credentials_unready" });
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    { name: "missing messages", messages: undefined },
+    { name: "empty history", messages: [] },
+    { name: "short history", messages: [{ role: "assistant", content: "답변" }] },
+    {
+      name: "disallowed role",
+      messages: [
+        { role: "system", content: "private context" },
+        { role: "assistant", content: "답변" },
+      ],
+    },
+    {
+      name: "oversized message",
+      messages: [
+        { role: "user", content: "x".repeat(601) },
+        { role: "assistant", content: "답변" },
+      ],
+    },
+    {
+      name: "unfinished response",
+      messages: [
+        { role: "assistant", content: "답변" },
+        { role: "user", content: "계획" },
+      ],
+    },
+  ])("reports $name as invalid context without inference", async ({ messages }) => {
+    const { call, values, params } = setup();
+    values.set("user-1", true);
+    expect(await call({ ...params, messages }, new AbortController().signal)).toEqual({
+      text: null,
+      reason: "invalid_context",
+    });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+  it.each([401, 403, 429, 500, 503])(
+    "returns only the provider status for HTTP %s and releases admission",
+    async (status) => {
+      const { predict, values } = setup();
+      values.set("user-1", true);
+      const cancel = vi.fn();
+      const release = vi.fn(async () => {});
+      mocks.fetch.mockResolvedValueOnce({
+        response: new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("private provider body and prompt"));
+            },
+            cancel,
+          }),
+          { status, headers: { "X-Private-Credential": "private-key" } },
+        ),
+        release,
+      });
+      expect(await predict()).toEqual({
+        text: null,
+        reason: "provider_http_error",
+        providerStatus: status,
+      });
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
+      expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+  it.each([
+    { name: "missing body", body: null, reason: "response_missing" },
+    { name: "empty body", body: "  ", reason: "response_empty" },
+    { name: "malformed JSON", body: "private non-JSON provider error", reason: "response_invalid" },
+    { name: "missing choices", body: "{}", reason: "response_invalid" },
+    { name: "oversized body", body: "x".repeat(16_385), reason: "response_oversized" },
+    ...[
+      {
+        name: "non-text content",
+        content: { private: "provider output" },
+        reason: "response_invalid",
+      },
+      { name: "empty content", content: "  ", reason: "response_empty" },
+      { name: "intentional abstention", content: "NO_SUGGESTION", reason: "no_suggestion" },
+      { name: "multiline content", content: "private\nprovider output", reason: "format_rejected" },
+      { name: "Markdown content", content: "# private provider output", reason: "format_rejected" },
+      { name: "long content", content: "x".repeat(301), reason: "format_rejected" },
+    ].map(({ name, content, reason }) => ({
+      name,
+      body: JSON.stringify({ choices: [{ message: { content } }] }),
+      reason,
+    })),
+  ])("reports $name without returning rejected output", async ({ body, reason }) => {
+    const { predict, values } = setup();
+    values.set("user-1", true);
+    const release = vi.fn(async () => {});
+    mocks.fetch.mockResolvedValueOnce({ response: new Response(body), release });
+    expect(await predict()).toEqual({ text: null, reason });
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+  it("reports preferences disabled during inference without returning the suggestion", async () => {
+    const { predict, values } = setup();
+    values.set("user-1", true);
+    mocks.fetch.mockImplementationOnce(async () => {
+      values.set("user-1", false);
+      return {
+        response: Response.json({ choices: [{ message: { content: "private suggestion" } }] }),
+        release: async () => {},
+      };
+    });
+    expect(await predict()).toEqual({ text: null, reason: "disabled" });
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
   it("skips concurrent predictions and preempts them for ordinary chat", async () => {
     const { predict, composer, values } = setup();
@@ -277,23 +431,23 @@ describe("Explicit isolated prediction inference", () => {
     );
     const pending = predict();
     await vi.waitFor(() => expect(abortSignal).toBeDefined());
-    expect(await predict()).toEqual({ text: null });
+    expect(await predict()).toEqual({ text: null, reason: "prediction_busy" });
     composer.modelCallStarted("normal-chat");
     expect(abortSignal?.aborted).toBe(true);
-    expect(await pending).toEqual({ text: null });
-    expect(await predict()).toEqual({ text: null });
+    expect(await pending).toEqual({ text: null, reason: "model_preempted" });
+    expect(await predict()).toEqual({ text: null, reason: "model_busy" });
     composer.modelCallEnded("normal-chat");
-    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?" });
+    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
   });
   it("rejects public destinations and does not retry or fall back on failure", async () => {
     vi.stubEnv("PLATFORMCLAW_COMPOSER_PREDICTIONS_MODEL", "company-fast/followup-v2");
     const { predict, values } = setup("company-fast", "followup-v2");
     values.set("user-1", true);
     mocks.lookup.mockResolvedValueOnce([{ address: "8.8.8.8", family: 4 }]);
-    expect(await predict()).toEqual({ text: null });
+    expect(await predict()).toEqual({ text: null, reason: "destination_rejected" });
     expect(mocks.fetch).not.toHaveBeenCalled();
-    mocks.fetch.mockRejectedValueOnce(new Error("private failure"));
-    expect(await predict()).toEqual({ text: null });
+    mocks.fetch.mockRejectedValueOnce(new Error("TimeoutError: secret credential and prompt"));
+    expect(await predict()).toEqual({ text: null, reason: "provider_error" });
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
   it("forwards cancellation without leaking the response", async () => {
@@ -301,7 +455,7 @@ describe("Explicit isolated prediction inference", () => {
     values.set("user-1", true);
     const controller = new AbortController();
     controller.abort();
-    expect(await predict(controller.signal)).toEqual({ text: null });
+    expect(await predict(controller.signal)).toEqual({ text: null, reason: "cancelled" });
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 });
