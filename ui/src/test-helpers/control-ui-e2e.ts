@@ -362,6 +362,7 @@ export async function startControlUiE2eServer(
   const [
     { createServer },
     { controlUiLocaleModulesPlugin },
+    { controlUiPdfAssetsPlugin },
     {
       controlUiBrowserOnlySharedModuleAliases,
       resolveExternalPackageAliasesForVite,
@@ -371,6 +372,7 @@ export async function startControlUiE2eServer(
   ] = await Promise.all([
     import("vite"),
     import("../../config/control-ui-locales.ts"),
+    import("../../config/control-ui-pdf-assets.ts"),
     import("../../vite.config.ts"),
   ]);
   const repoRoot = resolveRepoRoot();
@@ -394,7 +396,11 @@ export async function startControlUiE2eServer(
       ],
     },
     publicDir: path.join(uiRoot, "public"),
-    plugins: [controlUiLocaleModulesPlugin(), controlUiBrowserOnlySharedModuleAliases()],
+    plugins: [
+      controlUiLocaleModulesPlugin(),
+      controlUiPdfAssetsPlugin(),
+      controlUiBrowserOnlySharedModuleAliases(),
+    ],
     resolve: {
       alias: [
         { find: "json5", replacement: json5EsmPath },

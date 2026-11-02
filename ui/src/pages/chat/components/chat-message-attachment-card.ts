@@ -1,4 +1,5 @@
 import { html } from "lit";
+import type { DocumentChangeHandler } from "../../../components/document-viewer-request.ts";
 import { icons } from "../../../components/icons.ts";
 import { safeAttachmentHref } from "./chat-attachment-href.ts";
 import { documentPreviewKind } from "./chat-document-attachment.ts";
@@ -24,12 +25,34 @@ export function renderAssistantDocumentAttachment(params: {
       ></openclaw-chat-html-attachment>`;
     }
     if (documentPreviewKind(attachment.mimeType, attachment.label)) {
+      const pageUnit =
+        documentPreviewKind(attachment.mimeType, attachment.label) === "powerpoint"
+          ? "slide"
+          : "page";
+      const requestChanges = options?.onDocumentChangeRequest;
+      const source =
+        options?.sessionKey && options.messageId && options.sourceMessage
+          ? ({
+              sessionKey: options.sessionKey,
+              messageId: options.messageId,
+              message: options.sourceMessage,
+              sourceIdentity: attachment.url,
+              artifactId: attachment.artifactId,
+              label: attachment.label,
+              pageUnit,
+            } as const)
+          : undefined;
+      const handler: DocumentChangeHandler | undefined =
+        requestChanges && source
+          ? (request, signal) => requestChanges(source, request, signal)
+          : undefined;
       return html`<openclaw-chat-document-attachment
         .src=${params.url}
         .sourceIdentity=${attachment.url}
         .label=${attachment.label}
         .mimeType=${attachment.mimeType ?? ""}
         .sizeBytes=${params.sizeBytes}
+        .requestChanges=${handler}
         .onMediaLoaded=${options?.onAssistantAttachmentLoaded}
       ></openclaw-chat-document-attachment>`;
     }

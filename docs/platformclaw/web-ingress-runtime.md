@@ -361,12 +361,32 @@ Gateway validates each file against the owning Agent's allowed media roots.
 Plain-text file claims do not grant access. Browser cookies, Gateway
 credentials, redirects, and unapproved response headers never cross the bridge.
 
-Images from Basic server execution and assigned VMs open in the image viewer.
-PDF, PPT, and PPTX attachments offer **Preview** alongside their original
-download. PDF bytes are loaded through the owned media bridge and shown in the
-browser's PDF reader. PowerPoint previews convert the authorized attachment
-snapshot to PDF; the downloadable PPT or PPTX stays unchanged. Reopening the
+Images from Basic server execution and assigned VMs appear inline and open in the
+image viewer when selected. PDF, PPT, and PPTX attachments open their preview
+automatically when their card is visible, alongside the original download. Closing
+a preview keeps that file closed until **Preview** is selected again. Both formats
+use the same built-in PDF.js viewer, with page navigation and thumbnail contents,
+zoom, **Fit page**, **Fit width**, and **Expand document preview** for a larger view.
+PowerPoint previews convert the authorized attachment snapshot to PDF before
+rendering; the downloadable PPT or PPTX stays unchanged. Reopening the
 conversation uses the same saved snapshot and checks the current browser owner.
+
+The document fits the existing inline attachment box. Page or slide navigation and
+**Request changes** stay below it, inside that box. Selection is off until
+**Request changes** is chosen. Click a part or drag a region to open a small input
+beside that selection, inside the preview. Describe the change and choose **Send request**.
+**Preview options** contains zoom, fitting, and **Expand document preview**.
+The ordinary chat outbox sends the request to the owning conversation, replies to
+the source message, and attaches a bounded image crop for region selections.
+The original document is referenced rather than reattached. A rejected request
+keeps the instructions; an admitted request uses the existing queue and Retry.
+Closing the preview clears the selection and unsent instructions.
+
+The viewer, worker, fonts, and character maps are bundled with the app; previews
+need no external viewer service or CDN. The browser receives only the authorized
+PDF bytes. PDF JavaScript, forms, and external link actions are not executed.
+No Canvas setting or `blob:` frame permission is required. A reverse proxy should
+preserve the application's CSP rather than replace it with a static policy.
 
 PDF and PowerPoint previews are limited to 16 MiB, including the converted PDF.
 PowerPoint conversion requires the existing rootless sandbox Docker service and

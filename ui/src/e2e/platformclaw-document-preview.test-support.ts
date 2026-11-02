@@ -2,7 +2,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { PlatformClawBrowserMediaRelay } from "../../../packages/platformclaw-control-plane/src/browser-media-http.js";
 import { getReplyPayloadMetadata } from "../../../src/auto-reply/reply-payload.js";
@@ -10,10 +10,6 @@ import { buildReplyPayloads } from "../../../src/auto-reply/reply/agent-runner-p
 import { createReplyMediaPathNormalizer } from "../../../src/auto-reply/reply/reply-media-paths.js";
 import { replaceSessionEntry } from "../../../src/config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../../../src/config/types.openclaw.js";
-import {
-  buildControlUiCspHeader,
-  computeInlineScriptHashes,
-} from "../../../src/gateway/control-ui-csp.js";
 import {
   attachManagedOutgoingMediaToMessage,
   resolveManagedOutgoingMediaArtifactDownload,
@@ -30,12 +26,20 @@ import { withEnvAsync } from "../../../src/test-utils/env.js";
 import { createOpenClawTestState } from "../../../src/test-utils/openclaw-test-state.js";
 import type { DocumentPreviewExecutionRuntime } from "../../../test/e2e/platformclaw/document-preview-runtime.ts";
 import {
-  installMockGateway,
   resolvePlaywrightChromiumExecutablePath,
-  startControlUiE2eServer,
   type ControlUiE2eServer,
 } from "../test-helpers/control-ui-e2e.ts";
+import {
+  installPlatformClawMockGateway,
+  observePlatformClawPreviewCsp,
+  startPlatformClawControlUiE2eServer,
+} from "../test-helpers/platformclaw-control-ui-e2e.ts";
 import { createCanvasExecutionBridge } from "./platformclaw-canvas.test-support.ts";
+import { exerciseDocumentChangeRequest } from "./platformclaw-document-change-browser.test-support.ts";
+import {
+  exerciseDocumentPreview,
+  type ObservedMediaResponse,
+} from "./platformclaw-document-preview-browser.test-support.ts";
 import {
   createDocumentPreviewFixtures,
   type DocumentPreviewFixture,
@@ -47,13 +51,6 @@ const sessionKey = `agent:${agentId}:main`;
 const gatewayToken = "document-preview-gateway-token";
 const browserToken = "document-preview-browser-token";
 const proofRoot = path.resolve(".artifacts/control-ui-e2e/platformclaw-canvas/document-previews");
-
-type ObservedMediaResponse = {
-  url: string;
-  status: number;
-  headers: Record<string, string>;
-  bytes: Buffer;
-};
 
 function listen(server: Server): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -75,154 +72,6 @@ function close(server: Server): Promise<void> {
   });
 }
 
-async function exerciseDocumentPreview(params: {
-  page: Page;
-  fixture: DocumentPreviewFixture;
-  target: string;
-  phase: "initial" | "reloaded" | "recovered";
-  proofDir: string;
-  mediaResponses: readonly ObservedMediaResponse[];
-}): Promise<void> {
-  const { page, fixture, target, phase, proofDir, mediaResponses } = params;
-  if (fixture.format === "image") {
-    const image = page.locator(".chat-message-image");
-    await expect
-      .poll(() =>
-        image.evaluate((element) =>
-          element instanceof HTMLImageElement && element.complete ? element.naturalWidth : 0,
-        ),
-      )
-      .toBe(320);
-    await image.click();
-    const lightbox = page.locator("openclaw-image-lightbox");
-    await lightbox.locator(".image").waitFor();
-    await expect
-      .poll(() =>
-        lightbox
-          .locator(".image")
-          .evaluate((element) =>
-            element instanceof HTMLImageElement && element.complete ? element.naturalWidth : 0,
-          ),
-      )
-      .toBe(320);
-    await page.screenshot({
-      path: path.join(proofDir, `${target}-image-${phase}.png`),
-      fullPage: true,
-    });
-    await lightbox.getByRole("button", { name: "Close image preview" }).click();
-    return;
-  }
-  const card = page
-    .locator("openclaw-chat-document-attachment")
-    .filter({ hasText: fixture.filename });
-  const href = await card
-    .getByRole("link", { name: "Download file", exact: true })
-    .getAttribute("href");
-  if (!href) {
-    throw new Error("owned document has no original download URL");
-  }
-  const expectedUrl = new URL(href, page.url());
-  if (fixture.format === "powerpoint") {
-    expectedUrl.searchParams.set("preview", "1");
-  }
-  const [previewResponse] = await Promise.all([
-    page.waitForResponse((candidate) => candidate.url() === expectedUrl.href),
-    card.getByRole("button", { name: "Preview", exact: true }).click(),
-  ]);
-  expect(previewResponse.status()).toBe(200);
-  const observed = mediaResponses.findLast((candidate) => candidate.url === expectedUrl.href);
-  if (!observed) {
-    throw new Error("preview did not traverse the real owned BFF relay");
-  }
-  expect(observed.status).toBe(200);
-  expect(observed.headers["content-type"]).toMatch(/^application\/pdf(?:;|$)/u);
-  expect(new URL(observed.url).searchParams.get("preview")).toBe(
-    fixture.format === "powerpoint" ? "1" : null,
-  );
-  const pdfBytes = observed.bytes;
-  expect(pdfBytes.subarray(0, 5).toString()).toBe("%PDF-");
-  if (fixture.format === "pdf") {
-    expect(pdfBytes).toEqual(fixture.bytes);
-  } else {
-    expect(pdfBytes).not.toEqual(fixture.bytes);
-  }
-  const frame = card.locator("iframe.chat-document-attachment__frame");
-  await frame.waitFor();
-  const previewBlobUrl = await frame.getAttribute("src");
-  expect(previewBlobUrl).toMatch(/^blob:/u);
-  // Full Chromium's native PDF reader owns these document-load facts. Blob bytes
-  // and an iframe alone can otherwise pass while the visible page stays blank.
-  await expect
-    .poll(async () => {
-      const viewerFrame = page
-        .frames()
-        .find(
-          (candidate) =>
-            candidate.url().startsWith("chrome-extension://") &&
-            candidate.parentFrame()?.url() === previewBlobUrl,
-        );
-      if (!viewerFrame) {
-        return null;
-      }
-      return viewerFrame.locator("pdf-viewer").evaluate((element) => {
-        const dimensions: unknown = Reflect.get(element, "documentDimensions");
-        const pages =
-          typeof dimensions === "object" &&
-          dimensions !== null &&
-          "pageDimensions" in dimensions &&
-          Array.isArray(dimensions.pageDimensions)
-            ? dimensions.pageDimensions.length
-            : 0;
-        return { state: Reflect.get(element, "loadState_"), pages };
-      });
-    })
-    .toEqual({ state: "success", pages: fixture.format === "powerpoint" ? 2 : 1 });
-  await card.scrollIntoViewIfNeeded();
-  const layout = await frame.evaluate((element) => {
-    const column = element.closest(".chat-group-messages");
-    const attachmentCard = element.closest(".chat-assistant-attachment-card");
-    if (!(column instanceof HTMLElement) || !(attachmentCard instanceof HTMLElement)) {
-      throw new Error("document preview lost its message column");
-    }
-    const style = getComputedStyle(attachmentCard);
-    const inset = [
-      "padding-left",
-      "padding-right",
-      "border-left-width",
-      "border-right-width",
-    ].reduce((total, property) => total + Number.parseFloat(style.getPropertyValue(property)), 0);
-    return { width: element.getBoundingClientRect().width, available: column.clientWidth - inset };
-  });
-  expect(Math.abs(layout.width - layout.available)).toBeLessThanOrEqual(1);
-  await page.screenshot({
-    path: path.join(proofDir, `${target}-${fixture.format}-${phase}.png`),
-    fullPage: true,
-  });
-  if (phase === "initial") {
-    const desktopViewport = page.viewportSize();
-    if (!desktopViewport) {
-      throw new Error("document browser proof requires a fixed viewport");
-    }
-    await page.setViewportSize({ width: 390, height: 844 });
-    await card.scrollIntoViewIfNeeded();
-    const bounds = await frame.boundingBox();
-    if (!bounds) {
-      throw new Error("document preview disappeared at mobile width");
-    }
-    expect(bounds.x).toBeGreaterThanOrEqual(0);
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
-    await page.screenshot({
-      path: path.join(proofDir, `${target}-${fixture.format}-mobile.png`),
-      fullPage: true,
-    });
-    await page.setViewportSize(desktopViewport);
-  }
-  await card.getByRole("button", { name: "Close preview", exact: true }).click();
-  // Click completion does not wait for the component's closed-state render.
-  await card.getByRole("button", { name: "Preview", exact: true }).waitFor();
-  expect(await card.locator("iframe").count()).toBe(0);
-}
-
 /** Normal browser proof and the explicit rootless-Docker suite share the same owner pipeline. */
 export function defineDocumentPreviewScenarios(params: {
   formats: readonly DocumentPreviewFormat[];
@@ -240,7 +89,7 @@ export function defineDocumentPreviewScenarios(params: {
     let controlUi: ControlUiE2eServer;
     beforeAll(async () => {
       await mkdir(proofDir, { recursive: true });
-      controlUi = await startControlUiE2eServer();
+      controlUi = await startPlatformClawControlUiE2eServer("document-preview");
       browser = await chromium.launch({
         executablePath: resolvePlaywrightChromiumExecutablePath(chromium.executablePath()),
       });
@@ -307,6 +156,7 @@ export function defineDocumentPreviewScenarios(params: {
           const downloads: Array<{
             fixture: DocumentPreviewFixture;
             download: ManagedOutgoingMediaArtifactDownload;
+            messageId: string;
           }> = [];
           const publishAuthorities: Array<() => Promise<void>> = [];
           for (const fixture of fixtures) {
@@ -421,7 +271,7 @@ export function defineDocumentPreviewScenarios(params: {
                 artifactId: media.artifactId,
               }),
             ).toBeNull();
-            downloads.push({ fixture, download });
+            downloads.push({ fixture, download, messageId: appended.messageId });
             historyMessages.push({
               role: "assistant",
               content,
@@ -502,6 +352,7 @@ export function defineDocumentPreviewScenarios(params: {
           const context = await browser.newContext({
             acceptDownloads: true,
             locale: "en-US",
+            serviceWorkers: "block",
             viewport: { width: 1280, height: 900 },
             ...(process.env.OPENCLAW_CAPTURE_UI_PROOF === "1"
               ? {
@@ -534,32 +385,16 @@ export function defineDocumentPreviewScenarios(params: {
               });
               await route.fulfill({ response, body: bytes });
             });
-            await context.route("**/*", async (route) => {
-              const request = route.request();
-              const navigationUrl = new URL(request.url());
-              const chatUrl = new URL("chat", controlUi.baseUrl);
-              if (
-                !request.isNavigationRequest() ||
-                navigationUrl.origin !== chatUrl.origin ||
-                navigationUrl.pathname !== chatUrl.pathname ||
-                request.frame().parentFrame()
-              ) {
-                await route.fallback();
-                return;
-              }
-              const response = await route.fetch();
-              const body = await response.body();
-              const csp = buildControlUiCspHeader({
-                inlineScriptHashes: computeInlineScriptHashes(body.toString("utf8")),
-              });
-              await route.fulfill({
-                response,
-                body,
-                headers: { ...response.headers(), "content-security-policy": csp },
-              });
-            });
             const page = await context.newPage();
-            const gatewayMock = await installMockGateway(page, {
+            const rendererWorkers: string[] = [];
+            page.on("worker", (worker) => {
+              const url = new URL(worker.url());
+              expect(url.origin).toBe(new URL(controlUi.baseUrl).origin);
+              expect(rendererWorkers.length).toBeLessThan(32);
+              rendererWorkers.push(url.pathname);
+            });
+            const cspViolations = await observePlatformClawPreviewCsp(page);
+            const gatewayMock = await installPlatformClawMockGateway(page, {
               assistantAgentId: agentId,
               defaultAgentId: agentId,
               historyMessages,
@@ -583,11 +418,18 @@ export function defineDocumentPreviewScenarios(params: {
                 },
               },
             });
-            await page.goto(`${controlUi.baseUrl}chat`);
             for (const phase of ["initial", "reloaded"] as const) {
-              if (phase === "reloaded") {
-                await page.reload();
-              }
+              const documentResponse =
+                phase === "initial"
+                  ? await page.goto(`${controlUi.baseUrl}chat`)
+                  : await page.reload();
+              expect(documentResponse?.status()).toBe(200);
+              const csp = documentResponse?.headers()["content-security-policy"] ?? "";
+              expect(csp).not.toBe("");
+              console.log(
+                "document-preview-document-csp",
+                JSON.stringify({ target, phase, csp: csp.slice(0, 4096) }),
+              );
               for (const fixture of fixtures) {
                 await exerciseDocumentPreview({
                   page,
@@ -596,6 +438,7 @@ export function defineDocumentPreviewScenarios(params: {
                   phase,
                   proofDir,
                   mediaResponses,
+                  cspViolations,
                 });
               }
             }
@@ -666,7 +509,7 @@ export function defineDocumentPreviewScenarios(params: {
               expect(denied.status()).toBe(404);
               await card.getByRole("alert").waitFor();
               expect((await card.getByRole("alert").textContent())?.trim()).not.toBe("");
-              expect(await card.locator("iframe").count()).toBe(0);
+              expect(await card.locator("openclaw-document-viewer").count()).toBe(0);
               await page.screenshot({
                 path: path.join(proofDir, `${target}-${document.format}-ownership-denied.png`),
                 fullPage: true,
@@ -682,6 +525,28 @@ export function defineDocumentPreviewScenarios(params: {
                 phase: "recovered",
                 proofDir,
                 mediaResponses,
+                cspViolations,
+              });
+            }
+            expect(cspViolations).toEqual([]);
+            expect(rendererWorkers.some((pathname) => /pdf\.worker.*\.js$/u.test(pathname))).toBe(
+              true,
+            );
+            const changeDocument =
+              downloads.find(({ fixture }) => fixture.format === "powerpoint") ??
+              downloads.find(({ fixture }) => fixture.format === "pdf");
+            if (changeDocument) {
+              await exerciseDocumentChangeRequest({
+                page,
+                fixture: changeDocument.fixture,
+                target,
+                proofDir,
+                sessionKey,
+                gateway: gatewayMock,
+                source: {
+                  messageId: changeDocument.messageId,
+                  artifactId: changeDocument.download.artifactId,
+                },
               });
             }
           } finally {

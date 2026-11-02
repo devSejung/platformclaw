@@ -13,6 +13,7 @@ import {
 } from "../test/vitest/vitest.shared.config.ts";
 import { uiIsolatedTestFiles } from "../test/vitest/vitest.ui-isolated-paths.mjs";
 import { controlUiLocaleModulesPlugin } from "./config/control-ui-locales.ts";
+import { controlUiPdfAssetsPlugin } from "./config/control-ui-pdf-assets.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
@@ -137,7 +138,11 @@ export default defineConfig({
     ...sharedUiTestConfig,
     projects: [
       defineProject({
-        plugins: [nativeNodeTestBuiltinsPlugin(), controlUiLocaleModulesPlugin()],
+        plugins: [
+          nativeNodeTestBuiltinsPlugin(),
+          controlUiLocaleModulesPlugin(),
+          controlUiPdfAssetsPlugin(),
+        ],
         resolve: {
           alias: workspaceSourceAliases,
         },
@@ -157,7 +162,11 @@ export default defineConfig({
         },
       }),
       defineProject({
-        plugins: [nativeNodeTestBuiltinsPlugin(), controlUiLocaleModulesPlugin()],
+        plugins: [
+          nativeNodeTestBuiltinsPlugin(),
+          controlUiLocaleModulesPlugin(),
+          controlUiPdfAssetsPlugin(),
+        ],
         resolve: {
           alias: workspaceSourceAliases,
         },
@@ -174,7 +183,11 @@ export default defineConfig({
         },
       }),
       defineProject({
-        plugins: [nativeNodeTestBuiltinsPlugin(), controlUiLocaleModulesPlugin()],
+        plugins: [
+          nativeNodeTestBuiltinsPlugin(),
+          controlUiLocaleModulesPlugin(),
+          controlUiPdfAssetsPlugin(),
+        ],
         resolve: {
           alias: workspaceSourceAliases,
         },
@@ -188,7 +201,7 @@ export default defineConfig({
         },
       }),
       defineProject({
-        plugins: [controlUiLocaleModulesPlugin()],
+        plugins: [controlUiLocaleModulesPlugin(), controlUiPdfAssetsPlugin()],
         resolve: {
           alias: workspaceSourceAliases,
         },

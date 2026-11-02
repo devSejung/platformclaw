@@ -21,6 +21,8 @@ export type ControlUiPerformanceMetrics = {
     assets: ControlUiAssetMetrics[];
   };
   total: { js: ControlUiAssetSummary; css: ControlUiAssetSummary };
+  workers: { js: ControlUiAssetSummary; largestJs?: ControlUiAssetMetrics };
+  /** Ordinary/main-thread JavaScript retains its independent ceiling. */
   largest: { js: ControlUiAssetMetrics; css: ControlUiAssetMetrics };
 };
 
@@ -30,6 +32,7 @@ export type ControlUiPerformanceBudgets = {
   startupJsGzipBytes: number;
   startupCssGzipBytes: number;
   largestJsGzipBytes: number;
+  largestWorkerJsGzipBytes: number;
   largestCssGzipBytes: number;
 };
 

@@ -29,6 +29,7 @@ import {
 } from "../../../lib/chat/tool-cards.ts";
 import type { CanvasPluginSurfaceRoute, EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
 import { resolveToolDisplay } from "../../../lib/chat/tool-display.ts";
+import type { ChatDocumentChangeHandler } from "../document-change-contract.ts";
 import {
   visibleWorkspaceConflictPaths,
   workspaceConflictCount,
@@ -185,6 +186,7 @@ export function renderGroupedMessage(
     localMediaPreviewRoots?: readonly string[];
     assistantAttachmentAuthToken?: string | null;
     resolveArtifactDownload?: ArtifactDownloadResolver;
+    onDocumentChangeRequest?: ChatDocumentChangeHandler;
     onAssistantAttachmentLoaded?: () => void;
     onRequestOpenImage?: () => number;
     onOpenImage?: (item: ImageLightboxItem, requestVersion?: number) => void;
@@ -224,6 +226,8 @@ export function renderGroupedMessage(
     onRequestOpenImage: opts.onRequestOpenImage,
     onOpenImage: opts.onOpenImage,
     resolveArtifactDownload: opts.resolveArtifactDownload,
+    onDocumentChangeRequest: opts.onDocumentChangeRequest,
+    sourceMessage: message,
   };
   schedulePairingQrExpiryRefresh(messageKey, message, opts.onRequestUpdate);
   const images = resolveRenderableMessageImages(extractImages(message), imageRenderOptions);

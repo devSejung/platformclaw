@@ -66,6 +66,7 @@ import {
   openChatThreadSearch,
   closeChatThreadSearch,
 } from "./components/chat-thread.ts";
+import type { ChatDocumentChangeHandler } from "./document-change-contract.ts";
 import type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult } from "./input-history.ts";
 import type { RealtimeTalkConversationEntry } from "./realtime-talk-conversation.ts";
 import type { RealtimeTalkCameraDevice } from "./realtime-talk-input.ts";
@@ -209,6 +210,7 @@ export type ChatProps = {
   localMediaPreviewRoots?: string[];
   assistantAttachmentAuthToken?: string | null;
   resolveArtifactDownload?: ArtifactDownloadResolver;
+  onDocumentChangeRequest?: ChatDocumentChangeHandler;
   autoExpandToolCalls?: boolean;
   attachments?: ChatAttachment[];
   getAttachments?: () => ChatAttachment[];
@@ -381,6 +383,7 @@ export function renderChat(props: ChatProps) {
       localMediaPreviewRoots: props.localMediaPreviewRoots,
       assistantAttachmentAuthToken: props.assistantAttachmentAuthToken,
       resolveArtifactDownload: props.resolveArtifactDownload,
+      onDocumentChangeRequest: props.onDocumentChangeRequest,
       canvasPluginSurfaceRoute: props.canvasPluginSurfaceRoute,
       recoverCanvasPluginSurfaceUrl: props.recoverCanvasPluginSurfaceUrl,
       embedSandboxMode: props.embedSandboxMode,

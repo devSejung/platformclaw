@@ -4,13 +4,14 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { resolveDefaultVitestPool } from "../test/vitest/vitest.shared.config.ts";
 import { controlUiLocaleModulesPlugin } from "./config/control-ui-locales.ts";
+import { controlUiPdfAssetsPlugin } from "./config/control-ui-pdf-assets.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
 
 // Node-only tests for pure logic (no Playwright/browser dependency).
 export default defineConfig({
-  plugins: [controlUiLocaleModulesPlugin()],
+  plugins: [controlUiLocaleModulesPlugin(), controlUiPdfAssetsPlugin()],
   resolve: {
     alias: [
       {

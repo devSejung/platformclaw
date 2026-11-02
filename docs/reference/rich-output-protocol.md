@@ -33,11 +33,22 @@ Legacy final-reply text may still be normalized for compatibility, but this is n
 
 ### Image and document previews
 
-In web chat, select an attached image to open the image viewer. Authorized PDF,
-PPT, and PPTX attachments offer **Preview** alongside the original download.
-PDF files open in the browser's PDF reader. PowerPoint files are converted to PDF
-from the saved attachment snapshot; downloading still returns the original PPT
-or PPTX bytes. Previewing does not start another model turn.
+In web chat, images appear inline; select one to open the image viewer. Authorized
+PDF, PPT, and PPTX attachments open their preview automatically when visible.
+Closing a preview keeps that file closed; select **Preview** to reopen it.
+PDF and PowerPoint use the same built-in PDF.js viewer inside the attachment box,
+fitted to its width, with page navigation below the preview. **Contents** opens
+thumbnails; **Preview options** contains zoom, fitting, and an optional expanded view.
+Select **Request changes**, then click the part to change or drag a region. A small
+input opens beside the selection, inside the same preview. Describe the change and
+select **Send request** to send it to the current agent.
+The request replies to the original message and includes a crop when a region is
+selected; it does not reattach the original document. Closing or changing the
+document clears the local selection. The renderer and its assets
+ship with the app and do not use an external viewer service. PowerPoint files
+are converted to PDF from the saved attachment snapshot; downloading still
+returns the original PPT or PPTX bytes. Viewing, navigating, and selecting do not
+start another model turn; only submitting the change request sends a chat message.
 
 PDF and PowerPoint previews accept files up to 16 MiB. PowerPoint conversion also
 limits its PDF output to 16 MiB. It requires the rootless sandbox Docker service

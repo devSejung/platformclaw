@@ -2,6 +2,7 @@
 
 // Guards pnpm package patches against unapproved additions.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,12 +17,30 @@ const LEGACY_PATCHED_DEPENDENCIES = new Map([
   ["baileys@7.0.0-rc13", "patches/baileys@7.0.0-rc13.patch"],
 ]);
 const reviewedSecurityPatches = getReviewedSecurityPatchRegistrations();
+// Approved product repair: propagate PDF.js operator-list stream failures to
+// rendering callers. This registration does not remediate or suppress advisories.
+const REVIEWED_PRODUCT_PATCHES = [
+  {
+    specifier: "pdfjs-dist@6.4.299",
+    patchPath: "patches/pdfjs-dist@6.4.299.patch",
+    sha256: "efdb08019c1e2d062dfae9dd4b86e3bf1b5f6c3ee52f5fe8213d6bc4d4df15e0",
+    installHash: "efdb08019c1e2d062dfae9dd4b86e3bf1b5f6c3ee52f5fe8213d6bc4d4df15e0",
+    integrity:
+      "sha512-AVl138zALtfaAPvADulE0PZThbYzCBS79nL4pOSL/6Sm/4AH5A21BD9VHt97OlCuzJuCpmeZtAtkinisF4Vb1g==",
+  },
+];
 const ALLOWED_PATCHED_DEPENDENCIES = new Map([
   ...LEGACY_PATCHED_DEPENDENCIES,
-  ...reviewedSecurityPatches.map(({ specifier, patchPath }) => [specifier, patchPath]),
+  ...[...reviewedSecurityPatches, ...REVIEWED_PRODUCT_PATCHES].map(({ specifier, patchPath }) => [
+    specifier,
+    patchPath,
+  ]),
 ]);
 const REVIEWED_LOCK_PATCHES = new Map(
-  reviewedSecurityPatches.map(({ specifier, installHash }) => [specifier, installHash]),
+  [...reviewedSecurityPatches, ...REVIEWED_PRODUCT_PATCHES].map(({ specifier, installHash }) => [
+    specifier,
+    installHash,
+  ]),
 );
 
 const ALLOWED_PATCH_FILES = new Set([
@@ -125,6 +144,40 @@ function collectPatchFileViolations(cwd, violations) {
   }
 }
 
+function verifyReviewedProductPatches(cwd) {
+  const workspace = readYamlFile(cwd, "pnpm-workspace.yaml");
+  const lockfile = readYamlFile(cwd, "pnpm-lock.yaml");
+  for (const artifact of REVIEWED_PRODUCT_PATCHES) {
+    const { specifier, patchPath, installHash } = artifact;
+    const patchFile = path.join(cwd, patchPath);
+    const snapshots = Object.keys(lockfile.snapshots ?? {}).filter(
+      (key) => key === specifier || key.startsWith(`${specifier}(`),
+    );
+    const registered = workspace.patchedDependencies?.[specifier];
+    const locked = lockfile.patchedDependencies?.[specifier];
+    if (!registered && !locked && !fs.existsSync(patchFile) && snapshots.length === 0) {
+      continue;
+    }
+    if (
+      registered !== patchPath ||
+      locked !== installHash ||
+      lockfile.packages?.[specifier]?.resolution?.integrity !== artifact.integrity ||
+      snapshots.length === 0 ||
+      snapshots.some((key) => {
+        const hashes = [...key.matchAll(/\(patch_hash=([^)]*)\)/gu)];
+        return hashes.length !== 1 || hashes[0][1] !== installHash;
+      })
+    ) {
+      throw new Error(
+        `Reviewed product patch registration or installation identity changed: ${specifier}`,
+      );
+    }
+    if (createHash("sha256").update(fs.readFileSync(patchFile)).digest("hex") !== artifact.sha256) {
+      throw new Error(`Reviewed product patch bytes changed: ${specifier}`);
+    }
+  }
+}
+
 /**
  * Collects disallowed package patch declarations and patch files.
  */
@@ -162,8 +215,9 @@ export async function main() {
         )
         .map(({ specifier }) => specifier),
     });
+    verifyReviewedProductPatches(process.cwd());
     process.stdout.write(
-      `PASS package patch guard: only approved pnpm patches; ${ALLOWED_PATCHED_DEPENDENCIES.size} registrations allowed with security artifact verification.\n`,
+      `PASS package patch guard: only approved pnpm patches; ${ALLOWED_PATCHED_DEPENDENCIES.size} registrations allowed with security artifact verification and product artifact verification.\n`,
     );
     return;
   }

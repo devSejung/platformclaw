@@ -3,6 +3,7 @@ import { announcementTranslations } from "./ko-announcements.ts";
 import { baseballTranslations } from "./ko-baseball.ts";
 import { credentialFlowTranslations } from "./ko-credentials.ts";
 import { dashboardTranslations } from "./ko-dashboard.ts";
+import { documentViewerKoreanTranslations } from "./ko-document-viewer.ts";
 import { executionTranslations } from "./ko-execution.ts";
 import { fishingTranslations } from "./ko-fishing.ts";
 import { mcpTranslations } from "./ko-mcp.ts";
@@ -57,6 +58,7 @@ export const nativeTranslations = {
     },
   },
   chat: {
+    documentViewer: documentViewerKoreanTranslations,
     copyError: "오류 정보 복사",
     errorDetails: "오류 정보 보기",
     errorShareHelp: "오류 정보를 복사해 관리자에게 보내주세요.",

@@ -196,5 +196,6 @@ packageExtensions:
 patchedDependencies:
   "@azure/msal-node@5.4.2": patches/@azure__msal-node@5.4.2.patch
   "@discord/embedded-app-sdk@2.5.0": patches/@discord__embedded-app-sdk@2.5.0.patch
+  pdfjs-dist@6.4.299: patches/pdfjs-dist@6.4.299.patch
   zod@3.25.76: patches/zod@3.25.76.patch
   zod@4.6.6: patches/zod@4.6.6.patch
