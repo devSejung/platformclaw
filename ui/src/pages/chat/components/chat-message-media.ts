@@ -7,6 +7,7 @@ import {
   getMediaFileExtension,
   hasVideoMediaFileExtension,
 } from "../../../lib/media-file-extension.ts";
+import type { ChatDocumentChangeHandler } from "../document-change-request.ts";
 
 export type PairingQrExpiryNotice = {
   title: string;
@@ -39,6 +40,8 @@ export type ImageRenderOptions = {
   onRequestOpenImage?: () => number;
   onOpenImage?: (item: ImageLightboxItem, requestVersion?: number) => void;
   resolveArtifactDownload?: ArtifactDownloadResolver;
+  onDocumentChangeRequest?: ChatDocumentChangeHandler;
+  sourceMessage?: unknown;
 };
 
 export type RenderableImageBlock = ImageBlock & {

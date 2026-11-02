@@ -8,6 +8,7 @@ import { brotliCompressSync, constants as zlibConstants, gzipSync } from "node:z
 import type { Plugin, UserConfig } from "vite";
 import { controlUiCodeSplitting } from "./config/control-ui-chunking.ts";
 import { controlUiLocaleModulesPlugin } from "./config/control-ui-locales.ts";
+import { controlUiPdfAssetsPlugin } from "./config/control-ui-pdf-assets.ts";
 import { normalizeControlUiBuildInfo } from "./src/build-info-normalizers.ts";
 import type { ControlUiBuildInfo } from "./src/build-info.ts";
 
@@ -42,6 +43,7 @@ const commonJsOptimizeDeps = [
 const controlUiPrecompressedAssetExtensions = new Set([
   ".css",
   ".js",
+  ".mjs",
   ".json",
   ".svg",
   ".txt",
@@ -69,7 +71,9 @@ export function createControlUiPrecompressedAssetVariants(
     },
     {
       fileName: `${fileName}.gz`,
-      source: gzipSync(body, { level: 9 }),
+      // Fixed lower compressor memory also improves measured startup and total
+      // asset transfer sizes; gzip decoding still reproduces the final bytes.
+      source: gzipSync(body, { level: 9, memLevel: 6 }),
     },
   ];
 }
@@ -489,6 +493,18 @@ export default function controlUiViteConfig(options: { outDir?: string } = {}): 
         ...resolveTsconfigPathAliasesForVite(),
       ],
     },
+    worker: {
+      format: "es",
+      rolldownOptions: {
+        // The build reserves this directory for off-main-thread JavaScript so
+        // performance checks can bound workers without relaxing UI chunk limits.
+        output: {
+          entryFileNames: "assets/workers/[name]-[hash].js",
+          chunkFileNames: "assets/workers/[name]-[hash].js",
+          assetFileNames: "assets/workers/[name]-[hash].[ext]",
+        },
+      },
+    },
     build: {
       outDir: buildOutDir,
       emptyOutDir: true,
@@ -513,6 +529,7 @@ export default function controlUiViteConfig(options: { outDir?: string } = {}): 
     plugins: [
       controlUiRenderBlockingBootstrapPlugin(),
       controlUiLocaleModulesPlugin(),
+      controlUiPdfAssetsPlugin(),
       controlUiBrowserOnlySharedModuleAliases(),
       controlUiPrecompressedAssetsPlugin(buildOutDir),
       controlUiServiceWorkerBuildIdPlugin(buildInfo.buildId, buildOutDir),

@@ -481,6 +481,9 @@ export class ChatPane extends ChatPaneHeader {
         state.requestUpdate?.();
       },
       onSend: this.prepareChatSubmit(state, catalogKey, suggestionViewer, canSend),
+      onDocumentChangeRequest: this.documentChangeSend
+        ? this.forwardDocumentChangeRequest
+        : undefined,
       onCompact: sessionActionCallbacks.onCompact,
       onOpenSessionCheckpoints: this.embedded
         ? undefined

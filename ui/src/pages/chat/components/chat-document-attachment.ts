@@ -1,9 +1,11 @@
 import { html, nothing, type PropertyValues } from "lit";
 import { property, state } from "lit/decorators.js";
+import type { DocumentChangeHandler } from "../../../components/document-viewer-request.ts";
 import { icons } from "../../../components/icons.ts";
 import { t } from "../../../i18n/index.ts";
 import { OpenClawLightDomElement } from "../../../lit/openclaw-element.ts";
 import { safeAttachmentHref } from "./chat-attachment-href.ts";
+import "../../../components/document-viewer.ts";
 
 const PREVIEW_MAX_BYTES = 16 * 1024 * 1024;
 const PREVIEW_TIMEOUT_MS = 30_000;
@@ -73,20 +75,35 @@ class ChatDocumentAttachment extends OpenClawLightDomElement {
   @property() mimeType = "";
   @property({ type: Number }) sizeBytes: number | undefined;
   @property({ attribute: false }) onMediaLoaded: (() => void) | undefined;
+  @property({ attribute: false }) requestChanges: DocumentChangeHandler | undefined;
 
   @state() private opened = false;
-  @state() private previewUrl = "";
+  @state() private previewBytes: ArrayBuffer | undefined;
   @state() private error = "";
 
   private controller: AbortController | undefined;
+  private visibilityObserver: IntersectionObserver | undefined;
+  private visible = false;
+  private autoPreviewSuppressed = false;
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    void this.updateComplete.then(() => this.observeVisibility());
+  }
 
   override disconnectedCallback(): void {
+    this.visibilityObserver?.disconnect();
+    this.visibilityObserver = undefined;
+    this.visible = false;
     this.opened = false;
     this.releasePreview();
     super.disconnectedCallback();
   }
 
   protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("sourceIdentity")) {
+      this.autoPreviewSuppressed = false;
+    }
     if (changed.has("sourceIdentity") || changed.has("mimeType")) {
       this.opened = false;
       this.releasePreview();
@@ -96,13 +113,58 @@ class ChatDocumentAttachment extends OpenClawLightDomElement {
     }
   }
 
+  protected override updated(): void {
+    this.openVisiblePreview();
+  }
+
+  private observeVisibility(): void {
+    if (
+      !this.isConnected ||
+      this.visibilityObserver ||
+      typeof IntersectionObserver !== "function"
+    ) {
+      return;
+    }
+    const card = this.querySelector(".chat-document-attachment");
+    if (!card) {
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (this.visibilityObserver !== observer || !this.isConnected) {
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.target === card) {
+          this.visible = entry.isIntersecting;
+        }
+      }
+      this.openVisiblePreview();
+    });
+    this.visibilityObserver = observer;
+    observer.observe(card);
+  }
+
+  private openVisiblePreview(): void {
+    if (
+      !this.isConnected ||
+      !this.visible ||
+      this.opened ||
+      this.autoPreviewSuppressed ||
+      !this.src ||
+      !documentPreviewKind(this.mimeType, this.label)
+    ) {
+      return;
+    }
+    // Visibility starts the existing owned read; it never opens the expanded viewer.
+    this.opened = true;
+    void this.loadPreview();
+    this.onMediaLoaded?.();
+  }
+
   private releasePreview(): void {
     this.controller?.abort();
     this.controller = undefined;
-    if (this.previewUrl) {
-      URL.revokeObjectURL(this.previewUrl);
-      this.previewUrl = "";
-    }
+    this.previewBytes = undefined;
   }
 
   private async loadPreview(): Promise<void> {
@@ -162,8 +224,8 @@ class ChatDocumentAttachment extends OpenClawLightDomElement {
         return;
       }
       controller.signal.throwIfAborted();
-      // The browser's PDF reader receives PDF bytes only, never a remote URL or HTML.
-      this.previewUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      // PDF and converted slides share the same local renderer and authorized snapshot.
+      this.previewBytes = bytes;
     } catch (error) {
       if (this.controller === controller && this.opened && this.isConnected) {
         this.error =
@@ -181,6 +243,8 @@ class ChatDocumentAttachment extends OpenClawLightDomElement {
 
   private readonly togglePreview = (): void => {
     this.opened = !this.opened;
+    // A renewed grant or another intersection must respect the user's Close action.
+    this.autoPreviewSuppressed = !this.opened;
     if (this.opened) {
       void this.loadPreview();
     } else {
@@ -216,27 +280,22 @@ class ChatDocumentAttachment extends OpenClawLightDomElement {
               : nothing}
           </div>
         </div>
-        ${this.opened && documentPreviewKind(this.mimeType, this.label) === "powerpoint"
-          ? html`<div class="chat-assistant-attachment-card__reason">
-              ${t("chat.attachments.powerPointStaticPreview")}
-            </div>`
-          : nothing}
         ${this.opened
           ? this.error
             ? html`<div class="chat-assistant-attachment-card__reason" role="alert">
                 ${this.error}
               </div>`
-            : this.previewUrl
-              ? html`<iframe
-                  class="chat-document-attachment__frame"
-                  src=${this.previewUrl}
-                  title=${this.label}
-                  referrerpolicy="no-referrer"
-                  @error=${() => {
-                    this.error = t("chat.attachments.documentPreviewUnavailable");
-                    this.releasePreview();
-                  }}
-                ></iframe>`
+            : this.previewBytes
+              ? html`<openclaw-document-viewer
+                  .bytes=${this.previewBytes}
+                  .documentTitle=${this.label}
+                  .pageUnit=${documentPreviewKind(this.mimeType, this.label) === "powerpoint"
+                    ? "slide"
+                    : "page"}
+                  .requestChanges=${this.requestChanges}
+                  @document-viewer-load=${this.onMediaLoaded}
+                  @document-viewer-error=${this.onMediaLoaded}
+                ></openclaw-document-viewer>`
               : html`<div role="status">${t("common.loading")}</div>`
           : nothing}
       </div>

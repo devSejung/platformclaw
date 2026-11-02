@@ -1,0 +1,35 @@
+--- a/build/pdf.mjs
++++ b/build/pdf.mjs
+@@ -15964,6 +15964,11 @@
+     isEditing = false
+   } = {}) {
+     function operatorListChanged() {
++      if (intentState.operatorList.error) {
++        intentState.opListReadCapability.reject(intentState.operatorList.error);
++        intentState.renderTasks.delete(opListTask);
++        return;
++      }
+       if (intentState.operatorList.lastChunk) {
+         intentState.opListReadCapability.resolve(intentState.operatorList);
+         intentState.renderTasks.delete(opListTask);
+@@ -16133,6 +16138,7 @@
+           return;
+         }
+         if (intentState.operatorList) {
++          intentState.operatorList.error = reason;
+           intentState.operatorList.lastChunk = true;
+           for (const internalRenderTask of intentState.renderTasks) {
+             internalRenderTask.operatorListChanged();
+@@ -17118,6 +17124,12 @@
+     this.task.onError?.(error);
+   }
+   operatorListChanged() {
++    if (this.operatorList.error) {
++      if (!this.cancelled) {
++        this.cancel(this.operatorList.error);
++      }
++      return;
++    }
+     if (!this.graphicsReady) {
+       this.graphicsReadyCallback ||= this._continueBound;
+       return;

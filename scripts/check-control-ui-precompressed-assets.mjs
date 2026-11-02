@@ -9,7 +9,7 @@ const assetsDir = path.join(repoRoot, "dist", "control-ui", "assets");
 const errors = [];
 let checked = 0;
 
-for (const entry of fs.readdirSync(assetsDir, { withFileTypes: true })) {
+for (const entry of fs.readdirSync(assetsDir, { withFileTypes: true, recursive: true })) {
   if (!entry.isFile()) {
     continue;
   }
@@ -17,17 +17,18 @@ for (const entry of fs.readdirSync(assetsDir, { withFileTypes: true })) {
   if (!suffix) {
     continue;
   }
-  const sidecarPath = path.join(assetsDir, entry.name);
+  const sidecarPath = path.join(entry.parentPath, entry.name);
+  const relativePath = path.relative(assetsDir, sidecarPath);
   const sourcePath = sidecarPath.slice(0, -suffix.length);
   try {
     const encoded = fs.readFileSync(sidecarPath);
     const decoded = suffix === ".br" ? brotliDecompressSync(encoded) : gunzipSync(encoded);
     const source = fs.readFileSync(sourcePath);
     if (!decoded.equals(source)) {
-      errors.push(`${entry.name}: decoded bytes differ from ${path.basename(sourcePath)}`);
+      errors.push(`${relativePath}: decoded bytes differ from ${path.basename(sourcePath)}`);
     }
   } catch (error) {
-    errors.push(`${entry.name}: ${error instanceof Error ? error.message : String(error)}`);
+    errors.push(`${relativePath}: ${error instanceof Error ? error.message : String(error)}`);
   }
   checked += 1;
 }

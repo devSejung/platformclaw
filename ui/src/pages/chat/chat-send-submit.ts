@@ -78,6 +78,12 @@ type ChatSendOptions = {
   runId?: string;
   actionScope?: ChatSendActionScope;
   ignoreReplyTarget?: boolean;
+  /** A verified app action can reply to its own source without changing the composer. */
+  replyToId?: string;
+  /** Explicit app-owned payloads do not consume the human composer's draft. */
+  attachments?: readonly ChatAttachment[];
+  /** Revalidate the originating UI action after waits and before outbox admission. */
+  isSubmissionCurrent?: () => boolean;
   /** Queue ownership has transferred; delivery failures now belong to outbox Retry. */
   onAdmitted?: (submission: { queueId: string; runId: string }) => void;
   restoreDraft?: boolean;
@@ -220,8 +226,9 @@ export async function handleSendChat(
   let expectedLeafEntryId = actionScope
     ? actionScope.expectedLeafEntryId
     : resolveDisplayedLeafEntryId(host as unknown as ChatState);
-  const attachmentsToSend =
-    messageOverride == null ? snapshotChatAttachments(host.chatAttachments) : [];
+  const attachmentsToSend = snapshotChatAttachments(
+    messageOverride == null ? host.chatAttachments : (opts?.attachments ?? []),
+  );
   const hasAttachments = attachmentsToSend.length > 0;
   const skillWorkshopRevision = opts?.skillWorkshopRevision;
 
@@ -428,7 +435,7 @@ export async function handleSendChat(
 
   const replyTarget = opts?.ignoreReplyTarget ? null : host.chatReplyTarget;
   // Persisted ids use replyToId; synthetic replies fall back to a quote.
-  const replyToId = replyTarget?.sourceMessageId?.trim() || undefined;
+  const replyToId = opts?.replyToId?.trim() || replyTarget?.sourceMessageId?.trim() || undefined;
   const effectiveMessage =
     replyTarget && !replyToId ? prependReplyQuote(message, replyTarget) : message;
 
@@ -437,6 +444,9 @@ export async function handleSendChat(
     opts?.runId ??
     chatSubmitKey(host, "message", effectiveMessage, attachmentsToSend, skillWorkshopRevision);
   await withChatSubmitGuard(host, submitKey, async () => {
+    if (opts?.isSubmissionCurrent && !opts.isSubmissionCurrent()) {
+      return;
+    }
     if (needsChatHistoryRefresh(host as unknown as ChatState)) {
       // Terminal delivery can precede its history read, which can also fail.
       // Reuse or recover that read before fencing the follow-up send.
@@ -488,6 +498,9 @@ export async function handleSendChat(
         opts?.onAdmitted?.({ queueId: existing.id, runId: existing.sendRunId });
         return;
       }
+    }
+    if (opts?.isSubmissionCurrent && !opts.isSubmissionCurrent()) {
+      return;
     }
     const cleared =
       messageOverride == null

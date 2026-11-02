@@ -1,5 +1,6 @@
 // Check Package Patches tests cover check package patches script behavior.
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +13,9 @@ import { cleanupTempDirs, makeTempRepoRoot, writeJsonFile } from "../helpers/tem
 
 const tempDirs: string[] = [];
 const repoRoot = path.resolve(import.meta.dirname, "../..");
+const productPatchPath = "patches/pdfjs-dist@6.4.299.patch";
+const pdfjsIntegrity =
+  "sha512-AVl138zALtfaAPvADulE0PZThbYzCBS79nL4pOSL/6Sm/4AH5A21BD9VHt97OlCuzJuCpmeZtAtkinisF4Vb1g==";
 
 const nestedGitEnvKeys = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -57,12 +61,48 @@ function makeSecurityRepo() {
   for (const name of ["pnpm-workspace.yaml", "pnpm-lock.yaml"]) {
     copyFileSync(path.join(repoRoot, name), path.join(dir, name));
   }
-  for (const { patchPath } of getReviewedSecurityPatchRegistrations()) {
+  const patchPaths = [
+    ...getReviewedSecurityPatchRegistrations().map(({ patchPath }) => patchPath),
+    productPatchPath,
+  ];
+  for (const patchPath of patchPaths) {
     mkdirSync(path.dirname(path.join(dir, patchPath)), { recursive: true });
     copyFileSync(path.join(repoRoot, patchPath), path.join(dir, patchPath));
   }
   git(dir, ["add", "pnpm-workspace.yaml", "pnpm-lock.yaml", "patches"]);
   return dir;
+}
+
+function makeProductRepo() {
+  const dir = makeRepo();
+  const patch = readFileSync(path.join(repoRoot, productPatchPath));
+  const hash = createHash("sha256").update(patch).digest("hex");
+  mkdirSync(path.join(dir, "patches"), { recursive: true });
+  writeFileSync(path.join(dir, productPatchPath), patch);
+  writeFileSync(
+    path.join(dir, "pnpm-workspace.yaml"),
+    `packages:\n  - .\npatchedDependencies:\n  pdfjs-dist@6.4.299: ${productPatchPath}\n`,
+  );
+  writeFileSync(
+    path.join(dir, "pnpm-lock.yaml"),
+    `lockfileVersion: '9.0'
+patchedDependencies:
+  pdfjs-dist@6.4.299: ${hash}
+importers:
+  ui:
+    dependencies:
+      pdfjs-dist:
+        specifier: 6.4.299
+        version: 6.4.299(patch_hash=${hash})
+packages:
+  pdfjs-dist@6.4.299:
+    resolution: {integrity: ${pdfjsIntegrity}}
+snapshots:
+  pdfjs-dist@6.4.299(patch_hash=${hash}): {}
+`,
+  );
+  git(dir, ["add", "pnpm-workspace.yaml", "pnpm-lock.yaml", "patches"]);
+  return { dir, hash };
 }
 
 function runPatchGuard(cwd: string) {
@@ -78,6 +118,78 @@ afterEach(() => {
 });
 
 describe("check-package-patches", () => {
+  it("verifies the approved PDF.js product patch without a security advisory registration", () => {
+    const { dir } = makeProductRepo();
+    const securitySpecifiers = getReviewedSecurityPatchRegistrations().map(
+      ({ specifier }) => specifier,
+    );
+    expect(securitySpecifiers).not.toContain("pdfjs-dist@6.4.299");
+    expect(collectPackagePatchViolations(dir)).toEqual([]);
+    const result = runPatchGuard(dir);
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("product artifact verification");
+  });
+
+  it.each([
+    "changed product bytes",
+    "missing product patch",
+    "wrong product version",
+    "wrong product path",
+    "wrong product lock hash",
+    "wrong product archive integrity",
+    "unpatched product snapshot",
+    "duplicate product patch hash",
+    "orphaned product patch",
+  ])("rejects %s at the actual CLI boundary", (change) => {
+    const { dir, hash } = makeProductRepo();
+    const patchFile = path.join(dir, productPatchPath);
+    const workspacePath = path.join(dir, "pnpm-workspace.yaml");
+    const lockPath = path.join(dir, "pnpm-lock.yaml");
+    if (change === "changed product bytes") {
+      writeFileSync(patchFile, "unreviewed bytes\n");
+    } else if (change === "missing product patch") {
+      rmSync(patchFile);
+    } else if (change === "wrong product version") {
+      for (const file of [workspacePath, lockPath]) {
+        writeFileSync(file, readFileSync(file, "utf8").replaceAll("6.4.299", "6.4.300"));
+      }
+    } else if (change === "wrong product path") {
+      writeFileSync(
+        workspacePath,
+        readFileSync(workspacePath, "utf8").replace(productPatchPath, "patches/other.patch"),
+      );
+    } else if (change === "wrong product lock hash") {
+      writeFileSync(lockPath, readFileSync(lockPath, "utf8").replaceAll(hash, "0"));
+    } else if (change === "wrong product archive integrity") {
+      writeFileSync(
+        lockPath,
+        readFileSync(lockPath, "utf8").replace(pdfjsIntegrity, "sha512-unreviewed"),
+      );
+    } else if (change === "unpatched product snapshot") {
+      writeFileSync(
+        lockPath,
+        readFileSync(lockPath, "utf8").replaceAll(`(patch_hash=${hash})`, ""),
+      );
+    } else if (change === "duplicate product patch hash") {
+      writeFileSync(
+        lockPath,
+        readFileSync(lockPath, "utf8").replaceAll(
+          `(patch_hash=${hash})`,
+          `(patch_hash=${hash})(patch_hash=${hash})`,
+        ),
+      );
+    } else if (change === "orphaned product patch") {
+      writeFileSync(workspacePath, "packages:\n  - .\n");
+      writeFileSync(lockPath, "lockfileVersion: '9.0'\nimporters:\n  .:\npackages:\nsnapshots:\n");
+    }
+    const result = runPatchGuard(dir);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).not.toEqual("");
+    expect(result.stderr).toContain(change === "missing product patch" ? "ENOENT" : "pdfjs-dist@");
+  });
+
   it("admits the approved security artifacts only after actual CLI verification", () => {
     const dir = makeSecurityRepo();
     expect(collectPackagePatchViolations(dir)).toEqual([]);

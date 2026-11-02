@@ -1263,6 +1263,108 @@ describe("handleSendChat", () => {
     vi.stubGlobal("sessionStorage", createStorageMock());
   });
 
+  it("keeps an app crop in the ordinary failed outbox and Retry without consuming the composer", async () => {
+    const crop = {
+      id: "document-crop",
+      mimeType: "image/png",
+      fileName: "selection.png",
+      dataUrl: "data:image/png;base64,c2VsZWN0aW9u",
+    };
+    const draft = {
+      id: "human-draft",
+      mimeType: "text/plain",
+      dataUrl: "data:text/plain;base64,ZHJhZnQ=",
+    };
+    let attempts = 0;
+    const host = makeHost({
+      requestHandlers: {
+        "chat.history": idleChatHistory(),
+        "chat.send": (params: unknown) => {
+          const payload = requireRecord(params, "document correction payload");
+          return { runId: payload.idempotencyKey, status: ++attempts === 1 ? "error" : "started" };
+        },
+      },
+      chatMessage: "unfinished human draft",
+      chatAttachments: [draft],
+      chatReplyTarget: { messageId: "unrelated", text: "unrelated reply" },
+    });
+    const onAdmitted = vi.fn();
+    await handleSendChat(host, "Correct the selected document region.", {
+      literalMessage: true,
+      ignoreReplyTarget: true,
+      replyToId: "source-message",
+      attachments: [crop],
+      onAdmitted,
+      isSubmissionCurrent: () => true,
+    });
+    const queued = expectDefined(host.chatQueue[0], "failed document correction");
+    expect(queued.sendState).toBe("failed");
+    expect(queued.attachments).toEqual([crop]);
+    expect(loadChatComposerSnapshot(host, host.sessionKey)?.queue?.[0]?.attachments).toEqual([
+      crop,
+    ]);
+    const firstRunId = expectDefined(queued.sendRunId, "initial document correction run");
+    expect(firstRunId).toEqual(expect.stringMatching(uuidPattern));
+    await retryQueuedChatMessage(host, queued.id);
+    const sends = host.request.mock.calls.filter(([method]) => method === "chat.send");
+    expect(sends).toHaveLength(2);
+    const firstPayload = requireRecord(sends[0]?.[1], "initial document correction payload");
+    const retryPayload = requireRecord(sends[1]?.[1], "retried document correction payload");
+    const retryRunId = expectDefined(host.chatRunId, "active retried document correction run");
+    expect(firstPayload.idempotencyKey).toBe(firstRunId);
+    expect(retryPayload.idempotencyKey).toBe(retryRunId);
+    expect(retryRunId).toEqual(expect.stringMatching(uuidPattern));
+    expect(retryRunId).not.toBe(firstRunId);
+    for (const [, payload] of sends) {
+      expect(payload).toMatchObject({
+        message: "Correct the selected document region.",
+        replyToId: "source-message",
+        attachments: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            fileName: "selection.png",
+            content: "c2VsZWN0aW9u",
+          },
+        ],
+      });
+    }
+    expect(onAdmitted).toHaveBeenCalledOnce();
+    expect(host.chatMessage).toBe("unfinished human draft");
+    expect(host.chatAttachments).toEqual([draft]);
+    expect(host.chatReplyTarget?.messageId).toBe("unrelated");
+  });
+
+  it("rechecks app submission authority after the actual history wait before enqueueing", async () => {
+    const history = createDeferred<unknown>();
+    const host = makeHost({
+      requestHandlers: { "chat.history": () => history.promise },
+      chatMessage: "keep draft",
+    });
+    const state = asChatPageHost(host);
+    state.currentSessionId = "source-session";
+    const loading = loadChatHistory(state);
+    let current = true;
+    const onAdmitted = vi.fn();
+    const sending = handleSendChat(host, "Correction request", {
+      literalMessage: true,
+      attachments: [{ id: "crop", mimeType: "image/png", dataUrl: "data:image/png;base64,aA==" }],
+      isSubmissionCurrent: () => current,
+      onAdmitted,
+    });
+    current = false;
+    history.resolve({
+      messages: [],
+      sessionInfo: { key: host.sessionKey, sessionId: "source-session", activeLeafEntryId: null },
+    });
+    await Promise.all([loading, sending]);
+    expect(host.request).toHaveBeenCalledWith("chat.history", expect.anything());
+    expect(host.request).not.toHaveBeenCalledWith("chat.send", expect.anything());
+    expect(host.chatQueue).toEqual([]);
+    expect(onAdmitted).not.toHaveBeenCalled();
+    expect(host.chatMessage).toBe("keep draft");
+  });
+
   it("admits one exact contextual turn without consuming the composer or reply target", async () => {
     const response = createDeferred<{ status: string; runId: string }>();
     const host = makeHost({

@@ -23,6 +23,7 @@ function createDistFixture() {
     sizes: { rawBytes: number; gzipBytes: number; brotliBytes: number },
   ) => {
     const assetPath = path.join(assetsDir, file);
+    fs.mkdirSync(path.dirname(assetPath), { recursive: true });
     fs.writeFileSync(assetPath, Buffer.alloc(sizes.rawBytes));
     fs.writeFileSync(`${assetPath}.gz`, Buffer.alloc(sizes.gzipBytes));
     fs.writeFileSync(`${assetPath}.br`, Buffer.alloc(sizes.brotliBytes));
@@ -42,6 +43,7 @@ function createMetrics(startupJsGzipBytes: number) {
       js: { requests: 1, rawBytes: 2_000, gzipBytes: startupJsGzipBytes, brotliBytes: 900 },
       css: { requests: 1, rawBytes: 50, gzipBytes: 15, brotliBytes: 12 },
     },
+    workers: { js: { requests: 0, rawBytes: 0, gzipBytes: 0, brotliBytes: 0 } },
     largest: {
       js: {
         file: "assets/index-a.js",
@@ -67,6 +69,7 @@ const looseBudgets = {
   startupJsGzipBytes: 100_000,
   startupCssGzipBytes: 100_000,
   largestJsGzipBytes: 100_000,
+  largestWorkerJsGzipBytes: 100_000,
   largestCssGzipBytes: 100_000,
 };
 
@@ -122,7 +125,101 @@ describe("Control UI performance budgets", () => {
     expect(metrics.total.js).toMatchObject({ requests: 3, rawBytes: 380, gzipBytes: 135 });
     expect(metrics.largest.js.file).toBe("assets/lazy-d.js");
     expect(metrics.largest.css.file).toBe("assets/index-c.css");
+    expect(metrics.workers).toEqual({
+      js: { requests: 0, rawBytes: 0, gzipBytes: 0, brotliBytes: 0 },
+      largestJs: undefined,
+    });
     expect(formatControlUiPerformanceReport(metrics)).toContain("startup CSS: 1 request");
+    expect(formatControlUiPerformanceReport(metrics)).toContain("largest worker JS: none");
+  });
+
+  it.each([359, 361])(
+    "enforces the approved worker ceiling for a %i KiB nested worker",
+    (workerKiB) => {
+      const { distDir, writeAsset } = createDistFixture();
+      fs.writeFileSync(
+        path.join(distDir, "index.html"),
+        '<script type="module" src="./assets/index.js"></script><link rel="stylesheet" href="./assets/app.css">',
+      );
+      writeAsset("index.js", { rawBytes: 100, gzipBytes: 40, brotliBytes: 30 });
+      writeAsset("app.css", { rawBytes: 50, gzipBytes: 15, brotliBytes: 12 });
+      writeAsset("workers/parser.js", {
+        rawBytes: 1_000_000,
+        gzipBytes: workerKiB * 1024,
+        brotliBytes: 200_000,
+      });
+      writeAsset("workers/chunks/decoder.js", { rawBytes: 300, gzipBytes: 80, brotliBytes: 70 });
+      const metrics = collectControlUiPerformanceMetrics(distDir);
+      expect(metrics.largest.js.file).toBe("assets/index.js");
+      expect(metrics.workers.js).toMatchObject({ requests: 2, gzipBytes: workerKiB * 1024 + 80 });
+      expect(metrics.workers.largestJs?.file).toBe("assets/workers/parser.js");
+      expect(metrics.total.js).toMatchObject({ requests: 3, gzipBytes: workerKiB * 1024 + 120 });
+      expect(metrics.startup.js).toMatchObject({ requests: 1, gzipBytes: 40 });
+      expect(evaluateControlUiPerformanceBudgets(metrics).map((entry) => entry.metric)).toEqual(
+        workerKiB > 360 ? ["largest worker JS gzip"] : [],
+      );
+      expect(formatControlUiPerformanceReport(metrics)).toContain(
+        `largest worker JS: assets/workers/parser.js, ${workerKiB}.0 KiB gzip (limit: 360.0 KiB)`,
+      );
+    },
+  );
+
+  it.each(["lazy/large.js", "lazy/large.mjs", "workers-adjacent/large.js"])(
+    "keeps the ordinary ceiling for nested main-thread %s",
+    (filename) => {
+      const { distDir, writeAsset } = createDistFixture();
+      fs.writeFileSync(
+        path.join(distDir, "index.html"),
+        '<script type="module" src="./assets/index.js"></script><link rel="stylesheet" href="./assets/theme/app.css">',
+      );
+      writeAsset("index.js", { rawBytes: 100, gzipBytes: 40, brotliBytes: 30 });
+      writeAsset("theme/app.css", { rawBytes: 50, gzipBytes: 15, brotliBytes: 12 });
+      writeAsset(filename, { rawBytes: 1_000_000, gzipBytes: 216 * 1024, brotliBytes: 100_000 });
+      const metrics = collectControlUiPerformanceMetrics(distDir);
+      expect(metrics.largest.js.file).toBe(`assets/${filename}`);
+      expect(metrics.largest.css.file).toBe("assets/theme/app.css");
+      expect(evaluateControlUiPerformanceBudgets(metrics).map((entry) => entry.metric)).toEqual([
+        "largest JS gzip",
+      ]);
+      expect(metrics.workers.js.requests).toBe(0);
+    },
+  );
+
+  it.each([
+    '<script type="module" src="./assets/workers/parser.js"></script>',
+    '<link rel="modulepreload" href="/mounted/assets/workers/chunks/parser.js">',
+    '<link rel="preload" href="./assets/workers/parser.wasm">',
+  ])("rejects worker assets referenced by startup HTML: %s", (html) => {
+    const { distDir, writeAsset } = createDistFixture();
+    fs.writeFileSync(path.join(distDir, "index.html"), html);
+    writeAsset("index.js", { rawBytes: 100, gzipBytes: 40, brotliBytes: 30 });
+    writeAsset("app.css", { rawBytes: 50, gzipBytes: 15, brotliBytes: 12 });
+    writeAsset("workers/parser.js", { rawBytes: 100, gzipBytes: 40, brotliBytes: 30 });
+    expect(() => collectControlUiPerformanceMetrics(distDir)).toThrow(
+      "worker asset must not appear in startup HTML",
+    );
+  });
+
+  it.each([
+    ["workers/parser.js", ".gz"],
+    ["workers/parser.js", ".br"],
+    ["nested/main.js", ".gz"],
+    ["nested/main.js", ".br"],
+    ["nested/theme.css", ".gz"],
+    ["nested/theme.css", ".br"],
+  ])("requires the %s%s compressed sidecar", (filename, suffix) => {
+    const { distDir, writeAsset } = createDistFixture();
+    fs.writeFileSync(
+      path.join(distDir, "index.html"),
+      '<script type="module" src="./assets/index.js"></script><link rel="stylesheet" href="./assets/app.css">',
+    );
+    writeAsset("index.js", { rawBytes: 100, gzipBytes: 40, brotliBytes: 30 });
+    writeAsset("app.css", { rawBytes: 50, gzipBytes: 15, brotliBytes: 12 });
+    writeAsset(filename, { rawBytes: 100, gzipBytes: 30, brotliBytes: 20 });
+    fs.rmSync(path.join(distDir, "assets", `${filename}${suffix}`));
+    expect(() => collectControlUiPerformanceMetrics(distDir)).toThrow(
+      `missing ${filename}${suffix}`,
+    );
   });
 
   it("returns actionable violations and includes them in the report", () => {
@@ -141,6 +238,7 @@ describe("Control UI performance budgets", () => {
       startupJsGzipBytes: 30,
       startupCssGzipBytes: 20,
       largestJsGzipBytes: 35,
+      largestWorkerJsGzipBytes: 100_000,
       largestCssGzipBytes: 20,
     };
 
@@ -164,6 +262,7 @@ describe("Control UI performance budgets", () => {
         js: { requests: 1, rawBytes: 100, gzipBytes: 43_009, brotliBytes: 30 },
         css: { requests: 1, rawBytes: 50, gzipBytes: 15, brotliBytes: 12 },
       },
+      workers: { js: { requests: 0, rawBytes: 0, gzipBytes: 0, brotliBytes: 0 } },
       largest: {
         js: {
           file: "assets/index-a.js",
@@ -187,6 +286,7 @@ describe("Control UI performance budgets", () => {
       startupJsGzipBytes: 43_008,
       startupCssGzipBytes: 20,
       largestJsGzipBytes: 43_008,
+      largestWorkerJsGzipBytes: 100_000,
       largestCssGzipBytes: 20,
     };
 

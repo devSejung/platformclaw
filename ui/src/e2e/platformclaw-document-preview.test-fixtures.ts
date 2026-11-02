@@ -50,29 +50,70 @@ function createPreviewPng(): Buffer {
   ]);
 }
 
+function createPdf(objects: readonly (string | Buffer)[]): Buffer {
+  const header = Buffer.from("%PDF-1.4\n% PlatformClaw document fixture\n");
+  const chunks: Buffer[] = [header];
+  let length = header.length;
+  const offsets: number[] = [];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(length);
+    const objectChunks = [
+      Buffer.from(`${index + 1} 0 obj\n`),
+      typeof object === "string" ? Buffer.from(object) : object,
+      Buffer.from("\nendobj\n"),
+    ];
+    chunks.push(...objectChunks);
+    length += objectChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  }
+  let xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) {
+    xref += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  }
+  xref += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${length}\n%%EOF\n`;
+  return Buffer.concat([...chunks, Buffer.from(xref)]);
+}
+
+function pdfStream(dictionary: string, content: string | Buffer): Buffer {
+  const bytes = typeof content === "string" ? Buffer.from(content) : content;
+  return Buffer.concat([
+    Buffer.from(`<< ${dictionary} /Length ${bytes.length} >>\nstream\n`),
+    bytes,
+    Buffer.from("\nendstream"),
+  ]);
+}
+
 function createPreviewPdf(): Buffer {
   const content =
     "0.06 0.65 0.61 rg 50 560 500 100 re f\nBT /F1 24 Tf 50 700 Td (Owned document preview) Tj 0 -40 Td (PDF snapshot from the selected runtime) Tj ET\n";
-  const objects = [
+  return createPdf([
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R /Annots [6 0 R] >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}endstream`,
-  ];
-  let pdf = "%PDF-1.4\n% PlatformClaw owned document fixture\n";
-  const offsets: number[] = [];
-  for (const [index, object] of objects.entries()) {
-    offsets.push(Buffer.byteLength(pdf));
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  }
-  const xrefOffset = Buffer.byteLength(pdf);
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const offset of offsets) {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  }
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-  return Buffer.from(pdf, "ascii");
+    pdfStream("", content),
+    // Magenta exists only in this static appearance, so disabling annotation
+    // rendering cannot pass the real browser's independent pixel assertion.
+    "<< /Type /Annot /Subtype /Square /Rect [80 360 300 440] /F 4 /AP << /N 7 0 R >> >>",
+    pdfStream(
+      "/Type /XObject /Subtype /Form /BBox [0 0 220 80] /Resources << >>",
+      "1 0 1 rg 0 0 220 80 re f",
+    ),
+  ]);
+}
+
+/** Uniform grayscale compresses well while preserving the requested decoded-image dimensions. */
+export function createScanPreviewPdf(width: number, height: number): Buffer {
+  const compressed = deflateSync(Buffer.alloc(width * height, 128));
+  return createPdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 700] /Resources << /XObject << /Scan 5 0 R >> >> /Contents 4 0 R >>",
+    pdfStream("", "q 500 0 0 700 0 0 cm /Scan Do Q"),
+    pdfStream(
+      `/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode`,
+      compressed,
+    ),
+  ]);
 }
 
 async function createPreviewPresentation(): Promise<Buffer> {

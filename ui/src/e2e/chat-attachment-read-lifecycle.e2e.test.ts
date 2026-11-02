@@ -1,25 +1,19 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
-import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PLATFORMCLAW_WEB_GATEWAY_METHODS } from "../../../packages/platformclaw-control-plane/src/browser-gateway-policy.ts";
-import {
-  createPlatformClawWebAssetHandler,
-  PLATFORMCLAW_WEB_TERMINAL_ENABLED,
-} from "../../../packages/platformclaw-control-plane/src/web-assets.ts";
 import {
   canRunPlaywrightChromium,
-  buildProductionControlUiE2e,
   controlUiSessionUrl,
-  installMockGateway as installControlUiMockGateway,
   resolvePlaywrightChromiumExecutablePath,
   type ControlUiE2eServer,
   type ControlUiMockGatewayScenario,
 } from "../test-helpers/control-ui-e2e.ts";
+import {
+  installPlatformClawMockGateway as installMockGateway,
+  startPlatformClawControlUiE2eServer,
+} from "../test-helpers/platformclaw-control-ui-e2e.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);
@@ -32,15 +26,6 @@ const DROPPED_PNG_B64 =
 const captureUiProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
 const proofDir = path.resolve(".artifacts/control-ui-e2e/clipboard-image-preview-csp");
 
-function installMockGateway(page: Page, scenario: ControlUiMockGatewayScenario = {}) {
-  return installControlUiMockGateway(page, {
-    basePath: "/platformclaw/app",
-    featureMethods: [...PLATFORMCLAW_WEB_GATEWAY_METHODS],
-    terminalEnabled: PLATFORMCLAW_WEB_TERMINAL_ENABLED,
-    ...scenario,
-  });
-}
-
 async function newPage() {
   const viewport = { height: 900, width: 1280 };
   const context = await browser.newContext({
@@ -50,23 +35,7 @@ async function newPage() {
     viewport,
   });
   const page = await context.newPage();
-  await page.route("**/platformclaw/api/auth/session", (route) =>
-    route.fulfill({
-      json: {
-        authenticated: true,
-        user: {
-          accountId: "preview.one",
-          displayName: "Preview One",
-          department: "Platform Lab",
-          globalRole: "member",
-        },
-        agent: { agentId: "main", state: "active" },
-        session: { idleExpiresAt: Date.now() + 60_000, absoluteExpiresAt: Date.now() + 120_000 },
-      },
-    }),
-  );
   await page.addInitScript(() => {
-    localStorage.setItem("platformclaw.product-tour.v1.completed", "true");
     const violations: string[] = [];
     (globalThis as unknown as { imageCspViolations: string[] }).imageCspViolations = violations;
     document.addEventListener("securitypolicyviolation", (event) => {
@@ -148,59 +117,15 @@ async function pastePng(composer: Locator): Promise<void> {
 
 let browser: Browser;
 let server: ControlUiE2eServer;
-let buildDirectory: string | undefined;
 
 describeControlUiE2e("Control UI chat attachment read lifecycle", () => {
   beforeAll(async () => {
     if (!chromiumAvailable) {
       throw new Error(`Playwright Chromium is unavailable at ${chromiumExecutablePath}`);
     }
-    buildDirectory = await mkdtemp(path.join(tmpdir(), "platformclaw-employee-preview-"));
-    await buildProductionControlUiE2e(buildDirectory, "employee-image-preview");
-    const [{ build }, { default: loginConfig }] = await Promise.all([
-      import("vite"),
-      import("../../vite.platformclaw-login.config.ts"),
-    ]);
-    await build({
-      ...loginConfig({ outDir: buildDirectory }),
-      configFile: false,
-      logLevel: "error",
-      root: fileURLToPath(new URL("../..", import.meta.url)),
-    });
+    server = await startPlatformClawControlUiE2eServer("employee-image-preview");
     if (captureUiProof) {
       await mkdir(proofDir, { recursive: true });
-    }
-    // Serve the production bundle through the employee document owner. Vite's
-    // preview server and the regular Gateway use different CSP policies.
-    const httpServer = createServer((req, res) => {
-      void (async () => {
-        if (!(await assets.handlePublic(req, res)) && !(await assets.handleApplication(req, res))) {
-          res.writeHead(404).end();
-        }
-      })().catch(() => res.writeHead(500).end());
-    });
-    await new Promise<void>((resolve, reject) => {
-      httpServer.once("error", reject);
-      httpServer.listen(0, "127.0.0.1", resolve);
-    });
-    const address = httpServer.address();
-    if (!address || typeof address === "string") {
-      throw new Error("Employee web server did not expose a TCP port");
-    }
-    const origin = `http://127.0.0.1:${address.port}`;
-    server = {
-      baseUrl: `${origin}/platformclaw/app/`,
-      close: () =>
-        new Promise<void>((resolve, reject) => {
-          httpServer.close((error) => (error ? reject(error) : resolve()));
-        }),
-    };
-    let assets: ReturnType<typeof createPlatformClawWebAssetHandler>;
-    try {
-      assets = createPlatformClawWebAssetHandler(buildDirectory, { publicOrigin: origin });
-    } catch (error) {
-      await server.close();
-      throw error;
     }
     browser = await chromium.launch({ executablePath: chromiumExecutablePath });
   });
@@ -208,9 +133,6 @@ describeControlUiE2e("Control UI chat attachment read lifecycle", () => {
   afterAll(async () => {
     await browser?.close();
     await server?.close();
-    if (buildDirectory) {
-      await rm(buildDirectory, { recursive: true, force: true });
-    }
   });
 
   it("waits for a pasted image before sending its complete gateway payload", async () => {

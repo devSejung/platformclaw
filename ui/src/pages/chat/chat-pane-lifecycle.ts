@@ -16,12 +16,14 @@ import {
 } from "../../components/browser/browser-annotation.ts";
 import { MODAL_DIALOG_SELECTOR, resolveAsciiShortcutKey } from "../../lib/keyboard-shortcuts.ts";
 import { resolveChatPaneObserverRunId } from "../../lib/observer-digest.ts";
+import { readSessionMethodAccess } from "../../lib/session-method-access.ts";
 import { sessionPullRequestsForGateway } from "../../lib/session-pull-requests.ts";
 import { parseCatalogSessionKey, type CatalogSessionKey } from "../../lib/sessions/catalog-key.ts";
 import { resolveSessionKey } from "../../lib/sessions/index.ts";
 import { areUiSessionKeysEquivalent } from "../../lib/sessions/session-key.ts";
 import { ensureBoardViewElement, ensureWorkboardCardChipElement } from "./board-session-surface.ts";
 import { invalidateChatAvatarCache, refreshChatAvatar } from "./chat-avatar.ts";
+import { requiresChatModelSetup } from "./chat-model-setup.ts";
 import { ChatPaneSessionCreation } from "./chat-pane-session-create.ts";
 import {
   CHAT_COMPOSER_TEXTAREA_SELECTOR,
@@ -36,7 +38,7 @@ import { handlePageGatewayEvent } from "./chat-state-events.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { createPageState } from "./chat-state-page.ts";
 import { invalidateChatMetadataCache, refreshPageChat } from "./chat-state-refresh.ts";
-import { selectedChatSessionRow } from "./chat-state-route.ts";
+import { resolveChatAgentId, selectedChatSessionRow } from "./chat-state-route.ts";
 import { resetChatViewState } from "./chat-view-state.ts";
 import { chatAttachmentFromDataUrl } from "./components/chat-attachments.ts";
 import { dismissConfirmedActionPopovers } from "./components/chat-message.ts";
@@ -44,6 +46,10 @@ import { toggleSessionWorkspace } from "./components/chat-session-workspace.ts";
 import { openChatThreadSearch, closeChatThreadSearch } from "./components/chat-thread.ts";
 import { WIDGET_PROMPT_EVENT, type WidgetPromptEventDetail } from "./components/chat-tool-cards.ts";
 import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "./composer-persistence.ts";
+import {
+  createChatDocumentChangeHandler,
+  type ChatDocumentChangeHandler,
+} from "./document-change-request.ts";
 import { exportChatMarkdown } from "./export.ts";
 import { admitInitialTurnHandoff, admitInitialUserMessageHandoff } from "./initial-turn-handoff.ts";
 import { readChatSessionSnapshot } from "./session-message-cache.ts";
@@ -57,6 +63,15 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
   // The rendered composer owns access policy; widgets reuse its prepared send
   // callback instead of bypassing read-only, archived, and setup restrictions.
   protected widgetPromptSend?: (text: string, sessionKey?: string) => Promise<boolean>;
+  protected documentChangeSend?: ChatDocumentChangeHandler;
+  // Row memoization keeps this identity stable while each request uses the
+  // latest prepared owner; held callbacks still observe revocation or routing.
+  protected readonly forwardDocumentChangeRequest: ChatDocumentChangeHandler = (
+    source,
+    request,
+    signal,
+  ) => this.documentChangeSend?.(source, request, signal) ?? Promise.resolve({ admitted: false });
+  private documentChangeAccess?: () => boolean;
 
   protected prepareChatSubmit(
     state: ChatPageHost,
@@ -66,6 +81,49 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
   ): () => void {
     const sessionKey = state.sessionKey;
     const client = state.client;
+    this.documentChangeAccess = () => {
+      const agentId = resolveChatAgentId(state);
+      const agents = this.context.agents.state.agentsList;
+      const agent = agents?.agents.find((entry) => entry.id === agentId);
+      const participationBlocked = this.sessionParticipationTracker.resolve({
+        catalog: Boolean(catalogKey),
+        listLoading: state.sessionsLoading,
+        sessionKey: `${agentId ?? ""}\0${state.sessionKey}`,
+        session: selectedChatSessionRow(state),
+      });
+      const sendAccess = readSessionMethodAccess(this.context.gateway.snapshot, {
+        method: "chat.send",
+        requiredScope: "operator.write",
+      });
+      // Offline intent follows the composer's durable queue; the existing
+      // outbox and Gateway revalidate authority when delivery resumes.
+      const mayQueueOffline =
+        !state.connected && !sendAccess.allowed && sendAccess.cause === "disconnected";
+      return (
+        canSend &&
+        !catalogKey &&
+        !suggestionViewer &&
+        this.state === state &&
+        state.sessionKey === sessionKey &&
+        state.client === client &&
+        !this.isCurrentSessionArchived(state) &&
+        !participationBlocked &&
+        (sendAccess.allowed || mayQueueOffline) &&
+        !requiresChatModelSetup({
+          catalog: false,
+          connected: state.connected,
+          agentsLoaded: agents !== null,
+          selectedAgentFound: agent !== undefined,
+          agentModel: agent?.model?.primary,
+        })
+      );
+    };
+    this.documentChangeSend = this.documentChangeAccess()
+      ? createChatDocumentChangeHandler({
+          state,
+          isCurrent: () => this.state === state && this.documentChangeAccess?.() === true,
+        })
+      : undefined;
     this.widgetPromptSend = (text, sourceSessionKey) => {
       if (
         !canSend ||
@@ -568,6 +626,8 @@ export abstract class ChatPaneLifecycle extends ChatPaneSessionCreation {
 
   override disconnectedCallback() {
     this.widgetPromptSend = undefined;
+    this.documentChangeSend = undefined;
+    this.documentChangeAccess = undefined;
     this.clearComposerPrefillAttention();
     this.boardProviderLifecycleConnected = false;
     this.releaseBoardProviderLease();

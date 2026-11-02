@@ -92,19 +92,60 @@ describe("Control UI Vite config", () => {
     }
   });
 
-  it("emits Brotli and gzip variants only for bundled compressible assets", () => {
+  it.each([
+    "assets/app-AbCd1234.js",
+    "assets/workers/document-AbCd1234.js",
+    "assets/lazy-AbCd1234.mjs",
+  ])("emits byte-exact Brotli and gzip variants for %s", (fileName) => {
     const source = "console.log('precompressed');\n".repeat(200);
-    const variants = createControlUiPrecompressedAssetVariants("assets/app-AbCd1234.js", source);
+    const variants = createControlUiPrecompressedAssetVariants(fileName, source);
 
     expect(variants.map((variant) => variant.fileName)).toEqual([
-      "assets/app-AbCd1234.js.br",
-      "assets/app-AbCd1234.js.gz",
+      `${fileName}.br`,
+      `${fileName}.gz`,
     ]);
     expect(brotliDecompressSync(variants[0]?.source ?? Buffer.alloc(0)).toString()).toBe(source);
     expect(gunzipSync(variants[1]?.source ?? Buffer.alloc(0)).toString()).toBe(source);
     expect(createControlUiPrecompressedAssetVariants("index.html", source)).toEqual([]);
     expect(createControlUiPrecompressedAssetVariants("assets/logo.png", source)).toEqual([]);
     expect(createControlUiPrecompressedAssetVariants("assets/app.js.map", source)).toEqual([]);
+  });
+
+  it("emits actual worker code into the reserved off-main-thread asset directory", async () => {
+    const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "control-ui-worker-build-")));
+    try {
+      writeFileSync(
+        path.join(root, "index.html"),
+        '<script type="module" src="./entry.js"></script>',
+      );
+      writeFileSync(
+        path.join(root, "entry.js"),
+        'new Worker(new URL("./document-worker.js", import.meta.url), { type: "module" });',
+      );
+      writeFileSync(path.join(root, "document-worker.js"), 'self.postMessage("ready");');
+      const result = await build({
+        root,
+        configFile: false,
+        logLevel: "silent",
+        worker: controlUiViteConfig().worker,
+        build: { write: false },
+      });
+      const bundle = Array.isArray(result) ? result[0] : result;
+      if (!bundle || !("output" in bundle)) {
+        throw new Error("Expected a completed worker build");
+      }
+      const worker = bundle.output.find((output) =>
+        /^assets\/workers\/document-worker-[\w-]+\.js$/u.test(output.fileName),
+      );
+      if (!worker || worker.type !== "asset") {
+        throw new Error("Worker code did not use the reserved build output directory");
+      }
+      expect(String(worker.source)).toContain("postMessage");
+      const entry = bundle.output.find((output) => output.type === "chunk" && output.isEntry);
+      expect(entry && entry.type === "chunk" ? entry.code : "").toContain("assets/workers/");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("embeds one canonical artifact identity from explicit build inputs", () => {

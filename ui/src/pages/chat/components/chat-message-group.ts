@@ -18,6 +18,7 @@ import {
   persistedMessageEntryId,
   type AssistantMessageExpansionState,
 } from "../chat-thread.ts";
+import type { ChatDocumentChangeHandler } from "../document-change-request.ts";
 import { workspaceResultConflictFromTranscript } from "../workspace-conflict.ts";
 import { renderChatAuthorAvatar } from "./chat-author-avatar.ts";
 import { renderGroupedMessage } from "./chat-message-bubble.ts";
@@ -87,6 +88,7 @@ type RenderMessageGroupOptions = {
   localMediaPreviewRoots?: readonly string[];
   assistantAttachmentAuthToken?: string | null;
   resolveArtifactDownload?: ArtifactDownloadResolver;
+  onDocumentChangeRequest?: ChatDocumentChangeHandler;
   canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
   recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   embedSandboxMode?: EmbedSandboxMode;
@@ -160,6 +162,7 @@ function buildGroupedMessageRenderOptions(
     localMediaPreviewRoots: opts.localMediaPreviewRoots,
     assistantAttachmentAuthToken: opts.assistantAttachmentAuthToken,
     resolveArtifactDownload: opts.resolveArtifactDownload,
+    onDocumentChangeRequest: opts.onDocumentChangeRequest,
     embedSandboxMode: opts.embedSandboxMode,
     allowExternalEmbedUrls: opts.allowExternalEmbedUrls,
   };

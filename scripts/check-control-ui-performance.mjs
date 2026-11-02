@@ -6,6 +6,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const KIB = 1024;
+// Vite owns this directory for every worker entry and worker-only chunk.
+const WORKER_ASSET_PREFIX = "assets/workers/";
 const STARTUP_JS_BASELINE_RATCHET_BYTES = 4096;
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_STARTUP_BUDGET_BASELINE_PATH = path.resolve(
@@ -31,6 +33,9 @@ export const CONTROL_UI_PERFORMANCE_BUDGETS = Object.freeze({
   // sidebar zone styling; headroom over the ~36.5 KiB post-diet baseline.
   startupCssGzipBytes: 45 * KIB,
   largestJsGzipBytes: 215 * KIB,
+  // Explicitly approved for the isolated, lazy PDF renderer. This does not
+  // increase the main-thread or startup ceilings, or omit worker transport bytes.
+  largestWorkerJsGzipBytes: 360 * KIB,
   largestCssGzipBytes: 45 * KIB,
 });
 
@@ -41,7 +46,7 @@ function controlUiAssetPathFromUrl(value) {
     return null;
   }
   const assetPath = normalized.slice(markerIndex);
-  if (assetPath.includes("../") || !/\.(?:css|js)$/u.test(assetPath)) {
+  if (assetPath.includes("../")) {
     return null;
   }
   return assetPath;
@@ -52,30 +57,49 @@ export function extractControlUiStartupAssetPaths(html) {
   for (const tag of html.matchAll(/<(?:link|script)\b[^>]*>/giu)) {
     const attribute = tag[0].match(/\s(?:href|src)\s*=\s*["']([^"']+)["']/iu);
     const assetPath = attribute ? controlUiAssetPathFromUrl(attribute[1]) : null;
-    if (assetPath) {
+    if (assetPath?.startsWith(WORKER_ASSET_PREFIX)) {
+      throw new Error(`Control UI worker asset must not appear in startup HTML: ${assetPath}`);
+    }
+    if (assetPath && /\.(?:css|m?js)$/u.test(assetPath)) {
       assets.add(assetPath);
     }
   }
   return [...assets].toSorted((left, right) => left.localeCompare(right));
 }
 
-function readAssetMetrics(assetsDir, entry) {
-  const file = `assets/${entry.name}`;
-  const sourcePath = path.join(assetsDir, entry.name);
+function readAssetMetrics(assetsDir, relativeFile) {
+  const file = `assets/${relativeFile}`;
+  const sourcePath = path.join(assetsDir, relativeFile);
   const gzipPath = `${sourcePath}.gz`;
   const brotliPath = `${sourcePath}.br`;
   for (const sidecarPath of [gzipPath, brotliPath]) {
     if (!fs.existsSync(sidecarPath)) {
-      throw new Error(`Control UI performance check missing ${path.basename(sidecarPath)}`);
+      throw new Error(
+        `Control UI performance check missing ${relativeFile}${path.extname(sidecarPath)}`,
+      );
     }
   }
   return {
     file,
-    type: entry.name.endsWith(".js") ? "js" : "css",
+    type: relativeFile.endsWith(".css") ? "css" : "js",
     rawBytes: fs.statSync(sourcePath).size,
     gzipBytes: fs.statSync(gzipPath).size,
     brotliBytes: fs.statSync(brotliPath).size,
   };
+}
+
+function collectAssetMetrics(assetsDir, directory = "") {
+  return fs
+    .readdirSync(path.join(assetsDir, directory), { withFileTypes: true })
+    .flatMap((entry) => {
+      const relativeFile = path.posix.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        return collectAssetMetrics(assetsDir, relativeFile);
+      }
+      return entry.isFile() && /\.(?:css|m?js)$/u.test(entry.name)
+        ? [readAssetMetrics(assetsDir, relativeFile)]
+        : [];
+    });
 }
 
 function summarizeAssets(assets) {
@@ -99,10 +123,7 @@ function largestAsset(assets) {
 export function collectControlUiPerformanceMetrics(distDir) {
   const assetsDir = path.join(distDir, "assets");
   const html = fs.readFileSync(path.join(distDir, "index.html"), "utf8");
-  const assets = fs
-    .readdirSync(assetsDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && /\.(?:css|js)$/u.test(entry.name))
-    .map((entry) => readAssetMetrics(assetsDir, entry));
+  const assets = collectAssetMetrics(assetsDir);
   const assetsByFile = new Map(assets.map((asset) => [asset.file, asset]));
   const startup = extractControlUiStartupAssetPaths(html).map((file) => {
     const asset = assetsByFile.get(file);
@@ -112,8 +133,10 @@ export function collectControlUiPerformanceMetrics(distDir) {
     return asset;
   });
   const jsAssets = assets.filter((asset) => asset.type === "js");
+  const workerJsAssets = jsAssets.filter((asset) => asset.file.startsWith(WORKER_ASSET_PREFIX));
+  const mainJsAssets = jsAssets.filter((asset) => !asset.file.startsWith(WORKER_ASSET_PREFIX));
   const cssAssets = assets.filter((asset) => asset.type === "css");
-  if (jsAssets.length === 0 || cssAssets.length === 0 || startup.length === 0) {
+  if (mainJsAssets.length === 0 || cssAssets.length === 0 || startup.length === 0) {
     throw new Error("Control UI performance check found an incomplete production bundle");
   }
   return {
@@ -127,8 +150,12 @@ export function collectControlUiPerformanceMetrics(distDir) {
       js: summarizeAssets(jsAssets),
       css: summarizeAssets(cssAssets),
     },
+    workers: {
+      js: summarizeAssets(workerJsAssets),
+      largestJs: largestAsset(workerJsAssets),
+    },
     largest: {
-      js: largestAsset(jsAssets),
+      js: largestAsset(mainJsAssets),
       css: largestAsset(cssAssets),
     },
   };
@@ -148,6 +175,14 @@ export function evaluateControlUiPerformanceBudgets(
     ["largest JS gzip", metrics.largest.js.gzipBytes, budgets.largestJsGzipBytes, "bytes"],
     ["largest CSS gzip", metrics.largest.css.gzipBytes, budgets.largestCssGzipBytes, "bytes"],
   ];
+  if (metrics.workers.largestJs) {
+    checks.push([
+      "largest worker JS gzip",
+      metrics.workers.largestJs.gzipBytes,
+      budgets.largestWorkerJsGzipBytes,
+      "bytes",
+    ]);
+  }
   const violations = checks.flatMap(([metric, actual, limit, unit]) =>
     actual > limit ? [{ metric, actual, limit, unit }] : [],
   );
@@ -221,10 +256,12 @@ export function formatControlUiPerformanceReport(
   }
   lines.push(
     `  startup CSS: ${formatAssetSummary(metrics.startup.css)} (limits: ${formatRequestCount(budgets.startupCssRequests)}, ${formatControlUiPerformanceBytes(budgets.startupCssGzipBytes)} gzip)`,
-    `  largest JS: ${metrics.largest.js.file}, ${formatControlUiPerformanceBytes(metrics.largest.js.gzipBytes)} gzip (limit: ${formatControlUiPerformanceBytes(budgets.largestJsGzipBytes)})`,
+    `  largest main-thread JS: ${metrics.largest.js.file}, ${formatControlUiPerformanceBytes(metrics.largest.js.gzipBytes)} gzip (limit: ${formatControlUiPerformanceBytes(budgets.largestJsGzipBytes)})`,
     `  largest CSS: ${metrics.largest.css.file}, ${formatControlUiPerformanceBytes(metrics.largest.css.gzipBytes)} gzip (limit: ${formatControlUiPerformanceBytes(budgets.largestCssGzipBytes)})`,
     `  all JS: ${formatAssetSummary(metrics.total.js)}`,
     `  all CSS: ${formatAssetSummary(metrics.total.css)}`,
+    `  worker JS: ${formatAssetSummary(metrics.workers.js)}`,
+    `  largest worker JS: ${metrics.workers.largestJs ? `${metrics.workers.largestJs.file}, ${formatControlUiPerformanceBytes(metrics.workers.largestJs.gzipBytes)} gzip` : "none"} (limit: ${formatControlUiPerformanceBytes(budgets.largestWorkerJsGzipBytes)})`,
   );
   if (
     startupBudgetBaseline &&

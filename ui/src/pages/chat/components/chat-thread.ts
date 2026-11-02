@@ -71,6 +71,7 @@ import {
   syncToolCardExpansionState,
 } from "../chat-thread.ts";
 import { DeletedMessages } from "../deleted-messages.ts";
+import type { ChatDocumentChangeHandler } from "../document-change-request.ts";
 import { PinnedMessages } from "../pinned-messages.ts";
 import type { RealtimeTalkConversationEntry } from "../realtime-talk-conversation.ts";
 import {
@@ -167,6 +168,7 @@ type ChatThreadProps = {
   localMediaPreviewRoots?: string[];
   assistantAttachmentAuthToken?: string | null;
   resolveArtifactDownload?: ArtifactDownloadResolver;
+  onDocumentChangeRequest?: ChatDocumentChangeHandler;
   canvasPluginSurfaceRoute?: CanvasPluginSurfaceRoute;
   recoverCanvasPluginSurfaceUrl?: (observedUrl: string) => Promise<string | null>;
   embedSandboxMode?: EmbedSandboxMode;
@@ -1875,6 +1877,7 @@ function renderChatThreadContents(
       localMediaPreviewRoots: props.localMediaPreviewRoots ?? [],
       assistantAttachmentAuthToken: props.assistantAttachmentAuthToken ?? null,
       resolveArtifactDownload: props.resolveArtifactDownload,
+      onDocumentChangeRequest: props.onDocumentChangeRequest,
       canvasPluginSurfaceRoute: props.canvasPluginSurfaceRoute,
       recoverCanvasPluginSurfaceUrl: props.recoverCanvasPluginSurfaceUrl,
       embedSandboxMode: props.embedSandboxMode ?? "scripts",
@@ -2106,6 +2109,7 @@ function renderChatThreadContents(
     props.allowExternalEmbedUrls ?? false,
     threadContextWindow,
     props.onSetReply,
+    props.onDocumentChangeRequest,
     turnRecap === null ? "" : `${turnRecap.runtimeMs}:${turnRecap.outputTokens ?? ""}`,
   ]);
   const transcriptContents =
