@@ -7,6 +7,7 @@ export const documentViewerStyles = css`
     width: 100%;
   }
   .viewer {
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -27,7 +28,7 @@ export const documentViewerStyles = css`
   }
   .toolbar {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     gap: 8px;
     padding: 8px 0;
@@ -41,7 +42,14 @@ export const documentViewerStyles = css`
     gap: 6px;
   }
   .pagination {
+    grid-column: 2;
     justify-content: center;
+    min-width: 0;
+  }
+  .toolbar > .controls {
+    grid-column: 3;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     min-width: 0;
   }
   .option-controls {
@@ -366,17 +374,13 @@ export const documentViewerStyles = css`
       height: calc(100dvh - 16px);
     }
   }
-  @media (max-width: 420px) {
+  @container (max-width: 640px) {
     .toolbar {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
-    .pagination {
-      grid-row: 1;
-      grid-column: 1 / -1;
-    }
+    .pagination,
     .toolbar > .controls {
-      grid-column: 1 / -1;
-      justify-self: end;
+      grid-column: 1;
     }
   }
   @media (pointer: coarse) {
