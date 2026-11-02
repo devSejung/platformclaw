@@ -761,7 +761,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
 
     try {
       const defaults = await renderFixture(false);
-      expect(defaults.thread.width).toBeCloseTo(768, 0);
+      expect(defaults.thread.width).toBeCloseTo(960, 0);
       expect(defaults.composer.width).toBeCloseTo(defaults.thread.width, 0);
       expect(defaults.prs.width).toBeCloseTo(defaults.thread.width, 0);
       expect(defaults.tool.width).toBeCloseTo(defaults.thread.width, 0);
@@ -1125,7 +1125,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
         const composerCenter = composer.left + composer.width / 2;
         expect(Math.abs(threadCenter - composerCenter)).toBeLessThanOrEqual(1);
         expect(Math.abs(thread.width - composer.width)).toBeLessThanOrEqual(1);
-        expect(thread.width).toBeCloseTo(768, 0);
+        expect(thread.width).toBeCloseTo(960, 0);
         expect(Math.abs(assistantLane.left - thread.left)).toBeLessThanOrEqual(1);
         expect(Math.abs(userLane.right - thread.right)).toBeLessThanOrEqual(1);
       } finally {
@@ -1714,8 +1714,7 @@ describeBrowserLayout.concurrent("chat responsive browser layout", () => {
         }
 
         if (width >= 1600) {
-          expect(shell.width).toBeGreaterThanOrEqual(767);
-          expect(shell.width).toBeLessThanOrEqual(769);
+          expect(shell.width).toBeCloseTo(960, 0);
           expect(
             Math.abs(shell.x + shell.width / 2 - (chat.x + chat.width / 2)),
           ).toBeLessThanOrEqual(1);

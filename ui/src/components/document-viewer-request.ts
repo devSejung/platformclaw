@@ -5,7 +5,7 @@ import { ref } from "lit/directives/ref.js";
 import { t } from "../i18n/index.ts";
 import type { DocumentSelectionTarget } from "./document-viewer-selection.ts";
 import { toolIcons } from "./icons-tools.ts";
-import { promoteToPopoverTopLayer } from "./menu-surface.ts";
+import "./web-awesome.ts";
 
 export const DOCUMENT_CHANGE_TEXT_MAX = 1_024;
 export const DOCUMENT_CHANGE_INSTRUCTION_MAX = 4_096;
@@ -66,7 +66,6 @@ export class DocumentViewerRequestController {
         clientY: number;
       }
     | undefined;
-  private menu: HTMLElement | undefined;
   private menuListeners: AbortController | undefined;
 
   constructor(private readonly host: RequestHost) {}
@@ -150,7 +149,6 @@ export class DocumentViewerRequestController {
   closeContextMenu = (): void => {
     this.menuListeners?.abort();
     this.menuListeners = undefined;
-    this.menu = undefined;
     if (this.context) {
       this.context = undefined;
       this.host.requestUpdate();
@@ -160,10 +158,8 @@ export class DocumentViewerRequestController {
   private bindContextMenu = (element?: Element): void => {
     this.menuListeners?.abort();
     if (!(element instanceof HTMLElement)) {
-      this.menu = undefined;
       return;
     }
-    this.menu = element;
     const listeners = new AbortController();
     this.menuListeners = listeners;
     const options = { capture: true, signal: listeners.signal };
@@ -192,19 +188,6 @@ export class DocumentViewerRequestController {
     );
     window.addEventListener("resize", this.closeContextMenu, options);
     window.addEventListener("scroll", this.closeContextMenu, options);
-    queueMicrotask(() => {
-      if (this.menu !== element || !element.isConnected) {
-        return;
-      }
-      promoteToPopoverTopLayer(element);
-      const bounds = element.getBoundingClientRect();
-      const context = this.context;
-      if (context) {
-        element.style.left = `${Math.max(0, Math.min(context.clientX, window.innerWidth - bounds.width))}px`;
-        element.style.top = `${Math.max(0, Math.min(context.clientY, window.innerHeight - bounds.height))}px`;
-      }
-      element.querySelector("button")?.focus({ preventScroll: true });
-    });
   };
 
   renderContextMenu() {
@@ -218,21 +201,28 @@ export class DocumentViewerRequestController {
     ) {
       return nothing;
     }
-    return html`<div
-      class="request-context-menu"
-      role="menu"
-      aria-label=${t("chat.documentViewer.requestChanges")}
-      @contextmenu=${(event: MouseEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      ${ref(this.bindContextMenu)}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        @click=${() => {
-          if (this.context !== context) {
+    return keyed(
+      context,
+      html`<wa-dropdown
+        class="request-context-menu"
+        .open=${true}
+        placement="bottom-start"
+        .distance=${0}
+        size="s"
+        aria-label=${t("chat.documentViewer.requestChanges")}
+        @contextmenu=${(event: MouseEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        ${ref(this.bindContextMenu)}
+        @wa-after-hide=${() => {
+          if (this.context === context) {
+            this.closeContextMenu();
+          }
+        }}
+        @wa-select=${(event: CustomEvent<{ item: { value?: string } }>) => {
+          event.preventDefault();
+          if (this.context !== context || event.detail.item.value !== "request-changes") {
             return;
           }
           const current = this.host.currentPage();
@@ -253,10 +243,21 @@ export class DocumentViewerRequestController {
           this.host.requestUpdate();
         }}
       >
-        <span class="request-icon" aria-hidden="true">${toolIcons.penLine}</span>
-        ${t("chat.documentViewer.requestChanges")}
-      </button>
-    </div>`;
+        <button
+          slot="trigger"
+          class="request-context-trigger"
+          type="button"
+          tabindex="-1"
+          aria-hidden="true"
+          aria-label=${t("chat.documentViewer.requestChanges")}
+          style=${`left:${context.clientX}px;top:${context.clientY}px`}
+        ></button>
+        <wa-dropdown-item value="request-changes">
+          <span slot="icon" class="request-icon" aria-hidden="true">${toolIcons.penLine}</span>
+          ${t("chat.documentViewer.requestChanges")}
+        </wa-dropdown-item>
+      </wa-dropdown>`,
+    );
   }
 
   private selectPoint(page: SelectionPage, point: { x: number; y: number }): void {

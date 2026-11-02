@@ -320,8 +320,7 @@ describeControlUiE2e("Control UI chat composer redesign", () => {
         throw new Error("expected composer controls to have layout boxes");
       }
       expect(Math.abs(chatMainBox.x - chatContentBox.x)).toBeLessThanOrEqual(1);
-      expect(composerShellBox.width).toBeGreaterThanOrEqual(767);
-      expect(composerShellBox.width).toBeLessThanOrEqual(769);
+      expect(composerShellBox.width).toBeCloseTo(960, 0);
       expect(
         Math.abs(
           composerShellBox.x + composerShellBox.width / 2 - (chatMainBox.x + chatMainBox.width / 2),
@@ -358,8 +357,12 @@ describeControlUiE2e("Control UI chat composer redesign", () => {
       if (!compactChatMainBox || !compactComposerShellBox) {
         throw new Error("expected compact composer layout boxes");
       }
-      expect(compactComposerShellBox.width).toBeGreaterThanOrEqual(767);
-      expect(compactComposerShellBox.width).toBeLessThanOrEqual(769);
+      // The 60rem column keeps the shared 18px side gutters when the
+      // available chat pane becomes narrower than its desktop maximum.
+      expect(compactComposerShellBox.width).toBeCloseTo(
+        Math.min(960, compactChatMainBox.width - 36),
+        0,
+      );
       expect(
         Math.abs(
           compactComposerShellBox.x +

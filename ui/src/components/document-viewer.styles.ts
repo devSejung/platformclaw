@@ -191,25 +191,14 @@ export const documentViewerStyles = css`
     box-shadow: 0 6px 24px #0003;
     font-size: 12px;
   }
-  .request-context-menu {
+  .request-context-trigger {
     position: fixed;
-    inset: auto;
-    z-index: 4;
-    width: max-content;
-    max-width: calc(100vw - 16px);
-    margin: 0;
-    padding: 4px;
-    border: 1px solid var(--border, #ccc);
-    border-radius: 8px;
-    background: var(--bg, #fff);
-    color: inherit;
-    box-shadow: 0 6px 24px #0003;
-  }
-  .request-context-menu button {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    width: 100%;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
   }
   .request-popover-header {
     display: flex;

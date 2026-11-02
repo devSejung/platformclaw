@@ -89,6 +89,7 @@ suite.define(() => {
       // inside the start-screen welcome, below the hero.
       const heroBox = await page.locator(".agent-chat__welcome h2").boundingBox();
       const triggersBox = await page.locator(".new-session-page__triggers").boundingBox();
+      const draftBox = await page.locator(".new-session-page__draft").boundingBox();
       const composerBox = await page.locator(".new-session-page__composer").boundingBox();
       const modelBox = await page.locator('[data-chat-model-select="true"]').boundingBox();
       const modelWrapperBox = await page
@@ -99,6 +100,7 @@ suite.define(() => {
         .boundingBox();
       expect(heroBox).not.toBeNull();
       expect(triggersBox).not.toBeNull();
+      expect(draftBox).not.toBeNull();
       expect(composerBox).not.toBeNull();
       expect(modelBox).not.toBeNull();
       expect(modelWrapperBox).not.toBeNull();
@@ -127,7 +129,16 @@ suite.define(() => {
       ).toBeLessThanOrEqual(12);
       expect(triggersBox?.x).toBeCloseTo(composerBox?.x ?? 0, 0);
       expect(triggersBox?.width).toBeCloseTo(composerBox?.width ?? 0, 0);
-      expect(composerBox?.width).toBeCloseTo(48 * 16, 0);
+      if (!draftBox || !composerBox) {
+        throw new Error("expected the draft and composer to have layout boxes");
+      }
+      expect(
+        await page
+          .locator(".new-session-page__composer")
+          .evaluate((element) => Number.parseFloat(getComputedStyle(element).maxWidth)),
+      ).toBe(960);
+      expect(composerBox.width).toBeCloseTo(Math.min(960, draftBox.width - 36), 0);
+      expect(composerBox.x + composerBox.width / 2).toBeCloseTo(draftBox.x + draftBox.width / 2, 0);
       expect(await page.locator(".new-session-page__message").getAttribute("rows")).toBe("1");
 
       // The place trigger labels the workspace and opens the unified menu.
