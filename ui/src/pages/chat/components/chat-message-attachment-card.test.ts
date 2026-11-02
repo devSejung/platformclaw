@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 import { render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChatDocumentChangeHandler } from "../document-change-request.ts";
+import type { ChatDocumentChangeHandler } from "../document-change-contract.ts";
 import { renderAssistantDocumentAttachment } from "./chat-message-attachment-card.ts";
 
 vi.mock("../../../components/document-viewer.ts", () => ({}));

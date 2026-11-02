@@ -71,7 +71,7 @@ import {
   syncToolCardExpansionState,
 } from "../chat-thread.ts";
 import { DeletedMessages } from "../deleted-messages.ts";
-import type { ChatDocumentChangeHandler } from "../document-change-request.ts";
+import type { ChatDocumentChangeHandler } from "../document-change-contract.ts";
 import { PinnedMessages } from "../pinned-messages.ts";
 import type { RealtimeTalkConversationEntry } from "../realtime-talk-conversation.ts";
 import {

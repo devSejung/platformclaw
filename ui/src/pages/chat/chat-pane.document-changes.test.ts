@@ -5,7 +5,7 @@ import type { CatalogSessionKey } from "../../lib/sessions/catalog-key.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
 import { createTestChatPane, type TestChatPane } from "./chat-pane.test-support.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
-import type { ChatDocumentChangeHandler } from "./document-change-request.ts";
+import type { ChatDocumentChangeHandler } from "./document-change-contract.ts";
 
 type DocumentPane = TestChatPane & {
   prepareChatSubmit(

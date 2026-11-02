@@ -1,5 +1,6 @@
 // Vitest ui config wires the ui test shard.
 import { controlUiLocaleModulesPlugin } from "../../ui/config/control-ui-locales.ts";
+import { controlUiPdfAssetsPlugin } from "../../ui/config/control-ui-pdf-assets.ts";
 import { nativeNodeTestBuiltinsPlugin } from "./vitest.native-node-builtins.ts";
 import { createScopedVitestConfig } from "./vitest.scoped-config.ts";
 import { jsdomOptimizedDeps } from "./vitest.shared.config.ts";
@@ -31,6 +32,7 @@ export function createUiVitestConfig(
       nativeNodeTestBuiltinsPlugin(),
       ...(config.plugins ?? []),
       controlUiLocaleModulesPlugin(),
+      controlUiPdfAssetsPlugin(),
     ],
   };
 }

@@ -46,10 +46,8 @@ import { toggleSessionWorkspace } from "./components/chat-session-workspace.ts";
 import { openChatThreadSearch, closeChatThreadSearch } from "./components/chat-thread.ts";
 import { WIDGET_PROMPT_EVENT, type WidgetPromptEventDetail } from "./components/chat-tool-cards.ts";
 import { CHAT_COMPOSER_DRAFT_STORAGE_ERROR } from "./composer-persistence.ts";
-import {
-  createChatDocumentChangeHandler,
-  type ChatDocumentChangeHandler,
-} from "./document-change-request.ts";
+import type { ChatDocumentChangeHandler } from "./document-change-contract.ts";
+import { createChatDocumentChangeHandler } from "./document-change-request.ts";
 import { exportChatMarkdown } from "./export.ts";
 import { admitInitialTurnHandoff, admitInitialUserMessageHandoff } from "./initial-turn-handoff.ts";
 import { readChatSessionSnapshot } from "./session-message-cache.ts";

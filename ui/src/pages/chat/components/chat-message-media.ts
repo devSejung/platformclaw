@@ -7,7 +7,7 @@ import {
   getMediaFileExtension,
   hasVideoMediaFileExtension,
 } from "../../../lib/media-file-extension.ts";
-import type { ChatDocumentChangeHandler } from "../document-change-request.ts";
+import type { ChatDocumentChangeHandler } from "../document-change-contract.ts";
 
 export type PairingQrExpiryNotice = {
   title: string;

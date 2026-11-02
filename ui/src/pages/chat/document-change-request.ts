@@ -4,7 +4,6 @@ import {
   DOCUMENT_CHANGE_INSTRUCTION_MAX,
   DOCUMENT_CHANGE_TEXT_MAX,
   type DocumentChangeRequest,
-  type DocumentChangeResult,
 } from "../../components/document-viewer-request.ts";
 import { t } from "../../i18n/index.ts";
 import { normalizeMessage } from "../../lib/chat/message-normalizer.ts";
@@ -18,22 +17,7 @@ import type { ChatPageHost } from "./chat-state-host.ts";
 import { persistedMessageEntryId } from "./chat-thread-items.ts";
 import { chatAttachmentFromDataUrl } from "./components/chat-attachments.ts";
 import { extractTranscriptAttachments } from "./components/chat-message-media.ts";
-
-type ChatDocumentSource = {
-  sessionKey: string;
-  messageId: string;
-  message: unknown;
-  sourceIdentity: string;
-  artifactId?: string;
-  label: string;
-  pageUnit: "page" | "slide";
-};
-
-export type ChatDocumentChangeHandler = (
-  source: ChatDocumentSource,
-  request: DocumentChangeRequest,
-  signal: AbortSignal,
-) => Promise<DocumentChangeResult>;
+import type { ChatDocumentChangeHandler, ChatDocumentSource } from "./document-change-contract.ts";
 
 type DocumentChangeHost = UiSessionDefaultsHost &
   Pick<

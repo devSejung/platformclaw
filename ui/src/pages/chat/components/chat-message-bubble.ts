@@ -29,7 +29,7 @@ import {
 } from "../../../lib/chat/tool-cards.ts";
 import type { CanvasPluginSurfaceRoute, EmbedSandboxMode } from "../../../lib/chat/tool-display.ts";
 import { resolveToolDisplay } from "../../../lib/chat/tool-display.ts";
-import type { ChatDocumentChangeHandler } from "../document-change-request.ts";
+import type { ChatDocumentChangeHandler } from "../document-change-contract.ts";
 import {
   visibleWorkspaceConflictPaths,
   workspaceConflictCount,

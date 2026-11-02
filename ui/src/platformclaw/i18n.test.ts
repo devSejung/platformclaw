@@ -57,6 +57,11 @@ describe("PlatformClaw product translations", () => {
     expect(t("chat.yieldFailed")).toBe("작업을 맡기지 못했습니다");
     expect(t("chat.runControls.sendMessage")).toBe("메시지 보내기");
     expect(t("chat.runControls.stopGenerating")).toBe("생성 중지");
+    expect(t("chat.documentViewer.contents")).toBe("목차");
+    expect(t("chat.documentViewer.requestChanges")).toBe("수정 요청");
+    expect(t("chat.documentViewer.slidePosition", { current: "2", total: "3" })).toBe(
+      "전체 3장 중 2번 슬라이드",
+    );
     expect(t("execApproval.expiresIn", { time: "01:30" })).toBe("01:30 후 만료");
     expect(t("execApproval.reviewRequest", { agent: "도우미" })).toBe(
       "도우미의 승인 요청 검토: {command}",
@@ -89,6 +94,8 @@ describe("PlatformClaw product translations", () => {
     expect(t("nav.settingsGroupAdministration")).toBe("Administration");
     expect(t("execApproval.allowOnce")).toBe("Allow once");
     expect(t("chat.runControls.sendMessage")).toBe("Send message");
+    expect(t("chat.documentViewer.contents")).toBe("Contents");
+    expect(t("chat.documentViewer.requestChanges")).toBe("Request changes");
     expect(t("chat.waitingOnSubagents")).toBe("Waiting on subagents");
     expect(t("chat.yieldWaiting")).toBe("Handed off and waiting");
     expect(t("chat.yieldResumed")).toBe("Resumed");

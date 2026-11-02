@@ -18,7 +18,7 @@ import {
   persistedMessageEntryId,
   type AssistantMessageExpansionState,
 } from "../chat-thread.ts";
-import type { ChatDocumentChangeHandler } from "../document-change-request.ts";
+import type { ChatDocumentChangeHandler } from "../document-change-contract.ts";
 import { workspaceResultConflictFromTranscript } from "../workspace-conflict.ts";
 import { renderChatAuthorAvatar } from "./chat-author-avatar.ts";
 import { renderGroupedMessage } from "./chat-message-bubble.ts";

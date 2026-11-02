@@ -66,7 +66,7 @@ import {
   openChatThreadSearch,
   closeChatThreadSearch,
 } from "./components/chat-thread.ts";
-import type { ChatDocumentChangeHandler } from "./document-change-request.ts";
+import type { ChatDocumentChangeHandler } from "./document-change-contract.ts";
 import type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult } from "./input-history.ts";
 import type { RealtimeTalkConversationEntry } from "./realtime-talk-conversation.ts";
 import type { RealtimeTalkCameraDevice } from "./realtime-talk-input.ts";
