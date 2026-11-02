@@ -60,11 +60,20 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
         timeoutMs: timeoutMs(),
       };
     }
-    if (action !== "predict" || !enabled() || (await preferences.lookup(userId)) !== true) {
-      return { text: null };
+    if (action !== "predict") {
+      return { text: null, reason: "invalid_request" };
     }
-    if (active || modelCalls.size || !Array.isArray(params.messages)) {
-      return { text: null };
+    if (!enabled() || (await preferences.lookup(userId)) !== true) {
+      return { text: null, reason: "disabled" };
+    }
+    if (active) {
+      return { text: null, reason: "prediction_busy" };
+    }
+    if (modelCalls.size) {
+      return { text: null, reason: "model_busy" };
+    }
+    if (!Array.isArray(params.messages)) {
+      return { text: null, reason: "invalid_context" };
     }
     const messages = params.messages;
     if (
@@ -80,44 +89,53 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
       !isRecord(messages.at(-1)) ||
       messages.at(-1).role !== "assistant"
     ) {
-      return { text: null };
+      return { text: null, reason: "invalid_context" };
     }
     const controller = new AbortController();
     active = controller;
-    const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(timeoutMs())]);
+    const deadline = AbortSignal.timeout(timeoutMs());
+    const combined = AbortSignal.any([signal, controller.signal, deadline]);
     try {
       if (!modelRef) {
-        return { text: null };
+        return { text: null, reason: "model_unavailable" };
       }
       const provider = findNormalizedProviderValue(
         api.runtime.config.current().models?.providers,
         modelRef.provider,
       );
       const model = provider?.models.find((candidate) => candidate.id === modelRef.model);
-      if (!provider || !model || (model.api ?? provider.api) !== "openai-completions") {
-        return { text: null };
+      if (!provider || !model) {
+        return { text: null, reason: "model_unavailable" };
       }
-      const url = new URL(
-        `${(model.baseUrl ?? provider.baseUrl).replace(/\/$/u, "")}/chat/completions`,
-      );
+      if ((model.api ?? provider.api) !== "openai-completions") {
+        return { text: null, reason: "unsupported_api" };
+      }
+      let url: URL;
+      try {
+        url = new URL(
+          `${(model.baseUrl ?? provider.baseUrl).replace(/\/$/u, "")}/chat/completions`,
+        );
+      } catch {
+        return { text: null, reason: "invalid_provider" };
+      }
       if (url.username || url.password || url.search || url.hash) {
-        return { text: null };
+        return { text: null, reason: "invalid_provider" };
       }
       const addresses = await lookup(url.hostname.replace(/^\[|\]$/gu, ""), { all: true });
       combined.throwIfAborted();
       // Pin the verified private addresses; a redirect or DNS change must not send context outside.
       if (!addresses.length || addresses.some(({ address }) => !isPrivateOrLoopbackHost(address))) {
-        return { text: null };
+        return { text: null, reason: "destination_rejected" };
       }
       const headers = new Headers({ "Content-Type": "application/json" });
       for (const [name, value] of Object.entries({ ...provider.headers, ...model.headers })) {
         if (typeof value !== "string") {
-          return { text: null };
+          return { text: null, reason: "credentials_unready" };
         }
         headers.set(name, value);
       }
       if (provider.apiKey !== undefined && typeof provider.apiKey !== "string") {
-        return { text: null };
+        return { text: null, reason: "credentials_unready" };
       }
       if (provider.apiKey && provider.authHeader !== false) {
         headers.set("Authorization", `Bearer ${provider.apiKey}`);
@@ -149,11 +167,11 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
       try {
         if (!response.ok) {
           await response.body?.cancel();
-          return { text: null };
+          return { text: null, reason: "provider_http_error", providerStatus: response.status };
         }
         const reader = response.body?.getReader();
         if (!reader) {
-          return { text: null };
+          return { text: null, reason: "response_missing" };
         }
         let raw = "";
         let bytes = 0;
@@ -166,7 +184,7 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
             }
             bytes += value.byteLength;
             if (bytes > 16_384) {
-              return { text: null };
+              return { text: null, reason: "response_oversized" };
             }
             raw += decoder.decode(value, { stream: true });
           }
@@ -174,34 +192,53 @@ export function createComposerPredictions(api: OpenClawPluginApi) {
         } finally {
           await reader.cancel().catch(() => undefined);
         }
-        const body: unknown = JSON.parse(raw);
+        if (!raw.trim()) {
+          return { text: null, reason: "response_empty" };
+        }
+        let body: unknown;
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          return { text: null, reason: "response_invalid" };
+        }
         const choice = isRecord(body) && Array.isArray(body.choices) ? body.choices[0] : null;
         const message = isRecord(choice) ? choice.message : null;
-        const text =
-          isRecord(message) && typeof message.content === "string"
-            ? message.content
-                .trim()
-                .replace(/^["'“”]+|["'“”]+$/gu, "")
-                .trim()
-            : "";
+        if (!isRecord(message) || typeof message.content !== "string") {
+          return { text: null, reason: "response_invalid" };
+        }
+        const text = message.content
+          .trim()
+          .replace(/^["'“”]+|["'“”]+$/gu, "")
+          .trim();
         combined.throwIfAborted();
-        return {
-          text:
-            enabled() &&
-            (await preferences.lookup(userId)) === true &&
-            text &&
-            text !== "NO_SUGGESTION" &&
-            text.length <= 300 &&
-            !/[\n\r`#*]/u.test(text)
-              ? text
-              : null,
-        };
+        if (!enabled() || (await preferences.lookup(userId)) !== true) {
+          return { text: null, reason: "disabled" };
+        }
+        if (!text) {
+          return { text: null, reason: "response_empty" };
+        }
+        if (text === "NO_SUGGESTION") {
+          return { text: null, reason: "no_suggestion" };
+        }
+        if (text.length > 300 || /[\n\r`#*]/u.test(text)) {
+          return { text: null, reason: "format_rejected" };
+        }
+        return { text, reason: "suggested" };
       } finally {
         await release();
       }
     } catch {
-      // Provider errors may contain credentials or prompt text; never log/return them.
-      return { text: null };
+      // Provider errors can contain credentials or prompts. Classify the first
+      // abort from its signal; later cancellation during cleanup must not replace it.
+      const reason =
+        controller.signal.aborted && combined.reason === controller.signal.reason
+          ? "model_preempted"
+          : deadline.aborted && combined.reason === deadline.reason
+            ? "timeout"
+            : signal.aborted && combined.reason === signal.reason
+              ? "cancelled"
+              : "provider_error";
+      return { text: null, reason };
     } finally {
       if (active === controller) {
         active = null;

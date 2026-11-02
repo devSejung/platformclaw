@@ -98,6 +98,44 @@ The private composer operation has no Gateway WebSocket method or agent tool.
 Only the authenticated Web BFF may supply employee identity and approved context
 through the existing trusted admin HTTP transport.
 
+### Diagnose a missing prediction
+
+Open browser developer tools before sending a new message. In **Network**, filter
+for `composer-predictions`. Select the request whose **Payload** has
+`action: "predict"`, then open **Response**. The `preferences` request only reports
+the feature gates and configured timeout; `available: true` does not verify model
+configuration or connectivity.
+
+Prediction responses retain `text` and add a fixed `reason` and integer
+`elapsedMs` for the whole HTTP operation. For example:
+
+```json
+{ "text": null, "reason": "unsupported_api", "elapsedMs": 1180 }
+```
+
+| Reason                                                                                                | Meaning                                                                                                                             |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `suggested`                                                                                           | A suggestion passed the output and final access checks.                                                                             |
+| `server_disabled`, `preference_disabled`, `disabled`                                                  | A feature gate is off.                                                                                                              |
+| `prediction_busy`, `model_busy`, `model_preempted`                                                    | Admission or ordinary-call tracking prevented or interrupted the prediction. This is not a measurement of GPU load.                 |
+| `model_unavailable`, `invalid_provider`, `unsupported_api`, `credentials_unready`                     | Check the selected provider/model, its explicit API adapter, and resolved credentials.                                              |
+| `destination_rejected`                                                                                | The model destination did not pass the private-address restriction.                                                                 |
+| `provider_http_error`                                                                                 | The provider returned a non-success response; `providerStatus` contains its numeric HTTP status. The response body is never copied. |
+| `response_missing`, `response_invalid`, `response_empty`, `response_oversized`                        | The provider response could not be used.                                                                                            |
+| `no_suggestion`, `format_rejected`                                                                    | The model abstained or its output failed the existing format/length checks.                                                         |
+| `history_ineligible`, `history_changed`                                                               | The authorized text context was unsuitable or changed during inference.                                                             |
+| `timeout`, `cancelled`                                                                                | The operation reached its deadline or was cancelled. A browser cancellation can have no Response body.                              |
+| `access_error`, `unauthenticated`, `forbidden`, `preferences_error`, `history_error`, `gateway_error` | A request, access, settings, transcript, or internal Gateway operation failed.                                                      |
+| `diagnostics_unavailable`                                                                             | The Gateway supplied no recognized reason, including during a rolling update. The existing `text` field remains usable.             |
+
+The Web ingress writes one `PlatformClaw composer prediction` terminal log entry
+with the same diagnostic fields. It excludes conversation text, raw exceptions,
+user/session identities, destination URLs, and credentials. Timeout, cancellation,
+and late completion cannot emit duplicate outcomes. A `text: null` response in
+about one second is not evidence that the configured thirty-second deadline was
+reached; use its reason instead. An older deployed image will still return only
+`text` until the diagnostic change is deployed.
+
 ## Request flow
 
 1. The browser signs in through the PlatformClaw authentication endpoints.

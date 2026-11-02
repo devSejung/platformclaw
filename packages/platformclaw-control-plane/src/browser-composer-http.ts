@@ -3,10 +3,42 @@ import { asNullableRecord as asRecord } from "@openclaw/normalization-core/recor
 import { readPlatformClawSessionCookie } from "./browser-auth-http.js";
 import { BrowserGatewayProxyError } from "./browser-gateway-contracts.js";
 import { readBrowserJsonBody, sendBrowserJson as sendJson } from "./browser-http-shared.js";
+import { ControlPlaneAuthorizationError } from "./contracts.js";
 import type { GatewayAdminRpc } from "./gateway-admin-rpc-client.js";
 import type { PlatformClawBrowserGatewayPolicy } from "./web-ingress-contracts.js";
 
 const PATH = "/platformclaw/api/composer-predictions";
+// The private RPC owns these codes. Never copy arbitrary upstream strings into logs.
+const GATEWAY_REASONS = new Set([
+  "suggested",
+  "disabled",
+  "prediction_busy",
+  "model_busy",
+  "invalid_request",
+  "invalid_context",
+  "model_unavailable",
+  "invalid_provider",
+  "unsupported_api",
+  "credentials_unready",
+  "destination_rejected",
+  "provider_http_error",
+  "response_missing",
+  "response_invalid",
+  "response_oversized",
+  "response_empty",
+  "no_suggestion",
+  "format_rejected",
+  "timeout",
+  "cancelled",
+  "model_preempted",
+  "provider_error",
+]);
+
+type PredictionOutcome = {
+  text: string | null;
+  reason: string;
+  providerStatus?: number;
+};
 
 // Only text already authorized by the browser session policy crosses this boundary.
 // Tool output, reasoning, attachments, and personal memory never become prediction context.
@@ -65,11 +97,35 @@ export function createBrowserComposerHandler(options: {
       return true;
     }
     const controller = new AbortController();
-    const cancel = () => controller.abort();
     const startedAt = performance.now();
+    let completed = false;
+    let failureReason = "access_error";
+    const finish = (status: number, outcome: PredictionOutcome, respond = true) => {
+      // Timeout, disconnect, and late inference share one terminal outcome.
+      // Log only fixed diagnostic fields, never conversation or exception content.
+      if (completed) {
+        return;
+      }
+      completed = true;
+      const diagnostic = {
+        reason: outcome.reason,
+        elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        ...(outcome.providerStatus === undefined ? {} : { providerStatus: outcome.providerStatus }),
+      };
+      console.info("PlatformClaw composer prediction", diagnostic);
+      if (respond) {
+        sendBrowserJson(res, status, { text: outcome.text, ...diagnostic });
+      }
+    };
+    const cancel = () => {
+      controller.abort();
+      if (!res.writableEnded) {
+        finish(200, { text: null, reason: "cancelled" }, false);
+      }
+    };
     const expire = () => {
-      cancel();
-      sendBrowserJson(res, 200, { text: null });
+      controller.abort();
+      finish(200, { text: null, reason: "timeout" });
     };
     // Settings lookup stays bounded until the Gateway supplies its prediction budget.
     let timer = setTimeout(expire, 10_000);
@@ -94,6 +150,7 @@ export function createBrowserComposerHandler(options: {
       const signal = controller.signal;
       signal.throwIfAborted();
       const userId = access.user.id;
+      failureReason = "preferences_error";
       if (params.action === "preferences") {
         if (params.enabled !== undefined && typeof params.enabled !== "boolean") {
           sendBrowserJson(res, 400, { error: "invalid preference" });
@@ -126,7 +183,10 @@ export function createBrowserComposerHandler(options: {
         timeoutMs: number;
       }>("platformclaw.composer", { action: "preferences", userId }, signal);
       if (!preference.available || !preference.enabled) {
-        sendBrowserJson(res, 200, { text: null });
+        finish(200, {
+          text: null,
+          reason: preference.available ? "preference_disabled" : "server_disabled",
+        });
         return true;
       }
       signal.throwIfAborted();
@@ -139,36 +199,61 @@ export function createBrowserComposerHandler(options: {
       }
       timer = setTimeout(expire, remainingMs);
       const sessionKey = params.sessionKey;
-      const load = async () =>
-        conversationText(
+      const load = async () => {
+        failureReason = "history_error";
+        return conversationText(
           await options.gatewayProxy.request(token, "chat.history", {
             sessionKey,
             limit: 12,
             maxChars: 2000,
           }),
         );
+      };
       const messages = await load();
       signal.throwIfAborted();
       if (
         messages.at(-1)?.role !== "assistant" ||
         !messages.some((message) => message.role === "user")
       ) {
-        sendBrowserJson(res, 200, { text: null });
+        finish(200, { text: null, reason: "history_ineligible" });
         return true;
       }
-      const result = await options.adminRpc.call(
-        "platformclaw.composer",
-        { action: "predict", userId, messages },
-        signal,
-        { timeoutMs: preference.timeoutMs },
+      failureReason = "gateway_error";
+      const rawResult = asRecord(
+        await options.adminRpc.call(
+          "platformclaw.composer",
+          { action: "predict", userId, messages },
+          signal,
+          { timeoutMs: preference.timeoutMs },
+        ),
       );
+      // Keep the shipped text field usable during a rolling Gateway update, but
+      // explicitly report missing/unknown diagnostics instead of guessing a cause.
+      const result: PredictionOutcome = {
+        text:
+          typeof rawResult?.text === "string" && rawResult.text.length <= 300
+            ? rawResult.text
+            : null,
+        reason:
+          typeof rawResult?.reason === "string" && GATEWAY_REASONS.has(rawResult.reason)
+            ? rawResult.reason
+            : "diagnostics_unavailable",
+        ...(rawResult?.reason === "provider_http_error" &&
+        Number.isInteger(rawResult.providerStatus) &&
+        typeof rawResult.providerStatus === "number" &&
+        rawResult.providerStatus >= 100 &&
+        rawResult.providerStatus <= 599
+          ? { providerStatus: rawResult.providerStatus }
+          : {}),
+      };
       // Recheck ACL and the authoritative transcript after inference, including Space membership.
       const current = await load();
       signal.throwIfAborted();
-      sendBrowserJson(
-        res,
+      finish(
         200,
-        JSON.stringify(current) === JSON.stringify(messages) ? result : { text: null },
+        JSON.stringify(current) === JSON.stringify(messages)
+          ? result
+          : { text: null, reason: "history_changed" },
       );
     } catch (error) {
       const status =
@@ -177,7 +262,19 @@ export function createBrowserComposerHandler(options: {
             ? 401
             : 403
           : 200;
-      sendBrowserJson(res, status, { text: null });
+      finish(status, {
+        text: null,
+        reason:
+          error instanceof BrowserGatewayProxyError
+            ? error.code === "unauthenticated"
+              ? "unauthenticated"
+              : "forbidden"
+            : error instanceof ControlPlaneAuthorizationError
+              ? "forbidden"
+              : controller.signal.aborted
+                ? "cancelled"
+                : failureReason,
+      });
     } finally {
       clearTimeout(timer);
       req.off("aborted", cancel);
