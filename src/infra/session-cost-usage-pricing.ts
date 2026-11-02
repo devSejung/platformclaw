@@ -130,6 +130,12 @@ export const applyUsageTotals = (totals: CostUsageTotals, usage: NormalizedUsage
   totals.cacheRead += usageTotals.cacheRead;
   totals.cacheWrite += usageTotals.cacheWrite;
   totals.totalTokens += usageTotals.totalTokens;
+  // Without an aggregate, both input and output must be measured. An absent
+  // component is unknown, unlike an explicitly recorded zero; cache buckets
+  // remain optional under the normalized usage contract.
+  if (usage.total === undefined && (usage.input === undefined || usage.output === undefined)) {
+    totals.missingTokenEntries = (totals.missingTokenEntries ?? 0) + 1;
+  }
 };
 
 export const applyCostBreakdown = (

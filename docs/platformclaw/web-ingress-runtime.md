@@ -399,6 +399,12 @@ limit alone would create roughly 133 MB frames and bypass the upstream ceiling.
 
 ## HTTP and WebSocket surfaces
 
+Corporate collection uses the read-only [AI usage report API](/platformclaw/ai-usage-report-api)
+on this same listener. Its report and account-search paths require no application
+token or browser cookie and are enabled by the standard runtime. The corporate
+firewall or trusted reverse proxy owns their network access. All other surfaces
+retain their existing authentication and origin policies.
+
 | Path                                                  | Method                                  | Purpose                                                           |
 | ----------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
 | `/platformclaw/api/auth/login`                        | `POST`                                  | Authenticate an employee and issue the opaque session cookie      |

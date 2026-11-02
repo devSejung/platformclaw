@@ -30,6 +30,7 @@ and Knox direct or group conversations:
 - [Assigned VM coding agents](/platformclaw/vm-acp-agents)
 - [Credential broker](/platformclaw/credential-broker)
 - [Web ingress runtime](/platformclaw/web-ingress-runtime)
+- [AI usage report API contract](/platformclaw/ai-usage-report-api)
 - [Web login bootstrap plan](/platformclaw/web-login-bootstrap-plan)
 - [Organization architecture](/platformclaw/organization-architecture)
 - [Skill Hub integration](/platformclaw/skill-hub)

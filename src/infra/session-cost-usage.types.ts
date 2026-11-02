@@ -36,6 +36,8 @@ export type CostUsageTotals = {
   cacheReadCost: number;
   cacheWriteCost: number;
   missingCostEntries: number;
+  /** Usage records without an aggregate total or both input and output counts. */
+  missingTokenEntries?: number;
   /** Missing-cost entry counts keyed by the raw `provider/model` attribution. */
   missingCostByModel?: Record<string, number>;
 };
@@ -113,6 +115,7 @@ export type SessionDailyModelUsage = {
   tokens: number;
   cost: number;
   count: number;
+  missingTokenEntries?: number;
 };
 
 export type SessionMessageCounts = {

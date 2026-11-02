@@ -942,7 +942,7 @@ function mergeModelUsage(
 ): SessionCostSummary["modelUsage"] {
   const map = new Map<string, SessionModelUsage>();
   for (const entry of [...(left ?? []), ...(right ?? [])]) {
-    const key = `${entry.provider ?? "unknown"}::${entry.model ?? "unknown"}`;
+    const key = JSON.stringify([entry.provider ?? null, entry.model ?? null]);
     const existing =
       map.get(key) ??
       ({
@@ -1011,7 +1011,7 @@ function mergeDailyModelRows(
 ): SessionCostSummary["dailyModelUsage"] {
   const map = new Map<string, NonNullable<SessionCostSummary["dailyModelUsage"]>[number]>();
   for (const row of [...(left ?? []), ...(right ?? [])]) {
-    const key = `${row.date}:${row.provider ?? "unknown"}:${row.model ?? "unknown"}`;
+    const key = JSON.stringify([row.date, row.provider ?? null, row.model ?? null]);
     const existing = map.get(key);
     if (!existing) {
       map.set(key, { ...row });
@@ -1020,6 +1020,9 @@ function mergeDailyModelRows(
     existing.tokens += row.tokens;
     existing.cost += row.cost;
     existing.count += row.count;
+    if (row.missingTokenEntries) {
+      existing.missingTokenEntries = (existing.missingTokenEntries ?? 0) + row.missingTokenEntries;
+    }
   }
   return map.size > 0
     ? Array.from(map.values()).toSorted((a, b) => a.date.localeCompare(b.date))
@@ -1622,7 +1625,7 @@ export const usageHandlers: GatewayRequestHandlers = {
 
               if (usage.modelUsage) {
                 for (const entry of usage.modelUsage) {
-                  const modelKey = `${entry.provider ?? "unknown"}::${entry.model ?? "unknown"}`;
+                  const modelKey = JSON.stringify([entry.provider ?? null, entry.model ?? null]);
                   const modelExisting =
                     byModelMap.get(modelKey) ??
                     ({
@@ -1635,7 +1638,7 @@ export const usageHandlers: GatewayRequestHandlers = {
                   addCostUsageTotals(modelExisting.totals, entry.totals);
                   byModelMap.set(modelKey, modelExisting);
 
-                  const providerKey = entry.provider ?? "unknown";
+                  const providerKey = JSON.stringify(entry.provider ?? null);
                   const providerExisting =
                     byProviderMap.get(providerKey) ??
                     ({
@@ -1655,7 +1658,11 @@ export const usageHandlers: GatewayRequestHandlers = {
 
               if (usage.dailyModelUsage) {
                 for (const entry of usage.dailyModelUsage) {
-                  const key = `${entry.date}::${entry.provider ?? "unknown"}::${entry.model ?? "unknown"}`;
+                  const key = JSON.stringify([
+                    entry.date,
+                    entry.provider ?? null,
+                    entry.model ?? null,
+                  ]);
                   const existing =
                     modelDailyMap.get(key) ??
                     ({
@@ -1669,6 +1676,10 @@ export const usageHandlers: GatewayRequestHandlers = {
                   existing.tokens += entry.tokens;
                   existing.cost += entry.cost;
                   existing.count += entry.count;
+                  if (entry.missingTokenEntries) {
+                    existing.missingTokenEntries =
+                      (existing.missingTokenEntries ?? 0) + entry.missingTokenEntries;
+                  }
                   modelDailyMap.set(key, existing);
                 }
               }
