@@ -2,7 +2,7 @@
 import "../../styles/lobster-pet.css";
 import { html, nothing } from "lit";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
-import { normalizeChatMessageMaxWidth } from "../../app/settings.ts";
+import { normalizeChatMessageMaxWidth, UI_APPEARANCE_DEFAULTS } from "../../app/settings.ts";
 import { countSensitiveConfigValues } from "../../components/config-form.shared.ts";
 import { renderConfigForm } from "../../components/config-form.ts";
 import "../../components/tooltip.ts";
@@ -49,7 +49,7 @@ function renderAppearance(props: ConfigProps) {
         data-settings-chat-message-width
         type="text"
         spellcheck="false"
-        placeholder="48rem"
+        placeholder=${UI_APPEARANCE_DEFAULTS.chatMessageMaxWidth}
         .value=${props.chatMessageMaxWidth ?? ""}
         @change=${(event: Event) => {
           const input = event.currentTarget as HTMLInputElement;

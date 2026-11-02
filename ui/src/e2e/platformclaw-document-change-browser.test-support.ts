@@ -38,6 +38,7 @@ async function clickDocumentTitle(
   page: Page,
   viewer: Locator,
   presentation: boolean,
+  button: "left" | "right" = "left",
 ): Promise<void> {
   await scrollDocumentToTop(viewer);
   const point = await viewer.locator("canvas.current-page").evaluate((element, whiteInk) => {
@@ -72,7 +73,7 @@ async function clickDocumentTitle(
     }
     throw new Error("rendered title ink was not found");
   }, presentation);
-  await page.mouse.click(point.x, point.y);
+  await page.mouse.click(point.x, point.y, { button });
 }
 
 async function expectPopoverInsideStage(viewer: Locator): Promise<void> {
@@ -178,8 +179,15 @@ export async function exerciseDocumentChangeRequest(params: {
   await dragDocumentRegion(page, viewer);
   await expectModeOff();
 
-  await begin();
-  await clickDocumentTitle(page, viewer, fixture.format === "powerpoint");
+  await clickDocumentTitle(page, viewer, fixture.format === "powerpoint", "right");
+  const contextAction = viewer.getByRole("menuitem", { name: "Request changes", exact: true });
+  await contextAction.waitFor({ state: "visible" });
+  await expectModeOff();
+  await contextAction.click();
+  await expect
+    .poll(() => viewer.locator(".viewer").getAttribute("data-request-mode"))
+    .toBe("select");
+  await expectInline();
   await popover.waitFor({ state: "visible" });
   const selectedText = viewer.locator(".selected-text");
   await selectedText.waitFor({ state: "visible" });
@@ -381,6 +389,7 @@ export async function exerciseDocumentChangeRequest(params: {
       sourceReplyBound: true,
       explicitOptIn: true,
       pointClickText: true,
+      contextMenuRequest: true,
       inlineRequest: true,
       retiredDraftsSent: false,
       sends: 1,

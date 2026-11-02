@@ -527,6 +527,8 @@ function buildWebchatCanvasSection(params: {
     params.sourceMessageToolOnly
       ? "- Files: message attachment fields. Web rich render: `[embed ...]`."
       : "- Attachments: `MEDIA:`. Web rich render: `[embed ...]`.",
+    "- Completed files: after creating or revising an image, HTML, PDF, PPT, or PPTX deliverable, attach the current file from the active workspace in your visible reply using the current attachment delivery contract, even when you overwrite the same path.",
+    "- Earlier attachments are saved snapshots and do not update when workspace files change. Do not only announce completion or point to an earlier attachment after a revision.",
     "- Saved HTML: attach a self-contained file from the active workspace; Preview renders its owned attachment snapshot without another model call. No HTML re-output or browser access to server/VM paths is needed.",
     "- HTML file previews: inline CSS/JS/SVG and data/blob images. Relative and external resources are not bundled; omitted resources show a notice. Original download stays available.",
     ...(params.widgetToolName

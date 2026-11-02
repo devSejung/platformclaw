@@ -509,31 +509,57 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).not.toContain("`[embed ...]`: Control UI/webchat only");
   });
 
-  it("includes embed guidance only for webchat sessions", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      runtimeInfo: {
-        channel: "webchat",
-      },
-    });
+  it.each(["automatic", "message_tool_only"] as const)(
+    "includes webchat attachment revision guidance for %s delivery",
+    (sourceReplyDeliveryMode) => {
+      const prompt = buildAgentSystemPrompt({
+        workspaceDir: "/tmp/openclaw",
+        sourceReplyDeliveryMode,
+        runtimeInfo: {
+          channel: "webchat",
+        },
+      });
 
-    expect(prompt).toContain("## Control UI Embed");
-    expect(prompt).toContain("`[embed ...]`: Control UI/webchat only");
-    expect(prompt).toContain('[embed ref="cv_123" title="Status" height="320" /]');
-    expect(prompt).toContain(
-      '[embed url="/__openclaw__/canvas/documents/cv_123/index.html" title="Status" height="320" /]',
-    );
-    expect(prompt).toContain("Never local/file:// or arbitrary URL");
-    expect(prompt).toContain("URL must start `/__openclaw__/canvas/`; else use `ref`");
-    expect(prompt).toContain("Hosted root is profile-, not workspace-scoped");
-    expect(prompt).toContain(
-      "Preview renders its owned attachment snapshot without another model call",
-    );
-    expect(prompt).toContain("No HTML re-output or browser access to server/VM paths is needed");
-    expect(prompt).toContain("Relative and external resources are not bundled");
-    expect(prompt).toContain("Original download stays available");
-    expect(prompt).not.toContain('[embed content_type="html" title="Status"]...[/embed]');
-  });
+      expect(prompt).toContain("## Control UI Embed");
+      expect(prompt).toContain("`[embed ...]`: Control UI/webchat only");
+      expect(prompt).toContain('[embed ref="cv_123" title="Status" height="320" /]');
+      expect(prompt).toContain(
+        '[embed url="/__openclaw__/canvas/documents/cv_123/index.html" title="Status" height="320" /]',
+      );
+      expect(prompt).toContain("Never local/file:// or arbitrary URL");
+      expect(prompt).toContain("URL must start `/__openclaw__/canvas/`; else use `ref`");
+      expect(prompt).toContain("Hosted root is profile-, not workspace-scoped");
+      expect(prompt).toContain(
+        "Preview renders its owned attachment snapshot without another model call",
+      );
+      expect(prompt).toContain("No HTML re-output or browser access to server/VM paths is needed");
+      expect(prompt).toContain("Relative and external resources are not bundled");
+      expect(prompt).toContain("Original download stays available");
+      expect(prompt).not.toContain('[embed content_type="html" title="Status"]...[/embed]');
+      const webchatGuidance = prompt.slice(prompt.indexOf("## Control UI Embed"));
+      expect(webchatGuidance).toContain(
+        "after creating or revising an image, HTML, PDF, PPT, or PPTX deliverable, attach the current file from the active workspace",
+      );
+      expect(webchatGuidance).toContain("using the current attachment delivery contract");
+      expect(webchatGuidance).toContain("even when you overwrite the same path");
+      expect(webchatGuidance).toContain(
+        "Earlier attachments are saved snapshots and do not update when workspace files change",
+      );
+      expect(webchatGuidance).toContain(
+        "Do not only announce completion or point to an earlier attachment after a revision",
+      );
+      expect(webchatGuidance).not.toContain("show_widget");
+      expect(prompt.indexOf("- Completed files:")).toBeGreaterThan(
+        prompt.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY),
+      );
+      if (sourceReplyDeliveryMode === "message_tool_only") {
+        expect(webchatGuidance).toContain("Files: message attachment fields");
+        expect(webchatGuidance).not.toContain("`MEDIA:");
+      } else {
+        expect(webchatGuidance).toContain("Attachments: `MEDIA:`");
+      }
+    },
+  );
 
   it("teaches direct status answers only on the full Control UI surface", () => {
     const defaultPrompt = buildAgentSystemPrompt({

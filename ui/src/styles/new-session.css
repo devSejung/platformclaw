@@ -104,7 +104,7 @@ openclaw-new-session-page {
   justify-content: flex-start;
   gap: 4px 2px;
   width: calc(100% - 36px);
-  max-width: 48rem;
+  max-width: var(--chat-thread-max-width, 60rem);
   margin: 0 auto;
   padding: 0;
   box-sizing: border-box;
@@ -508,7 +508,7 @@ wa-popover.new-session-page__place-popover::part(body) {
   align-items: flex-start;
   gap: 10px;
   width: fit-content;
-  max-width: min(48rem, calc(100% - 36px));
+  max-width: min(var(--chat-thread-max-width, 60rem), calc(100% - 36px));
   margin: 4px auto 2px;
   padding: 10px 12px;
   box-sizing: border-box;

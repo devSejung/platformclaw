@@ -2919,7 +2919,7 @@ td.data-table-key-col {
   flex-direction: column;
   gap: 4px;
   width: calc(100% - 36px);
-  max-width: 48rem;
+  max-width: var(--chat-thread-max-width, 60rem);
   margin: 8px auto 0;
 }
 

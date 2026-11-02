@@ -117,19 +117,15 @@ export const documentViewerStyles = css`
   }
   .page-layout {
     display: flex;
-    height: min(65dvh, 640px);
-    min-height: 240px;
     min-width: 0;
   }
   .stage {
     position: relative;
     box-sizing: border-box;
     flex: 1;
-    height: 100%;
     min-height: 0;
     min-width: 0;
     overflow: auto;
-    scrollbar-gutter: stable;
     padding: 16px;
     border-radius: 4px;
     background: #d5d7da;
@@ -146,6 +142,10 @@ export const documentViewerStyles = css`
   }
   openclaw-document-contents {
     flex: 0 0 132px;
+    height: auto;
+    min-height: 0;
+    /* The page determines inline height; thumbnails scroll within that height. */
+    contain: size;
     border-right: 1px solid var(--border, #ccc);
   }
   .page-surface {
@@ -190,6 +190,26 @@ export const documentViewerStyles = css`
     color: var(--text, #222);
     box-shadow: 0 6px 24px #0003;
     font-size: 12px;
+  }
+  .request-context-menu {
+    position: fixed;
+    inset: auto;
+    z-index: 4;
+    width: max-content;
+    max-width: calc(100vw - 16px);
+    margin: 0;
+    padding: 4px;
+    border: 1px solid var(--border, #ccc);
+    border-radius: 8px;
+    background: var(--bg, #fff);
+    color: inherit;
+    box-shadow: 0 6px 24px #0003;
+  }
+  .request-context-menu button {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
   }
   .request-popover-header {
     display: flex;
@@ -319,11 +339,11 @@ export const documentViewerStyles = css`
   }
   .expanded .stage {
     height: auto;
+    scrollbar-gutter: stable;
   }
   @media (max-width: 600px) {
     .page-layout {
       flex-direction: column;
-      height: 60dvh;
     }
     openclaw-document-contents {
       flex: 0 0 120px;

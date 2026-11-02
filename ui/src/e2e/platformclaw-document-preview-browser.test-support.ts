@@ -104,6 +104,116 @@ export async function expectFittedPage(viewer: Locator, fit: "width" | "page"): 
     .toBe(true);
 }
 
+async function expectInlinePageGeometry(
+  viewer: Locator,
+  format: "pdf" | "powerpoint",
+): Promise<void> {
+  await expect
+    .poll(() =>
+      viewer.evaluate((element, presentation) => {
+        const stage = element.shadowRoot?.querySelector(".stage");
+        const canvas = element.shadowRoot?.querySelector("canvas.current-page");
+        if (!(stage instanceof HTMLElement) || !(canvas instanceof HTMLCanvasElement)) {
+          return false;
+        }
+        const style = getComputedStyle(stage);
+        const padding =
+          Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+        const page = canvas.getBoundingClientRect();
+        // Independent fixture dimensions: landscape 4:3 slides and portrait
+        // 612x792 PDF pages must retain their proportions at every inline width.
+        const aspect = presentation ? 4 / 3 : 612 / 792;
+        return (
+          element.getAttribute("data-render-state") === "ready" &&
+          Math.abs(page.width / page.height - aspect) < 0.005 &&
+          Math.abs(stage.clientHeight - page.height - padding) <= 2 &&
+          stage.scrollHeight <= stage.clientHeight + 1
+        );
+      }, format === "powerpoint"),
+    )
+    .toBe(true);
+}
+
+async function exerciseWideDocumentLayout(params: {
+  page: Page;
+  viewer: Locator;
+  fixture: DocumentPreviewFixture;
+  proofDir: string;
+}): Promise<void> {
+  const { page, viewer, fixture, proofDir } = params;
+  const originalViewport = page.viewportSize();
+  if (!originalViewport || fixture.format === "image") {
+    throw new Error("Wide document proof requires a document and fixed viewport");
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await expectFittedPage(viewer, "width");
+  await expectInlinePageGeometry(viewer, fixture.format);
+  await expect
+    .poll(() =>
+      viewer.evaluate((element) => {
+        const thread = element.closest<HTMLElement>(".chat-thread-inner");
+        if (!thread) {
+          throw new Error("Document preview lost its conversation column");
+        }
+        const maximum = 60 * Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+        return (
+          Math.abs(Number.parseFloat(getComputedStyle(thread).maxWidth) - maximum) <= 1 &&
+          Math.abs(thread.getBoundingClientRect().width - maximum) <= 1
+        );
+      }),
+    )
+    .toBe(true);
+  await viewer.evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await page.screenshot({
+    path: path.join(proofDir, `platform_server-${fixture.format}-wide-1920.png`),
+    fullPage: true,
+  });
+
+  if (fixture.format === "pdf") {
+    await page.getByRole("button", { name: "Open split view", exact: true }).click();
+    const panes = page.locator("openclaw-chat-pane.chat-split-view__pane");
+    await expect.poll(() => panes.count()).toBe(2);
+    const splitViewer = panes
+      .first()
+      .locator("openclaw-chat-document-attachment")
+      .filter({ hasText: fixture.filename })
+      .locator("openclaw-document-viewer");
+    await expectFittedPage(splitViewer, "width");
+    await expectInlinePageGeometry(splitViewer, "pdf");
+    await expect
+      .poll(() =>
+        splitViewer.evaluate((element) => {
+          const pane = element.closest("openclaw-chat-pane");
+          const thread = element.closest(".chat-thread-inner");
+          if (!pane || !thread) {
+            throw new Error("Split preview lost its pane or conversation column");
+          }
+          const paneBounds = pane.getBoundingClientRect();
+          const threadBounds = thread.getBoundingClientRect();
+          const bounds = element.getBoundingClientRect();
+          const maximum =
+            60 * Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+          return (
+            threadBounds.width < maximum - 1 &&
+            bounds.left >= paneBounds.left - 1 &&
+            bounds.right <= paneBounds.right + 1 &&
+            pane.scrollWidth <= pane.clientWidth + 1
+          );
+        }),
+      )
+      .toBe(true);
+    await splitViewer.evaluate((element) => element.scrollIntoView({ block: "start" }));
+    await page.screenshot({
+      path: path.join(proofDir, "platform_server-pdf-split-1920.png"),
+      fullPage: true,
+    });
+    await panes.last().getByRole("button", { name: "Close pane", exact: true }).click();
+    await expect.poll(() => page.locator("openclaw-chat-pane").count()).toBe(1);
+  }
+  await page.setViewportSize(originalViewport);
+  await expectFittedPage(viewer, "width");
+}
+
 export async function clickDocumentPreviewOption(viewer: Locator, name: string): Promise<void> {
   const summary = viewer.locator('summary[aria-label="Preview options"]');
   const isOpen = () =>
@@ -199,6 +309,8 @@ async function exerciseDocumentContents(params: {
     )
     .toBe(true);
   expect(await contents.locator("canvas").count()).toBe(total);
+  await expectFittedPage(viewer, "width");
+  await expectInlinePageGeometry(viewer, fixture.format === "powerpoint" ? "powerpoint" : "pdf");
   expect(await viewer.getByRole("spinbutton").count()).toBe(0);
   if (total > 1) {
     const last = contents.getByRole("button", {
@@ -319,6 +431,7 @@ export async function exerciseDocumentPreview(params: {
       fixture.filename,
     );
     await expectFittedPage(viewer, "width");
+    await expectInlinePageGeometry(viewer, fixture.format);
     expect(await viewer.getByRole("button", { name: "Zoom in", exact: true }).isVisible()).toBe(
       false,
     );
@@ -452,6 +565,7 @@ export async function exerciseDocumentPreview(params: {
     await expectFittedPage(viewer, "width");
     await expectRenderedPage(viewer, 1, total, expectAnnotation, pageUnit);
     const bounds = await viewer.boundingBox();
+    await expectInlinePageGeometry(viewer, fixture.format);
     if (!bounds) {
       throw new Error("document preview disappeared at mobile width");
     }
@@ -465,6 +579,9 @@ export async function exerciseDocumentPreview(params: {
       fullPage: true,
     });
     await page.setViewportSize(desktopViewport);
+    if (target === "platform_server") {
+      await exerciseWideDocumentLayout({ page, viewer, fixture, proofDir });
+    }
   }
   await card.getByRole("button", { name: "Close preview", exact: true }).click();
   // Click completion does not wait for the component's closed-state render.

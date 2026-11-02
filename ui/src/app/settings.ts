@@ -170,7 +170,7 @@ export const UI_APPEARANCE_DEFAULTS = {
   textScale: 100,
   terminalTextScale: 100,
   sidebarLiveActivity: true,
-  chatMessageMaxWidth: "48rem",
+  chatMessageMaxWidth: "60rem",
   chatSendShortcut: "enter",
   catalogOpenTarget: "viewer",
   composerHoldToRecord: true,

@@ -43,6 +43,8 @@ function mountRequest(options: { stageBounds?: DOMRect; canvasBounds?: DOMRect }
   canvas.width = 1_200;
   canvas.height = 800;
   let pageNumber = 1;
+  let available = true;
+  let handlerAvailable = true;
   let targets: readonly DocumentSelectionTarget[] = [
     { region: { x: 0.1, y: 0.1, width: 0.7, height: 0.2 }, text: "A larger text run" },
     { region: { x: 0.2, y: 0.1, width: 0.2, height: 0.08 }, text: "Owned title" },
@@ -65,17 +67,18 @@ function mountRequest(options: { stageBounds?: DOMRect; canvasBounds?: DOMRect }
   );
   const refresh = () => {
     render(
-      html`<div class="stage">
+      html`<div class="stage" tabindex="0">
           <div
             class="page-surface"
             @pointerdown=${controller.pointerDown}
             @pointermove=${controller.pointerMove}
             @pointerup=${controller.pointerUp}
             @pointercancel=${controller.pointerCancel}
+            @contextmenu=${controller.contextMenu}
           >
             ${canvas}${controller.renderOverlay()}
           </div>
-          ${controller.renderPopover()}
+          ${controller.renderPopover()}${controller.renderContextMenu()}
         </div>
         ${controller.renderStatus()}`,
       container,
@@ -122,8 +125,8 @@ function mountRequest(options: { stageBounds?: DOMRect; canvasBounds?: DOMRect }
       queueMicrotask(refresh);
     },
     currentPage: () =>
-      container.isConnected ? { number: pageNumber, canvas, targets } : undefined,
-    handler: () => handler,
+      container.isConnected && available ? { number: pageNumber, canvas, targets } : undefined,
+    handler: () => (handlerAvailable ? handler : undefined),
   });
   requestControllers.push(controller);
   refresh();
@@ -145,6 +148,26 @@ function mountRequest(options: { stageBounds?: DOMRect; canvasBounds?: DOMRect }
     controller,
     handler,
     pointer,
+    setAvailable: (value: boolean) => {
+      available = value;
+    },
+    setHandlerAvailable: (value: boolean) => {
+      handlerAvailable = value;
+    },
+    contextMenu: async (x = 0.25, y = 0.13) => {
+      const bounds = canvas.getBoundingClientRect();
+      const event = new MouseEvent("contextmenu", {
+        button: 2,
+        clientX: bounds.left + bounds.width * x,
+        clientY: bounds.top + bounds.height * y,
+        bubbles: true,
+        cancelable: true,
+      });
+      container.querySelector(".page-surface")?.dispatchEvent(event);
+      await Promise.resolve();
+      await Promise.resolve();
+      return event;
+    },
     setTargets: (value: readonly DocumentSelectionTarget[]) => {
       targets = value;
     },
@@ -207,6 +230,88 @@ function submit(container: HTMLElement): void {
 }
 
 describe("inline document selection requests", () => {
+  it("requires the right-click menu action before selecting the same title and submitting", async () => {
+    const request = mountRequest();
+    const bubbled = vi.fn();
+    request.container.addEventListener("contextmenu", bubbled);
+    const event = await request.contextMenu();
+    expect(event.defaultPrevented).toBe(true);
+    expect(bubbled).not.toHaveBeenCalled();
+    expect(request.controller.active).toBe(false);
+    expect(request.container.querySelector("form")).toBeNull();
+    const action = request.container.querySelector<HTMLButtonElement>('[role="menuitem"]');
+    expect(action?.textContent?.trim()).toBe("Request changes");
+    expect(document.activeElement).toBe(action);
+    action?.click();
+    await vi.waitFor(() => expect(request.container.querySelector("form")).not.toBeNull());
+    expect(request.container.querySelector('[role="menu"]')).toBeNull();
+    expect(request.container.querySelector(".selected-text")?.textContent).toContain("Owned title");
+    expect(request.handler).not.toHaveBeenCalled();
+    await request.instruction("Make this title shorter.");
+    submit(request.container);
+    await vi.waitFor(() => expect(request.handler).toHaveBeenCalledTimes(1));
+    expect(request.handler.mock.calls[0]?.[0]).toMatchObject({
+      pageNumber: 1,
+      region: { x: 0.2, y: 0.1, width: 0.2, height: 0.08 },
+      selectedText: "Owned title",
+      instruction: "Make this title shorter.",
+      cropDataUrl: PNG,
+    });
+  });
+
+  it("dismisses transient menus without losing the existing selection or unsent draft", async () => {
+    const request = mountRequest();
+    request.controller.begin();
+    await request.select();
+    await request.instruction("Keep my draft.");
+    const dismissals = [
+      () =>
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })),
+      () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })),
+      () => window.dispatchEvent(new Event("scroll")),
+      () => window.dispatchEvent(new Event("resize")),
+    ];
+    for (const dismiss of dismissals) {
+      await request.contextMenu(0.9, 0.9);
+      expect(request.container.querySelector('[role="menu"]')).not.toBeNull();
+      dismiss();
+      await Promise.resolve();
+      expect(request.container.querySelector('[role="menu"]')).toBeNull();
+      expect(request.container.querySelector("textarea")?.value).toBe("Keep my draft.");
+      expect(request.container.querySelector(".selected-text")?.textContent).toContain(
+        "Owned title",
+      );
+    }
+    expect(request.handler).not.toHaveBeenCalled();
+  });
+
+  it("retires menus with their page/document and leaves unavailable or pending previews alone", async () => {
+    const request = mountRequest();
+    await request.contextMenu();
+    await request.changePage(2);
+    expect(request.container.querySelector('[role="menu"]')).toBeNull();
+    await request.contextMenu();
+    request.controller.reset();
+    await Promise.resolve();
+    expect(request.container.querySelector('[role="menu"]')).toBeNull();
+    request.setAvailable(false);
+    expect((await request.contextMenu()).defaultPrevented).toBe(false);
+    request.setAvailable(true);
+    request.setHandlerAvailable(false);
+    expect((await request.contextMenu()).defaultPrevented).toBe(false);
+    request.setHandlerAvailable(true);
+    const pending = deferred<DocumentChangeResult>();
+    request.handler.mockReturnValueOnce(pending.promise);
+    request.controller.begin();
+    await request.select();
+    await request.instruction("Pending request.");
+    submit(request.container);
+    expect((await request.contextMenu()).defaultPrevented).toBe(false);
+    expect(request.container.querySelector('[role="menu"]')).toBeNull();
+    pending.resolve({ admitted: false });
+    await vi.waitFor(() => expect(request.controller.busy).toBe(false));
+  });
+
   it("ignores ordinary clicks and only opens a popover after an explicit mode selection", async () => {
     const request = mountRequest();
     await request.select();

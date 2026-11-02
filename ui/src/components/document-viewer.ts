@@ -77,12 +77,14 @@ class OpenClawDocumentViewer extends OpenClawLitElement {
 
   override connectedCallback(): void {
     super.connectedCallback();
+    window.addEventListener("resize", this.handleViewportResize);
     if (this.hasUpdated) {
       void this.loadDocument();
     }
   }
 
   override disconnectedCallback(): void {
+    window.removeEventListener("resize", this.handleViewportResize);
     this.observer?.disconnect();
     this.observedStage = undefined;
     this.expanded = false;
@@ -103,10 +105,10 @@ class OpenClawDocumentViewer extends OpenClawLitElement {
         if (
           stage &&
           stage.clientWidth > 0 &&
-          stage.clientHeight > 0 &&
+          (!this.expanded || stage.clientHeight > 0) &&
           (this.waitingForStage ||
             (this.fitMode !== "custom" && stage.clientWidth !== this.stageWidth) ||
-            (this.fitMode === "page" && stage.clientHeight !== this.stageHeight))
+            (this.expanded && this.fitMode === "page" && stage.clientHeight !== this.stageHeight))
         ) {
           this.waitingForStage = false;
           void this.renderPage();
@@ -130,6 +132,12 @@ class OpenClawDocumentViewer extends OpenClawLitElement {
     clearTimeout(this.deadline);
     this.deadline = undefined;
   }
+
+  private handleViewportResize = (): void => {
+    if (!this.expanded && this.fitMode === "page") {
+      void this.renderPage();
+    }
+  };
 
   private ensureDeadline(): void {
     this.deadline ??= setTimeout(() => this.fail("unavailable"), DOCUMENT_OPERATION_TIMEOUT_MS);
@@ -221,6 +229,7 @@ class OpenClawDocumentViewer extends OpenClawLitElement {
     if (!pdf || !engine || !canvas || !stage || !this.isConnected) {
       return;
     }
+    this.changeRequest.closeContextMenu();
     const generation = this.generation;
     const renderGeneration = ++this.renderGeneration;
     this.waitingForStage = false;
@@ -265,10 +274,10 @@ class OpenClawDocumentViewer extends OpenClawLitElement {
         Number.parseFloat(style.paddingLeft) -
         Number.parseFloat(style.paddingRight);
       const availableHeight =
-        stage.clientHeight -
+        (this.expanded ? stage.clientHeight : window.innerHeight) -
         Number.parseFloat(style.paddingTop) -
         Number.parseFloat(style.paddingBottom);
-      if (availableWidth <= 0 || availableHeight <= 0) {
+      if (availableWidth <= 0 || (this.expanded && availableHeight <= 0)) {
         // A top-layer dialog can mount before its slotted stage is measurable.
         // Resume once after visibility changes, including at a custom zoom.
         this.waitingForStage = true;
@@ -433,6 +442,7 @@ class OpenClawDocumentViewer extends OpenClawLitElement {
             @pointermove=${this.changeRequest.pointerMove}
             @pointerup=${this.changeRequest.pointerUp}
             @pointercancel=${this.changeRequest.pointerCancel}
+            @contextmenu=${this.changeRequest.contextMenu}
           >
             <canvas
               class="current-page"
@@ -447,7 +457,7 @@ class OpenClawDocumentViewer extends OpenClawLitElement {
             ></canvas>
             ${this.changeRequest.renderOverlay()}
           </div>
-          ${this.changeRequest.renderPopover()}
+          ${this.changeRequest.renderPopover()} ${this.changeRequest.renderContextMenu()}
         </div>
       </div>
       <footer class="toolbar">
