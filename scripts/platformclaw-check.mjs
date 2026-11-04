@@ -111,6 +111,9 @@ const SURFACE_COMMANDS = {
       "scripts/platformclaw-check.mjs",
       "scripts/platformclaw-ci-plan.d.mts",
       "scripts/platformclaw-ci-plan.mjs",
+      "scripts/platformclaw-dev-task.mjs",
+      "scripts/platformclaw-dev-cleanup.mjs",
+      "test/scripts/platformclaw-dev-task.test.ts",
       "test/scripts/platformclaw-check.test.ts",
       "test/scripts/platformclaw-ci-plan.test.ts",
     ]),
@@ -120,6 +123,7 @@ const SURFACE_COMMANDS = {
       "test/scripts/platformclaw-check.test.ts",
       "test/scripts/platformclaw-ci-plan.test.ts",
       "test/scripts/platformclaw-runtime-docker.test.ts",
+      "test/scripts/platformclaw-dev-task.test.ts",
     ]),
   ],
   ui: [

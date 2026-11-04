@@ -72,4 +72,128 @@ new directory taxonomy.
 - Add or update focused tests under `test/scripts/` when changing script
   behavior.
 
+## PlatformClaw Development Resources
+
+Use one primary checkout per developer and Node 24.15 or newer. Managed task
+commands run on Windows or Linux; on other hosts use a Linux development
+environment for those commands. The resource
+tool itself needs only Node and Git; it works before package installation.
+Install the
+repository's pinned dependencies once in the primary checkout when host
+installation is permitted. Never run `pnpm install` in a Windows linked worktree.
+Focused host checks use existing repository wrappers to reuse a compatible
+primary toolchain; heavy checks use local Linux Docker or healthy WSL with
+Linux-owned source and dependencies, following the root validation policy.
+Share package download caches, not arbitrary `node_modules` directories across
+different lockfiles or runtimes. A junction points at an existing installation;
+counting its target again overstates physical disk use.
+
+From the primary checkout, create a task instead of another independent clone:
+
+```sh
+git fetch origin main
+node scripts/platformclaw-dev-task.mjs create login-fix --branch fix/login-fix --ref origin/main
+node scripts/platformclaw-dev-task.mjs list
+```
+
+`create` prints the worktree path under `.worktrees/`; open that path in your
+editor. The task has its own scratch directory under `.artifacts/dev-tasks/`.
+All linked invocations share one development-only SQLite registry in the Git
+common directory. No Gateway or agent database is used.
+
+Run a bounded command from the primary checkout against that task's source:
+
+```sh
+node scripts/platformclaw-dev-task.mjs run login-fix -- node scripts/run-vitest.mjs test/scripts/platformclaw-dev-task.test.ts
+```
+
+The command receives task-local `TMP`, `TEMP`, and `TMPDIR`. Normal command
+success and failure both join the child and clean its disposable scratch files;
+the source worktree remains for further edits. Do not use `run` to launch
+detached servers or other background work. Keep any result you need outside the
+temporary directory and exclude private data from committed evidence.
+
+Build disposable Docker images through the task owner:
+
+```sh
+node scripts/platformclaw-dev-task.mjs image login-fix proof -- -f Dockerfile.proof .
+```
+
+Replace the Dockerfile and context with your actual validation inputs; pass
+short flags separately (`-f Dockerfile`, not grouped or attached forms). `image`
+prints its task-specific tag and adds ownership metadata. Direct `docker build`,
+independent clones, arbitrary temporary folders, and preexisting resources are
+not automatically adopted. Release images and release archives remain under
+the release builder's retention policy, not the disposable-proof lifecycle.
+Use `docker run --rm` for bounded proof containers. The task tool never stops
+containers or deletes volumes; a remaining container reference blocks cleanup.
+
+After committing or discarding your intended edits, finish from the primary
+checkout. Preview first, then apply:
+
+```sh
+node scripts/platformclaw-dev-task.mjs finish login-fix
+node scripts/platformclaw-dev-task.mjs finish login-fix --apply
+node scripts/platformclaw-dev-task.mjs list
+```
+
+Finishing deletes only the task's disposable resources and a clean worktree;
+the Git branch remains. Dirty, untracked, ignored, or container-referenced
+resources are retained with an explanation. Remove or relocate those files
+deliberately, then retry. Do not use force deletion to make cleanup appear clean.
+Periodic sweeping retries finished tasks; it never completes active tasks for
+you or removes product volumes and databases.
+
+A killed wrapper or uncertain child outcome is not normal completion. First
+verify the original command and all of its descendants stopped, then recover
+that exact task and finish it:
+
+```sh
+node scripts/platformclaw-dev-task.mjs recover login-fix --confirm-stopped
+node scripts/platformclaw-dev-task.mjs finish login-fix --apply
+```
+
+Inspect legacy independent clones and unmanaged worktrees without deleting them:
+
+```sh
+node scripts/platformclaw-dev-task.mjs audit
+node scripts/platformclaw-dev-cleanup.mjs --skip-final-images --skip-archives
+```
+
+Classify legacy folders separately using their Git state, merged status, recent
+changes, and actual running consumers. An old timestamp or a matching folder
+name alone is not deletion authority.
+
+### Windows maintenance setup
+
+After updating the primary checkout to include this tooling, install or refresh
+the per-user task there; installation from a removable worktree is rejected:
+
+```powershell
+.\scripts\platformclaw-dev-maintenance.ps1 -Action Install
+.\scripts\platformclaw-dev-maintenance.ps1 -Action Status
+```
+
+The task runs every four hours while that user is signed in, using the same
+bounded options as `-Action Run`: managed-task sweeping, release intermediates,
+and a BuildKit cache target of 20 GB with 5 GB reserved and a 20 GB free-space
+target. Final release images and archives are skipped; their lifecycle remains
+with the release builder. `Status` shows the last result and next run. Read
+cleanup output for skipped or blocked work; a scheduled-task result alone does
+not prove every resource was reclaimed.
+
+For manual maintenance or hosts without Windows Task Scheduler:
+
+```sh
+node scripts/platformclaw-dev-cleanup.mjs --apply --skip-final-images --skip-archives --cache-max 20gb --cache-reserved 5gb --cache-min-free 20gb
+```
+
+The 20 GB target applies to BuildKit cache, not total Docker storage. Images,
+container writable layers, volumes, and exported archives are separate. Docker
+internal free space also does not necessarily shrink Docker Desktop's VHDX.
+Compaction is a separate, elevated, explicitly scheduled downtime operation:
+only after Docker and WSL work has stopped, run
+`./scripts/platformclaw-docker-vhdx-compact.ps1 -Apply`. It stops Docker Desktop
+and WSL; routine maintenance never does this automatically.
+
 See also [Scripts](https://docs.openclaw.ai/help/scripts) for public-facing script guidance.

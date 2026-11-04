@@ -129,7 +129,7 @@ function docker(args, { allowFailure = false } = {}) {
 }
 
 function restoreImageTag(tag, imageId) {
-  const args = imageId ? ["image", "tag", imageId, tag] : ["image", "rm", tag];
+  const args = imageId ? ["image", "tag", imageId, tag] : ["image", "rm", "--no-prune", tag];
   const result = docker(args, { allowFailure: true });
   if (result.status !== 0 && !/No such image/u.test(result.stderr)) {
     fail(result.stderr.trim() || `Failed to restore image tag ${tag}`);
@@ -291,7 +291,7 @@ function removeIntermediateImages(options, used) {
       }
       const tag = `${row.Repository}:${row.Tag}`;
       announce(options, `remove intermediate image ${tag}`, () => {
-        docker(["image", "rm", tag]);
+        docker(["image", "rm", "--no-prune", tag]);
       });
     }
   }
@@ -311,7 +311,7 @@ function removeFailedFinalImages(options, used) {
       }
       const tag = `${row.Repository}:${row.Tag}`;
       announce(options, `remove unvalidated final image ${tag}`, () => {
-        docker(["image", "rm", tag]);
+        docker(["image", "rm", "--no-prune", tag]);
       });
     }
   }
@@ -349,7 +349,7 @@ function pruneRepository(options, repository, used) {
     }
     const tag = `${row.Repository}:${row.Tag}`;
     announce(options, `remove old rollback tag ${tag}`, () => {
-      docker(["image", "rm", tag]);
+      docker(["image", "rm", "--no-prune", tag]);
     });
   }
 }
@@ -522,10 +522,25 @@ function pruneBuildCache(options) {
 }
 
 const options = readArgs(process.argv.slice(2));
+// Host task ownership is independent of Docker availability. Sweep before the
+// engine lock, so a stopped Desktop does not strand completed source worktrees.
+const taskSweep = spawnSync(
+  process.execPath,
+  [
+    resolve(repoRoot, "scripts", "platformclaw-dev-task.mjs"),
+    "sweep",
+    ...(options.apply ? ["--apply"] : []),
+  ],
+  { cwd: repoRoot, stdio: "inherit" },
+);
+if (taskSweep.error || taskSweep.status !== 0) {
+  console.error("Managed task cleanup is blocked; inspect platformclaw-dev-task.mjs list");
+  process.exitCode = 1;
+}
 const cleanupLock = await acquireCleanupLock(options);
 if (!cleanupLock) {
   console.log("SKIP: a PlatformClaw build is active");
-  process.exit(0);
+  process.exit(process.exitCode ?? 0);
 }
 const outputDirectoryLock = await acquireOutputDirectoryLock(options);
 try {
