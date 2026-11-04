@@ -8,6 +8,16 @@ import {
 import { classifyPlatformClawChanges } from "../../scripts/platformclaw-ci-plan.mjs";
 
 describe("PlatformClaw shared checks", () => {
+  it("runs developer lifecycle lint and behavior proof for resource tooling changes", () => {
+    const plan = classifyPlatformClawChanges(["scripts/platformclaw-dev-task.mjs"]);
+    const commands = createPlatformClawCheckCommands(surfacesForPlan(plan));
+    expect(
+      commands.find((entry) => entry.label === "lint PlatformClaw CI planner")?.args,
+    ).toContain("scripts/platformclaw-dev-task.mjs");
+    expect(
+      commands.find((entry) => entry.label === "test PlatformClaw CI planner")?.args,
+    ).toContain("test/scripts/platformclaw-dev-task.test.ts");
+  });
   it("runs lint, production and test types, and tests for Admin HTTP RPC", () => {
     const commands = createPlatformClawCheckCommands(["admin-http-rpc"]);
 

@@ -69,6 +69,9 @@ export function classifyPlatformClawChanges(inputFiles) {
       file === "scripts/platformclaw-ci-plan.d.mts" ||
       file === "scripts/platformclaw-check.mjs" ||
       file === "scripts/platformclaw-check.d.mts" ||
+      file === "scripts/platformclaw-dev-task.mjs" ||
+      file === "scripts/platformclaw-dev-cleanup.mjs" ||
+      file === "scripts/platformclaw-dev-maintenance.ps1" ||
       file.startsWith("test/scripts/platformclaw-"),
   );
   const hasWorkflowChanges = files.some((file) =>

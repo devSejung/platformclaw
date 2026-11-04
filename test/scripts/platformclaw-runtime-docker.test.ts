@@ -505,7 +505,8 @@ describe("PlatformClaw Docker runtime", () => {
       cleanup.indexOf("roll back abandoned release publication"),
     );
     expect(cleanup).not.toContain('docker(["image", "rm", "--force"');
-    expect(maintenance).toContain("New-ScheduledTaskTrigger -Weekly");
+    expect(maintenance).toContain("New-ScheduledTaskTrigger -Daily");
+    expect(maintenance).toContain("-RepetitionInterval (New-TimeSpan -Hours 4)");
     expect(compact).toContain("Optimize-VHD -Path $resolved -Mode Full");
     expect(compact).toContain("$expectedPrefix");
     expect(compact).toContain("Assert-NoReparsePoint $resolved");

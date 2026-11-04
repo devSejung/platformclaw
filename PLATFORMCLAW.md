@@ -77,6 +77,19 @@ These areas are candidates for future evaluation and migration. They are not an 
 
 Bring upstream changes from `upstream/main` into a sync branch, validate them there, and merge them into `main` through a PR.
 
+## Development resource lifecycle
+
+Keep one primary checkout per developer. Create task-owned linked worktrees with
+`node scripts/platformclaw-dev-task.mjs create <task> --branch fix/<topic>` instead
+of making another independent clone for each task. Use `run` for bounded commands,
+`image` for disposable validation images, and `finish <task> --apply` when the work
+is complete. The [developer workflow](scripts/README.md#platformclaw-development-resources)
+includes dependency reuse, interrupted-task recovery, and maintenance setup.
+
+Managed cleanup never adopts old folders by name or age. Audit existing clones
+and worktrees before removing them. Product data, volumes, active tasks, and
+uncommitted or unrecognized files remain protected; a blocked cleanup reports why.
+
 ## Current Phase
 
 Production Docker deployment migration and validation remains in progress.

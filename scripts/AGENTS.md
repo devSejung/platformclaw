@@ -30,6 +30,27 @@ This directory owns local tooling, script wrappers, and generated-artifact helpe
 - If a script writes generated artifacts, keep the source-of-truth generator, the package script, and the matching verification/check command aligned.
 - Prefer additive generator/check pairs like `*:gen` and `*:check` over one-off undocumented scripts.
 
+## PlatformClaw Development Resources
+
+- Keep one primary clone. Prefer `platformclaw-dev-task.mjs create` for task
+  worktrees over independent clones or ad hoc source copies. Use the managed
+  task's scratch directory for disposable inputs, not unrelated host folders.
+- Run bounded commands through `platformclaw-dev-task.mjs run`; build disposable
+  proof images through its `image` command. An exported task prefix alone does
+  not make arbitrary Docker resources managed. Do not daemonize child commands.
+- Finish tasks explicitly with `finish <task> --apply`, including failed work.
+  Periodic `platformclaw-dev-cleanup.mjs` sweeps only completed managed tasks.
+  Unknown or interrupted ownership is a visible stop condition, not an age-based
+  deletion opportunity. Confirm the exact task and its descendants stopped
+  before using `recover <task> --confirm-stopped`.
+- Never force-remove dirty, untracked, ignored, or container-referenced resources.
+  Keep the PR wrapper's worktree GC and operation locks under `scripts/pr`;
+  do not bypass them through the managed-task cleanup path.
+- Reuse repository toolchain wrappers for compatible focused host checks. Never
+  install dependencies in Windows linked worktrees. Shared download caches and
+  junctions are not equivalent to duplicate physical dependency trees; isolated
+  Linux checks keep dependencies on Linux-owned filesystems.
+
 ## Scope
 
 - Keep script-runner behavior, wrapper expectations, and generated-artifact guidance here.
