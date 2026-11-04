@@ -8,10 +8,16 @@ import type { Model, OpenAICompletionsCompat } from "@openclaw/llm-core";
 import type { AiProviderRequestCapabilities, AiProviderRequestPolicyInput } from "../host.js";
 import { isKnownOpenAIJsonSchemaModelId } from "../providers/openai-response-format.js";
 import { resolveProviderRequestCapabilities } from "./host-policy.js";
+import type {
+  OpenAIModelInput,
+  ReadonlyResolvedOpenAICompletionsCompat,
+} from "./openai-model-input-internal.js";
 
 type ProviderEndpointClass = string;
 type ProviderRequestCapabilities = AiProviderRequestCapabilities;
 type OpenAICompletionsSessionAffinity = "none" | "openai" | "openrouter";
+type ResolveCapabilities = (input: AiProviderRequestPolicyInput) => ProviderRequestCapabilities;
+type OpenAICompatModelInput = Pick<OpenAIModelInput, "provider" | "id" | "baseUrl" | "compat">;
 
 type OpenAICompletionsCompatDefaultsInput = {
   provider?: string;
@@ -224,7 +230,7 @@ export function detectOpenAICompletionsCompat(
 }
 
 function resolveSessionAffinity(
-  model: Pick<Model<"openai-completions">, "compat">,
+  model: Pick<OpenAIModelInput, "compat">,
   detectedFormat: OpenAICompletionsCompatDefaults["sessionAffinityFormat"],
 ): OpenAICompletionsSessionAffinity {
   if (model.compat?.sendSessionAffinityHeaders !== true) {
@@ -243,10 +249,16 @@ function resolveSessionAffinity(
 /** Applies explicit model overrides once on top of the canonical transport defaults. */
 export function resolveOpenAICompletionsCompat(
   model: Model<"openai-completions">,
-  resolveCapabilities: (
-    input: AiProviderRequestPolicyInput,
-  ) => ProviderRequestCapabilities = resolveProviderRequestCapabilities,
-): ResolvedOpenAICompletionsCompat {
+  resolveCapabilities?: ResolveCapabilities,
+): ResolvedOpenAICompletionsCompat;
+export function resolveOpenAICompletionsCompat(
+  model: OpenAICompatModelInput,
+  resolveCapabilities?: ResolveCapabilities,
+): ReadonlyResolvedOpenAICompletionsCompat;
+export function resolveOpenAICompletionsCompat(
+  model: OpenAICompatModelInput,
+  resolveCapabilities: ResolveCapabilities = resolveProviderRequestCapabilities,
+): ReadonlyResolvedOpenAICompletionsCompat {
   const { defaults } = detectOpenAICompletionsCompat(model, resolveCapabilities);
   const configured = model.compat;
   return {
@@ -276,10 +288,7 @@ export function resolveOpenAICompletionsCompat(
     supportsLongCacheRetention:
       configured?.supportsLongCacheRetention ?? defaults.supportsLongCacheRetention,
     visibleReasoningDetailTypes:
-      configured && "visibleReasoningDetailTypes" in configured
-        ? ((configured as { visibleReasoningDetailTypes?: string[] }).visibleReasoningDetailTypes ??
-          defaults.visibleReasoningDetailTypes)
-        : defaults.visibleReasoningDetailTypes,
+      configured?.visibleReasoningDetailTypes ?? defaults.visibleReasoningDetailTypes,
     requiresNonEmptyUserOrAssistantMessage: defaults.requiresNonEmptyUserOrAssistantMessage,
   };
 }

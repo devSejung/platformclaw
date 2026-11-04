@@ -9,7 +9,14 @@ import {
   resolveOpenAIProjectedToolsStrictToolFlag,
 } from "../providers/openai-tool-schema.js";
 import { resolveModelRequestTimeoutMs, resolveProviderRequestPolicyConfig } from "./host-policy.js";
-import { resolveOpenAICompletionsCompat } from "./openai-completions-compat.js";
+import {
+  resolveOpenAICompletionsCompat,
+  type ResolvedOpenAICompletionsCompat,
+} from "./openai-completions-compat.js";
+import type {
+  OpenAIModelInput,
+  ReadonlyResolvedOpenAICompletionsCompat,
+} from "./openai-model-input-internal.js";
 import { resolveOpenAIReasoningEffortMap } from "./openai-reasoning-compat.js";
 import type { OpenAIModeModel } from "./openai-transport-shared.js";
 import { isCodeModeModelVisibleToolName, sha256Hex } from "./transport-utils.js";
@@ -140,7 +147,7 @@ export function assertCodeModeResponsesToolSurface(
 
 function buildOpenAIStrictToolDowngradeDiagnosticKey(
   diagnostics: ReturnType<typeof findOpenAIStrictToolProjectionDiagnostics>,
-  context: { transport: "responses" | "completions"; model: OpenAIModeModel },
+  context: { transport: "responses" | "completions"; model: OpenAIModelInput },
 ): string {
   return sha256Hex(
     JSON.stringify({
@@ -158,7 +165,7 @@ function buildOpenAIStrictToolDowngradeDiagnosticKey(
 
 function shouldLogOpenAIStrictToolDowngradeDiagnostic(
   diagnostics: ReturnType<typeof findOpenAIStrictToolProjectionDiagnostics>,
-  context: { transport: "responses" | "completions"; model: OpenAIModeModel },
+  context: { transport: "responses" | "completions"; model: OpenAIModelInput },
 ): boolean {
   const key = buildOpenAIStrictToolDowngradeDiagnosticKey(diagnostics, context);
   if (loggedOpenAIStrictToolDowngradeDiagnosticKeys.has(key)) {
@@ -177,7 +184,7 @@ function shouldLogOpenAIStrictToolDowngradeDiagnostic(
 export function resolveOpenAIStrictToolFlagWithDiagnostics(
   projection: OpenAIToolProjection,
   strictSetting: boolean | null | undefined,
-  context: { transport: "responses" | "completions"; model: OpenAIModeModel },
+  context: { transport: "responses" | "completions"; model: OpenAIModelInput },
 ): boolean | undefined {
   const strict = resolveOpenAIProjectedToolsStrictToolFlag(projection, strictSetting);
   if (strictSetting === true && strict === false) {
@@ -324,15 +331,41 @@ export function buildOpenAISdkRequestOptions(
   };
 }
 
-export function getCompat(model: OpenAIModeModel) {
-  const resolved = resolveOpenAICompletionsCompat(model as Model<"openai-completions">);
+type OpenAITransportCompat<
+  TResolved extends ReadonlyResolvedOpenAICompletionsCompat,
+  TRouting extends Readonly<Record<string, unknown>> = Record<string, unknown>,
+> = Omit<TResolved, "openRouterRouting" | "vercelGatewayRouting"> & {
+  cacheControlFormat: TResolved["cacheControlFormat"];
+  reasoningEffortMap: Record<string, string>;
+  openRouterRouting: TRouting;
+  vercelGatewayRouting: TRouting;
+  requiresStringContent: boolean;
+  strictMessageKeys: boolean;
+};
+
+export function getCompat(
+  model: OpenAIModeModel,
+): OpenAITransportCompat<ResolvedOpenAICompletionsCompat>;
+export function getCompat(
+  model: OpenAIModelInput,
+): OpenAITransportCompat<
+  ReadonlyResolvedOpenAICompletionsCompat,
+  Readonly<Record<string, unknown>>
+>;
+export function getCompat(
+  model: OpenAIModelInput,
+): OpenAITransportCompat<
+  ReadonlyResolvedOpenAICompletionsCompat,
+  Readonly<Record<string, unknown>>
+> {
+  const resolved = resolveOpenAICompletionsCompat(model);
   const compat = model.compat ?? {};
   return {
     ...resolved,
     cacheControlFormat: resolved.cacheControlFormat,
     reasoningEffortMap: resolveOpenAIReasoningEffortMap(model, {}),
-    openRouterRouting: (resolved.openRouterRouting as Record<string, unknown> | undefined) ?? {},
-    vercelGatewayRouting: resolved.vercelGatewayRouting as Record<string, unknown>,
+    openRouterRouting: resolved.openRouterRouting ?? {},
+    vercelGatewayRouting: resolved.vercelGatewayRouting,
     requiresStringContent: compat.requiresStringContent ?? false,
     strictMessageKeys: compat.strictMessageKeys === true,
   };

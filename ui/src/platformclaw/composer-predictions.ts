@@ -205,7 +205,7 @@ export class ComposerPredictionController {
         typeof result === "object" &&
         "text" in result &&
         typeof result.text === "string" &&
-        result.text.length <= 300
+        result.text.length <= 500
           ? result.text.trim() || null
           : null;
       this.requestUpdate();

@@ -1,4 +1,5 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-model-types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createComposerPredictions } from "./composer-predictions.js";
 
@@ -15,16 +16,25 @@ function setup(providerId = "codemate", modelId = "codellm-fast", apiType = "ope
     composerPredictionsEnabled?: boolean;
     composerPredictionsTimeoutMs?: number;
   } = { composerPredictionsEnabled: true };
+  const model: ModelDefinitionConfig = {
+    id: modelId,
+    name: modelId,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128_000,
+    maxTokens: 8_192,
+  };
   const provider: {
     baseUrl: string;
     api: string;
     apiKey?: unknown;
     headers?: Record<string, unknown>;
-    models: { id: string }[];
+    models: ModelDefinitionConfig[];
   } = {
     baseUrl: "http://company.internal/v1",
     api: apiType,
-    models: [{ id: modelId }],
+    models: [model],
   };
   const config = {
     plugins: { entries: { "admin-http-rpc": { config: pluginConfig } } },
@@ -63,7 +73,7 @@ function setup(providerId = "codemate", modelId = "codellm-fast", apiType = "ope
     ],
   };
   const predict = (signal = new AbortController().signal) => call(params, signal);
-  return { call, predict, composer, values, params, pluginConfig, provider };
+  return { call, predict, composer, values, params, pluginConfig, provider, model };
 }
 
 function useDeadlineClock() {
@@ -111,11 +121,113 @@ describe("Explicit isolated prediction inference", () => {
     expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
     const request = mocks.fetch.mock.calls[0]?.[0];
     const body = JSON.parse(request.init.body);
-    expect(body).toMatchObject({ model: "codellm-fast", max_tokens: 64, stream: false });
+    expect(body).toMatchObject({ model: "codellm-fast", stream: false });
+    expect(body.max_tokens ?? body.max_completion_tokens).toBe(160);
     expect(body.tools).toBeUndefined();
+    expect(body.stream_options).toBeUndefined();
     expect(request.capture).toBe(false);
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
+  it("sends eight bounded visible messages as task data and keeps credentials out of the prompt", async () => {
+    const { predict, values, params, provider } = setup("CodeMate");
+    values.set("user-1", true);
+    provider.apiKey = "synthetic-provider-key";
+    params.messages = Array.from({ length: 8 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: index === 7 ? "😀".repeat(2_000) : `turn ${index}: ${"문".repeat(1_000)}`,
+    }));
+    expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
+    const request = mocks.fetch.mock.calls[0]?.[0];
+    const body = JSON.parse(request.init.body);
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0]).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("never as the assistant"),
+    });
+    expect(body.messages[0].content).toContain("two short sentences and 500 characters");
+    expect(body.messages[1].role).toBe("user");
+    expect(JSON.parse(body.messages[1].content)).toEqual(
+      params.messages.map((message) => ({ role: message.role, text: message.content })),
+    );
+    expect(request.init.headers.get("Authorization")).toBe("Bearer synthetic-provider-key");
+    expect(request.init.body).not.toContain("synthetic-provider-key");
+    expect(request.maxRedirects).toBe(0);
+    expect(request.dispatcherPolicy).toEqual({
+      mode: "direct",
+      pinnedHostname: { hostname: "company.internal", addresses: ["10.1.2.3"] },
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { format: "qwen" as const, expected: { enable_thinking: false } },
+    {
+      format: "qwen-chat-template" as const,
+      expected: { chat_template_kwargs: { enable_thinking: false } },
+    },
+    { format: "openai" as const, expected: { reasoning_effort: "none" } },
+    { format: "openrouter" as const, expected: { reasoning: { effort: "none" } } },
+  ])("uses canonical thinking-off request shaping for $format", async ({ format, expected }) => {
+    const { predict, values, model } = setup();
+    values.set("user-1", true);
+    model.reasoning = true;
+    model.compat = {
+      thinkingFormat: format,
+      supportsReasoningEffort: true,
+      supportedReasoningEfforts: ["none", "low", "medium", "high"],
+      maxTokensField: "max_tokens",
+    };
+    await predict();
+    const body = JSON.parse(mocks.fetch.mock.calls[0]?.[0].init.body);
+    expect(body).toMatchObject({ ...expected, max_tokens: 160, stream: false });
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+    expect(body.stream_options).toBeUndefined();
+  });
+  it("does not invent a thinking-off wire flag for an opaque model without a declared dialect", async () => {
+    const { predict, values, model } = setup();
+    values.set("user-1", true);
+    model.reasoning = true;
+    model.compat = { supportsReasoningEffort: true, supportedReasoningEfforts: ["low", "high"] };
+    await predict();
+    const body = JSON.parse(mocks.fetch.mock.calls[0]?.[0].init.body);
+    expect(body.reasoning_effort).toBeUndefined();
+    expect(body.enable_thinking).toBeUndefined();
+    expect(body.chat_template_kwargs).toBeUndefined();
+  });
+  it.each(["account", "server"] as const)(
+    "does not send context after %s opt-out while DNS is pending",
+    async (scope) => {
+      const { call, predict, values, pluginConfig } = setup();
+      values.set("user-1", true);
+      const addresses = [{ address: "10.1.2.3", family: 4 }];
+      let resolveLookup: ((value: typeof addresses) => void) | undefined;
+      mocks.lookup.mockImplementationOnce(
+        () =>
+          new Promise<typeof addresses>((resolve) => {
+            resolveLookup = resolve;
+          }),
+      );
+      const pending = predict();
+      await vi.waitFor(() => expect(resolveLookup).toBeDefined());
+      if (scope === "account") {
+        expect(
+          await call(
+            { action: "preferences", userId: "user-1", enabled: false },
+            new AbortController().signal,
+          ),
+        ).toMatchObject({ enabled: false });
+      } else {
+        pluginConfig.composerPredictionsEnabled = false;
+      }
+      resolveLookup?.(addresses);
+      expect(await pending).toEqual({ text: null, reason: "disabled" });
+      expect(mocks.fetch).not.toHaveBeenCalled();
+      pluginConfig.composerPredictionsEnabled = true;
+      values.set("user-1", true);
+      expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
+      expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    },
+  );
   it.each([
     {
       name: "omitted server gate",
@@ -323,8 +435,26 @@ describe("Explicit isolated prediction inference", () => {
     {
       name: "oversized message",
       messages: [
-        { role: "user", content: "x".repeat(601) },
+        { role: "user", content: "x".repeat(2_001) },
         { role: "assistant", content: "답변" },
+      ],
+    },
+    {
+      name: "oversized Unicode message",
+      messages: [
+        { role: "user", content: "😀".repeat(2_001) },
+        { role: "assistant", content: "답변" },
+      ],
+    },
+    {
+      name: "too many messages",
+      messages: Array.from({ length: 9 }, () => ({ role: "assistant", content: "답변" })),
+    },
+    {
+      name: "missing user turn",
+      messages: [
+        { role: "assistant", content: "답변" },
+        { role: "assistant", content: "추가 답변" },
       ],
     },
     {
@@ -385,11 +515,27 @@ describe("Explicit isolated prediction inference", () => {
         content: { private: "provider output" },
         reason: "response_invalid",
       },
+      {
+        name: "structured content outside the string-response contract",
+        content: [
+          { type: "reasoning", text: "private reasoning" },
+          { type: "text", text: "다음 단계는 무엇인가요?" },
+        ],
+        reason: "response_invalid",
+      },
       { name: "empty content", content: "  ", reason: "response_empty" },
       { name: "intentional abstention", content: "NO_SUGGESTION", reason: "no_suggestion" },
-      { name: "multiline content", content: "private\nprovider output", reason: "format_rejected" },
-      { name: "Markdown content", content: "# private provider output", reason: "format_rejected" },
-      { name: "long content", content: "x".repeat(301), reason: "format_rejected" },
+      { name: "long content", content: "x".repeat(501), reason: "format_rejected" },
+      {
+        name: "unfinished reasoning",
+        content: "<think>private reasoning",
+        reason: "response_empty",
+      },
+      {
+        name: "reasoning followed by abstention",
+        content: "<think>private reasoning</think>NO_SUGGESTION",
+        reason: "no_suggestion",
+      },
     ].map(({ name, content, reason }) => ({
       name,
       body: JSON.stringify({ choices: [{ message: { content } }] }),
@@ -404,6 +550,90 @@ describe("Explicit isolated prediction inference", () => {
     expect(release).toHaveBeenCalledTimes(1);
     expect(await predict()).toEqual({ text: "다음 단계는 무엇인가요?", reason: "suggested" });
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+  it.each([undefined, "stop", "length"])(
+    "returns only visible output for compatible finish reason %s",
+    async (finishReason) => {
+      const { predict, values } = setup();
+      values.set("user-1", true);
+      const text = "다음 단계는 무엇인가요?\n기존 제약도 유지해주세요.";
+      mocks.fetch.mockResolvedValueOnce({
+        response: Response.json({
+          choices: [
+            {
+              finish_reason: finishReason,
+              message: {
+                content: `<think>private inline reasoning</think><final>${text}</final>`,
+                reasoning_content: "private native reasoning",
+                reasoning: "private alternate reasoning",
+                tool_calls: [],
+                refusal: null,
+              },
+            },
+          ],
+        }),
+        release: async () => {},
+      });
+      expect(await predict()).toEqual({ text, reason: "suggested" });
+      expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("retains the upstream five-hundred-character output budget", async () => {
+    const { predict, values } = setup();
+    values.set("user-1", true);
+    const text = "문".repeat(500);
+    mocks.fetch.mockResolvedValueOnce({
+      response: Response.json({ choices: [{ finish_reason: "stop", message: { content: text } }] }),
+      release: async () => {},
+    });
+    expect(await predict()).toEqual({ text, reason: "suggested" });
+  });
+  it.each([
+    {
+      name: "final wrapper",
+      content: "<final>\n다음 단계는 무엇인가요?\n</final>",
+      text: "다음 단계는 무엇인가요?",
+    },
+    {
+      name: "literal reasoning tags in code",
+      content: "`<think>literal</think>` 문자열도 유지해줘.",
+      text: "`<think>literal</think>` 문자열도 유지해줘.",
+    },
+    {
+      name: "literal final tags in code",
+      content: "`<final>literal</final>` 문자열도 유지해줘.",
+      text: "`<final>literal</final>` 문자열도 유지해줘.",
+    },
+  ])("preserves visible text for $name", async ({ content, text }) => {
+    const { predict, values } = setup();
+    values.set("user-1", true);
+    mocks.fetch.mockResolvedValueOnce({
+      response: Response.json({ choices: [{ finish_reason: "stop", message: { content } }] }),
+      release: async () => {},
+    });
+    expect(await predict()).toEqual({ text, reason: "suggested" });
+  });
+  it.each([
+    { finish_reason: null },
+    { finish_reason: "tool_calls" },
+    { finish_reason: "content_filter" },
+    { finish_reason: "error" },
+    { finish_reason: "stop", message: { tool_calls: [{ id: "call-1", type: "function" }] } },
+    { finish_reason: "stop", message: { function_call: { name: "private-tool" } } },
+    { finish_reason: "stop", message: { refusal: "private provider refusal" } },
+  ])("rejects unfinished or non-answer output without retry (%j)", async (choice) => {
+    const { predict, values } = setup();
+    values.set("user-1", true);
+    const release = vi.fn(async () => {});
+    mocks.fetch.mockResolvedValueOnce({
+      response: Response.json({
+        choices: [{ ...choice, message: { content: "visible-looking output", ...choice.message } }],
+      }),
+      release,
+    });
+    expect(await predict()).toEqual({ text: null, reason: "response_invalid" });
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
   it("reports preferences disabled during inference without returning the suggestion", async () => {
     const { predict, values } = setup();

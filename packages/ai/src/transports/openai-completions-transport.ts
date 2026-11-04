@@ -60,6 +60,7 @@ import {
   flattenCompletionMessagesToStringContent,
   stripCompletionMessagesToRoleContent,
 } from "./openai-completions-string-content.js";
+import type { OpenAIModelInput } from "./openai-model-input-internal.js";
 import {
   assertCodeModeResponsesToolSurface,
   buildOpenAIClientHeaders,
@@ -1315,7 +1316,7 @@ function resolveOpenAICompletionsReasoningEffort(options: OpenAICompletionsOptio
 }
 
 function shouldEmitOpenAICompletionsReasoning(
-  model: OpenAIModeModel,
+  model: OpenAIModelInput,
   options: OpenAICompletionsOptions | undefined,
 ) {
   if (!model.reasoning) {
@@ -1329,14 +1330,14 @@ function shouldEmitOpenAICompletionsReasoning(
 }
 
 function shouldEmitOpenAICompletionsReasoningForModel(
-  model: OpenAIModeModel,
+  model: OpenAIModelInput,
   options: OpenAICompletionsOptions | undefined,
 ) {
   return shouldEmitOpenAICompletionsReasoning(model, options);
 }
 
 function resolveOpenAICompletionsMaxTokens(
-  model: OpenAIModeModel,
+  model: OpenAIModelInput,
   options: OpenAICompletionsOptions | undefined,
 ): { maxTokens: number | undefined; clampToModelMaxTokens: boolean } {
   if (options?.maxTokens) {
@@ -1351,7 +1352,7 @@ function resolveOpenAICompletionsMaxTokens(
   return { maxTokens: model.maxTokens, clampToModelMaxTokens: false };
 }
 
-function resolveOpenAICompletionsModelMaxTokens(model: OpenAIModeModel): number | undefined {
+function resolveOpenAICompletionsModelMaxTokens(model: OpenAIModelInput): number | undefined {
   return typeof model.maxTokens === "number" &&
     Number.isFinite(model.maxTokens) &&
     model.maxTokens > 0
@@ -1452,9 +1453,9 @@ function estimateOpenAICompletionsContentChars(value: unknown): number {
 }
 
 function resolveOpenAICompletionsEffectiveContextTokens(
-  model: OpenAIModeModel,
+  model: OpenAIModelInput,
 ): number | undefined {
-  const contextTokens = (model as { contextTokens?: number }).contextTokens;
+  const contextTokens = model.contextTokens;
   if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && contextTokens > 0) {
     return contextTokens;
   }
@@ -1516,7 +1517,7 @@ function applyTogetherOpenAICompletionsThinkingParams(params: {
 function convertTools(
   tools: NonNullable<Context["tools"]>,
   compat: ReturnType<typeof getCompat>,
-  model: OpenAIModeModel,
+  model: OpenAIModelInput,
 ) {
   const projection = projectOpenAITools(tools);
   const strict = resolveOpenAIStrictToolFlagWithDiagnostics(
@@ -1575,9 +1576,8 @@ function extractGoogleThoughtSignature(toolCall: unknown): string | undefined {
   return typeof fromFunction === "string" && fromFunction.length > 0 ? fromFunction : undefined;
 }
 
-function isGoogleOpenAICompatModel(model: OpenAIModeModel): boolean {
-  const endpointClass = detectOpenAICompletionsCompat(model as Model<"openai-completions">)
-    .capabilities.endpointClass;
+function isGoogleOpenAICompatModel(model: OpenAIModelInput): boolean {
+  const endpointClass = detectOpenAICompletionsCompat(model).capabilities.endpointClass;
   return (
     model.provider === "google" ||
     endpointClass === "google-generative-ai" ||
@@ -1585,7 +1585,7 @@ function isGoogleOpenAICompatModel(model: OpenAIModeModel): boolean {
   );
 }
 
-function requiresGoogleCompatToolCallThoughtSignature(model: OpenAIModeModel): boolean {
+function requiresGoogleCompatToolCallThoughtSignature(model: OpenAIModelInput): boolean {
   return isGoogleGemini3ProModel(model.id) || isGoogleGemini3FlashModel(model.id);
 }
 
@@ -1602,7 +1602,7 @@ function hasGoogleCompatThoughtSignatureTruncationFootprint(value: string): bool
 function injectToolCallThoughtSignatures(
   outgoingMessages: unknown[],
   context: Context,
-  model: OpenAIModeModel,
+  model: OpenAIModelInput,
 ): void {
   if (!isGoogleOpenAICompatModel(model)) {
     return;
@@ -1800,7 +1800,7 @@ function getReasoningContentReplayModelIdCandidates(modelId: unknown): string[] 
 }
 
 function shouldPreserveReasoningContentReplay(
-  model: OpenAIModeModel,
+  model: OpenAIModelInput,
   compat: { requiresReasoningContentOnAssistantMessages: boolean; thinkingFormat: string },
 ): boolean {
   if (
@@ -1816,7 +1816,7 @@ function shouldPreserveReasoningContentReplay(
   );
 }
 
-function shouldPreserveOpenRouterReasoningReplay(model: OpenAIModeModel): boolean {
+function shouldPreserveOpenRouterReasoningReplay(model: OpenAIModelInput): boolean {
   if (model.provider !== "openrouter") {
     return true;
   }
@@ -1824,7 +1824,7 @@ function shouldPreserveOpenRouterReasoningReplay(model: OpenAIModeModel): boolea
   return !(normalizedModelId.startsWith("anthropic/") || normalizedModelId.startsWith("x-ai/"));
 }
 
-function shouldTrustReasoningContentReplayMetadata(model: OpenAIModeModel): boolean {
+function shouldTrustReasoningContentReplayMetadata(model: OpenAIModelInput): boolean {
   if (!model.reasoning) {
     return false;
   }
@@ -1865,7 +1865,7 @@ function sanitizeCompletionsReasoningReplayFields(
 }
 
 export function buildOpenAICompletionsParams(
-  model: OpenAIModeModel,
+  model: OpenAIModelInput,
   context: Context,
   options: OpenAICompletionsOptions | undefined,
 ) {

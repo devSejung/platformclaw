@@ -72,13 +72,26 @@ configuration or unsupported API adapters yield no suggestion. No external LLM,
 Agent Loop, tools, skills, memory retrieval, retries, or model fallback are used.
 Normal conversation defaults and fallback settings remain unchanged.
 
-Inference receives only the last six user/assistant text messages, each capped
-at 300 Unicode characters. This bounded context supports two or three exchanges
-without copying attachments, reasoning, tool output, or an unbounded transcript.
-Output is capped at 64 tokens and 300 characters. The browser/BFF prediction deadline
-includes Gateway history access. There is one active
-prediction per Gateway process and no prediction queue. Ordinary model calls
-preempt predictions. No vLLM load metrics are assumed; the single-slot policy is
+Inference receives only the last eight user/assistant text messages, retaining
+the first 2,000 Unicode code points from each. Attachments, reasoning, and tool
+output are excluded. The bounded transcript is serialized as JSON in one fresh
+user message with the upstream prediction system prompt, so the model predicts
+the next user message.
+The request uses a 160-token output limit. Tagged reasoning is removed before
+display, and suggestions over 500 UTF-16 code units are rejected.
+
+Predictions request thinking off through the selected model's existing
+compatibility settings. Agent `thinkingDefault` controls ordinary agent runs;
+`reasoningDefault` controls reasoning visibility. Neither configures this
+prediction request. If the serving API requires an explicit thinking switch,
+check the selected model row under
+`models.providers.<provider>.models`: `reasoning` describes its capability, and
+`compat.thinkingFormat` selects the request dialect. Set these only to match the
+actual serving API; an opaque model alias does not identify its thinking controls.
+
+The browser/BFF prediction deadline includes Gateway history access. There is
+one active prediction per Gateway process and no prediction queue. Ordinary
+model calls preempt predictions. No vLLM load metrics are assumed; the single-slot policy is
 the conservative admission control. A multi-Gateway deployment needs a shared
 admission owner before enabling this feature across instances.
 
@@ -88,7 +101,7 @@ pending prediction work immediately, before waiting for the send acknowledgment
 or the next model call. Enter retains its existing behavior.
 Cancellation closes the HTTP request to the model; actual GPU cancellation
 depends on the company's serving stack and must be measured there. A server
-that continues inference after disconnect can still consume up to the 64-token
+that continues inference after disconnect can still consume up to the 160-token
 budget. Real chat latency and GPU effects require a company-environment load test.
 
 Knox, Cron, API adapters, and background runs do not trigger prediction inference.
@@ -122,7 +135,7 @@ Prediction responses retain `text` and add a fixed `reason` and integer
 | `destination_rejected`                                                                                | The model destination did not pass the private-address restriction.                                                                 |
 | `provider_http_error`                                                                                 | The provider returned a non-success response; `providerStatus` contains its numeric HTTP status. The response body is never copied. |
 | `response_missing`, `response_invalid`, `response_empty`, `response_oversized`                        | The provider response could not be used.                                                                                            |
-| `no_suggestion`, `format_rejected`                                                                    | The model abstained or its output failed the existing format/length checks.                                                         |
+| `no_suggestion`, `format_rejected`                                                                    | The model abstained or its suggestion exceeded the output length limit.                                                             |
 | `history_ineligible`, `history_changed`                                                               | The authorized text context was unsuitable or changed during inference.                                                             |
 | `timeout`, `cancelled`                                                                                | The operation reached its deadline or was cancelled. A browser cancellation can have no Response body.                              |
 | `access_error`, `unauthenticated`, `forbidden`, `preferences_error`, `history_error`, `gateway_error` | A request, access, settings, transcript, or internal Gateway operation failed.                                                      |

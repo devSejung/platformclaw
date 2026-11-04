@@ -1,5 +1,6 @@
 // Reasoning tag tests cover parsing and stripping reasoning tag blocks.
 import { describe, expect, it } from "vitest";
+import { createReasoningTagTextPartitioner } from "../../../packages/markdown-core/src/reasoning-tags.js";
 import { stripReasoningTagsFromText } from "./reasoning-tags.js";
 
 describe("stripReasoningTagsFromText", () => {
@@ -372,6 +373,114 @@ describe("stripReasoningTagsFromText", () => {
       },
     ] as const)("$name", (testCase) => {
       expectStrippedCase(testCase);
+    });
+  });
+
+  describe("hide mode", () => {
+    it.each([
+      { name: "leading unclosed reasoning", input: "<think>private reasoning", expected: "" },
+      {
+        name: "trailing unclosed reasoning",
+        input: "Visible <reasoning>private tail",
+        expected: "Visible ",
+      },
+      {
+        name: "nested unclosed reasoning",
+        input: "<think>outer<reasoning>inner</reasoning>private tail",
+        expected: "",
+      },
+      {
+        name: "orphan close boundary",
+        input: "private reasoning</think>Visible",
+        expected: "Visible",
+      },
+      {
+        name: "namespaced reasoning with quoted attributes",
+        input: 'Before <mm:think data-x=">">private</mm:think> After',
+        expected: "Before  After",
+      },
+      {
+        name: "literal inline code",
+        input: "Use `<think>literal</think>` in an example.",
+        expected: "Use `<think>literal</think>` in an example.",
+      },
+      {
+        name: "literal fenced code",
+        input: "```xml\n<think>literal</think>\n```",
+        expected: "```xml\n<think>literal</think>\n```",
+      },
+      {
+        name: "literal GFM table code",
+        input: "| Example |\n| --- |\n| `<think>literal</think>` |",
+        expected: "| Example |\n| --- |\n| `<think>literal</think>` |",
+      },
+    ])("matches strict streamed visibility for $name", ({ input, expected }) => {
+      const partitioner = createReasoningTagTextPartitioner();
+      partitioner.markStrict();
+      const streamed = [...partitioner.push(input), ...partitioner.flush()]
+        .filter((delta) => delta.kind === "text")
+        .map((delta) => delta.text)
+        .join("");
+
+      expect(streamed).toBe(expected);
+      expect(stripReasoningTagsFromText(input, { mode: "hide", trim: "none" })).toBe(expected);
+    });
+
+    it.each([
+      {
+        name: "keeps visible final content after closed reasoning",
+        input: "<think>private</think><final>Ready.</final>",
+        expected: "Ready.",
+      },
+      {
+        name: "keeps an abstention marker in visible final content",
+        input: "<final>NO_SUGGESTION</final>",
+        expected: "NO_SUGGESTION",
+      },
+      {
+        name: "does not expose final-looking text inside unclosed reasoning",
+        input: "<think>private<final>NO_SUGGESTION</final>",
+        expected: "",
+      },
+      {
+        name: "classifies reasoning before final-marker removal can create code ownership",
+        input: "<final>\n    <think>private reasoning",
+        expected: "",
+      },
+      {
+        name: "preserves literal final markers in inline code",
+        input: "Use `<final>` literally; <final>Ready.</final>",
+        expected: "Use `<final>` literally; Ready.",
+      },
+    ])("$name", ({ input, expected }) => {
+      expect(stripReasoningTagsFromText(input, { mode: "hide" })).toBe(expected);
+    });
+
+    it.each([
+      { trim: "none", expected: "    visible  " },
+      { trim: "start", expected: "visible  " },
+      { trim: "both", expected: "visible" },
+    ] as const)("honors trim=$trim after hiding reasoning", ({ trim, expected }) => {
+      expect(
+        stripReasoningTagsFromText("  <think>private</think>  visible  ", { mode: "hide", trim }),
+      ).toBe(expected);
+    });
+
+    it.each(["none", "start", "both"] as const)(
+      "preserves the no-tag fast path with trim=%s",
+      (trim) => {
+        const input = "  unchanged text  ";
+        expect(stripReasoningTagsFromText(input, { mode: "hide", trim })).toBe(input);
+      },
+    );
+
+    it.each([
+      { scope: "all", expected: "Visible" },
+      { scope: "leading", expected: "Visible <think>literal" },
+    ] as const)("honors scope=$scope", ({ scope, expected }) => {
+      expect(stripReasoningTagsFromText("Visible <think>literal", { mode: "hide", scope })).toBe(
+        expected,
+      );
     });
   });
 

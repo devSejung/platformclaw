@@ -1,6 +1,6 @@
 import { buildOpenAICompletionsParams as buildOpenAICompletionsParamsImpl } from "@openclaw/ai/transports";
 import "./ai-transport-runtime-host.js";
-import type { OpenAICompletionsOptions, OpenAIModeModel } from "@openclaw/ai/transports";
+import type { OpenAICompletionsOptions } from "@openclaw/ai/transports";
 /**
  * Public OpenAI transport surface.
  *
@@ -14,7 +14,7 @@ export { createOpenAIResponsesTransportStreamFn } from "@openclaw/ai/transports"
 // Keep this SDK-exported declaration anchored to the long-lived facade while the
 // completions implementation remains independently owned.
 export function buildOpenAICompletionsParams(
-  model: OpenAIModeModel,
+  model: Parameters<typeof buildOpenAICompletionsParamsImpl>[0],
   context: Context,
   options: OpenAICompletionsOptions | undefined,
 ): Record<string, unknown> {
