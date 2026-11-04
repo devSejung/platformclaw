@@ -160,6 +160,10 @@ describe("PlatformClawControlUiAdapter", () => {
     expect(options.chatWorkingTip).toEqual(expect.any(Function));
     expect(options.shellSession?.renderMainBanner).toEqual(expect.any(Function));
     expect(options.shellSession?.renderPageHeaderAccessory).toEqual(expect.any(Function));
+    const header = document.createElement("div");
+    render(options.shellSession?.renderPageHeaderAccessory?.("chat", undefined), header);
+    expect(header.querySelector("platformclaw-page-help-trigger")).not.toBeNull();
+    expect(header.querySelector("platformclaw-quick-actions")).toBeNull();
     const organizationTitle = options.navigation?.routeCopy?.organization?.title;
     expect(typeof organizationTitle === "function" ? organizationTitle() : organizationTitle).toBe(
       "Organization",

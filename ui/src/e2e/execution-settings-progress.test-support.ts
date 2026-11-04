@@ -204,6 +204,83 @@ function currentLocationLayoutBox(card: Locator) {
   });
 }
 
+async function assertLocationCardAlignment(component: Locator) {
+  await settledPanelBox(component, "settings");
+  const layout = await component.locator(".location-targets").evaluate((targets) => {
+    const basic = targets.querySelector("[data-target='platform_server']")!;
+    const { x, y, width, height } = basic.getBoundingClientRect();
+    const vms = Array.from(targets.querySelectorAll("[data-saved-vm]"), (vm) => {
+      const bounds = vm.getBoundingClientRect();
+      const footer = vm.querySelector(".saved-vm-details")!.getBoundingClientRect();
+      const configure = vm.querySelector("[data-configure-vm]")!.getBoundingClientRect();
+      const forget = vm.querySelector("[data-forget-vm]")!.getBoundingClientRect();
+      return {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        footerBottom: footer.bottom,
+        configureY: configure.y,
+        configureHeight: configure.height,
+        configureBottom: configure.bottom,
+        forgetY: forget.y,
+        forgetHeight: forget.height,
+      };
+    });
+    const scrollport = targets.closest("main")!.getBoundingClientRect();
+    return {
+      basic: { x, y, width, height },
+      vms,
+      targets: {
+        x: targets.getBoundingClientRect().x,
+        y: targets.getBoundingClientRect().y,
+        width: targets.clientWidth,
+      },
+      scrollport: { top: scrollport.top, bottom: scrollport.bottom },
+      overflow: targets.scrollWidth > targets.clientWidth + 1,
+    };
+  });
+  expect(layout.overflow).toBe(false);
+  expect(Math.abs(layout.basic.x - layout.targets.x)).toBeLessThan(1);
+  expect(Math.abs(layout.basic.y - layout.targets.y)).toBeLessThan(1);
+  if (!layout.vms.length) {
+    expect(Math.abs(layout.basic.width - layout.targets.width)).toBeLessThan(1);
+  }
+  for (const card of [layout.basic, ...layout.vms]) {
+    for (const coordinate of ["y", "width", "height"] as const) {
+      expect(
+        Math.abs(card[coordinate] - layout.basic[coordinate]),
+        `Location card ${coordinate}`,
+      ).toBeLessThan(1);
+    }
+    expect(card.y).toBeGreaterThanOrEqual(layout.scrollport.top);
+    expect(card.y + card.height).toBeLessThanOrEqual(layout.scrollport.bottom);
+  }
+  for (const [index, vm] of layout.vms.entries()) {
+    const previous = index === 0 ? layout.basic : layout.vms[index - 1]!;
+    expect(vm.x).toBeGreaterThan(previous.x + previous.width);
+    expect(vm.x + vm.width).toBeLessThanOrEqual(layout.targets.x + layout.targets.width + 1);
+    expect(Math.abs(vm.configureY - vm.forgetY)).toBeLessThan(1);
+    expect(Math.abs(vm.configureHeight - vm.forgetHeight)).toBeLessThan(1);
+    expect(vm.configureY).toBeGreaterThanOrEqual(vm.y);
+    expect(vm.configureBottom).toBeLessThanOrEqual(vm.y + vm.height);
+    expect(vm.footerBottom).toBeLessThanOrEqual(vm.y + vm.height);
+    for (const coordinate of [
+      "footerBottom",
+      "configureY",
+      "configureHeight",
+      "configureBottom",
+    ] as const) {
+      expect(
+        Math.abs(vm[coordinate] - layout.vms[0]![coordinate]),
+        `VM actions ${coordinate}`,
+      ).toBeLessThan(1);
+    }
+  }
+  const last = layout.vms.at(-1) ?? layout.basic;
+  expect(Math.abs(last.x + last.width - layout.targets.x - layout.targets.width)).toBeLessThan(1);
+}
+
 export async function runExecutionProgressCase({
   browser,
   server,
@@ -243,6 +320,13 @@ export async function runExecutionProgressCase({
     reducedMotion: reducedMotion ? "reduce" : "no-preference",
     serviceWorkers: "block",
     viewport: { width: 1440, height: 1000 },
+    recordVideo:
+      process.env.OPENCLAW_CAPTURE_UI_PROOF === "1" && family === "platformclaw"
+        ? {
+            dir: ".artifacts/control-ui-e2e/coding-agent-settings/multi-vm-video",
+            size: { width: 1440, height: 1000 },
+          }
+        : undefined,
   });
   const page = await context.newPage();
   const labels = [
@@ -365,12 +449,14 @@ export async function runExecutionProgressCase({
     const currentLocation = component.locator("[data-current-location]");
     const currentTarget = currentLocation.locator("[data-current-target]");
     await expect.poll(() => currentTarget.textContent()).toContain(basic);
-    expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
+    expect((await badge.locator(".label").textContent())?.trim()).toBe(copy.workLocation);
     await badge.click();
     await expect
       .poll(() => component.getByRole("dialog", { name: copy.settings, exact: true }).isVisible())
       .toBe(true);
     await captureDialogIdentity(component, "settings");
+    await assertLocationCardAlignment(component);
+    await screenshot(page, `multi-vm-${family}-${mode}-empty.png`);
     expect(
       await currentLocation.locator("[data-target='platform_server']").getAttribute("aria-pressed"),
     ).toBe("true");
@@ -419,7 +505,7 @@ export async function runExecutionProgressCase({
           .poll(() => upper.locator("[data-progress-panel]").getAttribute("data-phase"))
           .toBe("error");
         expect(await currentTarget.textContent()).toContain(from);
-        expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
+        expect((await badge.locator(".label").textContent())?.trim()).toBe(copy.workLocation);
         expect(
           await upper.getByRole("heading", { name: copy.failure, exact: true }).isVisible(),
         ).toBe(true);
@@ -443,13 +529,17 @@ export async function runExecutionProgressCase({
       ).toBe(true);
       await assertExecutionProgressLayout(component);
       expect(await badge.getAttribute("aria-busy")).toBe("false");
-      expect((await badge.textContent())?.trim()).toBe(copy.workLocation);
+      expect((await badge.locator(".label").textContent())?.trim()).toBe(copy.workLocation);
       await screenshot(page, `multi-vm-${family}-${mode}-${requests.length}.png`);
       await expect
         .poll(() => upper.locator("dialog").evaluate((node) => (node as HTMLDialogElement).open))
         .toBe(false);
       await assertDialogIdentity(component, "settings");
       await assertDialogIdentity(component, "progress", false);
+      await assertLocationCardAlignment(component);
+      if (registration) {
+        await screenshot(page, `multi-vm-${family}-${mode}-registered-${saved.length}.png`);
+      }
       expect(
         await component.locator("[data-settings-modal] main").evaluate((node) => node.scrollTop),
       ).toBe(0);
@@ -499,8 +589,9 @@ export async function runExecutionProgressCase({
     for (const destination of [0, 1, 2, 0, -1, 1]) {
       await switchTo(destination);
     }
-    // Preserve desktop matrix proof and narrow-screen switching without repeating the full matrix.
-    await page.setViewportSize({ width: 390, height: 844 });
+    // Keep failure/retry proof on the same desktop row as the direct switches.
+    await assertLocationCardAlignment(component);
+    await screenshot(page, `multi-vm-${family}-${mode}-desktop-row.png`);
     failNextSwitch = family === "platformclaw";
     for (const destination of [0, -1]) {
       await switchTo(destination);

@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import type { Locator, Page, Route } from "playwright";
 import { expect, it } from "vitest";
 import type { ExecutionSettings } from "../platformclaw/execution-settings-view.ts";
@@ -11,8 +13,10 @@ import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts"
 
 const suite = createControlUiE2eSuite({
   name: "PlatformClaw selected personal work location",
-  unavailableMessage: (path) => `Chromium cannot start at ${path}.`,
+  unavailableMessage: (executablePath) => `Chromium cannot start at ${executablePath}.`,
 });
+const captureProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
+const proofDir = ".artifacts/control-ui-e2e/coding-agent-settings/selected-location";
 
 const settings: ExecutionSettings = {
   activeTarget: "platform_server",
@@ -22,7 +26,7 @@ const settings: ExecutionSettings = {
   accountId: "person.one",
   availableVms: [
     { id: "synthetic-vm-one", label: "Build VM" },
-    { id: "synthetic-vm-two", label: "Test VM" },
+    { id: "synthetic-vm-two", label: "Test VM with a deliberately long environment name" },
   ],
   savedVms: [
     {
@@ -37,7 +41,7 @@ const settings: ExecutionSettings = {
     {
       id: "connection-two",
       vmHostId: "synthetic-vm-two",
-      vmLabel: "Test VM",
+      vmLabel: "Test VM with a deliberately long environment name",
       safeConnectLabel: "Synthetic connector",
       linuxAccount: "person.one",
       status: "ready",
@@ -74,19 +78,18 @@ function savedVmsForTarget(
 
 suite.define(() => {
   it.each(["platform_server", "assigned_vm"] as const)(
-    "keeps the member's selected %s visible on mobile and preserves the draft when switching",
+    "keeps the selected %s inside the work-location button and preserves the draft when switching",
     async (target) => {
       const context = await suite.newBrowserContext({
         locale: "en-US",
         viewport: { width: 390, height: 844 },
         serviceWorkers: "block",
-        recordVideo:
-          process.env.OPENCLAW_CAPTURE_UI_PROOF === "1"
-            ? {
-                dir: ".artifacts/control-ui-e2e/selected-location",
-                size: { width: 390, height: 844 },
-              }
-            : undefined,
+        recordVideo: captureProof
+          ? {
+              dir: path.join(proofDir, "video"),
+              size: { width: 390, height: 844 },
+            }
+          : undefined,
       });
       const page = await context.newPage();
       let current: ExecutionSettings = {
@@ -162,33 +165,69 @@ suite.define(() => {
       };
       try {
         const gateway = await openChat(page);
-        const indicator = page
-          .locator("platformclaw-quick-actions[location-only]")
-          .getByRole("status");
-        const assertLocation = async (status: Locator, label: string, width: number) => {
+        const composer = page.locator(".agent-chat__composer-combobox textarea");
+        await composer.fill("Keep this draft while checking work location");
+        await page
+          .locator(".topbar-nav-toggle:visible, .chat-pane__nav-toggle:visible")
+          .first()
+          .click();
+        const mobileLauncher = page
+          .locator("platformclaw-quick-actions")
+          .getByRole("button", { name: "Open work location settings", exact: true });
+        const capture = async (targetPage: Page, stage: string) => {
+          if (captureProof) {
+            await mkdir(proofDir, { recursive: true });
+            await targetPage.screenshot({
+              animations: "disabled",
+              path: path.join(proofDir, `${target}-${stage}.png`),
+            });
+          }
+        };
+        const assertLocation = async (button: Locator, label: string, width: number) => {
+          const status = button.locator("[data-location-status][role='status']");
           const selected = `Selected location: ${label}`;
+          await expect.poll(() => button.isVisible()).toBe(true);
+          expect((await button.locator(".label").textContent())?.trim()).toBe("Work location");
           await expect.poll(() => status.getAttribute("aria-label")).toBe(selected);
           await expect.poll(async () => (await status.textContent())?.trim()).toBe(selected);
           expect(await status.getAttribute("title")).toContain(`${selected}.`);
           const bounds = await status.boundingBox();
+          const buttonBounds = await button.boundingBox();
           expect(bounds).not.toBeNull();
+          expect(buttonBounds).not.toBeNull();
           expect(bounds!.x).toBeGreaterThanOrEqual(0);
           expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+          expect(bounds!.x).toBeGreaterThanOrEqual(buttonBounds!.x);
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(
+            buttonBounds!.x + buttonBounds!.width,
+          );
+          expect(bounds!.y).toBeGreaterThanOrEqual(buttonBounds!.y);
+          expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(
+            buttonBounds!.y + buttonBounds!.height,
+          );
         };
         await assertLocation(
-          indicator,
+          mobileLauncher,
           target === "platform_server" ? "Basic server" : "Build VM",
           390,
         );
-        const composer = page.locator(".agent-chat__composer-combobox textarea");
-        await composer.fill("Keep this draft while checking work location");
+        expect(await page.locator("platformclaw-quick-actions[location-only]").count()).toBe(0);
+        await capture(page, "mobile-initial");
         const secondPage = await context.newPage();
         await secondPage.setViewportSize({ width: 1440, height: 900 });
         const secondGateway = await openChat(secondPage);
         const launcher = secondPage
-          .locator("platformclaw-quick-actions:not([location-only])")
+          .locator("platformclaw-quick-actions")
           .getByRole("button", { name: "Open work location settings", exact: true });
-        expect((await launcher.textContent())?.trim()).toBe("Work location");
+        await assertLocation(
+          launcher,
+          target === "platform_server" ? "Basic server" : "Build VM",
+          1440,
+        );
+        expect(await secondPage.locator("platformclaw-quick-actions[location-only]").count()).toBe(
+          0,
+        );
+        await capture(secondPage, "desktop-initial");
         await launcher.click();
         const dialog = secondPage.getByRole("dialog", {
           name: "Work environment settings",
@@ -196,9 +235,7 @@ suite.define(() => {
         });
         await dialog.waitFor();
         const component = secondPage.locator("platformclaw-execution-settings");
-        const secondIndicator = secondPage
-          .locator("platformclaw-quick-actions[location-only]")
-          .getByRole("status");
+        expect(await component.locator("[data-action='open']").count()).toBe(0);
         for (const change of expectedChanges) {
           await secondPage.bringToFront();
           // Saved VM selection must identify the registration, not the shared assigned_vm target.
@@ -212,7 +249,7 @@ suite.define(() => {
           const label = change.connectionId
             ? settings.savedVms.find((vm) => vm.id === change.connectionId)!.vmLabel
             : "Basic server";
-          await assertLocation(secondIndicator, label, 1440);
+          await assertLocation(launcher, label, 1440);
           await expect
             .poll(() =>
               component
@@ -220,11 +257,17 @@ suite.define(() => {
                 .evaluate((node) => (node as HTMLDialogElement).open),
             )
             .toBe(false);
-          expect((await launcher.textContent())?.trim()).toBe("Work location");
+          expect((await launcher.locator(".label").textContent())?.trim()).toBe("Work location");
           await page.bringToFront();
-          await assertLocation(indicator, label, 390);
+          await assertLocation(mobileLauncher, label, 390);
+          await capture(page, `mobile-switch-${changes.length}`);
           expect(await composer.inputValue()).toBe("Keep this draft while checking work location");
         }
+        await secondPage.bringToFront();
+        await component.locator("[data-action='close']").click();
+        await dialog.waitFor({ state: "hidden" });
+        await assertLocation(launcher, settings.savedVms[1]!.vmLabel, 1440);
+        await capture(secondPage, "desktop-final");
         expect(changes).toEqual(expectedChanges);
         expect(await gateway.getRequests("chat.send")).toHaveLength(0);
         expect(await gateway.getRequests("sessions.patch")).toHaveLength(0);

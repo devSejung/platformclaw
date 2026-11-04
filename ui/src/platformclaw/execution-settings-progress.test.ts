@@ -163,7 +163,9 @@ describe("PlatformClaw layered execution progress", () => {
     expect(root.querySelector("[data-settings-modal]")).toBe(settings.modal);
     expect(settings.modal.querySelector("[data-target='platform_server']")).toBe(basicTile);
     expectCurrentExecutionLocation(settings.modal, "platform_server", "Basic server");
-    expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
+    expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
+      "Work location",
+    );
     expect(fetchImpl.mock.calls[1]).toEqual([
       "/platformclaw/api/execution/target",
       expect.objectContaining({

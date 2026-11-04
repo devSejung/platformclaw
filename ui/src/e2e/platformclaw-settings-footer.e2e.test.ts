@@ -21,6 +21,7 @@ const proofDir = path.join(
   process.cwd(),
   ".artifacts",
   "control-ui-e2e",
+  "coding-agent-settings",
   "platformclaw-settings-footer",
 );
 
@@ -115,6 +116,7 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
         },
       ],
       credentialStatus: "current",
+      credentialRevision: 1,
       targetRevision: 3,
     };
 
@@ -168,8 +170,16 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
       });
       await expect.poll(() => workLocationButton.isVisible()).toBe(true);
       await expect
-        .poll(async () => (await workLocationButton.textContent())?.trim())
+        .poll(async () => (await workLocationButton.locator(".label").textContent())?.trim())
         .toBe("Work location");
+      const selectedLocation = workLocationButton.locator("[data-location-status][role='status']");
+      await expect
+        .poll(async () => (await selectedLocation.textContent())?.trim())
+        .toBe("Selected location: Development VM");
+      expect(await selectedLocation.getAttribute("aria-label")).toBe(
+        "Selected location: Development VM",
+      );
+      expect(await quickActions.locator("[data-action='work-location']").count()).toBe(1);
       const workLabelLineCount = await workLocationButton
         .locator(".label")
         .evaluate((element) => element.getClientRects().length);
@@ -185,11 +195,18 @@ describeControlUiE2e("PlatformClaw settings footer quick actions", () => {
           .locator("[data-target='assigned_vm']")
           .getAttribute("aria-pressed"),
       ).toBe("true");
-      expect((await workLocationButton.textContent())?.trim()).toBe("Work location");
+      expect((await workLocationButton.locator(".label").textContent())?.trim()).toBe(
+        "Work location",
+      );
+      expect(await executionSettingsPanel.locator("[data-action='open']").count()).toBe(0);
       await executionSettingsPanel.locator("[data-action='close']").click();
       await executionSettingsPanel
         .getByRole("dialog", { name: "Work environment settings", exact: true })
         .waitFor({ state: "hidden" });
+      expect(await workLocationButton.isVisible()).toBe(true);
+      expect((await selectedLocation.textContent())?.trim()).toBe(
+        "Selected location: Development VM",
+      );
 
       expect(await quickActions.locator("platformclaw-vm-administration").count()).toBe(0);
       expect(await quickActions.locator("platformclaw-announcement-administration").count()).toBe(

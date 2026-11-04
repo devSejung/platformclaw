@@ -3,6 +3,10 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { strokeIcon } from "../components/icons-tools.ts";
 import { icons } from "../components/icons.ts";
 import {
+  executionLocationStatusStyles,
+  renderExecutionLocationStatus,
+} from "./execution-location-status.ts";
+import {
   executionServerIcon,
   executionLocationStyles,
   isVmCardActivity,
@@ -39,6 +43,7 @@ type SettingsShellOptions = {
   message: string;
   messageKind: "info" | "error";
   canRetryProgress: boolean;
+  hideLauncher: boolean;
 };
 
 const checkIcon = strokeIcon(svg`<path d="m5 12 4 4 10-10"/>`);
@@ -226,7 +231,8 @@ const shellStyles = `
   .badge>svg{width:16px;height:16px;flex:none}
   .panel main,.panel .tab-panel{align-content:start}
   .header-actions{display:flex;align-items:center;gap:8px}.refresh-icon{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:var(--radius-md);background:transparent;color:var(--muted);cursor:pointer}.refresh-icon>svg{width:17px;height:17px}.refresh-icon:hover:not(:disabled){background:var(--bg-hover)}.refresh-icon:focus-visible{outline:none;box-shadow:var(--focus-ring)}.refresh-icon:disabled{opacity:.5;cursor:not-allowed}
-  .panel[data-settings-panel]{height:min(720px,calc(100dvh - 48px));grid-template-rows:auto auto minmax(0,1fr) auto}
+  .modal{--openclaw-modal-width:min(var(--execution-settings-width,680px),calc(100vw - 32px))}
+  .panel[data-settings-panel]{width:100%;height:min(720px,calc(100dvh - 48px));grid-template-rows:auto auto minmax(0,1fr) auto}
   .settings-content{display:contents;border:0;padding:0;margin:0;min-width:0}
   .progress-modal{--openclaw-modal-width:min(440px,calc(100vw - 32px));--openclaw-modal-max-height:calc(100dvh - 32px);--openclaw-modal-backdrop-filter:none;--wa-color-overlay-modal:transparent;--wa-transition-normal:160ms}
   .progress-panel{position:relative;display:grid;grid-template-rows:60px auto 40px auto auto;align-content:start;gap:8px;box-sizing:border-box;width:100%;height:min(312px,calc(90dvh - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:18px;border:1px solid var(--border-strong);border-radius:var(--radius-xl);background:var(--bg-elevated);color:var(--text);box-shadow:var(--shadow-xl)}
@@ -293,19 +299,27 @@ export function renderExecutionSettingsShell(options: SettingsShellOptions) {
   return html`${unsafeHTML(renderExecutionSettingsStyles(warn))}<style>
       ${shellStyles}
       ${executionLocationStyles}
+      ${executionLocationStatusStyles.cssText}
     </style>
-    <button
-      class="badge"
-      data-action="open"
-      aria-busy=${String(options.busy)}
-      aria-label=${t("platformClaw.execution.openSettings")}
-    >
-      ${busyMessage ? html`<span class="dot" aria-hidden="true"></span>` : icons.monitor}
-      <span>${busyMessage || t("platformClaw.execution.workLocation")}</span>
-    </button>
+    ${options.hideLauncher
+      ? nothing
+      : html`<button
+          class="badge"
+          data-action="open"
+          aria-busy=${String(options.busy)}
+          aria-label=${t("platformClaw.execution.openSettings")}
+          aria-describedby="execution-location-status"
+        >
+          ${busyMessage ? html`<span class="dot" aria-hidden="true"></span>` : icons.monitor}
+          <span class="location-launcher-copy"
+            ><span class="label">${busyMessage || t("platformClaw.execution.workLocation")}</span
+            >${renderExecutionLocationStatus(options.settings, options.loading)}</span
+          >
+        </button>`}
     <openclaw-modal-dialog
       data-settings-modal
       class="modal"
+      style=${`--execution-settings-width:${Math.max(680, ((options.settings?.savedVms.length ?? 0) + 1) * 220 + 76)}px`}
       .open=${options.opened}
       .label=${t("platformClaw.execution.workEnvironmentSettings")}
     >

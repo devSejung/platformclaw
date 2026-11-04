@@ -517,7 +517,7 @@ suite("PlatformClaw coding agent settings", () => {
     await expect
       .poll(() => component.locator("[data-current-target]").textContent())
       .toContain("Development VM");
-    expect((await component.locator("[data-action='open']").textContent())?.trim()).toBe(
+    expect((await component.locator("[data-action='open'] .label").textContent())?.trim()).toBe(
       "Work location",
     );
     await component.locator("[data-target='platform_server']").click();
