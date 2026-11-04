@@ -86,6 +86,46 @@ async function setup(
 }
 
 describe("authenticated Web-only prediction ingress", () => {
+  it("keeps eight text messages and the answer beyond the former 300-character prefix", async () => {
+    const { post, call, request, binding } = await setup();
+    const answer = "가".repeat(1_900) + "마지막 결론을 바탕으로 다음 질문을 예측해야 합니다.";
+    const messages = Array.from({ length: 10 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: index === 9 ? answer + "나".repeat(200) : `message-${index}`,
+    }));
+    request.mockResolvedValue({
+      messages: [
+        { role: "system", content: "private instructions" },
+        ...messages,
+        { role: "toolResult", content: "private tool output" },
+      ],
+    });
+    const response = await post({ action: "predict", sessionKey: `agent:${binding.agentId}:main` });
+    expect((await response.json()).reason).toBe("suggested");
+    expect(call).toHaveBeenCalledWith(
+      "platformclaw.composer",
+      expect.objectContaining({
+        action: "predict",
+        messages: [
+          ...messages.slice(2, 9),
+          { role: "assistant", content: (answer + "나".repeat(200)).slice(0, 2_000) },
+        ],
+      }),
+      expect.any(AbortSignal),
+      { timeoutMs: 30_000 },
+    );
+  });
+
+  it("returns a suggestion up to the upstream 500-character display limit", async () => {
+    const { post, call, binding } = await setup();
+    const text = "가".repeat(500);
+    call.mockResolvedValueOnce({ available: true, enabled: true, timeoutMs: 30_000 });
+    call.mockResolvedValueOnce({ text, reason: "suggested" });
+    expect(
+      await (await post({ action: "predict", sessionKey: `agent:${binding.agentId}:main` })).json(),
+    ).toEqual({ text, reason: "suggested", elapsedMs: expect.any(Number) });
+  });
+
   it("loads authorized history, excludes tools/reasoning, and pins the user", async () => {
     const { post, call, binding, user } = await setup();
     const response = await post({ action: "predict", sessionKey: `agent:${binding.agentId}:main` });

@@ -6,7 +6,7 @@ import {
 // Reasoning tag helpers find and remove model reasoning tag blocks from text.
 import { findCodeRegions, isInsideCode } from "./code-regions.js";
 import { findFinalTagMatches } from "./final-tags.js";
-export type ReasoningTagMode = "strict" | "preserve";
+export type ReasoningTagMode = "strict" | "preserve" | "hide";
 export type ReasoningTagTrim = "none" | "start" | "both";
 export type ReasoningTagScope = "all" | "leading";
 
@@ -46,10 +46,16 @@ export function stripReasoningTagsFromText(
   const scope = options?.scope ?? "all";
 
   let cleaned = text;
-  const matches = findFinalTagMatches(cleaned);
+  let matches = findFinalTagMatches(cleaned);
   const hasThinkingTag = scanReasoningTags(cleaned).tags.length > 0;
   if (matches.length === 0 && !hasThinkingTag) {
     return text;
+  }
+  if (mode === "hide") {
+    // Removing final markers first can give a paragraph's private tail code ownership.
+    // Classify the original text before that projection so hidden reasoning stays hidden.
+    cleaned = stripReasoningTagsFromMarkdown(cleaned, { mode, scope });
+    matches = findFinalTagMatches(cleaned);
   }
   if (matches.length > 0) {
     const finalMatches: Array<{ start: number; length: number; inCode: boolean }> = [];
@@ -71,5 +77,8 @@ export function stripReasoningTagsFromText(
     }
   }
 
-  return applyTrim(stripReasoningTagsFromMarkdown(cleaned, { mode, scope }), trimMode);
+  return applyTrim(
+    mode === "hide" ? cleaned : stripReasoningTagsFromMarkdown(cleaned, { mode, scope }),
+    trimMode,
+  );
 }

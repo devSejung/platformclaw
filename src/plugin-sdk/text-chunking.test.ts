@@ -2,7 +2,43 @@
  * Tests text and Markdown chunking helpers exported by the plugin SDK.
  */
 import { describe, expect, it } from "vitest";
-import { chunkTextForOutbound, chunkTextRanges, tokenizeHtmlTags } from "./text-chunking.js";
+import {
+  chunkTextForOutbound,
+  chunkTextRanges,
+  stripReasoningTagsFromText,
+  tokenizeHtmlTags,
+  type ReasoningTagMode,
+} from "./text-chunking.js";
+
+describe("reasoning tag visibility", () => {
+  it("keeps unterminated reasoning hidden through the public hide mode", () => {
+    const mode: ReasoningTagMode = "hide";
+    expect(stripReasoningTagsFromText("<think>private reasoning", { mode })).toBe("");
+  });
+
+  it("removes closed reasoning and final-answer markers", () => {
+    expect(
+      stripReasoningTagsFromText("<think>private reasoning</think><final>Ready.</final>", {
+        mode: "hide",
+      }),
+    ).toBe("Ready.");
+  });
+
+  it.each(["Use `<think>example</think>` literally.", "```xml\n<think>example</think>\n```"])(
+    "preserves literal reasoning tags in Markdown code: %s",
+    (input) => {
+      expect(stripReasoningTagsFromText(input, { mode: "hide" })).toBe(input);
+    },
+  );
+
+  it("preserves the static helper's malformed-opening recovery contract", () => {
+    expect(
+      stripReasoningTagsFromText("<think>Visible answer after a malformed opening", {
+        mode: "strict",
+      }),
+    ).toBe("Visible answer after a malformed opening");
+  });
+});
 
 describe("tokenizeHtmlTags", () => {
   it("keeps quoted attribute delimiters inside one tag token", () => {

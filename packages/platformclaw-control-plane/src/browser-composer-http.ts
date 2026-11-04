@@ -67,10 +67,10 @@ function conversationText(history: unknown) {
                 .join("\n")
             : "";
       return content.trim()
-        ? [{ role: message.role, content: Array.from(content).slice(0, 300).join("") }]
+        ? [{ role: message.role, content: Array.from(content).slice(0, 2_000).join("") }]
         : [];
     })
-    .slice(-6);
+    .slice(-8);
 }
 
 export function createBrowserComposerHandler(options: {
@@ -231,7 +231,7 @@ export function createBrowserComposerHandler(options: {
       // explicitly report missing/unknown diagnostics instead of guessing a cause.
       const result: PredictionOutcome = {
         text:
-          typeof rawResult?.text === "string" && rawResult.text.length <= 300
+          typeof rawResult?.text === "string" && rawResult.text.length <= 500
             ? rawResult.text
             : null,
         reason:

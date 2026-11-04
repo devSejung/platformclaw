@@ -50,6 +50,19 @@ describe("Web composer predictions", () => {
   });
   const predictCalls = () =>
     fetchMock.mock.calls.filter(([, options]) => requestBody(options).action === "predict");
+  it.each([
+    { length: 500, accepted: true },
+    { length: 501, accepted: false },
+  ])(
+    "applies the upstream display limit to a $length-character suggestion",
+    async ({ length, accepted }) => {
+      const text = "가".repeat(length);
+      fetchMock.mockResolvedValueOnce(Response.json({ text }));
+      prediction.sync(source);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(prediction.take()).toBe(accepted ? text : null);
+    },
+  );
   it("waits one second, predicts once per completion, and only takes explicit text", async () => {
     prediction.sync(source);
     await vi.advanceTimersByTimeAsync(999);

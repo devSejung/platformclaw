@@ -413,7 +413,7 @@ export function reduceReasoningText(
 }
 
 type ReasoningTagStripOptions = {
-  mode: "strict" | "preserve";
+  mode: "strict" | "preserve" | "hide";
   scope: "all" | "leading";
 };
 
@@ -425,7 +425,12 @@ export function stripReasoningTagsFromMarkdown(
   const state: ReductionState = { depth: 0, visibleEver: false };
   return reduceReasoningText(text, findMarkdownCodeSpans(text), state, {
     final: true,
-    mode: options.mode === "preserve" ? "static-preserve" : "static-strict",
+    mode:
+      options.mode === "hide"
+        ? "hide"
+        : options.mode === "preserve"
+          ? "static-preserve"
+          : "static-strict",
     scope: options.scope,
   })
     .filter((delta) => delta.kind === "text")

@@ -164,6 +164,11 @@ are private-local.
     | `plugin-sdk/provider-onboard` | Private-local after July 2026; Onboarding config patch helpers |
     | `plugin-sdk/global-singleton` | Private-local after July 2026; Process-local singleton/map/cache helpers |
     | `plugin-sdk/group-activation` | Private-local after July 2026; Narrow group activation mode and command parsing helpers |
+
+    The bundled `buildOpenAICompletionsParams` helper accepts read-only model
+    snapshots, including nested compatibility metadata. It does not mutate the
+    model; existing mutable model descriptors remain valid inputs.
+
   </Accordion>
 
 Provider usage snapshots normally report one or more quota `windows`, each with
@@ -327,7 +332,7 @@ Use `isLoopbackHost(host)` when a plugin must accept only the local machine. It 
     | `plugin-sdk/media-store` | Narrow media store helpers such as `saveMediaBuffer` and `saveMediaStream` |
     | `plugin-sdk/media-generation-runtime` | Private-local after July 2026; Shared media-generation failover helpers, candidate selection, and missing-model messaging |
     | `plugin-sdk/media-understanding` | Deprecated compatibility facade for media-understanding provider types and helpers; new providers register through the injected plugin API and keep request helpers plugin-owned |
-    | `plugin-sdk/text-chunking` | Outbound text and offset-preserving range chunking, markdown chunking/render helpers, quote-aware HTML tag tokenization, markdown table conversion, directive-tag stripping, and safe-text utilities |
+    | `plugin-sdk/text-chunking` | Outbound text and offset-preserving range chunking, markdown chunking/render helpers, quote-aware HTML tag tokenization, markdown table conversion, reasoning-tag stripping, directive-tag stripping, and safe-text utilities |
     | `plugin-sdk/speech` | Private-local after July 2026; Speech provider types plus provider-facing directive, registry, validation, OpenAI-compatible TTS builder, and speech helper exports |
     | `plugin-sdk/speech-core` | Private-local after July 2026; Shared speech provider types, registry, directive, normalization, and speech helper exports |
     | `plugin-sdk/speech-settings` | Lightweight TTS config resolution and normalization primitives without provider registries or synthesis runtime |
@@ -359,6 +364,13 @@ Use `isLoopbackHost(host)` when a plugin must accept only the local machine. It 
     | `plugin-sdk/test-state` | Repo-local isolated OpenClaw state, config, workspace, environment, and auth-profile fixtures for plugin tests |
     | `plugin-sdk/test-fixtures` | Repo-local generic CLI runtime capture, sandbox context, skill writer, agent-message, system-event, module reload, bundled plugin path, terminal-text, chunking, auth-token, and typed-case fixtures |
     | `plugin-sdk/test-node-mocks` | Repo-local focused Node builtin mock helpers for use inside Vitest `vi.mock("node:*")` factories |
+
+    Use `stripReasoningTagsFromText(text, { mode: "hide" })` when unterminated
+    reasoning must remain hidden. It preserves literal Markdown code examples
+    and removes final-answer markers after classifying reasoning in the original
+    text. The default `strict` mode retains its recovery of malformed unclosed
+    opening tags; `preserve` also keeps its existing recovery behavior.
+
   </Accordion>
 
   <Accordion title="Memory subpaths">
