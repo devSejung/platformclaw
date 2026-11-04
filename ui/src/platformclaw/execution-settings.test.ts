@@ -39,7 +39,12 @@ describe("PlatformClaw execution settings", () => {
     const unsubscribe = subscribeToPlatformClawExecutionTargetChanges(window, listener, () => {});
     try {
       const root = await mountExecutionSettings(fetchImpl);
-      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
+      expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
+        "Work location",
+      );
+      expect(
+        root.querySelector("[data-action='open'] [data-location-status]")?.textContent,
+      ).toContain("Selected location: Basic server");
       const switchButton = root.querySelector<HTMLButtonElement>("[data-target='assigned_vm']")!;
       switchButton.click();
       switchButton.click();
@@ -65,9 +70,12 @@ describe("PlatformClaw execution settings", () => {
         t("platformClaw.execution.switching", { target: "Development VM" }),
       );
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("true");
-      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+      expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
         t("platformClaw.execution.switching", { target: "Development VM" }),
       );
+      expect(
+        root.querySelector("[data-action='open'] [data-location-status]")?.textContent,
+      ).toContain("Selected location: Basic server");
       expect(listener).not.toHaveBeenCalled();
 
       target.resolve(executionSettingsResponse(changedSettings));
@@ -75,7 +83,12 @@ describe("PlatformClaw execution settings", () => {
       await vi.waitFor(() => expect(listener).toHaveBeenCalledOnce());
       expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM");
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("false");
-      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
+      expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
+        "Work location",
+      );
+      expect(
+        root.querySelector("[data-action='open'] [data-location-status]")?.textContent,
+      ).toContain("Selected location: Development VM");
     } finally {
       unsubscribe();
     }
@@ -154,7 +167,7 @@ describe("PlatformClaw execution settings", () => {
       );
       expect(root.querySelector<HTMLInputElement>("input[name='password']")?.value).toBe("");
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("true");
-      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+      expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
         t("platformClaw.execution.connecting"),
       );
       expect(listener).not.toHaveBeenCalled();
@@ -173,7 +186,9 @@ describe("PlatformClaw execution settings", () => {
       expect(executionProgressState(root, "connection")).toBe("complete");
       expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM");
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("false");
-      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
+      expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
+        "Work location",
+      );
       expect(listener).toHaveBeenCalledOnce();
       expect(fetchImpl).toHaveBeenCalledTimes(2);
       await i18n.setLocale("ko");
@@ -185,7 +200,9 @@ describe("PlatformClaw execution settings", () => {
       expect(
         root.querySelector("[data-progress-modal] .progress-message")?.textContent,
       ).not.toContain("Now using");
-      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("작업 위치");
+      expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
+        "작업 위치",
+      );
     } finally {
       unsubscribe();
     }
@@ -320,7 +337,9 @@ describe("PlatformClaw execution settings", () => {
     );
     expect(root.querySelector("[data-current-target]")?.textContent).toContain("Development VM");
     expect(root.querySelector("[data-progress-panel]")?.textContent).toContain("Second VM");
-    expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
+    expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
+      "Work location",
+    );
     const keptLocation = t("platformClaw.execution.previousLocationKept", {
       target: "Development VM",
     });
@@ -337,7 +356,7 @@ describe("PlatformClaw execution settings", () => {
     const retry = root.querySelector<HTMLButtonElement>("[data-action='retry-progress']")!;
     expect(retry.disabled).toBe(false);
     retry.click();
-    expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+    expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
       t("platformClaw.execution.switching", { target: "Second VM" }),
     );
     await vi.waitFor(() =>
@@ -381,7 +400,9 @@ describe("PlatformClaw execution settings", () => {
       expect(executionProgressState(root, "connection")).toBe("complete");
       expect(executionProgressState(root, "activation")).toBe("complete");
       expect(listener).toHaveBeenCalledOnce();
-      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe("Work location");
+      expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
+        "Work location",
+      );
       expect(fetchImpl.mock.calls.map(([path]) => path)).toEqual([
         "/platformclaw/api/execution",
         "/platformclaw/api/execution/selection",
@@ -415,7 +436,7 @@ describe("PlatformClaw execution settings", () => {
       );
       expect(root.querySelector("[data-action='open']")?.getAttribute("aria-busy")).toBe("true");
       expectExecutionControlsDisabled(root);
-      expect(root.querySelector("[data-action='open']")?.textContent?.trim()).toBe(
+      expect(root.querySelector("[data-action='open'] .label")?.textContent?.trim()).toBe(
         t("platformClaw.execution.testing"),
       );
       verification.resolve(executionSettingsResponse(EXECUTION_SETTINGS));

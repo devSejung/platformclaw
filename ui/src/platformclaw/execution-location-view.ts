@@ -71,55 +71,59 @@ function renderCurrentLocation(settings: ExecutionSettings, busy: boolean) {
           >${settings.activeTarget === "platform_server" ? "✓" : ""}</span
         >
       </button>
-      ${settings.savedVms.map((vm) => {
-        const active =
-          settings.activeTarget === "assigned_vm" &&
-          settings.assignment?.vmHostId === vm.vmHostId &&
-          settings.assignment.linuxAccount === vm.linuxAccount;
-        // Both captions reserve their wrapped size so changing the active VM
-        // cannot resize the tile; only the current caption is visible and accessible.
-        return html`<article class="saved-vm" data-saved-vm=${vm.id}>
-          <button
-            class="location-tile"
-            data-target="assigned_vm"
-            data-connection-id=${vm.id}
-            aria-label=${t("platformClaw.execution.useNamedVm", { name: vm.vmLabel })}
-            aria-pressed=${String(active)}
-            ?disabled=${busy || active || vm.status !== "ready"}
-          >
-            ${vmIcon}<span class="location-copy"
-              ><strong>${vm.vmLabel}</strong>
-              <small class="location-state"
-                ><span aria-hidden=${String(!active)}
-                  >${t("platformClaw.execution.currentlyActive")}</span
-                ><span aria-hidden=${String(active)}
-                  >${t(
-                    vm.status === "ready"
-                      ? "platformClaw.execution.connectionReady"
-                      : vm.status === "unavailable"
-                        ? "platformClaw.execution.connectionUnavailable"
-                        : "platformClaw.execution.reauthenticationRequired",
-                  )}</span
-                ></small
-              ></span
-            >
-            <span class="location-selected" aria-hidden="true">${active ? "✓" : ""}</span>
-          </button>
-          <div class="saved-vm-details">
-            <span>${vm.linuxAccount} · ${vm.safeConnectLabel}</span>
-            <button
-              class="button"
-              data-configure-vm=${vm.id}
-              ?disabled=${busy || vm.status === "unavailable"}
-            >
-              ${t("platformClaw.execution.connectionSettings")}
-            </button>
-            <button class="button" data-forget-vm=${vm.id} ?disabled=${busy || active}>
-              ${t("platformClaw.execution.forgetVm")}
-            </button>
-          </div>
-        </article>`;
-      })}
+      ${settings.savedVms.length
+        ? html`<div class="saved-vms">
+            ${settings.savedVms.map((vm) => {
+              const active =
+                settings.activeTarget === "assigned_vm" &&
+                settings.assignment?.vmHostId === vm.vmHostId &&
+                settings.assignment.linuxAccount === vm.linuxAccount;
+              // Both captions reserve their wrapped size so changing the active VM
+              // cannot resize the tile; only the current caption is visible and accessible.
+              return html`<article class="saved-vm" data-saved-vm=${vm.id}>
+                <button
+                  class="location-tile"
+                  data-target="assigned_vm"
+                  data-connection-id=${vm.id}
+                  aria-label=${t("platformClaw.execution.useNamedVm", { name: vm.vmLabel })}
+                  aria-pressed=${String(active)}
+                  ?disabled=${busy || active || vm.status !== "ready"}
+                >
+                  ${vmIcon}<span class="location-copy"
+                    ><strong>${vm.vmLabel}</strong>
+                    <small class="location-state"
+                      ><span aria-hidden=${String(!active)}
+                        >${t("platformClaw.execution.currentlyActive")}</span
+                      ><span aria-hidden=${String(active)}
+                        >${t(
+                          vm.status === "ready"
+                            ? "platformClaw.execution.connectionReady"
+                            : vm.status === "unavailable"
+                              ? "platformClaw.execution.connectionUnavailable"
+                              : "platformClaw.execution.reauthenticationRequired",
+                        )}</span
+                      ></small
+                    ></span
+                  >
+                  <span class="location-selected" aria-hidden="true">${active ? "✓" : ""}</span>
+                </button>
+                <div class="saved-vm-details">
+                  <span>${vm.linuxAccount} · ${vm.safeConnectLabel}</span>
+                  <button
+                    class="button"
+                    data-configure-vm=${vm.id}
+                    ?disabled=${busy || vm.status === "unavailable"}
+                  >
+                    ${t("platformClaw.execution.connectionSettings")}
+                  </button>
+                  <button class="button" data-forget-vm=${vm.id} ?disabled=${busy || active}>
+                    ${t("platformClaw.execution.forgetVm")}
+                  </button>
+                </div>
+              </article>`;
+            })}
+          </div>`
+        : nothing}
     </div>
     <div class="available-vms">
       <h4>${t("platformClaw.execution.availableVms")}</h4>
@@ -320,10 +324,10 @@ export function renderExecutionLocation(options: LocationOptions) {
 }
 
 export const executionLocationStyles = `
-  .saved-vm{min-width:0;display:grid;gap:7px;border:1px solid var(--border);border-radius:var(--radius-md);padding:8px}.saved-vm .location-tile{width:100%;height:auto;min-height:62px}.location-copy{display:grid;gap:4px;min-width:0}.location-copy strong{overflow-wrap:anywhere}.location-copy small{font-size:11px;color:var(--muted)}.saved-vm-details{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.saved-vm-details>span{flex:1 1 100%;font-size:11px;overflow-wrap:anywhere;color:var(--muted)}.saved-vm-details .button{font-size:11px;padding:5px 8px}.available-vms{display:flex;flex-wrap:wrap;gap:8px}.available-vms h4{flex:1 1 100%;margin:6px 0 0;font-size:12px;color:var(--muted)}.available-vm{display:flex;align-items:center;gap:7px;max-width:100%;text-align:start}.available-vm>svg{width:18px;height:18px;flex:none}.available-vm>span{overflow-wrap:anywhere}.available-vm>span:last-child{font-size:11px;color:var(--muted)}
+  .saved-vm{min-width:0;display:grid;grid-template-rows:1fr auto;gap:7px;border:1px solid var(--border);border-radius:var(--radius-md);padding:8px}.saved-vm .location-tile{width:100%;height:auto;min-height:62px}.location-copy{display:grid;gap:4px;min-width:0}.location-copy strong{overflow-wrap:anywhere}.location-copy small{font-size:11px;color:var(--muted)}.saved-vm-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;align-items:stretch}.saved-vm-details>span{grid-column:1/-1;font-size:11px;overflow-wrap:anywhere;color:var(--muted)}.saved-vm-details .button{min-width:0;font-size:11px;padding:5px 8px}.available-vms{display:flex;flex-wrap:wrap;gap:8px}.available-vms h4{flex:1 1 100%;margin:6px 0 0;font-size:12px;color:var(--muted)}.available-vm{display:flex;align-items:center;gap:7px;max-width:100%;text-align:start}.available-vm>svg{width:18px;height:18px;flex:none}.available-vm>span{overflow-wrap:anywhere}.available-vm>span:last-child{font-size:11px;color:var(--muted)}
   .location-state{display:grid}.location-state>span{grid-area:1/1;min-width:0}.location-state>[aria-hidden="true"]{visibility:hidden}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-  .current-location-card{display:grid;gap:10px}.location-targets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .current-location-card{display:grid;gap:10px;min-width:0}.location-targets{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(190px,1fr);gap:10px;overflow-x:auto}.location-targets>.location-tile{height:auto;min-height:62px}.saved-vms{display:contents}
   .location-tile{display:grid;grid-template-columns:28px minmax(0,1fr) 16px;align-items:center;gap:9px;height:62px;min-width:0;padding:10px 12px;text-align:start;border:1px solid var(--border-strong);border-radius:var(--radius-md);background:var(--card);color:var(--text);cursor:pointer}
   .location-tile>svg{width:27px;height:27px;color:var(--muted)}.location-tile strong{font-size:13px;line-height:1.3}.location-selected{color:var(--ok);font-weight:700}.location-tile[aria-pressed="true"]{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 7%,var(--card));cursor:default}.location-tile[aria-pressed="true"]>svg{color:var(--ok)}.location-tile:disabled[aria-pressed="false"]{opacity:.5;cursor:not-allowed}.location-tile:hover:not(:disabled){background:var(--bg-hover)}.location-tile:focus-visible{outline:none;box-shadow:var(--focus-ring)}.location-boundary{font-size:12px;line-height:1.4;margin:0}
   .vm-connection-card{display:grid;gap:14px}.vm-card-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.vm-edit{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;font-size:12px}.vm-edit>svg{width:14px;height:14px}.vm-summary{display:flex;justify-content:space-between;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}.vm-summary>div{display:grid;gap:3px}.vm-summary .muted{margin:0;font-size:12px}.vm-connection-state{font-size:12px;color:var(--warn)}.vm-connection-state[data-ready="true"]{color:var(--ok)}

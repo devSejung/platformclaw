@@ -164,20 +164,6 @@ export class PlatformClawControlUiAdapter {
         () =>
           html`<p class="muted" role="status">${t("platformClaw.quickActions.unavailable")}</p>`,
       );
-    // This is the selected personal profile, not the pinned location of an active run.
-    const selectedLocation = quickActionsReady
-      .then(
-        () => html`<platformclaw-quick-actions
-          location-only
-          .fetchImpl=${this.fetchImpl}
-          .onUnauthenticated=${onUnauthenticated}
-        ></platformclaw-quick-actions>`,
-      )
-      .catch(
-        () => html`<span class="muted" role="status"
-          >${t("platformClaw.execution.locationUnknown")}</span
-        >`,
-      );
     const joinPrompt = Promise.all([
       import("./organization-join-prompt.ts"),
       loadPlatformClawLocale(),
@@ -239,10 +225,7 @@ export class PlatformClawControlUiAdapter {
         ></platformclaw-announcements
         >${until(joinPrompt, nothing)}${until(vmRecovery, nothing)}
       `,
-      renderPageHeaderAccessory: (routeId, routeLocation) => html`
-        ${renderPageHelpTrigger(routeId, routeLocation)}
-        ${routeId === "chat" ? until(selectedLocation, nothing) : nothing}
-      `,
+      renderPageHeaderAccessory: renderPageHelpTrigger,
       renderPageOverlay: (routeId, routeLocation) => {
         credentialFlow.visit(routeId);
         const currentLocation = routeLocation ?? new URL(this.location.href);

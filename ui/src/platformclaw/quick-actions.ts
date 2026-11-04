@@ -3,6 +3,10 @@ import { property, state } from "lit/decorators.js";
 import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import { icons } from "../components/icons.ts";
 import { OpenClawLitElement } from "../lit/openclaw-element.ts";
+import {
+  executionLocationStatusStyles,
+  renderExecutionLocationStatus,
+} from "./execution-location-status.ts";
 import type { ExecutionSettings } from "./execution-settings-view.ts";
 import {
   subscribeToPlatformClawExecutionSettingsChanges,
@@ -17,18 +21,15 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   @property({ attribute: false }) fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis);
   @property({ attribute: false }) onUnauthenticated: () => void = () => undefined;
   @property({ type: Boolean }) vocEnabled = false;
-  @property({ type: Boolean, attribute: "location-only", reflect: true }) locationOnly = false;
   @state() private executionSettingsLoaded = false;
-  @state() private executionTarget: "platform_server" | "assigned_vm" | null = null;
+  @state() private executionSettingsSnapshot: ExecutionSettings | undefined;
   @state() private executionLoading = true;
   @state() private vocOpen = false;
 
-  private executionSettingsSnapshot: ExecutionSettings | undefined;
   private executionRequest = 0;
   private unsubscribeExecutionTarget = () => {};
   private unsubscribeExecutionSettings = () => {};
   private readonly clearExecutionTarget = () => {
-    this.executionTarget = null;
     this.executionSettingsSnapshot = undefined;
   };
   private readonly refreshExecutionTarget = () => {
@@ -41,103 +42,80 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
     }
   };
 
-  static override styles = css`
-    :host {
-      display: grid;
-      min-width: 0;
-      gap: 4px;
-    }
-    :host([location-only]) {
-      display: inline-flex;
-      max-width: 160px;
-    }
-    .location-status {
-      display: inline-flex;
-      align-items: center;
-      min-width: 0;
-      gap: 6px;
-      color: var(--muted-strong);
-      font-size: 12px;
-    }
-    .location-status[data-state="loading"] .execution-dot {
-      background: var(--muted);
-    }
-    .location-status[data-state="warning"] .execution-dot,
-    .location-status[data-state="unavailable"] .execution-dot {
-      background: var(--warn);
-    }
-    .grid {
-      display: grid;
-      min-width: 0;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 4px;
-    }
-    platformclaw-execution-settings,
-    .action {
-      min-width: 0;
-    }
-    .action {
-      box-sizing: border-box;
-      display: flex;
-      width: 100%;
-      min-height: 34px;
-      align-items: center;
-      gap: 7px;
-      overflow: hidden;
-      border: 0;
-      border-radius: var(--radius-md);
-      padding: 7px 9px;
-      background: transparent;
-      color: var(--muted-strong);
-      font: 13px/1.45 var(--font-sans, system-ui, sans-serif);
-      text-align: left;
-      text-decoration: none;
-      cursor: pointer;
-      transition:
-        background var(--duration-fast) ease,
-        color var(--duration-fast) ease;
-    }
-    .action:hover,
-    .action:focus-visible {
-      background: var(--bg-hover);
-      color: var(--text);
-      outline: none;
-    }
-    .split-action {
-      justify-content: center;
-    }
-    .action svg {
-      width: 16px;
-      height: 16px;
-      flex: none;
-    }
-    .messenger {
-      position: relative;
-    }
-    .messenger--split::before {
-      position: absolute;
-      top: 9px;
-      bottom: 9px;
-      left: 0;
-      border-left: 1px solid var(--border);
-      content: "";
-    }
-    .execution-dot {
-      width: 7px;
-      height: 7px;
-      flex: none;
-      border-radius: var(--radius-full);
-      background: var(--ok);
-    }
-    .label {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .span-two {
-      grid-column: 1 / -1;
-    }
-  `;
+  static override styles = [
+    executionLocationStatusStyles,
+    css`
+      :host {
+        display: grid;
+        min-width: 0;
+        gap: 4px;
+      }
+      .grid {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 4px;
+      }
+      platformclaw-execution-settings,
+      .action {
+        min-width: 0;
+      }
+      .action {
+        box-sizing: border-box;
+        display: flex;
+        width: 100%;
+        min-height: 34px;
+        align-items: center;
+        gap: 7px;
+        overflow: hidden;
+        border: 0;
+        border-radius: var(--radius-md);
+        padding: 7px 9px;
+        background: transparent;
+        color: var(--muted-strong);
+        font: 13px/1.45 var(--font-sans, system-ui, sans-serif);
+        text-align: left;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          background var(--duration-fast) ease,
+          color var(--duration-fast) ease;
+      }
+      .action:hover,
+      .action:focus-visible {
+        background: var(--bg-hover);
+        color: var(--text);
+        outline: none;
+      }
+      .split-action {
+        justify-content: center;
+      }
+      .action svg {
+        width: 16px;
+        height: 16px;
+        flex: none;
+      }
+      .messenger {
+        position: relative;
+      }
+      .messenger--split::before {
+        position: absolute;
+        top: 9px;
+        bottom: 9px;
+        left: 0;
+        border-left: 1px solid var(--border);
+        content: "";
+      }
+      .label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .span-two {
+        grid-column: 1 / -1;
+      }
+    `,
+  ];
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -192,7 +170,6 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
       }
       if (settings.activeTarget === "platform_server" || settings.activeTarget === "assigned_vm") {
         this.executionSettingsSnapshot = settings;
-        this.executionTarget = settings.activeTarget;
       }
     } catch {
       // The launcher remains usable; the full view reports actionable errors when opened.
@@ -218,39 +195,6 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
   }
 
   override render() {
-    if (this.locationOnly) {
-      const settings = this.executionSettingsSnapshot;
-      const vmNeedsConnection =
-        this.executionTarget === "assigned_vm" &&
-        (settings?.assignment?.status !== "ready" || settings.credentialStatus !== "current");
-      const status = this.executionLoading
-        ? "loading"
-        : !this.executionTarget
-          ? "unavailable"
-          : vmNeedsConnection
-            ? "warning"
-            : "ready";
-      const target = this.executionLoading
-        ? t("common.loading")
-        : !this.executionTarget
-          ? t("platformClaw.execution.locationUnknown")
-          : this.executionTarget === "assigned_vm"
-            ? (settings?.assignment?.vmLabel ?? t("platformClaw.execution.vm"))
-            : t("platformClaw.execution.basic");
-      const label = t("platformClaw.execution.selectedLocation", { target });
-      const detail = vmNeedsConnection
-        ? `${label} · ${t("platformClaw.execution.connectionRequired")}`
-        : label;
-      return html`<span
-        class="location-status"
-        data-state=${status}
-        role="status"
-        aria-label=${detail}
-        title=${`${detail}. ${t("platformClaw.execution.boundary")}`}
-      >
-        <span class="execution-dot" aria-hidden="true"></span><span class="label">${detail}</span>
-      </span>`;
-    }
     return html`
       <div class="grid" aria-label=${t("platformClaw.quickActions.label")}>
         ${this.vocEnabled
@@ -272,22 +216,31 @@ export class PlatformClawQuickActionsElement extends OpenClawLitElement {
           ${unsafeSVG(messengerIcon)}
           <span class="label">${t("platformClaw.quickActions.messenger")}</span>
         </a>
+        <button
+          class="action span-two"
+          type="button"
+          data-action="work-location"
+          @click=${() => void this.openExecutionSettings()}
+          aria-label=${t("platformClaw.execution.openSettings")}
+          aria-describedby="execution-location-status"
+        >
+          ${icons.monitor}<span class="location-launcher-copy"
+            ><span class="label">${t("platformClaw.execution.workLocation")}</span
+            >${renderExecutionLocationStatus(
+              this.executionSettingsSnapshot,
+              this.executionLoading,
+            )}</span
+          >
+        </button>
         ${this.executionSettingsLoaded
           ? html`<platformclaw-execution-settings
               class="span-two"
               .fetchImpl=${this.fetchImpl}
               .onUnauthenticated=${this.onUnauthenticated}
               .initialSettings=${this.executionSettingsSnapshot}
+              hide-launcher
             ></platformclaw-execution-settings>`
-          : html`<button
-              class="action span-two"
-              type="button"
-              data-action="work-location"
-              @click=${() => void this.openExecutionSettings()}
-              aria-label=${t("platformClaw.execution.openSettings")}
-            >
-              ${icons.monitor}<span class="label">${t("platformClaw.execution.workLocation")}</span>
-            </button>`}
+          : null}
       </div>
       ${this.vocOpen
         ? html`<platformclaw-voc-dialog

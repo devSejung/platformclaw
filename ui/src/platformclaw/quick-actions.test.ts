@@ -4,7 +4,7 @@ import {
   notifyPlatformClawExecutionSettingsChanged,
   notifyPlatformClawExecutionTargetChanged,
 } from "./execution-target-events.ts";
-import { loadPlatformClawLocale } from "./i18n.ts";
+import { loadPlatformClawLocale, platformClawT as t } from "./i18n.ts";
 import { PlatformClawQuickActionsElement } from "./quick-actions.ts";
 
 function jsonResponse(body: unknown): Response {
@@ -27,7 +27,6 @@ async function mount(
   options: {
     fetchImpl?: typeof fetch;
     vocEnabled?: boolean;
-    locationOnly?: boolean;
     onUnauthenticated?: () => void;
   } = {},
 ) {
@@ -37,7 +36,6 @@ async function mount(
   element.fetchImpl =
     options.fetchImpl ?? vi.fn<typeof fetch>(async () => jsonResponse(BASIC_EXECUTION_SETTINGS));
   element.vocEnabled = options.vocEnabled ?? false;
-  element.locationOnly = options.locationOnly ?? false;
   element.onUnauthenticated = options.onUnauthenticated ?? (() => {});
   document.body.append(element);
   await element.updateComplete;
@@ -89,13 +87,45 @@ describe("platformclaw-quick-actions", () => {
     expect(messenger?.classList.contains("span-two")).toBe(true);
   });
 
-  it("opens the existing execution settings control", async () => {
-    const member = await mount();
-    member.shadowRoot?.querySelector<HTMLButtonElement>('[data-action="work-location"]')?.click();
-
-    await vi.waitFor(() =>
-      expect(member.shadowRoot?.querySelector("platformclaw-execution-settings")).not.toBeNull(),
+  it("keeps the named location inside the same launcher after opening and closing settings", async () => {
+    let vmLabel = "Research VM";
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        ...BASIC_EXECUTION_SETTINGS,
+        activeTarget: "assigned_vm",
+        assignment: { status: "ready", vmLabel },
+      }),
     );
+    const member = await mount({ fetchImpl });
+    const launcher = member.shadowRoot!.querySelector<HTMLButtonElement>(
+      '[data-action="work-location"]',
+    )!;
+    expect(member.shadowRoot?.querySelector("platformclaw-execution-settings")).toBeNull();
+    await vi.waitFor(() =>
+      expect(launcher.querySelector("[data-location-status]")?.textContent).toContain(
+        "Research VM",
+      ),
+    );
+    launcher.click();
+    await vi.waitFor(() => {
+      const settings = member.shadowRoot?.querySelector("platformclaw-execution-settings");
+      expect(settings?.shadowRoot?.querySelector("[data-settings-modal]")).not.toBeNull();
+      expect(settings?.shadowRoot?.querySelector('[data-action="open"]')).toBeNull();
+    });
+    expect(member.shadowRoot?.querySelector('[data-action="work-location"]')).toBe(launcher);
+    const settingsRoot = member.shadowRoot!.querySelector(
+      "platformclaw-execution-settings",
+    )!.shadowRoot!;
+    settingsRoot.querySelector<HTMLButtonElement>('[data-action="close"]')!.click();
+    expect(settingsRoot.querySelector("[data-settings-modal]")).toHaveProperty("open", false);
+    vmLabel = "Build VM";
+    notifyPlatformClawExecutionTargetChanged();
+    await vi.waitFor(() =>
+      expect(launcher.querySelector("[data-location-status]")?.textContent).toContain("Build VM"),
+    );
+    expect(launcher.querySelector(".label")?.textContent).toBe("Work location");
+    expect(launcher.textContent).not.toContain("Research VM");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes the visible location status when credential state changes without a target revision change", async () => {
@@ -108,7 +138,7 @@ describe("platformclaw-quick-actions", () => {
         assignment: { id: "allocation-one", vmLabel: "Build VM", status: "ready" },
       }),
     );
-    const element = await mount({ locationOnly: true, fetchImpl });
+    const element = await mount({ fetchImpl });
     await vi.waitFor(() =>
       expect(element.shadowRoot?.querySelector("[role='status']")?.getAttribute("data-state")).toBe(
         "ready",
@@ -162,18 +192,19 @@ describe("platformclaw-quick-actions", () => {
         ...(scenario.status ? { assignment: { status: scenario.status } } : {}),
       }),
     );
-    const element = await mount({ locationOnly: true, fetchImpl });
+    const element = await mount({ fetchImpl });
 
     await vi.waitFor(() => {
-      const indicator = element.shadowRoot?.querySelector('[role="status"]');
+      const launcher = element.shadowRoot?.querySelector('[data-action="work-location"]');
+      const indicator = launcher?.querySelector('[data-location-status][role="status"]');
+      expect(launcher?.querySelector(".label")?.textContent).toBe("Work location");
+      expect(launcher?.getAttribute("aria-label")).toBe(t("platformClaw.execution.openSettings"));
       expect(indicator?.getAttribute("data-state")).toBe(scenario.state);
       expect(indicator?.getAttribute("aria-label")).toContain(
         `Selected location: ${scenario.label}`,
       );
     });
-    expect(
-      element.shadowRoot?.querySelector("button, a, platformclaw-execution-settings"),
-    ).toBeNull();
+    expect(element.shadowRoot?.querySelector("platformclaw-execution-settings")).toBeNull();
     expect(fetchImpl).toHaveBeenCalledExactlyOnceWith("/platformclaw/api/execution", {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
@@ -198,7 +229,7 @@ describe("platformclaw-quick-actions", () => {
           assignment: { status: "ready" },
         }),
       );
-    const element = await mount({ locationOnly: true, fetchImpl });
+    const element = await mount({ fetchImpl });
     expect(element.shadowRoot?.querySelector('[role="status"]')?.getAttribute("data-state")).toBe(
       "loading",
     );
@@ -217,7 +248,7 @@ describe("platformclaw-quick-actions", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(BASIC_EXECUTION_SETTINGS))
       .mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
-    const element = await mount({ locationOnly: true, fetchImpl });
+    const element = await mount({ fetchImpl });
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Basic server"));
     notifyPlatformClawExecutionTargetChanged();
     await vi.waitFor(() =>
@@ -232,7 +263,7 @@ describe("platformclaw-quick-actions", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it("refreshes the named VM in the header after a direct VM-to-VM change", async () => {
+  it("refreshes the named VM inside the launcher after a direct VM-to-VM change", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     for (const vmLabel of ["Research VM", "Build VM"]) {
       fetchImpl.mockResolvedValueOnce(
@@ -243,10 +274,12 @@ describe("platformclaw-quick-actions", () => {
         }),
       );
     }
-    const element = await mount({ locationOnly: true, fetchImpl });
+    const element = await mount({ fetchImpl });
     const expectLocation = async (label: string) => {
       await vi.waitFor(() => {
-        const indicator = element.shadowRoot?.querySelector('[role="status"]');
+        const indicator = element.shadowRoot?.querySelector(
+          '[data-action="work-location"] [data-location-status]',
+        );
         expect(indicator?.textContent?.trim()).toBe(label);
         expect(indicator?.getAttribute("aria-label")).toBe(label);
         expect(indicator?.getAttribute("title")).toContain(label);
@@ -273,7 +306,7 @@ describe("platformclaw-quick-actions", () => {
           assignment: { status: "ready" },
         }),
       );
-    const element = await mount({ locationOnly: true, fetchImpl });
+    const element = await mount({ fetchImpl });
     await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain("Basic server"));
     window.dispatchEvent(new Event("focus"));
     await vi.waitFor(() =>
@@ -285,7 +318,7 @@ describe("platformclaw-quick-actions", () => {
   it("uses the existing session-expiry handler without presenting a fallback target", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 401 }));
     const onUnauthenticated = vi.fn();
-    const element = await mount({ locationOnly: true, fetchImpl, onUnauthenticated });
+    const element = await mount({ fetchImpl, onUnauthenticated });
     await vi.waitFor(() => expect(onUnauthenticated).toHaveBeenCalledOnce());
     expect(element.shadowRoot?.textContent).not.toContain("Basic server");
   });

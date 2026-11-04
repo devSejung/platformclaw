@@ -702,6 +702,7 @@ class PlatformClawExecutionSettingsElement extends HTMLElement {
         message: this.message,
         messageKind: this.messageKind,
         canRetryProgress: canRetryExecutionProgress(this.settings, this.activity),
+        hideLauncher: this.hasAttribute("hide-launcher"),
       }),
       this.root,
     );

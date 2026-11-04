@@ -350,11 +350,6 @@ export function executionStatusView(
   fallbackMessage: string,
   fallbackKind: "info" | "error",
 ) {
-  const badgeLabel = settings
-    ? settings.activeTarget === "assigned_vm"
-      ? (settings.assignment?.vmLabel ?? t("platformClaw.execution.vm"))
-      : t("platformClaw.execution.basic")
-    : t("platformClaw.execution.workLocation");
   const busyMessage = executionBusyMessage(activity);
   let message = busyMessage || fallbackMessage;
   if (activity.kind === "success") {
@@ -389,7 +384,7 @@ export function executionStatusView(
     !settings ||
     settings.assignment?.status === "connection_required" ||
     settings.credentialStatus === "update_required";
-  return { badgeLabel, busyMessage, message, messageKind, warn };
+  return { busyMessage, message, messageKind, warn };
 }
 
 export type ExecutionCodingAgentView = {
