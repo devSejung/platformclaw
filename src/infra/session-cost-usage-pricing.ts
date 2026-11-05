@@ -3,6 +3,7 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import type { NormalizedUsage, UsageLike } from "../agents/usage.js";
 import { normalizeUsage } from "../agents/usage.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { isTranscriptOnlyOpenClawAssistantMessage } from "../shared/transcript-only-openclaw-assistant.js";
 import { countToolResults, extractToolCallNames } from "../utils/transcript-tools.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../utils/usage-format.js";
 import type {
@@ -71,10 +72,6 @@ const parseTranscriptEntry = (entry: Record<string, unknown>): ParsedTranscriptE
     return null;
   }
 
-  const usageRaw =
-    (message.usage as UsageLike | undefined) ?? (entry.usage as UsageLike | undefined);
-  const usage = usageRaw ? (normalizeUsage(usageRaw) ?? undefined) : undefined;
-
   const provider =
     (typeof message.provider === "string" ? message.provider : undefined) ??
     (typeof entry.provider === "string" ? entry.provider : undefined);
@@ -82,7 +79,28 @@ const parseTranscriptEntry = (entry: Record<string, unknown>): ParsedTranscriptE
     (typeof message.model === "string" ? message.model : undefined) ??
     (typeof entry.model === "string" ? entry.model : undefined);
 
-  const costBreakdown = extractCostBreakdown(usageRaw);
+  const transcriptOnly =
+    role === "assistant" &&
+    (message.openclawUsageProvenance === "transcript-only" ||
+      isTranscriptOnlyOpenClawAssistantMessage(message));
+  const usageRaw = transcriptOnly
+    ? undefined
+    : ((message.usage as UsageLike | undefined) ?? (entry.usage as UsageLike | undefined));
+  const usage = normalizeUsage(usageRaw);
+  const partial =
+    !transcriptOnly && role === "assistant" && message.openclawUsageProvenance === "partial";
+  // Historical ACP/CLI transcript writers used all-zero placeholders when no
+  // token measurements arrived. Rebuild rollups without treating them as measured.
+  const unmeasured =
+    role === "assistant" &&
+    !transcriptOnly &&
+    (message.openclawUsageProvenance === "unmeasured" ||
+      (message.openclawUsageProvenance !== "measured" &&
+        (message.api === "cli" || (provider === "openclaw" && model === "acp-runtime")) &&
+        [usage?.total, usage?.input, usage?.output, usage?.cacheRead, usage?.cacheWrite].every(
+          (value) => value === undefined || value === 0,
+        )));
+  const costBreakdown = partial || unmeasured ? undefined : extractCostBreakdown(usageRaw);
   const stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
   const durationMs = asFiniteNumber(message.durationMs ?? entry.durationMs);
 
@@ -91,7 +109,10 @@ const parseTranscriptEntry = (entry: Record<string, unknown>): ParsedTranscriptE
     role,
     timestamp: parseTimestamp(entry),
     durationMs,
-    usage,
+    // Partial measurements can contribute their observed components, but their
+    // padded transcript total does not establish complete coverage.
+    usage: partial ? { ...usage, total: undefined } : unmeasured ? {} : usage,
+    usageUnmeasured: partial || unmeasured || undefined,
     costTotal: costBreakdown?.total,
     costBreakdown,
     provider,
@@ -123,7 +144,11 @@ export const computeUsageTokenTotals = (usage: NormalizedUsage) => {
   };
 };
 
-export const applyUsageTotals = (totals: CostUsageTotals, usage: NormalizedUsage): void => {
+export const applyUsageTotals = (
+  totals: CostUsageTotals,
+  usage: NormalizedUsage,
+  unmeasured = false,
+): void => {
   const usageTotals = computeUsageTokenTotals(usage);
   totals.input += usageTotals.input;
   totals.output += usageTotals.output;
@@ -133,7 +158,10 @@ export const applyUsageTotals = (totals: CostUsageTotals, usage: NormalizedUsage
   // Without an aggregate, both input and output must be measured. An absent
   // component is unknown, unlike an explicitly recorded zero; cache buckets
   // remain optional under the normalized usage contract.
-  if (usage.total === undefined && (usage.input === undefined || usage.output === undefined)) {
+  if (
+    unmeasured ||
+    (usage.total === undefined && (usage.input === undefined || usage.output === undefined))
+  ) {
     totals.missingTokenEntries = (totals.missingTokenEntries ?? 0) + 1;
   }
 };
@@ -237,7 +265,7 @@ export function parseUsageCostTranscriptEntry(
   resolveCost: UsageCostResolver,
 ): ParsedTranscriptEntry | null {
   const entry = parseTranscriptEntry(parsed);
-  if (!entry?.usage) {
+  if (!entry?.usage || entry.usageUnmeasured) {
     return entry;
   }
   const cost = resolveCost({ provider: entry.provider, model: entry.model });

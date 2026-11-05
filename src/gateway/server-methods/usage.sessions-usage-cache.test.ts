@@ -28,7 +28,7 @@ vi.mock("../../infra/session-cost-usage.js", async () => {
   };
 });
 
-import { testApi, usageHandlers } from "./usage.js";
+import { testApi, usageHandlers, type SessionsUsageResult } from "./usage.js";
 
 const config = {
   agents: { list: [{ id: "main", default: true }, { id: "opus" }] },
@@ -338,7 +338,10 @@ describe("sessions.usage result cache", () => {
       },
     });
     now = 31_000;
-    await runSessionsUsage(baseParams);
+    expect(await runSessionsUsage(baseParams)).toMatchObject({
+      totals: { totalTokens: 10 },
+      cacheStatus: { status: "stale" },
+    });
     await vi.waitFor(() => {
       expect(
         Array.from(testApi.sessionsUsageCache.values()).every((entry) => !entry.inFlight),
@@ -377,7 +380,13 @@ describe("sessions.usage result cache", () => {
     await aggregationStarted;
     await Promise.resolve();
     expect(returned).toBe(true);
-    expect((await next).totals.totalTokens).toBe(10);
+    const retained = await next;
+    expect(retained).toMatchObject({
+      totals: { totalTokens: 10 },
+      cacheStatus: { status: "stale", cachedFiles: 1, pendingFiles: 0, staleFiles: 0 },
+    });
+    expect(await runSessionsUsage(baseParams)).toEqual(retained);
+    expect(mocks.loadSessionCostSummariesFromCache).toHaveBeenCalledTimes(3);
     release();
     await vi.waitFor(() => {
       expect(
@@ -387,7 +396,7 @@ describe("sessions.usage result cache", () => {
   });
 
   it("serves stale data while one 30s refresh replaces it", async () => {
-    const first = await runSessionsUsage(baseParams);
+    const first = (await runSessionsUsage(baseParams)) as SessionsUsageResult;
     mocks.loadSessionCostSummariesFromCache.mockImplementationOnce(
       async (params: { sessions: unknown[] }) => ({
         summaries: params.sessions.map(() => sessionSummary(20)),
@@ -402,17 +411,61 @@ describe("sessions.usage result cache", () => {
 
     now = 31_000;
     const stale = await runSessionsUsage(baseParams);
-    expect(JSON.stringify(stale)).toBe(JSON.stringify(first));
+    expect(stale).toEqual({ ...first, cacheStatus: { ...first.cacheStatus, status: "stale" } });
+    expect(first.cacheStatus?.status).toBe("fresh");
     await vi.waitFor(() => {
       expect(mocks.loadSessionCostSummariesFromCache).toHaveBeenCalledTimes(2);
     });
 
     await vi.waitFor(async () => {
-      const refreshed = (await runSessionsUsage(baseParams)) as {
-        totals: { totalTokens: number };
-      };
-      expect(refreshed.totals.totalTokens).toBe(20);
+      expect(await runSessionsUsage(baseParams)).toMatchObject({
+        totals: { totalTokens: 20 },
+        cacheStatus: { status: "fresh" },
+      });
     });
+    expect(mocks.loadSessionCostSummariesFromCache).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks a retained empty result stale while rediscovery fails", async () => {
+    mocks.discoverAllSessions.mockResolvedValueOnce([]);
+    const empty = (await runSessionsUsage(baseParams)) as SessionsUsageResult;
+    expect(empty.cacheStatus).toBeUndefined();
+    expect(empty.totals.totalTokens).toBe(0);
+    expect(mocks.loadSessionCostSummariesFromCache).not.toHaveBeenCalled();
+
+    now = 31_000;
+    mocks.discoverAllSessions.mockRejectedValueOnce(new Error("discovery failed"));
+    expect(await runSessionsUsage(baseParams)).toEqual({
+      ...empty,
+      cacheStatus: { status: "stale", cachedFiles: 0, pendingFiles: 0, staleFiles: 0 },
+    });
+    await vi.waitFor(() => {
+      expect(
+        Array.from(testApi.sessionsUsageCache.values()).every((entry) => !entry.inFlight),
+      ).toBe(true);
+    });
+    expect(empty.cacheStatus).toBeUndefined();
+  });
+
+  it("marks a fallback partial snapshot stale when the awaited refresh fails", async () => {
+    mocks.discoverAllSessions.mockResolvedValueOnce([
+      { sessionId: "s-a", sessionFile: "/tmp/s-a.jsonl", mtime: 100 },
+      { sessionId: "s-b", sessionFile: "/tmp/s-b.jsonl", mtime: 200 },
+    ]);
+    mocks.loadSessionCostSummariesFromCache
+      .mockResolvedValueOnce({
+        summaries: [sessionSummary(10), null],
+        cacheStatus: { status: "partial", cachedFiles: 1, pendingFiles: 1, staleFiles: 1 },
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    const first = (await runSessionsUsage(baseParams)) as SessionsUsageResult;
+    expect(first.cacheStatus?.status).toBe("partial");
+
+    expect(await runSessionsUsage(baseParams)).toEqual({
+      ...first,
+      cacheStatus: { status: "stale", cachedFiles: 1, pendingFiles: 1, staleFiles: 1 },
+    });
+    expect(first.cacheStatus?.status).toBe("partial");
     expect(mocks.loadSessionCostSummariesFromCache).toHaveBeenCalledTimes(2);
   });
 });

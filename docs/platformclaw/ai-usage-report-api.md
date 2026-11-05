@@ -246,6 +246,12 @@ Without a provider total, both input and output counts must be recorded; absent
 cache buckets follow the existing normalized zero-default convention. A missing
 input or output count makes the affected total unknown, even when another
 component is positive.
+Transcript messages written only for display or delivery do not count as usage
+records. A recorded model reply without token measurements still contributes to
+`call_count`, but its token total is null. Older ACP and CLI transcript writers
+used zero placeholders; when the record cannot establish a measured zero, the
+report treats those placeholders as unknown. Rebuilding the usage cache cannot
+recover token counts that were never recorded.
 This is an activity metric, not an invoice reconciliation API.
 
 The initial scope is owned personal agents, including historical activity of

@@ -368,6 +368,9 @@ export class CodexAppServerEventProjector {
     }
     const assistantMessageOptions = {
       tokenUsage: projectedUsage,
+      // Thread snapshots can replay an earlier response. Keep them for live
+      // context, but require current-response measurements for accounting.
+      usageUnmeasured: this.aborted || this.responseCompletions.usage === undefined,
       aborted: this.aborted,
       promptError: this.promptError,
     };
@@ -415,7 +418,6 @@ export class CodexAppServerEventProjector {
       promptError,
       turnCompleted: Boolean(this.completedTurn),
     });
-    const toolMetas = this.toolProgressProjection.toolMetas;
     const hadPotentialSideEffects =
       toolTelemetry.didSendViaMessagingTool ||
       Boolean(toolTelemetry.successfulCronAdds || toolTelemetry.acceptedSessionSpawns?.length) ||
@@ -436,7 +438,7 @@ export class CodexAppServerEventProjector {
         : {}),
       messagesSnapshot,
       assistantTexts,
-      toolMetas,
+      toolMetas: this.toolProgressProjection.toolMetas,
       lastAssistant,
       currentAttemptAssistant,
       ...(this.toolProgressProjection.lastToolError

@@ -14,6 +14,7 @@ export type ParsedTranscriptEntry = {
   timestamp?: Date;
   durationMs?: number;
   usage?: NormalizedUsage;
+  usageUnmeasured?: true;
   costTotal?: number;
   costBreakdown?: CostBreakdown;
   provider?: string;

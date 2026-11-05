@@ -294,7 +294,7 @@ function toCliUsage(raw: Record<string, unknown>): CliUsage | undefined {
     return typeof nested[field] === "number" && nested[field] > 0 ? nested[field] : undefined;
   };
   const pick = (key: string) =>
-    typeof raw[key] === "number" && raw[key] > 0 ? raw[key] : undefined;
+    typeof raw[key] === "number" && raw[key] >= 0 ? raw[key] : undefined;
   // Chat Completions calls these prompt/completion tokens; preserve existing CLI-field precedence.
   const totalInput =
     pick("input_tokens") ?? pick("inputTokens") ?? pick("prompt_tokens") ?? pick("promptTokens");
@@ -305,19 +305,20 @@ function toCliUsage(raw: Record<string, unknown>): CliUsage | undefined {
     pick("completionTokens");
   const nestedCached =
     readNestedCached("input_tokens_details") ?? readNestedCached("prompt_tokens_details");
+  // Zero counts establish input/output/total coverage. Cache buckets are optional.
   const cacheRead =
-    pick("cache_read_input_tokens") ??
-    pick("cached_input_tokens") ??
-    pick("cacheRead") ??
-    pick("cached") ??
+    pick("cache_read_input_tokens") ||
+    pick("cached_input_tokens") ||
+    pick("cacheRead") ||
+    pick("cached") ||
     nestedCached;
   const nestedCacheWrite =
     readNestedCached("input_tokens_details", "cache_write_tokens") ??
     readNestedCached("prompt_tokens_details", "cache_write_tokens");
   const cacheWrite =
-    pick("cache_creation_input_tokens") ??
-    pick("cache_write_input_tokens") ??
-    pick("cacheWrite") ??
+    pick("cache_creation_input_tokens") ||
+    pick("cache_write_input_tokens") ||
+    pick("cacheWrite") ||
     nestedCacheWrite;
   const input =
     pick("input") ??
@@ -330,7 +331,13 @@ function toCliUsage(raw: Record<string, unknown>): CliUsage | undefined {
       ? Math.max(0, totalInput - (cacheRead ?? 0) - (cacheWrite ?? 0))
       : totalInput);
   const total = pick("total_tokens") ?? pick("total");
-  if (!input && !output && !cacheRead && !cacheWrite && !total) {
+  if (
+    input === undefined &&
+    output === undefined &&
+    cacheRead === undefined &&
+    cacheWrite === undefined &&
+    total === undefined
+  ) {
     return undefined;
   }
   return { input, output, cacheRead, cacheWrite, total };

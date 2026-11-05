@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it } from "vitest";
+import { buildTranscriptUsageWithProvenance } from "../agents/stream-message-shared.js";
 import {
   persistSessionTranscriptTurn,
   upsertSessionEntry,
@@ -26,6 +27,37 @@ describe("session usage accounting conservation", () => {
         const target = { agentId, sessionId, sessionKey, storePath };
         const september = Date.parse("2026-09-30T14:59:59.000Z");
         const october = september + 1_000;
+        const placeholder = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+        const provenanceCases = [
+          { provider: "openclaw", model: "gateway-injected", usage: placeholder },
+          { provider: "openclaw", model: "delivery-mirror", usage: placeholder },
+          { provider: "openclaw", model: "acp-runtime", usage: placeholder },
+          { api: "cli", provider: "example-provider", model: "old-cli", usage: placeholder },
+          {
+            api: "cli",
+            provider: "example-provider",
+            model: "measured-cli",
+            usage: placeholder,
+            openclawUsageProvenance: "measured",
+          },
+          {
+            provider: "example-provider",
+            model: "unmeasured",
+            openclawUsageProvenance: "unmeasured",
+          },
+          {
+            api: "cli",
+            provider: "example-provider",
+            model: "partial-cli",
+            ...buildTranscriptUsageWithProvenance({ input: 12 }),
+          },
+          {
+            provider: "example-provider",
+            model: "display-copy",
+            usage: { totalTokens: 10 },
+            openclawUsageProvenance: "transcript-only",
+          },
+        ];
         const componentCases = [
           { model: "input-only", usage: { input: 10 }, tokens: 10, missingTokenEntries: 1 },
           { model: "output-only", usage: { output: 5 }, tokens: 5, missingTokenEntries: 1 },
@@ -117,6 +149,14 @@ describe("session usage accounting conservation", () => {
                 usage: entry.usage,
               },
             })),
+            ...provenanceCases.map((entry, index) => ({
+              message: {
+                role: "assistant",
+                content: "Usage provenance fixture",
+                timestamp: october + 10 + index,
+                ...entry,
+              },
+            })),
           ],
           touchSessionEntry: false,
         });
@@ -125,13 +165,13 @@ describe("session usage accounting conservation", () => {
           sessionId,
           sessionTarget: target,
           startMs: september - 1,
-          endMs: october + 10,
+          endMs: october + 20,
           dayBucket: { mode: "time-zone", timeZone: "Asia/Seoul" } as const,
         };
         const first = expectDefined(await loadSessionCostSummary(query), "usage summary");
-        expect(first.totalTokens).toBe(155);
-        expect(first.missingTokenEntries).toBe(4);
-        expect(first.modelUsage).toHaveLength(8);
+        expect(first.totalTokens).toBe(167);
+        expect(first.missingTokenEntries).toBe(8);
+        expect(first.modelUsage).toHaveLength(13);
         expect(first.modelUsage?.find((entry) => entry.provider === undefined)).toMatchObject({
           count: 1,
           totals: { totalTokens: 12 },
@@ -158,7 +198,31 @@ describe("session usage accounting conservation", () => {
         expect(first.modelUsage?.reduce((sum, model) => sum + model.totals.totalTokens, 0)).toBe(
           first.totalTokens,
         );
-        expect(first.dailyModelUsage?.reduce((sum, model) => sum + model.count, 0)).toBe(11);
+        expect(first.dailyModelUsage?.reduce((sum, model) => sum + model.count, 0)).toBe(16);
+        for (const model of ["gateway-injected", "delivery-mirror", "display-copy"]) {
+          expect(first.modelUsage?.some((entry) => entry.model === model)).toBe(false);
+        }
+        for (const model of ["acp-runtime", "old-cli", "unmeasured"]) {
+          expect(first.dailyModelUsage?.find((entry) => entry.model === model)).toMatchObject({
+            tokens: 0,
+            count: 1,
+            missingTokenEntries: 1,
+          });
+        }
+        expect(
+          first.dailyModelUsage?.find((entry) => entry.model === "measured-cli"),
+        ).toMatchObject({
+          tokens: 0,
+          count: 1,
+        });
+        expect(
+          first.dailyModelUsage?.find((entry) => entry.model === "measured-cli")
+            ?.missingTokenEntries,
+        ).toBeUndefined();
+        expect(first.modelUsage?.find((entry) => entry.model === "partial-cli")).toMatchObject({
+          count: 1,
+          totals: { input: 12, totalTokens: 12, missingTokenEntries: 1 },
+        });
         for (const entry of componentCases) {
           const daily = expectDefined(
             first.dailyModelUsage?.find((model) => model.model === entry.model),
@@ -170,7 +234,7 @@ describe("session usage accounting conservation", () => {
 
         const row = expectDefined(readSessionCostUsageRollupRows(agentId)[0], "persisted rollup");
         const oldRollup = JSON.parse(row.valueJson);
-        oldRollup.version = 2;
+        oldRollup.version = 3;
         for (const key of Object.keys(oldRollup.rollup.buckets)) {
           oldRollup.rollup.buckets[key].models = [];
         }
@@ -185,12 +249,12 @@ describe("session usage accounting conservation", () => {
         ).toBe(true);
         const rebuilt = expectDefined(await loadSessionCostSummary(query), "rebuilt usage summary");
         expect(rebuilt.dailyModelUsage).toEqual(first.dailyModelUsage);
-        expect(rebuilt.missingTokenEntries).toBe(4);
+        expect(rebuilt.missingTokenEntries).toBe(8);
         const rebuiltRow = expectDefined(
           readSessionCostUsageRollupRows(agentId)[0],
           "rebuilt rollup",
         );
-        expect(JSON.parse(rebuiltRow.valueJson).version).toBe(3);
+        expect(JSON.parse(rebuiltRow.valueJson).version).toBe(4);
       });
     } finally {
       await fs.rm(root, { recursive: true, force: true });

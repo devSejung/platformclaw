@@ -3468,6 +3468,8 @@ describe("runCliAgent reliability", () => {
           provider: "codex-cli",
           model: "gpt-5.4",
           idempotencyKey: "cli-assistant:run-persist-cli",
+          usage: expect.objectContaining({ totalTokens: 0 }),
+          openclawUsageProvenance: "unmeasured",
         }),
       );
       expect(

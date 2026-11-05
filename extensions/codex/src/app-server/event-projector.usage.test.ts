@@ -95,6 +95,28 @@ describe("CodexAppServerEventProjector usage projection", () => {
     expect(projector.buildResult(buildEmptyToolTelemetry()).modelIterations).toBe(2);
   });
 
+  it("preserves a measured zero-token response", async () => {
+    const projector = await createProjector();
+
+    await projector.handleNotification(agentMessageDelta("done"));
+    await projector.handleNotification(
+      forCurrentTurn("rawResponse/completed", {
+        responseId: "response-1",
+        usage: {
+          totalTokens: 0,
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+          reasoningOutputTokens: 0,
+        },
+      }),
+    );
+
+    const result = projector.buildResult(buildEmptyToolTelemetry());
+    expect(result.lastAssistant).toMatchObject({ usage: { totalTokens: 0 } });
+    expect(result.lastAssistant).not.toHaveProperty("openclawUsageProvenance");
+  });
+
   it("keeps cumulative-only thread usage unknown", async () => {
     const projector = await createProjector();
 
@@ -130,6 +152,7 @@ describe("CodexAppServerEventProjector usage projection", () => {
       total: 12,
     });
     expect(result.lastAssistant?.usage.contextUsage).toEqual({ state: "unavailable" });
+    expect(result.lastAssistant).toMatchObject({ openclawUsageProvenance: "unmeasured" });
   });
 
   it.each([
@@ -168,6 +191,7 @@ describe("CodexAppServerEventProjector usage projection", () => {
     expect(result.assistantTexts).toEqual(["done"]);
     expect(result.attemptUsage).toBeUndefined();
     expect(result.lastAssistant?.usage.contextUsage).toBeUndefined();
+    expect(result.lastAssistant).toMatchObject({ openclawUsageProvenance: "unmeasured" });
   });
 
   it("clears prior response usage when the final response omits usage", async () => {
@@ -207,6 +231,7 @@ describe("CodexAppServerEventProjector usage projection", () => {
     expectUsageFields(result.attemptUsage, { input: 3, output: 7, cacheRead: 2, total: 12 });
     expect(result.attemptUsage?.contextUsage).toEqual({ state: "unavailable" });
     expect(result.lastAssistant?.usage.contextUsage).toEqual({ state: "unavailable" });
+    expect(result.lastAssistant).toMatchObject({ openclawUsageProvenance: "unmeasured" });
   });
 
   it.each(["failed", "interrupted"])(

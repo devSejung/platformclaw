@@ -81,7 +81,10 @@ import {
 } from "./harness/lifecycle-hook-helpers.js";
 import type { AgentMessage } from "./runtime/index.js";
 import { SessionManager } from "./sessions/session-manager.js";
-import { buildAssistantMessage, buildUsageWithNoCost } from "./stream-message-shared.js";
+import {
+  buildAssistantMessage,
+  buildTranscriptUsageWithProvenance,
+} from "./stream-message-shared.js";
 
 const log = createSubsystemLogger("agents/cli-runner");
 
@@ -363,6 +366,7 @@ async function persistCliAssistantTranscript(params: {
     return true;
   }
   try {
+    const { usage, ...usageProvenance } = buildTranscriptUsageWithProvenance(params.usage);
     const result = await appendExactAssistantMessageToSessionTranscript({
       sessionKey: runParams.sessionKey,
       agentId: runParams.agentId,
@@ -371,22 +375,19 @@ async function persistCliAssistantTranscript(params: {
       idempotencyKey: `cli-assistant:${runParams.runId}`,
       config: runParams.config,
       beforeMessageWrite: runAgentHarnessBeforeMessageWriteHook,
-      message: buildAssistantMessage({
-        model: {
-          api: "cli",
-          provider: runParams.provider,
-          id: params.modelId,
-        },
-        content: [{ type: "text", text: params.text }],
-        stopReason: "stop",
-        usage: buildUsageWithNoCost({
-          input: params.usage?.input,
-          output: params.usage?.output,
-          cacheRead: params.usage?.cacheRead,
-          cacheWrite: params.usage?.cacheWrite,
-          totalTokens: params.usage?.total,
+      message: {
+        ...buildAssistantMessage({
+          model: {
+            api: "cli",
+            provider: runParams.provider,
+            id: params.modelId,
+          },
+          content: [{ type: "text", text: params.text }],
+          stopReason: "stop",
+          usage,
         }),
-      }),
+        ...usageProvenance,
+      },
     });
     if (!result.ok) {
       log.warn(`CLI assistant transcript persistence skipped: ${result.reason}`);
