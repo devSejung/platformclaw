@@ -277,6 +277,7 @@ describe("CodexAppServerEventProjector commentary projection", () => {
     expect(commentary).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "Checking the app-server stream" }],
+      openclawUsageProvenance: "transcript-only",
       openclawStreamFallback: {
         replacementText: "Checking the app-server stream",
         source: "segment",
@@ -373,6 +374,13 @@ describe("CodexAppServerEventProjector commentary projection", () => {
       `${TURN_ID}:tool:call-search:result`,
       `${TURN_ID}:commentary:msg-after-tool`,
     ]);
+    expect(result.messagesSnapshot).toContainEqual(
+      expect.objectContaining({
+        role: "assistant",
+        openclawUsageProvenance: "transcript-only",
+        __openclaw: expect.objectContaining({ mirrorIdentity: `${TURN_ID}:tool:call-search:call` }),
+      }),
+    );
   });
 
   it("does not double-deliver a commentary note echoed on the raw response lane", async () => {

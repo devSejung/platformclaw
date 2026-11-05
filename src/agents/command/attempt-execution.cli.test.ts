@@ -2130,6 +2130,7 @@ describe("CLI attempt execution", () => {
         expect.objectContaining({
           role: "assistant",
           content: [{ type: "text", text: "internal reply" }],
+          ...(runtime === "ACP" ? { openclawUsageProvenance: "unmeasured" } : {}),
         }),
       );
       expect(
@@ -2228,6 +2229,43 @@ describe("CLI attempt execution", () => {
     expect(persisted[sessionKey]?.updatedAt).toBeGreaterThan(sessionEntry.updatedAt);
     expect(persisted[sessionKey]?.updatedAt).toBeLessThanOrEqual(nowCalls.at(-1) ?? 0);
     expect(sessionStore[sessionKey]?.updatedAt).toBe(persisted[sessionKey]?.updatedAt);
+  });
+
+  it.each([
+    { usage: undefined, provenance: "unmeasured", totalTokens: 0 },
+    { usage: { input: 12 }, provenance: "partial", totalTokens: 12 },
+    { usage: { total: 0 }, provenance: "measured", totalTokens: 0 },
+    { usage: { input: 0, output: 0 }, provenance: "measured", totalTokens: 0 },
+  ])("persists CLI usage $usage with $provenance provenance", async (testCase) => {
+    const sessionKey = "agent:main:direct:cli-usage-provenance";
+    const sessionId = "session-cli-usage-provenance";
+    const result = makeCliResult("hello from cli");
+    if (!result.meta.agentMeta) {
+      throw new Error("missing test CLI agent metadata");
+    }
+    result.meta.agentMeta.usage = testCase.usage;
+
+    await persistCliTurnTranscript({
+      body: "persist this",
+      result,
+      sessionId,
+      sessionKey,
+      sessionEntry: { sessionId, updatedAt: Date.now() },
+      storePath,
+      sessionAgentId: "main",
+      sessionCwd: tmpDir,
+      config: {},
+    });
+
+    expect(
+      await readSessionMessages({ agentId: "main", sessionId, sessionKey, storePath }),
+    ).toContainEqual(
+      expect.objectContaining({
+        role: "assistant",
+        usage: expect.objectContaining({ totalTokens: testCase.totalTokens }),
+        openclawUsageProvenance: testCase.provenance,
+      }),
+    );
   });
 
   it("mirrors only the CLI reply when the shared recorder already persisted the user turn", async () => {

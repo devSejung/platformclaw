@@ -17,6 +17,7 @@ import {
 } from "openclaw/plugin-sdk/session-transcript-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { EmbeddedRunAttemptResult } from "./attempt-terminal.js";
+import type { CodexUsageProvenance } from "./event-projector-assistant-message.js";
 import type { CodexThread, JsonValue } from "./protocol.js";
 import {
   attachCodexMirrorAttestation,
@@ -223,6 +224,7 @@ function projectCodexThreadHistory(params: {
                   CODEX_HISTORY_ASSISTANT_PROVIDER,
                 model: CODEX_HISTORY_ASSISTANT_MODEL,
                 usage: CODEX_HISTORY_ZERO_USAGE,
+                openclawUsageProvenance: "transcript-only",
                 stopReason:
                   turn.status === "interrupted"
                     ? "aborted"
@@ -233,7 +235,7 @@ function projectCodexThreadHistory(params: {
                   ? { errorMessage: turn.error.message }
                   : {}),
                 timestamp,
-              } satisfies AssistantMessage,
+              } satisfies AssistantMessage & CodexUsageProvenance,
               identity,
             )
           : attachCodexMirrorIdentity({ role, content: text, timestamp } as AgentMessage, identity);
@@ -351,7 +353,7 @@ async function mirrorBestEffort(params: {
   params: EmbeddedRunAttemptParams;
   agentId?: string;
   notifyUserMessagePersisted: (message: Extract<AgentMessage, { role: "user" }>) => void;
-  result: EmbeddedRunAttemptResult;
+  result: Pick<EmbeddedRunAttemptResult, "messagesSnapshot">;
   sessionKey?: string;
   cwd: string;
   threadId: string;
@@ -644,6 +646,17 @@ async function mirror(params: {
           // Hooks may replace the whole message. Restore the provider-owned
           // identity so retries cannot turn a stale idempotency hit into evidence.
           messageToAppend = attachCodexMirrorIdentity(messageToAppend, mirrorIdentity);
+        }
+        const usageProvenance = (message as MirroredAgentMessage & CodexUsageProvenance)
+          .openclawUsageProvenance;
+        if (usageProvenance) {
+          // A message-write hook may replace the payload, but the Codex producer
+          // owns whether the row represents measured usage or a projection.
+          const withUsageProvenance = {
+            ...messageToAppend,
+            openclawUsageProvenance: usageProvenance,
+          };
+          messageToAppend = withUsageProvenance;
         }
         messageToAppend = projectAgentHarnessTranscriptMessageForDisplay({
           hidden: (message as { display?: boolean }).display === false,

@@ -594,6 +594,7 @@ export class CodexToolTranscriptProjection {
       provider: attribution.provider,
       model: this.params.modelId,
       usage: ZERO_USAGE,
+      openclawUsageProvenance: "transcript-only",
       stopReason: "toolUse",
       timestamp: this.nextTranscriptTimestamp(),
     } as unknown as AgentMessage;

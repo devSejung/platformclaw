@@ -18,6 +18,11 @@ export type AssistantMessageOptions = {
     | undefined;
   aborted: boolean;
   promptError: unknown;
+  usageUnmeasured?: boolean;
+};
+
+export type CodexUsageProvenance = {
+  openclawUsageProvenance?: "transcript-only" | "unmeasured" | "partial";
 };
 
 const ZERO_USAGE: Usage = {
@@ -39,23 +44,31 @@ export function createAssistantMessage(
   params: EmbeddedRunAttemptParams,
   text: string,
   options: AssistantMessageOptions,
-): AssistantMessage {
+): AssistantMessage & CodexUsageProvenance {
   const attribution = resolveCodexLocalRuntimeAttribution(params);
-  const usage: Usage = options.tokenUsage
+  const { tokenUsage } = options;
+  const hasMeasuredTotal =
+    tokenUsage?.total !== undefined ||
+    (tokenUsage?.input !== undefined && tokenUsage.output !== undefined);
+  const hasMeasuredComponents = [
+    tokenUsage?.input,
+    tokenUsage?.output,
+    tokenUsage?.cacheRead,
+    tokenUsage?.cacheWrite,
+  ].some((value) => value !== undefined);
+  const usage: Usage = tokenUsage
     ? {
-        input: options.tokenUsage.input ?? 0,
-        output: options.tokenUsage.output ?? 0,
-        cacheRead: options.tokenUsage.cacheRead ?? 0,
-        cacheWrite: options.tokenUsage.cacheWrite ?? 0,
-        ...(options.tokenUsage.contextUsage
-          ? { contextUsage: options.tokenUsage.contextUsage }
-          : {}),
+        input: tokenUsage.input ?? 0,
+        output: tokenUsage.output ?? 0,
+        cacheRead: tokenUsage.cacheRead ?? 0,
+        cacheWrite: tokenUsage.cacheWrite ?? 0,
+        ...(tokenUsage.contextUsage ? { contextUsage: tokenUsage.contextUsage } : {}),
         totalTokens:
-          options.tokenUsage.total ??
-          (options.tokenUsage.input ?? 0) +
-            (options.tokenUsage.output ?? 0) +
-            (options.tokenUsage.cacheRead ?? 0) +
-            (options.tokenUsage.cacheWrite ?? 0),
+          tokenUsage.total ??
+          (tokenUsage.input ?? 0) +
+            (tokenUsage.output ?? 0) +
+            (tokenUsage.cacheRead ?? 0) +
+            (tokenUsage.cacheWrite ?? 0),
         cost: ZERO_USAGE.cost,
       }
     : ZERO_USAGE;
@@ -66,6 +79,12 @@ export function createAssistantMessage(
     provider: attribution.provider,
     model: params.modelId,
     usage,
+    ...(options.usageUnmeasured || !hasMeasuredTotal
+      ? {
+          openclawUsageProvenance:
+            !options.usageUnmeasured && hasMeasuredComponents ? "partial" : "unmeasured",
+        }
+      : {}),
     stopReason: options.aborted ? "aborted" : options.promptError ? "error" : "stop",
     errorMessage: options.promptError ? formatErrorMessage(options.promptError) : undefined,
     timestamp: Date.now(),
@@ -86,6 +105,7 @@ export function createAssistantCommentaryMessage(
     provider: attribution.provider,
     model: params.modelId,
     usage: ZERO_USAGE,
+    openclawUsageProvenance: "transcript-only",
     stopReason: "stop",
     timestamp,
     // Keep this unphased: gateway history hides commentary-phase assistant rows.
@@ -102,7 +122,7 @@ export function createAssistantMirrorMessage(
   params: EmbeddedRunAttemptParams,
   title: string,
   text: string,
-): AssistantMessage {
+): AssistantMessage & CodexUsageProvenance {
   const attribution = resolveCodexLocalRuntimeAttribution(params);
   return {
     role: "assistant",
@@ -111,6 +131,7 @@ export function createAssistantMirrorMessage(
     provider: attribution.provider,
     model: params.modelId,
     usage: ZERO_USAGE,
+    openclawUsageProvenance: "transcript-only",
     stopReason: "stop",
     timestamp: Date.now(),
   };

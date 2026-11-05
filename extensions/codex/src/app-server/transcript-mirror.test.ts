@@ -521,6 +521,7 @@ describe("importCodexThreadHistoryToTranscript", () => {
         provider: "source-provider",
         model: "native-history",
         usage: { totalTokens: 0 },
+        openclawUsageProvenance: "transcript-only",
         stopReason: "stop",
         timestamp: expect.any(Number),
       },
@@ -1287,7 +1288,7 @@ describe("mirrorCodexAppServerTranscript", () => {
       } as unknown as Parameters<typeof mirrorTranscriptBestEffort>[0]["params"],
       result: {
         messagesSnapshot: [assistantMessage],
-      } as Parameters<typeof mirrorTranscriptBestEffort>[0]["result"],
+      },
       notifyUserMessagePersisted: () => undefined,
       cwd: root,
       threadId: "thread-1",
@@ -1328,7 +1329,7 @@ describe("mirrorCodexAppServerTranscript", () => {
       } as unknown as Parameters<typeof mirrorTranscriptBestEffort>[0]["params"],
       result: {
         messagesSnapshot: [currentMessage],
-      } as Parameters<typeof mirrorTranscriptBestEffort>[0]["result"],
+      },
       agentId: target.agentId,
       sessionKey: target.sessionKey,
       notifyUserMessagePersisted: () => undefined,
@@ -1357,10 +1358,13 @@ describe("mirrorCodexAppServerTranscript", () => {
     );
     const target = await createSqliteMirrorTarget("openclaw-codex-mirror-attested-hook-");
     const sourceMessage = attachCodexMirrorIdentity(
-      makeAgentAssistantMessage({
-        content: [{ type: "text", text: "sensitive answer" }],
-        timestamp: Date.now(),
-      }),
+      {
+        ...makeAgentAssistantMessage({
+          content: [{ type: "text", text: "sensitive answer" }],
+          timestamp: Date.now(),
+        }),
+        openclawUsageProvenance: "unmeasured",
+      },
       "turn-1:assistant",
     );
 
@@ -1373,7 +1377,7 @@ describe("mirrorCodexAppServerTranscript", () => {
       } as unknown as Parameters<typeof mirrorTranscriptBestEffort>[0]["params"],
       result: {
         messagesSnapshot: [sourceMessage],
-      } as Parameters<typeof mirrorTranscriptBestEffort>[0]["result"],
+      },
       agentId: target.agentId,
       sessionKey: target.sessionKey,
       notifyUserMessagePersisted: () => undefined,
@@ -1387,7 +1391,11 @@ describe("mirrorCodexAppServerTranscript", () => {
       "codex-app-server:thread-1:turn-1:assistant",
     );
     expect(mirrorOutcome.mirroredMessages).toMatchObject([
-      { role: "assistant", content: [{ type: "text", text: "[redacted by hook]" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "[redacted by hook]" }],
+        openclawUsageProvenance: "unmeasured",
+      },
     ]);
     expect(JSON.stringify(mirrorOutcome.mirroredMessages)).not.toContain("sensitive answer");
   });

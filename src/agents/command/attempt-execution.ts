@@ -91,13 +91,14 @@ import {
   resolveSessionWriteLockOptions,
   resolveSessionWriteLockTargetKey,
 } from "../session-write-lock.js";
-import { buildUsageWithNoCost } from "../stream-message-shared.js";
+import { buildTranscriptUsageWithProvenance } from "../stream-message-shared.js";
 import {
   isSubagentAnnounceCompletionHandoff,
   isTrustedSubagentCompletionHandoffForRun,
 } from "../subagent-announce-handoff.js";
 import { isRuntimeToolAllowed, isToolAllowedByPolicies } from "../tool-policy-match.js";
 import { DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS } from "../tool-result-limits.js";
+import type { NormalizedUsage } from "../usage.js";
 import {
   buildClaudeCliFallbackContextPrelude,
   claudeCliSessionTranscriptHasContent,
@@ -141,31 +142,9 @@ function normalizeTranscriptMirrorText(value: string): string {
   return value.trim().replace(/\s+/gu, " ");
 }
 
-const ACP_TRANSCRIPT_USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    total: 0,
-  },
-} as const;
 function shouldSuppressEmbeddedLiveStreamOutput(params: { opts: AgentCommandOpts }): boolean {
   return params.opts.sessionEffects === "internal" && params.opts.deliver !== true;
 }
-
-type TranscriptUsage = {
-  input?: number;
-  output?: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-  total?: number;
-};
 
 type PersistTextTurnTranscriptParams = {
   body: string;
@@ -188,7 +167,7 @@ type PersistTextTurnTranscriptParams = {
     api: string;
     provider: string;
     model: string;
-    usage?: TranscriptUsage;
+    usage?: NormalizedUsage;
   };
 };
 
@@ -285,19 +264,6 @@ function resolveHarnessAuthProfileSelection(params: {
     : { authProfileProvider: params.authProfileProvider };
 }
 
-function resolveTranscriptUsage(usage: PersistTextTurnTranscriptParams["assistant"]["usage"]) {
-  if (!usage) {
-    return ACP_TRANSCRIPT_USAGE;
-  }
-  return buildUsageWithNoCost({
-    input: usage.input,
-    output: usage.output,
-    cacheRead: usage.cacheRead,
-    cacheWrite: usage.cacheWrite,
-    totalTokens: usage.total,
-  });
-}
-
 async function persistTextTurnTranscript(
   params: PersistTextTurnTranscriptParams,
 ): Promise<PersistTextTurnTranscriptResult> {
@@ -338,7 +304,7 @@ async function persistTextTurnTranscript(
         api: params.assistant.api,
         provider: params.assistant.provider,
         model: params.assistant.model,
-        usage: resolveTranscriptUsage(params.assistant.usage),
+        ...buildTranscriptUsageWithProvenance(params.assistant.usage),
         stopReason: "stop",
         timestamp: Date.now(),
       },

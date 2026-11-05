@@ -419,6 +419,16 @@ describe("assistant transcript repair", () => {
 
     state.runAgentAttemptMock.mockImplementationOnce(async (params) => {
       expect(
+        await readSessionMessages({ agentId: "main", sessionId, storePath: requireStorePath() }),
+      ).toContainEqual(
+        expect.objectContaining({
+          role: "assistant",
+          content: [{ type: "text", text: "assistant one" }],
+          usage: expect.objectContaining({ totalTokens: 0 }),
+          openclawUsageProvenance: "unmeasured",
+        }),
+      );
+      expect(
         await readMessageSequence({ agentId: "main", sessionId, storePath: requireStorePath() }),
       ).toEqual([
         { role: "user", text: "user one" },

@@ -3,7 +3,9 @@
  *
  * Centralizes zero-cost usage records and assistant message construction for simple stream transports.
  */
+import { parseStrictNonNegativeInteger } from "@openclaw/normalization-core/number-coercion";
 import type { AssistantMessage, StopReason, Usage } from "../llm/types.js";
+import type { NormalizedUsage } from "./usage.js";
 
 type StreamModelDescriptor = {
   api: string;
@@ -31,6 +33,36 @@ export function buildUsageWithNoCost(params: {
     totalTokens: params.totalTokens ?? input + output + cacheRead + cacheWrite,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
   };
+}
+
+export function buildTranscriptUsageWithProvenance(reported?: NormalizedUsage) {
+  const usage = buildUsageWithNoCost({
+    input: reported?.input,
+    output: reported?.output,
+    cacheRead: reported?.cacheRead,
+    cacheWrite: reported?.cacheWrite,
+    totalTokens: reported?.total,
+  });
+  // The transcript retains a full Usage shape for replay. Classify coverage
+  // before filling defaults so missing telemetry cannot masquerade as zero.
+  const measured =
+    parseStrictNonNegativeInteger(reported?.total) !== undefined ||
+    (parseStrictNonNegativeInteger(reported?.input) !== undefined &&
+      parseStrictNonNegativeInteger(reported?.output) !== undefined);
+  if (!measured) {
+    const hasComponents = [
+      reported?.input,
+      reported?.output,
+      reported?.cacheRead,
+      reported?.cacheWrite,
+    ].some((value) => parseStrictNonNegativeInteger(value) !== undefined);
+    const openclawUsageProvenance = hasComponents ? "partial" : "unmeasured";
+    return { usage, openclawUsageProvenance };
+  }
+  // Older CLI transcripts used the same zero-shaped usage as a placeholder.
+  return usage.totalTokens === 0
+    ? { usage, openclawUsageProvenance: "measured" as const }
+    : { usage };
 }
 
 export function buildAssistantMessage(params: {

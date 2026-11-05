@@ -48,6 +48,39 @@ const OPENAI_COMPATIBLE_CLI_USAGE_CASES = [
     normalized: { input: 15, output: 7, cacheRead: 4, cacheWrite: undefined, total: 26 },
   },
   {
+    name: "explicit zero aggregate with missing components",
+    raw: { total_tokens: 0 },
+    normalized: {
+      input: undefined,
+      output: undefined,
+      cacheRead: undefined,
+      cacheWrite: undefined,
+      total: 0,
+    },
+  },
+  {
+    name: "explicit zero components with optional zero cache buckets",
+    raw: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cacheWrite: 0 },
+    normalized: {
+      input: 0,
+      output: 0,
+      cacheRead: undefined,
+      cacheWrite: undefined,
+      total: undefined,
+    },
+  },
+  {
+    name: "explicit zero input with missing output",
+    raw: { input_tokens: 0 },
+    normalized: {
+      input: 0,
+      output: undefined,
+      cacheRead: undefined,
+      cacheWrite: undefined,
+      total: undefined,
+    },
+  },
+  {
     name: "flat Codex cached input is included in input_tokens",
     raw: {
       input_tokens: 15,
@@ -1054,7 +1087,7 @@ describe("parseCliJsonl", () => {
       sessionId: "session-456",
       usage: {
         input: 18,
-        output: undefined,
+        output: 0,
         cacheRead: undefined,
         cacheWrite: undefined,
         total: undefined,

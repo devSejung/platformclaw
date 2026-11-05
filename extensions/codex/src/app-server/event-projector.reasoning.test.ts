@@ -186,6 +186,12 @@ describe("CodexAppServerEventProjector reasoning and guardian projection", () =>
     ]);
     expect(JSON.stringify(result.messagesSnapshot[1])).toContain("Codex reasoning");
     expect(JSON.stringify(result.messagesSnapshot[2])).toContain("Codex plan");
+    expect(result.messagesSnapshot[1]).toMatchObject({
+      openclawUsageProvenance: "transcript-only",
+    });
+    expect(result.messagesSnapshot[2]).toMatchObject({
+      openclawUsageProvenance: "transcript-only",
+    });
     expect(JSON.stringify(result.messagesSnapshot[2])).toContain("next");
     expect(JSON.stringify(result.messagesSnapshot[2])).toContain("[in_progress] patch");
     expect(result.compactionCount).toBe(1);

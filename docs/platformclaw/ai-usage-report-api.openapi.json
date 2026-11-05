@@ -1163,12 +1163,12 @@
           "call_count_basis": {
             "type": "string",
             "const": "usage_records",
-            "description": "Count persisted model usage records, not provider HTTP attempts."
+            "description": "Count persisted model usage records, including recorded replies with unknown token measurements. Excludes transcript-only display and delivery records."
           },
           "token_usage_basis": {
             "type": "string",
             "const": "provider_total_or_components",
-            "description": "Provider total when recorded, otherwise normalized nonduplicated input/output/cache components. Without a total, both input and output must be recorded; absent cache buckets follow normalized zero defaults. Missing input or output makes the total unknown."
+            "description": "Provider total when measured, otherwise normalized nonduplicated input/output/cache components. Without a total, both input and output must be recorded; absent cache buckets follow normalized zero defaults. Unmeasured usage and legacy zero placeholders produce null token totals."
           },
           "coverage": {
             "type": "string",

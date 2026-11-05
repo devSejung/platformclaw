@@ -198,8 +198,9 @@ async function loadUsageResultCached<T extends object>(params: {
   configRef?: object;
   load: () => Promise<T>;
   isComplete?: (value: T) => boolean;
+  projectStale?: (value: T) => T;
 }): Promise<T> {
-  const { cache, cacheKey, configRef } = params;
+  const { cache, cacheKey, configRef, projectStale } = params;
   const candidate = cache.get(cacheKey);
   const cached =
     configRef === undefined || candidate?.configRef === configRef ? candidate : undefined;
@@ -207,7 +208,9 @@ async function loadUsageResultCached<T extends object>(params: {
     return cached.value;
   }
   if (cached?.inFlight) {
-    return cached.value && cached.updatedAt ? cached.value : await cached.inFlight;
+    return cached.value && cached.updatedAt
+      ? (projectStale?.(cached.value) ?? cached.value)
+      : await cached.inFlight;
   }
 
   const entry: UsageCacheEntry<T> = cached ?? { ...(configRef && { configRef }) };
@@ -229,7 +232,7 @@ async function loadUsageResultCached<T extends object>(params: {
     })
     .catch((error: unknown) => {
       if (entry.value) {
-        return entry.value;
+        return projectStale?.(entry.value) ?? entry.value;
       }
       throw error;
     })
@@ -242,7 +245,9 @@ async function loadUsageResultCached<T extends object>(params: {
 
   entry.inFlight = inFlight;
   setUsageCache(cache, cacheKey, entry);
-  return entry.value && entry.updatedAt ? entry.value : await inFlight;
+  return entry.value && entry.updatedAt
+    ? (projectStale?.(entry.value) ?? entry.value)
+    : await inFlight;
 }
 
 function usageDayBucketCacheKey(dayBucket: UsageDailyBucket | undefined): string {
@@ -297,6 +302,18 @@ async function loadSessionsUsageResultCached(
     load: params.load,
     // Incomplete lower-cache snapshots must not acquire the outer freshness TTL.
     isComplete: (result) => !result.cacheStatus || result.cacheStatus.status === "fresh",
+    // A retained snapshot can outlive its lower-cache freshness. Project that
+    // fact onto the response without changing the snapshot or its counters.
+    projectStale: (result) => ({
+      ...result,
+      cacheStatus: {
+        cachedFiles: 0,
+        pendingFiles: 0,
+        staleFiles: 0,
+        ...result.cacheStatus,
+        status: "stale",
+      },
+    }),
   });
 }
 
