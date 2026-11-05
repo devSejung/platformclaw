@@ -24,13 +24,57 @@ const context = {
 
 type UsageScenario = {
   name: string;
-  usage: Record<string, unknown>;
+  usage?: Record<string, unknown>;
+  trailingUsage?: Record<string, unknown>;
   expectedUsage: Record<string, unknown>;
+  expectedProvenance?: "partial" | "unmeasured";
   expectedCost?: number;
   inChoice?: boolean;
 };
 
 const scenarios: UsageScenario[] = [
+  {
+    name: "a completed stream without a usage chunk",
+    expectedUsage: { totalTokens: 0 },
+    expectedProvenance: "unmeasured",
+  },
+  {
+    name: "provider total in a trailing usage-only chunk",
+    trailingUsage: { total_tokens: 42 },
+    expectedUsage: { totalTokens: 42 },
+  },
+  {
+    name: "provider aggregate above the component subtotal",
+    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 17 },
+    expectedUsage: { input: 10, output: 5, totalTokens: 17 },
+  },
+  {
+    name: "partial token usage with billed cost",
+    usage: { prompt_tokens: 12, cost: 0.025 },
+    expectedUsage: {
+      input: 12,
+      totalTokens: 12,
+      cost: { total: 0.025, totalOrigin: "provider-billed" },
+    },
+    expectedProvenance: "partial",
+  },
+  {
+    name: "explicit measured zero",
+    trailingUsage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    expectedUsage: { totalTokens: 0 },
+  },
+  {
+    name: "complete usage followed by an empty usage object",
+    usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+    trailingUsage: {},
+    expectedUsage: { input: 20, output: 10, totalTokens: 30 },
+  },
+  {
+    name: "complete usage followed by billed cost only",
+    usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+    trailingUsage: { cost: 0.025 },
+    expectedUsage: { totalTokens: 30, cost: { total: 0.025, totalOrigin: "provider-billed" } },
+  },
   {
     name: "documented reasoning tokens and cache buckets",
     usage: {
@@ -131,7 +175,10 @@ function installUsageChunk(scenario: UsageScenario): void {
     choices: [choice],
     ...(scenario.inChoice ? {} : { usage: scenario.usage }),
   } as ChatCompletionChunk;
-  const body = `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`;
+  const chunks = scenario.trailingUsage
+    ? [chunk, { ...chunk, choices: [], usage: scenario.trailingUsage }]
+    : [chunk];
+  const body = `${chunks.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`;
   configureAiTransportHost({
     buildModelFetch: () => async () =>
       new Response(body, {
@@ -187,6 +234,11 @@ describe.each([
 
     expect(result.stopReason).toBe("stop");
     expect(result.usage).toMatchObject(expectedUsage);
+    if (scenario.expectedProvenance) {
+      expect(result).toHaveProperty("openclawUsageProvenance", scenario.expectedProvenance);
+    } else {
+      expect(result).not.toHaveProperty("openclawUsageProvenance");
+    }
     if (scenario.expectedCost !== undefined) {
       expect(result.usage.cost.total).toBeCloseTo(scenario.expectedCost, 10);
     }

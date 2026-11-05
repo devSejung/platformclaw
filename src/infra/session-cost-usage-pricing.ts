@@ -100,7 +100,11 @@ const parseTranscriptEntry = (entry: Record<string, unknown>): ParsedTranscriptE
         [usage?.total, usage?.input, usage?.output, usage?.cacheRead, usage?.cacheWrite].every(
           (value) => value === undefined || value === 0,
         )));
-  const costBreakdown = partial || unmeasured ? undefined : extractCostBreakdown(usageRaw);
+  const recordedCost = extractCostBreakdown(usageRaw);
+  const costBreakdown =
+    (partial || unmeasured) && recordedCost?.totalOrigin !== "provider-billed"
+      ? undefined
+      : recordedCost;
   const stopReason = typeof message.stopReason === "string" ? message.stopReason : undefined;
   const durationMs = asFiniteNumber(message.durationMs ?? entry.durationMs);
 

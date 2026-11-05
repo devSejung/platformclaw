@@ -43,6 +43,7 @@ describe("session usage accounting conservation", () => {
           {
             provider: "example-provider",
             model: "unmeasured",
+            usage: { ...placeholder, cost: { total: 0.025, totalOrigin: "provider-billed" } },
             openclawUsageProvenance: "unmeasured",
           },
           {
@@ -209,6 +210,10 @@ describe("session usage accounting conservation", () => {
             missingTokenEntries: 1,
           });
         }
+        expect(first.modelUsage?.find((entry) => entry.model === "unmeasured")).toMatchObject({
+          count: 1,
+          totals: { totalCost: 0.025, missingTokenEntries: 1 },
+        });
         expect(
           first.dailyModelUsage?.find((entry) => entry.model === "measured-cli"),
         ).toMatchObject({

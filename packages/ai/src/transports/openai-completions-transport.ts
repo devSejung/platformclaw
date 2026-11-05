@@ -60,6 +60,10 @@ import {
   flattenCompletionMessagesToStringContent,
   stripCompletionMessagesToRoleContent,
 } from "./openai-completions-string-content.js";
+import {
+  applyOpenAICompletionsUsage,
+  type OpenAICompletionsUsageTarget,
+} from "./openai-completions-usage.js";
 import type { OpenAIModelInput } from "./openai-model-input-internal.js";
 import {
   assertCodeModeResponsesToolSurface,
@@ -265,12 +269,13 @@ export function createOpenAICompletionsTransportStreamFn(): StreamFn {
     const eventStream = createAssistantMessageEventStream();
     const stream = eventStream as unknown as { push(event: unknown): void; end(): void };
     void (async () => {
-      const output: MutableAssistantOutput = {
+      const output: MutableAssistantOutput & OpenAICompletionsUsageTarget = {
         role: "assistant" as const,
         content: [],
         api: model.api,
         provider: model.provider,
         model: model.id,
+        openclawUsageProvenance: "unmeasured",
         usage: {
           input: 0,
           output: 0,
@@ -661,7 +666,7 @@ async function processOpenAICompletionsStream(
     output.responseId ||= chunk.id;
     let hasReasoningUsageActivity = false;
     if (chunk.usage) {
-      output.usage = parseOpenAICompletionsUsage(chunk.usage, model);
+      applyOpenAICompletionsUsage(output, chunk.usage, model);
       hasReasoningUsageActivity = hasOpenAICompletionsReasoningUsageActivity(chunk.usage);
     }
     const choice = Array.isArray(chunk.choices) ? chunk.choices[0] : undefined;
@@ -672,7 +677,7 @@ async function processOpenAICompletionsStream(
     }
     const choiceUsage = (choice as unknown as { usage?: ChatCompletionChunk["usage"] }).usage;
     if (!chunk.usage && choiceUsage) {
-      output.usage = parseOpenAICompletionsUsage(choiceUsage, model);
+      applyOpenAICompletionsUsage(output, choiceUsage, model);
       hasReasoningUsageActivity = hasOpenAICompletionsReasoningUsageActivity(choiceUsage);
     }
     if (choice.finish_reason) {
