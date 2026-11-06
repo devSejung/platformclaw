@@ -279,7 +279,8 @@ export function prepareChatSendUserTurn(params: {
     | "systemProvenanceReceipt"
     | "toolBindings"
   >;
-  session: Pick<PreparedChatSendSession, "agentId" | "clientRunId" | "sessionKey">;
+  session: Pick<PreparedChatSendSession, "agentId" | "clientRunId" | "sessionKey"> &
+    Partial<Pick<PreparedChatSendSession, "personalAutomationsAgentId">>;
   admission: Pick<AdmittedChatSend, "originatingRoute">;
   attachments: PreparedChatSendAttachments;
   client: GatewayRequestHandlerOptions["client"];
